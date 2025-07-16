@@ -1,0 +1,11 @@
+{
+	"id": "tuanki",
+	"name": "Tuanki - Anki Integration Plugin",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "An Obsidian plugin for Anki integration with AI-powered card generation and spaced repetition learning",
+	"author": "Tuanki Developer",
+	"authorUrl": "https://github.com/tuanki",
+	"fundingUrl": "https://buymeacoffee.com/tuanki",
+	"isDesktopOnly": false
+}
