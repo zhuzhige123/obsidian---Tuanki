@@ -170,10 +170,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **GitHub Issues**: [Report bugs or request features](https://github.com/YOUR_USERNAME/tuanki-obsidian-plugin/issues)
+- **GitHub Issues**: [Report bugs or request features](https://github.com/https://github.com/zhuzhige123)
 - **Discussions**: [Join community discussions](https://github.com/YOUR_USERNAME/tuanki-obsidian-plugin/discussions)
 - **Documentation**: [Full documentation](https://tuanki.dev/docs)
-- **Email**: support@tuanki.dev
+- **Email**: tutaoyuan8@outlook.com
 
 ---
 
@@ -181,6 +181,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Made with ❤️ for the Obsidian community**
 
-[⭐ Star this project](https://github.com/YOUR_USERNAME/tuanki-obsidian-plugin) if you find it useful!
+[⭐ Star this project](https://github.com/zhuzhige123) if you find it useful!
 
 </div>
