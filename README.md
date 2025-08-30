@@ -1,186 +1,298 @@
-# 🎯 Tuanki - AI-Powered Anki Integration for Obsidian
+# Tuanki - Obsidian 智能记忆卡片插件
 
 <div align="center">
 
-![Tuanki Logo](https://via.placeholder.com/200x200/4F46E5/FFFFFF?text=TUANKI)
+![Tuanki Logo](https://img.shields.io/badge/Tuanki-智能记忆卡片-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.5.0-green?style=for-the-badge)
+![License](https://img.shields.io/badge/license-MIT-orange?style=for-the-badge)
+![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-purple?style=for-the-badge)
 
-**Transform your Obsidian notes into intelligent Anki cards with AI-powered generation and FSRS 5 spaced repetition**
+**基于 FSRS 算法的智能间隔重复学习系统**
 
-[![GitHub release](https://img.shields.io/github/v/release/YOUR_USERNAME/tuanki-obsidian-plugin)](https://github.com/YOUR_USERNAME/tuanki-obsidian-plugin/releases)
-[![Downloads](https://img.shields.io/github/downloads/YOUR_USERNAME/tuanki-obsidian-plugin/total)](https://github.com/YOUR_USERNAME/tuanki-obsidian-plugin/releases)
-[![License](https://img.shields.io/github/license/YOUR_USERNAME/tuanki-obsidian-plugin)](LICENSE)
-[![Stars](https://img.shields.io/github/stars/YOUR_USERNAME/tuanki-obsidian-plugin)](https://github.com/YOUR_USERNAME/tuanki-obsidian-plugin/stargazers)
-
-[📥 Download](#installation) • [📖 Documentation](#documentation) • [🚀 Features](#features) • [🤝 Contributing](#contributing)
+[功能特性](#-功能特性) • [安装方法](#-安装方法) • [使用指南](#-使用指南) • [许可证](#-许可证说明) • [贡献](#-贡献)
 
 </div>
 
-## ✨ Features
+## 📋 概述
 
-### 🤖 AI-Powered Card Generation
-- **Intelligent Content Analysis**: Automatically extracts key concepts from your notes
-- **Smart Question Generation**: Creates meaningful questions based on content context
-- **Multiple Card Types**: Supports basic, cloze, and image occlusion cards
-- **Batch Processing**: Generate multiple cards from long-form content
+Tuanki 是一款为 Obsidian 设计的智能记忆卡片插件，采用先进的 FSRS5 算法，帮助用户高效地进行间隔重复学习。插件遵循 Obsidian 社区规范，**核心功能完全免费**，高级功能通过许可证激活。
 
-### 📚 Advanced Spaced Repetition
-- **FSRS 5 Algorithm**: Latest research-backed scheduling for optimal retention
-- **Adaptive Learning**: Adjusts difficulty based on your performance
-- **Memory Prediction**: Estimates retention probability for each card
-- **Personalized Scheduling**: Learns your memory patterns over time
+### 🎯 设计理念
 
-### 🎨 Modern User Interface
-- **Responsive Design**: Works seamlessly on desktop and mobile
-- **Dark/Light Theme**: Matches your Obsidian theme preferences
-- **Intuitive Controls**: Clean, modern interface built with Svelte 5
-- **Accessibility**: Full keyboard navigation and screen reader support
+- **🆓 免费核心** - 基础功能永久免费，满足日常学习需求
+- **🔓 开源透明** - 所有代码开源，接受社区审计
+- **🧠 科学算法** - 基于 FSRS5 算法的智能调度
+- **🎨 现代设计** - 符合 Obsidian 设计语言的现代化界面
 
-### 📊 Comprehensive Analytics
-- **Learning Statistics**: Track your progress with detailed metrics
-- **Retention Analysis**: Visualize memory strength over time
-- **Performance Insights**: Identify areas for improvement
-- **Study Streaks**: Maintain motivation with progress tracking
+## ✨ 功能特性
 
-## 🚀 Quick Start
+### 🆓 免费功能
 
-### Installation
+所有用户安装后即可使用以下核心功能：
 
-#### Method 1: Obsidian Community Plugins (Recommended)
-1. Open Obsidian Settings
-2. Navigate to Community Plugins
-3. Search for "Tuanki"
-4. Click Install and Enable
+- ✅ **基础卡片创建** - 支持问答、填空等多种卡片类型
+- ✅ **FSRS 智能调度** - 基于遗忘曲线的科学复习安排
+- ✅ **基础学习模式** - 流畅的学习和复习体验
+- ✅ **简单统计** - 基础的学习进度和统计信息
+- ✅ **模板系统** - 内置多种卡片模板
+- ✅ **本地存储** - 数据完全存储在本地，保护隐私
 
-#### Method 2: Manual Installation
-1. Download the latest release from [GitHub Releases](https://github.com/YOUR_USERNAME/tuanki-obsidian-plugin/releases)
-2. Extract the zip file to `.obsidian/plugins/tuanki/` in your vault
-3. Enable the plugin in Obsidian Settings > Community Plugins
+### 💎 高级功能
 
-### First Steps
-1. **Configure Anki Connection**: Set up sync with your Anki desktop app
-2. **Create Your First Cards**: Select text and use the "Generate Cards" command
-3. **Start Studying**: Open the study interface and begin your learning journey
-4. **Review Analytics**: Check your progress in the statistics dashboard
+通过许可证激活的专业功能：
 
-## 📖 Documentation
+- 🔒 **MD 沉浸式编辑** - 所见即所得的 Markdown 编辑体验
+- 🔒 **卢曼卡片功能** - 知识网络构建和关联
+- 🔒 **高级统计分析** - 详细的学习数据分析和可视化
+- 🔒 **AI 批量制卡** - 智能批量生成记忆卡片 *(开发中)*
+- 🔒 **刷题模式** - 专业的刷题和练习模式 *(开发中)*
+- 🔒 **Anki 双向同步** - 与 Anki 的无缝数据同步 *(开发中)*
 
-### Basic Usage
+## 🚀 安装方法
 
-#### Generating Cards from Notes
-```markdown
-# Your Note Content
-This is important information about **machine learning**.
+### 方法一：社区插件市场（推荐）
 
-Machine learning is a subset of artificial intelligence that focuses on algorithms.
+1. 打开 Obsidian 设置
+2. 进入「第三方插件」
+3. 关闭「安全模式」
+4. 点击「浏览社区插件」
+5. 搜索「Tuanki」
+6. 点击安装并启用
+
+### 方法二：手动安装
+
+1. 下载最新版本的 `main.js`、`manifest.json` 和 `styles.css`
+2. 在 Obsidian 库的 `.obsidian/plugins/` 目录下创建 `tuanki` 文件夹
+3. 将下载的文件放入该文件夹
+4. 重启 Obsidian 并在设置中启用插件
+
+## 📖 使用指南
+
+### 快速开始
+
+1. **创建第一张卡片**
+   - 使用命令面板（Ctrl/Cmd + P）
+   - 搜索「Tuanki: 创建卡片」
+   - 选择卡片类型并填写内容
+
+2. **开始学习**
+   - 使用「Tuanki: 开始学习」命令
+   - 根据提示进行复习
+   - 系统会自动安排下次复习时间
+
+3. **查看统计**
+   - 在插件设置中查看学习进度
+   - 分析学习效果和时间分布
+
+### 高级功能使用
+
+如需使用高级功能，请：
+
+1. 联系客服获取许可证：📧 [tutaoyuan8@outlook.com](mailto:tutaoyuan8@outlook.com)
+2. 在插件设置的「许可证状态」中输入激活码
+3. 激活后即可使用所有高级功能
+
+## 🔧 技术架构
+
+### 核心技术栈
+
+- **前端框架**: Svelte 5 + TypeScript
+- **样式系统**: UnoCSS + CSS Variables
+- **算法核心**: FSRS5 间隔重复算法
+- **数据存储**: 基于 Obsidian 的本地文件系统
+- **构建工具**: Vite + 热重载开发
+
+### 项目结构
+
+```
+src/
+├── components/          # Svelte 组件
+│   ├── study/          # 学习相关组件
+│   ├── settings/       # 设置界面组件
+│   └── ui/             # 通用 UI 组件
+├── utils/              # 工具函数
+│   ├── fsrs/          # FSRS 算法实现
+│   └── licenseManager.ts # 许可证管理
+├── data/               # 数据模型和存储
+└── styles/             # 样式文件
 ```
 
-1. Select the text you want to convert
-2. Use `Ctrl+Shift+A` (or `Cmd+Shift+A` on Mac)
-3. Choose card type and review generated questions
-4. Confirm to add to your Anki deck
+## 💰 许可证说明
 
-#### Study Interface
-- **Review Cards**: Interactive study sessions with immediate feedback
-- **Difficulty Rating**: Rate cards as Again, Hard, Good, or Easy
-- **Progress Tracking**: See remaining cards and estimated study time
-- **Keyboard Shortcuts**: Space for reveal, 1-4 for difficulty rating
+### 免费使用
 
-### Advanced Features
+Tuanki 插件遵循 Obsidian 社区规范：
 
-#### Custom Card Templates
-```javascript
-// Example custom template
-{
-  "name": "Definition Card",
-  "front": "What is {{term}}?",
-  "back": "{{definition}}\n\n{{context}}",
-  "tags": ["definition", "{{subject}}"]
-}
-```
+- ✅ **插件本身完全免费** - 可从社区插件市场免费下载
+- ✅ **核心功能永久免费** - 基础学习功能无任何限制
+- ✅ **开源代码** - 所有代码公开透明，接受社区审计
 
-#### FSRS 5 Configuration
-- **Learning Steps**: Customize initial learning intervals
-- **Retention Target**: Set desired retention rate (default: 90%)
-- **Maximum Interval**: Limit maximum review intervals
-- **Difficulty Adjustment**: Fine-tune algorithm parameters
+### 高级功能许可
 
-## ⚙️ Configuration
+高级功能需要许可证激活，支持插件的持续开发：
 
-### Plugin Settings
-- **Anki Integration**: Configure deck names and sync settings
-- **AI Generation**: Adjust AI model parameters and prompts
-- **Study Interface**: Customize appearance and behavior
-- **Keyboard Shortcuts**: Set up custom hotkeys
+- 💎 **专业增强功能** - 为专业用户提供更强大的工具
+- 🔄 **持续更新** - 支持新功能开发和维护
+- 🛠️ **技术支持** - 提供专业的技术支持服务
 
-### Anki Setup
-1. Install AnkiConnect add-on in Anki desktop
-2. Configure CORS settings for web access
-3. Set up target deck for generated cards
-4. Enable automatic synchronization
+### 获取许可证
 
-## 🔧 Development
+如需使用高级功能，请联系：
 
-### Building from Source
+- 📧 **邮箱**: [tutaoyuan8@outlook.com](mailto:tutaoyuan8@outlook.com)
+- 📖 **详细信息**: 查看项目 Wiki 或 Issues
+
+## 🤝 贡献
+
+我们欢迎社区贡献！
+
+### 贡献方式
+
+- 🐛 **报告 Bug** - 在 Issues 中报告问题
+- 💡 **功能建议** - 提出新功能想法
+- 📝 **文档改进** - 完善文档和教程
+- 💻 **代码贡献** - 提交 Pull Request
+
+### 开发环境
+
 ```bash
-# Clone the repository
-git clone https://github.com/YOUR_USERNAME/tuanki-obsidian-plugin.git
-cd tuanki-obsidian-plugin
+# 克隆项目
+git clone https://github.com/zhuzhige123/obsidian---Tuanki.git
 
-# Install dependencies
+# 安装依赖
+cd obsidian---Tuanki/10-Project-Tuanki/anki-obsidian-plugin
 npm install
 
-# Start development server
+# 开发模式（热重载）
 npm run dev
 
-# Build for production
+# 构建生产版本
 npm run build
 ```
 
-### Project Structure
-```
-src/
-├── components/          # Svelte UI components
-├── services/           # Core business logic
-├── stores/             # State management
-├── utils/              # Helper functions
-└── main.ts            # Plugin entry point
-```
+## 📞 支持与反馈
 
-## 🤝 Contributing
+- 📧 **技术支持**: [tutaoyuan8@outlook.com](mailto:tutaoyuan8@outlook.com)
+- 🐛 **Bug 报告**: [GitHub Issues](https://github.com/zhuzhige123/obsidian---Tuanki/issues)
+- 💬 **功能建议**: [GitHub Discussions](https://github.com/zhuzhige123/obsidian---Tuanki/discussions)
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+## 📄 开源协议
 
-### Ways to Contribute
-- 🐛 Report bugs and issues
-- 💡 Suggest new features
-- 📝 Improve documentation
-- 🔧 Submit code improvements
-- 🌍 Help with translations
+本项目采用 [MIT 协议](LICENSE) 开源。
 
-## 📄 License
+## 🙏 致谢
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **FSRS Algorithm**: Thanks to the FSRS research team for the excellent spaced repetition algorithm
-- **Obsidian Community**: For feedback, testing, and feature suggestions
-- **Anki Project**: For inspiration and the foundation of spaced repetition learning
-- **Open Source Libraries**: All the amazing tools that make this plugin possible
-
-## 📞 Support
-
-- **GitHub Issues**: [Report bugs or request features](https://github.com/https://github.com/zhuzhige123)
-- **Discussions**: [Join community discussions](https://github.com/YOUR_USERNAME/tuanki-obsidian-plugin/discussions)
-- **Documentation**: [Full documentation](https://tuanki.dev/docs)
-- **Email**: tutaoyuan8@outlook.com
+- [Obsidian](https://obsidian.md/) - 优秀的知识管理平台
+- [FSRS](https://github.com/open-spaced-repetition/fsrs4anki) - 科学的间隔重复算法
+- [Svelte](https://svelte.dev/) - 现代化的前端框架
+- Obsidian 社区的所有贡献者
 
 ---
 
 <div align="center">
 
-**Made with ❤️ for the Obsidian community**
+**如果这个项目对你有帮助，请给我们一个 ⭐ Star！**
 
-[⭐ Star this project](https://github.com/zhuzhige123) if you find it useful!
+Made with ❤️ by [Tuanki Team](https://github.com/zhuzhige123)
 
 </div>
+
+## 🌟 特色亮点
+
+### 🧪 科学的学习算法
+
+Tuanki 采用最新的 FSRS5 算法，这是一个基于大量学习数据训练的智能调度系统：
+
+- **精确预测** - 准确预测遗忘时间，优化复习间隔
+- **自适应学习** - 根据个人学习表现动态调整难度
+- **记忆建模** - 科学建模记忆过程，提高学习效率
+
+### 🎨 现代化用户体验
+
+- **Cursor 风格设计** - 紫色渐变主题，现代化视觉体验
+- **响应式布局** - 完美适配桌面、平板、手机等设备
+- **流畅动画** - 基于 Svelte 5 的丝滑交互体验
+- **主题集成** - 完美融入 Obsidian 的深色/浅色主题
+
+### 🔒 隐私与安全
+
+- **本地存储** - 所有数据存储在本地，完全掌控
+- **离线使用** - 无需网络连接，随时随地学习
+- **开源透明** - 代码完全开源，接受社区审计
+- **数据安全** - 基于 RSA 加密的许可证验证系统
+
+## 📊 学习统计
+
+插件提供丰富的学习数据分析：
+
+### 基础统计（免费）
+- 学习进度跟踪
+- 每日复习数量
+- 基础记忆率统计
+- 学习时间记录
+
+### 高级分析（付费）
+- 详细的遗忘曲线分析
+- 学习效率趋势图
+- 知识点掌握度热力图
+- 个性化学习建议
+
+## 🎯 适用场景
+
+### 🎓 学生群体
+- **语言学习** - 单词、语法、口语练习
+- **考试备考** - 知识点记忆、题目练习
+- **专业课程** - 概念理解、公式记忆
+
+### 💼 职场人士
+- **技能提升** - 专业知识、认证考试
+- **语言进修** - 商务英语、多语言学习
+- **知识管理** - 工作要点、流程记忆
+
+### 🔬 研究学者
+- **文献记忆** - 重要观点、研究方法
+- **知识网络** - 概念关联、理论体系
+- **学术写作** - 引用记忆、论点整理
+
+## 🚀 未来规划
+
+### 近期更新（v0.6 - v0.8）
+- 🔧 完善基础功能稳定性
+- 🎨 优化用户界面体验
+- 📱 移动端适配优化
+- 🐛 修复已知问题
+
+### 中期规划（v0.9 - v1.0）
+- 🤖 AI 批量制卡功能
+- 📊 高级统计分析
+- 🔄 Anki 数据同步
+- 🎯 刷题模式
+
+### 长期愿景（v1.1+）
+- 🌐 云端同步服务
+
+
+## ❓ 常见问题
+
+### Q: 插件是否完全免费？
+A: 插件本身完全免费，核心学习功能永久免费。高级功能需要许可证激活，支持插件持续开发。
+
+### Q: 数据是否安全？
+A: 所有学习数据都存储在本地，不会上传到任何服务器。插件代码完全开源，可以自行审计。
+
+### Q: 如何获取技术支持？
+A: 可以通过 GitHub Issues 报告问题，或发邮件到 tutaoyuan8@outlook.com 获取支持。
+
+### Q: 是否支持数据导出？
+A: 支持。所有数据都以 JSON 格式存储，可以随时备份和迁移。
+
+### Q: 与 Anki 有什么区别？
+A: Tuanki 专为 Obsidian 设计，更好地集成知识管理工作流。同时采用更先进的 FSRS5 算法。
+
+## 🔗 相关链接
+
+- 📖 [详细文档](https://github.com/zhuzhige123/obsidian---Tuanki/wiki)
+- 🐛 [问题反馈](https://github.com/zhuzhige123/obsidian---Tuanki/issues)
+- 💬 [社区讨论](https://github.com/zhuzhige123/obsidian---Tuanki/discussions)
+- 📧 [技术支持](mailto:tutaoyuan8@outlook.com)
+- 🌟 [给我们 Star](https://github.com/zhuzhige123/obsidian---Tuanki)
