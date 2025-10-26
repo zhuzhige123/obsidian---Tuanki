@@ -1,0 +1,713 @@
+<script lang="ts">
+/**
+ * Fabric.js 遮罩编辑器组件
+ * 
+ * 功能：
+ * - 使用 Fabric.js 提供图形编辑能力
+ * - 支持矩形和圆形遮罩绘制
+ * - 支持拖拽、缩放、删除遮罩
+ * - 自动转换相对坐标和像素坐标
+ */
+
+import { onMount, onDestroy, tick } from 'svelte';
+import { fabric } from 'fabric';
+  import type { App, TFile } from 'obsidian';
+  import type { Mask, MaskData } from '../../types/image-mask-types';
+  import { MASK_CONSTANTS } from '../../types/image-mask-types';
+  import { generateMaskId } from '../../services/image-mask/MaskDataParser';
+
+// Props
+let { 
+  app,
+  imageFile,
+  initialMaskData = null,
+  currentColor = 'rgba(0, 0, 0, 0.7)',
+  currentOpacity = 70,
+  onMaskDataChange,
+  onEditorReady = () => {}
+}: {
+  app: App;
+  imageFile: TFile;
+  initialMaskData: MaskData | null;
+  currentColor?: string;
+  currentOpacity?: number;
+  onMaskDataChange: (maskData: MaskData) => void;
+  onEditorReady?: (ready: boolean) => void;
+} = $props();
+
+// 状态
+let canvasElement = $state<HTMLCanvasElement | null>(null);
+let fabricCanvas = $state<fabric.Canvas | null>(null);
+let imageWidth = $state(0);
+let imageHeight = $state(0);
+let loading = $state(true);
+let error = $state<string | null>(null);
+
+// 绘制模式状态
+let drawingMode = $state<'rect' | 'circle' | null>(null);
+let isDrawing = $state(false);
+let drawStartPoint = $state<{ x: number; y: number } | null>(null);
+let tempDrawingObject = $state<fabric.Object | null>(null);
+
+// 工具栏状态
+let maskList = $state<Mask[]>([]);
+
+onMount(async () => {
+  console.log('[MaskEditor] 组件已挂载');
+  
+  // 等待 DOM 渲染完成，确保 canvas 元素已绑定
+  await tick();
+  
+  // 短暂延迟确保绑定完成（Canvas 现在始终在 DOM 中）
+  await new Promise(resolve => setTimeout(resolve, 50));
+  
+  try {
+    console.log('[MaskEditor] canvasElement 绑定状态:', !!canvasElement);
+    await initializeCanvas();
+  } catch (err) {
+    console.error('[MaskEditor] 初始化失败:', err);
+    error = err instanceof Error ? err.message : '初始化失败';
+    loading = false;
+  }
+});
+
+onDestroy(() => {
+  if (fabricCanvas) {
+    fabricCanvas.dispose();
+    fabricCanvas = null;
+  }
+});
+
+/**
+ * 初始化 Canvas
+ */
+async function initializeCanvas() {
+  console.log('[MaskEditor] 开始初始化 Canvas...');
+  console.log('[MaskEditor] canvasElement:', canvasElement);
+  console.log('[MaskEditor] imageFile:', imageFile);
+  
+  if (!canvasElement) {
+    const errorMsg = 'Canvas 元素初始化失败\n\n请尝试：\n1. 关闭并重新打开编辑器\n2. 检查图片文件是否存在\n3. 查看控制台了解详细信息';
+    console.error('[MaskEditor]', errorMsg);
+    console.error('[MaskEditor] DOM 状态:', {
+      hasCanvasElement: !!canvasElement,
+      hasImageFile: !!imageFile,
+      imageFilePath: imageFile?.path
+    });
+    error = errorMsg;
+    loading = false;
+    return;
+  }
+
+  // 加载图片
+  console.log('[MaskEditor] 开始加载图片:', imageFile.path);
+  const imageData = await loadImage();
+  if (!imageData) {
+    error = '无法加载图片';
+    loading = false;
+    return;
+  }
+
+  console.log('[MaskEditor] 图片加载成功:', imageData.width, 'x', imageData.height);
+  imageWidth = imageData.width;
+  imageHeight = imageData.height;
+
+  // 初始化 Fabric.js Canvas
+  console.log('[MaskEditor] 初始化 Fabric.js Canvas...');
+  fabricCanvas = new fabric.Canvas(canvasElement, {
+    width: imageWidth,
+    height: imageHeight,
+    backgroundColor: '#f0f0f0'
+  });
+
+  // 设置背景图片
+  fabric.Image.fromURL(imageData.url, (img: fabric.Image) => {
+    if (!fabricCanvas) return;
+    
+    img.scaleToWidth(imageWidth);
+    img.scaleToHeight(imageHeight);
+    img.selectable = false;
+    img.evented = false;
+    
+    fabricCanvas.setBackgroundImage(img, fabricCanvas.renderAll.bind(fabricCanvas));
+    
+    // 加载现有遮罩
+    if (initialMaskData) {
+      loadMasksToCanvas(initialMaskData);
+    }
+    
+    loading = false;
+  });
+
+  // 监听对象修改事件
+  fabricCanvas.on('object:modified', handleObjectModified);
+  fabricCanvas.on('selection:cleared', handleSelectionCleared);
+  
+  // 监听鼠标事件用于拖拽绘制
+  fabricCanvas.on('mouse:down', handleMouseDown);
+  fabricCanvas.on('mouse:move', handleMouseMove);
+  fabricCanvas.on('mouse:up', handleMouseUp);
+  
+  console.log('[MaskEditor] Canvas 初始化完成');
+  
+  // 通知父组件编辑器已就绪
+  onEditorReady(true);
+}
+
+/**
+ * 加载图片
+ */
+async function loadImage(): Promise<{url: string; width: number; height: number} | null> {
+  try {
+    // 获取图片资源路径
+    const resourcePath = app.vault.adapter.getResourcePath(imageFile.path);
+    
+    // 加载图片以获取尺寸
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      
+      img.onload = () => {
+        resolve({
+          url: resourcePath,
+          width: img.width,
+          height: img.height
+        });
+      };
+      
+      img.onerror = () => {
+        reject(new Error('图片加载失败'));
+      };
+      
+      img.src = resourcePath;
+    });
+    
+  } catch (error) {
+    console.error('[MaskEditor] 加载图片失败:', error);
+    return null;
+  }
+}
+
+/**
+ * 加载遮罩到 Canvas
+ */
+function loadMasksToCanvas(maskData: MaskData) {
+  if (!fabricCanvas) return;
+  
+  maskData.masks.forEach(mask => {
+    const obj = relativeToFabric(mask);
+    if (obj) {
+      fabricCanvas!.add(obj);
+      maskList.push(mask);
+    }
+  });
+  
+  fabricCanvas.renderAll();
+}
+
+/**
+ * 启用矩形绘制模式（公共方法，供父组件调用）
+ */
+export function enableRectDrawing() {
+  if (!fabricCanvas) return;
+  
+  console.log('[MaskEditor] 启用矩形绘制模式');
+  drawingMode = 'rect';
+  
+  // 设置Canvas光标为十字
+  fabricCanvas.defaultCursor = 'crosshair';
+  fabricCanvas.hoverCursor = 'crosshair';
+  
+  // 禁用对象选择，专注于绘制
+  fabricCanvas.selection = false;
+  fabricCanvas.forEachObject((obj) => {
+    obj.selectable = false;
+  });
+}
+
+/**
+ * 启用圆形绘制模式（公共方法，供父组件调用）
+ */
+export function enableCircleDrawing() {
+  if (!fabricCanvas) return;
+  
+  console.log('[MaskEditor] 启用圆形绘制模式');
+  drawingMode = 'circle';
+  
+  // 设置Canvas光标为十字
+  fabricCanvas.defaultCursor = 'crosshair';
+  fabricCanvas.hoverCursor = 'crosshair';
+  
+  // 禁用对象选择，专注于绘制
+  fabricCanvas.selection = false;
+  fabricCanvas.forEachObject((obj) => {
+    obj.selectable = false;
+  });
+}
+
+/**
+ * 删除选中的遮罩（公共方法，供父组件调用）
+ */
+export function deleteSelectedMask() {
+  if (!fabricCanvas) return;
+  
+  const activeObject = fabricCanvas.getActiveObject();
+  if (!activeObject) return;
+  
+  const maskId = (activeObject as any).data?.maskId;
+  
+  fabricCanvas.remove(activeObject);
+  fabricCanvas.renderAll();
+  
+  // 从列表中移除
+  if (maskId) {
+    maskList = maskList.filter(m => m.id !== maskId);
+  }
+  
+  emitMaskDataChange();
+}
+
+/**
+ * 更新选中遮罩的颜色（公共方法，供父组件调用）
+ */
+export function updateSelectedMaskColor(newColor: string) {
+  if (!fabricCanvas) return;
+  
+  const activeObject = fabricCanvas.getActiveObject();
+  if (!activeObject) {
+    console.log('[MaskEditor] 没有选中的遮罩');
+    return;
+  }
+  
+  const maskId = (activeObject as any).data?.maskId;
+  
+  // 更新Fabric对象的颜色
+  activeObject.set('fill', newColor);
+  fabricCanvas.renderAll();
+  
+  // 更新遮罩列表中的数据
+  if (maskId) {
+    const index = maskList.findIndex(m => m.id === maskId);
+    if (index >= 0) {
+      maskList[index] = {
+        ...maskList[index],
+        fill: newColor
+      };
+      emitMaskDataChange();
+      console.log('[MaskEditor] 已更新遮罩颜色:', newColor);
+    }
+  }
+}
+
+/**
+ * 相对坐标 → Fabric.js 像素坐标
+ */
+function relativeToFabric(mask: Mask): fabric.Object | null {
+  if (mask.type === 'rect') {
+    const rect = new fabric.Rect({
+      left: mask.x * imageWidth,
+      top: mask.y * imageHeight,
+      width: mask.width! * imageWidth,
+      height: mask.height! * imageHeight,
+      fill: mask.fill || currentColor,
+      strokeWidth: 2,
+      stroke: '#4CAF50'
+    });
+    
+    rect.set('data', { maskId: mask.id, maskType: 'rect' });
+    return rect;
+  }
+  
+  if (mask.type === 'circle') {
+    const circle = new fabric.Circle({
+      left: (mask.x - mask.radius!) * imageWidth,
+      top: (mask.y - mask.radius!) * imageHeight,
+      radius: mask.radius! * imageWidth,
+      fill: mask.fill || currentColor,
+      strokeWidth: 2,
+      stroke: '#2196F3'
+    });
+    
+    circle.set('data', { maskId: mask.id, maskType: 'circle' });
+    return circle;
+  }
+  
+  return null;
+}
+
+/**
+ * Fabric.js 像素坐标 → 相对坐标
+ */
+function fabricToRelative(obj: fabric.Object): Mask {
+  const data = (obj as any).data || {};
+  const maskType = data.maskType || 'rect';
+  
+  if (maskType === 'rect') {
+    const rect = obj as fabric.Rect;
+    return {
+      id: data.maskId || generateMaskId(),
+      type: 'rect',
+      x: (rect.left || 0) / imageWidth,
+      y: (rect.top || 0) / imageHeight,
+      width: (rect.width || 0) * (rect.scaleX || 1) / imageWidth,
+      height: (rect.height || 0) * (rect.scaleY || 1) / imageHeight,
+      style: 'solid',
+      fill: rect.fill as string || currentColor
+    };
+  }
+  
+  if (maskType === 'circle') {
+    const circle = obj as fabric.Circle;
+    const radius = (circle.radius || 0) * (circle.scaleX || 1) / imageWidth;
+    return {
+      id: data.maskId || generateMaskId(),
+      type: 'circle',
+      x: ((circle.left || 0) / imageWidth) + radius,
+      y: ((circle.top || 0) / imageHeight) + radius,
+      radius,
+      style: 'solid',
+      fill: circle.fill as string || currentColor
+    };
+  }
+  
+  // 默认返回矩形
+  return {
+    id: generateMaskId(),
+    type: 'rect',
+    x: 0.25,
+    y: 0.25,
+    width: 0.5,
+    height: 0.5,
+    style: 'solid',
+    fill: currentColor
+  };
+}
+
+/**
+ * 处理对象修改事件
+ */
+function handleObjectModified(e: any) {
+  const obj = e.target;
+  if (!obj) return;
+  
+  const data = (obj as any).data || {};
+  const maskId = data.maskId;
+  
+  if (!maskId) return;
+  
+  // 更新遮罩列表
+  const updatedMask = fabricToRelative(obj);
+  const index = maskList.findIndex(m => m.id === maskId);
+  
+  if (index >= 0) {
+    maskList[index] = updatedMask;
+  }
+  
+  emitMaskDataChange();
+}
+
+/**
+ * 处理选择清除事件
+ */
+function handleSelectionCleared() {
+  // 清空绘制模式
+  if (!isDrawing) {
+    drawingMode = null;
+    if (fabricCanvas) {
+      fabricCanvas.defaultCursor = 'default';
+      fabricCanvas.hoverCursor = 'move';
+      fabricCanvas.selection = true;
+      fabricCanvas.forEachObject((obj) => {
+        obj.selectable = true;
+      });
+    }
+  }
+}
+
+/**
+ * 处理鼠标按下事件 - 开始绘制
+ */
+function handleMouseDown(event: fabric.IEvent) {
+  if (!fabricCanvas || !drawingMode) return;
+  
+  const pointer = fabricCanvas.getPointer(event.e);
+  
+  // 记录起始点
+  drawStartPoint = { x: pointer.x, y: pointer.y };
+  isDrawing = true;
+  
+  console.log('[MaskEditor] 开始绘制', drawingMode, drawStartPoint);
+  
+  // 创建临时预览对象
+  if (drawingMode === 'rect') {
+    const rect = new fabric.Rect({
+      left: drawStartPoint.x,
+      top: drawStartPoint.y,
+      width: 0,
+      height: 0,
+      fill: currentColor,
+      strokeWidth: 2,
+      stroke: '#4CAF50',
+      selectable: false,
+      evented: false
+    });
+    tempDrawingObject = rect;
+    fabricCanvas.add(rect);
+  } else if (drawingMode === 'circle') {
+    const circle = new fabric.Circle({
+      left: drawStartPoint.x,
+      top: drawStartPoint.y,
+      radius: 0,
+      fill: currentColor,
+      strokeWidth: 2,
+      stroke: '#2196F3',
+      selectable: false,
+      evented: false
+    });
+    tempDrawingObject = circle;
+    fabricCanvas.add(circle);
+  }
+}
+
+/**
+ * 处理鼠标移动事件 - 动态调整绘制中的对象
+ */
+function handleMouseMove(event: fabric.IEvent) {
+  if (!fabricCanvas || !isDrawing || !drawStartPoint || !tempDrawingObject) return;
+  
+  const pointer = fabricCanvas.getPointer(event.e);
+  
+  if (drawingMode === 'rect' && tempDrawingObject instanceof fabric.Rect) {
+    // 计算矩形的位置和尺寸（支持反向拖拽）
+    const left = Math.min(pointer.x, drawStartPoint.x);
+    const top = Math.min(pointer.y, drawStartPoint.y);
+    const width = Math.abs(pointer.x - drawStartPoint.x);
+    const height = Math.abs(pointer.y - drawStartPoint.y);
+    
+    // 限制在图片范围内
+    tempDrawingObject.set({
+      left: Math.max(0, Math.min(left, imageWidth)),
+      top: Math.max(0, Math.min(top, imageHeight)),
+      width: Math.min(width, imageWidth - left),
+      height: Math.min(height, imageHeight - top)
+    });
+  } else if (drawingMode === 'circle' && tempDrawingObject instanceof fabric.Circle) {
+    // 计算圆形的半径（从起始点到当前点的距离）
+    const dx = pointer.x - drawStartPoint.x;
+    const dy = pointer.y - drawStartPoint.y;
+    const radius = Math.sqrt(dx * dx + dy * dy);
+    
+    // 限制半径不超出图片边界
+    const maxRadius = Math.min(
+      drawStartPoint.x,
+      drawStartPoint.y,
+      imageWidth - drawStartPoint.x,
+      imageHeight - drawStartPoint.y
+    );
+    
+    tempDrawingObject.set({
+      radius: Math.min(radius, maxRadius)
+    });
+  }
+  
+  fabricCanvas.renderAll();
+}
+
+/**
+ * 处理鼠标松开事件 - 完成绘制
+ */
+function handleMouseUp(event: fabric.IEvent) {
+  if (!fabricCanvas || !isDrawing || !tempDrawingObject) return;
+  
+  console.log('[MaskEditor] 完成绘制');
+  
+  // 检查对象是否有有效尺寸（避免创建过小的遮罩）
+  let isValidSize = false;
+  
+  if (tempDrawingObject instanceof fabric.Rect) {
+    const width = tempDrawingObject.width || 0;
+    const height = tempDrawingObject.height || 0;
+    isValidSize = width > 10 && height > 10;
+  } else if (tempDrawingObject instanceof fabric.Circle) {
+    const radius = tempDrawingObject.radius || 0;
+    isValidSize = radius > 5;
+  }
+  
+  if (isValidSize) {
+    // 设置为可选择和可编辑
+    tempDrawingObject.set({
+      selectable: true,
+      evented: true
+    });
+    
+    // 生成遮罩ID并存储
+    const maskId = generateMaskId();
+    const maskType = drawingMode;
+    tempDrawingObject.set('data', { maskId, maskType });
+    
+    // 添加到遮罩列表
+    const mask = fabricToRelative(tempDrawingObject);
+    maskList.push(mask);
+    
+    // 选中新创建的遮罩
+    fabricCanvas.setActiveObject(tempDrawingObject);
+    
+    // 触发数据变更
+    emitMaskDataChange();
+  } else {
+    // 尺寸太小，移除临时对象
+    fabricCanvas.remove(tempDrawingObject);
+  }
+  
+  // 清理绘制状态
+  isDrawing = false;
+  drawStartPoint = null;
+  tempDrawingObject = null;
+  
+  fabricCanvas.renderAll();
+}
+
+/**
+ * 触发遮罩数据变更事件
+ */
+function emitMaskDataChange() {
+  const maskData: MaskData = {
+    version: MASK_CONSTANTS.CURRENT_VERSION,
+    masks: maskList
+  };
+  
+  onMaskDataChange(maskData);
+}
+
+/**
+ * 获取当前遮罩数据
+ */
+export function getMaskData(): MaskData {
+  return {
+    version: MASK_CONSTANTS.CURRENT_VERSION,
+    masks: maskList
+  };
+}
+</script>
+
+<div class="mask-editor-container">
+  <!-- Canvas 编辑区：始终在 DOM 中 -->
+  <div class="canvas-wrapper">
+    <canvas bind:this={canvasElement}></canvas>
+  </div>
+  
+  <!-- 提示信息 -->
+  <div class="hint" style:opacity={loading || error ? '0' : '1'}>
+    💡 提示：选择工具后在图片上拖拽绘制遮罩，拖拽调整位置和大小，双击删除
+  </div>
+  
+  <!-- 加载状态覆盖层 -->
+  {#if loading}
+    <div class="loading-overlay">
+      <div class="spinner"></div>
+      <p>加载图片中...</p>
+    </div>
+  {/if}
+  
+  <!-- 错误状态覆盖层 -->
+  {#if error}
+    <div class="error-overlay">
+      <div class="error-icon">❌</div>
+      <div class="error-content">
+        <h3>初始化失败</h3>
+        {#each error.split('\n') as line}
+          <p>{line}</p>
+        {/each}
+      </div>
+    </div>
+  {/if}
+</div>
+
+<style>
+.mask-editor-container {
+  position: relative;  /* 为覆盖层提供定位上下文 */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 12px;
+}
+
+.loading-overlay, .error-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--background-primary);
+  z-index: 10;
+  gap: 12px;
+}
+
+.error-overlay {
+  gap: 20px;
+  padding: 40px;
+  text-align: center;
+}
+
+.error-icon {
+  font-size: 48px;
+}
+
+.error-content h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-error);
+  margin-bottom: 16px;
+}
+
+.error-content p {
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: 4px 0;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--background-modifier-border);
+  border-top-color: var(--interactive-accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.canvas-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: var(--background-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+  padding: 16px;
+}
+
+canvas {
+  max-width: 100%;
+  max-height: 100%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.hint {
+  padding: 12px;
+  background: var(--background-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+</style>
+

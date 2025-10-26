@@ -1,0 +1,1830 @@
+<script lang="ts">
+  import type AnkiPlugin from "../../main";
+  import type { AnkiDataStorage } from "../../data/storage";
+  import type { FSRS } from "../../algorithms/fsrs";
+  import EnhancedIcon from "../ui/EnhancedIcon.svelte";
+  import LineChart from "../analytics/LineChart.svelte";
+  import BarChart from "../analytics/BarChart.svelte";
+  import Heatmap from "../analytics/Heatmap.svelte";
+  import CalendarHeatmap from "../analytics/CalendarHeatmap.svelte";
+  
+  // 🔒 高级功能限制
+  import { PremiumFeatureGuard, PREMIUM_FEATURES, FEATURE_METADATA } from "../../services/premium/PremiumFeatureGuard";
+  import ActivationPrompt from "../premium/ActivationPrompt.svelte";
+
+
+  import VirtualizedDataTable from "../analytics/VirtualizedDataTable.svelte";
+  import { AnalyticsService } from "../../data/analytics";
+  import type {
+    MemoryCurvePoint,
+    DifficultyBin
+  } from "../../data/analytics";
+
+  // 导入配置和国际化
+  import { DEFAULT_ANALYTICS_CONFIG, TIME_RANGE_CONFIG, REFRESH_CONFIG, CHART_CONFIG } from "../../config/analytics-config";
+  import { i18n } from "../../utils/i18n";
+  // import { EnhancedPerformanceMonitor } from "../../utils/enhanced-performance-monitor";
+  import { smartRetry, type FallbackStrategy } from "../../utils/smart-retry";
+  import { dataPagination } from "../../utils/data-pagination";
+  import { smartCache } from "../../utils/smart-cache";
+  import { smartPreloader } from "../../utils/smart-preloader";
+  import { adaptiveCache } from "../../utils/adaptive-cache";
+  import { safeDomOperation, cleanupCompatibilityIssues } from "../../utils/obsidian-api-safe";
+
+  interface Props { plugin: AnkiPlugin; dataStorage: AnkiDataStorage; fsrs: FSRS }
+  let { plugin, dataStorage, fsrs }: Props = $props();
+
+  // 🔒 高级功能守卫
+  const premiumGuard = PremiumFeatureGuard.getInstance();
+  let isPremium = $state(false);
+  let showActivationPrompt = $state(false);
+
+  // 订阅高级版状态
+  $effect(() => {
+    const unsubscribe = premiumGuard.isPremiumActive.subscribe(value => {
+      isPremium = value;
+    });
+    return unsubscribe;
+  });
+
+  // 获取配置
+  const config = DEFAULT_ANALYTICS_CONFIG;
+  const timeRangeConfig = TIME_RANGE_CONFIG;
+  const refreshConfig = REFRESH_CONFIG;
+  const chartConfig = CHART_CONFIG;
+
+  // 性能监控实例 - 暂时禁用以修复构建
+  // const performanceMonitor = new EnhancedPerformanceMonitor();
+
+  // KPI State
+  let isLoading = $state(true);
+  let hasError = $state(false);
+  let errorMessage = $state('');
+  let kpi = $state({
+    todayReviews: 0,
+    todayNew: 0,
+    accuracy: 0,
+    totalStudyMins: 0,
+    memoryRate: 0,
+    streakDays: 0,
+    fsrsProgress: 0
+  });
+
+  // Load aggregates
+  let dayTrend: Array<{ key: string; value: number }> = $state([]);
+
+  // FSRS分析数据状态 - 已清理，为重构做准备
+  let memoryCurveData: MemoryCurvePoint[] = $state([]);
+  let difficultyData: DifficultyBin[] = $state([]);
+
+  // 保留变量声明以避免编译错误，但不再使用
+  let parameterImpact: any[] = $state([]);
+  let algorithmComparison: any = $state({
+    fsrsAccuracy: 0,
+    traditionalAccuracy: 0,
+    efficiencyGain: 0,
+    retentionImprovement: 0,
+    sampleSize: 0,
+    confidenceLevel: 0
+  });
+  let fsrsKPI: any = $state({
+    avgDifficulty: 0,
+    avgStability: 0,
+    retentionRate: 0,
+    algorithmEfficiency: 0,
+    parameterOptimization: 0,
+    totalCards: 0,
+    matureCards: 0
+  });
+  let ratingBars: Array<{ key: string; value: number; color?: string }> = $state([]);
+  let hoursMatrix: number[][] = $state([]);
+  let calMap: Record<string, number> = $state({});
+  let intervalTrend: Array<{ key: string; value: number }> = $state([]);
+  let deckCompareData: Array<{ name: string; reviews: number; accuracy: number; avgInterval: number; avgDifficulty: number }> = $state([] as any);
+  let range = $state<'7'|'30'|'90'|'year'|'all'>('30');
+  let deckOptions = $state<Array<{ id: string; name: string }>>([]);
+  let selectedDecks = $state<string[]>([]);
+  let deckDdOpen = $state(false);
+
+  const svc = new AnalyticsService(dataStorage);
+
+  function computeRange() {
+    const now = new Date();
+    if (range==='7') {
+      const s=new Date();
+      s.setDate(now.getDate() - (timeRangeConfig.PRESETS.WEEK - 1));
+      s.setHours(0,0,0,0);
+      return { since:s, until: now };
+    }
+    if (range==='30') {
+      const s=new Date();
+      s.setDate(now.getDate() - (timeRangeConfig.PRESETS.MONTH - 1));
+      s.setHours(0,0,0,0);
+      return { since:s, until: now };
+    }
+    if (range==='90') {
+      const s=new Date();
+      s.setDate(now.getDate() - (timeRangeConfig.PRESETS.QUARTER - 1));
+      s.setHours(0,0,0,0);
+      return { since:s, until: now };
+    }
+    if (range==='year') {
+      const s=new Date(now.getFullYear(),0,1);
+      return { since:s, until: now };
+    }
+    return {};
+  }
+
+  // 防抖函数，避免频繁重新加载
+  let reloadTimeout: NodeJS.Timeout | null = null;
+
+  // 资源清理管理
+  let cleanupFunctions: (() => void)[] = [];
+  let isDestroyed = $state(false);
+
+  // 缓存统计状态
+  let cacheStats = $state({
+    totalEntries: 0,
+    hitRate: 0,
+    memoryUsage: 0,
+    currentStrategy: 'balanced' as string,
+    memoryPressure: 'low' as string,
+    accessPatterns: 0
+  });
+
+  // 牌组对比表格列配置
+  const deckTableColumns = [
+    {
+      key: 'name',
+      title: i18n.t('analytics.dashboard.table.deck'),
+      width: '40%',
+      align: 'left' as const,
+      sortable: true
+    },
+    {
+      key: 'reviews',
+      title: i18n.t('analytics.dashboard.table.reviews'),
+      width: '15%',
+      align: 'right' as const,
+      sortable: true,
+      formatter: (value: number) => value.toLocaleString()
+    },
+    {
+      key: 'accuracy',
+      title: i18n.t('analytics.dashboard.table.accuracy'),
+      width: '15%',
+      align: 'right' as const,
+      sortable: true,
+      formatter: (value: number) => `${(value * 100).toFixed(1)}%`
+    },
+    {
+      key: 'avgInterval',
+      title: i18n.t('analytics.dashboard.table.avgInterval'),
+      width: '15%',
+      align: 'right' as const,
+      sortable: true,
+      formatter: (value: number) => `${value.toFixed(1)}天`
+    },
+    {
+      key: 'avgDifficulty',
+      title: i18n.t('analytics.dashboard.table.avgDifficulty'),
+      width: '15%',
+      align: 'right' as const,
+      sortable: true,
+      formatter: (value: number) => value.toFixed(2)
+    }
+  ];
+
+  /**
+   * 添加清理函数
+   */
+  function addCleanup(cleanup: () => void): void {
+    if (!isDestroyed) {
+      cleanupFunctions.push(cleanup);
+    }
+  }
+
+  /**
+   * 清理大数据集
+   */
+  function clearLargeDataSets(): void {
+    dayTrend = [];
+    ratingBars = [];
+    hoursMatrix = [];
+    calMap = {};
+    intervalTrend = [];
+    deckCompareData = [];
+    memoryCurveData = [];
+    difficultyData = [];
+    parameterImpact = [];
+
+    // 重置FSRS数据
+    algorithmComparison = {
+      fsrsAccuracy: 0,
+      traditionalAccuracy: 0,
+      efficiencyGain: 0,
+      retentionImprovement: 0,
+      sampleSize: 0,
+      confidenceLevel: 0
+    };
+
+    fsrsKPI = {
+      avgDifficulty: 0,
+      avgStability: 0,
+      retentionRate: 0,
+      algorithmEfficiency: 0,
+      parameterOptimization: 0,
+      totalCards: 0,
+      matureCards: 0
+    };
+  }
+
+  /**
+   * 数据采样优化 - 避免处理过大的数据集
+   */
+  function sampleData<T>(data: T[], maxSize: number): T[] {
+    if (!Array.isArray(data) || data.length <= maxSize) return data;
+
+    // 使用智能采样策略
+    return dataPagination.smartSample(data, maxSize, 'uniform');
+  }
+
+  /**
+   * 批量处理大数据集
+   */
+  async function processBatchData<T, R>(
+    data: T[],
+    processor: (batch: T[]) => Promise<R[]>,
+    onProgress?: (processed: number, total: number) => void
+  ): Promise<R[]> {
+    if (data.length <= config.performance.BATCH_PROCESSING.CHUNK_SIZE) {
+      return processor(data);
+    }
+
+    const result = await dataPagination.processBatches(
+      data,
+      processor,
+      {
+        batchSize: config.performance.BATCH_PROCESSING.CHUNK_SIZE,
+        processingDelay: config.performance.BATCH_PROCESSING.PROCESSING_DELAY,
+        maxConcurrent: config.performance.BATCH_PROCESSING.MAX_CONCURRENT,
+        onProgress,
+        onBatchComplete: (batchIndex, batchData) => {
+          console.log(`📊 Processed batch ${batchIndex + 1}, items: ${batchData.length}`);
+        }
+      }
+    );
+
+    return result.processedData;
+  }
+
+  /**
+   * 验证和清理数据
+   */
+  function validateAndCleanData<T extends Record<string, any>>(
+    data: T[],
+    requiredFields: string[]
+  ): T[] {
+    if (!Array.isArray(data)) return [];
+
+    return data.filter(item => {
+      if (!item || typeof item !== 'object') return false;
+
+      // 检查必需字段
+      for (const field of requiredFields) {
+        if (!(field in item)) return false;
+      }
+
+      return true;
+    });
+  }
+
+  /**
+   * 检查数据完整性
+   */
+  function checkDataIntegrity(data: any[], minDataPoints: number = 1): boolean {
+    if (!Array.isArray(data) || data.length < minDataPoints) {
+      return false;
+    }
+
+    const validItems = data.filter(item => item != null);
+    const missingRatio = (data.length - validItems.length) / data.length;
+
+    return missingRatio <= config.validation.DATA_INTEGRITY.MAX_MISSING_RATIO;
+  }
+
+  /**
+   * 执行所有清理操作
+   */
+  function performCleanup(): void {
+    if (isDestroyed) return;
+
+    isDestroyed = true;
+
+    // 清理定时器
+    if (reloadTimeout) {
+      clearTimeout(reloadTimeout);
+      reloadTimeout = null;
+    }
+
+    // 清理大数据集
+    clearLargeDataSets();
+
+    // 执行所有注册的清理函数
+    cleanupFunctions.forEach(cleanup => {
+      try {
+        cleanup();
+      } catch (error) {
+        console.error('Error during cleanup:', error);
+      }
+    });
+
+    cleanupFunctions = [];
+  }
+
+  // 内存监控和自动清理 - 优化版本
+  $effect(() => {
+    // 🔧 优化：仅在开发模式下启用预加载规则
+    const isDevelopment = localStorage.getItem('tuanki-performance-mode') !== 'production';
+    
+    if (isDevelopment) {
+      // 设置智能预加载规则（仅开发模式）
+      smartPreloader.addPreloadRule({
+        name: 'analytics-range-preload',
+        priority: 10,
+        confidence: 0.9,
+        trigger: (pattern) => pattern.action === 'range-change',
+        predictor: (pattern) => {
+          const currentRange = pattern.context.toRange;
+          const adjacentRanges = [];
+
+          if (currentRange === '7') adjacentRanges.push('30');
+          if (currentRange === '30') adjacentRanges.push('7', '90');
+          if (currentRange === '90') adjacentRanges.push('30', 'year');
+          if (currentRange === 'year') adjacentRanges.push('90');
+
+          return adjacentRanges.map(r => `analytics-data-${r}-${JSON.stringify(selectedDecks)}`);
+        },
+        loader: async (keys) => {
+          console.log('🚀 Preloading analytics data for keys:', keys);
+          return {};
+        }
+      });
+    }
+
+    // 🔧 优化：更激进的内存检查策略
+    const MEMORY_CHECK_INTERVAL = 30000; // 30秒（从60秒改为30秒）
+    const MEMORY_WARNING_THRESHOLD = 30; // 30MB（从50MB改为30MB）
+    const MEMORY_CRITICAL_THRESHOLD = 50; // 50MB
+    
+    const memoryCheckInterval = setInterval(() => {
+      if (isDestroyed) return;
+
+      // 更新缓存统计（降低频率）
+      const stats = smartCache.getStats();
+      const adaptiveStats = adaptiveCache.getAdaptiveStats();
+      cacheStats = {
+        totalEntries: stats.totalEntries,
+        hitRate: stats.hitRate,
+        memoryUsage: stats.memoryUsage,
+        currentStrategy: adaptiveStats.currentStrategy,
+        memoryPressure: adaptiveStats.memoryPressure.level,
+        accessPatterns: adaptiveStats.accessPatterns
+      };
+
+      // 🔧 优化：更精确的内存检查和分级清理
+      if ('memory' in performance) {
+        const memInfo = (performance as any).memory;
+        const usedMB = memInfo.usedJSHeapSize / (1024 * 1024);
+        const totalMB = memInfo.jsHeapSizeLimit / (1024 * 1024);
+        const usageRatio = usedMB / totalMB;
+
+        // 分级清理策略
+        if (usedMB > MEMORY_CRITICAL_THRESHOLD || usageRatio > 0.7) {
+          console.warn(`🚨 内存严重占用: ${usedMB.toFixed(1)}MB (${(usageRatio * 100).toFixed(1)}%), 执行深度清理`);
+          
+          // 清理所有大数据集
+          clearLargeDataSets();
+          
+          // 清理所有预加载缓存
+          smartCache.deleteByTag('preloaded');
+          smartCache.deleteByTag('analytics');
+          
+          // 清理预加载历史
+          smartPreloader.clearHistory();
+          
+          // 强制垃圾回收提示（如果可用）
+          if (typeof globalThis.gc === 'function') {
+            globalThis.gc();
+          }
+        } else if (usedMB > MEMORY_WARNING_THRESHOLD || usageRatio > 0.5) {
+          console.warn(`⚠️ 内存占用较高: ${usedMB.toFixed(1)}MB (${(usageRatio * 100).toFixed(1)}%), 执行轻度清理`);
+          
+          // 仅清理预加载的缓存
+          smartCache.deleteByTag('preloaded');
+        }
+      }
+    }, MEMORY_CHECK_INTERVAL);
+
+    addCleanup(() => {
+      clearInterval(memoryCheckInterval);
+      smartCache.clear(); // 清理所有缓存
+      smartPreloader.clearHistory(); // 清理预加载历史
+      adaptiveCache.destroy(); // 清理自适应缓存
+    });
+
+    return () => {
+      performCleanup();
+    };
+  });
+
+  async function reloadCharts() {
+    if (isDestroyed) return;
+
+    if (reloadTimeout) {
+      clearTimeout(reloadTimeout);
+    }
+
+    reloadTimeout = setTimeout(async () => {
+      if (isDestroyed) return;
+
+      try {
+        isLoading = true;
+        hasError = false;
+        errorMessage = '';
+
+        // 在加载新数据前清理旧数据以释放内存
+        clearLargeDataSets();
+
+        const f = { ...computeRange(), deckIds: selectedDecks.length ? selectedDecks : undefined } as any;
+
+        // 定义降级策略
+        const fallbackStrategies: FallbackStrategy<any[]>[] = [
+          {
+            name: 'reduced-data-set',
+            priority: 1,
+            execute: async () => {
+              // 降级策略：只加载核心数据
+              console.log('🔄 Using reduced data set fallback');
+              return Promise.all([
+                svc.trend('day', 7, f), // 减少到7天
+                svc.ratingDistribution(f),
+                [], // 跳过小时矩阵
+                {}, // 跳过日历热力图
+                [], // 跳过间隔增长
+                svc.deckCompare(f),
+                [], // 跳过FSRS数据
+                [],
+                [],
+                { fsrsAccuracy: 0, traditionalAccuracy: 0, efficiencyGain: 0, retentionImprovement: 0, sampleSize: 0, confidenceLevel: 0 },
+                { avgDifficulty: 0, avgStability: 0, retentionRate: 0, algorithmEfficiency: 0, parameterOptimization: 0, totalCards: 0, matureCards: 0 }
+              ]);
+            }
+          },
+          {
+            name: 'minimal-data-set',
+            priority: 2,
+            execute: async () => {
+              // 最小数据集：只加载基本统计
+              console.log('🔄 Using minimal data set fallback');
+              return Promise.all([
+                svc.trend('day', 3, f), // 只加载3天
+                svc.ratingDistribution(f),
+                [], [], [], [],
+                [], [], [],
+                { fsrsAccuracy: 0, traditionalAccuracy: 0, efficiencyGain: 0, retentionImprovement: 0, sampleSize: 0, confidenceLevel: 0 },
+                { avgDifficulty: 0, avgStability: 0, retentionRate: 0, algorithmEfficiency: 0, parameterOptimization: 0, totalCards: 0, matureCards: 0 }
+              ]);
+            }
+          }
+        ];
+
+        // 生成缓存键（排序selectedDecks以确保一致性）
+        const sortedDecks = [...selectedDecks].sort();
+        const cacheKey = `analytics-data-${range}-${JSON.stringify(sortedDecks)}-${Date.now() - (Date.now() % (3 * 60 * 1000))}`; // 3分钟缓存窗口
+
+        // 记录访问模式用于自适应缓存
+        adaptiveCache.recordAccess(cacheKey, 0); // 数据大小将在加载后更新
+
+        // 获取自适应缓存建议
+        const cacheRecommendation = adaptiveCache.getCacheRecommendation(cacheKey, 1024 * 1024); // 估算1MB数据
+
+        // 使用智能缓存和重试策略加载数据
+        const dataLoadResult = await smartCache.getOrSet(
+          cacheKey,
+          async () => {
+            const result = await smartRetry.executeWithFallback(
+              async () => {
+                // 主要数据加载操作
+                return Promise.all([
+                  svc.trend('day', timeRangeConfig.DEFAULT_DAYS, f),
+                  svc.ratingDistribution(f),
+                  svc.hourWeekMatrix(f),
+                  svc.calendarHeat(new Date().getFullYear(), f),
+                  svc.intervalGrowth('week', f),
+                  svc.deckCompare(f),
+                  // FSRS分析数据加载
+                  svc.getMemoryCurveData(f),
+                  svc.getDifficultyDistribution(f),
+                  svc.getParameterImpactAnalysis(f),
+                  svc.getAlgorithmComparison(f),
+                  svc.getFSRSKPIData(f)
+                ]);
+              },
+              fallbackStrategies,
+              {
+                maxAttempts: 3,
+                initialDelay: 1000,
+                onRetry: (attempt, error) => {
+                  console.warn(`📊 Analytics data load retry ${attempt}:`, error.message);
+                }
+              }
+            );
+
+            // 更新访问模式的数据大小
+            const dataSize = JSON.stringify(result).length * 2; // 估算字节数
+            adaptiveCache.recordAccess(cacheKey, dataSize);
+
+            return result;
+          },
+          cacheRecommendation.shouldCache ? cacheRecommendation.ttl : config.performance.CACHE.TTL,
+          ['analytics', `range-${range}`, 'dashboard-data']
+        );
+
+        // 处理缓存或新加载的数据
+        let actualData;
+        if (dataLoadResult && typeof dataLoadResult === 'object' && 'success' in dataLoadResult) {
+          // 这是从重试系统返回的结果
+          if (!dataLoadResult.success) {
+            throw dataLoadResult.error;
+          }
+          actualData = dataLoadResult.data!;
+
+          // 记录使用的策略
+          if (dataLoadResult.strategy !== 'primary') {
+            console.warn(`📊 Analytics loaded using fallback strategy: ${dataLoadResult.strategy}`);
+          }
+        } else {
+          // 这是从缓存返回的直接数据
+          actualData = dataLoadResult;
+          console.log('📦 Analytics data loaded from cache');
+        }
+
+        const [
+          trendData,
+          ratingData,
+          hoursData,
+          calendarData,
+          intervalData,
+          deckData,
+          memoryCurve,
+          difficultyDist,
+          parameterAnalysis,
+          algorithmComp,
+          fsrsKPIData
+        ] = actualData;
+
+        // 数据转换和验证，应用采样优化
+        try {
+          // 验证和处理趋势数据，使用批量处理
+          const validTrendData = validateAndCleanData(trendData, ['key']);
+          if (checkDataIntegrity(validTrendData, config.validation.DATA_INTEGRITY.MIN_DATA_POINTS)) {
+            if (validTrendData.length > config.performance.BATCH_PROCESSING.CHUNK_SIZE) {
+              console.log(`📊 Processing large trend dataset: ${validTrendData.length} items`);
+              const processedTrendData = await processBatchData(
+                validTrendData,
+                async (batch) => {
+                  return batch.map(p => ({
+                    key: p.key,
+                    value: Math.max(0, p.reviews || 0)
+                  }));
+                },
+                (processed, total) => {
+                  console.log(`📊 Trend data processing: ${processed}/${total}`);
+                }
+              );
+              dayTrend = sampleData(processedTrendData, config.performance.SAMPLING.MAX_REVIEWS_SAMPLE);
+            } else {
+              const sampledTrendData = sampleData(validTrendData, config.performance.SAMPLING.MAX_REVIEWS_SAMPLE);
+              dayTrend = sampledTrendData.map(p => ({
+                key: p.key,
+                value: Math.max(0, p.reviews || 0)
+              }));
+            }
+          } else {
+            console.warn('Trend data integrity check failed');
+            dayTrend = [];
+          }
+
+          // 验证和处理评分数据
+          const validRatingData = validateAndCleanData(ratingData, ['rating']);
+          ratingBars = validRatingData.map((r, i) => ({
+            key: String(r.rating),
+            value: Math.max(0, r.count || 0),
+            color: [chartConfig.COLORS.ERROR, chartConfig.COLORS.WARNING, chartConfig.COLORS.SUCCESS, chartConfig.COLORS.PRIMARY][i] || chartConfig.COLORS.SECONDARY
+          }));
+
+          // 验证热力图数据
+          if (Array.isArray(hoursData) && hoursData.every(row => Array.isArray(row))) {
+            hoursMatrix = hoursData;
+          } else {
+            console.warn('Hours matrix data is invalid');
+            hoursMatrix = [];
+          }
+
+          // 验证日历数据
+          if (calendarData && typeof calendarData === 'object') {
+            calMap = calendarData;
+          } else {
+            console.warn('Calendar data is invalid');
+            calMap = {};
+          }
+
+          // 验证和处理间隔数据
+          const validIntervalData = validateAndCleanData(intervalData, ['key']);
+          if (checkDataIntegrity(validIntervalData)) {
+            const sampledIntervalData = sampleData(validIntervalData, config.performance.SAMPLING.MAX_REVIEWS_SAMPLE);
+            intervalTrend = sampledIntervalData.map(p => ({
+              key: p.key,
+              value: Math.max(0, Math.min(100, p.accuracy || 0))
+            }));
+          } else {
+            intervalTrend = [];
+          }
+
+          // 验证牌组对比数据
+          const validDeckData = validateAndCleanData(deckData, ['name']);
+          deckCompareData = sampleData(validDeckData, 20).map(deck => ({
+            name: deck.name || 'Unknown',
+            reviews: deck.reviews || 0,
+            accuracy: deck.accuracy || 0,
+            avgInterval: deck.avgInterval || 0,
+            avgDifficulty: deck.avgDifficulty || 0
+          }));
+
+          // FSRS数据验证和赋值，使用批量处理优化
+          if (Array.isArray(memoryCurve)) {
+            // 对大数据集使用批量处理
+            if (memoryCurve.length > config.performance.BATCH_PROCESSING.CHUNK_SIZE) {
+              console.log(`📊 Processing large memory curve dataset: ${memoryCurve.length} items`);
+              memoryCurveData = await processBatchData(
+                memoryCurve,
+                async (batch) => {
+                  // 批量验证和处理内存曲线数据
+                  return batch.filter(item => item && typeof item === 'object');
+                },
+                (processed, total) => {
+                  console.log(`📊 Memory curve processing: ${processed}/${total}`);
+                }
+              );
+              memoryCurveData = sampleData(memoryCurveData, config.performance.SAMPLING.MAX_CARDS_SAMPLE);
+            } else {
+              memoryCurveData = sampleData(memoryCurve, config.performance.SAMPLING.MAX_CARDS_SAMPLE);
+            }
+          } else {
+            memoryCurveData = [];
+          }
+
+          if (Array.isArray(difficultyDist)) {
+            difficultyData = sampleData(difficultyDist, 50);
+          } else {
+            difficultyData = [];
+          }
+
+          if (Array.isArray(parameterAnalysis)) {
+            parameterImpact = sampleData(parameterAnalysis, 30);
+          } else {
+            parameterImpact = [];
+          }
+
+          algorithmComparison = algorithmComp || {
+            fsrsAccuracy: 0,
+            traditionalAccuracy: 0,
+            efficiencyGain: 0,
+            retentionImprovement: 0,
+            sampleSize: 0,
+            confidenceLevel: 0
+          };
+
+          fsrsKPI = fsrsKPIData || {
+            avgDifficulty: 0,
+            avgStability: 0,
+            retentionRate: 0,
+            algorithmEfficiency: 0,
+            parameterOptimization: 0,
+            totalCards: 0,
+            matureCards: 0
+          };
+
+        } catch (dataError) {
+          console.error('Error processing chart data:', dataError);
+
+          // 设置默认空数据
+          dayTrend = [];
+          ratingBars = [];
+          hoursMatrix = [];
+          calMap = {};
+          intervalTrend = [];
+          deckCompareData = [];
+          memoryCurveData = [];
+          difficultyData = [];
+          parameterImpact = [];
+        }
+      } catch (error) {
+        console.error('Error reloading charts:', error);
+        hasError = true;
+
+        // 使用智能重试服务生成用户友好的错误消息
+        errorMessage = smartRetry.createUserFriendlyMessage(error as Error, '数据加载');
+
+        // 获取恢复建议（可以在UI中显示）
+        const suggestions = smartRetry.getRecoverySuggestions(error as Error);
+        console.log('Recovery suggestions:', suggestions);
+      } finally {
+        isLoading = false;
+
+        // 记录内存使用情况
+        if ('memory' in performance) {
+          const memInfo = (performance as any).memory;
+          const usedMB = memInfo.usedJSHeapSize / (1024 * 1024);
+          console.log(`💾 Memory usage: ${usedMB.toFixed(1)}MB`);
+        }
+      }
+    }, refreshConfig.DEBOUNCE_DELAY);
+  }
+
+  (async () => {
+    isLoading = true;
+    hasError = false;
+    errorMessage = '';
+
+    try {
+      // 使用智能重试加载基础数据
+      const [cards, decks] = await smartRetry.executeWithRetry(
+        async () => {
+          const result = await Promise.all([
+            dataStorage.getCards(),
+            dataStorage.getDecks()
+          ]);
+
+          if (!Array.isArray(result[0]) || !Array.isArray(result[1])) {
+            throw new Error(i18n.t('analytics.errors.dataCorrupted'));
+          }
+
+          return result;
+        },
+        {
+          maxAttempts: 3,
+          initialDelay: 500,
+          onRetry: (attempt, error) => {
+            console.warn(`📊 Initial data load retry ${attempt}:`, error.message);
+          }
+        }
+      );
+
+      deckOptions = decks.map(d => ({ id: d.id, name: d.name }));
+
+      // 使用智能重试获取学习会话数据
+      const sessions = await smartRetry.executeWithRetry(
+        async () => {
+          const result = await dataStorage.getStudySessions();
+          if (!Array.isArray(result)) {
+            throw new Error(i18n.t('analytics.errors.dataCorrupted'));
+          }
+          return result;
+        },
+        {
+          maxAttempts: 2,
+          initialDelay: 300,
+          onRetry: (attempt, error) => {
+            console.warn(`📊 Sessions data load retry ${attempt}:`, error.message);
+          }
+        }
+      );
+
+      const today = new Date(); today.setHours(0,0,0,0);
+      const isToday = (d: Date) => new Date(d).getTime() >= today.getTime();
+
+      let todayReviews = 0;
+      let todayNew = 0;
+      let correct = 0;
+      let total = 0;
+      let totalSecs = 0;
+
+      // 统计数据验证和计算
+      for (const s of sessions) {
+        if (!s || !s.startTime) continue;
+
+        // 累计学习时间（所有会话）
+        const sessionTime = s.totalTime || 0;
+        if (typeof sessionTime === 'number' && sessionTime > 0) {
+          totalSecs += sessionTime;
+        }
+
+        // 今日数据统计
+        if (isToday(s.startTime)) {
+          const cardsReviewed = Math.max(0, s.cardsReviewed || 0);
+          const newCards = Math.max(0, s.newCardsLearned || 0);
+          const correctAnswers = Math.max(0, s.correctAnswers || 0);
+
+          todayReviews += cardsReviewed;
+          todayNew += newCards;
+          correct += correctAnswers;
+          total += cardsReviewed;
+        }
+      }
+
+      const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
+      const totalStudyMins = Math.round((totalSecs || 0) / 60);
+
+      // 改进的连续学习天数计算
+      let streak = 0;
+      let cursor = new Date();
+      cursor.setHours(0, 0, 0, 0);
+
+      const hasSessionsOn = (day: Date) => sessions.some((s: any) => {
+        if (!s.startTime || !s.cardsReviewed || s.cardsReviewed <= 0) return false;
+        const d = new Date(s.startTime);
+        d.setHours(0, 0, 0, 0);
+        return d.getTime() === day.getTime();
+      });
+
+      while (hasSessionsOn(cursor)) {
+        streak++;
+        cursor.setDate(cursor.getDate() - 1);
+      }
+
+      // approximate memory rate: average of last 7 days accuracy
+      let last7Correct = 0, last7Total = 0;
+      const since7 = new Date(); since7.setDate(since7.getDate()-7); since7.setHours(0,0,0,0);
+      for (const s of sessions) {
+        const d = new Date(s.startTime); if (d >= since7) { last7Correct += s.correctAnswers||0; last7Total += s.cardsReviewed||0; }
+      }
+      const memoryRate = last7Total>0 ? Math.round((last7Correct/last7Total)*100) : accuracy;
+
+      // FSRS进度计算 - 更准确的实现
+      const validCards = cards.filter(c => c && c.fsrs);
+      const learnedCards = validCards.filter(c => {
+        // 检查卡片是否已经学习过（不是新卡片状态）
+        return c.fsrs.state !== 0 && // 不是新卡片
+               c.reviewHistory &&
+               c.reviewHistory.length > 0; // 有复习历史
+      });
+
+      const fsrsProgress = validCards.length > 0 ?
+        Math.round((learnedCards.length / validCards.length) * 100) : 0;
+
+      kpi = {
+        todayReviews, todayNew, accuracy, totalStudyMins,
+        memoryRate, streakDays: streak, fsrsProgress
+      };
+      await reloadCharts();
+    } catch (error) {
+      console.error('Error loading analytics data:', error);
+      hasError = true;
+      errorMessage = error instanceof Error ? error.message : '加载数据时发生未知错误';
+    } finally {
+      isLoading = false;
+    }
+  })();
+
+  // 数据格式化函数
+  function formatNumber(n: number): string {
+    if (typeof n !== 'number' || isNaN(n)) return '0';
+    return new Intl.NumberFormat().format(n);
+  }
+
+  function formatPercentage(n: number): string {
+    if (typeof n !== 'number' || isNaN(n)) return '0%';
+    return `${Math.round(n)}%`;
+  }
+
+  function formatTime(minutes: number): string {
+    if (typeof minutes !== 'number' || isNaN(minutes) || minutes < 0) return '0m';
+
+    if (minutes < 60) {
+      return `${Math.round(minutes)}m`;
+    } else {
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = Math.round(minutes % 60);
+      return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+    }
+  }
+  function setRange(v: typeof range) {
+    // 记录用户行为用于预加载预测
+    smartPreloader.recordBehavior('range-change', {
+      fromRange: range,
+      toRange: v,
+      selectedDecks: selectedDecks.length,
+      timestamp: Date.now()
+    });
+
+    // 清除相关缓存
+    smartCache.deleteByTag('analytics');
+    smartCache.deleteByTag(`range-${range}`);
+
+    range = v;
+    reloadCharts();
+
+    // 预测并预加载下一步可能需要的数据
+    const predictions = smartPreloader.predictNextActions('range-change', { range: v });
+    if (predictions.length > 0) {
+      setTimeout(() => {
+        smartPreloader.triggerPreload(predictions);
+      }, 500); // 延迟预加载，避免影响当前操作
+    }
+  }
+  function toggleDeckDd(e?: Event) { if (e) e.stopPropagation(); deckDdOpen = !deckDdOpen; }
+  function closeDeckDd() { deckDdOpen = false; }
+  function deckIsSelected(id: string) { return selectedDecks.includes(id); }
+  function deckToggle(id: string) {
+    // 记录用户行为
+    smartPreloader.recordBehavior('deck-toggle', {
+      deckId: id,
+      previousSelection: [...selectedDecks],
+      action: selectedDecks.includes(id) ? 'remove' : 'add',
+      range: range,
+      timestamp: Date.now()
+    });
+
+    // 清除相关缓存
+    smartCache.deleteByTag('analytics');
+    smartCache.deleteByTag('dashboard-data');
+
+    const set = new Set(selectedDecks);
+    if (set.has(id)) set.delete(id); else set.add(id);
+    selectedDecks = Array.from(set);
+    reloadCharts();
+
+    // 预测用户可能的下一步操作
+    const predictions = smartPreloader.predictNextActions('deck-toggle', {
+      selectedDecks,
+      range
+    });
+    if (predictions.length > 0) {
+      setTimeout(() => {
+        smartPreloader.triggerPreload(predictions);
+      }, 300);
+    }
+  }
+  function deckClearAll() {
+    // 记录用户行为
+    smartPreloader.recordBehavior('deck-clear-all', {
+      previousSelection: [...selectedDecks],
+      range: range,
+      timestamp: Date.now()
+    });
+
+    // 清除相关缓存
+    smartCache.deleteByTag('analytics');
+    smartCache.deleteByTag('dashboard-data');
+
+    selectedDecks = [];
+    reloadCharts();
+    closeDeckDd();
+  }
+
+  /**
+   * 处理图表悬停事件
+   */
+  function handleChartHover(chartType: string, dataPoint?: any) {
+    smartPreloader.recordBehavior('chart-hover', {
+      chartType,
+      dataPoint: dataPoint ? JSON.stringify(dataPoint) : null,
+      range,
+      selectedDecks: selectedDecks.length,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * 处理图表点击事件
+   */
+  function handleChartClick(chartType: string, dataPoint?: any) {
+    smartPreloader.recordBehavior('chart-click', {
+      chartType,
+      dataPoint: dataPoint ? JSON.stringify(dataPoint) : null,
+      range,
+      selectedDecks: selectedDecks.length,
+      timestamp: Date.now()
+    });
+
+    // 预测用户可能需要的详细数据
+    const predictions = smartPreloader.predictNextActions('chart-click', {
+      chartType,
+      range
+    });
+    if (predictions.length > 0) {
+      setTimeout(() => {
+        smartPreloader.triggerPreload(predictions);
+      }, 200);
+    }
+  }
+  function deckLabel() {
+    if (!selectedDecks.length) return '全部牌组';
+    if (selectedDecks.length === 1) return deckOptions.find(d=>d.id===selectedDecks[0])?.name || '1个已选';
+    return `已选${selectedDecks.length}个`;
+  }
+  function exportCsv() {
+    const rows: string[] = [];
+    rows.push('date,trend_reviews');
+    for (const p of dayTrend) rows.push(`${p.key},${p.value}`);
+    const csv = rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'analytics.csv'; a.click(); URL.revokeObjectURL(url);
+  }
+</script>
+
+<svelte:window onclick={closeDeckDd} onkeydown={(e) => { if (e.key==='Escape') closeDeckDd(); }} />
+
+{#if !isPremium}
+  <!-- 🔒 未激活提示 -->
+  <div class="premium-locked-container">
+    <div class="premium-locked-content">
+      <div class="premium-icon">📊</div>
+      <h2>高级统计分析</h2>
+      <p class="premium-desc">详细的学习数据分析、热力图和可视化</p>
+      <p class="premium-hint">此功能需要激活许可证后使用</p>
+      <div class="premium-features">
+        <h3>激活后您将获得：</h3>
+        <ul>
+          <li>📈 详细的学习趋势分析</li>
+          <li>🗓️ 每日学习热力图</li>
+          <li>💡 记忆曲线可视化</li>
+          <li>📊 难度分布统计</li>
+          <li>⏱️ 学习时间追踪</li>
+          <li>📋 导出CSV数据报告</li>
+        </ul>
+      </div>
+      <button 
+        class="activate-button" 
+        onclick={() => {
+          showActivationPrompt = true;
+        }}
+      >
+        前往激活
+      </button>
+    </div>
+  </div>
+  
+  <!-- 激活提示弹窗 -->
+  <ActivationPrompt
+    featureId={PREMIUM_FEATURES.ADVANCED_ANALYTICS}
+    visible={showActivationPrompt}
+    onClose={() => showActivationPrompt = false}
+  />
+{:else if hasError}
+  <div class="error-container">
+    <div class="error-icon">⚠️</div>
+    <h3>{i18n.t('analytics.dashboard.error')}</h3>
+    <p>{errorMessage}</p>
+    <button class="retry-button" onclick={() => window.location.reload()}>
+      {i18n.t('analytics.dashboard.retry')}
+    </button>
+  </div>
+{:else}
+  <div class="anki-app analytics-page" class:loading={isLoading}>
+    {#if isLoading}
+      <div class="loading-overlay">
+        <div class="loading-content">
+          <div class="loading-spinner"></div>
+          <p class="loading-text">{i18n.t('analytics.dashboard.loading')}</p>
+          <div class="loading-progress">
+            <div class="progress-bar">
+              <div class="progress-fill"></div>
+            </div>
+            <p class="progress-text">正在处理数据...</p>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+  <!-- Filter Bar -->
+  <section class="filter-bar">
+    <div class="group">
+      <span id="range-label" class="group-label">时间范围</span>
+      <div class="seg" role="group" aria-labelledby="range-label">
+        <button class={range==='7'?'active':''} onclick={() => setRange('7')}>{i18n.t('analytics.timeRange.last7Days')}</button>
+        <button class={range==='30'?'active':''} onclick={() => setRange('30')}>{i18n.t('analytics.timeRange.last30Days')}</button>
+        <button class={range==='90'?'active':''} onclick={() => setRange('90')}>{i18n.t('analytics.timeRange.last90Days')}</button>
+        <button class={range==='year'?'active':''} onclick={() => setRange('year')}>{i18n.t('analytics.timeRange.thisYear')}</button>
+        <button class={range==='all'?'active':''} onclick={() => setRange('all')}>全部</button>
+      </div>
+    </div>
+    <div class="group dd">
+      <span id="deck-label" class="group-label">牌组</span>
+      <button id="deck-dd-btn" class="dd-toggle" aria-haspopup="menu" aria-expanded={deckDdOpen} aria-labelledby="deck-label deck-dd-btn" onclick={(e)=>toggleDeckDd(e)}>{deckLabel()}</button>
+      {#if deckDdOpen}
+        <div class="dd-menu" role="menu" aria-labelledby="deck-label">
+          <button class="dd-item" role="menuitem" onclick={deckClearAll}>全部牌组</button>
+          <div class="dd-sep"></div>
+          {#each deckOptions as d}
+            <button class="dd-item" role="menuitemcheckbox" aria-checked={deckIsSelected(d.id)} onclick={() => deckToggle(d.id)}>
+              <span class={deckIsSelected(d.id)?'check on':'check'}>✓</span>
+              <span class="dd-text">{d.name}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+    <div class="spacer"></div>
+    <button class="btn" onclick={() => { smartCache.deleteByTag('analytics'); reloadCharts(); }} title="刷新数据">
+      <EnhancedIcon name="refresh-cw" size="14" />
+      刷新
+    </button>
+    <button class="btn" onclick={exportCsv}>{i18n.t('common.export')} CSV</button>
+  </section>
+
+  <!-- KPI Cards -->
+  <section class="kpi-grid" aria-busy={isLoading}>
+    <div class="kpi-card">
+      <div class="kpi-head">
+        <span class="kpi-title">{i18n.t('analytics.dashboard.kpi.todayReviews')}</span>
+        <EnhancedIcon name="history" size="16" />
+      </div>
+      <div class="kpi-value">{formatNumber(kpi.todayReviews)}</div>
+      <div class="kpi-sub">{i18n.t('analytics.dashboard.kpi.trend.yesterdayCompare')} <span class="trend up">+—</span></div>
+      <div class="kpi-glow"></div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-head">
+        <span class="kpi-title">{i18n.t('analytics.dashboard.kpi.todayNew')}</span>
+        <EnhancedIcon name="plus" size="16" />
+      </div>
+      <div class="kpi-value">{formatNumber(kpi.todayNew)}</div>
+      <div class="kpi-sub">{i18n.t('analytics.dashboard.kpi.trend.newCardsAdded')}</div>
+      <div class="kpi-glow"></div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-head">
+        <span class="kpi-title">{i18n.t('analytics.dashboard.kpi.accuracy')}</span>
+        <EnhancedIcon name="check" size="16" />
+      </div>
+      <div class="kpi-value">{formatPercentage(kpi.accuracy)}</div>
+      <div class="kpi-sub">近24小时</div>
+      <div class="kpi-glow"></div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-head">
+        <span class="kpi-title">{i18n.t('analytics.dashboard.kpi.studyTime')}</span>
+        <EnhancedIcon name="clock" size="16" />
+      </div>
+      <div class="kpi-value">{formatTime(kpi.totalStudyMins)}</div>
+      <div class="kpi-sub">累计（会话）</div>
+      <div class="kpi-glow"></div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-head">
+        <span class="kpi-title">{i18n.t('analytics.dashboard.kpi.memoryRate')}</span>
+        <EnhancedIcon name="info" size="16" />
+      </div>
+      <div class="kpi-value">{formatPercentage(kpi.memoryRate)}</div>
+      <div class="kpi-sub">近7天</div>
+      <div class="kpi-glow"></div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-head">
+        <span class="kpi-title">{i18n.t('analytics.dashboard.kpi.streakDays')}</span>
+        <EnhancedIcon name="statistics" size="16" />
+      </div>
+      <div class="kpi-value">{kpi.streakDays}</div>
+      <div class="kpi-sub">连续学习</div>
+      <div class="kpi-glow"></div>
+    </div>
+
+    <div class="kpi-card">
+      <div class="kpi-head">
+        <span class="kpi-title">{i18n.t('analytics.dashboard.kpi.fsrsProgress')}</span>
+        <EnhancedIcon name="filter" size="16" />
+      </div>
+      <div class="kpi-value">{formatPercentage(kpi.fsrsProgress)}</div>
+      <div class="kpi-sub">已学习/全部</div>
+      <div class="kpi-glow"></div>
+    </div>
+  </section>
+
+  <!-- Charts -->
+  <section class="panel-row">
+    <div class="panel">
+      <div class="panel-head"><span>{i18n.t('analytics.dashboard.charts.reviewTrend', { days: timeRangeConfig.DEFAULT_DAYS })}</span></div>
+      <LineChart data={dayTrend} height={chartConfig.DEFAULT_HEIGHT} />
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span>{i18n.t('analytics.dashboard.charts.ratingDistribution')}</span></div>
+      <BarChart data={ratingBars} height={chartConfig.DEFAULT_HEIGHT} />
+    </div>
+  </section>
+  <section class="panel-row">
+    <div class="panel">
+      <div class="panel-head"><span>{i18n.t('analytics.dashboard.charts.calendarHeatmap')}</span></div>
+      <CalendarHeatmap byDay={calMap} />
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span>{i18n.t('analytics.dashboard.charts.timeHeatmap')}</span></div>
+      <Heatmap matrix={hoursMatrix} />
+    </div>
+  </section>
+  <section class="panel-row">
+    <div class="panel">
+      <div class="panel-head"><span>{i18n.t('analytics.dashboard.charts.intervalGrowth')}</span></div>
+      <LineChart data={intervalTrend} height={chartConfig.DEFAULT_HEIGHT} />
+    </div>
+    <div class="panel deck-compare-panel">
+      <div class="panel-head"><span>{i18n.t('analytics.dashboard.charts.deckComparison')}</span></div>
+      <div class="deck-table-container">
+        <VirtualizedDataTable
+          data={deckCompareData}
+          columns={deckTableColumns}
+          itemHeight={40}
+          loading={isLoading}
+          emptyText={i18n.t('analytics.dashboard.noData')}
+          onRowClick={(row: any, index: number) => {
+            console.log('Deck clicked:', row.name, 'at index:', index);
+            // 这里可以添加点击牌组的处理逻辑
+            handleChartClick('deck-table', row);
+          }}
+          onSort={(column: any, direction: any) => {
+            console.log('Sort by:', column, direction);
+            // 排序逻辑已在组件内部处理
+          }}
+        />
+      </div>
+    </div>
+  </section>
+
+  <!-- FSRS6 分析面板 -->
+  <section class="fsrs-section">
+    <h2>{i18n.t('analytics.dashboard.fsrs.title')}</h2>
+
+    <!-- FSRS分析面板已清理，为重构做准备 -->
+    <div class="fsrs-placeholder">
+      <div class="placeholder-content">
+        <div class="placeholder-icon">🧠</div>
+        <h3>FSRS6 分析功能重构中</h3>
+        <p>我们正在重新设计FSRS6算法分析界面，将为您带来更强大的学习数据洞察和参数优化体验。</p>
+        <div class="placeholder-features">
+          <div class="feature-item">
+            <span class="feature-icon">📊</span>
+            <span>增强的记忆曲线分析</span>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">🎯</span>
+            <span>智能参数优化建议</span>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">📈</span>
+            <span>学习效果趋势预测</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+  </section>
+</div>
+
+<style>
+  .analytics-page { 
+    flex: 1;
+    width: 100%;
+    padding: 0 1.5rem;
+    box-sizing: border-box;
+  }
+  .kpi-grid {
+    display: grid; gap: 1rem; grid-template-columns: repeat(4, 1fr);
+  }
+  .filter-bar { display:flex; gap:1rem; align-items:center; background: var(--background-secondary); border:1px solid var(--background-modifier-border); border-radius:.75rem; padding:.75rem 1rem; margin-bottom:1rem; }
+  .filter-bar .group { display:flex; gap:.5rem; align-items:center; }
+  .filter-bar .group.dd { position: relative; }
+  /* removed unused label style */
+  .filter-bar .seg { display:flex; background: var(--background-primary); border:1px solid var(--background-modifier-border); border-radius:.5rem; overflow:hidden; }
+  .filter-bar .seg button { padding:.4rem .75rem; background:transparent; border:none; color: var(--text-muted); cursor:pointer; }
+  .filter-bar .seg button.active { background: var(--interactive-accent); color: var(--text-on-accent); }
+  .filter-bar .spacer { flex:1; }
+  .filter-bar .btn { padding:.45rem .8rem; border:none; border-radius:.5rem; background:#0d0e14; color:#ececf2; border:1px solid var(--background-modifier-border); cursor:pointer; }
+
+  .dd-toggle { padding:.4rem .75rem; background: var(--background-primary); border:1px solid var(--background-modifier-border); color: var(--text-normal); border-radius:.5rem; cursor:pointer; }
+  .dd-menu { position:absolute; top: calc(100% + 8px); left:0; min-width: 220px; background: var(--background-primary); border:1px solid var(--background-modifier-border); border-radius:.5rem; box-shadow: 0 10px 20px rgba(0,0,0,.2); z-index: 20; padding:.35rem; }
+  .dd-item { width:100%; text-align:left; background:transparent; border:none; color: var(--text-normal); padding:.45rem .5rem; border-radius:.35rem; cursor:pointer; display:flex; align-items:center; gap:.5rem; }
+  .dd-item:hover { background: var(--background-modifier-hover); }
+  .dd-sep { height:1px; background: var(--background-modifier-border); margin:.25rem 0; }
+  .check { width:1rem; height:1rem; display:inline-flex; align-items:center; justify-content:center; border:1px solid var(--background-modifier-border); border-radius:.25rem; color: transparent; }
+  .check.on { background: var(--interactive-accent); border-color: transparent; color: var(--text-on-accent); }
+  .dd-text { flex:1; }
+  .kpi-card {
+    position: relative;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 1rem; padding: 1rem 1.25rem;
+    overflow: hidden; transition: transform .18s ease, box-shadow .18s ease;
+  }
+  .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0,0,0,.15); }
+  .kpi-head { display: flex; align-items: center; justify-content: space-between; color: var(--text-muted); }
+  .kpi-title { font-size: .9rem; font-weight: 600; }
+  .kpi-value { font-size: 2rem; font-weight: 800; margin-top: .25rem; color: var(--text-normal); }
+  .kpi-sub { color: var(--text-muted); font-size: .8rem; }
+  .trend.up { color: #10b981; }
+  .kpi-glow { position:absolute; inset:auto -20% -40% -20%; height: 60%; background: radial-gradient(60% 60% at 50% 0%, rgba(139,92,246,.18), transparent 70%); pointer-events:none; filter: blur(8px); }
+
+  .panel-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1rem;
+    margin-top: 1rem;
+    animation: slideInUp 0.4s ease-out;
+  }
+
+  .panel {
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: .75rem;
+    min-height: 260px;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    animation: fadeInScale 0.3s ease-out;
+  }
+
+  .panel:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .panel-head {
+    padding: .75rem 1rem;
+    border-bottom: 1px solid var(--background-modifier-border);
+    color: var(--text-muted);
+    font-weight: 600;
+    transition: color 0.2s ease;
+  }
+
+  .panel:hover .panel-head {
+    color: var(--text-normal);
+  }
+
+  .panel :global(svg) {
+    flex: 1;
+    transition: opacity 0.3s ease;
+  }
+  .deck-table-container {
+    padding: 0.5rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0; /* 允许flex子元素缩小 */
+  }
+
+  .panel.deck-compare-panel {
+    min-height: 300px; /* 确保表格面板有足够高度 */
+  }
+
+  /* 动画关键帧 */
+  @keyframes slideInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes fadeInScale {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes pulse {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
+  }
+
+  /* 加载状态动画 */
+  .loading .panel {
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  .loading .kpi-card {
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  /* 响应式设计 */
+  @media (max-width: 1024px) {
+    .analytics-page { padding: 0 1rem; }
+    .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+    .panel-row { gap: 0.75rem; }
+  }
+
+  @media (max-width: 768px) {
+    .analytics-page { padding: 0 0.75rem; }
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .panel-row { grid-template-columns: 1fr; gap: 0.5rem; }
+    .panel { min-height: 220px; }
+  }
+
+  @media (max-width: 480px) {
+    .analytics-page { padding: 0 0.5rem; }
+    .kpi-grid { grid-template-columns: 1fr; }
+    .panel { min-height: 200px; }
+    .kpi-card { padding: 0.75rem 1rem; }
+  }
+
+  /* FSRS 分析面板样式 */
+  .fsrs-section {
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 2px solid var(--background-modifier-border);
+  }
+
+  /* FSRS占位符样式 */
+  .fsrs-placeholder {
+    padding: 3rem 2rem;
+    text-align: center;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 12px;
+    margin: 2rem 0;
+  }
+
+  .placeholder-content {
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .placeholder-icon {
+    font-size: 4rem;
+    margin-bottom: 1.5rem;
+    opacity: 0.7;
+  }
+
+  .placeholder-content h3 {
+    margin: 0 0 1rem 0;
+    color: var(--text-normal);
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+
+  .placeholder-content p {
+    margin: 0 0 2rem 0;
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+
+  .placeholder-features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+
+  .feature-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    color: var(--text-normal);
+  }
+
+  .feature-icon {
+    font-size: 1.2rem;
+    opacity: 0.8;
+  }
+
+  .fsrs-section h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 1.5rem 0;
+    color: var(--text-normal);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .fsrs-section h2::before {
+    content: "🧠";
+    font-size: 1.2rem;
+  }
+
+  .fsrs-analysis-main {
+    margin-bottom: 2rem;
+  }
+
+  .fsrs-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .fsrs-kpi {
+    background: linear-gradient(135deg, var(--background-secondary), var(--background-primary));
+    border: 1px solid var(--interactive-accent);
+    border-radius: 1rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .fsrs-kpi .kpi-glow {
+    background: radial-gradient(60% 60% at 50% 0%, rgba(99, 102, 241, 0.2), transparent 70%);
+  }
+
+  .fsrs-charts {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .panel-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .panel-controls .muted {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-weight: normal;
+  }
+
+  /* 响应式设计 */
+  @media (max-width: 1024px) {
+    .fsrs-kpi-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .fsrs-kpi-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .fsrs-section h2 {
+      font-size: 1.25rem;
+    }
+  }
+
+  /* 错误和加载状态样式 */
+  .error-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    text-align: center;
+    color: var(--text-muted);
+    background: var(--background-secondary);
+    border-radius: 12px;
+    border: 1px solid var(--background-modifier-border);
+    margin: 20px;
+    padding: 40px;
+  }
+
+  .error-icon {
+    font-size: 3rem;
+    margin-bottom: 16px;
+  }
+
+  .error-container h3 {
+    margin: 0 0 12px 0;
+    color: var(--text-normal);
+    font-size: 1.2rem;
+  }
+
+  .error-container p {
+    margin: 0 0 20px 0;
+    line-height: 1.5;
+  }
+
+  .retry-button {
+    background: var(--interactive-accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .retry-button:hover {
+    background: var(--interactive-accent-hover);
+  }
+
+  .loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(var(--background-primary-rgb), 0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  .loading-content {
+    background: var(--background-secondary);
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--background-modifier-border);
+    min-width: 280px;
+  }
+
+  .loading-spinner {
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 3px solid var(--background-modifier-border);
+    border-top: 3px solid var(--interactive-accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 1rem auto;
+  }
+
+  .loading-text {
+    margin: 0 0 1rem 0;
+    color: var(--text-normal);
+    font-weight: 500;
+    font-size: 1rem;
+  }
+
+  .loading-progress {
+    margin-top: 1rem;
+  }
+
+  .progress-bar {
+    width: 100%;
+    height: 4px;
+    background: var(--background-modifier-border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--interactive-accent), var(--interactive-accent-hover));
+    border-radius: 2px;
+    animation: progressFill 2s ease-in-out infinite;
+  }
+
+  .progress-text {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes progressFill {
+    0% { width: 0%; }
+    50% { width: 70%; }
+    100% { width: 100%; }
+  }
+
+  .analytics-page.loading {
+    position: relative;
+    pointer-events: none;
+  }
+
+  /* 🔒 高级功能锁定样式 */
+  .premium-locked-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 600px;
+    padding: 40px;
+    background: var(--background-primary);
+  }
+
+  .premium-locked-content {
+    max-width: 600px;
+    text-align: center;
+    padding: 60px 40px;
+    background: var(--background-secondary);
+    border-radius: 16px;
+    box-shadow: var(--shadow-l);
+  }
+
+  .premium-icon {
+    font-size: 72px;
+    margin-bottom: 24px;
+    animation: float 3s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+  }
+
+  .premium-locked-content h2 {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 12px 0;
+    color: var(--text-normal);
+  }
+
+  .premium-desc {
+    font-size: 16px;
+    color: var(--text-muted);
+    margin: 0 0 8px 0;
+  }
+
+  .premium-hint {
+    font-size: 14px;
+    color: var(--text-warning);
+    margin: 0 0 32px 0;
+    font-weight: 500;
+  }
+
+  .premium-features {
+    text-align: left;
+    margin: 0 auto 32px auto;
+    max-width: 400px;
+    padding: 24px;
+    background: var(--background-primary);
+    border-radius: 12px;
+    border: 1px solid var(--background-modifier-border);
+  }
+
+  .premium-features h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 16px 0;
+    color: var(--text-normal);
+  }
+
+  .premium-features ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .premium-features li {
+    padding: 8px 0;
+    font-size: 14px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .activate-button {
+    padding: 12px 32px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-on-accent);
+    background: var(--interactive-accent);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: var(--shadow-s);
+  }
+
+  .activate-button:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-l);
+  }
+
+  .activate-button:active {
+    transform: translateY(0);
+  }
+</style>
+
+{/if}
