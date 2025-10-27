@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>许可证状态显示测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 2rem;
+            background: #1e1e1e;
+            color: #ffffff;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #00d4aa;
+            margin-bottom: 2rem;
+        }
+        
+        .test-section {
+            margin-bottom: 3rem;
+            padding: 1.5rem;
+            background: #2d2d2d;
+            border-radius: 12px;
+            border: 1px solid #404040;
+        }
+        
+        .test-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #00d4aa;
+        }
+        
+        .status-demo {
+            padding: 1rem;
+            background: #1a1a1a;
+            border-radius: 8px;
+            border: 1px solid #333;
+            margin-bottom: 1rem;
+        }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            font-size: 0.875rem;
+            margin-bottom: 1rem;
+        }
+        
+        .status-badge.success {
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+        
+        .status-badge.inactive {
+            background: rgba(245, 158, 11, 0.1);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+        
+        .license-type-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            padding: 0.375rem 0.75rem;
+            border-radius: 6px;
+            font-weight: 500;
+            font-size: 0.75rem;
+            margin-left: 1rem;
+        }
+        
+        .license-type-badge.premium {
+            background: linear-gradient(135deg, #8B5CF6 0%, #A855F7 100%);
+            color: white;
+        }
+        
+        .license-type-badge.subscription {
+            background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+            color: white;
+        }
+        
+        .license-type-badge.standard {
+            background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%);
+            color: white;
+        }
+        
+        .license-type-badge.trial {
+            background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+            color: white;
+        }
+        
+        .lifetime-badge {
+            display: inline-block;
+            margin-left: 0.5rem;
+            padding: 0.125rem 0.5rem;
+            background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+            color: white;
+            border-radius: 4px;
+            font-size: 0.625rem;
+            font-weight: 700;
+        }
+        
+        .detail-grid {
+            display: grid;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+        
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            background: #333;
+            border-radius: 8px;
+        }
+        
+        .detail-label {
+            font-weight: 500;
+            color: #999;
+            font-size: 0.875rem;
+        }
+        
+        .detail-value {
+            font-weight: 600;
+            color: #fff;
+            text-align: right;
+        }
+        
+        .code-display {
+            background: #1a1a1a;
+            border: 1px solid #404040;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-top: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            color: #999;
+            word-break: break-all;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 0.75rem;
+            justify-content: center;
+            margin-top: 1.5rem;
+        }
+        
+        .action-button {
+            padding: 0.5rem 1rem;
+            border: 1px solid #404040;
+            border-radius: 6px;
+            background: #333;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            font-size: 0.875rem;
+        }
+        
+        .action-button:hover {
+            background: #404040;
+            transform: translateY(-1px);
+        }
+        
+        .action-button.primary {
+            background: #00d4aa;
+            color: #000;
+            border-color: #00d4aa;
+        }
+        
+        .action-button.primary:hover {
+            background: #00c49a;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔑 Tuanki 许可证状态显示测试</h1>
+        
+        <!-- 永久买断许可证 -->
+        <div class="test-section">
+            <div class="test-title">1. 永久买断许可证（Lifetime）</div>
+            <div class="status-demo">
+                <div class="status-badge success">
+                    <span>✅</span>
+                    <span>许可证已激活</span>
+                </div>
+                <div class="license-type-badge premium">
+                    <span>💎</span>
+                    <span>永久买断</span>
+                </div>
+                
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">许可证类型</div>
+                        <div class="detail-value">
+                            💎 永久买断
+                            <span class="lifetime-badge">永久有效</span>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">激活时间</div>
+                        <div class="detail-value">2025年1月3日 14:30:25</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">产品版本</div>
+                        <div class="detail-value">v0.5.0</div>
+                    </div>
+                </div>
+                
+                <div class="code-display">
+                    激活码: eyJ1c2VySWQiOiJ0ZXN0X3VzZXJfMDAxIiwicHJvZHVjdElkIjoidHVhbmtpLW9ic2lkaWFuLXBsdWdpbiIsImxpY2Vuc2VUeXBlIjoibGlmZXRpbWUi...
+                </div>
+                
+                <div class="actions">
+                    <button class="action-button primary">🔍 验证许可证</button>
+                    <button class="action-button">🔄 重置许可证</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 订阅许可证 -->
+        <div class="test-section">
+            <div class="test-title">2. 订阅许可证（Subscription）</div>
+            <div class="status-demo">
+                <div class="status-badge success">
+                    <span>✅</span>
+                    <span>许可证已激活</span>
+                </div>
+                <div class="license-type-badge subscription">
+                    <span>🔄</span>
+                    <span>订阅许可</span>
+                </div>
+                
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">许可证类型</div>
+                        <div class="detail-value">🔄 订阅许可</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">激活时间</div>
+                        <div class="detail-value">2025年1月3日 14:30:25</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">到期时间</div>
+                        <div class="detail-value">
+                            <span style="color: #10b981;">2026年1月3日 14:30:25</span>
+                            <span style="color: #10b981;">(365天后过期)</span>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">产品版本</div>
+                        <div class="detail-value">v0.5.0</div>
+                    </div>
+                </div>
+                
+                <div class="actions">
+                    <button class="action-button primary">🔍 验证许可证</button>
+                    <button class="action-button">🔄 重置许可证</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 未激活状态 -->
+        <div class="test-section">
+            <div class="test-title">3. 未激活状态</div>
+            <div class="status-demo">
+                <div class="status-badge inactive">
+                    <span>⚠️</span>
+                    <span>许可证未激活</span>
+                </div>
+                
+                <div style="text-align: center; color: #999; font-style: italic; margin-top: 1rem;">
+                    当前仅可使用免费功能，激活许可证后可解锁所有高级功能。
+                </div>
+            </div>
+        </div>
+        
+        <!-- 功能对比 -->
+        <div class="test-section">
+            <div class="test-title">4. 功能对比说明</div>
+            <div class="detail-grid">
+                <div class="detail-item">
+                    <div class="detail-label">🆓 免费功能</div>
+                    <div class="detail-value">基础卡片、FSRS算法、本地存储</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">💎 高级功能</div>
+                    <div class="detail-value">MD沉浸式编辑、卢曼卡片、高级统计、AI制卡</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">🔒 激活状态</div>
+                    <div class="detail-value">设备绑定、离线验证、RSA加密</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

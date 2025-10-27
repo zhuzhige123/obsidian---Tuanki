@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>权重编辑开关测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1e1e1e;
+            color: #ffffff;
+            padding: 2rem;
+            margin: 0;
+        }
+
+        .test-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #2d2d2d;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            border: 1px solid #404040;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid #404040;
+        }
+
+        .panel-info {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .panel-text h5 {
+            margin: 0 0 0.25rem 0;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        .panel-text p {
+            margin: 0;
+            font-size: 0.8rem;
+            color: #a0a0a0;
+        }
+
+        .panel-controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .weight-edit-toggle {
+            display: flex;
+            align-items: center;
+        }
+
+        .toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            user-select: none;
+            padding: 0.25rem;
+            border-radius: 0.25rem;
+            transition: background-color 0.2s ease;
+        }
+
+        .toggle-label:hover {
+            background-color: #404040;
+        }
+
+        .toggle-text {
+            font-size: 0.85rem;
+            color: #ffffff;
+            font-weight: 500;
+        }
+
+        .modern-switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+            flex-shrink: 0;
+        }
+
+        .modern-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .switch-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #404040;
+            transition: 0.3s;
+            border-radius: 24px;
+        }
+
+        .switch-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        input:checked + .switch-slider {
+            background-color: #8b5cf6;
+        }
+
+        input:checked + .switch-slider:before {
+            transform: translateX(20px);
+        }
+
+        .status-display {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #1a1a1a;
+            border-radius: 0.5rem;
+            border: 1px solid #404040;
+        }
+
+        .status-text {
+            font-size: 0.9rem;
+            color: #a0a0a0;
+        }
+
+        .status-value {
+            font-weight: 600;
+            color: #8b5cf6;
+        }
+
+        .test-inputs {
+            margin-top: 1rem;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.5rem;
+        }
+
+        .test-input {
+            padding: 0.5rem;
+            background: #1a1a1a;
+            border: 1px solid #404040;
+            border-radius: 0.25rem;
+            color: #ffffff;
+            font-size: 0.8rem;
+            text-align: center;
+        }
+
+        .test-input:disabled {
+            background: #404040;
+            color: #808080;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h2>权重编辑开关功能测试</h2>
+        
+        <div class="panel-header">
+            <div class="panel-info">
+                <div class="panel-text">
+                    <h5>权重参数</h5>
+                    <p>FSRS6算法的21个权重参数，影响记忆预测的准确性</p>
+                </div>
+            </div>
+            
+            <!-- 权重编辑开关 -->
+            <div class="panel-controls">
+                <div class="weight-edit-toggle">
+                    <label class="toggle-label" for="weight-edit-switch">
+                        <span class="toggle-text">允许编辑</span>
+                        <div class="modern-switch">
+                            <input
+                                id="weight-edit-switch"
+                                type="checkbox"
+                            />
+                            <span class="switch-slider"></span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="status-display">
+            <div class="status-text">
+                开关状态: <span class="status-value" id="status-value">关闭</span>
+            </div>
+        </div>
+
+        <div class="test-inputs">
+            <input type="number" class="test-input" value="0.212" id="input-0" disabled>
+            <input type="number" class="test-input" value="1.293" id="input-1" disabled>
+            <input type="number" class="test-input" value="2.307" id="input-2" disabled>
+            <input type="number" class="test-input" value="8.296" id="input-3" disabled>
+            <input type="number" class="test-input" value="6.413" id="input-4" disabled>
+            <input type="number" class="test-input" value="0.833" id="input-5" disabled>
+            <input type="number" class="test-input" value="3.019" id="input-6" disabled>
+            <input type="number" class="test-input" value="0.001" id="input-7" disabled>
+        </div>
+    </div>
+
+    <script>
+        const switchElement = document.getElementById('weight-edit-switch');
+        const statusValue = document.getElementById('status-value');
+        const inputs = document.querySelectorAll('.test-input');
+
+        switchElement.addEventListener('change', function() {
+            const isEnabled = this.checked;
+            statusValue.textContent = isEnabled ? '开启' : '关闭';
+            statusValue.style.color = isEnabled ? '#10b981' : '#8b5cf6';
+            
+            inputs.forEach(input => {
+                input.disabled = !isEnabled;
+            });
+            
+            console.log('开关状态变化:', isEnabled);
+        });
+
+        // 初始状态
+        console.log('页面加载完成，开关初始状态:', switchElement.checked);
+    </script>
+</body>
+</html>

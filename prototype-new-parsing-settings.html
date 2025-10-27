@@ -1,0 +1,1443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tuanki 新版卡片解析设置 - 原型设计</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1e1e1e;
+            color: #dcddde;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            margin-bottom: 30px;
+        }
+
+        .tabs-nav {
+            display: flex;
+            gap: 2px;
+            margin-bottom: 30px;
+            background: #40444b;
+            border-radius: 8px;
+            padding: 4px;
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 12px 20px;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            color: #b9bbbe;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .tab-button:hover {
+            background: #36393f;
+            color: #dcddde;
+        }
+
+        .tab-button.active {
+            background: #7289da;
+            color: white;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .panel-description {
+            color: #b9bbbe;
+            font-size: 14px;
+            margin-bottom: 25px;
+            line-height: 1.5;
+        }
+
+        .settings-panel {
+            background: #2f3136;
+            border-radius: 12px;
+            padding: 25px;
+            border: 1px solid #40444b;
+        }
+
+        .preview-panel {
+            background: #2f3136;
+            border-radius: 12px;
+            padding: 25px;
+            border: 1px solid #40444b;
+        }
+
+        .section-title {
+            font-size: 1.4em;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-title::before {
+            content: "⚙️";
+            font-size: 1.2em;
+        }
+
+        .preview-panel .section-title::before {
+            content: "👁️";
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #b9bbbe;
+        }
+
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            background: #40444b;
+            border: 1px solid #72767d;
+            border-radius: 6px;
+            color: #dcddde;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input[type="text"]:focus {
+            outline: none;
+            border-color: #7289da;
+            box-shadow: 0 0 0 2px rgba(114, 137, 218, 0.2);
+        }
+
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+
+        .switch {
+            position: relative;
+            width: 50px;
+            height: 24px;
+            background: #72767d;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .switch.active {
+            background: #7289da;
+        }
+
+        .switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+        }
+
+        .switch.active::after {
+            transform: translateX(26px);
+        }
+
+        .symbol-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .help-text {
+            display: block;
+            font-size: 12px;
+            color: #72767d;
+            margin-top: 4px;
+            line-height: 1.3;
+        }
+
+        .template-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .template-list {
+            display: grid;
+            gap: 15px;
+        }
+
+        .template-item {
+            background: #36393f;
+            border: 1px solid #40444b;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.2s;
+        }
+
+        .template-item:hover {
+            border-color: #7289da;
+            box-shadow: 0 2px 8px rgba(114, 137, 218, 0.1);
+        }
+
+        .template-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .template-info h4 {
+            color: #ffffff;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+
+        .template-info p {
+            color: #b9bbbe;
+            font-size: 13px;
+            margin: 0;
+        }
+
+        .template-type {
+            background: #5865f2;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .template-type.single-field {
+            background: #43b581;
+        }
+
+        .template-type.complete-regex {
+            background: #faa61a;
+        }
+
+        .template-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        .template-actions .btn {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        .template-fields {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #40444b;
+        }
+
+        .field-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            font-size: 13px;
+        }
+
+        .field-name {
+            color: #7289da;
+            font-weight: 500;
+        }
+
+        .field-regex {
+            color: #b9bbbe;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 11px;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .test-area {
+            margin-top: 20px;
+        }
+
+        .test-input {
+            width: 100%;
+            height: 200px;
+            padding: 15px;
+            background: #40444b;
+            border: 1px solid #72767d;
+            border-radius: 6px;
+            color: #dcddde;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            resize: vertical;
+            line-height: 1.5;
+        }
+
+        .test-input:focus {
+            outline: none;
+            border-color: #7289da;
+            box-shadow: 0 0 0 2px rgba(114, 137, 218, 0.2);
+        }
+
+        .preview-cards {
+            margin-top: 20px;
+        }
+
+        .card-preview {
+            background: #36393f;
+            border: 1px solid #40444b;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            background: #7289da;
+            color: white;
+            padding: 10px 15px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .card-content {
+            padding: 15px;
+        }
+
+        .card-side {
+            margin-bottom: 12px;
+        }
+
+        .card-side-label {
+            font-size: 12px;
+            color: #b9bbbe;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .card-side-content {
+            background: #2f3136;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 3px solid #7289da;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .card-tags {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .tag {
+            background: #5865f2;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .stats-bar {
+            background: #36393f;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #7289da;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #b9bbbe;
+            margin-top: 2px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 30px;
+            justify-content: center;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #7289da;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #677bc4;
+        }
+
+        .btn-secondary {
+            background: #40444b;
+            color: #dcddde;
+            border: 1px solid #72767d;
+        }
+
+        .btn-secondary:hover {
+            background: #484c52;
+        }
+
+        .example-selector {
+            margin-bottom: 15px;
+        }
+
+        .example-selector select {
+            width: 100%;
+            padding: 8px;
+            background: #40444b;
+            border: 1px solid #72767d;
+            border-radius: 4px;
+            color: #dcddde;
+            font-size: 13px;
+        }
+
+        .cloze-highlight {
+            background: #ffd700;
+            color: #000;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-weight: 500;
+        }
+
+        .mcq-option {
+            margin: 5px 0;
+            padding: 5px 10px;
+            background: #40444b;
+            border-radius: 4px;
+            border-left: 3px solid #72767d;
+        }
+
+        .mcq-option.correct {
+            border-left-color: #43b581;
+            background: rgba(67, 181, 129, 0.1);
+        }
+
+        /* 模态窗样式 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal {
+            background: #2f3136;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow: hidden;
+            border: 1px solid #40444b;
+        }
+
+        .modal-header {
+            background: #36393f;
+            padding: 20px;
+            border-bottom: 1px solid #40444b;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            color: #ffffff;
+            margin: 0;
+            font-size: 18px;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: #b9bbbe;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .modal-close:hover {
+            background: #40444b;
+            color: #dcddde;
+        }
+
+        .modal-body {
+            padding: 25px;
+            max-height: calc(90vh - 140px);
+            overflow-y: auto;
+        }
+
+        .modal-footer {
+            background: #36393f;
+            padding: 15px 20px;
+            border-top: 1px solid #40444b;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .template-mode-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .mode-button {
+            flex: 1;
+            padding: 12px;
+            background: #40444b;
+            border: 1px solid #72767d;
+            border-radius: 6px;
+            color: #dcddde;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .mode-button.active {
+            background: #7289da;
+            border-color: #7289da;
+            color: white;
+        }
+
+        .field-editor {
+            background: #40444b;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .field-editor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .field-editor-header h5 {
+            color: #ffffff;
+            margin: 0;
+            font-size: 14px;
+        }
+
+        .remove-field {
+            background: #ed4245;
+            border: none;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .regex-input {
+            width: 100%;
+            padding: 8px;
+            background: #36393f;
+            border: 1px solid #72767d;
+            border-radius: 4px;
+            color: #dcddde;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+        }
+
+        @media (max-width: 768px) {
+            .symbol-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .modal {
+                width: 95%;
+                margin: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Tuanki 新版卡片解析设置</h1>
+            <p>统一模板管理 + 全局分隔符配置 - 完全替代三位一体模板系统</p>
+        </div>
+
+        <!-- 标签页导航 -->
+        <div class="tabs-nav">
+            <button class="tab-button active" data-tab="symbols">分隔符配置</button>
+            <button class="tab-button" data-tab="templates">模板管理</button>
+            <button class="tab-button" data-tab="preview">实时预览</button>
+        </div>
+
+        <div class="main-content">
+            <!-- 分隔符配置面板 -->
+            <div class="settings-panel" id="symbolsPanel">
+                <h2 class="section-title">全局分隔符配置</h2>
+                <p class="panel-description">这些分隔符适用于所有模板，确保解析的一致性</p>
+
+                <!-- 标签触发设置 -->
+                <div class="form-group">
+                    <div class="toggle-switch">
+                        <div class="switch active" id="tagTriggerSwitch"></div>
+                        <label>启用标签触发</label>
+                    </div>
+                    <div class="form-group">
+                        <label for="triggerTag">触发标签</label>
+                        <input type="text" id="triggerTag" value="#tuanki" placeholder="例如: #tuanki">
+                        <small class="help-text">只有包含此标签的内容才会被解析为卡片</small>
+                    </div>
+                </div>
+
+                <!-- 符号配置 -->
+                <div class="form-group">
+                    <label>核心分隔符</label>
+                    <div class="symbol-grid">
+                        <div>
+                            <label for="rangeStart">批量范围起始</label>
+                            <input type="text" id="rangeStart" value="---start---">
+                            <small class="help-text">批量解析的开始标记</small>
+                        </div>
+                        <div>
+                            <label for="rangeEnd">批量范围结束</label>
+                            <input type="text" id="rangeEnd" value="---end---">
+                            <small class="help-text">批量解析的结束标记</small>
+                        </div>
+                        <div>
+                            <label for="cardDelimiter">卡片分隔符</label>
+                            <input type="text" id="cardDelimiter" value="---卡片---">
+                            <small class="help-text">批量范围内分隔多张卡片</small>
+                        </div>
+                        <div>
+                            <label for="faceDelimiter">正反面分隔</label>
+                            <input type="text" id="faceDelimiter" value="---div---">
+                            <small class="help-text">分隔卡片正面和背面内容</small>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="clozeMarker">挖空标记</label>
+                        <input type="text" id="clozeMarker" value="==高亮文本==">
+                        <small class="help-text">挖空题的标记格式</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 模板管理面板 -->
+            <div class="settings-panel hidden" id="templatesPanel">
+                <div class="template-header">
+                    <h2 class="section-title">模板管理</h2>
+                    <button class="btn btn-primary" id="addTemplateBtn">+ 新建模板</button>
+                </div>
+                <p class="panel-description">管理所有场景使用的解析模板，支持单字段解析和完整正则解析</p>
+
+                <!-- 模板列表 -->
+                <div class="template-list" id="templateList">
+                    <!-- 动态生成的模板项 -->
+                </div>
+            </div>
+
+            <!-- 实时预览面板 -->
+            <div class="settings-panel hidden" id="previewPanel">
+                <h2 class="section-title">实时预览</h2>
+                <p class="panel-description">测试分隔符和模板的解析效果</p>
+
+                <!-- 统计信息 -->
+                <div class="stats-bar">
+                    <div class="stat-item">
+                        <div class="stat-value" id="cardCount">2</div>
+                        <div class="stat-label">卡片数量</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="clozeCount">3</div>
+                        <div class="stat-label">挖空数量</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="tagCount">4</div>
+                        <div class="stat-label">标签数量</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="templateCount">2</div>
+                        <div class="stat-label">使用模板</div>
+                    </div>
+                </div>
+
+                <!-- 示例选择器 -->
+                <div class="example-selector">
+                    <select id="exampleSelector">
+                        <option value="">选择示例...</option>
+                        <option value="qa">问答题示例</option>
+                        <option value="mcq">选择题示例</option>
+                        <option value="cloze">挖空题示例</option>
+                        <option value="batch">批量卡片示例</option>
+                        <option value="template">模板解析示例</option>
+                    </select>
+                </div>
+
+                <!-- 测试输入 -->
+                <div class="test-area">
+                    <label for="testInput">测试内容</label>
+                    <textarea id="testInput" class="test-input" placeholder="在此输入测试内容...">## 什么是间隔重复？
+间隔重复是一种基于==遗忘曲线==的学习方法。
+---div---
+间隔重复通过在==最佳时机==复习来提高记忆效率。它由==艾宾浩斯==首次提出。
+#学习方法 #记忆 #tuanki</textarea>
+                </div>
+
+                <!-- 解析结果 -->
+                <div class="preview-cards" id="previewCards">
+                    <!-- 动态生成的卡片预览 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="action-buttons">
+            <button class="btn btn-secondary">重置为默认</button>
+            <button class="btn btn-primary">保存设置</button>
+            <button class="btn btn-secondary">导出配置</button>
+        </div>
+    </div>
+
+    <!-- 模板编辑模态窗 -->
+    <div class="modal-overlay hidden" id="templateModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modalTitle">新建模板</h3>
+                <button class="modal-close" id="closeModal">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="templateForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="templateName">模板名称</label>
+                            <input type="text" id="templateName" placeholder="例如：基础问答卡">
+                        </div>
+                        <div class="form-group">
+                            <label for="templateDescription">模板描述</label>
+                            <input type="text" id="templateDescription" placeholder="模板用途说明">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>解析模式</label>
+                        <div class="template-mode-selector">
+                            <div class="mode-button active" data-mode="single-field">
+                                <strong>单字段解析</strong><br>
+                                <small>适用于单卡解析、新建卡片</small>
+                            </div>
+                            <div class="mode-button" data-mode="complete-regex">
+                                <strong>完整正则解析</strong><br>
+                                <small>适用于批量卡片扫描</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 单字段解析配置 -->
+                    <div id="singleFieldConfig">
+                        <div class="form-group">
+                            <label>字段配置</label>
+                            <div id="fieldsList">
+                                <!-- 动态生成的字段编辑器 -->
+                            </div>
+                            <button type="button" class="btn btn-secondary" id="addFieldBtn">+ 添加字段</button>
+                        </div>
+                    </div>
+
+                    <!-- 完整正则解析配置 -->
+                    <div id="completeRegexConfig" class="hidden">
+                        <div class="form-group">
+                            <label for="completeRegex">完整正则表达式</label>
+                            <textarea id="completeRegex" class="regex-input" rows="4"
+                                placeholder="例如：^(?<front>.+?)(?:---div---(?<back>.+?))?(?<tags>#[\\w\\u4e00-\\u9fa5]+.*)?$"></textarea>
+                            <small class="help-text">使用命名捕获组：(?&lt;front&gt;...)、(?&lt;back&gt;...)、(?&lt;tags&gt;...)</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="regexFlags">正则标志</label>
+                            <input type="text" id="regexFlags" value="ms" placeholder="例如：gims">
+                            <small class="help-text">常用标志：g(全局)、i(忽略大小写)、m(多行)、s(单行)</small>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>应用场景</label>
+                        <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 5px;">
+                                <input type="checkbox" id="useInNewCard" checked>
+                                <span>新建卡片</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px;">
+                                <input type="checkbox" id="useInStudy" checked>
+                                <span>学习模态窗</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 5px;">
+                                <input type="checkbox" id="useInBatch">
+                                <span>批量扫描</span>
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelTemplate">取消</button>
+                <button class="btn btn-primary" id="saveTemplate">保存模板</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局状态
+        let currentTab = 'symbols';
+        let templates = [
+            {
+                id: 'default-qa',
+                name: '基础问答卡',
+                description: '标准的问答题模板',
+                type: 'single-field',
+                fields: [
+                    { name: 'Front', regex: '^(.+?)(?=---div---|$)', flags: 'ms' },
+                    { name: 'Back', regex: '(?<=---div---)(.+)$', flags: 'ms' },
+                    { name: 'Tags', regex: '#([\\w\\u4e00-\\u9fa5]+)', flags: 'g' }
+                ],
+                scenarios: ['newCard', 'study'],
+                isDefault: true
+            },
+            {
+                id: 'batch-complete',
+                name: '批量完整解析',
+                description: '用于批量卡片扫描的完整正则',
+                type: 'complete-regex',
+                regex: '^(?<front>.+?)(?:---div---(?<back>.+?))?(?<tags>#[\\w\\u4e00-\\u9fa5]+.*)?$',
+                flags: 'ms',
+                scenarios: ['batch'],
+                isDefault: true
+            }
+        ];
+
+        // 示例数据
+        const examples = {
+            qa: `## 什么是FSRS算法？
+FSRS是一种现代化的间隔重复算法。
+---div---
+FSRS (Free Spaced Repetition Scheduler) 是基于记忆模型的智能调度算法，比传统SM算法更准确。
+#算法 #FSRS #tuanki`,
+
+            mcq: `## Java中哪个不是基本数据类型？ #编程 #tuanki
+- [ ] int
+- [ ] boolean
+- [x] String
+- [ ] double
+---div---
+String是引用类型，不是基本数据类型。Java的8种基本类型是：byte, short, int, long, float, double, boolean, char。`,
+
+            cloze: `==艾宾浩斯遗忘曲线==表明人们在学习后会快速遗忘。
+研究发现，在学习后的==20分钟==内会遗忘42%的内容。
+因此需要在==关键时间点==进行复习。
+#记忆科学 #遗忘曲线 #tuanki`,
+
+            batch: `---start---
+
+## 问题1：什么是Obsidian？
+---div---
+Obsidian是一款基于Markdown的知识管理工具。
+#工具 #tuanki
+
+---卡片---
+
+## 选择题：哪个是Markdown语法？ #语法 #tuanki
+- [x] **粗体**
+- [ ] <b>粗体</b>
+- [ ] [粗体]
+---div---
+Markdown使用**文本**或__文本__表示粗体。
+
+---卡片---
+
+间隔重复的核心是在==遗忘临界点==进行复习。
+这样可以最大化==学习效率==。
+#学习方法 #tuanki
+
+---end---`,
+
+            template: `Front: 什么是间隔重复？
+Back: 间隔重复是一种学习技术
+Tags: #学习 #tuanki
+
+Front: FSRS算法的优势？
+Back: 更准确的记忆预测
+Tags: #算法 #tuanki`
+        };
+
+        // DOM 元素
+        const tagTriggerSwitch = document.getElementById('tagTriggerSwitch');
+        const exampleSelector = document.getElementById('exampleSelector');
+        const testInput = document.getElementById('testInput');
+        const previewCards = document.getElementById('previewCards');
+        const templateModal = document.getElementById('templateModal');
+        const templateList = document.getElementById('templateList');
+
+        // 标签页切换
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', () => {
+                const tab = button.dataset.tab;
+                switchTab(tab);
+            });
+        });
+
+        function switchTab(tab) {
+            // 更新标签页状态
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tab);
+            });
+
+            // 显示对应面板
+            document.getElementById('symbolsPanel').classList.toggle('hidden', tab !== 'symbols');
+            document.getElementById('templatesPanel').classList.toggle('hidden', tab !== 'templates');
+            document.getElementById('previewPanel').classList.toggle('hidden', tab !== 'preview');
+
+            currentTab = tab;
+
+            // 如果切换到模板管理，渲染模板列表
+            if (tab === 'templates') {
+                renderTemplateList();
+            }
+        }
+
+        // 开关切换
+        function toggleSwitch(switchElement) {
+            switchElement.classList.toggle('active');
+        }
+
+        tagTriggerSwitch.addEventListener('click', () => toggleSwitch(tagTriggerSwitch));
+
+        // 模板管理
+        function renderTemplateList() {
+            templateList.innerHTML = '';
+
+            templates.forEach(template => {
+                const templateItem = document.createElement('div');
+                templateItem.className = 'template-item';
+
+                const typeClass = template.type === 'single-field' ? 'single-field' : 'complete-regex';
+                const typeLabel = template.type === 'single-field' ? '单字段解析' : '完整正则解析';
+
+                let fieldsHtml = '';
+                if (template.type === 'single-field' && template.fields) {
+                    fieldsHtml = `
+                        <div class="template-fields">
+                            ${template.fields.map(field => `
+                                <div class="field-item">
+                                    <span class="field-name">${field.name}</span>
+                                    <span class="field-regex">${field.regex}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                } else if (template.type === 'complete-regex') {
+                    fieldsHtml = `
+                        <div class="template-fields">
+                            <div class="field-item">
+                                <span class="field-name">正则表达式</span>
+                                <span class="field-regex">${template.regex}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                templateItem.innerHTML = `
+                    <div class="template-item-header">
+                        <div class="template-info">
+                            <h4>${template.name}</h4>
+                            <p>${template.description}</p>
+                        </div>
+                        <span class="template-type ${typeClass}">${typeLabel}</span>
+                    </div>
+                    ${fieldsHtml}
+                    <div class="template-actions">
+                        <button class="btn btn-secondary" onclick="editTemplate('${template.id}')">编辑</button>
+                        <button class="btn btn-secondary" onclick="duplicateTemplate('${template.id}')">复制</button>
+                        ${!template.isDefault ? `<button class="btn btn-secondary" onclick="deleteTemplate('${template.id}')" style="background: #ed4245;">删除</button>` : ''}
+                    </div>
+                `;
+
+                templateList.appendChild(templateItem);
+            });
+        }
+
+        // 模板模态窗管理
+        let currentEditingTemplate = null;
+
+        document.getElementById('addTemplateBtn').addEventListener('click', () => {
+            openTemplateModal();
+        });
+
+        document.getElementById('closeModal').addEventListener('click', closeTemplateModal);
+        document.getElementById('cancelTemplate').addEventListener('click', closeTemplateModal);
+
+        function openTemplateModal(templateId = null) {
+            currentEditingTemplate = templateId;
+            const modal = document.getElementById('templateModal');
+            const title = document.getElementById('modalTitle');
+
+            if (templateId) {
+                const template = templates.find(t => t.id === templateId);
+                title.textContent = '编辑模板';
+                populateTemplateForm(template);
+            } else {
+                title.textContent = '新建模板';
+                resetTemplateForm();
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeTemplateModal() {
+            document.getElementById('templateModal').classList.add('hidden');
+            currentEditingTemplate = null;
+        }
+
+        function populateTemplateForm(template) {
+            document.getElementById('templateName').value = template.name;
+            document.getElementById('templateDescription').value = template.description;
+
+            // 设置模式
+            const modeButtons = document.querySelectorAll('.template-mode-selector .mode-button');
+            modeButtons.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === template.type);
+            });
+
+            switchTemplateMode(template.type);
+
+            if (template.type === 'single-field') {
+                // 填充字段配置
+                renderFieldEditors(template.fields);
+            } else {
+                // 填充完整正则
+                document.getElementById('completeRegex').value = template.regex;
+                document.getElementById('regexFlags').value = template.flags;
+            }
+        }
+
+        function resetTemplateForm() {
+            document.getElementById('templateName').value = '';
+            document.getElementById('templateDescription').value = '';
+            document.getElementById('completeRegex').value = '';
+            document.getElementById('regexFlags').value = 'ms';
+
+            // 重置为单字段模式
+            const modeButtons = document.querySelectorAll('.template-mode-selector .mode-button');
+            modeButtons.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === 'single-field');
+            });
+
+            switchTemplateMode('single-field');
+            renderFieldEditors([
+                { name: 'Front', regex: '^(.+?)(?=---div---|$)', flags: 'ms' },
+                { name: 'Back', regex: '(?<=---div---)(.+)$', flags: 'ms' }
+            ]);
+        }
+
+        // 模板模式切换
+        document.querySelectorAll('.template-mode-selector .mode-button').forEach(button => {
+            button.addEventListener('click', () => {
+                const mode = button.dataset.mode;
+                document.querySelectorAll('.template-mode-selector .mode-button').forEach(b => {
+                    b.classList.remove('active');
+                });
+                button.classList.add('active');
+                switchTemplateMode(mode);
+            });
+        });
+
+        function switchTemplateMode(mode) {
+            const singleFieldConfig = document.getElementById('singleFieldConfig');
+            const completeRegexConfig = document.getElementById('completeRegexConfig');
+
+            if (mode === 'single-field') {
+                singleFieldConfig.classList.remove('hidden');
+                completeRegexConfig.classList.add('hidden');
+            } else {
+                singleFieldConfig.classList.add('hidden');
+                completeRegexConfig.classList.remove('hidden');
+            }
+        }
+
+        // 字段编辑器管理
+        function renderFieldEditors(fields) {
+            const fieldsList = document.getElementById('fieldsList');
+            fieldsList.innerHTML = '';
+
+            fields.forEach((field, index) => {
+                const fieldEditor = createFieldEditor(field, index);
+                fieldsList.appendChild(fieldEditor);
+            });
+        }
+
+        function createFieldEditor(field, index) {
+            const div = document.createElement('div');
+            div.className = 'field-editor';
+            div.innerHTML = `
+                <div class="field-editor-header">
+                    <h5>字段 ${index + 1}</h5>
+                    <button type="button" class="remove-field" onclick="removeField(this)">删除</button>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>字段名称</label>
+                        <input type="text" class="field-name-input" value="${field.name}" placeholder="例如：Front">
+                    </div>
+                    <div class="form-group">
+                        <label>正则标志</label>
+                        <input type="text" class="field-flags-input" value="${field.flags}" placeholder="例如：ms">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>正则表达式</label>
+                    <input type="text" class="regex-input field-regex-input" value="${field.regex}"
+                           placeholder="例如：^(.+?)(?=---div---|$)">
+                </div>
+            `;
+            return div;
+        }
+
+        // 全局函数
+        window.editTemplate = function(templateId) {
+            openTemplateModal(templateId);
+        };
+
+        window.duplicateTemplate = function(templateId) {
+            const template = templates.find(t => t.id === templateId);
+            const newTemplate = {
+                ...template,
+                id: 'template_' + Date.now(),
+                name: template.name + ' (副本)',
+                isDefault: false
+            };
+            templates.push(newTemplate);
+            renderTemplateList();
+        };
+
+        window.deleteTemplate = function(templateId) {
+            if (confirm('确定要删除这个模板吗？')) {
+                templates = templates.filter(t => t.id !== templateId);
+                renderTemplateList();
+            }
+        };
+
+        window.removeField = function(button) {
+            button.closest('.field-editor').remove();
+        };
+
+        document.getElementById('addFieldBtn').addEventListener('click', () => {
+            const fieldsList = document.getElementById('fieldsList');
+            const fieldCount = fieldsList.children.length;
+            const newField = createFieldEditor({ name: '', regex: '', flags: 'ms' }, fieldCount);
+            fieldsList.appendChild(newField);
+        });
+
+        // 示例选择
+        exampleSelector.addEventListener('change', (e) => {
+            const example = examples[e.target.value];
+            if (example) {
+                testInput.value = example;
+                parseAndPreview();
+            }
+        });
+
+        // 解析和预览
+        function parseAndPreview() {
+            const content = testInput.value;
+            const cards = parseContent(content);
+            renderPreview(cards);
+            updateStats(cards);
+        }
+
+        // 简化的解析逻辑（演示用）
+        function parseContent(content) {
+            const cards = [];
+            
+            // 检查是否有标签触发
+            if (!content.includes('#tuanki')) {
+                return cards;
+            }
+
+            // 简单的卡片解析
+            if (content.includes('---start---') && content.includes('---end---')) {
+                // 批量解析
+                const batchContent = content.match(/---start---([\s\S]*?)---end---/);
+                if (batchContent) {
+                    const cardContents = batchContent[1].split('---卡片---');
+                    cardContents.forEach((cardContent, index) => {
+                        const card = parseSingleCard(cardContent.trim(), index + 1);
+                        if (card) cards.push(card);
+                    });
+                }
+            } else {
+                // 单卡解析
+                const card = parseSingleCard(content, 1);
+                if (card) cards.push(card);
+            }
+
+            return cards;
+        }
+
+        function parseSingleCard(content, index) {
+            if (!content.trim()) return null;
+
+            const card = {
+                id: index,
+                type: 'qa',
+                front: '',
+                back: '',
+                tags: []
+            };
+
+            // 提取标签
+            const tagMatches = content.match(/#[\w\u4e00-\u9fa5]+/g);
+            if (tagMatches) {
+                card.tags = tagMatches;
+            }
+
+            // 检查挖空题
+            if (content.includes('==') && content.match(/==[^=]+?==/g)) {
+                card.type = 'cloze';
+                card.front = content.replace(/#[\w\u4e00-\u9fa5]+/g, '').trim();
+                return card;
+            }
+
+            // 检查选择题
+            if (content.match(/^- \[[ x]\]/m)) {
+                card.type = 'mcq';
+            }
+
+            // 分割正反面
+            if (content.includes('---div---')) {
+                const parts = content.split('---div---');
+                card.front = parts[0].replace(/#[\w\u4e00-\u9fa5]+/g, '').trim();
+                card.back = parts[1].replace(/#[\w\u4e00-\u9fa5]+/g, '').trim();
+            } else {
+                card.front = content.replace(/#[\w\u4e00-\u9fa5]+/g, '').trim();
+                card.back = '';
+            }
+
+            return card;
+        }
+
+        // 渲染预览
+        function renderPreview(cards) {
+            previewCards.innerHTML = '';
+            
+            cards.forEach(card => {
+                const cardElement = document.createElement('div');
+                cardElement.className = 'card-preview';
+                
+                let typeLabel = '问答题';
+                if (card.type === 'mcq') typeLabel = '选择题';
+                if (card.type === 'cloze') typeLabel = '挖空题';
+                
+                let frontContent = card.front;
+                let backContent = card.back;
+                
+                // 处理挖空显示
+                if (card.type === 'cloze') {
+                    frontContent = card.front.replace(/==(.*?)==/g, '<span class="cloze-highlight">$1</span>');
+                }
+                
+                // 处理选择题显示
+                if (card.type === 'mcq') {
+                    frontContent = frontContent.replace(/^- \[([ x])\] (.+)$/gm, (match, checked, text) => {
+                        const isCorrect = checked === 'x';
+                        return `<div class="mcq-option ${isCorrect ? 'correct' : ''}">${isCorrect ? '✓' : '○'} ${text}</div>`;
+                    });
+                }
+                
+                cardElement.innerHTML = `
+                    <div class="card-header">卡片 ${card.id} - ${typeLabel}</div>
+                    <div class="card-content">
+                        <div class="card-side">
+                            <div class="card-side-label">正面</div>
+                            <div class="card-side-content">${frontContent || '(空)'}</div>
+                        </div>
+                        ${backContent ? `
+                        <div class="card-side">
+                            <div class="card-side-label">背面</div>
+                            <div class="card-side-content">${backContent}</div>
+                        </div>
+                        ` : ''}
+                        <div class="card-tags">
+                            ${card.tags.map(tag => `<span class="tag">${tag}</span>`).join('')}
+                        </div>
+                    </div>
+                `;
+                
+                previewCards.appendChild(cardElement);
+            });
+        }
+
+        // 更新统计
+        function updateStats(cards) {
+            document.getElementById('cardCount').textContent = cards.length;
+
+            let clozeCount = 0;
+            let tagCount = 0;
+            let templateCount = new Set();
+
+            cards.forEach(card => {
+                if (card.type === 'cloze') {
+                    const matches = card.front.match(/==[^=]+?==/g);
+                    if (matches) clozeCount += matches.length;
+                }
+                tagCount += card.tags.length;
+                if (card.template) {
+                    templateCount.add(card.template);
+                }
+            });
+
+            document.getElementById('clozeCount').textContent = clozeCount;
+            document.getElementById('tagCount').textContent = tagCount;
+            document.getElementById('templateCount').textContent = templateCount.size;
+        }
+
+        // 保存模板
+        document.getElementById('saveTemplate').addEventListener('click', () => {
+            const name = document.getElementById('templateName').value.trim();
+            const description = document.getElementById('templateDescription').value.trim();
+
+            if (!name) {
+                alert('请输入模板名称');
+                return;
+            }
+
+            const activeMode = document.querySelector('.template-mode-selector .mode-button.active').dataset.mode;
+
+            let templateData = {
+                name,
+                description,
+                type: activeMode,
+                scenarios: [],
+                isDefault: false
+            };
+
+            if (activeMode === 'single-field') {
+                const fieldEditors = document.querySelectorAll('.field-editor');
+                templateData.fields = Array.from(fieldEditors).map(editor => ({
+                    name: editor.querySelector('.field-name-input').value,
+                    regex: editor.querySelector('.field-regex-input').value,
+                    flags: editor.querySelector('.field-flags-input').value
+                }));
+            } else {
+                templateData.regex = document.getElementById('completeRegex').value;
+                templateData.flags = document.getElementById('regexFlags').value;
+            }
+
+            if (currentEditingTemplate) {
+                // 编辑现有模板
+                const index = templates.findIndex(t => t.id === currentEditingTemplate);
+                templates[index] = { ...templates[index], ...templateData };
+            } else {
+                // 新建模板
+                templateData.id = 'template_' + Date.now();
+                templates.push(templateData);
+            }
+
+            closeTemplateModal();
+            renderTemplateList();
+        });
+
+        // 监听输入变化
+        testInput.addEventListener('input', parseAndPreview);
+
+        // 初始化
+        switchTab('symbols');
+        parseAndPreview();
+    </script>
+</body>
+</html>
