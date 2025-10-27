@@ -1,4 +1,4 @@
-# 🎯 Tuanki - Smart Flashcard Plugin for Obsidian
+# 🎯 Weave (Tuanki) - Smart Flashcard Plugin for Obsidian
 
 <div align="center">
 
@@ -18,9 +18,34 @@ Based on FSRS6 Algorithm | Elegant Svelte 5 UI | Open Source Code + Commercial L
 
 ---
 
+## 🌟 About Weave
+
+### Origin of the Name
+
+**Tuanki** was the initial name of the plugin, chosen based on considerations of pronunciation, recognition, and reach. In the official release, we renamed the plugin to **Weave**, a name that embodies our core philosophy:
+
+- 🧵 **Weaving Knowledge**: Weaving scattered knowledge points into a complete knowledge network
+- 📦 **Collecting Cards**: Systematically collecting and managing learning content
+- 🔄 **Reorganizing Memory**: Reorganizing and reinforcing memory through scientific spaced repetition
+- 💡 **Facilitating Memory**: Making knowledge easier to understand, remember, and apply
+
+### Plugin Positioning
+
+Weave has a clear positioning:
+
+> Building upon the Obsidian plugin ecosystem, extending and exploring official design philosophies, to address and improve the incomplete memory component in the learning loop, creating your best immersive learning space within Obsidian.
+
+**Core Mission**:
+- 🔗 **Deep Integration**: Seamlessly integrated into the Obsidian ecosystem
+- 🎯 **Complete the Loop**: Bridging the final gap from knowledge management to memory consolidation
+- ✨ **Immersive Experience**: Creating your personalized learning space
+- 🚀 **Scientific & Efficient**: Intelligent learning system based on the FSRS6 algorithm
+
+---
+
 ## 💎 Business Model
 
-Tuanki adopts an **Open Source Code + Commercial License** business model.
+Weave adopts an **Open Source Code + Commercial License** business model.
 
 ### Why Open Source but Requires a License?
 
@@ -359,7 +384,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for details
 
 ### Q: Why charge if the code is open source?
 
-**A**: Tuanki adopts an "open source code + commercial license" model. Open source code ensures transparency and compliance with Obsidian standards, while license revenue supports continuous development and maintenance. This is a mature business model in the software industry (like Sublime Text, JetBrains).
+**A**: Weave adopts an "open source code + commercial license" model. Open source code ensures transparency and compliance with Obsidian standards, while license revenue supports continuous development and maintenance. This is a mature business model in the software industry (like Sublime Text, JetBrains).
 
 ### Q: Can I modify the code to bypass license verification?
 
