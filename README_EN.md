@@ -73,7 +73,7 @@ Unlock all premium features with a license:
 - **Scientific Memory Modeling**: Accurately predict forgetting time to optimize learning efficiency
 
 ### 🎨 Modern Interface
-- **Cursor-Style Design**: Refined visual style with attention to detail
+- **Clean & Elegant Design**: Refined visual style with attention to every detail
 - **Responsive Layout**: Perfectly adapts to various screen sizes
 - **Smooth Animations**: High-performance interactions based on Svelte 5
 - **Theme Integration**: Seamlessly integrates with Obsidian's theme system
@@ -179,92 +179,104 @@ Tuanki supports multiple card types using standard Markdown syntax:
 
 #### 📌 Basic Q&A Cards
 
-Use `---start---` and `---end---` to mark card boundaries:
+Use `---div---` to separate questions and answers:
 
 ```markdown
----start---
-Q: What is spaced repetition learning?
-A: Spaced repetition learning is a learning technique that improves long-term memory retention by increasing review intervals.
----end---
+## What is spaced repetition learning?
+
+Spaced repetition learning is a learning technique that improves long-term memory retention by increasing review intervals.
+
+---div---
+
+### Core Principles
+
+Spaced repetition is based on the **forgetting curve** theory:
+- Review at the point of near-forgetting
+- Extend intervals after each successful recall
+- Gradually transfer knowledge to long-term memory
+
+💡 **Tip**: This is one of the most effective learning methods
 ```
 
-**Supports Chinese and English keywords**:
-- Chinese: `问题:`/`答案:` or `Q:`/`A:`
-- English: `Question:`/`Answer:` or `Q:`/`A:`
+**Format Notes**:
+- Use `---div---` to separate front (question) and back (answer)
+- Back content is optional, questions can stand alone
+- Supports full Markdown syntax (headings, lists, code blocks, etc.)
 
 #### 📌 Cloze Deletion Cards
 
-Use `==highlight syntax==` to create cloze deletions (default recommended):
+Use `==highlight syntax==` to mark content for cloze deletion:
 
 ```markdown
----start---
-==FSRS6== is a ==spaced repetition== algorithm based on memory science that can accurately predict forgetting time.
----end---
+In JavaScript, the ==map()== method creates a new array, and ==filter()== method filters arrays.
+
+Example code:
+\`\`\`javascript
+const numbers = [1, 2, 3, 4, 5];
+const doubled = numbers.map(x => x * 2);  // [2, 4, 6, 8, 10]
+const evens = numbers.filter(x => x % 2 === 0);  // [2, 4]
+\`\`\`
 ```
 
 **Compatible with Anki syntax**:
 
 ```markdown
----start---
-{{c1::FSRS6}} is a {{c2::spaced repetition}} algorithm based on memory science.
----end---
+React's core concepts are {{c1::components}} and {{c2::state management}}.
 ```
+
+**Format Notes**:
+- Use `==content==` for cloze deletion (recommended, Obsidian highlight syntax)
+- Also supports `{{c1::content}}` Anki format
+- Can have multiple cloze deletions
 
 #### 📌 Multiple Choice Questions
 
 Use standard format to create multiple choice questions:
 
 ```markdown
----start---
-Q: What type of software is Obsidian?
-- [ ] Code Editor
-- [x] Knowledge Management Tool
-- [ ] Image Editor
-- [ ] Browser
----end---
+Q: What is the core principle of spaced repetition learning?
+
+A) Review at fixed times daily
+B) Review at the point of near-forgetting {✓}
+C) Random review
+D) Only review difficult items
 ```
 
 **Supports multiple-answer questions**:
 
 ```markdown
----start---
 Q: Which of the following are spaced repetition software?
-- [x] Anki
-- [ ] Notion
-- [x] SuperMemo
-- [x] Tuanki
----end---
+
+A) Anki {✓}
+B) Notion
+C) SuperMemo {✓}
+D) Obsidian
+E) Tuanki {✓}
 ```
 
-#### 📌 Fill-in-the-Blank Questions
-
-Use underscores to create fill-in-the-blank questions:
+**Multiple choice with explanation**:
 
 ```markdown
----start---
-Q: The full name of FSRS is ______ algorithm.
-A: Free Spaced Repetition Scheduler
----end---
+Q: What is the main improvement of FSRS algorithm over SM-2?
+
+A) Simpler formula
+B) Personalized parameter optimization {✓}
+C) Shorter review intervals
+D) Fixed difficulty coefficient
+
+---div---
+
+💡 **Explanation**: FSRS algorithm introduces personalized parameter optimization, adjusting algorithm parameters based on actual user learning data for more accurate review time predictions.
 ```
 
-### 2. Batch Scan Cards
+**Format Notes**:
+- Use `Q:` to indicate the question
+- Use `A) B) C) D)` to label options (with parentheses)
+- Use `{✓}` to mark correct answers
+- Use `---div---` to separate explanation (optional)
+- Supports multiple correct answers (multiple-choice)
 
-Tuanki only scans content within `---start---` and `---end---` markers, without affecting your other note content.
-
-```markdown
-# My Study Notes
-
-This is regular note content and will not be scanned.
-
----start---
-Q: Will this content be recognized as a card?
-A: Yes! Only content within marked boundaries will be recognized.
----end---
-
-This content will also not be scanned.
-```
-
-### 3. Start Learning
+### 2. Start Learning
 
 1. Click the Tuanki icon in the sidebar
 2. Select the deck to study
@@ -289,8 +301,9 @@ View on the statistics page:
 
 ### Pricing
 
+- 🎁 **Early Bird**: ¥46 (~$6.5 USD) (Limited time offer, first come first served)
 - 💰 **Regular Price**: ¥64 (~$9 USD) (Lifetime license, one-time purchase)
-- 🎁 **Early Bird**: ¥46 (~$6.5 USD) (Limited time)
+- 🚀 **Final Price**: ¥78 (~$11 USD) (After all planned features are completed)
 
 ### How to Purchase
 
