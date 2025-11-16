@@ -1,0 +1,11 @@
+{
+  "id": "tuanki",
+  "name": "tuanki",
+  "version": "0.6.3",
+  "minAppVersion": "0.15.0",
+  "description": "Obsidian的智能记忆卡片插件，基于FSRS算法优化学习效率",
+  "author": "Tuanki Team",
+  "authorUrl": "https://github.com/tuanki/obsidian-anki-plugin",
+  "fundingUrl": "https://github.com/sponsors/tuanki",
+  "isDesktopOnly": false
+}
