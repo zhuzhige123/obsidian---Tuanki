@@ -1,6 +1,6 @@
 {
   "id": "tuanki",
-  "name": "tuanki",
+  "name": "Tuanki",
   "version": "0.6.5.5",
   "minAppVersion": "0.15.0",
   "description": "Smart spaced repetition flashcard plugin powered by FSRS algorithm (Closed source)",
