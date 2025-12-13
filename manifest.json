@@ -5,7 +5,7 @@
   "minAppVersion": "0.15.0",
   "description": "Smart spaced repetition flashcard plugin powered by FSRS algorithm (Closed source)",
   "author": "Rabbit (zhuzhige)",
-  "authorUrl": "https://github.com/zhuzhige123/obsidian---Tuanki",
+  "authorUrl": "https://github.com/zhuzhige123",
   "fundingUrl": "https://github.com/zhuzhige123",
   "isDesktopOnly": false
 }
