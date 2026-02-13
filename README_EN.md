@@ -41,6 +41,24 @@ Likewise, Weave is far more than that. Based on the three interconnected core mo
 
 We look forward to your experience and support.
 
+## Basic vs Advanced Features
+
+| Module | Feature | Basic (Not Activated) | Advanced (Activated) | License Feature ID | Notes |
+|---|---|---|---|---|---|
+| Overview | Weave main view and core navigation | Available | Available | N/A | Primary entry point |
+| Memory decks | Learning and review scheduling (FSRS6) | Available | Available | N/A | Core capability |
+| Deck study | Deck study (Deck Study) | Available | Available | N/A | Core capability |
+| Card management | Table view | Available | Available | N/A | Default view |
+| Card management | Grid view | Not available | Available | `grid-view` | Falls back to table view and prompts activation when restricted |
+| Card management | Kanban view | Not available | Available | `kanban-view` | Falls back to table view and prompts activation when restricted |
+| Deck analytics | Per-deck analytics modal (curves, workload, etc.) | Not available | Available | `deck-analytics` | Main entry for analytics |
+| Incremental reading | Incremental reading (IR annotation notes workflow) | Not available | Available | `incremental-reading` | Reading material management and incremental reading workflows |
+| Question bank | Question bank / quizzes | Not available | Available | `question-bank` | Test sessions and performance tracking |
+| Batch parsing | Batch parsing system | Not available | Available | `batch-parsing` | Automatic parsing, mapping, and triggers |
+| AI | AI assistant | Not available or hidden | Available | `ai-assistant` | Depends on current implementation |
+| Cloze | Progressive cloze | Not available | Available | `progressive-cloze` | Depends on feature entry points |
+| Source tracing | View source / open source context | Available | Available | N/A | Fully free, no restrictions |
+
 ## Installation
 
 ### Option 1: Community plugins (not listed yet)
