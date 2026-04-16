@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Weave](https://img.shields.io/badge/Weave-Weave-blue?style=for-the-badge)
-![Version](https://img.shields.io/badge/version-0.7.7.2-green?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.7.8-green?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-GPL--3.0-orange?style=for-the-badge)
 ![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-purple?style=for-the-badge)
 
@@ -69,7 +69,7 @@ Weave,意为编织，一款以阅读牌组，记忆牌组，刷题牌组等三�
    - `manifest.json`
    - `styles.css`
    - `sql-wasm.wasm`（如发布包包含）
-   - `versions.json`（如发布包包含）
+   - `versions.json`（建议一并复制，用于版本兼容信息）
 2. 复制到：
 
    `.obsidian/plugins/weave/`

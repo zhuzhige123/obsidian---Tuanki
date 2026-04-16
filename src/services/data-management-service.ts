@@ -8,7 +8,6 @@ import { TFile, TFolder } from "obsidian";
 import { WEAVE_DATA, getPluginPaths, getV2PathsFromApp } from "../config/paths";
 import type { WeaveDataStorage } from "../data/storage";
 import type {
-	DataIntegrityResult,
 	DataOverview,
 	ExportOptions,
 	ExportResult,
@@ -18,7 +17,6 @@ import type {
 	ImportOptions,
 	ImportResult,
 	ResetResult,
-	ValidationIssue,
 } from "../types/data-management-types";
 import { DataType, OperationType } from "../types/data-management-types";
 
@@ -238,151 +236,6 @@ export class DataManagementService {
 				duration: Date.now() - startTime,
 				clearedDataTypes: [],
 				clearedRecordCount: 0,
-			};
-		}
-	}
-
-	/**
-	 * 检查数据完整性
-	 */
-	async checkDataIntegrity(): Promise<DataIntegrityResult> {
-		const _startTime = Date.now();
-		const issues: ValidationIssue[] = [];
-		let score = 100;
-
-		try {
-			logger.debug("开始数据完整性检查...");
-
-			// 1. 检查数据文件夹是否存在
-			const dataFolderPath = this.getDataFolderPath();
-			const adapter = this.plugin.app.vault.adapter;
-
-			if (!(await adapter.exists(dataFolderPath))) {
-				issues.push({
-					id: "missing-data-folder",
-					type: "missing_file",
-					description: `数据文件夹不存在: ${dataFolderPath}`,
-					severity: "critical",
-					fixSuggestion: "请重新初始化插件或检查配置",
-				});
-				score -= 50;
-			}
-
-			// 2. 检查牌组数据完整性
-			try {
-				const decks = await this.dataStorage.getDecks();
-				if (!Array.isArray(decks)) {
-					issues.push({
-						id: "invalid-decks-data",
-						type: "corrupted_data",
-						description: "牌组数据格式无效",
-						severity: "error",
-						fixSuggestion: "尝试从备份恢复数据",
-					});
-					score -= 20;
-				}
-			} catch (error) {
-				issues.push({
-					id: "decks-read-error",
-					type: "corrupted_data",
-					description: `无法读取牌组数据: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-					severity: "critical",
-					fixSuggestion: "检查数据文件是否损坏，考虑从备份恢复",
-				});
-				score -= 30;
-			}
-
-			// 3. 检查卡片数据完整性
-			try {
-				const cards = await this.dataStorage.getCards();
-				if (!Array.isArray(cards)) {
-					issues.push({
-						id: "invalid-cards-data",
-						type: "corrupted_data",
-						description: "卡片数据格式无效",
-						severity: "error",
-						fixSuggestion: "尝试从备份恢复数据",
-					});
-					score -= 20;
-				} else {
-					// 检查卡片数据结构（引用式牌组架构下 deckId 已废弃，只检查 uuid）
-					const invalidCards = cards.filter((card: any) => !card.uuid);
-					if (invalidCards.length > 0) {
-						issues.push({
-							id: "invalid-card-structure",
-							type: "invalid_format",
-							description: `发现 ${invalidCards.length} 张卡片缺少 UUID`,
-							severity: "warning",
-							fixSuggestion: "建议清理无效卡片数据",
-						});
-						score -= Math.min(10, invalidCards.length);
-					}
-				}
-			} catch (error) {
-				issues.push({
-					id: "cards-read-error",
-					type: "corrupted_data",
-					description: `无法读取卡片数据: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-					severity: "critical",
-					fixSuggestion: "检查数据文件是否损坏，考虑从备份恢复",
-				});
-				score -= 30;
-			}
-
-			// 4. 检查学习会话数据
-			try {
-				const sessions = (await this.dataStorage.getStudySessions?.()) || [];
-				if (!Array.isArray(sessions)) {
-					issues.push({
-						id: "invalid-sessions-data",
-						type: "corrupted_data",
-						description: "学习会话数据格式无效",
-						severity: "warning",
-						fixSuggestion: "会话数据可以重置，不影响卡片内容",
-					});
-					score -= 5;
-				}
-			} catch (error) {
-				// 会话数据不是关键数据，记录警告即可
-				logger.warn("学习会话数据检查失败:", error);
-			}
-
-			// 确保分数不低于0
-			score = Math.max(0, score);
-
-			const result: DataIntegrityResult = {
-				success:
-					issues.filter((i) => i.severity === "critical" || i.severity === "error").length === 0,
-				score,
-				issues,
-				timestamp: new Date().toISOString(),
-				checkType: "manual",
-			};
-
-			logger.debug(`数据完整性检查完成: 得分 ${score}，发现 ${issues.length} 个问题`);
-			return result;
-		} catch (error) {
-			logger.error("数据完整性检查失败:", error);
-			return {
-				success: false,
-				score: 0,
-				issues: [
-					{
-						id: "check-failed",
-						type: "corrupted_data",
-						description: `完整性检查失败: ${
-							error instanceof Error ? error.message : String(error)
-						}`,
-						severity: "critical",
-						fixSuggestion: "请联系技术支持",
-					},
-				],
-				timestamp: new Date().toISOString(),
-				checkType: "manual",
 			};
 		}
 	}

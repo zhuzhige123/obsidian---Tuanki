@@ -17,6 +17,7 @@ import { countWords, estimateReadingTime, generateReadingUUID } from "../../util
 import { sanitizeForSync } from "../../utils/sync-safe-filename";
 import type { YAMLFrontmatterManager } from "../../utils/yaml-frontmatter-utils";
 import type { AnchorManager } from "./AnchorManager";
+import { resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 import type { ReadingMaterialStorage } from "./ReadingMaterialStorage";
 
 /** 创建阅读材料时可覆盖的选项。 */
@@ -719,12 +720,22 @@ export class ReadingMaterialManager {
 
 	/** 设置关联的 Markdown 笔记路径。 */
 	async setAssociatedNotePath(materialId: string, notePath: string | null): Promise<boolean> {
+		return this.setAssociatedNotePaths(materialId, notePath ? [notePath] : []);
+	}
+
+	async setAssociatedNotePaths(materialId: string, notePaths: string[]): Promise<boolean> {
 		const material = await this.getMaterialOrWarn(materialId, "阅读材料");
 		if (!material) {
 			return false;
 		}
 
-		material.associatedNotePath = notePath || undefined;
+		const normalizedPaths = resolveAssociatedNotePaths({
+			associatedNotePaths: notePaths,
+		});
+		const primaryPath = normalizedPaths[0];
+		material.primaryAssociatedNotePath = primaryPath || undefined;
+		material.associatedNotePath = primaryPath || undefined;
+		material.associatedNotePaths = normalizedPaths;
 		await this.touchAndSaveMaterial(material);
 
 		return true;

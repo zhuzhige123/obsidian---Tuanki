@@ -11,6 +11,7 @@
 
 import type { Card, Deck } from "../data/types";
 import { getCardMetadata } from "../utils/yaml-utils";
+import { getSingleMemoryFormalDeckIds } from "../utils/memory-deck-membership";
 import { getCardMetadataCache } from "./CardMetadataCache";
 import { getDeckNameMapper } from "./DeckNameMapper";
 
@@ -100,15 +101,14 @@ export class CardMetadataService {
 		} catch {
 			mapper = null;
 		}
+		const allDecks = mapper?.getAllDecks();
 
 		// 2. 直接从 YAML 读取 we_decks，避免缓存未初始化时误判。
 		if (card.content) {
 			try {
 				const metadata = getCardMetadata(card.content);
 				if (Array.isArray(metadata.we_decks) && metadata.we_decks.length > 0) {
-					return mapper
-						? mapper.getDeckIdsByNames(metadata.we_decks)
-						: Array.from(new Set(metadata.we_decks.filter(Boolean)));
+					return getSingleMemoryFormalDeckIds(metadata.we_decks, allDecks);
 				}
 			} catch {
 				// YAML 解析失败时再决定是否走兼容回退
@@ -120,25 +120,10 @@ export class CardMetadataService {
 		}
 
 		// 3. 回退到旧格式字段
-		const deckIds = new Set<string>();
-
-		if (card.referencedByDecks && card.referencedByDecks.length > 0) {
-			card.referencedByDecks.forEach((_id) => {
-				const normalizedId = mapper?.hasDeckId(_id)
-					? _id
-					: (mapper ? mapper.getDeckIdByName(_id) : undefined) || _id;
-				deckIds.add(normalizedId);
-			});
-		}
-
-		if (card.deckId) {
-			const normalizedDeckId = mapper?.hasDeckId(card.deckId)
-				? card.deckId
-				: (mapper ? mapper.getDeckIdByName(card.deckId) : undefined) || card.deckId;
-			deckIds.add(normalizedDeckId);
-		}
-
-		return Array.from(deckIds);
+		return getSingleMemoryFormalDeckIds(
+			[...(card.referencedByDecks || []), ...(card.deckId ? [card.deckId] : [])],
+			allDecks
+		);
 	}
 
 	/**

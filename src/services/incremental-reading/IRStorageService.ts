@@ -28,6 +28,7 @@ import {
 	READING_TOPIC_YAML_KEY,
 	buildTopicStore,
 	extractReadingTopicIdFromFrontmatter,
+	getTaskTopicId,
 	normalizeChunkForRuntime,
 	normalizeIRSessionForRuntime,
 	normalizeStudySessionForRuntime,
@@ -910,10 +911,22 @@ export class IRStorageService {
 	}
 
 	private async collectTasksByDeckIdentifiers<T extends { id?: string }>(
-		service: { getTasksByDeck(deckId: string): Promise<T[]> },
+		service: { getTasksByDeck(deckId: string): Promise<T[]>; getAllTasks?: () => Promise<T[]> },
 		deckIdentifiers: string[]
 	): Promise<T[]> {
 		const identifiers = Array.from(this.toNormalizedStringSet(deckIdentifiers));
+		if (identifiers.length === 0) {
+			return [];
+		}
+
+		if (typeof service.getAllTasks === "function") {
+			const identifierSet = new Set(identifiers);
+			const tasks = await service.getAllTasks();
+			return tasks.filter((task) =>
+				identifierSet.has(String(getTaskTopicId(task as any) || "").trim())
+			);
+		}
+
 		const taskMap = new Map<string, T>();
 
 		for (const identifier of identifiers) {
@@ -1477,6 +1490,7 @@ export class IRStorageService {
 	 * v2.4: 新增提问统计（解析复选框+问号语法）
 	 * v2.6: 优化性能 - 提问统计改为可选，默认跳过以加快加载
 	 * v5.3: 同时统计旧版 IRBlock 和新版 IRChunkFileData
+	 * @deprecated 未来计划的权威统计已迁移到 IRWorkspaceSnapshotService.getDeckOverview，本接口仅保留兼容用途。
 	 */
 	async getDeckStats(
 		deckPath: string,
@@ -2603,6 +2617,7 @@ export class IRStorageService {
 
 	/**
 	 * 根据牌组标签获取统计数据
+	 * @deprecated 仅保留兼容用途；未来计划相关统计请改走 IRWorkspaceSnapshotService.getDeckOverview。
 	 */
 	async getDeckStatsByTag(
 		deckTag: string,

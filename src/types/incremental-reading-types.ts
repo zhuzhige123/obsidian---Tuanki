@@ -115,7 +115,9 @@ export interface ReadingMaterial {
 	topicId?: string;
 	readingDeckId?: string;
 	/** 关联的 Markdown 笔记路径 */
+	primaryAssociatedNotePath?: string;
 	associatedNotePath?: string;
+	associatedNotePaths?: string[];
 
 	// ===== 元数据 =====
 	/** 标签 */
@@ -182,6 +184,7 @@ export interface ReadingYAMLFields {
 	"weave-reading-priority": number;
 	"weave-reading-topic-id"?: string;
 	"weave-reading-ir-deck-id"?: string;
+	"weave_tags"?: string[];
 }
 
 // ===== 牌组扩展 =====

@@ -21,8 +21,9 @@ export type {
 export { EpubStorageService } from "./EpubStorageService";
 export type {
 	EpubBookshelfSettings,
-	EpubBookshelfSourceMode,
 	EpubBookshelfIndexEntry,
+	EpubBookshelfMembershipEntry,
+	EpubScanIndexEntry,
 } from "./EpubStorageService";
 export { DEFAULT_EPUB_BOOKSHELF_SETTINGS } from "./EpubStorageService";
 export { EpubAnnotationService } from "./EpubAnnotationService";

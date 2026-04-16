@@ -7,6 +7,7 @@ export interface EpubLinkParams {
 	cfi: string;
 	text: string;
 	chapter?: number;
+	sourceId?: string;
 }
 
 interface EpubLinkMarkupRange {
@@ -119,9 +120,17 @@ export class EpubLinkService {
 		}
 	}
 
-	private static buildLegacySubpath(cfi: string, _text: string, _chapterIndex?: number): string {
+	private static buildLegacySubpath(
+		cfi: string,
+		_text: string,
+		_chapterIndex?: number,
+		sourceId?: string
+	): string {
 		const safeCfi = EpubLinkService.encodeCfiForWikilink(cfi);
 		let subpath = `weave-cfi=${safeCfi}`;
+		if (sourceId) {
+			subpath += `&sid=${encodeURIComponent(sourceId)}`;
+		}
 		return subpath;
 	}
 
@@ -296,6 +305,93 @@ export class EpubLinkService {
 		};
 	}
 
+	private static injectSourceIdIntoMarkup(markup: string, sourceId: string): string | null {
+		if (!markup || !sourceId) {
+			return null;
+		}
+
+		if (markup.startsWith("[[") && markup.endsWith("]]")) {
+			const inner = markup.slice(2, -2);
+			const hashIndex = inner.indexOf("#");
+			if (hashIndex < 0) {
+				return null;
+			}
+
+			const aliasIndex = inner.indexOf("|", hashIndex);
+			const hashContent =
+				aliasIndex >= 0 ? inner.slice(hashIndex + 1, aliasIndex) : inner.slice(hashIndex + 1);
+			if (!EpubLinkService.hasSupportedEpubSubpath(hashContent) || /(?:^|[&?])sid=/.test(hashContent)) {
+				return null;
+			}
+
+			const prefix = inner.slice(0, hashIndex + 1);
+			const suffix = aliasIndex >= 0 ? inner.slice(aliasIndex) : "";
+			return `[[${prefix}${hashContent}&sid=${encodeURIComponent(sourceId)}${suffix}]]`;
+		}
+
+		const href = markup.startsWith("obsidian://weave-epub?")
+			? markup
+			: EpubLinkService.extractProtocolHrefFromMarkdownLink(markup);
+		if (!href || /(?:^|[?&])sid=/.test(href)) {
+			return null;
+		}
+
+		const rewrittenHref = href.includes("?")
+			? `${href}&sid=${encodeURIComponent(sourceId)}`
+			: `${href}?sid=${encodeURIComponent(sourceId)}`;
+		if (markup === href) {
+			return rewrittenHref;
+		}
+
+		return markup.replace(href, rewrittenHref);
+	}
+
+	async enrichEpubLinksWithSourceIdsInContent(
+		content: string
+	): Promise<{ content: string; changed: boolean; updatedLinks: number }> {
+		if (!content) {
+			return { content, changed: false, updatedLinks: 0 };
+		}
+
+		const { EpubStorageService } = await import("./EpubStorageService");
+		const storageService = new EpubStorageService(this.app);
+		const ranges = EpubLinkService.collectEpubLinkMarkupRanges(content);
+		if (ranges.length === 0) {
+			return { content, changed: false, updatedLinks: 0 };
+		}
+
+		let migratedContent = content;
+		let updatedLinks = 0;
+		for (const range of [...ranges].sort((a, b) => b.start - a.start)) {
+			const parsed = EpubLinkService.parseLinkMarkup(range.markup);
+			if (!parsed?.filePath || parsed.sourceId) {
+				continue;
+			}
+			const sourceEntry = await storageService.ensureSourceIdentity(parsed.filePath);
+			if (!sourceEntry?.sourceId) {
+				continue;
+			}
+			const migratedMarkup = EpubLinkService.injectSourceIdIntoMarkup(
+				range.markup,
+				sourceEntry.sourceId
+			);
+			if (!migratedMarkup || migratedMarkup === range.markup) {
+				continue;
+			}
+			migratedContent =
+				migratedContent.slice(0, range.start) +
+				migratedMarkup +
+				migratedContent.slice(range.end);
+			updatedLinks++;
+		}
+
+		return {
+			content: migratedContent,
+			changed: updatedLinks > 0,
+			updatedLinks,
+		};
+	}
+
 	static extractFilePathFromEpubLinkMarkup(markup: string): string | null {
 		if (!markup) return null;
 
@@ -365,7 +461,7 @@ export class EpubLinkService {
 
 	private static extractProtocolQueryParams(href: string): Record<string, string> {
 		const params: Record<string, string> = {};
-		for (const key of ["file", "cfi", "text", "chapter"]) {
+		for (const key of ["file", "cfi", "text", "chapter", "sid"]) {
 			const match = href.match(new RegExp(`[?&]${key}=([^&)]*)`, "i"));
 			if (match?.[1]) {
 				params[key] = EpubLinkService.decodeQueryValue(match[1]);
@@ -471,11 +567,12 @@ export class EpubLinkService {
 		_text: string,
 		_chapterIndex?: number,
 		_chapterTitle?: string,
-		sourcePath?: string
+		sourcePath?: string,
+		sourceId?: string
 	): string {
 		const displayText = EpubLinkService.buildDisplayAlias(filePath);
 		const linkPath = this.extractLinkPath(filePath, sourcePath);
-		const subpath = EpubLinkService.buildLegacySubpath(cfi, "", undefined);
+		const subpath = EpubLinkService.buildLegacySubpath(cfi, "", undefined, sourceId);
 		return `[[${linkPath}#${subpath}|${displayText}]]`;
 	}
 
@@ -487,9 +584,18 @@ export class EpubLinkService {
 		color?: string,
 		chapterTitle?: string,
 		timestamp?: string,
-		sourcePath?: string
+		sourcePath?: string,
+		sourceId?: string
 	): string {
-		const link = this.buildEpubLink(filePath, cfi, text, chapterIndex, chapterTitle, sourcePath);
+		const link = this.buildEpubLink(
+			filePath,
+			cfi,
+			text,
+			chapterIndex,
+			chapterTitle,
+			sourcePath,
+			sourceId
+		);
 		const calloutMeta = color ? `|${color}` : "";
 		const titleSuffix = EpubLinkService.buildQuoteTitleSuffix(
 			chapterIndex,
@@ -517,7 +623,7 @@ export class EpubLinkService {
 				return null;
 			}
 			const filePath = EpubLinkService.extractFilePathFromEpubLinkMarkup(markup);
-			return filePath ? { ...parsed, filePath } : null;
+			return filePath || parsed.sourceId ? { ...parsed, filePath: filePath || "" } : null;
 		}
 
 		const href = markup.startsWith("obsidian://weave-epub?")
@@ -560,6 +666,7 @@ export class EpubLinkService {
 				hashContent.match(/tuanki-cfi-([^&|\]]*)/);
 			const chapterMatch = hashContent.match(/[&?]chapter=(\d+)/);
 			const textMatch = hashContent.match(/[&?]text=([^&|\]]*)/);
+			const sourceIdMatch = hashContent.match(/[&?]sid=([^&|\]]*)/);
 
 			if (!cfiMatch) {
 				return null;
@@ -582,6 +689,7 @@ export class EpubLinkService {
 					? decodeURIComponent(textMatch[1])
 					: EpubLinkService.extractEmbeddedTextFromReadiumLocator(cfi) || "",
 				chapter: chapterMatch ? parseInt(chapterMatch[1], 10) : undefined,
+				sourceId: sourceIdMatch?.[1] ? decodeURIComponent(sourceIdMatch[1]) : undefined,
 			};
 		} catch (e) {
 			logger.warn("[EpubLinkService] Failed to parse epub link:", subpath, e);
@@ -594,35 +702,54 @@ export class EpubLinkService {
 		const cfi = params.cfi;
 		const text = params.text || "";
 		const chapter = params.chapter;
+		const sourceId = params.sid;
 
-		if (!file || !cfi) return null;
+		if ((!file && !sourceId) || !cfi) return null;
 
 		return {
-			filePath: file,
+			filePath: file || "",
 			cfi,
 			text,
 			chapter: chapter ? parseInt(chapter, 10) : undefined,
+			sourceId: sourceId || undefined,
 		};
 	}
 
-	async navigateToEpubLocation(filePath: string, cfi: string, text: string): Promise<void> {
+	async navigateToEpubLocation(
+		filePath: string,
+		cfi: string,
+		text: string,
+		sourceId?: string
+	): Promise<void> {
 		try {
+			const { EpubStorageService } = await import("./EpubStorageService");
 			const [{ VIEW_TYPE_EPUB }, { getPreferredEpubLeaf }] = await Promise.all([
 				import("../../views/EpubView"),
 				import("../../utils/epub-leaf-utils"),
 			]);
-			const targetLeaf = getPreferredEpubLeaf(this.app, filePath);
+			const resolvedFilePath = await new EpubStorageService(this.app).resolveSourceFilePath(
+				sourceId,
+				filePath
+			);
+			if (!resolvedFilePath) {
+				logger.warn("[EpubLinkService] Unable to resolve EPUB source:", {
+					filePath,
+					sourceId,
+				});
+				return;
+			}
+			const targetLeaf = getPreferredEpubLeaf(this.app, resolvedFilePath);
 			if (!targetLeaf) return;
 
 			this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
 			await targetLeaf.setViewState({
 				type: VIEW_TYPE_EPUB,
 				active: true,
-				state: { filePath, pendingCfi: cfi, pendingText: text },
+				state: { filePath: resolvedFilePath, pendingCfi: cfi, pendingText: text },
 			});
 			void this.app.workspace.revealLeaf(targetLeaf);
 
-			logger.debug("[EpubLinkService] Navigated to:", filePath, cfi);
+			logger.debug("[EpubLinkService] Navigated to:", resolvedFilePath, cfi, sourceId);
 		} catch (error) {
 			logger.error("[EpubLinkService] Navigation failed:", error);
 		}

@@ -19,6 +19,8 @@
     colorVariant?: 1 | 2 | 3 | 4;
     compact?: boolean;
     deckMode?: 'memory' | 'question-bank' | 'incremental-reading';
+    statusBadge?: string;
+    statusKind?: 'formal' | 'emergent';
     onStudy: () => void;
     onMenu: (event: MouseEvent) => void;
   }
@@ -29,6 +31,8 @@
     colorVariant = 1,
     compact = false,
     deckMode = 'memory',
+    statusBadge,
+    statusKind = 'formal',
     onStudy,
     onMenu
   }: Props = $props();
@@ -103,6 +107,12 @@
   
   <!-- 微光效果层 -->
   <div class="light-effect"></div>
+
+  {#if statusBadge}
+    <div class="status-badge status-badge--{statusKind}">
+      {statusBadge}
+    </div>
+  {/if}
   
   <!-- 右上角菜单按钮 -->
   <button 
@@ -234,6 +244,32 @@
     transition: all 0.2s;
     opacity: 0;
     touch-action: manipulation;
+  }
+
+  .status-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(8px);
+  }
+
+  .status-badge--formal {
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .status-badge--emergent {
+    background: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.2);
   }
 
   .chinese-elegant-card:hover .menu-btn {

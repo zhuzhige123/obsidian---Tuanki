@@ -85,8 +85,8 @@ describe("IRDeckSelectorModal", () => {
 		const deckId = el.querySelector(".weave-ir-deck-suggestion-id");
 
 		expect(row).toBeTruthy();
-		expect(row?.style.display).toBe("flex");
-		expect(row?.style.flexWrap).toBe("nowrap");
+		expect(el.classList.contains("weave-ir-deck-suggestion")).toBe(true);
+		expect(row?.classList.contains("weave-ir-deck-suggestion-row")).toBe(true);
 		expect(name?.textContent).toBe("心理学");
 		expect(name?.tagName).toBe("SPAN");
 		expect(deckId).toBeNull();

@@ -277,7 +277,7 @@
   });
 </script>
 
-<div class="grid-view weave-grid-scrollbar" bind:this={scrollContainer}>
+<div class="grid-view" bind:this={scrollContainer}>
     <!-- 渲染进度遮罩 -->
     {#if isRendering && !loading}
       <div class="weave-rendering-overlay"></div>
@@ -368,11 +368,12 @@
     flex: 1;
     min-width: 0;
     min-height: 0;
-    overflow-y: scroll;
+    overflow-y: auto;
     overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
     padding: var(--weave-space-lg);
     background: var(--background-primary);
-    scrollbar-gutter: stable;
   }
 
   /* 网格容器 - 使用CSS变量动态控制列数 */

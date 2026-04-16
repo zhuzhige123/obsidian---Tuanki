@@ -18,7 +18,7 @@ const mockCards: Card[] = [
     id: '1',
     uuid: 'card-1',
     templateId: 'template1',
-    content: '前面内容1\n---\n背面内容1',
+    content: '前面内容1\n---div---\n背面内容1',
     fields: {
       front: '前面内容1',
       back: '背面内容1'
@@ -49,7 +49,7 @@ const mockCards: Card[] = [
     id: '2',
     uuid: 'card-2',
     templateId: 'template1',
-    content: '前面内容2\n---\n背面内容2',
+    content: '前面内容2\n---div---\n背面内容2',
     fields: {
       front: '前面内容2',
       back: '背面内容2'

@@ -10,9 +10,9 @@
   import UnifiedActionsBar from '../study/UnifiedActionsBar.svelte';
 
   import { AISplitService } from '../../services/ai/AISplitService';
-  import { BlockLinkManager } from '../../utils/block-link-manager';
   import { createContentWithMetadata, extractBodyContent } from '../../utils/yaml-utils';
   import { generateCardUUID } from '../../services/identifier/WeaveIDGenerator';
+  import { detectTraceSourceKind, normalizeTraceDocumentKey } from '../../services/incremental-reading/IRSourceTraceStats';
 
   interface Props {
     plugin: WeavePlugin;
@@ -58,34 +58,15 @@
     }
   }
 
-  async function ensureSourceBlockLink(): Promise<void> {
+  async function ensureSourceReference(): Promise<void> {
     if (sourceWeSource) return;
 
-    try {
-      if (!sourceFilePath) {
-        return;
-      }
-
-      const mgr = new BlockLinkManager(plugin.app);
-      const result = await mgr.createBlockLinkForSelection(selectedText, sourceFilePath);
-
-      if (result.blockLinkInfo) {
-        const blockLink = result.blockLinkInfo.blockLink;
-        if (blockLink) {
-          sourceWeSource = blockLink.startsWith('!') ? blockLink : `!${blockLink}`;
-        }
-      }
-
-      if (!sourceWeSource && sourceFilePath) {
-        const base = sourceFilePath.split('/').pop()?.replace(/\.md$/, '') || sourceFilePath;
-        sourceWeSource = `[[${base}]]`;
-      }
-    } catch {
-      if (!sourceWeSource && sourceFilePath) {
-        const base = sourceFilePath.split('/').pop()?.replace(/\.md$/, '') || sourceFilePath;
-        sourceWeSource = `[[${base}]]`;
-      }
+    if (!sourceFilePath) {
+      return;
     }
+
+    const base = sourceFilePath.split('/').pop()?.replace(/\.md$/, '') || sourceFilePath;
+    sourceWeSource = `[[${base}]]`;
   }
 
   function toTempPreviewCard(content: string, index: number): Card {
@@ -162,7 +143,7 @@
       isGenerating = true;
 
       await loadDecks();
-      await ensureSourceBlockLink();
+      await ensureSourceReference();
 
       const splitService = new AISplitService(plugin);
       const effectiveTargetCount = action.splitConfig?.targetCount || 3;
@@ -241,6 +222,14 @@
     );
   }
 
+  function buildSourceTraceMeta() {
+    const sourceKind = detectTraceSourceKind(sourceFilePath);
+    return {
+      sourceKind,
+      sourceDocumentKey: normalizeTraceDocumentKey(sourceFilePath, sourceKind) || undefined
+    };
+  }
+
   async function handleSaveSelected(): Promise<void> {
     if (isGenerating) {
       new Notice('正在生成，请稍候');
@@ -275,7 +264,10 @@
           templateId: 'official-qa',
           type: CardType.Basic,
           cardPurpose: 'memory',
+          outputKind: 'memory',
           content: finalContent,
+          sourceFile: sourceFilePath || undefined,
+          ...buildSourceTraceMeta(),
           created: now,
           modified: now
         };

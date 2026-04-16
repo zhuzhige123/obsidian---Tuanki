@@ -28,6 +28,7 @@ import {
 	getCardMetadata,
 	parseYAMLFromContent,
 } from "../utils/yaml-utils";
+import { keepSingleMemoryFormalDeck } from "../utils/memory-deck-membership";
 import { getDeckIdByName, getDeckNameMapper } from "./DeckNameMapper";
 
 // ===== 平台感知配置 =====
@@ -272,27 +273,9 @@ export class CardMetadataCache {
 				.map((value) => String(value || "").trim())
 				.filter(Boolean);
 			const mapper = getDeckNameMapper();
-			const deckIds: string[] = [];
-			const normalizedDeckNames: string[] = [];
-			const seenDeckIds = new Set<string>();
-			const seenDeckNames = new Set<string>();
-
-			for (const value of rawDeckValues) {
-				const matchedDeckId =
-					getDeckIdByName(value) || (mapper.hasDeckId(value) ? value : undefined);
-				const matchedDeckName = mapper.getDeckNameById(value);
-
-				if (matchedDeckId && !seenDeckIds.has(matchedDeckId)) {
-					seenDeckIds.add(matchedDeckId);
-					deckIds.push(matchedDeckId);
-				}
-
-				const normalizedName = matchedDeckName || value;
-				if (!seenDeckNames.has(normalizedName)) {
-					seenDeckNames.add(normalizedName);
-					normalizedDeckNames.push(normalizedName);
-				}
-			}
+			const normalizedDeckEntries = keepSingleMemoryFormalDeck(rawDeckValues, mapper.getAllDecks());
+			const deckIds = normalizedDeckEntries.map((entry) => entry.deckId);
+			const normalizedDeckNames = normalizedDeckEntries.map((entry) => entry.deckName);
 
 			// 处理 we_source 可能是数组的情况
 			const sourceValue = Array.isArray(yamlMetadata.we_source)

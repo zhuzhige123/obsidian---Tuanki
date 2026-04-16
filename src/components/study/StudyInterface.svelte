@@ -2073,18 +2073,30 @@
   // 学习会话管理 - 当卡片变化时创建新会话
   $effect(() => {
     const card = currentCard;
-    if (card && card.uuid) {
-      // 清理旧会话
-      if (currentSessionId) {
-        sessionManager.dispose(currentSessionId);
+
+    if (!card?.uuid) {
+      const staleSessionId = untrack(() => currentSessionId);
+      if (staleSessionId) {
+        sessionManager.dispose(staleSessionId);
+        currentSessionId = null;
       }
-      // 创建新会话，传入learningSteps配置用于stepIndex推断
-      const learningSteps =
-        learningConfig?.learningSteps ?? [...DEFAULT_MEMORY_SCHEDULING_SETTINGS.learningSteps];
-      const relearningSteps =
-        learningConfig?.relearningSteps ?? [...DEFAULT_MEMORY_SCHEDULING_SETTINGS.relearningSteps];
-      currentSessionId = sessionManager.createSession(card, learningSteps, relearningSteps);
+      return;
     }
+
+    const learningSteps =
+      learningConfig?.learningSteps ?? [...DEFAULT_MEMORY_SCHEDULING_SETTINGS.learningSteps];
+    const relearningSteps =
+      learningConfig?.relearningSteps ?? [...DEFAULT_MEMORY_SCHEDULING_SETTINGS.relearningSteps];
+    const sessionId = sessionManager.createSession(card, learningSteps, relearningSteps);
+
+    currentSessionId = sessionId;
+
+    return () => {
+      sessionManager.dispose(sessionId);
+      if (untrack(() => currentSessionId) === sessionId) {
+        currentSessionId = null;
+      }
+    };
   });
 
   // 单独的 effect 来更新学习时间 - 始终计时，从看到卡片开始
@@ -4737,8 +4749,6 @@
           studyQueue = [...studyQueue];
         }
 
-        currentCard = savedCard;
-
         const priorityText = [
           '',
           t('study.priority.low'),
@@ -4796,8 +4806,6 @@
           studyQueue[queueIndex] = savedCard;
           studyQueue = [...studyQueue];
         }
-
-        currentCard = savedCard;
 
         const priorityText = [
           '',
@@ -5110,9 +5118,7 @@
 
     aiActionManagerModalInstance.open();
   }
-
-
-  // 处理牌组切换（引用式牌组：多选 toggle）
+  // 处理牌组切换（正式牌组单归属：重复点击清空，改选直接替换）
   async function handleChangeDeck(deckId: string) {
     if (!currentCard || isDeckChanging) {
       logger.debug('handleChangeDeck: 跳过 - 无当前卡片或正在切换中');
@@ -5140,11 +5146,6 @@
       const currentDeckIdSet = new Set(deckIds);
       const isSelected = currentDeckIdSet.has(deckId);
 
-      if (isSelected && currentDeckIdSet.size <= 1) {
-        new Notice(t('studyInterface.notices.keepAtLeastOneDeck'));
-        return;
-      }
-
       if (isSelected) {
         const result = await plugin.referenceDeckService.removeCardsFromDeck(deckId, [cardUuid]);
         if (!result.success) {
@@ -5157,26 +5158,25 @@
         }
       }
 
-      const metadata = getCardMetadata(currentCard.content || '');
-      const weDecks = new Set(metadata.we_decks || []);
-
-      const nextRefs = new Set(currentCard.referencedByDecks || []);
-
-      if (isSelected) {
-        weDecks.delete(targetDeck.name);
-        weDecks.delete(targetDeck.id);
-        nextRefs.delete(targetDeck.id);
-      } else {
-        weDecks.delete(targetDeck.id);
-        weDecks.add(targetDeck.name);
-        nextRefs.add(targetDeck.id);
-      }
+      const preservedTestDeckIds = deckIds.filter((currentDeckId) => {
+        const currentDeck = decks.find((deck) => deck.id === currentDeckId);
+        return currentDeck?.purpose === 'test';
+      });
+      const nextRefs = isSelected
+        ? preservedTestDeckIds
+        : targetDeck.purpose === 'test'
+          ? Array.from(new Set([...deckIds, targetDeck.id]))
+          : [targetDeck.id, ...preservedTestDeckIds.filter((currentDeckId) => currentDeckId !== targetDeck.id)];
+      const nextDeckNames = nextRefs.map((currentDeckId) => {
+        return decks.find((deck) => deck.id === currentDeckId)?.name || currentDeckId;
+      });
 
       const updatedCard: Card = {
         ...currentCard,
-        referencedByDecks: Array.from(nextRefs),
+        referencedByDecks: nextRefs,
+        deckId: nextRefs[0],
         content: setCardProperties(currentCard.content || '', {
-          we_decks: weDecks.size > 0 ? Array.from(weDecks) : undefined
+          we_decks: nextDeckNames.length > 0 ? nextDeckNames : undefined
         }),
         modified: now
       };

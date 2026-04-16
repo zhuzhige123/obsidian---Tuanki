@@ -32,12 +32,20 @@ export interface AIAssistantSavedGenerationConfig {
 	enableHints?: boolean;
 	temperature?: number;
 	maxTokens?: number;
+	maxGenerationLimit?: number;
+	prioritizePromptRequirements?: boolean;
 }
+
+export type AIAssistantSubView = "generate" | "parse-preview";
 
 export interface AIAssistantLocalPreferences {
 	lastUsedProvider?: AIProvider | string;
 	lastUsedModel?: string;
 	savedGenerationConfig?: AIAssistantSavedGenerationConfig;
+	subView?: AIAssistantSubView;
+	lastSelectedSourceFilePath?: string;
+	lastSelectedPromptFilePath?: string;
+	lastSelectedParsePresetId?: string;
 }
 
 export interface AIGenerationHistoryEntry {
@@ -48,6 +56,10 @@ export interface AIGenerationHistoryEntry {
 		name: string;
 		size: number;
 		extension: string;
+	} | null;
+	promptFile?: {
+		path: string;
+		name: string;
 	} | null;
 	sourceContent: string;
 	cards: GeneratedCard[];
@@ -555,6 +567,18 @@ export class PluginLocalStateService {
 			normalized.savedGenerationConfig =
 				value.savedGenerationConfig as unknown as AIAssistantSavedGenerationConfig;
 		}
+		if (value.subView === "generate" || value.subView === "parse-preview") {
+			normalized.subView = value.subView;
+		}
+		if (typeof value.lastSelectedSourceFilePath === "string") {
+			normalized.lastSelectedSourceFilePath = value.lastSelectedSourceFilePath;
+		}
+		if (typeof value.lastSelectedPromptFilePath === "string") {
+			normalized.lastSelectedPromptFilePath = value.lastSelectedPromptFilePath;
+		}
+		if (typeof value.lastSelectedParsePresetId === "string") {
+			normalized.lastSelectedParsePresetId = value.lastSelectedParsePresetId;
+		}
 		return normalized;
 	}
 
@@ -580,14 +604,12 @@ export class PluginLocalStateService {
 	private normalizeEpubBookshelfSettings(value: unknown): EpubBookshelfSettings {
 		if (!isRecord(value)) {
 			return {
-				sourceMode: "cache-first",
-				sourceFolder: "",
+				lastScanAt: 0,
 			};
 		}
 
 		return {
-			sourceMode: value.sourceMode === "folder-only" ? "folder-only" : "cache-first",
-			sourceFolder: typeof value.sourceFolder === "string" ? value.sourceFolder : "",
+			lastScanAt: typeof value.lastScanAt === "number" ? value.lastScanAt : 0,
 		};
 	}
 

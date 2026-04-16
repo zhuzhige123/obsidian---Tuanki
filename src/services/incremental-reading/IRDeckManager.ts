@@ -25,6 +25,7 @@ import { createYAMLFrontmatterManager } from "../../utils/yaml-frontmatter-utils
 import { IREpubBookmarkTaskService } from "./IREpubBookmarkTaskService";
 import { IRPdfBookmarkTaskService } from "./IRPdfBookmarkTaskService";
 import { IRStorageService } from "./IRStorageService";
+import { getSharedIRWorkspaceSnapshotService } from "./IRWorkspaceSnapshotService";
 import { createReadingMaterialStorage } from "./ReadingMaterialStorage";
 
 export class IRDeckManager {
@@ -144,41 +145,33 @@ export class IRDeckManager {
 		dailyReviewLimit?: number;
 		learnAheadDays?: number;
 	}): Promise<Array<{ deck: IRDeck; stats: IRDeckStats }>> {
-		const decks = await this.getAllDecks();
-		const result: Array<{ deck: IRDeck; stats: IRDeckStats }> = [];
+		const snapshot = await getSharedIRWorkspaceSnapshotService(this.app).getDeckOverview({
+			dailyNewLimit: options?.dailyNewLimit ?? 20,
+			dailyReviewLimit: options?.dailyReviewLimit ?? 50,
+			learnAheadDays: options?.learnAheadDays ?? 3,
+		});
 
-		const dailyNewLimit = options?.dailyNewLimit ?? 20;
-		const dailyReviewLimit = options?.dailyReviewLimit ?? 50;
-		const learnAheadDays = options?.learnAheadDays ?? 3;
+		const emptyStats: IRDeckStats = {
+			newCount: 0,
+			learningCount: 0,
+			reviewCount: 0,
+			dueToday: 0,
+			dueWithinDays: 0,
+			totalCount: 0,
+			fileCount: 0,
+			questionCount: 0,
+			completedQuestionCount: 0,
+			todayNewCount: 0,
+			todayDueCount: 0,
+		};
 
-		for (const deck of decks) {
-			// 使用 id 或 path
-			const deckKey = deck.id || deck.path || "";
-			const stats = await this.storage.getDeckStats(
-				deckKey,
-				dailyNewLimit,
-				dailyReviewLimit,
-				learnAheadDays
-			);
-			result.push({
+		return snapshot.decks.map((deck) => {
+			const deckKey = String(deck.id || deck.path || "").trim();
+			return {
 				deck,
-				stats: {
-					newCount: stats.newCount,
-					learningCount: stats.learningCount,
-					reviewCount: stats.reviewCount,
-					dueToday: stats.dueToday,
-					dueWithinDays: stats.dueWithinDays,
-					totalCount: stats.totalCount,
-					fileCount: stats.fileCount,
-					questionCount: stats.questionCount,
-					completedQuestionCount: stats.completedQuestionCount,
-					todayNewCount: stats.todayNewCount,
-					todayDueCount: stats.todayDueCount,
-				},
-			});
-		}
-
-		return result;
+				stats: snapshot.deckStats[deckKey] ?? emptyStats,
+			};
+		});
 	}
 
 	/**

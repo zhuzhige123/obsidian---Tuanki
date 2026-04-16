@@ -1,6 +1,8 @@
 export interface EpubBook {
 	id: string;
 	filePath: string;
+	sourceId?: string;
+	sourceFingerprint?: string;
 	sourceMtime?: number;
 	sourceSize?: number;
 	metadata: BookMetadata;
@@ -40,6 +42,12 @@ export interface Bookmark {
 	preview: string;
 	pageNumber?: number;
 	createdTime: number;
+}
+
+export interface EpubLastOpenBookmark extends ReadingPosition {
+	title: string;
+	preview: string;
+	savedAt: number;
 }
 
 export interface Highlight {

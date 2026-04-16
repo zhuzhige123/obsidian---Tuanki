@@ -1242,7 +1242,7 @@
         class="toolbar-btn clickable-icon deck-btn"
         class:active={showDeckMenu}
         onclick={toggleDeckMenu}
-        title={t('toolbar.changeDeck')}
+        title="调整主题归属"
       >
         <EnhancedIcon name="folder" size="18" />
         <span class="btn-label">{t('toolbar.deck')}</span>
@@ -1257,7 +1257,7 @@
       >
         {#snippet children()}
           <div class="multi-info-menu-header">
-            <span>{t('toolbar.setCardDeck')}</span>
+            <span>主题归属</span>
             <button class="close-btn" onclick={() => showDeckMenu = false}>
               <EnhancedIcon name="times" size="12" />
             </button>

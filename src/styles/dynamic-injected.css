@@ -734,3 +734,131 @@ body.is-mobile .receipt-modal .printer-container {
   width: 100%;
   height: 100%;
 }
+
+/* --- weaveSuggestModalTheme.ts --- */
+.suggestion-container.weave-batch-tag-suggest-popover,
+.suggestion-container.weave-ir-deck-suggest-popover,
+.suggestion-container.weave-vault-folder-suggest-popover,
+.suggestion-container.weave-markdown-file-suggest-popover {
+  padding: 6px;
+  border-radius: 14px;
+  z-index: calc(var(--z-index-modal, 400) + 10);
+  font-size: var(--font-ui-small, 13px);
+  max-height: var(--weave-suggest-popover-max-height, 360px);
+  overflow-y: auto;
+}
+
+.suggestion-container.weave-batch-tag-suggest-popover .suggestion,
+.suggestion-container.weave-ir-deck-suggest-popover .suggestion,
+.suggestion-container.weave-vault-folder-suggest-popover .suggestion,
+.suggestion-container.weave-markdown-file-suggest-popover .suggestion {
+  padding: 0;
+}
+
+.suggestion-container.weave-batch-tag-suggest-popover .suggestion-item,
+.suggestion-container.weave-ir-deck-suggest-popover .suggestion-item,
+.suggestion-container.weave-vault-folder-suggest-popover .suggestion-item,
+.suggestion-container.weave-markdown-file-suggest-popover .suggestion-item {
+  padding: 8px 10px;
+  margin: 2px 0;
+  border-radius: 10px;
+  font-size: var(--font-ui-small, 13px);
+}
+
+.suggestion-container.weave-batch-tag-suggest-popover .suggestion-item.is-selected,
+.suggestion-container.weave-ir-deck-suggest-popover .suggestion-item.is-selected,
+.suggestion-container.weave-vault-folder-suggest-popover .suggestion-item.is-selected,
+.suggestion-container.weave-markdown-file-suggest-popover .suggestion-item.is-selected {
+  background: var(--background-modifier-hover);
+}
+
+.suggestion-container .weave-batch-tag-suggestion,
+.suggestion-container .weave-ir-deck-suggestion,
+.suggestion-container .weave-markdown-file-suggestion {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.suggestion-container .weave-batch-tag-suggestion__row,
+.suggestion-container .weave-ir-deck-suggestion-row,
+.suggestion-container .weave-markdown-file-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.suggestion-container .weave-batch-tag-suggestion__icon,
+.suggestion-container .weave-ir-deck-suggestion-icon,
+.suggestion-container .weave-markdown-file-suggestion__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+}
+
+.suggestion-container .weave-batch-tag-suggestion__title,
+.suggestion-container .weave-ir-deck-suggestion-name,
+.suggestion-container .weave-markdown-file-suggestion__title {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small, 13px);
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.suggestion-container .weave-markdown-file-suggestion__content {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.suggestion-container .weave-markdown-file-suggestion__path {
+  display: block;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modal-container.weave-suggest-modal-container--raised {
+  z-index: calc(var(--z-index-modal, 400) + 10);
+}
+
+.modal.weave-suggest-modal--raised {
+  z-index: calc(var(--z-index-modal, 400) + 10);
+}
+
+.modal-container.weave-suggest-modal-container--anchored {
+  align-items: flex-start;
+  justify-content: flex-start;
+  z-index: var(--weave-suggest-popover-z, calc(var(--z-index-modal, 400) + 10));
+}
+
+.modal.weave-suggest-modal--anchored {
+  position: fixed;
+  width: var(--weave-suggest-popover-width, min(320px, calc(100vw - 24px)));
+  max-width: var(--weave-suggest-popover-width, min(320px, calc(100vw - 24px)));
+  max-height: var(--weave-suggest-popover-max-height, calc(100vh - 24px));
+  margin: 0;
+  transform: none;
+  left: var(--weave-suggest-popover-left, 12px);
+  top: var(--weave-suggest-popover-top, 12px);
+  z-index: var(--weave-suggest-popover-z, calc(var(--z-index-modal, 400) + 10));
+}

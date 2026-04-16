@@ -13,8 +13,7 @@
     DataOverview,
     BackupInfo,
     OperationProgress,
-    SecurityLevel,
-    ValidationIssue
+    SecurityLevel
   } from '../../../types/data-management-types';
   
   // 响应式存储
@@ -736,44 +735,6 @@
     menu.showAtMouseEvent(event);
   }
 
-  // 数据完整性检查
-  async function handleCheckIntegrity() {
-    if (dataOperationInProgress) return;
-    dataOperationInProgress = 'checkIntegrity';
-    try {
-      const result = await dataManagementService.checkDataIntegrity();
-      
-      if (result.success) {
-        new Notice(`数据完整性检查通过\n得分: ${result.score}/100`);
-      } else {
-        const criticalIssues = result.issues.filter((i: ValidationIssue) => i.severity === 'critical' || i.severity === 'error');
-        new Notice(`发现 ${criticalIssues.length} 个严重问题\n得分: ${result.score}/100`, 5000);
-      }
-      
-      // 显示详细问题列表
-      if (result.issues.length > 0) {
-        showConfirmationDialog({
-          title: '数据完整性检查结果',
-          message: `检查得分: ${result.score}/100`,
-          securityLevel: result.success ? 'safe' : 'caution',
-          details: result.issues.map((issue: ValidationIssue) => 
-            `[${issue.severity.toUpperCase()}] ${issue.description}`
-          ),
-          warningItems: result.issues
-            .filter((i: ValidationIssue) => i.fixSuggestion)
-            .map((i: ValidationIssue) => i.fixSuggestion!),
-          confirmText: '关闭'
-        });
-      }
-    } catch (error) {
-      logger.error('完整性检查失败:', error);
-      new Notice('完整性检查失败', 5000);
-      lastError = error instanceof Error ? error.message : '完整性检查失败';
-    } finally {
-      dataOperationInProgress = null;
-    }
-  }
-
   // 删除备份
   async function handleDeleteBackup(backupId: string) {
     const backup = backupHistory.find(b => b.id === backupId);
@@ -1079,11 +1040,9 @@
   <DataOperationToolbar 
     disabled={isLoading || operationInProgress !== null}
     operationInProgress={dataOperationInProgress}
-    onCheckIntegrity={handleCheckIntegrity}
     onExport={handleExportData}
     onImport={handleImportData}
     onReset={handleResetData}
-    onOpenFolder={() => handleOpenFolder()}
   />
 
   <!-- 确认对话框 -->

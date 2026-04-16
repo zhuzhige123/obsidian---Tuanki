@@ -68,6 +68,8 @@
   // 卡片属性显示类型
   type CardAttributeType = 'none' | 'uuid' | 'source' | 'priority' | 'retention' | 'modified' | 'accuracy' | 'question_type' | 'ir_state' | 'ir_priority';
 
+  type KanbanGroupBy = 'status' | 'type' | 'priority' | 'deck' | 'createTime' | 'tag' | 'ir_tag_group';
+
   interface Props {
     cards: Card[]; // 必需：由父组件提供卡片数组
     focusedCardUUIDs?: string[];
@@ -81,7 +83,7 @@
     onCardDelete?: (cardId: string) => void; // 新增：卡片删除回调
     onCardView?: (cardId: string) => void; // 卡片查看回调（显示详情模态窗）
     onStartStudy?: (cards: Card[]) => void;
-    groupBy?: 'status' | 'type' | 'priority' | 'deck' | 'createTime' | 'tag';
+    groupBy?: KanbanGroupBy;
     showStats?: boolean;
     layoutMode?: 'compact' | 'comfortable' | 'spacious';
     attributeType?: CardAttributeType; // 卡片属性显示类型
@@ -107,6 +109,50 @@
   }: Props = $props();
 
   let t = $derived($tr);
+  const isIRDataSource = $derived(dataSourceType === 'incremental-reading');
+
+  function getKanbanStorageKey(): string {
+    return `weave-kanban-column-config-v5:${dataSourceType}`;
+  }
+
+  function getIRPriorityValue(card: Card): number {
+    const cardLike = card as any;
+    const candidates = [
+      cardLike?.ir_priority_value,
+      cardLike?.ir_priority,
+      cardLike?.metadata?.priorityUi,
+      cardLike?.metadata?.priorityEff,
+      card.priority
+    ];
+    for (const value of candidates) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+    }
+    return 5;
+  }
+
+  function getIRTagGroupValue(card: Card): string {
+    return String((card as any)?.ir_tag_group || '').trim() || '_default';
+  }
+
+  function getTagGroupValues(card: Card): string[] {
+    const cardLike = card as any;
+    const normalized = new Set<string>();
+    const values = isIRDataSource
+      ? [...(Array.isArray(cardLike?.ir_tags) ? cardLike.ir_tags : []), ...(card.tags || [])]
+      : (card.tags || []);
+
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      const normalizedValue = value.trim();
+      if (normalizedValue) {
+        normalized.add(normalizedValue);
+      }
+    }
+
+    return Array.from(normalized);
+  }
 
   // 渐进式加载配置
   const INITIAL_CARDS_PER_COLUMN = 20;
@@ -176,16 +222,44 @@
   // 拖拽管理状态
   let dragSource = $state<string | null>(null);
   let dragTarget = $state<string | null>(null);
+  let previousDataSourceType: Props['dataSourceType'] | null = null;
 
   // 分组方式标签映射
   const groupByLabels = $derived<Record<string, string>>({
     status: t('study.kanban.groupBy.status'),
     type: t('study.kanban.groupBy.type'),
     priority: t('study.kanban.groupBy.priority'),
-    deck: t('study.kanban.groupBy.deck'),
+    deck: isIRDataSource ? '所属专题' : t('study.kanban.groupBy.deck'),
     createTime: t('study.kanban.groupBy.createTime'),
-    tag: t('study.kanban.groupBy.tag')
+    tag: t('study.kanban.groupBy.tag'),
+    ir_tag_group: '标签组'
   });
+
+  const availableGroupByOptions = $derived(
+    isIRDataSource
+      ? [
+          { key: 'deck', icon: 'folder' },
+          { key: 'ir_tag_group', icon: 'layers' },
+          { key: 'tag', icon: 'tag' },
+          { key: 'priority', icon: 'flag' }
+        ]
+      : [
+          { key: 'status', icon: 'layers' },
+          { key: 'type', icon: 'grid' },
+          { key: 'priority', icon: 'flag' },
+          { key: 'deck', icon: 'folder' },
+          { key: 'createTime', icon: 'calendar' },
+          { key: 'tag', icon: 'tag' }
+        ]
+  );
+
+  function ensureValidGroupBy(nextGroupBy: KanbanGroupBy): KanbanGroupBy {
+    const allowedKeys = new Set(availableGroupByOptions.map((option) => option.key));
+    if (allowedKeys.has(nextGroupBy)) {
+      return nextGroupBy;
+    }
+    return isIRDataSource ? 'deck' : 'status';
+  }
 
   // 当前分组方式标签
   const currentGroupByLabel = $derived(groupByLabels[groupBy] || groupBy);
@@ -281,6 +355,11 @@
       title: t('study.kanban.groupTitle.byTag'),
       icon: 'tag',
       groups: [] as { key: string; label: string; color: string; icon: string }[]
+    },
+    ir_tag_group: {
+      title: '按标签组分组',
+      icon: 'layers',
+      groups: [] as { key: string; label: string; color: string; icon: string }[]
     }
   });
 
@@ -289,9 +368,17 @@
     if (groupBy === 'deck' && cardStateManager) {
       const deckGroups = cardStateManager.getDeckGroups(cards);
       return {
-        title: t('study.kanban.groupTitle.byDeck'),
+        title: isIRDataSource ? '按所属专题分组' : t('study.kanban.groupTitle.byDeck'),
         icon: 'folder',
         groups: deckGroups
+      };
+    }
+    if (groupBy === 'priority' && cardStateManager && isIRDataSource) {
+      const priorityGroups = cardStateManager.getPriorityGroups(cards);
+      return {
+        title: '按优先级分组',
+        icon: 'flag',
+        groups: priorityGroups
       };
     }
     if (groupBy === 'tag' && cardStateManager) {
@@ -300,6 +387,14 @@
         title: t('study.kanban.groupTitle.byTag'),
         icon: 'tag',
         groups: tagGroups
+      };
+    }
+    if (groupBy === 'ir_tag_group' && cardStateManager) {
+      const tagGroupGroups = cardStateManager.getIRTagGroupGroups(cards);
+      return {
+        title: '按标签组分组',
+        icon: 'layers',
+        groups: tagGroupGroups
       };
     }
     return groupConfigs[groupBy];
@@ -386,6 +481,9 @@
         return new Date(a.modified).getTime() - new Date(b.modified).getTime();
       
       case 'priority':
+        if (isIRDataSource) {
+          return getIRPriorityValue(b) - getIRPriorityValue(a);
+        }
         return (metadataService.getCardPriority(b) || 0) - (metadataService.getCardPriority(a) || 0); // 高优先级在前
       
       case 'difficulty':
@@ -491,8 +589,12 @@
     let groups = config.groups;
     if (groupByType === 'deck' && cardStateManager) {
       groups = cardStateManager.getDeckGroups(cards);
+    } else if (groupByType === 'priority' && cardStateManager && isIRDataSource) {
+      groups = cardStateManager.getPriorityGroups(cards);
     } else if (groupByType === 'tag' && cardStateManager) {
       groups = cardStateManager.getTagGroups(cards);
+    } else if (groupByType === 'ir_tag_group' && cardStateManager) {
+      groups = cardStateManager.getIRTagGroupGroups(cards);
     }
     
     return {
@@ -646,8 +748,8 @@
   }
 
   // 分组方式切换
-  function handleGroupByChange(newGroupBy: typeof groupBy) {
-    groupBy = newGroupBy;
+  function handleGroupByChange(newGroupBy: KanbanGroupBy) {
+    groupBy = ensureValidGroupBy(newGroupBy);
     initializeVisibleCards();
     menuView = 'main'; // 返回主菜单
     saveColumnConfig();
@@ -767,8 +869,7 @@
   // 列管理：保存配置到localStorage
   function saveColumnConfig() {
     try {
-      // 直接保存，无需转换
-      vaultStorage.setItem('weave-kanban-column-config-v4', 
+      vaultStorage.setItem(getKanbanStorageKey(), 
         JSON.stringify(columnConfig)
       );
     } catch (error) {
@@ -779,12 +880,13 @@
   // 列管理：从localStorage加载配置
   function loadColumnConfig() {
     try {
-      // 强制清理旧版本配置，避免数据冲突
       const v2 = vaultStorage.getItem('weave-kanban-column-config-v2');
       const v3 = vaultStorage.getItem('weave-kanban-column-config-v3');
-      
-      // 尝试加载 v4 配置
-      let saved = vaultStorage.getItem('weave-kanban-column-config-v4');
+      const legacyKey = 'weave-kanban-column-config-v4';
+      let saved = vaultStorage.getItem(getKanbanStorageKey());
+      if (!saved && dataSourceType === 'memory') {
+        saved = vaultStorage.getItem(legacyKey);
+      }
       
       // 如果 v4 不存在，尝试从 v3 迁移
       if (!saved && (v2 || v3)) {
@@ -855,11 +957,12 @@
 
 
   // 切换分组方式
-  function changeGroupBy(newGroupBy: typeof groupBy) {
-    if (usesGroupScopedSelection(groupBy) !== usesGroupScopedSelection(newGroupBy)) {
+  function changeGroupBy(newGroupBy: KanbanGroupBy) {
+    const normalizedGroupBy = ensureValidGroupBy(newGroupBy);
+    if (usesGroupScopedSelection(groupBy) !== usesGroupScopedSelection(normalizedGroupBy)) {
       clearSelection();
     }
-    groupBy = newGroupBy;
+    groupBy = normalizedGroupBy;
     // groupedCards 会通过 $derived 自动更新
     // 重新初始化可见卡片数量
     initializeVisibleCards();
@@ -952,6 +1055,9 @@
   //  判断当前分组方式是否支持卡片拖拽
   // 只有 priority 和 deck 分组方式支持拖拽卡片
   function isCardDraggable(): boolean {
+    if (isIRDataSource) {
+      return groupBy === 'priority';
+    }
     return groupBy === 'priority' || groupBy === 'deck';
   }
 
@@ -987,7 +1093,15 @@
         };
       
       case 'priority':
+        return { allowed: true };
+
       case 'deck':
+        if (isIRDataSource) {
+          return {
+            allowed: false,
+            reason: '增量阅读专题暂不支持通过看板拖拽调整'
+          };
+        }
         return { allowed: true };
         
       default:
@@ -1005,6 +1119,24 @@
   }
 
   function getDeckGroupKeys(card: Card): string[] {
+    if (dataSourceType === 'incremental-reading') {
+      const metadataDeckIds = Array.isArray((card as any)?.metadata?.deckIds)
+        ? (card as any).metadata.deckIds.filter(
+            (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0
+          )
+        : [];
+      const irDeckIds = Array.isArray((card as any)?.ir_deck_ids)
+        ? (card as any).ir_deck_ids.filter(
+            (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0
+          )
+        : [];
+      const deckIds = metadataDeckIds.length > 0 ? metadataDeckIds : irDeckIds;
+      if (deckIds.length > 0) {
+        return Array.from(new Set(deckIds));
+      }
+      return typeof card.deckId === 'string' && card.deckId.trim().length > 0 ? [card.deckId] : ['_none'];
+    }
+
     if (dataSourceType === 'questionBank') {
       const questionBankDeckIds = getQuestionBankDeckIdsForCard(card);
       return questionBankDeckIds.length > 0 ? questionBankDeckIds : ['_none'];
@@ -1103,7 +1235,14 @@
           
         case 'priority':
           const newPriority = parseInt(targetGroupKey);
-          updatedCard = applyPriorityUpdateToCard(card, newPriority);
+          updatedCard = isIRDataSource
+            ? ({
+                ...card,
+                priority: newPriority,
+                ir_priority: newPriority,
+                ir_priority_value: newPriority,
+              } as Card)
+            : applyPriorityUpdateToCard(card, newPriority);
           break;
         
         case 'deck':
@@ -1221,15 +1360,17 @@
         return detected;
       }
       case 'priority':
-        return String(metadataService.getCardPriority(card) || 1);
+        return String(isIRDataSource ? getIRPriorityValue(card) : (metadataService.getCardPriority(card) || 1));
       case 'deck':
         return getDeckGroupKeys(card)[0];
       case 'createTime':
         return getTimeGroupKey(card.created);
       case 'tag': {
-        const cardTags = card.tags || [];
+        const cardTags = getTagGroupValues(card);
         return cardTags.length > 0 ? cardTags[0] : '_noTag';
       }
+      case 'ir_tag_group':
+        return getIRTagGroupValue(card);
       default:
         return '';
     }
@@ -1348,6 +1489,7 @@
     window.addEventListener('Weave:open-kanban-column-settings-menu', handleOpenColumnSettings);
     // 初始化状态管理器
     cardStateManager = new CardStateManager(dataStorage);
+    cardStateManager.setDataSourceType(dataSourceType);
     
     // 设置牌组列表（用于显示牌组名称）
     if (decks && decks.length > 0) {
@@ -1403,9 +1545,34 @@
   
   // 监听decks变化，更新CardStateManager中的牌组列表
   $effect(() => {
-    if (cardStateManager && decks && decks.length > 0) {
-      cardStateManager.setDecks(decks);
+    if (cardStateManager) {
+      cardStateManager.setDataSourceType(dataSourceType);
+      if (decks && decks.length > 0) {
+        cardStateManager.setDecks(decks);
+      }
     }
+  });
+
+  $effect(() => {
+    const sourceChanged = previousDataSourceType !== dataSourceType;
+    previousDataSourceType = dataSourceType;
+
+    const normalizedGroupBy = ensureValidGroupBy(groupBy);
+    if (
+      groupBy !== normalizedGroupBy &&
+      usesGroupScopedSelection(groupBy) !== usesGroupScopedSelection(normalizedGroupBy)
+    ) {
+      clearSelection();
+    }
+
+    if (sourceChanged) {
+      clearSelection();
+      closeMenu();
+    }
+
+    groupBy = normalizedGroupBy;
+    loadColumnConfig();
+    initializeVisibleCards();
   });
 
   // 渲染状态检测：卡片数据变化时显示遮罩
@@ -1667,137 +1834,29 @@
           </div>
 
           <div class="notion-menu-content">
-            <div 
-              class="notion-menu-row notion-menu-row--option"
-              class:notion-menu-row--selected={groupBy === 'status'}
-              role="button"
-              tabindex="0"
-              onclick={() => handleGroupByChange('status')}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  handleGroupByChange('status');
-                }
-              }}
-            >
-              <div class="notion-option-content">
-                <EnhancedIcon name="layers" size="14" />
-                <span>{t('study.kanban.groupBy.status')}</span>
+            {#each availableGroupByOptions as option (option.key)}
+              <div 
+                class="notion-menu-row notion-menu-row--option"
+                class:notion-menu-row--selected={groupBy === option.key}
+                role="button"
+                tabindex="0"
+                onclick={() => handleGroupByChange(option.key as KanbanGroupBy)}
+                onkeydown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleGroupByChange(option.key as KanbanGroupBy);
+                  }
+                }}
+              >
+                <div class="notion-option-content">
+                  <EnhancedIcon name={option.icon} size="14" />
+                  <span>{groupByLabels[option.key]}</span>
+                </div>
+                {#if groupBy === option.key}
+                  <EnhancedIcon name="check" size="14" />
+                {/if}
               </div>
-              {#if groupBy === 'status'}
-                <EnhancedIcon name="check" size="14" />
-              {/if}
-            </div>
-
-            <div 
-              class="notion-menu-row notion-menu-row--option"
-              class:notion-menu-row--selected={groupBy === 'type'}
-              role="button"
-              tabindex="0"
-              onclick={() => handleGroupByChange('type')}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  handleGroupByChange('type');
-                }
-              }}
-            >
-              <div class="notion-option-content">
-                <EnhancedIcon name="grid" size="14" />
-                <span>{t('study.kanban.groupBy.type')}</span>
-              </div>
-              {#if groupBy === 'type'}
-                <EnhancedIcon name="check" size="14" />
-              {/if}
-            </div>
-
-            <div 
-              class="notion-menu-row notion-menu-row--option"
-              class:notion-menu-row--selected={groupBy === 'priority'}
-              role="button"
-              tabindex="0"
-              onclick={() => handleGroupByChange('priority')}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  handleGroupByChange('priority');
-                }
-              }}
-            >
-              <div class="notion-option-content">
-                <EnhancedIcon name="flag" size="14" />
-                <span>{t('study.kanban.groupBy.priority')}</span>
-              </div>
-              {#if groupBy === 'priority'}
-                <EnhancedIcon name="check" size="14" />
-              {/if}
-            </div>
-
-            <div 
-              class="notion-menu-row notion-menu-row--option"
-              class:notion-menu-row--selected={groupBy === 'deck'}
-              role="button"
-              tabindex="0"
-              onclick={() => handleGroupByChange('deck')}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  handleGroupByChange('deck');
-                }
-              }}
-            >
-              <div class="notion-option-content">
-                <EnhancedIcon name="folder" size="14" />
-                <span>{t('study.kanban.groupBy.deck')}</span>
-              </div>
-              {#if groupBy === 'deck'}
-                <EnhancedIcon name="check" size="14" />
-              {/if}
-            </div>
-
-            <div 
-              class="notion-menu-row notion-menu-row--option"
-              class:notion-menu-row--selected={groupBy === 'createTime'}
-              role="button"
-              tabindex="0"
-              onclick={() => handleGroupByChange('createTime')}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  handleGroupByChange('createTime');
-                }
-              }}
-            >
-              <div class="notion-option-content">
-                <EnhancedIcon name="calendar" size="14" />
-                <span>{t('study.kanban.groupBy.createTime')}</span>
-              </div>
-              {#if groupBy === 'createTime'}
-                <EnhancedIcon name="check" size="14" />
-              {/if}
-            </div>
-
-            <div 
-              class="notion-menu-row notion-menu-row--option"
-              class:notion-menu-row--selected={groupBy === 'tag'}
-              role="button"
-              tabindex="0"
-              onclick={() => handleGroupByChange('tag')}
-              onkeydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  handleGroupByChange('tag');
-                }
-              }}
-            >
-              <div class="notion-option-content">
-                <EnhancedIcon name="tag" size="14" />
-                <span>{t('study.kanban.groupBy.tag')}</span>
-              </div>
-              {#if groupBy === 'tag'}
-                <EnhancedIcon name="check" size="14" />
-              {/if}
-            </div>
+            {/each}
           </div>
         {/if}
 

@@ -97,12 +97,8 @@
 	.epub-bottom-nav.vertical {
 		top: 50%;
 		right: var(
-			--epub-scrolled-side-nav-right-offset,
-			calc(
-				var(--epub-scrolled-side-nav-width, 58px)
-				+ var(--epub-scrolled-side-nav-gap, 16px)
-				+ var(--epub-scrolled-side-nav-scrollbar-offset, 18px)
-			)
+			--epub-scrolled-side-nav-inline-offset,
+			var(--epub-scrolled-side-nav-gap, 16px)
 		);
 		left: auto;
 		bottom: auto;

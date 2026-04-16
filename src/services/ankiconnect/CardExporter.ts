@@ -602,12 +602,12 @@ export class CardExporter {
 		if (primaryFieldName && !getTrimmedString(fields[primaryFieldName])) {
 			throw new CardExportValidationError(
 				"missing_primary_field",
-				`鍗＄墖缂哄皯蹇呭～涓诲瓧娈? "${primaryFieldName}"锛屾棤娉曞鍑哄埌 Anki`
+				`卡片缺少必填主字段 "${primaryFieldName}"，无法导出到 Anki`
 			);
 		}
 
 		if (!hasExportableContent(fields)) {
-			throw new CardExportValidationError("empty_content", "鍗＄墖鍐呭涓虹┖锛屽凡璺宠繃瀵煎嚭");
+			throw new CardExportValidationError("empty_content", "卡片内容为空，已跳过导出");
 		}
 
 		return {

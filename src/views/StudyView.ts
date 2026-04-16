@@ -68,6 +68,49 @@ type MountedStudyComponent = Parameters<typeof unmount>[0] & StudyViewComponentA
 type ItemViewSetStateResult = Parameters<ItemView["setState"]>[1];
 type WorkspaceLeafWithUpdateHeader = WorkspaceLeaf & { updateHeader?: () => void };
 
+function areStringArraysEqual(left?: string[], right?: string[]): boolean {
+	if (left === right) {
+		return true;
+	}
+	if (!left || !right) {
+		return !left && !right;
+	}
+	if (left.length !== right.length) {
+		return false;
+	}
+	return left.every((value, index) => value === right[index]);
+}
+
+function areCardArraysEqual(left?: Card[], right?: Card[]): boolean {
+	if (left === right) {
+		return true;
+	}
+	if (!left || !right) {
+		return !left && !right;
+	}
+	if (left.length !== right.length) {
+		return false;
+	}
+	return left.every((card, index) => card.uuid === right[index]?.uuid);
+}
+
+function areQueueStatesEqual(
+	left?: StudyQueueState | null,
+	right?: StudyQueueState | null
+): boolean {
+	if (left === right) {
+		return true;
+	}
+	if (!left || !right) {
+		return !left && !right;
+	}
+	return (
+		left.currentCardIndex === right.currentCardIndex &&
+		areStringArraysEqual(left.studyQueueCardIds, right.studyQueueCardIds) &&
+		areStringArraysEqual(left.sessionStudiedCardIds, right.sessionStudiedCardIds)
+	);
+}
+
 export class StudyView extends ItemView {
 	private component: MountedStudyComponent | null = null;
 	private plugin: WeavePlugin;
@@ -502,16 +545,51 @@ export class StudyView extends ItemView {
 
 		if (state) {
 			const oldDeckId = this.deckId;
+			const oldDeckName = this.deckName;
 			const oldMode = this.mode;
 			const oldCardIds = this.cardIds;
+			const oldCards = this.cards;
+			const oldQueueState = this.queueState;
+
+			const nextDeckId = state.deckId;
+			const nextDeckName = state.deckName;
+			const nextMode = state.mode;
+			const nextCardIds = state.cardIds;
+			const nextCards = state.cards;
+			const nextQueueState = state.queueState ?? null;
+			const deckChanged = oldDeckId !== nextDeckId;
+			const studySourceChanged =
+				deckChanged ||
+				oldDeckName !== nextDeckName ||
+				oldMode !== nextMode ||
+				!areStringArraysEqual(oldCardIds, nextCardIds) ||
+				!areCardArraysEqual(oldCards, nextCards);
+			const viewStateChanged =
+				studySourceChanged || !areQueueStatesEqual(oldQueueState, nextQueueState);
+
+			if (this.component && deckChanged) {
+				logger.debug("[StudyView] 🔁 切换学习牌组前先保存当前会话", {
+					fromDeckId: oldDeckId,
+					toDeckId: nextDeckId,
+				});
+				const persisted = await this.persistCurrentSession(null);
+				if (!persisted && oldDeckId) {
+					await this.plugin.clearPersistedStudySession(oldDeckId);
+				}
+			}
 
 			// 更新状态
-			this.deckId = state.deckId;
-			this.deckName = state.deckName;
-			this.mode = state.mode;
-			this.cardIds = state.cardIds;
-			this.cards = state.cards;
-			this.queueState = state.queueState ?? null;
+			this.deckId = nextDeckId;
+			this.deckName = nextDeckName;
+			this.mode = nextMode;
+			this.cardIds = nextCardIds;
+			this.cards = nextCards;
+			this.queueState = nextQueueState;
+
+			const targetPersistedSession = this.deckId
+				? this.studySessionManager.getPersistedSession(this.deckId)
+				: null;
+			const shouldResumeTargetSession = deckChanged && !!targetPersistedSession;
 
 			logger.info("[StudyView] setState() 接收到学习参数:", {
 				deckId: this.deckId,
@@ -532,7 +610,7 @@ export class StudyView extends ItemView {
 				logger.debug("[StudyView] 🔧 组件未创建，现在创建");
 
 				// 检查是否有当前牌组可恢复的持久化会话
-				const persistedSession = this.studySessionManager.getPersistedSession();
+				const persistedSession = targetPersistedSession;
 				const hasPersistedSession =
 					!!persistedSession && (!this.deckId || persistedSession.deckId === this.deckId);
 
@@ -552,12 +630,7 @@ export class StudyView extends ItemView {
 				}
 			} else {
 				//  如果参数发生变化，通知组件重新加载卡片
-				const paramsChanged =
-					oldDeckId !== this.deckId ||
-					oldMode !== this.mode ||
-					JSON.stringify(oldCardIds) !== JSON.stringify(this.cardIds);
-
-				if (paramsChanged) {
+				if (viewStateChanged) {
 					logger.debug("[StudyView] 🔄 检测到参数变化，通知组件更新");
 					if (typeof this.component.updateStudyParams === "function") {
 						await this.component.updateStudyParams({
@@ -566,7 +639,11 @@ export class StudyView extends ItemView {
 							mode: this.mode,
 							cardIds: this.cardIds,
 							cards: this.cards,
-							queueState: this.queueState || undefined,
+							resumeData: shouldResumeTargetSession ? targetPersistedSession ?? undefined : undefined,
+							queueState:
+								(shouldResumeTargetSession
+									? targetPersistedSession?.queueState
+									: this.queueState) || undefined,
 						});
 					}
 				}
@@ -703,7 +780,7 @@ export class StudyView extends ItemView {
 			}
 
 			// 检查是否有持久化的会话需要恢复
-			const persistedSession = this.studySessionManager.getPersistedSession();
+			const persistedSession = this.studySessionManager.getPersistedSession(this.deckId);
 
 			if (persistedSession && (!this.deckId || persistedSession.deckId === this.deckId)) {
 				// 仅在打开相同牌组时提示恢复，避免切换到其他牌组也被旧会话打断
@@ -749,7 +826,7 @@ export class StudyView extends ItemView {
 			text: i18n.t("study.view.startNewSession"),
 		});
 		newBtn.addEventListener("click", async () => {
-			await this.plugin.clearPersistedStudySession();
+			await this.plugin.clearPersistedStudySession(this.deckId);
 			//  传递学习参数
 			await this.createStudyComponent({
 				deckId: this.deckId,
@@ -765,7 +842,7 @@ export class StudyView extends ItemView {
 	 * 恢复持久化的会话
 	 */
 	private async restoreSession(): Promise<void> {
-		const persisted = this.studySessionManager.getPersistedSession();
+		const persisted = this.studySessionManager.getPersistedSession(this.deckId);
 
 		if (!persisted) {
 			logger.warn("[StudyView] 无法恢复：持久化会话不存在");
@@ -1061,7 +1138,7 @@ export class StudyView extends ItemView {
 
 		const persisted = await this.persistCurrentSession(null);
 		if (!persisted) {
-			await this.plugin.clearPersistedStudySession();
+			await this.plugin.clearPersistedStudySession(this.deckId);
 		}
 
 		// 销毁 Svelte 组件

@@ -117,7 +117,7 @@
     */
     const labelEl = document.createElement('span');
     labelEl.className = 'weave-qa-label weave-qa-label--answer';
-    labelEl.textContent = 'Answer';
+    labelEl.textContent = '答案';
     titleEl.appendChild(labelEl);
     container.appendChild(titleEl);
     answerTitleEl = titleEl;
@@ -242,14 +242,13 @@
     border-radius: var(--weave-radius-sm, 0.375rem);
     font-size: var(--weave-font-size-xs, 0.75rem);
     font-weight: 600;
-    text-transform: uppercase;
     letter-spacing: 0.025em;
   }
 
   /* 答案标签样式（JS动态创建，需要 :global） */
   .weave-qa-content :global(.weave-qa-label--answer) {
-    background: var(--weave-success-light, rgba(16, 185, 129, 0.1));
-    color: var(--weave-success, #10b981);
+    background: color-mix(in srgb, var(--color-green) 12%, transparent);
+    color: var(--color-green);
   }
 
   /* 内容样式 */

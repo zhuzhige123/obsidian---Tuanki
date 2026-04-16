@@ -1,5 +1,6 @@
 import { logger } from "../utils/logger";
 import { vaultStorage } from "../utils/vault-local-storage";
+import { deckAnalyticsTranslationOverrides } from "./i18n/deck-analytics-overrides";
 /**
  * 国际化系统
  * 提供多语言支持和文本本地化功能
@@ -120,7 +121,7 @@ const translations: Record<SupportedLanguage, TranslationKey> = {
 				aiConfig: "AI服务",
 				incrementalReading: "增量阅读",
 				virtualization: "性能优化",
-				dataManagement: "数据管理",
+				dataManagement: "备份与维护",
 				ankiConnect: "Anki配置",
 				pluginSystem: "插件",
 				about: "关于",
@@ -2075,7 +2076,7 @@ const translations: Record<SupportedLanguage, TranslationKey> = {
 				aiConfig: "AI Card Creation",
 				incrementalReading: "Incremental Reading",
 				virtualization: "Performance",
-				dataManagement: "Data Management",
+				dataManagement: "Backup & Maintenance",
 				ankiConnect: "Anki Config",
 				pluginSystem: "Plugins",
 				about: "About",
@@ -7997,8 +7998,14 @@ function mergeTranslationTrees(base: TranslationKey, override?: TranslationKey):
 }
 
 const translationCatalog: Record<SupportedLanguage, TranslationKey> = {
-	"zh-CN": mergeTranslationTrees(translations["zh-CN"], translationOverrides["zh-CN"]),
-	"en-US": mergeTranslationTrees(translations["en-US"], translationOverrides["en-US"]),
+	"zh-CN": mergeTranslationTrees(
+		mergeTranslationTrees(translations["zh-CN"], translationOverrides["zh-CN"]),
+		deckAnalyticsTranslationOverrides["zh-CN"]
+	),
+	"en-US": mergeTranslationTrees(
+		mergeTranslationTrees(translations["en-US"], translationOverrides["en-US"]),
+		deckAnalyticsTranslationOverrides["en-US"]
+	),
 };
 
 const defaultConfig: I18nConfig = {

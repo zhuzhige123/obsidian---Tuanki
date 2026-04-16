@@ -33,6 +33,7 @@
     onView?: (cardId: string) => void;
     availableTags?: string[];
     onJumpToSource?: (card: Card) => void;
+    onIRAssociatedNotesManage?: (event: MouseEvent, card: Card) => void;
     isVisible?: boolean; // 🔧 性能优化：组件可见性
   }
 
@@ -59,6 +60,7 @@
     onView,
     availableTags = [],
     onJumpToSource,
+    onIRAssociatedNotesManage,
     isVisible = true
   }: Props = $props();
 
@@ -105,12 +107,15 @@
     ir_state: 100,
     ir_priority: 80,
     ir_tags: 150,
-    ir_favorite: 60,
     ir_next_review: 130,
     ir_review_count: 90,
     ir_reading_time: 100,
-    ir_notes: 200,
-    ir_extracted_cards: 100,
+    ir_notes: 88,
+    ir_extract_cards: 88,
+    ir_memory_cards: 88,
+    ir_source_kind: 96,
+    ir_source_subunit: 180,
+    ir_tag_group: 120,
     ir_created: 120,
     ir_decks: 180,  // 所属牌组列宽度
   };
@@ -156,15 +161,19 @@
     irContent: [
       'ir_title',
       'ir_source_file',
+      'ir_source_kind',
+      'ir_notes',
+      'ir_extract_cards',
+      'ir_memory_cards',
       'ir_decks',       // 所属牌组
       'ir_state',
       'ir_priority',
       'ir_tags',
-      'ir_favorite',
+      'ir_tag_group',
       'ir_next_review',
       'ir_review_count',
       'ir_reading_time',
-      'ir_extracted_cards',
+      'ir_source_subunit',
       'ir_created',
     ],
   };
@@ -175,6 +184,7 @@
   let bottomScrollbar = $state<HTMLElement | null>(null);
   let tableElement = $state<HTMLElement | null>(null);
   let scrollbarContent = $state<HTMLElement | null>(null);
+  let hasHorizontalOverflow = $state(false);
   let tablePixelWidth = $derived.by(() => {
     const checkboxWidth = columnWidths.checkbox ?? 48;
     const visibleColumnsWidth = effectiveColumns.reduce((total, columnKey) => {
@@ -193,21 +203,12 @@
       return ['front', 'back', 'status', 'actions'] as ColumnKey[];
     }
     
-    // IR 模式直接返回模式定义的列（不依赖 columnOrder）
-    // 因为columnOrder可能不包含新添加的IR列
-    if (tableViewMode === 'irContent') {
-      // 直接使用模式定义的列 + actions
-      const irColumns = [...modeColumns, 'actions'] as ColumnKey[];
-      logger.debug('[WeaveCardTable] IR模式列:', irColumns);
-      return irColumns;
-    }
-    
     // 定义每个模式下应该强制显示的列（忽略 columnVisibility）
     const forceShowColumns: Record<TableViewMode, ColumnKey[]> = {
       basic: [] as ColumnKey[],
       review: ['modified', 'next_review', 'retention', 'interval', 'difficulty', 'review_count'] as ColumnKey[],
       questionBank: ['question_type', 'accuracy', 'test_attempts', 'last_test', 'error_level'] as ColumnKey[],
-      irContent: ['ir_title', 'ir_source_file', 'ir_state', 'ir_priority', 'ir_next_review', 'ir_review_count'] as ColumnKey[],
+      irContent: ['ir_title', 'ir_source_file', 'ir_state', 'ir_priority'] as ColumnKey[],
     };
     
     const forcedCols = forceShowColumns[tableViewMode];
@@ -235,7 +236,11 @@
       // 其他列根据 columnVisibility 决定
       return columnVisibility[key] !== false;
     });
-    
+
+    if (tableViewMode === 'irContent') {
+      logger.debug('[WeaveCardTable] IR模式列:', filteredColumns);
+    }
+
     return filteredColumns;
   });
 
@@ -250,19 +255,37 @@
 
   // 更新滚动条宽度
   function updateScrollbarWidth() {
-    if (tableElement && scrollbarContent) {
-      // 使用setTimeout确保DOM已更新
-      setTimeout(() => {
-        if (tableElement && scrollbarContent) {
-          const tableWidth = tableElement.scrollWidth;
-          scrollbarContent.style.width = `${tableWidth}px`;
-        }
-      }, 0);
+    if (!tableElement || !scrollbarContent || !bottomScrollbar) {
+      hasHorizontalOverflow = false;
+      return;
     }
+
+    // 使用setTimeout确保DOM已更新
+    setTimeout(() => {
+      if (!tableElement || !scrollbarContent || !bottomScrollbar) {
+        hasHorizontalOverflow = false;
+        return;
+      }
+
+      const tableWidth = tableElement.scrollWidth;
+      const viewportWidth = bottomScrollbar.clientWidth;
+      const overflow = tableWidth > viewportWidth + 1;
+
+      scrollbarContent.style.width = `${tableWidth}px`;
+      hasHorizontalOverflow = overflow;
+
+      if (!overflow) {
+        if (topScrollbar) {
+          topScrollbar.scrollLeft = 0;
+        }
+        bottomScrollbar.scrollLeft = 0;
+      }
+    }, 0);
   }
 
   // 监听表格宽度变化 - 添加防抖优化
   let updateScrollbarTimer: number | null = null;
+  let resizeDebounceTimer: number | null = null;
   
   $effect(() => {
     // 当列宽、列顺序、列可见性或模式变化时，更新滚动条
@@ -292,6 +315,40 @@
         cardsUpdateTimer = null;
       }, 100); // 100ms 防抖
     }
+  });
+
+  $effect(() => {
+    if (!tableElement && !bottomScrollbar) {
+      hasHorizontalOverflow = false;
+      return;
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      if (resizeDebounceTimer !== null) {
+        clearTimeout(resizeDebounceTimer);
+      }
+      resizeDebounceTimer = window.setTimeout(() => {
+        updateScrollbarWidth();
+        resizeDebounceTimer = null;
+      }, 100);
+    });
+
+    if (tableElement) {
+      resizeObserver.observe(tableElement);
+    }
+    if (bottomScrollbar) {
+      resizeObserver.observe(bottomScrollbar);
+    }
+
+    updateScrollbarWidth();
+
+    return () => {
+      if (resizeDebounceTimer !== null) {
+        clearTimeout(resizeDebounceTimer);
+        resizeDebounceTimer = null;
+      }
+      resizeObserver.disconnect();
+    };
   });
 
   // 加载保存的列宽设置
@@ -353,24 +410,6 @@
       tableContainer.addEventListener('resetColumnWidths', handleResetColumnWidths);
     }
 
-    // 性能优化：使用防抖的 ResizeObserver
-    let resizeObserver: ResizeObserver | null = null;
-    let resizeDebounceTimer: number | null = null;
-    
-    if (tableElement) {
-      resizeObserver = new ResizeObserver(() => {
-        // 防抖：避免频繁更新
-        if (resizeDebounceTimer !== null) {
-          clearTimeout(resizeDebounceTimer);
-        }
-        resizeDebounceTimer = window.setTimeout(() => {
-          updateScrollbarWidth();
-          resizeDebounceTimer = null;
-        }, 100); // 100ms 防抖
-      });
-      resizeObserver.observe(tableElement);
-    }
-
     // 清理事件监听器
     return () => {
       if (tableContainer) {
@@ -379,16 +418,15 @@
       if (resizeDebounceTimer !== null) {
         clearTimeout(resizeDebounceTimer);
       }
-      if (resizeObserver && tableElement) {
-        resizeObserver.unobserve(tableElement);
-        resizeObserver.disconnect();
-      }
       // 清理定时器
       if (updateScrollbarTimer !== null) {
         clearTimeout(updateScrollbarTimer);
       }
       if (cardsUpdateTimer !== null) {
         clearTimeout(cardsUpdateTimer);
+      }
+      if (resizeDebounceTimer !== null) {
+        clearTimeout(resizeDebounceTimer);
       }
     };
   });
@@ -489,6 +527,9 @@
       : undefined,
     onJumpToSource: onJumpToSource
       ? (card) => onJumpToSource(card)
+      : undefined,
+    onIRAssociatedNotesManage: onIRAssociatedNotesManage
+      ? (event, card) => onIRAssociatedNotesManage(event, card)
       : undefined
   }));
 
@@ -502,6 +543,7 @@
     <!-- 顶部横向滚动条 -->
     <div 
       class="weave-table-top-scrollbar" 
+      hidden={!hasHorizontalOverflow}
       bind:this={topScrollbar}
       onscroll={() => syncScrollbars('top')}
     >

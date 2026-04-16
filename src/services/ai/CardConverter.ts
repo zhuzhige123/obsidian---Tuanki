@@ -83,7 +83,6 @@ export class CardConverter {
 
 				// 源文件信息
 				sourceFile: sourceFile,
-				sourceBlock: generatedCard.sourceBlock,
 				sourceExists: !!sourceFile,
 
 				// FSRS 数据 - 使用标准 FSRS 算法创建，确保数据结构一致
@@ -157,13 +156,14 @@ export class CardConverter {
 		deckId: string,
 		sourceFile?: string,
 		templates?: GenerationConfig["templates"],
-		fsrs?: FSRS
+		fsrs?: FSRS,
+		deckName?: string
 	): { cards: Card[]; errors: string[] } {
 		const cards: Card[] = [];
 		const errors: string[] = [];
 
 		for (const generatedCard of generatedCards) {
-			const result = this.convert(generatedCard, deckId, sourceFile, templates, fsrs);
+			const result = this.convert(generatedCard, deckId, sourceFile, templates, fsrs, deckName);
 
 			if (result.success && result.card) {
 				cards.push(result.card);

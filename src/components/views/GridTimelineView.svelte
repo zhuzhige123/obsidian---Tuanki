@@ -387,7 +387,7 @@
   });
 </script>
 
-<div class="grid-timeline-view weave-grid-scrollbar" bind:this={scrollContainer}>
+<div class="grid-timeline-view" bind:this={scrollContainer}>
   {#if loading}
     <div class="weave-loading-state">
       <div class="weave-spinner"></div>
@@ -513,11 +513,12 @@
     flex: 1;
     min-width: 0;
     min-height: 0;
-    overflow-y: scroll;
+    overflow-y: auto;
     overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
     padding: var(--weave-space-lg) var(--weave-space-lg) var(--weave-space-lg) var(--weave-space-sm);
     background: var(--background-primary);
-    scrollbar-gutter: stable;
   }
 
   .timeline-status-banner {

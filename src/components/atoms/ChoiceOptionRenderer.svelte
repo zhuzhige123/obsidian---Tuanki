@@ -311,17 +311,17 @@
 
   /* 正确状态 */
   .choice-option-wrapper.correct .choice-option-layout {
-    background: rgba(34, 197, 94, 0.05);
+    background: color-mix(in srgb, var(--background-secondary) 92%, var(--color-green));
   }
 
   /* ✅ 移除 !important：正确状态使用更具体的选择器 */
   :global(body.theme-dark) .choice-option-wrapper.correct .choice-option-layout,
   :global(body.theme-light) .choice-option-wrapper.correct .choice-option-layout {
-    box-shadow: inset 0 0 0 3px #22c55e;
+    box-shadow: inset 0 0 0 3px var(--color-green);
   }
 
   .choice-option-wrapper.correct .choice-option-label-container {
-    background: #22c55e;
+    background: var(--color-green);
   }
 
   :global(body.theme-dark) .choice-option-wrapper.correct .choice-option-label-container,
@@ -335,17 +335,17 @@
 
   /* 错误状态 */
   .choice-option-wrapper.wrong .choice-option-layout {
-    background: rgba(239, 68, 68, 0.05);
+    background: color-mix(in srgb, var(--background-secondary) 92%, var(--color-red));
   }
 
   /* ✅ 移除 !important：错误状态使用更具体的选择器 */
   :global(body.theme-dark) .choice-option-wrapper.wrong .choice-option-layout,
   :global(body.theme-light) .choice-option-wrapper.wrong .choice-option-layout {
-    box-shadow: inset 0 0 0 3px #ef4444;
+    box-shadow: inset 0 0 0 3px var(--color-red);
   }
 
   .choice-option-wrapper.wrong .choice-option-label-container {
-    background: #ef4444;
+    background: var(--color-red);
   }
 
   :global(body.theme-dark) .choice-option-wrapper.wrong .choice-option-label-container,
@@ -390,15 +390,15 @@
   }
 
   .choice-option-badge.correct {
-    background: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
-    border: 1px solid rgba(34, 197, 94, 0.3);
+    background: color-mix(in srgb, var(--background-secondary) 78%, var(--color-green));
+    color: var(--color-green);
+    border: 1px solid color-mix(in srgb, var(--color-green) 35%, transparent);
   }
 
   .choice-option-badge.wrong {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: color-mix(in srgb, var(--background-secondary) 78%, var(--color-red));
+    color: var(--color-red);
+    border: 1px solid color-mix(in srgb, var(--color-red) 35%, transparent);
   }
 
   .badge-text {
@@ -422,13 +422,94 @@
   }
 
   .choice-option-status-icon.correct {
-    background: #22c55e;
+    background: var(--color-green);
     color: white;
   }
 
   .choice-option-status-icon.wrong {
-    background: #ef4444;
+    background: var(--color-red);
     color: white;
+  }
+
+  /* ==================== 学习界面干净样式变体 ==================== */
+  .choice-option-wrapper.memory-study-option .choice-option-layout {
+    align-items: center;
+    gap: 1rem;
+    min-height: 78px;
+    padding: 1.15rem 1.2rem;
+    border-radius: 18px;
+    background: var(--background-secondary);
+    box-shadow: inset 0 0 0 1px var(--background-modifier-border);
+  }
+
+  :global(body.theme-dark) .choice-option-wrapper.memory-study-option .choice-option-layout,
+  :global(body.theme-light) .choice-option-wrapper.memory-study-option .choice-option-layout {
+    box-shadow: inset 0 0 0 1px var(--background-modifier-border);
+  }
+
+  .choice-option-wrapper.memory-study-option:hover:not(.disabled) .choice-option-layout {
+    transform: none;
+    background: var(--background-modifier-hover);
+    box-shadow: inset 0 0 0 1px var(--interactive-accent-hover);
+  }
+
+  :global(body.theme-dark) .choice-option-wrapper.memory-study-option:hover:not(.disabled) .choice-option-layout,
+  :global(body.theme-light) .choice-option-wrapper.memory-study-option:hover:not(.disabled) .choice-option-layout {
+    box-shadow: inset 0 0 0 1px var(--interactive-accent-hover);
+  }
+
+  .choice-option-wrapper.memory-study-option .choice-option-label-container {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: var(--background-primary);
+    box-shadow: none;
+  }
+
+  :global(body.theme-dark) .choice-option-wrapper.memory-study-option .choice-option-label-container,
+  :global(body.theme-light) .choice-option-wrapper.memory-study-option .choice-option-label-container {
+    box-shadow: none;
+  }
+
+  .choice-option-wrapper.memory-study-option .choice-option-content-wrapper :global(.weave-obsidian-renderer) {
+    font-size: 1.02rem;
+    line-height: 1.65;
+  }
+
+  .choice-option-wrapper.memory-study-option .choice-option-content-wrapper :global(p) {
+    margin: 0;
+  }
+
+  .choice-option-wrapper.memory-study-option .choice-option-content-wrapper :global(p + p) {
+    margin-top: 0.45rem;
+  }
+
+  .choice-option-wrapper.memory-study-option.selected .choice-option-layout {
+    background: var(--background-secondary);
+    box-shadow: inset 0 0 0 2px var(--interactive-accent);
+  }
+
+  :global(body.theme-dark) .choice-option-wrapper.memory-study-option.selected .choice-option-layout,
+  :global(body.theme-light) .choice-option-wrapper.memory-study-option.selected .choice-option-layout {
+    box-shadow: inset 0 0 0 2px var(--interactive-accent);
+  }
+
+  .choice-option-wrapper.memory-study-option.correct .choice-option-layout {
+    background: color-mix(in srgb, var(--background-secondary) 92%, var(--color-green));
+    box-shadow: inset 0 0 0 2px var(--color-green);
+  }
+
+  .choice-option-wrapper.memory-study-option.wrong .choice-option-layout {
+    background: color-mix(in srgb, var(--background-secondary) 92%, var(--color-red));
+    box-shadow: inset 0 0 0 2px var(--color-red);
+  }
+
+  .choice-option-wrapper.memory-study-option.correct .choice-option-label-container {
+    background: var(--color-green);
+  }
+
+  .choice-option-wrapper.memory-study-option.wrong .choice-option-label-container {
+    background: var(--color-red);
   }
 
   @keyframes popIn {

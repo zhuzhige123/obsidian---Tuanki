@@ -1,7 +1,9 @@
 vi.mock('obsidian', () => ({
+	TFile: class MockTFile {},
 	normalizePath: (value: string) => String(value || '').replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, ''),
 }));
 
+import { TFile } from 'obsidian';
 import { EpubBacklinkHighlightService } from '../EpubBacklinkHighlightService';
 
 type MockFile = {
@@ -21,11 +23,19 @@ type OpenMarkdownViewMock = {
 
 function createFile(path: string): MockFile {
 	const normalized = path.replace(/\\/g, '/');
-	return {
+	return Object.assign(new TFile(), {
 		path: normalized,
 		name: normalized.split('/').pop() || normalized,
 		extension: normalized.split('.').pop() || '',
-	};
+		basename: (normalized.split('/').pop() || normalized).replace(/\.[^.]+$/, ''),
+		parent: {
+			path: normalized.includes('/') ? normalized.slice(0, normalized.lastIndexOf('/')) : '/',
+		},
+		stat: {
+			size: 0,
+			mtime: 1710000000000,
+		},
+	});
 }
 
 function createMockApp(initialFiles: Record<string, string>, options?: { openMarkdownPaths?: string[] }) {
@@ -49,12 +59,36 @@ function createMockApp(initialFiles: Record<string, string>, options?: { openMar
 	const app: any = {
 		vault: {
 			adapter: {
+				exists: vi.fn(async (path: string) => files.has(path.replace(/\\/g, '/'))),
+				mkdir: vi.fn(async (_path: string) => undefined),
 				read: vi.fn(async (path: string) => {
-					const value = files.get(path);
+					const normalizedPath = path.replace(/\\/g, '/');
+					const value = files.get(normalizedPath);
 					if (value === undefined) {
-						throw new Error(`Missing file: ${path}`);
+						throw new Error(`Missing file: ${normalizedPath}`);
 					}
 					return value;
+				}),
+				write: vi.fn(async (path: string, value: string) => {
+					files.set(path.replace(/\\/g, '/'), value);
+				}),
+				stat: vi.fn(async (path: string) => {
+					const normalizedPath = path.replace(/\\/g, '/');
+					if (!files.has(normalizedPath)) {
+						throw new Error(`Missing file: ${normalizedPath}`);
+					}
+					return {
+						size: (files.get(normalizedPath) || '').length,
+						mtime: 1710000000000,
+					};
+				}),
+				readBinary: vi.fn(async (path: string) => {
+					const normalizedPath = path.replace(/\\/g, '/');
+					const value = files.get(normalizedPath);
+					if (value === undefined) {
+						throw new Error(`Missing file: ${normalizedPath}`);
+					}
+					return new TextEncoder().encode(value);
 				}),
 			},
 			cachedRead: vi.fn(async (file: MockFile) => files.get(file.path) || ''),
@@ -164,6 +198,70 @@ describe('EpubBacklinkHighlightService', () => {
 		const service = new EpubBacklinkHighlightService(app);
 
 		const deleted = await service.deleteHighlight(notePath, 'epubcfi(/6/8)', 'Books/demo.epub');
+
+		expect(deleted).toBe(true);
+		expect(files.get(notePath)).toBe('Plain tail');
+	});
+
+	it('collects sid-bound highlights after the epub file is renamed to a new path', async () => {
+		const notePath = 'Notes/renamed.md';
+		const noteContent = [
+			'> [!EPUB|green] [[Archive/old-demo.epub#weave-cfi=readium%3Aalpha&sid=epubsrc-stable|Demo]] 2026-03-28 12:00',
+			'> Renamed quote',
+			'',
+		].join('\n');
+		const { app } = createMockApp({
+			[notePath]: noteContent,
+			'Books/new-demo.epub': 'same-binary',
+			'weave/incremental-reading/epub-reading/epub-source-registry.json': JSON.stringify([
+				{
+					sourceId: 'epubsrc-stable',
+					filePath: 'Books/new-demo.epub',
+					lastSeenAt: 1710000000000,
+					lastKnownPath: 'Books/new-demo.epub',
+				},
+			]),
+		});
+		app.metadataCache.resolvedLinks = {};
+		const service = new EpubBacklinkHighlightService(app);
+
+		const highlights = await service.collectHighlights('Books/new-demo.epub');
+
+		expect(highlights).toEqual([
+			{
+				cfiRange: 'readium:alpha',
+				color: 'green',
+				text: 'Renamed quote',
+				sourceFile: notePath,
+				sourceRef: undefined,
+				createdTime: new Date('2026-03-28T12:00').getTime(),
+			},
+		]);
+	});
+
+	it('deletes sid-bound highlights even when the stored callout still points at the old epub path', async () => {
+		const notePath = 'Notes/renamed-delete.md';
+		const noteContent = [
+			'> [!EPUB|blue] [[Archive/old-demo.epub#weave-cfi=epubcfi(/6/8)&sid=epubsrc-stable|Demo]]',
+			'> Legacy quote',
+			'',
+			'Plain tail',
+		].join('\n');
+		const { app, files } = createMockApp({
+			[notePath]: noteContent,
+			'Books/new-demo.epub': 'same-binary',
+			'weave/incremental-reading/epub-reading/epub-source-registry.json': JSON.stringify([
+				{
+					sourceId: 'epubsrc-stable',
+					filePath: 'Books/new-demo.epub',
+					lastSeenAt: 1710000000000,
+					lastKnownPath: 'Books/new-demo.epub',
+				},
+			]),
+		});
+		const service = new EpubBacklinkHighlightService(app);
+
+		const deleted = await service.deleteHighlight(notePath, 'epubcfi(/6/8)', 'Books/new-demo.epub');
 
 		expect(deleted).toBe(true);
 		expect(files.get(notePath)).toBe('Plain tail');

@@ -36,6 +36,7 @@ vi.mock("obsidian", () => {
 		App,
 		FuzzySuggestModal,
 		TFile,
+		setIcon: vi.fn(),
 	};
 });
 
@@ -66,7 +67,7 @@ describe("MarkdownFileSuggestModal", () => {
 
 			const promise = modal.openAndSelect();
 			modal.onClose();
-			modal.onChooseItem(file);
+			modal.onChooseItem({ kind: "file", file });
 
 			await vi.runAllTimersAsync();
 
@@ -101,6 +102,11 @@ describe("MarkdownFileSuggestModal", () => {
 			excludePath: "Inbox/Exclude.md",
 		});
 
-		expect(modal.getItems().map((file) => file.path)).toEqual(["Inbox/Keep.md"]);
+		expect(
+			modal
+				.getItems()
+				.filter((item) => item.kind === "file")
+				.map((item) => item.file.path)
+		).toEqual(["Inbox/Keep.md"]);
 	});
 });

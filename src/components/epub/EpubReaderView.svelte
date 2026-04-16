@@ -16,6 +16,7 @@
 		annotationService: EpubAnnotationService;
 		backlinkService: EpubBacklinkHighlightService;
 		settings: EpubReaderSettings;
+		hasPendingNavigation?: boolean;
 		onProgressChange?: (percent: number) => void;
 		onPaginationChange?: (info: PaginationInfo) => void;
 		onChapterChange?: (title: string) => void;
@@ -23,7 +24,7 @@
 		onRenderError?: (message: string) => void;
 	}
 
-	let { app, filePath, book, readerService, storageService, annotationService, backlinkService, settings, onProgressChange, onPaginationChange, onChapterChange, onReaderReady, onRenderError }: Props = $props();
+	let { app, filePath, book, readerService, storageService, annotationService, backlinkService, settings, hasPendingNavigation = false, onProgressChange, onPaginationChange, onChapterChange, onReaderReady, onRenderError }: Props = $props();
 
 	let viewerContainer: HTMLDivElement;
 	let rendered = false;
@@ -96,6 +97,56 @@
 		}
 	}
 
+	async function resolveLastOpenBookmark() {
+		const currentBook = book;
+		if (!currentBook) {
+			return null;
+		}
+
+		const savedBookmark = await storageService.loadLastOpenBookmark(currentBook.id);
+		if (!savedBookmark?.cfi) {
+			return savedBookmark;
+		}
+
+		if (typeof readerService.canonicalizeLocation !== 'function') {
+			return savedBookmark;
+		}
+
+		try {
+			const canonicalCfi = await readerService.canonicalizeLocation(savedBookmark.cfi);
+			if (!canonicalCfi) {
+				logger.warn('[EpubReaderView] Skipping saved last-open EPUB bookmark because it could not be canonicalized for the current engine.', {
+					bookId: currentBook.id,
+					cfi: savedBookmark.cfi,
+				});
+				return null;
+			}
+
+			if (canonicalCfi === savedBookmark.cfi) {
+				return savedBookmark;
+			}
+
+			const canonicalBookmark = {
+				...savedBookmark,
+				cfi: canonicalCfi,
+			};
+			await storageService.saveLastOpenBookmark(currentBook.id, canonicalBookmark);
+			logger.info('[EpubReaderView] Canonicalized saved last-open EPUB bookmark before restoring it into the current reader runtime.', {
+				bookId: currentBook.id,
+				from: savedBookmark.cfi,
+				to: canonicalCfi,
+			});
+			return canonicalBookmark;
+		} catch (error) {
+			logger.warn('[EpubReaderView] Failed to canonicalize saved last-open EPUB bookmark before restore:', {
+				bookId: currentBook.id,
+				cfi: savedBookmark.cfi,
+				error,
+			});
+			return null;
+		}
+	}
+
 	async function refreshReaderHighlights() {
 		if (typeof readerService.refreshHighlights === 'function') {
 			await readerService.refreshHighlights();
@@ -131,6 +182,78 @@
 				mobileStabilizationTimer = null;
 				resolve();
 			}, delayMs);
+		});
+	}
+
+	function normalizeLocationKey(value: string | null | undefined): string {
+		let normalized = String(value || "")
+			.replace(/%5B/gi, "[")
+			.replace(/%5D/gi, "]")
+			.replace(/%7C/gi, "|")
+			.trim();
+		if (normalized.includes("%")) {
+			try {
+				normalized = decodeURIComponent(normalized);
+			} catch (_error) {
+				// Keep the original string when decoding fails.
+			}
+		}
+		return normalized.toLowerCase();
+	}
+
+	function isMeaningfullyRestored(savedProgress: NonNullable<Awaited<ReturnType<typeof resolveRestorableProgress>>>): boolean {
+		const currentPosition = readerService.getCurrentPosition();
+		const savedKey = normalizeLocationKey(savedProgress.cfi);
+		const currentKey = normalizeLocationKey(currentPosition.cfi);
+		if (savedKey && currentKey && savedKey === currentKey) {
+			return true;
+		}
+
+		const currentPercent = Number.isFinite(currentPosition.percent) ? currentPosition.percent : 0;
+		const savedPercent = Number.isFinite(savedProgress.percent) ? savedProgress.percent : 0;
+		if (Math.abs(currentPercent - savedPercent) <= 0.35) {
+			return true;
+		}
+
+		return currentPosition.chapterIndex === savedProgress.chapterIndex
+			&& savedPercent > 0
+			&& currentPercent > 0;
+	}
+
+	async function restoreSavedProgress(
+		savedProgress: NonNullable<Awaited<ReturnType<typeof resolveRestorableProgress>>>,
+		renderToken: number
+	): Promise<void> {
+		const retryDelays = [0, 80, 180];
+
+		for (const delayMs of retryDelays) {
+			if (isStaleRender(renderToken)) {
+				return;
+			}
+
+			await readerService.goToLocation(savedProgress.cfi);
+			if (isStaleRender(renderToken)) {
+				return;
+			}
+
+			await waitForNextFrame();
+			if (delayMs > 0) {
+				await waitForDelay(delayMs);
+			}
+			if (isStaleRender(renderToken)) {
+				return;
+			}
+
+			if (isMeaningfullyRestored(savedProgress)) {
+				return;
+			}
+		}
+
+		logger.warn('[EpubReaderView] EPUB saved progress restore did not land on the expected position after retries.', {
+			bookId: book?.id,
+			filePath,
+			savedProgress,
+			currentPosition: readerService.getCurrentPosition(),
 		});
 	}
 
@@ -227,15 +350,28 @@
 				return;
 			}
 
-			// Restore reading progress LAST so nothing can override the position
-			const savedProgress = await resolveRestorableProgress();
-			if (isStaleRender(renderToken)) {
-				return;
-			}
-			if (savedProgress?.cfi) {
-				await readerService.goToLocation(savedProgress.cfi);
+			// Keep source-note / explicit navigation highest priority.
+			if (!hasPendingNavigation) {
+				const savedLastOpenBookmark = await resolveLastOpenBookmark();
 				if (isStaleRender(renderToken)) {
 					return;
+				}
+				if (savedLastOpenBookmark?.cfi) {
+					await restoreSavedProgress(savedLastOpenBookmark, renderToken);
+					if (isStaleRender(renderToken)) {
+						return;
+					}
+				} else {
+					const savedProgress = await resolveRestorableProgress();
+					if (isStaleRender(renderToken)) {
+						return;
+					}
+					if (savedProgress?.cfi) {
+						await restoreSavedProgress(savedProgress, renderToken);
+						if (isStaleRender(renderToken)) {
+							return;
+						}
+					}
 				}
 			}
 

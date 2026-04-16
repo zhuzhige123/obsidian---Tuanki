@@ -380,6 +380,10 @@ export class AISplitService {
 
 				// 继承源文档信息
 				sourceFile: parentCard.sourceFile,
+				sourceDocumentKey: parentCard.sourceDocumentKey,
+				sourceSubunitKey: parentCard.sourceSubunitKey,
+				sourceKind: parentCard.sourceKind,
+				outputKind: parentCard.outputKind || "memory",
 				sourceBlock: parentCard.sourceBlock,
 				sourceRange: parentCard.sourceRange,
 				sourceExists: parentCard.sourceExists,

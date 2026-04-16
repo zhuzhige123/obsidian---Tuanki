@@ -1,7 +1,6 @@
 import type { Card, Deck } from "../../data/types";
 import {
 	getCardDeckIds,
-	getCardMetadata,
 	setCardProperties,
 	setCardProperty,
 } from "../../utils/yaml-utils";
@@ -53,49 +52,26 @@ export function applyDeckDragToCard(
 	}
 
 	const sourceDeck = sourceDeckId ? decks.find((deck) => deck.id === sourceDeckId) : undefined;
-	const metadata = getCardMetadata(card.content || "");
-	const rawDeckNames = Array.isArray(metadata.we_decks) ? metadata.we_decks : [];
-	const currentDeckNames = rawDeckNames.filter(
-		(value): value is string => typeof value === "string" && value.trim().length > 0
+	const deckById = new Map(decks.map((deck) => [deck.id, deck] as const));
+	const currentDeckIds = getCardDeckIds(card, decks, { preserveAllDeckIds: true }).deckIds;
+	const nextDeckIds = Array.from(
+		new Set([
+			...currentDeckIds.filter(
+				(deckId) => mode !== "replace-source" || !sourceDeck || deckId !== sourceDeck.id
+			),
+			targetDeck.id,
+		])
 	);
-
-	const nextDeckNames = currentDeckNames.filter((deckName) => {
-		if (deckName === targetDeck.id || deckName === targetDeck.name) {
-			return false;
-		}
-
-		if (
-			mode === "replace-source" &&
-			sourceDeck &&
-			(deckName === sourceDeck.id || deckName === sourceDeck.name)
-		) {
-			return false;
-		}
-
-		return true;
-	});
-	nextDeckNames.push(targetDeck.name);
-
+	const nextDeckNames = nextDeckIds.map((deckId) => deckById.get(deckId)?.name || deckId);
 	const content = setCardProperties(card.content || "", {
 		we_decks: nextDeckNames.length > 0 ? nextDeckNames : undefined,
 	});
-	const deckIds = Array.from(
-		new Set(getCardDeckIds({ ...card, content }, decks, { fallbackToReferences: false }).deckIds)
-	);
-	const referencedByDecks = Array.from(
-		new Set([
-			...(card.referencedByDecks || []).filter(
-				(deckId) => mode !== "replace-source" || !sourceDeckId || deckId !== sourceDeckId
-			),
-			...deckIds,
-		])
-	);
 
 	const updatedCard: Card = {
 		...card,
 		content,
-		deckId: deckIds[0],
-		referencedByDecks,
+		deckId: nextDeckIds[0],
+		referencedByDecks: nextDeckIds,
 	};
 
 	if (modified) {

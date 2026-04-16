@@ -1,8 +1,4 @@
-import { logger } from "../../utils/logger";
-/**
- * OpenAI服务实现
- */
-
+﻿import { logger } from "../../utils/logger";
 import type {
 	AIServiceResponse,
 	GeneratedCard,
@@ -14,10 +10,10 @@ import type {
 	SystemPromptConfig,
 } from "../../types/ai-types";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
-import { AIService } from "./AIService";
+import { AIService, type ChatRequest, type ChatResponse } from "./AIService";
 
 export class OpenAIService extends AIService {
-	protected baseUrl = "https://api.openai.com/v1"; // 默认官方地址
+	protected baseUrl = "https://api.openai.com/v1";
 
 	constructor(
 		apiKey: string,
@@ -26,10 +22,49 @@ export class OpenAIService extends AIService {
 		systemPromptConfig?: SystemPromptConfig
 	) {
 		super(apiKey, model, baseUrl, systemPromptConfig);
-		// 如果提供了自定义 baseUrl，则覆盖默认值
 		if (baseUrl) {
 			this.baseUrl = baseUrl;
 		}
+	}
+
+	protected buildChatCompletionBody(
+		messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+		temperature: number,
+		maxTokens: number,
+		responseFormat?: "json_object"
+	): Record<string, unknown> {
+		const body: Record<string, unknown> = {
+			model: this.model,
+			messages,
+			temperature,
+			max_tokens: maxTokens,
+		};
+
+		if (responseFormat) {
+			body.response_format = { type: responseFormat };
+		}
+
+		return body;
+	}
+
+	private extractChoicePayload(data: any): { content: string; usage: any } {
+		const choice = data?.choices?.[0];
+		const finishReason = choice?.finish_reason;
+
+		if (finishReason === "length") {
+			throw new Error("AI 返回内容被截断，请减少生成数量、缩短原文，或提高最大 tokens");
+		}
+
+		const content = this.extractMessageContent(choice?.message?.content);
+
+		if (!content) {
+			throw new Error("AI 返回为空，可能是模型在 JSON 模式下没有给出最终内容，请稍后重试或切换模型");
+		}
+
+		return {
+			content,
+			usage: data?.usage || {},
+		};
 	}
 
 	async generateCards(
@@ -39,7 +74,6 @@ export class OpenAIService extends AIService {
 	): Promise<AIServiceResponse> {
 		let progressInterval: number | null = null;
 		try {
-			// 优化的进度更新策略：非线性增长，减少等待焦虑
 			onProgress?.({
 				status: "preparing",
 				progress: 15,
@@ -52,19 +86,18 @@ export class OpenAIService extends AIService {
 			onProgress?.({
 				status: "generating",
 				progress: 25,
-				message: "正在调用AI服务...",
+				message: "正在调用 AI 服务...",
 			});
 
-			// 模拟进度增长（等待API响应期间）
 			progressInterval = window.setInterval(() => {
-				if (onProgress) {
-					const currentProgress = Math.min(85, 25 + Math.random() * 5);
-					onProgress({
-						status: "generating",
-						progress: currentProgress,
-						message: `AI正在思考...（${config.cardCount}张卡片）`,
-					});
+				if (!onProgress) {
+					return;
 				}
+				onProgress({
+					status: "generating",
+					progress: Math.min(85, 25 + Math.random() * 5),
+					message: `AI 正在处理中...（${config.cardCount} 张卡片）`,
+				});
 			}, 500);
 
 			const response = await this.request({
@@ -74,16 +107,17 @@ export class OpenAIService extends AIService {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${this.apiKey}`,
 				},
-				body: JSON.stringify({
-					model: this.model,
-					messages: [
-						{ role: "system", content: systemPrompt },
-						{ role: "user", content: userPrompt },
-					],
-					temperature: config.temperature,
-					max_tokens: config.maxTokens,
-					response_format: { type: "json_object" },
-				}),
+				body: JSON.stringify(
+					this.buildChatCompletionBody(
+						[
+							{ role: "system", content: systemPrompt },
+							{ role: "user", content: userPrompt },
+						],
+						config.temperature,
+						config.maxTokens,
+						"json_object"
+					)
+				),
 			});
 
 			if (progressInterval !== null) {
@@ -97,11 +131,9 @@ export class OpenAIService extends AIService {
 				message: "解析生成结果...",
 			});
 
-			const data = response.json;
-			const content_text = data.choices[0].message.content;
-			let parsedCards = this.parseResponse(content_text);
+			const { content: contentText, usage } = this.extractChoicePayload(response.json);
+			let parsedCards = this.parseResponse(contentText);
 
-			// 截断：AI返回数量可能超出请求，只取需要的数量
 			if (parsedCards.length > config.cardCount) {
 				logger.debug(
 					`[OpenAI] AI returned ${parsedCards.length} cards, truncating to requested ${config.cardCount}`
@@ -109,42 +141,39 @@ export class OpenAIService extends AIService {
 				parsedCards = parsedCards.slice(0, config.cardCount);
 			}
 
-			// 转换为GeneratedCard格式
-			const cards: GeneratedCard[] = parsedCards.map((card) => {
-				const content = this.getParsedCardContent(card);
-
-				return {
-					uuid: generateCardUUID(),
-					type: card.type || "qa",
-					content,
-					tags: card.tags || [],
-					images: card.images || [],
-					explanation: card.explanation,
-					// 块链接溯源信息
-					sourceText: card.sourceText ? this.ensureString(card.sourceText) : undefined,
-					metadata: {
-						generatedAt: new Date().toISOString(),
-						provider: "openai",
-						model: this.model,
-						temperature: config.temperature,
-					},
-				} as GeneratedCard;
-			});
+			const cards: GeneratedCard[] = parsedCards.map((card) => ({
+				uuid: generateCardUUID(),
+				type: card.type || "qa",
+				content: this.getParsedCardContent(card),
+				tags: card.tags || [],
+				images: card.images || [],
+				explanation: card.explanation,
+				sourceText: card.sourceText ? this.ensureString(card.sourceText) : undefined,
+				metadata: {
+					generatedAt: new Date().toISOString(),
+					provider: "openai",
+					model: this.model,
+					temperature: config.temperature,
+				},
+			}));
 
 			onProgress?.({
 				status: "completed",
 				progress: 100,
-				message: `成功生成${cards.length}张卡片`,
+				message: `成功生成 ${cards.length} 张卡片`,
 			});
 
 			return {
 				success: true,
 				cards,
 				usage: {
-					promptTokens: data.usage.prompt_tokens,
-					completionTokens: data.usage.completion_tokens,
-					totalTokens: data.usage.total_tokens,
-					estimatedCost: this.estimateCost(data.usage.prompt_tokens, data.usage.completion_tokens),
+					promptTokens: usage.prompt_tokens || 0,
+					completionTokens: usage.completion_tokens || 0,
+					totalTokens: usage.total_tokens || 0,
+					estimatedCost: this.estimateCost(
+						usage.prompt_tokens || 0,
+						usage.completion_tokens || 0
+					),
 				},
 			};
 		} catch (error) {
@@ -157,7 +186,6 @@ export class OpenAIService extends AIService {
 		} finally {
 			if (progressInterval !== null) {
 				clearInterval(progressInterval);
-				progressInterval = null;
 			}
 		}
 	}
@@ -167,13 +195,13 @@ export class OpenAIService extends AIService {
 		config: GenerationConfig
 	): Promise<AIServiceResponse> {
 		try {
-			const systemPrompt = `你是一个专业的学习卡片生成助手。现在需要根据用户的修改要求，重新生成一张卡片。
-
-原始卡片信息：
-类型：${request.originalCard.type}
-内容：${request.originalCard.content}
-
-请根据用户的修改要求生成新卡片，保持与原卡片相同的格式。使用 content 字段，通过 ---div--- 分隔正反面。以JSON格式返回。`;
+			const systemPrompt = [
+				"你是一名学习卡片生成助手。",
+				"请根据用户的修改要求，重新生成 1 张卡片。",
+				"保持与原卡片一致的结构，并只返回 JSON。",
+				"原卡片类型：" + request.originalCard.type,
+				"原卡片内容：" + request.originalCard.content,
+			].join("\n");
 
 			const response = await this.request({
 				url: `${this.baseUrl}/chat/completions`,
@@ -182,34 +210,31 @@ export class OpenAIService extends AIService {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${this.apiKey}`,
 				},
-				body: JSON.stringify({
-					model: this.model,
-					messages: [
-						{ role: "system", content: systemPrompt },
-						{ role: "user", content: request.instruction },
-					],
-					temperature: config.temperature,
-					max_tokens: config.maxTokens,
-					response_format: { type: "json_object" },
-				}),
+				body: JSON.stringify(
+					this.buildChatCompletionBody(
+						[
+							{ role: "system", content: systemPrompt },
+							{ role: "user", content: request.instruction },
+						],
+						config.temperature,
+						config.maxTokens,
+						"json_object"
+					)
+				),
 			});
 
-			const data = response.json;
-			const content_text = data.choices[0].message.content;
-			const parsedCards = this.parseResponse(content_text);
+			const { content: contentText, usage } = this.extractChoicePayload(response.json);
+			const parsedCards = this.parseResponse(contentText);
 
 			if (parsedCards.length === 0) {
 				throw new Error("未能生成新卡片");
 			}
 
 			const card = parsedCards[0];
-
-			const content = this.getParsedCardContent(card);
-
 			const newCard: GeneratedCard = {
 				uuid: request.cardId,
 				type: card.type || request.originalCard.type,
-				content,
+				content: this.getParsedCardContent(card),
 				tags: card.tags || [],
 				images: card.images || [],
 				explanation: card.explanation,
@@ -225,10 +250,13 @@ export class OpenAIService extends AIService {
 				success: true,
 				cards: [newCard],
 				usage: {
-					promptTokens: data.usage.prompt_tokens,
-					completionTokens: data.usage.completion_tokens,
-					totalTokens: data.usage.total_tokens,
-					estimatedCost: this.estimateCost(data.usage.prompt_tokens, data.usage.completion_tokens),
+					promptTokens: usage.prompt_tokens || 0,
+					completionTokens: usage.completion_tokens || 0,
+					totalTokens: usage.total_tokens || 0,
+					estimatedCost: this.estimateCost(
+						usage.prompt_tokens || 0,
+						usage.completion_tokens || 0
+					),
 				},
 			};
 		} catch (error) {
@@ -238,47 +266,16 @@ export class OpenAIService extends AIService {
 
 	async splitParentCard(request: SplitCardRequest): Promise<SplitCardResponse> {
 		try {
-			// 构建拆分提示词
-			const systemPrompt = `你是一个专业的学习卡片拆分助手，遵循"最小信息原则"。
-
-你的任务是将一张包含多个知识点的父卡片拆分为多张独立的子卡片。每张子卡片应该只包含一个清晰的知识点。
-
-拆分原则：
-1. 每张子卡片只包含一个核心概念或知识点
-2. 保持子卡片的独立性和完整性
-3. 子卡片应该可以独立复习和理解
-4. 保留必要的上下文，但避免重复信息
-5. 保持原有的格式风格和表达方式
-
-输出格式（JSON）：
-{
-  "cards": [
-    {
-      "front": "问题或提示",
-      "back": "答案或解释",
-      "tags": ["可选标签"],
-      "explanation": "可选的额外说明"
-    }
-  ]
-}
-
-${
-	request.targetCount
-		? `请生成约${request.targetCount}张子卡片。`
-		: "请根据内容自动决定合适的子卡片数量（建议2-5张）。"
-}`;
-
-			const userPrompt = `请将以下卡片拆分为多张子卡片：
-
-【卡片正面】
-${request.content.front}
-
-【卡片背面】
-${request.content.back}
-
-${request.instruction ? `\n【额外要求】\n${request.instruction}` : ""}
-
-请按照JSON格式输出拆分后的子卡片。`;
+			const systemPrompt = [
+				"你是一名学习卡片拆分助手。",
+				"请把父卡拆成多张独立子卡，并只返回 {\"cards\":[...]} JSON。",
+			].join("\n");
+			const userPrompt = [
+				"请拆分以下卡片：",
+				`正面：${request.content.front}`,
+				`背面：${request.content.back}`,
+				request.instruction ? `额外要求：\n${request.instruction}` : "",
+			].filter(Boolean).join("\n");
 
 			const response = await this.request({
 				url: `${this.baseUrl}/chat/completions`,
@@ -287,45 +284,43 @@ ${request.instruction ? `\n【额外要求】\n${request.instruction}` : ""}
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${this.apiKey}`,
 				},
-				body: JSON.stringify({
-					model: this.model,
-					messages: [
-						{ role: "system", content: systemPrompt },
-						{ role: "user", content: userPrompt },
-					],
-					temperature: 0.7,
-					max_tokens: 3000,
-					response_format: { type: "json_object" },
-				}),
+				body: JSON.stringify(
+					this.buildChatCompletionBody(
+						[
+							{ role: "system", content: systemPrompt },
+							{ role: "user", content: userPrompt },
+						],
+						0.7,
+						3000,
+						"json_object"
+					)
+				),
 			});
 
-			const data = response.json;
-			const content_text = data.choices[0].message.content;
-
-			// 解析JSON响应
-			const parsed = JSON.parse(content_text);
+			const { content: contentText, usage } = this.extractChoicePayload(response.json);
+			const parsed = JSON.parse(contentText) as { cards?: Array<Record<string, unknown>> };
 			const childCards = parsed.cards || [];
 
 			if (!Array.isArray(childCards) || childCards.length === 0) {
-				throw new Error("AI未能生成有效的子卡片");
+				throw new Error("AI 未能生成有效的子卡片");
 			}
-
-			// 规范化子卡片数据
-			const normalizedCards = childCards.map((card) => ({
-				front: this.ensureString(card.front),
-				back: this.ensureString(card.back),
-				tags: Array.isArray(card.tags) ? card.tags : [],
-				explanation: card.explanation ? this.ensureString(card.explanation) : undefined,
-			}));
 
 			return {
 				success: true,
-				childCards: normalizedCards,
+				childCards: childCards.map((card) => ({
+					front: this.ensureString(card.front),
+					back: this.ensureString(card.back),
+					tags: Array.isArray(card.tags) ? (card.tags as string[]) : [],
+					explanation: card.explanation ? this.ensureString(card.explanation) : undefined,
+				})),
 				usage: {
-					promptTokens: data.usage.prompt_tokens,
-					completionTokens: data.usage.completion_tokens,
-					totalTokens: data.usage.total_tokens,
-					estimatedCost: this.estimateCost(data.usage.prompt_tokens, data.usage.completion_tokens),
+					promptTokens: usage.prompt_tokens || 0,
+					completionTokens: usage.completion_tokens || 0,
+					totalTokens: usage.total_tokens || 0,
+					estimatedCost: this.estimateCost(
+						usage.prompt_tokens || 0,
+						usage.completion_tokens || 0
+					),
 				},
 			};
 		} catch (error) {
@@ -353,12 +348,7 @@ ${request.instruction ? `\n【额外要求】\n${request.instruction}` : ""}
 		}
 	}
 
-	/**
-	 * 通用对话接口
-	 */
-	async chat(
-		request: import("./AIService").ChatRequest
-	): Promise<import("./AIService").ChatResponse> {
+	async chat(request: ChatRequest): Promise<ChatResponse> {
 		try {
 			const response = await this.request({
 				url: `${this.baseUrl}/chat/completions`,
@@ -367,35 +357,30 @@ ${request.instruction ? `\n【额外要求】\n${request.instruction}` : ""}
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${this.apiKey}`,
 				},
-				body: JSON.stringify({
-					model: this.model,
-					messages: request.messages,
-					temperature: request.temperature ?? 0.7,
-					max_tokens: request.maxTokens ?? 2000,
-				}),
+				body: JSON.stringify(
+					this.buildChatCompletionBody(
+						request.messages,
+						request.temperature ?? 0.7,
+						request.maxTokens ?? 2000,
+						request.responseFormat
+					)
+				),
 			});
 
-			const data = response.json;
-			const content = data.choices?.[0]?.message?.content;
-
-			if (!content) {
-				throw new Error("OpenAI未返回有效内容");
-			}
-
+			const { content, usage } = this.extractChoicePayload(response.json);
 			return {
 				success: true,
-				content: content.trim(),
+				content,
 				model: this.model,
-				tokensUsed: data.usage?.total_tokens,
-				cost: this.estimateCost(data.usage?.prompt_tokens || 0, data.usage?.completion_tokens || 0),
+				tokensUsed: usage.total_tokens || 0,
+				cost: this.estimateCost(usage.prompt_tokens || 0, usage.completion_tokens || 0),
 			};
 		} catch (error) {
 			logger.error("OpenAI chat error:", error);
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "OpenAI调用失败",
+				error: error instanceof Error ? error.message : "OpenAI 调用失败",
 			};
 		}
 	}
-
 }

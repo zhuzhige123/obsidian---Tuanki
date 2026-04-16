@@ -106,7 +106,8 @@ export class EpubCanvasService {
 		chapterIndex?: number,
 		chapterTitle?: string,
 		color?: string,
-		timestamp?: string
+		timestamp?: string,
+		sourceId?: string
 	): Promise<CanvasNode | null> {
 		if (!this.canvasPath) return null;
 
@@ -121,7 +122,8 @@ export class EpubCanvasService {
 				color,
 				chapterTitle,
 				timestamp,
-				this.canvasPath || undefined
+				this.canvasPath || undefined,
+				sourceId
 			);
 
 			const nodeId = this.generateNodeId();

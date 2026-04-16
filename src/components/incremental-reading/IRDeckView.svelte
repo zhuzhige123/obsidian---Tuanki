@@ -50,38 +50,31 @@
    * @version 2.0.0
    */
   import { onMount, onDestroy } from 'svelte';
-  import { Notice, Menu, Modal, Setting, TFile } from 'obsidian';
+  import { Notice, Menu, Modal, Setting } from 'obsidian';
   import { MaterialImportModalObsidian } from './MaterialImportModalObsidian';
   import IRLoadForecastModal from '../modals/IRLoadForecastModal.svelte';
   import type { BatchImportResult } from '../../services/incremental-reading/ReadingMaterialManager';
   import type { WeavePlugin } from '../../main';
-  import type { IRDeck, IRDeckStats, IRChunkFileData, IRBlock } from '../../types/ir-types';
+  import type { IRDeck, IRDeckStats } from '../../types/ir-types';
   import type { Deck, DeckStats } from '../../data/types';
   import { logger } from '../../utils/logger';
-  import { showObsidianInput, showObsidianConfirm } from '../../utils/obsidian-confirm';
+  import { showObsidianConfirm } from '../../utils/obsidian-confirm';
   // v3.0: 移除旧的 IRScheduler 导入，改用 getServices 中的 schedulingFacade
   // 增量阅读专用卡片组件
   import IRDeckCard from './IRDeckCard.svelte';
   import DeckGridCard from '../deck-views/DeckGridCard.svelte';
   import type { DeckCardStyle } from '../../types/plugin-settings.d';
   import { getColorSchemeForDeck } from '../../config/card-color-schemes';
-  import { IRPdfBookmarkTaskService } from '../../services/incremental-reading/IRPdfBookmarkTaskService';
-  import { IREpubBookmarkTaskService } from '../../services/incremental-reading/IREpubBookmarkTaskService';
   import { recomputeAndBroadcastIRData } from '../../services/incremental-reading/IRScheduleRefreshService';
+  import { toDeckStats as mapIRDeckStatsToDeckStats } from '../../services/incremental-reading/IRDeckStatsMapper';
+  import { getSharedIRWorkspaceSnapshotService } from '../../services/incremental-reading/IRWorkspaceSnapshotService';
 
   interface Props {
     plugin: WeavePlugin;
   }
 
-  function buildSessionTotalsByBlockId(sessions: Array<{ blockId?: string; duration?: number }> | undefined | null): Map<string, number> {
-    const totals = new Map<string, number>();
-    for (const session of sessions || []) {
-      const blockId = String(session?.blockId || '').trim();
-      const duration = Number(session?.duration || 0);
-      if (!blockId || duration <= 0) continue;
-      totals.set(blockId, (totals.get(blockId) || 0) + duration);
-    }
-    return totals;
+  function getWorkspaceSnapshotService() {
+    return getSharedIRWorkspaceSnapshotService(plugin.app);
   }
 
   let { plugin }: Props = $props();
@@ -131,237 +124,33 @@
     }
     
     // 导入弹窗内部已经触发统一重排，这里只刷新当前视图
+    getWorkspaceSnapshotService().invalidate();
     void loadDecks();
   }
 
-  // 加载牌组数据
   async function loadDecks() {
     const startTime = Date.now();
     isLoading = true;
-    logger.debug('[IRDeckView] loadDecks 开始');
-    
+    logger.debug('[IRDeckView] loadDecks snapshot start');
+
     try {
-      // 直接初始化必要的服务
-      const storageService = new IRStorageService(plugin.app);
-      await storageService.initialize();
-      
-      const deckManager = new IRDeckManager(plugin.app, storageService, plugin.settings?.incrementalReading?.importFolder);
-      const decksWithStats = await deckManager.getDecksWithStats({
+      const snapshot = await getWorkspaceSnapshotService().getDeckOverview({
         dailyNewLimit: plugin.settings?.incrementalReading?.dailyNewLimit ?? 20,
         dailyReviewLimit: plugin.settings?.incrementalReading?.dailyReviewLimit ?? 50,
-        learnAheadDays: plugin.settings?.incrementalReading?.learnAheadDays ?? 3
+        learnAheadDays: plugin.settings?.incrementalReading?.learnAheadDays ?? 3,
+        dailyTimeBudgetMinutes: plugin.settings?.incrementalReading?.dailyTimeBudgetMinutes ?? 30,
+        loadRateDays: 3
       });
-      const history = await storageService.getHistory();
-      const readingSecondsById = buildSessionTotalsByBlockId(history.sessions);
-      
-      const dailyBudget = plugin.settings?.incrementalReading?.dailyTimeBudgetMinutes || 30;
-      const loadRateDays = 3;
 
-      let chunksByDeckId: Map<string, IRChunkFileData[]> | null = null;
-      let blockById: Record<string, IRBlock> | null = null;
-
-      try {
-        const chunksData = await storageService.getAllChunkData();
-        const allChunks = Object.values(chunksData);
-        const blocksData = await storageService.getAllBlocks();
-
-        chunksByDeckId = new Map();
-        for (const chunk of allChunks) {
-          const deckIds = (chunk as any).deckIds as string[] | undefined;
-          if (!deckIds || deckIds.length === 0) continue;
-          for (const deckId of deckIds) {
-            const list = chunksByDeckId.get(deckId);
-            if (list) {
-              list.push(chunk);
-            } else {
-              chunksByDeckId.set(deckId, [chunk]);
-            }
-          }
-        }
-
-        blockById = blocksData as unknown as Record<string, IRBlock>;
-      } catch (e) {
-        logger.debug('[IRDeckView] 计算负载率：读取数据失败', e);
-        chunksByDeckId = null;
-        blockById = null;
-      }
-
-      decks = [...decksWithStats.map(d => d.deck)];
-
-      // 加载 PDF 书签任务，按牌组分组，用于合并到主统计和负载率计算
-      let pdfTasksByDeckId = new Map<string, any[]>();
-      let epubTasksByDeckId = new Map<string, any[]>();
-      try {
-        const pdfService = new IRPdfBookmarkTaskService(plugin.app);
-        await pdfService.initialize();
-        const allPdfTasks = await pdfService.getAllTasks();
-        for (const task of allPdfTasks) {
-          const deckId = String((task as any)?.deckId || '').trim();
-          if (!deckId) continue;
-          const status = String((task as any)?.status || 'new');
-          if (status === 'done' || status === 'suspended' || status === 'removed') continue;
-          const list = pdfTasksByDeckId.get(deckId);
-          if (list) { list.push(task); } else { pdfTasksByDeckId.set(deckId, [task]); }
-        }
-      } catch (e) {
-        logger.debug('[IRDeckView] 加载 PDF 书签任务失败', e);
-      }
-      try {
-        const epubService = new IREpubBookmarkTaskService(plugin.app);
-        await epubService.initialize();
-        const allEpubTasks = await epubService.getAllTasks();
-        for (const task of allEpubTasks) {
-          const deckId = String((task as any)?.deckId || '').trim();
-          if (!deckId) continue;
-          const status = String((task as any)?.status || 'new');
-          if (status === 'done' || status === 'suspended' || status === 'removed') continue;
-          const list = epubTasksByDeckId.get(deckId);
-          if (list) { list.push(task); } else { epubTasksByDeckId.set(deckId, [task]); }
-        }
-      } catch (e) {
-        logger.debug('[IRDeckView] 加载 EPUB 书签任务失败', e);
-      }
-      
-      const newStats: Record<string, IRDeckStats> = {};
-      for (const d of decksWithStats) {
-        const deckKey = d.deck.id || d.deck.path || '';
-        if (deckKey) {
-          let loadRatePercent: number | undefined = undefined;
-
-          if (dailyBudget > 0) {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const todayMs = today.getTime();
-            const dayMs = 24 * 60 * 60 * 1000;
-
-            const estimateChunkMinutes = (chunk: IRChunkFileData): number => {
-              const historicalSeconds = readingSecondsById.get(String(chunk.chunkId || '')) || 0;
-              if (historicalSeconds > 0 && chunk.stats?.impressions > 0) {
-                return (historicalSeconds / chunk.stats.impressions) / 60;
-              }
-              const stats = (chunk as any).stats as any;
-              if (stats?.effectiveReadingTimeSec && stats?.impressions > 0) {
-                return (stats.effectiveReadingTimeSec / stats.impressions) / 60;
-              }
-              return 3;
-            };
-
-            const estimateBlockMinutes = (block: IRBlock): number => {
-              const historicalSeconds = readingSecondsById.get(String(block.id || '')) || 0;
-              if (historicalSeconds > 0 && block.reviewCount && block.reviewCount > 0) {
-                return (historicalSeconds / block.reviewCount) / 60;
-              }
-              const totalReadingTime = (block as any).totalReadingTime as number | undefined;
-              const reviewCount = (block as any).reviewCount as number | undefined;
-              if (totalReadingTime && reviewCount && reviewCount > 0) {
-                return (totalReadingTime / reviewCount) / 60;
-              }
-              return 3;
-            };
-
-            const estimatePdfTaskMinutes = (task: any): number => {
-              const historicalSeconds = readingSecondsById.get(String(task?.id || '')) || 0;
-              const impressions = Number(task?.stats?.impressions || 0);
-              if (historicalSeconds > 0 && impressions > 0) {
-                return (historicalSeconds / impressions) / 60;
-              }
-              const s = task?.stats;
-              if (s?.effectiveReadingTimeSec && s?.impressions > 0) {
-                return (s.effectiveReadingTimeSec / s.impressions) / 60;
-              }
-              return 5;
-            };
-
-            const estimateEpubTaskMinutes = (task: any): number => {
-              const historicalSeconds = readingSecondsById.get(String(task?.id || '')) || 0;
-              const impressions = Number(task?.stats?.impressions || 0);
-              if (historicalSeconds > 0 && impressions > 0) {
-                return (historicalSeconds / impressions) / 60;
-              }
-              const s = task?.stats;
-              if (s?.effectiveReadingTimeSec && s?.impressions > 0) {
-                return (s.effectiveReadingTimeSec / s.impressions) / 60;
-              }
-              return 5;
-            };
-
-            const deckChunks = chunksByDeckId?.get(deckKey) || [];
-            const deckBlocks = blockById ? (d.deck.blockIds || []).map(id => blockById![id]).filter(Boolean) : [];
-            const deckPdfTasks = pdfTasksByDeckId.get(deckKey) || [];
-            const deckEpubTasks = epubTasksByDeckId.get(deckKey) || [];
-
-            let maxRatio = 0;
-            for (let i = 0; i < loadRateDays; i++) {
-              const targetMs = todayMs + i * dayMs;
-              const nextDayMs = targetMs + dayMs;
-
-              let dayMinutes = 0;
-
-              for (const chunk of deckChunks) {
-                const scheduleStatus = (chunk as any).scheduleStatus as string | undefined;
-                if (scheduleStatus === 'suspended' || scheduleStatus === 'done') continue;
-                const nextRepDate = ((chunk as any).nextRepDate as number | undefined) || 0;
-
-                if (nextRepDate >= targetMs && nextRepDate < nextDayMs) {
-                  dayMinutes += estimateChunkMinutes(chunk);
-                } else if (nextRepDate < targetMs && i === 0) {
-                  dayMinutes += estimateChunkMinutes(chunk);
-                }
-              }
-
-              for (const block of deckBlocks) {
-                const state = (block as any).state as string | undefined;
-                if (state === 'suspended') continue;
-
-                const nextReview = (block as any).nextReview as string | null | undefined;
-                if (nextReview) {
-                  const reviewMs = new Date(nextReview).getTime();
-                  if (reviewMs >= targetMs && reviewMs < nextDayMs) {
-                    dayMinutes += estimateBlockMinutes(block);
-                  } else if (reviewMs < targetMs && i === 0) {
-                    dayMinutes += estimateBlockMinutes(block);
-                  }
-                } else if (state === 'new' && i === 0) {
-                  dayMinutes += estimateBlockMinutes(block);
-                }
-              }
-
-              for (const task of deckPdfTasks) {
-                const nrd = (task.nextRepDate as number) || 0;
-                if (nrd >= targetMs && nrd < nextDayMs) {
-                  dayMinutes += estimatePdfTaskMinutes(task);
-                } else if (nrd < targetMs && i === 0) {
-                  dayMinutes += estimatePdfTaskMinutes(task);
-                }
-              }
-
-              for (const task of deckEpubTasks) {
-                const nrd = (task.nextRepDate as number) || 0;
-                if (nrd >= targetMs && nrd < nextDayMs) {
-                  dayMinutes += estimateEpubTaskMinutes(task);
-                } else if (nrd < targetMs && i === 0) {
-                  dayMinutes += estimateEpubTaskMinutes(task);
-                }
-              }
-
-              maxRatio = Math.max(maxRatio, dayMinutes / dailyBudget);
-            }
-
-            loadRatePercent = Math.round(maxRatio * 100);
-          }
-
-          // PDF / EPUB 书签任务的统计已在 IRStorageService.getDeckStats 中纳入，此处仅覆盖 loadRatePercent
-          newStats[deckKey] = {
-            ...d.stats,
-            loadRatePercent
-          };
-        }
-      }
-      deckStats = newStats;
-      
-      logger.info('[IRDeckView] 加载完成:', decks.length, '个牌组,', Date.now() - startTime, 'ms');
+      decks = [...snapshot.decks];
+      deckStats = { ...snapshot.deckStats };
+      logger.info('[IRDeckView] snapshot load complete', {
+        deckCount: decks.length,
+        durationMs: Date.now() - startTime,
+        generatedAt: snapshot.generatedAt
+      });
     } catch (error) {
-      logger.error('[IRDeckView] 加载失败:', error);
+      logger.error('[IRDeckView] snapshot load failed:', error);
       decks = [];
       deckStats = {};
     } finally {
@@ -370,7 +159,6 @@
     }
   }
 
-  // 获取牌组统计
   function getStats(deckPath: string): IRDeckStats {
     return deckStats[deckPath] || {
       newCount: 0,
@@ -413,20 +201,7 @@
 
   // 将 IRDeckStats 转换为 DeckStats 格式（适配卡片组件）
   function toMemoryStats(irStats: IRDeckStats): DeckStats {
-    return {
-      newCards: irStats.dueToday,
-      learningCards: Math.max(0, (irStats.dueWithinDays ?? irStats.dueToday) - irStats.dueToday),
-      reviewCards: irStats.questionCount,
-      totalCards: irStats.totalCount,
-      memoryRate: 0,
-      todayNew: 0,
-      todayReview: 0,
-      todayTime: 0,
-      totalReviews: 0,
-      totalTime: 0,
-      averageEase: 0,
-      forecastDays: {}
-    };
+    return mapIRDeckStatsToDeckStats(irStats);
   }
 
   // 显示牌组菜单，使用 deckId 作为主要标识
@@ -489,7 +264,6 @@
             const deckManager = new IRDeckManager(plugin.app, storageService, plugin.settings?.incrementalReading?.importFolder);
             logger.debug(`[IRDeckView] 解散牌组: ${deckId}`);
             await deckManager.disbandDeck(deckId);
-            await loadDecks();
             await recomputeAndBroadcastIRData(plugin.app, 'remove_block');
             new Notice('牌组已解散（内容块数据已保留）');
           }
@@ -513,7 +287,6 @@
             const deckManager = new IRDeckManager(plugin.app, storageService, plugin.settings?.incrementalReading?.importFolder);
             logger.debug(`[IRDeckView] 删除牌组: ${deckId}`);
             await deckManager.deleteDeck(deckId);
-            await loadDecks();
             await recomputeAndBroadcastIRData(plugin.app, 'remove_block');
             new Notice('牌组及内容块数据已删除');
           }
@@ -618,7 +391,6 @@
           }
         }
 
-        await loadDecks();
         await recomputeAndBroadcastIRData(plugin.app, 'tag_group_changed');
         plugin.app.workspace.trigger('Weave:data-changed');
         new Notice('牌组已更新');
@@ -679,7 +451,7 @@
   // 监听数据更新事件（学习结束、删除牌组等操作后刷新统计）
   $effect(() => {
     const handleDataUpdate = () => {
-      loadDecks();
+      void loadDecks();
     };
     
     window.addEventListener('Weave:ir-data-updated', handleDataUpdate);
@@ -692,7 +464,7 @@
   });
 
   onMount(() => {
-    loadDecks();
+    void loadDecks();
   });
 
   onDestroy(() => {

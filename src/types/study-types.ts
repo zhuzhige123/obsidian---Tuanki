@@ -75,6 +75,11 @@ export interface PersistedStudySession {
 	sessionType: "review" | "new" | "learning" | "mixed";
 }
 
+export interface PersistedStudySessionStore {
+	activeDeckId?: string;
+	sessionsByDeckId: Record<string, PersistedStudySession>;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -152,6 +157,22 @@ export function isPersistedStudySession(value: unknown): value is PersistedStudy
 	}
 
 	return true;
+}
+
+export function isPersistedStudySessionStore(value: unknown): value is PersistedStudySessionStore {
+	if (!isRecord(value)) {
+		return false;
+	}
+
+	if (value.activeDeckId !== undefined && typeof value.activeDeckId !== "string") {
+		return false;
+	}
+
+	if (!isRecord(value.sessionsByDeckId)) {
+		return false;
+	}
+
+	return Object.values(value.sessionsByDeckId).every(isPersistedStudySession);
 }
 
 export interface StudySession {

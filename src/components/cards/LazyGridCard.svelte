@@ -13,7 +13,7 @@
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import { stripClozeForDisplay } from '../../utils/cloze-utils';
   import { getCardFieldContent } from '../../utils/card-field-helper';
-  import { parseSourceInfo } from '../../utils/yaml-utils';
+  import { extractBodyContent, parseSourceInfo } from '../../utils/yaml-utils';
   import { getQuestionTypeLabelFromCard } from '../../utils/question-type-utils';
 
   type GridCardAttributeType = 'none' | 'uuid' | 'source' | 'priority' | 'retention' | 'modified' | 'accuracy' | 'question_type' | 'ir_state' | 'ir_priority';
@@ -113,6 +113,12 @@
   let longPressTimer: NodeJS.Timeout | null = null;
   let isLongPressTriggered = $state(false);
   const LONG_PRESS_DURATION = 500; // 长按阈值：500ms
+  const SIDEBAR_DRAG_LONG_PRESS_DURATION = 420;
+  const SIDEBAR_DRAG_MOVE_TOLERANCE = 8;
+  let isInSidebarMode = $state(false);
+  let isDragReady = $state(false);
+  let isDragging = $state(false);
+  let pointerDownState: { x: number; y: number; pointerId: number } | null = null;
   
   // 移动端功能键显示状态（单击显示/隐藏）
   let showMobileActions = $state(false);
@@ -121,7 +127,6 @@
   const frontText = $derived(getCardFieldContent(card, 'front'));
   const backText = $derived(getCardFieldContent(card, 'back'));
   const tags = $derived(card.tags || []);
-
   const sourceInfo = $derived.by(() => {
     if (!card.content) {
       return null;
@@ -162,6 +167,53 @@
     
     const merged = `${front}\n\n---\n\n${back}`;
     return stripClozeForDisplay(merged);
+  });
+
+  function normalizeGridPreviewMarkdown(markdown: string): string {
+    const normalized = String(markdown || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]+\n/g, '\n');
+
+    const compactedFencedBlocks = normalized.replace(
+      /(^|\n)([`~]{3,})([^\n]*)\n([\s\S]*?)\n\2(?=\n|$)/g,
+      (_match, prefix: string, fence: string, info: string, body: string) => {
+        const compactedBody = String(body || '')
+          .replace(/^\n+|\n+$/g, '')
+          .replace(/\n{3,}/g, '\n\n');
+
+        return `${prefix}${fence}${info}\n${compactedBody}\n${fence}`;
+      }
+    );
+
+    return compactedFencedBlocks
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  const previewContent = $derived.by(() => normalizeGridPreviewMarkdown(fullContent));
+
+  const dragContent = $derived.by(() => {
+    const rawContent = String(card.content || '').trim();
+    if (rawContent) {
+      const body = extractBodyContent(rawContent).trim();
+      if (body) {
+        return body;
+      }
+    }
+
+    const front = frontText.trim();
+    const back = backText.trim();
+    if (front && back) {
+      return `${front}\n\n---\n\n${back}`;
+    }
+    return front || back || fullContent || '';
+  });
+
+  const sourceBlockId = $derived.by(() => {
+    const block = sourceInfo?.sourceBlock?.trim();
+    if (block) return block.replace(/^canvas:/, '').replace(/^\^/, '').split('?')[0];
+    if (card.sourceBlock) return String(card.sourceBlock).trim().replace(/^canvas:/, '').replace(/^\^/, '').split('?')[0];
+    return '';
   });
   
   // 获取源文件路径
@@ -277,7 +329,7 @@
       const component = new Component();
       component.load();
       
-      const content = fullContent;
+      const content = previewContent;
       
       await MarkdownRenderer.render(
         plugin.app,
@@ -292,8 +344,8 @@
     } catch (error) {
       logger.error('[LazyGridCard] Render failed:', error);
       if (contentElement) {
-        // 降级处理：显示纯文本（fullContent 已处理挖空语法）
-        contentElement.textContent = fullContent;
+        // 降级处理：显示纯文本（previewContent 已压缩预览空白）
+        contentElement.textContent = previewContent;
       }
     } finally {
       isRendering = false;
@@ -388,9 +440,137 @@
   function handleSourceJump(event: MouseEvent) {
     onSourceJump?.(card);
   }
+
+  function toDisplaySourcePath(path: string): string {
+    if (!path) return '';
+    return path.toLowerCase().endsWith('.md') ? path.slice(0, -3) : path;
+  }
+
+  function buildSourceLink(): string {
+    const path = String(sourcePath || '').trim();
+    if (!path) return '';
+
+    const normalizedPath = toDisplaySourcePath(path);
+    const blockId = sourceBlockId;
+    if (!blockId) {
+      return `[[${normalizedPath}]]`;
+    }
+    return `[[${normalizedPath}#^${blockId}]]`;
+  }
+
+  function buildDragText(includeSourceLink: boolean): string {
+    const content = dragContent.trim();
+    if (!includeSourceLink || !content) {
+      return content;
+    }
+
+    const sourceLink = buildSourceLink();
+    if (!sourceLink) {
+      return content;
+    }
+
+    return `${content}\n\n> 来源：${sourceLink}`;
+  }
+
+  function updateSidebarMode(): void {
+    isInSidebarMode = !!cardElement?.closest('.weave-app.is-in-sidebar');
+    if (!isInSidebarMode) {
+      isDragReady = false;
+      isDragging = false;
+    }
+  }
+
+  function clearSidebarDragLongPress(resetReady = true): void {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+    pointerDownState = null;
+    if (resetReady) {
+      isDragReady = false;
+    }
+  }
+
+  function handlePointerDown(event: PointerEvent): void {
+    if (!isInSidebarMode) return;
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest('.card-actions, button, a, input, textarea')) {
+      return;
+    }
+
+    clearSidebarDragLongPress();
+    isLongPressTriggered = false;
+    pointerDownState = {
+      x: event.clientX,
+      y: event.clientY,
+      pointerId: event.pointerId,
+    };
+
+    longPressTimer = setTimeout(() => {
+      isDragReady = true;
+      isLongPressTriggered = true;
+      longPressTimer = null;
+    }, SIDEBAR_DRAG_LONG_PRESS_DURATION);
+  }
+
+  function handlePointerMove(event: PointerEvent): void {
+    if (!isInSidebarMode || !pointerDownState) return;
+    if (pointerDownState.pointerId !== event.pointerId) return;
+    if (isDragReady) return;
+
+    const dx = event.clientX - pointerDownState.x;
+    const dy = event.clientY - pointerDownState.y;
+    if (Math.hypot(dx, dy) > SIDEBAR_DRAG_MOVE_TOLERANCE) {
+      clearSidebarDragLongPress();
+    }
+  }
+
+  function handlePointerUp(): void {
+    if (!isInSidebarMode) return;
+    clearSidebarDragLongPress();
+  }
+
+  function handleDragStart(event: DragEvent): void {
+    if (!isInSidebarMode || !isDragReady || !event.dataTransfer) {
+      event.preventDefault();
+      return;
+    }
+
+    const includeSourceLink = !!(event.ctrlKey || event.metaKey);
+    const content = buildDragText(includeSourceLink);
+    if (!content) {
+      event.preventDefault();
+      isDragReady = false;
+      isLongPressTriggered = false;
+      return;
+    }
+
+    const payload = {
+      uuid: card.uuid,
+      sourcePath: sourcePath || undefined,
+      sourceLink: buildSourceLink() || undefined,
+      includeSourceLink,
+      content,
+    };
+
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.dropEffect = 'copy';
+    event.dataTransfer.setData('text/plain', content);
+    event.dataTransfer.setData('text/markdown', content);
+    event.dataTransfer.setData('application/x-weave-card-content', JSON.stringify(payload));
+    isDragging = true;
+  }
+
+  function handleDragEnd(): void {
+    isDragging = false;
+    isDragReady = false;
+    isLongPressTriggered = false;
+    clearSidebarDragLongPress(false);
+  }
   
   // 长按开始（触摸开始）
   function handleTouchStart(event: TouchEvent) {
+    if (isInSidebarMode) return;
     if (!isMobile || !onLongPress) return;
     
     isLongPressTriggered = false;
@@ -408,6 +588,7 @@
   
   // 长按结束（触摸结束/取消）
   function handleTouchEnd() {
+    if (isInSidebarMode) return;
     if (longPressTimer) {
       clearTimeout(longPressTimer);
       longPressTimer = null;
@@ -416,6 +597,7 @@
   
   // 触摸移动时取消长按
   function handleTouchMove() {
+    if (isInSidebarMode) return;
     if (longPressTimer) {
       clearTimeout(longPressTimer);
       longPressTimer = null;
@@ -445,9 +627,11 @@
     if (!isMobile) {
       isMobile = detectMobile();
     }
+    updateSidebarMode();
     
     // 监听其他卡片的功能键隐藏事件
     window.addEventListener('Weave:hide-other-card-actions', handleHideOtherCardActions as EventListener);
+    window.addEventListener('resize', updateSidebarMode);
     
     // 创建专属于这张卡片的Observer
     observer = new IntersectionObserver(
@@ -483,6 +667,7 @@
       }
       // 移除事件监听
       window.removeEventListener('Weave:hide-other-card-actions', handleHideOtherCardActions as EventListener);
+      window.removeEventListener('resize', updateSidebarMode);
     };
   });
   
@@ -498,13 +683,22 @@
   class:fixed-height={layoutMode === 'fixed'}
   class:masonry={layoutMode === 'masonry'}
   class:rendering={isRendering}
+  class:drag-ready={isDragReady}
+  class:dragging={isDragging}
   onclick={handleCardClick}
   onmouseenter={handleMouseEnter}
   onmouseleave={handleMouseLeave}
+  onpointerdown={handlePointerDown}
+  onpointermove={handlePointerMove}
+  onpointerup={handlePointerUp}
+  onpointercancel={handlePointerUp}
   ontouchstart={handleTouchStart}
   ontouchend={handleTouchEnd}
   ontouchcancel={handleTouchEnd}
   ontouchmove={handleTouchMove}
+  ondragstart={handleDragStart}
+  ondragend={handleDragEnd}
+  draggable={isInSidebarMode}
   role="button"
   tabindex="0"
   onkeydown={(e) => e.key === 'Enter' && handleCardClick(e as any)}
@@ -633,22 +827,43 @@
   }
 
   .lazy-grid-card.fixed-height .card-body {
-    flex: 1;
+    flex: 0 0 auto;
     overflow: hidden;
   }
 
   .lazy-grid-card.fixed-height .content-area {
+    flex: none;
     max-height: 200px;
+  }
+
+  .lazy-grid-card.fixed-height .skeleton-placeholder {
+    flex: none;
   }
 
   /* 瀑布流模式 */
   .lazy-grid-card.masonry {
     height: auto;
-    min-height: 200px;
+    min-height: 0;
+  }
+
+  .lazy-grid-card.masonry .card-body {
+    flex: 0 0 auto;
+  }
+
+  .lazy-grid-card.masonry .content-area {
+    flex: none;
   }
 
   .lazy-grid-card.masonry .content-area {
     max-height: none;
+  }
+
+  .lazy-grid-card.masonry .skeleton-placeholder {
+    flex: none;
+  }
+
+  .lazy-grid-card.masonry .card-footer {
+    margin-top: 2px;
   }
 
   /* 由 Obsidian 主题变量统一驱动边框和悬停阴影，避免深浅色硬编码 */
@@ -984,6 +1199,19 @@
     opacity: 0.9;
   }
 
+  .lazy-grid-card.drag-ready {
+    box-shadow:
+      inset 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 92%, white 8%),
+      0 0 0 3px color-mix(in srgb, var(--interactive-accent) 18%, transparent),
+      0 10px 24px color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+  }
+
+  .lazy-grid-card.dragging {
+    opacity: 0.72;
+    cursor: grabbing;
+    transform: scale(0.985);
+  }
+
   /* Markdown 渲染样式 */
   .content-area.markdown-rendered :global(p) {
     margin: 0.25em 0;
@@ -994,6 +1222,11 @@
     border: none;
     border-top: 2px dashed var(--weave-border);
     opacity: 0.5;
+  }
+
+  .content-area.markdown-rendered :global(pre) {
+    margin: var(--weave-space-xs) 0;
+    padding: 8px 10px;
   }
 
   .content-area.markdown-rendered :global(img),

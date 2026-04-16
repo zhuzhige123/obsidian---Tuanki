@@ -289,11 +289,10 @@ describe('SidebarNavHeader', () => {
     expect(menu.findItemByTitle('切换视图')).toBeUndefined();
     expect(menu.findItemByTitle('新建牌组')).toBeUndefined();
     expect(menu.findItemByTitle('数据源切换')).toBeUndefined();
-    expect(menu.findItemByTitle('APKG导入')).toBeUndefined();
+    expect(menu.findItemByTitle('导入旧版卡包')).toBeUndefined();
     expect(menu.findItemByTitle('导入CSV文件')).toBeUndefined();
     expect(menu.findItemByTitle('粘贴卡片批量导入')).toBeUndefined();
     expect(menu.findItemByTitle('操作管理')).toBeUndefined();
-    expect(menu.findItemByTitle('设置')).toBeUndefined();
   });
 
   it('在卡片管理页面不显示仅牌组学习可用的全局操作', async () => {
@@ -313,11 +312,10 @@ describe('SidebarNavHeader', () => {
 
     const menu = menuInstances[0];
     expect(menu.findItemByTitle('数据源切换')).toBeTruthy();
-    expect(menu.findItemByTitle('APKG导入')).toBeUndefined();
+    expect(menu.findItemByTitle('导入旧版卡包')).toBeUndefined();
     expect(menu.findItemByTitle('导入CSV文件')).toBeUndefined();
     expect(menu.findItemByTitle('粘贴卡片批量导入')).toBeUndefined();
     expect(menu.findItemByTitle('操作管理')).toBeUndefined();
-    expect(menu.findItemByTitle('设置')).toBeUndefined();
   });
 
   it('在卡片管理菜单中显示时间线视图入口并触发切换', async () => {
@@ -418,7 +416,7 @@ describe('SidebarNavHeader', () => {
     window.removeEventListener('Weave:card-management-toolbar-action', toolbarListener);
   });
 
-  it('在导航可见性关闭时隐藏导入与设置入口', async () => {
+  it('在导航可见性关闭时隐藏导入入口', async () => {
     premiumMockState.showPreview = true;
 
     const { container } = render(SidebarNavHeader, {
@@ -428,8 +426,7 @@ describe('SidebarNavHeader', () => {
         navigationVisibility: {
           apkgImport: false,
           csvImport: false,
-          clipboardImport: false,
-          settingsEntry: false
+          clipboardImport: false
         },
         onNavigate: mockOnNavigate,
         onFilterSelect: mockOnFilterSelect
@@ -439,13 +436,12 @@ describe('SidebarNavHeader', () => {
     await fireEvent.click(container.querySelector('.sidebar-menu-trigger')!);
 
     const menu = menuInstances[0];
-    expect(menu.findItemByTitle('APKG导入')).toBeUndefined();
+    expect(menu.findItemByTitle('导入旧版卡包')).toBeUndefined();
     expect(menu.findItemByTitle('导入CSV文件 (高级)')).toBeUndefined();
     expect(menu.findItemByTitle('粘贴卡片批量导入 (高级)')).toBeUndefined();
-    expect(menu.findItemByTitle('设置')).toBeUndefined();
   });
 
-  it('侧边栏模式下默认只显示搜索图标，点击后在下方展开搜索框', async () => {
+  it('侧边栏模式下默认只显示搜索图标，点击后在下方展开搜索栏', async () => {
     const searchLabel = '\u641c\u7d22\u5361\u7247';
     const { container, getByLabelText } = render(SidebarNavHeader, {
       props: {
@@ -467,3 +463,6 @@ describe('SidebarNavHeader', () => {
     expect(container.querySelector('.sidebar-card-search-panel input[aria-label=\"搜索卡片\"]')).toBeTruthy();
   });
 });
+
+
+

@@ -32,6 +32,7 @@ export interface MemoryDeckMenuText {
 export interface MemoryDeckMenuOptions {
 	showDeckAnalytics?: boolean;
 	lockDeckAnalytics?: boolean;
+	renderManagementSection?: (menu: Menu) => void;
 }
 
 export function buildMemoryDeckMenu(
@@ -74,6 +75,11 @@ export function buildMemoryDeckMenu(
 	}
 
 	menu.addSeparator();
+
+	if (options.renderManagementSection) {
+		options.renderManagementSection(menu);
+		return menu;
+	}
 
 	menu.addItem((item) =>
 		item

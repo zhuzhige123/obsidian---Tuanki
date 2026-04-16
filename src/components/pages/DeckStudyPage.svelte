@@ -26,10 +26,13 @@
   import CreateQuestionBankModal from "../modals/CreateQuestionBankModal.svelte";
   import { QuestionBankAssociationModal } from "../../modals/QuestionBankAssociationModal";
   import { QuestionBankSelectorModal } from "../../modals/QuestionBankSelectorModal";
+  import { VaultFolderSuggestModal } from "../../modals/VaultFolderSuggestModal";
+  import { BatchTagSuggestModal, type BatchTagSuggestItem } from "../../modals/BatchTagSuggestModal";
   import type { ImportResult } from "../../domain/apkg/types";
   import { Menu, Modal, Notice, Setting, TFile, normalizePath } from "obsidian";
   import type { DeckTreeNode } from "../../services/deck/DeckHierarchyService";
   import { buildMemoryDeckMenu, type MemoryDeckMenuAction } from "../../services/deck/MemoryDeckMenu";
+  import { openFileWithExistingLeaf } from "../../utils/workspace-navigation";
   
   //  导入服务就绪检查工具
   import { waitForService, safeServiceCall } from "../../utils/service-ready-check";
@@ -47,6 +50,8 @@
   
   //  导入增量阅读牌组视图
   import IRDeckView from "../incremental-reading/IRDeckView.svelte";
+  import { toDeckStats } from "../../services/incremental-reading/IRDeckStatsMapper";
+  import { getSharedIRWorkspaceSnapshotService } from "../../services/incremental-reading/IRWorkspaceSnapshotService";
   import type { CelebrationStats } from "../../types/celebration-types";
   
 // 导入无卡片提示模态窗
@@ -62,6 +67,14 @@
   import { PremiumFeatureGuard, PREMIUM_FEATURES } from "../../services/premium/PremiumFeatureGuard";
   import ActivationPrompt from "../premium/ActivationPrompt.svelte";
   import { get } from 'svelte/store';
+  import { getEmergentDeckService } from "../../services/deck/EmergentDeckService";
+  import {
+    DEFAULT_EMERGENT_RULE_GROUP,
+    getActiveEmergentRuleGroup,
+    getNormalizedEmergentRuleGroups,
+    type EmergentRuleGroup,
+  } from "../../services/deck/emergent-rule-groups";
+  import type { EmergentDeckCandidate, FormalDeckBindingSummary, MemoryDeckOrganizationRuntime, MemoryDeckView } from "../../types/emergent-deck-types";
   
   //  导入国际化
   import { tr } from '../../utils/i18n';
@@ -69,10 +82,8 @@
   //  导入移动端组件
   import MobileDeckStudyHeader from "../study/MobileDeckStudyHeader.svelte";
   import { Platform } from 'obsidian';
-// 导入安全设置打开函数
-  import { safeOpenSettings } from '../../utils/obsidian-api-safe';
   import { DirectoryUtils } from '../../utils/directory-utils';
-  import { getCardDeckIds, parseSourceInfo } from '../../utils/yaml-utils';
+  import { extractAllTags, getCardDeckIds, parseSourceInfo } from '../../utils/yaml-utils';
   import { sanitizeFileName } from '../../utils/card-export-utils';
   import { getV2Paths, getReadableWeaveRoot } from '../../config/paths';
   import { migrateLegacyDirectory } from '../../services/data-migration/LegacyWeaveFolderMigration';
@@ -90,6 +101,10 @@
 
   let { dataStorage, plugin }: Props = $props();
   let t = $derived($tr);
+
+  function getIRWorkspaceSnapshotService() {
+    return getSharedIRWorkspaceSnapshotService(plugin.app);
+  }
 
   // 核心状态
   let showCSVImportModal = $state(false);
@@ -123,6 +138,17 @@
   let editDeckModalInstance: CreateDeckModalObsidian | null = null;
   let apkgImportModalInstance: APKGImportModalObsidian | null = null;
   let clipboardImportModalInstance: ClipboardImportModalObsidian | null = null;
+  let showEmergentRuleGroupPopover = $state(false);
+  let emergentRuleGroupPopoverStyle = $state('top: 56px; left: calc(100vw - 320px);');
+  let emergentRuleGroupAnchor = $state<HTMLElement | null>(null);
+  let emergentRuleGroupDrafts = $state<EmergentRuleGroup[]>([]);
+  let emergentRuleGroupDraftActiveId = $state(DEFAULT_EMERGENT_RULE_GROUP.id);
+  let emergentRuleGroupVisibleConditions = $state<Record<string, string[]>>({});
+  let emergentChildPopupOpenCount = $state(0);
+  let emergentChildPopupCloseGuardUntil = $state(0);
+
+  const EMERGENT_CHILD_POPUP_OPEN_EVENT = 'Weave:emergent-child-popup-open';
+  const EMERGENT_CHILD_POPUP_CLOSE_EVENT = 'Weave:emergent-child-popup-close';
 
   //  移动端状态
   let isMobile = $state(false);
@@ -133,6 +159,11 @@
   // 数据状态
   let decks = $state<Deck[]>([]);
   let deckTree = $state<DeckTreeNode[]>([]);
+  let emergentCandidates = $state<EmergentDeckCandidate[]>([]);
+  let emergentRuntime = $state<MemoryDeckOrganizationRuntime | null>(null);
+  let emergentDeckViews = $state<MemoryDeckView[]>([]);
+  let emergentDeckStats = $state<Record<string, DeckStats>>({});
+  let formalDeckBindingSummary = $state<Record<string, FormalDeckBindingSummary>>({});
   let expandedDeckIds = $state<Set<string>>(new Set());
   let deckStats = $state<Record<string, DeckStats>>({});
   let studySessions = $state<StudySession[]>([]);
@@ -220,8 +251,620 @@
     return plugin.settings.navigationVisibility?.clipboardImport !== false;
   }
 
-  function isSettingsEntryEnabled(): boolean {
-    return plugin.settings.navigationVisibility?.settingsEntry !== false;
+  function getEmergentRuleGroups(): EmergentRuleGroup[] {
+    return getNormalizedEmergentRuleGroups(plugin.settings.memoryDeckOrganization);
+  }
+
+  function getActiveEmergentRuleGroupState(): EmergentRuleGroup {
+    return getActiveEmergentRuleGroup(plugin.settings.memoryDeckOrganization);
+  }
+
+  async function saveEmergentRuleGroups(
+    groups: EmergentRuleGroup[],
+    activeRuleGroupId: string
+  ): Promise<void> {
+    const normalizedGroups = groups.length > 0 ? groups : [DEFAULT_EMERGENT_RULE_GROUP];
+    const activeGroup =
+      normalizedGroups.find((group) => group.id === activeRuleGroupId) || normalizedGroups[0];
+
+    plugin.settings.memoryDeckOrganization = {
+      ...(plugin.settings.memoryDeckOrganization || {}),
+      enabled: plugin.settings.memoryDeckOrganization?.enabled !== false,
+      minCandidateCardCount: activeGroup.minCandidateCardCount,
+      activeRuleGroupId: activeGroup.id,
+      ruleGroups: normalizedGroups,
+    };
+
+    await plugin.saveSettings();
+    await refreshData(true);
+    plugin.app.workspace.trigger("Weave:data-changed");
+  }
+
+  function getEmergentRuleViewportBox(): {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } {
+    const viewport = window.visualViewport;
+    if (viewport) {
+      return {
+        left: viewport.offsetLeft,
+        top: viewport.offsetTop,
+        width: viewport.width,
+        height: viewport.height,
+      };
+    }
+
+    return {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  }
+
+  function updateEmergentRuleGroupPopoverPosition(): void {
+    const viewport = getEmergentRuleViewportBox();
+    const isCompactViewport = viewport.width <= 720;
+    const preferredWidth = isCompactViewport
+      ? Math.min(400, Math.max(292, viewport.width - 24))
+      : Math.min(720, Math.max(560, viewport.width - 96));
+    const maxHeight = Math.max(320, Math.min(680, viewport.height - 40));
+    const minLeft = viewport.left + 12;
+    const maxLeft = Math.max(minLeft, viewport.left + viewport.width - preferredWidth - 12);
+
+    let left = maxLeft;
+    let top = viewport.top + 56;
+
+    if (emergentRuleGroupAnchor?.isConnected) {
+      const rect = emergentRuleGroupAnchor.getBoundingClientRect();
+      left = Math.max(minLeft, Math.min(rect.right - preferredWidth, maxLeft));
+
+      const preferredTop = rect.bottom + 8;
+      const maxTop = viewport.top + viewport.height - maxHeight - 12;
+      if (preferredTop <= maxTop) {
+        top = preferredTop;
+      } else {
+        top = Math.max(viewport.top + 12, rect.top - maxHeight - 8);
+      }
+    }
+
+    emergentRuleGroupPopoverStyle =
+      `top: ${Math.round(top)}px; ` +
+      `left: ${Math.round(left)}px; ` +
+      `width: ${Math.round(preferredWidth)}px; ` +
+      `max-height: ${Math.round(maxHeight)}px;`;
+  }
+
+  function openEmergentRuleGroupPopover(anchor?: HTMLElement | null): void {
+    const groups = getEmergentRuleGroups();
+    const activeGroup = getActiveEmergentRuleGroupState();
+    emergentRuleGroupDrafts = groups.map((group) => ({ ...group }));
+    emergentRuleGroupDraftActiveId = activeGroup.id;
+    emergentRuleGroupVisibleConditions = Object.fromEntries(
+      groups.map((group) => [
+        group.id,
+        [
+          ...(group.excludedTags.length > 0 ? ["excludedTags"] : []),
+          ...(group.sourceFolders.length > 0 ? ["sourceFolders"] : []),
+          ...(group.createdAfter || group.createdBefore ? ["createdAt"] : []),
+          ...(group.priorityMin !== null || group.priorityMax !== null ? ["priority"] : []),
+        ],
+      ])
+    );
+    emergentRuleGroupAnchor = anchor || null;
+    updateEmergentRuleGroupPopoverPosition();
+    showEmergentRuleGroupPopover = true;
+  }
+
+  function registerEmergentRuleGroupPopoverBridge(): () => void {
+    const api = window as Window & {
+      __weaveOpenEmergentRuleGroupPopover?: (anchor?: HTMLElement | null) => void;
+    };
+    const openPopover = (anchor?: HTMLElement | null) => {
+      openEmergentRuleGroupPopover(anchor);
+    };
+
+    api.__weaveOpenEmergentRuleGroupPopover = openPopover;
+
+    return () => {
+      if (api.__weaveOpenEmergentRuleGroupPopover === openPopover) {
+        delete api.__weaveOpenEmergentRuleGroupPopover;
+      }
+    };
+  }
+
+  function closeEmergentRuleGroupPopover(): void {
+    showEmergentRuleGroupPopover = false;
+    emergentRuleGroupAnchor = null;
+    emergentRuleGroupVisibleConditions = {};
+  }
+
+  function markEmergentChildPopupClosed(graceMs = 180): void {
+    emergentChildPopupCloseGuardUntil = Date.now() + Math.max(0, graceMs);
+  }
+
+  function isEmergentChildPopupInteractionProtected(): boolean {
+    return emergentChildPopupOpenCount > 0 || Date.now() < emergentChildPopupCloseGuardUntil;
+  }
+
+  function portalToBody(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        if (node.parentNode === document.body) {
+          document.body.removeChild(node);
+        }
+      }
+    };
+  }
+
+  function getActiveEmergentRuleGroupDraft(): EmergentRuleGroup {
+    return (
+      emergentRuleGroupDrafts.find((group) => group.id === emergentRuleGroupDraftActiveId) ||
+      emergentRuleGroupDrafts[0] ||
+      DEFAULT_EMERGENT_RULE_GROUP
+    );
+  }
+
+  function normalizeDraftStringList(raw: string): string[] {
+    return raw
+      .split(/[,，\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => item.replace(/^#/, ""))
+      .filter((item, index, array) => array.indexOf(item) === index);
+  }
+
+  function getAnchorRect(anchor?: HTMLElement | null):
+    | {
+        left: number;
+        right: number;
+        top: number;
+        bottom: number;
+        width: number;
+        height: number;
+      }
+    | undefined {
+    if (!anchor) return undefined;
+    const rect = anchor.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  function collectAvailableVaultTags(): string[] {
+    const metadataCacheAny = plugin.app.metadataCache as typeof plugin.app.metadataCache & {
+      getTags?: () => Record<string, number>;
+    };
+    const tagsFromApi = typeof metadataCacheAny.getTags === "function" ? metadataCacheAny.getTags() : null;
+
+    if (tagsFromApi && typeof tagsFromApi === "object") {
+      return Object.keys(tagsFromApi)
+        .map((tag) => String(tag || "").replace(/^#/, "").trim())
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b, "zh-CN"));
+    }
+
+    const tagSet = new Set<string>();
+    plugin.app.vault.getMarkdownFiles().forEach((file) => {
+      const cache = plugin.app.metadataCache.getFileCache(file);
+      const frontmatterTags = cache?.frontmatter?.tags;
+
+      if (Array.isArray(frontmatterTags)) {
+        frontmatterTags
+          .map((tag) => String(tag || "").replace(/^#/, "").trim())
+          .filter(Boolean)
+          .forEach((tag) => tagSet.add(tag));
+      } else if (typeof frontmatterTags === "string") {
+        normalizeDraftStringList(frontmatterTags).forEach((tag) => tagSet.add(tag));
+      }
+
+      cache?.tags?.forEach((tagRef) => {
+        const normalizedTag = String(tagRef.tag || "").replace(/^#/, "").trim();
+        if (normalizedTag) {
+          tagSet.add(normalizedTag);
+        }
+      });
+    });
+
+    return Array.from(tagSet).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }
+
+  function updateEmergentRuleGroupDraftName(groupId: string, name: string): void {
+    emergentRuleGroupDrafts = emergentRuleGroupDrafts.map((group) =>
+      group.id === groupId ? { ...group, name: name.trim() || group.name } : group
+    );
+  }
+
+  function updateEmergentRuleGroupDraftThreshold(groupId: string, value: string): void {
+    const parsed = Number(value);
+    emergentRuleGroupDrafts = emergentRuleGroupDrafts.map((group) =>
+      group.id === groupId
+        ? {
+            ...group,
+            minCandidateCardCount:
+              Number.isFinite(parsed) && parsed > 0 ? Math.max(1, Math.floor(parsed)) : 1,
+          }
+        : group
+    );
+  }
+
+  function createEmergentRuleGroupDraft(): void {
+    const nextIndex = emergentRuleGroupDrafts.length + 1;
+    const newGroup: EmergentRuleGroup = {
+      id: `rule-group-${Date.now()}`,
+      name: `规则组 ${nextIndex}`,
+      minCandidateCardCount:
+        emergentRuleGroupDrafts[emergentRuleGroupDrafts.length - 1]?.minCandidateCardCount ||
+        DEFAULT_EMERGENT_RULE_GROUP.minCandidateCardCount,
+      requiredTags: [],
+      excludedTags: [],
+      sourceFolders: [],
+      priorityMin: null,
+      priorityMax: null,
+      createdAfter: null,
+      createdBefore: null,
+    };
+    emergentRuleGroupDrafts = [...emergentRuleGroupDrafts, newGroup];
+    emergentRuleGroupDraftActiveId = newGroup.id;
+    emergentRuleGroupVisibleConditions = {
+      ...emergentRuleGroupVisibleConditions,
+      [newGroup.id]: [],
+    };
+  }
+
+  function selectEmergentRuleGroupDraft(groupId: string): void {
+    emergentRuleGroupDraftActiveId = groupId;
+  }
+
+  function getCurrentEmergentRuleGroupDraft(): EmergentRuleGroup {
+    return (
+      emergentRuleGroupDrafts.find((group) => group.id === emergentRuleGroupDraftActiveId) ||
+      emergentRuleGroupDrafts[0] ||
+      DEFAULT_EMERGENT_RULE_GROUP
+    );
+  }
+
+  function appendEmergentRuleGroupTagDraft(
+    groupId: string,
+    field: "requiredTags" | "excludedTags",
+    tag: string
+  ): void {
+    const normalizedTag = String(tag || "").replace(/^#/, "").trim();
+    if (!normalizedTag) return;
+
+    emergentRuleGroupDrafts = emergentRuleGroupDrafts.map((group) => {
+      if (group.id !== groupId) return group;
+      const currentTags = group[field] || [];
+      if (currentTags.includes(normalizedTag)) return group;
+      return {
+        ...group,
+        [field]: [...currentTags, normalizedTag],
+      };
+    });
+  }
+
+  function removeEmergentRuleGroupTagDraft(
+    groupId: string,
+    field: "requiredTags" | "excludedTags",
+    tag: string
+  ): void {
+    emergentRuleGroupDrafts = emergentRuleGroupDrafts.map((group) =>
+      group.id === groupId
+        ? {
+            ...group,
+            [field]: (group[field] || []).filter((item) => item !== tag),
+          }
+        : group
+    );
+  }
+
+  type EmergentRuleConditionKey = "requiredTags" | "excludedTags" | "sourceFolders" | "createdAt" | "priority";
+
+  function getVisibleEmergentRuleConditions(groupId: string): EmergentRuleConditionKey[] {
+    const group = emergentRuleGroupDrafts.find((item) => item.id === groupId);
+    if (!group) return [];
+
+    const visible = new Set<EmergentRuleConditionKey>(
+      (emergentRuleGroupVisibleConditions[groupId] || []) as EmergentRuleConditionKey[]
+    );
+
+    if (group.excludedTags.length > 0) visible.add("excludedTags");
+    if (group.sourceFolders.length > 0) visible.add("sourceFolders");
+    if (group.createdAfter || group.createdBefore) visible.add("createdAt");
+    if (group.priorityMin !== null || group.priorityMax !== null) visible.add("priority");
+
+    return Array.from(visible);
+  }
+
+  function showEmergentRuleGroupSwitcherMenu(event: MouseEvent): void {
+    const menu = new Menu();
+
+    emergentRuleGroupDrafts.forEach((group, index) => {
+      menu.addItem((item) => {
+        item
+          .setTitle(group.name || `规则组 ${index + 1}`)
+          .setIcon(group.id === emergentRuleGroupDraftActiveId ? "check" : "gallery-vertical")
+          .onClick(() => {
+            selectEmergentRuleGroupDraft(group.id);
+          });
+      });
+    });
+
+    menu.showAtMouseEvent(event);
+  }
+
+  function duplicateEmergentRuleGroupDraft(groupId: string): void {
+    const sourceGroup = emergentRuleGroupDrafts.find((group) => group.id === groupId);
+    if (!sourceGroup) return;
+
+    const copyGroup: EmergentRuleGroup = {
+      ...sourceGroup,
+      id: `rule-group-${Date.now()}`,
+      name: `${sourceGroup.name || "规则组"} 副本`,
+      requiredTags: [...sourceGroup.requiredTags],
+      excludedTags: [...sourceGroup.excludedTags],
+      sourceFolders: [...sourceGroup.sourceFolders],
+    };
+
+    emergentRuleGroupDrafts = [...emergentRuleGroupDrafts, copyGroup];
+    emergentRuleGroupDraftActiveId = copyGroup.id;
+    emergentRuleGroupVisibleConditions = {
+      ...emergentRuleGroupVisibleConditions,
+      [copyGroup.id]: [...getVisibleEmergentRuleConditions(groupId)],
+    };
+  }
+
+  function showEmergentRuleGroupMoreMenu(event: MouseEvent, groupId: string): void {
+    const menu = new Menu();
+
+    menu.addItem((item) => {
+      item
+        .setTitle("复制筛选组")
+        .setIcon("copy")
+        .onClick(() => duplicateEmergentRuleGroupDraft(groupId));
+    });
+
+    menu.addItem((item) => {
+      item
+        .setTitle("删除筛选组")
+        .setIcon("trash")
+        .onClick(() => removeEmergentRuleGroupDraftV2(groupId));
+    });
+
+    menu.showAtMouseEvent(event);
+  }
+
+  function setEmergentRuleConditionVisible(groupId: string, conditionKey: EmergentRuleConditionKey): void {
+    const nextVisible = new Set<EmergentRuleConditionKey>(
+      (emergentRuleGroupVisibleConditions[groupId] || []) as EmergentRuleConditionKey[]
+    );
+    nextVisible.add(conditionKey);
+    emergentRuleGroupVisibleConditions = {
+      ...emergentRuleGroupVisibleConditions,
+      [groupId]: Array.from(nextVisible),
+    };
+  }
+
+  function hideEmergentRuleCondition(groupId: string, conditionKey: EmergentRuleConditionKey): void {
+    const nextVisible = new Set<EmergentRuleConditionKey>(
+      (emergentRuleGroupVisibleConditions[groupId] || []) as EmergentRuleConditionKey[]
+    );
+    nextVisible.delete(conditionKey);
+    emergentRuleGroupVisibleConditions = {
+      ...emergentRuleGroupVisibleConditions,
+      [groupId]: Array.from(nextVisible),
+    };
+  }
+
+  function clearEmergentRuleCondition(groupId: string, conditionKey: EmergentRuleConditionKey): void {
+    emergentRuleGroupDrafts = emergentRuleGroupDrafts.map((group) => {
+      if (group.id !== groupId) return group;
+
+      if (conditionKey === "requiredTags") {
+        return { ...group, requiredTags: [] };
+      }
+
+      if (conditionKey === "excludedTags") {
+        return { ...group, excludedTags: [] };
+      }
+
+      if (conditionKey === "sourceFolders") {
+        return { ...group, sourceFolders: [] };
+      }
+
+      if (conditionKey === "createdAt") {
+        return { ...group, createdAfter: null, createdBefore: null };
+      }
+
+      return { ...group, priorityMin: null, priorityMax: null };
+    });
+
+    if (conditionKey === "requiredTags") {
+      return;
+    }
+
+    hideEmergentRuleCondition(groupId, conditionKey);
+  }
+
+  function showEmergentRuleConditionMenu(event: MouseEvent, groupId: string): void {
+    const visibleConditions = new Set(getVisibleEmergentRuleConditions(groupId));
+    const menu = new Menu();
+    let hasItem = false;
+
+    ([
+      { key: "excludedTags", title: "排除标签", icon: "minus-circle" },
+      { key: "sourceFolders", title: "来源文件夹", icon: "folder-open" },
+      { key: "createdAt", title: "创建时间", icon: "calendar" },
+      { key: "priority", title: "优先级", icon: "list-ordered" },
+    ] as const).forEach((condition) => {
+      if (visibleConditions.has(condition.key)) return;
+      hasItem = true;
+      menu.addItem((item) => {
+        item
+          .setTitle(condition.title)
+          .setIcon(condition.icon)
+          .onClick(() => setEmergentRuleConditionVisible(groupId, condition.key));
+      });
+    });
+
+    if (!hasItem) {
+      new Notice("可添加的条件已经全部显示", 2500);
+      return;
+    }
+
+    menu.showAtMouseEvent(event);
+  }
+
+  function showEmergentRuleConditionRowMenu(
+    event: MouseEvent,
+    groupId: string,
+    conditionKey: EmergentRuleConditionKey
+  ): void {
+    const menu = new Menu();
+
+    menu.addItem((item) => {
+      item
+        .setTitle("清空条件")
+        .setIcon("eraser")
+        .onClick(() => clearEmergentRuleCondition(groupId, conditionKey));
+    });
+
+    menu.showAtMouseEvent(event);
+  }
+
+  function openEmergentRuleTagSuggestModal(
+    groupId: string,
+    field: "requiredTags" | "excludedTags",
+    anchor?: HTMLElement | null
+  ): void {
+    const currentGroup = emergentRuleGroupDrafts.find((group) => group.id === groupId);
+    if (!currentGroup) return;
+
+    const existingTags = new Set(currentGroup[field] || []);
+    const items: BatchTagSuggestItem[] = collectAvailableVaultTags()
+      .filter((tag) => !existingTags.has(tag))
+      .map((tag) => ({
+        tag,
+        label: tag,
+        icon: "tag",
+      }));
+
+    if (items.length === 0) {
+      new Notice("没有可添加的标签", 2500);
+      return;
+    }
+
+    new BatchTagSuggestModal(
+      plugin.app,
+      items,
+      (item) => {
+        appendEmergentRuleGroupTagDraft(groupId, field, item.tag);
+      },
+      {
+        placeholder: field === "requiredTags" ? "搜索要包含的标签..." : "搜索要排除的标签...",
+        anchorRect: getAnchorRect(anchor),
+      }
+    ).open();
+  }
+
+  function updateEmergentRuleGroupDateDraft(
+    groupId: string,
+    field: "createdAfter" | "createdBefore",
+    value: string
+  ): void {
+    const nextValue = String(value || "").trim() || null;
+    emergentRuleGroupDrafts = emergentRuleGroupDrafts.map((group) =>
+      group.id === groupId ? { ...group, [field]: nextValue } : group
+    );
+  }
+
+  function updateEmergentRuleGroupPriorityDraft(
+    groupId: string,
+    field: "priorityMin" | "priorityMax",
+    value: string
+  ): void {
+    const trimmed = String(value || "").trim();
+    const parsed = trimmed === "" ? null : Number(trimmed);
+    emergentRuleGroupDrafts = emergentRuleGroupDrafts.map((group) =>
+      group.id === groupId
+        ? {
+            ...group,
+            [field]: Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed as number)) : null,
+          }
+        : group
+    );
+  }
+
+  async function addEmergentRuleGroupSourceFolderDraft(groupId: string): Promise<void> {
+    const picker = new VaultFolderSuggestModal(plugin.app, {
+      placeholder: "选择要观察的来源文件夹",
+    });
+    const selectedFolder = await picker.openAndSelect();
+    if (!selectedFolder) return;
+
+    const normalizedFolder = selectedFolder === "/" ? "/" : normalizePath(selectedFolder);
+    emergentRuleGroupDrafts = emergentRuleGroupDrafts.map((group) => {
+      if (group.id !== groupId) return group;
+      if (group.sourceFolders.includes(normalizedFolder)) return group;
+      return {
+        ...group,
+        sourceFolders: [...group.sourceFolders, normalizedFolder],
+      };
+    });
+  }
+
+  function removeEmergentRuleGroupSourceFolderDraft(groupId: string, folderPath: string): void {
+    emergentRuleGroupDrafts = emergentRuleGroupDrafts.map((group) =>
+      group.id === groupId
+        ? {
+            ...group,
+            sourceFolders: group.sourceFolders.filter((folder) => folder !== folderPath),
+          }
+        : group
+    );
+  }
+
+  function removeEmergentRuleGroupDraftV2(groupId: string): void {
+    if (emergentRuleGroupDrafts.length <= 1) {
+      new Notice("至少需要保留一个涌现筛选组", 3000);
+      return;
+    }
+
+    const nextDrafts = emergentRuleGroupDrafts.filter((group) => group.id !== groupId);
+    emergentRuleGroupDrafts = nextDrafts;
+    if (emergentRuleGroupDraftActiveId === groupId) {
+      emergentRuleGroupDraftActiveId = nextDrafts[0]?.id || DEFAULT_EMERGENT_RULE_GROUP.id;
+    }
+  }
+
+  async function applyEmergentRuleGroupDraftsV2(): Promise<void> {
+    const nextGroups = emergentRuleGroupDrafts.map((group, index) => ({
+      ...group,
+      name: String(group.name || "").trim() || `规则组 ${index + 1}`,
+      minCandidateCardCount: Math.max(1, Math.floor(group.minCandidateCardCount || 1)),
+      requiredTags: [...(group.requiredTags || [])],
+      excludedTags: [...(group.excludedTags || [])],
+      sourceFolders: [...(group.sourceFolders || [])],
+      priorityMin: group.priorityMin ?? null,
+      priorityMax:
+        group.priorityMax !== null && group.priorityMin !== null
+          ? Math.max(group.priorityMin, group.priorityMax)
+          : group.priorityMax ?? null,
+      createdAfter: group.createdAfter || null,
+      createdBefore: group.createdBefore || null,
+    }));
+    await saveEmergentRuleGroups(nextGroups, emergentRuleGroupDraftActiveId);
+    const activeGroup = nextGroups.find((group) => group.id === emergentRuleGroupDraftActiveId) || nextGroups[0];
+    new Notice(`已应用涌现筛选组：${activeGroup?.name || "默认规则组"}`, 3000);
+    closeEmergentRuleGroupPopover();
   }
 
   function promptPremiumFeature(featureId: string): void {
@@ -288,6 +931,7 @@
 // 从 Obsidian 持久化存储加载视图偏好
   onMount(() => {
     //  检测移动端
+    const unregisterEmergentRuleGroupPopoverBridge = registerEmergentRuleGroupPopoverBridge();
     isMobile = Platform.isMobile || document.body.classList.contains('is-mobile');
     
 // 订阅数据同步服务（在同步作用域中定义，以便清理函数可以访问）
@@ -423,6 +1067,21 @@
       'Weave:request-main-interface-menu',
       handleMainInterfaceMenuRequest as EventListener
     );
+
+    const handleDeckStudyToolbarAction = (e: Event) => {
+      const detail = (e as CustomEvent<{
+        action?: string;
+        anchor?: HTMLElement | null;
+      }>).detail;
+
+      if (detail?.action === 'open-emergent-rule-groups') {
+        showEmergentRuleGroupMenu(detail.anchor || null);
+      }
+    };
+    window.addEventListener(
+      'Weave:deck-study-toolbar-action',
+      handleDeckStudyToolbarAction as EventListener
+    );
     
 // 初始化时通知父组件当前筛选状态
     window.dispatchEvent(new CustomEvent('Weave:deck-filter-change', { detail: selectedFilter }));
@@ -441,6 +1100,11 @@
         'Weave:request-main-interface-menu',
         handleMainInterfaceMenuRequest as EventListener
       );
+      window.removeEventListener(
+        'Weave:deck-study-toolbar-action',
+        handleDeckStudyToolbarAction as EventListener
+      );
+      unregisterEmergentRuleGroupPopoverBridge();
     };
   });
 
@@ -455,6 +1119,82 @@
     apkgImportModalInstance = null;
     clipboardImportModalInstance?.close();
     clipboardImportModalInstance = null;
+  });
+
+  $effect(() => {
+    const handleEmergentChildPopupOpen = () => {
+      emergentChildPopupOpenCount += 1;
+    };
+
+    const handleEmergentChildPopupClose = (event: Event) => {
+      const detail = (event as CustomEvent<{ graceMs?: number } | undefined>).detail;
+      emergentChildPopupOpenCount = Math.max(0, emergentChildPopupOpenCount - 1);
+      markEmergentChildPopupClosed(detail?.graceMs ?? 180);
+    };
+
+    window.addEventListener(EMERGENT_CHILD_POPUP_OPEN_EVENT, handleEmergentChildPopupOpen as EventListener);
+    window.addEventListener(EMERGENT_CHILD_POPUP_CLOSE_EVENT, handleEmergentChildPopupClose as EventListener);
+
+    return () => {
+      window.removeEventListener(EMERGENT_CHILD_POPUP_OPEN_EVENT, handleEmergentChildPopupOpen as EventListener);
+      window.removeEventListener(EMERGENT_CHILD_POPUP_CLOSE_EVENT, handleEmergentChildPopupClose as EventListener);
+    };
+  });
+
+  $effect(() => {
+    if (!showEmergentRuleGroupPopover) return;
+
+    updateEmergentRuleGroupPopoverPosition();
+
+    const hasEmergentChildPopupOpen = () => {
+      if (typeof document === "undefined") return false;
+      return Boolean(
+        document.querySelector(".menu") ||
+        document.querySelector(".suggestion-container") ||
+        document.querySelector(".weave-vault-folder-suggest-popover") ||
+        document.querySelector(".weave-batch-tag-suggest-popover") ||
+        document.querySelector(".weave-ir-deck-suggest-popover")
+      );
+    };
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (hasEmergentChildPopupOpen() || isEmergentChildPopupInteractionProtected()) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.weave-emergent-rule-popover')) return;
+      if (target?.closest('.deck-study-toolbar-btn')) return;
+      if (target?.closest('.menu')) return;
+      if (target?.closest('.menu-item')) return;
+      if (target?.closest('.suggestion')) return;
+      if (target?.closest('.suggestion-container')) return;
+      if (target?.closest('.suggestion-item')) return;
+      closeEmergentRuleGroupPopover();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeEmergentRuleGroupPopover();
+      }
+    };
+
+    const handleViewportChange = () => {
+      updateEmergentRuleGroupPopoverPosition();
+    };
+
+    document.addEventListener('mousedown', handlePointerDown, true);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
+    window.visualViewport?.addEventListener('resize', handleViewportChange);
+    window.visualViewport?.addEventListener('scroll', handleViewportChange);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown, true);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+      window.visualViewport?.removeEventListener('resize', handleViewportChange);
+      window.visualViewport?.removeEventListener('scroll', handleViewportChange);
+    };
   });
   
 // 视图切换逻辑（使用 Obsidian Menu API）
@@ -487,6 +1227,15 @@
     });
     
     menu.showAtMouseEvent(evt);
+  }
+
+  function showEmergentRuleGroupMenu(anchor?: HTMLElement | null): void {
+    if (showEmergentRuleGroupPopover) {
+      closeEmergentRuleGroupPopover();
+      return;
+    }
+
+    openEmergentRuleGroupPopover(anchor);
   }
 
   // 显示更多操作菜单（使用 Obsidian 原生菜单）
@@ -630,12 +1379,14 @@
   // 加载增量阅读牌组树（用于看板视图）
   async function loadIRDeckTree() {
     try {
-      const { IRStorageService } = await import('../../services/incremental-reading/IRStorageService');
-      const irStorage = new IRStorageService(plugin.app);
-      await irStorage.initialize();
-      const irDecks = await irStorage.getAllDecks();
-      const irDeckList: import('../../types/ir-types').IRDeck[] = Object.values(irDecks);
-      const activeIRDecks = irDeckList.filter(d => !d.archivedAt);
+      const snapshot = await getIRWorkspaceSnapshotService().getDeckOverview({
+        dailyNewLimit: plugin.settings?.incrementalReading?.dailyNewLimit ?? 20,
+        dailyReviewLimit: plugin.settings?.incrementalReading?.dailyReviewLimit ?? 50,
+        learnAheadDays: plugin.settings?.incrementalReading?.learnAheadDays ?? 3,
+        dailyTimeBudgetMinutes: plugin.settings?.incrementalReading?.dailyTimeBudgetMinutes ?? 30,
+        loadRateDays: 3
+      });
+      const activeIRDecks = snapshot.decks.filter(d => !d.archivedAt);
       
       // 为每个IR牌组获取真实统计数据
       const stats: Record<string, DeckStats> = {};
@@ -643,28 +1394,18 @@
       
       for (const irDeck of activeIRDecks) {
         // 使用 IRStorageService.getDeckStats 获取真实统计
-        let irStats = { newCount: 0, learningCount: 0, reviewCount: 0, dueToday: 0, dueWithinDays: 0, totalCount: irDeck.blockIds?.length || 0, fileCount: 0, questionCount: 0, completedQuestionCount: 0 };
-        try {
-          irStats = await irStorage.getDeckStats(irDeck.id);
-        } catch (e) {
-          logger.debug('[DeckStudyPage] IR getDeckStats failed for', irDeck.name, e);
-        }
+        const deckKey = irDeck.id || irDeck.path || '';
+        const nodeDeckId = deckKey || irDeck.name;
+        const deckStats = toDeckStats(snapshot.deckStats[deckKey]);
+        
         
         // 映射IR统计到DeckStats格式，与IRDeckCard显示一致:
         // newCards → 未读(dueToday), learningCards → 待读(dueWithinDays-dueToday), reviewCards → 提问(questionCount)
-        const deckStats: DeckStats = {
-          totalCards: irStats.totalCount,
-          newCards: irStats.dueToday,
-          learningCards: Math.max(0, (irStats.dueWithinDays ?? irStats.dueToday) - irStats.dueToday),
-          reviewCards: irStats.questionCount ?? 0,
-          todayNew: 0, todayReview: 0, todayTime: 0,
-          totalReviews: 0, totalTime: 0,
-          memoryRate: 0, averageEase: 0, forecastDays: {}
-        };
+        
         
         const node: DeckTreeNode = {
           deck: {
-            id: irDeck.id,
+            id: nodeDeckId,
             name: irDeck.name,
             description: irDeck.description || '',
             category: '',
@@ -684,7 +1425,7 @@
         };
         
         treeNodes.push(node);
-        stats[irDeck.id] = deckStats;
+        stats[nodeDeckId] = deckStats;
       }
       
       irDeckTree = treeNodes;
@@ -946,7 +1687,9 @@
     }
 
     for (const card of cards) {
-      const { deckIds } = getCardDeckIds(card, deckList, { fallbackToReferences: false });
+      const deckIds = plugin.settings.memoryDeckOrganization?.enabled === false
+        ? getCardDeckIds(card, deckList, { fallbackToReferences: false }).deckIds
+        : getEmergentDeckService(plugin).getResolvedDeckIdsForCard(card, deckList, emergentRuntime || undefined);
       if (!deckIds || deckIds.length === 0) {
         continue;
       }
@@ -960,6 +1703,114 @@
     }
 
     return cardsByDeck;
+  }
+
+  function getEmergentRuleCardTags(card: Card): string[] {
+    const contentTags = extractAllTags(card.content || "");
+    const legacyTags = Array.isArray(card.tags) ? card.tags : [];
+    return [...new Set([...contentTags, ...legacyTags].map((tag) => String(tag || "").trim()).filter(Boolean))];
+  }
+
+  function getEmergentRuleCardSourcePath(card: Card): string {
+    const sourceInfo = parseSourceInfo(card.content || "");
+    const fromYaml =
+      typeof sourceInfo?.sourceFile === "string"
+        ? sourceInfo.sourceFile
+        : typeof (sourceInfo as { source?: string } | null)?.source === "string"
+          ? (sourceInfo as { source?: string }).source || ""
+          : "";
+    return normalizePath(String(card.sourceFile || fromYaml || "").trim());
+  }
+
+  function getEmergentRuleCardFolderPath(card: Card): string {
+    const sourcePath = getEmergentRuleCardSourcePath(card);
+    if (!sourcePath) {
+      return "";
+    }
+
+    const parts = sourcePath.split("/");
+    parts.pop();
+    return parts.length > 0 ? parts.join("/") : "/";
+  }
+
+  function matchesEmergentRuleGroup(card: Card, group: EmergentRuleGroup): boolean {
+    const tags = getEmergentRuleCardTags(card);
+    const tagSet = new Set(tags.map((tag) => tag.toLowerCase()));
+
+    if (group.requiredTags.length > 0) {
+      const hasRequiredTag = group.requiredTags.some((tag) => tagSet.has(String(tag).toLowerCase()));
+      if (!hasRequiredTag) {
+        return false;
+      }
+    }
+
+    if (group.excludedTags.length > 0) {
+      const hasExcludedTag = group.excludedTags.some((tag) => tagSet.has(String(tag).toLowerCase()));
+      if (hasExcludedTag) {
+        return false;
+      }
+    }
+
+    if (group.sourceFolders.length > 0) {
+      const folderPath = getEmergentRuleCardFolderPath(card);
+      const matchesFolder = group.sourceFolders.some((folder) => {
+        const normalizedFolder = folder === "/" ? "/" : normalizePath(folder);
+        if (!normalizedFolder) return false;
+        if (normalizedFolder === "/") return !!folderPath;
+        return folderPath === normalizedFolder || folderPath.startsWith(`${normalizedFolder}/`);
+      });
+      if (!matchesFolder) {
+        return false;
+      }
+    }
+
+    const priority = typeof card.priority === "number" ? card.priority : null;
+    if (group.priorityMin !== null && (priority === null || priority < group.priorityMin)) {
+      return false;
+    }
+    if (group.priorityMax !== null && (priority === null || priority > group.priorityMax)) {
+      return false;
+    }
+
+    const createdAt = new Date(card.created).getTime();
+    if (group.createdAfter) {
+      const afterTime = new Date(`${group.createdAfter}T00:00:00`).getTime();
+      if (Number.isFinite(afterTime) && (!Number.isFinite(createdAt) || createdAt < afterTime)) {
+        return false;
+      }
+    }
+    if (group.createdBefore) {
+      const beforeTime = new Date(`${group.createdBefore}T23:59:59.999`).getTime();
+      if (Number.isFinite(beforeTime) && (!Number.isFinite(createdAt) || createdAt > beforeTime)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  async function refreshEmergentDeckRuntime(cards?: Card[]): Promise<MemoryDeckOrganizationRuntime | null> {
+    const emergentDeckService = getEmergentDeckService(plugin);
+    if (!emergentDeckService.isEnabled()) {
+      emergentRuntime = null;
+      emergentCandidates = [];
+      emergentDeckViews = [];
+      emergentDeckStats = {};
+      formalDeckBindingSummary = {};
+      return null;
+    }
+
+    const allCards = Array.isArray(cards) ? cards : await dataStorage.getAllCards();
+    const activeRuleGroup = getActiveEmergentRuleGroupState();
+    const filteredCards = allCards.filter((card) => matchesEmergentRuleGroup(card, activeRuleGroup));
+    const runtime = await emergentDeckService.buildRuntimeWithBindings(filteredCards, decks, {
+      minCandidateCardCount: activeRuleGroup.minCandidateCardCount,
+    });
+    emergentRuntime = runtime;
+    emergentCandidates = runtime.candidates.filter((candidate) => candidate.status !== 'ignored');
+    emergentDeckViews = runtime.emergentDeckViews;
+    formalDeckBindingSummary = runtime.formalDeckSummary;
+    return runtime;
   }
 
   function buildTodayLearnedNewCardsMap(allSessions: StudySession[]): Map<string, number> {
@@ -1013,6 +1864,7 @@
     const newCardsPerDay = plugin.settings.newCardsPerDay || 20;
     const reviewsPerDay = plugin.settings.reviewsPerDay || 200;
     const allCardsForStats = await dataStorage.getAllCards();
+    const runtime = await refreshEmergentDeckRuntime(allCardsForStats);
     const deckCardsMap = buildDeckCardsMap(allCardsForStats, decks);
     const learnedNewCardsTodayMap = buildTodayLearnedNewCardsMap(allStudySessions);
     
@@ -1075,6 +1927,35 @@
       }
     }
 
+    const nextEmergentDeckStats: Record<string, DeckStats> = {};
+    if (runtime?.emergentDeckViews?.length) {
+      for (const view of runtime.emergentDeckViews) {
+        try {
+          const deckCards = allCardsForStats.filter((card) => view.cardUUIDs.includes(card.uuid));
+          const learnedNewCardsToday = learnedNewCardsTodayMap.get(view.id) || 0;
+          const { stats: emergentStats } = await unifiedProvider.getStudyDataFromDeckCards(
+            view.id,
+            deckCards,
+            {
+              newCardsPerDay,
+              reviewsPerDay,
+              filterSiblings,
+              onlyDue: true,
+              learnedNewCardsToday,
+            }
+          );
+          nextEmergentDeckStats[view.id] = {
+            ...emergentStats,
+            totalCards: view.cardUUIDs.length,
+          };
+        } catch (error) {
+          logger.warn(`[DeckStudyPage] 计算涌现牌组统计失败: ${view.id}`, error);
+        }
+      }
+    }
+
+    emergentDeckStats = nextEmergentDeckStats;
+
     deckStats = stats;
     
     // 防抖持久化统计数据到 decks.json，确保云同步后其他设备能看到最新统计
@@ -1086,6 +1967,53 @@
       deckCount: decks.length,
       statsKeys: Object.keys(stats)
     });
+  }
+
+  async function handlePromoteEmergentDeck(candidate: EmergentDeckCandidate, event: MouseEvent): Promise<void> {
+    const emergentDeckService = getEmergentDeckService(plugin);
+    const menu = new Menu();
+
+    menu.addItem((item) => {
+      item
+        .setTitle(`新建正式牌组：${candidate.name}`)
+        .setIcon('plus-circle')
+        .onClick(async () => {
+          try {
+            const newDeck = await plugin.deckHierarchy.createDeck(candidate.name);
+            await emergentDeckService.promoteCandidateToDeck(candidate, newDeck.id);
+            await refreshData(true);
+            plugin.app.workspace.trigger('Weave:data-changed');
+            new Notice(`已将“${candidate.name}”转为正式牌组`);
+          } catch (error) {
+            logger.error('[DeckStudyPage] 创建正式牌组失败:', error);
+            new Notice(`创建正式牌组失败: ${error instanceof Error ? error.message : '未知错误'}`);
+          }
+        });
+    });
+
+    if (decks.length > 0) {
+      menu.addSeparator();
+      for (const deck of decks) {
+        menu.addItem((item) => {
+          item
+            .setTitle(`归入正式牌组：${deck.name}`)
+            .setIcon('folder')
+            .onClick(async () => {
+              try {
+                await emergentDeckService.promoteCandidateToDeck(candidate, deck.id);
+                await refreshData(true);
+                plugin.app.workspace.trigger('Weave:data-changed');
+                new Notice(`已将“${candidate.name}”绑定到正式牌组“${deck.name}”`);
+              } catch (error) {
+                logger.error('[DeckStudyPage] 绑定正式牌组失败:', error);
+                new Notice(`绑定正式牌组失败: ${error instanceof Error ? error.message : '未知错误'}`);
+              }
+            });
+        });
+      }
+    }
+
+    menu.showAtMouseEvent(event);
   }
 
   // 防抖持久化 deckStats（5秒延迟，合并多次快速刷新）
@@ -1551,7 +2479,7 @@
   // 防止重复点击的锁
   let isStartingStudy = false;
   
-  async function startStudy(deckId: string) {
+  async function startStudy(deckId: string, deckNameOverride?: string) {
     //  防止重复点击
     if (isStartingStudy) {
       logger.debug('[DeckStudyPage] 正在启动学习，忽略重复点击');
@@ -1563,6 +2491,7 @@
       let cardsToStudy: Card[] = [];
       
       const deck = decks.find(d => d.id === deckId);
+      const emergentDeckView = emergentDeckViews.find((candidate) => candidate.id === deckId);
       const allDeckCardsRaw = await dataStorage.getDeckCards(deckId);
       logger.debug(`[DeckStudyPage] 按卡片 YAML 获取牌组卡片:`, {
         deckId: deckId.slice(0, 8),
@@ -1638,13 +2567,13 @@
         
         await plugin.openStudySession({
           deckId,
-          deckName: deck?.name,
+          deckName: deck?.name || deckNameOverride || emergentDeckView?.name,
           cardIds
         });
       } else {
         logger.info(`[DeckStudyPage] 无可学卡片，显示提示模态窗`);
         //  智能判断：是完成学习、配额用完、暂无到期，还是空牌组
-        const stats = deckStats[deckId];
+        const stats = deckStats[deckId] || emergentDeckStats[deckId];
         
         // 用物理卡片总数判断是否真的是空牌组。
         const physicalTotalCards = allDeckCards.length;  // 物理总卡片数
@@ -1662,7 +2591,7 @@
           reviewCards
         });
         
-        noCardsDeckName = deck?.name || t('deckStudyPage.fallback.deck');
+        noCardsDeckName = deck?.name || deckNameOverride || emergentDeckView?.name || t('deckStudyPage.fallback.deck');
         noCardsReason = resolveDeckNoCardsReason({
           physicalTotalCards,
           isComplete,
@@ -2065,16 +2994,198 @@
     }
   }
 
-  // 编辑牌组（使用 Obsidian 原生 Modal API）
+  function isVirtualWDeckDeck(deck: any): boolean {
+    if (!deck) return false;
+    return deck?.metadata?.fileType === 'wdeck' || !!plugin.wdeckService?.isWDeckDeckId?.(deck.id);
+  }
+
+  function getWDeckFilePaths(deck: Deck | undefined): string[] {
+    if (!deck) return [];
+    const rawPaths = Array.isArray((deck as any)?.metadata?.filePaths)
+      ? (deck as any).metadata.filePaths
+      : [];
+
+    return Array.from(
+      new Set(
+        rawPaths
+          .map((path: unknown) => normalizePath(String(path || '').trim()))
+          .filter(Boolean)
+      )
+    );
+  }
+
+  function getWDeckFileLabel(filePath: string): string {
+    const normalizedPath = normalizePath(String(filePath || '').trim());
+    return normalizedPath.split('/').pop() || normalizedPath || '.wdeck';
+  }
+
+  async function openWDeckSegmentFile(filePath: string): Promise<void> {
+    const normalizedPath = normalizePath(String(filePath || '').trim());
+    if (!normalizedPath) {
+      new Notice('未找到可打开的 `.wdeck` 文件路径。');
+      return;
+    }
+
+    const abstractFile = plugin.app.vault.getAbstractFileByPath(normalizedPath);
+    if (!(abstractFile instanceof TFile)) {
+      new Notice(`对应的 .wdeck 文件不存在：${normalizedPath}`);
+      return;
+    }
+
+    await openFileWithExistingLeaf(plugin.app, abstractFile, {
+      openInNewTab: true,
+      focus: true
+    });
+  }
+
+  function renderWDeckManagementSection(menu: Menu, deck: Deck): void {
+    const filePaths = getWDeckFilePaths(deck);
+
+    menu.addItem((item) =>
+      item
+        .setTitle(filePaths.length > 1 ? '编辑首个牌组文件' : '编辑牌组文件')
+        .setIcon('file-json')
+        .onClick(async () => {
+          if (filePaths.length === 0) {
+            new Notice('当前 `.wdeck` 牌组缺少分卷文件路径信息。');
+            return;
+          }
+          await openWDeckSegmentFile(filePaths[0]);
+        })
+    );
+
+    if (filePaths.length > 1) {
+      menu.addItem((item) => {
+        item.setTitle(`编辑指定牌组文件 (${filePaths.length})`).setIcon('files');
+        const submenu = (item as any).setSubmenu();
+
+        filePaths.forEach((filePath, index) => {
+          submenu.addItem((subItem: any) => {
+            subItem
+              .setTitle(`${String(index + 1).padStart(2, '0')} · ${getWDeckFileLabel(filePath)}`)
+              .setIcon('file')
+              .onClick(async () => {
+                await openWDeckSegmentFile(filePath);
+              });
+          });
+        });
+      });
+    }
+
+    menu.addItem((item) =>
+      item
+        .setTitle('从牌组文件重新进入学习')
+        .setIcon('refresh-cw')
+        .onClick(async () => {
+          if (filePaths.length === 0) {
+            new Notice('当前 `.wdeck` 牌组缺少分卷文件路径信息。');
+            return;
+          }
+          await plugin.openWDeckStudy(filePaths[0]);
+        })
+    );
+
+    menu.addSeparator();
+
+    menu.addItem((item) =>
+      item
+        .setTitle('删除牌组文件')
+        .setIcon('trash-2')
+        .onClick(async () => {
+          await deleteWDeckDeck(deck.id);
+        })
+    );
+
+    menu.addItem((item) =>
+      item
+        .setTitle('解散牌组文件')
+        .setIcon('unlink')
+        .onClick(async () => {
+          await dissolveWDeckDeck(deck.id);
+        })
+    );
+  }
+
+  async function editWDeckDeck(deckId: string): Promise<void> {
+    const deck = decks.find(d => d.id === deckId);
+    if (!deck) return;
+
+    const filePaths = getWDeckFilePaths(deck);
+    if (filePaths.length === 0) {
+      new Notice('当前 `.wdeck` 牌组缺少可编辑的牌组文件。');
+      return;
+    }
+
+    await openWDeckSegmentFile(filePaths[0]);
+  }
+
+  async function deleteWDeckDeck(deckId: string): Promise<void> {
+    const deck = decks.find(d => d.id === deckId);
+    if (!deck) return;
+
+    const { showDangerConfirm } = await import('../../utils/obsidian-confirm');
+    const confirmed = await showDangerConfirm(
+      plugin.app,
+      `将删除牌组文件“${deck.name}”及其全部分卷，文件内卡片与复习数据会一并删除。`,
+      '确认删除牌组文件'
+    );
+    if (!confirmed) return;
+
+    try {
+      await plugin.wdeckService?.deleteDeckByDeckId(deckId);
+      decks = await dataStorage.getDecks();
+      await refreshData();
+      plugin.app.workspace.trigger('Weave:data-changed');
+      new Notice(`已删除牌组文件“${deck.name}”。`);
+    } catch (error) {
+      logger.error('[DeckStudyPage] 删除 .wdeck 牌组文件失败:', error);
+      new Notice(`删除牌组文件失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  }
+
+  async function dissolveWDeckDeck(deckId: string): Promise<void> {
+    const deck = decks.find(d => d.id === deckId);
+    if (!deck) return;
+
+    const { showDangerConfirm } = await import('../../utils/obsidian-confirm');
+    const confirmed = await showDangerConfirm(
+      plugin.app,
+      `将解散牌组文件“${deck.name}”。其中卡片会整体迁入“未归组卡片”牌组文件，并保留复习数据。`,
+      '确认解散牌组文件'
+    );
+    if (!confirmed) return;
+
+    try {
+      const result = await plugin.wdeckService?.dissolveDeckByDeckId(deckId);
+      decks = await dataStorage.getDecks();
+      await refreshData();
+      plugin.app.workspace.trigger('Weave:data-changed');
+      new Notice(`已解散牌组文件“${deck.name}”，共迁移 ${result?.movedCards || 0} 张卡片到“${result?.targetDeckName || '未归组卡片'}”。`);
+    } catch (error) {
+      logger.error('[DeckStudyPage] 解散 .wdeck 牌组文件失败:', error);
+      new Notice(`解散牌组文件失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  }
+
   async function editDeck(deckId: string) {
     const deck = decks.find(d => d.id === deckId);
     if (!deck) return;
+    if (isVirtualWDeckDeck(deck)) {
+      await editWDeckDeck(deckId);
+      return;
+    }
 
     showEditDeckModalWithObsidianAPI(deck);
   }
 
   async function deleteDeck(deckId: string) {
     try {
+      const targetDeck = decks.find(d => d.id === deckId);
+      if (isVirtualWDeckDeck(targetDeck)) {
+        await deleteWDeckDeck(deckId);
+        return;
+      }
+
       //  等待 deckHierarchy 服务就绪
       const deckHierarchy = await waitForService(
         () => plugin?.deckHierarchy,
@@ -2515,6 +3626,12 @@
 // 解散牌组
   async function dissolveDeck(deckId: string) {
     try {
+      const targetDeck = decks.find(d => d.id === deckId);
+      if (isVirtualWDeckDeck(targetDeck)) {
+        await dissolveWDeckDeck(deckId);
+        return;
+      }
+
       // 检查引用式牌组服务是否可用
       if (!plugin.referenceDeckService) {
         new Notice(t('deckStudyPage.dissolve.serviceNotInit'));
@@ -2663,6 +3780,8 @@
   // 使用 Obsidian 原生 Menu
   function showDeckMenu(event: MouseEvent, deckId: string) {
     const menu = new Menu();
+    const deck = decks.find(d => d.id === deckId);
+    const useWDeckManagementSection = isVirtualWDeckDeck(deck);
     buildMemoryDeckMenu(
       menu,
       {
@@ -2688,7 +3807,10 @@
           isPremium,
           showPremiumPreview: showPremiumFeaturesPreview
         }),
-        lockDeckAnalytics: !premiumGuard.canUseFeature(PREMIUM_FEATURES.DECK_ANALYTICS)
+        lockDeckAnalytics: !premiumGuard.canUseFeature(PREMIUM_FEATURES.DECK_ANALYTICS),
+        renderManagementSection: useWDeckManagementSection && deck
+          ? (targetMenu) => renderWDeckManagementSection(targetMenu, deck)
+          : undefined
       }
     );
 
@@ -2869,15 +3991,6 @@
       }
     };
 
-    // 打开设置（来自 SidebarNavHeader）
-    const handleOpenSettings = () => {
-      if (!isSettingsEntryEnabled()) {
-        return;
-      }
-
-      safeOpenSettings(plugin.app, 'weave');
-    };
-
     document.addEventListener('create-deck', handleCreateDeck);
     document.addEventListener('create-question-bank', handleCreateDeck);
     document.addEventListener('create-ir-deck', handleCreateDeck);
@@ -2887,8 +4000,6 @@
     document.addEventListener('clipboard-import', handleClipboardImport);
     document.addEventListener('json-export', handleJSONExport);
     document.addEventListener('Weave:restore-guide-deck', handleRestoreGuideDeck);
-    document.addEventListener('Weave:open-settings', handleOpenSettings);
-
     return () => {
       document.removeEventListener('create-deck', handleCreateDeck);
       document.removeEventListener('create-question-bank', handleCreateDeck);
@@ -2899,7 +4010,6 @@
       document.removeEventListener('clipboard-import', handleClipboardImport);
       document.removeEventListener('json-export', handleJSONExport);
       document.removeEventListener('Weave:restore-guide-deck', handleRestoreGuideDeck);
-      document.removeEventListener('Weave:open-settings', handleOpenSettings);
     };
   });
 
@@ -3089,6 +4199,10 @@
         {deckTree}
         {deckStats}
         {studySessions}
+        {emergentCandidates}
+        {emergentDeckViews}
+        {emergentDeckStats}
+        {formalDeckBindingSummary}
         {plugin}
         {selectedFilter}
         onFilterSelect={handleFilterSelect}
@@ -3102,12 +4216,346 @@
         onOpenKnowledgeGraph={openKnowledgeGraph}
         onDissolveDeck={dissolveDeck}
         onRefreshData={refreshData}
+        onPromoteEmergentDeck={handlePromoteEmergentDeck}
+        onStartEmergentStudy={startStudy}
       />
     {/if}
   </div>
   {/if}
 </div>
 
+{#if showEmergentRuleGroupPopover}
+  {@const currentRuleGroupDraft = getCurrentEmergentRuleGroupDraft()}
+  {@const visibleConditions = getVisibleEmergentRuleConditions(currentRuleGroupDraft.id)}
+  <div
+    class="weave-emergent-rule-popover"
+    use:portalToBody
+    style={emergentRuleGroupPopoverStyle}
+  >
+    <div class="weave-emergent-rule-popover__header">
+      <div class="weave-emergent-rule-popover__header-main">
+        <div class="weave-emergent-rule-popover__title">涌现筛选组</div>
+      </div>
+
+      <div class="weave-emergent-rule-popover__header-actions">
+        <button
+          class="weave-emergent-rule-popover__icon-btn"
+          type="button"
+          onclick={createEmergentRuleGroupDraft}
+          aria-label="新增筛选组"
+          title="新增筛选组"
+        >
+          <ObsidianIcon name="plus" size={14} />
+        </button>
+        <button
+          class="weave-emergent-rule-popover__icon-btn"
+          type="button"
+          onclick={(event) => showEmergentRuleGroupMoreMenu(event, currentRuleGroupDraft.id)}
+          aria-label="更多"
+          title="更多"
+        >
+          <ObsidianIcon name="more-horizontal" size={14} />
+        </button>
+      </div>
+    </div>
+
+    <div class="weave-emergent-rule-popover__body">
+      <section class="weave-emergent-rule-popover__workspace">
+        <div class="weave-emergent-rule-popover__group-row">
+          <button
+            type="button"
+            class="weave-emergent-rule-popover__switcher"
+            onclick={(event) => showEmergentRuleGroupSwitcherMenu(event)}
+          >
+            <span>{currentRuleGroupDraft.name || "默认观察"}</span>
+            <ObsidianIcon name="chevron-down" size={14} />
+          </button>
+          <label class="weave-emergent-rule-popover__field is-inline">
+            <span>筛选组名称</span>
+            <input
+              type="text"
+              value={currentRuleGroupDraft.name}
+              oninput={(event) => updateEmergentRuleGroupDraftName(currentRuleGroupDraft.id, (event.currentTarget as HTMLInputElement).value)}
+              placeholder="默认观察"
+            />
+          </label>
+        </div>
+
+        <section class="weave-emergent-rule-popover__block">
+          <div class="weave-emergent-rule-popover__block-head">
+            <div class="weave-emergent-rule-popover__block-meta">
+              <div class="weave-emergent-rule-popover__block-label">显示门槛</div>
+            </div>
+          </div>
+
+          <div class="weave-emergent-rule-popover__threshold-row">
+            <button type="button" class="weave-emergent-rule-popover__token is-static">
+              标签簇卡片数
+            </button>
+            <button type="button" class="weave-emergent-rule-popover__token is-static">
+              至少
+            </button>
+            <input
+              class="weave-emergent-rule-popover__inline-input"
+              type="number"
+              min="1"
+              value={currentRuleGroupDraft.minCandidateCardCount}
+              oninput={(event) => updateEmergentRuleGroupDraftThreshold(currentRuleGroupDraft.id, (event.currentTarget as HTMLInputElement).value)}
+            />
+            <span class="weave-emergent-rule-popover__inline-suffix">张</span>
+          </div>
+        </section>
+
+        <section class="weave-emergent-rule-popover__block">
+          <div class="weave-emergent-rule-popover__block-head">
+            <div class="weave-emergent-rule-popover__block-meta">
+              <div class="weave-emergent-rule-popover__block-label">候选池过滤</div>
+            </div>
+          </div>
+
+          <div class="weave-emergent-rule-popover__condition-list">
+            <div class="weave-emergent-rule-popover__condition-row">
+              <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                <ObsidianIcon name="grip-vertical" size={14} />
+              </button>
+              <button type="button" class="weave-emergent-rule-popover__logic-pill">当</button>
+              <button type="button" class="weave-emergent-rule-popover__token is-static">标签</button>
+              <button type="button" class="weave-emergent-rule-popover__token is-static">包含任一</button>
+              <div
+                class="weave-emergent-rule-popover__value-surface is-clickable"
+                role="button"
+                tabindex="0"
+                onclick={(event) => openEmergentRuleTagSuggestModal(currentRuleGroupDraft.id, "requiredTags", event.currentTarget as HTMLElement)}
+                onkeydown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openEmergentRuleTagSuggestModal(currentRuleGroupDraft.id, "requiredTags", event.currentTarget as HTMLElement);
+                  }
+                }}
+              >
+                {#if currentRuleGroupDraft.requiredTags.length > 0}
+                  {#each currentRuleGroupDraft.requiredTags as tag (tag)}
+                    <span class="weave-emergent-rule-popover__tag-chip">
+                      <span>{tag}</span>
+                      <button
+                        type="button"
+                        class="weave-emergent-rule-popover__tag-chip-remove"
+                        onclick={(event) => {
+                          event.stopPropagation();
+                          removeEmergentRuleGroupTagDraft(currentRuleGroupDraft.id, "requiredTags", tag);
+                        }}
+                        aria-label={`移除标签 ${tag}`}
+                      >
+                        <ObsidianIcon name="x" size={12} />
+                      </button>
+                    </span>
+                  {/each}
+                {:else}
+                  <span class="weave-emergent-rule-popover__placeholder-text">选择标签</span>
+                {/if}
+              </div>
+              <button
+                type="button"
+                class="weave-emergent-rule-popover__row-menu"
+                aria-label="更多"
+                onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "requiredTags")}
+              >
+                <ObsidianIcon name="more-horizontal" size={14} />
+              </button>
+            </div>
+
+            {#if visibleConditions.includes("createdAt")}
+              <div class="weave-emergent-rule-popover__condition-row">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                  <ObsidianIcon name="grip-vertical" size={14} />
+                </button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">创建时间</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">在范围内</button>
+                <div class="weave-emergent-rule-popover__value-surface is-split">
+                  <input
+                    type="date"
+                    value={currentRuleGroupDraft.createdAfter || ""}
+                    oninput={(event) => updateEmergentRuleGroupDateDraft(currentRuleGroupDraft.id, "createdAfter", (event.currentTarget as HTMLInputElement).value)}
+                  />
+                  <span class="weave-emergent-rule-popover__split-divider"></span>
+                  <input
+                    type="date"
+                    value={currentRuleGroupDraft.createdBefore || ""}
+                    oninput={(event) => updateEmergentRuleGroupDateDraft(currentRuleGroupDraft.id, "createdBefore", (event.currentTarget as HTMLInputElement).value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  class="weave-emergent-rule-popover__row-menu"
+                  aria-label="更多"
+                  onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "createdAt")}
+                >
+                  <ObsidianIcon name="more-horizontal" size={14} />
+                </button>
+              </div>
+            {/if}
+
+            {#if visibleConditions.includes("sourceFolders")}
+              <div class="weave-emergent-rule-popover__condition-row">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                  <ObsidianIcon name="grip-vertical" size={14} />
+                </button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">来源文件夹</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">位于</button>
+                <div
+                  class="weave-emergent-rule-popover__value-surface is-clickable"
+                  role="button"
+                  tabindex="0"
+                  onclick={() => addEmergentRuleGroupSourceFolderDraft(currentRuleGroupDraft.id)}
+                  onkeydown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      addEmergentRuleGroupSourceFolderDraft(currentRuleGroupDraft.id);
+                    }
+                  }}
+                >
+                  {#if currentRuleGroupDraft.sourceFolders.length > 0}
+                    {#each currentRuleGroupDraft.sourceFolders as folderPath (folderPath)}
+                      <span class="weave-emergent-rule-popover__folder-chip">
+                        <span>{folderPath}</span>
+                        <button
+                          type="button"
+                          class="weave-emergent-rule-popover__folder-chip-remove"
+                          onclick={(event) => {
+                            event.stopPropagation();
+                            removeEmergentRuleGroupSourceFolderDraft(currentRuleGroupDraft.id, folderPath);
+                          }}
+                          aria-label={`移除文件夹 ${folderPath}`}
+                        >
+                          <ObsidianIcon name="x" size={12} />
+                        </button>
+                      </span>
+                    {/each}
+                  {:else}
+                    <span class="weave-emergent-rule-popover__placeholder-text">选择文件夹</span>
+                  {/if}
+                </div>
+                <button
+                  type="button"
+                  class="weave-emergent-rule-popover__row-menu"
+                  aria-label="更多"
+                  onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "sourceFolders")}
+                >
+                  <ObsidianIcon name="more-horizontal" size={14} />
+                </button>
+              </div>
+            {/if}
+
+            {#if visibleConditions.includes("priority")}
+              <div class="weave-emergent-rule-popover__condition-row">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                  <ObsidianIcon name="grip-vertical" size={14} />
+                </button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">优先级</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">介于</button>
+                <div class="weave-emergent-rule-popover__value-surface is-split">
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="最低"
+                    value={currentRuleGroupDraft.priorityMin ?? ""}
+                    oninput={(event) => updateEmergentRuleGroupPriorityDraft(currentRuleGroupDraft.id, "priorityMin", (event.currentTarget as HTMLInputElement).value)}
+                  />
+                  <span class="weave-emergent-rule-popover__split-divider"></span>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="最高"
+                    value={currentRuleGroupDraft.priorityMax ?? ""}
+                    oninput={(event) => updateEmergentRuleGroupPriorityDraft(currentRuleGroupDraft.id, "priorityMax", (event.currentTarget as HTMLInputElement).value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  class="weave-emergent-rule-popover__row-menu"
+                  aria-label="更多"
+                  onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "priority")}
+                >
+                  <ObsidianIcon name="more-horizontal" size={14} />
+                </button>
+              </div>
+            {/if}
+
+            {#if visibleConditions.includes("excludedTags")}
+              <div class="weave-emergent-rule-popover__condition-row">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                  <ObsidianIcon name="grip-vertical" size={14} />
+                </button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">标签</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">不包含</button>
+                <div
+                  class="weave-emergent-rule-popover__value-surface is-clickable"
+                  role="button"
+                  tabindex="0"
+                  onclick={(event) => openEmergentRuleTagSuggestModal(currentRuleGroupDraft.id, "excludedTags", event.currentTarget as HTMLElement)}
+                  onkeydown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openEmergentRuleTagSuggestModal(currentRuleGroupDraft.id, "excludedTags", event.currentTarget as HTMLElement);
+                    }
+                  }}
+                >
+                  {#if currentRuleGroupDraft.excludedTags.length > 0}
+                    {#each currentRuleGroupDraft.excludedTags as tag (tag)}
+                      <span class="weave-emergent-rule-popover__tag-chip is-muted">
+                        <span>{tag}</span>
+                        <button
+                          type="button"
+                          class="weave-emergent-rule-popover__tag-chip-remove"
+                          onclick={(event) => {
+                            event.stopPropagation();
+                            removeEmergentRuleGroupTagDraft(currentRuleGroupDraft.id, "excludedTags", tag);
+                          }}
+                          aria-label={`移除标签 ${tag}`}
+                        >
+                          <ObsidianIcon name="x" size={12} />
+                        </button>
+                      </span>
+                    {/each}
+                  {:else}
+                    <span class="weave-emergent-rule-popover__placeholder-text">选择排除标签</span>
+                  {/if}
+                </div>
+                <button
+                  type="button"
+                  class="weave-emergent-rule-popover__row-menu"
+                  aria-label="更多"
+                  onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "excludedTags")}
+                >
+                  <ObsidianIcon name="more-horizontal" size={14} />
+                </button>
+              </div>
+            {/if}
+          </div>
+          <div class="weave-emergent-rule-popover__block-actions is-condition-footer">
+            <button
+              type="button"
+              class="weave-emergent-rule-popover__text-btn is-inline-action"
+              onclick={(event) => showEmergentRuleConditionMenu(event, currentRuleGroupDraft.id)}
+            >
+              <ObsidianIcon name="plus" size={14} />
+              <span>添加条件</span>
+            </button>
+          </div>
+        </section>
+      </section>
+    </div>
+
+    <div class="weave-emergent-rule-popover__footer">
+      <button type="button" class="weave-emergent-rule-popover__text-btn" onclick={closeEmergentRuleGroupPopover}>取消</button>
+      <button type="button" class="weave-emergent-rule-popover__primary-btn" onclick={applyEmergentRuleGroupDraftsV2}>保存并应用</button>
+    </div>
+  </div>
+{/if}
 
 <!-- CSV导入向导模态窗 -->
 {#if showCreateQuestionBankModal}
@@ -3239,6 +4687,555 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
     border-collapse: separate; /* 确保table布局正常 */
     border-spacing: 0; /* 消除cell间距 */
+  }
+
+  .weave-emergent-rule-popover {
+    position: fixed;
+    z-index: calc(var(--z-index-overlay, 300) + 20);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+    border-radius: 20px;
+    border: 1px solid var(--background-modifier-border);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 24%),
+      color-mix(in srgb, var(--background-primary) 96%, transparent);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(14px);
+    overflow: visible;
+  }
+
+  :global(.menu) {
+    z-index: calc(var(--z-index-modal, 400) + 10);
+    font-size: var(--font-ui-small, 13px);
+  }
+
+  :global(.menu .menu-item) {
+    font-size: var(--font-ui-small, 13px);
+  }
+
+  .weave-emergent-rule-popover__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .weave-emergent-rule-popover__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid var(--background-modifier-border);
+  }
+
+  .weave-emergent-rule-popover__header-main {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .weave-emergent-rule-popover__title {
+    font-size: var(--font-ui-medium, 14px);
+    font-weight: 700;
+    color: var(--text-normal);
+    line-height: 1.35;
+  }
+
+  .weave-emergent-rule-popover__switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    height: 38px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-secondary) 88%, transparent);
+    color: var(--text-normal);
+    cursor: pointer;
+    font-size: var(--font-ui-small, 13px);
+    font-weight: 600;
+    box-sizing: border-box;
+  }
+
+  .weave-emergent-rule-popover__switcher:hover,
+  .weave-emergent-rule-popover__icon-btn:hover,
+  .weave-emergent-rule-popover__text-btn:hover,
+  .weave-emergent-rule-popover__row-menu:hover,
+  .weave-emergent-rule-popover__drag-handle:hover {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--background-modifier-hover) 82%, transparent);
+  }
+
+  .weave-emergent-rule-popover__switcher:focus-visible,
+  .weave-emergent-rule-popover__icon-btn:focus-visible,
+  .weave-emergent-rule-popover__text-btn:focus-visible,
+  .weave-emergent-rule-popover__row-menu:focus-visible,
+  .weave-emergent-rule-popover__drag-handle:focus-visible,
+  .weave-emergent-rule-popover__value-surface.is-clickable:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+  }
+
+  .weave-emergent-rule-popover__header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .weave-emergent-rule-popover__icon-btn,
+  .weave-emergent-rule-popover__text-btn,
+  .weave-emergent-rule-popover__primary-btn,
+  .weave-emergent-rule-popover__token,
+  .weave-emergent-rule-popover__logic-pill,
+  .weave-emergent-rule-popover__drag-handle,
+  .weave-emergent-rule-popover__row-menu {
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-secondary) 88%, transparent);
+    color: var(--text-normal);
+    cursor: pointer;
+  }
+
+  .weave-emergent-rule-popover__icon-btn,
+  .weave-emergent-rule-popover__row-menu,
+  .weave-emergent-rule-popover__drag-handle {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-muted);
+  }
+
+  .weave-emergent-rule-popover__icon-btn {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-radius: 8px;
+  }
+
+  .weave-emergent-rule-popover__body {
+    padding: 14px 18px 18px;
+    overflow: auto;
+  }
+
+  .weave-emergent-rule-popover__workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .weave-emergent-rule-popover__group-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 180px) minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+  }
+
+  .weave-emergent-rule-popover__field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .weave-emergent-rule-popover__field.is-inline {
+    min-width: 0;
+  }
+
+  .weave-emergent-rule-popover__field.is-inline span {
+    display: none;
+  }
+
+  .weave-emergent-rule-popover__field span {
+    font-size: var(--font-ui-small, 13px);
+    color: var(--text-muted);
+  }
+
+  .weave-emergent-rule-popover__field input {
+    width: 100%;
+    min-height: 38px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-secondary) 82%, transparent);
+    color: var(--text-normal);
+    font-size: var(--font-ui-medium, 14px);
+    font-weight: 600;
+    transition: border-color 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
+  }
+
+  .weave-emergent-rule-popover__field input:hover,
+  .weave-emergent-rule-popover__inline-input:hover,
+  .weave-emergent-rule-popover__value-surface:hover {
+    border-color: color-mix(in srgb, var(--background-modifier-border) 92%, var(--text-muted));
+  }
+
+  .weave-emergent-rule-popover__field input:focus,
+  .weave-emergent-rule-popover__field input:focus-visible,
+  .weave-emergent-rule-popover__inline-input:focus,
+  .weave-emergent-rule-popover__inline-input:focus-visible,
+  .weave-emergent-rule-popover__value-surface.is-split:focus-within {
+    outline: none;
+    border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--background-primary) 86%, var(--background-secondary));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+  }
+
+  .weave-emergent-rule-popover__block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 16px;
+    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
+    background: color-mix(in srgb, var(--background-secondary) 62%, transparent);
+    transition: border-color 0.14s ease, background-color 0.14s ease;
+  }
+
+  .weave-emergent-rule-popover__block-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .weave-emergent-rule-popover__block-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .weave-emergent-rule-popover__block-label,
+  .weave-emergent-rule-popover__placeholder-text,
+  .weave-emergent-rule-popover__inline-suffix {
+    font-size: var(--font-ui-small, 13px);
+    color: var(--text-muted);
+  }
+
+  .weave-emergent-rule-popover__text-btn,
+  .weave-emergent-rule-popover__primary-btn {
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 10px;
+    font-size: var(--font-ui-small, 13px);
+  }
+
+  .weave-emergent-rule-popover__primary-btn {
+    background: color-mix(in srgb, var(--interactive-accent) 82%, black 6%);
+    color: var(--text-on-accent);
+    border-color: color-mix(in srgb, var(--interactive-accent) 72%, black 8%);
+  }
+
+  .weave-emergent-rule-popover__threshold-row {
+    display: grid;
+    grid-template-columns: minmax(110px, max-content) minmax(64px, max-content) 84px minmax(24px, max-content);
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 80%, transparent);
+    background: color-mix(in srgb, var(--background-primary) 78%, var(--background-secondary));
+    transition: border-color 0.14s ease, background-color 0.14s ease;
+  }
+
+  .weave-emergent-rule-popover__token,
+  .weave-emergent-rule-popover__logic-pill {
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: var(--font-ui-small, 13px);
+    font-weight: 500;
+  }
+
+  .weave-emergent-rule-popover__logic-pill {
+    min-width: 42px;
+    padding: 0 12px;
+    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-secondary));
+    border-color: color-mix(in srgb, var(--interactive-accent) 16%, var(--background-modifier-border));
+    color: var(--text-normal);
+    font-weight: 600;
+  }
+
+  .weave-emergent-rule-popover__inline-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-secondary) 82%, transparent);
+    color: var(--text-normal);
+    font-size: var(--font-ui-medium, 14px);
+    font-weight: 600;
+  }
+
+  .weave-emergent-rule-popover__condition-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .weave-emergent-rule-popover__condition-row {
+    display: grid;
+    grid-template-columns: 32px 44px minmax(68px, max-content) minmax(84px, max-content) minmax(0, 1fr) 32px;
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 80%, transparent);
+    background: color-mix(in srgb, var(--background-primary) 78%, var(--background-secondary));
+    transition: border-color 0.14s ease, background-color 0.14s ease;
+  }
+
+  .weave-emergent-rule-popover__threshold-row:hover,
+  .weave-emergent-rule-popover__condition-row:hover {
+    border-color: color-mix(in srgb, var(--background-modifier-border) 96%, var(--text-muted));
+    background: color-mix(in srgb, var(--background-primary) 82%, var(--background-secondary));
+  }
+
+  .weave-emergent-rule-popover__threshold-row .weave-emergent-rule-popover__token {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .weave-emergent-rule-popover__threshold-row .weave-emergent-rule-popover__inline-suffix {
+    justify-self: start;
+    white-space: nowrap;
+  }
+
+  .weave-emergent-rule-popover__drag-handle,
+  .weave-emergent-rule-popover__row-menu {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+  }
+
+  .weave-emergent-rule-popover__row-menu {
+    margin-left: auto;
+  }
+
+  .weave-emergent-rule-popover__value-surface {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 38px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-primary) 74%, var(--background-secondary));
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    transition: border-color 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
+  }
+
+  .weave-emergent-rule-popover__token,
+  .weave-emergent-rule-popover__logic-pill,
+  .weave-emergent-rule-popover__placeholder-text {
+    white-space: nowrap;
+  }
+
+  .weave-emergent-rule-popover__condition-row .weave-emergent-rule-popover__token {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .weave-emergent-rule-popover__condition-row .weave-emergent-rule-popover__logic-pill {
+    min-width: 44px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .weave-emergent-rule-popover__value-surface.is-clickable {
+    cursor: pointer;
+  }
+
+  .weave-emergent-rule-popover__value-surface.is-split {
+    flex-wrap: nowrap;
+    gap: 10px;
+  }
+
+  .weave-emergent-rule-popover__value-surface.is-split input {
+    min-width: 0;
+    flex: 1 1 0;
+    min-height: 36px;
+    border: 0;
+    background: transparent;
+    color: var(--text-normal);
+    font-size: var(--font-ui-small, 13px);
+    outline: none;
+  }
+
+  .weave-emergent-rule-popover__split-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--background-modifier-border);
+    flex: 0 0 auto;
+  }
+
+  .weave-emergent-rule-popover__tag-chip,
+  .weave-emergent-rule-popover__folder-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 999px;
+    font-size: var(--font-ui-small, 13px);
+    color: var(--text-normal);
+  }
+
+  .weave-emergent-rule-popover__tag-chip {
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--interactive-accent) 18%, var(--background-primary));
+  }
+
+  .weave-emergent-rule-popover__tag-chip.is-muted {
+    border-color: var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-primary) 88%, transparent);
+  }
+
+  .weave-emergent-rule-popover__folder-chip {
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-primary) 82%, transparent);
+  }
+
+  .weave-emergent-rule-popover__folder-chip-remove,
+  .weave-emergent-rule-popover__tag-chip-remove,
+  .weave-emergent-rule-popover__switcher {
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-secondary) 88%, transparent);
+    color: var(--text-normal);
+    cursor: pointer;
+  }
+
+  .weave-emergent-rule-popover__folder-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border-radius: 999px;
+  }
+
+  .weave-emergent-rule-popover__tag-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border-radius: 999px;
+  }
+
+  .weave-emergent-rule-popover__block-actions {
+    display: flex;
+    justify-content: flex-start;
+    padding-top: 2px;
+  }
+
+  .weave-emergent-rule-popover__block-actions.is-condition-footer {
+    padding-top: 0;
+  }
+
+  .weave-emergent-rule-popover__text-btn.is-inline-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 4px;
+    padding-right: 4px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    box-shadow: none;
+  }
+
+  .weave-emergent-rule-popover__text-btn.is-inline-action:hover {
+    color: var(--text-normal);
+    background: transparent;
+  }
+
+  .weave-emergent-rule-popover__footer {
+    padding: 12px 18px 16px;
+    border-top: 1px solid var(--background-modifier-border);
+  }
+
+  @media (max-width: 960px) {
+    .weave-emergent-rule-popover__threshold-row {
+      grid-template-columns: minmax(0, 1fr) minmax(64px, max-content) 76px minmax(24px, max-content);
+    }
+
+    .weave-emergent-rule-popover__condition-row {
+      grid-template-columns: 36px 52px 1fr;
+      align-items: start;
+    }
+
+    .weave-emergent-rule-popover__group-row {
+      grid-template-columns: 1fr;
+    }
+
+    .weave-emergent-rule-popover__token,
+    .weave-emergent-rule-popover__value-surface,
+    .weave-emergent-rule-popover__row-menu {
+      grid-column: 2 / -1;
+    }
+
+    .weave-emergent-rule-popover__row-menu {
+      justify-self: end;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .weave-emergent-rule-popover__header,
+    .weave-emergent-rule-popover__body,
+    .weave-emergent-rule-popover__footer {
+      padding-left: 16px;
+      padding-right: 16px;
+    }
+
+    .weave-emergent-rule-popover__header {
+      padding-top: 18px;
+      padding-bottom: 16px;
+    }
+
+    .weave-emergent-rule-popover__body {
+      padding-top: 16px;
+      padding-bottom: 16px;
+    }
+
+    .weave-emergent-rule-popover__footer {
+      padding-top: 14px;
+      padding-bottom: 16px;
+    }
+
+    .weave-emergent-rule-popover__header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .weave-emergent-rule-popover__header-actions {
+      justify-content: flex-end;
+    }
+
+    .weave-emergent-rule-popover__block-head,
+    .weave-emergent-rule-popover__threshold-row {
+      flex-wrap: wrap;
+    }
   }
 
   .new-deck-row:hover {

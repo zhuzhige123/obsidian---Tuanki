@@ -9,6 +9,7 @@
   import { Platform } from 'obsidian';
   import type { WeavePlugin } from '../../main';
   import type { Card } from '../../data/types';
+  import type { ResolvedDeckRef } from '../../types/emergent-deck-types';
   import type { TabId } from '../../types/view-card-modal-types';
   import TabNavigation from '../ui/TabNavigation.svelte';
   import CardInfoTab from './tabs/CardInfoTab.svelte';
@@ -34,12 +35,14 @@
 
     /** 所有牌组（可选） */
     allDecks?: Array<{id: string; name: string}>;
+    resolvedDeckRefs?: ResolvedDeckRef[];
   }
 
   let {
     card,
     plugin,
-    allDecks
+    allDecks,
+    resolvedDeckRefs = []
   }: Props = $props();
 
   // 内部卡片状态，用于动态刷新
@@ -94,7 +97,10 @@
         try {
           // 优先从 content YAML 的 we_decks 获取牌组名称
           const decks = allDecks || await plugin.dataStorage.getAllDecks();
-          const names = getCardDeckNames(currentCard, decks, t('modals.viewCard.noDeck'));
+          const names =
+            resolvedDeckRefs.length > 0
+              ? resolvedDeckRefs.map((ref) => ref.name)
+              : getCardDeckNames(currentCard, decks, t('modals.viewCard.noDeck'));
           deckName = names.join(', ');
 
           // 获取模板名称
@@ -129,7 +135,7 @@
   <!-- Tab内容 -->
   <div class="modal-tab-content" class:mobile={isMobile}>
     {#if activeTab === 'info'}
-      <CardInfoTab card={currentCard} {plugin} {deckName} {templateName} />
+      <CardInfoTab card={currentCard} {plugin} {deckName} {templateName} {resolvedDeckRefs} />
     {:else if activeTab === 'stats'}
       <ReviewStatsTab card={currentCard} />
     {:else if activeTab === 'curve'}

@@ -399,8 +399,12 @@ export interface IRBlockMeta {
 	};
 	/** 所属标签组 */
 	tagGroup: string;
+	/** 主关联笔记路径 */
+	primaryAssociatedNotePath?: string;
 	/** 关联的 Markdown 笔记路径（用于记忆卡片溯源统计） */
 	associatedNotePath?: string;
+	/** 关联的 Markdown 笔记路径列表 */
+	associatedNotePaths?: string[];
 }
 
 /**

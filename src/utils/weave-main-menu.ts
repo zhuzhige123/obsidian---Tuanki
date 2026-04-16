@@ -22,7 +22,6 @@ type NavigationVisibility = {
 	apkgImport?: boolean;
 	csvImport?: boolean;
 	clipboardImport?: boolean;
-	settingsEntry?: boolean;
 };
 
 export interface WeaveMainMenuOptions {
@@ -244,7 +243,18 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 				.setIcon("cpu")
 				.onClick(() => {
 					dispatchWindowEvent("Weave:ai-toolbar-action", {
-						action: "provider",
+						action: "model",
+					});
+				});
+		});
+
+		menu.addItem((item) => {
+			item
+				.setTitle("系统提示词")
+				.setIcon("sliders-horizontal")
+				.onClick(() => {
+					dispatchWindowEvent("Weave:ai-toolbar-action", {
+						action: "system-prompt",
 					});
 				});
 		});
@@ -389,7 +399,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		) {
 			menu.addItem((item) => {
 				item
-					.setTitle("MD\u6587\u4ef6")
+					.setTitle("Markdown 文件")
 					.setIcon("file-text")
 					.setChecked(options.irTypeFilter === "md")
 					.onClick(() => {
@@ -583,7 +593,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		if (navigationVisibility.apkgImport !== false) {
 			menu.addItem((item) => {
 				item
-					.setTitle("\u65e7\u7248APKG\u683c\u5f0f\u5bfc\u5165")
+					.setTitle("导入旧版卡包")
 					.setIcon("package")
 					.onClick(() => {
 						dispatchDocumentEvent("apkg-import", {

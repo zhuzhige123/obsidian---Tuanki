@@ -1,4 +1,5 @@
 import { App, FuzzySuggestModal, TFolder } from "obsidian";
+import { ensureWeaveSuggestModalTheme, markLatestSuggestionContainer } from "./weaveSuggestModalTheme";
 
 interface VaultFolderSuggestModalOptions {
 	placeholder?: string;
@@ -25,6 +26,21 @@ export class VaultFolderSuggestModal extends FuzzySuggestModal<string> {
 
 	getItems(): string[] {
 		return this.items;
+	}
+
+	onOpen(): void {
+		void super.onOpen();
+		window.dispatchEvent(new CustomEvent("Weave:emergent-child-popup-open"));
+		ensureWeaveSuggestModalTheme();
+		markLatestSuggestionContainer("weave-vault-folder-suggest-popover");
+
+		if (this.containerEl) {
+			this.containerEl.classList.add("weave-suggest-modal-container--raised");
+		}
+
+		if (this.modalEl) {
+			this.modalEl.classList.add("weave-suggest-modal--raised");
+		}
 	}
 
 	getItemText(folderPath: string): string {
@@ -54,6 +70,11 @@ export class VaultFolderSuggestModal extends FuzzySuggestModal<string> {
 
 	onClose(): void {
 		super.onClose();
+		window.dispatchEvent(
+			new CustomEvent("Weave:emergent-child-popup-close", {
+				detail: { graceMs: 220 },
+			})
+		);
 		if (this.settled) {
 			this.selectedFolderPath = null;
 			return;

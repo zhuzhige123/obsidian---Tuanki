@@ -8,30 +8,36 @@
   import type { DeckTreeNode } from '../../services/deck/DeckHierarchyService';
   import type { StudySession } from '../../data/study-types';
   import type { WeavePlugin } from '../../main';
+  import type { EmergentDeckCandidate, FormalDeckBindingSummary, MemoryDeckView } from '../../types/emergent-deck-types';
   import DeckGridCard from './DeckGridCard.svelte';
   import ChineseElegantDeckCard from './ChineseElegantDeckCard.svelte';
   import CategoryFilter, { type DeckFilter } from './CategoryFilter.svelte';
   import { getColorSchemeForDeck } from '../../config/card-color-schemes';
-// 瀵煎叆棰樺簱缁勪欢
+  import { MEMORY_DECK_UI_TEXT } from '../../constants/memory-deck-ui-text';
+// 导入题库组件
   import QuestionBankListView from '../question-bank/QuestionBankListView.svelte';
   import QuestionBankGridView from '../question-bank/QuestionBankGridView.svelte';
   import { tr } from '../../utils/i18n';
-// 鐗岀粍鍗＄墖璁捐绫诲瀷
+// 牌组卡片设计类型
   import type { DeckCardStyle } from '../../types/plugin-settings.d';
-  //  楂樼骇鍔熻兘闄愬埗
+  // 高级功能限制
   import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
   import ActivationPrompt from '../premium/ActivationPrompt.svelte';
-// 渚ц竟鏍忔娴?
+// 组件属性
   interface Props {
     deckTree: DeckTreeNode[];
     deckStats: Record<string, DeckStats>;
     studySessions: StudySession[];
+    emergentCandidates?: EmergentDeckCandidate[];
+    emergentDeckViews?: MemoryDeckView[];
+    emergentDeckStats?: Record<string, DeckStats>;
+    formalDeckBindingSummary?: Record<string, FormalDeckBindingSummary>;
     plugin: WeavePlugin;
     selectedFilter?: DeckFilter;
     onFilterSelect?: (filter: DeckFilter) => void;
     onStartStudy: (deckId: string) => void;
     onContinueStudy: () => void;
-    // 鑿滃崟鎿嶄綔鍥炶皟
+    // 菜单操作回调
     onAdvanceStudy?: (deckId: string) => Promise<void>;
     onOpenDeckAnalytics?: (deckId: string) => void;
     onOpenLoadForecast?: (deckId: string) => void;
@@ -41,6 +47,8 @@
     onOpenKnowledgeGraph?: (deckId: string) => void;
     onAssociateQuestionBank?: (deckId: string) => void | Promise<void>;
     onDissolveDeck?: (deckId: string) => void;
+    onPromoteEmergentDeck?: (candidate: EmergentDeckCandidate, event: MouseEvent) => void | Promise<void>;
+    onStartEmergentStudy?: (deckId: string, deckName: string) => void | Promise<void>;
   }
 
   type GridActiveFilter = 'memory' | 'question-bank' | 'incremental-reading';
@@ -57,8 +65,12 @@
     deckTree,
     deckStats,
     studySessions,
+    emergentCandidates = [],
+    emergentDeckViews = [],
+    emergentDeckStats = {},
+    formalDeckBindingSummary = {},
     plugin,
-// 绛涢€夊櫒鐘舵€侊紙鐢辩埗缁勪欢绠＄悊锛屾敮鎸佸弻鍚戠粦瀹氾級
+// 筛选器状态（由父组件管理，支持双向绑定）
     selectedFilter: externalFilter = undefined,
     onFilterSelect: externalOnFilterSelect = undefined,
     onStartStudy,
@@ -71,12 +83,14 @@
     onRefreshData,
     onOpenKnowledgeGraph,
     onAssociateQuestionBank,
-    onDissolveDeck
+    onDissolveDeck,
+    onPromoteEmergentDeck,
+    onStartEmergentStudy
   }: Props = $props();
 
   let t = $derived($tr);
 
-  //  楂樼骇鍔熻兘瀹堝崼
+  // 高级功能守卫
   const premiumGuard = PremiumFeatureGuard.getInstance();
   let isPremium = $state(get(premiumGuard.isPremiumActive));
   let showPremiumFeaturesPreview = $state(get(premiumGuard.premiumFeaturesPreviewEnabled));
@@ -97,7 +111,7 @@
     };
   });
 
-// 鑾峰彇褰撳墠鐗岀粍鍗＄墖璁捐鏍峰紡
+// 获取当前牌组卡片设计样式
   const deckCardStyle = $derived<DeckCardStyle>(
     (plugin.settings.deckCardStyle as DeckCardStyle) || 'default'
   );
@@ -123,7 +137,7 @@
     logger.debug('[GridCardView] 切换模式筛选器:', normalizedFilter);
   }
 
-  // 鎵佸钩鍖栫墝缁勬爲锛堜繚鎸佸眰绾х粨鏋勶級
+  // 扁平化牌组树（保持层级结构）
   function flattenDeckTree(nodes: DeckTreeNode[]): Deck[] {
     const result: Deck[] = [];
     for (const node of nodes) {
@@ -137,17 +151,17 @@
 
   const allDecks = $derived(flattenDeckTree(deckTree));
 
-// 鏍规嵁妯″紡绛涢€夌墝缁勶紙涓?DeckStudyPage 淇濇寔涓€鑷达級
+// 根据模式筛选牌组（与 DeckStudyPage 保持一致）
   const filteredDecks = $derived(currentFilter === 'memory' ? allDecks : []);
 
-  // 鏄剧ず鐗岀粍鑿滃崟锛堝畬鏁寸増锛屼笌DeckStudyPage淇濇寔涓€鑷达級
+  // 显示牌组菜单（完整版，与DeckStudyPage保持一致）
   function showDeckMenu(event: MouseEvent, deckId: string) {
     const menu = new Menu();
 
     const deck = allDecks.find(d => d.id === deckId);
     const isSubdeck = deck?.parentId != null;
 
-// 鎻愬墠瀛︿範鍔熻兘
+// 提前学习功能
     menu.addItem((item) =>
       item
         .setTitle(t('decks.menu.advanceStudy'))
@@ -155,13 +169,13 @@
         .onClick(async () => await onAdvanceStudy?.(deckId))
     );
 
-    //  鐗岀粍鍒嗘瀽锛堝寘鍚礋鑽烽娴嬶級- 楂樼骇鍔熻兘
+    //  牌组分析（包含负荷预测）- 高级功能
     if (premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.DECK_ANALYTICS, {
       isPremium,
       showPremiumPreview: showPremiumFeaturesPreview
     })) {
       menu.addItem((item) => {
-        const title = isPremium ? t('decks.menu.deckAnalytics') : t('decks.menu.deckAnalytics') + ' 馃敀';
+        const title = isPremium ? t('decks.menu.deckAnalytics') : t('decks.menu.deckAnalytics') + ' 🔒';
         item
           .setTitle(title)
           .setIcon("bar-chart-2")
@@ -194,9 +208,9 @@
       );
     }
 
-    // 鍒涘缓瀛愮墝缁勫拰绉诲姩鐗岀粍鍔熻兘宸茬Щ闄?- 涓嶅啀鏀寔鐖跺瓙鐗岀粍灞傜骇缁撴瀯
+    // 创建子牌组和移动牌组功能已移除，不再支持父子牌组层级结构
 
-    // 鐗岀粍缂栬緫
+    // 牌组编辑
     menu.addItem((item) =>
       item
         .setTitle(t('decks.menu.editDeck'))
@@ -204,7 +218,7 @@
         .onClick(() => onEditDeck?.(deckId))
     );
 
-    // 鍒犻櫎
+    // 删除
     menu.addItem((item) =>
       item
         .setTitle(t('decks.menu.delete'))
@@ -212,7 +226,7 @@
         .onClick(() => onDeleteDeck?.(deckId))
     );
 
-// 瑙ｆ暎鐗岀粍
+// 解散牌组
     if (onDissolveDeck) {
       menu.addItem((item) =>
         item
@@ -227,15 +241,62 @@
     menu.showAtMouseEvent(event);
   }
 
+  function createVirtualDeck(view: MemoryDeckView): Deck {
+    return {
+      id: view.id,
+      name: view.name,
+      description: '',
+      category: '默认',
+      path: view.name,
+      level: 0,
+      order: 0,
+      inheritSettings: false,
+      settings: {} as any,
+      includeSubdecks: false,
+      created: new Date(0).toISOString(),
+      modified: new Date().toISOString(),
+      stats: emergentDeckStats[view.id] || {
+        totalCards: view.cardUUIDs.length,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 0,
+        todayNew: 0,
+        todayReview: 0,
+        todayTime: 0,
+        totalReviews: 0,
+        totalTime: 0,
+        memoryRate: 0,
+        averageEase: 0,
+        forecastDays: {}
+      },
+      tags: [],
+      metadata: {}
+    };
+  }
+
+  function showEmergentDeckMenu(event: MouseEvent, view: MemoryDeckView) {
+    const menu = new Menu();
+    const candidate = emergentCandidates.find(item => item.id === view.id);
+    if (candidate && onPromoteEmergentDeck) {
+      menu.addItem((item) =>
+        item
+          .setTitle('转为正式牌组')
+          .setIcon('folder-plus')
+          .onClick(async () => await onPromoteEmergentDeck(candidate, event))
+      );
+    }
+    menu.showAtMouseEvent(event);
+  }
+
 </script>
 
 <div class="grid-card-view">
-  <!--  妗岄潰绔僵鑹插渾鐐圭瓫閫夊櫒宸茬Щ闄?- 鐜板湪鐢?WeaveApp 涓殑 SidebarNavHeader 缁熶竴澶勭悊 -->
-  <!-- 渚ц竟鏍忓拰涓诲唴瀹瑰尯閮戒娇鐢?SidebarNavHeader 鎻愪緵鐨勭瓫閫夊姛鑳?-->
+  <!-- 桌面端彩色圆点筛选器已移除，现在由 WeaveApp 中的 SidebarNavHeader 统一处理 -->
+  <!-- 侧边栏和主内容区都使用 SidebarNavHeader 提供的筛选功能 -->
 
-<!-- 鏍规嵁妯″紡鏄剧ず涓嶅悓鍐呭 -->
+<!-- 根据模式显示不同内容 -->
   {#if currentFilter === 'memory'}
-    <!-- 璁板繂鐗岀粍妯″紡 -->
+    <!-- 记忆牌组模式 -->
     {#if filteredDecks.length > 0}
       <div class="cards-grid">
         {#each filteredDecks as deck, index (deck.id)}
@@ -255,12 +316,16 @@
           }}
           {@const colorScheme = getColorSchemeForDeck(deck.id)}
           {@const colorVariant = ((index % 4) + 1) as 1 | 2 | 3 | 4}
+          {@const bindingSummary = formalDeckBindingSummary[deck.id]}
+          {@const formalStatusBadge = bindingSummary ? `${MEMORY_DECK_UI_TEXT.autoTopicPrefix} ${bindingSummary.bindingCount}` : undefined}
           <div class="deck-card-shell">
             {#if deckCardStyle === 'chinese-elegant'}
               <ChineseElegantDeckCard
                 {deck}
                 {stats}
                 {colorVariant}
+                statusBadge={formalStatusBadge}
+                statusKind="formal"
                 onStudy={() => onStartStudy(deck.id)}
                 onMenu={(e) => showDeckMenu(e, deck.id)}
               />
@@ -269,6 +334,8 @@
                 {deck}
                 {stats}
                 {colorScheme}
+                statusBadge={formalStatusBadge}
+                statusKind="formal"
                 onStudy={() => onStartStudy(deck.id)}
                 onMenu={(e) => showDeckMenu(e, deck.id)}
               />
@@ -276,8 +343,43 @@
           </div>
         {/each}
       </div>
+      {#if emergentDeckViews.length > 0}
+        <div class="emergent-section">
+          <div class="emergent-grid">
+            {#each emergentDeckViews as view (view.id)}
+              {@const deck = createVirtualDeck(view)}
+              {@const stats = emergentDeckStats[view.id] || deck.stats}
+              {@const colorScheme = getColorSchemeForDeck(view.id)}
+              {@const colorVariant = (((view.name.length || 1) % 4) + 1) as 1 | 2 | 3 | 4}
+              <div class="deck-card-shell">
+                {#if deckCardStyle === 'chinese-elegant'}
+                  <ChineseElegantDeckCard
+                    {deck}
+                    {stats}
+                    {colorVariant}
+                    statusBadge={view.statusBadge}
+                    statusKind="emergent"
+                    onStudy={() => onStartEmergentStudy?.(view.id, view.name)}
+                    onMenu={(e) => showEmergentDeckMenu(e, view)}
+                  />
+                {:else}
+                  <DeckGridCard
+                    {deck}
+                    {stats}
+                    {colorScheme}
+                    statusBadge={view.statusBadge}
+                    statusKind="emergent"
+                    onStudy={() => onStartEmergentStudy?.(view.id, view.name)}
+                    onMenu={(e) => showEmergentDeckMenu(e, view)}
+                  />
+                {/if}
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
     {:else}
-      <!-- 绌虹姸鎬佸崰浣嶇 -->
+      <!-- 空状态占位符 -->
       <div class="mode-placeholder">
         <div class="placeholder-icon">--</div>
         <h2 class="placeholder-title">{t('decks.grid.emptyText')}</h2>
@@ -285,12 +387,12 @@
       </div>
     {/if}
   {:else if currentFilter === 'question-bank'}
-    <!-- 棰樺簱鐗岀粍妯″紡 - 缃戞牸瑙嗗浘 -->
+    <!-- 题库牌组模式 - 网格视图 -->
     <QuestionBankGridView {plugin} />
   {/if}
 </div>
 
-<!--  婵€娲绘彁绀烘ā鎬佺獥 -->
+<!--  激活提示模态窗 -->
 {#if showActivationPrompt}
   <ActivationPrompt
     visible={showActivationPrompt}
@@ -317,7 +419,7 @@
     scroll-padding-bottom: 24px;
   }
 
-  /*  妗岄潰绔僵鑹插渾鐐圭瓫閫夊櫒宸茬Щ闄?- 鐜板湪鐢?WeaveApp 涓殑 SidebarNavHeader 缁熶竴澶勭悊 */
+  /* 桌面端彩色圆点筛选器已移除，现在由 WeaveApp 中的 SidebarNavHeader 统一处理 */
 
   .cards-grid {
     display: grid;
@@ -331,6 +433,19 @@
     min-width: 0;
     container-type: inline-size;
     container-name: deck-card;
+  }
+
+  .emergent-section {
+    margin-top: 28px;
+    padding-top: 24px;
+    border-top: 1px solid var(--background-modifier-border);
+    box-shadow: none;
+  }
+
+  .emergent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--weave-deck-card-min-width)), 1fr));
+    gap: var(--weave-deck-grid-gap);
   }
 
 /* 妯″紡鍗犱綅绗︽牱寮?*/
@@ -409,24 +524,24 @@
     }
   }
 
-  /*  Obsidian 绉诲姩绔壒瀹氭牱寮?- 鍐呭鍖鸿创杈?*/
+  /* Obsidian 移动端特定样式：内容区域贴边 */
   :global(body.is-mobile) .grid-card-view {
-    padding: 8px 2px calc(88px + env(safe-area-inset-bottom, 0px)); /* 涓哄簳閮ㄦ墜鍔垮尯/娴忚鍣ㄦ爮棰勭暀绌洪棿 */
+    padding: 8px 2px calc(88px + env(safe-area-inset-bottom, 0px)); /* 为底部手势区/浏览器栏预留空间 */
     scroll-padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   }
 
   :global(body.is-mobile) .cards-grid {
-    gap: 8px; /* 馃敡 鍑忓皯鍗＄墖涔嬮棿鐨勯棿璺?*/
+    gap: 8px; /* 🔧 减少卡片之间的间距 */
     padding: 4px 0;
   }
 
   :global(body.is-phone) .grid-card-view {
-    padding: 4px 1px calc(96px + env(safe-area-inset-bottom, 0px)); /* 鎵嬫満绔鍔犲簳閮ㄦ粴鍔ㄧ紦鍐诧紝閬垮厤鏈€鍚庝竴寮犲崱琚伄浣?*/
+    padding: 4px 1px calc(96px + env(safe-area-inset-bottom, 0px)); /* 手机端增加底部滚动缓冲，避免最后一张卡被遮住 */
     scroll-padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   }
 
   :global(body.is-phone) .cards-grid {
-    gap: 6px; /* 馃敡 鎵嬫満绔繘涓€姝ュ噺灏戝崱鐗囬棿璺?*/
+    gap: 6px; /* 🔧 手机端进一步减少卡片间距 */
   }
 
   :global(body.is-mobile) .grid-card-view {

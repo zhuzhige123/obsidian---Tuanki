@@ -74,10 +74,10 @@
     --weave-font-size-sm: 0.75rem;
   }
 
-  /* 触控目标保持最小 44px */
+  /* 触控目标保持最小 44px；装饰性圆点按钮在组件内自行扩展热区 */
   body:not(.is-mobile) .weave-app .weave-button,
   body:not(.is-mobile) .weave-app .weave-card-action,
-  body:not(.is-mobile) .weave-app button {
+  body:not(.is-mobile) .weave-app button:not(.sidebar-dot):not(.view-type-dot) {
     min-height: var(--weave-touch-sm, 44px);
     min-width: var(--weave-touch-sm, 44px);
   }
@@ -306,20 +306,20 @@
 @media (pointer: coarse) {
   /* 增加触控目标间距 - 仅桌面端 */
   body:not(.is-mobile) .weave-app .weave-button + .weave-button,
-  body:not(.is-mobile) .weave-app button + button {
+  body:not(.is-mobile) .weave-app button:not(.sidebar-dot):not(.view-type-dot) + button:not(.sidebar-dot):not(.view-type-dot) {
     margin-left: 8px;
   }
 
   /* 触控反馈 - 仅桌面端 */
   body:not(.is-mobile) .weave-app .weave-button:active,
-  body:not(.is-mobile) .weave-app button:active {
+  body:not(.is-mobile) .weave-app button:not(.sidebar-dot):not(.view-type-dot):active {
     transform: scale(0.95);
     opacity: 0.9;
   }
 
   /* 禁用悬停效果（触控设备不需要）- 仅桌面端 */
   body:not(.is-mobile) .weave-app .weave-button:hover,
-  body:not(.is-mobile) .weave-app button:hover {
+  body:not(.is-mobile) .weave-app button:not(.sidebar-dot):not(.view-type-dot):hover {
     transform: none;
   }
 }

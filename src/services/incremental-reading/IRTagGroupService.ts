@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 标签组（材料类型）服务 v3.0
  *
  * 职责：
@@ -31,7 +31,6 @@ import {
 	IR_STORAGE_VERSION,
 } from "../../types/ir-types";
 import { logger } from "../../utils/logger";
-import { extractAllTags } from "../../utils/yaml-utils";
 
 // ============================================
 // 存储路径常量
@@ -41,9 +40,42 @@ const TAG_GROUPS_FILE = "tag-groups.json";
 const TAG_GROUP_PROFILES_FILE = "tag-group-profiles.json";
 const DOCUMENT_GROUP_MAP_FILE = "document-group-map.json";
 
+export function normalizeTagGroupCandidateTags(tags: string[]): string[] {
+	const ordered = new Map<string, string>();
+	for (const rawTag of Array.isArray(tags) ? tags : []) {
+		const normalized = String(rawTag || "").trim().replace(/^#/, "").toLowerCase();
+		if (!normalized || ordered.has(normalized)) continue;
+		ordered.set(normalized, normalized);
+	}
+	return Array.from(ordered.values());
+}
+
+export function matchTagGroupByTags(
+	groups: Pick<IRTagGroup, "id" | "matchAnyTags" | "matchPriority">[],
+	tags: string[]
+): string {
+	const normalizedTags = normalizeTagGroupCandidateTags(tags);
+	if (normalizedTags.length === 0) {
+		return "default";
+	}
+
+	const normalizedSet = new Set(normalizedTags);
+	const sortedGroups = [...groups]
+		.filter((group) => group.id !== "default")
+		.sort((a, b) => (a.matchPriority ?? 0) - (b.matchPriority ?? 0));
+
+	for (const group of sortedGroups) {
+		const groupTags = normalizeTagGroupCandidateTags(group.matchAnyTags || []);
+		if (groupTags.some((tag) => normalizedSet.has(tag))) {
+			return group.id;
+		}
+	}
+
+	return "default";
+}
+
 // ============================================
-// IRTagGroupService 类
-// ============================================
+// IRTagGroupService 绫?// ============================================
 
 export class IRTagGroupService {
 	private app: App;
@@ -88,10 +120,10 @@ export class IRTagGroupService {
 				await adapter.mkdir(storageDir);
 			}
 
-			// 🔧 优化：并行加载所有数据
+			// ??????????
 			await Promise.all([this.loadGroups(), this.loadProfiles(), this.loadDocumentMap()]);
 
-			// 确保默认组存在（这些通常很快）
+			// ?????????????
 			const savePromises: Promise<void>[] = [];
 			if (!this.groupsCache.default) {
 				this.groupsCache.default = { ...DEFAULT_TAG_GROUP };
@@ -106,10 +138,10 @@ export class IRTagGroupService {
 			}
 
 			this.initialized = true;
-			logger.info("[IRTagGroupService] 初始化完成");
+			logger.info("[IRTagGroupService] initialized");
 		} catch (error) {
-			logger.error("[IRTagGroupService] 初始化失败:", error);
-			this.initialized = true; // 允许继续，使用默认值
+			logger.error("[IRTagGroupService] initialize failed", error);
+			this.initialized = true; // allow fallback behavior even when initialization fails
 		}
 	}
 
@@ -354,81 +386,40 @@ export class IRTagGroupService {
 	}
 
 	/**
-	 * 从文件中提取标签（默认提取所有来源）
+	 * 从阅读点 Markdown 文件中提取 weave_tags
 	 */
 	async extractTagsFromFile(filePath: string): Promise<string[]> {
 		return this.extractTagsWithSource(filePath);
 	}
 
 	/**
-	 * 按 matchSource 配置从文件提取标签
-	 * 未传 matchSource 时默认提取 yamlTags + inlineTags
+	 * 兼容旧接口，但正式匹配来源已统一为阅读点标签 weave_tags
 	 */
 	async extractTagsWithSource(
 		filePath: string,
-		matchSource?: IRTagGroupMatchSource
+		_matchSource?: IRTagGroupMatchSource
 	): Promise<string[]> {
-		const useYamlTags = matchSource?.yamlTags ?? true;
-		const useInlineTags = matchSource?.inlineTags ?? true;
-		const customProps = matchSource?.customProperties ?? [];
-
 		try {
 			const file = this.app.vault.getAbstractFileByPath(filePath);
 			if (!(file instanceof TFile)) return [];
 
 			const cache = this.app.metadataCache.getFileCache(file);
-			const collected: string[] = [];
-
-			// 1. YAML frontmatter tags 属性
-			if (useYamlTags) {
-				const frontmatterTags = cache?.frontmatter?.tags || [];
-				if (Array.isArray(frontmatterTags)) {
-					collected.push(...frontmatterTags.map((t) => String(t)));
-				} else if (typeof frontmatterTags === "string") {
-					collected.push(...frontmatterTags.split(",").map((t) => t.trim()));
-				}
+			const frontmatter = (cache?.frontmatter as Record<string, unknown> | undefined) || {};
+			const rawValue = frontmatter["weave_tags"];
+			if (Array.isArray(rawValue)) {
+				return normalizeTagGroupCandidateTags(rawValue.map((tag) => String(tag)));
 			}
-
-			// 2. 内联 #tags
-			if (useInlineTags) {
-				const inlineTags = cache?.tags?.map((t) => t.tag.replace(/^#/, "")) || [];
-				collected.push(...inlineTags);
-			}
-
-			// 3. 自定义 YAML 属性
-			if (customProps.length > 0 && cache?.frontmatter) {
-				for (const prop of customProps) {
-					const value = cache.frontmatter[prop];
-					if (Array.isArray(value)) {
-						collected.push(...value.map((t) => String(t)));
-					} else if (typeof value === "string") {
-						collected.push(...value.split(",").map((t) => t.trim()));
-					}
-				}
-			}
-
-			// 清理并去重
-			const cleaned = collected.map((t) => t.replace(/^#/, "")).filter(Boolean);
-
-			const allTags = [...new Set(cleaned)];
-
-			// 回退：当无任何匹配源配置且无结果时，尝试全文提取
-			if (allTags.length === 0 && !matchSource) {
-				try {
-					const content = await this.app.vault.cachedRead(file);
-					const extracted = extractAllTags(content)
-						.map((t) => String(t).replace(/^#/, ""))
+			if (typeof rawValue === "string") {
+				return normalizeTagGroupCandidateTags(
+					rawValue
+						.split(",")
+						.map((tag) => tag.trim())
 						.filter(Boolean)
-						.map((t) => t.toLowerCase());
-					return [...new Set(extracted)];
-				} catch {
-					return [];
-				}
+				);
 			}
-
-			return allTags.map((t) => t.toLowerCase());
+			return [];
 		} catch (error) {
-			logger.debug(`[IRTagGroupService] 提取标签失败: ${filePath}`, error);
+			logger.debug(`[IRTagGroupService] 提取阅读点标签失败: ${filePath}`, error);
 		}
 		return [];
 	}
@@ -443,39 +434,13 @@ export class IRTagGroupService {
 	async matchGroupForDocument(filePath: string, forceRefresh = false): Promise<string> {
 		await this.initialize();
 
-		// 检查缓存
+		// ????
 		if (!forceRefresh && this.documentMapCache[filePath]) {
 			return this.documentMapCache[filePath].groupId;
 		}
 
-		// 获取所有标签组（排除 default），按优先级排序
-		const groups = Object.values(this.groupsCache)
-			.filter((g) => g.id !== "default")
-			.sort((a, b) => a.matchPriority - b.matchPriority);
-
-		// 按每个 group 的 matchSource 分别提取并匹配
-		let matchedGroupId = "default";
-		let allCollectedTags: string[] = [];
-
-		for (const group of groups) {
-			const documentTags = await this.extractTagsWithSource(filePath, group.matchSource);
-			if (allCollectedTags.length === 0 && documentTags.length > 0) {
-				allCollectedTags = documentTags;
-			}
-
-			const groupTags = group.matchAnyTags.map((t) => t.toLowerCase());
-			const hasMatch = documentTags.some((dt) => groupTags.includes(dt));
-			if (hasMatch) {
-				matchedGroupId = group.id;
-				allCollectedTags = documentTags;
-				break;
-			}
-		}
-
-		// 如果没有匹配到任何组，用默认提取方式记录标签快照
-		if (matchedGroupId === "default" && allCollectedTags.length === 0) {
-			allCollectedTags = await this.extractTagsFromFile(filePath);
-		}
+		const allCollectedTags = await this.extractTagsFromFile(filePath);
+		const matchedGroupId = matchTagGroupByTags(Object.values(this.groupsCache), allCollectedTags);
 
 		// 更新缓存
 		this.documentMapCache[filePath] = {
@@ -487,11 +452,16 @@ export class IRTagGroupService {
 		await this.saveDocumentMap();
 
 		logger.debug(
-			`[IRTagGroupService] 匹配标签组: ${filePath} -> ${matchedGroupId}, ` +
+			`[IRTagGroupService] 匹配标签组 ${filePath} -> ${matchedGroupId}, ` +
 				`文档标签=[${allCollectedTags.join(", ")}]`
 		);
 
 		return matchedGroupId;
+	}
+
+	async matchGroupForTags(tags: string[]): Promise<string> {
+		await this.initialize();
+		return matchTagGroupByTags(Object.values(this.groupsCache), tags);
 	}
 
 	invalidateDocumentCache(filePath: string): void {
@@ -502,7 +472,7 @@ export class IRTagGroupService {
 
 	/**
 	 * 手动设置文档的标签组映射（用于右键菜单等手动切换场景）
-	 * 同步更新 documentMapCache，使设置界面文档数统计正确
+	 * 同步更新 documentMapCache，使设置界面文档数统计正常
 	 */
 	async updateDocumentGroupManual(filePath: string, groupId: string): Promise<void> {
 		await this.initialize();
@@ -544,10 +514,9 @@ export class IRTagGroupService {
 
 	/**
 	 * 检测文档标签是否发生漂移（匹配到不同标签组）
-	 *
 	 * @param filePath 源文档路径
 	 * @param currentTagGroup 当前存储的标签组 ID
-	 * @returns 漂移信息，null 表示未漂移
+	 * @returns 漂移信息，null 表示未发生漂移
 	 */
 	async detectTagGroupDrift(
 		filePath: string,
@@ -564,15 +533,15 @@ export class IRTagGroupService {
 		// 重新提取文档当前标签
 		const currentTags = await this.extractTagsFromFile(filePath);
 
-		// 重新匹配标签组（强制刷新）
+		// ???????????????????
 		const newGroupId = await this.matchGroupForDocument(filePath, true);
 
-		// 未漂移
+		// ???????????
 		if (newGroupId === currentTagGroup) {
 			return null;
 		}
 
-		// 获取组名称
+		// ????????
 		const oldGroup = this.groupsCache[currentTagGroup];
 		const newGroup = this.groupsCache[newGroupId];
 
@@ -586,10 +555,10 @@ export class IRTagGroupService {
 	}
 
 	/**
-	 * 执行标签组切换：批量更新同一 sourceId 下所有 chunk 和 source 的 tagGroup
+	 * 执行标签组切换：批量更新同一 sourceId 下所有 chunk、source 的 tagGroup
 	 *
 	 * @param chunkId 触发切换的块 ID
-	 * @param sourceId 源文件 ID（可选）
+	 * @param sourceId 源文档 ID（可选）
 	 * @param newGroupId 新标签组 ID
 	 * @param storageService 存储服务（用于回写数据）
 	 */
@@ -681,7 +650,7 @@ export class IRTagGroupService {
 		priorityWeight: number,
 		settings: IRAdvancedScheduleSettings = DEFAULT_ADVANCED_SCHEDULE_SETTINGS
 	): Promise<void> {
-		// 检查是否启用学习
+		// 学习速度关闭时直接返回
 		if (settings.tagGroupLearningSpeed === "off") {
 			return;
 		}
@@ -689,7 +658,7 @@ export class IRTagGroupService {
 		await this.initialize();
 		const profile = await this.getProfile(groupId);
 
-		// 学习速度对应的半衰期（天）
+		// 根据学习速度确定半衰期
 		const learningHalfLife: Record<string, number> = {
 			slow: 90,
 			medium: 45,
@@ -698,7 +667,7 @@ export class IRTagGroupService {
 		const halfLifeDays = learningHalfLife[settings.tagGroupLearningSpeed] || 90;
 
 		// 计算目标 intervalFactorBase
-		// L 高（更需要密集处理）→ A_target 更小
+		// L 高（更需要密集处理）-> A_target 更小
 		const globalBase = 1.5;
 		const beta = 0.8;
 		const l0 = 0.5;
@@ -712,7 +681,7 @@ export class IRTagGroupService {
 		const wNorm = (priorityWeight - 0.5) / 1.0; // 映射到 0-1
 		const aRawNew = (1 - eta * wNorm) * profile.intervalFactorBase + eta * wNorm * aTarget;
 
-		// Shrinkage: λ(n) = k / (k + n)
+		// Shrinkage: lambda(n) = k / (k + n)
 		const k = settings.shrinkageStrength;
 		const n = profile.sampleCount;
 		const lambda = k / (k + n);
@@ -730,7 +699,7 @@ export class IRTagGroupService {
 		profile.intervalFactorBase = aFinalClamped;
 		profile.sampleCount = n + 1;
 
-		// 记录历史（每次更新都记录，便于可视化）
+		// 初始化 history 记录
 		if (!profile.history) {
 			profile.history = [];
 		}
@@ -739,7 +708,7 @@ export class IRTagGroupService {
 			value: aFinalClamped,
 			sampleCount: n + 1,
 		});
-		// 保留最近 100 条记录
+		// 仅保留最近 100 条
 		if (profile.history.length > 100) {
 			profile.history = profile.history.slice(-100);
 		}
@@ -750,7 +719,7 @@ export class IRTagGroupService {
 			`[IRTagGroupService] 更新组参数 ${groupId}: ` +
 				`L=${loadSignal.toFixed(2)}, w=${priorityWeight.toFixed(2)}, ` +
 				`A_target=${aTarget.toFixed(2)}, A_final=${aFinalClamped.toFixed(2)}, ` +
-				`n=${n + 1}, λ=${lambda.toFixed(3)}`
+				`n=${n + 1}, lambda=${lambda.toFixed(3)}`
 		);
 	}
 
@@ -772,7 +741,7 @@ export class IRTagGroupService {
 			documentCount: number;
 		}> = [];
 
-		// 统计每个组的文档数
+		// ??????????????
 		const groupDocCounts: Record<string, number> = {};
 		for (const mapping of Object.values(this.documentMapCache)) {
 			groupDocCounts[mapping.groupId] = (groupDocCounts[mapping.groupId] || 0) + 1;

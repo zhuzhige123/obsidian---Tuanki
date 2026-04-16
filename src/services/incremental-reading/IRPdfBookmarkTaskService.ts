@@ -9,6 +9,7 @@ import {
 	serializeBookmarkTaskForStorage,
 } from "../../utils/ir-topic-compat";
 import { logger } from "../../utils/logger";
+import { IRPointStorageService } from "./IRPointStorageService";
 
 export interface IRPdfBookmarkTask {
 	id: string;
@@ -83,11 +84,49 @@ export class IRPdfBookmarkTaskService {
 	private app: App;
 	private initialized = false;
 	private filePath: string;
+	private pointStorageService: IRPointStorageService | null = null;
 
 	constructor(app: App) {
 		this.app = app;
 		const storageDir = getV2PathsFromApp(app as any).ir.root;
 		this.filePath = normalizePath(`${storageDir}/pdf-bookmark-tasks.json`);
+	}
+
+	private getPointStorageService(): IRPointStorageService {
+		if (!this.pointStorageService) {
+			this.pointStorageService = new IRPointStorageService(this.app);
+		}
+		return this.pointStorageService;
+	}
+
+	private async syncTaskToPointStorage(task: IRPdfBookmarkTask): Promise<void> {
+		await this.getPointStorageService().syncLegacyPoint({
+			id: task.id,
+			topicId: getTaskTopicId(task),
+			title: task.title,
+			tags: task.tags,
+			status: task.status,
+			priorityUi: task.priorityUi,
+			priorityEff: task.priorityEff,
+			intervalDays: task.intervalDays,
+			nextRepDate: task.nextRepDate,
+			createdAt: task.createdAt,
+			updatedAt: task.updatedAt,
+			sourceType: "pdf-bookmark",
+			materialId: task.materialId,
+			sourcePath: task.pdfPath,
+			locatorType: "pdf-selection",
+			locator: {
+				link: task.link,
+				annotationId: task.annotationId,
+				pdfPath: task.pdfPath,
+			},
+			isStarred: Boolean(task.favorite),
+		});
+	}
+
+	private async deletePointFromPointStorage(pointId: string): Promise<void> {
+		await this.getPointStorageService().deletePointByLegacyId(pointId);
 	}
 
 	async initialize(): Promise<void> {
@@ -162,6 +201,8 @@ export class IRPdfBookmarkTaskService {
 	private async writeStore(store: IRPdfBookmarkTaskStore): Promise<void> {
 		await this.initialize();
 		const adapter = this.app.vault.adapter;
+		const plugin: any = (this.app as any)?.plugins?.getPlugin?.("weave");
+		plugin?.externalSyncWatcher?.markInternalWrite?.();
 		const serializedStore: IRPdfBookmarkTaskStore = {
 			version: store.version,
 			tasks: Object.fromEntries(
@@ -248,6 +289,7 @@ export class IRPdfBookmarkTaskService {
 
 		store.tasks[id] = task;
 		await this.writeStore(store);
+		await this.syncTaskToPointStorage(task);
 
 		return task;
 	}
@@ -270,6 +312,7 @@ export class IRPdfBookmarkTaskService {
 
 		store.tasks[id] = updated;
 		await this.writeStore(store);
+		await this.syncTaskToPointStorage(updated);
 
 		return updated;
 	}
@@ -297,6 +340,7 @@ export class IRPdfBookmarkTaskService {
 		};
 
 		await this.writeStore(store);
+		await this.syncTaskToPointStorage(store.tasks[block.id]);
 	}
 
 	async recordTaskInteraction(
@@ -341,6 +385,7 @@ export class IRPdfBookmarkTaskService {
 		if (!store.tasks[id]) return false;
 		delete store.tasks[id];
 		await this.writeStore(store);
+		await this.deletePointFromPointStorage(id);
 		logger.info("[IRPdfBookmarkTaskService] 已删除任务:", id);
 		return true;
 	}
@@ -394,6 +439,9 @@ export class IRPdfBookmarkTaskService {
 		}
 
 		await this.writeStore(store);
+		for (const id of toDelete) {
+			await this.deletePointFromPointStorage(id);
+		}
 		logger.info(logMessage, {
 			...logMeta,
 			count: toDelete.length,

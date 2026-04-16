@@ -1,6 +1,7 @@
 import type { AIServiceResponse, SystemPromptConfig } from "../../types/ai-types";
 import { logger } from "../../utils/logger";
 import { OpenAIService } from "./OpenAIService";
+import { getModelCapabilities } from "./modelCapabilities";
 
 function getErrorMessage(error: unknown): string | undefined {
 	if (typeof error === "string") {
@@ -39,6 +40,22 @@ export class DeepSeekService extends OpenAIService {
 		if (baseUrl) {
 			this.baseUrl = baseUrl;
 		}
+	}
+
+	protected buildChatCompletionBody(
+		messages: Array<{ role: "system" | "user" | "assistant"; content: string }>,
+		temperature: number,
+		maxTokens: number,
+		responseFormat?: "json_object"
+	): Record<string, unknown> {
+		const body = super.buildChatCompletionBody(messages, temperature, maxTokens, responseFormat);
+		const capabilities = getModelCapabilities("deepseek", this.model);
+
+		if (capabilities.omitTemperature) {
+			delete body.temperature;
+		}
+
+		return body;
 	}
 
 	/**

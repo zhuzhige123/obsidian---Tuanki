@@ -1,6 +1,7 @@
 import { App, Modal } from "obsidian";
 import { mount, unmount } from "svelte";
 import type { Card } from "../../data/types";
+import type { ResolvedDeckRef } from "../../types/emergent-deck-types";
 import type WeavePlugin from "../../main";
 import QuestionBankCardDetailModal from "./QuestionBankCardDetailModal.svelte";
 import ViewCardModal from "./ViewCardModal.svelte";
@@ -9,6 +10,7 @@ export interface ViewCardModalObsidianOptions {
 	plugin: WeavePlugin;
 	card: Card;
 	allDecks?: Array<{ id: string; name: string }>;
+	resolvedDeckRefs?: ResolvedDeckRef[];
 	onClose?: () => void;
 }
 
@@ -47,13 +49,16 @@ export class ViewCardModalObsidian extends Modal {
 			overflow: "hidden",
 		});
 
+		const props = {
+			card: this.options.card,
+			plugin: this.options.plugin,
+			allDecks: this.options.allDecks,
+			...(isTestCard ? {} : { resolvedDeckRefs: this.options.resolvedDeckRefs }),
+		};
+
 		this.component = mount(ModalComponent, {
 			target: this.contentEl,
-			props: {
-				card: this.options.card,
-				plugin: this.options.plugin,
-				allDecks: this.options.allDecks,
-			},
+			props,
 		});
 	}
 

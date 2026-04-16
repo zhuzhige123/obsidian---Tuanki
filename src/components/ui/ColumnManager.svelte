@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { vaultStorage } from '../../utils/vault-local-storage';
-  import type { ColumnVisibility, ColumnKey, ColumnOrder, ColumnGroupType } from '../tables/types/table-types';
+  import type { ColumnVisibility, ColumnKey, ColumnOrder, ColumnGroupType, ColumnGroups } from '../tables/types/table-types';
   import { COLUMN_GROUPS } from '../tables/types/table-types';
 
   interface Props {
     visibility: ColumnVisibility;
     columnOrder: ColumnOrder;
+    columnGroups?: ColumnGroups;
     onVisibilityChange: (key: ColumnKey, value: boolean) => void;
     onOrderChange: (newOrder: ColumnOrder) => void;
     quickPresets?: Array<{
@@ -22,6 +23,7 @@
   let {
     visibility,
     columnOrder,
+    columnGroups = COLUMN_GROUPS,
     onVisibilityChange,
     onOrderChange,
     quickPresets = [],
@@ -62,12 +64,15 @@
     ir_state: "阅读状态",
     ir_priority: "优先级",
     ir_tags: "标签",
-    ir_favorite: "收藏",
     ir_next_review: "下次复习",
     ir_review_count: "复习次数",
     ir_reading_time: "阅读时长",
-    ir_notes: "笔记",
-    ir_extracted_cards: "已提取卡片",
+    ir_notes: "关联笔记",
+    ir_extract_cards: "摘录卡",
+    ir_memory_cards: "记忆卡",
+    ir_source_kind: "来源类型",
+    ir_source_subunit: "目录书签",
+    ir_tag_group: "标签组",
     ir_created: "创建时间",
     ir_decks: "专题",
   };
@@ -86,20 +91,20 @@
   
   const basicColumns = $derived(
     safeColumnOrder.filter(key => 
-      COLUMN_GROUPS.basic?.includes(key) && !COLUMN_GROUPS.advanced?.includes(key)
+      columnGroups.basic?.includes(key) && !columnGroups.advanced?.includes(key)
     )
   );
 
   const reviewColumns = $derived(
     safeColumnOrder.filter(key => 
-      COLUMN_GROUPS.review?.includes(key) && 
-      !COLUMN_GROUPS.basic?.includes(key) &&
-      !COLUMN_GROUPS.advanced?.includes(key)
+      columnGroups.review?.includes(key) && 
+      !columnGroups.basic?.includes(key) &&
+      !columnGroups.advanced?.includes(key)
     )
   );
 
   const advancedColumns = $derived(
-    safeColumnOrder.filter(key => COLUMN_GROUPS.advanced?.includes(key))
+    safeColumnOrder.filter(key => columnGroups.advanced?.includes(key))
   );
 
   const basicSelectedCount = $derived(basicColumns.filter((key) => visibility[key]).length);
@@ -131,8 +136,8 @@
    * 判断字段属于哪个分组
    */
   function getColumnGroup(key: ColumnKey): ColumnGroupType {
-    if (COLUMN_GROUPS.advanced.includes(key)) return 'advanced';
-    if (COLUMN_GROUPS.review.includes(key) && !COLUMN_GROUPS.basic.includes(key)) {
+    if (columnGroups.advanced.includes(key)) return 'advanced';
+    if (columnGroups.review.includes(key) && !columnGroups.basic.includes(key)) {
       return 'review';
     }
     return 'basic';
@@ -142,7 +147,7 @@
    * 判断是否为通用字段
    */
   function isSharedColumn(key: ColumnKey): boolean {
-    return COLUMN_GROUPS.shared.includes(key);
+    return columnGroups.shared.includes(key);
   }
 
   /**
@@ -672,3 +677,4 @@
     }
   }
 </style>
+    columnGroups?: ColumnGroups;

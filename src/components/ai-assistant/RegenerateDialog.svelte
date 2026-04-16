@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { GeneratedCard } from '../../types/ai-types';
+  import type { AICardPreviewItem, GeneratedCard } from '../../types/ai-types';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
 
   interface Message {
@@ -9,11 +9,12 @@
   }
 
   interface Props {
-    currentCard: GeneratedCard;
+    currentItem?: AICardPreviewItem;
+    currentCard?: GeneratedCard;
     onRegenerate: (instruction: string) => Promise<void>;
   }
 
-  let { currentCard, onRegenerate }: Props = $props();
+  let { currentItem = undefined, currentCard = undefined, onRegenerate }: Props = $props();
 
   // ===== 状态管理 =====
   let instruction = $state('');

@@ -22,7 +22,7 @@ import type { ApiResponse, Card, Deck } from "../../data/types";
 import type { WeavePlugin } from "../../main";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
-import { getCardDeckIds, getCardMetadata, setCardProperties } from "../../utils/yaml-utils";
+import { getCardDeckIds, setCardProperties } from "../../utils/yaml-utils";
 
 export interface CreateDeckFromCardsOptions {
 	/** 牌组名称 */
@@ -432,9 +432,14 @@ export class ReferenceDeckService {
 	 * 同时更新 YAML 中的 we_decks 和兼容字段 referencedByDecks
 	 */
 	private async addDeckReferenceToCards(deckId: string, cardUUIDs: string[]): Promise<void> {
-		const targetDeck = await this.plugin.dataStorage.getDeck(deckId);
-		const deckName = targetDeck?.name || deckId;
+		const allDecks = await this.plugin.dataStorage.getDecks();
+		const deckById = new Map(allDecks.map((deck) => [deck.id, deck] as const));
+		const targetDeck = deckById.get(deckId) || (await this.plugin.dataStorage.getDeck(deckId));
+		if (!targetDeck) {
+			return;
+		}
 		const updatedCards: Card[] = [];
+		const staleDeckRemovals = new Map<string, Set<string>>();
 
 		for (const uuid of cardUUIDs) {
 			const card = await this.findCardByUUID(uuid);
@@ -442,28 +447,66 @@ export class ReferenceDeckService {
 				continue;
 			}
 
-			const refs = new Set(card.referencedByDecks || []);
-			refs.add(deckId);
-			card.referencedByDecks = Array.from(refs);
-
-			const metadata = getCardMetadata(card.content || "");
-			const weDecks = new Set(metadata.we_decks || []);
-			weDecks.add(deckName);
+			const currentDeckIds = getCardDeckIds(card, allDecks).deckIds;
+			const previousFormalDeckId = currentDeckIds.find(
+				(currentDeckId) => deckById.get(currentDeckId)?.purpose !== "test"
+			);
+			const preservedTestDeckIds = currentDeckIds.filter(
+				(currentDeckId) => deckById.get(currentDeckId)?.purpose === "test"
+			);
+			const nextDeckIds =
+				targetDeck.purpose === "test"
+					? Array.from(new Set([...currentDeckIds, deckId]))
+					: [deckId, ...preservedTestDeckIds.filter((currentDeckId) => currentDeckId !== deckId)];
+			const nextDeckNames = nextDeckIds.map(
+				(currentDeckId) => deckById.get(currentDeckId)?.name || currentDeckId
+			);
 			card.content = setCardProperties(card.content || "", {
-				we_decks: Array.from(weDecks),
+				we_decks: nextDeckNames.length > 0 ? nextDeckNames : undefined,
 			});
+			card.referencedByDecks = nextDeckIds;
+			if (nextDeckIds.length > 0) {
+				card.deckId = nextDeckIds[0];
+			} else {
+				(card as Partial<Card>).deckId = undefined;
+			}
 
 			card.modified = new Date().toISOString();
 			updatedCards.push(card);
+
+			if (
+				targetDeck.purpose !== "test" &&
+				previousFormalDeckId &&
+				previousFormalDeckId !== deckId
+			) {
+				const removalSet = staleDeckRemovals.get(previousFormalDeckId) || new Set<string>();
+				removalSet.add(uuid);
+				staleDeckRemovals.set(previousFormalDeckId, removalSet);
+			}
 		}
 
 		if (updatedCards.length > 0) {
 			const cardsToSave = updatedCards.map((card) => {
 				const cloned: any = { ...card };
-				cloned.deckId = undefined;
 				return cloned as Card;
 			});
 			await this.plugin.dataStorage.saveCardsBatch(cardsToSave);
+		}
+
+		for (const [staleDeckId, removalSet] of staleDeckRemovals.entries()) {
+			const staleDeck = deckById.get(staleDeckId);
+			if (!staleDeck) {
+				continue;
+			}
+
+			const nextCardUUIDs = (staleDeck.cardUUIDs || []).filter((uuid) => !removalSet.has(uuid));
+			if (nextCardUUIDs.length === (staleDeck.cardUUIDs || []).length) {
+				continue;
+			}
+
+			staleDeck.cardUUIDs = nextCardUUIDs;
+			staleDeck.modified = new Date().toISOString();
+			await this.plugin.dataStorage.saveDeck(staleDeck);
 		}
 
 		logger.debug(`[ReferenceDeck] 批量更新了 ${updatedCards.length} 张卡片的牌组引用`);
@@ -478,8 +521,12 @@ export class ReferenceDeckService {
 		deckId: string,
 		cardUUIDs: string[]
 	): Promise<string[]> {
-		const targetDeck = await this.plugin.dataStorage.getDeck(deckId);
-		const deckName = targetDeck?.name || deckId;
+		const allDecks = await this.plugin.dataStorage.getDecks();
+		const deckById = new Map(allDecks.map((deck) => [deck.id, deck] as const));
+		const targetDeck = deckById.get(deckId) || (await this.plugin.dataStorage.getDeck(deckId));
+		if (!targetDeck) {
+			return [];
+		}
 		const orphanedCards: string[] = [];
 		const updatedCards: Card[] = [];
 
@@ -489,22 +536,27 @@ export class ReferenceDeckService {
 				continue;
 			}
 
-			const refs = new Set(card.referencedByDecks || []);
-			refs.delete(deckId);
-			card.referencedByDecks = Array.from(refs);
-
-			const metadata = getCardMetadata(card.content || "");
-			const weDecks = new Set(metadata.we_decks || []);
-			weDecks.delete(deckName);
-			const remainingDeckNames = Array.from(weDecks);
+			const currentDeckIds = getCardDeckIds(card, allDecks).deckIds;
+			const remainingDeckIds =
+				targetDeck.purpose === "test"
+					? currentDeckIds.filter((currentDeckId) => currentDeckId !== deckId)
+					: currentDeckIds.filter((currentDeckId) => deckById.get(currentDeckId)?.purpose === "test");
+			const remainingDeckNames = remainingDeckIds.map(
+				(currentDeckId) => deckById.get(currentDeckId)?.name || currentDeckId
+			);
 			card.content = setCardProperties(card.content || "", {
 				we_decks: remainingDeckNames.length > 0 ? remainingDeckNames : undefined,
 			});
+			card.referencedByDecks = remainingDeckIds;
+			if (remainingDeckIds.length > 0) {
+				card.deckId = remainingDeckIds[0];
+			} else {
+				(card as Partial<Card>).deckId = undefined;
+			}
 
 			card.modified = new Date().toISOString();
 
-			const updatedMetadata = getCardMetadata(card.content || "");
-			if ((updatedMetadata.we_decks || []).length === 0) {
+			if (remainingDeckIds.length === 0) {
 				orphanedCards.push(uuid);
 			}
 
@@ -514,7 +566,6 @@ export class ReferenceDeckService {
 		if (updatedCards.length > 0) {
 			const cardsToSave = updatedCards.map((card) => {
 				const cloned: any = { ...card };
-				cloned.deckId = undefined;
 				return cloned as Card;
 			});
 			await this.plugin.dataStorage.saveCardsBatch(cardsToSave);
@@ -556,17 +607,6 @@ export class ReferenceDeckService {
 			if (cardsToMove.length === 0) {
 				logger.debug(`[ReferenceDeck] 牌组 ${deckId} 没有卡片需要迁移`);
 				return;
-			}
-
-			if (!this.plugin.cardFileService) {
-				const { initCardFileService } = await import("./CardFileService");
-				this.plugin.cardFileService = initCardFileService(this.plugin);
-				await this.plugin.cardFileService.initialize();
-			} else {
-				const cardsFolder = getV2PathsFromApp(this.plugin.app).memory.cards;
-				if (!(await this.plugin.app.vault.adapter.exists(cardsFolder))) {
-					await this.plugin.cardFileService.initialize();
-				}
 			}
 
 			const now = new Date().toISOString();

@@ -41,8 +41,8 @@
       irContent: {
         core: ['ir_title'],
         schedule: ['ir_state', 'ir_priority', 'ir_next_review', 'ir_review_count', 'ir_reading_time'],
-        content: ['ir_notes', 'ir_extracted_cards', 'ir_favorite'],
-        meta: ['ir_source_file', 'ir_tags', 'ir_decks', 'ir_created'],
+        content: ['ir_notes', 'ir_extract_cards', 'ir_memory_cards'],
+        meta: ['ir_source_file', 'ir_source_kind', 'ir_source_subunit', 'ir_tags', 'ir_decks', 'ir_created'],
       },
     };
     

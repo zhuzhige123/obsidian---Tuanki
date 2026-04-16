@@ -34,6 +34,7 @@ import { IREpubBookmarkTaskService, isEpubBookmarkTaskId } from "./IREpubBookmar
 import { IRPdfBookmarkTaskService, isPdfBookmarkTaskId } from "./IRPdfBookmarkTaskService";
 import { IRPlanGeneratorService } from "./IRPlanGeneratorService";
 import { IRQueueGeneratorV4 } from "./IRQueueGeneratorV4";
+import { getSharedIRScheduleKernel } from "./IRScheduleKernel";
 import type {
 	IRPlannedDay,
 	IRPlannedScheduleItem,
@@ -446,7 +447,7 @@ export class IRV4SchedulerService {
 			epubTaskBlocks = bookmarkBlocks.epubTaskBlocks;
 		} catch (error) {
 			logger.warn(
-				"[IRV4SchedulerService] 璇诲彇 PDF/EPUB 涔︾浠诲姟澶辫触锛堝皢缁х画浠呬娇鐢?chunk 闃熷垪锛?",
+				"[IRV4SchedulerService] 读取 PDF/EPUB 书签任务失败（将继续仅使用 chunk 队列）",
 				error
 			);
 		}
@@ -1834,76 +1835,25 @@ export class IRV4SchedulerService {
 		updatedBlock: IRBlockV4
 	): Promise<IRFuturePlanPreview | undefined> {
 		try {
-			const advSettings = this.getAdvancedSettingsSnapshot();
-			const timeBudgetMinutes = advSettings.dailyTimeBudgetMinutes ?? 40;
-			const chunkBlocks = await this.storageAdapterV4.getBlocksByDeckV4(deckPath);
-
-			let pdfTaskBlocks: IRBlockV4[] = [];
-			let epubTaskBlocks: IRBlockV4[] = [];
-			try {
-				const bookmarkBlocks = await this.collectBookmarkTaskBlocks(deckPath);
-				pdfTaskBlocks = bookmarkBlocks.pdfTaskBlocks;
-				epubTaskBlocks = bookmarkBlocks.epubTaskBlocks;
-			} catch (error) {
-				logger.warn("[IRV4SchedulerService] futurePlanPreview 读取 PDF 任务失败:", error);
-			}
-			/*
-
-			let epubTaskBlocks: IRBlockV4[] = [];
-			try {
-				const tasks = await this._epubBookmarkTaskService.getTasksByDeck(deckPath);
-				epubTaskBlocks = tasks.map((task) => this._epubBookmarkTaskService.toBlockV4(task));
-			} catch (error) {
-				logger.warn("[IRV4SchedulerService] futurePlanPreview 读取 EPUB 任务失败:", error);
-			}
-
-			*/
-			const mergedBlocks = [...chunkBlocks, ...pdfTaskBlocks, ...epubTaskBlocks];
-			const afterBlockMap = new Map<string, IRBlockV4>(
-				mergedBlocks.map((block) => [block.id, block])
-			);
-			afterBlockMap.set(updatedBlock.id, updatedBlock);
-			const beforeBlockMap = new Map<string, IRBlockV4>(afterBlockMap);
-			beforeBlockMap.set(originalBlock.id, originalBlock);
-
-			const beforeCandidateBlocks = Array.from(beforeBlockMap.values()).filter((_block) => {
-				return (
-					_block.status !== "done" && _block.status !== "suspended" && _block.status !== "removed"
-				);
-			});
-			const afterCandidateBlocks = Array.from(afterBlockMap.values()).filter((_block) => {
-				return (
-					_block.status !== "done" && _block.status !== "suspended" && _block.status !== "removed"
-				);
-			});
-
-			const beforePlan = this.planGenerator.generatePlan(
-				beforeCandidateBlocks.map((block) =>
-					this.toPlannedItem(block, originalBlock.sourcePath || null)
-				),
+			const kernel = getSharedIRScheduleKernel(this.app);
+			const impact = await kernel.previewScheduleImpact(
 				{
-					horizonDays: 7,
-					dailyBudgetMinutes: timeBudgetMinutes,
-					enableInterleaving: advSettings.interleaveMode !== false,
-					maxConsecutiveSameTopic: advSettings.maxConsecutiveSameTopic ?? 3,
+					itemId: originalBlock.id,
+					manualPriority: updatedBlock.priorityUi,
+					effectivePriority: updatedBlock.priorityEff,
+					nextRepDate: updatedBlock.nextRepDate,
+					intervalDays: updatedBlock.intervalDays,
+					scheduleStatus: updatedBlock.status,
+				},
+				{
+					deckIds: [deckPath],
 				}
 			);
-			const afterPlan = this.planGenerator.generatePlan(
-				afterCandidateBlocks.map((block) =>
-					this.toPlannedItem(block, updatedBlock.sourcePath || null)
-				),
-				{
-					horizonDays: 7,
-					dailyBudgetMinutes: timeBudgetMinutes,
-					enableInterleaving: advSettings.interleaveMode !== false,
-					maxConsecutiveSameTopic: advSettings.maxConsecutiveSameTopic ?? 3,
-				}
-			);
-			const changeSummary = this.summarizeFuturePlanChanges(beforePlan.days, afterPlan.days);
+			const changeSummary = this.summarizeFuturePlanChanges(impact.before.days, impact.after.days);
 
 			return {
-				generatedAt: Date.now(),
-				days: afterPlan.days,
+				generatedAt: impact.after.generatedAt,
+				days: impact.after.days,
 				changeSummary,
 			};
 		} catch (error) {

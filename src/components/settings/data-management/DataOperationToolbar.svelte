@@ -14,8 +14,6 @@
     onExport?: () => Promise<void>;
     onImport?: () => Promise<void>;
     onReset?: () => Promise<void>;
-    onOpenFolder?: () => Promise<void>;
-    onCheckIntegrity?: () => Promise<void>;
   }
 
   let { 
@@ -23,9 +21,7 @@
     operationInProgress = null,
     onExport,
     onImport,
-    onReset,
-    onOpenFolder,
-    onCheckIntegrity
+    onReset
   }: Props = $props();
 
   // 响应式翻译
@@ -35,19 +31,10 @@
     export: void;
     import: void;
     reset: void;
-    openFolder: void;
-    checkIntegrity: void;
   }>();
 
   // 操作按钮配置
   let operations = $derived([
-    {
-      id: 'checkIntegrity',
-      label: t('dataManagement.backup.operations.integrityCheck'),
-      variant: 'info',
-      handler: onCheckIntegrity,
-      event: 'checkIntegrity'
-    },
     {
       id: 'export',
       label: t('dataManagement.backup.operations.exportData'),
@@ -110,7 +97,7 @@
 <div class="data-operation-toolbar" class:disabled>
   <!-- 工具栏标题 -->
   <div class="toolbar-header">
-    <h3 class="section-title with-accent-bar accent-green">{t('dataManagement.title')}</h3>
+    <h3 class="section-title with-accent-bar accent-green">{t('settings.categories.dataManagement')}</h3>
   </div>
 
   <!-- 操作按钮网格 -->

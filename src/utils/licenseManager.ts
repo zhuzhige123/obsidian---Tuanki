@@ -40,7 +40,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 
 	private readonly PRODUCT_ID = "weave-obsidian-plugin";
 	private readonly LEGACY_PRODUCT_ID = "tuanki-obsidian-plugin";
-        private readonly CURRENT_VERSION = "0.7.7.2";
+        private readonly CURRENT_VERSION = "0.7.8";
 
 	constructor() {
 		this.cloudValidator = new CloudLicenseValidator();

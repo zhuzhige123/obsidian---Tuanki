@@ -1,4 +1,4 @@
-export type KanbanSelectionGroupBy = "status" | "type" | "priority" | "deck" | "createTime" | "tag";
+export type KanbanSelectionGroupBy = "status" | "type" | "priority" | "deck" | "createTime" | "tag" | "ir_tag_group";
 
 const DECK_SELECTION_SEPARATOR = "::";
 

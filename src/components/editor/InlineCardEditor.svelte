@@ -349,11 +349,27 @@
       let nextDeckNames: string[] = [];
       if (shouldBackfillDecks) {
         if (Array.isArray(selectedDeckNames) && selectedDeckNames.length > 0) {
-          nextDeckNames = selectedDeckNames;
+          nextDeckNames = [selectedDeckNames[0]];
         } else {
           const deckName = decks?.find(d => d.id === selectedDeckId)?.name;
           if (deckName) nextDeckNames = [deckName];
         }
+      }
+
+      const currentDeckIds = getCardDeckIds(card, decks).deckIds;
+      const preservedTestDeckIds = currentDeckIds.filter((deckId) => {
+        const matchedDeck = decks?.find(d => d.id === deckId);
+        return matchedDeck?.purpose === 'test';
+      });
+      const runtimeDeckIds = selectedDeckId
+        ? [selectedDeckId, ...preservedTestDeckIds.filter((deckId) => deckId !== selectedDeckId)]
+        : preservedTestDeckIds;
+
+      updatedCard.referencedByDecks = runtimeDeckIds;
+      if (runtimeDeckIds.length > 0) {
+        updatedCard.deckId = runtimeDeckIds[0];
+      } else {
+        (updatedCard as Partial<Card>).deckId = undefined;
       }
 
       if (updatedCard.content) {
@@ -602,6 +618,8 @@
             options={decks}
             onchange={(value) => {
               selectedDeckId = value;
+              const nextDeckName = decks?.find(d => d.id === value)?.name;
+              selectedDeckNames = nextDeckName ? [nextDeckName] : [];
               deckSelectionTouched = true;
               logger.debug('[InlineCardEditor] 牌组选择变更:', selectedDeckId);
             }}

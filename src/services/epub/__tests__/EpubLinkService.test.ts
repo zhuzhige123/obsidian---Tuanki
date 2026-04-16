@@ -87,6 +87,28 @@ describe('EpubLinkService legacy link compatibility', () => {
 		});
 	});
 
+	it('preserves source identity inside epub source links', () => {
+		const service = new EpubLinkService({} as any);
+		const built = service.buildEpubLink(
+			'Books/demo.epub',
+			'epubcfi(/6/2)',
+			'Hello',
+			undefined,
+			undefined,
+			undefined,
+			'epubsrc-fixed'
+		);
+
+		expect(built).toBe('[[Books/demo.epub#weave-cfi=epubcfi(/6/2)&sid=epubsrc-fixed|demo]]');
+		expect(EpubLinkService.parseLinkMarkup(built)).toEqual({
+			filePath: 'Books/demo.epub',
+			cfi: 'epubcfi(/6/2)',
+			text: '',
+			chapter: undefined,
+			sourceId: 'epubsrc-fixed',
+		});
+	});
+
 	it('keeps compact readium locators short without duplicating text payloads', () => {
 		const service = new EpubLinkService({} as any);
 		const compactLocator = buildCompactReadiumLocator('OPS/text/chapter1.xhtml', '0.125', 'Hello world');
@@ -149,5 +171,39 @@ describe('EpubLinkService legacy link compatibility', () => {
 			changed: true,
 			updatedLinks: 2,
 		});
+	});
+
+	it('enriches existing epub links with source ids without changing the locator', async () => {
+		const writtenFiles = new Map<string, string>();
+		const service = new EpubLinkService({
+			vault: {
+				getAbstractFileByPath: () => null,
+				adapter: {
+					exists: async (path: string) =>
+						path === 'Books/demo.epub' ||
+						path === 'weave' ||
+						path === 'weave/incremental-reading' ||
+						path === 'weave/incremental-reading/epub-reading' ||
+						path === 'weave/incremental-reading/epub-reading/epub-source-registry.json',
+					readBinary: async () => new TextEncoder().encode('demo-binary'),
+					read: async () => writtenFiles.get('weave/incremental-reading/epub-reading/epub-source-registry.json') || '[]',
+					write: async (path: string, content: string) => {
+						writtenFiles.set(path, content);
+					},
+					mkdir: async () => {},
+				},
+			},
+			plugins: {
+				getPlugin: () => ({ settings: { weaveParentFolder: '' } }),
+			},
+		} as any);
+
+		const result = await service.enrichEpubLinksWithSourceIdsInContent(
+			'前文 [[Books/demo.epub#weave-cfi=readium:abc|demo]] 后文'
+		);
+
+		expect(result.changed).toBe(true);
+		expect(result.updatedLinks).toBe(1);
+		expect(result.content).toMatch(/\[\[Books\/demo\.epub#weave-cfi=readium:abc&sid=epubsrc-/);
 	});
 });

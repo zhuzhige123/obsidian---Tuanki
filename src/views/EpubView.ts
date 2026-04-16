@@ -48,6 +48,7 @@ export class EpubView extends ItemView {
 	private canvasDirection: CanvasLayoutDirection = "down";
 	private resumePointBtn: HTMLElement | null = null;
 	private bookmarkBtn: HTMLElement | null = null;
+	private lastOpenBookmarkBtn: HTMLElement | null = null;
 	private actionHandlers: {
 		setAutoInsert?: (enabled: boolean) => void;
 		setScreenshotMode?: (active: boolean) => void;
@@ -57,6 +58,7 @@ export class EpubView extends ItemView {
 		navigateToCfi?: (cfi: string, text: string) => void;
 		toggleTutorial?: () => void;
 		addBookmark?: () => Promise<void>;
+		saveLastOpenBookmark?: () => Promise<void>;
 		bindCanvasPath?: (canvasPath: string) => void;
 		unbindCanvas?: () => void;
 		getCanvasService?: () => EpubCanvasService;
@@ -167,6 +169,9 @@ export class EpubView extends ItemView {
 			this.bookmarkBtn = this.addAction("bookmark", "切换书签", () => {
 				void this.actionHandlers.addBookmark?.();
 			});
+			this.lastOpenBookmarkBtn = this.addAction("bookmark-check", "保存最后阅读点", () => {
+				void this.actionHandlers.saveLastOpenBookmark?.();
+			});
 		} else {
 			this.flowBtn = this.addAction("arrow-up-down", "阅读模式：翻页", () => {
 				this.toggleFlowMode();
@@ -183,6 +188,9 @@ export class EpubView extends ItemView {
 			});
 			this.bookmarkBtn = this.addAction("bookmark", "切换书签", () => {
 				void this.actionHandlers.addBookmark?.();
+			});
+			this.lastOpenBookmarkBtn = this.addAction("bookmark-check", "保存最后阅读点", () => {
+				void this.actionHandlers.saveLastOpenBookmark?.();
 			});
 			this.resumePointBtn = this.addAction("bookmark-plus", "增量阅读续读点", () => {
 				void this.actionHandlers.markIRResumePoint?.();
@@ -565,6 +573,13 @@ export class EpubView extends ItemView {
 			_item.setIcon("bookmark");
 			_item.onClick(() => {
 				void this.actionHandlers.addBookmark?.();
+			});
+		});
+		menu.addItem((_item) => {
+			_item.setTitle("保存最后阅读点");
+			_item.setIcon("bookmark-check");
+			_item.onClick(() => {
+				void this.actionHandlers.saveLastOpenBookmark?.();
 			});
 		});
 		menu.addItem((_item) => {

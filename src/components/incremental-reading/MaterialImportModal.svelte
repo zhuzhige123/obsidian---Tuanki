@@ -27,15 +27,18 @@
   import { DEFAULT_RULE_SPLIT_CONFIG, SPLIT_MARKER_REGEX, generateSplitMarker } from '../../types/content-split-types';
   import { splitByRules, parseManualSplitMarkers } from '../../utils/content-split-utils';
   import { IRChunkFileService } from '../../services/incremental-reading/IRChunkFileService';
+  import { IRPointWriteService } from '../../services/incremental-reading/IRPointWriteService';
   import { IRTagGroupService } from '../../services/incremental-reading/IRTagGroupService';
   import { IRPdfBookmarkTaskService } from '../../services/incremental-reading/IRPdfBookmarkTaskService';
   import { IREpubBookmarkTaskService } from '../../services/incremental-reading/IREpubBookmarkTaskService';
   import { IRV4SchedulerService } from '../../services/incremental-reading/IRV4SchedulerService';
   import { createEpubReaderEngine } from '../../services/epub';
+  import { EpubStorageService } from '../../services/epub/EpubStorageService';
   import type { TocItem } from '../../services/epub/types';
   import type { SchedulingConfig, SchedulingImpact } from '../../types/ir-import-scheduling';
   import { DEFAULT_SCHEDULING_CONFIG, SCHEDULING_PRESETS } from '../../types/ir-import-scheduling';
   import { IRImportSchedulingService, type IRLoadInfo } from '../../services/incremental-reading/IRImportSchedulingService';
+  import { getProjectedDayLoad, getProjectedScheduleSummary } from '../../services/incremental-reading/IRProjectedScheduleSummary';
   import { recomputeAndBroadcastIRData } from '../../services/incremental-reading/IRScheduleRefreshService';
   import { extractBodyContent } from '../../utils/yaml-utils';
   import { ReadingCategory } from '../../types/incremental-reading-types';
@@ -58,11 +61,11 @@
     try {
       await services.init();
 
+      const pointWriteService = new IRPointWriteService(plugin.app);
       const pdfService = new IRPdfBookmarkTaskService(plugin.app);
       await pdfService.initialize();
       const scheduler = new IRV4SchedulerService(plugin.app);
       await scheduler.initialize();
-      const allPdfTasks = await pdfService.getAllTasks();
       const selectedDeck = availableDecks.find(d => d.id === selectedDeckId);
       const deckIdentifiers = [selectedDeckId, selectedDeck?.path].filter(
         (value): value is string => Boolean(value && value.trim())
@@ -70,47 +73,12 @@
 
       let assignments: Map<ContentBlock, Date> | null = null;
       if (contentBlocks.length > 0) {
-        const loadInfo: IRLoadInfo = {
-          dailyBudgetMinutes: 60,
-          getBlocksForDate: async (date: Date) => {
-            const allChunks = await services.storageService?.getAllChunkData() || {};
-            const chunks = Object.values(allChunks);
-            const startOfDay = new Date(date);
-            startOfDay.setHours(0, 0, 0, 0);
-            const endOfDay = new Date(date);
-            endOfDay.setHours(23, 59, 59, 999);
-
-            const chunkBlocks = chunks.filter((chunk: any) => {
-              if (!chunk.nextRepDate) return false;
-              if (chunk.scheduleStatus === 'done' || chunk.scheduleStatus === 'suspended' || chunk.scheduleStatus === 'removed') return false;
-              const d = new Date(chunk.nextRepDate);
-              return d >= startOfDay && d <= endOfDay;
-            }) as any;
-
-            const pdfBlocks = allPdfTasks.filter((t: any) => {
-              if (!t?.nextRepDate) return false;
-              if (t.status === 'done' || t.status === 'suspended' || t.status === 'removed') return false;
-              const d = new Date(t.nextRepDate);
-              return d >= startOfDay && d <= endOfDay;
-            }) as any;
-
-            return [...chunkBlocks, ...pdfBlocks] as any;
-          },
-          estimateBlockMinutes: (block: any) => {
-            const charCount = 'content' in block ? block.content.length : 200;
-            return Math.max(1, Math.ceil(charCount / 500));
-          }
-        };
-
-        if (!schedulingService) {
-          schedulingService = new IRImportSchedulingService(loadInfo);
-        }
-
-        schedulingImpact = await schedulingService.calculateScheduling(
+        const schedulingResult = await calculateProjectedScheduling(
           contentBlocks,
-          schedulingConfig
+          (block) => estimateContentBlockMinutes(block, 200)
         );
-        assignments = schedulingService.applyScheduling(contentBlocks, schedulingImpact);
+        schedulingImpact = schedulingResult.impact;
+        assignments = schedulingResult.assignments;
       }
 
       const existing = await pdfService.getTasksByDeckIdentifiers(deckIdentifiers);
@@ -150,7 +118,7 @@
         }
 
         try {
-          const created = await pdfService.createTask({
+          const created = await pointWriteService.createPdfPoint({
             deckId: selectedDeckId,
             pdfPath,
             title: block.title || 'PDF',
@@ -239,6 +207,7 @@
     href: string;
     level: number;
     filePath: string;
+    sourceId?: string;
     bookTitle: string;
   }
 
@@ -268,7 +237,6 @@
   let schedulingConfig = $state<SchedulingConfig>({ ...DEFAULT_SCHEDULING_CONFIG });
   let schedulingImpact = $state<SchedulingImpact | null>(null);
   let showSchedulingDetails = $state(false);
-  let schedulingService: IRImportSchedulingService | null = null;
   let useCustomDays = $state(false);
   let customDaysValue = $state(21);
 
@@ -284,6 +252,58 @@
   let epubSelectedItems = $state<Set<string>>(new Set());
   let loadingToc = $state(false);
   let epubFilePath = $state('');
+
+  function getSchedulingDailyBudgetMinutes(): number {
+    return plugin.settings.incrementalReading?.dailyTimeBudgetMinutes || 60;
+  }
+
+  function estimateContentBlockMinutes(block: ContentBlock, fallbackChars = 500): number {
+    const explicitCharCount = Number((block as any)?.charCount || 0);
+    const contentLength = typeof block?.content === 'string' ? block.content.length : 0;
+    const charCount = contentLength > 0 ? contentLength : explicitCharCount > 0 ? explicitCharCount : fallbackChars;
+    return Math.max(1, Math.ceil(charCount / 500));
+  }
+
+  function resolveExistingLoadMinutes(
+    block: any,
+    fallbackEstimator: (block: ContentBlock) => number
+  ): number {
+    const projectedMinutes = Number(block?.estimatedMinutes);
+    if (Number.isFinite(projectedMinutes) && projectedMinutes > 0) {
+      return projectedMinutes;
+    }
+    return fallbackEstimator(block as ContentBlock);
+  }
+
+  async function createProjectedImportLoadInfo(
+    fallbackEstimator: (block: ContentBlock) => number
+  ): Promise<IRLoadInfo> {
+    if (!selectedDeckId) {
+      throw new Error('[MaterialImportModal] 未选择专题，无法生成导入负载信息');
+    }
+
+    const summary = await getProjectedScheduleSummary(plugin.app, {
+      deckIds: [selectedDeckId],
+      horizonDays: Math.max(1, schedulingConfig.distributionDays || 1)
+    });
+
+    return {
+      dailyBudgetMinutes: getSchedulingDailyBudgetMinutes(),
+      getBlocksForDate: async (date: Date) => getProjectedDayLoad(summary, date).items,
+      estimateBlockMinutes: (block: any) => resolveExistingLoadMinutes(block, fallbackEstimator)
+    };
+  }
+
+  async function calculateProjectedScheduling(
+    blocks: ContentBlock[],
+    fallbackEstimator: (block: ContentBlock) => number
+  ): Promise<{ impact: SchedulingImpact; assignments: Map<ContentBlock, Date> }> {
+    const loadInfo = await createProjectedImportLoadInfo(fallbackEstimator);
+    const schedulingService = new IRImportSchedulingService(loadInfo);
+    const impact = await schedulingService.calculateScheduling(blocks, schedulingConfig);
+    const assignments = schedulingService.applyScheduling(blocks, impact);
+    return { impact, assignments };
+  }
 
   const selectedCount = $derived.by(() => countSelectedFiles(treeData));
   
@@ -325,41 +345,11 @@
     
     try {
       await services.init();
-      // 创建负载信息对象
-      const loadInfo: IRLoadInfo = {
-        dailyBudgetMinutes: 60, // 默认每日60分钟，后续可从设置读取
-        getBlocksForDate: async (date: Date) => {
-          // 获取指定日期的已有IR块
-          const allChunks = await services.storageService?.getAllChunkData() || {};
-          const chunks = Object.values(allChunks);
-          const startOfDay = new Date(date);
-          startOfDay.setHours(0, 0, 0, 0);
-          const endOfDay = new Date(date);
-          endOfDay.setHours(23, 59, 59, 999);
-
-          return chunks.filter((chunk: any) => {
-            if (!chunk.nextRepDate) return false;
-            if (chunk.scheduleStatus === 'done' || chunk.scheduleStatus === 'suspended' || chunk.scheduleStatus === 'removed') return false;
-            const d = new Date(chunk.nextRepDate);
-            return d >= startOfDay && d <= endOfDay;
-          }) as any;
-        },
-        estimateBlockMinutes: (block: any) => {
-          // 简化估算：每500字符1分钟
-          const charCount = 'content' in block ? block.content.length : 500;
-          return Math.max(1, Math.ceil(charCount / 500));
-        }
-      };
-      
-      // 创建调度服务并计算影响
-      if (!schedulingService) {
-        schedulingService = new IRImportSchedulingService(loadInfo);
-      }
-      
-      schedulingImpact = await schedulingService.calculateScheduling(
+      const schedulingResult = await calculateProjectedScheduling(
         contentBlocks,
-        schedulingConfig
+        (block) => estimateContentBlockMinutes(block, 500)
       );
+      schedulingImpact = schedulingResult.impact;
     } catch (error) {
       logger.error('[MaterialImportModal] 计算调度影响失败:', error);
     }
@@ -1179,6 +1169,7 @@
     selectedFilePath = paths.length === 1 ? paths[0] : null;
     loadingToc = true;
     importProgress = { current: 0, total: paths.length };
+    const epubStorageService = new EpubStorageService(plugin.app);
 
     try {
       const mergedTocTree: TocItem[] = [];
@@ -1196,6 +1187,7 @@
 
         const readerService = createEpubReaderEngine(plugin.app);
         try {
+          const sourceEntry = await epubStorageService.ensureSourceIdentity(filePath);
           await readerService.loadEpub(filePath);
           const tocItems = await readerService.getTableOfContents();
           maxDepth = Math.max(maxDepth, getEpubMaxDepth(tocItems));
@@ -1204,7 +1196,9 @@
             label: tfile.basename,
             href: '',
             level: 0,
-            subitems: tocItems.map((item) => attachEpubItemContext(item, filePath, tfile.basename))
+            subitems: tocItems.map((item) =>
+              attachEpubItemContext(item, filePath, tfile.basename, sourceEntry?.sourceId)
+            )
           });
         } finally {
           readerService.destroy();
@@ -1225,11 +1219,21 @@
     }
   }
 
-  function attachEpubItemContext(item: TocItem, filePath: string, bookTitle: string): TocItem {
+  function attachEpubItemContext(
+    item: TocItem,
+    filePath: string,
+    bookTitle: string,
+    sourceId?: string
+  ): TocItem {
     return {
       ...item,
-      id: `${filePath}::${item.id}`,
-      subitems: item.subitems?.map((subitem) => attachEpubItemContext(subitem, filePath, bookTitle))
+      id: `${sourceId || filePath}::${item.id}`,
+      filePath,
+      bookTitle,
+      sourceId,
+      subitems: item.subitems?.map((subitem) =>
+        attachEpubItemContext(subitem, filePath, bookTitle, sourceId)
+      )
     } as TocItem;
   }
 
@@ -1246,10 +1250,11 @@
 
   function flattenEpubToc(items: TocItem[], maxLevel: number): EpubFlatItem[] {
     const result: EpubFlatItem[] = [];
-    const walk = (list: TocItem[], filePath = '', bookTitle = '') => {
+    const walk = (list: TocItem[], filePath = '', bookTitle = '', sourceId = '') => {
       for (const item of list) {
-        const nextFilePath = filePath || String(item.id.split('::')[0] || '');
-        const nextBookTitle = bookTitle || item.label;
+        const nextSourceId = sourceId || String((item as any).sourceId || item.id.split('::')[0] || '');
+        const nextFilePath = filePath || String((item as any).filePath || '');
+        const nextBookTitle = bookTitle || String((item as any).bookTitle || item.label);
         if (item.href && item.level <= maxLevel) {
           result.push({
             id: item.id,
@@ -1257,11 +1262,12 @@
             href: item.href,
             level: item.level,
             filePath: nextFilePath,
+            sourceId: nextSourceId || undefined,
             bookTitle: nextBookTitle
           });
         }
         if (item.subitems && item.subitems.length > 0) {
-          walk(item.subitems, nextFilePath, nextBookTitle);
+          walk(item.subitems, nextFilePath, nextBookTitle, nextSourceId);
         }
       }
     };
@@ -1311,70 +1317,59 @@
     try {
       await services.init();
 
+      const pointWriteService = new IRPointWriteService(plugin.app);
       const epubService = new IREpubBookmarkTaskService(plugin.app);
       await epubService.initialize();
 
       const selected = epubFlatItems.filter(i => epubSelectedItems.has(i.id));
       const existingHrefMap = new Map<string, Set<string>>();
-      const selectedFilePaths = Array.from(new Set(selected.map(item => item.filePath).filter(Boolean)));
+      const epubStorageService = new EpubStorageService(plugin.app);
+      const selectedIdentities = new Map<string, { filePath: string; sourceId?: string }>();
+      for (const item of selected) {
+        const normalizedPath = String(item.filePath || '').trim();
+        if (!normalizedPath) {
+          continue;
+        }
+        const sourceEntry = item.sourceId
+          ? await epubStorageService.ensureSourceIdentity(normalizedPath, { preferredSourceId: item.sourceId })
+          : await epubStorageService.ensureSourceIdentity(normalizedPath);
+        if (sourceEntry?.sourceId) {
+          item.sourceId = sourceEntry.sourceId;
+        }
+        const identityKey = sourceEntry?.sourceId || item.sourceId || normalizedPath;
+        if (!selectedIdentities.has(identityKey)) {
+          selectedIdentities.set(identityKey, {
+            filePath: normalizedPath,
+            sourceId: sourceEntry?.sourceId || item.sourceId
+          });
+        }
+      }
       const selectedDeck = availableDecks.find(d => d.id === selectedDeckId);
       const deckIdentifiers = [selectedDeckId, selectedDeck?.path].filter(
         (value): value is string => Boolean(value && value.trim())
       );
       const existingDeckTasks = await epubService.getTasksByDeckIdentifiers(deckIdentifiers);
-      for (const filePath of selectedFilePaths) {
-        const existing = existingDeckTasks.filter(t => t.epubFilePath === filePath);
+      for (const [identityKey, identity] of selectedIdentities.entries()) {
+        const existing = existingDeckTasks.filter((task) =>
+          (identity.sourceId && task.sourceId === identity.sourceId) ||
+          task.epubFilePath === identity.filePath
+        );
         existingHrefMap.set(
-          filePath,
+          identityKey,
           new Set(existing.map(t => t.tocHref))
         );
       }
 
-      const newItems = selected.filter(item => !existingHrefMap.get(item.filePath)?.has(item.href));
+      const newItems = selected.filter((item) => {
+        const identityKey = item.sourceId || item.filePath;
+        return !existingHrefMap.get(identityKey)?.has(item.href);
+      });
 
       let assignments: Map<ContentBlock, Date> | null = null;
       if (contentBlocks.length > 0) {
-        const allPdfTasks = await (new IRPdfBookmarkTaskService(plugin.app)).initialize().then(async () => {
-          const svc = new IRPdfBookmarkTaskService(plugin.app);
-          await svc.initialize();
-          return svc.getAllTasks();
-        }).catch(() => []);
-
-        const loadInfo: IRLoadInfo = {
-          dailyBudgetMinutes: 60,
-          getBlocksForDate: async (date: Date) => {
-            const allChunks = await services.storageService?.getAllChunkData() || {};
-            const chunks = Object.values(allChunks);
-            const startOfDay = new Date(date);
-            startOfDay.setHours(0, 0, 0, 0);
-            const endOfDay = new Date(date);
-            endOfDay.setHours(23, 59, 59, 999);
-
-            const chunkBlocks = chunks.filter((chunk: any) => {
-              if (!chunk.nextRepDate) return false;
-              if (chunk.scheduleStatus === 'done' || chunk.scheduleStatus === 'suspended' || chunk.scheduleStatus === 'removed') return false;
-              const d = new Date(chunk.nextRepDate);
-              return d >= startOfDay && d <= endOfDay;
-            }) as any;
-
-            const pdfBlocks = (allPdfTasks as any[]).filter((t: any) => {
-              if (!t?.nextRepDate) return false;
-              if (t.status === 'done' || t.status === 'suspended' || t.status === 'removed') return false;
-              const d = new Date(t.nextRepDate);
-              return d >= startOfDay && d <= endOfDay;
-            }) as any;
-
-            return [...chunkBlocks, ...pdfBlocks] as any;
-          },
-          estimateBlockMinutes: () => 5
-        };
-
-        if (!schedulingService) {
-          schedulingService = new IRImportSchedulingService(loadInfo);
-        }
-
-        schedulingImpact = await schedulingService.calculateScheduling(contentBlocks, schedulingConfig);
-        assignments = schedulingService.applyScheduling(contentBlocks, schedulingImpact);
+        const schedulingResult = await calculateProjectedScheduling(contentBlocks, () => 5);
+        schedulingImpact = schedulingResult.impact;
+        assignments = schedulingResult.assignments;
       }
 
       const inputs = newItems.map((item, idx) => {
@@ -1390,6 +1385,7 @@
         return {
           deckId: selectedDeckId!,
           epubFilePath: item.filePath,
+          sourceId: item.sourceId,
           title: item.label,
           tocHref: item.href,
           tocLevel: item.level,
@@ -1398,7 +1394,7 @@
         };
       });
 
-      const created = await epubService.batchCreateTasks(inputs);
+      const created = await pointWriteService.batchCreateEpubPoints(inputs);
       const success = created.length;
       const skipped = selected.length - newItems.length;
 
@@ -1698,38 +1694,12 @@
       
       let assignments: Map<ContentBlock, Date> | null = null;
       if (contentBlocks.length > 0) {
-        const loadInfo: IRLoadInfo = {
-          dailyBudgetMinutes: 60,
-          getBlocksForDate: async (date: Date) => {
-            const allChunks = await services.storageService?.getAllChunkData() || {};
-            const chunks = Object.values(allChunks);
-            const startOfDay = new Date(date);
-            startOfDay.setHours(0, 0, 0, 0);
-            const endOfDay = new Date(date);
-            endOfDay.setHours(23, 59, 59, 999);
-
-            return chunks.filter((chunk: any) => {
-              if (!chunk.nextRepDate) return false;
-              if (chunk.scheduleStatus === 'done' || chunk.scheduleStatus === 'suspended' || chunk.scheduleStatus === 'removed') return false;
-              const d = new Date(chunk.nextRepDate);
-              return d >= startOfDay && d <= endOfDay;
-            }) as any;
-          },
-          estimateBlockMinutes: (block: any) => {
-            const charCount = 'content' in block ? block.content.length : ('charCount' in block ? block.charCount : 500);
-            return Math.max(1, Math.ceil(charCount / 500));
-          }
-        };
-
-        if (!schedulingService) {
-          schedulingService = new IRImportSchedulingService(loadInfo);
-        }
-
-        schedulingImpact = await schedulingService.calculateScheduling(
+        const schedulingResult = await calculateProjectedScheduling(
           contentBlocks,
-          schedulingConfig
+          (block) => estimateContentBlockMinutes(block, 500)
         );
-        assignments = schedulingService.applyScheduling(contentBlocks, schedulingImpact);
+        schedulingImpact = schedulingResult.impact;
+        assignments = schedulingResult.assignments;
       }
 
       const mdFilePaths: string[] = [];
@@ -1969,7 +1939,6 @@
     schedulingConfig = { ...DEFAULT_SCHEDULING_CONFIG };
     schedulingImpact = null;
     showSchedulingDetails = false;
-    schedulingService = null;
     useCustomDays = false;
     customDaysValue = 21;
     availableDecks = [];

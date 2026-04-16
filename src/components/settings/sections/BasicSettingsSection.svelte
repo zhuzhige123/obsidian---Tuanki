@@ -288,19 +288,6 @@
       </label>
     </div>
 
-    <div class="row">
-      <label for="navSettingsEntry">{t('common.settings')}</label>
-      <label class="modern-switch">
-        <input
-          id="navSettingsEntry"
-          type="checkbox"
-          checked={settings.navigationVisibility?.settingsEntry !== false}
-          onchange={handleNavigationVisibilityChange('settingsEntry')}
-        />
-        <span class="switch-slider"></span>
-      </label>
-    </div>
-
   </div>
   </div>
 </div>

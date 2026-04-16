@@ -16,6 +16,17 @@ import {
 } from "./ir-topic-compat";
 import { logger } from "./logger";
 
+function normalizeWeaveTags(tags: unknown[]): string[] {
+	const ordered = new Map<string, string>();
+	for (const rawTag of Array.isArray(tags) ? tags : []) {
+		const label = String(rawTag || "").trim();
+		const key = label.toLowerCase();
+		if (!key || ordered.has(key)) continue;
+		ordered.set(key, label);
+	}
+	return Array.from(ordered.values());
+}
+
 /**
  * YAML Frontmatter 管理器
  */
@@ -68,6 +79,16 @@ export class YAMLFrontmatterManager {
 			if (frontmatter["weave-reading-priority"] !== undefined) {
 				fields["weave-reading-priority"] = frontmatter["weave-reading-priority"];
 			}
+			if (frontmatter["weave_tags"] !== undefined) {
+				const rawTags = Array.isArray(frontmatter["weave_tags"])
+					? frontmatter["weave_tags"]
+					: typeof frontmatter["weave_tags"] === "string"
+						? String(frontmatter["weave_tags"])
+								.split(",")
+								.map((tag) => tag.trim())
+						: [];
+				fields["weave_tags"] = normalizeWeaveTags(rawTags);
+			}
 			const topicId = extractReadingTopicIdFromFrontmatter(frontmatter);
 			if (topicId) {
 				fields["weave-reading-topic-id"] = topicId;
@@ -108,6 +129,14 @@ export class YAMLFrontmatterManager {
 				}
 				if (updates["weave-reading-priority"] !== undefined) {
 					frontmatter["weave-reading-priority"] = updates["weave-reading-priority"];
+				}
+				if (updates["weave_tags"] !== undefined) {
+					const normalizedTags = normalizeWeaveTags(updates["weave_tags"] || []);
+					if (normalizedTags.length > 0) {
+						frontmatter["weave_tags"] = normalizedTags;
+					} else {
+						delete frontmatter["weave_tags"];
+					}
 				}
 				const topicId = updates[READING_TOPIC_YAML_KEY] ?? updates[READING_LEGACY_DECK_YAML_KEY];
 				if (topicId !== undefined) {

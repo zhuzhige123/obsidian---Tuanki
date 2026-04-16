@@ -181,24 +181,62 @@ function createBinaryReadAttempts(app: App, file: TFile): BinaryReadAttempt[] {
 		});
 	}
 
-	if (typeof app.vault.getResourcePath === "function" && typeof fetch === "function") {
+	if (typeof app.vault.getResourcePath === "function") {
 		attempts.push({
-			label: "vault.getResourcePath+fetch",
+			label: "vault.getResourcePath+xhr",
 			read: async () => {
 				const resourcePath = app.vault.getResourcePath(file);
 				if (!resourcePath) {
 					throw new Error(`Missing resource path for ${file.path}`);
 				}
-				const response = await fetch(resourcePath);
-				if (!response.ok) {
-					throw new Error(`Failed to fetch EPUB resource: ${response.status} ${response.statusText}`);
-				}
-				return response.arrayBuffer();
+				return readArrayBufferResource(resourcePath);
 			},
 		});
 	}
 
 	return attempts;
+}
+
+function readArrayBufferResource(resourcePath: string): Promise<ArrayBuffer> {
+	return new Promise((resolve, reject) => {
+		const request = new XMLHttpRequest();
+		request.open("GET", resourcePath, true);
+		request.responseType = "arraybuffer";
+		request.onload = () => {
+			if (
+				(request.status === 0 || (request.status >= 200 && request.status < 300)) &&
+				request.response instanceof ArrayBuffer
+			) {
+				resolve(request.response);
+				return;
+			}
+			reject(
+				new Error(
+					`Failed to load binary resource: ${request.status} ${request.statusText || "Unknown error"}`
+				)
+			);
+		};
+		request.onerror = async () => {
+			try {
+				resolve(await readArrayBufferResourceViaFetch(resourcePath));
+			} catch (error) {
+				reject(error);
+			}
+		};
+		request.send();
+	});
+}
+
+async function readArrayBufferResourceViaFetch(resourcePath: string): Promise<ArrayBuffer> {
+	if (typeof globalThis.fetch !== "function") {
+		throw new Error("Failed to load binary resource");
+	}
+
+	const response = await globalThis.fetch(resourcePath);
+	if (!response.ok) {
+		throw new Error(`Failed to load binary resource: ${response.status} ${response.statusText}`);
+	}
+	return response.arrayBuffer();
 }
 
 export async function readVaultBinaryData(

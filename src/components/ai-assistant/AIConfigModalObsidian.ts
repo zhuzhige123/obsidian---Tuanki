@@ -2,7 +2,6 @@ import { App, Modal } from "obsidian";
 import { mount, unmount } from "svelte";
 import type WeavePlugin from "../../main";
 import type { GenerationConfig } from "../../types/ai-types";
-import { t } from "../../utils/i18n";
 import AIConfigModal from "./AIConfigModal.svelte";
 
 type MountedComponent = Parameters<typeof unmount>[0];
@@ -24,15 +23,15 @@ export class AIConfigModalObsidian extends Modal {
 	}
 
 	onOpen() {
-		this.setTitle(t("modals.aiConfig.title"));
-		this.modalEl.addClass("weave-ai-config-modal");
+		this.setTitle("系统提示词");
+		this.modalEl.addClass("weave-ai-config-modal", "weave-native-system-prompt-modal");
 		this.modalEl.setCssProps({
 			display: "flex",
 			"flex-direction": "column",
-			width: "92vw",
-			"max-width": "1000px",
-			height: "86vh",
-			"max-height": "86vh",
+			width: "94vw",
+			"max-width": "1100px",
+			height: "88vh",
+			"max-height": "88vh",
 		});
 
 		this.contentEl.empty();

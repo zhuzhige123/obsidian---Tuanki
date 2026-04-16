@@ -6,12 +6,15 @@
 -->
 <script lang="ts">
   import { logger } from '../../utils/logger';
+  import { MEMORY_DECK_UI_TEXT } from '../../constants/memory-deck-ui-text';
 
   import { onMount, untrack } from 'svelte';
   import type { WeavePlugin } from '../../main';
   import type { Card } from '../../data/types';
+  import type { ResolvedDeckRef } from '../../types/emergent-deck-types';
   import type { EmbeddableEditorManager } from '../../services/editor/EmbeddableEditorManager';
   import ResizableModal from '../ui/ResizableModal.svelte';
+  import ResolvedDeckRefs from '../ui/ResolvedDeckRefs.svelte';
   import InlineCardEditor from '../editor/InlineCardEditor.svelte';
   import { Menu, Notice, Platform } from 'obsidian';
   import { getCardMetadata } from '../../utils/yaml-utils';
@@ -34,6 +37,7 @@
 
     /**  预加载的牌组数据 */
     decks: any[];
+    resolvedDeckRefs?: ResolvedDeckRef[];
 
     /** 保存成功回调 */
     onSave?: (card: Card) => void;
@@ -49,6 +53,7 @@
     plugin,
     editorPoolManager,
     decks: preloadedDecks,
+    resolvedDeckRefs = [],
     onSave,
     onCancel
   }: Props = $props();
@@ -84,12 +89,7 @@
       if (matched?.name) names.push(matched.name);
     }
 
-    if (names.length === 0 && decks.length > 0) {
-      names.push(decks[0].name);
-      selectedDeckId = decks[0].id;
-    }
-
-    return Array.from(new Set(names));
+    return names.length > 0 ? [names[0]] : [];
   }
   
   // 移动端禁用透明遮罩，避免事件穿透导致需要点击两次
@@ -154,16 +154,11 @@
   }
 
   function handleDecksChange(names: string[]) {
-    if (!names || names.length === 0) {
-      new Notice('卡片必须至少属于一个牌组', 3000);
-      return;
-    }
-    selectedDeckNames = names;
-    const primaryName = names[0];
+    const nextNames = names.length > 0 ? [names[0]] : [];
+    selectedDeckNames = nextNames;
+    const primaryName = nextNames[0];
     const primaryDeck = decks.find(d => d.name === primaryName);
-    if (primaryDeck?.id) {
-      selectedDeckId = primaryDeck.id;
-    }
+    selectedDeckId = primaryDeck?.id || '';
     logger.debug('[EditCardModal] 牌组变更:', { selectedDeckNames, selectedDeckId });
   }
 
@@ -171,7 +166,7 @@
   let lastMenuPosition: { x: number; y: number } | null = null;
 
   function getDeckSelectorText(): string {
-    if (!selectedDeckNames || selectedDeckNames.length === 0) return '选择牌组...';
+    if (!selectedDeckNames || selectedDeckNames.length === 0) return MEMORY_DECK_UI_TEXT.unassigned;
     return selectedDeckNames.join('、');
   }
 
@@ -186,18 +181,10 @@
         item.setTitle(deck.name);
         item.setIcon(checked ? 'check-square' : 'square');
         item.onClick(() => {
-          const current = Array.isArray(selectedDeckNames) ? selectedDeckNames : [];
-          const wasSelected = current.includes(deck.name);
-
-          if (wasSelected && current.length <= 1) {
-            new Notice('卡片必须至少属于一个牌组', 3000);
-            return;
-          }
-
-          const next = wasSelected
-            ? current.filter(n => n !== deck.name)
-            : (current.includes(deck.name) ? current : current.concat(deck.name));
-
+          const currentName = Array.isArray(selectedDeckNames) && selectedDeckNames.length > 0
+            ? selectedDeckNames[0]
+            : '';
+          const next = currentName === deck.name ? [] : [deck.name];
           handleDecksChange(next);
 
           if (lastMenuPosition) {
@@ -245,9 +232,14 @@
           }
         }}
       >
-        <span class="deck-multi-selector-label">牌组:</span>
+        <span class="deck-multi-selector-label">{MEMORY_DECK_UI_TEXT.editableFormalAssignment}:</span>
         <span class="deck-multi-selector-value">{getDeckSelectorText()}</span>
       </button>
+    {/if}
+    {#if resolvedDeckRefs.length > 0}
+      <div class="resolved-deck-panel" aria-label={MEMORY_DECK_UI_TEXT.resolvedRefsLabel}>
+        <ResolvedDeckRefs refs={resolvedDeckRefs} label={MEMORY_DECK_UI_TEXT.resolvedRefsLabel} emptyText="" />
+      </div>
     {/if}
   {/snippet}
 
@@ -293,4 +285,20 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  .resolved-deck-panel {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-left: 0.75rem;
+    max-width: min(100%, 420px);
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--input-radius);
+    background: var(--background-modifier-form-field);
+    color: var(--text-normal);
+    vertical-align: middle;
+  }
+
 </style>

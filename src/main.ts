@@ -1,3 +1,5 @@
+import "./utils/foliate-custom-element-guard";
+
 import {
 	Editor,
 	MarkdownFileInfo,
@@ -40,9 +42,11 @@ import { IRCalendarView, VIEW_TYPE_IR_CALENDAR } from "./views/IRCalendarView"; 
 import { IRFocusView, VIEW_TYPE_IR_FOCUS } from "./views/IRFocusView"; // 📖 增量阅读聚焦视图
 import { QuestionBankView, VIEW_TYPE_QUESTION_BANK } from "./views/QuestionBankView"; // 🆕 考试学习视图
 import { StudyView, VIEW_TYPE_STUDY } from "./views/StudyView";
+import { VIEW_TYPE_WDECK, WDeckView } from "./views/WDeckView";
 import { VIEW_TYPE_WEAVE, WeaveView } from "./views/WeaveView";
 
 import { DEFAULT_AI_CONFIG } from "./components/settings/constants/settings-constants";
+import { DEFAULT_EMERGENT_RULE_GROUP } from "./services/deck/emergent-rule-groups";
 import type {
 	SettingsWithEditor,
 	StudyInterfaceViewPreferences,
@@ -84,9 +88,16 @@ import { DirectoryUtils } from "./utils/directory-utils";
 import { getPreferredEpubLeaf } from "./utils/epub-leaf-utils";
 import { initI18n } from "./utils/i18n";
 import { logger } from "./utils/logger";
+import { hasLegacyMemoryCardStorage } from "./utils/legacy-memory-storage";
 import { SimplifiedCardParser } from "./utils/simplifiedParser/SimplifiedCardParser";
 import { tabletDebugger } from "./utils/tablet-debug";
+import { ensureExistingWeaveDataReadmes } from "./utils/weave-data-readme";
 import { createContentWithMetadata } from "./utils/yaml-utils";
+import {
+	type EpubBookshelfSettings,
+	DEFAULT_EPUB_BOOKSHELF_SETTINGS,
+	EpubStorageService,
+} from "./services/epub/EpubStorageService";
 // 🆕 平板端支持
 import { applyDeviceClasses, detectDevice } from "./utils/tablet-detection";
 import { vaultStorage } from "./utils/vault-local-storage";
@@ -124,8 +135,10 @@ import type { SupportedLanguage } from "./utils/i18n";
 // 🆕 学习模式类型
 import {
 	type PersistedStudySession,
+	type PersistedStudySessionStore,
 	type StudyMode,
 	isPersistedStudySession,
+	isPersistedStudySessionStore,
 } from "./types/study-types";
 
 import type { Deck, FSRSParameters } from "./data/types";
@@ -142,6 +155,8 @@ import { migrateLegacyWeaveFolders } from "./services/data-migration/LegacyWeave
 import { UnifiedDataMigrationService } from "./services/data-migration/UnifiedDataMigrationService";
 import { IREpubBookmarkTaskService } from "./services/incremental-reading/IREpubBookmarkTaskService";
 import { IRPdfBookmarkTaskService } from "./services/incremental-reading/IRPdfBookmarkTaskService";
+import { IRPointTagService } from "./services/incremental-reading/IRPointTagService";
+import { detectTraceSourceKind, normalizeTraceDocumentKey } from "./services/incremental-reading/IRSourceTraceStats";
 import { recomputeAndBroadcastIRData } from "./services/incremental-reading/IRScheduleRefreshService";
 import { IRStorageService } from "./services/incremental-reading/IRStorageService";
 import { getWeaveOperationsSubmenu } from "./services/menu/WeaveContextMenuBuilder";
@@ -154,6 +169,7 @@ import { SelectedTextAICardPanelManager } from "./services/editor/SelectedTextAI
 import { CardIndexService } from "./services/data/CardIndexService";
 // DirectFileCardReader - 高性能数据读取服务
 import { DirectFileCardReader } from "./services/data/DirectFileCardReader";
+import { WDeckService } from "./services/wdeck/WDeckService";
 
 // 优化后的CSS导入 - 减少重复，使用global.css统一管理
 import "./styles/fonts.css"; // 字体文件（独立）
@@ -265,15 +281,13 @@ export interface WeaveSettings extends SettingsWithEditor {
 		apkgImport?: boolean;
 		csvImport?: boolean;
 		clipboardImport?: boolean;
-		settingsEntry?: boolean;
 	};
 
 	// 导航栏设置按钮显示控制
 	showSettingsButton?: boolean;
 
 	epubBookshelf?: {
-		sourceMode: "cache-first" | "folder-only";
-		sourceFolder: string;
+		lastScanAt?: number;
 	};
 
 	// 🆕 v1.0.0: 数据文件夹可见性配置
@@ -324,6 +338,15 @@ export interface WeaveSettings extends SettingsWithEditor {
 	// 🆕 牌组标签组配置
 	// 用于看板视图按标签组分组
 	deckTagGroups?: import("./types/deck-kanban-types").DeckTagGroup[];
+
+	// 🆕 记忆牌组组织配置
+	memoryDeckOrganization?: {
+		enabled?: boolean;
+		minCandidateCardCount?: number;
+		tagDriftFollowMode?: "off" | "ask" | "auto";
+		activeRuleGroupId?: string;
+		ruleGroups?: import("./services/deck/emergent-rule-groups").EmergentRuleGroup[];
+	};
 
 	// 🆕 队列优化系统配置（v2.0）
 	queueOptimization?: import("./types/queue-optimization-types").QueueOptimizationSettings;
@@ -670,13 +693,11 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 		apkgImport: true,
 		csvImport: true,
 		clipboardImport: true,
-		settingsEntry: true,
 	},
 
 	showSettingsButton: true,
 	epubBookshelf: {
-		sourceMode: "cache-first",
-		sourceFolder: "",
+		lastScanAt: 0,
 	},
 
 	studyViewSpacing: "compact",
@@ -874,6 +895,13 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 
 	// 🆕 牌组标签组配置（用于看板视图按标签组分组）
 	deckTagGroups: [],
+	memoryDeckOrganization: {
+		enabled: true,
+		minCandidateCardCount: DEFAULT_EMERGENT_RULE_GROUP.minCandidateCardCount,
+		tagDriftFollowMode: "ask",
+		activeRuleGroupId: DEFAULT_EMERGENT_RULE_GROUP.id,
+		ruleGroups: [DEFAULT_EMERGENT_RULE_GROUP],
+	},
 
 	// 📊 负荷控制管理默认配置
 	loadBalance: {
@@ -1025,6 +1053,7 @@ export class WeavePlugin extends Plugin {
 	public dataConsistencyService?: import("./services/reference-deck").DataConsistencyService;
 	public referenceMigrationService?: import("./services/reference-deck").ReferenceMigrationService;
 	public cardFileService?: import("./services/reference-deck").CardFileService;
+	public wdeckService!: WDeckService;
 	private workspaceViewsRegistered = false;
 	private pluginLocalStateService?: PluginLocalStateService;
 	private deckViewPreferenceCache: string | null = null;
@@ -1033,6 +1062,9 @@ export class WeavePlugin extends Plugin {
 	private createCardPreferencesCache: CreateCardPreferencesState | null = null;
 	private editorModalSizeStateCache: EditorModalSizeState | null = null;
 	private aiGenerationHistoryCache: AIGenerationHistoryEntry[] | null = null;
+	private epubBookshelfSettingsCache: EpubBookshelfSettings = {
+		...DEFAULT_EPUB_BOOKSHELF_SETTINGS,
+	};
 
 	async loadSettings() {
 		const loadedData = await this.loadData();
@@ -1189,6 +1221,7 @@ export class WeavePlugin extends Plugin {
 				};
 				logger.info("FSRS参数已初始化");
 				await this.saveSettings();
+
 				return;
 			}
 
@@ -2072,6 +2105,23 @@ export class WeavePlugin extends Plugin {
 	 * 2. vault.createFolder() 创建的文件夹立即在 UI 中可见
 	 * 3. 避免文件系统缓存不一致导致的显示问题
 	 */
+	private async shouldInitializeLegacyCardFileService(): Promise<boolean> {
+		return hasLegacyMemoryCardStorage(this.app, this.settings.weaveParentFolder);
+	}
+
+	private async ensureLegacyCardFileServiceInitializedIfNeeded(): Promise<boolean> {
+		if (!(await this.shouldInitializeLegacyCardFileService())) {
+			return false;
+		}
+
+		const { initCardFileService } = await import("./services/reference-deck");
+		if (!this.cardFileService) {
+			this.cardFileService = initCardFileService(this);
+		}
+		await this.cardFileService.initialize();
+		return true;
+	}
+
 	private async initializeDataStorage(): Promise<void> {
 		try {
 			logger.info("🚀 [Layout Ready] 文件系统已就绪，开始初始化数据存储...");
@@ -2083,13 +2133,9 @@ export class WeavePlugin extends Plugin {
 			await this.migrateToSchemaV2();
 			await migrateLegacyWeaveFolders(this.app, this.settings.weaveParentFolder);
 
-			// 🔥 预先初始化 CardFileService，避免 dataStorage 在启动时读不到 V2 卡片文件
+			// 仅在真实旧记忆 JSON 仍存在时才初始化兼容卡片文件服务，避免清理后自动重建空文件。
 			try {
-				const { initCardFileService } = await import("./services/reference-deck");
-				if (!this.cardFileService) {
-					this.cardFileService = initCardFileService(this);
-				}
-				await this.cardFileService.initialize();
+				await this.ensureLegacyCardFileServiceInitializedIfNeeded();
 			} catch (error) {
 				logger.error("[Layout Ready] CardFileService 预初始化失败（不阻塞启动）:", error);
 			}
@@ -2121,6 +2167,7 @@ export class WeavePlugin extends Plugin {
 
 			// 3. 初始化依赖数据存储的服务
 			await this.initializeServicesAfterStorage();
+			this.scheduleEpubSourceIdBackfill();
 
 			// 🔥 标记所有核心服务已就绪
 			markServiceReady("allCoreServices");
@@ -2138,6 +2185,21 @@ export class WeavePlugin extends Plugin {
 	 *
 	 * 这些服务必须在 dataStorage 初始化完成后才能初始化
 	 */
+	private scheduleEpubSourceIdBackfill(): void {
+		window.setTimeout(() => {
+			void (async () => {
+				try {
+					const { EpubLinkMigrationService } = await import(
+						"./services/epub/EpubLinkMigrationService"
+					);
+					await new EpubLinkMigrationService(this.app).backfillSourceIdsInMarkdownFiles();
+				} catch (error) {
+					logger.warn("[EpubLinkMigration] Failed to backfill EPUB source identities:", error);
+				}
+			})();
+		}, 1500);
+	}
+
 	private async initializeServicesAfterStorage(): Promise<void> {
 		const startTime = Date.now();
 		logger.info("[Services] 🚀 开始初始化依赖数据存储的服务...");
@@ -2289,7 +2351,6 @@ export class WeavePlugin extends Plugin {
 						initReferenceDeckService,
 						initDataConsistencyService,
 						initReferenceMigrationService,
-						initCardFileService,
 					} = await import("./services/reference-deck");
 
 					// 初始化服务
@@ -2297,9 +2358,7 @@ export class WeavePlugin extends Plugin {
 					this.dataConsistencyService = initDataConsistencyService(this);
 					this.referenceMigrationService = initReferenceMigrationService(this);
 					if (!this.cardFileService) {
-						this.cardFileService = initCardFileService(this);
-						// 初始化卡片文件系统
-						await this.cardFileService.initialize();
+						await this.ensureLegacyCardFileServiceInitializedIfNeeded();
 					}
 
 					// 检查是否需要迁移到引用式架构
@@ -2398,6 +2457,14 @@ export class WeavePlugin extends Plugin {
 		// 11. 🚀 获取数据路径
 		const v2Paths = getV2PathsFromApp(this.app);
 		logger.debug(`数据路径: ${v2Paths.root}`);
+		try {
+			await ensureExistingWeaveDataReadmes(
+				this.app.vault.adapter,
+				normalizeWeaveParentFolder(this.settings.weaveParentFolder)
+			);
+		} catch (error) {
+			logger.warn("[WeaveDataReadme] 初始化数据目录说明文件失败", error);
+		}
 
 		// 12. 🚀 初始化DirectFileCardReader（高性能数据读取服务）
 		logger.debug("初始化DirectFileCardReader...");
@@ -3335,6 +3402,7 @@ export class WeavePlugin extends Plugin {
 		logger.debug("注册视图...");
 		this.registerView(VIEW_TYPE_WEAVE, (leaf) => new WeaveView(leaf, this));
 		this.registerView(VIEW_TYPE_STUDY, (leaf) => new StudyView(leaf, this));
+		this.registerView(VIEW_TYPE_WDECK, (leaf) => new WDeckView(leaf, this));
 		this.registerView(VIEW_TYPE_QUESTION_BANK, (leaf) => new QuestionBankView(leaf, this));
 		this.registerView(VIEW_TYPE_IR_FOCUS, (leaf) => new IRFocusView(leaf, this));
 		this.registerView(VIEW_TYPE_IR_CALENDAR, (leaf) => new IRCalendarView(leaf, this));
@@ -3345,6 +3413,7 @@ export class WeavePlugin extends Plugin {
 		);
 		this.registerView(VIEW_TYPE_EPUB_SIDEBAR, (leaf) => new EpubSidebarView(leaf, this));
 		this.registerExtensions(["epub"], VIEW_TYPE_EPUB);
+		this.registerExtensions(["wdeck"], VIEW_TYPE_WDECK);
 
 		this.workspaceViewsRegistered = true;
 		logger.info("✅ 视图已注册（在 workspace 恢复前）");
@@ -3353,6 +3422,7 @@ export class WeavePlugin extends Plugin {
 	async onload() {
 		try {
 			this.registerWorkspaceViews();
+			this.wdeckService = new WDeckService(this);
 
 			// 依赖路径解析的能力也尽量提前准备，避免 layout-ready 即时触发时再碰到资源竞态。
 			this.wasmUrl = this.app.vault.adapter.getResourcePath(`${this.manifest.dir}/sql-wasm.wasm`);
@@ -3431,7 +3501,12 @@ export class WeavePlugin extends Plugin {
 					return;
 				}
 				const linkService = new EpubLinkService(this.app);
-				await linkService.navigateToEpubLocation(parsed.filePath, parsed.cfi, parsed.text);
+				await linkService.navigateToEpubLocation(
+					parsed.filePath,
+					parsed.cfi,
+					parsed.text,
+					parsed.sourceId
+				);
 			});
 
 			// 🔥 关键修复：等待 layout-ready 事件后再初始化数据存储
@@ -4634,6 +4709,10 @@ export class WeavePlugin extends Plugin {
 				hasCardMetadata: !!params.cardMetadata,
 				cardMetadata: params.cardMetadata,
 				sourceFile: params.cardMetadata?.sourceFile,
+				sourceDocumentKey: params.cardMetadata?.sourceDocumentKey,
+				sourceSubunitKey: params.cardMetadata?.sourceSubunitKey,
+				sourceKind: params.cardMetadata?.sourceKind,
+				outputKind: params.cardMetadata?.outputKind ?? "memory",
 				sourceBlock: params.cardMetadata?.sourceBlock,
 			});
 
@@ -4874,10 +4953,11 @@ export class WeavePlugin extends Plugin {
 		options?: {
 			onSave?: (card: import("./data/types").Card) => void;
 			onCancel?: () => void;
+			resolvedDeckRefs?: import("./types/emergent-deck-types").ResolvedDeckRef[];
 		}
 	): Promise<void> {
 		try {
-			const { onSave, onCancel } = options || {};
+			const { onSave, onCancel, resolvedDeckRefs } = options || {};
 
 			// ✅ 强制清理旧模态窗（防止重复实例）
 			if (this.currentEditCardModal) {
@@ -4930,6 +5010,7 @@ export class WeavePlugin extends Plugin {
 					plugin: this,
 					editorPoolManager,
 					decks,
+					resolvedDeckRefs,
 					onModalClose: () => {
 						logger.debug("🎯 [openEditCardModal] 关闭并清理");
 						void unmount(modalInstance);
@@ -5018,11 +5099,12 @@ export class WeavePlugin extends Plugin {
 		card: import("./data/types").Card,
 		options?: {
 			allDecks?: Array<{ id: string; name: string }>;
+			resolvedDeckRefs?: import("./types/emergent-deck-types").ResolvedDeckRef[];
 			onClose?: () => void;
 		}
 	): Promise<void> {
 		try {
-			const { allDecks, onClose } = options || {};
+			const { allDecks, resolvedDeckRefs, onClose } = options || {};
 
 			// ✅ 强制清理旧模态窗（防止重复实例）
 			if (this.currentViewCardModal) {
@@ -5049,6 +5131,7 @@ export class WeavePlugin extends Plugin {
 				card,
 				plugin: this,
 				allDecks: decks,
+				resolvedDeckRefs,
 				onClose: () => {
 					logger.debug("🎯 [openViewCardModal] 关闭并清理");
 					this.currentViewCardModal = null;
@@ -5312,6 +5395,8 @@ export class WeavePlugin extends Plugin {
 		}
 
 		try {
+			await new EpubStorageService(this.app).ensureBookOnBookshelf(filePath);
+			window.dispatchEvent(new CustomEvent("Weave:epub-bookshelf-data-changed"));
 			const leaf = getPreferredEpubLeaf(this.app, filePath);
 			if (!leaf) {
 				logger.error("[WeavePlugin] openEpubReader: cannot create leaf");
@@ -5489,6 +5574,9 @@ export class WeavePlugin extends Plugin {
 				this.app.metadataCache.on("changed", (file) => {
 					if (file instanceof TFile) {
 						this.irTagGroupService?.invalidateDocumentCache(file.path);
+						if (file.extension === "md") {
+							void this.syncReadingPointTagsFromMarkdown(file.path, "metadata_changed");
+						}
 					}
 				})
 			);
@@ -5500,14 +5588,21 @@ export class WeavePlugin extends Plugin {
 						this.irTagGroupService?.invalidateDocumentCache(oldPath);
 						this.irTagGroupService?.invalidateDocumentCache(file.path);
 						void this.handleIncrementalReadingFileRenamed(file, oldPath);
+						if (file.extension === "md") {
+							void this.syncReadingPointTagsFromMarkdown(file.path, "metadata_renamed");
+						}
 					}
 				})
 			);
 			this.registerEvent(
 				this.app.vault.on("delete", (file) => {
+					void this.handleEpubSourceFileDeleted(file);
 					void this.handleCardSourceFileDeleted(file);
 					if (file instanceof TFile) {
 						this.irTagGroupService?.invalidateDocumentCache(file.path);
+						if (file.extension === "md") {
+							void this.syncReadingPointTagsFromMarkdown(file.path, "metadata_deleted");
+						}
 					}
 				})
 			);
@@ -5579,6 +5674,7 @@ export class WeavePlugin extends Plugin {
 				logger.info(
 					`[EpubPathSync] 已同步 EPUB 引用: old=${oldPath}, new=${newPath}, links=${result.updatedLinks}, markdown=${result.updatedMarkdownFiles}, canvas=${result.updatedCanvasFiles}, cardJson=${result.updatedCardFiles}, canvasBindings=${result.updatedCanvasBindings}, books=${result.updatedBooks}, tasks=${result.updatedTasks}`
 				);
+				window.dispatchEvent(new CustomEvent("Weave:epub-bookshelf-data-changed"));
 				this.queueSourceTraceNotice({
 					epubFiles: affectedItems,
 					epubLinks: affectedRefs,
@@ -5587,6 +5683,31 @@ export class WeavePlugin extends Plugin {
 			}
 		} catch (error) {
 			logger.warn("[EpubPathSync] EPUB 文件重命名后同步引用失败:", error);
+		}
+	}
+
+	private async handleEpubSourceFileDeleted(file: TAbstractFile): Promise<void> {
+		const deletedPath = normalizePath(file.path || "");
+		if (!deletedPath) return;
+
+		try {
+			const storageService = new EpubStorageService(this.app);
+			const result = await storageService.removeTrackedEpubTarget(deletedPath);
+			const affectedCount =
+				result.removedScanEntries +
+				result.removedMembershipEntries +
+				result.removedBookIds.length;
+			if (affectedCount > 0) {
+				logger.info(
+					`[EpubPathSync] 已清理失效 EPUB 跟踪数据: path=${deletedPath}, scan=${result.removedScanEntries}, membership=${result.removedMembershipEntries}, books=${result.removedBookIds.length}`
+				);
+				window.dispatchEvent(new CustomEvent("Weave:epub-bookshelf-data-changed"));
+				this.queueSourceTraceNotice({
+					epubFiles: affectedCount,
+				});
+			}
+		} catch (error) {
+			logger.warn("[EpubPathSync] EPUB 文件删除后清理跟踪数据失败:", error);
 		}
 	}
 
@@ -5731,6 +5852,25 @@ export class WeavePlugin extends Plugin {
 		return null;
 	}
 
+
+	private async syncReadingPointTagsFromMarkdown(filePath: string, reason: "metadata_changed" | "metadata_renamed" | "metadata_deleted"): Promise<void> {
+		if (!filePath || !filePath.toLowerCase().endsWith(".md")) return;
+
+		try {
+			const pointTagService = new IRPointTagService(this.app);
+			await pointTagService.initialize();
+			const changed = await pointTagService.syncMarkdownChunkTags(filePath);
+			if (changed) {
+				await recomputeAndBroadcastIRData(this.app, reason, {
+					filePath,
+					tagSource: "weave_tags",
+				} as any);
+			}
+		} catch (error) {
+			logger.warn(`[IR] markdown weave_tags ????: ${filePath}`, error);
+		}
+	}
+
 	private async handleIncrementalReadingFileRenamed(file: TFile, oldPath: string): Promise<void> {
 		const newPath = file.path;
 		if (!oldPath || oldPath === newPath) return;
@@ -5834,7 +5974,7 @@ export class WeavePlugin extends Plugin {
 		}
 
 		if (changed && typeof window !== "undefined") {
-			window.dispatchEvent(new CustomEvent("Weave:ir-data-updated"));
+			await recomputeAndBroadcastIRData(this.app, "metadata_renamed");
 		}
 	}
 
@@ -5948,6 +6088,7 @@ export class WeavePlugin extends Plugin {
 					deckName?: string;
 					mode?: StudyMode;
 					cardIds?: string[];
+					preferredLeaf?: WorkspaceLeaf;
 					cards?: import("./data/types").Card[]; // 支持直接传递卡片对象
 			  }
 	): Promise<void> {
@@ -5956,6 +6097,7 @@ export class WeavePlugin extends Plugin {
 		const deckName = typeof options === "object" ? options?.deckName : undefined;
 		const mode = typeof options === "object" ? options?.mode : undefined;
 		const cardIds = typeof options === "object" ? options?.cardIds : undefined;
+		const preferredLeaf = typeof options === "object" ? options?.preferredLeaf : undefined;
 		const cards = typeof options === "object" ? options?.cards : undefined;
 
 		logger.debug("[Plugin] 打开学习会话");
@@ -5987,6 +6129,9 @@ export class WeavePlugin extends Plugin {
 					type: VIEW_TYPE_STUDY,
 					state: { deckId, deckName, mode, cardIds, cards },
 				});
+				if (preferredLeaf && preferredLeaf !== leaf) {
+					preferredLeaf.detach();
+				}
 
 				// 📱 移动端兜底：某些版本仅 revealLeaf 不会切换到 tab
 				if (Platform.isMobile) {
@@ -6009,7 +6154,10 @@ export class WeavePlugin extends Plugin {
 			}
 
 			// 创建新的学习标签页
-			const leaf = workspace.getLeaf("tab");
+			const leaf = preferredLeaf || workspace.getLeaf("tab");
+			if (!leaf) {
+				throw new Error("无法创建学习视图标签页");
+			}
 
 			await leaf.setViewState({
 				type: VIEW_TYPE_STUDY,
@@ -6040,6 +6188,19 @@ export class WeavePlugin extends Plugin {
 	 * 打开学习界面
 	 * @param params 学习参数
 	 */
+	async openWDeckStudy(filePath: string, preferredLeaf?: WorkspaceLeaf): Promise<void> {
+		if (!this.wdeckService) {
+			throw new Error("WDeckService 未初始化");
+		}
+
+		const aggregate = await this.wdeckService.loadDeckAggregateFromFilePath(filePath);
+		await this.openStudySession({
+			deckId: aggregate.runtimeDeckId,
+			deckName: aggregate.logicalDeckName,
+			preferredLeaf,
+		});
+	}
+
 	async openStudyInterface(params: {
 		deckId: string;
 		mode: string;
@@ -6165,6 +6326,24 @@ export class WeavePlugin extends Plugin {
 		return this.pluginLocalStateService;
 	}
 
+	getEpubBookshelfSettings(): EpubBookshelfSettings {
+		return {
+			...DEFAULT_EPUB_BOOKSHELF_SETTINGS,
+			...(this.epubBookshelfSettingsCache ?? this.settings?.epubBookshelf ?? {}),
+		};
+	}
+
+	async saveEpubBookshelfSettings(settings: Partial<EpubBookshelfSettings>): Promise<void> {
+		const nextSettings: EpubBookshelfSettings = {
+			...DEFAULT_EPUB_BOOKSHELF_SETTINGS,
+			...this.getEpubBookshelfSettings(),
+			...settings,
+		};
+		this.epubBookshelfSettingsCache = nextSettings;
+		this.settings.epubBookshelf = { ...nextSettings };
+		await this.getPluginLocalStateService().saveEpubBookshelfSettings(nextSettings);
+	}
+
 	private getDefaultStudyInterfaceViewPreferences(): StudyInterfaceViewPreferences {
 		const defaults =
 			this.settings?.studyInterfaceViewPreferences ??
@@ -6214,6 +6393,10 @@ export class WeavePlugin extends Plugin {
 							: [],
 				  }
 				: undefined,
+			subView: this.aiAssistantPreferencesCache?.subView,
+			lastSelectedSourceFilePath: this.aiAssistantPreferencesCache?.lastSelectedSourceFilePath,
+			lastSelectedPromptFilePath: this.aiAssistantPreferencesCache?.lastSelectedPromptFilePath,
+			lastSelectedParsePresetId: this.aiAssistantPreferencesCache?.lastSelectedParsePresetId,
 		};
 	}
 
@@ -6231,6 +6414,10 @@ export class WeavePlugin extends Plugin {
 							: [],
 				  }
 				: undefined,
+			subView: preferences.subView,
+			lastSelectedSourceFilePath: preferences.lastSelectedSourceFilePath,
+			lastSelectedPromptFilePath: preferences.lastSelectedPromptFilePath,
+			lastSelectedParsePresetId: preferences.lastSelectedParsePresetId,
 		};
 	}
 
@@ -6280,6 +6467,10 @@ export class WeavePlugin extends Plugin {
 			...(this.settings.editorModalSize ?? DEFAULT_SETTINGS.editorModalSize),
 			...this.editorModalSizeStateCache,
 		};
+
+		this.epubBookshelfSettingsCache =
+			(await service.loadEpubBookshelfSettings()) ?? { ...DEFAULT_EPUB_BOOKSHELF_SETTINGS };
+		this.settings.epubBookshelf = { ...this.epubBookshelfSettingsCache };
 
 		this.aiGenerationHistoryCache =
 			(await service.loadAIGenerationHistory()) ?? this.getAIGenerationHistoryFromSettings();
@@ -6429,11 +6620,19 @@ export class WeavePlugin extends Plugin {
 	async loadPersistedStudySession(): Promise<void> {
 		try {
 			const persistedSession =
-				await this.getPluginLocalStateService().loadPersistedStudySession<PersistedStudySession>();
-			if (isPersistedStudySession(persistedSession)) {
-				const sessionManager = StudySessionManager.getInstance();
+				await this.getPluginLocalStateService().loadPersistedStudySession<unknown>();
+			const sessionManager = StudySessionManager.getInstance();
+			if (isPersistedStudySessionStore(persistedSession)) {
+				sessionManager.setPersistedSessionStore(persistedSession);
+				logger.debug("[Plugin] 已加载持久化的学习会话集合", {
+					sessionCount: Object.keys(persistedSession.sessionsByDeckId).length,
+					activeDeckId: persistedSession.activeDeckId,
+				});
+			} else if (isPersistedStudySession(persistedSession)) {
 				sessionManager.setPersistedSession(persistedSession);
 				logger.debug("[Plugin] 已加载持久化的学习会话");
+			} else {
+				sessionManager.clearPersistedSession();
 			}
 		} catch (error) {
 			logger.error("[Plugin] 加载持久化学习会话失败:", error);
@@ -6446,11 +6645,13 @@ export class WeavePlugin extends Plugin {
 	async savePersistedStudySession(): Promise<void> {
 		try {
 			const sessionManager = StudySessionManager.getInstance();
-			const persistedSession = sessionManager.getPersistedSession();
+			const persistedSessionStore = sessionManager.getPersistedSessionStore();
 
-			if (persistedSession) {
+			if (persistedSessionStore) {
 				// 保存到插件数据
-				await this.getPluginLocalStateService().savePersistedStudySession(persistedSession);
+				await this.getPluginLocalStateService().savePersistedStudySession(
+					persistedSessionStore satisfies PersistedStudySessionStore
+				);
 				logger.debug("[Plugin] 学习会话已持久化到磁盘");
 			} else {
 				await this.getPluginLocalStateService().clearPersistedStudySession();
@@ -6463,14 +6664,24 @@ export class WeavePlugin extends Plugin {
 	/**
 	 * 清除持久化的学习会话
 	 */
-	async clearPersistedStudySession(): Promise<void> {
+	async clearPersistedStudySession(deckId?: string): Promise<void> {
 		try {
-			await this.getPluginLocalStateService().clearPersistedStudySession();
-
 			const sessionManager = StudySessionManager.getInstance();
-			sessionManager.clearPersistedSession();
+			sessionManager.clearPersistedSession(deckId);
 
-			logger.debug("[Plugin] 已清除持久化的学习会话");
+			const persistedSessionStore = sessionManager.getPersistedSessionStore();
+			if (persistedSessionStore) {
+				await this.getPluginLocalStateService().savePersistedStudySession(
+					persistedSessionStore satisfies PersistedStudySessionStore
+				);
+			} else {
+				await this.getPluginLocalStateService().clearPersistedStudySession();
+			}
+
+			logger.debug("[Plugin] 已清除持久化的学习会话", {
+				deckId: deckId ?? "all",
+				remainingSessions: Object.keys(persistedSessionStore?.sessionsByDeckId ?? {}).length,
+			});
 		} catch (error) {
 			logger.error("[Plugin] 清除学习会话失败:", error);
 		}
@@ -6620,7 +6831,7 @@ export class WeavePlugin extends Plugin {
 
 		this.addCommand({
 			id: "ir-slim-markdown-frontmatter",
-			name: "清理增量阅读YAML冗余字段（ir-chunk/ir-index）",
+			name: "清理增量阅读冗余字段",
 			icon: "eraser",
 			callback: async () => {
 				try {
@@ -6914,6 +7125,12 @@ export class WeavePlugin extends Plugin {
 				type: CardType.Basic,
 				content: cardContent,
 				sourceFile: sourceFile,
+				sourceDocumentKey: normalizeTraceDocumentKey(
+					sourceFile,
+					detectTraceSourceKind(sourceFile)
+				) || undefined,
+				sourceKind: detectTraceSourceKind(sourceFile),
+				outputKind: "memory",
 				sourceBlock: sourceBlock ? `^${sourceBlock}` : undefined,
 				fsrs: {
 					due: now,
@@ -7142,6 +7359,8 @@ export class WeavePlugin extends Plugin {
 			return;
 		}
 
+		const epubStorageService = new EpubStorageService(this.app);
+		const sourceEntry = await epubStorageService.ensureSourceIdentity(sourceFile.path);
 		const service = await this.ensureIREpubBookmarkTaskServiceReady();
 		const normalizedHref = this.normalizeEpubBookmarkHref(options.tocHref);
 		if (!normalizedHref) {
@@ -7164,7 +7383,10 @@ export class WeavePlugin extends Plugin {
 
 		const duplicateTask = existingTasks.find(
 			(task) =>
-				String(task.epubFilePath || "").trim() === sourceFile.path &&
+				(
+					String(task.epubFilePath || "").trim() === sourceFile.path ||
+					(Boolean(sourceEntry?.sourceId) && task.sourceId === sourceEntry?.sourceId)
+				) &&
 				this.normalizeEpubBookmarkHref(task.tocHref) === normalizedHref
 		);
 		if (duplicateTask) {
@@ -7177,6 +7399,7 @@ export class WeavePlugin extends Plugin {
 			{
 				deckId: picked.id,
 				epubFilePath: sourceFile.path,
+				sourceId: sourceEntry?.sourceId,
 				title,
 				tocHref: normalizedHref,
 				tocLevel: Math.max(0, Number(options.tocLevel || 0)),

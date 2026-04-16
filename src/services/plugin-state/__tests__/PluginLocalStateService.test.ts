@@ -175,8 +175,7 @@ describe('PluginLocalStateService', () => {
       lastSelectedDeckNames: ['Deck 9'],
     });
     await service.saveEpubBookshelfSettings({
-      sourceMode: 'folder-only',
-      sourceFolder: 'Books/EPUB',
+      lastScanAt: 123456,
     });
     await service.saveEditorModalSizeState({
       preset: 'custom',
@@ -265,8 +264,7 @@ describe('PluginLocalStateService', () => {
       lastSelectedDeckNames: ['Deck 9'],
     });
     expect(await service.loadEpubBookshelfSettings()).toEqual({
-      sourceMode: 'folder-only',
-      sourceFolder: 'Books/EPUB',
+      lastScanAt: 123456,
     });
     expect(await service.loadEditorModalSizeState()).toEqual({
       preset: 'custom',
@@ -423,8 +421,7 @@ describe('PluginLocalStateService', () => {
         lastSelectedDeckNames: ['Legacy Deck'],
       }),
       'weave-epub-bookshelf-settings': JSON.stringify({
-        sourceMode: 'folder-only',
-        sourceFolder: 'Books/Legacy',
+        lastScanAt: 0,
       }),
       'weave-editor-modal-size-state': JSON.stringify({
         preset: 'custom',
@@ -480,8 +477,7 @@ describe('PluginLocalStateService', () => {
       lastSelectedDeckNames: ['Legacy Deck'],
     });
     expect(await service.loadEpubBookshelfSettings()).toEqual({
-      sourceMode: 'folder-only',
-      sourceFolder: 'Books/Legacy',
+      lastScanAt: 0,
     });
     expect(await service.loadEditorModalSizeState()).toEqual({
       preset: 'custom',

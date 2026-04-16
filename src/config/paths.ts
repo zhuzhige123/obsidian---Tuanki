@@ -11,6 +11,9 @@
  * │  │   │   └── sessions/                           │
  * │  │   └── media/                                  │
  * │  ├── incremental-reading/  (增量阅读模块)        │
+ * │  │   ├── registry/                               │
+ * │  │   ├── materials/                              │
+ * │  │   ├── points/                                 │
  * │  │   ├── decks.json                              │
  * │  │   ├── blocks.json                             │
  * │  │   ├── chunks.json                             │
@@ -39,6 +42,8 @@
  * │  ├── cache/                (可重建缓存/诊断)     │
  * │  │   ├── indices/          (索引文件)            │
  * │  │   ├── migration/        (迁移状态/报告)       │
+ * │  │   └── incremental-reading/                    │
+ * │  │       └── reader-artifacts/                   │
  * │  │   └── editor-temp/      (编辑器缓冲文件)      │
  * │  └── state/                (插件本地状态)        │
  * │      ├── user-profile.json (用户配置)            │
@@ -46,6 +51,7 @@
  * │      ├── study-session.json (学习会话续接)       │
  * │      ├── local-storage.json (统一本地键值状态)   │
  * │      └── quality-inbox.json (卡片质量收件箱)     │
+ * │      └── incremental-reading/reader-state/       │
  * └──────────────────────────────────────────────────┘
  *
  * 核心原则：
@@ -127,6 +133,7 @@ export function getV2Paths(parentFolder?: string) {
 			root: `${root}/memory`,
 			decks: `${root}/memory/decks.json`,
 			deckCards: `${root}/memory/deck-cards`,
+			formalDeckBindings: `${root}/memory/formal-deck-bindings.json`,
 			cards: `${root}/memory/cards`,
 			knowledgeGraphs: `${root}/memory/deck-graphs`,
 			learning: {
@@ -140,6 +147,9 @@ export function getV2Paths(parentFolder?: string) {
 		ir: {
 			root: `${root}/incremental-reading`,
 			epub: `${root}/incremental-reading/epub-reading`,
+			registry: `${root}/incremental-reading/registry`,
+			pointsDir: `${root}/incremental-reading/points`,
+			materialRecordsDir: `${root}/incremental-reading/materials`,
 			topics: `${root}/incremental-reading/topics.json`,
 			decks: `${root}/incremental-reading/decks.json`,
 			blocks: `${root}/incremental-reading/blocks.json`,
@@ -153,6 +163,9 @@ export function getV2Paths(parentFolder?: string) {
 			documentGroupMap: `${root}/incremental-reading/document-group-map.json`,
 			pdfBookmarkTasks: `${root}/incremental-reading/pdf-bookmark-tasks.json`,
 			epubBookmarkTasks: `${root}/incremental-reading/epub-bookmark-tasks.json`,
+			materialsIndex: `${root}/incremental-reading/registry/materials-index.json`,
+			pointFilesIndex: `${root}/incremental-reading/registry/point-files-index.json`,
+			scheduleProfiles: `${root}/incremental-reading/registry/schedule-profiles.json`,
 			materials: {
 				root: `${root}/incremental-reading/materials`,
 				index: `${root}/incremental-reading/materials/materials.json`,
@@ -237,7 +250,9 @@ export function getPluginPaths(app?: { vault: { configDir: string } }) {
 	const indicesRoot = `${cacheRoot}/indices`;
 	const migrationRoot = `${cacheRoot}/migration`;
 	const editorTempRoot = `${cacheRoot}/editor-temp`;
+	const irCacheRoot = `${cacheRoot}/incremental-reading`;
 	const stateRoot = `${root}/state`;
+	const irStateRoot = `${stateRoot}/incremental-reading`;
 	return {
 		root,
 		state: {
@@ -247,6 +262,10 @@ export function getPluginPaths(app?: { vault: { configDir: string } }) {
 			studySession: `${stateRoot}/study-session.json`,
 			localStorage: `${stateRoot}/local-storage.json`,
 			qualityInbox: `${stateRoot}/quality-inbox.json`,
+			incrementalReading: {
+				root: irStateRoot,
+				readerState: `${irStateRoot}/reader-state`,
+			},
 		},
 		indices: {
 			root: indicesRoot,
@@ -260,6 +279,12 @@ export function getPluginPaths(app?: { vault: { configDir: string } }) {
 			root: cacheRoot,
 			anchors: `${cacheRoot}/anchors-cache.json`,
 			editorTemp: editorTempRoot,
+			wdeckIndex: `${cacheRoot}/wdeck-index.json`,
+			wdeckConflicts: `${cacheRoot}/wdeck-conflicts.json`,
+			incrementalReading: {
+				root: irCacheRoot,
+				readerArtifacts: `${irCacheRoot}/reader-artifacts`,
+			},
 		},
 		backups: `${root}/backups`,
 		migration: {

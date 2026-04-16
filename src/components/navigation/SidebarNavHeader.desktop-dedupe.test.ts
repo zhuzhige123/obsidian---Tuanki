@@ -113,6 +113,63 @@ describe('SidebarNavHeader desktop menu dedupe', () => {
     vi.clearAllMocks();
   });
 
+  it('keeps desktop deck-study dots responsive across repeated clicks', async () => {
+    premiumMockState.isPremium = true;
+
+    const onFilterSelect = vi.fn();
+    const { container } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'deck-study',
+        selectedFilter: 'memory',
+        onNavigate: mockOnNavigate,
+        onFilterSelect
+      }
+    });
+
+    const dots = container.querySelectorAll('.sidebar-dot');
+    expect(dots).toHaveLength(3);
+
+    await fireEvent.click(dots[0]);
+    await fireEvent.click(dots[2]);
+
+    expect(onFilterSelect).toHaveBeenNthCalledWith(1, 'incremental-reading');
+    expect(onFilterSelect).toHaveBeenNthCalledWith(2, 'question-bank');
+  });
+
+  it('shows the emergent filter button in memory deck study and dispatches its toolbar action', async () => {
+    const toolbarListener = vi.fn();
+    window.addEventListener('Weave:deck-study-toolbar-action', toolbarListener);
+
+    const { getByLabelText } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'deck-study',
+        selectedFilter: 'memory',
+        onNavigate: mockOnNavigate
+      }
+    });
+
+    const button = getByLabelText('涌现筛选');
+    await fireEvent.click(button);
+
+    expect(toolbarListener).toHaveBeenCalledTimes(1);
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('open-emergent-rule-groups');
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.anchor).toBe(button);
+
+    window.removeEventListener('Weave:deck-study-toolbar-action', toolbarListener);
+  });
+
+  it('hides the emergent filter button outside the memory deck filter', () => {
+    const { queryByLabelText } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'deck-study',
+        selectedFilter: 'question-bank',
+        onNavigate: mockOnNavigate
+      }
+    });
+
+    expect(queryByLabelText('涌现筛选')).toBeNull();
+  });
+
   it('removes toolbar-duplicated actions in desktop main-area table view', async () => {
     premiumMockState.isPremium = true;
 

@@ -18,7 +18,6 @@
     // 增量阅读操作
     onBuildIRDeck?: () => void;
     onIRChangeDeck?: (event: MouseEvent) => void;
-    onIRToggleFavorite?: () => void;
     onIRExtractCards?: () => void;
     isMobile?: boolean;
   }
@@ -35,7 +34,6 @@
     onBuildDeck,
     onBuildIRDeck,
     onIRChangeDeck,
-    onIRToggleFavorite,
     onIRExtractCards,
     isMobile = false
   }: Props = $props();
@@ -79,11 +77,6 @@
     onIRChangeDeck?.(event);
   }
 
-  // IR: 切换收藏
-  function handleIRToggleFavoriteClick() {
-    onIRToggleFavorite?.();
-  }
-
   // IR: 提取卡片
   function handleIRExtractCardsClick() {
     onIRExtractCards?.();
@@ -101,7 +94,7 @@
     </div>
     <div class="weave-toolbar-actions">
       {#if isIRDataSource}
-        <!-- 增量阅读模式按钮顺序：组建牌组、更换牌组、收藏、提取卡片、标签操作、删除 -->
+        <!-- 增量阅读模式按钮顺序：组建牌组、更换牌组、提取卡片、标签操作、删除 -->
         {#if onBuildIRDeck}
           <button type="button" class="weave-toolbar-btn weave-btn-primary" title="组建增量牌组" onclick={handleBuildIRDeckClick}>
             <ObsidianIcon name="layers" size={16} />
@@ -110,11 +103,6 @@
         {#if onIRChangeDeck}
           <button type="button" class="weave-toolbar-btn" title="更换牌组" onclick={handleIRChangeDeckClick}>
             <ObsidianIcon name="folder" size={16} />
-          </button>
-        {/if}
-        {#if onIRToggleFavorite}
-          <button type="button" class="weave-toolbar-btn" title="切换收藏" onclick={handleIRToggleFavoriteClick}>
-            <ObsidianIcon name="heart" size={16} />
           </button>
         {/if}
         {#if onIRExtractCards}

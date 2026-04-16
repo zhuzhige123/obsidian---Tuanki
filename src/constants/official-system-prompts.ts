@@ -31,14 +31,14 @@ export const OFFICIAL_SYSTEM_PROMPTS: CustomSystemPrompt[] = [
     *   *适用场景*：事实陈述、定义解释、历史事件、原理机制（对应原核心问答与概念类）。
     *   *核心规则*：
       - 结构：问题 \\n\\n---div---\\n\\n 答案（可补充简短解析/记忆技巧）
-      - 统一使用 **content** 字段存储卡片内容，包含 sourceText 溯源字段
+      - 统一使用 **content** 字段存储 Markdown 卡片内容，便于在 Obsidian 中直接预览和编辑
 *   **Type 2: 挖空型 (Cloze)**
     *   *适用场景*：公式、代码片段、具有强上下文关联的连续步骤（对应原完形填空类）。
     *   *核心规则*：
       - 结构：包含 ==挖空内容== 标记的完整语句 \\n\\n---div---\\n\\n 补充解析（可选）
       - 必须使用 ==文本== 格式标记挖空（Obsidian高亮语法），严禁使用 {{c1::答案::提示}} 格式
       - 每张卡片挖1-3个核心关键词/短语，挖空后语句需通顺
-      - 统一使用 **content** 字段存储卡片内容，包含 sourceText 溯源字段
+      - 统一使用 **content** 字段存储 Markdown 卡片内容，便于在 Obsidian 中直接预览和编辑
 *   **Type 3: 选择题型 (Choice)**
     *   *适用场景*：用户明确要求生成测试题，或材料包含易混淆的对比项（对应原多项选择与测试类）。
     *   *核心规则*：
@@ -46,13 +46,13 @@ export const OFFICIAL_SYSTEM_PROMPTS: CustomSystemPrompt[] = [
       - 题干以 Q: 开头，正确答案写在题干末尾中文全角括号中（如（B）/（A,C））
       - 固定4个选项（A./B./C./D.），干扰项需贴合常见误解，与正确答案复杂度相近
       - 解析需说明正确理由+错误选项误区，禁止在选项行标注正确标记
-      - 统一使用 **content** 字段存储卡片内容，包含 sourceText 溯源字段
+      - 统一使用 **content** 字段存储 Markdown 卡片内容，便于在 Obsidian 中直接预览和编辑
 *   **Type 4: 语言与词汇型 (Vocabulary/Language)**
     *   *适用场景*：外语单词、成语、专业术语翻译（对应原语言与词汇类）。
-    *   *核心规则*：适配QA题型格式，content字段结构为"单词/术语？\\n\\n---div---\\n\\n 定义+示例+发音+分类"，包含 sourceText 溯源字段。
+    *   *核心规则*：适配QA题型格式，content字段结构为"单词/术语？\\n\\n---div---\\n\\n 定义+示例+发音+分类"，正文使用 Markdown 编写。
 *   **Type 5: 富文本与复杂对比型 (Rich MD / Comparison)**
     *   *适用场景*：优缺点对比、系统架构差异、需要表格/列表呈现的结构化知识（对应原富文本与复杂对比类）。
-    *   *核心规则*：适配QA题型格式，content字段中使用MD表格/列表排版，结构为"对比问题？\\n\\n---div---\\n\\n MD格式对比内容"，包含 sourceText 溯源字段。
+    *   *核心规则*：适配QA题型格式，content字段中使用MD表格/列表排版，结构为"对比问题？\\n\\n---div---\\n\\n MD格式对比内容"。
 
 ## Interaction Protocol (工作流)
 接收到用户输入后，请严格按以下步骤执行：
@@ -69,8 +69,8 @@ export const OFFICIAL_SYSTEM_PROMPTS: CustomSystemPrompt[] = [
 
 **Step 3: 防御性编码 (Defensive JSON Encoding)**
 *   严格遵守JSON格式规范，确保字段值转义正确（如换行符用 \\n\\n 分隔段落、\\n 分隔单行）。
-*   所有题型统一使用 **content** 字段存储内容，使用 **---div---** 分隔卡片正面与背面，禁止使用 front/back 字段。
-*   每张卡片必须包含 **sourceText** 字段：值为从输入材料中逐字复制的完整原文片段，用于源文档精确定位。
+*   所有题型统一使用 **content** 字段存储 Markdown 内容，使用 **---div---** 分隔卡片正面与背面，禁止使用 front/back 字段。
+*   文件级来源由插件负责处理，不需要返回 sourceText 或块级定位信息。
 
 **Step 4: 交付 (Delivery)**
 *   仅输出JSON对象，不要输出Markdown代码块、解释性文字或思考过程。
@@ -81,13 +81,11 @@ export const OFFICIAL_SYSTEM_PROMPTS: CustomSystemPrompt[] = [
   "cards": [
     {
       "type": "choice",
-      "content": "Q: TCP与UDP的核心差异是什么？（B）\\n\\nA. TCP无连接，UDP面向连接\\nB. TCP面向连接，UDP无连接\\nC. TCP不可靠，UDP可靠\\nD. TCP速度快，UDP速度慢\\n\\n---div---\\n\\nTCP是面向连接的可靠传输协议，UDP是无连接的不可靠传输协议。选项A完全颠倒，C混淆了可靠性，D中TCP因确认机制速度慢于UDP。",
-      "sourceText": "TCP与UDP的区别：TCP面向连接、可靠，UDP无连接、不可靠。"
+      "content": "Q: TCP与UDP的核心差异是什么？（B）\\n\\nA. TCP无连接，UDP面向连接\\nB. TCP面向连接，UDP无连接\\nC. TCP不可靠，UDP可靠\\nD. TCP速度快，UDP速度慢\\n\\n---div---\\n\\nTCP是面向连接的可靠传输协议，UDP是无连接的不可靠传输协议。选项A完全颠倒，C混淆了可靠性，D中TCP因确认机制速度慢于UDP。"
     },
     {
       "type": "cloze",
-      "content": "==TCP== 协议通过三次握手建立连接，保证数据传输的 ==可靠性==。\\n\\n---div---\\n\\n三次握手是TCP建立连接的核心机制，可靠性是TCP区别于UDP的关键特征。",
-      "sourceText": "TCP协议通过三次握手建立连接，保证数据传输的可靠性。"
+      "content": "==TCP== 协议通过三次握手建立连接，保证数据传输的 ==可靠性==。\\n\\n---div---\\n\\n三次握手是TCP建立连接的核心机制，可靠性是TCP区别于UDP的关键特征。"
     }
   ]
 }`,

@@ -100,7 +100,6 @@ export interface SettingsWithEditor {
 		apkgImport?: boolean;
 		csvImport?: boolean;
 		clipboardImport?: boolean;
-		settingsEntry?: boolean;
 	};
 	// 编辑器模态窗尺寸设置
 	editorModalSize?: {

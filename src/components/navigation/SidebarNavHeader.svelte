@@ -13,15 +13,14 @@
    * @module components/navigation/SidebarNavHeader
    * @version 1.3.0 - 卡片管理页面圆点改为视图切换
    */
-  import { AbstractInputSuggest, Menu, Notice, type App } from 'obsidian';
-  import { onMount, untrack } from 'svelte';
+  import { Notice, type App } from 'obsidian';
+  import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import CardSearchInput from '../search/CardSearchInput.svelte';
   import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
   import { openWeaveMainMenu } from '../../utils/weave-main-menu';
-  import { addWeaveNavigationItems } from '../../utils/weave-navigation-menu';
 
   // 牌组学习页面的筛选类型
   export type DeckFilter = 'memory' | 'question-bank' | 'incremental-reading';
@@ -34,64 +33,12 @@
   type GridLayoutMode = 'fixed' | 'masonry' | 'timeline';
   type KanbanLayoutMode = 'compact' | 'comfortable' | 'spacious';
   type IRTypeFilter = 'all' | 'md' | 'pdf';
-  type AIPromptSuggestion = {
-    id: string;
-    name: string;
-    description?: string;
-    category: 'official' | 'custom';
-  };
-
-  class AIPromptInputSuggest extends AbstractInputSuggest<AIPromptSuggestion> {
-    private getItems: () => AIPromptSuggestion[];
-    private applyItem: (prompt: AIPromptSuggestion) => void;
-
-    constructor(
-      app: App,
-      inputEl: HTMLInputElement,
-      getItems: () => AIPromptSuggestion[],
-      applyItem: (prompt: AIPromptSuggestion) => void
-    ) {
-      super(app, inputEl);
-      this.getItems = getItems;
-      this.applyItem = applyItem;
-      this.limit = 8;
-    }
-
-    getSuggestions(query: string): AIPromptSuggestion[] {
-      const normalized = query.trim().toLowerCase();
-      const items = this.getItems();
-      if (!normalized) return items.slice(0, 8);
-      return items.filter((prompt) => {
-        const text = `${prompt.name} ${prompt.description ?? ''}`.toLowerCase();
-        return text.includes(normalized);
-      }).slice(0, 8);
-    }
-
-    renderSuggestion(prompt: AIPromptSuggestion, el: HTMLElement): void {
-      el.addClass('weave-ai-prompt-suggest-item');
-
-      const row = el.createDiv({ cls: 'weave-ai-prompt-suggest-row' });
-      row.createDiv({ text: prompt.name, cls: 'weave-ai-prompt-suggest-title' });
-      row.createDiv({ text: prompt.category === 'official' ? '内置' : '自定义', cls: 'weave-ai-prompt-suggest-badge' });
-
-      if (prompt.description) {
-        el.createDiv({ text: prompt.description, cls: 'weave-ai-prompt-suggest-desc' });
-      }
-    }
-
-    selectSuggestion(prompt: AIPromptSuggestion, evt: MouseEvent | KeyboardEvent): void {
-      this.applyItem(prompt);
-      super.selectSuggestion(prompt, evt);
-    }
-  }
-
   interface Props {
     currentPage: string;
     navigationVisibility?: {
       apkgImport?: boolean;
       csvImport?: boolean;
       clipboardImport?: boolean;
-      settingsEntry?: boolean;
     };
     // 牌组学习页面的筛选状态
     selectedFilter?: DeckFilter;
@@ -103,7 +50,6 @@
     // 卡片管理页面的数据源状态（保留用于兼容，但不再用于圆点）
     cardDataSource?: CardDataSource;
     onCardDataSourceChange?: (source: CardDataSource) => void;
-    aiCustomPrompt?: string;
     app?: App;
     isInSidebarMode?: boolean;
     // 导航回调
@@ -120,7 +66,6 @@
     onViewChange,
     cardDataSource = 'memory',
     onCardDataSourceChange,
-    aiCustomPrompt = '',
     app,
     isInSidebarMode = false,
     onNavigate
@@ -234,80 +179,19 @@
   let cardSortDirection = $state<'asc' | 'desc'>('desc');
   let showSidebarCardSearch = $state(false); 
   let aiSelectedFileName = $state('');
+  let aiPromptFileName = $state('');
+  let aiPromptFilePath = $state('');
+  let aiModelLabel = $state('');
+  let aiModelTitle = $state('');
+  let aiParsePresetName = $state('');
+  let aiSubView = $state<'generate' | 'parse-preview'>('generate');
   let aiHistoryCount = $state(0);
-  let aiPromptInputValue = $state(untrack(() => aiCustomPrompt));
-  let aiSelectedPromptId = $state('');
-  let aiSelectedPromptName = $state('');
-  let aiPromptSuggestions = $state<AIPromptSuggestion[]>([]);
-  let aiPromptInputEl = $state<HTMLInputElement | null>(null);
-  let aiPromptSuggest: AIPromptInputSuggest | null = null;
-  let aiPromptSuggestInputEl: HTMLInputElement | null = null;
+  let aiIsGenerating = $state(false);
+  let aiIsParsing = $state(false);
+  let aiCanGenerate = $state(false);
+  let aiCanParse = $state(false);
   const cardSearchLabel = '\u641c\u7d22\u5361\u7247';
   const cardSearchPlaceholder = '\u641c\u7d22\u5361\u7247...';
-  function applyAIPromptSuggestion(prompt: AIPromptSuggestion) {
-    aiPromptInputValue = prompt.name;
-    aiSelectedPromptId = prompt.id;
-    aiSelectedPromptName = prompt.name;
-    window.dispatchEvent(new CustomEvent('Weave:ai-prompt-template-select', {
-      detail: { id: prompt.id }
-    }));
-  }
-
-  function handleAIPromptInput(value: string) {
-    aiPromptInputValue = value;
-    if (value.trim()) {
-      aiSelectedPromptId = '';
-      aiSelectedPromptName = '';
-    }
-    window.dispatchEvent(new CustomEvent('Weave:ai-custom-prompt-change', {
-      detail: { value }
-    }));
-  }
-
-  function clearSelectedAIPrompt() {
-    aiPromptInputValue = '';
-    aiSelectedPromptId = '';
-    aiSelectedPromptName = '';
-    window.dispatchEvent(new CustomEvent('Weave:ai-custom-prompt-change', {
-      detail: { value: '' }
-    }));
-    aiPromptInputEl?.focus();
-  }
-
-  function destroyAIPromptSuggest() {
-    aiPromptSuggest?.close();
-    aiPromptSuggest = null;
-    aiPromptSuggestInputEl = null;
-  }
-
-  function syncAIPromptSuggestPopover() {
-    if (!aiPromptInputEl) return;
-    const inputEl = aiPromptInputEl;
-    window.requestAnimationFrame(() => {
-      const popovers = Array.from(document.querySelectorAll('.suggestion-container')) as HTMLElement[];
-      const activePopover = popovers.at(-1);
-      if (!activePopover) return;
-      document
-        .querySelectorAll('.weave-ai-prompt-suggest-popover')
-        .forEach((el) => el.classList.remove('weave-ai-prompt-suggest-popover'));
-      activePopover.classList.add('weave-ai-prompt-suggest-popover');
-      const inputRect = inputEl.getBoundingClientRect();
-      const width = Math.min(
-        Math.max(420, Math.round(inputRect.width)),
-        Math.max(280, window.innerWidth - 24)
-      );
-      activePopover.style.width = `${width}px`;
-      activePopover.style.maxWidth = `${width}px`;
-      activePopover.style.minWidth = `${width}px`;
-    });
-  }
-
-  function showNativeAIPromptSuggestions() {
-    if (!aiPromptInputEl || !aiPromptSuggest) return;
-    aiPromptSuggest.setValue(aiPromptInputEl.value);
-    aiPromptInputEl.dispatchEvent(new Event('input', { bubbles: true }));
-    syncAIPromptSuggestPopover();
-  }
 
   function handleMenuClick(evt: MouseEvent) {
     openWeaveMainMenu({
@@ -331,200 +215,6 @@
       onCardDataSourceChange,
       onViewChange
     });
-    return;
-
-    // 创建 Obsidian 原生菜单
-    const menu = new Menu();
-    addWeaveNavigationItems(menu, currentPage, onNavigate);
-
-    menu.addSeparator();
-
-    // 牌组学习页面专属功能（仅在牌组学习页面显示）
-    if (currentPage === 'deck-study') {
-      menu.addItem((item) => {
-        item
-          .setTitle('切换视图')
-          .setIcon('layout-grid')
-          .onClick(() => {
-            const event = new CustomEvent('show-view-menu', { detail: { event: evt } });
-            window.dispatchEvent(event);
-          });
-      });
-
-      menu.addItem((item) => {
-        item
-          .setTitle('新建牌组')
-          .setIcon('folder-plus')
-          .onClick(() => {
-            const event = new CustomEvent('create-deck', { detail: { event: evt } });
-            document.dispatchEvent(event);
-          });
-      });
-    }
-
-    // 卡片管理页面专属功能（仅在卡片管理页面显示）
-    if (currentPage === 'weave-card-management') {
-      // 数据源切换子菜单
-      menu.addItem((item) => {
-        item
-          .setTitle('数据源切换')
-          .setIcon('database');
-        const submenu = (item as any).setSubmenu();
-        
-        submenu.addItem((subItem: any) => {
-          subItem
-            .setTitle('记忆牌组')
-            .setIcon('brain')
-            .setChecked(cardDataSource === 'memory')
-            .onClick(() => {
-              if (onCardDataSourceChange) {
-                onCardDataSourceChange('memory');
-              }
-              window.dispatchEvent(new CustomEvent('Weave:card-data-source-change', { detail: 'memory' }));
-            });
-        });
-        
-        if (shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)) {
-          submenu.addItem((subItem: any) => {
-            const irLocked = !premiumGuard.canUseFeature(PREMIUM_FEATURES.INCREMENTAL_READING);
-            subItem
-              .setTitle(irLocked ? '增量阅读 (高级)' : '增量阅读')
-              .setIcon('book-open')
-              .setChecked(cardDataSource === 'incremental-reading')
-              .onClick(() => {
-                if (onCardDataSourceChange) {
-                  onCardDataSourceChange('incremental-reading');
-                }
-                window.dispatchEvent(new CustomEvent('Weave:card-data-source-change', { detail: 'incremental-reading' }));
-              });
-          });
-        }
-        
-        if (shouldShowPremiumEntry(PREMIUM_FEATURES.QUESTION_BANK)) {
-          submenu.addItem((subItem: any) => {
-            const questionBankLocked = !premiumGuard.canUseFeature(PREMIUM_FEATURES.QUESTION_BANK);
-            subItem
-              .setTitle(questionBankLocked ? '考试题组 (高级)' : '考试题组')
-              .setIcon('edit-3')
-              .setChecked(cardDataSource === 'questionBank')
-              .onClick(() => {
-                if (onCardDataSourceChange) {
-                  onCardDataSourceChange('questionBank');
-                }
-                window.dispatchEvent(new CustomEvent('Weave:card-data-source-change', { detail: 'questionBank' }));
-              });
-          });
-        }
-      });
-
-      if (shouldShowPremiumEntry(PREMIUM_FEATURES.TIMELINE_VIEW) || currentView === 'grid') {
-        const gridLocked = !premiumGuard.canUseFeature(PREMIUM_FEATURES.GRID_VIEW);
-        menu.addItem((item) => {
-          item
-            .setTitle(getPremiumEntryTitle('时间线视图', PREMIUM_FEATURES.TIMELINE_VIEW))
-            .setIcon('history')
-            .setChecked(currentView === 'grid' && cardGridLayoutMode === 'timeline')
-            .onClick(() => {
-              if (currentView !== 'grid') {
-                onViewChange?.('grid');
-                if (gridLocked) {
-                  return;
-                }
-              }
-
-              emitCardManagementToolbarAction('grid-layout-timeline');
-            });
-        });
-      }
-
-      if (isInSidebarMode) {
-        menu.addItem((item) => {
-          item
-            .setTitle('关联当前活动文档')
-            .setIcon(cardDocumentFilterMode === 'current' ? 'file-text' : 'file')
-            .setChecked(cardDocumentFilterMode === 'current')
-            .setDisabled(!cardCurrentActiveDocument)
-            .onClick(() => {
-              if (cardCurrentActiveDocument) {
-                emitCardManagementToolbarAction('toggle-document-filter');
-              }
-            });
-        });
-
-        menu.addItem((item) => {
-          item
-            .setTitle('定位跳转模式')
-            .setIcon('navigation')
-            .setChecked(cardEnableLocationJump)
-            .onClick(() => {
-              emitCardManagementToolbarAction('toggle-card-location-jump');
-            });
-        });
-      }
-      
-      menu.addSeparator();
-    }
-
-    // 仅在牌组学习页面显示这些操作。
-    // 它们的事件监听当前挂在 DeckStudyPage 中，在其他页面显示会造成“点击无反应”的误导。
-    if (currentPage === 'deck-study') {
-      if (isAPKGImportMenuVisible()) {
-        menu.addItem((item) => {
-          item
-            .setTitle('APKG导入')
-            .setIcon('package')
-            .onClick(() => {
-              const event = new CustomEvent('apkg-import', { detail: { event: evt } });
-              document.dispatchEvent(event);
-            });
-        });
-      }
-
-      if (isCSVImportMenuVisible() && shouldShowPremiumEntry(PREMIUM_FEATURES.CSV_IMPORT)) {
-        menu.addItem((item) => {
-          item
-            .setTitle(getPremiumEntryTitle('导入CSV文件', PREMIUM_FEATURES.CSV_IMPORT))
-            .setIcon('file-text')
-            .onClick(() => {
-              const event = new CustomEvent('csv-import', { detail: { event: evt } });
-              document.dispatchEvent(event);
-            });
-        });
-      }
-
-      if (isClipboardImportMenuVisible() && shouldShowPremiumEntry(PREMIUM_FEATURES.CLIPBOARD_IMPORT)) {
-        menu.addItem((item) => {
-          item
-            .setTitle(getPremiumEntryTitle('粘贴卡片批量导入', PREMIUM_FEATURES.CLIPBOARD_IMPORT))
-            .setIcon('clipboard-paste')
-            .onClick(() => {
-              const event = new CustomEvent('clipboard-import', { detail: { event: evt } });
-              document.dispatchEvent(event);
-            });
-        });
-      }
-
-      menu.addSeparator();
-
-      // 操作管理子菜单
-      menu.addItem((item) => {
-        item.setTitle('操作管理').setIcon('more-horizontal');
-        const operationSub = (item as any).setSubmenu();
-
-        operationSub.addItem((subItem: any) => {
-          subItem
-            .setTitle('恢复官方教程牌组')
-            .setIcon('book-open')
-            .onClick(() => {
-              document.dispatchEvent(new CustomEvent('Weave:restore-guide-deck'));
-            });
-        });
-      });
-
-    }
-
-    // 显示菜单
-    menu.showAtMouseEvent(evt);
   }
 
   function handleDotClick(dotId: string) {
@@ -569,11 +259,16 @@
     return `background: linear-gradient(135deg, ${colorStart}, ${colorEnd})`;
   }
 
-  function emitAIAssistantToolbarAction(action: 'file' | 'generate' | 'tools' | 'history', evt: MouseEvent) {
+  function emitAIAssistantToolbarAction(
+    action: 'file' | 'generate' | 'history' | 'prompt-file' | 'system-prompt' | 'model' | 'parse-template' | 'parse' | 'sub-view',
+    evt: MouseEvent,
+    value?: 'generate' | 'parse-preview'
+  ) {
     const anchor = evt.currentTarget instanceof HTMLElement ? evt.currentTarget.getBoundingClientRect() : null;
     window.dispatchEvent(new CustomEvent('Weave:ai-toolbar-action', {
       detail: {
         action,
+        value,
         x: evt.clientX,
         y: evt.clientY,
         rect: anchor
@@ -592,6 +287,12 @@
 
   function emitCardManagementToolbarAction(action: string, anchor?: HTMLElement | null) {
     window.dispatchEvent(new CustomEvent('Weave:card-management-toolbar-action', {
+      detail: { action, anchor }
+    }));
+  }
+
+  function emitDeckStudyToolbarAction(action: 'open-emergent-rule-groups', anchor?: HTMLElement | null) {
+    window.dispatchEvent(new CustomEvent('Weave:deck-study-toolbar-action', {
       detail: { action, anchor }
     }));
   }
@@ -630,30 +331,36 @@
   }
 
   onMount(() => {  
-    const handleAISelectedFileChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ name?: string }>).detail;
-      aiSelectedFileName = detail?.name?.trim() || '';
-    };
-
-    const handleAIHistoryStateChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ count?: number }>).detail;
-      aiHistoryCount = Math.max(0, detail?.count ?? 0);
-    };
-
-    const handleAIPromptStateChange = (event: Event) => {
+    const handleAIToolbarStateChange = (event: Event) => {
       const detail = (event as CustomEvent<{
-        templates?: AIPromptSuggestion[];
-        selectedPromptId?: string;
-        selectedPromptName?: string;
-        customPrompt?: string;
+        subView?: 'generate' | 'parse-preview';
+        selectedFileName?: string;
+        selectedFilePath?: string;
+        promptFileName?: string;
+        promptFilePath?: string;
+        modelLabel?: string;
+        modelTitle?: string;
+        parsePresetName?: string;
+        parsePresetId?: string;
+        historyCount?: number;
+        canGenerate?: boolean;
+        canParse?: boolean;
+        isGenerating?: boolean;
+        isParsing?: boolean;
       }>).detail;
-      aiPromptSuggestions = detail?.templates ?? [];
-      aiSelectedPromptId = detail?.selectedPromptId?.trim() ?? '';
-      aiSelectedPromptName = detail?.selectedPromptName?.trim() ?? '';
-      aiPromptInputValue = detail?.customPrompt?.trim()
-        ? detail.customPrompt
-        : (aiSelectedPromptName || '');
-      syncAIPromptSuggestPopover();
+
+      aiSubView = detail?.subView ?? aiSubView;
+      aiSelectedFileName = detail?.selectedFileName?.trim() ?? '';
+      aiPromptFileName = detail?.promptFileName?.trim() ?? '';
+      aiPromptFilePath = detail?.promptFilePath?.trim() ?? '';
+      aiModelLabel = detail?.modelLabel?.trim() ?? '';
+      aiModelTitle = detail?.modelTitle?.trim() ?? '';
+      aiParsePresetName = detail?.parsePresetName?.trim() ?? '';
+      aiHistoryCount = Math.max(0, detail?.historyCount ?? 0);
+      aiCanGenerate = !!detail?.canGenerate;
+      aiCanParse = !!detail?.canParse;
+      aiIsGenerating = !!detail?.isGenerating;
+      aiIsParsing = !!detail?.isParsing;
     };
 
     const handleCardToolbarState = (event: Event) => { 
@@ -740,37 +447,14 @@
       if (detail.sortDirection) cardSortDirection = detail.sortDirection;
     };
 
-    window.addEventListener('Weave:ai-selected-file-change', handleAISelectedFileChange as EventListener);
-    window.addEventListener('Weave:ai-history-state-change', handleAIHistoryStateChange as EventListener);
-    window.addEventListener('Weave:ai-prompt-state-change', handleAIPromptStateChange as EventListener);
+    window.addEventListener('Weave:ai-toolbar-state-change', handleAIToolbarStateChange as EventListener);
     window.addEventListener('Weave:card-management-toolbar-state', handleCardToolbarState as EventListener); 
  
     return () => { 
-      window.removeEventListener('Weave:ai-selected-file-change', handleAISelectedFileChange as EventListener);
-      window.removeEventListener('Weave:ai-history-state-change', handleAIHistoryStateChange as EventListener);
-      window.removeEventListener('Weave:ai-prompt-state-change', handleAIPromptStateChange as EventListener);
+      window.removeEventListener('Weave:ai-toolbar-state-change', handleAIToolbarStateChange as EventListener);
       window.removeEventListener('Weave:card-management-toolbar-state', handleCardToolbarState as EventListener); 
-      destroyAIPromptSuggest();
     }; 
   }); 
-
-  $effect(() => {
-    if (currentPage !== 'ai-assistant' || !app || !aiPromptInputEl) {
-      destroyAIPromptSuggest();
-      return;
-    }
-
-    if (aiPromptSuggest && aiPromptSuggestInputEl === aiPromptInputEl) return;
-
-    destroyAIPromptSuggest();
-    aiPromptSuggest = new AIPromptInputSuggest(
-      app,
-      aiPromptInputEl,
-      () => aiPromptSuggestions,
-      (prompt) => applyAIPromptSuggestion(prompt)
-    );
-    aiPromptSuggestInputEl = aiPromptInputEl;
-  });
 </script>
 
 <header
@@ -791,22 +475,47 @@
 
     {#if currentPage === 'ai-assistant'}
       <button
-        class="sidebar-action-btn ai-toolbar-btn ai-file-trigger"
+        class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-file-trigger"
         onclick={(evt) => emitAIAssistantToolbarAction('file', evt)}
         aria-label="文件列表"
         title={aiSelectedFileName ? `当前文件：${aiSelectedFileName}` : '文件列表'}
       >
-        <ObsidianIcon name="file-text" size={16} />
         <span>{aiSelectedFileName || '文件列表'}</span>
       </button>
+      {#if aiSubView === 'generate'}
+        <button
+          class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-prompt-trigger"
+          onclick={(evt) => emitAIAssistantToolbarAction('prompt-file', evt)}
+          aria-label="提示词文件"
+          title={aiPromptFilePath || aiPromptFileName || '提示词文件'}
+        >
+          <span>{aiPromptFileName || '提示词文件'}</span>
+        </button>
+        <button
+          class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-model-trigger"
+          onclick={(evt) => emitAIAssistantToolbarAction('model', evt)}
+          aria-label="AI模型"
+          title={aiModelTitle || 'AI模型'}
+        >
+          <span>{aiModelLabel || 'AI模型'}</span>
+        </button>
+      {:else}
+        <button
+          class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-parse-trigger"
+          onclick={(evt) => emitAIAssistantToolbarAction('parse-template', evt)}
+          aria-label="解析模板"
+          title={aiParsePresetName || '解析模板'}
+        >
+          <span>{aiParsePresetName || '解析模板'}</span>
+        </button>
+      {/if}
       <button
-        class="sidebar-action-btn ai-toolbar-btn ai-history-trigger"
+        class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-history-trigger"
         class:disabled={aiHistoryCount === 0}
         onclick={(evt) => emitAIAssistantToolbarAction('history', evt)}
         aria-label="历史记录"
         title={aiHistoryCount > 0 ? `最近 ${aiHistoryCount} 次生成记录` : '暂无生成记录'}
       >
-        <ObsidianIcon name="history" size={16} />
         <span>历史记录</span>
       </button>
     {:else if currentPage === 'weave-card-management'}
@@ -1014,7 +723,8 @@
   </div>
 
   <!-- 中间：彩色圆点 + 插件菜单按钮 -->
-  <div class="sidebar-dots-container" class:collapsed={currentPage === 'ai-assistant'}>
+  <div class="sidebar-header-center">
+    <div class="sidebar-dots-container">
     {#if currentPage === 'deck-study'}
       {#each visibleDeckFilters as filter}
         <button
@@ -1044,79 +754,79 @@
           {/if}
         </button>
       {/each}
+    {:else if currentPage === 'ai-assistant'}
+      <button
+        class="sidebar-dot"
+        class:selected={aiSubView === 'generate'}
+        style={getGradientStyle('#ef4444', '#dc2626')}
+        onclick={(evt) => emitAIAssistantToolbarAction('sub-view', evt, 'generate')}
+        aria-label="AI制卡"
+        title="AI制卡"
+      >
+        {#if aiSubView === 'generate'}
+          <span class="dot-indicator"></span>
+        {/if}
+      </button>
+      <button
+        class="sidebar-dot"
+        class:selected={aiSubView === 'parse-preview'}
+        style={getGradientStyle('#3b82f6', '#2563eb')}
+        onclick={(evt) => emitAIAssistantToolbarAction('sub-view', evt, 'parse-preview')}
+        aria-label="解析预览"
+        title="解析预览"
+      >
+        {#if aiSubView === 'parse-preview'}
+          <span class="dot-indicator"></span>
+        {/if}
+      </button>
     {:else}
       <div class="sidebar-dots-placeholder"></div>
     {/if}
 
+    </div>
   </div>
 
   <!-- 右侧：占位符（保持布局平衡） -->
   <div class="sidebar-header-actions" class:ai-assistant-actions={currentPage === 'ai-assistant'}>
     {#if currentPage === 'ai-assistant'}
       <div class="ai-header-actions">
-        <div class="ai-toolbar-prompt-shell">
-          <div class="ai-toolbar-prompt-input">
-            <input
-              bind:this={aiPromptInputEl}
-              type="text"
-              placeholder="或输入自定义提示词..."
-              aria-label="自定义提示词"
-              value={aiPromptInputValue}
-              onclick={() => showNativeAIPromptSuggestions()}
-              onfocus={() => showNativeAIPromptSuggestions()}
-              oninput={(evt) => {
-                const value = (evt.currentTarget as HTMLInputElement).value;
-                handleAIPromptInput(value);
-              }}
-            />
-          </div>
-          {#if aiSelectedPromptId && aiSelectedPromptName}
-            <div class="ai-toolbar-prompt-status">
-              <span class="ai-toolbar-prompt-status-label">已选</span>
-              <span class="ai-toolbar-prompt-status-name" title={aiSelectedPromptName}>{aiSelectedPromptName}</span>
-              <button
-                class="ai-toolbar-prompt-clear"
-                onclick={clearSelectedAIPrompt}
-                aria-label="清除已选提示词"
-                title="清除已选提示词"
-              >
-                清除
-              </button>
-            </div>
-          {/if}
-        </div>
         <button
-          class="sidebar-action-btn ai-toolbar-btn ai-tools-trigger"
-          onclick={(evt) => emitAIAssistantToolbarAction('tools', evt)}
-          aria-label="AI菜单"
-          title="AI菜单"
+          class="sidebar-action-btn ai-toolbar-btn primary ai-primary-trigger"
+          class:disabled={aiSubView === 'generate' ? !aiCanGenerate : !aiCanParse}
+          onclick={(evt) => emitAIAssistantToolbarAction(aiSubView === 'generate' ? 'generate' : 'parse', evt)}
+          aria-label={aiSubView === 'generate' ? (aiIsGenerating ? '生成中' : '开始生成') : (aiIsParsing ? '解析中' : '开始解析')}
+          title={aiSubView === 'generate' ? (aiIsGenerating ? '生成中' : '开始生成') : (aiIsParsing ? '解析中' : '开始解析')}
         >
-          <ObsidianIcon name="sliders" size={16} />
-          <span>AI菜单</span>
-        </button>
-        <button
-          class="sidebar-action-btn ai-toolbar-btn primary"
-          onclick={(evt) => emitAIAssistantToolbarAction('generate', evt)}
-          aria-label="开始生成"
-          title="开始生成"
-        >
-          <ObsidianIcon name="sparkles" size={16} />
-          <span>开始生成</span>
+          <span>{aiSubView === 'generate' ? (aiIsGenerating ? '生成中' : '开始生成') : (aiIsParsing ? '解析中' : '开始解析')}</span>
         </button>
       </div>
-    {:else if currentPage === 'deck-study' && deckStudyView === 'kanban'}
-      <button
-        class="sidebar-action-btn"
-        onclick={(evt) => {
-          window.dispatchEvent(new CustomEvent('Weave:open-deck-kanban-menu', {
-            detail: { x: evt.clientX, y: evt.clientY, filter: selectedFilter }
-          }));
-        }}
-        aria-label="看板设置"
-        title="看板设置"
-      >
-        <EnhancedIcon name="sliders" size={16} />
-      </button>
+    {:else if currentPage === 'deck-study'}
+      <div class="deck-study-header-actions">
+        {#if selectedFilter === 'memory'}
+          <button
+            class="sidebar-action-btn deck-study-toolbar-btn"
+            onclick={(event) => emitDeckStudyToolbarAction('open-emergent-rule-groups', event.currentTarget as HTMLElement)}
+            aria-label="涌现筛选"
+            title="涌现筛选"
+          >
+            <ObsidianIcon name="filter" size={16} />
+          </button>
+        {/if}
+        {#if deckStudyView === 'kanban'}
+          <button
+            class="sidebar-action-btn deck-study-toolbar-btn"
+            onclick={(evt) => {
+              window.dispatchEvent(new CustomEvent('Weave:open-deck-kanban-menu', {
+                detail: { x: evt.clientX, y: evt.clientY, filter: selectedFilter }
+              }));
+            }}
+            aria-label="看板设置"
+            title="看板设置"
+          >
+            <EnhancedIcon name="sliders" size={16} />
+          </button>
+        {/if}
+      </div>
     {:else if currentPage === 'weave-card-management'}
       <div class="card-header-actions card-header-actions-right">
         {#if isInSidebarMode}
@@ -1229,17 +939,17 @@
     --weave-header-surface: var(--weave-elevated-background, var(--weave-surface-secondary, var(--background-secondary)));
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    position: relative;
     align-items: center;
     padding: 6px 8px;
     background: var(--weave-header-bg);
-    border-bottom: 1px solid var(--background-modifier-border);
     flex-shrink: 0;
     min-height: 44px;
   }
 
   .sidebar-nav-header.ai-assistant-layout {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     gap: 8px;
   }
 
@@ -1247,7 +957,6 @@
     padding: 6px 8px;
     gap: 8px;
     background: var(--weave-header-bg);
-    border-bottom: 1px solid var(--background-modifier-border);
   }
 
   .sidebar-nav-header.card-management-desktop .sidebar-header-left,
@@ -1265,11 +974,14 @@
     gap: 6px;
     min-width: 0;
     flex: 1 1 0;
+    grid-column: 1;
   }
 
   .sidebar-header-left.ai-assistant-left {
-    flex: 0 0 auto;
-    max-width: min(52vw, 560px);
+    flex: 1 1 auto;
+    max-width: none;
+    overflow: hidden;
+    gap: 5px;
   }
 
   .sidebar-menu-trigger {
@@ -1300,21 +1012,28 @@
     background: var(--background-modifier-active-hover);
   }
 
+  .sidebar-header-center {
+    position: relative;
+    grid-column: 2;
+    justify-self: center;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-width: 0;
+    pointer-events: auto;
+    z-index: 3;
+  }
+
+  .sidebar-header-center > * {
+    pointer-events: auto;
+  }
+
   .sidebar-dots-container {
     display: flex;
     justify-content: center;
     align-items: center;
     gap: 14px;
     min-width: 0;
-    justify-self: center;
-  }
-
-  .sidebar-dots-container.collapsed {
-    flex: 0 0 0;
-    width: 0;
-    min-width: 0;
-    overflow: hidden;
-    gap: 0;
   }
 
   .sidebar-dots-placeholder {
@@ -1322,9 +1041,14 @@
   }
 
   .sidebar-dot {
+    --weave-sidebar-dot-size: 16px;
     position: relative;
-    width: 16px;
-    height: 16px;
+    display: block;
+    flex: 0 0 auto;
+    width: var(--weave-sidebar-dot-size);
+    height: var(--weave-sidebar-dot-size);
+    min-width: var(--weave-sidebar-dot-size);
+    min-height: var(--weave-sidebar-dot-size);
     border-radius: 50%;
     border: none;
     cursor: pointer;
@@ -1332,7 +1056,19 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     padding: 0;
     outline: none;
+    appearance: none;
+    -webkit-appearance: none;
     -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .sidebar-dot::before {
+    /* 保持圆点视觉尺寸不变，同时复用全局触控尺寸变量扩展点击热区 */
+    content: '';
+    position: absolute;
+    inset: calc((var(--weave-sidebar-dot-size) - var(--weave-touch-sm, 44px)) / 2);
+    border-radius: 50%;
+    background: transparent;
   }
 
   .sidebar-dot:hover {
@@ -1409,10 +1145,19 @@
     gap: 8px;
     min-width: 0;
     overflow: hidden;
+    grid-column: 3;
   }
 
   .sidebar-header-actions.ai-assistant-actions {
     flex: 1 1 auto;
+    justify-self: end;
+    overflow: visible;
+  }
+
+  .sidebar-header-left,
+  .sidebar-header-actions {
+    position: relative;
+    z-index: 2;
   }
 
   .sidebar-nav-header.card-management-inline-search,
@@ -1459,14 +1204,23 @@
 
   .ai-header-actions {
     display: flex;
-    align-items: flex-start;
-    gap: 8px;
+    align-items: center;
+    gap: 9px;
     min-width: 0;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     justify-content: flex-end;
-    width: 100%;
-    overflow: hidden;
+    width: auto;
+    overflow: visible;
     flex-wrap: nowrap;
+  }
+
+  .deck-study-header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
+    overflow: visible;
   }
 
   .card-header-actions {
@@ -1584,7 +1338,6 @@
     align-items: center;
     padding: 8px;
     background: var(--weave-header-bg);
-    border-bottom: 1px solid var(--background-modifier-border);
   }
 
   .sidebar-card-search-panel .card-toolbar-search {
@@ -1608,97 +1361,11 @@
     white-space: nowrap;
   }
 
-  .ai-toolbar-prompt-shell {
-    position: relative;
-    flex: 1 1 240px;
-    min-width: 140px;
-    max-width: min(480px, 100%);
-  }
-
-  .ai-toolbar-prompt-input { 
-    display: flex; 
-    align-items: center; 
-    width: 100%;
-    height: 36px; 
-    padding: 0 10px; 
-    border-radius: 8px; 
-    background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary)); 
-    border: 1px solid var(--background-modifier-border);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--background-primary) 72%, transparent);
-    overflow: hidden;
-  } 
- 
-  .ai-toolbar-prompt-input input { 
-    width: 100%; 
-    border: none;
-    outline: none;
-    background: transparent;
-    color: var(--text-normal); 
-    font-size: 0.85rem; 
-  } 
-
-  .ai-toolbar-prompt-input:hover {
-    border-color: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
-  }
-
-  .ai-toolbar-prompt-input:focus-within {
-    border-color: var(--interactive-accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive-accent) 14%, transparent);
-  }
- 
-  .ai-toolbar-prompt-input input::placeholder { 
-    color: var(--text-muted); 
-  } 
-
-  .ai-toolbar-prompt-status {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 24px;
-    padding: 6px 2px 0;
-    min-width: 0;
-  }
-
-  .ai-toolbar-prompt-status-label {
-    flex: 0 0 auto;
-    color: var(--text-muted);
-    font-size: 0.76rem;
-    white-space: nowrap;
-  }
-
-  .ai-toolbar-prompt-status-name {
-    min-width: 0;
-    color: var(--text-normal);
-    font-size: 0.8rem;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .ai-toolbar-prompt-clear {
-    flex: 0 0 auto;
-    height: 22px;
-    padding: 0 8px;
-    border-radius: 999px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    color: var(--text-muted);
-    font-size: 0.74rem;
-    cursor: pointer;
-  }
-
-  .ai-toolbar-prompt-clear:hover {
-    color: var(--text-normal);
-    border-color: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
-    background: var(--background-modifier-hover);
-  }
-
   .ai-toolbar-btn {
     width: auto;
     min-width: 0;
-    padding: 0 10px;
-    gap: 6px;
+    padding: 0 9px;
+    gap: 5px;
     border: none;
     border-radius: 8px;
     background: transparent;
@@ -1707,20 +1374,36 @@
 
   .ai-toolbar-btn span {
     font-size: 0.85rem;
+    font-weight: 500;
+    line-height: 1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .ai-file-trigger {
-    flex: 0 1 260px;
-    min-width: 120px;
-    max-width: min(32vw, 320px);
-    padding: 0 12px;
+  .ai-text-trigger {
     justify-content: flex-start;
-    gap: 8px;
     color: var(--text-normal);
     overflow: hidden;
+  }
+
+  .ai-file-trigger {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: min(20vw, 240px);
+    padding: 0 11px;
+    justify-content: flex-start;
+    gap: 5px;
+    color: var(--text-normal);
+    overflow: hidden;
+  }
+
+  .ai-prompt-trigger,
+  .ai-model-trigger,
+  .ai-parse-trigger {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: min(17vw, 196px);
   }
 
   .ai-file-trigger span {
@@ -1730,33 +1413,45 @@
     white-space: nowrap;
   }
 
-  .ai-tools-trigger {
-    flex: 0 0 auto;
+  .ai-prompt-trigger span,
+  .ai-model-trigger span,
+  .ai-parse-trigger span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .ai-history-trigger {
     flex: 0 0 auto;
     color: var(--text-normal);
+    padding: 0 11px;
   }
 
   @media (max-width: 900px) {
+    .sidebar-header-center {
+      position: static;
+      transform: none;
+      justify-self: center;
+      pointer-events: auto;
+      z-index: auto;
+    }
+
+    .sidebar-nav-header .sidebar-header-center {
+      grid-column: 2;
+    }
+
     .sidebar-header-left.ai-assistant-left {
-      max-width: min(46vw, 380px);
+      max-width: none;
     }
 
     .ai-file-trigger {
-      flex-basis: 200px;
-      max-width: min(28vw, 240px);
-      padding: 0 10px;
-    }
-
-    .ai-toolbar-prompt-shell {
-      flex-basis: 180px;
-      max-width: 280px;
+      max-width: min(22vw, 190px);
+      padding: 0 8px;
     }
 
     .ai-toolbar-btn span {
-      max-width: 72px;
+      max-width: 76px;
       overflow: hidden;
       text-overflow: ellipsis;
     }
@@ -1777,58 +1472,18 @@
     }
 
     .ai-file-trigger {
-      flex-basis: 136px;
       max-width: 28vw;
       padding: 0 8px;
     }
 
-    .ai-toolbar-prompt-shell {
-      flex-basis: 120px;
-      min-width: 96px;
-      max-width: none;
-    }
-
-    .ai-toolbar-prompt-input {
-      min-height: 40px;
-      padding: 0 12px;
-      border-radius: 14px;
-      background: color-mix(in srgb, var(--background-primary) 86%, transparent);
-      border-color: color-mix(in srgb, var(--background-modifier-border) 76%, transparent);
-      box-shadow:
-        0 8px 20px rgba(0, 0, 0, 0.08),
-        inset 0 1px 0 color-mix(in srgb, white 18%, transparent);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-    }
-
-    .ai-toolbar-prompt-input input {
-      font-size: 0.92rem;
-    }
-
-    .ai-toolbar-prompt-status {
-      padding-top: 4px;
-      gap: 6px;
-    }
-
-    .ai-toolbar-prompt-status-label,
-    .ai-toolbar-prompt-clear {
-      font-size: 0.72rem;
-    }
-
-    .ai-toolbar-prompt-status-name {
-      font-size: 0.76rem;
-    }
-
     .ai-history-trigger span,
-    .ai-tools-trigger span,
     .ai-toolbar-btn.primary span {
-      display: none;
+      display: inline-block;
     }
 
     .ai-history-trigger,
-    .ai-tools-trigger,
     .ai-toolbar-btn.primary {
-      padding: 0 8px;
+      padding: 0 10px;
     }
   }
 
@@ -1842,83 +1497,4 @@
     color: var(--text-on-accent);
   }
 
-  :global(.suggestion-container.weave-ai-prompt-suggest-popover) {
-    padding: 8px;
-    border-radius: 14px;
-  }
-
-  @media (max-width: 640px) {
-    :global(.suggestion-container.weave-ai-prompt-suggest-popover) {
-      border-radius: 18px;
-      padding: 10px;
-      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.16);
-    }
-
-    :global(.suggestion-container.weave-ai-prompt-suggest-popover .suggestion-item) {
-      padding: 12px 14px;
-      border-radius: 12px;
-      margin: 3px 0;
-    }
-  }
-
-  :global(.suggestion-container.weave-ai-prompt-suggest-popover .suggestion) {
-    padding: 0;
-  }
-
-  :global(.suggestion-container.weave-ai-prompt-suggest-popover .suggestion-item) {
-    padding: 10px 12px;
-    border-radius: 10px;
-    margin: 2px 0;
-  }
-
-  :global(.suggestion-container.weave-ai-prompt-suggest-popover .suggestion-item.is-selected) {
-    background: var(--background-modifier-hover);
-  }
-
-  :global(.suggestion-container .weave-ai-prompt-suggest-item) {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 2px 0;
-  }
-
-  :global(.suggestion-container .weave-ai-prompt-suggest-row) {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    min-width: 0;
-  }
-
-  :global(.suggestion-container .weave-ai-prompt-suggest-title) {
-    min-width: 0;
-    font-size: 0.88rem;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--text-normal);
-  }
-
-  :global(.suggestion-container .weave-ai-prompt-suggest-badge) {
-    flex: 0 0 auto;
-    padding: 2px 6px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
-    color: var(--text-muted);
-    font-size: 0.7rem;
-    line-height: 1.2;
-  }
-
-  :global(.suggestion-container .weave-ai-prompt-suggest-desc) {
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    line-height: 1.45;
-    white-space: normal;
-    overflow: hidden;
-    line-clamp: 2;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
 </style>

@@ -190,6 +190,25 @@ describe("FoliateReaderService", () => {
 		}
 	});
 
+	it("strips volatile runtime cfi assertions before reusing saved epub progress", async () => {
+		const service = new FoliateReaderService(createMockApp(await createSampleEpubBuffer()) as any);
+		try {
+			await service.loadEpub("Books/foliate-sample.epub", "foliate-book");
+			const results = await service.searchText("Selection text for testing");
+			const stableCfi = results[0]?.cfi;
+			expect(stableCfi?.startsWith("epubcfi(")).toBe(true);
+
+			const volatileCfi = String(stableCfi).replace("/4,", "/4[UGI0-volatile-marker],");
+			const normalizedStable = await service.canonicalizeLocation(String(stableCfi));
+			const canonical = await service.canonicalizeLocation(volatileCfi);
+
+			expect(canonical).toBe(normalizedStable);
+			expect(canonical).not.toContain("UGI0-volatile-marker");
+		} finally {
+			service.destroy();
+		}
+	});
+
 	it("renders into a container without crashing when a foliate-view element is available", async () => {
 		const service = new FoliateReaderService(createMockApp(await createSampleEpubBuffer()) as any);
 		try {

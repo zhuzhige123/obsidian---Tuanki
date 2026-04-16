@@ -52,18 +52,18 @@ export class FoliateReaderService implements EpubReaderEngine {
 		Record<string, string>
 	> = {
 		light: {
-			yellow: "rgba(245, 181, 36, 0.42)",
-			green: "rgba(34, 197, 94, 0.32)",
-			blue: "rgba(59, 130, 246, 0.32)",
-			red: "rgba(239, 68, 68, 0.3)",
-			purple: "rgba(168, 85, 247, 0.3)",
+			yellow: "rgba(232, 170, 24, 0.6)",
+			green: "rgba(34, 166, 84, 0.52)",
+			blue: "rgba(38, 121, 231, 0.5)",
+			red: "rgba(225, 78, 78, 0.48)",
+			purple: "rgba(145, 92, 230, 0.48)",
 		},
 		dark: {
-			yellow: "rgba(255, 214, 102, 0.4)",
-			green: "rgba(74, 222, 128, 0.34)",
-			blue: "rgba(125, 211, 252, 0.34)",
-			red: "rgba(248, 113, 113, 0.32)",
-			purple: "rgba(216, 180, 254, 0.32)",
+			yellow: "rgba(255, 209, 84, 0.5)",
+			green: "rgba(74, 204, 120, 0.44)",
+			blue: "rgba(110, 196, 250, 0.44)",
+			red: "rgba(244, 110, 110, 0.42)",
+			purple: "rgba(204, 166, 248, 0.42)",
 		},
 	};
 
@@ -161,9 +161,7 @@ export class FoliateReaderService implements EpubReaderEngine {
 		container.dataset.foliate = "true";
 
 		const view = document.createElement("foliate-view") as FoliateViewElement;
-		view.style.display = "block";
-		view.style.width = "100%";
-		view.style.height = "100%";
+		view.classList.add("weave-epub-reader-host");
 		view.addEventListener("relocate", this.handleRelocateEvent as EventListener);
 		view.addEventListener("load", this.handleLoadEvent as EventListener);
 		view.addEventListener("draw-annotation", this.handleDrawAnnotationEvent as EventListener);
@@ -880,8 +878,9 @@ export class FoliateReaderService implements EpubReaderEngine {
 		const colorScheme = this.getCurrentColorScheme();
 		const concealment = this.getConcealmentPalette();
 		const highlightOpacity =
-			this.currentTheme === "sepia" ? "0.28" : colorScheme === "dark" ? "0.38" : "0.3";
-		const highlightBlendMode = this.currentTheme === "sepia" ? "multiply" : "normal";
+			this.currentTheme === "sepia" ? "0.4" : colorScheme === "dark" ? "0.46" : "0.5";
+		const highlightBlendMode =
+			this.currentTheme === "sepia" || colorScheme === "light" ? "multiply" : "normal";
 
 		return `:root {
 	color-scheme: ${colorScheme};
@@ -996,13 +995,13 @@ body .weave-foliate-concealment {
 		if (annotation.presentation === "conceal") {
 			const key = this.normalizeLocationKey(annotation.cfiRange);
 			if (!this.temporarilyRevealedConcealmentTimers.has(key)) {
-				draw(this.createConcealmentOverlay);
+				draw((rects) => this.createConcealmentOverlay(rects));
 				return;
 			}
 		}
 
 		const overlayer = await this.getOverlayerModule();
-		draw(overlayer.Overlayer.highlight, {
+		draw((rects, options) => overlayer.Overlayer.highlight(rects, options), {
 			color: this.resolveHighlightTint(annotation.color),
 			padding: 1,
 		});

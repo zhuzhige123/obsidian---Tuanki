@@ -140,7 +140,7 @@ body.is-tablet .weave-app {
 /* 所有按钮保持最小 44px 触控目标（Apple HIG 标准） */
 body.is-mobile .weave-app .weave-button,
 body.is-mobile .weave-app .weave-card-action,
-body.is-mobile .weave-app button:not(.clickable-icon):not(.category-dot):not(.view-dot):not(.view-type-dot):not(.list-item-indicator):not(.action-menu-item):not(.mobile-menu-trigger):not(.mobile-search-btn) {
+body.is-mobile .weave-app button:not(.clickable-icon):not(.category-dot):not(.view-dot):not(.view-type-dot):not(.sidebar-dot):not(.list-item-indicator):not(.action-menu-item):not(.mobile-menu-trigger):not(.mobile-search-btn) {
   min-height: var(--weave-touch-target-min);
   min-width: var(--weave-touch-target-min);
 }

@@ -25,6 +25,7 @@
   import BuildDeckModal from "../modals/BuildDeckModal.svelte";
   // 🆕 v2.0 增量阅读牌组模态窗
   import BuildIRDeckModal from "../modals/BuildIRDeckModal.svelte";
+  import { MarkdownFileSuggestModal } from "../../modals/MarkdownFileSuggestModal";
   // 🆕 v2.2 数据管理模态窗
   import { ColumnManagerModalObsidian } from "../modals/ColumnManagerModalObsidian";
   import { DataManagementModalObsidian } from "../modals/DataManagementModalObsidian";
@@ -33,7 +34,7 @@
   import { EmbeddableEditorManager } from "../../services/editor/EmbeddableEditorManager";
 
   import TablePagination from "../ui/TablePagination.svelte";
-  import { DEFAULT_COLUMN_ORDER, type ColumnOrder, type ColumnKey } from "../tables/types/table-types";
+  import { DEFAULT_COLUMN_ORDER, COLUMN_GROUPS, type ColumnOrder, type ColumnKey, type ColumnGroups } from "../tables/types/table-types";
 
   import { ICON_NAMES } from "../../icons/index.js";
   import { onMount, onDestroy, untrack, tick } from "svelte";
@@ -98,9 +99,33 @@
   import { epubActiveDocumentStore } from "../../stores/epub-active-document-store";
   
   import { IRStorageService } from "../../services/incremental-reading/IRStorageService";
-  import { IRPdfBookmarkTaskService, isPdfBookmarkTaskId } from "../../services/incremental-reading/IRPdfBookmarkTaskService";
-  import type { IRPdfBookmarkTask } from "../../services/incremental-reading/IRPdfBookmarkTaskService";
+  import { loadIRCardManagementData } from "../../services/incremental-reading/IRCardManagementLoader";
+  import {
+    updateIRCardManagementAssociatedNotes,
+    updateIRCardManagementDecks,
+    updateIRCardManagementPriority,
+    updateIRCardManagementTags,
+  } from "../../services/incremental-reading/IRCardManagementMutationService";
+  import { resolveAssociatedNotePaths } from "../../services/incremental-reading/IRAssociatedNoteSignals";
+  import { IRPointWriteService } from "../../services/incremental-reading/IRPointWriteService";
+  import { recomputeAndBroadcastIRData } from "../../services/incremental-reading";
+  import {
+    createAssociatedMarkdownNote,
+    getAssociatedMarkdownLabel,
+    openAssociatedMarkdownNote,
+    populateAssociatedNoteMenu,
+    resolvePreferredAssociatedNoteFolder,
+  } from "../../services/incremental-reading/IRAssociatedNoteMenu";
+  import { applyIRCardManagementSourceStats } from "../../services/incremental-reading/IRCardManagementSourceAdapter";
+  import {
+    detectTraceSourceKind,
+    normalizeTraceDocumentKey,
+    normalizeTraceSubunitKey,
+    type IRTraceSourceKind
+  } from "../../services/incremental-reading/IRSourceTraceStats";
+  import { getEmergentDeckService } from "../../services/deck/EmergentDeckService";
   import type { IRBlock, IRDeck } from "../../types/ir-types";
+  import type { MemoryDeckOrganizationRuntime } from "../../types/emergent-deck-types";
   import { getChunkTopicIds, getTaskTopicId } from "../../utils/ir-topic-compat";
   
   // 进度条模态窗
@@ -237,7 +262,8 @@
   
   let currentView = $state<'table' | 'grid' | 'kanban'>(initialView);
   let gridLayout = $state<GridLayoutMode>(initialGridLayout);
-  let kanbanGroupBy = $state<'status' | 'type' | 'priority' | 'deck' | 'createTime'>('status'); // 看板分组方式
+  type KanbanGroupBy = 'status' | 'type' | 'priority' | 'deck' | 'createTime' | 'tag' | 'ir_tag_group';
+  let kanbanGroupBy = $state<KanbanGroupBy>('status'); // 看板分组方式
   let kanbanLayoutMode = $state<'compact' | 'comfortable' | 'spacious'>(resolveKanbanLayoutMode(viewPrefs.kanbanLayoutMode));
   let tableViewMode = $state<'basic' | 'review' | 'questionBank' | 'irContent'>(resolveTableViewMode(viewPrefs.tableViewMode));
   let enableCardLocationJump = $state(viewPrefs.enableCardLocationJump);
@@ -280,7 +306,22 @@
   let irDecks = $state<Record<string, IRDeck>>({});  // IR牌组数据
   let isLoadingIR = $state(false);  // IR数据加载状态
   let irStorageService: IRStorageService | null = null;  // IR存储服务
+  let irExtractCardIds = $state<Set<string>>(new Set()); // 旧摘录卡回退识别
   let irTypeFilter = $state<'all' | 'md' | 'pdf'>('all');  // IR类型筛选：全部/MD文件/PDF书签
+  let irReloadTimer: number | null = null;
+  let irReloadQueued = false;
+
+  function normalizeKanbanGroupByForSource(
+    value: KanbanGroupBy,
+    source: 'memory' | 'questionBank' | 'incremental-reading'
+  ): KanbanGroupBy {
+    if (source === 'incremental-reading') {
+      return ['deck', 'ir_tag_group', 'tag', 'priority'].includes(value)
+        ? value
+        : 'deck';
+    }
+    return value === 'ir_tag_group' ? 'status' : value;
+  }
   
   // 🆕 查看卡片模态窗状态 - 改用全局方法，不再需要本地状态
   
@@ -368,6 +409,7 @@
 
   // allFieldTemplates 已删除（新系统使用动态解析，无需预定义模板）
   let allDecks = $state<Deck[]>([]);
+  let memoryDeckOrganizationRuntime = $state<MemoryDeckOrganizationRuntime | null>(null);
   
   let isPremium = $state(false);
   let showActivationPrompt = $state(false);
@@ -620,6 +662,14 @@
       });
     }
 
+    if (dataSource === 'incremental-reading') {
+      result = applyIRCardManagementSourceStats({
+        rows: result,
+        allCards: cards,
+        extractCardIds: irExtractCardIds,
+      });
+    }
+
     const getSortKey = (card: Card): string | number => {
       switch (currentSortField) {
         case "front":
@@ -654,11 +704,9 @@
         case "ir_state":
           return ((card as any).ir_state || '').toLowerCase();
         case "ir_priority":
-          return (card as any).ir_priority ?? 5;
+          return (card as any).ir_priority_value ?? (card as any).ir_priority ?? 5;
         case "ir_tags":
           return ((card as any).ir_tags || []).join(' ').toLowerCase();
-        case "ir_favorite":
-          return (card as any).ir_favorite ? 1 : 0;
         case "ir_next_review": {
           const irTs = new Date((card as any).ir_next_review || 0).getTime();
           return Number.isFinite(irTs) ? irTs : 0;
@@ -667,8 +715,18 @@
           return (card as any).ir_review_count ?? 0;
         case "ir_reading_time":
           return (card as any).ir_reading_time ?? 0;
-        case "ir_extracted_cards":
-          return (card as any).ir_extracted_cards ?? 0;
+        case "ir_notes":
+          return (card as any).ir_notes ?? (card as any).ir_associated_note_paths?.length ?? 0;
+        case "ir_extract_cards":
+          return (card as any).ir_extract_cards ?? 0;
+        case "ir_memory_cards":
+          return (card as any).ir_memory_cards ?? 0;
+        case "ir_source_kind":
+          return ((card as any).ir_source_kind || '').toLowerCase();
+        case "ir_source_subunit":
+          return ((card as any).ir_source_subunit || '').toLowerCase();
+        case "ir_tag_group":
+          return ((card as any).ir_tag_group || '默认').toLowerCase();
         case "ir_created": {
           const irCreatedTs = new Date((card as any).ir_created || 0).getTime();
           return Number.isFinite(irCreatedTs) ? irCreatedTs : 0;
@@ -798,12 +856,15 @@
       ir_state: false,
       ir_priority: false,
       ir_tags: false,
-      ir_favorite: false,
       ir_next_review: false,
       ir_review_count: false,
       ir_reading_time: false,
       ir_notes: false,
-      ir_extracted_cards: false,
+      ir_extract_cards: false,
+      ir_memory_cards: false,
+      ir_source_kind: false,
+      ir_source_subunit: false,
+      ir_tag_group: false,
       ir_created: false,
       ir_decks: false,
     };
@@ -835,10 +896,13 @@
       next.ir_state = true;
       next.ir_priority = true;
       next.ir_tags = true;
-      next.ir_favorite = true;
+      next.ir_tag_group = true;
       next.ir_next_review = true;
       next.ir_review_count = true;
-      next.ir_extracted_cards = true;
+      next.ir_notes = true;
+      next.ir_extract_cards = true;
+      next.ir_memory_cards = true;
+      next.ir_source_kind = true;
       next.ir_created = true;
       next.ir_decks = true;
       return next;
@@ -852,8 +916,8 @@
   const MEMORY_REVIEW_COLUMNS: ColumnKey[] = ['front', 'back', 'status', 'next_review', 'retention', 'interval', 'difficulty', 'review_count', 'actions'];
   const QUESTION_BANK_MINIMAL_COLUMNS: ColumnKey[] = ['front', 'status', 'question_type', 'accuracy', 'error_level', 'actions'];
   const QUESTION_BANK_EXAM_COLUMNS: ColumnKey[] = ['front', 'back', 'status', 'deck', 'question_type', 'accuracy', 'test_attempts', 'last_test', 'error_level', 'actions'];
-  const IR_MINIMAL_COLUMNS: ColumnKey[] = ['ir_title', 'ir_state', 'ir_priority', 'ir_tags', 'actions'];
-  const IR_READING_COLUMNS: ColumnKey[] = ['ir_title', 'ir_source_file', 'ir_state', 'ir_priority', 'ir_tags', 'ir_favorite', 'ir_next_review', 'ir_review_count', 'ir_extracted_cards', 'ir_created', 'ir_decks', 'actions'];
+  const IR_MINIMAL_COLUMNS: ColumnKey[] = ['ir_title', 'ir_source_file', 'ir_state', 'ir_priority', 'actions'];
+  const IR_READING_COLUMNS: ColumnKey[] = ['ir_title', 'ir_source_file', 'ir_source_kind', 'ir_notes', 'ir_extract_cards', 'ir_memory_cards', 'ir_decks', 'ir_state', 'ir_priority', 'ir_tags', 'ir_tag_group', 'ir_next_review', 'ir_review_count', 'ir_created', 'actions'];
 
   // 列可见性状态
   let columnVisibility = $state(createDefaultColumnVisibilityForSource('memory'));
@@ -861,9 +925,62 @@
   // 列顺序状态
   let columnOrder = $state<ColumnOrder>([...DEFAULT_COLUMN_ORDER]);
 
+  function getColumnVisibilityStorageKey(source: 'memory' | 'questionBank' | 'incremental-reading' = dataSource): string {
+    return `weave-column-visibility:${source}`;
+  }
+
+  function getColumnOrderStorageKey(source: 'memory' | 'questionBank' | 'incremental-reading' = dataSource): string {
+    return `weave-column-order:${source}`;
+  }
+
+  function loadPersistedColumnVisibility(source: 'memory' | 'questionBank' | 'incremental-reading'): typeof columnVisibility {
+    const defaultVisibility = createDefaultColumnVisibilityForSource(source);
+    const scopedValue = vaultStorage.getItem(getColumnVisibilityStorageKey(source));
+    const legacyValue = source === 'memory' ? vaultStorage.getItem('weave-column-visibility') : null;
+    const rawValue = scopedValue ?? legacyValue;
+
+    if (!rawValue) {
+      return defaultVisibility;
+    }
+
+    try {
+      const parsed = JSON.parse(rawValue);
+      return { ...defaultVisibility, ...parsed };
+    } catch (error) {
+      logger.error(`解析列设置失败(${source}):`, error);
+      return defaultVisibility;
+    }
+  }
+
+  function loadPersistedColumnOrder(source: 'memory' | 'questionBank' | 'incremental-reading'): ColumnOrder {
+    const defaultOrder = [...DEFAULT_COLUMN_ORDER];
+    const scopedValue = vaultStorage.getItem(getColumnOrderStorageKey(source));
+    const legacyValue = source === 'memory' ? vaultStorage.getItem('weave-column-order') : null;
+    const rawValue = scopedValue ?? legacyValue;
+
+    if (!rawValue) {
+      return defaultOrder;
+    }
+
+    try {
+      const parsed = JSON.parse(rawValue);
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        logger.warn(`[ColumnOrder] 保存的列顺序无效(${source})，使用默认值`);
+        return defaultOrder;
+      }
+      return [
+        ...parsed.filter((key: ColumnKey) => defaultOrder.includes(key)),
+        ...defaultOrder.filter((key: ColumnKey) => !parsed.includes(key))
+      ];
+    } catch (error) {
+      logger.error(`解析列顺序失败(${source}):`, error);
+      return defaultOrder;
+    }
+  }
+
   function persistColumnVisibility(nextVisibility = columnVisibility) {
     try {
-      vaultStorage.setItem('weave-column-visibility', JSON.stringify(nextVisibility));
+      vaultStorage.setItem(getColumnVisibilityStorageKey(), JSON.stringify(nextVisibility));
     } catch (error) {
       logger.error('保存列设置失败:', error);
     }
@@ -871,7 +988,7 @@
 
   function persistColumnOrder(nextOrder = columnOrder) {
     try {
-      vaultStorage.setItem('weave-column-order', JSON.stringify(nextOrder));
+      vaultStorage.setItem(getColumnOrderStorageKey(), JSON.stringify(nextOrder));
     } catch (error) {
       logger.error('保存列顺序失败:', error);
     }
@@ -975,6 +1092,65 @@
     persistColumnOrder(columnOrder);
   }
 
+  function getColumnManagerGroups(): ColumnGroups {
+    if (dataSource === 'incremental-reading') {
+      return {
+        basic: [
+          'ir_title',
+          'ir_source_file',
+          'ir_source_kind',
+          'ir_notes',
+          'ir_extract_cards',
+          'ir_memory_cards',
+          'ir_decks',
+          'ir_state',
+          'ir_priority',
+          'ir_tags',
+          'ir_tag_group',
+        ],
+        review: [
+          'ir_next_review',
+          'ir_review_count',
+          'ir_reading_time',
+          'ir_created',
+        ],
+        advanced: [
+          'ir_source_subunit',
+        ],
+        shared: [],
+      };
+    }
+
+    if (dataSource === 'questionBank') {
+      return {
+        basic: [
+          'front',
+          'back',
+          'deck',
+          'tags',
+          'priority',
+          'created',
+          'question_type',
+          'accuracy',
+          'error_level',
+        ],
+        review: [
+          'test_attempts',
+          'last_test',
+        ],
+        advanced: [
+          'uuid',
+          'source_document',
+          'field_template',
+          'source_document_status',
+        ],
+        shared: ['front', 'back'],
+      };
+    }
+
+    return COLUMN_GROUPS;
+  }
+
   /**
    * 🔧 同步列可见性与数据源
    * 确保表格头部属性与当前数据源匹配
@@ -988,8 +1164,9 @@
       tableViewMode = 'basic';
     }
 
-    columnVisibility = createDefaultColumnVisibilityForSource(source);
-    persistColumnVisibility(columnVisibility);
+    columnVisibility = loadPersistedColumnVisibility(source);
+    columnOrder = loadPersistedColumnOrder(source);
+    kanbanGroupBy = normalizeKanbanGroupByForSource(kanbanGroupBy, source);
   }
 
   // 筛选状态
@@ -1656,11 +1833,20 @@
     };
     window.addEventListener('Weave:card-management-search-change', handleCardManagementSearchChange as EventListener);
 
-    const handleIRRealtimeRefresh = async () => {
+    const handleIRTimerRefresh = (e: Event) => {
       if (dataSource !== 'incremental-reading') return;
-      await loadIRContentCards({ silent: true });
+      const detail = (e as CustomEvent<{ blockId?: string; totalSeconds?: number }>).detail;
+      applyIRTimerUpdateToCards(
+        String(detail?.blockId || '').trim(),
+        Number(detail?.totalSeconds || 0)
+      );
     };
-    window.addEventListener('Weave:ir-timer-updated', handleIRRealtimeRefresh);
+
+    const handleIRRealtimeRefresh = () => {
+      if (dataSource !== 'incremental-reading') return;
+      queueIRContentReload({ silent: true, debounceMs: 120 });
+    };
+    window.addEventListener('Weave:ir-timer-updated', handleIRTimerRefresh);
     window.addEventListener('Weave:ir-data-updated', handleIRRealtimeRefresh);
 
     const handleCardManagementToolbarAction = (e: Event) => {
@@ -1812,45 +1998,8 @@
     // 保持初始值为 'all'，用户需要主动点击才会应用过滤
     // 这避免了自动触发文档过滤的问题
 
-    // 加载列可见性设置
-    const savedColumnVisibility = vaultStorage.getItem('weave-column-visibility');
-    if (savedColumnVisibility) {
-      try {
-        const parsed = JSON.parse(savedColumnVisibility);
-        // 合并保存的设置和默认设置（确保新增字段有默认值）
-        columnVisibility = { ...columnVisibility, ...parsed };
-        // 列设置加载成功
-      } catch (error) {
-        logger.error('解析列设置失败:', error);
-      }
-    }
-    
     // 🔧 关键修复：同步列可见性与当前数据源，防止表头与数据源错乱
     syncColumnVisibilityWithDataSource(dataSource);
-
-    // 加载列顺序设置
-    const savedColumnOrder = vaultStorage.getItem('weave-column-order');
-    if (savedColumnOrder) {
-      try {
-        const parsed = JSON.parse(savedColumnOrder);
-        // 🔄 合并保存的顺序和默认顺序（确保新增列被包含）
-        const defaultOrder = [...DEFAULT_COLUMN_ORDER];
-        // 🔧 防御性检查：确保parsed是有效数组
-        if (!Array.isArray(parsed) || parsed.length === 0) {
-          logger.warn('[ColumnOrder] 保存的列顺序无效，使用默认值');
-          columnOrder = [...DEFAULT_COLUMN_ORDER];
-        } else {
-          const mergedOrder = [
-            ...parsed.filter((key: ColumnKey) => defaultOrder.includes(key)),
-            ...defaultOrder.filter((key: ColumnKey) => !parsed.includes(key))
-          ];
-          columnOrder = mergedOrder;
-          // 列顺序设置加载成功
-        }
-      } catch (error) {
-        logger.error('解析列设置失败:', error);
-      }
-    }
 
     isLoading = false;
 
@@ -1941,7 +2090,11 @@
         'Weave:request-main-interface-menu',
         handleMainInterfaceMenuRequest as EventListener
       );
-      window.removeEventListener('Weave:ir-timer-updated', handleIRRealtimeRefresh);
+      if (irReloadTimer !== null) {
+        window.clearTimeout(irReloadTimer);
+        irReloadTimer = null;
+      }
+      window.removeEventListener('Weave:ir-timer-updated', handleIRTimerRefresh);
       window.removeEventListener('Weave:ir-data-updated', handleIRRealtimeRefresh);
       if (resizeObserver) resizeObserver.disconnect();
       if (mutationObserver) mutationObserver.disconnect();
@@ -1991,13 +2144,37 @@
 
       // ✅ 确保是新引用，触发Svelte响应式更新
       cards = [...allCards];
+      await refreshMemoryDeckOrganizationRuntime(allCards, allDecks);
 
       // 卡片加载完成
     } catch (error) {
       logger.error('❌ 加载卡片失败:', error);
       cards = [];
+      memoryDeckOrganizationRuntime = null;
       new Notice(t('cards.management.loadFailed', { error: error instanceof Error ? error.message : 'Unknown error' }), 5000);
     }
+  }
+
+  async function refreshMemoryDeckOrganizationRuntime(
+    sourceCards?: Card[],
+    sourceDecks?: Deck[]
+  ): Promise<MemoryDeckOrganizationRuntime | null> {
+    if (dataSource !== 'memory') {
+      memoryDeckOrganizationRuntime = null;
+      return null;
+    }
+
+    const emergentDeckService = getEmergentDeckService(plugin);
+    if (!emergentDeckService.isEnabled()) {
+      memoryDeckOrganizationRuntime = null;
+      return null;
+    }
+
+    const cardsForRuntime = Array.isArray(sourceCards) ? sourceCards : await dataStorage.getCards();
+    const decksForRuntime = Array.isArray(sourceDecks) ? sourceDecks : await dataStorage.getDecks();
+    const runtime = await emergentDeckService.buildRuntimeWithBindings(cardsForRuntime, decksForRuntime);
+    memoryDeckOrganizationRuntime = runtime;
+    return runtime;
   }
 
 
@@ -2048,6 +2225,11 @@
     if (!resolvedDeckId) return fallback;
     return getDeckName(resolvedDeckId, getDecksForDataSource('incremental-reading')) || fallback;
   }
+
+  function isIRDeckIdentifierLike(value: string | null | undefined): boolean {
+    const normalized = String(value || '').trim();
+    return /^deck-[a-z0-9_-]+$/i.test(normalized);
+  }
   
   // 🆕 v2.2: 获取卡片所属的所有牌组名称（Content-Only 架构）
   // 优先从 content YAML 的 we_decks 获取，回退到 referencedByDecks/deckId
@@ -2058,7 +2240,7 @@
       const ids = resolveIRDeckIds((card as any).ir_deck_ids || (card as any).metadata?.deckIds || []);
       if (Array.isArray(ids)) {
         for (const id of ids) {
-          const name = getIRDeckName(id, String(id));
+          const name = getIRDeckName(id, '');
           if (name && !seen.has(name)) {
             seen.add(name);
             names.push(name);
@@ -2066,7 +2248,13 @@
         }
       }
       const singleName = (card as any).ir_deck;
-      if (typeof singleName === 'string' && singleName && singleName !== '未分配' && !seen.has(singleName)) {
+      if (
+        typeof singleName === 'string' &&
+        singleName &&
+        singleName !== '未分配' &&
+        !isIRDeckIdentifierLike(singleName) &&
+        !seen.has(singleName)
+      ) {
         names.push(singleName);
       }
       if (names.length > 0) return names.join(', ');
@@ -2081,51 +2269,6 @@
     return names.join(', ');
   }
 
-  function buildIRTableFields(params: {
-    title: string;
-    sourceFile: string;
-    deckName?: string;
-    deckIds?: string[];
-    state?: string;
-    priority?: number;
-    tags?: string[];
-    favorite?: boolean;
-    nextReview?: string | null;
-    reviewCount?: number;
-    readingTime?: number;
-    notes?: string;
-    extractedCards?: number;
-    created?: string;
-  }) {
-    return {
-      ir_title: params.title,
-      ir_source_file: params.sourceFile,
-      ir_deck: params.deckName || '未分配',
-      ir_deck_ids: params.deckIds || [],
-      ir_state: params.state,
-      ir_priority: params.priority,
-      ir_tags: params.tags || [],
-      ir_favorite: params.favorite || false,
-      ir_next_review: params.nextReview || null,
-      ir_review_count: params.reviewCount || 0,
-      ir_reading_time: params.readingTime || 0,
-      ir_notes: params.notes || '',
-      ir_extracted_cards: params.extractedCards || 0,
-      ir_created: params.created
-    };
-  }
-
-  function buildIRSessionTotalsByBlockId(sessions: Array<{ blockId?: string; duration?: number }> | undefined | null): Map<string, number> {
-    const totals = new Map<string, number>();
-    for (const session of sessions || []) {
-      const blockId = String(session?.blockId || '');
-      const duration = Number(session?.duration || 0);
-      if (!blockId || duration <= 0) continue;
-      totals.set(blockId, (totals.get(blockId) || 0) + duration);
-    }
-    return totals;
-  }
-
   function getIRReadingSeconds(
     id: string,
     readingSecondsById: Map<string, number>,
@@ -2136,6 +2279,7 @@
     }
     return Math.max(0, Number(fallback || 0));
   }
+
 
   function buildIRCardBase(params: {
     id: string;
@@ -2162,6 +2306,12 @@
     priority?: number;
     suspended?: boolean;
     metadata?: Record<string, any>;
+    sourceKind?: IRTraceSourceKind;
+    sourceDocumentKey?: string;
+    sourceSubunitKey?: string;
+    primaryAssociatedNotePath?: string;
+    associatedNotePath?: string;
+    associatedNotePaths?: string[];
   }): Card & Record<string, any> {
     return {
       id: params.id,
@@ -2201,6 +2351,12 @@
       },
       tags: params.tags || [],
       priority: params.priority || 2,
+      sourceKind: params.sourceKind,
+      sourceDocumentKey: params.sourceDocumentKey,
+      sourceSubunitKey: params.sourceSubunitKey,
+      primaryAssociatedNotePath: params.primaryAssociatedNotePath ?? params.associatedNotePath,
+      associatedNotePath: params.associatedNotePath,
+      associatedNotePaths: params.associatedNotePaths || (params.associatedNotePath ? [params.associatedNotePath] : []),
       suspended: params.suspended || false,
       metadata: params.metadata || {}
     };
@@ -2219,22 +2375,121 @@
   // 🚀 性能优化：添加转换结果缓存
   let lastFilteredCardsKey: string = '';
   let cachedTransformedCards: any[] = [];
+
+  function invalidateCardManagementDerivedCaches(): void {
+    lastFilteredCardsKey = '';
+    cachedTransformedCards = [];
+    dataVersion++;
+  }
+
+  function applyIRCardPatch(cardId: string, patch: Partial<Card> & Record<string, unknown>): void {
+    const normalizedCardId = String(cardId || '').trim();
+    if (!normalizedCardId) return;
+
+    let changed = false;
+    irContentCards = irContentCards.map((card) => {
+      if (card.uuid !== normalizedCardId) return card;
+      changed = true;
+      const nextCard = {
+        ...card,
+        ...patch,
+        metadata: {
+          ...(card.metadata || {}),
+          ...((patch as any).metadata || {}),
+        },
+      } as Card;
+      return nextCard;
+    });
+
+    if (changed) {
+      invalidateCardManagementDerivedCaches();
+    }
+  }
+
+  function applyIRTimerUpdateToCards(blockId: string, totalSeconds: number): void {
+    const normalizedBlockId = String(blockId || '').trim();
+    if (!normalizedBlockId || !Number.isFinite(totalSeconds)) return;
+
+    let changed = false;
+    irContentCards = irContentCards.map((card) => {
+      if (card.uuid !== normalizedBlockId) return card;
+
+      const previousSeconds = Number((card as any).ir_reading_time ?? card.stats?.totalTime ?? 0);
+      if (previousSeconds === totalSeconds) {
+        return card;
+      }
+
+      changed = true;
+      return {
+        ...card,
+        ir_reading_time: totalSeconds,
+        stats: {
+          ...(card.stats || {}),
+          totalTime: totalSeconds
+        }
+      } as Card;
+    });
+
+    if (changed) {
+      invalidateCardManagementDerivedCaches();
+    }
+  }
+
+  function queueIRContentReload(options: { silent?: boolean; debounceMs?: number } = {}): void {
+    const debounceMs = Math.max(0, options.debounceMs ?? 120);
+
+    if (irReloadTimer !== null) {
+      window.clearTimeout(irReloadTimer);
+      irReloadTimer = null;
+    }
+
+    irReloadTimer = window.setTimeout(async () => {
+      irReloadTimer = null;
+      if (isLoadingIR) {
+        irReloadQueued = true;
+        return;
+      }
+      await loadIRContentCards({ silent: options.silent ?? true });
+    }, debounceMs);
+  }
   
   // 生成卡片数组的缓存键（基于内容而非引用）
   function generateCacheKey(cards: Card[]): string {
     if (!cards || cards.length === 0) return 'empty';
-    // 🔧 修复：包含标签、优先级、收藏状态信息，确保这些属性变化时缓存失效
-    // 使用前10张卡片的UUID + 标签 + 优先级 + 收藏 + 总数量 + 修改时间
+    // 覆盖 IR/记忆/题库三类列表中会影响展示、分组、统计的关键字段
     const first10 = cards.slice(0, 10).map(c => 
-      `${c.uuid}:${(c.tags || []).join('|')}:${c.priority || 0}:${c.metadata?.favorite || false}`
+      [
+        c.uuid,
+        (c.tags || []).join('|'),
+        (c as any).ir_tags?.join('|') || '',
+        c.priority || 0,
+        (c as any).ir_priority_value ?? (c as any).ir_priority ?? '',
+        (c as any).ir_tag_group || '',
+        (c as any).ir_deck_ids?.join('|') || '',
+        (c as any).metadata?.deckIds?.join('|') || '',
+        (c as any).ir_notes ?? '',
+        (c as any).ir_extract_cards ?? '',
+        (c as any).ir_memory_cards ?? '',
+        c.metadata?.favorite || false
+      ].join(':')
     ).join(',');
     const count = cards.length;
     const firstMod = cards[0]?.modified || '';
     const lastMod = cards[cards.length - 1]?.modified || '';
-    // 🔧 修复：添加所有卡片的属性哈希，确保任何变化都能检测到
-    // 🔧 修复：使用 [...] 复制数组后再排序，避免 state_unsafe_mutation 错误
     const propsHash = cards.map(c => 
-      `${[...(c.tags || [])].sort().join('|')}:${c.priority || 0}:${c.metadata?.favorite || false}:${c.ir_priority || 0}:${c.ir_favorite || false}`
+      [
+        [...(c.tags || [])].sort().join('|'),
+        [...(((c as any).ir_tags || []))].sort().join('|'),
+        c.priority || 0,
+        (c as any).ir_priority_value ?? (c as any).ir_priority ?? 0,
+        (c as any).ir_tag_group || '',
+        [...(((c as any).ir_deck_ids || []))].sort().join('|'),
+        [...(((c as any).metadata?.deckIds || []))].sort().join('|'),
+        (c as any).ir_notes ?? 0,
+        (c as any).ir_extract_cards ?? 0,
+        (c as any).ir_memory_cards ?? 0,
+        c.metadata?.favorite || false
+      ].join(':')
     ).join(';');
     return `${count}:${first10}:${firstMod}:${lastMod}:${propsHash.length}`;
   }
@@ -2382,6 +2637,9 @@
         tags: card.tags ? [...card.tags] : [],
         front: content.front,
         back: content.back,
+        resolvedDeckRefs: dataSource === 'memory'
+          ? memoryDeckOrganizationRuntime?.resolvedDeckRefsByCardUUID[card.uuid] || []
+          : [],
         status: getCardStatusString(card.fsrs?.state ?? 0),
         deck: getCardDeckNames(card), // 🆕 v2.0: 支持多牌组引用显示
         nextReview: card.fsrs?.due,
@@ -3313,6 +3571,7 @@
 
     try {
       const now = new Date().toISOString();
+      const deckById = new Map(allDecks.map((item) => [item.id, item] as const));
 
       if (current.allInDeck) {
         await referenceDeckService.removeCardsFromDeck(deck.id, cardUUIDs);
@@ -3326,19 +3585,19 @@
 
         cards = cards.map((c) => {
           if (!removeSet.has(c.uuid)) return c;
-          const metadata = getCardMetadata(c.content || '');
-          const weDecks = new Set(metadata.we_decks || []);
-          weDecks.delete(deck.name);
-          weDecks.delete(deck.id);
-
-          const nextRefs = new Set(c.referencedByDecks || []);
-          nextRefs.delete(deck.id);
+          const currentDeckIds = getCardDeckIds(c, allDecks).deckIds;
+          const nextRefs =
+            deck.purpose === 'test'
+              ? currentDeckIds.filter((deckId) => deckId !== deck.id)
+              : currentDeckIds.filter((deckId) => deckById.get(deckId)?.purpose === 'test');
+          const nextDeckNames = nextRefs.map((deckId) => deckById.get(deckId)?.name || deckId);
 
           return {
             ...c,
-            referencedByDecks: Array.from(nextRefs),
+            deckId: nextRefs[0],
+            referencedByDecks: nextRefs,
             content: setCardProperties(c.content || '', {
-              we_decks: weDecks.size > 0 ? Array.from(weDecks) : undefined
+              we_decks: nextDeckNames.length > 0 ? nextDeckNames : undefined
             }),
             modified: now
           };
@@ -3348,25 +3607,41 @@
 
         const addSet = new Set(cardUUIDs);
         allDecks = allDecks.map((d) => {
-          if (d.id !== deck.id) return d;
-          const next = new Set([...(d.cardUUIDs || []), ...cardUUIDs]);
-          return { ...d, cardUUIDs: Array.from(next), modified: now };
+          const currentCardUUIDs = new Set(d.cardUUIDs || []);
+          if (d.id === deck.id) {
+            for (const cardUUID of cardUUIDs) currentCardUUIDs.add(cardUUID);
+            return { ...d, cardUUIDs: Array.from(currentCardUUIDs), modified: now };
+          }
+
+          if (deck.purpose !== 'test' && d.purpose !== 'test') {
+            const next = (d.cardUUIDs || []).filter((cardUUID) => !addSet.has(cardUUID));
+            if (next.length !== (d.cardUUIDs || []).length) {
+              return { ...d, cardUUIDs: next, modified: now };
+            }
+          }
+
+          return d;
         });
 
         cards = cards.map((c) => {
           if (!addSet.has(c.uuid)) return c;
-          const metadata = getCardMetadata(c.content || '');
-          const weDecks = new Set(metadata.we_decks || []);
-          weDecks.delete(deck.id);
-          weDecks.add(deck.name);
-
-          const nextRefs = new Set(c.referencedByDecks || []);
-          nextRefs.add(deck.id);
+          const currentDeckIds = getCardDeckIds(c, allDecks).deckIds;
+          const preservedTestDeckIds = currentDeckIds.filter(
+            (deckId) => deckById.get(deckId)?.purpose === 'test'
+          );
+          const nextRefs =
+            deck.purpose === 'test'
+              ? Array.from(new Set([...currentDeckIds, deck.id]))
+              : [deck.id, ...preservedTestDeckIds.filter((deckId) => deckId !== deck.id)];
+          const nextDeckNames = nextRefs.map((deckId) => deckById.get(deckId)?.name || deckId);
 
           return {
             ...c,
-            referencedByDecks: Array.from(nextRefs),
-            content: setCardProperties(c.content || '', { we_decks: Array.from(weDecks) }),
+            deckId: nextRefs[0],
+            referencedByDecks: nextRefs,
+            content: setCardProperties(c.content || '', {
+              we_decks: nextDeckNames.length > 0 ? nextDeckNames : undefined
+            }),
             modified: now
           };
         });
@@ -4206,61 +4481,25 @@
         const progress = new ProgressModal(plugin.app, {
           title: '删除卡片',
           description: `正在删除 ${selectedCardIds.length} 张卡片...`,
-          total: 3,
+          total: 2,
           cancellable: false
         });
         progress.open();
         
-        // 阶段 1/3: 级联清理 - 从所有牌组中批量移除被删卡片的引用
-        progress.updateProgress(0, '清理牌组引用...');
-        const cardUUIDSet = new Set(selectedCardIds);
-        const allDecksForCleanup = await dataStorage.getDecks();
-        for (const d of allDecksForCleanup) {
-          const before = d.cardUUIDs?.length || 0;
-          if (before === 0) continue;
-          d.cardUUIDs = (d.cardUUIDs || []).filter(uuid => !cardUUIDSet.has(uuid));
-          if (d.cardUUIDs.length !== before) {
-            d.modified = new Date().toISOString();
-            await dataStorage.saveDeck(d);
-          }
-        }
-        progress.increment('引用清理完成');
-        
-        // 阶段 2/3: 批量删除卡片数据
-        progress.updateProgress(1, '删除卡片数据...');
-        if (plugin.cardFileService) {
-          const batchResult = await plugin.cardFileService.deleteCardsBatch(selectedCardIds);
-          ok = batchResult.deleted.length;
-          fail = batchResult.notFound.length;
-          logger.info(`[CardMgmt] 批量删除: 成功${ok}, 未找到${fail}`);
-        } else {
-          // 回退到逐卡删除
-          for (const id of selectedCardIds) {
-            try {
-              const res = await dataStorage.deleteCard(id);
-              if (res.success && res.data) ok++; else fail++;
-            } catch { fail++; }
-          }
-        }
+        // 阶段 1/2: 统一删除卡片数据与牌组引用
+        progress.updateProgress(0, '删除卡片数据...');
+        const batchResult = await dataStorage.deleteCards(selectedCardIds);
+        ok = batchResult.deleted.length;
+        fail = batchResult.failed.length;
+        logger.info(`[CardMgmt] 批量删除: 成功${ok}, 失败${fail}`);
         progress.increment('卡片数据已删除');
         
-        // 阶段 3/3: 清理缓存
-        progress.updateProgress(2, '清理缓存...');
-        if (plugin.cardMetadataCache) {
-          for (const id of selectedCardIds) plugin.cardMetadataCache.invalidate(id);
-        }
-        if (plugin.cardIndexService) {
-          for (const id of selectedCardIds) plugin.cardIndexService.removeCardIndex(id);
-        }
-        for (const id of selectedCardIds) {
-          plugin.app.workspace.trigger('Weave:card-deleted', id);
-        }
-        progress.increment('清理完成');
+        // 阶段 2/2: 刷新列表
+        progress.updateProgress(1, '刷新列表...');
+        await loadCards();
+        progress.increment('刷新完成');
         
         progress.setComplete(`已删除 ${ok} 张卡片`);
-        
-        // 重新加载记忆牌组数据
-        await loadCards();
       }
 
       new Notice(`已删除 ${ok} 张卡片${fail ? `，失败 ${fail}` : ''}`);
@@ -4363,6 +4602,9 @@
     
     // 🔧 使用统一的列可见性同步函数
     syncColumnVisibilityWithDataSource(newSource);
+    if (showColumnManager) {
+      refreshColumnManagerModal();
+    }
     
     // 清空选中状态
     selectedCards.clear();
@@ -4388,315 +4630,29 @@
         await irStorageService.initialize();
       }
       
-      // 先执行数据完整性检查，清理已失效的块数据
-      const { resolveIRImportFolder } = await import('../../config/paths');
-      const scanRoot = resolveIRImportFolder(
-        plugin.settings?.incrementalReading?.importFolder,
-        plugin.settings?.weaveParentFolder
+      const irCardBuilderHelpers = {
+        buildIRCardBase,
+        resolveIRDeckId,
+        resolveIRDeckIds,
+        getIRDeckName,
+        getIRReadingSeconds,
+      };
+      const loadResult = await loadIRCardManagementData({
+        app: plugin.app,
+        plugin,
+        storage: irStorageService,
+        helpers: irCardBuilderHelpers,
+      });
+
+      irBlocks = loadResult.irBlocks;
+      irDecks = loadResult.irDecks;
+      irExtractCardIds = loadResult.irExtractCardIds;
+      irContentCards = loadResult.cards;
+      invalidateCardManagementDerivedCaches();
+
+      logger.debug(
+        `[IR] 加载了 ${irContentCards.length} 个内容块 (旧版: ${loadResult.legacyCount}, 新版: ${loadResult.chunkCount}, PDF书签: ${loadResult.pdfTaskCount}, EPUB书签: ${loadResult.epubTaskCount})`
       );
-      const integrityResult = await irStorageService.performIntegrityCheck(scanRoot);
-      if (integrityResult.chunksRemoved > 0 || integrityResult.blocksRemoved > 0) {
-        logger.info(`[IR] 数据完整性检查: 清理了 ${integrityResult.chunksRemoved} 个无效块, ${integrityResult.blocksRemoved} 个无效旧版块`);
-      }
-      
-      // 加载IR数据
-      irBlocks = await irStorageService.getAllBlocks();
-      irDecks = await irStorageService.getAllDecks();
-      const history = await irStorageService.getHistory();
-      const readingSecondsById = buildIRSessionTotalsByBlockId(history.sessions);
-      
-      // 加载文件化 chunk 数据与来源信息
-      const chunkData = await irStorageService.getAllChunkData();
-      const sourcesData = await irStorageService.getAllSources();
-      
-      logger.info(`[IR] 加载数据: blocks=${Object.keys(irBlocks).length}, decks=${Object.keys(irDecks).length}, chunks=${Object.keys(chunkData).length}, sources=${Object.keys(sourcesData).length}`);
-      
-      const convertedCards: Card[] = [];
-      
-      // 同一内容如果同时存在于 blocks/chunks，优先使用 chunks
-      const chunkIds = new Set(Object.keys(chunkData));
-      
-      // 1. 转换旧版 IRBlock (blocks.json)
-      for (const block of Object.values(irBlocks)) {
-        if (chunkIds.has(block.id)) {
-          continue;
-        }
-        // 查找块所属的牌组
-        const deckIds: string[] = [];
-        for (const deck of Object.values(irDecks)) {
-          if (deck.blockIds?.includes(block.id)) {
-            deckIds.push(deck.id);
-          }
-        }
-        
-        // 转换为Card格式（包含IR专用字段）
-        // 防御性处理：确保 headingPath 是数组
-        const headingPath = Array.isArray(block.headingPath) ? block.headingPath : [];
-        const displayContent = `# ${block.headingText || '无标题'}\n\n${headingPath.length > 1 ? `${headingPath.join(' > ')}\n\n` : ''}来源: ${block.filePath}`;
-        
-        const readingSeconds = getIRReadingSeconds(block.id, readingSecondsById, block.totalReadingTime);
-
-        const card: Card & Record<string, any> = {
-          ...buildIRCardBase({
-            id: block.id,
-            deckId: deckIds[0] || '',
-            templateId: CardType.IRBlock,
-            type: CardType.IRBlock,
-            content: displayContent,
-            front: block.headingText || '无标题',
-            back: headingPath.join(' > '),
-            sourceFile: block.filePath,
-            sourcePosition: {
-              startLine: block.startLine,
-              endLine: block.startLine,
-              contentHash: ''
-            },
-            created: block.createdAt,
-            modified: block.updatedAt,
-            totalReviews: block.reviewCount || 0,
-            totalTime: readingSeconds,
-            averageTime: block.reviewCount ? Math.floor(readingSeconds / block.reviewCount) : 0,
-            fsrsState: block.state === 'new' ? 0 : block.state === 'learning' ? 1 : 2,
-            stability: block.interval,
-            due: block.nextReview || new Date().toISOString(),
-            lastReview: block.lastReview || undefined,
-            reps: block.reviewCount,
-            scheduledDays: block.interval || 0,
-            tags: block.tags || [],
-            priority: block.priority || 2,
-            suspended: block.state === 'suspended',
-            metadata: {
-              irBlock: true,
-              headingLevel: block.headingLevel,
-              headingPath: block.headingPath,
-              totalReadingTime: readingSeconds,
-              favorite: block.favorite,
-              extractedCards: block.extractedCards,
-              deckIds: deckIds
-            }
-          }),
-          ...buildIRTableFields({
-            title: headingPath.join(' > ') || block.headingText || '无标题',
-            sourceFile: block.filePath,
-            deckName: deckIds.length > 0 ? getIRDeckName(deckIds[0]) : '未分配',
-            deckIds,
-            state: block.state,
-            priority: block.priority,
-            tags: block.tags || [],
-            favorite: block.favorite,
-            nextReview: block.nextReview,
-            reviewCount: block.reviewCount,
-            readingTime: readingSeconds,
-            notes: block.notes || '',
-            extractedCards: block.extractedCards?.length || 0,
-            created: block.createdAt
-          }),
-        };
-        convertedCards.push(card);
-      }
-      
-      // 2. 转换新版 IRChunkFileData (chunks.json)
-      for (const chunk of Object.values(chunkData)) {
-        // 从文件路径提取标题
-        const fileName = chunk.filePath.replace(/^.*\//, '').replace(/\.md$/, '');
-        const title = fileName.replace(/^\d+_/, ''); // 移除序号前缀
-        
-        // 查找源文件信息
-        const source = sourcesData[chunk.sourceId];
-        const sourceTitle = source?.title || '未知来源';
-        
-        // 读取块文件的YAML和内容以提取标签
-        let tags: string[] = [];
-        let extractedCardsCount = 0;
-        try {
-          const chunkFile = plugin.app.vault.getAbstractFileByPath(chunk.filePath);
-          if (chunkFile instanceof TFile) {
-            const content = await plugin.app.vault.read(chunkFile);
-            
-            // 提取YAML中的tags
-            const yamlMatch = content.match(/^---\n([\s\S]*?)\n---/);
-            if (yamlMatch) {
-              const yamlContent = yamlMatch[1];
-              const tagsMatch = yamlContent.match(/tags:\s*\[([^\]]+)\]/) || yamlContent.match(/tags:\s*\n((?:\s+-\s+.+\n)+)/);
-              if (tagsMatch) {
-                if (tagsMatch[1].includes('-')) {
-                  // 列表格式
-                  tags = tagsMatch[1].split('\n')
-                    .map(line => line.trim().replace(/^-\s+/, ''))
-                    .filter(tag => tag.length > 0);
-                } else {
-                  // 单行格式
-                  tags = tagsMatch[1].split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
-                }
-              }
-            }
-            
-            // 从内容中提取#标签（排除Markdown标题：行首#后跟空格）
-            const bodyContent = content.replace(/^---\n[\s\S]*?\n---/, '');
-            const contentTags = bodyContent.match(/(?<![#\w])#([\w\u4e00-\u9fa5-]+)/g) || [];
-            const filteredTags = contentTags
-              .map(t => t.substring(1))
-              .filter(t => !/^\d+$/.test(t));
-            tags = [...new Set([...tags, ...filteredTags])];
-            
-            // 统计制卡数：从 stats 中获取
-            extractedCardsCount = chunk.stats?.cardsCreated || 0;
-          }
-        } catch (error) {
-          logger.warn(`[读取块文件失败] ${chunk.filePath}:`, error);
-        }
-        
-        // 转换为Card格式
-        const displayContent = `# ${title}\n\n来源: ${sourceTitle}\n文件: ${chunk.filePath}`;
-        
-        const readingSeconds = getIRReadingSeconds(chunk.chunkId, readingSecondsById, chunk.stats?.totalReadingTimeSec);
-
-        const chunkDeckIds = resolveIRDeckIds(getChunkTopicIds(chunk));
-
-        const card: Card & Record<string, any> = {
-          ...buildIRCardBase({
-            id: chunk.chunkId,
-            deckId: chunkDeckIds[0] || '',
-            templateId: CardType.IRChunk,
-            type: CardType.IRChunk,
-            content: displayContent,
-            front: title,
-            back: sourceTitle,
-            sourceFile: chunk.filePath,
-            sourcePosition: {
-              startLine: 0,
-              endLine: 0,
-              contentHash: ''
-            },
-            created: typeof chunk.createdAt === 'number' ? new Date(chunk.createdAt).toISOString() : chunk.createdAt,
-            modified: typeof chunk.updatedAt === 'number' ? new Date(chunk.updatedAt).toISOString() : chunk.updatedAt,
-            totalReviews: chunk.stats?.impressions || 0,
-            totalTime: readingSeconds,
-            averageTime: chunk.stats?.impressions ? Math.floor(readingSeconds / chunk.stats.impressions) : 0,
-            fsrsState: chunk.scheduleStatus === 'new' ? 0 : chunk.scheduleStatus === 'active' ? 1 : 2,
-            stability: chunk.intervalDays,
-            due: chunk.nextRepDate ? new Date(chunk.nextRepDate).toISOString() : new Date().toISOString(),
-            lastReview: undefined,
-            reps: chunk.stats?.impressions || 0,
-            scheduledDays: chunk.intervalDays || 0,
-            tags,
-            priority: chunk.priorityEff <= 3 ? 1 : chunk.priorityEff <= 7 ? 2 : 3,
-            suspended: chunk.scheduleStatus === 'suspended',
-            metadata: {
-              irChunk: true,
-              sourceId: chunk.sourceId,
-              sourceTitle: sourceTitle,
-              deckTag: chunk.deckTag,
-              deckIds: chunkDeckIds
-            }
-          }),
-          ...buildIRTableFields({
-            title,
-            sourceFile: chunk.filePath,
-            deckName: chunkDeckIds.length > 0 ? getIRDeckName(chunkDeckIds[0]) : (chunk.deckTag ? chunk.deckTag.replace('#IR_deck_', '') : '未分配'),
-            deckIds: chunkDeckIds,
-            state: chunk.scheduleStatus,
-            priority: chunk.priorityEff <= 3 ? 1 : chunk.priorityEff <= 7 ? 2 : 3,
-            tags,
-            favorite: false,
-            nextReview: chunk.nextRepDate ? new Date(chunk.nextRepDate).toISOString() : null,
-            reviewCount: chunk.stats?.impressions || 0,
-            readingTime: readingSeconds,
-            notes: '',
-            extractedCards: extractedCardsCount,
-            created: typeof chunk.createdAt === 'number' ? new Date(chunk.createdAt).toISOString() : chunk.createdAt,
-          }),
-        };
-        convertedCards.push(card);
-      }
-      
-      // 3. 转换 PDF 书签任务 (pdf-bookmark-tasks.json)
-      let pdfTaskCount = 0;
-      try {
-        const pdfService = new IRPdfBookmarkTaskService(plugin.app);
-        await pdfService.initialize();
-        const pdfTasks = await pdfService.getAllTasks();
-        
-        for (const task of pdfTasks) {
-          // 跳过已完成/已移除的任务
-          if (task.status === 'done' || task.status === 'removed') continue;
-          
-          const canonicalDeckId = resolveIRDeckId(getTaskTopicId(task));
-          const canonicalDeckIds = canonicalDeckId ? [canonicalDeckId] : [];
-          const deckName = getIRDeckName(canonicalDeckId || getTaskTopicId(task));
-          
-          const displayContent = `# ${task.title}\n\nPDF: ${task.pdfPath}\n链接: ${task.link}`;
-          
-          // 将 priorityEff(1-10) 映射为显示用的 1(高)/2(中)/3(低)
-          const displayPriority = task.priorityEff <= 3 ? 1 : task.priorityEff <= 7 ? 2 : 3;
-          
-          const readingSeconds = getIRReadingSeconds(task.id, readingSecondsById, task.stats?.totalReadingTimeSec);
-
-          const card: Card & Record<string, any> = {
-            ...buildIRCardBase({
-              id: task.id,
-              deckId: canonicalDeckId,
-              templateId: CardType.IRChunk,
-              type: CardType.IRChunk,
-              content: displayContent,
-              front: task.title,
-              back: task.pdfPath,
-              sourceFile: task.pdfPath,
-              sourcePosition: { startLine: 0, endLine: 0, contentHash: '' },
-              created: new Date(task.createdAt).toISOString(),
-              modified: new Date(task.updatedAt).toISOString(),
-              totalReviews: task.stats?.impressions || 0,
-              totalTime: readingSeconds,
-              averageTime: task.stats?.impressions ? Math.floor(readingSeconds / task.stats.impressions) : 0,
-              fsrsState: task.status === 'new' ? 0 : task.status === 'active' || task.status === 'queued' ? 1 : 2,
-              stability: task.intervalDays,
-              due: task.nextRepDate ? new Date(task.nextRepDate).toISOString() : new Date().toISOString(),
-              lastReview: undefined,
-              reps: task.stats?.impressions || 0,
-              scheduledDays: task.intervalDays || 0,
-              tags: task.tags || [],
-              priority: displayPriority,
-              suspended: task.status === 'suspended',
-              metadata: {
-                irPdfBookmark: true,
-                pdfPath: task.pdfPath,
-                link: task.link,
-                annotationId: task.annotationId,
-                deckIds: canonicalDeckIds
-              }
-            }),
-            ...buildIRTableFields({
-              title: task.title,
-              sourceFile: task.pdfPath,
-              deckName,
-              deckIds: canonicalDeckIds,
-              state: task.status,
-              priority: displayPriority,
-              tags: task.tags || [],
-              favorite: false,
-              nextReview: task.nextRepDate ? new Date(task.nextRepDate).toISOString() : null,
-              reviewCount: task.stats?.impressions || 0,
-              readingTime: readingSeconds,
-              notes: '',
-              extractedCards: task.stats?.cardsCreated || 0,
-              created: new Date(task.createdAt).toISOString(),
-            }),
-          };
-          convertedCards.push(card);
-          pdfTaskCount++;
-        }
-        
-        if (pdfTaskCount > 0) {
-          logger.info(`[IR] 加载了 ${pdfTaskCount} 个PDF书签任务`);
-        }
-      } catch (error) {
-        logger.warn('[IR] PDF书签任务加载失败（继续使用其他数据）:', error);
-      }
-      
-      irContentCards = convertedCards;
-      const legacyCount = Object.keys(irBlocks).length;
-      const chunkCount = Object.keys(chunkData).length;
-      logger.debug(`[IR] 加载了 ${irContentCards.length} 个内容块 (旧版: ${legacyCount}, 新版: ${chunkCount}, PDF书签: ${pdfTaskCount})`);
       if (!options?.silent) {
         showNotification(`已加载 ${irContentCards.length} 个增量阅读内容块`, 'success');
       }
@@ -4706,6 +4662,10 @@
       showNotification('加载增量阅读数据失败', 'error');
     } finally {
       isLoadingIR = false;
+      if (irReloadQueued) {
+        irReloadQueued = false;
+        queueIRContentReload({ silent: true, debounceMs: 0 });
+      }
     }
   }
 
@@ -4729,43 +4689,6 @@
     // 刷新数据
     await loadIRContentCards();
     showNotification(`增量牌组"${deck.name}"创建成功`, 'success');
-  }
-
-  // 🆕 v2.0 IR批量操作：切换收藏状态
-  async function handleIRBatchToggleFavorite(): Promise<void> {
-    const selectedIds = Array.from(selectedCards);
-    if (selectedIds.length === 0) {
-      showNotification('请先选择内容块', 'warning');
-      return;
-    }
-    
-    try {
-      if (!irStorageService) {
-        irStorageService = new IRStorageService(plugin.app);
-        await irStorageService.initialize();
-      }
-      
-      // 获取最新的块数据（避免使用闭包中的旧数据）
-      const latestBlocks = await irStorageService.getAllBlocks();
-      
-      let toggledCount = 0;
-      for (const id of selectedIds) {
-        const block = latestBlocks[id];
-        if (block) {
-          const updatedBlock = { ...block, favorite: !block.favorite };
-          await irStorageService.saveBlock(updatedBlock);
-          toggledCount++;
-        }
-      }
-      
-      // 重新加载数据（保持选中状态）
-      await loadIRContentCards();
-      showNotification(`已切换 ${toggledCount} 个内容块的收藏状态`, 'success');
-      
-    } catch (error) {
-      logger.error('[IR] 切换收藏失败:', error);
-      showNotification('切换收藏失败', 'error');
-    }
   }
 
   // 🆕 v5.5 IR批量操作：更换牌组（使用正式牌组列表，支持多牌组）
@@ -4981,23 +4904,12 @@
     } else if (dataSource === 'incremental-reading') {
       irContentCards = irContentCards.filter(c => c.uuid !== cardUuid);
 
-      if (!irStorageService) {
-        irStorageService = new IRStorageService(plugin.app);
-        await irStorageService.initialize();
+      const pointWriteService = new IRPointWriteService(plugin.app);
+      const deleted = await pointWriteService.deleteCard(cardToDelete);
+      if (!deleted) {
+        throw new Error(`未找到可删除的增量阅读记录: ${cardUuid}`);
       }
-
-      if (isPdfBookmarkTaskId(cardUuid)) {
-        const pdfService = new IRPdfBookmarkTaskService(plugin.app);
-        await pdfService.initialize();
-        await pdfService.deleteTask(cardUuid);
-        logger.debug(`[IR] 已删除PDF书签任务: ${cardUuid}`);
-      } else if (cardToDelete.metadata?.irChunk) {
-        await irStorageService.deleteChunkData(cardUuid);
-        logger.debug(`[IR] 已删除chunk: ${cardUuid}`);
-      } else if (cardToDelete.metadata?.irBlock) {
-        await irStorageService.deleteBlock(cardUuid);
-        logger.debug(`[IR] 已删除旧版block: ${cardUuid}`);
-      }
+      logger.debug(`[IR] 已通过统一写入口删除阅读点: ${cardUuid}`);
 
       loadIRContentCards().catch(err => {
         logger.error('[IR] 重新加载失败:', err);
@@ -5121,6 +5033,9 @@
       // ✅ 普通卡片：立即打开模态窗，不等待（乐观UI策略）
       plugin.openEditCardModal(cardToEdit, {
         onSave: handleTempFileEditSave,
+        resolvedDeckRefs: dataSource === 'memory'
+          ? memoryDeckOrganizationRuntime?.resolvedDeckRefsByCardUUID[cardToEdit.uuid] || []
+          : [],
         onCancel: () => {
           logger.debug('[WeaveCardManagementPage] 编辑取消');
         }
@@ -5165,11 +5080,113 @@
     if (cardToView) {
       // ✅ 使用全局模态窗，支持在其他标签页上方显示
       plugin.openViewCardModal(cardToView, {
-        allDecks: currentDataSourceDecks
+        allDecks: currentDataSourceDecks,
+        resolvedDeckRefs: dataSource === 'memory'
+          ? memoryDeckOrganizationRuntime?.resolvedDeckRefsByCardUUID[cardToView.uuid] || []
+          : []
       });
     } else {
       logger.error('[WeaveCardManagement] 未找到要查看的卡片:', cardId, '数据源:', dataSource);
     }
+  }
+
+  function getIRAssociatedNotePaths(card: Card): string[] {
+    return resolveAssociatedNotePaths({
+      associatedNotePath:
+        (card as any).ir_primary_associated_note_path ||
+        (card as any).ir_associated_note_primary_path ||
+        (card as any).primaryAssociatedNotePath ||
+        (card as any).associatedNotePath,
+      associatedNotePaths:
+        (card as any).ir_associated_note_paths ||
+        (card as any).associatedNotePaths,
+    });
+  }
+
+  function getAssociatedNoteMenuLabel(notePath: string): string {
+    return getAssociatedMarkdownLabel(plugin.app, notePath);
+  }
+
+  async function openIRAssociatedNote(notePath: string): Promise<void> {
+    const file = await openAssociatedMarkdownNote(plugin.app, notePath);
+    if (!(file instanceof TFile)) {
+      new Notice('关联笔记不存在或已被移动');
+    }
+  }
+
+  async function persistIRAssociatedNotes(card: Card, notePaths: string[]): Promise<void> {
+    try {
+      await updateIRCardManagementAssociatedNotes(plugin.app, card, notePaths);
+      await recomputeAndBroadcastIRData(plugin.app, 'ui_refresh');
+      await loadIRContentCards({ silent: true });
+      lastFilteredCardsKey = '';
+      cachedTransformedCards = [];
+      dataVersion++;
+      showNotification(notePaths.length > 0 ? '关联笔记已更新' : '已清空关联笔记', 'success');
+    } catch (error) {
+      logger.error('[WeaveCardManagement] 更新 IR 关联笔记失败:', error);
+      showNotification('关联笔记更新失败', 'error');
+    }
+  }
+
+  async function chooseIRAssociatedNote(card: Card, mode: 'replace' | 'append'): Promise<void> {
+    const picker = new MarkdownFileSuggestModal(plugin.app, {
+      placeholder: mode === 'append' ? '选择要追加的 Markdown 笔记' : '选择要关联的 Markdown 笔记'
+    });
+    const file = await picker.openAndSelect();
+    if (!file) return;
+
+    const currentPaths = getIRAssociatedNotePaths(card);
+    const nextPaths = mode === 'append' ? [...currentPaths, file.path] : [file.path];
+    await persistIRAssociatedNotes(card, nextPaths);
+  }
+
+  async function createIRAssociatedNote(card: Card, mode: 'replace' | 'append'): Promise<void> {
+    const currentPaths = getIRAssociatedNotePaths(card);
+    const preferredFolderPath = resolvePreferredAssociatedNoteFolder(plugin.app, {
+      notePaths: currentPaths,
+      fallbackFilePath: String((card as any).ir_source_file || (card as any).sourceFile || '')
+    });
+    const baseName =
+      String((card as any).ir_title || '').trim() ||
+      String((card as any).ir_source_file || '').split('/').pop()?.replace(/\.[^/.]+$/, '') ||
+      '阅读笔记';
+    const createdFile = await createAssociatedMarkdownNote(plugin.app, {
+      baseName,
+      preferredFolderPath
+    });
+
+    const nextPaths = mode === 'append' ? [...currentPaths, createdFile.path] : [createdFile.path];
+    await persistIRAssociatedNotes(card, nextPaths);
+    await openIRAssociatedNote(createdFile.path);
+  }
+
+  function handleIRAssociatedNotesManage(event: MouseEvent, card: Card) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const notePaths = getIRAssociatedNotePaths(card);
+    const menu = new Menu();
+    populateAssociatedNoteMenu({
+      menu,
+      notePaths,
+      getLabel: (notePath) => getAssociatedNoteMenuLabel(notePath),
+      onOpen: (notePath) => openIRAssociatedNote(notePath),
+      onPick: (mode) => chooseIRAssociatedNote(card, mode),
+      onCreate: (mode) => createIRAssociatedNote(card, mode),
+      onSetPrimary: (notePath) => {
+        const nextPaths = [notePath, ...notePaths.filter((path) => path !== notePath)];
+        return persistIRAssociatedNotes(card, nextPaths);
+      },
+      onRemove: (notePath) =>
+        persistIRAssociatedNotes(
+          card,
+          notePaths.filter((path) => path !== notePath)
+        ),
+      onClear: () => persistIRAssociatedNotes(card, [])
+    });
+
+    menu.showAtMouseEvent(event);
   }
 
   // 🆕 处理标签更新
@@ -5209,45 +5226,8 @@
         dataVersion++;
         logger.debug('[WeaveCardManagement] 数据版本更新(题库):', dataVersion);
       } else if (dataSource === 'incremental-reading') {
-        // 🎯 增量阅读模式：更新IR存储中的标签（不走dataStorage）
-        if (!irStorageService) {
-          irStorageService = new IRStorageService(plugin.app);
-          await irStorageService.initialize();
-        }
-        
-        if (isPdfBookmarkTaskId(cardId)) {
-          const pdfService = new IRPdfBookmarkTaskService(plugin.app);
-          await pdfService.initialize();
-          await pdfService.updateTask(cardId, { tags });
-        } else if (cardToUpdate.metadata?.irChunk) {
-          // chunk：更新 chunks.json 中的标签（通过文件YAML）
-          const chunkData = await irStorageService.getAllChunkData();
-          const chunk = chunkData[cardId];
-          if (chunk?.filePath) {
-            const { setCardProperty } = await import('../../utils/yaml-utils');
-            const adapter = plugin.app.vault.adapter;
-            if (await adapter.exists(chunk.filePath)) {
-              let content = await adapter.read(chunk.filePath);
-              content = setCardProperty(content, 'tags', tags);
-              await adapter.write(chunk.filePath, content);
-            }
-          }
-        } else if (cardToUpdate.metadata?.irBlock) {
-          const allBlocks = await irStorageService.getAllBlocks();
-          const block = allBlocks[cardId];
-          if (block) {
-            block.tags = tags;
-            await irStorageService.saveBlock(block);
-          }
-        }
-        
-        // 更新本地数组
-        irContentCards = irContentCards.map(c => 
-          c.uuid === cardId 
-            ? { ...c, tags, ir_tags: tags, modified: new Date().toISOString() }
-            : c
-        );
-        
+        await updateIRCardManagementTags(plugin.app, cardToUpdate, tags);
+        await loadIRContentCards({ silent: true });
         lastFilteredCardsKey = '';
         cachedTransformedCards = [];
         dataVersion++;
@@ -5333,40 +5313,8 @@
         await dataStorage.updateCard(updatedCard);
         await loadQuestionBankCards();
       } else if (dataSource === 'incremental-reading') {
-        // 🎯 增量阅读模式：更新IR存储中的优先级（不走dataStorage）
-        if (!irStorageService) {
-          irStorageService = new IRStorageService(plugin.app);
-          await irStorageService.initialize();
-        }
-        
-        if (isPdfBookmarkTaskId(cardId)) {
-          const pdfService = new IRPdfBookmarkTaskService(plugin.app);
-          await pdfService.initialize();
-          await pdfService.updateTask(cardId, { priorityUi: priority, priorityEff: priority });
-        } else if (cardToUpdate.metadata?.irChunk) {
-          // chunk：更新 chunks.json 中的优先级
-          const chunkData = await irStorageService.getAllChunkData();
-          const chunk = chunkData[cardId];
-          if (chunk) {
-            chunk.priorityEff = priority;
-            await irStorageService.saveChunkData(chunk);
-          }
-        } else if (cardToUpdate.metadata?.irBlock) {
-          const allBlocks = await irStorageService.getAllBlocks();
-          const block = allBlocks[cardId];
-          if (block) {
-            block.priority = priority as 1 | 2 | 3;
-            await irStorageService.saveBlock(block);
-          }
-        }
-        
-        // 更新本地数组
-        irContentCards = irContentCards.map(c => 
-          c.uuid === cardId 
-            ? { ...c, priority, ir_priority: priority, modified: new Date().toISOString() }
-            : c
-        );
-        
+        await updateIRCardManagementPriority(plugin.app, cardToUpdate, priority);
+        await loadIRContentCards({ silent: true });
         lastFilteredCardsKey = '';
         cachedTransformedCards = [];
         dataVersion++;
@@ -5760,6 +5708,7 @@
     const modal = new ColumnManagerModalObsidian(plugin.app, {
       visibility: columnVisibility,
       columnOrder,
+      columnGroups: getColumnManagerGroups(),
       quickPresets: getColumnManagerPresets(),
       activePresetId: resolveCurrentColumnManagerPreset(),
       onVisibilityChange: handleVisibilityChange,
@@ -6093,8 +6042,63 @@
   }
 
   // 看板视图卡片更新（包括新增和跨牌组移动）
-  async function handleKanbanCardUpdate(updatedCard: Card) {
+  async function handleKanbanCardUpdate(updatedCard: Card, context?: { kind?: string; targetDeckId?: string }) {
     try {
+      if (dataSource === 'incremental-reading') {
+        const existingIRCard = currentSourceCards.find(c => c.uuid === updatedCard.uuid) || updatedCard;
+        const nextPriority = Number((updatedCard as any).ir_priority_value ?? (updatedCard as any).ir_priority ?? updatedCard.priority);
+        const prevPriority = Number((existingIRCard as any).ir_priority_value ?? (existingIRCard as any).ir_priority ?? existingIRCard.priority);
+
+        if (Number.isFinite(nextPriority) && nextPriority !== prevPriority) {
+          await updateIRCardManagementPriority(plugin.app, existingIRCard, nextPriority);
+          applyIRCardPatch(existingIRCard.uuid, {
+            priority: nextPriority,
+            ir_priority: nextPriority,
+            ir_priority_value: nextPriority,
+            modified: new Date().toISOString(),
+          });
+          await recomputeAndBroadcastIRData(plugin.app, 'ui_refresh');
+          showNotification('优先级更新成功', 'success');
+          return;
+        }
+
+        const previousDeckIds = resolveIRDeckIds(
+          (existingIRCard as any).ir_deck_ids || (existingIRCard as any).metadata?.deckIds || []
+        );
+        const nextDeckIds = context?.kind === 'deck-drag' && context?.targetDeckId
+          ? resolveIRDeckIds([context.targetDeckId])
+          : resolveIRDeckIds(
+              (updatedCard as any).ir_deck_ids ||
+              (updatedCard as any).metadata?.deckIds ||
+              (updatedCard.deckId ? [updatedCard.deckId] : [])
+            );
+
+        if (
+          nextDeckIds.length > 0 &&
+          (
+            nextDeckIds.length !== previousDeckIds.length ||
+            nextDeckIds.some((deckId, index) => deckId !== previousDeckIds[index])
+          )
+        ) {
+          await updateIRCardManagementDecks(plugin.app, existingIRCard, nextDeckIds);
+          applyIRCardPatch(existingIRCard.uuid, {
+            deckId: nextDeckIds[0],
+            ir_deck_ids: nextDeckIds,
+            ir_deck: getIRDeckName(nextDeckIds[0]) || String((updatedCard as any).ir_deck || '').trim(),
+            metadata: {
+              ...((existingIRCard as any).metadata || {}),
+              deckIds: nextDeckIds,
+            },
+            modified: new Date().toISOString(),
+          });
+          await recomputeAndBroadcastIRData(plugin.app, 'ui_refresh', { deckIds: nextDeckIds });
+          showNotification('所属专题更新成功', 'success');
+          return;
+        }
+
+        return;
+      }
+
       // 🆕 v2.2: 优先从 content YAML 的 we_decks 获取牌组ID
       const currentDecks = getDecksForDataSource(dataSource);
       const existingCard = currentSourceCards.find(c => c.uuid === updatedCard.uuid);
@@ -6278,7 +6282,6 @@
     onBuildDeck={dataSource === 'memory' ? handleBuildDeck : undefined}
     onBuildIRDeck={dataSource === 'incremental-reading' ? handleBuildIRDeck : undefined}
     onIRChangeDeck={dataSource === 'incremental-reading' ? handleIRBatchChangeDeck : undefined}
-    onIRToggleFavorite={dataSource === 'incremental-reading' ? handleIRBatchToggleFavorite : undefined}
     {isMobile}
   />
 
@@ -6379,6 +6382,7 @@
             onDelete={handleDeleteCard}
             onTagsUpdate={handleTagsUpdate}
             onPriorityUpdate={handlePriorityUpdate}
+            onIRAssociatedNotesManage={handleIRAssociatedNotesManage}
             onTempFileEdit={handleTempFileEditCard}
             onView={handleViewCard}
             onJumpToSource={jumpToSourceDocument}
@@ -6470,6 +6474,7 @@
           onCardView={handleViewCard}
           onStartStudy={handleKanbanStartStudy}
           groupBy={kanbanGroupBy}
+          dataSourceType={dataSource}
           showStats={true}
           layoutMode={kanbanLayoutMode}
           attributeType={gridCardAttribute}

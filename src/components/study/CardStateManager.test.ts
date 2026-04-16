@@ -53,6 +53,7 @@ Back`
       { id: 'bank-b', name: '题库 B' } as Deck
     ];
     manager.setDecks(decks);
+    manager.setDataSourceType('questionBank');
 
     const card = createCard({
       content: `---
@@ -74,5 +75,41 @@ Back`,
     expect(grouped['bank-b']).toHaveLength(1);
     expect(grouped['_none']).toHaveLength(0);
     expect(grouped['记忆牌组 A']).toBeUndefined();
+  });
+});
+
+describe('CardStateManager incremental reading tag grouping', () => {
+  it('IR 看板按标签分组时应优先读取 ir_tags，而不是退化成普通 tags 为空', () => {
+    const manager = new CardStateManager({} as any);
+    manager.setDataSourceType('incremental-reading');
+
+    const card = createCard({
+      uuid: 'ir-card-1',
+      tags: [],
+      ir_tags: ['哲学/认识论', '摘录']
+    } as any);
+
+    const groups = manager.getTagGroups([card]);
+    const grouped = manager.groupCards([card], 'tag');
+
+    expect(groups.some((group) => group.key === '哲学/认识论')).toBe(true);
+    expect(grouped['哲学/认识论']).toHaveLength(1);
+    expect(grouped['_noTag']).toHaveLength(0);
+  });
+
+  it('IR 同时存在 ir_tags 与普通 tags 时，应以 ir_tags 的首项作为主分组口径', () => {
+    const manager = new CardStateManager({} as any);
+    manager.setDataSourceType('incremental-reading');
+
+    const card = createCard({
+      uuid: 'ir-card-2',
+      tags: ['旧标签'],
+      ir_tags: ['专题/主标签', '专题/次标签']
+    } as any);
+
+    const grouped = manager.groupCards([card], 'tag');
+
+    expect(grouped['专题/主标签']).toHaveLength(1);
+    expect(grouped['_noTag']).toHaveLength(0);
   });
 });

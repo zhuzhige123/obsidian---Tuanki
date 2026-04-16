@@ -65,6 +65,7 @@
   let fixResults = $state<DataFixResult[]>([]);
   let migrationResults = $state<DataCheckResult[]>([]);
   let latestMigrationSummary = $state<{ targetRoot: string; movedFiles: number; conflicts: number; rewrittenReferences: number; remainingLegacyRoots: number; reportTime: string } | null>(null);
+  let latestIRPointMigrationSummary = $state<{ targetRoot: string; migratedMaterials: number; migratedPoints: number; migratedReaderStateFiles: number; failures: number; completedAt: string; status: 'completed' | 'failed' } | null>(null);
   let logs = $state<string[]>([]);
   let progressMessage = $state('');
   let progressCurrent = $state(0);
@@ -181,6 +182,24 @@
     };
   }
 
+  async function refreshLatestIRPointMigrationSummary() {
+    const report = await dataService.getLatestIRPointStorageMigrationReport();
+    if (!report) {
+      latestIRPointMigrationSummary = null;
+      return;
+    }
+
+    latestIRPointMigrationSummary = {
+      targetRoot: report.summary.targetRoot,
+      migratedMaterials: report.summary.migratedMaterials,
+      migratedPoints: report.summary.migratedPoints,
+      migratedReaderStateFiles: report.summary.migratedReaderStateFiles,
+      failures: report.summary.failures.length,
+      completedAt: report.summary.completedAt,
+      status: report.status,
+    };
+  }
+
   // ===== Methods =====
   function addLog(message: string) {
     const time = new Date().toLocaleTimeString();
@@ -188,7 +207,17 @@
   }
 
   function getHighRiskFixWarning(type: CheckType): string {
+    if (type === 'wdeck_migration') {
+      return '这会在 vault 中写入新的 `.wdeck` 牌组文件，但不会自动删除原有卡片数据。';
+    }
+
+    if (type === 'ir_point_storage_migration') {
+      return '这会把旧增量阅读材料、书签任务和阅读器状态写入新的 points/materials/registry 结构，但第一轮不会自动删除旧文件。';
+    }
+
     switch (type) {
+      case 'migration_conflict_files':
+        return '这会把可恢复的迁移冲突副本合并回正式数据，并删除已处理完成的冲突副本。';
       case 'duplicate_cards':
         return '这会删除重复卡片，并重写牌组里的卡片引用。';
       case 'ir_material_consistency':
@@ -292,6 +321,19 @@
     }
   }
 
+  async function refreshResultsAfterFix(type: CheckType) {
+    const existsInMigrationResults = migrationResults.some((result) => result.type === type);
+    const existsInCheckResults = checkResults.some((result) => result.type === type);
+
+    if (existsInMigrationResults) {
+      await handleCheckMigration();
+    }
+
+    if (existsInCheckResults || !existsInMigrationResults) {
+      await handleCheck(type);
+    }
+  }
+
   async function handleFix(type: CheckType) {
     if (isHighRiskFixType(type)) {
       const confirmed = await confirmHighRiskFix(type);
@@ -312,9 +354,8 @@
       progressCurrent = 1;
       addLog(`修复完成: 成功 ${result.success}，失败 ${result.failed}`);
 
-      // 重新检测该项
       progressMessage = `重新检测 ${getTypeName(type)}...`;
-      await handleCheck(type);
+      await refreshResultsAfterFix(type);
     } catch (e) {
       addLog(`修复失败: ${e}`);
     } finally {
@@ -323,6 +364,10 @@
       progressCurrent = 0;
       progressTotal = 0;
     }
+  }
+
+  function supportsDirectFix(type: CheckType): boolean {
+    return type !== 'wdeck_conflicts';
   }
 
   // ===== 迁移检测方法 =====
@@ -335,6 +380,27 @@
       // 检测 Schema 迁移状态
       const schemaResult = await dataService.checkSchemaMigration();
       migrationResults = [...migrationResults, schemaResult];
+
+      const irPointResult = await dataService.check('ir_point_storage_migration');
+      migrationResults = [...migrationResults, irPointResult];
+
+      const irLocalStateResult = await dataService.check('ir_local_state_relocation');
+      migrationResults = [...migrationResults, irLocalStateResult];
+
+      const wdeckResult = await dataService.checkWDeckMigration();
+      migrationResults = [...migrationResults, wdeckResult];
+
+      const legacyMemoryResult = await dataService.check('legacy_memory_files');
+      migrationResults = [...migrationResults, legacyMemoryResult];
+
+      const wdeckConflictResult = await dataService.check('wdeck_conflicts');
+      migrationResults = [...migrationResults, wdeckConflictResult];
+
+      const wdeckCacheResult = await dataService.check('wdeck_cache');
+      migrationResults = [...migrationResults, wdeckCacheResult];
+
+      const migrationConflictResult = await dataService.check('migration_conflict_files');
+      migrationResults = [...migrationResults, migrationConflictResult];
       
       // 检测目录结构
       const structureResult = await dataService.checkStructure();
@@ -345,6 +411,7 @@
       migrationResults = [...migrationResults, legacyResult];
 
       await refreshLatestMigrationSummary();
+      await refreshLatestIRPointMigrationSummary();
 
       const totalIssues = migrationResults.reduce((sum, r) => sum + r.count, 0);
       addLog(`迁移检测完成，发现 ${totalIssues} 个问题`);
@@ -378,6 +445,57 @@
       await handleCheckMigration();
     } catch (e) {
       addLog(`迁移执行失败: ${e}`);
+    } finally {
+      isMigrating = false;
+    }
+  }
+
+  async function handleExecuteWDeckMigration() {
+    const confirmed = await showDangerConfirm(
+      plugin.app,
+      '这会把现有记忆牌组导出为 `.wdeck` 牌组文件。\n本次操作不会自动删除原有卡片数据，主要是先完成文件化迁移入口。',
+      '确认迁移到 .wdeck'
+    );
+    if (!confirmed) {
+      addLog('已取消 .wdeck 牌组文件迁移');
+      return;
+    }
+
+    isMigrating = true;
+    addLog('开始执行 .wdeck 牌组文件迁移...');
+
+    try {
+      const result = await dataService.executeWDeckMigration({ confirmed: true });
+      addLog(`.wdeck 迁移完成：成功 ${result.success}，失败 ${result.failed}`);
+      await handleCheckMigration();
+    } catch (e) {
+      addLog(`.wdeck 迁移执行失败：${e}`);
+    } finally {
+      isMigrating = false;
+    }
+  }
+
+  async function handleExecuteIRPointMigration() {
+    const confirmed = await showDangerConfirm(
+      plugin.app,
+      '这会把旧增量阅读材料、书签任务和阅读器状态写入新的 points/materials/registry 结构。\n第一轮不会自动删除旧文件，但会开始建立新结构的权威副本。',
+      '确认执行增量阅读数据迁移'
+    );
+    if (!confirmed) {
+      addLog('已取消增量阅读数据迁移');
+      return;
+    }
+
+    isMigrating = true;
+    addLog('开始执行增量阅读数据迁移...');
+
+    try {
+      const result = await dataService.executeIRPointStorageMigration({ confirmed: true });
+      addLog(`增量阅读数据迁移完成：成功 ${result.success}，失败 ${result.failed}`);
+      await refreshLatestIRPointMigrationSummary();
+      await handleCheckMigration();
+    } catch (e) {
+      addLog(`增量阅读数据迁移执行失败：${e}`);
     } finally {
       isMigrating = false;
     }
@@ -438,8 +556,15 @@
   }
 
   function getTypeName(type: CheckType): string {
+    if (type === 'wdeck_migration') return '.wdeck 牌组文件迁移';
+    if (type === 'ir_point_storage_migration') return '增量阅读数据迁移';
     if (type === 'ir_topic_migration') return '增量阅读专题迁移';
     const names: Record<string, string> = {
+      'ir_local_state_relocation': '阅读器本地状态迁移',
+      'legacy_memory_files': '旧记忆 JSON 残留',
+      'wdeck_conflicts': '.wdeck 冲突检测',
+      'wdeck_cache': '.wdeck 私有缓存',
+      'migration_conflict_files': '迁移冲突文件',
       'yaml_migration': 'YAML 元数据迁移',
       'we_decks_fix': 'we_decks 牌组 ID',
       'we_block_migration': 'we_block 合并迁移',
@@ -628,6 +753,7 @@
   onMount(() => {
     handleCheckAll();
     void refreshLatestMigrationSummary();
+    void refreshLatestIRPointMigrationSummary();
   });
 </script>
 
@@ -694,7 +820,7 @@
                 </div>
               </div>
               <span class="check-message">{result.message}</span>
-              {#if result.items.length > 0 && (result.type === 'filename_compatibility' || result.type === 'sync_conflict_files')}
+              {#if result.items.length > 0 && (result.type === 'filename_compatibility' || result.type === 'sync_conflict_files' || result.type === 'wdeck_migration')}
                 <div class="check-details">
                   {#each result.items.slice(0, 5) as item}
                     <span class="detail-item">{item}</span>
@@ -716,15 +842,28 @@
                 <EnhancedIcon name="refresh-cw" size={14} />
               </EnhancedButton>
               {#if result.count > 0}
-                <EnhancedButton
-                  variant="ghost"
-                  size="sm"
-                  onclick={() => handleFix(result.type)}
-                  disabled={isChecking || isFixing}
-                  tooltip="修复"
-                >
-                  <EnhancedIcon name="wrench" size={14} />
-                </EnhancedButton>
+                {#if result.type === 'wdeck_migration'}
+                  <EnhancedButton
+                    variant="primary"
+                    size="sm"
+                    onclick={handleExecuteWDeckMigration}
+                    disabled={isChecking || isFixing || isMigrating}
+                    tooltip="迁移到 .wdeck 牌组文件"
+                  >
+                    <EnhancedIcon name="file-plus" size={14} />
+                  </EnhancedButton>
+                {/if}
+                {#if supportsDirectFix(result.type)}
+                  <EnhancedButton
+                    variant="ghost"
+                    size="sm"
+                    onclick={() => handleFix(result.type)}
+                    disabled={isChecking || isFixing}
+                    tooltip="修复"
+                  >
+                    <EnhancedIcon name="wrench" size={14} />
+                  </EnhancedButton>
+                {/if}
               {/if}
             </div>
           </div>
@@ -779,6 +918,22 @@
                 </div>
               </div>
             {/if}
+            {#if latestIRPointMigrationSummary}
+              <div class="check-item latest-migration-summary">
+                <div class="check-info">
+                  <span class="check-name">最近一次增量阅读迁移</span>
+                  <span class="check-message">目标路径：{latestIRPointMigrationSummary.targetRoot}</span>
+                  <div class="check-details">
+                    <span class="detail-item">材料 {latestIRPointMigrationSummary.migratedMaterials}</span>
+                    <span class="detail-item">阅读点 {latestIRPointMigrationSummary.migratedPoints}</span>
+                    <span class="detail-item">本地状态 {latestIRPointMigrationSummary.migratedReaderStateFiles}</span>
+                    <span class="detail-item">失败 {latestIRPointMigrationSummary.failures}</span>
+                    <span class="detail-item">状态 {latestIRPointMigrationSummary.status}</span>
+                    <span class="detail-item">时间 {latestIRPointMigrationSummary.completedAt}</span>
+                  </div>
+                </div>
+              </div>
+            {/if}
             <div class="check-results">
               {#each migrationResults as result}
                 <div class="check-item {getStatusClass(result.status)}">
@@ -793,7 +948,7 @@
                       </div>
                     </div>
                     <span class="check-message">{result.message}</span>
-                    {#if result.items.length > 0 && result.type === 'legacy_cleanup'}
+                    {#if result.items.length > 0 && (result.type === 'legacy_cleanup' || result.type === 'wdeck_migration' || result.type === 'migration_conflict_files' || result.type === 'ir_point_storage_migration' || result.type === 'ir_local_state_relocation')}
                       <div class="check-details">
                         {#each result.items.slice(0, 3) as item}
                           <span class="detail-item">{item}</span>
@@ -817,6 +972,41 @@
                         迁移
                       </EnhancedButton>
                     {/if}
+                    {#if result.type === 'ir_point_storage_migration' && result.count > 0}
+                      <EnhancedButton
+                        variant="primary"
+                        size="sm"
+                        onclick={handleExecuteIRPointMigration}
+                        disabled={isMigrating}
+                        tooltip="迁移增量阅读新存储结构"
+                      >
+                        <EnhancedIcon name="play" size={14} />
+                        IR迁移
+                      </EnhancedButton>
+                    {/if}
+                    {#if result.type === 'wdeck_migration' && result.status !== 'error' && result.count > 0}
+                      <EnhancedButton
+                        variant="primary"
+                        size="sm"
+                        onclick={handleExecuteWDeckMigration}
+                        disabled={isMigrating}
+                        tooltip="迁移到 .wdeck"
+                      >
+                        <EnhancedIcon name="play" size={14} />
+                        .wdeck
+                      </EnhancedButton>
+                    {/if}
+                    {#if result.type === 'ir_local_state_relocation' && result.count > 0}
+                      <EnhancedButton
+                        variant="ghost"
+                        size="sm"
+                        onclick={() => handleFix(result.type)}
+                        disabled={isMigrating || isFixing}
+                        tooltip="迁移阅读器本地状态"
+                      >
+                        <EnhancedIcon name="folder-output" size={14} />
+                      </EnhancedButton>
+                    {/if}
                     {#if result.type === 'structure_check' && result.count > 0}
                       <EnhancedButton
                         variant="ghost"
@@ -837,6 +1027,17 @@
                         tooltip="清理旧目录"
                       >
                         <EnhancedIcon name="trash-2" size={14} />
+                      </EnhancedButton>
+                    {/if}
+                    {#if result.type === 'migration_conflict_files' && result.count > 0}
+                      <EnhancedButton
+                        variant="ghost"
+                        size="sm"
+                        onclick={() => handleFix(result.type)}
+                        disabled={isMigrating || isFixing}
+                        tooltip="修复迁移冲突文件"
+                      >
+                        <EnhancedIcon name="wrench" size={14} />
                       </EnhancedButton>
                     {/if}
                   </div>

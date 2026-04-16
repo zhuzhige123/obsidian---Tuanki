@@ -13,8 +13,8 @@
   import { CanvasRenderer } from 'echarts/renderers';
   import {
     IRAnalyticsService,
-    type IRAnalyticsSnapshot,
-    type IRAnalyticsSourceOption
+    type IRAnalyticsMode,
+    type IRAnalyticsSnapshot
   } from '../../services/incremental-reading/IRAnalyticsService';
   import { logger } from '../../utils/logger';
   import { bindPinchRangeGesture } from '../../utils/pinch-range-gesture';
@@ -38,18 +38,19 @@
   }: Props = $props();
 
   const quickRangeOptions = [
-    { value: 7, label: '最近7天' },
-    { value: 14, label: '最近14天' },
-    { value: 30, label: '最近30天' },
-    { value: 60, label: '最近60天' },
-    { value: 90, label: '最近90天' }
+    { value: 7, label: '最近 7 天' },
+    { value: 14, label: '最近 14 天' },
+    { value: 30, label: '最近 30 天' },
+    { value: 60, label: '最近 60 天' },
+    { value: 90, label: '最近 90 天' }
   ];
 
   type AnalyticsTab = 'activity' | 'quantity' | 'timing' | 'difficulty' | 'forecast';
 
   let activeTab = $state<AnalyticsTab>('activity');
   let selectedDays = $state(30);
-  let selectedSourceKey = $state('');
+  let selectedMode = $state<IRAnalyticsMode>('overall');
+  let selectedSelectionKey = $state('');
   let chartRef: HTMLDivElement | null = $state(null);
   let chart: echarts.ECharts | null = null;
   let analyticsService = $state<IRAnalyticsService | null>(null);
@@ -93,13 +94,17 @@
     try {
       const service = await getAnalyticsService();
       let nextSnapshot = await service.getSnapshot({
-        sourceKey: selectedSourceKey || undefined,
+        mode: selectedMode,
+        selectionKey: selectedSelectionKey || undefined,
         days: selectedDays
       });
 
-      if (selectedSourceKey && !nextSnapshot.scopeKey) {
-        selectedSourceKey = '';
-        nextSnapshot = await service.getSnapshot({ days: selectedDays });
+      if (selectedSelectionKey && !nextSnapshot.scopeKey) {
+        selectedSelectionKey = '';
+        nextSnapshot = await service.getSnapshot({
+          mode: selectedMode,
+          days: selectedDays
+        });
       }
 
       if (requestId !== loadRequestId) return;
@@ -254,10 +259,10 @@
     const colors = getThemeColors();
     return {
       color: data.timingBuckets.map(bucket => {
-        if (bucket.label.startsWith('已逾期')) return colors.series[3];
-        if (bucket.label === '今日到期') return colors.series[2];
-        if (bucket.label === '未排期') return colors.series[4];
-        return colors.series[0];
+        if (bucket.label.startsWith('Overdue')) return colors.series[3]!;
+        if (bucket.label === 'Due today') return colors.series[2]!;
+        if (bucket.label === 'Unscheduled') return colors.series[4]!;
+        return colors.series[0]!;
       }),
       tooltip: {
         trigger: 'axis',
@@ -304,6 +309,11 @@
 
   function buildDifficultyOption(data: IRAnalyticsSnapshot): echarts.EChartsCoreOption {
     const colors = getThemeColors();
+    const shouldShowPriorityLabel = (value: number[]) => {
+      const effectivePriority = Number(value?.[0] ?? 0);
+      const urgency = Number(value?.[1] ?? 0);
+      return effectivePriority >= 5 && urgency >= 5;
+    };
     return {
       color: [colors.series[4]],
       tooltip: {
@@ -314,23 +324,15 @@
         textStyle: { color: colors.textColor },
         confine: true,
         formatter: (params: any) => {
-          const point = params.data as {
-            label: string;
-            x: number;
-            y: number;
-            itemCount: number;
-            readingHours: number;
-            cardsCreated: number;
-            extracts: number;
-            notesWritten: number;
-          };
+          const point = params.data as [number, number, number, string, number, number, number, number, number, number, number];
+          const [, , , label, itemCount, dueCount, overdueCount, readingHours, cardsCreated, extracts, notesWritten] = point;
           return [
-            `<strong>${point.label}</strong>`,
-            `平均优先级: ${point.x}`,
-            `平均间隔: ${point.y} 天`,
-            `材料数: ${point.itemCount}`,
-            `阅读时长: ${point.readingHours} 小时`,
-            `制卡: ${point.cardsCreated} / 摘录: ${point.extracts} / 笔记: ${point.notesWritten}`
+            `<strong>${label}</strong>`,
+            `有效优先级: ${point[0]}`,
+            `调度紧迫度: ${point[1]}`,
+            `活跃项: ${itemCount} / 到期: ${dueCount} / 逾期: ${overdueCount}`,
+            `阅读时长: ${readingHours} 小时`,
+            `制卡: ${cardsCreated} / 摘录: ${extracts} / 笔记: ${notesWritten}`
           ].join('<br>');
         }
       },
@@ -342,7 +344,7 @@
       },
       xAxis: {
         type: 'value',
-        name: '平均优先级',
+        name: '有效优先级',
         min: 0,
         max: 10,
         nameTextStyle: { color: colors.subTextColor },
@@ -351,7 +353,9 @@
       },
       yAxis: {
         type: 'value',
-        name: '平均间隔(天)',
+        name: '调度紧迫度',
+        min: 0,
+        max: 10,
         nameTextStyle: { color: colors.subTextColor },
         axisLabel: { color: colors.subTextColor },
         splitLine: { lineStyle: { color: colors.splitLineColor, type: 'dashed' } }
@@ -360,16 +364,39 @@
         {
           type: 'scatter',
           symbolSize: (value: number[]) => value[2],
+          markLine: {
+            silent: true,
+            symbol: 'none',
+            label: { show: false },
+            lineStyle: {
+              color: colors.axisLineColor,
+              type: 'dashed'
+            },
+            data: [
+              { xAxis: 5 },
+              { yAxis: 5 }
+            ]
+          },
           label: {
             show: !isMobile,
             position: 'top',
             color: colors.subTextColor,
             fontSize: 11,
-            formatter: (params: any) => params.data[3]
+            formatter: (params: any) => {
+              const value = params.data as number[];
+              return shouldShowPriorityLabel(value) ? value[3] : '';
+            }
+          },
+          labelLayout: {
+            hideOverlap: true,
+            moveOverlap: 'shiftY'
           },
           emphasis: {
+            focus: 'self',
+            scale: true,
             label: {
-              show: true
+              show: true,
+              formatter: (params: any) => (params.data as number[])[3]
             }
           },
           data: data.difficultyScatter.map(point => [
@@ -378,6 +405,8 @@
             point.size,
             point.label,
             point.itemCount,
+            point.dueCount,
+            point.overdueCount,
             point.readingHours,
             point.cardsCreated,
             point.extracts,
@@ -531,11 +560,29 @@
     chart?.resize();
   }
 
-  function getCurrentSourceLabel(): string {
-    if (!snapshot || !selectedSourceKey) return '总体数据源';
-    const source = snapshot.sources.find(item => item.key === selectedSourceKey);
-    if (!source) return '总体数据源';
-    return `${getKindText(source.kind)} · ${source.label}`;
+  function getModeText(mode: IRAnalyticsMode): string {
+    if (mode === 'topic') return '专题';
+    if (mode === 'tag') return '标签';
+    return '总体';
+  }
+
+  function getCurrentModeLabel(): string {
+    return `模式：${getModeText(selectedMode)}`;
+  }
+
+  function getCurrentSelectionLabel(): string {
+    if (selectedMode === 'overall') return '总体模式无需二次筛选';
+    if (!snapshot?.sources.length) {
+      return selectedMode === 'topic' ? '暂无可分析专题' : '暂无可分析标签';
+    }
+    if (!selectedSelectionKey) {
+      return selectedMode === 'topic' ? '请选择专题' : '请选择标签';
+    }
+    const option = snapshot.sources.find(item => item.key === selectedSelectionKey);
+    if (!option) {
+      return selectedMode === 'topic' ? '请选择专题' : '请选择标签';
+    }
+    return selectedMode === 'topic' ? `专题：${option.label}` : `标签：#${option.label}`;
   }
 
   function getCurrentRangeLabel(): string {
@@ -543,34 +590,66 @@
     return current?.label ?? `${selectedDays} 天`;
   }
 
-  function showSourceMenu(event: MouseEvent): void {
+  function showModeMenu(event: MouseEvent): void {
     const menu = new Menu();
+
+    (['overall', 'topic', 'tag'] as IRAnalyticsMode[]).forEach((mode) => {
+      menu.addItem((item) => {
+        item
+          .setTitle(getModeText(mode))
+          .setIcon(mode === 'overall' ? 'globe' : mode === 'topic' ? 'layers' : 'tags')
+          .setChecked(selectedMode === mode)
+          .onClick(() => {
+            if (selectedMode === mode) return;
+            selectedMode = mode;
+            selectedSelectionKey = '';
+            void loadAnalytics();
+          });
+      });
+    });
+
+    menu.showAtMouseEvent(event);
+  }
+
+  function showSelectionMenu(event: MouseEvent): void {
+    if (selectedMode === 'overall') return;
+
+    const menu = new Menu();
+    const options = snapshot?.sources || [];
+
+    if (!options.length) {
+      menu.addItem((item) => {
+        item
+          .setTitle(selectedMode === 'topic' ? '暂无可分析专题' : '暂无可分析标签')
+          .setIcon('inbox');
+      });
+      menu.showAtMouseEvent(event);
+      return;
+    }
 
     menu.addItem((item) => {
       item
-        .setTitle('总体数据源')
-        .setIcon('globe')
-        .setChecked(!selectedSourceKey)
+        .setTitle(selectedMode === 'topic' ? '清空专题选择' : '清空标签选择')
+        .setIcon('rotate-ccw')
+        .setChecked(!selectedSelectionKey)
         .onClick(() => {
-          selectedSourceKey = '';
+          selectedSelectionKey = '';
           void loadAnalytics();
         });
     });
 
-    if (snapshot?.sources.length) {
-      menu.addSeparator();
-      for (const source of snapshot.sources) {
-        menu.addItem((item) => {
-          item
-            .setTitle(`${getKindText(source.kind)} · ${source.label}`)
-            .setIcon(source.kind === 'pdf' ? 'file-text' : source.kind === 'epub' ? 'book-open' : 'file')
-            .setChecked(selectedSourceKey === source.key)
-            .onClick(() => {
-              selectedSourceKey = source.key;
-              void loadAnalytics();
-            });
-        });
-      }
+    menu.addSeparator();
+    for (const option of options) {
+      menu.addItem((item) => {
+        item
+          .setTitle(`${option.label} · 活跃 ${option.activeCount} · 到期 ${option.dueCount}`)
+          .setIcon(selectedMode === 'topic' ? 'layers' : 'tag')
+          .setChecked(selectedSelectionKey === option.key)
+          .onClick(() => {
+            selectedSelectionKey = option.key;
+            void loadAnalytics();
+          });
+      });
     }
 
     menu.showAtMouseEvent(event);
@@ -596,11 +675,21 @@
     menu.showAtMouseEvent(event);
   }
 
-  function getKindText(kind: IRAnalyticsSourceOption['kind']): string {
-    if (kind === 'pdf') return 'PDF';
-    if (kind === 'epub') return 'EPUB';
-    if (kind === 'document') return '文档';
-    return '其它';
+  function getSelectionHintText(): string {
+    if (selectedMode === 'overall') return '总体模式会统计所有增量阅读点';
+    if (!snapshot?.sources.length) {
+      return selectedMode === 'topic'
+        ? '当前没有可用于分析的专题'
+        : '当前没有可用于分析的手工标签';
+    }
+    if (!selectedSelectionKey) {
+      return selectedMode === 'topic'
+        ? '请选择一个专题后查看图表'
+        : '请选择一个标签后查看图表';
+    }
+    const option = snapshot.sources.find((item) => item.key === selectedSelectionKey);
+    if (!option) return '当前选择已失效，请重新选择';
+    return `${option.subtitle} · 共 ${option.itemCount} 项，活跃 ${option.activeCount} 项，到期 ${option.dueCount} 项`;
   }
 
   function formatMetric(value: number): string {
@@ -612,6 +701,66 @@
     if (!snapshot?.monitoringSummary) return '';
     const summary = snapshot.monitoringSummary;
     return `近7天日均已安排 ${summary.dailyScheduled} 项 · 日均完成 ${summary.dailyCompleted} 项 · 日均阅读 ${summary.dailyReadingMinutes} 分钟 · 决策闭环率 ${summary.linkedOutcomeRate}%`;
+  }
+
+  function getOutcomeTooltip(kind: 'extracts' | 'cards' | 'notes'): string {
+    if (!snapshot) return '';
+
+    if (kind === 'extracts') {
+      return `当前沉淀摘录数：${snapshot.overview.extracts}\n本期动作摘录：${snapshot.overview.actionExtracts}`;
+    }
+
+    if (kind === 'cards') {
+      return `当前沉淀记忆卡数：${snapshot.overview.cardsCreated}\n本期动作制卡：${snapshot.overview.actionCardsCreated}`;
+    }
+
+    return `当前关联 Markdown 笔记数：${snapshot.overview.notesWritten}\n本期动作写笔记：${snapshot.overview.actionNotesWritten}`;
+  }
+
+  function getOutcomeActionText(kind: 'extracts' | 'cards' | 'notes'): string {
+    if (!snapshot) return '';
+
+    if (kind === 'extracts') {
+      return `本期动作 ${snapshot.overview.actionExtracts}`;
+    }
+
+    if (kind === 'cards') {
+      return `本期动作 ${snapshot.overview.actionCardsCreated}`;
+    }
+
+    return `本期动作 ${snapshot.overview.actionNotesWritten}`;
+  }
+
+  function hasSelectionRequirementGap(): boolean {
+    return selectedMode !== 'overall' && !selectedSelectionKey;
+  }
+
+  function getEmptyStateMessage(): string {
+    if (selectedMode !== 'overall' && !snapshot?.sources.length) {
+      return selectedMode === 'topic'
+        ? '当前还没有可分析的专题数据'
+        : '当前还没有可分析的手工标签数据';
+    }
+    if (hasSelectionRequirementGap()) {
+      return selectedMode === 'topic'
+        ? '先选择一个专题，再查看当前图表'
+        : '先选择一个标签，再查看当前图表';
+    }
+    return '当前范围下暂时没有可展示数据';
+  }
+
+  function getEmptyStateDescription(): string {
+    if (selectedMode !== 'overall' && !snapshot?.sources.length) {
+      return selectedMode === 'topic'
+        ? '等增量阅读点和专题建立关联后，这里就会显示对应图表。'
+        : '等手工标签被用于增量阅读后，这里就会显示对应图表。';
+    }
+    if (hasSelectionRequirementGap()) {
+      return selectedMode === 'topic'
+        ? '先在上方选择一个专题，下方内容区会显示对应的分析图表。'
+        : '先在上方选择一个标签，下方内容区会显示对应的分析图表。';
+    }
+    return '可以试试切换时间范围或分析条件，看看是否有可展示的图表数据。';
   }
 
   $effect(() => {
@@ -669,149 +818,173 @@
 </script>
 
 <div class="ir-analytics-modal">
-      <div class="tabs-header" class:mobile={isMobile}>
-        <div class="tabs-nav weave-toolbar-tabs">
-          <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'activity'} onclick={() => switchTab('activity')}>
-            活跃趋势
-          </button>
-          <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'quantity'} onclick={() => switchTab('quantity')}>
-            数量变化
-          </button>
-          <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'timing'} onclick={() => switchTab('timing')}>
-            调度时机
-          </button>
-          <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'difficulty'} onclick={() => switchTab('difficulty')}>
-            优先级矩阵
-          </button>
-          <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'forecast'} onclick={() => switchTab('forecast')}>
-            未来负荷
-          </button>
-        </div>
-      </div>
+  <div class="tabs-header" class:mobile={isMobile}>
+    <div class="tabs-nav weave-toolbar-tabs">
+      <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'activity'} onclick={() => switchTab('activity')}>
+        活跃趋势
+      </button>
+      <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'quantity'} onclick={() => switchTab('quantity')}>
+        数量变化
+      </button>
+      <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'timing'} onclick={() => switchTab('timing')}>
+        调度时机
+      </button>
+      <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'difficulty'} onclick={() => switchTab('difficulty')}>
+        优先级矩阵
+      </button>
+      <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'forecast'} onclick={() => switchTab('forecast')}>
+        未来负荷
+      </button>
+    </div>
+  </div>
 
-      <div class="toolbar" class:mobile={isMobile}>
-        <div class="toolbar-row">
-          <label class="source-select-wrap">
-            <span class="toolbar-label">数据源</span>
-            <button
-              type="button"
-              class="source-menu-trigger"
-              onclick={(event) => showSourceMenu(event)}
-              title="选择分析数据源"
-            >
-              <span class="source-menu-text">{getCurrentSourceLabel()}</span>
-              <ObsidianIcon name="chevron-down" size={14} />
-            </button>
-          </label>
+  <div class="toolbar" class:mobile={isMobile}>
+    <div class="toolbar-row">
+      <label class="source-select-wrap mode-select-wrap">
+        <span class="toolbar-label">分析模式</span>
+        <button
+          type="button"
+          class="source-menu-trigger"
+          onclick={(event) => showModeMenu(event)}
+          title="选择分析模式"
+        >
+          <span class="source-menu-text">{getCurrentModeLabel()}</span>
+          <ObsidianIcon name="chevron-down" size={14} />
+        </button>
+      </label>
 
-          <label class="range-select-wrap">
-            <span class="toolbar-label">时间范围</span>
-            <button
-              type="button"
-              class="range-menu-trigger"
-              onclick={(event) => showRangeMenu(event)}
-              title="选择时间范围"
-            >
-              <span class="range-menu-text">{getCurrentRangeLabel()}</span>
-              <ObsidianIcon name="chevron-down" size={14} />
-            </button>
-          </label>
-        </div>
+      <label class="source-select-wrap selection-select-wrap">
+        <span class="toolbar-label">条件选择</span>
+        <button
+          type="button"
+          class="source-menu-trigger"
+          onclick={(event) => showSelectionMenu(event)}
+          title={selectedMode === 'overall' ? '总体模式无需二次筛选' : '选择具体专题或标签'}
+          disabled={selectedMode === 'overall'}
+        >
+          <span class="source-menu-text">{getCurrentSelectionLabel()}</span>
+          <ObsidianIcon name="chevron-down" size={14} />
+        </button>
+      </label>
 
-        {#if activeTab === 'activity' && snapshot?.monitoringSummary}
-          <div class="monitoring-note">{formatMonitoringText()}</div>
-        {/if}
-      </div>
-
-      {#if isLoading}
-        <div class="state-panel state-panel--loading">
-          <div class="state-icon">
-            <ObsidianIcon name="loader" size={20} />
-          </div>
-          <div>正在生成分析图表…</div>
-        </div>
-      {:else if loadError}
-        <div class="state-panel error">{loadError}</div>
-      {:else if snapshot}
-        {#if activeTab === 'activity'}
-          <div class="activity-overview-panel">
-            <div class="scope-caption">
-              <span class="scope-title">{snapshot.scopeLabel}</span>
-              <span class="scope-subtitle">
-                {#if snapshot.scopeKey}
-                  共 {snapshot.overview.totalItems} 项材料，当前活跃 {snapshot.overview.activeItems} 项
-                {:else}
-                  当前汇总全部增量阅读数据源
-                {/if}
-              </span>
-            </div>
-
-            <div class="overview-grid">
-              <div class="overview-card">
-                <div class="overview-label">总材料</div>
-                <div class="overview-value">{snapshot.overview.totalItems}</div>
-              </div>
-              <div class="overview-card">
-                <div class="overview-label">活跃材料</div>
-                <div class="overview-value">{snapshot.overview.activeItems}</div>
-              </div>
-              <div class="overview-card">
-                <div class="overview-label">今日到期</div>
-                <div class="overview-value">{snapshot.overview.dueToday}</div>
-              </div>
-              <div class="overview-card">
-                <div class="overview-label">逾期项</div>
-                <div class="overview-value">{snapshot.overview.overdueItems}</div>
-              </div>
-              <div class="overview-card">
-                <div class="overview-label">阅读小时</div>
-                <div class="overview-value">{formatMetric(snapshot.overview.totalReadingHours)}</div>
-              </div>
-              <div class="overview-card">
-                <div class="overview-label">平均优先级</div>
-                <div class="overview-value">P{formatMetric(snapshot.overview.avgPriority)}</div>
-              </div>
-              <div class="overview-card">
-                <div class="overview-label">摘录</div>
-                <div class="overview-value">{snapshot.overview.extracts}</div>
-              </div>
-              <div class="overview-card">
-                <div class="overview-label">制卡</div>
-                <div class="overview-value">{snapshot.overview.cardsCreated}</div>
-              </div>
-              <div class="overview-card">
-                <div class="overview-label">笔记</div>
-                <div class="overview-value">{snapshot.overview.notesWritten}</div>
-              </div>
-            </div>
-          </div>
-        {/if}
-
-        {#if activeTab !== 'activity'}
-          <div class="chart-stage">
-            {#if (
-            activeTab === 'quantity' && snapshot.quantityTrend.every(point => point.totalCount === 0 && point.activeCount === 0 && point.closedCount === 0)
-          ) || (
-            activeTab === 'timing' && snapshot.timingBuckets.every(point => point.count === 0)
-          ) || (
-            activeTab === 'difficulty' && snapshot.difficultyScatter.length === 0
-          ) || (
-            activeTab === 'forecast' && snapshot.forecast.every(point => point.itemCount === 0 && point.totalEstimatedMinutes === 0)
-          )}
-              <div class="state-panel state-panel--empty">
-                <div class="state-icon">
-                  <ObsidianIcon name="inbox" size={20} />
-                </div>
-                <div>当前范围下暂无可展示数据</div>
-              </div>
-            {:else}
-              <div class="chart-container" bind:this={chartRef}></div>
-            {/if}
-          </div>
-        {/if}
-      {/if}
+      <label class="range-select-wrap">
+        <span class="toolbar-label">时间范围</span>
+        <button
+          type="button"
+          class="range-menu-trigger"
+          onclick={(event) => showRangeMenu(event)}
+          title="选择时间范围"
+        >
+          <span class="range-menu-text">{getCurrentRangeLabel()}</span>
+          <ObsidianIcon name="chevron-down" size={14} />
+        </button>
+      </label>
     </div>
 
+    <div class="scope-hint">{getSelectionHintText()}</div>
+
+    {#if activeTab === 'activity' && snapshot?.monitoringSummary}
+      <div class="monitoring-note">{formatMonitoringText()}</div>
+    {/if}
+  </div>
+
+  {#if isLoading}
+    <div class="state-panel state-panel--loading">
+      <div class="state-icon">
+        <ObsidianIcon name="loader" size={20} />
+      </div>
+      <div>正在生成分析图表…</div>
+    </div>
+  {:else if loadError}
+    <div class="state-panel error">{loadError}</div>
+  {:else if snapshot}
+    {#if activeTab === 'activity'}
+      <div class="activity-overview-panel">
+        <div class="scope-caption">
+          <span class="scope-title">{snapshot.scopeLabel}</span>
+          <span class="scope-subtitle">
+            {#if snapshot.scopeKey}
+              共 {snapshot.overview.totalItems} 项阅读点，当前活跃 {snapshot.overview.activeItems} 项
+            {:else if selectedMode !== 'overall'}
+              {getEmptyStateMessage()}
+            {:else}
+              当前汇总全部增量阅读点
+            {/if}
+          </span>
+        </div>
+
+        <div class="overview-grid">
+          <div class="overview-card">
+            <div class="overview-label">总材料</div>
+            <div class="overview-value">{snapshot.overview.totalItems}</div>
+          </div>
+          <div class="overview-card">
+            <div class="overview-label">活跃材料</div>
+            <div class="overview-value">{snapshot.overview.activeItems}</div>
+          </div>
+          <div class="overview-card">
+            <div class="overview-label">今日到期</div>
+            <div class="overview-value">{snapshot.overview.dueToday}</div>
+          </div>
+          <div class="overview-card">
+            <div class="overview-label">逾期项</div>
+            <div class="overview-value">{snapshot.overview.overdueItems}</div>
+          </div>
+          <div class="overview-card">
+            <div class="overview-label">阅读小时</div>
+            <div class="overview-value">{formatMetric(snapshot.overview.totalReadingHours)}</div>
+          </div>
+          <div class="overview-card">
+            <div class="overview-label">平均优先级</div>
+            <div class="overview-value">P{formatMetric(snapshot.overview.avgPriority)}</div>
+          </div>
+          <div class="overview-card" title={getOutcomeTooltip('extracts')}>
+            <div class="overview-label">摘录</div>
+            <div class="overview-value">{snapshot.overview.extracts}</div>
+            <div class="overview-meta">{getOutcomeActionText('extracts')}</div>
+          </div>
+          <div class="overview-card" title={getOutcomeTooltip('cards')}>
+            <div class="overview-label">制卡</div>
+            <div class="overview-value">{snapshot.overview.cardsCreated}</div>
+            <div class="overview-meta">{getOutcomeActionText('cards')}</div>
+          </div>
+          <div class="overview-card" title={getOutcomeTooltip('notes')}>
+            <div class="overview-label">笔记</div>
+            <div class="overview-value">{snapshot.overview.notesWritten}</div>
+            <div class="overview-meta">{getOutcomeActionText('notes')}</div>
+          </div>
+        </div>
+
+      </div>
+    {/if}
+
+    {#if activeTab !== 'activity'}
+      <div class="chart-stage">
+        {#if hasSelectionRequirementGap() || (
+          selectedMode !== 'overall' && !snapshot.sources.length
+        ) || (
+          activeTab === 'quantity' && snapshot.quantityTrend.every(point => point.totalCount === 0 && point.activeCount === 0 && point.closedCount === 0)
+        ) || (
+          activeTab === 'timing' && snapshot.timingBuckets.every(point => point.count === 0)
+        ) || (
+          activeTab === 'difficulty' && snapshot.difficultyScatter.length === 0
+        ) || (
+          activeTab === 'forecast' && snapshot.forecast.every(point => point.itemCount === 0 && point.totalEstimatedMinutes === 0)
+        )}
+          <div class="state-panel state-panel--empty">
+            <div class="state-icon">
+              <ObsidianIcon name="inbox" size={24} />
+            </div>
+            <div class="state-title">{getEmptyStateMessage()}</div>
+            <div class="state-description">{getEmptyStateDescription()}</div>
+          </div>
+        {:else}
+          <div class="chart-container" bind:this={chartRef}></div>
+        {/if}
+      </div>
+    {/if}
+  {/if}
+</div>
 <style>
   .ir-analytics-modal {
     display: flex;
@@ -968,6 +1141,21 @@
     white-space: nowrap;
   }
 
+  .scope-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--background-primary) 76%, var(--background-secondary) 24%);
+    border: 1px dashed color-mix(in srgb, var(--background-modifier-border) 78%, transparent);
+  }
+
+  .source-menu-trigger:disabled {
+    cursor: not-allowed;
+    opacity: 0.72;
+  }
+
   .monitoring-note {
     font-size: 12px;
     color: var(--text-muted);
@@ -1049,6 +1237,13 @@
     line-height: 1.1;
   }
 
+  .overview-meta {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.35;
+  }
+
   .chart-stage {
     flex: 1;
     min-height: 0;
@@ -1075,6 +1270,10 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    align-self: stretch;
     gap: 10px;
     min-height: 220px;
     border-radius: 12px;
@@ -1087,6 +1286,14 @@
 
   .state-panel--empty {
     border-style: dashed;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background-secondary) 74%, var(--background-primary) 26%),
+      color-mix(in srgb, var(--background-primary) 94%, var(--background-secondary) 6%)
+    );
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--background-primary) 22%, transparent),
+      0 8px 24px color-mix(in srgb, var(--background-primary) 86%, transparent);
   }
 
   .state-panel--loading .state-icon {
@@ -1101,6 +1308,21 @@
 
   .state-icon {
     opacity: 0.8;
+  }
+
+  .state-title {
+    max-width: 420px;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--text-normal);
+  }
+
+  .state-description {
+    max-width: 520px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-muted);
   }
 
   @keyframes ir-analytics-spin {
@@ -1186,6 +1408,10 @@
       font-size: 18px;
     }
 
+    .overview-meta {
+      font-size: 10px;
+    }
+
     .scope-caption {
       padding: 10px 12px;
     }
@@ -1198,6 +1424,15 @@
     .state-panel {
       min-height: 180px;
     }
+
+    .state-title {
+      font-size: 15px;
+    }
+
+    .state-description {
+      font-size: 12px;
+      line-height: 1.6;
+    }
   }
 
   @media (max-width: 520px) {
@@ -1206,3 +1441,6 @@
     }
   }
 </style>
+
+
+

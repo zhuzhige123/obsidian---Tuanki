@@ -1,36 +1,47 @@
-﻿<script lang="ts">
-  import { logger } from '../../utils/logger';
-  import { onDestroy, untrack } from 'svelte';
-
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { Menu, Notice, TFile } from 'obsidian';
   import type { WeavePlugin } from '../../main';
   import type { WeaveDataStorage } from '../../data/storage';
   import type { FSRS } from '../../algorithms/fsrs';
+  import type { AIAssistantSubView } from '../../services/plugin-state/PluginLocalStateService';
   import type {
+    AICardPreviewItem,
+    AIParsePreviewItem,
     AIProvider,
     GeneratedCard,
     GenerationConfig,
     GenerationProgress,
-    ObsidianFileInfo,
-    PromptTemplate
+    ObsidianFileInfo
   } from '../../types/ai-types';
-
-  import PromptFooter from '../ai-assistant/PromptFooter.svelte';
-  import { AIConfigModalObsidian } from '../ai-assistant/AIConfigModalObsidian';
-  import AICardPreviewWorkspace from '../ai-assistant/AICardPreviewWorkspace.svelte';
+  import type { ParsedCard, RegexParsingConfig } from '../../types/newCardParsingTypes';
+  import { logger } from '../../utils/logger';
+  import { fileToInfo, sortFilesByModified } from '../../utils/file-utils';
   import { AICardGenerationService } from '../../services/ai/AICardGenerationService';
-  import { Menu, Notice, Platform, TFile } from 'obsidian';
-  import { AI_PROVIDER_LABELS, AI_MODEL_OPTIONS } from '../settings/constants/settings-constants';
-  import { fileToInfo } from '../../utils/file-utils';
-  import { findWeaveViewLeafContent, hasWeaveMobileNativeHeader } from '../../utils/mobile-native-header';
+  import {
+    getUserPromptRelativePath,
+    listUserPromptFiles,
+    resolveUserPromptFile
+  } from '../../services/ai/UserPromptFileService';
+  import { RegexCardParser } from '../../services/batch-parsing/RegexCardParser';
+  import { buildAIAssistantSourceFileMenu } from '../../services/menu/AIAssistantSourceFileMenu';
+  import { AI_MODEL_OPTIONS, AI_PROVIDER_LABELS } from '../settings/constants/settings-constants';
+  import AICardPreviewWorkspace from '../ai-assistant/AICardPreviewWorkspace.svelte';
+  import AIParsePreviewWorkspace from '../ai-assistant/AIParsePreviewWorkspace.svelte';
+  import AIGenerationConfigPopover from '../ai-assistant/AIGenerationConfigPopover.svelte';
+  import { AIConfigModalObsidian } from '../ai-assistant/AIConfigModalObsidian';
+
+  const AI_SOURCE_FILE_MENU_CLASS = 'weave-ai-source-file-menu';
+  const AI_USER_PROMPT_FILE_MENU_CLASS = 'weave-ai-user-prompt-file-menu';
 
   interface Props {
     plugin: WeavePlugin;
     dataStorage: WeaveDataStorage;
     fsrs: FSRS;
-    onNavigate?: (page: string) => void;
+    onNavigate?: (pageId: string) => void;
   }
 
-  interface ToolbarAnchorRect {
+  interface AnchorRect {
     left: number;
     top: number;
     right: number;
@@ -39,1381 +50,757 @@
     height: number;
   }
 
-  interface GenerationHistoryEntry {
+  interface HistoryEntry {
     id: string;
     createdAt: string;
-    sourceFile: {
-      path: string;
-      name: string;
-      size: number;
-      extension: string;
-    } | null;
+    sourceFile: { path: string; name: string; size: number; extension: string } | null;
+    promptFile?: { path: string; name: string } | null;
     sourceContent: string;
     cards: GeneratedCard[];
     config: GenerationConfig;
-    selectedPrompt: PromptTemplate | null;
+    selectedPrompt: null;
     customPrompt: string;
   }
 
-  let { plugin, dataStorage, fsrs, onNavigate }: Props = $props();
+  let { plugin, dataStorage, fsrs }: Props = $props();
+
+  let pageEl = $state<HTMLDivElement | null>(null);
+  let historyEl = $state<HTMLDivElement | null>(null);
 
   let selectedFile = $state<ObsidianFileInfo | null>(null);
-  let selectedFileDisplayName = $state('');
+  let selectedPromptFile = $state<ObsidianFileInfo | null>(null);
+  let selectedParsePreset = $state<RegexParsingConfig | null>(null);
+  let subView = $state<AIAssistantSubView>('generate');
   let content = $state('');
-  let selectedPrompt = $state<PromptTemplate | null>(null);
-  let customPrompt = $state('');
-  let fileLoadSeq = 0;
-
+  let promptContent = $state('');
+  let generatedItems = $state<AICardPreviewItem[]>([]);
+  let parseItems = $state<AIParsePreviewItem[]>([]);
+  let generationHistory = $state<HistoryEntry[]>([]);
   let isGenerating = $state(false);
+  let isParsing = $state(false);
   let generationProgress = $state<GenerationProgress | null>(null);
-  let generatedCards = $state<GeneratedCard[]>([]);
-  let generationHistory = $state<GenerationHistoryEntry[]>([]);
-  let generationHistoryHydrated = $state(false);
-  let generationHistoryReady = $state(false);
 
-  let aiConfigModalInstance: AIConfigModalObsidian | null = null;
-  let mobileViewportCleanup: (() => void) | null = null;
-  let mobileChromeSyncIntervalId: number | null = null;
-  let isKeyboardVisible = $state(false);
-  let keyboardFocusCleanup: (() => void) | null = null;
+  let historyOpen = $state(false);
+  let historyAnchor = $state<AnchorRect | null>(null);
+  let configOpen = $state(false);
+  let configAnchor = $state<AnchorRect | null>(null);
+  let systemPromptModal: AIConfigModalObsidian | null = null;
 
-  let showInlineFilePicker = $state(false);
-  let filePickerQuery = $state('');
-  let filePickerAnchor = $state<ToolbarAnchorRect | null>(null);
-  let availableMarkdownFiles = $state<ObsidianFileInfo[]>([]);
-  let pageContainerEl = $state<HTMLDivElement | null>(null);
-  let filePickerPanelEl = $state<HTMLDivElement | null>(null);
-  let filePickerSearchInput = $state<HTMLInputElement | null>(null);
-  let showInlineHistoryPanel = $state(false);
-  let historyPanelAnchor = $state<ToolbarAnchorRect | null>(null);
-  let historyPanelEl = $state<HTMLDivElement | null>(null);
-  let promptTemplatesRefreshKey = $state(0);
-  let showInlinePluginMenuButton = $state(false);
-
-  function getPromptTemplateOptions(): PromptTemplate[] {
-    const promptTemplates = plugin.settings.aiConfig?.promptTemplates ?? { official: [], custom: [] };
-    return [
-      ...promptTemplates.official.map((prompt) => ({
-        ...prompt,
-        category: 'official' as const,
-        useBuiltinSystemPrompt: true
-      })),
-      ...promptTemplates.custom.map((prompt) => ({
-        ...prompt,
-        category: 'custom' as const,
-        useBuiltinSystemPrompt: true
-      }))
-    ];
+  function getDefaultModelForProvider(provider: AIProvider): string {
+    const configuredModel = (plugin.settings.aiConfig?.apiKeys as Record<string, { model?: string } | undefined> | undefined)?.[provider]?.model?.trim();
+    if (configuredModel) return configuredModel;
+    return AI_MODEL_OPTIONS[provider]?.[0]?.id || '';
   }
 
-  const promptTemplateOptions = $derived.by(() => {
-    promptTemplatesRefreshKey;
-    return getPromptTemplateOptions();
-  });
+  function getModelDisplayLabel(): string {
+    return generationConfig.model?.trim() || getDefaultModelForProvider(generationConfig.provider) || '\u672a\u9009\u62e9\u6a21\u578b';
+  }
 
   function createInitialGenerationConfig(): GenerationConfig {
-    const aiAssistantPreferences = plugin.getAIAssistantPreferences();
-    const saved = aiAssistantPreferences.savedGenerationConfig;
+    const preferences = plugin.getAIAssistantPreferences();
+    const saved = preferences.savedGenerationConfig;
+    const limit = saved?.maxGenerationLimit ?? saved?.cardCount ?? 20;
 
     return {
       templateId: '',
       promptTemplate: '',
-      cardCount: saved?.cardCount ?? 10,
+      cardCount: limit,
       difficulty: saved?.difficulty ?? 'medium',
       typeDistribution: { ...(saved?.typeDistribution ?? { qa: 50, cloze: 30, choice: 20 }) },
-      provider: (aiAssistantPreferences.lastUsedProvider || plugin.settings.aiConfig?.defaultProvider || 'openai') as AIProvider,
-      model: aiAssistantPreferences.lastUsedModel || '',
+      provider: (preferences.lastUsedProvider || plugin.settings.aiConfig?.defaultProvider || 'openai') as AIProvider,
+      model: '',
       temperature: saved?.temperature ?? 0.7,
       maxTokens: saved?.maxTokens ?? 2000,
-      imageGeneration: {
-        enabled: false,
-        strategy: 'none',
-        imagesPerCard: 0,
-        placement: 'question'
-      },
-      templates: {
-        qa: 'official-qa',
-        choice: 'official-choice',
-        cloze: 'official-cloze'
-      },
+      templates: { qa: 'official-qa', choice: 'official-choice', cloze: 'official-cloze' },
       autoTags: [...(saved?.autoTags ?? [])],
-      enableHints: saved?.enableHints ?? true
+      enableHints: saved?.enableHints ?? true,
+      maxGenerationLimit: limit,
+      prioritizePromptRequirements: saved?.prioritizePromptRequirements ?? true
     };
   }
 
-  let generationConfig = $state<GenerationConfig>(untrack(() => createInitialGenerationConfig()));
+  let generationConfig = $state<GenerationConfig>(createInitialGenerationConfig());
 
-  const filteredMarkdownFiles = $derived.by(() => {
-    const query = filePickerQuery.trim().toLowerCase();
-    if (!query) return availableMarkdownFiles.slice(0, 80);
-    return availableMarkdownFiles.filter((file) => {
-      const target = `${file.name} ${file.path}`.toLowerCase();
-      return target.includes(query);
-    }).slice(0, 80);
+  $effect(() => {
+    if (!generationConfig.model?.trim()) {
+      generationConfig = {
+        ...generationConfig,
+        model: getDefaultModelForProvider(generationConfig.provider)
+      };
+    }
   });
 
-  const filePickerPanelStyle = $derived.by(() => {
-    if (!filePickerAnchor) return '';
-    const containerRect = pageContainerEl?.getBoundingClientRect();
-    const isMobileLayout = Platform.isMobile
-      || document.body.classList.contains('is-mobile')
-      || document.body.classList.contains('is-phone');
-    const panelWidth = isMobileLayout
-      ? Math.min((containerRect?.width ?? window.innerWidth) - 24, 420)
-      : Math.min(360, Math.max(260, filePickerAnchor.width + 24));
-    const maxWidth = containerRect?.width ?? window.innerWidth;
-    const maxHeight = containerRect?.height ?? window.innerHeight;
-    const anchorLeft = containerRect ? filePickerAnchor.left - containerRect.left : filePickerAnchor.left;
-    const anchorBottom = containerRect ? filePickerAnchor.bottom - containerRect.top : filePickerAnchor.bottom;
-    const preferredLeft = isMobileLayout ? 12 : anchorLeft;
-    const left = Math.max(8, Math.min(preferredLeft, maxWidth - panelWidth - 8));
-    const top = Math.min(
-      anchorBottom + 8,
-      Math.max(12, maxHeight - (isMobileLayout ? 520 : 420))
-    );
-    return `left:${left}px;top:${top}px;width:${panelWidth}px;`;
-  });
+  const historyStyle = $derived.by(() => panelStyle(historyAnchor, 340, 360));
+  const configStyle = $derived.by(() => panelStyle(configAnchor, 520, 760, true));
 
-  const historyPanelStyle = $derived.by(() => {
-    if (!historyPanelAnchor) return '';
-    const containerRect = pageContainerEl?.getBoundingClientRect();
-    const isMobileLayout = Platform.isMobile
-      || document.body.classList.contains('is-mobile')
-      || document.body.classList.contains('is-phone');
-    const panelWidth = isMobileLayout
-      ? Math.min((containerRect?.width ?? window.innerWidth) - 24, 420)
-      : 320;
-    const maxWidth = containerRect?.width ?? window.innerWidth;
-    const maxHeight = containerRect?.height ?? window.innerHeight;
-    const anchorLeft = containerRect ? historyPanelAnchor.left - containerRect.left : historyPanelAnchor.left;
-    const anchorBottom = containerRect ? historyPanelAnchor.bottom - containerRect.top : historyPanelAnchor.bottom;
-    const preferredLeft = isMobileLayout ? 12 : anchorLeft;
-    const left = Math.max(8, Math.min(preferredLeft, maxWidth - panelWidth - 8));
-    const top = Math.min(
-      anchorBottom + 8,
-      Math.max(12, maxHeight - (isMobileLayout ? 480 : 360))
-    );
-    return `left:${left}px;top:${top}px;width:${panelWidth}px;`;
-  });
-
-  function cloneGeneratedCards(cards: GeneratedCard[]): GeneratedCard[] {
-    return cards.map((card) => ({
-      ...card,
-      tags: card.tags ? [...card.tags] : undefined,
-      images: card.images ? [...card.images] : undefined,
-      metadata: { ...card.metadata }
-    }));
+  function createGenerationService(): AICardGenerationService {
+    return new AICardGenerationService(plugin);
   }
 
-  function cloneGenerationConfig(config: GenerationConfig): GenerationConfig {
-    return {
-      ...config,
-      typeDistribution: { ...config.typeDistribution },
-      imageGeneration: { ...config.imageGeneration },
-      templates: config.templates ? { ...config.templates } : undefined,
-      autoTags: [...config.autoTags]
-    };
+  function createRegexParser(): RegexCardParser {
+    return new RegexCardParser(plugin.app, plugin);
   }
 
-  function clonePromptTemplate(prompt: PromptTemplate | null): PromptTemplate | null {
-    return prompt ? { ...prompt, variables: [...prompt.variables] } : null;
+  function panelStyle(anchor: AnchorRect | null, width: number, height: number, alignRight = false): string {
+    if (!anchor) return '';
+
+    const box = pageEl?.getBoundingClientRect();
+    const maxWidth = box?.width ?? window.innerWidth;
+    const maxHeight = box?.height ?? window.innerHeight;
+    const left0 = box
+      ? alignRight
+        ? anchor.right - box.left - width
+        : anchor.left - box.left
+      : anchor.left;
+    const top0 = box ? anchor.bottom - box.top + 8 : anchor.bottom + 8;
+    const left = Math.max(8, Math.min(left0, maxWidth - width - 8));
+    const top = Math.max(8, Math.min(top0, maxHeight - height));
+
+    return `left:${left}px;top:${top}px;width:${Math.min(width, maxWidth - 16)}px;`;
   }
 
-  function formatHistoryTime(value: string): string {
-    return new Intl.DateTimeFormat('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date(value));
-  }
-
-  function formatFileSize(size: number): string {
-    if (!Number.isFinite(size) || size <= 0) return '0 B';
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KB`;
-    return `${(size / (1024 * 1024)).toFixed(size < 10 * 1024 * 1024 ? 1 : 0)} MB`;
-  }
-
-  async function handleFileSelect(file: ObsidianFileInfo) {
-    const seq = ++fileLoadSeq;
-    selectedFile = file;
-    selectedFileDisplayName = file.name;
-    showInlineFilePicker = false;
-
-    try {
-      const fileContent = await plugin.app.vault.read(file.file);
-      if (seq !== fileLoadSeq) return;
-      if (selectedFile?.path !== file.path) return;
-      content = fileContent;
-    } catch (error) {
-      new Notice('读取文件失败');
-      logger.error('Failed to read file:', error);
-    }
-  }
-
-  function handlePromptSelect(prompt: PromptTemplate | null) {
-    selectedPrompt = prompt;
-    if (prompt) {
-      customPrompt = '';
-    }
-  }
-
-  function handleCustomPromptChange(prompt: string) {
-    customPrompt = prompt;
-    if (prompt.trim()) {
-      selectedPrompt = null;
-    }
-  }
-
-  function loadMarkdownFiles() {
-    availableMarkdownFiles = plugin.app.vault.getMarkdownFiles().map((file) => fileToInfo(file));
-  }
-
-  function normalizeToolbarAnchor(detail?: { x?: number; y?: number; rect?: ToolbarAnchorRect }): ToolbarAnchorRect | null {
+  function normalizeAnchor(detail?: { x?: number; y?: number; rect?: AnchorRect }): AnchorRect | null {
     if (detail?.rect) return detail.rect;
-    const x = detail?.x;
-    const y = detail?.y;
-    if (typeof x !== 'number' || typeof y !== 'number') return null;
+    if (typeof detail?.x !== 'number' || typeof detail?.y !== 'number') return null;
+
     return {
-      left: Math.max(8, x - 24),
-      top: Math.max(8, y - 36),
-      right: x + 24,
-      bottom: y,
+      left: detail.x - 24,
+      top: detail.y - 32,
+      right: detail.x + 24,
+      bottom: detail.y,
       width: 48,
-      height: 36
+      height: 32
     };
   }
 
-  function openInlineFilePicker(detail?: { x?: number; y?: number; rect?: ToolbarAnchorRect }) {
-    loadMarkdownFiles();
-    filePickerQuery = '';
-    filePickerAnchor = normalizeToolbarAnchor(detail);
-    showInlineHistoryPanel = false;
-    showInlineFilePicker = true;
-
-    requestAnimationFrame(() => {
-      filePickerSearchInput?.focus();
-      filePickerSearchInput?.select();
-    });
+  function showMenuAtAnchor(
+    menu: Menu,
+    detail: { x?: number; y?: number; rect?: AnchorRect } | undefined,
+    fallback: { x: number; y: number }
+  ) {
+    const anchor = normalizeAnchor(detail);
+    menu.showAtPosition(anchor ? { x: Math.round(anchor.left), y: Math.round(anchor.bottom + 6) } : fallback);
   }
 
-  function showToolbarMenu(menu: Menu, detail?: { x?: number; y?: number; rect?: ToolbarAnchorRect }) {
-    const rect = detail?.rect;
-    if (rect) {
-      menu.showAtPosition({
-        x: Math.round(rect.left),
-        y: Math.round(rect.bottom + 6)
-      });
-      return;
-    }
-
-    if (typeof detail?.x === 'number' && typeof detail?.y === 'number') {
-      menu.showAtPosition({
-        x: Math.round(detail.x),
-        y: Math.round(detail.y)
-      });
-      return;
-    }
-
-    menu.showAtPosition({
-      x: Math.round(Math.max(24, window.innerWidth / 2 - 120)),
-      y: 56
-    });
+  function attachMenuClass(menu: Menu, className: string) {
+    const extendedMenu = menu as unknown as { dom?: HTMLElement };
+    const applyClass = () => {
+      extendedMenu.dom?.classList.add(className);
+    };
+    applyClass();
+    requestAnimationFrame(applyClass);
+    setTimeout(applyClass, 0);
   }
 
-  function openPromptTemplatesMenu(detail?: { x?: number; y?: number; rect?: ToolbarAnchorRect }) {
+  async function openSourceFileMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
     const menu = new Menu();
+    const allFiles = sortFilesByModified(plugin.app.vault.getMarkdownFiles());
 
-    if (promptTemplateOptions.length === 0) {
+    buildAIAssistantSourceFileMenu(menu, {
+      files: allFiles,
+      currentFilePath: selectedFile?.path ?? null,
+      onSelect: async (file) => {
+        await selectSourceFile(fileToInfo(file));
+      },
+    });
+
+    showMenuAtAnchor(menu, detail, { x: 120, y: 80 });
+    attachMenuClass(menu, AI_SOURCE_FILE_MENU_CLASS);
+  }
+
+  function splitContent(value: string): { front: string; back: string } {
+    const match = value.split(/(?:\n\n|\n)?---div---(?:\n\n|\n)?/);
+    return { front: (match[0] ?? '').trim(), back: match.slice(1).join('---div---').trim() };
+  }
+
+  function toPreviewItem(card: GeneratedCard): AICardPreviewItem {
+    const { front, back } = splitContent(card.content || '');
+
+    return {
+      id: `history-${card.uuid}`,
+      draft: card.type === 'choice'
+        ? { type: 'choice', question: front, options: [], answers: [], back: back || undefined, tags: [...(card.tags || [])] }
+        : card.type === 'cloze'
+          ? { type: 'cloze', text: front, back: back || undefined, tags: [...(card.tags || [])] }
+          : { type: 'qa', front, back, tags: [...(card.tags || [])] },
+      status: 'valid',
+      issues: [],
+      generatedContent: card.content || '',
+      generatedCard: { ...card, tags: [...(card.tags || [])], metadata: { ...card.metadata } }
+    };
+  }
+
+  async function findFile(path?: string): Promise<ObsidianFileInfo | null> {
+    if (!path) return null;
+    const file = plugin.app.vault.getAbstractFileByPath(path);
+    return file instanceof TFile ? fileToInfo(file) : null;
+  }
+
+  function findUserPromptFile(path?: string): ObsidianFileInfo | null {
+    const file = resolveUserPromptFile(plugin.app, path);
+    return file ? fileToInfo(file) : null;
+  }
+
+  async function persistPreferences() {
+    await plugin.saveAIAssistantPreferences({
+      ...plugin.getAIAssistantPreferences(),
+      lastUsedProvider: generationConfig.provider,
+      lastUsedModel: generationConfig.model,
+      subView,
+      lastSelectedSourceFilePath: selectedFile?.path,
+      lastSelectedPromptFilePath: selectedPromptFile?.path,
+      lastSelectedParsePresetId: selectedParsePreset?.id || selectedParsePreset?.name,
+      savedGenerationConfig: {
+        cardCount: generationConfig.cardCount,
+        difficulty: generationConfig.difficulty,
+        typeDistribution: { ...generationConfig.typeDistribution },
+        autoTags: generationConfig.autoTags ? [...generationConfig.autoTags] : [],
+        enableHints: generationConfig.enableHints,
+        temperature: generationConfig.temperature,
+        maxTokens: generationConfig.maxTokens,
+        maxGenerationLimit: generationConfig.maxGenerationLimit ?? generationConfig.cardCount,
+        prioritizePromptRequirements: generationConfig.prioritizePromptRequirements ?? true
+      }
+    });
+  }
+
+  async function selectSourceFile(file: ObsidianFileInfo) {
+    selectedFile = file;
+    content = await plugin.app.vault.read(file.file);
+    await persistPreferences();
+  }
+
+  async function selectPromptFile(file: ObsidianFileInfo | null) {
+    selectedPromptFile = file;
+    promptContent = file ? await plugin.app.vault.read(file.file) : '';
+    await persistPreferences();
+  }
+
+  async function openPromptFileMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
+    try {
+      const menu = new Menu();
+      const promptFiles = await listUserPromptFiles(plugin.app);
+
       menu.addItem((item) => {
-        item.setTitle('暂无可用提示词').setIcon('message-square').setDisabled(true);
+        item
+          .setTitle('\u4e0d\u4f7f\u7528\u63d0\u793a\u8bcd\u6587\u4ef6')
+          .setChecked(!selectedPromptFile)
+          .onClick(() => {
+            void selectPromptFile(null);
+          });
       });
-    } else {
-      promptTemplateOptions.forEach((prompt) => {
-        menu.addItem((item) => {
-          item
-            .setTitle(prompt.name)
-            .setIcon(selectedPrompt?.id === prompt.id ? 'check' : (prompt.category === 'official' ? 'message-square' : 'file-text'))
-            .onClick(() => {
-              handlePromptSelect(prompt);
-            });
-        });
-      });
-    }
 
-    showToolbarMenu(menu, detail);
+      menu.addSeparator();
+
+      if (promptFiles.length === 0) {
+        menu.addItem((item) => item.setTitle('\u56fa\u5b9a\u76ee\u5f55\u4e2d\u6682\u65e0\u7528\u6237\u63d0\u793a\u8bcd\u6587\u4ef6').setDisabled(true));
+      } else {
+        promptFiles.forEach((file) => {
+          const label = getUserPromptRelativePath(plugin.app, file.path);
+          menu.addItem((item) => {
+            item
+              .setTitle(label)
+              .setIcon(selectedPromptFile?.path === file.path ? 'check' : 'file-text')
+              .setChecked(selectedPromptFile?.path === file.path)
+              .onClick(() => {
+                void selectPromptFile(fileToInfo(file));
+              });
+          });
+        });
+      }
+
+      showMenuAtAnchor(menu, detail, { x: 220, y: 80 });
+      attachMenuClass(menu, AI_USER_PROMPT_FILE_MENU_CLASS);
+    } catch (error) {
+      logger.error('Failed to open user prompt file menu:', error);
+      new Notice('\u63d0\u793a\u8bcd\u6587\u4ef6\u5217\u8868\u52a0\u8f7d\u5931\u8d25');
+    }
   }
 
-  function openProviderModelMenu(detail?: { x?: number; y?: number; rect?: ToolbarAnchorRect }) {
+  async function openFileSuggest(mode: 'source' | 'prompt', detail?: { x?: number; y?: number; rect?: AnchorRect }) {
+    historyOpen = false;
+    configOpen = false;
+
+    if (mode === 'source') {
+      await openSourceFileMenu(detail);
+      return;
+    }
+
+    await openPromptFileMenu(detail);
+  }
+
+  function openHistory(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
+    historyAnchor = normalizeAnchor(detail);
+    historyOpen = !historyOpen;
+    configOpen = false;
+  }
+
+  function openConfig(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
+    configAnchor = normalizeAnchor(detail);
+    configOpen = true;
+    historyOpen = false;
+  }
+
+  function openSystemPromptModal() {
+    systemPromptModal?.close();
+    systemPromptModal = new AIConfigModalObsidian(plugin.app, {
+      plugin,
+      config: generationConfig,
+      onSave: async (nextConfig) => {
+        generationConfig = { ...nextConfig };
+        await persistPreferences();
+      },
+      onClose: () => {
+        systemPromptModal = null;
+      }
+    });
+    systemPromptModal.open();
+  }
+
+  function openModelMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
     const menu = new Menu();
-    const aiConfig = plugin.settings.aiConfig;
-    const apiKeys = (aiConfig?.apiKeys || {}) as Record<string, { model?: string } | undefined>;
+    const apiKeys = (plugin.settings.aiConfig?.apiKeys || {}) as Record<string, { model?: string } | undefined>;
 
     Object.entries(AI_MODEL_OPTIONS).forEach(([providerKey, models]) => {
       const provider = providerKey as AIProvider;
-      menu.addItem((providerItem: any) => {
-        providerItem
+      menu.addItem((item) => {
+        item
           .setTitle(AI_PROVIDER_LABELS[provider])
           .setIcon(generationConfig.provider === provider ? 'check' : '');
 
-        const providerSubmenu = providerItem.setSubmenu();
-        const configuredModel = apiKeys[provider]?.model;
-        const staticModelIds: string[] = models.map((model) => model.id);
+        const submenu = (item as any).setSubmenu();
+        const configuredModel = apiKeys[provider]?.model?.trim();
+        const staticModelIds: string[] = models.map((model) => model.id as string);
 
         if (configuredModel && !staticModelIds.includes(configuredModel)) {
-          providerSubmenu.addItem((modelItem: any) => {
+          submenu.addItem((modelItem: any) => {
             modelItem
               .setTitle(configuredModel)
               .setIcon(generationConfig.provider === provider && generationConfig.model === configuredModel ? 'check' : '')
               .onClick(() => {
-                void handleProviderModelChange(provider, configuredModel);
+                generationConfig = { ...generationConfig, provider, model: configuredModel };
+                void persistPreferences();
               });
           });
-          providerSubmenu.addSeparator();
+          submenu.addSeparator();
         }
 
         models.forEach((model) => {
-          providerSubmenu.addItem((modelItem: any) => {
+          submenu.addItem((modelItem: any) => {
             modelItem
               .setTitle(model.label)
               .setIcon(generationConfig.provider === provider && generationConfig.model === model.id ? 'check' : '')
               .onClick(() => {
-                void handleProviderModelChange(provider, model.id);
+                generationConfig = { ...generationConfig, provider, model: model.id };
+                void persistPreferences();
               });
           });
         });
       });
     });
 
-    showToolbarMenu(menu, detail);
+    showMenuAtAnchor(menu, detail, { x: 120, y: 80 });
   }
 
-  function openDesktopAIToolsMenu(detail?: { x?: number; y?: number; rect?: ToolbarAnchorRect }) {
+  function openParsePresetMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
     const menu = new Menu();
+    const presets = plugin.settings.simplifiedParsing?.regexPresets ?? [];
 
-    menu.addItem((item) => {
-      item.setTitle('AI模型').setIcon('cpu');
-
-      const submenu = (item as any).setSubmenu();
-      const aiConfig = plugin.settings.aiConfig;
-      const apiKeys = (aiConfig?.apiKeys || {}) as Record<string, { model?: string } | undefined>;
-
-      Object.entries(AI_MODEL_OPTIONS).forEach(([providerKey, models]) => {
-        const provider = providerKey as AIProvider;
-        submenu.addItem((providerItem: any) => {
-          providerItem
-            .setTitle(AI_PROVIDER_LABELS[provider])
-            .setIcon(generationConfig.provider === provider ? 'check' : '');
-
-          const providerSubmenu = providerItem.setSubmenu();
-          const configuredModel = apiKeys[provider]?.model;
-          const staticModelIds: string[] = models.map((model) => model.id);
-
-          if (configuredModel && !staticModelIds.includes(configuredModel)) {
-            providerSubmenu.addItem((modelItem: any) => {
-              modelItem
-                .setTitle(configuredModel)
-                .setIcon(generationConfig.provider === provider && generationConfig.model === configuredModel ? 'check' : '')
-                .onClick(() => {
-                  void handleProviderModelChange(provider, configuredModel);
-                });
-            });
-            providerSubmenu.addSeparator();
-          }
-
-          models.forEach((model) => {
-            providerSubmenu.addItem((modelItem: any) => {
-              modelItem
-                .setTitle(model.label)
-                .setIcon(generationConfig.provider === provider && generationConfig.model === model.id ? 'check' : '')
-                .onClick(() => {
-                  void handleProviderModelChange(provider, model.id);
-                });
-            });
-          });
-        });
+    if (presets.length === 0) {
+      menu.addItem((item) => item.setTitle('\u6682\u65e0\u89e3\u6790\u6a21\u677f').setDisabled(true));
+    } else {
+      presets.forEach((preset) => {
+        const id = preset.id || preset.name;
+        menu.addItem((item) =>
+          item
+            .setTitle(preset.name)
+            .setIcon((selectedParsePreset?.id || selectedParsePreset?.name) === id ? 'check' : 'file-search')
+            .onClick(() => {
+              selectedParsePreset = preset;
+              void persistPreferences();
+            })
+        );
       });
-    });
+    }
 
-    menu.addItem((item) => {
-      item.setTitle('AI配置').setIcon('settings');
-      const submenu = (item as any).setSubmenu();
-      submenu.addItem((subItem: any) => {
-        subItem
-          .setTitle('打开 AI 配置')
-          .setIcon('settings')
-          .onClick(() => {
-            handleOpenConfig();
-          });
-      });
-    });
-
-    showToolbarMenu(menu, detail);
+    showMenuAtAnchor(menu, detail, { x: 80, y: 80 });
   }
 
-  function pushGenerationHistory(cards: GeneratedCard[]) {
-    const entry: GenerationHistoryEntry = {
-      id: crypto.randomUUID(),
-      createdAt: new Date().toISOString(),
-      sourceFile: selectedFile ? {
-        path: selectedFile.path,
-        name: selectedFile.name,
-        size: selectedFile.size,
-        extension: selectedFile.extension
-      } : null,
-      sourceContent: content,
-      cards: cloneGeneratedCards(cards),
-      config: cloneGenerationConfig(generationConfig),
-      selectedPrompt: clonePromptTemplate(selectedPrompt),
-      customPrompt
-    };
-
-    generationHistory = [entry, ...generationHistory].slice(0, 5);
-  }
-
-  function restoreGenerationHistory(entryId: string) {
-    const entry = generationHistory.find((item) => item.id === entryId);
-    if (!entry) {
-      new Notice('未找到这条生成记录');
+  async function handleGenerate() {
+    if (!content.trim()) {
+      new Notice('\u8bf7\u5148\u9009\u62e9\u6e90\u6587\u4ef6');
       return;
     }
 
-    selectedFile = null;
-    selectedFileDisplayName = entry.sourceFile?.name ?? '';
-    content = entry.sourceContent;
-    selectedPrompt = clonePromptTemplate(entry.selectedPrompt);
-    customPrompt = entry.customPrompt;
-    generationConfig = cloneGenerationConfig(entry.config);
-    generatedCards = cloneGeneratedCards(entry.cards);
-    generationProgress = null;
-    isGenerating = false;
-    showInlineHistoryPanel = false;
-
-    new Notice(`已恢复 ${entry.cards.length} 张卡片预览`);
-  }
-
-  function openGenerationHistoryMenu(detail?: { x?: number; y?: number; rect?: ToolbarAnchorRect }) {
-    historyPanelAnchor = normalizeToolbarAnchor(detail);
-    showInlineFilePicker = false;
-    showInlineHistoryPanel = !showInlineHistoryPanel;
-  }
-
-  const generationService = untrack(() => new AICardGenerationService(plugin));
-
-  async function handleGenerate() {
     try {
       isGenerating = true;
-      generationProgress = {
-        status: 'preparing',
-        progress: 0,
-        message: '准备生成卡片'
-      };
-      generatedCards = [];
+      generationProgress = { status: 'preparing', progress: 0, message: '\u6b63\u5728\u51c6\u5907\u751f\u6210\u5361\u7247' };
 
-      const result = await generationService.generateCards(
-        content,
-        generationConfig,
-        selectedPrompt,
-        customPrompt,
-        {
-          onProgress: (progress) => {
-            generationProgress = progress;
-          },
-          onCardsUpdate: (cards) => {
-            generatedCards = cards;
-          }
-        }
-      );
-
-      generatedCards = result;
-      if (result.length > 0) {
-        pushGenerationHistory(result);
-      }
-
-      generationProgress = {
-        status: 'completed',
-        progress: 100,
-        message: `已生成 ${result.length} 张卡片`
+      const config = {
+        ...generationConfig,
+        cardCount: generationConfig.maxGenerationLimit ?? generationConfig.cardCount,
+        promptTemplate: promptContent
       };
 
-      window.setTimeout(() => {
-        generationProgress = null;
-      }, 1000);
+      const result = await createGenerationService().generatePreviewItems(content, config, null, promptContent, {
+        onProgress: (progress) => generationProgress = progress,
+        onItemsUpdate: (items) => generatedItems = items
+      });
+
+      generatedItems = result;
+      generationHistory = [{
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        sourceFile: selectedFile ? { path: selectedFile.path, name: selectedFile.name, size: selectedFile.size, extension: selectedFile.extension } : null,
+        promptFile: selectedPromptFile ? { path: selectedPromptFile.path, name: selectedPromptFile.name } : null,
+        sourceContent: content,
+        cards: result.map((item) => item.generatedCard),
+        config,
+        selectedPrompt: null,
+        customPrompt: promptContent
+      }, ...generationHistory].slice(0, 5);
+
+      generationProgress = { status: 'completed', progress: 100, message: '\u5df2\u751f\u6210 ' + result.length + ' \u5f20\u5361\u7247' };
     } catch (error) {
-      logger.error('Generation failed:', error);
-      new Notice(error instanceof Error ? error.message : 'AI 生成失败');
-      generationProgress = {
-        status: 'failed',
-        progress: 0,
-        message: error instanceof Error ? error.message : 'AI 生成失败'
-      };
+      logger.error('AI generate failed:', error);
+      new Notice(error instanceof Error ? error.message : 'AI \u751f\u6210\u5931\u8d25');
+      generationProgress = { status: 'failed', progress: 0, message: 'AI \u751f\u6210\u5931\u8d25' };
     } finally {
       isGenerating = false;
     }
   }
 
-  function openAIConfigModalWithObsidianAPI() {
-    aiConfigModalInstance?.close();
-    aiConfigModalInstance = new AIConfigModalObsidian(plugin.app, {
-      plugin,
-      config: generationConfig,
-      onSave: handleSaveConfig,
-      onClose: () => {
-        aiConfigModalInstance = null;
-      }
-    });
-    aiConfigModalInstance.open();
-  }
+  async function handleParse() {
+    if (!selectedFile) {
+      new Notice('\u8bf7\u5148\u9009\u62e9\u6e90\u6587\u4ef6');
+      return;
+    }
 
-  function handleOpenConfig() {
-    openAIConfigModalWithObsidianAPI();
-  }
+    if (!selectedParsePreset) {
+      new Notice('\u8bf7\u5148\u9009\u62e9\u89e3\u6790\u6a21\u677f');
+      return;
+    }
 
-  async function handleSaveConfig(config: GenerationConfig) {
-    generationConfig = config;
-
-    await plugin.saveAIAssistantPreferences({
-      ...plugin.getAIAssistantPreferences(),
-      lastUsedProvider: config.provider,
-      lastUsedModel: config.model,
-      savedGenerationConfig: {
-        cardCount: config.cardCount,
-        difficulty: config.difficulty,
-        typeDistribution: { ...config.typeDistribution },
-        autoTags: config.autoTags ? [...config.autoTags] : [],
-        enableHints: config.enableHints,
-        temperature: config.temperature,
-        maxTokens: config.maxTokens
-      }
-    });
-    new Notice('配置已保存');
-  }
-
-  onDestroy(() => {
-    aiConfigModalInstance?.close();
-    aiConfigModalInstance = null;
-  });
-
-  async function handleProviderModelChange(provider: AIProvider, model: string) {
-    generationConfig = {
-      ...generationConfig,
-      provider,
-      model
-    };
-
-    await plugin.saveAIAssistantPreferences({
-      ...plugin.getAIAssistantPreferences(),
-      lastUsedProvider: provider,
-      lastUsedModel: model
-    });
-
-    new Notice(`已切换到 ${provider} · ${model}`);
-  }
-
-  async function handleImportCards(selectedCards: GeneratedCard[], targetDeckId: string) {
     try {
-      const deck = await dataStorage.getDeck(targetDeckId);
-      if (!deck) {
-        throw new Error('目标牌组不存在');
-      }
+      isParsing = true;
+      const preset = selectedParsePreset;
+      const result = await createRegexParser().parseFile(selectedFile.file, preset, 'preview');
+      if (!result.success) throw new Error(result.errors[0] || '\u89e3\u6790\u5931\u8d25');
 
-      const { CardConverter } = await import('../../services/ai/CardConverter');
-      const { cards, errors } = CardConverter.convertBatch(
-        selectedCards,
-        targetDeckId,
-        selectedFile?.path,
-        generationConfig.templates,
-        fsrs
-      );
+      parseItems = result.cards.map((card, index) => {
+        const { front, back } = splitContent(card.content || '');
+        return {
+          id: `${index + 1}`,
+          index: index + 1,
+          front,
+          back,
+          tags: [...(card.tags || [])],
+          source: preset.mode + ' \u00b7 ' + preset.name,
+          rawContent: result.positions?.[index]?.rawContent || card.content || '',
+          parsedCard: {
+            ...card,
+            tags: [...(card.tags || [])],
+            metadata: card.metadata ? { ...card.metadata } : undefined
+          }
+        };
+      });
 
-      if (errors.length > 0) {
-        logger.warn('Card conversion errors:', errors);
-      }
-
-      let successCount = 0;
-      let failCount = 0;
-
-      for (const card of cards) {
-        try {
-          await dataStorage.saveCard(card);
-          successCount++;
-        } catch (error) {
-          failCount++;
-          logger.error('Failed to save card:', card.uuid, error);
-        }
-      }
-
-      if (successCount > 0) {
-        new Notice(`成功导入 ${successCount} 张卡片到 ${deck.name}`);
-      }
-
-      if (failCount > 0 || errors.length > 0) {
-        new Notice(`导入失败 ${failCount + errors.length} 张卡片`, 5000);
-      }
-
-      if (successCount === 0) {
-        throw new Error('没有卡片成功导入');
-      }
+      subView = 'parse-preview';
+      await persistPreferences();
     } catch (error) {
-      logger.error('Import cards failed:', error);
-      throw error;
+      logger.error('Parse preview failed:', error);
+      new Notice(error instanceof Error ? error.message : '\u89e3\u6790\u9884\u89c8\u5931\u8d25');
+      parseItems = [];
+    } finally {
+      isParsing = false;
     }
   }
 
-  async function persistGenerationHistory() {
-    await plugin.saveAIGenerationHistory(generationHistory);
+  async function restoreHistory(entry: HistoryEntry) {
+    selectedFile = await findFile(entry.sourceFile?.path);
+    selectedPromptFile = findUserPromptFile(entry.promptFile?.path);
+    content = entry.sourceContent;
+    promptContent = entry.customPrompt;
+    generationConfig = { ...entry.config };
+    generatedItems = entry.cards.map(toPreviewItem);
+    subView = 'generate';
+    historyOpen = false;
+    await persistPreferences();
   }
 
-  async function hydrateGenerationHistory() {
-    generationHistory = plugin.getAIGenerationHistory().slice(0, 5);
+  async function importCards(selectedItems: AICardPreviewItem[], targetDeckId: string) {
+    const { CardConverter } = await import('../../services/ai/CardConverter');
+    const converted = CardConverter.convertBatch(
+      selectedItems.map((item) => item.generatedCard),
+      targetDeckId,
+      selectedFile?.path,
+      generationConfig.templates,
+      fsrs
+    );
 
-    const lastEntry = generationHistory[0];
-    if (!lastEntry) {
-      generationHistoryReady = true;
-      return;
+    for (const card of converted.cards) {
+      await dataStorage.saveCard(card);
     }
-
-    selectedFileDisplayName = lastEntry.sourceFile?.name ?? '';
-
-    if (!lastEntry.sourceFile?.path) {
-      generationHistoryReady = true;
-      return;
-    }
-
-    const abstractFile = plugin.app.vault.getAbstractFileByPath(lastEntry.sourceFile.path);
-    if (abstractFile instanceof TFile) {
-      selectedFile = fileToInfo(abstractFile);
-    }
-    generationHistoryReady = true;
   }
 
-  const isEditableElement = (target: EventTarget | null): boolean => {
-    if (!(target instanceof HTMLElement)) return false;
-    if (target instanceof HTMLInputElement) return true;
-    if (target instanceof HTMLTextAreaElement) return true;
-    if (target.isContentEditable) return true;
-    if (target.closest('input, textarea, [contenteditable="true"], .cm-editor, .cm-content, .markdown-source-view')) {
-      return true;
-    }
-    return false;
-  };
+  async function importParsedCards(selectedItems: AIParsePreviewItem[], targetDeckId: string) {
+    const parsedCards: ParsedCard[] = selectedItems.map((item) => ({
+      ...item.parsedCard,
+      tags: [...(item.parsedCard.tags || [])],
+      metadata: {
+        ...(item.parsedCard.metadata || {}),
+        targetDeckId,
+        sourceFile: item.parsedCard.metadata?.sourceFile || selectedFile?.path || item.parsedCard.sourceFile
+      }
+    }));
+
+    await plugin.addCardsToDB(parsedCards);
+  }
 
   $effect(() => {
-    if (!showInlineFilePicker && !showInlineHistoryPanel) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && filePickerPanelEl?.contains(target)) return;
-      if (target && historyPanelEl?.contains(target)) return;
-      showInlineFilePicker = false;
-      showInlineHistoryPanel = false;
-    };
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        showInlineFilePicker = false;
-        showInlineHistoryPanel = false;
-      }
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown, true);
-    document.addEventListener('keydown', handleEscape, true);
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true);
-      document.removeEventListener('keydown', handleEscape, true);
-    };
-  });
-
-  $effect(() => {
-    if (!pageContainerEl) {
-      showInlinePluginMenuButton = false;
-      return;
-    }
-
-    const updateInlinePluginMenuButton = () => {
-      showInlinePluginMenuButton = !hasWeaveMobileNativeHeader(pageContainerEl);
-    };
-
-    updateInlinePluginMenuButton();
-
-    const host = findWeaveViewLeafContent(pageContainerEl);
-    if (!(host instanceof HTMLElement)) {
-      return;
-    }
-
-    const observer = new MutationObserver(() => {
-      updateInlinePluginMenuButton();
-    });
-
-    observer.observe(host, {
-      attributes: true,
-      attributeFilter: ['data-weave-mobile-native-header']
-    });
-
-    return () => {
-      observer.disconnect();
-    };
-  });
-
-  $effect(() => {
-    const isMobileLayout = Platform.isMobile
-      || document.body.classList.contains('is-mobile')
-      || document.body.classList.contains('is-phone');
-
-    if (!isMobileLayout) {
-      if (mobileViewportCleanup) {
-        mobileViewportCleanup();
-        mobileViewportCleanup = null;
-      }
-      if (mobileChromeSyncIntervalId) {
-        window.clearInterval(mobileChromeSyncIntervalId);
-        mobileChromeSyncIntervalId = null;
-      }
-      if (keyboardFocusCleanup) {
-        keyboardFocusCleanup();
-        keyboardFocusCleanup = null;
-      }
-      isKeyboardVisible = false;
-      return;
-    }
-
-    const viewport = window.visualViewport;
-    const updateViewportHeight = () => {
-      const keyboardVisibleFromViewport = viewport
-        ? Math.max(0, window.innerHeight - viewport.height) > 150
-        : false;
-      isKeyboardVisible = keyboardVisibleFromViewport || isEditableElement(document.activeElement);
-    };
-
-    if (!keyboardFocusCleanup) {
-      const handleFocusIn = (event: FocusEvent) => {
-        if (!isEditableElement(event.target)) return;
-        isKeyboardVisible = true;
-        updateViewportHeight();
-      };
-
-      const handleFocusOut = () => {
-        window.setTimeout(() => {
-          isKeyboardVisible = isEditableElement(document.activeElement);
-          updateViewportHeight();
-        }, 120);
-      };
-
-      document.addEventListener('focusin', handleFocusIn, true);
-      document.addEventListener('focusout', handleFocusOut, true);
-      keyboardFocusCleanup = () => {
-        document.removeEventListener('focusin', handleFocusIn, true);
-        document.removeEventListener('focusout', handleFocusOut, true);
-      };
-    }
-
-    updateViewportHeight();
-    if (viewport) {
-      viewport.addEventListener('resize', updateViewportHeight);
-      viewport.addEventListener('scroll', updateViewportHeight);
-    }
-
-    if (mobileChromeSyncIntervalId) {
-      window.clearInterval(mobileChromeSyncIntervalId);
-    }
-    mobileChromeSyncIntervalId = window.setInterval(updateViewportHeight, 120);
-
-    mobileViewportCleanup = () => {
-      if (viewport) {
-        viewport.removeEventListener('resize', updateViewportHeight);
-        viewport.removeEventListener('scroll', updateViewportHeight);
-      }
-      if (mobileChromeSyncIntervalId) {
-        window.clearInterval(mobileChromeSyncIntervalId);
-        mobileChromeSyncIntervalId = null;
-      }
-    };
-
-    return () => {
-      if (mobileViewportCleanup) {
-        mobileViewportCleanup();
-        mobileViewportCleanup = null;
-      }
-      if (keyboardFocusCleanup) {
-        keyboardFocusCleanup();
-        keyboardFocusCleanup = null;
-      }
-    };
-  });
-
-  $effect(() => {
-    window.dispatchEvent(new CustomEvent('Weave:ai-selected-file-change', {
+    window.dispatchEvent(new CustomEvent('Weave:ai-toolbar-state-change', {
       detail: {
-        name: selectedFile?.name ?? selectedFileDisplayName ?? '',
-        path: selectedFile?.path ?? ''
+        subView,
+        selectedFileName: selectedFile?.name ?? '',
+        selectedFilePath: selectedFile?.path ?? '',
+        promptFileName: selectedPromptFile?.name ?? '',
+        promptFilePath: selectedPromptFile?.path ?? '',
+        modelLabel: getModelDisplayLabel(),
+        modelTitle: getModelDisplayLabel(),
+        parsePresetName: selectedParsePreset?.name ?? '',
+        parsePresetId: selectedParsePreset?.id || selectedParsePreset?.name || '',
+        historyCount: generationHistory.length,
+        canGenerate: !!content.trim() && !isGenerating,
+        canParse: !!selectedFile && !!selectedParsePreset && !isParsing,
+        isGenerating,
+        isParsing
       }
     }));
   });
 
   $effect(() => {
-    if (generationHistoryHydrated) return;
-    generationHistoryHydrated = true;
-    void hydrateGenerationHistory();
-  });
-
-  $effect(() => {
-    window.dispatchEvent(new CustomEvent('Weave:ai-history-state-change', {
-      detail: {
-        count: generationHistory.length
-      }
-    }));
-  });
-
-  $effect(() => {
-    window.dispatchEvent(new CustomEvent('Weave:ai-prompt-state-change', {
-      detail: {
-        templates: promptTemplateOptions.map((prompt) => ({
-          id: prompt.id,
-          name: prompt.name,
-          description: prompt.description ?? '',
-          category: prompt.category
-        })),
-        selectedPromptId: selectedPrompt?.id ?? '',
-        selectedPromptName: selectedPrompt?.name ?? '',
-        customPrompt
-      }
-    }));
-  });
-
-  $effect(() => {
-    if (!generationHistoryReady) return;
-    void persistGenerationHistory();
+    void plugin.saveAIGenerationHistory(generationHistory);
   });
 
   $effect(() => {
     const handleToolbarAction = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        action: 'file' | 'tools' | 'history' | 'generate' | 'provider' | 'prompt' | 'config';
-        x?: number;
-        y?: number;
-        rect?: ToolbarAnchorRect;
-      }>).detail;
+      const detail = (event as CustomEvent<{ action: string; value?: AIAssistantSubView; x?: number; y?: number; rect?: AnchorRect }>).detail;
       if (!detail) return;
 
-      switch (detail.action) {
-        case 'file':
-          openInlineFilePicker(detail);
-          break;
-        case 'tools':
-          openDesktopAIToolsMenu(detail);
-          break;
-        case 'history':
-          openGenerationHistoryMenu(detail);
-          break;
-        case 'provider':
-          openProviderModelMenu(detail);
-          break;
-        case 'prompt':
-          openPromptTemplatesMenu(detail);
-          break;
-        case 'config':
-          handleOpenConfig();
-          break;
-        case 'generate':
-          if (!isGenerating && content.trim()) {
-            void handleGenerate();
-          }
-          break;
+      if (detail.action === 'file') void openFileSuggest('source', detail);
+      if (detail.action === 'prompt-file') void openFileSuggest('prompt', detail);
+      if (detail.action === 'model') openModelMenu(detail);
+      if (detail.action === 'system-prompt') openSystemPromptModal();
+      if (detail.action === 'history') openHistory(detail);
+      if (detail.action === 'config') openConfig(detail);
+      if (detail.action === 'parse-template') openParsePresetMenu(detail);
+      if (detail.action === 'generate' && !isGenerating) void handleGenerate();
+      if (detail.action === 'parse' && !isParsing) void handleParse();
+      if (detail.action === 'sub-view') {
+        subView = detail.value === 'parse-preview' ? 'parse-preview' : 'generate';
+        void persistPreferences();
       }
     };
 
     window.addEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
-    return () => {
-      window.removeEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
-    };
+    return () => window.removeEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
   });
 
   $effect(() => {
-    const handlePromptTemplateSelect = (event: Event) => {
-      const detail = (event as CustomEvent<{ id?: string }>).detail;
-      const promptId = detail?.id?.trim();
-      if (!promptId) return;
-      const prompt = promptTemplateOptions.find((item) => item.id === promptId) ?? null;
-      if (!prompt) return;
-      handlePromptSelect(prompt);
+    const handleUserPromptFilesChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ path?: string | null }>).detail;
+      const changedPath = detail?.path;
+
+      if (selectedPromptFile?.path && changedPath && changedPath !== selectedPromptFile.path) {
+        return;
+      }
+
+      if (!selectedPromptFile?.path) {
+        return;
+      }
+
+      const latestFile = resolveUserPromptFile(plugin.app, selectedPromptFile.path);
+      if (!latestFile) {
+        selectedPromptFile = null;
+        promptContent = '';
+        void persistPreferences();
+        return;
+      }
+
+      selectedPromptFile = fileToInfo(latestFile);
+      void plugin.app.vault.read(latestFile).then((text) => {
+        promptContent = text;
+      });
     };
 
-    window.addEventListener('Weave:ai-prompt-template-select', handlePromptTemplateSelect as EventListener);
-    return () => {
-      window.removeEventListener('Weave:ai-prompt-template-select', handlePromptTemplateSelect as EventListener);
-    };
+    window.addEventListener('Weave:ai-user-prompt-files-changed', handleUserPromptFilesChanged as EventListener);
+    return () => window.removeEventListener('Weave:ai-user-prompt-files-changed', handleUserPromptFilesChanged as EventListener);
   });
 
   $effect(() => {
-    const handlePromptTemplatesUpdated = () => {
-      promptTemplatesRefreshKey += 1;
+    if (!historyOpen) return;
 
-      const currentPromptId = selectedPrompt?.id;
-      if (!currentPromptId) return;
-      const latestPrompt = getPromptTemplateOptions().find((item) => item.id === currentPromptId) ?? null;
-      selectedPrompt = latestPrompt;
+    const handleDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && historyEl?.contains(target)) return;
+      historyOpen = false;
     };
 
-    window.addEventListener('Weave:ai-prompt-templates-updated', handlePromptTemplatesUpdated as EventListener);
-    return () => {
-      window.removeEventListener('Weave:ai-prompt-templates-updated', handlePromptTemplatesUpdated as EventListener);
-    };
+    document.addEventListener('pointerdown', handleDown, true);
+    return () => document.removeEventListener('pointerdown', handleDown, true);
   });
 
-  $effect(() => {
-    const handleCustomPromptChangeEvent = (event: Event) => {
-      const detail = (event as CustomEvent<{ value?: string }>).detail;
-      handleCustomPromptChange(detail?.value ?? '');
-    };
+  onMount(async () => {
+    generationHistory = plugin.getAIGenerationHistory().slice(0, 5) as HistoryEntry[];
+    const preferences = plugin.getAIAssistantPreferences();
+    subView = preferences.subView ?? 'generate';
+    selectedFile = await findFile(preferences.lastSelectedSourceFilePath);
+    selectedPromptFile = findUserPromptFile(preferences.lastSelectedPromptFilePath);
 
-    window.addEventListener('Weave:ai-custom-prompt-change', handleCustomPromptChangeEvent as EventListener);
-    return () => {
-      window.removeEventListener('Weave:ai-custom-prompt-change', handleCustomPromptChangeEvent as EventListener);
-    };
+    if (preferences.lastSelectedSourceFilePath && !selectedFile) {
+      new Notice('\u6700\u8fd1\u9009\u62e9\u7684\u6e90\u6587\u4ef6\u4e0d\u5b58\u5728\uff0c\u5df2\u6e05\u7a7a');
+    }
+
+    if (preferences.lastSelectedPromptFilePath && !selectedPromptFile) {
+      new Notice('\u6700\u8fd1\u9009\u62e9\u7684\u63d0\u793a\u8bcd\u6587\u4ef6\u4e0d\u5b58\u5728\uff0c\u5df2\u6e05\u7a7a');
+    }
+
+    if (selectedFile) {
+      content = await plugin.app.vault.read(selectedFile.file);
+    }
+
+    if (selectedPromptFile) {
+      promptContent = await plugin.app.vault.read(selectedPromptFile.file);
+    }
+
+    const presetId = preferences.lastSelectedParsePresetId?.trim();
+    if (presetId) {
+      selectedParsePreset =
+        (plugin.settings.simplifiedParsing?.regexPresets ?? []).find((preset) => (preset.id || preset.name) === presetId) ?? null;
+    }
   });
 </script>
 
-<div
-  class="ai-assistant-page"
-  class:keyboard-visible={isKeyboardVisible}
-  bind:this={pageContainerEl}
->
-  <div class="mobile-top-controls">
-    <PromptFooter
+<div class="ai-page" bind:this={pageEl}>
+  {#if historyOpen}
+    <div class="panel" style={historyStyle} bind:this={historyEl}>
+      <div class="panel-head"><div>{'\u6700\u8fd1 5 \u6b21\u751f\u6210\u8bb0\u5f55'}</div></div>
+      <div class="panel-list">
+        {#each generationHistory as entry}
+          <button class="list-item" onclick={() => restoreHistory(entry)}>
+            <span>{(entry.sourceFile?.name || '\u672a\u547d\u540d\u5185\u5bb9') + ' \u00b7 ' + entry.cards.length + ' \u5f20'}</span>
+            <small>{entry.promptFile?.name || '\u65e0\u63d0\u793a\u8bcd\u6587\u4ef6'}</small>
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
+  <AIGenerationConfigPopover
+    isOpen={configOpen}
+    config={generationConfig}
+    style={configStyle}
+    onClose={() => configOpen = false}
+    onSave={async (config) => {
+      generationConfig = config;
+      configOpen = false;
+      await persistPreferences();
+    }}
+  />
+
+  {#if subView === 'generate'}
+    <AICardPreviewWorkspace
       {plugin}
-      bind:selectedPrompt
-      bind:customPrompt
-      currentPage="ai-assistant"
-      {onNavigate}
-      selectedProvider={generationConfig.provider}
-      selectedModel={generationConfig.model}
-      onPromptSelect={handlePromptSelect}
-      onCustomPromptChange={handleCustomPromptChange}
-      onProviderModelChange={handleProviderModelChange}
-      onGenerate={handleGenerate}
-      {isGenerating}
-      disabled={!content.trim() || isGenerating}
-      compact={true}
-      showPromptSelector={false}
-      showProviderSelector={false}
-      showGenerateButton={false}
-      showPluginMenuButton={showInlinePluginMenuButton}
-      refreshKey={promptTemplatesRefreshKey}
+      items={generatedItems}
+      config={generationConfig}
+      isGenerating={isGenerating}
+      progress={generationProgress}
+      totalCards={generationConfig.maxGenerationLimit ?? generationConfig.cardCount}
+      mode="split"
+      onImport={importCards}
     />
-  </div>
-
-  {#if showInlineFilePicker}
-    <div class="inline-file-picker" style={filePickerPanelStyle} bind:this={filePickerPanelEl}>
-      <div class="inline-file-picker-search">
-        <input
-          bind:this={filePickerSearchInput}
-          type="text"
-          placeholder="搜索文件名..."
-          aria-label="搜索文件"
-          bind:value={filePickerQuery}
-        />
-      </div>
-      <div class="inline-file-picker-list">
-        {#if filteredMarkdownFiles.length === 0}
-          <div class="inline-file-picker-empty">没有找到匹配文件</div>
-        {:else}
-          {#each filteredMarkdownFiles as file}
-            <button
-              class="inline-file-picker-item"
-              class:selected={selectedFile?.path === file.path}
-              onclick={() => handleFileSelect(file)}
-              title={file.path}
-            >
-              <span class="inline-file-picker-row">
-                <span class="inline-file-picker-name">{file.name}</span>
-                <span class="inline-file-picker-size">{formatFileSize(file.size)}</span>
-              </span>
-            </button>
-          {/each}
-        {/if}
-      </div>
-    </div>
+  {:else}
+    <AIParsePreviewWorkspace
+      {plugin}
+      items={parseItems}
+      config={generationConfig}
+      isParsing={isParsing}
+      sourceFileName={selectedFile?.name}
+      templateName={selectedParsePreset?.name}
+      onImport={importParsedCards}
+    />
   {/if}
-
-  {#if showInlineHistoryPanel}
-    <div class="inline-history-panel" style={historyPanelStyle} bind:this={historyPanelEl}>
-      <div class="inline-history-panel-header">
-        <span>最近 5 次生成记录</span>
-      </div>
-      <div class="inline-history-panel-list">
-        {#if generationHistory.length === 0}
-          <div class="inline-history-panel-empty">暂无生成记录</div>
-        {:else}
-          {#each generationHistory as entry, index}
-            <div class="inline-history-panel-item">
-              <div class="inline-history-panel-meta">
-                <span class="inline-history-panel-title">{index + 1}. {entry.sourceFile?.name || '未命名内容'}</span>
-                <span class="inline-history-panel-subtitle">{formatHistoryTime(entry.createdAt)} · {entry.cards.length} 张</span>
-              </div>
-              <button
-                class="inline-history-panel-action"
-                onclick={() => restoreGenerationHistory(entry.id)}
-              >
-                恢复
-              </button>
-            </div>
-          {/each}
-        {/if}
-      </div>
-    </div>
-  {/if}
-
-  <main class="ai-main-content">
-    <div class="workspace-wrapper">
-      <div class="preview-workspace-wrapper">
-        <AICardPreviewWorkspace
-          {plugin}
-          cards={generatedCards}
-          config={generationConfig}
-          isGenerating={isGenerating}
-          totalCards={generationConfig.cardCount}
-          mode="split"
-          onImport={handleImportCards}
-        />
-      </div>
-    </div>
-  </main>
 </div>
 
 <style>
-  .ai-assistant-page {
-    --weave-ai-page-bg: var(--weave-surface-background, var(--weave-surface, var(--background-primary)));
-    --weave-ai-surface-bg: var(--weave-ai-page-bg);
-    --weave-ai-card-bg: var(--weave-elevated-background, var(--weave-surface-secondary, var(--background-secondary)));
-    flex: 1 1 auto;
+  .ai-page {
     height: 100%;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    background: var(--weave-ai-page-bg);
-    overflow: hidden;
+  }
+
+  .ai-page {
+    --weave-ai-page-bg: var(--weave-surface-background, var(--background-primary));
+    --weave-ai-surface-bg: var(--weave-ai-page-bg);
+    --weave-ai-card-bg: var(--weave-elevated-background, var(--background-secondary));
     position: relative;
-  }
-
-  .ai-main-content {
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: column;
-    background: var(--weave-ai-page-bg);
-    min-height: 0;
     overflow: hidden;
-  }
-
-  .workspace-wrapper {
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    margin: 0;
-    padding-top: 12px;
     background: var(--weave-ai-page-bg);
   }
 
-  .preview-workspace-wrapper {
-    flex: 1 1 auto;
-    min-height: 0;
-    display: flex;
-    background: var(--weave-ai-surface-bg);
-  }
-
-  .inline-file-picker {
+  .panel {
     position: absolute;
     z-index: 30;
-    display: flex;
-    flex-direction: column;
-    max-height: min(420px, calc(100vh - 32px));
-    border-radius: 12px;
-    background: var(--weave-ai-card-bg);
+    background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+    border-radius: 14px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
     overflow: hidden;
   }
 
-  .inline-file-picker-search {
+  .panel-head {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .panel-list {
+    max-height: 360px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     padding: 10px;
-    border-bottom: 1px solid var(--background-modifier-border);
-    background: color-mix(in srgb, var(--weave-ai-card-bg) 92%, var(--weave-ai-page-bg));
   }
 
-  .inline-file-picker-search input {
-    width: 100%;
-    height: 34px;
-    padding: 0 10px;
-    border-radius: 8px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--weave-ai-card-bg);
-    color: var(--text-normal);
-    outline: none;
-  }
-
-  .inline-file-picker-search input:focus {
-    border-color: var(--interactive-accent);
-  }
-
-  .inline-file-picker-list {
-    display: flex;
-    flex-direction: column;
-    overflow-y: auto;
-    padding: 4px 0;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .inline-file-picker-empty {
-    padding: 18px 12px;
-    color: var(--text-muted);
-    text-align: center;
-    font-size: 0.9rem;
-  }
-
-  .inline-file-picker-item {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    padding: 8px 12px;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    color: var(--text-normal);
-    cursor: pointer;
+  .list-item {
     text-align: left;
-    box-shadow: none;
-  }
-
-  .inline-file-picker-item:hover,
-  .inline-file-picker-item.selected {
-    background: var(--background-modifier-hover);
-  }
-
-  .inline-file-picker-row {
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-    width: 100%;
-    min-width: 0;
-  }
-
-  .inline-file-picker-name {
-    flex: 1 1 auto;
-    min-width: 0;
-    font-size: 0.92rem;
-    font-weight: 600;
-    line-height: 1.35;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .inline-file-picker-size {
-    flex: 0 0 auto;
-    font-size: 0.78rem;
-    color: var(--text-muted);
-    line-height: 1.2;
-    white-space: nowrap;
-    text-align: right;
-  }
-
-  .inline-history-panel {
-    position: absolute;
-    z-index: 30;
     display: flex;
     flex-direction: column;
-    max-height: min(360px, calc(100vh - 32px));
-    border-radius: 12px;
-    background: var(--weave-ai-card-bg);
-    border: 1px solid var(--background-modifier-border);
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
-    overflow: hidden;
-  }
-
-  .inline-history-panel-header {
-    display: flex;
-    align-items: center;
-    min-height: 42px;
-    padding: 0 14px;
-    border-bottom: 1px solid var(--background-modifier-border);
-    background: color-mix(in srgb, var(--weave-ai-card-bg) 92%, var(--weave-ai-page-bg));
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    font-weight: 600;
-  }
-
-  .inline-history-panel-list {
-    display: flex;
-    flex-direction: column;
-    overflow-y: auto;
-    padding: 6px 0;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .inline-history-panel-empty {
-    padding: 18px 12px;
-    color: var(--text-muted);
-    text-align: center;
-    font-size: 0.9rem;
-  }
-
-  .inline-history-panel-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+    gap: 4px;
     padding: 10px 12px;
-  }
-
-  .inline-history-panel-item:hover {
-    background: var(--background-modifier-hover);
-  }
-
-  .inline-history-panel-meta {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .inline-history-panel-title {
-    color: var(--text-normal);
-    font-size: 0.9rem;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .inline-history-panel-subtitle {
-    color: var(--text-muted);
-    font-size: 0.78rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .inline-history-panel-action {
-    flex: 0 0 auto;
-    min-width: 54px;
-    height: 30px;
-    padding: 0 10px;
-    border-radius: 7px;
     border: 1px solid var(--background-modifier-border);
-    background: var(--weave-ai-card-bg);
-    color: var(--text-normal);
+    border-radius: 10px;
+    background: var(--background-secondary);
     cursor: pointer;
   }
 
-  .inline-history-panel-action:hover {
-    border-color: color-mix(in srgb, var(--interactive-accent) 32%, var(--background-modifier-border));
-    background: var(--background-modifier-hover);
-  }
-
-  .mobile-top-controls {
-    display: none;
-  }
-
-  :global(body.is-mobile) .mobile-top-controls,
-  :global(body.is-phone) .mobile-top-controls {
-    display: block;
-    padding: 10px 12px 8px;
-    background: var(--weave-ai-page-bg);
-    position: relative;
-    z-index: 15;
-  }
-
-  :global(body.is-mobile) .ai-assistant-page,
-  :global(body.is-phone) .ai-assistant-page {
-    position: relative;
-    height: 100%;
-    max-height: 100%;
-    min-height: 0;
+  .list-item small {
+    color: var(--text-muted);
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  :global(body.is-mobile) .workspace-wrapper,
-  :global(body.is-phone) .workspace-wrapper {
-    margin: 0;
-    flex: 1 1 auto;
-    min-height: 0;
-    padding-top: 8px;
-  }
-
-  :global(body.is-mobile) .mobile-top-controls :global(.prompt-footer),
-  :global(body.is-phone) .mobile-top-controls :global(.prompt-footer) {
-    width: 100%;
-  }
-
-  :global(body.is-mobile) .inline-file-picker,
-  :global(body.is-phone) .inline-file-picker,
-  :global(body.is-mobile) .inline-history-panel,
-  :global(body.is-phone) .inline-history-panel {
-    border-radius: 18px;
-    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.16);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-  }
-
-  :global(body.is-mobile) .inline-file-picker,
-  :global(body.is-phone) .inline-file-picker {
-    max-height: min(56vh, calc(100vh - 124px));
-  }
-
-  :global(body.is-mobile) .inline-history-panel,
-  :global(body.is-phone) .inline-history-panel {
-    max-height: min(50vh, calc(100vh - 132px));
-  }
-
-  :global(body.is-mobile) .inline-file-picker-search,
-  :global(body.is-phone) .inline-file-picker-search,
-  :global(body.is-mobile) .inline-history-panel-header,
-  :global(body.is-phone) .inline-history-panel-header {
-    padding-left: 14px;
-    padding-right: 14px;
-  }
-
-  :global(body.is-mobile) .inline-file-picker-search input,
-  :global(body.is-phone) .inline-file-picker-search input {
-    height: 40px;
-    border-radius: 12px;
-  }
-
-  :global(body.is-mobile) .inline-file-picker-item,
-  :global(body.is-phone) .inline-file-picker-item,
-  :global(body.is-mobile) .inline-history-panel-item,
-  :global(body.is-phone) .inline-history-panel-item {
-    min-height: 46px;
-    padding-top: 11px;
-    padding-bottom: 11px;
-  }
-
-  :global(body.is-mobile) .ai-assistant-page.keyboard-visible .mobile-top-controls,
-  :global(body.is-phone) .ai-assistant-page.keyboard-visible .mobile-top-controls {
-    padding-bottom: 4px;
-    box-shadow: 0 10px 24px color-mix(in srgb, black 8%, transparent);
-  }
-
-  :global(body.is-mobile) .ai-assistant-page.keyboard-visible .workspace-wrapper,
-  :global(body.is-phone) .ai-assistant-page.keyboard-visible .workspace-wrapper {
-    display: flex;
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  :global(body.is-mobile) .ai-assistant-page.keyboard-visible :global(.preview-footer),
-  :global(body.is-phone) .ai-assistant-page.keyboard-visible :global(.preview-footer) {
-    display: none;
-  }
-
-  :global(.workspace-split.mod-left-split) .ai-assistant-page,
-  :global(.workspace-split.mod-right-split) .ai-assistant-page {
-    --weave-ai-page-bg: var(--weave-surface-background, var(--weave-surface, var(--background-primary)));
-    --weave-ai-surface-bg: var(--weave-ai-page-bg);
-    --weave-ai-card-bg: var(--weave-elevated-background, var(--weave-surface-secondary, var(--background-secondary)));
+  :global(.menu.weave-ai-source-file-menu),
+  :global(.menu.weave-ai-user-prompt-file-menu) {
+    max-height: min(70vh, 720px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
   }
 </style>

@@ -580,6 +580,18 @@ export interface WeaveSettings {
    * 用于看板视图按标签组分组
    */
   deckTagGroups?: import('../types/deck-kanban-types').DeckTagGroup[];
+
+  /**
+   * 记忆牌组组织配置
+   * 用于正式牌组与涌现式牌组双区模型
+   */
+  memoryDeckOrganization?: {
+    enabled?: boolean;
+    minCandidateCardCount?: number;
+    tagDriftFollowMode?: 'off' | 'ask' | 'auto';
+    activeRuleGroupId?: string;
+    ruleGroups?: import('../services/deck/emergent-rule-groups').EmergentRuleGroup[];
+  };
   
   /**
    * 默认牌组

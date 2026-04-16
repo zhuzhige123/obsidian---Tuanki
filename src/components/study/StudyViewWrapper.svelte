@@ -132,6 +132,7 @@ let liveQueueProgress = $state<{
   studyQueueCardIds: string[];
   sessionStudiedCardIds: string[];
 } | null>(null);
+let studyInterfaceRenderKey = $state(0);
 
 // 监听学习参数变化
 $effect(() => {
@@ -229,6 +230,7 @@ export async function updateStudyParams(params: {
   sessionType = 'mixed';
   initialCardIndex = 0;
   liveQueueProgress = null;
+  studyInterfaceRenderKey += 1;
   isLoading = true;
   
   // 重新加载卡片
@@ -756,19 +758,21 @@ async function handleStartPractice() {
     <!-- 学习内容区域 -->
     <div class="study-view-content">
       <div class="study-interface-embedded">
-        <StudyInterface
-          cards={studyCards}
-          fsrs={plugin.fsrs}
-          dataStorage={plugin.dataStorage}
-          {plugin}
-          {viewInstance}
-          sessionDeckId={currentDeckId}
-          forcedDeckName={currentDeckName}
-          mode={currentMode === 'custom' ? 'normal' : currentMode}
-          {initialCardIndex}
-          onClose={handleCloseRequest}
-          onComplete={handleStudyComplete}
-        />
+        {#key studyInterfaceRenderKey}
+          <StudyInterface
+            cards={studyCards}
+            fsrs={plugin.fsrs}
+            dataStorage={plugin.dataStorage}
+            {plugin}
+            {viewInstance}
+            sessionDeckId={currentDeckId}
+            forcedDeckName={currentDeckName}
+            mode={currentMode === 'custom' ? 'normal' : currentMode}
+            {initialCardIndex}
+            onClose={handleCloseRequest}
+            onComplete={handleStudyComplete}
+          />
+        {/key}
       </div>
     </div>
   {:else if isLoading}

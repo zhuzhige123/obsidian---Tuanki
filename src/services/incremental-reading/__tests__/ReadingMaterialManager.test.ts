@@ -170,7 +170,7 @@ describe('ReadingMaterialManager', () => {
   });
 
   it('从全局侧边栏删除 Markdown 阅读材料时应清理外部文档调度残留', async () => {
-    const material = {
+    const material: any = {
       uuid: 'mat-1',
       filePath: 'weave/incremental-reading/IR/source/01_第一节.md',
       title: '第一节',
@@ -255,5 +255,57 @@ describe('ReadingMaterialManager', () => {
       deleteChunkDataSpy.mockRestore();
       deleteBlocksByFileSpy.mockRestore();
     }
+  });
+
+  it('设置多关联笔记时应同步主笔记与兼容旧字段', async () => {
+    const material = {
+      uuid: 'mat-linked',
+      filePath: 'notes/source.md',
+      title: 'source',
+      category: ReadingCategory.Later,
+      priority: 50,
+      priorityDecay: 0.5,
+      lastAccessed: '2026-03-30T00:00:00.000Z',
+      progress: {
+        anchorHistory: [],
+        percentage: 0,
+        totalWords: 100,
+        readWords: 0,
+        estimatedTimeRemaining: 1
+      },
+      extractedCards: [],
+      tags: [],
+      created: '2026-03-30T00:00:00.000Z',
+      modified: '2026-03-30T00:00:00.000Z',
+      source: 'manual'
+    };
+
+    const storage = {
+      getMaterialById: vi.fn(async () => material),
+      saveMaterial: vi.fn(async () => {})
+    };
+
+    const manager = new ReadingMaterialManager(
+      {} as any,
+      storage as any,
+      {} as any
+    );
+
+    const success = await manager.setAssociatedNotePaths('mat-linked', [
+      'Folder/Topic',
+      'Folder/Topic.md',
+      'Folder/Appendix.md'
+    ]);
+
+    expect(success).toBe(true);
+    expect((material as any).primaryAssociatedNotePath).toBe('Folder/Topic.md');
+    expect((material as any).associatedNotePath).toBe('Folder/Topic.md');
+    expect((material as any).associatedNotePaths).toEqual(['Folder/Topic.md', 'Folder/Appendix.md']);
+    expect(storage.saveMaterial).toHaveBeenCalledWith(expect.objectContaining({
+      uuid: 'mat-linked',
+      primaryAssociatedNotePath: 'Folder/Topic.md',
+      associatedNotePath: 'Folder/Topic.md',
+      associatedNotePaths: ['Folder/Topic.md', 'Folder/Appendix.md']
+    }));
   });
 });

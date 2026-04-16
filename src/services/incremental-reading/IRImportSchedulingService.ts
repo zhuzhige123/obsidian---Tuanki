@@ -8,14 +8,18 @@ import type {
 	SchedulingStrategy,
 } from "../../types/ir-import-scheduling";
 import type { IRBlock } from "../../types/ir-types";
+import type { IRProjectedScheduleItem } from "./IRProjectedScheduleSummary";
+import type { IRPlannedScheduleItem } from "./IRScheduleKernel";
+
+export type IRLoadBlock = IRBlock | ContentBlock | IRPlannedScheduleItem | IRProjectedScheduleItem;
 
 export interface IRLoadInfo {
 	/** 每日时间预算（分钟） */
 	dailyBudgetMinutes: number;
 	/** 获取指定日期的已有块 */
-	getBlocksForDate: (date: Date) => IRBlock[] | Promise<IRBlock[]>;
+	getBlocksForDate: (date: Date) => IRLoadBlock[] | Promise<IRLoadBlock[]>;
 	/** 预估块的阅读时间（分钟） */
-	estimateBlockMinutes: (block: IRBlock | ContentBlock) => number;
+	estimateBlockMinutes: (block: IRLoadBlock) => number;
 }
 
 export class IRImportSchedulingService {

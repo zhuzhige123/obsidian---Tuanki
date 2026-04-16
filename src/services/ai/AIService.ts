@@ -15,6 +15,7 @@ import { logger } from "../../utils/logger";
 import { sendAIHttpRequest } from "./ObsidianRequestAdapter";
 import type { AIHttpRequest, AIHttpResponse } from "./ObsidianRequestAdapter";
 import { PromptBuilderService } from "./PromptBuilderService";
+import { normalizeAITextContent, parseJsonFromAIText } from "./responseParsing";
 
 /**
  * AI服务抽象基类
@@ -35,6 +36,7 @@ export interface ChatRequest {
 	messages: ChatMessage[];
 	temperature?: number;
 	maxTokens?: number;
+	responseFormat?: "json_object";
 }
 
 /**
@@ -188,34 +190,11 @@ export abstract class AIService implements IAIService {
 	 */
 	protected parseResponse(responseText: string): ParsedAICard[] {
 		try {
-			const trimmed = (responseText ?? "").trim();
+			for (const candidate of parseJsonFromAIText(responseText ?? "")) {
+				const cards = this.extractCardsFromParsed(candidate);
 
-			const direct = this.tryParseJson(trimmed);
-			const directCards = this.extractCardsFromParsed(direct);
-
-			if (directCards) {
-				return directCards;
-			}
-
-			const objectMatch = trimmed.match(/\{[\s\S]*\}/);
-
-			if (objectMatch) {
-				const objectResult = this.tryParseJson(objectMatch[0]);
-				const objectCards = this.extractCardsFromParsed(objectResult);
-
-				if (objectCards) {
-					return objectCards;
-				}
-			}
-
-			const arrayMatch = trimmed.match(/\[[\s\S]*\]/);
-
-			if (arrayMatch) {
-				const arrayResult = this.tryParseJson(arrayMatch[0]);
-				const arrayCards = this.extractCardsFromParsed(arrayResult);
-
-				if (arrayCards) {
-					return arrayCards;
+				if (cards) {
+					return cards;
 				}
 			}
 
@@ -223,18 +202,6 @@ export abstract class AIService implements IAIService {
 		} catch (error) {
 			logger.error("Failed to parse AI response:", error);
 			throw new Error("AI返回的内容格式不正确");
-		}
-	}
-
-	private tryParseJson(text: string): unknown {
-		if (!text) {
-			return null;
-		}
-
-		try {
-			return JSON.parse(text);
-		} catch {
-			return null;
 		}
 	}
 
@@ -256,6 +223,10 @@ export abstract class AIService implements IAIService {
 		}
 
 		return null;
+	}
+
+	protected extractMessageContent(content: unknown): string {
+		return normalizeAITextContent(content);
 	}
 
 	protected ensureString(value: unknown): string {

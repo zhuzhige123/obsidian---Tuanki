@@ -195,8 +195,25 @@ describe('IRStorageService.getDeckStats', () => {
 
     vi.spyOn(IRPdfBookmarkTaskService.prototype, 'initialize').mockResolvedValue(undefined);
     vi.spyOn(IRPdfBookmarkTaskService.prototype, 'getTasksByDeck').mockResolvedValue([]);
+    vi.spyOn(IRPdfBookmarkTaskService.prototype, 'getAllTasks').mockResolvedValue([]);
     vi.spyOn(IREpubBookmarkTaskService.prototype, 'initialize').mockResolvedValue(undefined);
     vi.spyOn(IREpubBookmarkTaskService.prototype, 'getTasksByDeck').mockResolvedValue([
+      {
+        id: 'epubbm-new',
+        deckId: 'deck-1',
+        epubFilePath: 'books/demo.epub',
+        status: 'new',
+        nextRepDate: 0
+      },
+      {
+        id: 'epubbm-scheduled',
+        deckId: 'deck-1',
+        epubFilePath: 'books/demo.epub',
+        status: 'scheduled',
+        nextRepDate: Date.now() + 2 * 24 * 60 * 60 * 1000
+      }
+    ] as any);
+    vi.spyOn(IREpubBookmarkTaskService.prototype, 'getAllTasks').mockResolvedValue([
       {
         id: 'epubbm-new',
         deckId: 'deck-1',
@@ -260,6 +277,15 @@ describe('IRStorageService.getDeckStats', () => {
         }
       ] as any;
     });
+    vi.spyOn(IRPdfBookmarkTaskService.prototype, 'getAllTasks').mockResolvedValue([
+      {
+        id: 'pdfbm-1',
+        deckId: 'topics/demo',
+        pdfPath: 'pdfs/demo.pdf',
+        status: 'new',
+        nextRepDate: 0
+      }
+    ] as any);
 
     vi.spyOn(IREpubBookmarkTaskService.prototype, 'initialize').mockResolvedValue(undefined);
     vi.spyOn(IREpubBookmarkTaskService.prototype, 'getTasksByDeck').mockImplementation(async (deckId: string) => {
@@ -274,6 +300,15 @@ describe('IRStorageService.getDeckStats', () => {
         }
       ] as any;
     });
+    vi.spyOn(IREpubBookmarkTaskService.prototype, 'getAllTasks').mockResolvedValue([
+      {
+        id: 'epubbm-legacy-path',
+        deckId: 'topics/demo',
+        epubFilePath: 'books/demo.epub',
+        status: 'scheduled',
+        nextRepDate: Date.now() + 24 * 60 * 60 * 1000
+      }
+    ] as any);
 
     const stats = await service.getDeckStats('deck-1', 20, 50, 3);
 

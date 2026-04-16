@@ -123,7 +123,7 @@ export function normalizeBlockId(blockId: string): string {
  * Compatibility note: 新代码请使用generateUUID()或generateBlockId()
  */
 /*
- * 鐢熸垚閫氱敤ID
+ * 生成通用ID
  */
 // Compatibility helper for non-card identifiers.
 export function generateId(): string {

@@ -149,6 +149,7 @@
         } as Deck;
         const res = await dataStorage.saveDeck(updated);
         if (!res.success) throw new Error(res.error || 'saveDeck failed');
+        const savedDeck = res.data || updated;
         
         // 牌组重命名时，批量更新所有该牌组卡片的 we_decks YAML 字段
         if (oldName !== newName) {
@@ -176,7 +177,7 @@
           }
         }
         
-        onUpdated?.(updated);
+        onUpdated?.(savedDeck);
         closeModal();
         return;
       }
@@ -208,9 +209,10 @@
       // 更新分类和标签
       newDeck.category = category.trim() || '默认';
       newDeck.tags = selectedTag ? [selectedTag] : [];
-      await dataStorage.saveDeck(newDeck);
+      const res = await dataStorage.saveDeck(newDeck);
+      if (!res.success) throw new Error(res.error || 'saveDeck failed');
       
-      onCreated?.(newDeck);
+      onCreated?.(res.data || newDeck);
       closeModal();
     } catch (error) {
       logger.error('Failed to create deck:', error);

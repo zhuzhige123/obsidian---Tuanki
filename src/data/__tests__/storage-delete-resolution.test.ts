@@ -584,6 +584,90 @@ describe('WeaveDataStorage delete source resolution', () => {
     });
   });
 
+  it('routes mixed legacy and .wdeck card deletions through the correct storage services', async () => {
+    const deleteCardsBatch = vi.fn(async (uuids: string[]) => ({
+      deleted: [...uuids],
+      notFound: []
+    }));
+    const deleteCardsByUUIDs = vi.fn(async (uuids: string[]) => [...uuids]);
+    const cascadeDeleteCards = vi.fn(async () => ({ success: true, totalAffectedDecks: 0, errors: [] }));
+
+    const plugin = {
+      settings: {},
+      cardFileService: {
+        getCardsByUUIDsBatch: vi.fn(async () => ({
+          found: [
+            {
+              uuid: 'legacy-1',
+              content: 'legacy',
+              tags: [],
+              created: '2026-03-15T00:00:00.000Z',
+              modified: '2026-03-15T00:00:00.000Z',
+              stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
+            }
+          ],
+          notFound: ['wdeck-1']
+        })),
+        deleteCardsBatch
+      },
+      wdeckService: {
+        getAllCards: vi.fn(async () => [
+          {
+            uuid: 'wdeck-1',
+            deckId: 'wdeck:deck-1',
+            content: 'wdeck',
+            tags: [],
+            created: '2026-03-15T00:00:00.000Z',
+            modified: '2026-03-15T00:00:00.000Z',
+            stats: { totalReviews: 0, totalTime: 0, averageTime: 0 },
+            customFields: {
+              wdeck: {
+                runtimeDeckId: 'wdeck:deck-1',
+                logicalDeckId: 'deck-1',
+                logicalDeckName: 'deck-1',
+                sourcePath: 'vault/deck-1_01.wdeck'
+              }
+            }
+          }
+        ]),
+        isWDeckCard: vi.fn((card: any) => card?.deckId === 'wdeck:deck-1'),
+        deleteCardsByUUIDs
+      },
+      referenceDeckService: {
+        cascadeDeleteCards
+      },
+      directFileReader: {
+        removeCardIndex: vi.fn()
+      },
+      cardIndexService: {
+        removeCardIndex: vi.fn()
+      },
+      cardMetadataCache: {
+        invalidate: vi.fn()
+      },
+      app: {
+        workspace: {
+          trigger: vi.fn()
+        },
+        vault: {
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+
+    const result = await storage.deleteCards(['legacy-1', 'wdeck-1']);
+
+    expect(result.deleted).toEqual(['legacy-1', 'wdeck-1']);
+    expect(result.failed).toEqual([]);
+    expect(deleteCardsBatch).toHaveBeenCalledWith(['legacy-1']);
+    expect(deleteCardsByUUIDs).toHaveBeenCalledWith(['wdeck-1']);
+    expect(cascadeDeleteCards).toHaveBeenCalledWith(['legacy-1', 'wdeck-1'], undefined);
+  });
+
   it('collects we_decks-linked cards before deck index removal', async () => {
     const notifyChange = vi.fn(async () => {});
     const onDeckDeleted = vi.fn();

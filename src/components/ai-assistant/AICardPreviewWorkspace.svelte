@@ -3,7 +3,7 @@
   import { logger } from '../../utils/logger';
 
   import type { WeavePlugin } from '../../main';
-  import type { GeneratedCard, GenerationConfig } from '../../types/ai-types';
+  import type { AICardPreviewItem, GenerationConfig, GenerationProgress } from '../../types/ai-types';
   import type { Card } from '../../data/types';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import ObsidianDropdown from '../ui/ObsidianDropdown.svelte';
@@ -15,21 +15,47 @@
 
   interface Props {
     plugin: WeavePlugin;
-    cards: GeneratedCard[];
+    items: AICardPreviewItem[];
     config: GenerationConfig;
     isGenerating?: boolean;
+    progress?: GenerationProgress | null;
     totalCards?: number;
     mode?: 'test' | 'split';
-    onImport: (selectedCards: GeneratedCard[], targetDeck: string) => Promise<void>;
+    variant?: 'generate' | 'parse';
+    emptyTitle?: string;
+    emptyDescription?: string;
+    busyTitle?: string;
+    busyDescription?: string;
+    showRegenerateAction?: boolean;
+    showImportControls?: boolean;
+    enableSelection?: boolean;
+    previewTitle?: string;
+    previewSubtitle?: string;
+    showCurrentIndexLabel?: boolean;
+    navigationHint?: string;
+    onImport?: (selectedItems: AICardPreviewItem[], targetDeck: string) => Promise<void>;
   }
 
   let {
     plugin,
-    cards,
+    items,
     config,
     isGenerating = false,
+    progress = null,
     totalCards = 0,
     mode = 'split',
+    variant = 'generate',
+    emptyTitle,
+    emptyDescription,
+    busyTitle,
+    busyDescription,
+    showRegenerateAction = variant === 'generate',
+    showImportControls = variant === 'generate',
+    enableSelection = variant === 'generate',
+    previewTitle = '',
+    previewSubtitle = '',
+    showCurrentIndexLabel = false,
+    navigationHint,
     onImport
   }: Props = $props();
 
@@ -50,23 +76,49 @@
   let suppressThumbnailClick = false;
   let pressedThumbnailId = $state<string | null>(null);
 
-  let currentCard = $derived(cards[currentIndex]);
+  let currentItem = $derived(items[currentIndex]);
+  let currentCard = $derived(currentItem?.generatedCard ?? null);
   let selectedCount = $derived(selectedCardIds.size);
-  let isAllSelected = $derived(selectedCount === cards.length && cards.length > 0);
-  let hasCards = $derived(cards.length > 0);
-  let generatedCount = $derived(cards.length);
+  let isAllSelected = $derived(selectedCount === items.length && items.length > 0);
+  let hasCards = $derived(items.length > 0);
+  let generatedCount = $derived(items.length);
   let progressPercent = $derived(
-    totalCards > 0 ? Math.min(100, Math.round((generatedCount / totalCards) * 100)) : 0
+    progress?.progress ?? (totalCards > 0 ? Math.min(100, Math.round((generatedCount / totalCards) * 100)) : 0)
+  );
+  let showGenerationProgressPanel = $derived(variant === 'generate' && isGenerating);
+  let resolvedBusyTitle = $derived(
+    busyTitle ?? (variant === 'parse' ? '正在解析预览' : '正在生成卡片')
+  );
+  let resolvedEmptyTitle = $derived(
+    emptyTitle ?? (variant === 'parse' ? '解析预览区' : 'AI 制卡预览区')
+  );
+  let resolvedBusyDescription = $derived(
+    busyDescription ?? (
+      variant === 'parse'
+        ? '当前解析模板正在整理内容，新的解析结果会直接显示在这里。'
+        : '卡片会随着生成进度逐张出现在这里。'
+    )
+  );
+  let resolvedEmptyDescription = $derived(
+    emptyDescription ?? (
+      variant === 'parse'
+        ? '先在顶部功能栏选择文件、解析模板并发起解析，这里会直接显示解析结果预览。'
+        : '先在顶部功能栏选择文件、提示词并发起生成，这里会直接显示可导入的卡片预览。'
+    )
+  );
+  let resolvedNavigationHint = $derived(
+    navigationHint ?? (enableSelection ? '点按切换卡片，长按序号可选中或取消选中' : '点按切换卡片')
   );
 
   function dispatchSelectionState() {
     if (typeof window === 'undefined') return;
+    const hasSelectableCards = enableSelection && items.length > 0;
     window.dispatchEvent(new CustomEvent('Weave:ai-selection-state-change', {
       detail: {
-        selectedCount,
-        totalCount: cards.length,
-        isAllSelected,
-        hasCards: cards.length > 0
+        selectedCount: enableSelection ? selectedCount : 0,
+        totalCount: hasSelectableCards ? items.length : 0,
+        isAllSelected: enableSelection ? isAllSelected : false,
+        hasCards: hasSelectableCards
       }
     }));
   }
@@ -85,20 +137,28 @@
   });
 
   $effect(() => {
-    const cardSignature = cards.map((card) => card.uuid).join('|');
+    const cardSignature = items.map((item) => item.id).join('|');
     if (cardSignature === previousCardSignature) {
       return;
     }
 
     previousCardSignature = cardSignature;
-    const currentIds = new Set(cards.map((card) => card.uuid));
+    const currentIds = new Set(items.map((item) => item.id));
     const currentSelected = untrack(() => selectedCardIds);
     const currentIndexSnapshot = untrack(() => currentIndex);
 
-    if (cards.length === 0) {
+    if (items.length === 0) {
       currentIndex = 0;
       selectedCardIds = new Set();
       previousCardIds = new Set();
+      showRegenerateDialog = false;
+      return;
+    }
+
+    if (!enableSelection) {
+      selectedCardIds = new Set();
+      previousCardIds = currentIds;
+      currentIndex = Math.min(currentIndexSnapshot, Math.max(items.length - 1, 0));
       showRegenerateDialog = false;
       return;
     }
@@ -107,32 +167,39 @@
       Array.from(currentSelected).filter((id) => currentIds.has(id))
     );
 
-    for (const card of cards) {
-      if (!previousCardIds.has(card.uuid)) {
-        nextSelected.add(card.uuid);
+    for (const item of items) {
+      if (!previousCardIds.has(item.id)) {
+        nextSelected.add(item.id);
       }
     }
 
     selectedCardIds = nextSelected;
     previousCardIds = currentIds;
-    currentIndex = Math.min(currentIndexSnapshot, Math.max(cards.length - 1, 0));
+    currentIndex = Math.min(currentIndexSnapshot, Math.max(items.length - 1, 0));
   });
 
   $effect(() => {
+    if (!showImportControls || !onImport) {
+      availableDecks = [];
+      selectedDeckId = '';
+      return;
+    }
+
     mode;
     config.targetDeck;
     void loadDecks();
   });
 
   $effect(() => {
+    enableSelection;
     selectedCount;
     isAllSelected;
-    cards.length;
+    items.length;
     dispatchSelectionState();
   });
 
   $effect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !enableSelection) return;
 
     const handleSelectionAction = (event: Event) => {
       const action = (event as CustomEvent<{ action?: 'select-all' | 'deselect-all' }>).detail?.action;
@@ -158,7 +225,7 @@
   }
 
   function goToCard(index: number) {
-    if (index < 0 || index >= cards.length) return;
+    if (index < 0 || index >= items.length) return;
     currentIndex = index;
     showRegenerateDialog = false;
   }
@@ -182,6 +249,7 @@
   }
 
   function handleThumbnailPointerDown(cardId: string) {
+    if (!enableSelection) return;
     clearThumbnailLongPressTimer();
     suppressThumbnailClick = false;
     pressedThumbnailId = cardId;
@@ -207,6 +275,7 @@
   }
 
   function handleThumbnailContextMenu(event: MouseEvent, cardId: string) {
+    if (!enableSelection) return;
     event.preventDefault();
     clearThumbnailLongPressTimer();
     suppressThumbnailClick = true;
@@ -214,7 +283,7 @@
   }
 
   function selectAll() {
-    selectedCardIds = new Set(cards.map((card) => card.uuid));
+    selectedCardIds = new Set(items.map((item) => item.id));
   }
 
   function deselectAll() {
@@ -226,7 +295,7 @@
   }
 
   async function handleRegenerate(instruction: string) {
-    if (!currentCard) return;
+    if (!currentItem || !currentCard) return;
 
     try {
       new Notice('正在重新生成卡片...');
@@ -348,12 +417,15 @@ ${originalContent}
         throw new Error(response.error || '生成失败');
       }
 
-      const nextCards = [...cards];
-      nextCards[currentIndex] = {
-        ...currentCard,
-        content: response.cards[0].content || ''
+      const nextItems = [...items];
+      nextItems[currentIndex] = {
+        ...currentItem,
+        generatedCard: {
+          ...currentCard,
+          content: response.cards[0].content || ''
+        }
       };
-      cards = nextCards;
+      items = nextItems;
       new Notice('卡片已重新生成');
     } catch (error) {
       logger.error('[AICardPreviewWorkspace] 重新生成失败:', error);
@@ -396,6 +468,10 @@ ${originalContent}
   }
 
   async function handleImportCards() {
+    if (!showImportControls || !onImport) {
+      return;
+    }
+
     if (selectedCount === 0) {
       new Notice('请至少选择一张卡片');
       return;
@@ -409,7 +485,7 @@ ${originalContent}
     try {
       isImporting = true;
       await onImport(
-        cards.filter((card) => selectedCardIds.has(card.uuid)),
+        items.filter((item) => selectedCardIds.has(item.id)),
         selectedDeckId
       );
     } catch (error) {
@@ -426,6 +502,22 @@ ${originalContent}
     <div class="preview-main-content">
       {#if currentCard}
         <div class="card-display">
+          {#if previewTitle || previewSubtitle || showCurrentIndexLabel}
+            <div class="preview-context-header">
+              <div class="preview-context-copy">
+                {#if previewTitle}
+                  <div class="preview-context-title">{previewTitle}</div>
+                {/if}
+                {#if previewSubtitle}
+                  <div class="preview-context-subtitle">{previewSubtitle}</div>
+                {/if}
+              </div>
+              {#if showCurrentIndexLabel}
+                <div class="preview-context-index">第 {currentIndex + 1} 张</div>
+              {/if}
+            </div>
+          {/if}
+
           <div class="card-meta">
             <div class="card-meta-left">
               {#if currentCard.metadata.difficulty}
@@ -448,30 +540,33 @@ ${originalContent}
             <div class="no-preview-warning">卡片预览加载失败</div>
           {/if}
 
-          <div class="card-action-buttons">
-            <button
-              class="regenerate-toggle-btn"
-              onclick={toggleRegenerateDialog}
-              class:active={showRegenerateDialog}
-            >
-              <ObsidianIcon name="message-square" size={16} />
-              <span>{t(showRegenerateDialog ? 'modals.cardPreview.collapseDialog' : 'modals.cardPreview.modifyRequirement')}</span>
-            </button>
-          </div>
+          {#if showRegenerateAction}
+            <div class="card-action-buttons">
+              <button
+                class="regenerate-toggle-btn"
+                onclick={toggleRegenerateDialog}
+                class:active={showRegenerateDialog}
+              >
+                <ObsidianIcon name="message-square" size={16} />
+                <span>{t(showRegenerateDialog ? 'modals.cardPreview.collapseDialog' : 'modals.cardPreview.modifyRequirement')}</span>
+              </button>
+            </div>
+          {/if}
         </div>
 
-        {#if showRegenerateDialog}
+        {#if showRegenerateAction && showRegenerateDialog}
           <RegenerateDialog
+            {currentItem}
             {currentCard}
             onRegenerate={handleRegenerate}
           />
         {/if}
       {:else}
-        <div class="preview-empty-state" class:generating={isGenerating}> 
+        <div class="preview-empty-state" class:with-progress-panel={showGenerationProgressPanel}>
           <div class="empty-icon">
             <ObsidianIcon name={isGenerating ? 'loader' : 'sparkles'} size={26} />
           </div>
-          {#if isGenerating}
+          {#if showGenerationProgressPanel}
             <div class="generation-progress-panel">
               <div class="generation-progress-heading">
                 <strong>正在生成卡片</strong>
@@ -487,30 +582,24 @@ ${originalContent}
               <p class="generation-progress-hint">AI 正在逐张生成卡片，新的结果会实时追加到这里。</p>
             </div>
           {/if}
-          <h3>{isGenerating ? '正在生成卡片' : 'AI 制卡预览区'}</h3>
-          <p>
-            {#if isGenerating}
-              卡片会随着生成进度逐张出现在这里。
-            {:else}
-              先在顶部功能栏选择文件、提示词并发起生成，这里会直接显示可导入的卡片预览。
-            {/if}
-          </p>
+          <h3>{isGenerating ? resolvedBusyTitle : resolvedEmptyTitle}</h3>
+          <p>{isGenerating ? resolvedBusyDescription : resolvedEmptyDescription}</p>
         </div>
       {/if}
     </div>
   </div>
 
   {#if hasCards}
-    <div class="preview-footer">
+    <div class="preview-footer" class:navigation-only={!showImportControls}>
       <div class="card-navigation">
         <div class="thumbnail-strip">
-          {#each cards as card, index}
+          {#each items as item, index}
             <div
               class="thumbnail"
               class:active={index === currentIndex}
-              class:selected={selectedCardIds.has(card.uuid)}
-              class:pressing={pressedThumbnailId === card.uuid}
-              class:new={card.isNew}
+              class:selected={enableSelection && selectedCardIds.has(item.id)}
+              class:pressing={enableSelection && pressedThumbnailId === item.id}
+              class:new={item.isNew}
               onclick={(event) => handleThumbnailClick(event, index)}
               onkeydown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
@@ -518,17 +607,17 @@ ${originalContent}
                   goToCard(index);
                 }
               }}
-              onpointerdown={() => handleThumbnailPointerDown(card.uuid)}
+              onpointerdown={() => handleThumbnailPointerDown(item.id)}
               onpointerup={handleThumbnailPointerUp}
               onpointercancel={handleThumbnailPointerUp}
               onpointerleave={handleThumbnailPointerUp}
-              oncontextmenu={(event) => handleThumbnailContextMenu(event, card.uuid)}
+              oncontextmenu={(event) => handleThumbnailContextMenu(event, item.id)}
               role="button"
               tabindex="0"
-              title={`${t('modals.cardPreview.title')} ${index + 1} · 长按可选中`}
+              title={`${t('modals.cardPreview.title')} ${index + 1}${enableSelection ? ' · 长按可选中' : ''}`}
             >
               <div class="thumbnail-number">{index + 1}</div>
-              {#if selectedCardIds.has(card.uuid)}
+              {#if enableSelection && selectedCardIds.has(item.id)}
                 <div class="thumbnail-check">
                   <ObsidianIcon name="check" size={12} />
                 </div>
@@ -536,46 +625,48 @@ ${originalContent}
             </div>
           {/each}
 
-          {#if isGenerating && totalCards > cards.length}
-            {#each Array(totalCards - cards.length) as _, index}
-              <div class="thumbnail skeleton" title={`${t('modals.cardPreview.generating')} ${cards.length + index + 1}`}>
+          {#if isGenerating && totalCards > items.length}
+            {#each Array(totalCards - items.length) as _, index}
+              <div class="thumbnail skeleton" title={`${t('modals.cardPreview.generating')} ${items.length + index + 1}`}>
                 <div class="skeleton-loader"></div>
               </div>
             {/each}
           {/if}
         </div>
-        <div class="thumbnail-hint">点按切换卡片，长按序号可选中或取消选中</div>
+        <div class="thumbnail-hint">{resolvedNavigationHint}</div>
       </div>
 
-      <div class="preview-actions">
-        <div class="preview-actions-row">
-          <div class="deck-selector compact">
-            <ObsidianDropdown
-              className="target-deck-select"
-              value={selectedDeckId}
-              disabled={isImporting}
-              iconPosition="left"
-              options={availableDecks.map((deck) => ({
-                id: deck.id,
-                label: truncateDeckName(deck.name),
-                description: deck.id === selectedDeckId ? deck.name : undefined
-              }))}
-              onchange={(value) => {
-                selectedDeckId = value;
-              }}
-            />
+      {#if showImportControls}
+        <div class="preview-actions">
+          <div class="preview-actions-row">
+            <div class="deck-selector compact">
+              <ObsidianDropdown
+                className="target-deck-select"
+                value={selectedDeckId}
+                disabled={isImporting}
+                iconPosition="left"
+                options={availableDecks.map((deck) => ({
+                  id: deck.id,
+                  label: truncateDeckName(deck.name),
+                  description: deck.id === selectedDeckId ? deck.name : undefined
+                }))}
+                onchange={(value) => {
+                  selectedDeckId = value;
+                }}
+              />
+            </div>
+
+            <button
+              class="import-btn compact"
+              onclick={handleImportCards}
+              disabled={selectedCount === 0 || isImporting || !selectedDeckId || !onImport}
+            >
+              <ObsidianIcon name="download" size={16} />
+              <span>{isImporting ? '导入中' : `导入 ${selectedCount}`}</span>
+            </button>
           </div>
-
-          <button
-            class="import-btn compact"
-            onclick={handleImportCards}
-            disabled={selectedCount === 0 || isImporting || !selectedDeckId}
-          >
-            <ObsidianIcon name="download" size={16} />
-            <span>{isImporting ? '导入中' : `导入 ${selectedCount}`}</span>
-          </button>
         </div>
-      </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -606,6 +697,39 @@ ${originalContent}
     border-radius: 0;
     padding: 0;
     margin-bottom: 16px;
+  }
+
+  .preview-context-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .preview-context-copy {
+    min-width: 0;
+  }
+
+  .preview-context-title {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--text-normal);
+  }
+
+  .preview-context-subtitle,
+  .preview-context-index {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+
+  .preview-context-index {
+    margin-top: 0;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
   }
 
   .card-meta {
@@ -672,8 +796,8 @@ ${originalContent}
     line-height: 1.6; 
   } 
 
-  .preview-empty-state.generating > h3,
-  .preview-empty-state.generating > p {
+  .preview-empty-state.with-progress-panel > h3,
+  .preview-empty-state.with-progress-panel > p {
     display: none;
   }
 
@@ -798,10 +922,18 @@ ${originalContent}
     flex-shrink: 0;
   }
 
+  .preview-footer.navigation-only {
+    padding-bottom: 14px;
+  }
+
   .card-navigation {
     display: flex;
     align-items: stretch;
     margin-bottom: 16px;
+  }
+
+  .preview-footer.navigation-only .card-navigation {
+    margin-bottom: 0;
   }
 
   .thumbnail-strip {
@@ -1121,6 +1253,16 @@ ${originalContent}
 
     .card-display {
       margin-bottom: 8px;
+    }
+
+    .preview-context-header {
+      margin-bottom: 10px;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .preview-context-title {
+      font-size: 18px;
     }
 
     .card-meta {

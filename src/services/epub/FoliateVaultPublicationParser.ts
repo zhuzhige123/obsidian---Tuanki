@@ -1060,8 +1060,7 @@ export class FoliateVaultPublicationParser {
 
 	private async readTextResource(href: string): Promise<string> {
 		try {
-			const response = await fetch(href);
-			return response.ok ? await response.text() : "";
+			return await readTextResourceViaXhr(href);
 		} catch (error) {
 			logger.warn("[FoliateVaultPublicationParser] Failed to read transformed resource:", {
 				href,
@@ -1147,8 +1146,13 @@ export class FoliateVaultPublicationParser {
 		return location.href;
 	}
 
+	private stripCfiAssertions(value: string): string {
+		return String(value || "").replace(/\[[^\]]*]/g, "");
+	}
+
 	private wrapCfi(value: string): string {
-		return EpubCfi.isCFI.test(value) ? value : `epubcfi(${value})`;
+		const normalizedValue = this.stripCfiAssertions(this.normalizeLocationString(value));
+		return EpubCfi.isCFI.test(normalizedValue) ? normalizedValue : `epubcfi(${normalizedValue})`;
 	}
 
 	private isCfiLike(value: string): boolean {
@@ -2424,4 +2428,43 @@ export class FoliateVaultPublicationParser {
 	private clamp(value: number, min: number, max: number): number {
 		return Math.min(Math.max(value, min), max);
 	}
+}
+
+function readTextResourceViaXhr(href: string): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const request = new XMLHttpRequest();
+		request.open("GET", href, true);
+		request.responseType = "text";
+		request.onload = () => {
+			if (request.status === 0 || (request.status >= 200 && request.status < 300)) {
+				resolve(request.responseText || "");
+				return;
+			}
+			reject(
+				new Error(
+					`Failed to load text resource: ${request.status} ${request.statusText || "Unknown error"}`
+				)
+			);
+		};
+		request.onerror = async () => {
+			try {
+				resolve(await readTextResourceViaFetch(href));
+			} catch (error) {
+				reject(error);
+			}
+		};
+		request.send();
+	});
+}
+
+async function readTextResourceViaFetch(href: string): Promise<string> {
+	if (typeof globalThis.fetch !== "function") {
+		throw new Error("Failed to load text resource");
+	}
+
+	const response = await globalThis.fetch(href);
+	if (!response.ok) {
+		throw new Error(`Failed to load text resource: ${response.status} ${response.statusText}`);
+	}
+	return response.text();
 }

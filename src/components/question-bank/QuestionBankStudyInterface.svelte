@@ -1469,13 +1469,20 @@
         {/if}
         <div class="question-content" bind:this={questionContentEl} oninput={handleQuestionContentInput}>
           {#if choiceQuestionDerived}
-            <CardContentView
-              plugin={plugin}
-              content={currentQuestion.question.content}
-              sourcePath={currentQuestion.question.sourceFile || ''}
-              section="stem"
-              showAnswer={false}
-            />
+            <section class="study-preview-section">
+              <div class="study-preview-title">
+                <span class="study-preview-chip">题干</span>
+              </div>
+              <div class="study-preview-card question">
+                <CardContentView
+                  plugin={plugin}
+                  content={currentQuestion.question.content}
+                  sourcePath={currentQuestion.question.sourceFile || ''}
+                  section="stem"
+                  showAnswer={false}
+                />
+              </div>
+            </section>
           {:else}
             <ObsidianRenderer
               {plugin}
@@ -1494,16 +1501,21 @@
       <!-- 选项区域 -->
       <div class="options-area">
         {#if choiceQuestionDerived}
-          <CardContentView
-            plugin={plugin}
-            content={currentQuestion.question.content}
-            sourcePath={currentQuestion.question.sourceFile || ''}
-            section="options"
-            {userAnswer}
-            {hasSubmitted}
-            onSingleSelect={handleSingleChoiceSelect}
-            onMultipleToggle={handleMultipleChoiceToggle}
-          />
+          <section class="study-preview-section">
+            <div class="study-preview-title">
+              <span class="study-preview-chip">选项</span>
+            </div>
+            <CardContentView
+              plugin={plugin}
+              content={currentQuestion.question.content}
+              sourcePath={currentQuestion.question.sourceFile || ''}
+              section="options"
+              {userAnswer}
+              {hasSubmitted}
+              onSingleSelect={handleSingleChoiceSelect}
+              onMultipleToggle={handleMultipleChoiceToggle}
+            />
+          </section>
         {:else if !isInputClozeQuestion}
           <!-- 降级渲染：使用旧版本解析，统一使用ChoiceOptionRenderer保持样式一致 -->
           {#each parseOptions(currentQuestion.question.content) as option}
@@ -1560,7 +1572,7 @@
             <EnhancedIcon name="lightbulb" size="18" />
             <span class="explanation-title">答案解析</span>
           </div>
-          <div class="explanation-content">
+          <div class="explanation-content study-preview-card answer">
             <CardContentView
               plugin={plugin}
               content={currentQuestion.question.content}
@@ -2034,6 +2046,62 @@
     white-space: pre-wrap;
   }
 
+  .study-preview-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+
+  .study-preview-title {
+    display: flex;
+    align-items: center;
+  }
+
+  .study-preview-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.55rem;
+    background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+    color: var(--interactive-accent);
+    border-radius: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.025em;
+  }
+
+  .study-preview-card {
+    display: flex;
+    align-items: center;
+    border-radius: 18px;
+    padding: 1.15rem 1.35rem;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    box-shadow: none;
+  }
+
+  .study-preview-card.question {
+    min-height: 84px;
+  }
+
+  .study-preview-card.answer {
+    align-items: stretch;
+  }
+
+  .study-preview-card :global(.weave-obsidian-renderer) {
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: none;
+  }
+
+  .study-preview-card :global(p) {
+    margin: 0;
+  }
+
+  .study-preview-card :global(p + p) {
+    margin-top: 0.6rem;
+  }
+
   /* 选项区域 */
   .options-area {
     display: flex;
@@ -2044,25 +2112,36 @@
   /* 解析区域 */
   .explanation-area {
     margin-top: 2rem;
-    padding: 1.5rem;
-    background: var(--weave-question-bank-panel-bg);
-    border-radius: 12px;
-    border: 2px solid var(--background-modifier-border);
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+    border: none;
   }
 
   .explanation-header {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-    padding-bottom: 0.75rem;
-    border-bottom: 2px solid var(--background-modifier-border);
+    gap: 0;
+    margin-bottom: 0.7rem;
+    padding-bottom: 0;
+    border-bottom: none;
   }
 
   .explanation-title {
-    font-size: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.55rem;
+    background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+    color: var(--interactive-accent);
+    border-radius: 0.375rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    color: var(--text-normal);
+    letter-spacing: 0.025em;
+  }
+
+  .explanation-header :global(svg),
+  .explanation-header :global(.weave-icon) {
+    display: none;
   }
 
   .explanation-content {

@@ -33,6 +33,7 @@ export class CardStateManager {
 	private dataStorage: WeaveDataStorage;
 	private updateHistory: CardStateUpdate[] = [];
 	private decks: Deck[] = [];
+	private dataSourceType: "memory" | "questionBank" | "incremental-reading" = "memory";
 
 	constructor(dataStorage: WeaveDataStorage) {
 		this.dataStorage = dataStorage;
@@ -45,13 +46,87 @@ export class CardStateManager {
 		this.decks = decks;
 	}
 
-	private getDeckGroupKeys(card: Card): string[] {
-		const questionBankDeckIds = getQuestionBankDeckIdsForCard(card);
-		if (questionBankDeckIds.length > 0) {
-			return questionBankDeckIds;
+	setDataSourceType(dataSourceType: "memory" | "questionBank" | "incremental-reading"): void {
+		this.dataSourceType = dataSourceType;
+	}
+
+	private getIRDeckGroupKeys(card: Card): string[] {
+		const cardLike = card as any;
+		const metadataDeckIds = Array.isArray(cardLike?.metadata?.deckIds)
+			? cardLike.metadata.deckIds.filter(
+					(value: unknown): value is string => typeof value === "string" && value.trim().length > 0
+			  )
+			: [];
+		const irDeckIds = Array.isArray(cardLike?.ir_deck_ids)
+			? cardLike.ir_deck_ids.filter(
+					(value: unknown): value is string => typeof value === "string" && value.trim().length > 0
+			  )
+			: [];
+		const deckIds = metadataDeckIds.length > 0 ? metadataDeckIds : irDeckIds;
+		if (deckIds.length > 0) {
+			return Array.from(new Set(deckIds));
+		}
+		if (typeof card.deckId === "string" && card.deckId.trim().length > 0) {
+			return [card.deckId];
+		}
+		return ["_none"];
+	}
+
+	private getIRPriorityValue(card: Card): number {
+		const cardLike = card as any;
+		const candidates = [
+			cardLike?.ir_priority_value,
+			cardLike?.ir_priority,
+			cardLike?.metadata?.priorityUi,
+			cardLike?.metadata?.priorityEff,
+			card.priority,
+		];
+		for (const value of candidates) {
+			if (typeof value === "number" && Number.isFinite(value)) {
+				return value;
+			}
+		}
+		return 5;
+	}
+
+	private getIRTagGroupValue(card: Card): string {
+		const value = String((card as any)?.ir_tag_group || "").trim();
+		return value || "_default";
+	}
+
+	private getTagGroupValues(card: Card): string[] {
+		const cardLike = card as any;
+		const normalized = new Set<string>();
+		const values =
+			this.dataSourceType === "incremental-reading"
+				? [...(Array.isArray(cardLike?.ir_tags) ? cardLike.ir_tags : []), ...(card.tags || [])]
+				: card.tags || [];
+
+		for (const value of values) {
+			if (typeof value !== "string") continue;
+			const normalizedValue = value.trim();
+			if (normalizedValue) {
+				normalized.add(normalizedValue);
+			}
 		}
 
-		const { deckIds } = getCardDeckIds(card, this.decks);
+		return Array.from(normalized);
+	}
+
+	private getDeckGroupKeys(card: Card): string[] {
+		if (this.dataSourceType === "incremental-reading") {
+			return this.getIRDeckGroupKeys(card);
+		}
+
+		if (this.dataSourceType === "questionBank") {
+			const questionBankDeckIds = getQuestionBankDeckIdsForCard(card);
+			if (questionBankDeckIds.length > 0) {
+				return questionBankDeckIds;
+			}
+			return ["_none"];
+		}
+
+		const { deckIds } = getCardDeckIds(card, this.decks, { preserveAllDeckIds: true });
 		if (deckIds.length > 0) {
 			return Array.from(new Set(deckIds));
 		}
@@ -238,7 +313,23 @@ export class CardStateManager {
 	/**
 	 * 获取优先级分组信息
 	 */
-	getPriorityGroups(): CardGroupInfo[] {
+	getPriorityGroups(cards: Card[] = []): CardGroupInfo[] {
+		if (this.dataSourceType === "incremental-reading") {
+			const priorityValues = Array.from(
+				new Set(cards.map((card) => this.getIRPriorityValue(card)))
+			).sort((a, b) => b - a);
+			const colors = ["#ef4444", "#f97316", "#f59e0b", "#3b82f6", "#10b981", "#6b7280"];
+			return priorityValues.map((value, index) => ({
+				key: String(value),
+				label: `P${value}`,
+				color: colors[index % colors.length],
+				icon: "flag",
+				cards: [],
+				count: 0,
+				dueCount: 0,
+			}));
+		}
+
 		return [
 			{
 				key: "4",
@@ -322,9 +413,13 @@ export class CardStateManager {
 			for (const cardDeckId of deckIds) {
 				if (!addedDeckIds.has(cardDeckId)) {
 					const matchedDeck = this.decks.find((deck) => deck.id === cardDeckId);
+					const fallbackLabel =
+						this.dataSourceType === "incremental-reading"
+							? String((_card as any)?.ir_deck || "").trim() || "未分配专题"
+							: cardDeckId;
 					deckGroups.push({
 						key: cardDeckId,
-						label: matchedDeck?.name || cardDeckId, // 没有牌组名称时使用ID
+						label: matchedDeck?.name || fallbackLabel,
 						color: colors[colorIndex % colors.length],
 						icon: "layers",
 						cards: [],
@@ -412,7 +507,7 @@ export class CardStateManager {
 		const tagColors = ["#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4", "#ef4444"];
 
 		for (const _card of cards) {
-			const cardTags = _card.tags || [];
+			const cardTags = this.getTagGroupValues(_card);
 			if (cardTags.length > 0) {
 				tagSet.add(cardTags[0]);
 			}
@@ -443,12 +538,51 @@ export class CardStateManager {
 		return groups;
 	}
 
+	getIRTagGroupGroups(cards: Card[]): CardGroupInfo[] {
+		const groupSet = new Set<string>();
+		const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4"];
+
+		for (const _card of cards) {
+			groupSet.add(this.getIRTagGroupValue(_card));
+		}
+
+		const groups: CardGroupInfo[] = Array.from(groupSet)
+			.sort((a, b) => {
+				if (a === "_default") return 1;
+				if (b === "_default") return -1;
+				return a.localeCompare(b, "zh-CN");
+			})
+			.map((groupKey, index) => ({
+				key: groupKey,
+				label: groupKey === "_default" ? "默认" : groupKey,
+				color: colors[index % colors.length],
+				icon: "layers",
+				cards: [],
+				count: 0,
+				dueCount: 0,
+			}));
+
+		if (!groups.some((group) => group.key === "_default")) {
+			groups.push({
+				key: "_default",
+				label: "默认",
+				color: "#6b7280",
+				icon: "layers",
+				cards: [],
+				count: 0,
+				dueCount: 0,
+			});
+		}
+
+		return groups;
+	}
+
 	/**
 	 * 将卡片分组到指定的分组中
 	 */
 	groupCards(
 		cards: Card[],
-		groupBy: "status" | "type" | "priority" | "deck" | "createTime" | "tag"
+		groupBy: "status" | "type" | "priority" | "deck" | "createTime" | "tag" | "ir_tag_group"
 	): Record<string, Card[]> {
 		const groups: Record<string, Card[]> = {};
 		let groupInfos: CardGroupInfo[];
@@ -461,7 +595,7 @@ export class CardStateManager {
 				groupInfos = this.getTypeGroups();
 				break;
 			case "priority":
-				groupInfos = this.getPriorityGroups();
+				groupInfos = this.getPriorityGroups(cards);
 				break;
 			case "deck":
 				groupInfos = this.getDeckGroups(cards);
@@ -471,6 +605,9 @@ export class CardStateManager {
 				break;
 			case "tag":
 				groupInfos = this.getTagGroups(cards);
+				break;
+			case "ir_tag_group":
+				groupInfos = this.getIRTagGroupGroups(cards);
 				break;
 			default:
 				groupInfos = this.getStateGroups();
@@ -507,7 +644,10 @@ export class CardStateManager {
 					break;
 				}
 				case "priority":
-					groupKey = (_card.priority || 1).toString();
+					groupKey =
+						this.dataSourceType === "incremental-reading"
+							? this.getIRPriorityValue(_card).toString()
+							: (_card.priority || 1).toString();
 					break;
 				case "deck":
 					groupKey = this.getDeckGroupKeys(_card)[0];
@@ -516,7 +656,7 @@ export class CardStateManager {
 					groupKey = this.getTimeGroupKey(_card.created);
 					break;
 				case "tag": {
-					const cardTags = _card.tags || [];
+					const cardTags = this.getTagGroupValues(_card);
 					if (cardTags.length > 0) {
 						groupKey = cardTags[0];
 					} else {
@@ -524,6 +664,9 @@ export class CardStateManager {
 					}
 					break;
 				}
+				case "ir_tag_group":
+					groupKey = this.getIRTagGroupValue(_card);
+					break;
 				default:
 					groupKey = "0";
 			}

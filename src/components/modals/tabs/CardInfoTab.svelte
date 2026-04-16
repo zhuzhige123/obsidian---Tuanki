@@ -7,12 +7,14 @@
   import { onMount } from 'svelte';
   import { Platform } from 'obsidian';
   import EnhancedIcon from '../../ui/EnhancedIcon.svelte';
+  import ResolvedDeckRefs from '../../ui/ResolvedDeckRefs.svelte';
   import { formatRelativeTimeDetailed } from '../../../utils/helpers';
   import { extractSourcePath } from '../../../utils/source-path-matcher';
   import { truncateText } from '../../../utils/ui-helpers';
   import { Notice, MarkdownView } from 'obsidian';
   import type { WeavePlugin } from '../../../main';
   import type { Card } from '../../../data/types';
+  import type { ResolvedDeckRef } from '../../../types/emergent-deck-types';
   import { DerivationMethod } from '../../../services/relation/types';
   //  导入国际化
   import { tr } from '../../../utils/i18n';
@@ -36,9 +38,10 @@
     plugin: WeavePlugin;
     deckName: string;
     templateName: string;
+    resolvedDeckRefs?: ResolvedDeckRef[];
   }
 
-  let { card, plugin, deckName, templateName }: Props = $props();
+  let { card, plugin, deckName, templateName, resolvedDeckRefs = [] }: Props = $props();
 
   //  响应式翻译函数
   let t = $derived($tr);
@@ -427,6 +430,15 @@
         <span class="info-label">{t('modals.cardInfoTab.deckLabel')}</span>
         <span class="info-value">{deckName}</span>
       </div>
+
+      {#if resolvedDeckRefs.length > 0}
+        <div class="info-row" class:mobile={isMobile}>
+          <span class="info-label">被以下牌组引用</span>
+          <span class="info-value">
+            <ResolvedDeckRefs refs={resolvedDeckRefs} showLabel={false} emptyText="" />
+          </span>
+        </div>
+      {/if}
 
       <div class="info-row" class:mobile={isMobile}>
         <span class="info-label">{t('modals.cardInfoTab.createdAt')}</span>

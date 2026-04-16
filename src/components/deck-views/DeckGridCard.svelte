@@ -11,11 +11,13 @@
     stats: DeckStats;
     colorScheme: ColorScheme;
     deckMode?: 'memory' | 'question-bank' | 'incremental-reading';
+    statusBadge?: string;
+    statusKind?: 'formal' | 'emergent';
     onStudy: () => void;
     onMenu: (event: MouseEvent) => void;
   }
 
-  let { deck, stats, colorScheme, deckMode = 'memory', onStudy, onMenu }: Props = $props();
+  let { deck, stats, colorScheme, deckMode = 'memory', statusBadge, statusKind = 'formal', onStudy, onMenu }: Props = $props();
   
   //  响应式翻译函数
   let t = $derived($tr);
@@ -93,6 +95,12 @@
   <div class="card-main" style={mainStyle()}>
     <!-- 微妙的光效层 -->
     <div class="light-effect"></div>
+
+    {#if statusBadge}
+      <div class="status-badge status-badge--{statusKind}">
+        {statusBadge}
+      </div>
+    {/if}
     
     <!-- 右上角菜单按钮 -->
     <button 
@@ -201,6 +209,32 @@
     transition: all 0.2s;
     opacity: 0;
     touch-action: manipulation;
+  }
+
+  .status-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(8px);
+  }
+
+  .status-badge--formal {
+    background: rgba(15, 23, 42, 0.18);
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .status-badge--emergent {
+    background: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.22);
   }
 
   .deck-grid-card:hover .menu-btn {

@@ -313,30 +313,33 @@
       role="application"
     >
       {#if !isMobileDevice}
-        <SidebarNavHeader
-          currentPage={activePage}
-          selectedFilter={sidebarDeckFilter}
-          deckStudyView={activePage === 'deck-study' ? sidebarDeckStudyView : 'grid'}
-          currentView={sidebarCardView}
-          cardDataSource={cardDataSource}
-          app={plugin.app}
-          {isInSidebarMode}
-          onFilterSelect={(filter) => {
-            sidebarDeckFilter = filter;
-            window.dispatchEvent(new CustomEvent('Weave:sidebar-filter-select', { detail: filter }));
-          }}
-          onViewChange={(view) => {
-            sidebarCardView = view;
-            window.dispatchEvent(new CustomEvent('Weave:sidebar-view-change', { detail: view }));
-          }}
-          onCardDataSourceChange={(source) => {
-            cardDataSource = source;
-            window.dispatchEvent(new CustomEvent('Weave:card-data-source-change', { detail: source }));
-          }}
-          onNavigate={(pageId) => {
-            activePage = pageId;
-          }}
-        />
+        <div class="weave-main-toolbar">
+          <SidebarNavHeader
+            currentPage={activePage}
+            {navigationVisibility}
+            selectedFilter={sidebarDeckFilter}
+            deckStudyView={activePage === 'deck-study' ? sidebarDeckStudyView : 'grid'}
+            currentView={sidebarCardView}
+            cardDataSource={cardDataSource}
+            app={plugin.app}
+            {isInSidebarMode}
+            onFilterSelect={(filter) => {
+              sidebarDeckFilter = filter;
+              window.dispatchEvent(new CustomEvent('Weave:sidebar-filter-select', { detail: filter }));
+            }}
+            onViewChange={(view) => {
+              sidebarCardView = view;
+              window.dispatchEvent(new CustomEvent('Weave:sidebar-view-change', { detail: view }));
+            }}
+            onCardDataSourceChange={(source) => {
+              cardDataSource = source;
+              window.dispatchEvent(new CustomEvent('Weave:card-data-source-change', { detail: source }));
+            }}
+            onNavigate={(pageId) => {
+              activePage = pageId;
+            }}
+          />
+        </div>
       {/if}
       
       <main
@@ -421,6 +424,13 @@
     padding-top: 0;
     margin-top: 0;
     transition: padding-top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .weave-main-toolbar {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid var(--background-modifier-border);
   }
 
   .weave-main-content.mobile {

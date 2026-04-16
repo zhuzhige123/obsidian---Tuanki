@@ -90,9 +90,8 @@ describe("BatchTagSuggestModal", () => {
 		expect(row).toBeTruthy();
 		expect(icon).toBeTruthy();
 		expect(title).toBeTruthy();
-		expect(row?.style.display).toBe("flex");
-		expect(row?.style.alignItems).toBe("center");
-		expect(row?.style.flexWrap).toBe("nowrap");
+		expect(el.classList.contains("weave-batch-tag-suggestion")).toBe(true);
+		expect(row?.classList.contains("weave-batch-tag-suggestion__row")).toBe(true);
 		expect(title?.tagName).toBe("SPAN");
 		expect(title?.textContent).toBe("later");
 		expect(setIcon).toHaveBeenCalledWith(icon, "tag");

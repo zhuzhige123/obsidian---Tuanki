@@ -9,11 +9,9 @@
   import type AnkiObsidianPlugin from '../../main';
   import ResizableModal from '../ui/ResizableModal.svelte';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
-  import type { IRDeck, IRChunkFileData, IRBlock } from '../../types/ir-types';
+  import type { IRDeck } from '../../types/ir-types';
+  import { buildProjectedDayLoadMap, getProjectedScheduleSummary } from '../../services/incremental-reading/IRProjectedScheduleSummary';
   import { IRStorageService } from '../../services/incremental-reading/IRStorageService';
-  import { IRPdfBookmarkTaskService } from '../../services/incremental-reading/IRPdfBookmarkTaskService';
-  import { IREpubBookmarkTaskService } from '../../services/incremental-reading/IREpubBookmarkTaskService';
-  import { getChunkTopicIds, getTaskTopicId } from '../../utils/ir-topic-compat';
   import IRStudySessionChart from '../analytics/IRStudySessionChart.svelte';
   import IRActivityHeatmap from '../analytics/IRActivityHeatmap.svelte';
   import * as echarts from 'echarts/core';
@@ -125,17 +123,6 @@
     }
   }
 
-  function buildSessionTotalsByBlockId(sessions: Array<{ blockId?: string; duration?: number }> | undefined | null): Map<string, number> {
-    const totals = new Map<string, number>();
-    for (const session of sessions || []) {
-      const blockId = String(session?.blockId || '').trim();
-      const duration = Number(session?.duration || 0);
-      if (!blockId || duration <= 0) continue;
-      totals.set(blockId, (totals.get(blockId) || 0) + duration);
-    }
-    return totals;
-  }
-
   // IR存储服务实例
   let irStorage: IRStorageService | null = null;
 
@@ -237,205 +224,29 @@
       blockCount: number;
       status: LoadStatus;
     }> = [];
-    
-    const storage = await initIRStorage();
 
     const dailyBudget = plugin.settings.incrementalReading?.dailyTimeBudgetMinutes || 30;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // 获取所有chunks数据
-    let allChunks: IRChunkFileData[] = [];
-    let allBlocks: IRBlock[] = [];
-    
-    try {
-      const chunksData = await storage.getAllChunkData();
-      allChunks = Object.values(chunksData);
-      
-      const blocksData = await storage.getAllBlocks();
-      allBlocks = Object.values(blocksData);
-    } catch (error) {
-      logger.error('[IRLoadForecast] 获取数据失败:', error);
-    }
-    const history = await storage.getHistory();
-    const readingSecondsById = buildSessionTotalsByBlockId(history.sessions);
-
-    // 过滤选中牌组的数据
-    const selectedDeckSet = showGlobalLoad
+    const projectedSummary = (!showGlobalLoad && selectedDeckIds.size === 0)
       ? null
-      : new Set(
-          allIRDecks.flatMap((deck) => {
-            if (!selectedDeckIds.has(deck.id)) {
-              return [];
-            }
-            return [deck.id, String((deck as any)?.path || '').trim()].filter(Boolean);
-          })
-        );
-    
-    const filteredChunks = selectedDeckSet 
-      ? allChunks.filter(chunk => {
-          const deckIds = getChunkTopicIds(chunk);
-          if (deckIds.length > 0) {
-            return deckIds.some(id => selectedDeckSet.has(id));
-          }
-          return false;
-        })
-      : allChunks;
-
-    const filteredBlocks = selectedDeckSet
-      ? allBlocks.filter(block => {
-          const deck = allIRDecks.find(d => d.blockIds?.includes(block.id));
-          return !!deck && (
-            selectedDeckSet.has(deck.id) ||
-            selectedDeckSet.has(String((deck as any)?.path || '').trim())
-          );
-        })
-      : allBlocks;
-
-    // 加载 PDF 书签任务
-    let allPdfTasks: any[] = [];
-    let allEpubTasks: any[] = [];
-    try {
-      const pdfService = new IRPdfBookmarkTaskService(plugin.app);
-      await pdfService.initialize();
-      allPdfTasks = await pdfService.getAllTasks();
-    } catch (e) {
-      logger.debug('[IRLoadForecast] 加载 PDF 书签任务失败', e);
-    }
-    try {
-      const epubService = new IREpubBookmarkTaskService(plugin.app);
-      await epubService.initialize();
-      allEpubTasks = await epubService.getAllTasks();
-    } catch (e) {
-      logger.debug('[IRLoadForecast] 加载 EPUB 书签任务失败', e);
-    }
-
-    const filteredPdfTasks = selectedDeckSet
-      ? allPdfTasks.filter(t => selectedDeckSet.has(String(getTaskTopicId(t) || '').trim()))
-      : allPdfTasks;
-    const filteredEpubTasks = selectedDeckSet
-      ? allEpubTasks.filter(t => selectedDeckSet.has(String(getTaskTopicId(t) || '').trim()))
-      : allEpubTasks;
-
-    // 预估每个块的阅读时间（分钟）
-    const estimateReadingTime = (chunk?: IRChunkFileData, block?: IRBlock): number => {
-      if (chunk) {
-        const historicalSeconds = readingSecondsById.get(String(chunk.chunkId || '')) || 0;
-        if (historicalSeconds > 0 && chunk.stats.impressions > 0) {
-          return (historicalSeconds / chunk.stats.impressions) / 60;
-        }
-      }
-      if (chunk?.stats?.effectiveReadingTimeSec && chunk.stats.impressions > 0) {
-        return (chunk.stats.effectiveReadingTimeSec / chunk.stats.impressions) / 60;
-      }
-      if (block) {
-        const historicalSeconds = readingSecondsById.get(String(block.id || '')) || 0;
-        if (historicalSeconds > 0 && block.reviewCount > 0) {
-          return (historicalSeconds / block.reviewCount) / 60;
-        }
-      }
-      if (block?.totalReadingTime && block.reviewCount > 0) {
-        return (block.totalReadingTime / block.reviewCount) / 60;
-      }
-      return 3; // 默认3分钟
-    };
-
-    const estimatePdfTaskMinutes = (task: any): number => {
-      const historicalSeconds = readingSecondsById.get(String(task?.id || '')) || 0;
-      const impressions = Number(task?.stats?.impressions || 0);
-      if (historicalSeconds > 0 && impressions > 0) {
-        return (historicalSeconds / impressions) / 60;
-      }
-      const s = task?.stats;
-      if (s?.effectiveReadingTimeSec && s?.impressions > 0) {
-        return (s.effectiveReadingTimeSec / s.impressions) / 60;
-      }
-      return 5;
-    };
-
-    const estimateEpubTaskMinutes = (task: any): number => {
-      const historicalSeconds = readingSecondsById.get(String(task?.id || '')) || 0;
-      const impressions = Number(task?.stats?.impressions || 0);
-      if (historicalSeconds > 0 && impressions > 0) {
-        return (historicalSeconds / impressions) / 60;
-      }
-      const s = task?.stats;
-      if (s?.effectiveReadingTimeSec && s?.impressions > 0) {
-        return (s.effectiveReadingTimeSec / s.impressions) / 60;
-      }
-      return 5;
-    };
+      : await getProjectedScheduleSummary(plugin.app, {
+          deckIds: showGlobalLoad ? undefined : Array.from(selectedDeckIds),
+          horizonDays: days
+        });
+    const projectedDayLoadMap = projectedSummary
+      ? buildProjectedDayLoadMap(projectedSummary)
+      : new Map();
 
     // 统计每天的负载
     for (let i = 0; i < days; i++) {
       const targetDate = new Date(today);
       targetDate.setDate(targetDate.getDate() + i);
-      const targetMs = targetDate.getTime();
-      const nextDayMs = targetMs + 24 * 60 * 60 * 1000;
-
-      let totalMinutes = 0;
-      let blockCount = 0;
-
-      // 统计chunks
-      for (const chunk of filteredChunks) {
-        if (chunk.scheduleStatus === 'suspended' || chunk.scheduleStatus === 'done') continue;
-        
-        const nextRepDate = chunk.nextRepDate || 0;
-        if (nextRepDate >= targetMs && nextRepDate < nextDayMs) {
-          totalMinutes += estimateReadingTime(chunk);
-          blockCount++;
-        } else if (nextRepDate < targetMs && i === 0) {
-          // 过期的也算在今天
-          totalMinutes += estimateReadingTime(chunk);
-          blockCount++;
-        }
-      }
-
-      // 统计旧版blocks
-      for (const block of filteredBlocks) {
-        if (block.state === 'suspended') continue;
-        
-        if (block.nextReview) {
-          const reviewMs = new Date(block.nextReview).getTime();
-          if (reviewMs >= targetMs && reviewMs < nextDayMs) {
-            totalMinutes += estimateReadingTime(undefined, block);
-            blockCount++;
-          } else if (reviewMs < targetMs && i === 0) {
-            totalMinutes += estimateReadingTime(undefined, block);
-            blockCount++;
-          }
-        } else if (block.state === 'new' && i === 0) {
-          totalMinutes += estimateReadingTime(undefined, block);
-          blockCount++;
-        }
-      }
-
-      // 统计 PDF 书签任务
-      for (const task of filteredPdfTasks) {
-        const status = String(task.status || 'new');
-        if (status === 'done' || status === 'suspended' || status === 'removed') continue;
-        const nrd = (task.nextRepDate as number) || 0;
-        if (nrd >= targetMs && nrd < nextDayMs) {
-          totalMinutes += estimatePdfTaskMinutes(task);
-          blockCount++;
-        } else if (nrd < targetMs && i === 0) {
-          totalMinutes += estimatePdfTaskMinutes(task);
-          blockCount++;
-        }
-      }
-
-      for (const task of filteredEpubTasks) {
-        const status = String(task.status || 'new');
-        if (status === 'done' || status === 'suspended' || status === 'removed') continue;
-        const nrd = (task.nextRepDate as number) || 0;
-        if (nrd >= targetMs && nrd < nextDayMs) {
-          totalMinutes += estimateEpubTaskMinutes(task);
-          blockCount++;
-        } else if (nrd < targetMs && i === 0) {
-          totalMinutes += estimateEpubTaskMinutes(task);
-          blockCount++;
-        }
-      }
+      const dateKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
+      const projectedDayLoad = projectedDayLoadMap.get(dateKey);
+      let totalMinutes = projectedDayLoad?.totalEstimatedMinutes || 0;
+      let blockCount = projectedDayLoad?.items.length || 0;
 
       // 计算负载状态
       const ratio = totalMinutes / dailyBudget;
