@@ -4,7 +4,7 @@
    * 引导用户前往设置页面激活许可证
    */
   
-  import { FEATURE_METADATA } from '../../services/premium/PremiumFeatureGuard';
+  import { FEATURE_METADATA, PREMIUM_BENEFIT_FEATURE_ORDER } from '../../services/premium/PremiumFeatureGuard';
   
   // FontAwesome v5 SVG 图标定义
   const FA_ICONS: Record<string, string> = {
@@ -12,12 +12,16 @@
     'th-large': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor"><path d="M296 32h192c13.255 0 24 10.745 24 24v160c0 13.255-10.745 24-24 24H296c-13.255 0-24-10.745-24-24V56c0-13.255 10.745-24 24-24zm-272 0h192c13.255 0 24 10.745 24 24v160c0 13.255-10.745 24-24 24H24c-13.255 0-24-10.745-24-24V56c0-13.255 10.745-24 24-24zM0 296c0-13.255 10.745-24 24-24h192c13.255 0 24 10.745 24 24v160c0 13.255-10.745 24-24 24H24c-13.255 0-24-10.745-24-24V296zm272 0c0-13.255 10.745-24 24-24h192c13.255 0 24 10.745 24 24v160c0 13.255-10.745 24-24 24H296c-13.255 0-24-10.745-24-24V296z"/></svg>',
     // 看板视图
     'columns': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor"><path d="M464 32H48C21.49 32 0 53.49 0 80v352c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V80c0-26.51-21.49-48-48-48zM224 416H64V160h160v256zm224 0H288V160h160v256z"/></svg>',
+    // 时间线视图
+    'history': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor"><path d="M504 256c0 136.967-111.033 248-248 248S8 392.967 8 256 119.033 8 256 8c66.97 0 127.78 26.5 172.67 69.67l35.15-35.15C478.82 27.51 504 38.14 504 59.31V176c0 13.25-10.75 24-24 24H363.31c-21.38 0-32.09-25.85-16.97-40.97l37.11-37.11C349.03 92.28 304.77 72 256 72c-101.69 0-184 82.31-184 184s82.31 184 184 184 184-82.31 184-184c0-13.25 10.75-24 24-24s24 10.75 24 24zM232 128c0-13.255 10.745-24 24-24s24 10.745 24 24v103.059l56.971 56.97c9.372 9.373 9.372 24.569 0 33.941-9.373 9.372-24.569 9.372-33.941 0l-64-64A24 24 0 0 1 232 241.059V128z"/></svg>',
     // 牌组分析
     'chart-bar': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor"><path d="M332.8 320h38.4c6.4 0 12.8-6.4 12.8-12.8V172.8c0-6.4-6.4-12.8-12.8-12.8h-38.4c-6.4 0-12.8 6.4-12.8 12.8v134.4c0 6.4 6.4 12.8 12.8 12.8zm96 0h38.4c6.4 0 12.8-6.4 12.8-12.8V76.8c0-6.4-6.4-12.8-12.8-12.8h-38.4c-6.4 0-12.8 6.4-12.8 12.8v230.4c0 6.4 6.4 12.8 12.8 12.8zm-288 0h38.4c6.4 0 12.8-6.4 12.8-12.8v-70.4c0-6.4-6.4-12.8-12.8-12.8h-38.4c-6.4 0-12.8 6.4-12.8 12.8v70.4c0 6.4 6.4 12.8 12.8 12.8zm96 0h38.4c6.4 0 12.8-6.4 12.8-12.8V108.8c0-6.4-6.4-12.8-12.8-12.8h-38.4c-6.4 0-12.8 6.4-12.8 12.8v198.4c0 6.4 6.4 12.8 12.8 12.8zM496 384H64V80c0-8.84-7.16-16-16-16H16C7.16 64 0 71.16 0 80v336c0 17.67 14.33 32 32 32h464c8.84 0 16-7.16 16-16v-32c0-8.84-7.16-16-16-16z"/></svg>',
     // AI助手
     'robot': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512" fill="currentColor"><path d="M32 224h32v192H32a32 32 0 0 1-32-32V256a32 32 0 0 1 32-32zm512-48v272a64 64 0 0 1-64 64H160a64 64 0 0 1-64-64V176a79.974 79.974 0 0 1 80-80h112V32a32 32 0 0 1 64 0v64h112a79.974 79.974 0 0 1 80 80zm-280 80a40 40 0 1 0-40 40 39.997 39.997 0 0 0 40-40zm-8 128h-64v32h64zm96 0h-64v32h64zm104-128a40 40 0 1 0-40 40 39.997 39.997 0 0 0 40-40zm-8 128h-64v32h64zm192-128v128a32 32 0 0 1-32 32h-32V224h32a32 32 0 0 1 32 32z"/></svg>',
     // 增量阅读
     'book-reader': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor"><path d="M352 96c0-53.02-42.98-96-96-96s-96 42.98-96 96 42.98 96 96 96 96-42.98 96-96zM233.59 241.1c-59.33-36.32-155.43-46.3-203.79-49.05C13.55 191.13 0 203.51 0 219.14v222.8c0 14.33 11.59 26.28 26.49 27.05 43.66 2.29 131.99 10.68 193.04 41.43 9.37 4.72 20.48-1.71 20.48-12.26V252.78c-.01-4.67-2.45-8.96-6.42-11.68zm248.61-49.05c-48.35 2.74-144.46 12.73-203.78 49.05-3.97 2.72-6.41 7.01-6.41 11.68v245.38c0 10.55 11.11 16.98 20.48 12.26 61.05-30.75 149.37-39.14 193.04-41.43 14.9-.78 26.49-12.73 26.49-27.06V219.14c-.02-15.63-13.56-28.01-29.82-27.09z"/></svg>',
+    // 涌现牌组
+    'sparkles': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor"><path d="M324.3 330.7c-31.96 9.54-57.46 35.03-67 67-1.75 5.86-10.05 5.86-11.8 0-9.54-31.97-35.03-57.46-67-67-5.86-1.75-5.86-10.05 0-11.8 31.97-9.54 57.46-35.03 67-67 1.75-5.86 10.05-5.86 11.8 0 9.54 31.97 35.04 57.46 67 67 5.86 1.75 5.86 10.05 0 11.8zM208 96l12.14 38.86L259 147l-38.86 12.14L208 198l-12.14-38.86L157 147l38.86-12.14L208 96zm208 96l18.2 58.8L493 269l-58.8 18.2L416 346l-18.2-58.8L339 269l58.8-18.2L416 192z"/></svg>',
     // 批量解析
     'sync-alt': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor"><path d="M370.72 133.28C339.458 104.008 298.888 87.962 255.848 88c-77.458.068-144.328 53.178-162.791 126.85-1.344 5.363-6.122 9.15-11.651 9.15H24.103c-7.498 0-13.194-6.807-11.807-14.176C33.933 94.924 134.813 8 256 8c66.448 0 126.791 26.136 171.315 68.685L463.03 40.97C478.149 25.851 504 36.559 504 57.941V192c0 13.255-10.745 24-24 24H345.941c-21.382 0-32.09-25.851-16.971-40.971l41.75-41.749zM32 296h134.059c21.382 0 32.09 25.851 16.971 40.971l-41.75 41.75c31.262 29.273 71.835 45.319 114.876 45.28 77.418-.07 144.315-53.144 162.787-126.849 1.344-5.363 6.122-9.15 11.651-9.15h57.304c7.498 0 13.194 6.807 11.807 14.176C478.067 417.076 377.187 504 256 504c-66.448 0-126.791-26.136-171.315-68.685L48.97 471.03C33.851 486.149 8 475.441 8 454.059V320c0-13.255 10.745-24 24-24z"/></svg>',
     // 题库系统
@@ -64,6 +68,12 @@
     icon: 'star'
   });
 
+  const benefitFeatures = $derived(
+    PREMIUM_BENEFIT_FEATURE_ORDER
+      .map((id) => ({ id, ...FEATURE_METADATA[id] }))
+      .filter((feature) => Boolean(feature.name))
+  );
+
 
   /**
    * 点击遮罩层关闭
@@ -86,18 +96,15 @@
 
 {#if visible}
   {#if embedded}
-    <!-- 🆕 嵌入模式：直接显示内容，无遮罩层 -->
+    <!-- 嵌入模式：直接显示内容，无遮罩层 -->
     <div class="activation-prompt embedded">
-      <!-- 头部 -->
       <div class="prompt-header">
         <div class="header-content">
-          <!-- /skip all {@html} in this component render trusted internal SVG icons from FA_ICONS constant defined in this file -->
           <span class="feature-icon">{@html getIconSvg(metadata.icon || 'star')}</span>
           <h3 class="feature-name">{metadata.name}</h3>
         </div>
       </div>
 
-      <!-- 内容 -->
       <div class="prompt-content">
         <p class="feature-description">{metadata.description}</p>
         
@@ -112,18 +119,12 @@
         <div class="benefits-list">
           <p class="benefits-title">激活高级版后，您将解锁：</p>
           <ul>
-            <li><span class="benefit-icon">{@html getIconSvg('th-large')}</span> 网格视图</li>
-            <li><span class="benefit-icon">{@html getIconSvg('columns')}</span> 看板视图</li>
-            <li><span class="benefit-icon">{@html getIconSvg('sync-alt')}</span> 批量解析</li>
-            <li><span class="benefit-icon">{@html getIconSvg('robot')}</span> AI制卡</li>
-            <li><span class="benefit-icon">{@html getIconSvg('clipboard-list')}</span> 考试牌组</li>
-            <li><span class="benefit-icon">{@html getIconSvg('book-reader')}</span> 增量阅读</li>
-            <li><span class="benefit-icon">{@html getIconSvg('chart-bar')}</span> 牌组分析</li>
-            <li><span class="benefit-icon">{@html getIconSvg('layers')}</span> 渐进式挖空</li>
+            {#each benefitFeatures as feature (feature.id)}
+              <li><span class="benefit-icon">{@html getIconSvg(feature.icon || 'star')}</span> {feature.name}</li>
+            {/each}
           </ul>
         </div>
 
-        <!-- 购买链接 -->
         <div class="purchase-section">
           <p class="purchase-hint">还没有激活码？</p>
           <a 
@@ -138,7 +139,6 @@
       </div>
     </div>
   {:else}
-    <!-- 模态窗模式：带遮罩层 -->
     <div 
       class="activation-prompt-overlay" 
       onclick={handleOverlayClick}
@@ -150,10 +150,8 @@
       <div 
         class="activation-prompt"
       >
-        <!-- 头部 -->
         <div class="prompt-header">
           <div class="header-content">
-            <!-- /skip all {@html} in this component render trusted internal SVG icons from FA_ICONS constant defined in this file -->
             <span class="feature-icon">{@html getIconSvg(metadata.icon || 'star')}</span>
             <h3 class="feature-name">{metadata.name}</h3>
           </div>
@@ -166,7 +164,6 @@
           </button>
         </div>
 
-        <!-- 内容 -->
         <div class="prompt-content">
           <p class="feature-description">{metadata.description}</p>
           
@@ -181,18 +178,12 @@
           <div class="benefits-list">
             <p class="benefits-title">激活高级版后，您将解锁：</p>
             <ul>
-              <li><span class="benefit-icon">{@html getIconSvg('th-large')}</span> 网格视图</li>
-              <li><span class="benefit-icon">{@html getIconSvg('columns')}</span> 看板视图</li>
-              <li><span class="benefit-icon">{@html getIconSvg('sync-alt')}</span> 批量解析</li>
-              <li><span class="benefit-icon">{@html getIconSvg('robot')}</span> AI制卡</li>
-              <li><span class="benefit-icon">{@html getIconSvg('clipboard-list')}</span> 考试牌组</li>
-              <li><span class="benefit-icon">{@html getIconSvg('book-reader')}</span> 增量阅读</li>
-              <li><span class="benefit-icon">{@html getIconSvg('chart-bar')}</span> 牌组分析</li>
-              <li><span class="benefit-icon">{@html getIconSvg('layers')}</span> 渐进式挖空</li>
+              {#each benefitFeatures as feature (feature.id)}
+                <li><span class="benefit-icon">{@html getIconSvg(feature.icon || 'star')}</span> {feature.name}</li>
+              {/each}
             </ul>
           </div>
 
-          <!-- 购买链接 -->
           <div class="purchase-section">
             <p class="purchase-hint">还没有激活码？</p>
             <a 
@@ -470,7 +461,7 @@
   }
 
 
-  /* 🆕 嵌入模式样式 */
+  /* 嵌入模式样式 */
   .activation-prompt.embedded {
     width: 100%;
     max-width: 100%;

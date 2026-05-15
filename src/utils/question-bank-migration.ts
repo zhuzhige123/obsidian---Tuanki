@@ -263,24 +263,6 @@ export class QuestionBankMigration {
 	}
 
 	/**
-	 * 自动执行迁移（如果需要）
-	 * 注意：此方法在 QuestionBankService 初始化之前调用，只执行文件迁移
-	 */
-	static async autoMigrate(plugin: WeavePlugin): Promise<void> {
-		const migration = new QuestionBankMigration(plugin);
-
-		if (await migration.needsMigration()) {
-			logger.debug("[Migration] 检测到题库数据需要迁移");
-			const result = await migration.migrate();
-
-			if (result.success) {
-				// 更新存储配置
-				await migration.updateStorageConfig();
-			}
-		}
-	}
-
-	/**
 	 * 审计缺失的 pairedMemoryDeckId（需要在服务初始化后调用）
 	 *
 	 * 数据安全优先：

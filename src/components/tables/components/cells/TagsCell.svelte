@@ -1,33 +1,20 @@
 ﻿<script lang="ts">
   import EnhancedIcon from "../../../ui/EnhancedIcon.svelte";
+  import {
+    formatTagSuggestionLabel,
+    normalizeTagSuggestionOptions,
+    TagInputSuggest,
+    type TagSuggestionItem,
+  } from "../../../../utils/tag-suggest";
   import type { TagsCellProps } from "../../types/table-types";
 
-  interface SuggestionNode {
-    name: string;
-    fullPath: string;
-    originalTag: string;
-    children: SuggestionNode[];
-  }
-
-  interface SuggestionRow {
-    key: string;
-    name: string;
-    fullPath: string;
-    originalTag: string;
-    depth: number;
-    hasChildren: boolean;
-    expanded: boolean;
-  }
-
-  let { card, onTagsUpdate, availableTags = [] }: TagsCellProps = $props();
+  let { app, card, onTagsUpdate, availableTags = [] }: TagsCellProps = $props();
   const labels = {
     editTags: '\u7f16\u8f91\u6807\u7b7e',
     removeTag: '\u5220\u9664\u6807\u7b7e',
     addTagPlaceholder: '\u70b9\u51fb\u6dfb\u52a0\u6807\u7b7e',
     inputPlaceholder: '\u8f93\u5165\u6807\u7b7e...',
-    inputPlaceholderFirst: '\u8f93\u5165\u6807\u7b7e\u540e\u6309 Enter',
-    createHintPrefix: '\u6309 Enter \u65b0\u5efa\u6807\u7b7e',
-    noSuggestions: '\u6682\u65e0\u53ef\u590d\u7528\u6807\u7b7e'
+    inputPlaceholderFirst: '\u8f93\u5165\u6807\u7b7e\u540e\u6309 Enter'
   };
 
   const colorPalette = [
@@ -44,12 +31,28 @@
   let isEditing = $state(false);
   let draftTags = $state<string[]>([]);
   let inputValue = $state('');
-  let highlightedSuggestionIndex = $state(0);
-  let expandedSuggestionState = $state(new Map<string, boolean>());
   let containerEl: HTMLDivElement | null = $state(null);
   let inputEl: HTMLInputElement | null = $state(null);
+  let tagSuggest: TagInputSuggest | null = $state(null);
+  let optimisticTags = $state<string[] | null>(null);
+  let lastSeenPropTagSignature = $state<string | null>(null);
 
-  let displayTags = $derived(card.tags || []);
+  function getCardTags(): string[] {
+    return Array.isArray(card.tags)
+      ? card.tags.filter((tag): tag is string => typeof tag === 'string' && !!tag.trim())
+      : [];
+  }
+
+  function getTagSignature(tags: string[]): string {
+    return tags
+      .map((tag) => normalizeTagName(tag).toLowerCase())
+      .filter(Boolean)
+      .join('\u0000');
+  }
+
+  let propTags = $derived.by(() => getCardTags());
+  let propTagSignature = $derived.by(() => getTagSignature(propTags));
+  let displayTags = $derived.by(() => optimisticTags ?? propTags);
   let activeTags = $derived(isEditing ? draftTags : displayTags);
   let visibleDisplayTags = $derived(displayTags.slice(0, 3));
   let hiddenDisplayTagCount = $derived(Math.max(0, displayTags.length - visibleDisplayTags.length));
@@ -59,144 +62,16 @@
   }
 
   let normalizedAvailableTags = $derived.by(() => {
-    const seen = new Set<string>();
-    const uniqueTags: string[] = [];
-
-    for (const rawTag of availableTags || []) {
-      const trimmed = rawTag.trim();
-      const normalized = normalizeTagName(trimmed);
-      const dedupeKey = normalized.toLowerCase();
-      if (!normalized || seen.has(dedupeKey)) continue;
-      seen.add(dedupeKey);
-      uniqueTags.push(trimmed);
-    }
-
-    return uniqueTags;
+    return normalizeTagSuggestionOptions(availableTags || []);
   });
 
-  function sortSuggestionNodes(nodes: SuggestionNode[]) {
-    nodes.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
-    for (const node of nodes) {
-      if (node.children.length > 0) {
-        sortSuggestionNodes(node.children);
-      }
-    }
-    return nodes;
-  }
+  let availableSuggestionRows = $derived.by(() => {
+    const selectedKeys = new Set(
+      draftTags.map((tag) => normalizeTagName(tag).toLowerCase()).filter(Boolean)
+    );
 
-  function buildSuggestionTree(tags: string[]): SuggestionNode[] {
-    const roots: SuggestionNode[] = [];
-    const nodeMap = new Map<string, SuggestionNode>();
-
-    for (const tag of tags) {
-      const normalized = normalizeTagName(tag);
-      if (!normalized) continue;
-
-      const segments = normalized.split('/').map((segment) => segment.trim()).filter(Boolean);
-      if (segments.length === 0) continue;
-
-      let currentPath = '';
-      let parentNode: SuggestionNode | null = null;
-
-      segments.forEach((segment, index) => {
-        currentPath = currentPath ? `${currentPath}/${segment}` : segment;
-        let node = nodeMap.get(currentPath);
-
-        if (!node) {
-          node = {
-            name: segment,
-            fullPath: currentPath,
-            originalTag: currentPath,
-            children: []
-          };
-          nodeMap.set(currentPath, node);
-
-          if (parentNode) {
-            parentNode.children.push(node);
-          } else {
-            roots.push(node);
-          }
-        }
-
-        if (index === segments.length - 1) {
-          node.originalTag = tag;
-        }
-
-        parentNode = node;
-      });
-    }
-
-    return sortSuggestionNodes(roots);
-  }
-
-  function isSuggestionExpanded(path: string): boolean {
-    return expandedSuggestionState.get(path) ?? true;
-  }
-
-  function toggleSuggestionExpanded(path: string) {
-    const nextState = new Map(expandedSuggestionState);
-    nextState.set(path, !isSuggestionExpanded(path));
-    expandedSuggestionState = nextState;
-  }
-
-  let suggestionTree = $derived(buildSuggestionTree(normalizedAvailableTags));
-
-  let visibleSuggestionRows = $derived.by(() => {
-    const keyword = inputValue.trim().toLowerCase();
-    const rows: SuggestionRow[] = [];
-
-    const matchesKeyword = (node: SuggestionNode): boolean => {
-      const selfMatches = !keyword
-        || node.fullPath.toLowerCase().includes(keyword)
-        || node.name.toLowerCase().includes(keyword);
-
-      if (selfMatches) return true;
-      return node.children.some((child) => matchesKeyword(child));
-    };
-
-    const walk = (node: SuggestionNode, depth: number) => {
-      if (!matchesKeyword(node)) {
-        return;
-      }
-
-      const expanded = keyword ? true : isSuggestionExpanded(node.fullPath);
-
-      rows.push({
-        key: node.fullPath,
-        name: node.name,
-        fullPath: node.fullPath,
-        originalTag: node.originalTag,
-        depth,
-        hasChildren: node.children.length > 0,
-        expanded
-      });
-
-      if (!expanded && !keyword) {
-        return;
-      }
-
-      for (const child of node.children) {
-        walk(child, depth + 1);
-      }
-    };
-
-    for (const node of suggestionTree) {
-      walk(node, 0);
-    }
-
-    return rows;
-  });
-
-  $effect(() => {
-    inputValue;
-    visibleSuggestionRows.length;
-    highlightedSuggestionIndex = 0;
-  });
-
-  $effect(() => {
-    if (highlightedSuggestionIndex >= visibleSuggestionRows.length) {
-      highlightedSuggestionIndex = Math.max(visibleSuggestionRows.length - 1, 0);
-    }
+    return normalizedAvailableTags
+      .filter((suggestion) => !selectedKeys.has(suggestion.key));
   });
 
   function getTagColorIndex(tag: string): number {
@@ -216,13 +91,18 @@
     return `background:${background};color:${color};border-color:${border};`;
   }
 
-  function focusInput() {
+  function focusInput(shouldRefreshSuggestions = false) {
     requestAnimationFrame(() => {
       inputEl?.focus();
+      if (shouldRefreshSuggestions) {
+        requestAnimationFrame(() => {
+          inputEl?.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      }
     });
   }
 
-  function isolateCellInteraction(event?: MouseEvent | KeyboardEvent) {
+  function isolateCellInteraction(event?: Event) {
     if (!event) return;
     event.cancelBubble = true;
   }
@@ -234,84 +114,93 @@
     draftTags = [...displayTags];
     inputValue = '';
     isEditing = true;
-    focusInput();
+    focusInput(true);
   }
 
   function finishEditing() {
+    tagSuggest?.close();
     isEditing = false;
     inputValue = '';
-    highlightedSuggestionIndex = 0;
   }
 
   function syncTags(newTags: string[]) {
-    draftTags = newTags;
-    onTagsUpdate?.(card.uuid, newTags);
+    const nextTags = [...newTags];
+    draftTags = nextTags;
+    optimisticTags = nextTags;
+    onTagsUpdate?.(card.uuid, nextTags);
   }
 
-  function addTag(tag: string) {
-    const trimmed = tag.trim();
-    if (!trimmed) return;
+  function addTag(tag: string, refocus = true) {
+    const normalized = normalizeTagName(tag);
+    if (!normalized) return;
 
-    const exists = draftTags.some((item) => item.toLowerCase() === trimmed.toLowerCase());
+    const exists = draftTags.some(
+      (item) => normalizeTagName(item).toLowerCase() === normalized.toLowerCase()
+    );
     if (exists) {
       inputValue = '';
       return;
     }
 
-    syncTags([...draftTags, trimmed]);
+    syncTags([...draftTags, normalized]);
     inputValue = '';
-    focusInput();
+    if (refocus) {
+      focusInput(true);
+    }
   }
 
   function removeTag(tag: string) {
-    syncTags(draftTags.filter((item) => item !== tag));
-    focusInput();
+    const normalized = normalizeTagName(tag).toLowerCase();
+    syncTags(draftTags.filter((item) => normalizeTagName(item).toLowerCase() !== normalized));
+    focusInput(true);
+  }
+
+  function buildCreateSuggestion(query: string): TagSuggestionItem | null {
+    const normalized = normalizeTagName(query);
+    if (!normalized) {
+      return null;
+    }
+
+    const key = normalized.toLowerCase();
+    const existsInDraft = draftTags.some((tag) => normalizeTagName(tag).toLowerCase() === key);
+    const existsInAvailable = normalizedAvailableTags.some((item) => item.key === key);
+
+    if (existsInDraft || existsInAvailable) {
+      return null;
+    }
+
+    return {
+      key,
+      tag: normalized,
+      label: `新建 ${formatTagSuggestionLabel(normalized)}`,
+      count: 0,
+      keywords: [normalized, formatTagSuggestionLabel(normalized), '新建'],
+      searchText: [normalized, formatTagSuggestionLabel(normalized), '新建']
+        .map((value) => value.toLowerCase())
+        .join(' '),
+      isCreateSuggestion: true,
+    };
+  }
+
+  function isEventInsideTagSuggest(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) {
+      return false;
+    }
+
+    return Boolean(target.closest('.suggestion-container'));
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    const highlightedSuggestion = visibleSuggestionRows[highlightedSuggestionIndex];
+    isolateCellInteraction(event);
 
     if (event.key === 'Enter') {
       event.preventDefault();
-
-      if (inputValue.trim()) {
-        addTag(inputValue);
-      } else if (highlightedSuggestion) {
-        addTag(highlightedSuggestion.originalTag);
-      } else {
-        finishEditing();
+      const normalized = normalizeTagName(inputValue);
+      if (normalized) {
+        addTag(normalized);
+        return;
       }
-      return;
-    }
-
-    if (event.key === 'Tab' && highlightedSuggestion) {
-      event.preventDefault();
-      addTag(highlightedSuggestion.originalTag);
-      return;
-    }
-
-    if (event.key === 'ArrowDown' && visibleSuggestionRows.length > 0) {
-      event.preventDefault();
-      highlightedSuggestionIndex = (highlightedSuggestionIndex + 1) % visibleSuggestionRows.length;
-      return;
-    }
-
-    if (event.key === 'ArrowUp' && visibleSuggestionRows.length > 0) {
-      event.preventDefault();
-      highlightedSuggestionIndex =
-        (highlightedSuggestionIndex - 1 + visibleSuggestionRows.length) % visibleSuggestionRows.length;
-      return;
-    }
-
-    if (event.key === 'ArrowRight' && highlightedSuggestion?.hasChildren && !highlightedSuggestion.expanded) {
-      event.preventDefault();
-      toggleSuggestionExpanded(highlightedSuggestion.fullPath);
-      return;
-    }
-
-    if (event.key === 'ArrowLeft' && highlightedSuggestion?.hasChildren && highlightedSuggestion.expanded) {
-      event.preventDefault();
-      toggleSuggestionExpanded(highlightedSuggestion.fullPath);
+      finishEditing();
       return;
     }
 
@@ -324,19 +213,57 @@
     if (event.key === 'Backspace' && !inputValue && draftTags.length > 0) {
       event.preventDefault();
       syncTags(draftTags.slice(0, -1));
+      focusInput(true);
+    }
+  }
+
+  $effect(() => {
+    const currentSignature = propTagSignature;
+
+    if (lastSeenPropTagSignature === null) {
+      lastSeenPropTagSignature = currentSignature;
       return;
     }
 
-    if (event.key === ',') {
-      event.preventDefault();
-      addTag(inputValue);
+    if (currentSignature !== lastSeenPropTagSignature) {
+      lastSeenPropTagSignature = currentSignature;
+      optimisticTags = null;
     }
-  }
+  });
+
+  $effect(() => {
+    if (!app || !inputEl || !isEditing) {
+      tagSuggest?.destroy();
+      tagSuggest = null;
+      return;
+    }
+
+    const suggest = new TagInputSuggest(app, inputEl, {
+      getItems: () => availableSuggestionRows,
+      getQuery: () => inputValue,
+      isActive: () => isEditing,
+      onSelectTag: (tag) => addTag(tag),
+      createSuggestion: (query) => buildCreateSuggestion(query),
+      limit: 40,
+    });
+
+    tagSuggest = suggest;
+
+    return () => {
+      suggest.destroy();
+      if (tagSuggest === suggest) {
+        tagSuggest = null;
+      }
+    };
+  });
 
   $effect(() => {
     if (!isEditing || !containerEl) return;
 
     const handlePointerDown = (event: MouseEvent) => {
+      if (isEventInsideTagSuggest(event.target)) {
+        return;
+      }
       if (containerEl && !containerEl.contains(event.target as Node)) {
         finishEditing();
       }
@@ -359,7 +286,11 @@
     bind:this={containerEl}
     onclick={(event) => {
       isolateCellInteraction(event);
-      if (!isEditing) beginEditing(event);
+      if (!isEditing) {
+        beginEditing(event);
+        return;
+      }
+      focusInput(true);
     }}
     onkeydown={(event) => {
       if ((event.key === 'Enter' || event.key === ' ') && !isEditing) {
@@ -400,10 +331,18 @@
         <input
           bind:this={inputEl}
           class="weave-tag-input"
-          bind:value={inputValue}
           placeholder={activeTags.length > 0 ? labels.inputPlaceholder : labels.inputPlaceholderFirst}
+          bind:value={inputValue}
+          oninput={(event) => {
+            isolateCellInteraction(event);
+          }}
           onkeydown={handleKeydown}
-          onclick={(event) => isolateCellInteraction(event)}
+          onfocus={(event) => {
+            isolateCellInteraction(event);
+          }}
+          onclick={(event) => {
+            isolateCellInteraction(event);
+          }}
           autocomplete="off"
           spellcheck="false"
         />
@@ -415,66 +354,6 @@
     {#if !isEditing}
       <div class="weave-tags-edit-hint">
         <EnhancedIcon name="plus" size={12} />
-      </div>
-    {/if}
-
-    {#if isEditing}
-      <div class="suggestion-container mod-suggestion weave-tags-suggestions" role="listbox">
-        {#if visibleSuggestionRows.length > 0}
-          {#each visibleSuggestionRows as suggestion, index (suggestion.key)}
-            <div
-              class="suggestion-item weave-suggestion-row"
-              class:is-selected={index === highlightedSuggestionIndex}
-              style={`--weave-tag-depth:${suggestion.depth};`}
-              role="option"
-              tabindex="-1"
-              aria-selected={index === highlightedSuggestionIndex}
-              onclick={(event) => {
-                isolateCellInteraction(event);
-                addTag(suggestion.originalTag);
-              }}
-              onkeydown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  isolateCellInteraction(event);
-                  addTag(suggestion.originalTag);
-                }
-              }}
-            >
-              <div class="weave-suggestion-content">
-                <span class="weave-suggestion-indent" aria-hidden="true"></span>
-                {#if suggestion.hasChildren}
-                  <button
-                    type="button"
-                    class="weave-suggestion-toggle"
-                    aria-label={suggestion.expanded ? '收起子标签' : '展开子标签'}
-                    onclick={(event) => {
-                      isolateCellInteraction(event);
-                      event.preventDefault();
-                      toggleSuggestionExpanded(suggestion.fullPath);
-                    }}
-                  >
-                    <EnhancedIcon name={suggestion.expanded ? "chevronDown" : "chevronRight"} size={12} />
-                  </button>
-                {:else}
-                  <span class="weave-suggestion-toggle-placeholder" aria-hidden="true"></span>
-                {/if}
-                <span class="weave-suggestion-icon" aria-hidden="true">
-                  <EnhancedIcon name="tag" size={13} />
-                </span>
-                <span class="weave-suggestion-text" title={suggestion.originalTag}>
-                  {suggestion.name}
-                </span>
-              </div>
-            </div>
-          {/each}
-        {:else if inputValue.trim()}
-          <div class="suggestion-item weave-suggestion-empty">
-            {labels.createHintPrefix} “{inputValue.trim()}”
-          </div>
-        {:else if normalizedAvailableTags.length === 0}
-          <div class="suggestion-item weave-suggestion-empty">{labels.noSuggestions}</div>
-        {/if}
       </div>
     {/if}
   </div>
@@ -648,107 +527,5 @@
 
   .weave-tags-cell:hover .weave-tags-edit-hint {
     opacity: 1;
-  }
-
-  .weave-tags-suggestions {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    min-width: max(100%, 280px);
-    max-width: min(420px, calc(100vw - 32px));
-    max-height: 360px;
-    overflow-y: auto;
-    padding: 6px 0;
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 8px;
-    box-shadow: var(--shadow-s, 0 8px 18px color-mix(in srgb, var(--background-modifier-border) 46%, transparent));
-    z-index: 30;
-  }
-
-  .weave-suggestion-row {
-    display: block;
-    width: 100%;
-    min-height: 30px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--text-normal);
-    text-align: left;
-    cursor: pointer;
-    border-radius: 0;
-  }
-
-  .weave-suggestion-row:hover,
-  .weave-suggestion-row.is-selected {
-    background: var(--background-modifier-hover);
-  }
-
-  .weave-suggestion-content {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 30px;
-    width: 100%;
-    padding: 0 12px;
-    padding-left: calc(12px + (var(--weave-tag-depth, 0) * 18px));
-    white-space: nowrap;
-  }
-
-  .weave-suggestion-indent {
-    width: 0;
-    flex-shrink: 0;
-  }
-
-  .weave-suggestion-toggle,
-  .weave-suggestion-toggle-placeholder {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-  }
-
-  .weave-suggestion-toggle {
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-
-  .weave-suggestion-toggle:hover {
-    color: var(--text-normal);
-  }
-
-  .weave-suggestion-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    flex-shrink: 0;
-    color: var(--text-muted);
-  }
-
-  .weave-suggestion-text {
-    display: block;
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 14px;
-    line-height: 1.35;
-  }
-
-  .weave-suggestion-empty {
-    display: flex;
-    align-items: center;
-    min-height: 30px;
-    color: var(--text-muted);
-    padding: 0 12px;
-    font-size: 13px;
   }
 </style>

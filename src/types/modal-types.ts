@@ -4,6 +4,7 @@
  */
 
 import type { Card } from "../data/types";
+import type { ResolvedDeckRef } from "./emergent-deck-types";
 
 /**
  * 创建卡片选项
@@ -38,6 +39,10 @@ export interface CreateCardOptions {
 		content?: string;
 		/** 源文件路径 */
 		sourceFile?: string;
+		sourceDocumentKey?: string;
+		sourceSubunitKey?: string;
+		sourceKind?: "markdown" | "pdf" | "epub" | "unknown";
+		outputKind?: "extract" | "memory";
 		/** 源块ID */
 		sourceBlock?: string;
 		/** 目标牌组ID */
@@ -53,6 +58,7 @@ export interface CreateCardOptions {
 
 	/** 取消回调 */
 	onCancel?: () => void;
+	resolvedDeckRefs?: ResolvedDeckRef[];
 }
 
 /**

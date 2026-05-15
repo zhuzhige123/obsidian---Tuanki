@@ -1,8 +1,9 @@
 import type {
 	EpubBook,
 	EpubFlowMode,
+	EpubHighlightStyle,
 	EpubLayoutMode,
-	EpubTheme,
+	EpubStrikethroughDisplayMode,
 	EpubWidthMode,
 	PaginationInfo,
 	ReadingPosition,
@@ -13,6 +14,12 @@ export type EpubReaderEngineType = "foliate";
 
 export type FlashStyle = "pulse" | "highlight" | "none";
 export type ReaderHighlightPresentation = "highlight" | "conceal";
+
+export interface HighlightSourceLocator {
+	sourceFile: string;
+	sourceRef?: string;
+	excerptId?: string;
+}
 
 export interface NavigateAndHighlightOptions {
 	cfi?: string;
@@ -32,12 +39,19 @@ export interface ReaderNavigateOptions {
 	text?: string;
 }
 
+export interface ReaderNavigationRectOptions extends ReaderNavigateOptions {
+	allowFallback?: boolean;
+}
+
 export interface HighlightClickInfo {
 	cfiRange: string;
 	color: string;
+	style?: EpubHighlightStyle;
 	text: string;
 	sourceFile: string;
 	sourceRef?: string;
+	excerptId?: string;
+	sourceLocators?: HighlightSourceLocator[];
 	createdTime?: number;
 	temporary?: boolean;
 	presentation?: ReaderHighlightPresentation;
@@ -47,9 +61,14 @@ export interface HighlightClickInfo {
 export interface ReaderHighlightInput {
 	cfiRange: string;
 	color: string;
+	style?: EpubHighlightStyle;
 	text?: string;
+	chapterIndex?: number;
+	chapterTitle?: string;
 	sourceFile?: string;
 	sourceRef?: string;
+	excerptId?: string;
+	sourceLocators?: HighlightSourceLocator[];
 	createdTime?: number;
 	presentation?: ReaderHighlightPresentation;
 }
@@ -65,15 +84,25 @@ export interface ReaderRenderOptions {
 	spread?: string;
 	manager?: "default" | "continuous";
 	minSpreadWidth?: number;
-	theme?: EpubTheme;
 	lineHeight?: number;
+	letterSpacing?: number;
+	pageMargin?: number;
 	widthMode?: EpubWidthMode;
+	strikethroughPresentation?: EpubStrikethroughDisplayMode;
 }
 
 export interface ReaderAppearanceOptions {
-	theme?: EpubTheme;
 	lineHeight?: number;
+	letterSpacing?: number;
+	pageMargin?: number;
 	widthMode?: EpubWidthMode;
+	strikethroughPresentation?: EpubStrikethroughDisplayMode;
+}
+
+export interface ReaderRemainingTimeEstimate {
+	bookMs?: number;
+	chapterMs?: number;
+	wordsPerMinute?: number;
 }
 
 export interface ReaderFrame {
@@ -85,6 +114,13 @@ export interface ReaderFrame {
 export interface ReaderSelectionChange {
 	cfiRange: string;
 	frame: ReaderFrame;
+}
+
+export interface ReaderFootnotePreviewInfo {
+	href: string;
+	label: string;
+	text: string;
+	rect: { top: number; left: number; bottom: number; right: number; width: number; height: number };
 }
 
 export interface EpubChapterExportAsset {
@@ -113,9 +149,10 @@ export interface EpubReaderEngine {
 	canonicalizeLocation?(cfi: string, textHint?: string): Promise<string | null>;
 	getReadingProgress(): number;
 	getPaginationInfo(): Promise<PaginationInfo>;
+	getRemainingReadingTimeEstimate?(): Promise<ReaderRemainingTimeEstimate>;
 	isLayoutChanging(): boolean;
 	resize(width: number, height: number): void;
-	applyReaderAppearance(theme: EpubTheme, lineHeight: number, redisplay?: boolean): Promise<void>;
+	applyReaderAppearance(appearance: ReaderAppearanceOptions, redisplay?: boolean): Promise<void>;
 	onRelocated(callback: (position: ReadingPosition) => void): () => void;
 	setLayoutMode(
 		mode: EpubLayoutMode,
@@ -126,7 +163,7 @@ export interface EpubReaderEngine {
 	getTableOfContents(): Promise<TocItem[]>;
 	navigateTo(options: ReaderNavigateOptions): Promise<void>;
 	navigateAndHighlight(options: NavigateAndHighlightOptions): Promise<void>;
-	getNavigationTargetRect(options: { cfi?: string; href?: string; text?: string }): DOMRect | null;
+	getNavigationTargetRect(options: ReaderNavigationRectOptions): DOMRect | null;
 	getCurrentPosition(): ReadingPosition;
 	getCurrentChapterTitle(): string;
 	getCurrentChapterIndex(): number;
@@ -139,8 +176,10 @@ export interface EpubReaderEngine {
 	getCurrentCFI(): string;
 	prevPage(): Promise<void>;
 	nextPage(): Promise<void>;
+	goToPage(pageNumber: number): Promise<void>;
 	getPageNumberFromCfi(cfi: string): Promise<number | undefined>;
 	getVisibleFrames(): ReaderFrame[];
+	onFootnotePreview(callback: (info: ReaderFootnotePreviewInfo | null) => void): () => void;
 	onSelectionChange(callback: (event: ReaderSelectionChange) => void): () => void;
 	onHighlightClick(callback: (info: HighlightClickInfo) => void): () => void;
 	applyHighlights(highlights: ReaderHighlight[]): Promise<void>;

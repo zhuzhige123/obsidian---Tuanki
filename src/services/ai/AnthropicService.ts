@@ -125,7 +125,6 @@ export class AnthropicService extends AIService {
 					images: card.images || [],
 					explanation: card.explanation,
 					// 块链接溯源信息
-					sourceText: card.sourceText ? this.ensureString(card.sourceText) : undefined,
 					metadata: {
 						generatedAt: new Date().toISOString(),
 						provider: "anthropic",

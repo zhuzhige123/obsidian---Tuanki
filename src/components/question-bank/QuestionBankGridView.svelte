@@ -2,9 +2,10 @@
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
 import { logger } from '../../utils/logger';
   import { resolveQuestionBankSessionEntryAction } from '../../utils/question-bank-resume';
+  import { openObsidianDeckEditModal } from '../../utils/obsidian-deck-edit-modal';
 
   import { onMount, onDestroy } from 'svelte';
-  import { Menu, Modal, Notice, Setting } from 'obsidian';
+  import { Menu, Notice } from 'obsidian';
   import type { Deck, Card } from '../../data/types';
   import type { DeckTreeNode } from '../../services/deck/DeckHierarchyService';
   import type { TestMode, QuestionBankModeConfig } from '../../types/question-bank-types';
@@ -30,7 +31,7 @@ import { logger } from '../../utils/logger';
 
   let { plugin }: Props = $props();
 
-  // 🆕 获取当前牌组卡片设计样式
+  // 获取当前牌组卡片设计样式
   const deckCardStyle = $derived<DeckCardStyle>(
     (plugin.settings.deckCardStyle as DeckCardStyle) || 'default'
   );
@@ -176,7 +177,7 @@ import { logger } from '../../utils/logger';
       }
     }
     
-    // ✅ 新方式：打开独立的考试学习标签页
+    // 新方式：打开独立的考试学习标签页
     await plugin.openQuestionBankSession({
       bankId,
       bankName,
@@ -320,85 +321,42 @@ import { logger } from '../../utils/logger';
     const bank = allBanks.find(b => b.id === bankId);
     if (!bank) return;
 
-    const modal = new Modal(plugin.app);
-    modal.titleEl.setText('编辑牌组');
+    const availableTags = Array.from(
+      new Set(allBanks.flatMap((item) => Array.isArray(item.tags) ? item.tags : []).filter(Boolean))
+    ).sort((left, right) => left.localeCompare(right, 'zh-CN'));
 
-    let newName = bank.name;
-    let newTag = (bank.tags && bank.tags.length > 0) ? bank.tags[0] : '';
-
-    // 名称
-    new Setting(modal.contentEl)
-      .setName('名称')
-      .addText((text: any) => {
-        text.setValue(newName).onChange((v: string) => { newName = v; });
-        text.inputEl.style.width = '100%';
-      });
-
-    // 牌组标签（单选）
-    new Setting(modal.contentEl)
-      .setName('牌组标签(单选)')
-      .setDesc('标签用于牌组分类，仅可选择一个标签');
-
-    const tagInputContainer = modal.contentEl.createDiv({ cls: 'weave-tag-input-container' });
-    const tagDisplay = tagInputContainer.createDiv({ cls: 'weave-tag-display' });
-
-    function renderTag() {
-      tagDisplay.empty();
-      if (newTag) {
-        const chip = tagDisplay.createSpan({ cls: 'weave-tag-chip', text: newTag });
-        const removeBtn = chip.createSpan({ cls: 'weave-tag-remove', text: '\u00d7' });
-        removeBtn.onclick = () => { newTag = ''; renderTag(); };
-      }
-    }
-    renderTag();
-
-    const tagInput = tagInputContainer.createEl('input', {
-      type: 'text',
-      placeholder: '输入标签后按回车添加'
-    });
-    tagInput.style.width = '100%';
-    tagInput.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && tagInput.value.trim()) {
-        e.preventDefault();
-        newTag = tagInput.value.trim();
-        tagInput.value = '';
-        renderTag();
+    openObsidianDeckEditModal({
+      app: plugin.app,
+      title: '编辑考试题组',
+      nameLabel: '名称',
+      tagLabel: '标签',
+      tagPlaceholder: '输入标签后按回车',
+      tagHint: '可为考试题组设置一个标签，用于分组和筛选。',
+      confirmText: '保存',
+      cancelText: '取消',
+      initialName: bank.name,
+      initialTag: (bank.tags && bank.tags.length > 0) ? bank.tags[0] : '',
+      availableTags,
+      onSubmit: async ({ name, tag }) => {
+        try {
+          const dataStorage = plugin.dataStorage;
+          const updated: Deck = {
+            ...bank,
+            name,
+            tags: tag ? [tag] : [],
+            modified: new Date().toISOString(),
+          };
+          await dataStorage.saveDeck(updated);
+          await loadQuestionBankTree();
+          plugin.app.workspace.trigger('Weave:data-changed');
+          new Notice('牌组已更新');
+        } catch (error) {
+          logger.error('[QuestionBankGridView] 编辑失败:', error);
+          new Notice('编辑失败');
+          throw error;
+        }
       }
     });
-
-    // 按钮
-    const btnContainer = modal.contentEl.createDiv({ cls: 'modal-button-container' });
-    btnContainer.style.display = 'flex';
-    btnContainer.style.justifyContent = 'flex-end';
-    btnContainer.style.gap = '8px';
-    btnContainer.style.marginTop = '16px';
-
-    const cancelBtn = btnContainer.createEl('button', { text: '取消' });
-    cancelBtn.onclick = () => modal.close();
-
-    const saveBtn = btnContainer.createEl('button', { text: '保存', cls: 'mod-cta' });
-    saveBtn.onclick = async () => {
-      if (!newName.trim()) return;
-      try {
-        const dataStorage = plugin.dataStorage;
-        const updated: Deck = {
-          ...bank,
-          name: newName.trim(),
-          tags: newTag ? [newTag] : [],
-          modified: new Date().toISOString(),
-        };
-        await dataStorage.saveDeck(updated);
-        await loadQuestionBankTree();
-        plugin.app.workspace.trigger('Weave:data-changed');
-        new Notice('牌组已更新');
-        modal.close();
-      } catch (error) {
-        logger.error('[QuestionBankGridView] 编辑失败:', error);
-        new Notice('编辑失败');
-      }
-    };
-
-    modal.open();
   }
 
 </script>
@@ -562,13 +520,13 @@ import { logger } from '../../utils/logger';
     }
   }
 
-  /* 📱 Obsidian 移动端特定样式 - 内容区贴边 */
+  /* Obsidian 移动端特定样式 - 内容区贴边 */
   :global(body.is-mobile) .cards-grid {
-    gap: 8px; /* 🔧 减少卡片之间的间距 */
+    gap: 8px; /* 减少卡片之间的间距 */
     padding: 4px 0;
   }
 
   :global(body.is-phone) .cards-grid {
-    gap: 6px; /* 🔧 手机端进一步减少卡片间距 */
+    gap: 6px; /* 手机端进一步减少卡片间距 */
   }
 </style>

@@ -181,6 +181,26 @@ describe("mobile-modal-bounds", () => {
 		expect(bounds.detected).toContain("bottom:heuristic");
 	});
 
+	it("忽略 EPUB 阅读器内部的底部翻页栏，避免污染工作区底部偏移", () => {
+		const epubRoot = document.createElement("div");
+		epubRoot.className = "epub-reader-root";
+		mockRect(epubRoot, { top: 0, width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT });
+
+		const bottomNavSlot = document.createElement("div");
+		bottomNavSlot.className = "epub-bottom-nav-slot";
+		bottomNavSlot.style.position = "relative";
+		mockRect(bottomNavSlot, { top: 730, width: VIEWPORT_WIDTH, height: 74 });
+
+		epubRoot.append(bottomNavSlot);
+		document.body.append(epubRoot);
+
+		const bounds = getWorkspaceBounds();
+
+		expect(bounds.top).toBe(SAFE_AREA_TOP);
+		expect(bounds.bottom).toBe(SAFE_AREA_BOTTOM);
+		expect(bounds.detected).toContain(`bottom:safe-area=${SAFE_AREA_BOTTOM}px`);
+	});
+
 	it("在底栏模式切换后会自动刷新全局 CSS 变量", async () => {
 		const toolbar = document.createElement("div");
 		toolbar.className = "mobile-toolbar";

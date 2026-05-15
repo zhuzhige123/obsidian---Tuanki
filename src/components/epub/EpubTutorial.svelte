@@ -46,7 +46,7 @@
 
 	<div class="epub-tutorial-panel">
 		<div class="epub-tutorial-header">
-			<span>EPUB 阅读器使用教程</span>
+			<span>书籍阅读器使用教程</span>
 			<button class="epub-tutorial-close" onclick={onClose} aria-label="关闭教程">
 				<span use:icon={'x'}></span>
 			</button>
@@ -67,9 +67,11 @@
 			<div class="epub-tutorial-body">
 				{#if activeTab === 'basics'}
 					<div class="epub-tut-section">
-						<div class="epub-tut-title">打开 EPUB 文件</div>
+						<div class="epub-tut-title">打开书籍文件</div>
 						<div class="epub-tut-text">
-							<p>把 <code>.epub</code> 文件放进 Obsidian 仓库后，点击文件即可打开。阅读器会自动保存并恢复阅读进度。</p>
+							<p>把书籍文件放进 Obsidian 仓库后，点击文件即可打开。阅读器会自动保存并恢复阅读进度。</p>
+							<p>当前支持 <code>.epub</code>、<code>.mobi</code>、<code>.azw3</code>、<code>.fb2</code>、<code>.fbz</code>、<code>.txt</code>、<code>.cbz</code>。</p>
+							<p>其中 EPUB、FB2/FBZ、TXT 更适合导出为结构化 Markdown；CBZ 更偏图片型内容，导出后会以图片资源为主。</p>
 						</div>
 					</div>
 
@@ -84,7 +86,7 @@
 								<li><strong>笔记</strong>：查看高亮和笔记内容</li>
 								<li><strong>书签</strong>：管理阅读书签</li>
 							</ul>
-							<p>侧边栏底部的 <span class="epub-tut-icon" use:icon={'library'}></span> 按钮可以切换到书架视图，浏览仓库中的 EPUB 文件。</p>
+							<p>侧边栏底部的 <span class="epub-tut-icon" use:icon={'library'}></span> 按钮可以切换到书架视图，浏览仓库中的书籍文件。</p>
 						</div>
 					</div>
 
@@ -108,7 +110,6 @@
 						<div class="epub-tut-title">显示设置</div>
 						<div class="epub-tut-text">
 							<ul>
-								<li><strong>护眼模式</strong> <span class="epub-tut-icon" use:icon={'sun'}></span>：切换更柔和的阅读配色</li>
 								<li><strong>宽度模式</strong> <span class="epub-tut-icon" use:icon={'align-center'}></span>：切换标准宽度与更宽布局</li>
 							</ul>
 						</div>
@@ -218,6 +219,20 @@
 					</div>
 				{:else if activeTab === 'tools'}
 					<div class="epub-tut-section">
+						<div class="epub-tut-title">导出为 Markdown</div>
+						<div class="epub-tut-text">
+							<p>导出入口以 Obsidian 视图标题栏右侧的菜单为准。</p>
+							<ul>
+								<li><strong>导出当前章节</strong>：把当前章导出为 Markdown，并把图片写入附件文件夹</li>
+								<li><strong>导出阅读笔记</strong>：把当前书籍的高亮与摘录整理为 Markdown</li>
+							</ul>
+							<p>如果章节里包含图片，导出时会尽量转成 Obsidian 的图片嵌入语法，而不是保留运行时链接。</p>
+						</div>
+					</div>
+
+					<div class="epub-tut-divider"></div>
+
+					<div class="epub-tut-section">
 						<div class="epub-tut-title">截图工具</div>
 						<div class="epub-tut-text">
 							<p>点击标题栏中的 <span class="epub-tut-icon" use:icon={'camera'}></span> 按钮进入截图模式，在阅读区域拖拽即可截图。</p>
@@ -284,6 +299,7 @@
 									<span>打开教程</span>
 								</div>
 							</div>
+							<p>导出相关操作位于 Obsidian 视图菜单中，不再单独占用标题栏按钮。</p>
 						</div>
 					</div>
 				{:else if activeTab === 'credits'}

@@ -8,7 +8,10 @@
 		commentText?: string;
 		commentHtml?: string;
 		metaLeft?: string;
+		metaRightPrefix?: string;
 		metaRight?: string;
+		metaRightPageLabel?: string;
+		metaRightTime?: string;
 		clickable?: boolean;
 		onActivate?: () => void;
 		commentMuted?: boolean;
@@ -21,6 +24,7 @@
 		commentText = '',
 		commentHtml,
 		metaLeft = '',
+		metaRightPrefix = '',
 		metaRight = '',
 		clickable = false,
 		onActivate,
@@ -45,6 +49,7 @@
 	let hasQuote = $derived(Boolean(quoteHtml || quoteText));
 	let hasComment = $derived(Boolean(commentHtml || commentText));
 	let hasMainContent = $derived(hasQuote || hasComment);
+	let hasHeaderMeta = $derived(Boolean(metaRightPrefix || metaRight));
 
 	function getHighlightClass(currentColor: HighlightColor): string {
 		return `hl-${currentColor}`;
@@ -68,9 +73,14 @@
 		onkeydown={handleActivateKeydown}
 	>
 		<div class="annotation-body">
-			{#if metaRight}
+			{#if hasHeaderMeta}
 				<div class="annotation-header">
-					<span class="annotation-meta-right">{metaRight}</span>
+					{#if metaRightPrefix}
+						<span class="annotation-meta-right-prefix">{metaRightPrefix}</span>
+					{/if}
+					{#if metaRight}
+						<span class="annotation-meta-right">{metaRight}</span>
+					{/if}
 				</div>
 			{/if}
 			{#if hasMainContent}
@@ -212,8 +222,10 @@
 	.annotation-header {
 		display: flex;
 		align-items: center;
-		justify-content: flex-start;
+		justify-content: space-between;
+		gap: 8px;
 		min-height: 16px;
+		width: 100%;
 	}
 
 	.annotation-main-row {
@@ -263,7 +275,7 @@
 	.annotation-quote-source {
 		align-self: flex-end;
 		max-width: min(100%, 22em);
-		padding-top: 1px;
+		padding-top: 2px;
 		font-size: 10px;
 		line-height: 1.4;
 		color: color-mix(in srgb, var(--text-muted) 82%, var(--text-faint) 18%);
@@ -272,6 +284,7 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		opacity: 0.9;
+		font-style: normal;
 	}
 
 	.annotation-comment {
@@ -293,6 +306,7 @@
 	}
 
 	.annotation-meta-left,
+	.annotation-meta-right-prefix,
 	.annotation-meta-right {
 		min-width: 0;
 	}
@@ -312,14 +326,25 @@
 		text-overflow: ellipsis;
 	}
 
-	.annotation-meta-right {
-		flex-shrink: 0;
-		text-align: right;
+	.annotation-meta-right-prefix {
+		flex: 0 1 auto;
+		text-align: left;
 		font-size: 10px;
 		letter-spacing: 0.03em;
 		color: color-mix(in srgb, var(--text-muted) 74%, var(--text-faint) 26%);
 		font-variant-numeric: tabular-nums;
-		text-transform: uppercase;
+		white-space: nowrap;
+	}
+
+	.annotation-meta-right {
+		flex: 0 0 auto;
+		margin-left: auto;
+		text-align: right;
+		font-size: 10px;
+		letter-spacing: 0.02em;
+		color: color-mix(in srgb, var(--text-muted) 80%, var(--text-faint) 20%);
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
 	}
 
 	.hl-yellow {

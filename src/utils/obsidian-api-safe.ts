@@ -6,6 +6,7 @@ import { logger } from "../utils/logger";
 
 import { Notice } from "obsidian";
 import { untrack } from "svelte";
+import { applyStyleProps } from "./style-props";
 
 /**
  * 兼容性错误检测
@@ -85,7 +86,7 @@ export class SafeNotice {
 			noticeElements.forEach((_element) => {
 				const htmlElement = _element as HTMLElement;
 				if (htmlElement.style.display !== "none") {
-					htmlElement.setCssProps({ display: "none" });
+					applyStyleProps(htmlElement, { display: "none" });
 				}
 			});
 		} catch (domError) {

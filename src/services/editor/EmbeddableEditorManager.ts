@@ -8,6 +8,7 @@
 import type { App } from "obsidian";
 import type { Card } from "../../data/types";
 import { logger } from "../../utils/logger";
+import { extractSourcePath } from "../../utils/source-path-matcher";
 import { DetachedLeafEditor } from "./DetachedLeafEditor";
 
 /**
@@ -145,8 +146,8 @@ export class EmbeddableEditorManager {
 			// 保存容器引用
 			session.container = container;
 
-			// 确定 sourcePath：优先使用卡片自身的 sourceFile，其次使用会话中保存的 sourcePath
-			const resolvedSourcePath = session.card.sourceFile || session.sourcePath;
+			const resolvedCardSourcePath = extractSourcePath(session.card);
+			const resolvedSourcePath = resolvedCardSourcePath || session.sourcePath;
 
 			// 创建 DetachedLeafEditor (完全原生体验)
 			const editor = new DetachedLeafEditor(this.app, container, {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount, onDestroy } from 'svelte';
-  import { isDarkMode, createThemeListener } from '../../utils/theme-detection';
+  import { UnifiedThemeManager } from '../../utils/theme-detection';
   
   interface Props {
     selected: string[];
@@ -246,7 +246,8 @@
 
   // Listen for theme changes using unified theme detection
   onMount(() => {
-    themeCleanup = createThemeListener(() => {
+    const themeManager = UnifiedThemeManager.getInstance();
+    themeCleanup = themeManager.addListener(() => {
       themeVersion++;
     });
   });
@@ -266,7 +267,7 @@
     const color = notionColors[colorIndex];
 
     // Use unified theme detection
-    const isCurrentlyDark = isDarkMode();
+    const isCurrentlyDark = UnifiedThemeManager.getInstance().isDarkMode();
 
     return {
       backgroundColor: isCurrentlyDark ? color.darkBg : color.bg,

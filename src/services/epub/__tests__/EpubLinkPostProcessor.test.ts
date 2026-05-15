@@ -1,6 +1,20 @@
 vi.mock('obsidian', () => ({
+	App: class MockApp {},
+	TFile: class MockTFile {},
+	ItemView: class MockItemView {},
+	WorkspaceLeaf: class MockWorkspaceLeaf {},
+	MarkdownView: class MockMarkdownView {},
+	Notice: class MockNotice {
+		constructor(_message?: string) {}
+	},
+	Menu: class MockMenu {},
+	Modal: class MockModal {},
+	Plugin: class MockPlugin {},
+	PluginSettingTab: class MockPluginSettingTab {},
+	Platform: { isMobile: false },
 	MarkdownPostProcessorContext: class MarkdownPostProcessorContext {},
 	setIcon: vi.fn(),
+	normalizePath: (value: string) => String(value || '').replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, ''),
 }));
 
 import { createEpubLinkPostProcessor } from '../EpubLinkPostProcessor';

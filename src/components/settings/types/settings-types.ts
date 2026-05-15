@@ -4,8 +4,9 @@
  */
 
 import type WeavePlugin from "../../../main";
+import type { RatingLabelStyle } from "../../study/rating-label-style";
 import type { NoteTypeConfig } from "../../../types/extract-types";
-import type { LicenseInfo as UnifiedLicenseInfo } from "../../../types/license";
+import type { LicenseInfo as UnifiedLicenseInfo, LicenseStore as UnifiedLicenseStore } from "../../../types/license";
 import type { SimplifiedParsingSettings } from "../../../types/newCardParsingTypes";
 
 // 基础设置接口扩展
@@ -27,8 +28,14 @@ export interface StudyInterfaceViewPreferences {
 	statsCollapsed: boolean;
 	/** 卡片学习顺序：sequential（正序）| random（乱序） */
 	cardOrder: "sequential" | "random";
+	/** 选择题选项顺序：sequential（正序）| random（乱序） */
+	choiceOptionOrder: "sequential" | "random";
 	/** 侧边栏位置：right（右侧）| bottom（底部） */
 	sidebarPosition: "right" | "bottom";
+	/** 底部回忆按钮文案风格 */
+	ratingLabelStyle: RatingLabelStyle;
+	/** 是否在评分按钮内部直接显示下次复习时间 */
+	showRatingIntervalOnButtons?: boolean;
 }
 
 // 卡片管理界面视图偏好设置
@@ -49,12 +56,30 @@ export interface CardManagementViewPreferences {
 		| "question_type"
 		| "ir_state"
 		| "ir_priority";
+	/** 看板分组方式 */
+	kanbanGroupBy?: "status" | "type" | "priority" | "deck" | "createTime" | "tag" | "tagGroup" | "ir_tag_group";
+	/** 按数据源分别保存的看板分组方式 */
+	kanbanGroupByBySource?: {
+		memory?: "status" | "type" | "priority" | "deck" | "createTime" | "tag" | "tagGroup" | "ir_tag_group";
+		questionBank?: "status" | "type" | "priority" | "deck" | "createTime" | "tag" | "tagGroup" | "ir_tag_group";
+		"incremental-reading"?: "status" | "type" | "priority" | "deck" | "createTime" | "tag" | "tagGroup" | "ir_tag_group";
+	};
+	/** 按数据源分别保存的看板标签组选择 */
+	kanbanSelectedTagGroupIdBySource?: {
+		memory?: string | null;
+		questionBank?: string | null;
+		"incremental-reading"?: string | null;
+	};
 	/** 看板布局模式 */
 	kanbanLayoutMode: "compact" | "comfortable" | "spacious";
 	/** 表格视图模式 */
 	tableViewMode: "basic" | "review" | "questionBank" | "irContent";
+	/** 启用关联卡片筛选模式 */
+	enableCardRelationFilterMode?: boolean;
 	/** 启用卡片位置跳转 */
 	enableCardLocationJump: boolean;
+	/** 表格网格边框显示 */
+	showTableGridBorders?: boolean;
 }
 
 export interface SettingsWithEditor {
@@ -83,6 +108,13 @@ export interface SettingsWithEditor {
 	autoBackupConfig?: import("../../../types/data-management-types").AutoBackupConfig;
 	fsrsParams: import("../../../data/types").FSRSParameters;
 	license: LicenseInfo;
+	licenseState?: LicenseStore;
+	clozeSettings?: {
+		enabled: boolean;
+		openDelimiter: string;
+		closeDelimiter: string;
+		placeholder: string;
+	};
 	// 简化卡片解析设置
 	simplifiedParsing?: SimplifiedParsingSettings;
 	// 导航显示设置
@@ -99,8 +131,6 @@ export interface SettingsWithEditor {
 		aiAssistant?: boolean;
 		apkgImport?: boolean;
 		csvImport?: boolean;
-		clipboardImport?: boolean;
-		settingsEntry?: boolean;
 	};
 	// 编辑器模态窗尺寸设置
 	editorModalSize?: {
@@ -145,6 +175,7 @@ export type {
 
 // 许可证信息类型（使用统一定义）
 export type LicenseInfo = UnifiedLicenseInfo;
+export type LicenseStore = UnifiedLicenseStore;
 
 export interface DataStorageInterface {
 	dataFolder?: string;
@@ -267,15 +298,6 @@ export interface AnkiConnectSettings {
 		enableFileWatcher?: boolean; // 启用文件变更检测同步
 	};
 
-	// 兼容旧版双向同步配置
-	bidirectionalSync?: {
-		enabled: boolean;
-		conflictResolution: string;
-		exclusiveTemplatesOnly?: boolean;
-		autoMergeNonConflictFields?: boolean;
-		autoMergeTags?: boolean;
-	};
-
 	// 增量同步状态（由 IncrementalSyncTracker 管理）
 	incrementalSyncState?: import("../../../services/ankiconnect/IncrementalSyncTracker").IncrementalSyncState;
 
@@ -315,7 +337,7 @@ export interface DeckSyncMapping {
 	weaveDeckId: string;
 	weaveDeckName: string;
 	ankiDeckName: string;
-	syncDirection: "to_anki" | "from_anki" | "bidirectional";
+	syncDirection: "to_anki";
 	enabled: boolean;
 	lastSyncTime?: string;
 	contentConversion?: "standard" | "preserve_style" | "minimal";
@@ -344,7 +366,7 @@ export interface TemplateSyncMapping {
 export interface SyncLogEntry {
 	id: string;
 	timestamp: string;
-	direction: "to_anki" | "from_anki";
+	direction: "to_anki";
 	summary: {
 		totalCards: number;
 		successCount: number;

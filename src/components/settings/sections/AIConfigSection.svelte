@@ -413,9 +413,6 @@
         <div class="setting-item">
           <div class="setting-info">
             <div class="setting-label">{t('aiConfig.apiKeys.apiKeyLabel')}</div>
-            <div class="setting-description">
-              {t('aiConfig.apiKeys.apiKeyDescription').replace('{provider}', AI_PROVIDER_LABELS[provider])}
-            </div>
           </div>
           <div class="setting-control">
             <div class="input-with-button">
@@ -440,13 +437,10 @@
           </div>
         </div>
 
-        <!-- 模型选择 -->
+        <!-- 模型列表 -->
         <div class="setting-item">
           <div class="setting-info">
-            <div class="setting-label">{t('aiConfig.apiKeys.modelLabel')}</div>
-            <div class="setting-description">
-              {t('aiConfig.apiKeys.modelDescription')}
-            </div>
+            <div class="setting-label">{t('aiConfig.apiKeys.modelListLabel')}</div>
           </div>
           <div class="setting-control">
             <ObsidianDropdown
@@ -552,8 +546,10 @@
   .group-header-with-menu {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 0;
+    padding-bottom: 0.4rem;
   }
 
   .group-title {
@@ -561,15 +557,14 @@
     align-items: center;
     gap: 0.5rem;
     margin: 0;
-    font-size: 1.1rem;
-    font-weight: 500;
-    color: var(--text-normal);
+    font-size: 1rem;
+    font-weight: 600;
   }
 
   /* 徽章 */
   .badge {
     padding: 2px 8px;
-    border-radius: 4px;
+    border-radius: 6px;
     font-size: 0.75em;
     font-weight: 500;
   }
@@ -587,7 +582,7 @@
     height: 32px;
     padding: 0;
     border: none;
-    border-radius: 50%;
+    border-radius: 10px;
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -614,9 +609,9 @@
 
   .text-input {
     flex: 1;
-    padding: 6px 12px;
+    padding: 8px 12px;
     border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
+    border-radius: 10px;
     background: var(--background-primary);
     color: var(--text-normal);
     font-size: 0.9em;

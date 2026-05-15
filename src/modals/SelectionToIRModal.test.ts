@@ -1,25 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("obsidian", () => {
-	class Modal {
-		app: any;
-		contentEl = document.createElement("div");
-		titleEl = document.createElement("div");
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../tests/mocks/obsidian")>(
+		"../tests/mocks/obsidian"
+	);
+
+	class Modal extends actual.Modal {
 		modalEl = document.createElement("div");
 		scope = { register: vi.fn() };
 
 		constructor(app: any) {
-			this.app = app;
+			super(app);
 		}
 
 		open(): void {}
 		close(): void {}
 	}
 
-	class FuzzySuggestModal<T> {
+	class FuzzySuggestModal<T> extends actual.Component {
 		app: any;
 
 		constructor(app: any) {
+			super();
 			this.app = app;
 		}
 
@@ -29,13 +31,15 @@ vi.mock("obsidian", () => {
 		onClose(): void {}
 	}
 
-	class Menu {
+	class Menu extends actual.Menu {
 		addItem(_callback: (item: any) => void): void {}
 		showAtMouseEvent(_evt: MouseEvent): void {}
 	}
 
-	class Setting {
-		constructor(_containerEl: HTMLElement) {}
+	class Setting extends actual.Setting {
+		constructor(containerEl: HTMLElement) {
+			super(containerEl);
+		}
 		setName(): this { return this; }
 		setDesc(): this { return this; }
 		addDropdown(): this { return this; }
@@ -44,12 +48,11 @@ vi.mock("obsidian", () => {
 	}
 
 	return {
-		App: class {},
+		...actual,
 		FuzzySuggestModal,
 		Menu,
 		Modal,
 		Setting,
-		TFolder: class {},
 		normalizePath: (value: string) => value.replace(/\\/g, "/"),
 	};
 });

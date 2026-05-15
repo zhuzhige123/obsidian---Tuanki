@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { Notice } from 'obsidian';
   import { PRODUCT_INFO, getAcknowledgments } from '../constants/settings-constants';
   import { ACTIVATION_HELP_TEXT } from '../constants/activation-constants';
   import ActivationModal from './ActivationModal.svelte';
+  import { CoffeeSupportModal } from './CoffeeSupportModal';
+  import coffeeSupportQrImage from '../../../icons/coffee-support-qr.png';
   import { tr } from '../../../utils/i18n';
   import { formatVersion } from '../../../utils/format-utils';
 
@@ -19,6 +22,28 @@
   let productVersion = $derived(
     plugin?.manifest?.version ? formatVersion(plugin.manifest.version) : PRODUCT_INFO.VERSION
   );
+
+  function openCoffeeSupportModal() {
+    if (!plugin?.app) {
+      new Notice(t('about.coffeeModal.unavailable'));
+      return;
+    }
+
+    const imageSrc = coffeeSupportQrImage;
+    if (!imageSrc) {
+      new Notice(t('about.coffeeModal.unavailable'));
+      return;
+    }
+
+    new CoffeeSupportModal(plugin.app, {
+      imageSrc,
+      title: t('about.coffeeModal.title'),
+      loadingText: t('about.coffeeModal.loading'),
+      errorText: t('about.coffeeModal.error'),
+      errorNotice: t('about.coffeeModal.errorNotice'),
+      caption: t('about.coffeeModal.caption')
+    }).open();
+  }
 
   let baseInfoItems = $derived([
     {
@@ -44,7 +69,7 @@
   ]);
 </script>
 
-<div class="product-info-section" class:compact>
+<div class="weave-settings settings-section product-info-section" class:compact>
   <div class="section-header">
     <div class="header-content">
       <div class="product-logo">
@@ -57,9 +82,9 @@
     </div>
   </div>
 
-  <div class="base-info-card">
+  <div class="settings-group base-info-card">
     <div class="base-info-header">
-      <h3 class="base-info-title">{t('about.product.baseInfoTitle')}</h3>
+      <h3 class="group-title with-accent-bar accent-cyan base-info-title">{t('about.product.baseInfoTitle')}</h3>
     </div>
 
     <div class="base-info-list">
@@ -74,15 +99,9 @@
 
   <div class="quick-links">
     <a
-      href="https://github.com/zhuzhige123/obsidian---Weave"
-      target="_blank"
-      class="quick-link opensource-link"
-    >
-      <span class="link-text">{t('about.quickLinks.openSource')}</span>
-    </a>
-    <a
       href="https://iwi05cktlph.feishu.cn/wiki/space/7602663447460891839?ccm_open_type=lark_wiki_spaceLink&open_tab_from=wiki_home"
       target="_blank"
+      rel="noopener noreferrer"
       class="quick-link"
     >
       <span class="link-text">{t('about.quickLinks.documentation')}</span>
@@ -90,6 +109,7 @@
     <a
       href={`${ACTIVATION_HELP_TEXT.CONTACT_INFO.github}/releases`}
       target="_blank"
+      rel="noopener noreferrer"
       class="quick-link"
     >
       <span class="link-text">{t('about.quickLinks.changelog')}</span>
@@ -100,10 +120,13 @@
     >
       <span class="link-text">{t('about.quickLinks.support')}</span>
     </a>
+    <button type="button" class="quick-link quick-link-button" onclick={openCoffeeSupportModal}>
+      <span class="link-text">{t('about.quickLinks.coffee')}</span>
+    </button>
   </div>
 
-  <div class="acknowledgments-section">
-    <h3 class="section-title">{t('about.acknowledgments.title')}</h3>
+  <div class="settings-group acknowledgments-section">
+    <h3 class="group-title with-accent-bar accent-purple section-title">{t('about.acknowledgments.title')}</h3>
     <div class="acknowledgments-grid">
       {#each acknowledgments as item}
         <a
@@ -127,24 +150,19 @@
 
 <style>
   .product-info-section {
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 1rem;
-    padding: 2rem;
-    margin-bottom: 2rem;
     position: relative;
     overflow: hidden;
-    width: 100%;
-    max-width: none;
-    box-sizing: border-box;
   }
 
   .product-info-section.compact {
-    padding: 1.5rem;
+    gap: 0.85rem;
   }
 
   .section-header {
-    margin-bottom: 2rem;
+    padding: 1rem;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 18px;
+    background: color-mix(in oklab, var(--background-primary), var(--background-secondary) 26%);
   }
 
   .header-content {
@@ -199,28 +217,24 @@
   }
 
   .base-info-card {
-    margin-bottom: 2rem;
-    padding: 1.25rem 1.5rem;
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 0.9rem;
+    margin-bottom: 0;
   }
 
   .base-info-header {
     display: flex;
     align-items: center;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.4rem;
   }
 
   .base-info-title {
-    margin: 0;
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: var(--text-normal);
+    font-weight: 600;
   }
 
   .base-info-list {
     width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
   }
 
   .base-info-row {
@@ -228,11 +242,13 @@
     grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr);
     gap: 1rem;
     align-items: center;
-    padding: 0.85rem 0;
+    padding: 1rem 1.25rem;
+    background: var(--background-secondary);
+    border-radius: 14px;
   }
 
   .base-info-row-divider {
-    border-bottom: 1px solid var(--background-modifier-border);
+    border-bottom: none;
   }
 
   .base-info-label {
@@ -252,10 +268,9 @@
   .quick-links {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 1rem;
-    margin: 2rem 0;
-    padding-top: 2rem;
-    border-top: 1px solid var(--background-modifier-border);
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0 0.25rem;
     width: 100%;
   }
 
@@ -266,14 +281,22 @@
     gap: 0.5rem;
     padding: 0.75rem 1.5rem;
     background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 0.5rem;
+    border: none;
+    border-radius: 14px;
     color: var(--text-normal);
     text-decoration: none;
     font-weight: 500;
     transition: all 0.2s ease;
     flex: 1;
+    width: 100%;
     min-width: 0;
+    min-height: 2.875rem;
+    cursor: pointer;
+    font: inherit;
+    appearance: none;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    box-shadow: none;
   }
 
   .quick-link:hover {
@@ -282,52 +305,32 @@
     transform: translateY(-1px);
   }
 
+  .quick-link:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  .quick-link-button {
+    margin: 0;
+  }
+
   .link-text {
     font-size: 0.875rem;
   }
 
-  .opensource-link {
-    background: linear-gradient(
-      135deg,
-      color-mix(in oklab, var(--color-green), transparent 85%) 0%,
-      color-mix(in oklab, var(--color-blue), transparent 85%) 100%
-    );
-    border-color: color-mix(in oklab, var(--color-green), transparent 60%);
-    color: var(--color-green);
-    font-weight: 600;
-  }
-
-  .opensource-link:hover {
-    background: linear-gradient(
-      135deg,
-      color-mix(in oklab, var(--color-green), transparent 75%) 0%,
-      color-mix(in oklab, var(--color-blue), transparent 75%) 100%
-    );
-    border-color: var(--color-green);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px color-mix(in oklab, var(--color-green), transparent 70%);
-  }
-
   .acknowledgments-section {
-    margin: 2rem 0;
-    padding-top: 2rem;
-    border-top: 1px solid var(--background-modifier-border);
+    margin: 0;
   }
 
   .section-title {
-    margin: 0 0 1.25rem 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-align: center;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    margin: 0 0 0.4rem 0;
+    text-align: left;
   }
 
   .acknowledgments-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 1rem;
+    gap: 0.75rem;
     width: 100%;
   }
 
@@ -335,10 +338,10 @@
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
-    padding: 1rem;
+    padding: 1rem 1.1rem;
     background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 0.75rem;
+    border: none;
+    border-radius: 14px;
     color: var(--text-normal);
     text-decoration: none;
     transition: all 0.2s ease;
@@ -363,10 +366,6 @@
   }
 
   @media (max-width: 768px) {
-    .product-info-section {
-      padding: 1.5rem;
-    }
-
     .product-logo {
       flex-direction: column;
       gap: 0.9rem;
@@ -382,13 +381,10 @@
       font-size: 1.75rem;
     }
 
-    .base-info-card {
-      padding: 1rem 1.125rem;
-    }
-
     .base-info-row {
       grid-template-columns: 1fr;
       gap: 0.375rem;
+      padding: 0.9rem 1rem;
     }
 
     .base-info-value {
@@ -407,6 +403,10 @@
     .acknowledgments-grid {
       grid-template-columns: 1fr;
       gap: 0.75rem;
+    }
+
+    .section-header {
+      padding: 0.9rem;
     }
   }
 

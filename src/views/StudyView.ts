@@ -4,13 +4,18 @@
  * 支持会话暂停/恢复和持久化
  */
 
-import { ItemView, Menu, Notice, Platform, WorkspaceLeaf } from "obsidian";
+import { ItemView, Menu, Notice, Platform, WorkspaceLeaf, setIcon } from "obsidian";
 import type { unmount } from "svelte";
 import type { Card } from "../data/types";
 import type { WeavePlugin } from "../main";
 import { StudySessionManager } from "../services/StudySessionManager";
 import { endStudySession, tryStartStudySession } from "../stores/study-mode-store";
-import type { PersistedStudySession, StudyMode } from "../types/study-types";
+import type {
+	PersistedStudySession,
+	StudyMode,
+	StudyQueueState,
+	StudySessionSnapshot,
+} from "../types/study-types";
 import { i18n } from "../utils/i18n";
 import { logger } from "../utils/logger";
 import {
@@ -21,20 +26,6 @@ import {
 } from "../utils/view-location-utils";
 
 export const VIEW_TYPE_STUDY = "weave-study-view";
-
-type StudyQueueState = {
-	currentCardIndex: number;
-	studyQueueCardIds: string[];
-	sessionStudiedCardIds: string[];
-};
-
-type StudySessionSnapshot = {
-	deckId: string;
-	currentCardIndex: number;
-	remainingCardIds: string[];
-	stats: { completed: number; correct: number; incorrect: number };
-	sessionType: PersistedStudySession["sessionType"];
-};
 
 type CreateStudyComponentOptions = {
 	deckId?: string;
@@ -64,9 +55,62 @@ type StudyViewComponentApi = {
 	resume?: () => void;
 };
 
+type StudyViewStateShellOptions = {
+	rootClass: string;
+	title: string;
+	message?: string;
+	meta?: string;
+	icon?: string;
+	showSpinner?: boolean;
+	showBadge?: boolean;
+};
+
 type MountedStudyComponent = Parameters<typeof unmount>[0] & StudyViewComponentApi;
 type ItemViewSetStateResult = Parameters<ItemView["setState"]>[1];
 type WorkspaceLeafWithUpdateHeader = WorkspaceLeaf & { updateHeader?: () => void };
+
+function areStringArraysEqual(left?: string[], right?: string[]): boolean {
+	if (left === right) {
+		return true;
+	}
+	if (!left || !right) {
+		return !left && !right;
+	}
+	if (left.length !== right.length) {
+		return false;
+	}
+	return left.every((value, index) => value === right[index]);
+}
+
+function areCardArraysEqual(left?: Card[], right?: Card[]): boolean {
+	if (left === right) {
+		return true;
+	}
+	if (!left || !right) {
+		return !left && !right;
+	}
+	if (left.length !== right.length) {
+		return false;
+	}
+	return left.every((card, index) => card.uuid === right[index]?.uuid);
+}
+
+function areQueueStatesEqual(
+	left?: StudyQueueState | null,
+	right?: StudyQueueState | null
+): boolean {
+	if (left === right) {
+		return true;
+	}
+	if (!left || !right) {
+		return !left && !right;
+	}
+	return (
+		left.currentCardIndex === right.currentCardIndex &&
+		areStringArraysEqual(left.studyQueueCardIds, right.studyQueueCardIds) &&
+		areStringArraysEqual(left.sessionStudiedCardIds, right.sessionStudiedCardIds)
+	);
+}
 
 export class StudyView extends ItemView {
 	private component: MountedStudyComponent | null = null;
@@ -106,7 +150,6 @@ export class StudyView extends ItemView {
 
 	//  队列进度状态（用于重启恢复）
 	private queueState: StudyQueueState | null = null;
-	private sessionSnapshot: StudySessionSnapshot | null = null;
 
 	/**
 	 *  更新牌组统计文本（由 Svelte 组件调用）
@@ -438,18 +481,7 @@ export class StudyView extends ItemView {
 		if (Platform.isMobile) {
 			return "";
 		}
-		return i18n.t("study.view.title");
-	}
-
-	/**
-	 *  更新队列进度状态（由 StudyInterface 通过 $effect 调用）
-	 */
-	public updateQueueState(state: StudyQueueState): void {
-		this.queueState = state;
-	}
-
-	public updateSessionSnapshot(state: StudySessionSnapshot): void {
-		this.sessionSnapshot = state;
+		return i18n.t("study.title");
 	}
 
 	/**
@@ -457,7 +489,7 @@ export class StudyView extends ItemView {
 	 * Obsidian 会在保存 workspace 时调用此方法，结果存入 workspace.json
 	 */
 	getState(): StudyViewWorkspaceState {
-		// 主动查询组件的当前队列状态（回退逻辑，确保数据最新）
+		// 主动查询组件的当前队列状态，确保 workspace 持久化使用最新进度
 		if (this.component && typeof this.component.getQueueProgress === "function") {
 			try {
 				const liveProgress = this.component.getQueueProgress();
@@ -502,16 +534,54 @@ export class StudyView extends ItemView {
 
 		if (state) {
 			const oldDeckId = this.deckId;
+			const oldDeckName = this.deckName;
 			const oldMode = this.mode;
 			const oldCardIds = this.cardIds;
+			const oldCards = this.cards;
+			const oldQueueState = this.queueState;
+
+			const nextDeckId = state.deckId;
+			const nextDeckName = state.deckName;
+			const nextMode = state.mode;
+			const nextCardIds = state.cardIds;
+			const nextCards = state.cards;
+			const nextQueueState = state.queueState ?? null;
+			const hasExplicitStudySource =
+				(Array.isArray(nextCardIds) && nextCardIds.length > 0) ||
+				(Array.isArray(nextCards) && nextCards.length > 0);
+			const deckChanged = oldDeckId !== nextDeckId;
+			const studySourceChanged =
+				deckChanged ||
+				oldMode !== nextMode ||
+				!areStringArraysEqual(oldCardIds, nextCardIds) ||
+				!areCardArraysEqual(oldCards, nextCards);
+			const viewStateChanged =
+				studySourceChanged || !areQueueStatesEqual(oldQueueState, nextQueueState);
+
+			if (this.component && deckChanged) {
+				logger.debug("[StudyView] 🔁 切换学习牌组前先保存当前会话", {
+					fromDeckId: oldDeckId,
+					toDeckId: nextDeckId,
+				});
+				const persisted = await this.persistCurrentSession(null);
+				if (!persisted && oldDeckId) {
+					await this.plugin.clearPersistedStudySession(oldDeckId);
+				}
+			}
 
 			// 更新状态
-			this.deckId = state.deckId;
-			this.deckName = state.deckName;
-			this.mode = state.mode;
-			this.cardIds = state.cardIds;
-			this.cards = state.cards;
-			this.queueState = state.queueState ?? null;
+			this.deckId = nextDeckId;
+			this.deckName = nextDeckName;
+			this.mode = nextMode;
+			this.cardIds = nextCardIds;
+			this.cards = nextCards;
+			this.queueState = nextQueueState;
+
+			const targetPersistedSession = this.deckId
+				? this.studySessionManager.getPersistedSession(this.deckId)
+				: null;
+			const shouldResumeTargetSession =
+				deckChanged && !!targetPersistedSession && !hasExplicitStudySource;
 
 			logger.info("[StudyView] setState() 接收到学习参数:", {
 				deckId: this.deckId,
@@ -532,7 +602,7 @@ export class StudyView extends ItemView {
 				logger.debug("[StudyView] 🔧 组件未创建，现在创建");
 
 				// 检查是否有当前牌组可恢复的持久化会话
-				const persistedSession = this.studySessionManager.getPersistedSession();
+				const persistedSession = targetPersistedSession;
 				const hasPersistedSession =
 					!!persistedSession && (!this.deckId || persistedSession.deckId === this.deckId);
 
@@ -552,12 +622,7 @@ export class StudyView extends ItemView {
 				}
 			} else {
 				//  如果参数发生变化，通知组件重新加载卡片
-				const paramsChanged =
-					oldDeckId !== this.deckId ||
-					oldMode !== this.mode ||
-					JSON.stringify(oldCardIds) !== JSON.stringify(this.cardIds);
-
-				if (paramsChanged) {
+				if (viewStateChanged) {
 					logger.debug("[StudyView] 🔄 检测到参数变化，通知组件更新");
 					if (typeof this.component.updateStudyParams === "function") {
 						await this.component.updateStudyParams({
@@ -566,7 +631,11 @@ export class StudyView extends ItemView {
 							mode: this.mode,
 							cardIds: this.cardIds,
 							cards: this.cards,
-							queueState: this.queueState || undefined,
+							resumeData: shouldResumeTargetSession ? targetPersistedSession ?? undefined : undefined,
+							queueState:
+								(shouldResumeTargetSession
+									? targetPersistedSession?.queueState
+									: this.queueState) || undefined,
 						});
 					}
 				}
@@ -626,9 +695,11 @@ export class StudyView extends ItemView {
 	 * 显示加载状态
 	 */
 	private showLoadingState(): void {
-		this.contentEl.createDiv({
-			cls: "weave-study-loading",
-			text: i18n.t("study.view.loading"),
+		this.createStateShell({
+			rootClass: "weave-study-loading",
+			title: i18n.t("study.view.loading"),
+			meta: this.deckName,
+			showSpinner: true,
 		});
 	}
 
@@ -694,18 +765,25 @@ export class StudyView extends ItemView {
 			if (!registered) {
 				// 已有活跃的学习会话
 				logger.warn("[StudyView] 已有活跃的学习会话，阻止打开");
-				this.contentEl.empty();
-				this.contentEl.createDiv({
-					cls: "weave-study-view-blocked",
-					text: i18n.t("study.view.blockedByActiveSession"),
-				});
+				this.showMessageState(
+					"weave-study-view-blocked",
+					i18n.t("study.view.blockedByActiveSession"),
+					"pause-circle"
+				);
 				return;
 			}
 
 			// 检查是否有持久化的会话需要恢复
-			const persistedSession = this.studySessionManager.getPersistedSession();
+			const persistedSession = this.studySessionManager.getPersistedSession(this.deckId);
+			const hasExplicitStudySource =
+				(Array.isArray(this.cardIds) && this.cardIds.length > 0) ||
+				(Array.isArray(this.cards) && this.cards.length > 0);
 
-			if (persistedSession && (!this.deckId || persistedSession.deckId === this.deckId)) {
+			if (
+				persistedSession &&
+				(!this.deckId || persistedSession.deckId === this.deckId) &&
+				!hasExplicitStudySource
+			) {
 				// 仅在打开相同牌组时提示恢复，避免切换到其他牌组也被旧会话打断
 				await this.showRestoreSessionPrompt();
 			}
@@ -714,31 +792,99 @@ export class StudyView extends ItemView {
 			this.registerViewEvents();
 		} catch (error) {
 			logger.error("[StudyView] 初始化失败:", error);
-			this.contentEl.empty();
-			this.contentEl.createDiv({
-				cls: "error",
-				text: i18n.t("study.view.initFailed"),
+			this.showMessageState("weave-study-view-error", i18n.t("study.view.initFailed"), "alert-circle");
+		}
+	}
+
+	private resetStateContainer(): void {
+		this.contentEl.empty();
+		this.contentEl.addClass("weave-study-view-content");
+		this.contentEl.addClass("weave-main-editor-mode");
+	}
+
+	private createStateShell(options: StudyViewStateShellOptions): {
+		root: HTMLDivElement;
+		shell: HTMLDivElement;
+		copy: HTMLDivElement;
+	} {
+		this.resetStateContainer();
+
+		const root = this.contentEl.createDiv({
+			cls: `weave-study-state ${options.rootClass}`,
+		});
+		const shell = root.createDiv({ cls: "weave-study-state-shell" });
+		if (options.showBadge !== false) {
+			const badge = shell.createDiv({ cls: "weave-study-state-badge" });
+			const badgeIcon = badge.createDiv({ cls: "weave-study-state-badge-icon" });
+			setIcon(badgeIcon, "brain");
+			badge.createSpan({
+				cls: "weave-study-state-badge-label",
+				text: i18n.t("study.title"),
 			});
 		}
+
+		if (options.showSpinner) {
+			shell.createDiv({
+				cls: "weave-study-state-spinner",
+				attr: { "aria-hidden": "true" },
+			});
+		} else if (options.icon) {
+			const iconEl = shell.createDiv({ cls: "weave-study-state-icon" });
+			setIcon(iconEl, options.icon);
+		}
+
+		const copy = shell.createDiv({ cls: "weave-study-state-copy" });
+		copy.createEl("h2", {
+			cls: "weave-study-state-title",
+			text: options.title,
+		});
+
+		if (options.message) {
+			copy.createEl("p", {
+				cls: "weave-study-state-text",
+				text: options.message,
+			});
+		}
+
+		if (options.meta) {
+			copy.createDiv({
+				cls: "weave-study-state-meta",
+				text: options.meta,
+			});
+		}
+
+		return { root, shell, copy };
+	}
+
+	private showMessageState(rootClass: string, title: string, icon: string, message?: string): void {
+		this.createStateShell({
+			rootClass,
+			title,
+			message,
+			meta: this.deckName,
+			icon,
+		});
 	}
 
 	/**
 	 * 显示恢复会话提示
 	 */
 	private async showRestoreSessionPrompt(): Promise<void> {
-		const promptContainer = this.contentEl.createDiv({
-			cls: "weave-study-restore-prompt",
+		const { shell, copy } = this.createStateShell({
+			rootClass: "weave-study-restore-prompt",
+			title: i18n.t("study.view.restorePromptTitle"),
+			message: i18n.t("study.view.restorePromptMessage"),
+			meta: this.deckName,
+			showBadge: false,
 		});
 
-		promptContainer.createEl("h3", { text: i18n.t("study.view.restorePromptTitle") });
-		promptContainer.createEl("p", { text: i18n.t("study.view.restorePromptMessage") });
-
-		const buttonContainer = promptContainer.createDiv({ cls: "button-container" });
+		const buttonContainer = shell.createDiv({ cls: "weave-study-state-actions" });
+		copy.addClass("weave-study-state-copy--restore");
 
 		// 恢复按钮
 		const restoreBtn = buttonContainer.createEl("button", {
 			text: i18n.t("study.view.restoreSession"),
-			cls: "mod-cta",
+			cls: "mod-cta weave-study-state-button",
 		});
 		restoreBtn.addEventListener("click", async () => {
 			await this.restoreSession();
@@ -747,9 +893,10 @@ export class StudyView extends ItemView {
 		// 新建按钮
 		const newBtn = buttonContainer.createEl("button", {
 			text: i18n.t("study.view.startNewSession"),
+			cls: "weave-study-state-button",
 		});
 		newBtn.addEventListener("click", async () => {
-			await this.plugin.clearPersistedStudySession();
+			await this.plugin.clearPersistedStudySession(this.deckId);
 			//  传递学习参数
 			await this.createStudyComponent({
 				deckId: this.deckId,
@@ -765,7 +912,7 @@ export class StudyView extends ItemView {
 	 * 恢复持久化的会话
 	 */
 	private async restoreSession(): Promise<void> {
-		const persisted = this.studySessionManager.getPersistedSession();
+		const persisted = this.studySessionManager.getPersistedSession(this.deckId);
 
 		if (!persisted) {
 			logger.warn("[StudyView] 无法恢复：持久化会话不存在");
@@ -805,11 +952,11 @@ export class StudyView extends ItemView {
 				// 如果没有恢复数据也没有队列状态，必须有 deckId 或 cardIds
 				if (!options?.deckId && (!options?.cardIds || options.cardIds.length === 0)) {
 					logger.error("[StudyView] 缺少必要的学习参数");
-					this.contentEl.empty();
-					this.contentEl.createDiv({
-						cls: "weave-study-view-error",
-						text: i18n.t("study.view.invalidParams"),
-					});
+					this.showMessageState(
+						"weave-study-view-error",
+						i18n.t("study.view.invalidParams"),
+						"alert-circle"
+					);
 					return;
 				}
 
@@ -832,11 +979,11 @@ export class StudyView extends ItemView {
 
 						if (!dataStorage) {
 							logger.error("[StudyView] DataStorage 未初始化");
-							this.contentEl.empty();
-							this.contentEl.createDiv({
-								cls: "weave-study-view-error",
-								text: i18n.t("study.view.dataServiceNotReady"),
-							});
+							this.showMessageState(
+								"weave-study-view-error",
+								i18n.t("study.view.dataServiceNotReady"),
+								"alert-circle"
+							);
 							return;
 						}
 
@@ -906,11 +1053,7 @@ export class StudyView extends ItemView {
 			});
 		} catch (error) {
 			logger.error("[StudyView] 创建学习组件失败:", error);
-			this.contentEl.empty();
-			this.contentEl.createDiv({
-				cls: "error",
-				text: i18n.t("study.view.loadFailed"),
-			});
+			this.showMessageState("weave-study-view-error", i18n.t("study.view.loadFailed"), "alert-circle");
 		}
 	}
 
@@ -1005,10 +1148,8 @@ export class StudyView extends ItemView {
 			return false;
 		}
 
-		const data = this.sessionSnapshot || this.component.getSessionData();
-		const shouldPersist = this.sessionSnapshot
-			? this.sessionSnapshot.remainingCardIds.length > 0 && this.sessionSnapshot.stats.completed > 0
-			: typeof this.component.shouldPersist === "function"
+		const data = this.component.getSessionData();
+		const shouldPersist = typeof this.component.shouldPersist === "function"
 			? this.component.shouldPersist()
 			: false;
 
@@ -1061,7 +1202,7 @@ export class StudyView extends ItemView {
 
 		const persisted = await this.persistCurrentSession(null);
 		if (!persisted) {
-			await this.plugin.clearPersistedStudySession();
+			await this.plugin.clearPersistedStudySession(this.deckId);
 		}
 
 		// 销毁 Svelte 组件

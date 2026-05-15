@@ -8,7 +8,7 @@
 
 import type { WeavePlugin } from '../../main';
 import type { StudyView } from '../../views/StudyView';
-import type { PersistedStudySession } from '../../types/study-types';
+import type { PersistedStudySession, StudyMode, StudyQueueState, StudySessionSnapshot } from '../../types/study-types';
 import type { Card, Deck } from '../../data/types';
 import type { StudySession } from '../../data/study-types';
 import { CardState } from '../../data/types';
@@ -23,7 +23,6 @@ import { tr } from '../../utils/i18n';
 
 // 导入学习完成逻辑辅助函数
 import { loadDeckCardsForStudy, loadAllDueCardsForStudy, loadCardsByIds, getAdvanceStudyCards } from '../../utils/study/studyCompletionHelper';
-import type { StudyMode } from '../../types/study-types';
 
 //  导入服务就绪检查工具
 import { waitForService } from '../../utils/service-ready-check';
@@ -38,11 +37,7 @@ interface Props {
   cardIds?: string[];
   cards?: Card[];  // 直接传递的卡片对象
   resumeData?: PersistedStudySession;
-  queueState?: {
-    currentCardIndex: number;
-    studyQueueCardIds: string[];
-    sessionStudiedCardIds: string[];
-  };
+  queueState?: StudyQueueState;
   onClose: () => void;
 }
 
@@ -81,11 +76,6 @@ let currentCardIds = $state(untrack(() => cardIds));
 let currentCards = $state(untrack(() => cards));  //  添加cards状态
 let activeResumeData = $state<PersistedStudySession | null>(untrack(() => resumeData ?? null));
 let activeQueueState = $state<Props['queueState']>(untrack(() => queueState));
-let sessionStats = $state({
-  completed: 0,
-  correct: 0,
-  incorrect: 0
-});
 
 function formatNextDueTime(dueIso: string): string | null {
   const dueDate = new Date(dueIso);
@@ -118,20 +108,43 @@ function formatNextDueTime(dueIso: string): string | null {
 }
 
 // 学习会话数据
-let currentCardIndex = $state(0);
-let remainingCardIds = $state<string[]>([]);
-let sessionType = $state<'review' | 'new' | 'learning' | 'mixed'>('mixed');
+let studyInterfaceRef = $state<{
+  getQueueProgress?: () => StudyQueueState | null;
+  getSessionData?: () => StudySessionSnapshot;
+  shouldPersist?: () => boolean;
+} | null>(null);
+
+function createEmptySessionSnapshot(deckId = currentDeckId): StudySessionSnapshot {
+  return {
+    deckId,
+    currentCardIndex: 0,
+    remainingCardIds: [],
+    stats: {
+      completed: 0,
+      correct: 0,
+      incorrect: 0
+    },
+    sessionType: 'mixed'
+  };
+}
+
+function setFallbackSessionSnapshot(snapshot?: StudySessionSnapshot | null) {
+  fallbackSessionSnapshot = snapshot
+    ? {
+        deckId: snapshot.deckId,
+        currentCardIndex: snapshot.currentCardIndex,
+        remainingCardIds: [...snapshot.remainingCardIds],
+        stats: { ...snapshot.stats },
+        sessionType: snapshot.sessionType
+      }
+    : createEmptySessionSnapshot();
+}
+
+let fallbackSessionSnapshot = $state<StudySessionSnapshot>(untrack(() => createEmptySessionSnapshot()));
 
 // 队列恢复的初始卡片索引（用于重启后恢复到之前的位置）
 let initialCardIndex = $state(0);
-
-// 实时队列进度（由 StudyInterface 的 $effect 通过 viewInstance.updateQueueState 更新）
-// 此处仅作为 getQueueProgress 的数据源备份
-let liveQueueProgress = $state<{
-  currentCardIndex: number;
-  studyQueueCardIds: string[];
-  sessionStudiedCardIds: string[];
-} | null>(null);
+let studyInterfaceRenderKey = $state(0);
 
 // 监听学习参数变化
 $effect(() => {
@@ -162,37 +175,37 @@ onMount(async () => {
  * 获取当前会话数据（用于持久化）
  */
 export function getSessionData() {
-  return {
-    deckId: currentDeckId,
-    currentCardIndex,
-    remainingCardIds,
-    stats: sessionStats,
-    sessionType
-  };
+  if (studyInterfaceRef?.getSessionData) {
+    return studyInterfaceRef.getSessionData();
+  }
+
+  return fallbackSessionSnapshot;
 }
 
 /**
  * 获取当前队列进度（供 StudyView.getState() 主动查询）
- * 数据来源：StudyInterface 通过 viewInstance.updateQueueState() 实时上报
+ * 数据来源：StudyInterface authoritative 导出
  */
-export function getQueueProgress(): {
-  currentCardIndex: number;
-  studyQueueCardIds: string[];
-  sessionStudiedCardIds: string[];
-} | null {
-  // 优先使用 viewInstance 上的实时数据（由 StudyInterface 的 $effect 更新）
-  if (viewInstance && (viewInstance as any).queueState) {
-    return (viewInstance as any).queueState;
+export function getQueueProgress(): StudyQueueState | null {
+  if (studyInterfaceRef?.getQueueProgress) {
+    const queueProgress = studyInterfaceRef.getQueueProgress();
+    if (queueProgress) {
+      return queueProgress;
+    }
   }
-  return liveQueueProgress;
+
+  return null;
 }
 
 /**
  * 是否需要持久化
  */
 export function shouldPersist(): boolean {
-  // 如果还有剩余卡片且已学习了一些，则需要持久化
-  return remainingCardIds.length > 0 && sessionStats.completed > 0;
+  if (studyInterfaceRef?.shouldPersist) {
+    return studyInterfaceRef.shouldPersist();
+  }
+
+  return fallbackSessionSnapshot.remainingCardIds.length > 0 && fallbackSessionSnapshot.stats.completed > 0;
 }
 
 /**
@@ -219,16 +232,10 @@ export async function updateStudyParams(params: {
   
   // 重置状态
   studyCards = [];
-  currentCardIndex = 0;
-  remainingCardIds = [];
-  sessionStats = {
-    completed: 0,
-    correct: 0,
-    incorrect: 0
-  };
-  sessionType = 'mixed';
+  setFallbackSessionSnapshot(null);
   initialCardIndex = 0;
-  liveQueueProgress = null;
+  studyInterfaceRef = null;
+  studyInterfaceRenderKey += 1;
   isLoading = true;
   
   // 重新加载卡片
@@ -252,13 +259,18 @@ async function loadStudyCards() {
     
     // 如果有恢复数据，使用恢复数据
     if (activeResumeData) {
+      const resumedSnapshot: StudySessionSnapshot = {
+        deckId: activeResumeData.deckId,
+        currentCardIndex: activeResumeData.currentCardIndex,
+        remainingCardIds: [...activeResumeData.remainingCardIds],
+        stats: { ...activeResumeData.stats },
+        sessionType: activeResumeData.sessionType
+      };
+
       currentDeckId = activeResumeData.deckId;
       currentDeckName = activeResumeData.deckName || currentDeckName;
       currentMode = activeResumeData.mode || currentMode;
-      currentCardIndex = activeResumeData.currentCardIndex;
-      remainingCardIds = activeResumeData.remainingCardIds;
-      sessionStats = activeResumeData.stats;
-      sessionType = activeResumeData.sessionType;
+      setFallbackSessionSnapshot(resumedSnapshot);
 
       if (activeResumeData.queueState && activeResumeData.queueState.studyQueueCardIds?.length > 0) {
         logger.info('[StudyViewWrapper] 从持久化队列恢复学习会话:', {
@@ -291,7 +303,7 @@ async function loadStudyCards() {
           'DataStorage',
           10000
         );
-        studyCards = await loadCardsByIds(dataStorage, remainingCardIds, currentDeckId);
+        studyCards = await loadCardsByIds(dataStorage, resumedSnapshot.remainingCardIds, currentDeckId);
         initialCardIndex = 0;
       }
     } else if (activeQueueState && activeQueueState.studyQueueCardIds && activeQueueState.studyQueueCardIds.length > 0) {
@@ -405,7 +417,7 @@ async function loadStudyCards() {
       logger.warn('[StudyViewWrapper] ⚠️ 无可学卡片，关闭学习界面');
       
       // 显示提示
-      new Notice(t('noCardsToStudy'));
+      new Notice(t('deckStudyPage.study.noDeckAvailable'));
       
       // 立即关闭界面
       onClose();
@@ -524,11 +536,17 @@ async function loadAdvanceCards(deckId: string): Promise<Card[]> {
 function handleStudyComplete(session: StudySession) {
   
   // 更新统计 (使用 StudySession 的实际字段)
-  sessionStats = {
-    completed: session.cardsReviewed || 0,
-    correct: session.correctAnswers || 0,
-    incorrect: (session.cardsReviewed || 0) - (session.correctAnswers || 0)
-  };
+  setFallbackSessionSnapshot({
+    deckId: session.deckId,
+    currentCardIndex: fallbackSessionSnapshot.currentCardIndex,
+    remainingCardIds: [...fallbackSessionSnapshot.remainingCardIds],
+    stats: {
+      completed: session.cardsReviewed || 0,
+      correct: session.correctAnswers || 0,
+      incorrect: (session.cardsReviewed || 0) - (session.correctAnswers || 0)
+    },
+    sessionType: fallbackSessionSnapshot.sessionType
+  });
 
   if (session.completionReason === 'paused-until-next-due') {
     const nextDueTime = session.pendingNextDueAt ? formatNextDueTime(session.pendingNextDueAt) : null;
@@ -756,26 +774,30 @@ async function handleStartPractice() {
     <!-- 学习内容区域 -->
     <div class="study-view-content">
       <div class="study-interface-embedded">
-        <StudyInterface
-          cards={studyCards}
-          fsrs={plugin.fsrs}
-          dataStorage={plugin.dataStorage}
-          {plugin}
-          {viewInstance}
-          sessionDeckId={currentDeckId}
-          forcedDeckName={currentDeckName}
-          mode={currentMode === 'custom' ? 'normal' : currentMode}
-          {initialCardIndex}
-          onClose={handleCloseRequest}
-          onComplete={handleStudyComplete}
-        />
+        {#key studyInterfaceRenderKey}
+          <StudyInterface
+            bind:this={studyInterfaceRef}
+            cards={studyCards}
+            fsrs={plugin.fsrs}
+            dataStorage={plugin.dataStorage}
+            {plugin}
+            {viewInstance}
+            sessionDeckId={currentDeckId}
+            forcedDeckName={currentDeckName}
+            showSourceInfoToggle={true}
+            mode={currentMode === 'custom' ? 'normal' : currentMode}
+            {initialCardIndex}
+            onClose={handleCloseRequest}
+            onComplete={handleStudyComplete}
+          />
+        {/key}
       </div>
     </div>
   {:else if isLoading}
     <!-- 加载中状态 -->
     <div class="loading-container-fullscreen">
       <div class="loading-spinner"></div>
-      <p>加载学习卡片中...</p>
+      <p>{t('studyInterface.loadingStudyCards')}</p>
     </div>
   {/if}
   

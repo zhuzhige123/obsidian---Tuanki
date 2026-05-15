@@ -31,6 +31,8 @@
     plugin?: WeavePlugin;
     /** 是否选中 */
     selected?: boolean;
+    /** 是否为当前聚焦卡片 */
+    emphasized?: boolean;
     /** 是否悬停 */
     hovered?: boolean;
     /** 点击回调 */
@@ -47,6 +49,7 @@
     layoutMode = 'comfortable',
     plugin,
     selected = false,
+    emphasized = false,
     hovered = false,
     onClick,
     onDoubleClick
@@ -55,6 +58,7 @@
   // DOM 引用
   let cardElement: HTMLDivElement | undefined = $state();
   let resizeObserver: ResizeObserver | null = null;
+  let clickTimer: ReturnType<typeof setTimeout> | null = null;
 
   const cardSourcePath = $derived.by(() => {
     if (typeof card.sourceFile === 'string' && card.sourceFile.trim()) {
@@ -95,6 +99,11 @@
     
     // 清理函数
     return () => {
+      if (clickTimer !== null) {
+        clearTimeout(clickTimer);
+        clickTimer = null;
+      }
+
       if (resizeObserver) {
         resizeObserver.disconnect();
         resizeObserver = null;
@@ -104,16 +113,22 @@
   
   // 处理卡片点击
   function handleClick() {
-    if (onClick) {
-      onClick();
+    if (!onDoubleClick) {
+      onClick?.();
+      return;
     }
-  }
-  
-  // 处理卡片双击
-  function handleDoubleClick() {
-    if (onDoubleClick) {
+
+    if (clickTimer !== null) {
+      clearTimeout(clickTimer);
+      clickTimer = null;
       onDoubleClick();
+      return;
     }
+
+    clickTimer = setTimeout(() => {
+      onClick?.();
+      clickTimer = null;
+    }, 250);
   }
 </script>
 
@@ -122,6 +137,7 @@
   bind:this={cardElement}
   class="virtual-card-wrapper"
   class:selected
+  class:emphasized
   class:hovered
   class:full-render={renderMode === 'full'}
   class:skeleton-render={renderMode === 'skeleton'}
@@ -130,7 +146,6 @@
   role={onClick ? 'button' : undefined}
   tabindex={onClick ? 0 : undefined}
   onclick={handleClick}
-  ondblclick={handleDoubleClick}
   onkeydown={(e) => {
     if (onClick && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
@@ -138,6 +153,12 @@
     }
   }}
 >
+  {#if emphasized}
+    <div class="virtual-current-card-indicator">
+      <span>当前卡片</span>
+    </div>
+  {/if}
+
   {#if renderMode === 'full'}
     <!-- 完整渲染模式 -->
     <div 
@@ -190,20 +211,6 @@
           {/if}
         </div>
       {/if}
-      
-      <!-- 卡片页脚 -->
-      <div class="card-footer">
-        {#if card.tags && card.tags.length > 0}
-          <div class="card-tags">
-            {#each card.tags.slice(0, 3) as tag}
-              <span class="card-tag">{tag}</span>
-            {/each}
-            {#if card.tags.length > 3}
-              <span class="card-tag-more">+{card.tags.length - 3}</span>
-            {/if}
-          </div>
-        {/if}
-      </div>
     </div>
     
   {:else if renderMode === 'skeleton'}
@@ -238,12 +245,42 @@
     background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
     box-shadow: 0 0 0 2px rgba(var(--color-accent-rgb), 0.2);
   }
-  
+
+  .virtual-card-wrapper.emphasized {
+    box-shadow:
+      inset 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 88%, white 12%),
+      0 0 0 3px color-mix(in srgb, var(--interactive-accent) 30%, transparent),
+      0 0 22px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
+  }
+
   .virtual-card-wrapper.hovered {
     border-color: var(--interactive-accent);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   }
-  
+
+  .virtual-current-card-indicator {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--interactive-accent) 18%, var(--background-primary));
+    color: var(--text-accent);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 38%, transparent),
+      0 4px 12px color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+    font-size: var(--font-ui-smaller);
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
   .virtual-card-wrapper[role="button"] {
     cursor: pointer;
     user-select: none;
@@ -327,32 +364,6 @@
     font-size: 0.875rem;
     line-height: 1.4;
     color: var(--text-normal);
-  }
-  
-  /* 卡片页脚 */
-  .card-footer {
-    border-top: 1px solid var(--background-modifier-border);
-    padding-top: 0.5rem;
-  }
-  
-  .card-tags {
-    display: flex;
-    gap: 0.25rem;
-    flex-wrap: wrap;
-  }
-  
-  .card-tag {
-    padding: 0.125rem 0.375rem;
-    background: var(--background-modifier-border);
-    border-radius: 10px;
-    font-size: 0.7rem;
-    color: var(--text-muted);
-  }
-  
-  .card-tag-more {
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    font-style: italic;
   }
   
   /* 占位符模式 */

@@ -17,6 +17,11 @@ import { countWords, estimateReadingTime, generateReadingUUID } from "../../util
 import { sanitizeForSync } from "../../utils/sync-safe-filename";
 import type { YAMLFrontmatterManager } from "../../utils/yaml-frontmatter-utils";
 import type { AnchorManager } from "./AnchorManager";
+import {
+	normalizeIRReadableMarkdownFolderPath,
+	resolveIRReadableMarkdownTargetFolder,
+} from "./IRReadableMarkdownPathResolver";
+import { resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 import type { ReadingMaterialStorage } from "./ReadingMaterialStorage";
 
 /** 创建阅读材料时可覆盖的选项。 */
@@ -29,9 +34,9 @@ export interface CreateMaterialOptions {
 	tags?: string[];
 	/** 来源 */
 	source?: "auto" | "manual";
-	/** 是否复制文件到导入文件夹（默认 true） */
+	/** 是否复制非 Markdown 源材料到兼容导入目录（默认 true） */
 	copyToImportFolder?: boolean;
-	/** 自定义导入文件夹路径（可选，默认使用设置中的路径） */
+	/** 旧导入/复制目录；不影响新正文 Markdown 的默认创建位置 */
 	importFolder?: string;
 }
 
@@ -40,6 +45,8 @@ export interface SplitMarkdownMaterialInput {
 	title: string;
 	/** 拆分后文件正文 */
 	content: string;
+	/** 可选：拆分后文件末尾追加的溯源双链 */
+	sourceBacklink?: string;
 	/** 可选：导入后直接写入下次复习时间 */
 	nextReviewAt?: Date | number;
 }
@@ -47,6 +54,13 @@ export interface SplitMarkdownMaterialInput {
 export interface CreateSplitMarkdownMaterialsOptions extends CreateMaterialOptions {
 	/** 关联的增量阅读专题 ID */
 	deckId?: string;
+	/** 显式指定拆分后 Markdown 文件的导入目录 */
+	readableMarkdownFolder?: string;
+}
+
+export interface CreateCopiedMarkdownMaterialOptions extends CreateMaterialOptions {
+	/** 显式指定整文件副本的导入目录 */
+	readableMarkdownFolder?: string;
 }
 
 /** 分类切换后的结果。 */
@@ -123,7 +137,9 @@ export class ReadingMaterialManager {
 		const adapter = this.app.vault.adapter;
 
 		logger.info("[ReadingMaterialManager] 确保目标文件夹存在...");
-		await DirectoryUtils.ensureDirRecursive(adapter, targetFolder);
+		if (targetFolder !== "/") {
+			await DirectoryUtils.ensureDirRecursive(adapter, targetFolder);
+		}
 		logger.info("[ReadingMaterialManager] 目标文件夹已确保存在");
 
 		const targetPath = await this.generateUniqueFilePath(
@@ -161,11 +177,15 @@ export class ReadingMaterialManager {
 		extension: string
 	): Promise<string> {
 		const adapter = this.app.vault.adapter;
-		let targetPath = `${folderPath}/${basename}.${extension}`;
+		const normalizedFolderPath = normalizePath(folderPath);
+		const baseFolder = normalizedFolderPath === "/" ? "" : normalizedFolderPath;
+		let targetPath = baseFolder ? `${baseFolder}/${basename}.${extension}` : `${basename}.${extension}`;
 		let counter = 1;
 
 		while (await adapter.exists(targetPath)) {
-			targetPath = `${folderPath}/${basename}-${counter}.${extension}`;
+			targetPath = baseFolder
+				? `${baseFolder}/${basename}-${counter}.${extension}`
+				: `${basename}-${counter}.${extension}`;
 			counter++;
 		}
 
@@ -201,14 +221,19 @@ export class ReadingMaterialManager {
 		const baseName = `${String(order + 1).padStart(2, "0")}_${safeTitle}`;
 		const targetPath = await this.generateUniqueFilePath(targetFolder, baseName, "md");
 		const trimmedContent = block.content.trim();
+		const normalizedBacklink = String(block.sourceBacklink || "").trim();
 
 		if (!trimmedContent) {
 			throw new Error(`拆分块 ${order + 1} 内容为空，已停止导入`);
 		}
 
+		const finalContent = normalizedBacklink
+			? `${trimmedContent}\n\n${normalizedBacklink}`
+			: trimmedContent;
+
 		return await this.app.vault.create(
 			normalizePath(targetPath),
-			trimmedContent.endsWith("\n") ? trimmedContent : `${trimmedContent}\n`
+			finalContent.endsWith("\n") ? finalContent : `${finalContent}\n`
 		);
 	}
 
@@ -228,6 +253,40 @@ export class ReadingMaterialManager {
 	/** 返回本次导入应使用的目标文件夹。 */
 	private getImportFolder(options: CreateMaterialOptions): string {
 		return options.importFolder || this.getDefaultImportFolderFromPluginSettings();
+	}
+
+	private getSelectionQuickCreateLastFolderFromPluginSettings(): string {
+		try {
+			const plugin: any = (this.app as any)?.plugins?.getPlugin?.("weave");
+			return String(plugin?.settings?.incrementalReading?.selectionQuickCreateLastFolder || "").trim();
+		} catch {
+			return "";
+		}
+	}
+
+	private resolveReadableMarkdownFolder(
+		preferredFolder: string | undefined,
+		contextPath: string
+	): string {
+		return normalizeIRReadableMarkdownFolderPath(
+			preferredFolder ||
+				resolveIRReadableMarkdownTargetFolder(this.app, {
+					lastSelectedFolder: this.getSelectionQuickCreateLastFolderFromPluginSettings(),
+					contextPath,
+					allowActiveFileFallback: false,
+				})
+		);
+	}
+
+	private async syncMaterialDeckYaml(material: ReadingMaterial, deckId?: string): Promise<void> {
+		const abstractFile = this.app.vault.getAbstractFileByPath?.(material.filePath);
+		if (!(abstractFile instanceof TFile) || abstractFile.extension !== "md") {
+			return;
+		}
+
+		await this.yamlManager.updateReadingFields(abstractFile, {
+			"weave-reading-topic-id": deckId || "",
+		});
 	}
 
 	/** 判断文件是否已经位于导入目录下。 */
@@ -261,7 +320,7 @@ export class ReadingMaterialManager {
 			try {
 				targetFile = await this.copyFileToImportFolder(file, importFolder);
 				logger.info(
-					`[ReadingMaterialManager] ✅ 已复制文件到导入文件夹: ${file.path} -> ${targetFile.path}`
+					`[ReadingMaterialManager] ✅ 已复制文件到兼容导入目录: ${file.path} -> ${targetFile.path}`
 				);
 			} catch (error) {
 				logger.error(`[ReadingMaterialManager] ❌ 复制文件失败，使用原文件: ${file.path}`, error);
@@ -335,13 +394,22 @@ export class ReadingMaterialManager {
 			throw new Error("没有可导入的拆分内容");
 		}
 
-		const importFolder = this.getImportFolder(options);
+		const readableMarkdownRoot = this.resolveReadableMarkdownFolder(
+			options.readableMarkdownFolder,
+			sourceFile.path
+		);
 		const adapter = this.app.vault.adapter;
-		await DirectoryUtils.ensureDirRecursive(adapter, importFolder);
-		const { deckId, ...materialOptions } = options;
+		if (readableMarkdownRoot !== "/") {
+			await DirectoryUtils.ensureDirRecursive(adapter, readableMarkdownRoot);
+		}
+		const { deckId, readableMarkdownFolder: _readableMarkdownFolder, ...materialOptions } = options;
 
 		const sourceFolderName = this.sanitizeImportedMarkdownName(sourceFile.basename, "Imported");
-		const targetFolder = await this.generateUniqueFolderPath(`${importFolder}/${sourceFolderName}`);
+		const targetFolderBase =
+			readableMarkdownRoot === "/"
+				? sourceFolderName
+				: `${readableMarkdownRoot}/${sourceFolderName}`;
+		const targetFolder = await this.generateUniqueFolderPath(targetFolderBase);
 		await DirectoryUtils.ensureDirRecursive(adapter, targetFolder);
 
 		const createdMaterials: ReadingMaterial[] = [];
@@ -353,14 +421,10 @@ export class ReadingMaterialManager {
 			let material = await this.createMaterial(createdFile, {
 				...materialOptions,
 				copyToImportFolder: false,
-				importFolder,
 			});
 
 			if (deckId) {
 				await this.setReadingDeck(material.uuid, deckId);
-				await this.yamlManager.updateReadingFields(createdFile, {
-					"weave-reading-topic-id": deckId,
-				});
 			}
 
 			if (block.nextReviewAt !== undefined) {
@@ -383,6 +447,29 @@ export class ReadingMaterialManager {
 		);
 
 		return createdMaterials;
+	}
+
+	async createCopiedMarkdownMaterial(
+		sourceFile: TFile,
+		options: CreateCopiedMarkdownMaterialOptions = {}
+	): Promise<ReadingMaterial> {
+		await this.assertNotIRFile(sourceFile, "createCopiedMarkdownMaterial");
+
+		if (sourceFile.extension !== "md") {
+			throw new Error("仅支持复制 Markdown 文件");
+		}
+
+		const readableMarkdownRoot = this.resolveReadableMarkdownFolder(
+			options.readableMarkdownFolder,
+			sourceFile.path
+		);
+		const copiedFile = await this.copyFileToImportFolder(sourceFile, readableMarkdownRoot);
+		const { readableMarkdownFolder: _readableMarkdownFolder, ...materialOptions } = options;
+
+		return await this.createMaterial(copiedFile, {
+			...materialOptions,
+			copyToImportFolder: false,
+		});
 	}
 
 	/** 先查已有材料，找不到再创建。 */
@@ -713,18 +800,29 @@ export class ReadingMaterialManager {
 
 		this.assignMaterialDeck(material, deckId);
 		await this.touchAndSaveMaterial(material);
+		await this.syncMaterialDeckYaml(material, deckId);
 
 		return true;
 	}
 
 	/** 设置关联的 Markdown 笔记路径。 */
 	async setAssociatedNotePath(materialId: string, notePath: string | null): Promise<boolean> {
+		return this.setAssociatedNotePaths(materialId, notePath ? [notePath] : []);
+	}
+
+	async setAssociatedNotePaths(materialId: string, notePaths: string[]): Promise<boolean> {
 		const material = await this.getMaterialOrWarn(materialId, "阅读材料");
 		if (!material) {
 			return false;
 		}
 
-		material.associatedNotePath = notePath || undefined;
+		const normalizedPaths = resolveAssociatedNotePaths({
+			associatedNotePaths: notePaths,
+		});
+		const primaryPath = normalizedPaths[0];
+		material.primaryAssociatedNotePath = primaryPath || undefined;
+		material.associatedNotePath = primaryPath || undefined;
+		material.associatedNotePaths = normalizedPaths;
 		await this.touchAndSaveMaterial(material);
 
 		return true;
@@ -957,6 +1055,9 @@ export class ReadingMaterialManager {
 			return false;
 		}
 
+		const irStorage = new (await import("./IRStorageService")).IRStorageService(this.app);
+		await irStorage.initialize();
+
 		const allMaterials = await this.storage.getAllMaterials();
 		const children = allMaterials.filter((m) => m.parentMaterialId === materialId);
 		for (const child of children) {
@@ -970,44 +1071,16 @@ export class ReadingMaterialManager {
 		const success = await this.storage.deleteMaterial(materialId);
 
 		if (success) {
-			if (!material.parentMaterialId) {
-				const file = this.app.vault.getAbstractFileByPath(material.filePath);
-				if (file instanceof TFile) {
-					try {
-						await this.yamlManager.removeReadingFields(file);
-					} catch (error) {
-						logger.warn(`[ReadingMaterialManager] 清理YAML失败: ${material.filePath}`, error);
-					}
-				}
-			}
-
-			if (material.filePath.endsWith(".md")) {
-				try {
-					const { IRStorageService } = await import("./IRStorageService");
-					const irStorage = new IRStorageService(this.app);
-					await irStorage.initialize();
-					const chunks = await irStorage.getAllChunkData();
-					const relatedExternalChunkIds = Object.values(chunks)
-						.filter((_chunk) => {
-							const meta = _chunk.meta as unknown as Record<string, unknown> | undefined;
-							return _chunk.filePath === material.filePath && meta?.externalDocument === true;
-						})
-						.map((chunk) => chunk.chunkId)
-						.filter(
-							(chunkId): chunkId is string => typeof chunkId === "string" && chunkId.length > 0
-						);
-
-					for (const chunkId of relatedExternalChunkIds) {
-						await irStorage.deleteChunkData(chunkId);
-					}
-
-					await irStorage.deleteBlocksByFile(material.filePath);
-				} catch (error) {
-					logger.warn(
-						`[ReadingMaterialManager] 清理阅读材料调度残留失败: ${material.filePath}`,
-						error
-					);
-				}
+			try {
+				await irStorage.removeMaterialScheduleData(material.filePath);
+				await irStorage.cleanupRemovedMaterialDocument(material.filePath, {
+					removeExternalDocumentFields: true,
+				});
+			} catch (error) {
+				logger.warn(
+					`[ReadingMaterialManager] 清理阅读材料调度残留失败: ${material.filePath}`,
+					error
+				);
 			}
 
 			logger.info(`[ReadingMaterialManager] 已删除材料: ${material.title}`);

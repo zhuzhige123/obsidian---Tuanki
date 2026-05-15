@@ -3,6 +3,7 @@
 import { App, TFile, TFolder, normalizePath } from "obsidian";
 import {
 	PATHS,
+	getPluginPaths,
 	getReadableWeaveRoot,
 	getV2PathsFromApp,
 	normalizeWeaveParentFolder,
@@ -11,78 +12,486 @@ import {
 import type {
 	FileSyncState,
 	IRBlock,
-	IRBlocksStore,
 	IRDeck,
 	IRDecksStore,
 	IRHistoryStore,
 	IRSession,
+	IRSourceFileMeta,
 	IRStudySession,
 	IRStudySessionStore,
 	IRSyncStateStore,
 } from "../../types/ir-types";
 import { IR_STORAGE_VERSION } from "../../types/ir-types";
 import {
-	IR_LEGACY_DECKS_FILE,
-	IR_TOPICS_FILE,
 	READING_LEGACY_DECK_YAML_KEY,
 	READING_TOPIC_YAML_KEY,
-	buildTopicStore,
 	extractReadingTopicIdFromFrontmatter,
+	getTaskTopicId,
 	normalizeChunkForRuntime,
 	normalizeIRSessionForRuntime,
 	normalizeStudySessionForRuntime,
-	normalizeTopicStoreRecords,
-	serializeChunkForStorage,
 	serializeIRSessionForStorage,
 	serializeStudySessionForStorage,
 } from "../../utils/ir-topic-compat";
 import { logger } from "../../utils/logger";
 import { parseYAMLFromContent, setCardProperty } from "../../utils/yaml-utils";
 import { IREpubBookmarkTaskService } from "./IREpubBookmarkTaskService";
+import {
+	buildLegacyBlockFromPointSnapshot,
+	buildLegacyChunkFromPointSnapshot,
+	getStoredPointKind,
+	isLegacyBlockPointSnapshot,
+} from "./IRLegacyTaskCompatAdapter";
 import { IRPdfBookmarkTaskService } from "./IRPdfBookmarkTaskService";
+import { IRPointStorageService } from "./IRPointStorageService";
+import { resolveAssociatedNotePath, resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
+import { getSharedIRWorkspaceSnapshotService } from "./IRWorkspaceSnapshotService";
+import { DirectoryUtils } from "../../utils/directory-utils";
 
-const BLOCKS_FILE = "blocks.json";
-const DECKS_FILE = IR_LEGACY_DECKS_FILE;
-const TOPICS_FILE = IR_TOPICS_FILE;
 const HISTORY_FILE = "history.json";
 const SYNC_STATE_FILE = "sync-state.json";
 const CALENDAR_PROGRESS_FILE = "calendar-progress.json";
+const DEFAULT_IR_TOPIC_ID = "ungrouped-ir";
 
 export class IRStorageService {
 	private app: App;
 	private initialized = false;
 	private initPromise: Promise<void> | null = null;
-
-	private migratedChunkReadablePaths = false;
-	private migratedSourceReadablePaths = false;
-	private migratedBlockReadablePaths = false;
-	private migratedDeckReadablePaths = false;
+	private pointStorageService: IRPointStorageService | null = null;
+	private readonly runtimeSourceMetadataById = new Map<string, IRSourceFileMeta>();
 
 	constructor(app: App) {
 		this.app = app;
 	}
 
+	private getPointStorageService(): IRPointStorageService {
+		if (!this.pointStorageService) {
+			this.pointStorageService = new IRPointStorageService(this.app);
+		}
+		return this.pointStorageService;
+	}
+
+	private getSyncStateStoragePath(): string {
+		return normalizePath(getPluginPaths(this.app as any).cache.incrementalReading.syncState);
+	}
+
+	private getLegacySyncStateStoragePath(): string {
+		return `${this.getStorageDir()}/${SYNC_STATE_FILE}`;
+	}
+
+	private getHistoryStoragePath(): string {
+		return normalizePath(getPluginPaths(this.app as any).state.incrementalReading.history);
+	}
+
+	private getCalendarProgressStoragePath(): string {
+		return normalizePath(getPluginPaths(this.app as any).state.incrementalReading.calendarProgress);
+	}
+
+	private getStudySessionsStoragePath(): string {
+		return normalizePath(getPluginPaths(this.app as any).state.incrementalReading.studySessions);
+	}
+
+	private collectLegacyIncrementalReadingStatePaths(fileName: string): string[] {
+		const normalizedFileName = String(fileName || "").trim();
+		if (!normalizedFileName) {
+			return [];
+		}
+
+		const candidates = new Set<string>();
+		candidates.add(`${this.getStorageDir()}/${normalizedFileName}`);
+		candidates.add(`${PATHS.incrementalReading}/${normalizedFileName}`);
+
+		const roots = this.getReadableRoots();
+		if (roots?.currentRoot) {
+			candidates.add(`${roots.currentRoot}/incremental-reading/${normalizedFileName}`);
+		}
+		if (roots?.legacyRoot) {
+			candidates.add(`${roots.legacyRoot}/incremental-reading/${normalizedFileName}`);
+		}
+
+		return Array.from(candidates)
+			.map((path) => normalizePath(path))
+			.filter(Boolean);
+	}
+
+	private async readStructuredLocalStateWithLegacyFallback(options: {
+		localPath: string;
+		legacyPaths: string[];
+		defaultContent: string;
+		label: string;
+	}): Promise<string> {
+		const localContent = await this.readOptionalFile(options.localPath);
+		if (localContent !== null) {
+			return localContent;
+		}
+
+		for (const legacyPath of options.legacyPaths) {
+			const legacyContent = await this.readOptionalFile(legacyPath);
+			if (legacyContent === null) {
+				continue;
+			}
+
+			try {
+				await this.writeFile(options.localPath, legacyContent);
+			} catch (error) {
+				logger.warn(
+					`[IRStorageService] 迁移 ${options.label} 到插件本地目录失败，已继续使用旧文件: ${legacyPath}`,
+					error
+				);
+			}
+			return legacyContent;
+		}
+
+		await this.writeFile(options.localPath, options.defaultContent);
+		return options.defaultContent;
+	}
+
+	private buildTopicNamesByIdMap(decks: Record<string, IRDeck>): Map<string, string> {
+		return new Map(
+			Object.values(decks).map((deck) => [deck.id, String(deck.name || "").trim()] as const)
+		);
+	}
+
+	private async getPointBackedDecks(): Promise<Record<string, IRDeck>> {
+		try {
+			return await this.getPointStorageService().listPointDecks();
+		} catch (error) {
+			logger.warn("[IRStorageService] 读取 .irdeck 专题目录失败，当前返回空专题列表", error);
+			return {};
+		}
+	}
+
+	private async listChunkPointSnapshots() {
+		const snapshots = await this.getPointStorageService().listPointSnapshots();
+		return snapshots.filter((snapshot) => getStoredPointKind(snapshot) === "chunk");
+	}
+
+	private async listLegacyBlockPointSnapshots() {
+		const snapshots = await this.getPointStorageService().listPointSnapshots();
+		return snapshots.filter((snapshot) => isLegacyBlockPointSnapshot(snapshot));
+	}
+
+	private resolveLegacyBlockTopicIds(
+		block: IRBlock,
+		decks: Record<string, IRDeck>
+	): string[] {
+		const topicIds = new Set<string>();
+		const directDeckPath = String((block as any)?.deckPath || "").trim();
+		if (directDeckPath) {
+			topicIds.add(directDeckPath);
+		}
+
+		for (const [deckKey, deck] of Object.entries(decks || {})) {
+			if (!Array.isArray(deck.blockIds) || !deck.blockIds.includes(block.id)) {
+				continue;
+			}
+			const deckId = String(deck.id || deck.path || deckKey || "").trim();
+			if (deckId) {
+				topicIds.add(deckId);
+			}
+		}
+
+		return Array.from(topicIds);
+	}
+
+	private async projectLegacyBlocksFromPoints(): Promise<Record<string, IRBlock>> {
+		const snapshots = await this.listLegacyBlockPointSnapshots();
+		const blocks: Record<string, IRBlock> = {};
+
+		for (const snapshot of snapshots) {
+			const block = buildLegacyBlockFromPointSnapshot(snapshot);
+			if (!block) {
+				continue;
+			}
+			blocks[block.id] = block;
+		}
+
+		return blocks;
+	}
+
+	private deriveLegacyBlockTitle(block: IRBlock): string {
+		const headingPath = Array.isArray(block.headingPath) ? block.headingPath : [];
+		const headingTitle = String(headingPath[headingPath.length - 1] || "").trim();
+		if (headingTitle) {
+			return headingTitle;
+		}
+		if (typeof block.headingText === "string" && block.headingText.trim()) {
+			return block.headingText.trim();
+		}
+		const preview = String(block.contentPreview || "").trim();
+		if (preview) {
+			return preview.replace(/\s+/g, " ").slice(0, 80);
+		}
+		return String(block.id || "").trim() || "未命名阅读点";
+	}
+
+	private async syncLegacyBlockToPointStorage(
+		block: IRBlock,
+		decks?: Record<string, IRDeck>
+	): Promise<void> {
+		const resolvedDecks = decks || (await this.getAllDecks());
+		const topicIds = this.resolveLegacyBlockTopicIds(block, resolvedDecks);
+		const primaryTopicId = topicIds[0] || "ungrouped-ir";
+		const primaryDeck = Object.entries(resolvedDecks).find(
+			([deckKey, deck]) => String(deck.id || deck.path || deckKey || "").trim() === primaryTopicId
+		);
+		const sourcePath = normalizePath(String(block.filePath || "").trim());
+
+		await this.getPointStorageService().syncLegacyPoint(
+			{
+				id: block.id,
+				topicId: primaryTopicId,
+				topicIds,
+				topicName: String(primaryDeck?.[1]?.name || primaryTopicId || "未归类增量阅读").trim(),
+				title: this.deriveLegacyBlockTitle(block),
+				tags: Array.isArray(block.tags) ? [...block.tags] : [],
+				status: typeof block.state === "string" ? block.state : "new",
+				priorityUi:
+					typeof block.priorityUi === "number"
+						? block.priorityUi
+						: typeof block.priorityEff === "number"
+							? block.priorityEff
+							: undefined,
+				priorityEff:
+					typeof block.priorityEff === "number"
+						? block.priorityEff
+						: typeof block.priorityUi === "number"
+							? block.priorityUi
+							: undefined,
+				intervalDays: typeof block.interval === "number" ? block.interval : undefined,
+				nextRepDate:
+					typeof block.nextReview === "string" && block.nextReview.trim()
+						? Date.parse(block.nextReview)
+						: undefined,
+				createdAt:
+					typeof block.createdAt === "string" && block.createdAt.trim()
+						? Date.parse(block.createdAt)
+						: undefined,
+				updatedAt:
+					typeof block.updatedAt === "string" && block.updatedAt.trim()
+						? Date.parse(block.updatedAt)
+						: undefined,
+				lastInteractionAt:
+					typeof block.lastReview === "string" && block.lastReview.trim()
+						? Date.parse(block.lastReview)
+						: undefined,
+				sourceType: "legacy-block",
+				sourcePath,
+				pointType: "legacy-block-entry",
+				locatorType: "markdown-block",
+				locator: {
+					filePath: sourcePath,
+					sourcePath,
+					headingPath: Array.isArray(block.headingPath) ? [...block.headingPath] : [],
+					headingLevel: block.headingLevel,
+					startLine:
+						typeof block.startLine === "number"
+							? block.startLine
+							: typeof block.blockIndex === "number"
+								? block.blockIndex
+								: 0,
+					endLine:
+						typeof block.endLine === "number"
+							? block.endLine
+							: typeof block.startLine === "number"
+								? block.startLine
+								: 0,
+					contentPreview:
+						typeof block.contentPreview === "string" ? block.contentPreview : undefined,
+				},
+				note: typeof block.notes === "string" ? block.notes : undefined,
+				isStarred: Boolean(block.favorite),
+				linkedNotePaths: resolveAssociatedNotePaths({
+					associatedNotePath:
+						resolveAssociatedNotePath(block as any) ||
+						resolveAssociatedNotePath(((block as any).meta || null) as any),
+					associatedNotePaths: Array.isArray((block as any).associatedNotePaths)
+						? (block as any).associatedNotePaths
+						: Array.isArray((block as any).meta?.associatedNotePaths)
+							? (block as any).meta.associatedNotePaths
+							: undefined,
+				}),
+				explicitTagGroupId:
+					typeof block.tagGroupId === "string" ? block.tagGroupId : undefined,
+				stats: {
+					impressions:
+						typeof block.reviewCount === "number" ? block.reviewCount : undefined,
+					reviewCount:
+						typeof block.reviewCount === "number" ? block.reviewCount : undefined,
+					cardsCreated: Array.isArray(block.extractedCards)
+						? block.extractedCards.length
+						: undefined,
+					totalReadingTimeSec:
+						typeof block.totalReadingTime === "number" ? block.totalReadingTime : undefined,
+					lastInteractionAt:
+						typeof block.lastReview === "string" && block.lastReview.trim()
+							? Date.parse(block.lastReview)
+							: undefined,
+				},
+				metadata: {
+					headingPath: Array.isArray(block.headingPath) ? [...block.headingPath] : [],
+					headingText:
+						typeof block.headingText === "string"
+							? block.headingText
+							: this.deriveLegacyBlockTitle(block),
+					headingLevel: block.headingLevel,
+					startLine:
+						typeof block.startLine === "number"
+							? block.startLine
+							: typeof block.blockIndex === "number"
+								? block.blockIndex
+								: 0,
+					endLine:
+						typeof block.endLine === "number"
+							? block.endLine
+							: typeof block.startLine === "number"
+								? block.startLine
+								: 0,
+					contentPreview:
+						typeof block.contentPreview === "string" ? block.contentPreview : undefined,
+					tagGroupId:
+						typeof block.tagGroupId === "string" ? block.tagGroupId : undefined,
+					intervalFactor:
+						typeof block.intervalFactor === "number" ? block.intervalFactor : undefined,
+				},
+			},
+			{ preserveExisting: false }
+		);
+	}
+
+	private mergeProjectedSource(
+		existing: import("../../types/ir-types").IRSourceFileMeta | undefined,
+		next: import("../../types/ir-types").IRSourceFileMeta
+	): import("../../types/ir-types").IRSourceFileMeta {
+		if (!existing) {
+			return {
+				...next,
+				chunkIds: Array.from(new Set(next.chunkIds || [])),
+			};
+		}
+
+		return {
+			...existing,
+			originalPath: existing.originalPath || next.originalPath,
+			rawFilePath: existing.rawFilePath || next.rawFilePath,
+			indexFilePath: existing.indexFilePath || next.indexFilePath,
+			title: existing.title || next.title,
+			tagGroup:
+				next.tagGroup && next.tagGroup !== "default" ? next.tagGroup : existing.tagGroup,
+			chunkIds: Array.from(new Set([...(existing.chunkIds || []), ...(next.chunkIds || [])])),
+			createdAt:
+				existing.createdAt && next.createdAt
+					? Math.min(existing.createdAt, next.createdAt)
+					: existing.createdAt || next.createdAt,
+			updatedAt: Math.max(existing.updatedAt || 0, next.updatedAt || 0),
+		};
+	}
+
+	private async projectRuntimeChunkStoresFromPoints(): Promise<{
+		chunks: Record<string, import("../../types/ir-types").IRChunkFileData>;
+		sources: Record<string, IRSourceFileMeta>;
+	}> {
+		const snapshots = await this.listChunkPointSnapshots();
+		const chunks: Record<string, import("../../types/ir-types").IRChunkFileData> = {};
+		const sources: Record<string, IRSourceFileMeta> = {};
+
+		for (const snapshot of snapshots) {
+			const { chunk, source } = buildLegacyChunkFromPointSnapshot(snapshot);
+			chunks[chunk.chunkId] = normalizeChunkForRuntime(chunk);
+			sources[source.sourceId] = this.mergeProjectedSource(sources[source.sourceId], source);
+		}
+
+		return { chunks, sources };
+	}
+
+	private cacheRuntimeSourceMetadata(sourceList: IRSourceFileMeta[]): void {
+		for (const source of sourceList) {
+			const sourceId = String(source?.sourceId || "").trim();
+			if (!sourceId) {
+				continue;
+			}
+			this.runtimeSourceMetadataById.set(sourceId, source);
+		}
+	}
+
+	private dropRuntimeSourceMetadata(sourceId: string): void {
+		const normalizedSourceId = String(sourceId || "").trim();
+		if (!normalizedSourceId) {
+			return;
+		}
+		this.runtimeSourceMetadataById.delete(normalizedSourceId);
+	}
+
+	private mergeRuntimeSourceMetadata(
+		projectedSources: Record<string, IRSourceFileMeta>
+	): Record<string, IRSourceFileMeta> {
+		if (this.runtimeSourceMetadataById.size === 0) {
+			return projectedSources;
+		}
+
+		const mergedSources: Record<string, IRSourceFileMeta> = { ...projectedSources };
+		for (const [sourceId, source] of this.runtimeSourceMetadataById.entries()) {
+			mergedSources[sourceId] = source;
+		}
+		return mergedSources;
+	}
+
+	private async syncChunkPointToNewStorage(
+		chunk: import("../../types/ir-types").IRChunkFileData,
+		decks?: Record<string, IRDeck>,
+		sources?: Record<string, import("../../types/ir-types").IRSourceFileMeta>
+	): Promise<void> {
+		try {
+			const [resolvedDecks, resolvedSources] = await Promise.all([
+				decks ? Promise.resolve(decks) : this.getAllDecks(),
+				sources ? Promise.resolve(sources) : this.getAllSources(),
+			]);
+			await this.getPointStorageService().syncChunkPoint(chunk, {
+				source: resolvedSources[String(chunk.sourceId || "").trim()] || null,
+				topicNamesById: this.buildTopicNamesByIdMap(resolvedDecks),
+			});
+		} catch (error) {
+			logger.warn(
+				`[IRStorageService] chunk 双写到新 points 存储失败: ${String(chunk?.chunkId || "")}`,
+				error
+			);
+		}
+	}
+
+	private async syncChunkPointsToNewStorage(
+		chunkList: import("../../types/ir-types").IRChunkFileData[],
+		options?: {
+			decks?: Record<string, IRDeck>;
+			sourcesById?: Record<string, import("../../types/ir-types").IRSourceFileMeta>;
+		}
+	): Promise<void> {
+		if (!Array.isArray(chunkList) || chunkList.length === 0) {
+			return;
+		}
+
+		try {
+			const [decks, sources] = await Promise.all([
+				options?.decks ? Promise.resolve(options.decks) : this.getAllDecks(),
+				options?.sourcesById ? Promise.resolve(options.sourcesById) : this.getAllSources(),
+			]);
+			for (const chunk of chunkList) {
+				await this.syncChunkPointToNewStorage(chunk, decks, sources);
+			}
+		} catch (error) {
+			logger.warn("[IRStorageService] 批量双写 chunk points 失败", error);
+		}
+	}
+
+	private async deleteChunkPointFromNewStorage(chunkId: string): Promise<void> {
+		try {
+			await this.getPointStorageService().deletePointByLegacyId(chunkId);
+		} catch (error) {
+			logger.warn(`[IRStorageService] 删除新 points 中的 chunk 失败: ${chunkId}`, error);
+		}
+	}
+
 	private getStorageDir(): string {
 		return getV2PathsFromApp(this.app).ir.root;
-	}
-
-	private getTopicsFilePath(): string {
-		return `${this.getStorageDir()}/${TOPICS_FILE}`;
-	}
-
-	private getLegacyDecksFilePath(): string {
-		return `${this.getStorageDir()}/${DECKS_FILE}`;
-	}
-
-	private buildSerializedChunkStore(
-		chunks: Record<string, import("../../types/ir-types").IRChunkFileData>
-	): import("../../types/ir-types").IRChunksStore {
-		return {
-			version: IR_STORAGE_VERSION,
-			chunks: Object.fromEntries(
-				Object.entries(chunks).map(([chunkId, chunk]) => [chunkId, serializeChunkForStorage(chunk)])
-			),
-		};
 	}
 
 	private validateDeckNameUniqueness(decks: Record<string, IRDeck>, deck: IRDeck): string {
@@ -148,37 +557,6 @@ export class IRStorageService {
 		}
 	}
 
-	private rewriteRootPrefix(p: unknown, fromRoot: string, toRoot: string): string | null {
-		if (typeof p !== "string" || !p.trim()) return null;
-		const normalized = this.coerceToVaultPath(p);
-		if (normalized === fromRoot) return toRoot;
-		if (normalized.startsWith(`${fromRoot}/`)) {
-			return normalizePath(`${toRoot}/${normalized.slice(fromRoot.length + 1)}`);
-		}
-		return null;
-	}
-
-	private async migrateReadablePathIfNeeded(
-		p: unknown,
-		fromRoot: string,
-		toRoot: string
-	): Promise<string | null> {
-		const rewritten = this.rewriteRootPrefix(p, fromRoot, toRoot);
-		if (!rewritten) return null;
-
-		try {
-			const adapter = this.app.vault.adapter;
-			const oldPath = this.coerceToVaultPath(String(p));
-			const oldExists = await adapter.exists(oldPath);
-			if (oldExists) return null;
-			const newExists = await adapter.exists(rewritten);
-			if (!newExists) return null;
-			return rewritten;
-		} catch {
-			return null;
-		}
-	}
-
 	/** 初始化存储目录，并复用进行中的初始化任务。 */
 	async initialize(): Promise<void> {
 		if (this.initialized) return;
@@ -204,32 +582,6 @@ export class IRStorageService {
 			// 这里只保证基础目录和文件存在，迁移由专门的迁移链负责。
 			await this.ensureDirectory(storageDir);
 			logger.info(`[IRStorageService] ⚡ 目录创建完成: ${storageDir}`);
-
-			const defaultBlocks: IRBlocksStore = { version: IR_STORAGE_VERSION, blocks: {} };
-			const defaultDecks: IRDecksStore = { version: IR_STORAGE_VERSION, decks: {} };
-			const defaultHistory: IRHistoryStore = { version: IR_STORAGE_VERSION, sessions: [] };
-			const defaultCalendarProgress = { version: IR_STORAGE_VERSION, byDate: {} };
-			const defaultChunks = { version: IR_STORAGE_VERSION, chunks: {} };
-			const defaultSources = { version: IR_STORAGE_VERSION, sources: {} };
-
-			await Promise.all([
-				this.ensureFile(`${storageDir}/${BLOCKS_FILE}`, JSON.stringify(defaultBlocks)),
-				this.ensureFile(
-					this.getTopicsFilePath(),
-					JSON.stringify(buildTopicStore(defaultDecks.decks, IR_STORAGE_VERSION))
-				),
-				this.ensureFile(`${storageDir}/${HISTORY_FILE}`, JSON.stringify(defaultHistory)),
-				this.ensureFile(
-					`${storageDir}/${CALENDAR_PROGRESS_FILE}`,
-					JSON.stringify(defaultCalendarProgress)
-				),
-				this.ensureFile(
-					`${storageDir}/${IRStorageService.STUDY_SESSIONS_FILE}`,
-					'{"version":"1.0","sessions":[]}'
-				),
-				this.ensureFile(`${storageDir}/chunks.json`, JSON.stringify(defaultChunks)),
-				this.ensureFile(`${storageDir}/sources.json`, JSON.stringify(defaultSources)),
-			]);
 
 			this.initialized = true;
 			logger.info("[IRStorageService] ✅ 存储服务初始化完成");
@@ -293,73 +645,7 @@ export class IRStorageService {
 	/** 返回所有内容块，并在需要时修正可读根目录路径。 */
 	async getAllBlocks(): Promise<Record<string, IRBlock>> {
 		await this.initialize();
-
-		const storageDir = this.getStorageDir();
-
-		const content = await this.readFile(
-			`${storageDir}/${BLOCKS_FILE}`,
-			'{"version":"2.0","blocks":{}}'
-		);
-		try {
-			const data = JSON.parse(content);
-
-			if (data.version && data.blocks) {
-				if (!this.migratedBlockReadablePaths) {
-					const roots = this.getReadableRoots();
-					if (roots && data.blocks && typeof data.blocks === "object") {
-						let changed = false;
-						for (const block of Object.values(data.blocks as Record<string, any>)) {
-							if (!block || typeof block !== "object") continue;
-							const current = (block as any).filePath;
-							const rewritten = await this.migrateReadablePathIfNeeded(
-								current,
-								roots.legacyRoot,
-								roots.currentRoot
-							);
-							if (rewritten) {
-								(block as any).filePath = rewritten;
-								changed = true;
-							}
-						}
-						if (changed) {
-							await this.writeFile(`${storageDir}/${BLOCKS_FILE}`, JSON.stringify(data));
-						}
-					}
-					this.migratedBlockReadablePaths = true;
-				}
-
-				return data.blocks as Record<string, IRBlock>;
-			}
-
-			if (!this.migratedBlockReadablePaths && data && typeof data === "object") {
-				const roots = this.getReadableRoots();
-				if (roots) {
-					let changed = false;
-					for (const block of Object.values(data as Record<string, any>)) {
-						if (!block || typeof block !== "object") continue;
-						const current = (block as any).filePath;
-						const rewritten = await this.migrateReadablePathIfNeeded(
-							current,
-							roots.legacyRoot,
-							roots.currentRoot
-						);
-						if (rewritten) {
-							(block as any).filePath = rewritten;
-							changed = true;
-						}
-					}
-					if (changed) {
-						await this.writeFile(`${storageDir}/${BLOCKS_FILE}`, JSON.stringify(data));
-					}
-				}
-				this.migratedBlockReadablePaths = true;
-			}
-
-			return data as Record<string, IRBlock>;
-		} catch (error) {
-			logger.error("[IRStorageService] 解析内容块JSON失败:", error);
-			return {};
-		}
+		return await this.projectLegacyBlocksFromPoints();
 	}
 
 	/** 获取单个内容块。 */
@@ -439,18 +725,7 @@ export class IRStorageService {
 	 */
 	async saveBlock(block: IRBlock): Promise<void> {
 		await this.initialize();
-
-		const storageDir = this.getStorageDir();
-
-		const blocks = await this.getAllBlocks();
-		blocks[block.id] = block;
-
-		const store: IRBlocksStore = {
-			version: IR_STORAGE_VERSION,
-			blocks,
-		};
-
-		await this.writeFile(`${storageDir}/${BLOCKS_FILE}`, JSON.stringify(store));
+		await this.syncLegacyBlockToPointStorage(block);
 	}
 
 	/**
@@ -458,21 +733,10 @@ export class IRStorageService {
 	 */
 	async saveBlocks(newBlocks: IRBlock[]): Promise<void> {
 		await this.initialize();
-
-		const storageDir = this.getStorageDir();
-
-		const blocks = await this.getAllBlocks();
-
+		const decks = await this.getAllDecks();
 		for (const block of newBlocks) {
-			blocks[block.id] = block;
+			await this.syncLegacyBlockToPointStorage(block, decks);
 		}
-
-		const store: IRBlocksStore = {
-			version: IR_STORAGE_VERSION,
-			blocks,
-		};
-
-		await this.writeFile(`${storageDir}/${BLOCKS_FILE}`, JSON.stringify(store));
 	}
 
 	/**
@@ -481,19 +745,8 @@ export class IRStorageService {
 	 */
 	async deleteBlock(id: string): Promise<void> {
 		await this.initialize();
-
-		const storageDir = this.getStorageDir();
-
-		const blocks = await this.getAllBlocks();
-		const deletedBlock = blocks[id];
-		delete blocks[id];
-
-		const store: IRBlocksStore = {
-			version: IR_STORAGE_VERSION,
-			blocks,
-		};
-
-		await this.writeFile(`${storageDir}/${BLOCKS_FILE}`, JSON.stringify(store));
+		const deletedBlock = await this.getBlock(id);
+		await this.getPointStorageService().deletePointByLegacyId(id);
 
 		// 级联删除：从所有牌组中移除该内容块引用
 		await this.removeBlockFromAllDecks(id, deletedBlock?.filePath);
@@ -537,22 +790,10 @@ export class IRStorageService {
 	 */
 	async deleteBlocksByFile(filePath: string): Promise<void> {
 		await this.initialize();
-
-		const storageDir = this.getStorageDir();
-
-		const blocks = await this.getAllBlocks();
-		const idsToDelete = Object.keys(blocks).filter((id) => blocks[id].filePath === filePath);
-
+		const idsToDelete = (await this.getBlocksByFile(filePath)).map((block) => block.id);
 		for (const id of idsToDelete) {
-			delete blocks[id];
+			await this.getPointStorageService().deletePointByLegacyId(id);
 		}
-
-		const store: IRBlocksStore = {
-			version: IR_STORAGE_VERSION,
-			blocks,
-		};
-
-		await this.writeFile(`${storageDir}/${BLOCKS_FILE}`, JSON.stringify(store));
 
 		// 级联删除：从所有牌组中移除这些内容块引用和文件引用
 		if (idsToDelete.length > 0) {
@@ -596,56 +837,10 @@ export class IRStorageService {
 	// 牌组操作
 	// ============================================
 
-	/** 返回所有牌组，并在需要时修正 sourceFiles 路径。 */
+	/** 返回所有专题；运行时仅以 `.irdeck` 为真源。 */
 	async getAllDecks(): Promise<Record<string, IRDeck>> {
 		await this.initialize();
-
-		const adapter = this.app.vault.adapter;
-		const topicsPath = this.getTopicsFilePath();
-		const legacyDecksPath = this.getLegacyDecksFilePath();
-		const storePath = (await adapter.exists(topicsPath)) ? topicsPath : legacyDecksPath;
-		const content = await this.readFile(storePath, '{"version":"2.0","topics":{}}');
-		try {
-			const data = JSON.parse(content);
-			const decks = normalizeTopicStoreRecords(data);
-
-			if (!this.migratedDeckReadablePaths && decks && typeof decks === "object") {
-				const roots = this.getReadableRoots();
-				if (roots) {
-					let changed = false;
-					for (const deck of Object.values(decks as Record<string, any>)) {
-						if (!deck || typeof deck !== "object") continue;
-						const srcFiles = (deck as any).sourceFiles;
-						if (Array.isArray(srcFiles)) {
-							for (let i = 0; i < srcFiles.length; i++) {
-								const rewritten = await this.migrateReadablePathIfNeeded(
-									srcFiles[i],
-									roots.legacyRoot,
-									roots.currentRoot
-								);
-								if (rewritten) {
-									srcFiles[i] = rewritten;
-									changed = true;
-								}
-							}
-						}
-					}
-					if (changed) {
-						const payload =
-							storePath === topicsPath
-								? buildTopicStore(decks, IR_STORAGE_VERSION)
-								: { version: IR_STORAGE_VERSION, decks };
-						await this.writeFile(storePath, JSON.stringify(payload));
-					}
-				}
-				this.migratedDeckReadablePaths = true;
-			}
-
-			return decks as Record<string, IRDeck>;
-		} catch (error) {
-			logger.error("[IRStorageService] 解析牌组JSON失败:", error);
-			return {};
-		}
+		return await this.getPointBackedDecks();
 	}
 
 	/** @deprecated 建议改用 `getDeckById()`。 */
@@ -671,110 +866,6 @@ export class IRStorageService {
 		return Object.values(decks).find((deck) => deck.path === idOrPath) || null;
 	}
 
-	async migrateChunkDeckNameInYAML(
-		oldName: string,
-		newName: string
-	): Promise<{ scanned: number; updated: number }> {
-		await this.initialize();
-
-		const fromName = String(oldName || "").trim();
-		const toName = String(newName || "").trim();
-		if (!fromName || !toName || fromName === toName) {
-			return { scanned: 0, updated: 0 };
-		}
-
-		const normalizeDeckNameForTag = (name: string): string => {
-			return (
-				String(name || "")
-					.trim()
-					.replace(/[\s/\\#]+/g, "_")
-					.replace(/_+/g, "_")
-					.replace(/^_+|_+$/g, "") || "未分配"
-			);
-		};
-
-		const fromSeg = normalizeDeckNameForTag(fromName);
-		const toSeg = normalizeDeckNameForTag(toName);
-		const fromTag = `ir/deck/${fromSeg}`;
-		const toTag = `ir/deck/${toSeg}`;
-
-		const chunks = await this.getAllChunkData();
-		const adapter = this.app.vault.adapter;
-
-		const visited = new Set<string>();
-		let scanned = 0;
-		let updated = 0;
-
-		for (const chunk of Object.values(chunks)) {
-			const filePath = String(chunk.filePath || "").trim();
-			if (!filePath || visited.has(filePath)) continue;
-			visited.add(filePath);
-
-			try {
-				if (!(await adapter.exists(filePath))) continue;
-				const content = await adapter.read(filePath);
-				scanned++;
-
-				const yaml = parseYAMLFromContent(content);
-				if ((yaml as any).weave_type !== "ir-chunk") continue;
-
-				const rawDeckNames = (yaml as any).topic_names ?? (yaml as any).deck_names;
-				let deckNames: string[] = [];
-				if (Array.isArray(rawDeckNames)) {
-					deckNames = rawDeckNames.map((n: any) => String(n).trim()).filter(Boolean);
-				} else if (typeof rawDeckNames === "string" && rawDeckNames.trim()) {
-					deckNames = [rawDeckNames.trim()];
-				}
-
-				const rawDeckTag =
-					typeof ((yaml as any).topic_tag ?? (yaml as any).deck_tag) === "string"
-						? String((yaml as any).topic_tag ?? (yaml as any).deck_tag)
-						: "";
-				const inferredFromTag = rawDeckTag === `#IR_deck_${fromName}`;
-
-				const hasOld = deckNames.includes(fromName);
-				if (!hasOld && !inferredFromTag) continue;
-
-				const nextDeckNames =
-					deckNames.length > 0 ? deckNames.map((_n) => (_n === fromName ? toName : _n)) : [toName];
-
-				let nextContent = content;
-				nextContent = setCardProperty(nextContent, "topic_names", nextDeckNames);
-				nextContent = setCardProperty(nextContent, "deck_names", undefined);
-
-				const rawTags = (yaml as any).tags;
-				const tagsArr = Array.isArray(rawTags)
-					? rawTags.map((t: any) => String(t).trim()).filter(Boolean)
-					: typeof rawTags === "string" && rawTags.trim()
-					? [rawTags.trim()]
-					: [];
-				const tags = new Set<string>(tagsArr);
-				tags.add("ir/deck");
-				tags.delete(fromTag);
-				tags.add(toTag);
-				nextContent = setCardProperty(nextContent, "tags", Array.from(tags));
-
-				if (rawDeckTag === `#IR_deck_${fromName}`) {
-					nextContent = setCardProperty(nextContent, "topic_tag", `#IR_deck_${toName}`);
-					nextContent = setCardProperty(nextContent, "deck_tag", undefined);
-				}
-
-				if (nextContent !== content) {
-					await adapter.write(filePath, nextContent);
-					updated++;
-				}
-			} catch (error) {
-				logger.warn(`[IRStorageService] 迁移块文件牌组名称失败: ${chunk.filePath}`, error);
-			}
-		}
-
-		if (updated > 0) {
-			await this.syncDeckDataFromYAML();
-		}
-
-		return { scanned, updated };
-	}
-
 	/**
 	 * 保存牌组（版本化存储）
 	 */
@@ -783,17 +874,42 @@ export class IRStorageService {
 
 		const decks = await this.getAllDecks();
 		const normalizedName = this.validateDeckNameUniqueness(decks, deck);
+		const existingEntry = Object.entries(decks).find(([deckKey, existingDeck]) => {
+			if (existingDeck === deck) {
+				return true;
+			}
+
+			const existingStableId = String(existingDeck.id || existingDeck.path || deckKey || "").trim();
+			const inputStableId = String(deck.id || deck.path || "").trim();
+			if (inputStableId) {
+				return existingStableId === inputStableId;
+			}
+
+			return (
+				typeof existingDeck.name === "string" &&
+				typeof deck.name === "string" &&
+				existingDeck.name.trim() !== "" &&
+				existingDeck.name.trim() === deck.name.trim()
+			);
+		});
+		const stableKey = String(deck.id || deck.path || existingEntry?.[0] || "").trim();
 		const normalizedDeck: IRDeck = {
 			...deck,
+			id: String(deck.id || stableKey || "").trim(),
 			name: normalizedName,
+			path: String(deck.id || stableKey || "").trim(),
 		};
-		// 使用 id 作为键
-		const key = normalizedDeck.id || normalizedDeck.path || "";
-		decks[key] = normalizedDeck;
+		const key = String(normalizedDeck.id || normalizedDeck.path || existingEntry?.[0] || "").trim();
+		if (!key) {
+			throw new Error("IR deck 保存失败：缺少稳定专题标识");
+		}
 
-		const store = buildTopicStore(decks, IR_STORAGE_VERSION);
-
-		await this.writeFile(this.getTopicsFilePath(), JSON.stringify(store));
+		await this.getPointStorageService().upsertPointDeck({
+			...normalizedDeck,
+			id: key,
+			path: key,
+		});
+		getSharedIRWorkspaceSnapshotService(this.app).invalidate();
 	}
 
 	/**
@@ -802,7 +918,6 @@ export class IRStorageService {
 	async deleteDeck(idOrPath: string): Promise<void> {
 		await this.initialize();
 
-		const _storageDir = this.getStorageDir();
 		const decks = await this.getAllDecks();
 
 		let deckKey: string | null = null;
@@ -839,12 +954,8 @@ export class IRStorageService {
 			deckTag: targetDeckTag,
 			sourceFiles,
 		});
-
-		delete decks[deckKey];
-
-		const store = buildTopicStore(decks, IR_STORAGE_VERSION);
-
-		await this.writeFile(this.getTopicsFilePath(), JSON.stringify(store));
+		await this.getPointStorageService().deletePointDeck(targetDeckId);
+		getSharedIRWorkspaceSnapshotService(this.app).invalidate();
 	}
 
 	private async cleanupDeletedDeckRelatedData(params: {
@@ -872,21 +983,18 @@ export class IRStorageService {
 	): Promise<void> {
 		const pdfPaths = this.collectSourceFilesByExtension(sourceFiles, ".pdf");
 		const epubPaths = this.collectSourceFilesByExtension(sourceFiles, ".epub");
+		const { IRPointWriteService } = await import("./IRPointWriteService");
+		const pointWriteService = new IRPointWriteService(this.app);
 
 		try {
-			const pdfService = new IRPdfBookmarkTaskService(this.app);
-			await pdfService.initialize();
-			await pdfService.deleteTasksByDeckIdentifiers(Array.from(deckIdentifiers));
-			await pdfService.deleteTasksByPdfPaths(pdfPaths);
+			await pointWriteService.deletePointsByDeckIdentifiers(Array.from(deckIdentifiers));
+			await pointWriteService.deletePdfPointsByPaths(pdfPaths);
 		} catch (error) {
 			logger.warn(`[IRStorageService] 清理 PDF 书签任务失败: ${deckId}`, error);
 		}
 
 		try {
-			const epubService = new IREpubBookmarkTaskService(this.app);
-			await epubService.initialize();
-			await epubService.deleteTasksByDeckIdentifiers(Array.from(deckIdentifiers));
-			await epubService.deleteTasksByEpubPaths(epubPaths);
+			await pointWriteService.deleteEpubPointsByPaths(epubPaths);
 		} catch (error) {
 			logger.warn(`[IRStorageService] 清理 EPUB 书签任务失败: ${deckId}`, error);
 		}
@@ -909,29 +1017,22 @@ export class IRStorageService {
 		);
 	}
 
-	private async collectTasksByDeckIdentifiers<T extends { id?: string }>(
-		service: { getTasksByDeck(deckId: string): Promise<T[]> },
-		deckIdentifiers: string[]
-	): Promise<T[]> {
-		const identifiers = Array.from(this.toNormalizedStringSet(deckIdentifiers));
-		const taskMap = new Map<string, T>();
+	private async deleteTopicDeckArtifactFolders(deckId: string): Promise<void> {
+		const v2Paths = getV2PathsFromApp(this.app);
+		const candidates = [
+			`${v2Paths.ir.root}/topics/${deckId}`,
+			`${v2Paths.ir.root}/topics/${deckId}/chunks`,
+			`${v2Paths.ir.root}/topics/${deckId}/sources`,
+			`${v2Paths.ir.root}/topics/${deckId}/sync-states`,
+			`${v2Paths.ir.root}/topics/${deckId}/study-sessions`,
+		];
 
-		for (const identifier of identifiers) {
-			const tasks = await service.getTasksByDeck(identifier);
-			for (const task of tasks) {
-				const taskId = String(task?.id || "").trim();
-				if (taskId) {
-					if (!taskMap.has(taskId)) {
-						taskMap.set(taskId, task);
-					}
-					continue;
-				}
-
-				taskMap.set(`${identifier}:${taskMap.size}`, task);
+		for (const path of candidates) {
+			const file = this.app.vault.getAbstractFileByPath(path);
+			if (file instanceof TFolder) {
+				await this.app.fileManager.trashFile(file);
 			}
 		}
-
-		return Array.from(taskMap.values());
 	}
 
 	private collectSourceFilesByExtension(sourceFiles: string[], extension: string): string[] {
@@ -946,29 +1047,21 @@ export class IRStorageService {
 	}
 
 	private async cleanupDeckBlocks(deckId: string, deckPath: string): Promise<void> {
-		const storageDir = this.getStorageDir();
 		const blocks = await this.getAllBlocks();
-		let changed = false;
+		const idsToDelete: string[] = [];
 
 		for (const [blockId, block] of Object.entries(blocks)) {
 			if (block.deckPath === deckId || block.deckPath === deckPath) {
-				delete blocks[blockId];
-				changed = true;
+				idsToDelete.push(blockId);
 			}
 		}
 
-		if (!changed) return;
-
-		const store: IRBlocksStore = {
-			version: IR_STORAGE_VERSION,
-			blocks,
-		};
-
-		await this.writeFile(`${storageDir}/${BLOCKS_FILE}`, JSON.stringify(store));
+		for (const blockId of idsToDelete) {
+			await this.getPointStorageService().deletePointByLegacyId(blockId);
+		}
 	}
 
 	private async cleanupDeckChunksAndSources(deckId: string, deckTag?: string): Promise<void> {
-		const storageDir = this.getStorageDir();
 		const chunks = await this.getAllChunkData();
 		const chunkEntries = Object.entries(chunks);
 		const removedChunkIds = new Set<string>();
@@ -983,12 +1076,14 @@ export class IRStorageService {
 		}
 
 		if (removedChunkIds.size > 0) {
-			const chunkStore = this.buildSerializedChunkStore(chunks);
-			await this.writeFile(`${storageDir}/${this.CHUNKS_FILE}`, JSON.stringify(chunkStore));
+			for (const chunkId of removedChunkIds) {
+				await this.deleteChunkPointFromNewStorage(chunkId);
+			}
 		}
 
 		const sources = await this.getAllSources();
 		let sourcesChanged = false;
+		const removedSourceIds: string[] = [];
 		const remainingChunks = Object.values(chunks);
 
 		for (const [sourceId] of Object.entries(sources)) {
@@ -996,15 +1091,14 @@ export class IRStorageService {
 			if (!stillReferenced) {
 				delete sources[sourceId];
 				sourcesChanged = true;
+				removedSourceIds.push(sourceId);
 			}
 		}
 
 		if (sourcesChanged) {
-			const sourceStore: import("../../types/ir-types").IRSourcesStore = {
-				version: IR_STORAGE_VERSION,
-				sources,
-			};
-			await this.writeFile(`${storageDir}/${this.SOURCES_FILE}`, JSON.stringify(sourceStore));
+			for (const sourceId of removedSourceIds) {
+				this.dropRuntimeSourceMetadata(sourceId);
+			}
 		}
 	}
 
@@ -1024,10 +1118,7 @@ export class IRStorageService {
 			sessions: filtered,
 		};
 
-		await this.writeFile(
-			`${this.getStorageDir()}/${IRStorageService.STUDY_SESSIONS_FILE}`,
-			JSON.stringify(store)
-		);
+		await this.writeFile(this.getStudySessionsStoragePath(), JSON.stringify(store));
 	}
 
 	private async cleanupDeckSyncStates(sourceFiles: string[]): Promise<void> {
@@ -1074,6 +1165,8 @@ export class IRStorageService {
 			try {
 				await this.cleanupMarkdownReadingFrontmatter(file, {
 					deckIdentifiers,
+					addDeletedTag: true,
+					removeExternalDocumentFields: true,
 				});
 			} catch (error) {
 				logger.warn(
@@ -1106,8 +1199,19 @@ export class IRStorageService {
 				frontmatter["weave-reading-priority"] !== undefined ||
 				frontmatter[READING_TOPIC_YAML_KEY] !== undefined ||
 				frontmatter[READING_LEGACY_DECK_YAML_KEY] !== undefined;
+			const hasExternalDocumentFields =
+				removeExternalDocumentFields &&
+				(frontmatter.status !== undefined ||
+					frontmatter.priority_ui !== undefined ||
+					frontmatter.topic_tag !== undefined ||
+					frontmatter.deck_tag !== undefined ||
+					frontmatter.topic_names !== undefined ||
+					frontmatter.deck_names !== undefined ||
+					frontmatter.chunk_id !== undefined ||
+					frontmatter.source_id !== undefined ||
+					frontmatter.weave_type === "ir-chunk");
 
-			if (!hasPluginFields) {
+			if (!hasPluginFields && !hasExternalDocumentFields) {
 				return;
 			}
 
@@ -1165,6 +1269,53 @@ export class IRStorageService {
 				frontmatter.tags = this.mergeFrontmatterTag(frontmatter.tags, "we_已删除");
 			}
 		});
+	}
+
+	async cleanupRemovedMaterialDocument(
+		filePath: string,
+		options: {
+			removeExternalDocumentFields?: boolean;
+		} = {}
+	): Promise<void> {
+		await this.initialize();
+
+		if (!String(filePath || "").trim().toLowerCase().endsWith(".md")) {
+			return;
+		}
+
+		const file = this.app.vault.getAbstractFileByPath(filePath);
+		if (!(file instanceof TFile)) {
+			return;
+		}
+
+		await this.cleanupMarkdownReadingFrontmatter(file, {
+			addDeletedTag: true,
+			removeExternalDocumentFields: options.removeExternalDocumentFields ?? true,
+		});
+	}
+
+	async removeMaterialScheduleData(filePath: string): Promise<void> {
+		await this.initialize();
+
+		const normalizedFilePath = normalizePath(String(filePath || "").trim());
+		if (!normalizedFilePath) {
+			return;
+		}
+
+		const chunks = await this.getAllChunkData();
+		const relatedExternalChunkIds = Object.values(chunks)
+			.filter((_chunk) => {
+				const meta = _chunk.meta as unknown as Record<string, unknown> | undefined;
+				return _chunk.filePath === normalizedFilePath && meta?.externalDocument === true;
+			})
+			.map((chunk) => chunk.chunkId)
+			.filter((chunkId): chunkId is string => typeof chunkId === "string" && chunkId.length > 0);
+
+		for (const chunkId of relatedExternalChunkIds) {
+			await this.deleteChunkData(chunkId);
+		}
+
+		await this.deleteBlocksByFile(normalizedFilePath);
 	}
 
 	private mergeFrontmatterTag(existingTags: unknown, tagToAdd: string): string[] {
@@ -1234,27 +1385,24 @@ export class IRStorageService {
 			logger.warn(`[IRStorageService] 牌组不存在: ${deckId}`);
 			return;
 		}
+		const topicNamesById = this.buildTopicNamesByIdMap(await this.getAllDecks());
+		const pointStorage = this.getPointStorageService();
 
-		// 添加新的blockIds，去重
-		const existingIds = new Set(deck.blockIds || []);
-		for (const id of blockIds) {
-			existingIds.add(id);
-		}
-		deck.blockIds = Array.from(existingIds);
-		deck.updatedAt = new Date().toISOString();
-
-		// 更新sourceFiles
-		const blocks = await this.getAllBlocks();
-		const files = new Set(deck.sourceFiles || []);
-		for (const id of blockIds) {
-			const block = blocks[id];
-			if (block?.filePath) {
-				files.add(block.filePath);
+		for (const blockId of blockIds) {
+			const currentTopicIds = await pointStorage.getPointTopicIds(blockId);
+			if (currentTopicIds.length === 0) {
+				logger.warn(`[IRStorageService] 无法为阅读点添加专题，未找到点: ${blockId}`);
+				continue;
 			}
+			const nextTopicIds = currentTopicIds.includes(deckId)
+				? currentTopicIds
+				: currentTopicIds.length === 1 && currentTopicIds[0] === DEFAULT_IR_TOPIC_ID
+					? [deckId]
+					: [...currentTopicIds, deckId];
+			await pointStorage.updatePointTopicIds(blockId, nextTopicIds, {
+				topicNamesById,
+			});
 		}
-		deck.sourceFiles = Array.from(files);
-
-		await this.saveDeck(deck);
 	}
 
 	/**
@@ -1266,12 +1414,24 @@ export class IRStorageService {
 			logger.warn(`[IRStorageService] 牌组不存在: ${deckId}`);
 			return;
 		}
+		const pointStorage = this.getPointStorageService();
+		const topicNamesById = this.buildTopicNamesByIdMap(await this.getAllDecks());
 
-		const idsToRemove = new Set(blockIds);
-		deck.blockIds = (deck.blockIds || []).filter((id) => !idsToRemove.has(id));
-		deck.updatedAt = new Date().toISOString();
-
-		await this.saveDeck(deck);
+		for (const blockId of blockIds) {
+			const currentTopicIds = await pointStorage.getPointTopicIds(blockId);
+			if (currentTopicIds.length === 0) {
+				logger.warn(`[IRStorageService] 无法移除阅读点专题，未找到点: ${blockId}`);
+				continue;
+			}
+			const nextTopicIds = currentTopicIds.filter((id) => id !== deckId);
+			await pointStorage.updatePointTopicIds(
+				blockId,
+				nextTopicIds.length > 0 ? nextTopicIds : [DEFAULT_IR_TOPIC_ID],
+				{
+					topicNamesById,
+				}
+			);
+		}
 	}
 
 	// ============================================
@@ -1283,13 +1443,12 @@ export class IRStorageService {
 	 */
 	async getHistory(): Promise<{ sessions: IRSession[] }> {
 		await this.initialize();
-
-		const storageDir = this.getStorageDir();
-
-		const content = await this.readFile(
-			`${storageDir}/${HISTORY_FILE}`,
-			'{"version":"2.0","sessions":[]}'
-		);
+		const content = await this.readStructuredLocalStateWithLegacyFallback({
+			localPath: this.getHistoryStoragePath(),
+			legacyPaths: this.collectLegacyIncrementalReadingStatePaths(HISTORY_FILE),
+			defaultContent: '{"version":"2.0","sessions":[]}',
+			label: "阅读历史",
+		});
 		try {
 			const data = JSON.parse(content);
 
@@ -1320,8 +1479,6 @@ export class IRStorageService {
 	async addSession(session: IRSession): Promise<void> {
 		await this.initialize();
 
-		const storageDir = this.getStorageDir();
-
 		const history = await this.getHistory();
 		history.sessions.push(session);
 
@@ -1335,7 +1492,7 @@ export class IRStorageService {
 			sessions: history.sessions.map((entry) => serializeIRSessionForStorage(entry)),
 		};
 
-		await this.writeFile(`${storageDir}/${HISTORY_FILE}`, JSON.stringify(store));
+		await this.writeFile(this.getHistoryStoragePath(), JSON.stringify(store));
 	}
 
 	/**
@@ -1348,13 +1505,12 @@ export class IRStorageService {
 
 	async getCalendarProgress(): Promise<Record<string, string[]>> {
 		await this.initialize();
-
-		const storageDir = this.getStorageDir();
-
-		const content = await this.readFile(
-			`${storageDir}/${CALENDAR_PROGRESS_FILE}`,
-			`{"version":"${IR_STORAGE_VERSION}","byDate":{}}`
-		);
+		const content = await this.readStructuredLocalStateWithLegacyFallback({
+			localPath: this.getCalendarProgressStoragePath(),
+			legacyPaths: this.collectLegacyIncrementalReadingStatePaths(CALENDAR_PROGRESS_FILE),
+			defaultContent: `{"version":"${IR_STORAGE_VERSION}","byDate":{}}`,
+			label: "月历进度",
+		});
 
 		try {
 			const data = JSON.parse(content) as { version?: string; byDate?: Record<string, string[]> };
@@ -1368,8 +1524,6 @@ export class IRStorageService {
 	async addCalendarCompletion(dateKey: string, chunkId: string): Promise<void> {
 		await this.initialize();
 
-		const storageDir = this.getStorageDir();
-
 		const byDate = await this.getCalendarProgress();
 		const current = Array.isArray(byDate[dateKey]) ? byDate[dateKey] : [];
 		if (!current.includes(chunkId)) {
@@ -1377,7 +1531,32 @@ export class IRStorageService {
 		}
 
 		const store = { version: IR_STORAGE_VERSION, byDate };
-		await this.writeFile(`${storageDir}/${CALENDAR_PROGRESS_FILE}`, JSON.stringify(store));
+		await this.writeFile(this.getCalendarProgressStoragePath(), JSON.stringify(store));
+	}
+
+	async removeCalendarCompletion(chunkId: string, dateKey?: string): Promise<void> {
+		await this.initialize();
+
+		const normalizedChunkId = String(chunkId || "").trim();
+		if (!normalizedChunkId) {
+			return;
+		}
+
+		const byDate = await this.getCalendarProgress();
+		const targetDateKeys = dateKey ? [dateKey] : Object.keys(byDate);
+
+		for (const key of targetDateKeys) {
+			const current = Array.isArray(byDate[key]) ? byDate[key] : [];
+			const next = current.filter((id) => id !== normalizedChunkId);
+			if (next.length > 0) {
+				byDate[key] = next;
+			} else {
+				delete byDate[key];
+			}
+		}
+
+		const store = { version: IR_STORAGE_VERSION, byDate };
+		await this.writeFile(this.getCalendarProgressStoragePath(), JSON.stringify(store));
 	}
 
 	// ============================================
@@ -1391,34 +1570,14 @@ export class IRStorageService {
 	 */
 	async getStudySessions(): Promise<IRStudySession[]> {
 		await this.initialize();
-
-		const adapter = this.app.vault.adapter;
-		const targetPath = `${this.getStorageDir()}/${IRStorageService.STUDY_SESSIONS_FILE}`;
-
-		try {
-			const exists = await adapter.exists(targetPath);
-			if (!exists) {
-				const candidates = new Set<string>();
-				candidates.add(`${PATHS.incrementalReading}/${IRStorageService.STUDY_SESSIONS_FILE}`);
-				const roots = this.getReadableRoots();
-				const readableRoot = roots?.currentRoot || "weave";
-				candidates.add(
-					`${readableRoot}/incremental-reading/${IRStorageService.STUDY_SESSIONS_FILE}`
-				);
-
-				for (const legacyPath of candidates) {
-					if (await adapter.exists(legacyPath)) {
-						const legacyContent = await adapter.read(legacyPath);
-						await this.writeFile(targetPath, legacyContent);
-						break;
-					}
-				}
-			}
-		} catch (error) {
-			logger.warn("[IRStorageService] 检测/迁移学习会话文件失败:", error);
-		}
-
-		const content = await this.readFile(targetPath, '{"version":"1.0","sessions":[]}');
+		const content = await this.readStructuredLocalStateWithLegacyFallback({
+			localPath: this.getStudySessionsStoragePath(),
+			legacyPaths: this.collectLegacyIncrementalReadingStatePaths(
+				IRStorageService.STUDY_SESSIONS_FILE
+			),
+			defaultContent: '{"version":"1.0","sessions":[]}',
+			label: "学习会话",
+		});
 		try {
 			const data = JSON.parse(content) as IRStudySessionStore;
 			return (data.sessions || []).map((session) => normalizeStudySessionForRuntime(session));
@@ -1445,10 +1604,7 @@ export class IRStorageService {
 			sessions: trimmedSessions.map((session) => serializeStudySessionForStorage(session)),
 		};
 
-		await this.writeFile(
-			`${this.getStorageDir()}/${IRStorageService.STUDY_SESSIONS_FILE}`,
-			JSON.stringify(store)
-		);
+		await this.writeFile(this.getStudySessionsStoragePath(), JSON.stringify(store));
 		logger.info(
 			`[IRStorageService] 添加学习会话: ${session.id}, 时长: ${session.confirmedDuration}秒`
 		);
@@ -1471,321 +1627,6 @@ export class IRStorageService {
 	// ============================================
 	// 统计数据
 	// ============================================
-
-	/**
-	 * 获取牌组统计
-	 * v2.4: 新增提问统计（解析复选框+问号语法）
-	 * v2.6: 优化性能 - 提问统计改为可选，默认跳过以加快加载
-	 * v5.3: 同时统计旧版 IRBlock 和新版 IRChunkFileData
-	 */
-	async getDeckStats(
-		deckPath: string,
-		dailyNewLimit = 20,
-		dailyReviewLimit = 50,
-		learnAheadDays = 3
-	): Promise<{
-		newCount: number;
-		learningCount: number;
-		reviewCount: number;
-		dueToday: number;
-		dueWithinDays: number;
-		totalCount: number;
-		fileCount: number;
-		questionCount: number;
-		completedQuestionCount: number;
-		todayNewCount: number;
-		todayDueCount: number;
-	}> {
-		// 旧版 IRBlock 仍可能参与统计，因此这里先汇总 blocks.json 中的内容块。
-		const blocks = await this.getBlocksByDeck(deckPath);
-		const _today = new Date().toISOString().split("T")[0];
-		const _nowMs = Date.now();
-		const startOfToday = new Date();
-		startOfToday.setHours(0, 0, 0, 0);
-		const startMs = startOfToday.getTime();
-		const endOfToday = new Date();
-		endOfToday.setHours(23, 59, 59, 999);
-		const endMs = endOfToday.getTime();
-		const dayMs = 24 * 60 * 60 * 1000;
-		const safeLearnAheadDays = Math.min(Math.max(learnAheadDays, 1), 14);
-		const learnAheadEndMs = endMs + (safeLearnAheadDays - 1) * dayMs;
-
-		const stateDistribution: Record<string, number> = {};
-		for (const b of blocks) {
-			const s = b.state ?? "undefined";
-			stateDistribution[s] = (stateDistribution[s] || 0) + 1;
-		}
-		logger.info(`[IRStorageService] getDeckStats: state分布=${JSON.stringify(stateDistribution)}`);
-
-		const files = new Set<string>();
-		let newCount = 0;
-		let learningCount = 0;
-		let reviewCount = 0;
-		let dueToday = 0;
-		let dueWithinDays = 0;
-
-		for (const block of blocks) {
-			files.add(block.filePath);
-
-			const state = block.state ?? "new";
-
-			switch (state) {
-				case "new":
-					newCount++;
-					dueToday++;
-					dueWithinDays++;
-					break;
-				case "learning":
-					learningCount++;
-					break;
-				case "review":
-					reviewCount++;
-					break;
-			}
-
-			if (state !== "new" && state !== "suspended") {
-				if (!block.nextReview) {
-					dueToday++;
-					dueWithinDays++;
-				} else {
-					const reviewMs = new Date(block.nextReview).getTime();
-					if (reviewMs >= startMs && reviewMs <= endMs) {
-						dueToday++;
-					}
-					if (reviewMs >= startMs && reviewMs <= learnAheadEndMs) {
-						dueWithinDays++;
-					}
-				}
-			}
-		}
-
-		// 再统计文件化块、书签任务等新链路数据，避免牌组总量失真。
-		const deck = await this.getDeckById(deckPath);
-		logger.info(
-			`[IRStorageService] getDeckStats: deckPath=${deckPath}, deck found=${!!deck}, deck.id=${
-				deck?.id
-			}, deck.name=${deck?.name}`
-		);
-
-		const deckTag = deck
-			? `#IR_deck_${deck.name}`
-			: `#IR_deck_${deckPath.split("/").pop() || deckPath}`;
-		const deckIdentifiers = Array.from(
-			this.toNormalizedStringSet([deckPath, deck?.id || "", deck?.path || ""])
-		);
-
-		const allChunkData = await this.getAllChunkData();
-		const allChunkValues = Object.values(allChunkData);
-
-		const getFileTagsLower = (filePath: string): string[] => {
-			const file = this.app.vault.getAbstractFileByPath(filePath);
-			if (!(file instanceof TFile)) return [];
-			const cache = this.app.metadataCache.getFileCache(file);
-			const inlineTags = cache?.tags?.map((t) => t.tag.replace(/^#/, "")) || [];
-			const fmTagsRaw = cache?.frontmatter?.tags;
-			let fmTags: string[] = [];
-			if (Array.isArray(fmTagsRaw)) {
-				fmTags = fmTagsRaw.map((t) => String(t));
-			} else if (typeof fmTagsRaw === "string") {
-				fmTags = fmTagsRaw.split(",").map((t) => t.trim());
-			}
-			return [...new Set([...fmTags, ...inlineTags])]
-				.map((t) => String(t).toLowerCase())
-				.filter(Boolean);
-		};
-
-		const hasIgnoreTagInFile = (filePath: string): boolean => {
-			const tags = getFileTagsLower(filePath);
-			if (tags.includes("ignore") || tags.includes("#ignore")) return true;
-			const file = this.app.vault.getAbstractFileByPath(filePath);
-			const cache = file instanceof TFile ? this.app.metadataCache.getFileCache(file) : null;
-			const fm = cache?.frontmatter;
-			const fmString = fm ? JSON.stringify(fm).toLowerCase() : "";
-			return fmString.includes("ignore");
-		};
-
-		const chunkValues = allChunkValues.filter((_chunk) => {
-			const inDeck = _chunk.deckTag === deckTag || (deck && _chunk.deckIds?.includes(deck.id));
-			if (!inDeck) return false;
-			if (hasIgnoreTagInFile(_chunk.filePath)) return false;
-			return true;
-		});
-
-		logger.info(
-			`[IRStorageService] getDeckStats: 期望deckTag=${deckTag}, deck.id=${deck?.id}, 匹配chunks=${chunkValues.length}, 总chunks=${allChunkValues.length}`
-		);
-
-		for (const chunk of chunkValues) {
-			files.add(chunk.filePath);
-
-			switch (chunk.scheduleStatus) {
-				case "new":
-					newCount++;
-					dueToday++;
-					dueWithinDays++;
-					break;
-				case "queued":
-				case "active":
-					learningCount++;
-					break;
-				case "scheduled":
-					reviewCount++;
-					break;
-			}
-
-			if (
-				chunk.scheduleStatus !== "new" &&
-				chunk.scheduleStatus !== "suspended" &&
-				chunk.scheduleStatus !== "done" &&
-				chunk.scheduleStatus !== "removed"
-			) {
-				if (!chunk.nextRepDate || chunk.nextRepDate === 0) {
-					dueToday++;
-					dueWithinDays++;
-				} else {
-					if (chunk.nextRepDate <= endMs) {
-						dueToday++;
-					}
-					if (chunk.nextRepDate <= learnAheadEndMs) {
-						dueWithinDays++;
-					}
-				}
-			}
-		}
-
-		const accumulateBookmarkTaskStats = (
-			tasks: any[],
-			getSourcePath: (task: any) => string,
-			logLabel: string
-		): number => {
-			let taskCount = 0;
-			for (const task of tasks) {
-				const status = String((task as any).status || "new");
-				if (status === "done" || status === "suspended" || status === "removed") {
-					continue;
-				}
-
-				taskCount++;
-
-				const sourcePath = String(getSourcePath(task) || "").trim();
-				if (sourcePath) {
-					files.add(sourcePath);
-				}
-
-				switch (status) {
-					case "new":
-						newCount++;
-						dueToday++;
-						dueWithinDays++;
-						break;
-					case "queued":
-					case "active":
-						learningCount++;
-						break;
-					case "scheduled":
-						reviewCount++;
-						break;
-				}
-
-				if (status !== "new") {
-					const nrd = ((task as any).nextRepDate as number) || 0;
-					if (!nrd || nrd <= endMs) {
-						dueToday++;
-					}
-					if (!nrd || nrd <= learnAheadEndMs) {
-						dueWithinDays++;
-					}
-				}
-			}
-
-			logger.debug(`[IRStorageService] getDeckStats: ${logLabel} 统计完成`, {
-				deckPath,
-				taskCount,
-			});
-			return taskCount;
-		};
-
-		let pdfTaskCount = 0;
-		try {
-			const pdfService = new IRPdfBookmarkTaskService(this.app);
-			await pdfService.initialize();
-			const pdfTasks = await this.collectTasksByDeckIdentifiers(pdfService, deckIdentifiers);
-			pdfTaskCount = accumulateBookmarkTaskStats(
-				pdfTasks,
-				(task) => String((task as any)?.pdfPath || "").trim(),
-				"PDF 书签任务"
-			);
-		} catch (e) {
-			logger.debug("[IRStorageService] getDeckStats: PDF 书签任务统计失败", e);
-		}
-
-		let epubTaskCount = 0;
-		try {
-			const epubService = new IREpubBookmarkTaskService(this.app);
-			await epubService.initialize();
-			const epubTasks = await this.collectTasksByDeckIdentifiers(epubService, deckIdentifiers);
-			epubTaskCount = accumulateBookmarkTaskStats(
-				epubTasks,
-				(task) => String((task as any)?.epubFilePath || "").trim(),
-				"EPUB 书签任务"
-			);
-		} catch (e) {
-			logger.debug("[IRStorageService] getDeckStats: EPUB 书签任务统计失败", e);
-		}
-
-		const totalCount = blocks.length + chunkValues.length + pdfTaskCount + epubTaskCount;
-
-		const questionStats = await this.countQuestionsInFiles(Array.from(files));
-
-		const todayNewCount = Math.min(newCount, dailyNewLimit);
-		const todayDueCount = Math.min(dueToday, dailyReviewLimit);
-
-		return {
-			newCount,
-			learningCount,
-			reviewCount,
-			dueToday,
-			dueWithinDays,
-			totalCount,
-			fileCount: files.size,
-			questionCount: questionStats.total,
-			completedQuestionCount: questionStats.completed,
-			todayNewCount,
-			todayDueCount,
-		};
-	}
-
-	/** 统计文件中的问答式待办项数量。 */
-	private async countQuestionsInFiles(filePaths: string[]): Promise<{
-		total: number;
-		completed: number;
-	}> {
-		let total = 0;
-		let completed = 0;
-
-		const completedQuestionRegex = /^[-*]\s*\[x\]\s*.+[?？]/gim;
-		const uncompletedQuestionRegex = /^[-*]\s*\[\s\]\s*.+[?？]/gim;
-
-		for (const filePath of filePaths) {
-			try {
-				const file = this.app.vault.getAbstractFileByPath(filePath);
-				if (file instanceof TFile) {
-					const content = await this.app.vault.read(file);
-
-					const completedMatches = content.match(completedQuestionRegex);
-					const completedCount = completedMatches ? completedMatches.length : 0;
-
-					const uncompletedMatches = content.match(uncompletedQuestionRegex);
-					const uncompletedCount = uncompletedMatches ? uncompletedMatches.length : 0;
-
-					completed += completedCount;
-					total += completedCount + uncompletedCount;
-				}
-			} catch (_error) {}
-		}
-
-		return { total, completed };
-	}
 
 	/** 获取今日到期的旧版内容块。 */
 	async getTodayDueBlocks(): Promise<IRBlock[]> {
@@ -1829,6 +1670,19 @@ export class IRStorageService {
 		}
 	}
 
+	private async readOptionalFile(path: string): Promise<string | null> {
+		try {
+			const adapter = this.app.vault.adapter;
+			if (!(await adapter.exists(path))) {
+				return null;
+			}
+			return await adapter.read(path);
+		} catch (error) {
+			logger.warn(`[IRStorageService] 读取可选文件失败: ${path}`, error);
+			return null;
+		}
+	}
+
 	/**
 	 * 写入文件内容（使用 adapter 直接写入）
 	 */
@@ -1859,9 +1713,18 @@ export class IRStorageService {
 	 */
 	async getAllSyncStates(): Promise<Record<string, FileSyncState>> {
 		await this.initialize();
-		const path = `${this.getStorageDir()}/${SYNC_STATE_FILE}`;
 		const defaultStore: IRSyncStateStore = { version: IR_STORAGE_VERSION, files: {} };
-		const content = await this.readFile(path, JSON.stringify(defaultStore));
+		const defaultContent = JSON.stringify(defaultStore);
+		const localPath = this.getSyncStateStoragePath();
+		const legacyPath = this.getLegacySyncStateStoragePath();
+		const content =
+			(await this.readOptionalFile(localPath)) ??
+			(await this.readOptionalFile(legacyPath)) ??
+			defaultContent;
+
+		if (content === defaultContent && !(await this.app.vault.adapter.exists(localPath))) {
+			await this.writeFile(localPath, content);
+		}
 
 		try {
 			const store: IRSyncStateStore = JSON.parse(content);
@@ -1911,8 +1774,7 @@ export class IRStorageService {
 			files: states,
 		};
 
-		const path = `${this.getStorageDir()}/${SYNC_STATE_FILE}`;
-		await this.writeFile(path, JSON.stringify(store));
+		await this.writeFile(this.getSyncStateStoragePath(), JSON.stringify(store));
 	}
 
 	/**
@@ -2104,63 +1966,43 @@ export class IRStorageService {
 	// v5.0 文件化内容块方案存储
 	// ============================================
 
-	private readonly SOURCES_FILE = "sources.json";
-	private readonly CHUNKS_FILE = "chunks.json";
+	private async syncSourceMetadataToPointStorage(
+		sourceList: import("../../types/ir-types").IRSourceFileMeta[],
+		decks?: Record<string, IRDeck>
+	): Promise<void> {
+		if (!Array.isArray(sourceList) || sourceList.length === 0) {
+			return;
+		}
+
+		const snapshots = await this.listChunkPointSnapshots();
+		const resolvedDecks = decks || (await this.getAllDecks());
+		const topicNamesById = this.buildTopicNamesByIdMap(resolvedDecks);
+		const sourceById = Object.fromEntries(
+			sourceList.map((source) => [String(source.sourceId || "").trim(), source] as const)
+		);
+
+		for (const snapshot of snapshots) {
+			const sourceId = String(snapshot.point.materialId || "").trim();
+			const source = sourceById[sourceId];
+			if (!source) {
+				continue;
+			}
+
+			const { chunk } = buildLegacyChunkFromPointSnapshot(snapshot);
+			await this.getPointStorageService().syncChunkPoint(chunk, {
+				source,
+				topicNamesById,
+			});
+		}
+	}
 
 	/**
 	 * 获取所有源材料元数据
 	 */
 	async getAllSources(): Promise<Record<string, import("../../types/ir-types").IRSourceFileMeta>> {
 		await this.initialize();
-		const path = `${this.getStorageDir()}/${this.SOURCES_FILE}`;
-		const defaultStore = { version: IR_STORAGE_VERSION, sources: {} };
-		const content = await this.readFile(path, JSON.stringify(defaultStore));
-
-		try {
-			const store = JSON.parse(content);
-
-			if (!this.migratedSourceReadablePaths) {
-				const roots = this.getReadableRoots();
-				if (roots && store?.sources && typeof store.sources === "object") {
-					let changed = false;
-					for (const src of Object.values(store.sources)) {
-						if (!src || typeof src !== "object") continue;
-
-						const indexFilePath = (src as any).indexFilePath;
-						const rewrittenIndex = await this.migrateReadablePathIfNeeded(
-							indexFilePath,
-							roots.legacyRoot,
-							roots.currentRoot
-						);
-						if (rewrittenIndex) {
-							(src as any).indexFilePath = rewrittenIndex;
-							changed = true;
-						}
-
-						const rawFilePath = (src as any).rawFilePath;
-						const rewrittenRaw = await this.migrateReadablePathIfNeeded(
-							rawFilePath,
-							roots.legacyRoot,
-							roots.currentRoot
-						);
-						if (rewrittenRaw) {
-							(src as any).rawFilePath = rewrittenRaw;
-							changed = true;
-						}
-					}
-
-					if (changed) {
-						await this.writeFile(path, JSON.stringify(store));
-					}
-				}
-
-				this.migratedSourceReadablePaths = true;
-			}
-
-			return store.sources || {};
-		} catch {
-			return {};
-		}
+		const { sources } = await this.projectRuntimeChunkStoresFromPoints();
+		return this.mergeRuntimeSourceMetadata(sources);
 	}
 
 	/**
@@ -2178,35 +2020,16 @@ export class IRStorageService {
 	 */
 	async saveSource(source: import("../../types/ir-types").IRSourceFileMeta): Promise<void> {
 		await this.initialize();
-		const sources = await this.getAllSources();
-		sources[source.sourceId] = source;
-
-		const store: import("../../types/ir-types").IRSourcesStore = {
-			version: IR_STORAGE_VERSION,
-			sources,
-		};
-
-		const path = `${this.getStorageDir()}/${this.SOURCES_FILE}`;
-		await this.writeFile(path, JSON.stringify(store));
+		this.cacheRuntimeSourceMetadata([source]);
+		await this.syncSourceMetadataToPointStorage([source]);
 	}
 
 	async saveSourceBatch(
 		sourceList: import("../../types/ir-types").IRSourceFileMeta[]
 	): Promise<void> {
 		await this.initialize();
-		const sources = await this.getAllSources();
-
-		for (const source of sourceList) {
-			sources[source.sourceId] = source;
-		}
-
-		const store: import("../../types/ir-types").IRSourcesStore = {
-			version: IR_STORAGE_VERSION,
-			sources,
-		};
-
-		const path = `${this.getStorageDir()}/${this.SOURCES_FILE}`;
-		await this.writeFile(path, JSON.stringify(store));
+		this.cacheRuntimeSourceMetadata(sourceList);
+		await this.syncSourceMetadataToPointStorage(sourceList);
 	}
 
 	/**
@@ -2214,16 +2037,7 @@ export class IRStorageService {
 	 */
 	async deleteSource(sourceId: string): Promise<void> {
 		await this.initialize();
-		const sources = await this.getAllSources();
-		delete sources[sourceId];
-
-		const store: import("../../types/ir-types").IRSourcesStore = {
-			version: IR_STORAGE_VERSION,
-			sources,
-		};
-
-		const path = `${this.getStorageDir()}/${this.SOURCES_FILE}`;
-		await this.writeFile(path, JSON.stringify(store));
+		this.dropRuntimeSourceMetadata(sourceId);
 	}
 
 	/**
@@ -2231,101 +2045,7 @@ export class IRStorageService {
 	 */
 	async getAllChunkData(): Promise<Record<string, import("../../types/ir-types").IRChunkFileData>> {
 		await this.initialize();
-		const path = `${this.getStorageDir()}/${this.CHUNKS_FILE}`;
-		const defaultStore = { version: IR_STORAGE_VERSION, chunks: {} };
-		const content = await this.readFile(path, JSON.stringify(defaultStore));
-
-		// 读取时顺手修正旧字段，避免把半迁移数据继续写回运行时。
-		let needsSave = false;
-		const parsed = JSON.parse(content) as import("../../types/ir-types").IRChunksStore;
-		const now = Date.now();
-
-		let sources: Record<string, import("../../types/ir-types").IRSourceFileMeta> | null = null;
-		try {
-			sources = await this.getAllSources();
-		} catch {
-			sources = null;
-		}
-
-		for (const [key, chunk] of Object.entries(parsed.chunks)) {
-			if (typeof chunk !== "object" || chunk === null) {
-				logger.warn(
-					`[IRStorageService] 跳过无效块数据: key=${key}, value=${String(chunk).slice(0, 50)}`
-				);
-				delete parsed.chunks[key];
-				needsSave = true;
-				continue;
-			}
-
-			if (
-				(chunk as any).priorityUi === undefined &&
-				typeof (chunk as any).priorityEff === "number"
-			) {
-				(chunk as any).priorityUi = (chunk as any).priorityEff;
-				needsSave = true;
-			}
-
-			try {
-				const sourceId = (chunk as any).sourceId;
-				const sourceTagGroup =
-					sourceId && sources ? (sources as any)[sourceId]?.tagGroup : undefined;
-				const currentTagGroup = (chunk as any)?.meta?.tagGroup;
-				if (
-					typeof sourceTagGroup === "string" &&
-					sourceTagGroup.trim().length > 0 &&
-					sourceTagGroup !== "default"
-				) {
-					if (!currentTagGroup || currentTagGroup === "default") {
-						if (currentTagGroup !== sourceTagGroup) {
-							(chunk as any).meta = {
-								...(chunk as any).meta,
-								tagGroup: sourceTagGroup,
-							};
-							needsSave = true;
-						}
-					}
-				}
-			} catch {}
-
-			if (chunk.nextRepDate === 0 || chunk.nextRepDate === undefined) {
-				chunk.nextRepDate = now;
-				chunk.intervalDays = chunk.intervalDays || 1;
-				chunk.updatedAt = now;
-				needsSave = true;
-			}
-		}
-
-		if (!this.migratedChunkReadablePaths) {
-			const roots = this.getReadableRoots();
-			if (roots && parsed?.chunks && typeof parsed.chunks === "object") {
-				for (const chunk of Object.values(parsed.chunks)) {
-					if (!chunk || typeof chunk !== "object") continue;
-					const current = (chunk as any).filePath;
-					const rewritten = await this.migrateReadablePathIfNeeded(
-						current,
-						roots.legacyRoot,
-						roots.currentRoot
-					);
-					if (rewritten) {
-						(chunk as any).filePath = rewritten;
-						needsSave = true;
-					}
-				}
-			}
-			this.migratedChunkReadablePaths = true;
-		}
-
-		if (needsSave) {
-			await this.writeFile(path, JSON.stringify(this.buildSerializedChunkStore(parsed.chunks)));
-			logger.info("[IRStorageService] 自动迁移完成: 已修复缺失的调度数据");
-		}
-
-		return Object.fromEntries(
-			Object.entries(parsed.chunks).map(([chunkId, chunk]) => [
-				chunkId,
-				normalizeChunkForRuntime(chunk),
-			])
-		);
+		return (await this.projectRuntimeChunkStoresFromPoints()).chunks;
 	}
 
 	/** 获取单个块文件的调度数据。 */
@@ -2339,38 +2059,23 @@ export class IRStorageService {
 	/** 保存单个块文件的调度数据。 */
 	async saveChunkData(chunk: import("../../types/ir-types").IRChunkFileData): Promise<void> {
 		await this.initialize();
-		const chunks = await this.getAllChunkData();
-		chunks[chunk.chunkId] = chunk;
-
-		const store = this.buildSerializedChunkStore(chunks);
-
-		const path = `${this.getStorageDir()}/${this.CHUNKS_FILE}`;
-		await this.writeFile(path, JSON.stringify(store));
+		await this.syncChunkPointToNewStorage(chunk);
 	}
 
 	/** 批量保存块文件调度数据。 */
 	async saveChunkDataBatch(
-		chunkList: import("../../types/ir-types").IRChunkFileData[]
+		chunkList: import("../../types/ir-types").IRChunkFileData[],
+		options?: {
+			sourcesById?: Record<string, import("../../types/ir-types").IRSourceFileMeta>;
+			decks?: Record<string, IRDeck>;
+		}
 	): Promise<void> {
 		logger.info(`[IRStorageService] ⚡ saveChunkDataBatch 开始: ${chunkList.length} 个块`);
 		await this.initialize();
-		const chunks = await this.getAllChunkData();
-
-		for (const chunk of chunkList) {
-			chunks[chunk.chunkId] = chunk;
-		}
-
-		const store = this.buildSerializedChunkStore(chunks);
-
-		const path = `${this.getStorageDir()}/${this.CHUNKS_FILE}`;
-		logger.info(`[IRStorageService] ⚡ 准备写入: ${path}, 总块数=${Object.keys(chunks).length}`);
-		try {
-			await this.writeFile(path, JSON.stringify(store));
-			logger.info(`[IRStorageService] ✅ 批量保存成功: ${chunkList.length} 个块`);
-		} catch (err) {
-			logger.error("[IRStorageService] ❌ 批量保存失败:", err);
-			throw err;
-		}
+		await this.syncChunkPointsToNewStorage(chunkList, {
+			sourcesById: options?.sourcesById,
+			decks: options?.decks,
+		});
 	}
 
 	/** 删除块文件调度数据，并清理相关来源记录。 */
@@ -2392,11 +2097,6 @@ export class IRStorageService {
 
 		delete chunks[chunkId];
 
-		const store = this.buildSerializedChunkStore(chunks);
-
-		const path = `${this.getStorageDir()}/${this.CHUNKS_FILE}`;
-		await this.writeFile(path, JSON.stringify(store));
-
 		const remainingChunks = Object.values(chunks);
 		await this.removeChunkFromAllDecksAfterDeletion(chunkId, sourcePath, sourceId, remainingChunks);
 
@@ -2412,16 +2112,10 @@ export class IRStorageService {
 				: false;
 
 		if (sourceId && sourceMeta && !hasRemainingChunksForSource) {
-			delete sources[sourceId];
-			const sourceStore: import("../../types/ir-types").IRSourcesStore = {
-				version: IR_STORAGE_VERSION,
-				sources,
-			};
-			await this.writeFile(
-				`${this.getStorageDir()}/${this.SOURCES_FILE}`,
-				JSON.stringify(sourceStore)
-			);
+			this.dropRuntimeSourceMetadata(sourceId);
 		}
+
+		await this.deleteChunkPointFromNewStorage(chunkId);
 
 		if (!sourcePath) {
 			return;
@@ -2513,7 +2207,7 @@ export class IRStorageService {
 	}
 
 	/**
-	 * 获取所有牌组标签列表（从 chunks.json 中提取）
+	 * 获取所有牌组标签列表（从 point 投影视图中提取）
 	 */
 	async getAllDeckTags(): Promise<string[]> {
 		const chunks = await this.getAllChunkData();
@@ -2524,145 +2218,6 @@ export class IRStorageService {
 			}
 		}
 		return Array.from(tags);
-	}
-
-	/**
-	 * 修改块的牌组标签（同时更新 JSON 和块文件 YAML）
-	 * @param chunkId 块 ID
-	 * @param newDeckTag 新牌组标签
-	 */
-	async updateChunkDeckTag(chunkId: string, newDeckTag: string): Promise<void> {
-		// 1. 更新 chunks.json
-		const chunks = await this.getAllChunkData();
-		const chunk = chunks[chunkId];
-		if (!chunk) {
-			throw new Error(`块不存在: ${chunkId}`);
-		}
-
-		const oldDeckTag = chunk.deckTag;
-		chunk.topicTag = newDeckTag;
-		chunk.deckTag = newDeckTag;
-		chunk.updatedAt = Date.now();
-
-		const store = this.buildSerializedChunkStore(chunks);
-		const path = `${this.getStorageDir()}/${this.CHUNKS_FILE}`;
-		await this.writeFile(path, JSON.stringify(store));
-
-		// 2. 更新块文件 YAML
-		await this.updateChunkFileYAML(chunk.filePath, { deck_tag: newDeckTag });
-
-		logger.info(`[IRStorageService] 更新块牌组标签: ${chunkId}, ${oldDeckTag} -> ${newDeckTag}`);
-	}
-
-	/**
-	 * 更新块文件的 YAML frontmatter
-	 */
-	private async updateChunkFileYAML(
-		filePath: string,
-		updates: Record<string, unknown>
-	): Promise<void> {
-		const adapter = this.app.vault.adapter;
-		if (!(await adapter.exists(filePath))) {
-			logger.warn(`[IRStorageService] 块文件不存在，跳过 YAML 更新: ${filePath}`);
-			return;
-		}
-
-		const content = await adapter.read(filePath);
-		const yamlMatch = content.match(/^---\n([\s\S]*?)\n---/);
-
-		if (!yamlMatch) {
-			logger.warn(`[IRStorageService] 块文件无 YAML frontmatter: ${filePath}`);
-			return;
-		}
-
-		// 简单的 YAML 更新（逐行替换或追加）
-		let yamlContent = yamlMatch[1];
-		const normalizedUpdates = { ...updates };
-		if (normalizedUpdates.deck_tag !== undefined && normalizedUpdates.topic_tag === undefined) {
-			normalizedUpdates.topic_tag = normalizedUpdates.deck_tag;
-		}
-		if (normalizedUpdates.deck_names !== undefined && normalizedUpdates.topic_names === undefined) {
-			normalizedUpdates.topic_names = normalizedUpdates.deck_names;
-		}
-		normalizedUpdates.deck_tag = undefined;
-		normalizedUpdates.deck_names = undefined;
-
-		for (const [key, value] of Object.entries(normalizedUpdates)) {
-			const regex = new RegExp(`^${key}:.*$`, "m");
-			const newLine = `${key}: "${value}"`;
-			if (regex.test(yamlContent)) {
-				yamlContent = yamlContent.replace(regex, newLine);
-			} else {
-				yamlContent += `\n${newLine}`;
-			}
-		}
-
-		const newContent = content.replace(/^---\n[\s\S]*?\n---/, `---\n${yamlContent}\n---`);
-		await adapter.write(filePath, newContent);
-	}
-
-	/**
-	 * 根据牌组标签获取统计数据
-	 */
-	async getDeckStatsByTag(
-		deckTag: string,
-		dailyNewLimit = 20,
-		dailyReviewLimit = 50
-	): Promise<{
-		newCount: number;
-		learningCount: number;
-		reviewCount: number;
-		dueToday: number;
-		totalCount: number;
-		fileCount: number;
-		todayNewCount: number;
-		todayDueCount: number;
-	}> {
-		const chunks = await this.getChunksByDeckTag(deckTag);
-		const todayMs = new Date().setHours(23, 59, 59, 999);
-
-		const files = new Set<string>();
-		let newCount = 0;
-		let learningCount = 0;
-		let reviewCount = 0;
-		let dueToday = 0;
-
-		for (const chunk of chunks) {
-			files.add(chunk.filePath);
-
-			switch (chunk.scheduleStatus) {
-				case "new":
-					newCount++;
-					break;
-				case "queued":
-				case "active":
-					// queued/active 对应旧版 learning 状态
-					learningCount++;
-					break;
-				case "scheduled":
-					// scheduled 对应旧版 review 状态
-					reviewCount++;
-					break;
-			}
-
-			if (chunk.nextRepDate && chunk.nextRepDate <= todayMs) {
-				dueToday++;
-			}
-		}
-
-		const todayNewCount = Math.min(newCount, dailyNewLimit);
-		const todayDueCount = Math.min(dueToday, dailyReviewLimit);
-
-		return {
-			newCount,
-			learningCount,
-			reviewCount,
-			dueToday,
-			totalCount: chunks.length,
-			fileCount: files.size,
-			todayNewCount,
-			todayDueCount,
-		};
 	}
 
 	// ============================================
@@ -2915,12 +2470,9 @@ export class IRStorageService {
 		this.assignChunkDecks(chunk, validIds, validDecks);
 		chunk.updatedAt = Date.now();
 
-		const store = this.buildSerializedChunkStore(chunks);
-		const path = `${this.getStorageDir()}/${this.CHUNKS_FILE}`;
-		await this.writeFile(path, JSON.stringify(store));
-
 		const deckNames = validIds.map((id) => validDecks[id]?.name).filter(Boolean);
 		await this.updateChunkFileYAMLDeckNames(chunk.filePath, deckNames as string[]);
+		await this.syncChunkPointToNewStorage(chunk, validDecks);
 
 		logger.info(`[IRStorageService] 更新块牌组: ${chunkId}, 牌组数: ${validIds.length}`);
 	}
@@ -2937,19 +2489,6 @@ export class IRStorageService {
 		if (!currentDeckIds.includes(deckId)) {
 			await this.updateChunkDecks(chunkId, [...currentDeckIds, deckId]);
 		}
-	}
-
-	/** 从内容块移除一个牌组。 */
-	async removeDeckFromChunk(chunkId: string, deckId: string): Promise<void> {
-		const chunks = await this.getAllChunkData();
-		const chunk = chunks[chunkId];
-		if (!chunk) {
-			throw new Error(`块不存在: ${chunkId}`);
-		}
-
-		const currentDeckIds = chunk.deckIds || [];
-		const newDeckIds = currentDeckIds.filter((_id) => _id !== deckId);
-		await this.updateChunkDecks(chunkId, newDeckIds);
 	}
 
 	/** 把多牌组信息写回块文件 YAML。 */
@@ -3079,10 +2618,9 @@ export class IRStorageService {
 			for (const chunkId of invalidChunkIds) {
 				delete chunks[chunkId];
 			}
-
-			const store = this.buildSerializedChunkStore(chunks);
-			const path = `${this.getStorageDir()}/${this.CHUNKS_FILE}`;
-			await this.writeFile(path, JSON.stringify(store));
+			for (const chunkId of invalidChunkIds) {
+				await this.deleteChunkPointFromNewStorage(chunkId);
+			}
 
 			logger.info(`[IRStorageService] 清理了 ${invalidChunkIds.length} 个无效块`);
 		}
@@ -3224,7 +2762,182 @@ export class IRStorageService {
 		return { removed };
 	}
 
-	/** 清理指向不存在源文件的旧版 blocks.json 数据。 */
+	private addMarkdownReferencePath(target: Set<string>, candidate: unknown): void {
+		if (typeof candidate !== "string") {
+			return;
+		}
+		const normalized = normalizePath(candidate.trim());
+		if (!normalized || !normalized.toLowerCase().endsWith(".md")) {
+			return;
+		}
+		target.add(normalized);
+	}
+
+	private isDeletedReadableMarkdownContent(content: string): boolean {
+		const yaml = parseYAMLFromContent(content);
+		const normalizedTags = new Set(
+			(
+				Array.isArray(yaml?.tags)
+					? yaml.tags
+					: typeof yaml?.tags === "string"
+						? String(yaml.tags)
+								.split(",")
+								.map((tag) => tag.trim())
+						: []
+			)
+				.map((tag) => String(tag || "").trim().replace(/^#/, "").toLowerCase())
+				.filter(Boolean)
+		);
+
+		if (normalizedTags.has("we_已删除") || normalizedTags.has("we_deleted")) {
+			return true;
+		}
+
+		return (
+			/(^|\s)#we_已删除(?=\s|$)/m.test(content) || /(^|\s)#we_deleted(?=\s|$)/im.test(content)
+		);
+	}
+
+	private async collectReferencedReadableMarkdownPaths(): Promise<Set<string>> {
+		const referencedPaths = new Set<string>();
+
+		try {
+			const decks = await this.getAllDecks();
+			for (const deck of Object.values(decks)) {
+				for (const sourceFile of deck.sourceFiles || []) {
+					this.addMarkdownReferencePath(referencedPaths, sourceFile);
+				}
+			}
+		} catch (error) {
+			logger.warn("[IRStorageService] 收集专题引用的 Markdown 路径失败", error);
+		}
+
+		try {
+			const chunks = await this.getAllChunkData();
+			for (const chunk of Object.values(chunks)) {
+				this.addMarkdownReferencePath(referencedPaths, chunk.filePath);
+			}
+		} catch (error) {
+			logger.warn("[IRStorageService] 收集旧 chunk Markdown 路径失败", error);
+		}
+
+		try {
+			const sources = await this.getAllSources();
+			for (const source of Object.values(sources)) {
+				this.addMarkdownReferencePath(referencedPaths, source.originalPath);
+				this.addMarkdownReferencePath(referencedPaths, source.rawFilePath);
+				this.addMarkdownReferencePath(referencedPaths, source.indexFilePath);
+			}
+		} catch (error) {
+			logger.warn("[IRStorageService] 收集旧 source Markdown 路径失败", error);
+		}
+
+		try {
+			const snapshots = await this.getPointStorageService().listPointSnapshots();
+			for (const snapshot of snapshots) {
+				const point = snapshot.point;
+				this.addMarkdownReferencePath(referencedPaths, point.source?.path);
+
+				const metadata = point.metadata && typeof point.metadata === "object" ? point.metadata : {};
+				for (const key of ["sourcePath", "chunkFilePath", "filePath", "rawFilePath", "indexFilePath"]) {
+					this.addMarkdownReferencePath(
+						referencedPaths,
+						(metadata as Record<string, unknown>)[key]
+					);
+				}
+
+				const locator =
+					point.trace?.locator && typeof point.trace.locator === "object"
+						? (point.trace.locator as Record<string, unknown>)
+						: {};
+				for (const key of ["sourcePath", "chunkFilePath", "filePath", "rawFilePath", "indexFilePath"]) {
+					this.addMarkdownReferencePath(referencedPaths, locator[key]);
+				}
+			}
+		} catch (error) {
+			logger.warn("[IRStorageService] 收集新 points Markdown 路径失败", error);
+		}
+
+		return referencedPaths;
+	}
+
+	async inspectDeletedReadableMarkdownResidue(
+		scanRoot?: string
+	): Promise<{ count: number; files: string[] }> {
+		await this.initialize();
+		const adapter = this.app.vault.adapter;
+		const root = resolveIRImportFolder(scanRoot);
+		if (!(await adapter.exists(root))) {
+			return { count: 0, files: [] };
+		}
+
+		const referencedPaths = await this.collectReferencedReadableMarkdownPaths();
+		const files = await this.listFilesRecursively(root);
+		const residue: string[] = [];
+
+		for (const filePath of files) {
+			const normalizedPath = normalizePath(filePath);
+			if (!normalizedPath.toLowerCase().endsWith(".md")) {
+				continue;
+			}
+			if (referencedPaths.has(normalizedPath)) {
+				continue;
+			}
+
+			try {
+				const content = await adapter.read(normalizedPath);
+				if (this.isDeletedReadableMarkdownContent(content)) {
+					residue.push(normalizedPath);
+				}
+			} catch (error) {
+				logger.warn(`[IRStorageService] 检查旧 IR Markdown 残留失败: ${normalizedPath}`, error);
+			}
+		}
+
+		return {
+			count: residue.length,
+			files: residue.sort((left, right) => left.localeCompare(right, "zh-CN")),
+		};
+	}
+
+	async cleanupDeletedReadableMarkdownResidue(scanRoot?: string): Promise<{
+		removed: number;
+		files: string[];
+		failures: Array<{ path: string; message: string }>;
+	}> {
+		await this.initialize();
+		const adapter = this.app.vault.adapter;
+		const root = resolveIRImportFolder(scanRoot);
+		const inspection = await this.inspectDeletedReadableMarkdownResidue(root);
+		const removedFiles: string[] = [];
+		const failures: Array<{ path: string; message: string }> = [];
+
+		for (const filePath of inspection.files) {
+			try {
+				await adapter.remove(filePath);
+				removedFiles.push(filePath);
+			} catch (error) {
+				failures.push({
+					path: filePath,
+					message: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+
+		// 默认旧 IR 导入目录已经属于弃用结构，清空后应一并删除；
+		// 若调用方显式传入自定义扫描根，则保留根目录，避免误删用户自定义容器目录。
+		await DirectoryUtils.pruneEmptyDirsUnder(adapter as any, root, {
+			preserveRoot: Boolean(scanRoot && String(scanRoot).trim()),
+		});
+
+		return {
+			removed: removedFiles.length,
+			files: removedFiles,
+			failures,
+		};
+	}
+
+	/** 清理指向不存在源文件的 legacy block 兼容数据。 */
 	async cleanupInvalidBlocks(): Promise<{ removed: number; invalidPaths: string[] }> {
 		await this.initialize();
 		const adapter = this.app.vault.adapter;
@@ -3252,17 +2965,10 @@ export class IRStorageService {
 
 		if (invalidBlockIds.length > 0) {
 			for (const blockId of invalidBlockIds) {
-				delete blocks[blockId];
+				await this.getPointStorageService().deletePointByLegacyId(blockId);
 			}
 
-			const store: import("../../types/ir-types").IRBlocksStore = {
-				version: IR_STORAGE_VERSION,
-				blocks,
-			};
-			const path = `${this.getStorageDir()}/${BLOCKS_FILE}`;
-			await this.writeFile(path, JSON.stringify(store));
-
-			logger.info(`[IRStorageService] 清理了 ${invalidBlockIds.length} 个无效旧版块`);
+			logger.info(`[IRStorageService] 清理了 ${invalidBlockIds.length} 个无效 legacy block 兼容点`);
 		}
 
 		return { removed: invalidBlockIds.length, invalidPaths };
@@ -3289,14 +2995,8 @@ export class IRStorageService {
 		if (invalidSourceIds.length > 0) {
 			for (const sourceId of invalidSourceIds) {
 				delete sources[sourceId];
+				this.dropRuntimeSourceMetadata(sourceId);
 			}
-
-			const store: import("../../types/ir-types").IRSourcesStore = {
-				version: IR_STORAGE_VERSION,
-				sources,
-			};
-			const path = `${this.getStorageDir()}/${this.SOURCES_FILE}`;
-			await this.writeFile(path, JSON.stringify(store));
 
 			logger.info(`[IRStorageService] 清理了 ${invalidSourceIds.length} 个无效源材料`);
 		}

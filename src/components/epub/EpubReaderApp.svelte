@@ -1,6 +1,6 @@
 <script lang="ts">
         import type { App, WorkspaceLeaf, TAbstractFile, EventRef } from 'obsidian';
-        import { setIcon, MarkdownView, Notice, Menu, TFile, Platform, SuggestModal, TFolder } from 'obsidian';
+        import { setIcon, MarkdownView, Notice, Menu, TFile, Platform } from 'obsidian';
 	import { onMount, untrack } from 'svelte';
 	import EpubReaderView from './EpubReaderView.svelte';
 	import BookshelfView from './BookshelfView.svelte';
@@ -9,16 +9,22 @@
 	import ScreenshotOverlay from './ScreenshotOverlay.svelte';
 	import EpubTutorial from './EpubTutorial.svelte';
 	import EpubHighlightToolbar from './EpubHighlightToolbar.svelte';
-	import { createEpubReaderEngine, EpubStorageService, EpubAnnotationService, EpubLinkService, EpubLocationMigrationService } from '../../services/epub';
-	import type { EpubExcerptSettings, EpubBookshelfSettings, EpubBookshelfSourceMode } from '../../services/epub/EpubStorageService';
-	import { DEFAULT_EPUB_BOOKSHELF_SETTINGS } from '../../services/epub/EpubStorageService';
+	import { createEpubReaderEngine } from '../../services/epub/reader-engine-factory';
+	import { EpubStorageService } from '../../services/epub/EpubStorageService';
+	import { EpubAnnotationService } from '../../services/epub/EpubAnnotationService';
+	import { EpubLinkService } from '../../services/epub/EpubLinkService';
+	import { EpubLocationMigrationService } from '../../services/epub/EpubLocationMigrationService';
+	import { resolveEpubHost } from '../../services/epub/epub-host';
+	import { EpubBookmarkService } from '../../services/epub/EpubBookmarkService';
+	import type { EpubExcerptSettings } from '../../services/epub/EpubStorageService';
 	import { EpubBacklinkHighlightService } from '../../services/epub/EpubBacklinkHighlightService';
 	import type { BacklinkSourceMatch } from '../../services/epub/EpubBacklinkHighlightService';
 	import { IREpubBookmarkTaskService } from '../../services/incremental-reading/IREpubBookmarkTaskService';
 	import { EpubScreenshotService } from '../../services/epub/EpubScreenshotService';
 	import { EpubCanvasService } from '../../services/epub/EpubCanvasService';
 	import type { EpubVisibleFrameLike, ScreenshotRect } from '../../services/epub/EpubScreenshotService';
-	import type { EpubBook, EpubFlowMode, EpubLayoutMode, EpubReaderEngine, EpubReaderSettings, EpubTheme, FlashStyle, HighlightClickInfo, PaginationInfo, ReaderHighlight, TocItem } from '../../services/epub';
+	import type { EpubBook, EpubFlowMode, EpubLastOpenBookmark, EpubLayoutMode, EpubReaderSettings, EpubTheme, PaginationInfo, TocItem } from '../../services/epub/types';
+	import type { EpubReaderEngine, FlashStyle, HighlightClickInfo, ReaderHighlight } from '../../services/epub/reader-engine-types';
 	import { epubActiveDocumentStore } from '../../stores/epub-active-document-store';
 	import { logger } from '../../utils/logger';
 	import { openFileWithExistingLeaf } from '../../utils/workspace-navigation';
@@ -35,18 +41,20 @@
 		getLastActiveMarkdownLeaf?: () => WorkspaceLeaf | null;
 		onTitleChange?: (title: string) => void;
 		onReaderSettingsLoaded?: (settings: EpubReaderSettings) => void;
-	onActionsReady?: (actions: {
-		setAutoInsert: (enabled: boolean) => void;
-		setScreenshotMode: (active: boolean) => void;
-		setLayoutMode: (mode: EpubLayoutMode) => void;
-		setFlowMode: (mode: EpubFlowMode) => void;
-		setScreenshotSaveMode: (saveAsImage: boolean) => void;
-		navigateToCfi: (cfi: string, text: string) => void;
-		toggleTutorial: () => void;
-		addBookmark: () => Promise<void>;
-		bindCanvasPath: (canvasPath: string) => void;
+		onActionsReady?: (actions: {
+			setAutoInsert: (enabled: boolean) => void;
+			setScreenshotMode: (active: boolean) => void;
+			setLayoutMode: (mode: EpubLayoutMode) => void;
+			setFlowMode: (mode: EpubFlowMode) => void;
+			setScreenshotSaveMode: (saveAsImage: boolean) => void;
+			navigateToCfi: (cfi: string, text: string) => void;
+			toggleTutorial: () => void;
+			addBookmark: () => Promise<void>;
+			saveLastOpenBookmark: () => Promise<void>;
+			bindCanvasPath: (canvasPath: string) => void;
 			unbindCanvas: () => void;
 			getCanvasService: () => EpubCanvasService;
+			canMarkIRResumePoint: () => boolean;
 			markIRResumePoint: () => Promise<void>;
 			exportCurrentChapterToMarkdown: () => Promise<void>;
 		}) => void;
@@ -78,9 +86,11 @@
 
 	let readerService: EpubReaderEngine = untrack(() => createEpubReaderEngine(app));
 	let storageService = untrack(() => new EpubStorageService(app));
+	let bookmarkService = untrack(() => new EpubBookmarkService(app));
 	let annotationService = untrack(() => new EpubAnnotationService(storageService));
 	let locationMigrationService = untrack(() => new EpubLocationMigrationService(app, storageService, readerService));
 	let linkService = untrack(() => new EpubLinkService(app));
+	let irBookmarkTaskService = untrack(() => new IREpubBookmarkTaskService(app));
 	let screenshotService = untrack(() => new EpubScreenshotService(app));
 	let canvasService = untrack(() => new EpubCanvasService(app));
 	let backlinkService = untrack(() => new EpubBacklinkHighlightService(app));
@@ -99,16 +109,25 @@
 	let transientStatusText = $state('');
 	let rootEl = $state<HTMLDivElement | undefined>(undefined);
 	let viewportEl = $state<HTMLDivElement | undefined>(undefined);
+	let scrolledNavSyncFrame = 0;
+	let scrolledNavResizeObserver: ResizeObserver | null = null;
 	let highlightToolbarInfo = $state<HighlightClickInfo | null>(null);
 	const EPUB_LOCATE_LINK_PREFIX = '__weave_epub_link__=';
 	const EPUB_LOCATE_CFI_PREFIX = '__weave_epub_cfi__=';
 	const EPUB_LOCATE_TIME_PREFIX = '__weave_epub_time__=';
-	let excerptSettings = $state<EpubExcerptSettings>({ addCreationTime: false });
+	const SCROLLED_NAV_FRAME_INSET_VAR = '--epub-scrolled-side-nav-frame-inset-end';
+	const SCROLLED_NAV_SCROLLBAR_VAR = '--epub-scrolled-side-nav-scrollbar-width';
+	let excerptSettings = $state<EpubExcerptSettings>({
+		addCreationTime: false,
+		strikethroughDisplayMode: 'conceal',
+		showStrikethroughInSidebar: false,
+	});
 	let trackedHighlightSourceFiles = new Set<string>();
 	let vaultEventRefs: EventRef[] = [];
 	let pendingLoadedHighlights: ReaderHighlight[] | null = null;
 	let highlightReloadToken = 0;
 	let annotationRevision = $state(0);
+	let bookmarkRevision = $state(0);
 	let migratedLocationBookIds = new Set<string>();
 	let migratingLocationBookId: string | null = null;
 	const sourceLocateOverlay = getSourceLocateOverlayService();
@@ -143,6 +162,9 @@
 
 	let settings = $state<EpubReaderSettings>({
 		lineHeight: getDefaultReaderLineHeight(),
+		letterSpacing: 0,
+		pageMargin: Platform.isMobile ? 24 : 48,
+		viewportSidePadding: Platform.isMobile ? 18 : 24,
 		theme: 'default',
 		widthMode: getDefaultReaderWidthMode(),
 		layoutMode: 'paginated',
@@ -240,145 +262,80 @@
 		}, delayMs);
 	}
 
-        function getWeavePlugin(): any {
+function getWeavePlugin(): any {
                 return (app as any)?.plugins?.getPlugin?.('weave');
         }
 
-        class EpubFolderSuggestModal extends SuggestModal<string> {
-                private folders: string[];
-                private onChoose: (folderPath: string) => void;
+        const BOOKSHELF_DATA_CHANGED_EVENT = 'Weave:epub-bookshelf-data-changed';
+        const BOOKSHELF_REFRESH_REQUEST_EVENT = 'Weave:epub-bookshelf-refresh-request';
 
-                constructor(app: App, folders: string[], onChoose: (folderPath: string) => void) {
-                        super(app);
-                        this.folders = folders;
-                        this.onChoose = onChoose;
-                        this.setPlaceholder('选择 EPUB 书架文件夹...');
-                }
-
-                getSuggestions(query: string): string[] {
-                        const normalizedQuery = (query || '').trim().toLowerCase();
-                        if (!normalizedQuery) {
-                                return this.folders;
-                        }
-                        return this.folders.filter((folder) => folder.toLowerCase().includes(normalizedQuery));
-                }
-
-                renderSuggestion(folder: string, el: HTMLElement): void {
-                        el.setText(folder);
-                }
-
-                onChooseSuggestion(folder: string, _evt: MouseEvent | KeyboardEvent): void {
-                        this.onChoose(folder);
-                }
+        function notifyBookshelfChanged() {
+                window.dispatchEvent(new CustomEvent(BOOKSHELF_DATA_CHANGED_EVENT));
+                window.dispatchEvent(new CustomEvent(BOOKSHELF_REFRESH_REQUEST_EVENT));
         }
 
-        function buildFolderList(): string[] {
-                const result: string[] = [];
+        async function openScanImportModal(showAllEntries = false, scanEntries?: Awaited<ReturnType<typeof storageService.loadScanIndex>>) {
+                const entries = scanEntries ?? await storageService.loadScanIndex();
+                if (entries.length === 0) {
+                        new Notice('weave：当前仓库中未发现 EPUB 文件');
+                        return;
+                }
 
-                function traverse(folder: TFolder) {
-                        if (folder.path) {
-                                result.push(folder.path);
-                        }
+                const membership = await storageService.loadBookshelfMembership();
+                const membershipPaths = new Set(membership.map((entry) => entry.path));
+                const unaddedCount = entries.filter((entry) => !membershipPaths.has(entry.path)).length;
+                if (!showAllEntries && unaddedCount === 0) {
+                        new Notice('weave：扫描结果里没有新的 EPUB 可加入');
+                        return;
+                }
 
-                        for (const child of folder.children) {
-                                if (child instanceof TFolder) {
-                                        traverse(child);
+                const { EpubBookshelfImportModal } = await import('../modals/EpubBookshelfImportModal');
+                const modal = new EpubBookshelfImportModal(app, {
+                        entries,
+                        membership,
+                        title: '扫描结果',
+                        onConfirm: async (paths: string[]) => {
+                                const addedEntries = await storageService.addBooksToBookshelf(paths);
+                                if (addedEntries.length === 0) {
+                                        new Notice('weave：所选 EPUB 已在书架中');
+                                        return;
                                 }
-                        }
-                }
-
-                traverse(app.vault.getRoot());
-                result.sort((a, b) => a.localeCompare(b, 'zh-CN'));
-                return result;
-        }
-
-        function getBookshelfSettings(): EpubBookshelfSettings {
-                const plugin = getWeavePlugin();
-                if (plugin && typeof plugin.getEpubBookshelfSettings === 'function') {
-                        return plugin.getEpubBookshelfSettings();
-                }
-                return { ...DEFAULT_EPUB_BOOKSHELF_SETTINGS };
-        }
-
-        async function saveBookshelfSettings(nextSettings: Partial<EpubBookshelfSettings>, noticeMessage?: string) {
-                const plugin = getWeavePlugin();
-                if (!plugin || typeof plugin.saveEpubBookshelfSettings !== 'function') {
-                        new Notice('weave：无法保存 EPUB 书架设置');
-                        return;
-                }
-
-                await plugin.saveEpubBookshelfSettings({
-                        ...DEFAULT_EPUB_BOOKSHELF_SETTINGS,
-                        ...getBookshelfSettings(),
-                        ...nextSettings
-                });
-                window.dispatchEvent(new CustomEvent('Weave:epub-bookshelf-settings-changed'));
-
-                if (noticeMessage) {
-                        new Notice(noticeMessage);
-                }
-        }
-
-        async function requestBookshelfRefresh() {
-                const bookshelfSettings = getBookshelfSettings();
-                if (bookshelfSettings.sourceMode === 'folder-only' && !bookshelfSettings.sourceFolder) {
-                        new Notice('weave：请先选择 EPUB 书架指定文件夹');
-                        return;
-                }
-
-                const scopeLabel = bookshelfSettings.sourceMode === 'folder-only' && bookshelfSettings.sourceFolder
-                        ? `指定文件夹“${bookshelfSettings.sourceFolder}”`
-                        : '当前仓库';
-
-                try {
-                        const result = await storageService.pruneMissingBooks();
-                        const rebuilt = bookshelfSettings.sourceMode === 'folder-only'
-                                ? await storageService.rebuildBookshelfIndex(bookshelfSettings.sourceFolder)
-                                : await storageService.rebuildBookshelfIndex();
-
-                        window.dispatchEvent(new CustomEvent('Weave:epub-bookshelf-settings-changed'));
-
-                        const cleanupText = result.removedPaths.length > 0
-                                ? `，并清理 ${result.removedPaths.length} 条失效缓存`
-                                : '';
-                        new Notice(`weave：已刷新 ${scopeLabel} 的 EPUB 书架，共 ${rebuilt.length} 本${cleanupText}`);
-                } catch (error) {
-                        logger.error('[EpubReaderApp] Failed to refresh EPUB bookshelf:', error);
-                        new Notice('weave：刷新 EPUB 书架失败');
-                }
-        }
-
-        function openBookshelfFolderPicker() {
-                const folders = buildFolderList();
-                if (folders.length === 0) {
-                        new Notice('weave：当前仓库没有可选文件夹');
-                        return;
-                }
-
-                const modal = new EpubFolderSuggestModal(app, folders, (folderPath) => {
-                        void saveBookshelfSettings(
-                                {
-                                        sourceMode: 'folder-only',
-                                        sourceFolder: folderPath
-                                },
-                                `weave：EPUB 书架已切换为指定文件夹：${folderPath}`
-                        );
+                                notifyBookshelfChanged();
+                                new Notice(`weave：已加入书架 ${addedEntries.length} 本 EPUB`);
+                        },
                 });
                 modal.open();
         }
 
-        async function handleBookshelfModeChange(mode: EpubBookshelfSourceMode) {
-                if (mode === 'folder-only' && !getBookshelfSettings().sourceFolder) {
-                        openBookshelfFolderPicker();
-                        return;
-                }
+        async function scanVaultAndPromptImport() {
+                try {
+                        const scanEntries = await storageService.scanVaultEpubs();
+                        notifyBookshelfChanged();
 
-                await saveBookshelfSettings(
-                        { sourceMode: mode },
-                        mode === 'folder-only'
-                                ? 'weave：EPUB 书架已切换为指定文件夹模式'
-                                : 'weave：EPUB 书架已切换为缓存优先模式'
-                );
+                        if (scanEntries.length === 0) {
+                                new Notice('weave：当前仓库中未发现 EPUB 文件');
+                                return;
+                        }
+
+                        await openScanImportModal(false, scanEntries);
+                } catch (error) {
+                        logger.error('[EpubReaderApp] Failed to scan vault EPUB files:', error);
+                        new Notice('weave：扫描 EPUB 失败');
+                }
+        }
+
+        async function requestBookshelfRefresh() {
+                try {
+                        const result = await storageService.pruneMissingBooks();
+                        notifyBookshelfChanged();
+                        const cleanupText = result.removedPaths.length > 0
+                                ? `，并清理 ${result.removedPaths.length} 条失效记录`
+                                : '';
+                        new Notice(`weave：书架已刷新${cleanupText}`);
+                } catch (error) {
+                        logger.error('[EpubReaderApp] Failed to refresh EPUB bookshelf:', error);
+                        new Notice('weave：刷新 EPUB 书架失败');
+                }
         }
 
 	function getCreateCardPlugin(): { openCreateCardModal?: (input: { initialContent: string }) => Promise<void> } | null {
@@ -534,7 +491,21 @@
 				loadedBook.currentPosition = reusableBook.currentPosition;
 			}
 
+			const sourceEntry = await storageService.ensureSourceIdentity(targetFilePath, {
+				preferredSourceId: reusableBook?.sourceId,
+			});
+			if (sourceEntry) {
+				loadedBook.sourceId = sourceEntry.sourceId;
+				loadedBook.sourceFingerprint = sourceEntry.sourceFingerprint;
+				loadedBook.sourceSize = sourceEntry.sourceSize;
+				loadedBook.sourceMtime = sourceEntry.sourceMtime;
+				loadedBook.filePath = sourceEntry.filePath;
+			} else if (reusableBook?.sourceId) {
+				loadedBook.sourceId = reusableBook.sourceId;
+			}
+
 			book = loadedBook;
+			bookmarkRevision = 0;
 			await storageService.saveBook(loadedBook);
 			if (isStaleBookLoad(loadToken)) {
 				return;
@@ -570,10 +541,9 @@
 			new Notice('未加载书籍');
 			return;
 		}
-		const bookId = book.id;
 		try {
 			const pos = readerService.getCurrentPosition();
-			const currentCfi = EpubLinkService.normalizeCfi(
+			let currentCfi = EpubLinkService.normalizeCfi(
 				pos.cfi || readerService.getCurrentCFI() || book.currentPosition?.cfi || ''
 			);
 			if (!currentCfi) {
@@ -581,48 +551,82 @@
 				return;
 			}
 
-			const existingBookmarks = await annotationService.getBookmarks(bookId);
-			const matchedBookmarks = existingBookmarks.filter((bookmark) =>
-				EpubLinkService.normalizeCfi(bookmark.cfi) === currentCfi
-			);
-
-			if (matchedBookmarks.length > 0) {
-				await Promise.all(
-					matchedBookmarks.map((bookmark) => annotationService.deleteBookmark(bookId, bookmark.id))
-				);
-				annotationRevision += 1;
-				epubActiveDocumentStore.setSharedState({ annotationRevision });
-				if (matchedBookmarks.length > 1) {
-					new Notice('已移除 ' + matchedBookmarks.length + ' 个重复书签');
-				} else {
-					new Notice('书签已移除');
+			if (typeof readerService.canonicalizeLocation === 'function') {
+				const canonicalCfi = await readerService.canonicalizeLocation(currentCfi);
+				if (canonicalCfi) {
+					currentCfi = canonicalCfi;
 				}
-				return;
 			}
 
 			const chapterTitle = readerService.getCurrentChapterTitle() || ('阅读位置 ' + Math.round(pos.percent) + '%');
-			const preview = chapterTitle;
-			await annotationService.createBookmark(
-				bookId,
+			const result = await bookmarkService.addBookmark(book, {
+				cfi: currentCfi,
+				chapterIndex: pos.chapterIndex,
+				percent: pos.percent,
 				chapterTitle,
-				pos.chapterIndex,
-				currentCfi,
-				preview,
-				settings.flowMode !== 'scrolled' && paginationInfo.currentPage > 0
+				pageNumber: settings.flowMode !== 'scrolled' && paginationInfo.currentPage > 0
 					? paginationInfo.currentPage
-					: undefined
-			);
-			annotationRevision += 1;
-			epubActiveDocumentStore.setSharedState({ annotationRevision });
-			new Notice('书签已添加');
-		} catch (_e) {
+					: undefined,
+				totalPages: settings.flowMode !== 'scrolled' && paginationInfo.totalPages > 0
+					? paginationInfo.totalPages
+					: undefined,
+				createdAt: Date.now(),
+				preview: chapterTitle,
+			});
+			bookmarkRevision += 1;
+			epubActiveDocumentStore.setSharedState({ bookmarkRevision });
+			new Notice(result.created ? '书签已添加' : '当前页已有书签');
+		} catch (error) {
+			logger.error('[EpubReaderApp] Failed to add bookmark:', error);
 			new Notice('书签操作失败');
 		}
 	}
 
-        function showSettingsMenu(evt: MouseEvent) {
+	async function saveLastOpenBookmark() {
+		if (!book) {
+			new Notice('未加载书籍');
+			return;
+		}
+
+		try {
+			const currentPosition = readerService.getCurrentPosition();
+			let currentCfi = EpubLinkService.normalizeCfi(
+				currentPosition.cfi || readerService.getCurrentCFI() || book.currentPosition?.cfi || ''
+			);
+			if (!currentCfi) {
+				new Notice('无法获取当前阅读位置');
+				return;
+			}
+
+			if (typeof readerService.canonicalizeLocation === 'function') {
+				const canonicalCfi = await readerService.canonicalizeLocation(currentCfi);
+				if (canonicalCfi) {
+					currentCfi = canonicalCfi;
+				}
+			}
+
+			const chapterTitle = readerService.getCurrentChapterTitle()
+				|| `阅读位置 ${Math.round(currentPosition.percent)}%`;
+			const bookmark: EpubLastOpenBookmark = {
+				chapterIndex: currentPosition.chapterIndex,
+				cfi: currentCfi,
+				percent: currentPosition.percent,
+				title: chapterTitle,
+				preview: chapterTitle,
+				savedAt: Date.now(),
+			};
+
+			await storageService.saveLastOpenBookmark(book.id, bookmark);
+			showTransientStatus(`已保存最后阅读点：${chapterTitle}`, 2600);
+			new Notice('最后阅读点已保存');
+		} catch (error) {
+			logger.error('[EpubReaderApp] Failed to save last open bookmark:', error);
+			new Notice('保存最后阅读点失败');
+		}
+	}
+
+function showSettingsMenu(evt: MouseEvent) {
                 const menu = new Menu();
-                const bookshelfSettings = getBookshelfSettings();
 
                 menu.addItem(item => {
                         item.setTitle('护眼模式');
@@ -657,47 +661,15 @@
                 menu.addSeparator();
 
                 menu.addItem(item => {
-                        item.setTitle('书架来源：缓存优先');
-                        item.setIcon('database');
-                        item.setChecked(bookshelfSettings.sourceMode === 'cache-first');
+                        item.setTitle('扫描仓库 EPUB');
+                        item.setIcon('scan-search');
                         item.onClick(() => {
-                                void handleBookshelfModeChange('cache-first');
+                                void scanVaultAndPromptImport();
                         });
                 });
 
                 menu.addItem(item => {
-                        item.setTitle('书架来源：仅指定文件夹');
-                        item.setIcon('folder-open');
-                        item.setChecked(bookshelfSettings.sourceMode === 'folder-only');
-                        item.onClick(() => {
-                                void handleBookshelfModeChange('folder-only');
-                        });
-                });
-
-                menu.addItem(item => {
-                        const folderLabel = bookshelfSettings.sourceFolder || '未设置';
-                        item.setTitle(`指定文件夹：${folderLabel}`);
-                        item.setIcon('folder-search');
-                        item.onClick(() => {
-                                openBookshelfFolderPicker();
-                        });
-                });
-
-                if (bookshelfSettings.sourceFolder) {
-                        menu.addItem(item => {
-                                item.setTitle('清除指定文件夹');
-                                item.setIcon('x');
-                                item.onClick(() => {
-                                        void saveBookshelfSettings(
-                                                { sourceFolder: '', sourceMode: 'cache-first' },
-                                                'weave：已清除 EPUB 书架指定文件夹，恢复缓存优先模式'
-                                        );
-                                });
-                        });
-                }
-
-                menu.addItem(item => {
-                        item.setTitle('立即刷新书架索引');
+                        item.setTitle('刷新书架');
                         item.setIcon('refresh-cw');
                         item.onClick(() => {
                                 void requestBookshelfRefresh();
@@ -759,6 +731,79 @@
 		return `${Math.max(0, Math.round(readingProgress))}%`;
 	}
 
+	function clearScrolledNavMetrics() {
+		rootEl?.style.removeProperty(SCROLLED_NAV_FRAME_INSET_VAR);
+		rootEl?.style.removeProperty(SCROLLED_NAV_SCROLLBAR_VAR);
+	}
+
+	function getVisibleReaderFrameGeometry(): {
+		frameElement: HTMLElement;
+		frameWindow: Window;
+		frameDocument: Document;
+	} | null {
+		for (const frame of readerService.getVisibleFrames()) {
+			const frameElement = frame.window?.frameElement;
+			if (!(frameElement instanceof HTMLElement)) {
+				continue;
+			}
+			return {
+				frameElement,
+				frameWindow: frame.window,
+				frameDocument: frame.document,
+			};
+		}
+		return null;
+	}
+
+	function syncScrolledNavMetrics() {
+		if (!rootEl || !viewportEl || !showBottomNav() || !useVerticalNav()) {
+			clearScrolledNavMetrics();
+			return;
+		}
+
+		const frameGeometry = getVisibleReaderFrameGeometry();
+		if (!frameGeometry) {
+			clearScrolledNavMetrics();
+			return;
+		}
+
+		const viewportRect = viewportEl.getBoundingClientRect();
+		const frameRect = frameGeometry.frameElement.getBoundingClientRect();
+		const documentElement = frameGeometry.frameDocument.documentElement;
+		const body = frameGeometry.frameDocument.body;
+		const contentWidth = Math.max(documentElement?.clientWidth || 0, body?.clientWidth || 0);
+		const scrollbarWidth = Math.max(0, frameGeometry.frameWindow.innerWidth - contentWidth);
+		const frameInsetEnd = Math.max(0, viewportRect.right - frameRect.right);
+
+		rootEl.style.setProperty(SCROLLED_NAV_FRAME_INSET_VAR, `${frameInsetEnd}px`);
+		rootEl.style.setProperty(SCROLLED_NAV_SCROLLBAR_VAR, `${scrollbarWidth}px`);
+	}
+
+	function scheduleScrolledNavLayoutSync() {
+		if (scrolledNavSyncFrame) {
+			return;
+		}
+		scrolledNavSyncFrame = window.requestAnimationFrame(() => {
+			scrolledNavSyncFrame = 0;
+			syncScrolledNavMetrics();
+		});
+	}
+
+	function setupScrolledNavMetricsObserver() {
+		if (scrolledNavResizeObserver) {
+			scrolledNavResizeObserver.disconnect();
+		}
+		scrolledNavResizeObserver = new ResizeObserver(() => {
+			scheduleScrolledNavLayoutSync();
+		});
+		if (rootEl) {
+			scrolledNavResizeObserver.observe(rootEl);
+		}
+		if (viewportEl) {
+			scrolledNavResizeObserver.observe(viewportEl);
+		}
+	}
+
 	async function handlePrevPage() {
 		await readerService.prevPage();
 	}
@@ -790,18 +835,35 @@
 			color,
 			chapterTitle,
 			timestamp,
-			targetNotePath
+			targetNotePath,
+			book?.sourceId
 		);
 	}
 
 	function buildReadingPointSourceLink(text: string, cfiRange: string): string {
 		const chapterIndex = readerService.getCurrentChapterIndex();
 		const chapterTitle = readerService.getCurrentChapterTitle();
-		return linkService.buildEpubLink(filePath, cfiRange, text, chapterIndex, chapterTitle);
+		return linkService.buildEpubLink(
+			filePath,
+			cfiRange,
+			text,
+			chapterIndex,
+			chapterTitle,
+			undefined,
+			book?.sourceId
+		);
 	}
 
 	function buildChapterReadingPointSourceLink(title: string, cfiRange: string, chapterIndex: number): string {
-		return linkService.buildEpubLink(filePath, cfiRange, title, chapterIndex, title);
+		return linkService.buildEpubLink(
+			filePath,
+			cfiRange,
+			title,
+			chapterIndex,
+			title,
+			undefined,
+			book?.sourceId
+		);
 	}
 
 	function formatTimestamp(date: Date): string {
@@ -882,7 +944,14 @@
 
 		const timestamp = excerptSettings.addCreationTime ? formatTimestamp(new Date()) : undefined;
 		const node = await canvasService.addExcerptNode(
-			text, cfiRange, filePath, chapterIndex, chapterTitle, color, timestamp
+			text,
+			cfiRange,
+			filePath,
+			chapterIndex,
+			chapterTitle,
+			color,
+			timestamp,
+			book?.sourceId
 		);
 		if (node) {
 			rememberHighlightSourcePath(canvasService.getCanvasPath());
@@ -934,11 +1003,45 @@
 		);
 	}
 
+	function showSelectedTextAIMenu(event: MouseEvent, text: string, cfiRange: string) {
+		const host = resolveEpubHost(app) as {
+			openSelectedTextAISplitMenu?: (options: {
+				event: MouseEvent | KeyboardEvent;
+				selectedText: string;
+				onSelectAction: (actionId: string) => void;
+			}) => void;
+			openSelectedTextAIPanelFromEpub?: (options: {
+				filePath: string;
+				selectedText: string;
+				actionId: string;
+				sourceLink?: string;
+			}) => Promise<void>;
+		} | null;
+
+		if (!host?.openSelectedTextAISplitMenu || !host.openSelectedTextAIPanelFromEpub) {
+			new Notice('AI 制卡功能当前不可用');
+			return;
+		}
+
+		host.openSelectedTextAISplitMenu({
+			event,
+			selectedText: text,
+			onSelectAction: (actionId: string) => {
+				void host.openSelectedTextAIPanelFromEpub?.({
+					filePath,
+					selectedText: text,
+					actionId,
+					sourceLink: buildReadingPointSourceLink(text, cfiRange),
+				});
+			},
+		});
+	}
+
 	async function handleCreateReadingPoint(text: string, cfiRange: string) {
 		try {
 			const plugin = getReadingPointPlugin();
 			if (!plugin?.openIRReadingPointFromExternalSelection) {
-				new Notice('创建增量阅读点功能暂不可用');
+				new Notice('加入增量阅读功能暂不可用');
 				return;
 			}
 
@@ -1265,8 +1368,6 @@
 			epubActiveDocumentStore.setSharedState({
 				filePath: null,
 				onSettingsClick: showSettingsMenu,
-				onSwitchBook,
-				onCreateChapterReadingPoint: null
 			});
 			return;
 		}
@@ -1279,7 +1380,9 @@
 			backlinkService,
 			book,
 			annotationRevision,
+			bookmarkRevision,
 			progress: readingProgress,
+			onNavigate: requestIRNavigation,
 			onSettingsClick: showSettingsMenu,
 			onSwitchBook,
 			onCreateChapterReadingPoint: handleCreateChapterReadingPoint
@@ -1537,8 +1640,7 @@
 			}
 
 			if (typeof plugin.activateView === 'function') {
-				const { VIEW_TYPE_WEAVE } = await import('../../views/WeaveView');
-				await plugin.activateView(VIEW_TYPE_WEAVE);
+				await plugin.activateView('weave-view');
 			}
 
 			window.dispatchEvent(new CustomEvent('Weave:navigate', {
@@ -1611,16 +1713,10 @@
 		try {
 			const summary = await locationMigrationService.migrateBookData(targetBook.id, filePath);
 			migratedLocationBookIds.add(targetBook.id);
-			if (summary.progressMigrated) {
-				const latestProgress = await storageService.loadProgress(targetBook.id);
-				if (latestProgress) {
-					targetBook.currentPosition = latestProgress;
-				}
-			}
+			migratingLocationBookId = null;
+
 			if (
 				summary.progressMigrated
-				|| summary.bookmarksMigrated > 0
-				|| summary.notesMigrated > 0
 				|| summary.resumePointsMigrated > 0
 			) {
 				if (readerReady) {
@@ -1670,6 +1766,8 @@
 
 	onMount(() => {
 		componentDisposed = false;
+		setupScrolledNavMetricsObserver();
+		window.addEventListener('resize', scheduleScrolledNavLayoutSync);
 		void (async () => {
 			try {
 				const [savedExcerptSettings, savedReaderSettings] = await Promise.all([
@@ -1695,6 +1793,7 @@
 				loading = false;
 				errorMsg = '';
 				readerReady = false;
+				scheduleScrolledNavLayoutSync();
 				return;
 			}
 			await loadBook();
@@ -1743,14 +1842,26 @@
 			navigateToCfi,
 			toggleTutorial,
 			addBookmark,
+			saveLastOpenBookmark,
 			bindCanvasPath: (canvasPath: string) => { bindCanvas(canvasPath); },
 			unbindCanvas: () => { unbindCanvas(); },
 			getCanvasService: () => canvasService,
+			canMarkIRResumePoint: () => true,
 			markIRResumePoint,
 			exportCurrentChapterToMarkdown
 		});
 		return () => {
 			componentDisposed = true;
+			window.removeEventListener('resize', scheduleScrolledNavLayoutSync);
+			if (scrolledNavSyncFrame) {
+				cancelAnimationFrame(scrolledNavSyncFrame);
+				scrolledNavSyncFrame = 0;
+			}
+			if (scrolledNavResizeObserver) {
+				scrolledNavResizeObserver.disconnect();
+				scrolledNavResizeObserver = null;
+			}
+			clearScrolledNavMetrics();
 			activeBookLoadToken += 1;
 			clearTransientStatus();
 			if (deferredHighlightReloadTimer) {
@@ -1772,6 +1883,20 @@
 			readerService.destroy();
 			epubActiveDocumentStore.clearActiveDocument(filePath);
 		};
+	});
+
+	$effect(() => {
+		const _flowMode = settings.flowMode;
+		const _showScrolledSideNav = settings.showScrolledSideNav;
+		const _widthMode = settings.widthMode;
+		const _layoutMode = settings.layoutMode;
+		const _viewport = viewportEl;
+		void _flowMode;
+		void _showScrolledSideNav;
+		void _widthMode;
+		void _layoutMode;
+		void _viewport;
+		scheduleScrolledNavLayoutSync();
 	});
 </script>
 
@@ -1803,10 +1928,9 @@
 	{:else}
 		<div
 			class="epub-reader-viewport"
-			class:with-side-nav={showBottomNav() && useVerticalNav()}
 			bind:this={viewportEl}
 		>
-			<div class="epub-content-wrapper" class:with-side-nav={showBottomNav() && useVerticalNav()}>
+			<div class="epub-content-wrapper">
 									<EpubReaderView
 						{app}
 						{filePath}
@@ -1816,8 +1940,17 @@
 						{annotationService}
 						{backlinkService}
 						{settings}
-						onProgressChange={(p) => { readingProgress = p; epubActiveDocumentStore.setSharedState({ progress: p }); }}
-						onPaginationChange={(info) => { paginationInfo = info; }}
+						{excerptSettings}
+						hasPendingNavigation={Boolean(pendingIRNav)}
+						onProgressChange={(p) => {
+							readingProgress = p;
+							epubActiveDocumentStore.setSharedState({ progress: p });
+							scheduleScrolledNavLayoutSync();
+						}}
+						onPaginationChange={(info) => {
+							paginationInfo = info;
+							scheduleScrolledNavLayoutSync();
+						}}
 						onReaderReady={() => {
 							readerVersion++;
 							readerReady = true;
@@ -1832,6 +1965,7 @@
 									applyIRNav(nav);
 								}
 								void migrateLegacyStoredLocations();
+								scheduleScrolledNavLayoutSync();
 							}}
 						onRenderError={(message) => {
 							logger.error('[EpubReaderApp] Reader view render error:', message);
@@ -1856,6 +1990,7 @@
                                 onDelete={handleHighlightDelete}
                                 onTemporarilyReveal={handleTemporarilyRevealConcealed}
                                 onChangeColor={handleHighlightChangeColor}
+				onChangeStyle={() => {}}
                                 onBacklink={handleHighlightBacklink}
 				onExtractToCard={handleHighlightExtractToCard}
 				onCopyText={handleHighlightCopyText}
@@ -1873,7 +2008,7 @@
 				onExtractToCard={handleExtractToCard}
 				onCreateReadingPoint={handleCreateReadingPoint}
 				onAutoInsert={handleAutoInsertSelection}
-				onConcealText={handleConcealSelection}
+				onOpenAIMenu={showSelectedTextAIMenu}
 			/>
 
 			<EpubTutorial

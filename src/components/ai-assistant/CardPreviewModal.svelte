@@ -13,6 +13,7 @@
   import { DetachedLeafEditor } from '../../services/editor/DetachedLeafEditor';
   import { Notice } from 'obsidian';
   import { tr } from '../../utils/i18n';
+  import { getConfiguredClozeSyntaxExample } from '../../utils/cloze-syntax';
 
   interface Props {
     plugin: WeavePlugin;
@@ -308,6 +309,8 @@
       // 根据卡片类型构建提示词，让AI直接生成content格式
       let regeneratePrompt = '';
       let typeDistribution = { qa: 0, cloze: 0, choice: 0 };
+      const currentClozeSyntax = getConfiguredClozeSyntaxExample('文本', plugin.settings?.clozeSettings);
+      const clozePromptExample = getConfiguredClozeSyntaxExample('需要挖空的部分', plugin.settings?.clozeSettings);
       
       if (cardType === 'cloze') {
         typeDistribution.cloze = 100;
@@ -325,12 +328,12 @@ ${originalContent}
 [
   {
     "type": "cloze",
-    "content": "完整原文（用==文本==标记需要挖空的部分）"
+    "content": "完整原文（用${clozePromptExample}标记需要挖空的部分）"
   }
 ]
 
 注意：
-1. 使用==文本==语法标记挖空部分
+1. 使用当前插件设置的挖空语法标记挖空部分，例如：${currentClozeSyntax}
 2. content字段包含完整的卡片内容
 3. 返回的必须是包含1个对象的JSON数组`;
       } else if (cardType === 'choice') {
@@ -410,7 +413,6 @@ ${originalContent}
             imagesPerCard: 0,
             placement: 'question'
           },
-          autoTags: [],
           enableHints: false
         },
         () => {} // 不需要进度回调

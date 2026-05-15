@@ -5,6 +5,7 @@
   import ObsidianDropdown from '../../ui/ObsidianDropdown.svelte';
   import { tr } from '../../../utils/i18n';
   import { PremiumFeatureGuard } from '../../../services/premium/PremiumFeatureGuard';
+  import { getConfiguredClozeSyntaxExample } from '../../../utils/cloze-syntax';
   import FSRS6SettingsSection from './FSRS6SettingsSection.svelte';
 
   interface Props {
@@ -115,8 +116,27 @@
   function handleStudyViewSpacingChange(value: string) {
     settings.studyViewSpacing = value as 'compact' | 'default' | 'comfortable';
     plugin.settings.studyViewSpacing = settings.studyViewSpacing;
-    plugin.applyStudyViewSpacing();
+    plugin.refreshStudyViewSpacing?.();
     saveSettings();
+  }
+
+  function handleClozeDelimiterChange(
+    key: 'openDelimiter' | 'closeDelimiter',
+    event: Event
+  ) {
+    const sanitized = (event.target as HTMLInputElement).value.replace(/[\r\n]+/g, '').trim();
+    const fallback = key === 'openDelimiter' ? '==' : '==';
+    const current = settings.clozeSettings ?? { enabled: true, openDelimiter: '==', closeDelimiter: '==', placeholder: '[...]' };
+    settings.clozeSettings = {
+      ...current,
+      enabled: true,
+      [key]: sanitized || fallback
+    };
+    saveSettings();
+  }
+
+  function getCurrentClozeSyntaxExample(): string {
+    return getConfiguredClozeSyntaxExample('示例', settings.clozeSettings);
   }
 
   function formatLearningSteps(steps: number[]): string {
@@ -221,6 +241,32 @@
             ]}
             value={settings.studyViewSpacing ?? 'compact'}
             onchange={handleStudyViewSpacingChange}
+          />
+        </div>
+      </div>
+
+      <div class="row learning-steps-row cloze-delimiter-row">
+        <div class="label-with-desc memory-label-with-desc">
+          <label for="clozeOpenDelimiter">{t('settings.memoryLearning.clozeDelimiters.label')}</label>
+          <p class="desc">{t('settings.memoryLearning.clozeDelimiters.helpText')}</p>
+          <p class="desc cloze-delimiter-preview">{t('settings.memoryLearning.clozeDelimiters.currentSyntax', { syntax: getCurrentClozeSyntaxExample() })}</p>
+        </div>
+        <div class="cloze-delimiter-controls">
+          <input
+            id="clozeOpenDelimiter"
+            type="text"
+            class="modern-input learning-steps-input"
+            value={settings.clozeSettings?.openDelimiter ?? '=='}
+            placeholder="=="
+            oninput={(event) => handleClozeDelimiterChange('openDelimiter', event)}
+          />
+          <input
+            id="clozeCloseDelimiter"
+            type="text"
+            class="modern-input learning-steps-input"
+            value={settings.clozeSettings?.closeDelimiter ?? '=='}
+            placeholder="=="
+            oninput={(event) => handleClozeDelimiterChange('closeDelimiter', event)}
           />
         </div>
       </div>
@@ -437,6 +483,19 @@
     max-width: 100%;
   }
 
+  .cloze-delimiter-controls {
+    flex: 0 0 210px;
+    width: 210px;
+    max-width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .cloze-delimiter-preview {
+    margin-top: 4px;
+  }
+
   .memory-inline-note-row {
     align-items: flex-start;
   }
@@ -477,6 +536,11 @@
       width: 100%;
       align-items: stretch;
       gap: 6px;
+    }
+
+    .cloze-delimiter-controls {
+      flex: 1 1 auto;
+      width: 100%;
     }
 
     .memory-inline-note {

@@ -1,4 +1,6 @@
 import { logger } from "../utils/logger";
+import { LoadStatus } from "../services/LoadBalanceManager";
+import { generateDeckMemoryCurveData, type DeckMemoryCurvePoint } from "../utils/memory-curve-utils";
 import {
 	type TimeBucket,
 	bucketDate,
@@ -9,6 +11,7 @@ import {
 	rangeDays,
 	startOfDay,
 } from "../utils/time";
+import { isMasteredMemoryCard } from "../services/deck/MemoryDeckLevelService";
 import type { WeaveDataStorage } from "./storage";
 import type { StudySession } from "./study-types";
 import type { Card, Deck } from "./types";
@@ -79,6 +82,79 @@ export interface AnalyticsFilter {
 	since?: string; // ISO 8601 string
 	until?: string; // ISO 8601 string
 	deckIds?: string[];
+}
+
+export interface DeckAnalyticsSnapshotOptions {
+	deckIds?: string[];
+	since?: string;
+	until?: string;
+	days?: number;
+	dailyCapacity?: number;
+	targetRetention?: number;
+	useGlobalLoad?: boolean;
+}
+
+export interface DeckAnalyticsQuantitySnapshot {
+	dates: string[];
+	newCards: number[];
+	learning: number[];
+	review: number[];
+	mastered: number[];
+	masteryRate: number[];
+}
+
+export interface DeckAnalyticsTimingSnapshot {
+	dates: string[];
+	early: number[];
+	ontime: number[];
+	late: number[];
+}
+
+export interface DeckAnalyticsDifficultyPoint {
+	tag: string;
+	difficulty: number;
+	count: number;
+}
+
+export interface DeckAnalyticsForecastPoint {
+	date: string;
+	total: number;
+	status: LoadStatus;
+}
+
+export interface DeckAnalyticsSummary {
+	totalCards: number;
+	reviewedCards: number;
+	hasReviewData: boolean;
+	targetRetention: number;
+	dailyCapacity: number;
+	selectedDeckIds: string[];
+	selectedDeckNames: string[];
+}
+
+export interface DeckAnalyticsRetentionSnapshot {
+	points: DeckMemoryCurvePoint[];
+	comparisonLabels: string[];
+	comparisonSeries: Array<{
+		deckId: string;
+		deckName: string;
+		values: Array<number | null>;
+	}>;
+}
+
+export interface DeckAnalyticsSnapshot {
+	retention: DeckAnalyticsRetentionSnapshot;
+	quantity: DeckAnalyticsQuantitySnapshot;
+	timing: DeckAnalyticsTimingSnapshot;
+	difficulty: DeckAnalyticsDifficultyPoint[];
+	forecast: DeckAnalyticsForecastPoint[];
+	summary: DeckAnalyticsSummary;
+}
+
+interface DeckAnalyticsDatePoint {
+	date: Date;
+	dateKey: string;
+	endOfDay: Date;
 }
 
 // 缓存项接口
@@ -577,6 +653,82 @@ export class AnalyticsService {
 		});
 	}
 
+	async getDeckAnalyticsSnapshot(
+		options: DeckAnalyticsSnapshotOptions = {}
+	): Promise<DeckAnalyticsSnapshot> {
+		const normalizedDeckIds = Array.from(
+			new Set((options.deckIds || []).map((deckId) => String(deckId || "").trim()).filter(Boolean))
+		);
+		const days = Math.max(1, Math.round(options.days ?? 30));
+		const targetRetention = Math.min(Math.max(options.targetRetention ?? 90, 50), 99);
+		const dailyCapacity = Math.max(1, Math.round(options.dailyCapacity ?? 100));
+		const cacheKey = `deck-analytics-snapshot:${JSON.stringify({
+			deckIds: normalizedDeckIds,
+			since: options.since || "",
+			until: options.until || "",
+			days,
+			targetRetention,
+			dailyCapacity,
+			useGlobalLoad: !!options.useGlobalLoad,
+			version: this.lastDataVersion,
+		})}`;
+		const cached = this.getCachedData<DeckAnalyticsSnapshot>(cacheKey);
+		if (cached) {
+			return cached;
+		}
+
+		const [decks, selectedCards, forecastCards] = await Promise.all([
+			this.storage.getDecks(),
+			this.getCardsForDeckAnalytics(normalizedDeckIds),
+			options.useGlobalLoad
+				? this.filterValidDeckData(await this.storage.getCards())
+				: this.getCardsForDeckAnalytics(normalizedDeckIds),
+		]);
+		const datePoints = this.buildDeckAnalyticsDatePoints(days, options.since, options.until);
+		const filteredCards = this.filterCardsReviewHistoryByRange(
+			selectedCards,
+			options.since,
+			options.until
+		);
+		const deckNameById = new Map(decks.map((deck) => [deck.id, deck.name]));
+		const comparisonSeries = await this.buildDeckRetentionComparisonSeries(
+			normalizedDeckIds,
+			deckNameById,
+			days,
+			targetRetention,
+			options.since,
+			options.until
+		);
+
+		const snapshot: DeckAnalyticsSnapshot = {
+			retention: {
+				points: generateDeckMemoryCurveData(filteredCards, days, targetRetention),
+				comparisonLabels: Array.from({ length: days + 1 }, (_, index) => String(index)),
+				comparisonSeries,
+			},
+			quantity: this.buildDeckQuantitySnapshot(filteredCards, datePoints),
+			timing: this.buildDeckTimingSnapshot(filteredCards, datePoints),
+			difficulty: this.buildDeckDifficultySnapshot(filteredCards),
+			forecast: this.buildDeckForecastSnapshot(forecastCards, days, dailyCapacity),
+			summary: {
+				totalCards: selectedCards.length,
+				reviewedCards: filteredCards.filter(
+					(card) => Array.isArray(card.reviewHistory) && card.reviewHistory.length > 0
+				).length,
+				hasReviewData: filteredCards.some(
+					(card) => Array.isArray(card.reviewHistory) && card.reviewHistory.length > 0
+				),
+				targetRetention,
+				dailyCapacity,
+				selectedDeckIds: normalizedDeckIds,
+				selectedDeckNames: normalizedDeckIds.map((deckId) => deckNameById.get(deckId) || deckId),
+			},
+		};
+
+		this.setCachedData(cacheKey, snapshot);
+		return snapshot;
+	}
+
 	// ==================== FSRS6 分析方法 ====================
 
 	/**
@@ -712,6 +864,287 @@ export class AnalyticsService {
 			logger.error("Error getting FSRS KPI data:", error);
 			return this.getEmptyFSRSKPI();
 		}
+	}
+
+	private async getCardsForDeckAnalytics(deckIds: string[]): Promise<Card[]> {
+		if (deckIds.length === 0) {
+			return this.filterValidDeckData(await this.storage.getCards());
+		}
+
+		const cardsById = new Map<string, Card>();
+		for (const deckId of deckIds) {
+			try {
+				const deckCards = await this.storage.getDeckCards(deckId);
+				for (const card of await this.filterValidDeckData(deckCards)) {
+					cardsById.set(card.uuid, card);
+				}
+			} catch (error) {
+				logger.warn(`[AnalyticsService] 加载牌组分析卡片失败: ${deckId}`, error);
+			}
+		}
+
+		return Array.from(cardsById.values());
+	}
+
+	private buildDeckAnalyticsDatePoints(
+		days: number,
+		since?: string,
+		until?: string
+	): DeckAnalyticsDatePoint[] {
+		const safeDays = Math.max(1, Math.round(days));
+		const endDate = until ? new Date(until) : new Date();
+		endDate.setHours(23, 59, 59, 999);
+
+		let startDate: Date;
+		if (since) {
+			startDate = new Date(since);
+			startDate.setHours(0, 0, 0, 0);
+		} else {
+			startDate = new Date(endDate);
+			startDate.setDate(startDate.getDate() - safeDays + 1);
+			startDate.setHours(0, 0, 0, 0);
+		}
+
+		const pointCount = Math.max(
+			1,
+			Math.round((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1
+		);
+
+		return Array.from({ length: pointCount }, (_, index) => {
+			const date = new Date(startDate);
+			date.setDate(startDate.getDate() + index);
+			const endOfDay = new Date(date);
+			endOfDay.setHours(23, 59, 59, 999);
+			return {
+				date,
+				dateKey: this.toLocalDateKey(date),
+				endOfDay,
+			};
+		});
+	}
+
+	private toLocalDateKey(date: Date): string {
+		return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+			date.getDate()
+		).padStart(2, "0")}`;
+	}
+
+	private filterCardsReviewHistoryByRange(cards: Card[], since?: string, until?: string): Card[] {
+		if (!since && !until) {
+			return cards;
+		}
+
+		const sinceTime = since ? new Date(since).getTime() : Number.NEGATIVE_INFINITY;
+		const untilTime = until ? new Date(until).getTime() : Number.POSITIVE_INFINITY;
+
+		return cards.map((card) => ({
+			...card,
+			reviewHistory: (card.reviewHistory || []).filter((review) => {
+				const reviewTime = new Date(review.review).getTime();
+				return reviewTime >= sinceTime && reviewTime <= untilTime;
+			}),
+		}));
+	}
+
+	private async buildDeckRetentionComparisonSeries(
+		deckIds: string[],
+		deckNameById: Map<string, string>,
+		days: number,
+		targetRetention: number,
+		since?: string,
+		until?: string
+	): Promise<Array<{ deckId: string; deckName: string; values: Array<number | null> }>> {
+		if (deckIds.length <= 1) {
+			return [];
+		}
+
+		const series: Array<{ deckId: string; deckName: string; values: Array<number | null> }> = [];
+		for (const deckId of deckIds) {
+			const deckCards = this.filterCardsReviewHistoryByRange(
+				await this.getCardsForDeckAnalytics([deckId]),
+				since,
+				until
+			);
+			const points = generateDeckMemoryCurveData(deckCards, days, targetRetention);
+			series.push({
+				deckId,
+				deckName: deckNameById.get(deckId) || deckId,
+				values: points.map((point) => point.avgRetrievability),
+			});
+		}
+
+		return series;
+	}
+
+	private buildDeckQuantitySnapshot(
+		cards: Card[],
+		datePoints: DeckAnalyticsDatePoint[]
+	): DeckAnalyticsQuantitySnapshot {
+		const snapshot: DeckAnalyticsQuantitySnapshot = {
+			dates: [],
+			newCards: [],
+			learning: [],
+			review: [],
+			mastered: [],
+			masteryRate: [],
+		};
+
+		for (const point of datePoints) {
+			snapshot.dates.push(point.dateKey);
+			let newCount = 0;
+			let learningCount = 0;
+			let reviewCount = 0;
+			let masteredCount = 0;
+
+			for (const card of cards) {
+				const createdAt = new Date(card.created).getTime();
+				if (!Number.isFinite(createdAt) || createdAt > point.endOfDay.getTime()) {
+					continue;
+				}
+
+				const state = card.fsrs?.state ?? 0;
+				if (state === 0) {
+					newCount += 1;
+					continue;
+				}
+				if (state === 1 || state === 3) {
+					learningCount += 1;
+					continue;
+				}
+
+				if (isMasteredMemoryCard(card)) {
+					masteredCount += 1;
+				} else {
+					reviewCount += 1;
+				}
+			}
+
+			snapshot.newCards.push(newCount);
+			snapshot.learning.push(learningCount);
+			snapshot.review.push(reviewCount);
+			snapshot.mastered.push(masteredCount);
+
+			const total = newCount + learningCount + reviewCount + masteredCount;
+			snapshot.masteryRate.push(
+				total > 0 ? Number(((masteredCount / total) * 100).toFixed(1)) : 0
+			);
+		}
+
+		return snapshot;
+	}
+
+	private buildDeckTimingSnapshot(
+		cards: Card[],
+		datePoints: DeckAnalyticsDatePoint[]
+	): DeckAnalyticsTimingSnapshot {
+		const snapshot: DeckAnalyticsTimingSnapshot = {
+			dates: [],
+			early: [],
+			ontime: [],
+			late: [],
+		};
+
+		for (const point of datePoints) {
+			snapshot.dates.push(point.dateKey);
+			let earlyCount = 0;
+			let ontimeCount = 0;
+			let lateCount = 0;
+
+			for (const card of cards) {
+				for (const review of card.reviewHistory || []) {
+					const reviewDate = new Date(review.review);
+					if (this.toLocalDateKey(reviewDate) !== point.dateKey) {
+						continue;
+					}
+
+					const dueDate = new Date(review.due);
+					const diffHours = (reviewDate.getTime() - dueDate.getTime()) / (1000 * 60 * 60);
+					if (diffHours < -24) {
+						earlyCount += 1;
+					} else if (diffHours > 24) {
+						lateCount += 1;
+					} else {
+						ontimeCount += 1;
+					}
+				}
+			}
+
+			const total = earlyCount + ontimeCount + lateCount;
+			snapshot.early.push(total > 0 ? Math.round((earlyCount / total) * 100) : 0);
+			snapshot.ontime.push(total > 0 ? Math.round((ontimeCount / total) * 100) : 0);
+			snapshot.late.push(total > 0 ? Math.round((lateCount / total) * 100) : 0);
+		}
+
+		return snapshot;
+	}
+
+	private buildDeckDifficultySnapshot(cards: Card[]): DeckAnalyticsDifficultyPoint[] {
+		const statsByTag = new Map<string, { totalDifficulty: number; count: number }>();
+		for (const card of cards) {
+			const difficulty = card.fsrs?.difficulty;
+			if (!Number.isFinite(difficulty) || !Array.isArray(card.tags) || card.tags.length === 0) {
+				continue;
+			}
+
+			for (const tag of card.tags) {
+				const normalizedTag = String(tag || "").trim();
+				if (!normalizedTag) {
+					continue;
+				}
+
+				const current = statsByTag.get(normalizedTag) || { totalDifficulty: 0, count: 0 };
+				current.totalDifficulty += difficulty || 0;
+				current.count += 1;
+				statsByTag.set(normalizedTag, current);
+			}
+		}
+
+		return Array.from(statsByTag.entries())
+			.map(([tag, stats]) => ({
+				tag,
+				difficulty: stats.count > 0 ? stats.totalDifficulty / stats.count : 0,
+				count: stats.count,
+			}))
+			.sort((left, right) => right.count - left.count)
+			.slice(0, 20);
+	}
+
+	private buildDeckForecastSnapshot(
+		cards: Card[],
+		days: number,
+		dailyCapacity: number
+	): DeckAnalyticsForecastPoint[] {
+		const safeDays = Math.max(1, Math.round(days));
+		const today = new Date();
+		today.setHours(0, 0, 0, 0);
+
+		return Array.from({ length: safeDays }, (_, index) => {
+			const targetDate = new Date(today);
+			targetDate.setDate(today.getDate() + index);
+			const dateKey = this.toLocalDateKey(targetDate);
+			const total = cards.reduce((sum, card) => {
+				if (!card.fsrs?.due) {
+					return sum;
+				}
+				const dueDate = new Date(card.fsrs.due);
+				return this.toLocalDateKey(dueDate) === dateKey ? sum + 1 : sum;
+			}, 0);
+			const ratio = total / dailyCapacity;
+			const status =
+				ratio <= 0.5
+					? LoadStatus.LOW
+					: ratio <= 0.8
+						? LoadStatus.NORMAL
+						: ratio <= 1.2
+							? LoadStatus.HIGH
+							: LoadStatus.OVERLOAD;
+
+			return {
+				date: dateKey,
+				total,
+				status,
+			};
+		});
 	}
 
 	// ==================== FSRS6 分析私有方法 ====================
@@ -927,7 +1360,7 @@ export class AnalyticsService {
 	private calculateFSRSKPI(cards: Card[], sessions: StudySession[]): FSRSKPIData {
 		const fsrsCards = cards.filter((c) => c.fsrs);
 		const totalCards = fsrsCards.length;
-		const matureCards = fsrsCards.filter((c) => c.fsrs && c.fsrs.stability > 21).length;
+		const matureCards = fsrsCards.filter((c) => isMasteredMemoryCard(c)).length;
 
 		// 计算平均难度
 		const avgDifficulty =

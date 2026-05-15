@@ -37,7 +37,7 @@
   <!-- 启用自动同步 -->
   <div class="setting-item">
     <div class="setting-info">
-      <div class="setting-label">{t('ankiConnect.autoSync.enableLabel')}</div>
+      <div class="setting-label">{t('ankiConnect.autoSync.enable')}</div>
       <div class="setting-description">
         {t('ankiConnect.autoSync.enableDesc')}
       </div>

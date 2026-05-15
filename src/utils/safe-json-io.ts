@@ -25,6 +25,59 @@ function toBackupPath(vaultPath: string, app?: { vault: { configDir: string } })
 	return `${getBackupDir(app)}/${safeName}`;
 }
 
+export async function readJsonBackup<T = any>(
+	adapter: {
+		read: (path: string) => Promise<string>;
+		exists: (path: string) => Promise<boolean>;
+	},
+	filePath: string,
+	app?: { vault: { configDir: string } }
+): Promise<{ data: T; raw: string } | null> {
+	const backupPath = toBackupPath(filePath, app);
+	if (!(await adapter.exists(backupPath))) {
+		return null;
+	}
+
+	const backup = await adapter.read(backupPath);
+	return {
+		data: JSON.parse(backup) as T,
+		raw: backup,
+	};
+}
+
+export async function hasValidJsonBackup(
+	adapter: {
+		read: (path: string) => Promise<string>;
+		exists: (path: string) => Promise<boolean>;
+	},
+	filePath: string,
+	app?: { vault: { configDir: string } }
+): Promise<boolean> {
+	try {
+		return !!(await readJsonBackup(adapter, filePath, app));
+	} catch {
+		return false;
+	}
+}
+
+export async function restoreJsonBackup<T = any>(
+	adapter: {
+		read: (path: string) => Promise<string>;
+		write: (path: string, data: string) => Promise<void>;
+		exists: (path: string) => Promise<boolean>;
+	},
+	filePath: string,
+	app?: { vault: { configDir: string } }
+): Promise<T | null> {
+	const backupEntry = await readJsonBackup<T>(adapter, filePath, app);
+	if (!backupEntry) {
+		return null;
+	}
+
+	await adapter.write(filePath, backupEntry.raw);
+	return backupEntry.data;
+}
+
 /**
  * 安全写入 JSON：写入前备份当前版本
  * @param adapter Obsidian vault adapter
@@ -86,13 +139,13 @@ export async function safeReadJson<T = any>(
 		// 尝试从备份恢复
 		const backupPath = toBackupPath(filePath, app);
 		try {
-			if (await adapter.exists(backupPath)) {
-				const backup = await adapter.read(backupPath);
-				const data = JSON.parse(backup) as T;
+			const backupEntry = await readJsonBackup<T>(adapter, filePath, app);
+			if (backupEntry) {
+				const data = backupEntry.data;
 				logger.warn(`[SafeJsonIO] 已从备份恢复: ${filePath}`);
 
 				// 用备份覆盖损坏的文件
-				await adapter.write(filePath, backup);
+				await adapter.write(filePath, backupEntry.raw);
 				logger.info(`[SafeJsonIO] 已用备份覆盖损坏文件: ${filePath}`);
 
 				return data;

@@ -187,20 +187,7 @@ export class ReferenceMigrationService {
 				};
 			}
 
-			if (!this.plugin.cardFileService) {
-				logger.info("[Migration] cardFileService 未初始化，创建新实例");
-				const { initCardFileService } = await import("./CardFileService");
-				this.plugin.cardFileService = initCardFileService(this.plugin);
-				await this.plugin.cardFileService.initialize();
-			} else {
-				const cardsFolder = getV2PathsFromApp(this.plugin.app).memory.cards;
-				if (!(await adapter.exists(cardsFolder))) {
-					logger.info("[Migration] cards 文件夹不存在，重新初始化 cardFileService");
-					await this.plugin.cardFileService.initialize();
-				}
-			}
-
-			logger.info("[Migration] CardFileService 已准备就绪");
+			logger.info("[Migration] 将使用当前统一存储服务保存迁移卡片，不再自动重建 legacy cards 目录");
 
 			let migratedCards = 0;
 			const now = new Date().toISOString();
@@ -357,25 +344,34 @@ export class ReferenceMigrationService {
 	async restoreFromBackup(backupPath: string): Promise<boolean> {
 		try {
 			const adapter = this.plugin.app.vault.adapter;
+			const v2Paths = getV2PathsFromApp(this.plugin.app);
 
 			const backupDecksPath = `${backupPath}/decks.json`;
+			let decks: Deck[] = [];
 			if (await adapter.exists(backupDecksPath)) {
 				const decksData = await adapter.read(backupDecksPath);
-				await adapter.write(`${LEGACY_PATHS.decks}/decks.json`, decksData);
+				const parsed = JSON.parse(decksData);
+				decks = Array.isArray(parsed?.decks) ? parsed.decks : [];
+				await adapter.write(v2Paths.memory.decks, JSON.stringify({ decks }, null, 2));
 			}
 
-			const decks = JSON.parse(await adapter.read(backupDecksPath)).decks as Deck[];
+			const cardsToRestore: Card[] = [];
 			for (const deck of decks) {
 				const backupCardsPath = `${backupPath}/${deck.id}/cards.json`;
 				if (await adapter.exists(backupCardsPath)) {
 					const cardsData = await adapter.read(backupCardsPath);
-					const { DirectoryUtils } = await import("../../utils/directory-utils");
-					await DirectoryUtils.ensureDirRecursive(adapter, `${LEGACY_PATHS.decks}/${deck.id}`);
-					await adapter.write(`${LEGACY_PATHS.decks}/${deck.id}/cards.json`, cardsData);
+					const parsed = JSON.parse(cardsData);
+					if (Array.isArray(parsed?.cards)) {
+						cardsToRestore.push(...(parsed.cards as Card[]));
+					}
 				}
 			}
 
-			logger.info(`[Migration] 从备份恢复成功: ${backupPath}`);
+			if (cardsToRestore.length > 0) {
+				await this.plugin.dataStorage.saveCardsBatch(cardsToRestore);
+			}
+
+			logger.info(`[Migration] 从备份恢复成功（已写入当前主路径）: ${backupPath}`);
 			return true;
 		} catch (error) {
 			logger.error("[Migration] 恢复失败:", error);

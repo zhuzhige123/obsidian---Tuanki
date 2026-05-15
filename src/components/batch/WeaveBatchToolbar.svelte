@@ -10,15 +10,15 @@
     app: App;
     dataSource?: 'memory' | 'questionBank' | 'incremental-reading';
     onBatchChangeDeck?: (event: MouseEvent) => void;
-    onBatchTagsMenu?: (event: MouseEvent) => void;  // 标签操作菜单（增加/移除合并）
+    onBatchAddTagsMenu?: (event: MouseEvent) => void;
+    onBatchRemoveTagsMenu?: (event: MouseEvent) => void;
+    onBatchExportSummaryMd?: () => void;
     onBatchDelete?: () => void;
     onClearSelection?: () => void;
     // 组建牌组
     onBuildDeck?: () => void;
     // 增量阅读操作
-    onBuildIRDeck?: () => void;
     onIRChangeDeck?: (event: MouseEvent) => void;
-    onIRToggleFavorite?: () => void;
     onIRExtractCards?: () => void;
     isMobile?: boolean;
   }
@@ -29,13 +29,13 @@
     app,
     dataSource = 'memory',
     onBatchChangeDeck,
-    onBatchTagsMenu,
+    onBatchAddTagsMenu,
+    onBatchRemoveTagsMenu,
+    onBatchExportSummaryMd,
     onBatchDelete,
     onClearSelection,
     onBuildDeck,
-    onBuildIRDeck,
     onIRChangeDeck,
-    onIRToggleFavorite,
     onIRExtractCards,
     isMobile = false
   }: Props = $props();
@@ -47,9 +47,16 @@
     onBatchChangeDeck?.(event);
   }
 
-  // 处理标签操作菜单
-  function handleBatchTagsMenuClick(event: MouseEvent) {
-    onBatchTagsMenu?.(event);
+  function handleBatchAddTagsMenuClick(event: MouseEvent) {
+    onBatchAddTagsMenu?.(event);
+  }
+
+  function handleBatchRemoveTagsMenuClick(event: MouseEvent) {
+    onBatchRemoveTagsMenu?.(event);
+  }
+
+  function handleBatchExportSummaryMdClick() {
+    onBatchExportSummaryMd?.();
   }
 
   // 处理批量删除
@@ -69,19 +76,9 @@
     onBuildDeck?.();
   }
 
-  // IR: 组建增量牌组
-  function handleBuildIRDeckClick() {
-    onBuildIRDeck?.();
-  }
-
-  // IR: 更换牌组
+  // IR: 更换专题
   function handleIRChangeDeckClick(event: MouseEvent) {
     onIRChangeDeck?.(event);
-  }
-
-  // IR: 切换收藏
-  function handleIRToggleFavoriteClick() {
-    onIRToggleFavorite?.();
   }
 
   // IR: 提取卡片
@@ -101,20 +98,10 @@
     </div>
     <div class="weave-toolbar-actions">
       {#if isIRDataSource}
-        <!-- 增量阅读模式按钮顺序：组建牌组、更换牌组、收藏、提取卡片、标签操作、删除 -->
-        {#if onBuildIRDeck}
-          <button type="button" class="weave-toolbar-btn weave-btn-primary" title="组建增量牌组" onclick={handleBuildIRDeckClick}>
-            <ObsidianIcon name="layers" size={16} />
-          </button>
-        {/if}
+        <!-- 增量阅读模式按钮顺序：更换专题、提取卡片、标签操作、删除 -->
         {#if onIRChangeDeck}
-          <button type="button" class="weave-toolbar-btn" title="更换牌组" onclick={handleIRChangeDeckClick}>
+          <button type="button" class="weave-toolbar-btn" title="更换专题" onclick={handleIRChangeDeckClick}>
             <ObsidianIcon name="folder" size={16} />
-          </button>
-        {/if}
-        {#if onIRToggleFavorite}
-          <button type="button" class="weave-toolbar-btn" title="切换收藏" onclick={handleIRToggleFavoriteClick}>
-            <ObsidianIcon name="heart" size={16} />
           </button>
         {/if}
         {#if onIRExtractCards}
@@ -135,10 +122,38 @@
           </button>
         {/if}
       {/if}
-      <!-- 通用按钮：标签操作、删除 -->
-      {#if onBatchTagsMenu}
-        <button type="button" class="weave-toolbar-btn" title="标签操作" onclick={handleBatchTagsMenuClick}>
-          <ObsidianIcon name="tag" size={16} />
+      <!-- 通用按钮：新增标签、移除标签、删除 -->
+      {#if onBatchAddTagsMenu}
+        <button
+          type="button"
+          class="weave-toolbar-btn"
+          title="新增标签"
+          aria-label="新增标签"
+          onclick={handleBatchAddTagsMenuClick}
+        >
+          <ObsidianIcon name="plus-circle" size={16} />
+        </button>
+      {/if}
+      {#if onBatchRemoveTagsMenu}
+        <button
+          type="button"
+          class="weave-toolbar-btn"
+          title="移除标签"
+          aria-label="移除标签"
+          onclick={handleBatchRemoveTagsMenuClick}
+        >
+          <ObsidianIcon name="minus-circle" size={16} />
+        </button>
+      {/if}
+      {#if onBatchExportSummaryMd}
+        <button
+          type="button"
+          class="weave-toolbar-btn"
+          title={t('cardManagement.batchToolbar.exportSummaryMd')}
+          aria-label={t('cardManagement.batchToolbar.exportSummaryMd')}
+          onclick={handleBatchExportSummaryMdClick}
+        >
+          <ObsidianIcon name="file-down" size={16} />
         </button>
       {/if}
       <button type="button" class="weave-toolbar-btn weave-btn-danger" title={t('ui.delete')} onclick={handleBatchDeleteClick}>

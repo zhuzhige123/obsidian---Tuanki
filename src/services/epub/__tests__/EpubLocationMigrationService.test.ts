@@ -2,7 +2,7 @@ import type { EpubReaderEngine } from '../reader-engine-types';
 import { EpubLocationMigrationService } from '../EpubLocationMigrationService';
 
 const getTasksByEpubMock = vi.fn();
-const setResumePointMock = vi.fn();
+const updateEpubResumePointMock = vi.fn();
 
 vi.mock('../../incremental-reading/IREpubBookmarkTaskService', () => ({
 	IREpubBookmarkTaskService: class MockIREpubBookmarkTaskService {
@@ -10,8 +10,13 @@ vi.mock('../../incremental-reading/IREpubBookmarkTaskService', () => ({
 			return getTasksByEpubMock(filePath);
 		}
 
-		setResumePoint(taskId: string, cfi: string) {
-			return setResumePointMock(taskId, cfi);
+	},
+}));
+
+vi.mock('../../incremental-reading/IRPointWriteService', () => ({
+	IRPointWriteService: class MockIRPointWriteService {
+		updateEpubResumePoint(taskId: string, cfi: string) {
+			return updateEpubResumePointMock(taskId, cfi);
 		}
 	},
 }));
@@ -21,57 +26,27 @@ function createStorageServiceMock() {
 		loadProgress: vi.fn(),
 		saveProgress: vi.fn(),
 		flushPendingProgress: vi.fn(),
-		loadBookmarks: vi.fn(),
-		saveBookmarks: vi.fn(),
-		loadNotes: vi.fn(),
-		saveNotes: vi.fn(),
 	} as any;
 }
 
 describe('EpubLocationMigrationService', () => {
 	beforeEach(() => {
 		getTasksByEpubMock.mockReset();
-		setResumePointMock.mockReset();
+		updateEpubResumePointMock.mockReset();
+		updateEpubResumePointMock.mockResolvedValue({ kind: 'epub' });
 	});
 
-	it('migrates legacy progress, bookmarks, notes, and IR resume points into readium locators', async () => {
+	it('migrates legacy progress, bookmarks, and IR resume points into readium locators', async () => {
 		const storageService = createStorageServiceMock();
 		storageService.loadProgress.mockResolvedValue({
 			chapterIndex: 1,
 			cfi: '/6/4',
 			percent: 42,
 		});
-		storageService.loadBookmarks.mockResolvedValue([
-			{
-				id: 'bookmark-1',
-				title: 'Chapter 1',
-				chapterIndex: 0,
-				cfi: 'epubcfi(/6/2[chapter-1]!/4/4,/1:0,/1:9)',
-				preview: 'Selection',
-				createdTime: 1,
-			},
-		]);
-		storageService.loadNotes.mockResolvedValue([
-			{
-				id: 'note-1',
-				content: 'Note body',
-				quotedText: 'Selection',
-				chapterIndex: 0,
-				cfi: '/6/2[chapter-1]!/4/4,/1:0,/1:9',
-				createdTime: 1,
-				modifiedTime: 1,
-			},
-		]);
 
-		const canonicalizeLocation = vi.fn(async (cfi: string, textHint?: string) => {
+		const canonicalizeLocation = vi.fn(async (cfi: string) => {
 			if (cfi === '/6/4') {
 				return 'readium:progress';
-			}
-			if (cfi === 'epubcfi(/6/2[chapter-1]!/4/4,/1:0,/1:9)') {
-				return 'readium:bookmark';
-			}
-			if (cfi === '/6/2[chapter-1]!/4/4,/1:0,/1:9' && textHint === 'Selection') {
-				return 'readium:note';
 			}
 			if (cfi === 'epubcfi(/6/6!/4/2/6:3)') {
 				return 'readium:resume';
@@ -94,8 +69,6 @@ describe('EpubLocationMigrationService', () => {
 
 		expect(summary).toEqual({
 			progressMigrated: true,
-			bookmarksMigrated: 1,
-			notesMigrated: 1,
 			resumePointsMigrated: 1,
 		});
 		expect(storageService.saveProgress).toHaveBeenCalledWith('book-1', {
@@ -104,15 +77,8 @@ describe('EpubLocationMigrationService', () => {
 			percent: 42,
 		});
 		expect(storageService.flushPendingProgress).toHaveBeenCalledTimes(1);
-		expect(storageService.saveBookmarks).toHaveBeenCalledWith('book-1', [
-			expect.objectContaining({ cfi: 'readium:bookmark' }),
-		]);
-		expect(storageService.saveNotes).toHaveBeenCalledWith('book-1', [
-			expect.objectContaining({ cfi: 'readium:note' }),
-		]);
-		expect(canonicalizeLocation).toHaveBeenCalledWith('/6/2[chapter-1]!/4/4,/1:0,/1:9', 'Selection');
 		expect(getTasksByEpubMock).toHaveBeenCalledWith('Books/demo.epub');
-		expect(setResumePointMock).toHaveBeenCalledWith('task-1', 'readium:resume');
+		expect(updateEpubResumePointMock).toHaveBeenCalledWith('task-1', 'readium:resume');
 	});
 
 	it('skips migration when the reader engine does not expose a canonicalize hook', async () => {
@@ -124,8 +90,6 @@ describe('EpubLocationMigrationService', () => {
 
 		expect(summary).toEqual({
 			progressMigrated: false,
-			bookmarksMigrated: 0,
-			notesMigrated: 0,
 			resumePointsMigrated: 0,
 		});
 		expect(storageService.loadProgress).not.toHaveBeenCalled();

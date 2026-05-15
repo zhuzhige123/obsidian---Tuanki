@@ -1,22 +1,27 @@
-import type { App } from "obsidian";
+import { Platform, type App } from "obsidian";
 import type {
 	EpubChapterReadingPointDraft,
 	EpubReaderEngine,
+	HighlightSourceLocator,
 	HighlightClickInfo,
 	NavigateAndHighlightOptions,
 	ReaderAppearanceOptions,
+	ReaderFootnotePreviewInfo,
 	ReaderFrame,
 	ReaderHighlight,
 	ReaderHighlightInput,
+	ReaderNavigationRectOptions,
 	ReaderNavigateOptions,
+	ReaderRemainingTimeEstimate,
 	ReaderRenderOptions,
 	ReaderSelectionChange,
 } from "./reader-engine-types";
 import type {
 	EpubBook,
 	EpubFlowMode,
+	EpubHighlightStyle,
 	EpubLayoutMode,
-	EpubTheme,
+	EpubStrikethroughDisplayMode,
 	EpubWidthMode,
 	PaginationInfo,
 	ReadingPosition,
@@ -25,9 +30,16 @@ import type {
 import type { View as FoliateViewElement } from "foliate-js/view.js";
 import { logger } from "../../utils/logger";
 import { FoliateVaultPublicationParser } from "./FoliateVaultPublicationParser";
+import { applyStyleProps } from "../../utils/style-props";
 
 type FoliateAnnotation = ReaderHighlight & {
 	value: string;
+	focusColor?: string;
+};
+
+type RenderedFoliateAnnotation = {
+	annotation: FoliateAnnotation;
+	renderSignature: string;
 };
 
 type VisibleFrameWithIndex = {
@@ -44,6 +56,10 @@ type FoliateRenderer = HTMLElement & {
 	getContents?: () => Array<{ index?: number; doc?: Document | null }>;
 };
 
+function createCssDataUrl(cssText: string): string {
+	return `data:text/css;charset=utf-8,${encodeURIComponent(cssText)}`;
+}
+
 export class FoliateReaderService implements EpubReaderEngine {
 	readonly engineType = "foliate" as const;
 
@@ -52,20 +68,31 @@ export class FoliateReaderService implements EpubReaderEngine {
 		Record<string, string>
 	> = {
 		light: {
-			yellow: "rgba(245, 181, 36, 0.42)",
-			green: "rgba(34, 197, 94, 0.32)",
-			blue: "rgba(59, 130, 246, 0.32)",
-			red: "rgba(239, 68, 68, 0.3)",
-			purple: "rgba(168, 85, 247, 0.3)",
+			yellow: "rgb(250, 204, 21)",
+			green: "rgb(22, 163, 74)",
+			blue: "rgb(37, 99, 235)",
+			red: "rgb(220, 38, 38)",
+			purple: "rgb(147, 51, 234)",
 		},
 		dark: {
-			yellow: "rgba(255, 214, 102, 0.4)",
-			green: "rgba(74, 222, 128, 0.34)",
-			blue: "rgba(125, 211, 252, 0.34)",
-			red: "rgba(248, 113, 113, 0.32)",
-			purple: "rgba(216, 180, 254, 0.32)",
+			yellow: "rgb(255, 222, 89)",
+			green: "rgb(74, 222, 128)",
+			blue: "rgb(96, 165, 250)",
+			red: "rgb(248, 113, 113)",
+			purple: "rgb(196, 181, 253)",
 		},
 	};
+	private static readonly HIGHLIGHT_OPACITY_MAP: Record<"light" | "dark", string> = {
+		light: "0.72",
+		dark: "0.68",
+	};
+	private static readonly HIGHLIGHT_BLEND_MODE_MAP: Record<"light" | "dark", string> = {
+		light: "normal",
+		dark: "normal",
+	};
+	private static desktopFoliateIframeSandboxPatchInstalled = false;
+	private static mobileBlobIframePatchInstalled = false;
+	private static mobileBlobIframeLoadTokens = new WeakMap<HTMLIFrameElement, number>();
 
 	private readonly app: App;
 	private readonly parser: FoliateVaultPublicationParser;
@@ -80,23 +107,28 @@ export class FoliateReaderService implements EpubReaderEngine {
 	private renderContainer: HTMLElement | null = null;
 	private foliateView: FoliateViewElement | null = null;
 	private layoutChangeInFlight = false;
-	private currentTheme: EpubTheme = "default";
 	private currentLineHeight = 1.72;
+	private currentLetterSpacing = 0;
+	private currentPageMargin = 48;
 	private currentWidthMode: EpubWidthMode = "standard";
+	private currentStrikethroughPresentation: EpubStrikethroughDisplayMode = "conceal";
 	private currentLayoutMode: EpubLayoutMode = "paginated";
 	private currentFlowMode: EpubFlowMode = "paginated";
 	private currentChapterTitle = "";
 	private currentChapterHref = "";
 	private relocatedCallbacks = new Set<(position: ReadingPosition) => void>();
+	private footnotePreviewCallbacks = new Set<(info: ReaderFootnotePreviewInfo | null) => void>();
 	private selectionChangeCallbacks = new Set<(event: ReaderSelectionChange) => void>();
 	private highlightClickCallbacks = new Set<(info: HighlightClickInfo) => void>();
 	private highlightDataMap = new Map<string, ReaderHighlight>();
+	private temporaryHighlightDataMap = new Map<string, ReaderHighlight>();
 	private savedHighlights: ReaderHighlight[] = [];
-	private renderedAnnotations = new Map<string, FoliateAnnotation>();
+	private renderedAnnotations = new Map<string, RenderedFoliateAnnotation>();
 	private temporaryHighlightTimers = new Map<string, ReturnType<typeof setTimeout>>();
 	private temporarilyRevealedConcealmentTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private documentFootnoteCleanups = new Map<Document, () => void>();
 	private documentSelectionCleanups = new Map<Document, () => void>();
-	private documentStyleElements = new WeakMap<Document, HTMLStyleElement>();
+	private documentStyleElements = new WeakMap<Document, HTMLLinkElement>();
 	private loadedDocumentSectionIndexes = new WeakMap<Document, number>();
 	private lastSelectionByDocument = new WeakMap<Document, string>();
 	private overlayerModulePromise: Promise<typeof import("foliate-js/overlayer.js")> | null = null;
@@ -123,6 +155,7 @@ export class FoliateReaderService implements EpubReaderEngine {
 				language: loaded.metadata.language,
 				isbn: loaded.metadata.identifier,
 				coverImage: loaded.coverImage,
+				wordCount: loaded.metadata.wordCount,
 				chapterCount: loaded.metadata.chapterCount,
 			},
 			currentPosition: {
@@ -161,9 +194,7 @@ export class FoliateReaderService implements EpubReaderEngine {
 		container.dataset.foliate = "true";
 
 		const view = document.createElement("foliate-view") as FoliateViewElement;
-		view.style.display = "block";
-		view.style.width = "100%";
-		view.style.height = "100%";
+		view.classList.add("weave-epub-reader-host");
 		view.addEventListener("relocate", this.handleRelocateEvent as EventListener);
 		view.addEventListener("load", this.handleLoadEvent as EventListener);
 		view.addEventListener("draw-annotation", this.handleDrawAnnotationEvent as EventListener);
@@ -178,8 +209,10 @@ export class FoliateReaderService implements EpubReaderEngine {
 			this.renderedAnnotations.clear();
 			const initialTarget = this.currentPosition.cfi || this.currentBook.currentPosition.cfi;
 			if (initialTarget) {
-				await view.goTo(initialTarget);
-				await this.stabilizeViewAfterNavigation(initialTarget);
+				await this.navigateViewWithFallback(
+					initialTarget,
+					this.getSectionHrefFallbackTarget(initialTarget)
+				);
 			} else {
 				await view.goToTextStart();
 				await this.stabilizeViewAfterNavigation();
@@ -197,10 +230,7 @@ export class FoliateReaderService implements EpubReaderEngine {
 			return;
 		}
 		this.clearSelections();
-		if (this.foliateView) {
-			await this.foliateView.goTo(canonical);
-			await this.stabilizeViewAfterNavigation(canonical);
-		}
+		await this.navigateViewWithFallback(canonical, this.getSectionHrefFallbackTarget(canonical, cfi));
 		await this.syncCurrentPositionFromTarget(canonical);
 	}
 
@@ -216,6 +246,55 @@ export class FoliateReaderService implements EpubReaderEngine {
 		return this.currentPaginationInfo;
 	}
 
+	async getRemainingReadingTimeEstimate(): Promise<ReaderRemainingTimeEstimate> {
+		if (!this.currentBook) {
+			return {};
+		}
+		const totalWordCount = this.parser.getTotalWordCount();
+		const totalPositions = this.parser.getTotalPositions();
+		const section = this.parser.getSectionReadingMetrics(this.currentPosition.chapterIndex);
+		const currentPage = this.normalizeCurrentPage(totalPositions);
+		const activeReadMs = Math.max(0, this.currentBook.readingStats.totalReadTime || 0);
+		const consumedBookWords =
+			totalWordCount > 0 && totalPositions > 0 && currentPage > 0
+				? Math.round((currentPage / totalPositions) * totalWordCount)
+				: Math.round((this.currentPosition.percent / 100) * totalWordCount);
+		const remainingBookWords = Math.max(0, totalWordCount - consumedBookWords);
+		const chapterConsumedPositions = section
+			? Math.min(
+				section.positionCount,
+				Math.max(1, currentPage - section.positionStart)
+			)
+			: 0;
+		const chapterConsumedWords = section
+			? Math.round((chapterConsumedPositions / Math.max(section.positionCount, 1)) * section.wordCount)
+			: 0;
+		const remainingChapterWords = section
+			? Math.max(0, section.wordCount - chapterConsumedWords)
+			: 0;
+		const measuredWpm =
+			activeReadMs >= 60_000 && consumedBookWords > 0
+				? (consumedBookWords / activeReadMs) * 60_000
+				: undefined;
+		const effectiveWpm = measuredWpm && Number.isFinite(measuredWpm) && measuredWpm >= 40
+			? measuredWpm
+			: totalWordCount > 0
+			? 260
+			: undefined;
+
+		return {
+			bookMs:
+				effectiveWpm && remainingBookWords > 0
+					? Math.round((remainingBookWords / effectiveWpm) * 60_000)
+					: undefined,
+			chapterMs:
+				effectiveWpm && remainingChapterWords > 0
+					? Math.round((remainingChapterWords / effectiveWpm) * 60_000)
+					: undefined,
+			wordsPerMinute: effectiveWpm,
+		};
+	}
+
 	isLayoutChanging(): boolean {
 		return this.layoutChangeInFlight;
 	}
@@ -225,14 +304,28 @@ export class FoliateReaderService implements EpubReaderEngine {
 	}
 
 	async applyReaderAppearance(
-		theme: EpubTheme,
-		lineHeight: number,
+		appearance: ReaderAppearanceOptions,
 		_redisplay?: boolean
 	): Promise<void> {
-		this.currentTheme = theme;
-		if (lineHeight > 0) {
-			this.currentLineHeight = lineHeight;
+		if (typeof appearance.lineHeight === "number" && appearance.lineHeight > 0) {
+			this.currentLineHeight = appearance.lineHeight;
 		}
+		if (
+			typeof appearance.letterSpacing === "number" &&
+			Number.isFinite(appearance.letterSpacing)
+		) {
+			this.currentLetterSpacing = appearance.letterSpacing;
+		}
+		if (typeof appearance.pageMargin === "number" && Number.isFinite(appearance.pageMargin)) {
+			this.currentPageMargin = appearance.pageMargin;
+		}
+		if (appearance.widthMode) {
+			this.currentWidthMode = appearance.widthMode;
+		}
+		if (appearance.strikethroughPresentation) {
+			this.currentStrikethroughPresentation = appearance.strikethroughPresentation;
+		}
+		this.applyRendererLayout();
 		this.applyRendererAppearance();
 		await this.refreshHighlights();
 	}
@@ -251,16 +344,25 @@ export class FoliateReaderService implements EpubReaderEngine {
 	): Promise<void> {
 		this.currentLayoutMode = mode;
 		this.currentFlowMode = flowMode;
-		if (appearance?.theme) {
-			this.currentTheme = appearance.theme;
-		}
 		if (typeof appearance?.lineHeight === "number" && appearance.lineHeight > 0) {
 			this.currentLineHeight = appearance.lineHeight;
+		}
+		if (
+			typeof appearance?.letterSpacing === "number" &&
+			Number.isFinite(appearance.letterSpacing)
+		) {
+			this.currentLetterSpacing = appearance.letterSpacing;
+		}
+		if (typeof appearance?.pageMargin === "number" && Number.isFinite(appearance.pageMargin)) {
+			this.currentPageMargin = appearance.pageMargin;
 		}
 		if (appearance?.widthMode) {
 			this.currentWidthMode = appearance.widthMode;
 		} else if (mode === "double") {
 			this.currentWidthMode = "full";
+		}
+		if (appearance?.strikethroughPresentation) {
+			this.currentStrikethroughPresentation = appearance.strikethroughPresentation;
 		}
 		if (!this.foliateView) {
 			return;
@@ -272,8 +374,10 @@ export class FoliateReaderService implements EpubReaderEngine {
 			this.applyRendererAppearance();
 			this.renderedAnnotations.clear();
 			if (currentCfi) {
-				await this.foliateView.goTo(currentCfi);
-				await this.stabilizeViewAfterNavigation(currentCfi);
+				await this.navigateViewWithFallback(
+					currentCfi,
+					this.getSectionHrefFallbackTarget(currentCfi, this.currentChapterHref)
+				);
 				await this.syncCurrentPositionFromTarget(currentCfi);
 			}
 			await this.refreshHighlights();
@@ -311,26 +415,69 @@ export class FoliateReaderService implements EpubReaderEngine {
 		}
 	}
 
-	getNavigationTargetRect(options: { cfi?: string; href?: string; text?: string }): DOMRect | null {
-		const target = options.cfi || options.href || "";
-		if (!target) {
-			return this.renderContainer?.getBoundingClientRect() || null;
+	getNavigationTargetRect(options: ReaderNavigationRectOptions): DOMRect | null {
+		const preciseRect = this.findPreciseNavigationTargetRect(options);
+		if (preciseRect) {
+			return preciseRect;
 		}
-		for (const frame of this.getVisibleFramesWithIndex()) {
-			const range = this.parser.resolveRangeInLoadedSection(target, frame.document, frame.index, options.text);
-			if (!range) {
-				continue;
-			}
-			const rect = this.createViewportRect(frame, range);
-			if (rect) {
-				return new DOMRect(rect.left, rect.top, rect.width, rect.height);
-			}
+		if (options.allowFallback === false) {
+			return null;
 		}
-		return this.renderContainer?.getBoundingClientRect() || null;
+		return this.getRenderContainerRect();
 	}
 
 	getCurrentPosition(): ReadingPosition {
 		return { ...this.currentPosition };
+	}
+
+	private findPreciseNavigationTargetRect(options: ReaderNavigationRectOptions): DOMRect | null {
+		for (const target of this.buildNavigationRectTargets(options)) {
+			for (const frame of this.getVisibleFramesWithIndex()) {
+				const range = this.parser.resolveRangeInLoadedSection(
+					target,
+					frame.document,
+					frame.index,
+					options.text
+				);
+				if (!range) {
+					continue;
+				}
+				const rect = this.createViewportRect(frame, range);
+				if (rect) {
+					return new DOMRect(rect.left, rect.top, rect.width, rect.height);
+				}
+			}
+		}
+
+		return null;
+	}
+
+	private buildNavigationRectTargets(options: ReaderNavigationRectOptions): string[] {
+		const targets = new Set<string>();
+		const primaryTarget = String(options.cfi || options.href || "").trim();
+		if (primaryTarget) {
+			targets.add(primaryTarget);
+		}
+
+		const currentCfi = String(this.currentPosition.cfi || "").trim();
+		if (currentCfi) {
+			targets.add(currentCfi);
+		}
+
+		const currentHref = String(this.currentChapterHref || "").trim();
+		if (currentHref) {
+			targets.add(currentHref);
+		}
+
+		return Array.from(targets);
+	}
+
+	private getRenderContainerRect(): DOMRect | null {
+		const rect = this.renderContainer?.getBoundingClientRect() || null;
+		if (!rect || (!rect.width && !rect.height)) {
+			return null;
+		}
+		return new DOMRect(rect.left, rect.top, rect.width, rect.height);
 	}
 
 	getCurrentChapterTitle(): string {
@@ -384,12 +531,29 @@ export class FoliateReaderService implements EpubReaderEngine {
 		await this.foliateView.next();
 	}
 
+	async goToPage(pageNumber: number): Promise<void> {
+		this.clearSelections();
+		const canonical = await this.parser.resolveCfiForPage(pageNumber);
+		if (!canonical) {
+			return;
+		}
+		await this.navigateViewWithFallback(canonical, this.getSectionHrefFallbackTarget(canonical));
+		await this.syncCurrentPositionFromTarget(canonical);
+	}
+
 	getPageNumberFromCfi(cfi: string): Promise<number | undefined> {
 		return this.parser.resolvePageNumber(cfi);
 	}
 
 	getVisibleFrames(): ReaderFrame[] {
 		return this.getVisibleFramesWithIndex().map((item) => item.frame);
+	}
+
+	onFootnotePreview(callback: (info: ReaderFootnotePreviewInfo | null) => void): () => void {
+		this.footnotePreviewCallbacks.add(callback);
+		return () => {
+			this.footnotePreviewCallbacks.delete(callback);
+		};
 	}
 
 	onSelectionChange(callback: (event: ReaderSelectionChange) => void): () => void {
@@ -407,14 +571,18 @@ export class FoliateReaderService implements EpubReaderEngine {
 	}
 
 	async applyHighlights(highlights: ReaderHighlight[]): Promise<void> {
-		this.resetTemporaryHighlightTimers();
 		this.highlightDataMap.clear();
 		const deduped = new Map<string, ReaderHighlight>();
 		for (const highlight of this.dedupeHighlights(highlights)) {
 			const canonical =
 				(await this.parser.canonicalizeLocation(highlight.cfiRange, highlight.text)) || highlight.cfiRange;
-			const normalizedHighlight: ReaderHighlight = { ...highlight, cfiRange: canonical };
-			deduped.set(this.normalizeLocationKey(normalizedHighlight.cfiRange), normalizedHighlight);
+			const normalizedHighlight = this.normalizeHighlightSources({
+				...highlight,
+				cfiRange: canonical,
+			});
+			const key = this.normalizeLocationKey(normalizedHighlight.cfiRange);
+			const existing = deduped.get(key);
+			deduped.set(key, existing ? this.mergeHighlights(existing, normalizedHighlight) : normalizedHighlight);
 		}
 		this.savedHighlights = Array.from(deduped.values());
 		for (const highlight of this.savedHighlights) {
@@ -458,6 +626,7 @@ export class FoliateReaderService implements EpubReaderEngine {
 	removeHighlight(cfiRange: string): void {
 		const key = this.normalizeLocationKey(cfiRange);
 		this.highlightDataMap.delete(key);
+		this.temporaryHighlightDataMap.delete(key);
 		this.savedHighlights = this.savedHighlights.filter(
 			(item) => this.normalizeLocationKey(item.cfiRange) !== key
 		);
@@ -483,6 +652,8 @@ export class FoliateReaderService implements EpubReaderEngine {
 		if (!detail) {
 			return;
 		}
+
+		this.notifyFootnotePreview(null);
 
 		const target =
 			detail.cfi ||
@@ -534,7 +705,7 @@ export class FoliateReaderService implements EpubReaderEngine {
 		}
 
 		const key = this.normalizeLocationKey(value);
-		const highlight = this.highlightDataMap.get(key);
+		const highlight = this.highlightDataMap.get(key) || this.temporaryHighlightDataMap.get(key);
 		if (!highlight) {
 			return;
 		}
@@ -542,6 +713,9 @@ export class FoliateReaderService implements EpubReaderEngine {
 		const frame =
 			this.getVisibleFramesWithIndex().find((item) => item.index === detail.index) ||
 			this.getVisibleFramesWithIndex()[0];
+		if (this.hasActiveReaderSelection(frame?.document)) {
+			return;
+		}
 		const containerRect = this.renderContainer?.getBoundingClientRect();
 		const rect =
 			frame && detail.range
@@ -565,9 +739,12 @@ export class FoliateReaderService implements EpubReaderEngine {
 		const info: HighlightClickInfo = {
 			cfiRange: highlight.cfiRange,
 			color: highlight.color,
+			style: highlight.style,
 			text: highlight.text || "",
 			sourceFile: highlight.sourceFile || "",
 			sourceRef: highlight.sourceRef,
+			excerptId: highlight.excerptId,
+			sourceLocators: highlight.sourceLocators,
 			createdTime: highlight.createdTime,
 			temporary: highlight.temporary,
 			presentation: highlight.presentation,
@@ -579,22 +756,25 @@ export class FoliateReaderService implements EpubReaderEngine {
 	private async resolveNavigationRequest(
 		options: ReaderNavigateOptions
 	): Promise<{ canonical: string | null }> {
-		const rawTarget = options.cfi || options.href || "";
+		const rawCfi = String(options.cfi || "").trim();
+		const rawHref = String(options.href || "").trim();
+		const rawTarget = rawCfi || rawHref;
 		if (!rawTarget) {
 			return { canonical: null };
 		}
 
-		const canonical = await this.parser.canonicalizeLocation(rawTarget, options.text);
-		if (!canonical) {
+		const resolved = await this.parser.resolveNavigationTarget(rawTarget, options.text);
+		const canonical = resolved?.cfi || null;
+		if (!resolved && !rawHref) {
 			return { canonical: null };
 		}
 
+		const viewTarget = rawHref && !rawCfi ? rawHref : canonical || rawTarget;
+		const fallbackTarget =
+			rawHref || resolved?.href || this.getSectionHrefFallbackTarget(canonical || rawCfi || rawTarget);
 		this.clearSelections();
-		if (this.foliateView) {
-			await this.foliateView.goTo(canonical);
-			await this.stabilizeViewAfterNavigation(canonical);
-		}
-		await this.syncCurrentPositionFromTarget(canonical);
+		await this.navigateViewWithFallback(viewTarget, fallbackTarget);
+		await this.syncCurrentPositionFromTarget(canonical || rawTarget, options.text);
 		return { canonical };
 	}
 
@@ -623,8 +803,83 @@ export class FoliateReaderService implements EpubReaderEngine {
 		await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 	}
 
-	private async syncCurrentPositionFromTarget(target: string): Promise<void> {
-		const resolved = await this.parser.resolveNavigationTarget(target);
+	private async navigateViewWithFallback(primaryTarget?: string, fallbackTarget?: string): Promise<void> {
+		const normalizedPrimaryTarget = String(primaryTarget || "").trim();
+		const normalizedFallbackTarget = String(fallbackTarget || "").trim();
+		if (!this.foliateView || (!normalizedPrimaryTarget && !normalizedFallbackTarget)) {
+			return;
+		}
+
+		if (normalizedPrimaryTarget) {
+			try {
+				await this.goToAndStabilize(normalizedPrimaryTarget);
+				return;
+			} catch (error) {
+				if (
+					!normalizedFallbackTarget ||
+					normalizedFallbackTarget === normalizedPrimaryTarget ||
+					!this.shouldFallbackFromNavigationError(normalizedPrimaryTarget, error)
+				) {
+					throw error;
+				}
+				logger.warn("[FoliateReaderService] EPUB navigation target failed, falling back to section href:", {
+					primaryTarget: normalizedPrimaryTarget,
+					fallbackTarget: normalizedFallbackTarget,
+					error,
+				});
+			}
+		}
+
+		await this.goToAndStabilize(normalizedFallbackTarget);
+	}
+
+	private async goToAndStabilize(target: string): Promise<void> {
+		if (!this.foliateView) {
+			return;
+		}
+		await this.foliateView.goTo(target);
+		await this.stabilizeViewAfterNavigation(target);
+	}
+
+	private getSectionHrefFallbackTarget(...candidates: Array<string | null | undefined>): string {
+		for (const candidate of candidates) {
+			const normalized = String(candidate || "").trim();
+			if (!normalized) {
+				continue;
+			}
+			if (!this.isCfiLikeTarget(normalized)) {
+				return normalized;
+			}
+			const href = this.parser.getSectionHrefForCfi(normalized);
+			if (href) {
+				return href;
+			}
+		}
+		return this.currentChapterHref || this.parser.getSectionHrefByIndex(this.currentPosition.chapterIndex || 0);
+	}
+
+	private shouldFallbackFromNavigationError(target: string, error: unknown): boolean {
+		if (!this.isCfiLikeTarget(target)) {
+			return false;
+		}
+		const normalizedMessage = String((error as { message?: string } | null)?.message || "").toLowerCase();
+		return (
+			normalizedMessage.includes("invalid epub cfi target") ||
+			normalizedMessage.includes("childnodes") ||
+			normalizedMessage.includes("reading 'length'") ||
+			normalizedMessage.includes('reading "length"') ||
+			normalizedMessage.includes("epubcfi") ||
+			normalizedMessage.includes(" cfi")
+		);
+	}
+
+	private isCfiLikeTarget(target: string): boolean {
+		const normalized = String(target || "").trim();
+		return normalized.startsWith("epubcfi(") || /^\/\d+/.test(normalized);
+	}
+
+	private async syncCurrentPositionFromTarget(target: string, textHint?: string): Promise<void> {
+		const resolved = await this.parser.resolveNavigationTarget(target, textHint);
 		if (!resolved) {
 			return;
 		}
@@ -778,6 +1033,129 @@ export class FoliateReaderService implements EpubReaderEngine {
 		this.documentSelectionCleanups.set(doc, cleanup);
 	}
 
+	private attachFootnotePreviewListeners(doc: Document): void {
+		if (this.documentFootnoteCleanups.has(doc)) {
+			return;
+		}
+
+		let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+		let hideTimer: ReturnType<typeof setTimeout> | null = null;
+		let activeAnchor: HTMLAnchorElement | null = null;
+
+		const clearHoverTimer = () => {
+			if (hoverTimer) {
+				clearTimeout(hoverTimer);
+				hoverTimer = null;
+			}
+		};
+
+		const clearHideTimer = () => {
+			if (hideTimer) {
+				clearTimeout(hideTimer);
+				hideTimer = null;
+			}
+		};
+
+		const schedulePreviewForAnchor = (anchor: HTMLAnchorElement) => {
+			if (activeAnchor === anchor) {
+				clearHideTimer();
+				return;
+			}
+			activeAnchor = anchor;
+			clearHoverTimer();
+			clearHideTimer();
+			hoverTimer = setTimeout(() => {
+				hoverTimer = null;
+				this.emitFootnotePreviewForAnchor(doc, anchor);
+			}, 180);
+		};
+
+		const scheduleHidePreview = () => {
+			clearHoverTimer();
+			clearHideTimer();
+			hideTimer = setTimeout(() => {
+				activeAnchor = null;
+				this.notifyFootnotePreview(null);
+			}, 120);
+		};
+
+		const onMouseOver = (event: MouseEvent) => {
+			const anchor = this.findFootnoteReference(event.target);
+			if (!anchor) {
+				return;
+			}
+			schedulePreviewForAnchor(anchor);
+		};
+
+		const onMouseOut = (event: MouseEvent) => {
+			const anchor = this.findFootnoteReference(event.target);
+			if (!anchor) {
+				return;
+			}
+			const relatedAnchor = this.findFootnoteReference(event.relatedTarget);
+			if (relatedAnchor === anchor) {
+				return;
+			}
+			scheduleHidePreview();
+		};
+
+		const onFocusIn = (event: FocusEvent) => {
+			const anchor = this.findFootnoteReference(event.target);
+			if (!anchor) {
+				return;
+			}
+			schedulePreviewForAnchor(anchor);
+		};
+
+		const onFocusOut = (event: FocusEvent) => {
+			const anchor = this.findFootnoteReference(event.target);
+			if (!anchor) {
+				return;
+			}
+			scheduleHidePreview();
+		};
+
+		doc.addEventListener("mouseover", onMouseOver);
+		doc.addEventListener("mouseout", onMouseOut);
+		doc.addEventListener("focusin", onFocusIn);
+		doc.addEventListener("focusout", onFocusOut);
+
+		const cleanup = () => {
+			clearHoverTimer();
+			clearHideTimer();
+			doc.removeEventListener("mouseover", onMouseOver);
+			doc.removeEventListener("mouseout", onMouseOut);
+			doc.removeEventListener("focusin", onFocusIn);
+			doc.removeEventListener("focusout", onFocusOut);
+		};
+		this.documentFootnoteCleanups.set(doc, cleanup);
+	}
+
+	private hasNonCollapsedTextSelection(doc: Document | null | undefined): boolean {
+		const selection = doc?.defaultView?.getSelection?.();
+		return Boolean(
+			selection
+			&& !selection.isCollapsed
+			&& selection.rangeCount > 0
+			&& selection.toString().trim()
+		);
+	}
+
+	private hasActiveReaderSelection(preferredDoc?: Document | null): boolean {
+		if (this.hasNonCollapsedTextSelection(preferredDoc)) {
+			return true;
+		}
+		for (const frame of this.getVisibleFramesWithIndex()) {
+			if (frame.document === preferredDoc) {
+				continue;
+			}
+			if (this.hasNonCollapsedTextSelection(frame.document)) {
+				return true;
+			}
+		}
+		return this.hasNonCollapsedTextSelection(document);
+	}
+
 	private emitSelectionChangeIfNeeded(doc: Document): void {
 		const selection = doc.defaultView?.getSelection?.();
 		if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
@@ -812,10 +1190,18 @@ export class FoliateReaderService implements EpubReaderEngine {
 	private applyRenderOptions(options?: ReaderRenderOptions): void {
 		this.currentFlowMode = options?.flow === "scrolled" ? "scrolled" : this.currentFlowMode;
 		this.currentLayoutMode = options?.spread === "always" ? "double" : this.currentLayoutMode;
-		this.currentTheme = options?.theme || this.currentTheme;
 		this.currentWidthMode = options?.widthMode || this.currentWidthMode;
 		if (typeof options?.lineHeight === "number" && options.lineHeight > 0) {
 			this.currentLineHeight = options.lineHeight;
+		}
+		if (typeof options?.letterSpacing === "number" && Number.isFinite(options.letterSpacing)) {
+			this.currentLetterSpacing = options.letterSpacing;
+		}
+		if (typeof options?.pageMargin === "number" && Number.isFinite(options.pageMargin)) {
+			this.currentPageMargin = options.pageMargin;
+		}
+		if (options?.strikethroughPresentation) {
+			this.currentStrikethroughPresentation = options.strikethroughPresentation;
 		}
 	}
 
@@ -831,7 +1217,7 @@ export class FoliateReaderService implements EpubReaderEngine {
 			renderer.setAttribute("max-column-count", this.currentLayoutMode === "double" ? "2" : "1");
 			renderer.setAttribute("max-inline-size", this.currentWidthMode === "full" ? "920px" : "720px");
 			renderer.setAttribute("max-block-size", "1440px");
-			renderer.setAttribute("margin", this.currentWidthMode === "full" ? "28px" : "48px");
+			renderer.setAttribute("margin", `${Math.round(this.currentPageMargin)}px`);
 			renderer.setAttribute(
 				"gap",
 				this.currentFlowMode === "scrolled"
@@ -860,14 +1246,8 @@ export class FoliateReaderService implements EpubReaderEngine {
 	}
 
 	private buildReaderStyles(): string {
-		const background = this.getObsidianCSSVar(
-			this.currentTheme === "sepia" ? "--background-secondary" : "--background-primary",
-			this.currentTheme === "sepia" ? "rgb(244, 236, 216)" : "rgb(255, 255, 255)"
-		);
-		const textColor =
-			this.currentTheme === "sepia"
-				? this.getObsidianCSSVar("--text-muted", "rgb(84, 70, 46)")
-				: this.getObsidianCSSVar("--text-normal", "rgb(28, 29, 31)");
+		const background = this.getObsidianCSSVar("--background-primary", "rgb(255, 255, 255)");
+		const textColor = this.getObsidianCSSVar("--text-normal", "rgb(28, 29, 31)");
 		const linkColor = this.getObsidianCSSVar("--link-color", "rgb(80, 110, 214)");
 		const selectionBackground = this.getObsidianCSSVar(
 			"--text-selection",
@@ -876,41 +1256,66 @@ export class FoliateReaderService implements EpubReaderEngine {
 		const selectionTextColor = this.getObsidianCSSVar("--text-on-accent", textColor);
 		const fontFamily = this.getObsidianFontStack();
 		const monospaceFontFamily = this.getObsidianMonospaceFontStack();
-		const fontScale = this.getObsidianFontScale();
+		const fontSize = this.getObsidianTextFontSize();
 		const colorScheme = this.getCurrentColorScheme();
 		const concealment = this.getConcealmentPalette();
-		const highlightOpacity =
-			this.currentTheme === "sepia" ? "0.28" : colorScheme === "dark" ? "0.38" : "0.3";
-		const highlightBlendMode = this.currentTheme === "sepia" ? "multiply" : "normal";
+		const highlightOpacity = FoliateReaderService.HIGHLIGHT_OPACITY_MAP[colorScheme];
+		const highlightBlendMode = FoliateReaderService.HIGHLIGHT_BLEND_MODE_MAP[colorScheme];
+		const letterSpacing = `${this.currentLetterSpacing.toFixed(3)}em`;
+		const horizontalPageMargin = `${Math.max(0, Math.round(this.currentPageMargin))}px`;
 
 		return `:root {
 	color-scheme: ${colorScheme};
 	--overlayer-highlight-opacity: ${highlightOpacity};
 	--overlayer-highlight-blend-mode: ${highlightBlendMode};
+	--weave-reader-font-family: ${fontFamily};
+	--weave-reader-monospace-font-family: ${monospaceFontFamily};
+	--weave-reader-font-size: ${fontSize};
+	--weave-reader-letter-spacing: ${letterSpacing};
+	--weave-reader-page-margin-inline: ${horizontalPageMargin};
 }
 html {
 	background: ${background} !important;
 	color: ${textColor} !important;
+	font-family: var(--weave-reader-font-family) !important;
+	font-size: var(--weave-reader-font-size) !important;
+	line-height: ${this.currentLineHeight} !important;
+	letter-spacing: var(--weave-reader-letter-spacing) !important;
 	-webkit-text-size-adjust: 100%;
 }
 body {
 	background: transparent !important;
 	color: ${textColor} !important;
-	font-family: ${fontFamily} !important;
-	font-size: ${fontScale}em !important;
-	line-height: ${this.currentLineHeight} !important;
-	margin: 0 !important;
+	font-family: var(--weave-reader-font-family) !important;
+	font-size: inherit !important;
+	line-height: inherit !important;
+	letter-spacing: inherit !important;
+	margin: 0 var(--weave-reader-page-margin-inline) !important;
 	text-rendering: optimizeLegibility;
 	font-kerning: normal;
+}
+body :is(article, section, main, aside, header, footer, nav, p, div, span, li, dd, dt, blockquote, figcaption, td, th, caption, label, legend) {
+	font-family: inherit !important;
+	font-size: inherit !important;
+	letter-spacing: inherit !important;
 }
 body :is(p, div, li, dd, dt, blockquote, figcaption) {
 	line-height: inherit !important;
 }
+body :is(h1, h2, h3, h4, h5, h6) {
+	font-family: inherit !important;
+	line-height: inherit !important;
+}
+body :is(p, div, span, li, dd, dt, blockquote, figcaption, h1, h2, h3, h4, h5, h6, td, th, caption, label, legend) {
+	color: inherit;
+}
 body :is(a, a:link, a:visited) {
 	color: ${linkColor} !important;
+	font-family: inherit !important;
+	font-size: inherit !important;
 }
 body :is(pre, code, kbd, samp) {
-	font-family: ${monospaceFontFamily} !important;
+	font-family: var(--weave-reader-monospace-font-family) !important;
 	white-space: pre-wrap !important;
 	word-break: break-word;
 }
@@ -938,24 +1343,39 @@ body .weave-foliate-concealment {
 
 		const visibleFrames = this.getVisibleFramesWithIndex();
 		const visibleIndexes = new Set(visibleFrames.map((item) => item.index));
-		const desiredVisible = new Map<string, FoliateAnnotation>();
+		const desiredVisible = new Map<string, RenderedFoliateAnnotation>();
 
-		for (const highlight of this.highlightDataMap.values()) {
-			const sectionIndex = this.parser.getSectionIndexForCfi(highlight.cfiRange);
+		const highlightKeys = new Set([
+			...this.highlightDataMap.keys(),
+			...this.temporaryHighlightDataMap.keys(),
+		]);
+
+		for (const key of highlightKeys) {
+			const persistentHighlight = this.highlightDataMap.get(key);
+			const temporaryHighlight = this.temporaryHighlightDataMap.get(key);
+			const visibleHighlight = temporaryHighlight || persistentHighlight;
+			if (!visibleHighlight) {
+				continue;
+			}
+			const sectionIndex = this.parser.getSectionIndexForCfi(visibleHighlight.cfiRange);
 			if (sectionIndex === null || !visibleIndexes.has(sectionIndex)) {
 				continue;
 			}
 			desiredVisible.set(
-				this.normalizeLocationKey(highlight.cfiRange),
-				this.createAnnotation(highlight)
+				key,
+				this.createRenderedAnnotation(persistentHighlight, temporaryHighlight)
 			);
 		}
 
-		for (const [key, annotation] of Array.from(this.renderedAnnotations.entries())) {
+		for (const [key, rendered] of Array.from(this.renderedAnnotations.entries())) {
 			const desired = desiredVisible.get(key);
-			if (!desired || !this.isSameAnnotation(annotation, desired)) {
+			if (
+				!desired ||
+				rendered.renderSignature !== desired.renderSignature ||
+				!this.isSameAnnotation(rendered.annotation, desired.annotation)
+			) {
 				try {
-					await view.deleteAnnotation(annotation);
+					await view.deleteAnnotation(rendered.annotation);
 				} catch (error) {
 					logger.debugWithTag("FoliateReaderService", "Failed to delete foliate annotation", {
 						key,
@@ -966,13 +1386,13 @@ body .weave-foliate-concealment {
 			}
 		}
 
-		for (const [key, annotation] of desiredVisible.entries()) {
+		for (const [key, rendered] of desiredVisible.entries()) {
 			if (this.renderedAnnotations.has(key)) {
 				continue;
 			}
 			try {
-				await view.addAnnotation(annotation);
-				this.renderedAnnotations.set(key, annotation);
+				await view.addAnnotation(rendered.annotation);
+				this.renderedAnnotations.set(key, rendered);
 			} catch (error) {
 				logger.warn("[FoliateReaderService] Failed to add foliate annotation:", {
 					key,
@@ -989,23 +1409,78 @@ body .weave-foliate-concealment {
 		};
 	}
 
+	private createRenderedAnnotation(
+		persistentHighlight?: ReaderHighlight,
+		temporaryHighlight?: ReaderHighlight
+	): RenderedFoliateAnnotation {
+		const annotation = this.createAnnotation(
+			this.composeVisibleAnnotationHighlight(persistentHighlight, temporaryHighlight)
+		);
+		return {
+			annotation,
+			renderSignature: this.getAnnotationRenderSignature(annotation),
+		};
+	}
+
+	private shouldRenderAnnotationAsConceal(annotation: Pick<FoliateAnnotation, "cfiRange" | "presentation" | "style">): boolean {
+		if (annotation.presentation === "conceal") {
+			return true;
+		}
+		return annotation.style === "strikethrough" && this.currentStrikethroughPresentation === "conceal";
+	}
+
+	private composeVisibleAnnotationHighlight(
+		persistentHighlight?: ReaderHighlight,
+		temporaryHighlight?: ReaderHighlight
+	): FoliateAnnotation {
+		if (persistentHighlight && temporaryHighlight) {
+			return {
+				...persistentHighlight,
+				value: persistentHighlight.cfiRange,
+				focusColor: temporaryHighlight.color,
+			};
+		}
+
+		const highlight = temporaryHighlight || persistentHighlight;
+		if (!highlight) {
+			throw new Error("Cannot compose annotation without a highlight");
+		}
+
+		return this.createAnnotation(highlight);
+	}
+
 	private async drawAnnotation(
 		annotation: FoliateAnnotation,
 		draw: (draw: (rects: unknown[], options?: unknown) => SVGElement, options?: unknown) => void
 	): Promise<void> {
-		if (annotation.presentation === "conceal") {
+		if (this.shouldRenderAnnotationAsConceal(annotation)) {
 			const key = this.normalizeLocationKey(annotation.cfiRange);
 			if (!this.temporarilyRevealedConcealmentTimers.has(key)) {
-				draw(this.createConcealmentOverlay);
+				draw((rects) => this.createConcealmentOverlay(rects));
 				return;
 			}
 		}
 
+		if (annotation.style) {
+			const annotationStyle = annotation.style;
+			draw((rects) => this.createStyledAnnotationOverlay(rects, annotationStyle, annotation.color));
+			if (annotation.focusColor) {
+				const focusColor = annotation.focusColor;
+				draw((rects) => this.createTemporaryFocusOverlay(rects, focusColor));
+			}
+			return;
+		}
+
 		const overlayer = await this.getOverlayerModule();
-		draw(overlayer.Overlayer.highlight, {
+		draw((rects, options) => overlayer.Overlayer.highlight(rects, options), {
 			color: this.resolveHighlightTint(annotation.color),
 			padding: 1,
 		});
+
+		if (annotation.focusColor) {
+			const focusColor = annotation.focusColor;
+			draw((rects) => this.createTemporaryFocusOverlay(rects, focusColor));
+		}
 	}
 
 	private createConcealmentOverlay = (rects: unknown[]): SVGElement => {
@@ -1045,13 +1520,116 @@ body .weave-foliate-concealment {
 		return group;
 	};
 
+	private createStyledAnnotationOverlay = (
+		rects: unknown[],
+		style: EpubHighlightStyle,
+		color?: string
+	): SVGElement => {
+		const svgNS = "http://www.w3.org/2000/svg";
+		const group = document.createElementNS(svgNS, "g");
+		const strokeColor = this.resolveHighlightTint(color);
+		for (const rect of rects as Array<{
+			left: number;
+			top: number;
+			width: number;
+			height: number;
+		}>) {
+			if (rect.width <= 0 || rect.height <= 0) {
+				continue;
+			}
+			if (style === "underline") {
+				group.appendChild(this.createStraightLineOverlay(rect, strokeColor, rect.top + rect.height - 1.5));
+				continue;
+			}
+			if (style === "strikethrough") {
+				group.appendChild(this.createStraightLineOverlay(rect, strokeColor, rect.top + rect.height * 0.58));
+				continue;
+			}
+			group.appendChild(this.createWavyLineOverlay(rect, strokeColor));
+		}
+		return group;
+	};
+
+	private createStraightLineOverlay(
+		rect: { left: number; top: number; width: number; height: number },
+		strokeColor: string,
+		y: number
+	): SVGElement {
+		const svgNS = "http://www.w3.org/2000/svg";
+		const line = document.createElementNS(svgNS, "line");
+		line.setAttribute("x1", String(rect.left));
+		line.setAttribute("y1", String(y));
+		line.setAttribute("x2", String(rect.left + rect.width));
+		line.setAttribute("y2", String(y));
+		line.setAttribute("stroke", strokeColor);
+		line.setAttribute("stroke-width", String(Math.max(1.5, Math.min(2.6, rect.height * 0.11))));
+		line.setAttribute("stroke-linecap", "round");
+		line.setAttribute("stroke-opacity", "0.96");
+		return line;
+	}
+
+	private createWavyLineOverlay(
+		rect: { left: number; top: number; width: number; height: number },
+		strokeColor: string
+	): SVGElement {
+		const svgNS = "http://www.w3.org/2000/svg";
+		const path = document.createElementNS(svgNS, "path");
+		const baseY = rect.top + rect.height - 2;
+		const amplitude = Math.max(1.2, Math.min(2.8, rect.height * 0.12));
+		const wavelength = Math.max(6, Math.min(12, rect.height * 0.8));
+		let currentX = rect.left;
+		let d = `M ${rect.left} ${baseY}`;
+		while (currentX < rect.left + rect.width) {
+			const nextX = Math.min(currentX + wavelength, rect.left + rect.width);
+			const midX = currentX + (nextX - currentX) / 2;
+			d += ` Q ${currentX + wavelength * 0.25} ${baseY - amplitude}, ${midX} ${baseY}`;
+			d += ` Q ${currentX + wavelength * 0.75} ${baseY + amplitude}, ${nextX} ${baseY}`;
+			currentX = nextX;
+		}
+		path.setAttribute("d", d);
+		path.setAttribute("fill", "none");
+		path.setAttribute("stroke", strokeColor);
+		path.setAttribute("stroke-width", String(Math.max(1.4, Math.min(2.2, rect.height * 0.1))));
+		path.setAttribute("stroke-linecap", "round");
+		path.setAttribute("stroke-linejoin", "round");
+		path.setAttribute("stroke-opacity", "0.96");
+		return path;
+	}
+
+	private createTemporaryFocusOverlay = (rects: unknown[], color: string): SVGElement => {
+		const svgNS = "http://www.w3.org/2000/svg";
+		const group = document.createElementNS(svgNS, "g");
+		const strokeColor = this.resolveHighlightTint(color);
+
+		for (const rect of rects as Array<{
+			left: number;
+			top: number;
+			width: number;
+			height: number;
+		}>) {
+			const outline = document.createElementNS(svgNS, "rect");
+			outline.setAttribute("x", String(rect.left - 1.5));
+			outline.setAttribute("y", String(rect.top - 1.5));
+			outline.setAttribute("width", String(rect.width + 3));
+			outline.setAttribute("height", String(rect.height + 3));
+			outline.setAttribute("rx", "5");
+			outline.setAttribute("fill", "none");
+			outline.setAttribute("stroke", strokeColor);
+			outline.setAttribute("stroke-width", "2");
+			outline.setAttribute("stroke-opacity", "0.95");
+			group.appendChild(outline);
+		}
+
+		return group;
+	};
+
 	private async addResolvedHighlight(
 		highlight: ReaderHighlight,
 		durationMs?: number
 	): Promise<void> {
 		const canonical =
 			(await this.parser.canonicalizeLocation(highlight.cfiRange, highlight.text)) || highlight.cfiRange;
-		const normalizedHighlight: ReaderHighlight = { ...highlight, cfiRange: canonical };
+		const normalizedHighlight = this.normalizeHighlightSources({ ...highlight, cfiRange: canonical });
 		const key = this.normalizeLocationKey(normalizedHighlight.cfiRange);
 
 		const existingTimer = this.temporaryHighlightTimers.get(key);
@@ -1060,30 +1638,182 @@ body .weave-foliate-concealment {
 			this.temporaryHighlightTimers.delete(key);
 		}
 
-		this.highlightDataMap.set(key, normalizedHighlight);
+		if (normalizedHighlight.temporary) {
+			const existingTemporaryHighlight = this.temporaryHighlightDataMap.get(key);
+			this.temporaryHighlightDataMap.set(
+				key,
+				existingTemporaryHighlight
+					? this.mergeHighlights(existingTemporaryHighlight, normalizedHighlight)
+					: normalizedHighlight
+			);
+			await this.refreshHighlights();
+
+			if (typeof durationMs === "number" && durationMs > 0) {
+				const timer = setTimeout(() => {
+					this.temporaryHighlightTimers.delete(key);
+					this.removeTemporaryHighlight(normalizedHighlight.cfiRange);
+				}, durationMs);
+				this.temporaryHighlightTimers.set(key, timer);
+			}
+			return;
+		}
+
 		const deduped = new Map<string, ReaderHighlight>();
 		for (const item of this.savedHighlights) {
 			deduped.set(this.normalizeLocationKey(item.cfiRange), item);
 		}
-		deduped.set(key, normalizedHighlight);
+		const existingHighlight = deduped.get(key);
+		const mergedHighlight = existingHighlight
+			? this.mergeHighlights(existingHighlight, normalizedHighlight)
+			: normalizedHighlight;
+		deduped.set(
+			key,
+			mergedHighlight
+		);
+		this.highlightDataMap.set(key, mergedHighlight);
 		this.savedHighlights = Array.from(deduped.values());
 		await this.refreshHighlights();
+	}
 
-		if (normalizedHighlight.temporary && typeof durationMs === "number" && durationMs > 0) {
-			const timer = setTimeout(() => {
-				this.temporaryHighlightTimers.delete(key);
-				this.removeHighlight(normalizedHighlight.cfiRange);
-			}, durationMs);
-			this.temporaryHighlightTimers.set(key, timer);
+	private removeTemporaryHighlight(cfiRange: string): void {
+		const key = this.normalizeLocationKey(cfiRange);
+		const existingTimer = this.temporaryHighlightTimers.get(key);
+		if (existingTimer) {
+			clearTimeout(existingTimer);
+			this.temporaryHighlightTimers.delete(key);
 		}
+		this.temporaryHighlightDataMap.delete(key);
+		void this.syncAnnotationsWithView();
 	}
 
 	private dedupeHighlights(highlights: ReaderHighlight[]): ReaderHighlight[] {
 		const deduped = new Map<string, ReaderHighlight>();
 		for (const highlight of highlights) {
-			deduped.set(this.normalizeLocationKey(highlight.cfiRange), highlight);
+			const normalized = this.normalizeHighlightSources(highlight);
+			const key = this.normalizeLocationKey(normalized.cfiRange);
+			const existing = deduped.get(key);
+			deduped.set(key, existing ? this.mergeHighlights(existing, normalized) : normalized);
 		}
 		return Array.from(deduped.values());
+	}
+
+	private collectHighlightSourceLocators(highlight: {
+		sourceFile?: string;
+		sourceRef?: string;
+		excerptId?: string;
+		sourceLocators?: HighlightSourceLocator[];
+	}): HighlightSourceLocator[] {
+		const locators: HighlightSourceLocator[] = [];
+		const primarySourceFile = String(highlight.sourceFile || "").trim();
+		if (primarySourceFile) {
+			locators.push({
+				sourceFile: primarySourceFile,
+				sourceRef: highlight.sourceRef,
+				...(highlight.excerptId ? { excerptId: highlight.excerptId } : {}),
+			});
+		}
+		for (const locator of highlight.sourceLocators || []) {
+			const sourceFile = String(locator?.sourceFile || "").trim();
+			if (!sourceFile) continue;
+			locators.push({
+				sourceFile,
+				sourceRef: locator.sourceRef,
+				...(locator.excerptId ? { excerptId: locator.excerptId } : {}),
+			});
+		}
+		return this.mergeHighlightSourceLocators([], locators);
+	}
+
+	private mergeHighlightSourceLocators(
+		existing: HighlightSourceLocator[],
+		incoming: HighlightSourceLocator[]
+	): HighlightSourceLocator[] {
+		const merged = new Map<string, HighlightSourceLocator>();
+		for (const locator of [...existing, ...incoming]) {
+			const sourceFile = String(locator?.sourceFile || "").trim();
+			if (!sourceFile) continue;
+			const normalizedRef = String(locator?.sourceRef || "").trim();
+			const normalizedExcerptId = String(locator?.excerptId || "").trim();
+			const key = `${sourceFile}::${normalizedRef}::${normalizedExcerptId}`;
+			if (!merged.has(key)) {
+				merged.set(key, {
+					sourceFile,
+					sourceRef: normalizedRef || undefined,
+					...(normalizedExcerptId ? { excerptId: normalizedExcerptId } : {}),
+				});
+			}
+		}
+		return Array.from(merged.values());
+	}
+
+	private selectPrimarySourceLocator(locators: HighlightSourceLocator[]): HighlightSourceLocator | null {
+		if (locators.length === 0) {
+			return null;
+		}
+
+		const cardLocator = locators.find(
+			(locator) => typeof locator.sourceRef === "string" && locator.sourceRef.startsWith("card:")
+		);
+		if (cardLocator) {
+			return cardLocator;
+		}
+
+		const referencedLocator = locators.find(
+			(locator) => typeof locator.sourceRef === "string" && locator.sourceRef.trim().length > 0
+		);
+		if (referencedLocator) {
+			return referencedLocator;
+		}
+
+		const markdownLocator = locators.find((locator) => locator.sourceFile.endsWith(".md"));
+		if (markdownLocator) {
+			return markdownLocator;
+		}
+
+		const canvasLocator = locators.find((locator) => locator.sourceFile.endsWith(".canvas"));
+		if (canvasLocator) {
+			return canvasLocator;
+		}
+
+		const wdeckLocator = locators.find((locator) => locator.sourceFile.endsWith(".wdeck"));
+		if (wdeckLocator) {
+			return wdeckLocator;
+		}
+
+		const jsonLocator = locators.find((locator) => locator.sourceFile.endsWith(".json"));
+		if (jsonLocator) {
+			return jsonLocator;
+		}
+
+		return locators[0] || null;
+	}
+
+	private normalizeHighlightSources(highlight: ReaderHighlight): ReaderHighlight {
+		const sourceLocators = this.collectHighlightSourceLocators(highlight);
+		const primaryLocator = this.selectPrimarySourceLocator(sourceLocators);
+		return {
+			...highlight,
+			sourceFile: primaryLocator?.sourceFile || highlight.sourceFile,
+			sourceRef: primaryLocator?.sourceRef || highlight.sourceRef,
+			excerptId: primaryLocator?.excerptId || highlight.excerptId,
+			sourceLocators,
+		};
+	}
+
+	private mergeHighlights(existing: ReaderHighlight, incoming: ReaderHighlight): ReaderHighlight {
+		const sourceLocators = this.mergeHighlightSourceLocators(
+			this.collectHighlightSourceLocators(existing),
+			this.collectHighlightSourceLocators(incoming)
+		);
+		const primaryLocator = this.selectPrimarySourceLocator(sourceLocators);
+		return {
+			...existing,
+			...incoming,
+			sourceFile: primaryLocator?.sourceFile || incoming.sourceFile || existing.sourceFile,
+			sourceRef: primaryLocator?.sourceRef || incoming.sourceRef || existing.sourceRef,
+			excerptId: primaryLocator?.excerptId || incoming.excerptId || existing.excerptId,
+			sourceLocators,
+		};
 	}
 
 	private normalizeLocationKey(value: string): string {
@@ -1124,12 +1854,311 @@ body .weave-foliate-concealment {
 
 		let styleElement = this.documentStyleElements.get(doc);
 		if (!styleElement || !styleElement.isConnected) {
-			styleElement = doc.createElement("style");
-			styleElement.setAttribute("data-weave-foliate-theme", "true");
+			styleElement = doc.createElement("link");
+			styleElement.setAttribute("rel", "stylesheet");
+			styleElement.setAttribute("type", "text/css");
+			styleElement.setAttribute("data-weave-foliate-reader-style", "true");
 			parent.appendChild(styleElement);
 			this.documentStyleElements.set(doc, styleElement);
 		}
-		styleElement.textContent = this.buildReaderStyles();
+		styleElement.setAttribute("href", createCssDataUrl(this.buildReaderStyles()));
+		this.attachFootnotePreviewListeners(doc);
+	}
+
+	private findFootnoteReference(target: EventTarget | null): HTMLAnchorElement | null {
+		const originElement = this.getElementFromEventTarget(target);
+		if (!originElement || typeof originElement.closest !== "function") {
+			return null;
+		}
+		const anchor = originElement.closest("a[href]");
+		if (!anchor || anchor.tagName.toLowerCase() !== "a") {
+			return null;
+		}
+		return this.isFootnoteReference(anchor as HTMLAnchorElement) ? (anchor as HTMLAnchorElement) : null;
+	}
+
+	private getElementFromEventTarget(target: EventTarget | null): Element | null {
+		if (!target) {
+			return null;
+		}
+		const candidate = target as { nodeType?: number; parentElement?: Element | null };
+		if (candidate.nodeType === 1) {
+			return target as Element;
+		}
+		if (candidate.nodeType === 3) {
+			return candidate.parentElement ?? null;
+		}
+		return null;
+	}
+
+	private isFootnoteReference(anchor: HTMLAnchorElement): boolean {
+		const href = String(anchor.getAttribute("href") || "").trim();
+		if (!href.includes("#")) {
+			return false;
+		}
+		const signals = [
+			anchor.getAttribute("role") || "",
+			anchor.getAttribute("epub:type") || "",
+			anchor.getAttribute("type") || "",
+			anchor.className || "",
+		].join(" ").toLowerCase();
+		if (
+			signals.includes("noteref") ||
+			signals.includes("footnote") ||
+			signals.includes("endnote")
+		) {
+			return true;
+		}
+		return Boolean(anchor.closest("sup")) && (/^#/.test(href) || /#(?:fn|note)/i.test(href));
+	}
+
+	private emitFootnotePreviewForAnchor(doc: Document, anchor: HTMLAnchorElement): void {
+		void (async () => {
+			const info = await this.buildFootnotePreviewInfo(doc, anchor);
+			logger.debugWithTag("FoliateReaderService", "Resolved footnote preview payload", {
+				href: anchor.getAttribute("href") || "",
+				hasInfo: Boolean(info),
+				textLength: info?.text.length || 0,
+			});
+			this.notifyFootnotePreview(info);
+		})();
+	}
+
+	private async buildFootnotePreviewInfo(
+		doc: Document,
+		anchor: HTMLAnchorElement
+	): Promise<ReaderFootnotePreviewInfo | null> {
+		const href = String(anchor.getAttribute("href") || "").trim();
+		if (!href) {
+			logger.debugWithTag("FoliateReaderService", "Skipped footnote preview because anchor href is empty");
+			return null;
+		}
+		const footnoteTarget = await this.findFootnoteTarget(doc, href);
+		if (!footnoteTarget) {
+			logger.debugWithTag("FoliateReaderService", "Skipped footnote preview because no target element was found", {
+				href,
+			});
+			return null;
+		}
+		const rect = this.createViewportRectFromElement(doc, anchor);
+		if (!rect) {
+			logger.debugWithTag("FoliateReaderService", "Skipped footnote preview because anchor rect was empty", {
+				href,
+			});
+			return null;
+		}
+		const previewElement = this.resolveFootnotePreviewContentElement(footnoteTarget);
+		if (!previewElement) {
+			logger.debugWithTag("FoliateReaderService", "Skipped footnote preview because target did not resolve to a readable container", {
+				href,
+				tagName: footnoteTarget.tagName,
+			});
+			return null;
+		}
+		const clone = previewElement.cloneNode(true) as HTMLElement;
+		clone
+			.querySelectorAll("a.footnote-backref, a[href*='#fnref'], a[href*='#ref'], [role='doc-backlink']")
+			.forEach((element) => element.remove());
+		const normalizedText = clone.textContent?.replace(/\s+/g, " ").trim() || "";
+		if (!normalizedText) {
+			logger.debugWithTag("FoliateReaderService", "Skipped footnote preview because normalized footnote text was empty", {
+				href,
+				tagName: previewElement.tagName,
+			});
+			return null;
+		}
+		const label = String(anchor.textContent || "").replace(/\s+/g, " ").trim() || "脚注";
+		return {
+			href,
+			label,
+			text: normalizedText.length > 220 ? `${normalizedText.slice(0, 220).trimEnd()}…` : normalizedText,
+			rect,
+		};
+	}
+
+	private resolveFootnotePreviewContentElement(target: Element): Element | null {
+		const containerSelector = [
+			"li",
+			"aside",
+			"section",
+			"dd",
+			"blockquote",
+			"p",
+			"[role='doc-footnote']",
+			"[epub\\:type*='footnote']",
+			"[epub\\:type*='endnote']",
+			"[type*='footnote']",
+			"[type*='endnote']",
+			"[class*='footnote']",
+			"[class*='endnote']",
+		].join(", ");
+		const candidates = [
+			target,
+			target.closest(containerSelector),
+			target.parentElement,
+			target.parentElement?.closest(containerSelector),
+			target.nextElementSibling,
+			target.parentElement?.nextElementSibling,
+		].filter((candidate): candidate is Element => Boolean(candidate));
+		const uniqueCandidates = Array.from(new Set(candidates));
+		for (const candidate of uniqueCandidates) {
+			const clone = candidate.cloneNode(true) as HTMLElement;
+			clone
+				.querySelectorAll("a.footnote-backref, a[href*='#fnref'], a[href*='#ref'], [role='doc-backlink']")
+				.forEach((element) => element.remove());
+			const normalizedText = clone.textContent?.replace(/\s+/g, " ").trim() || "";
+			if (normalizedText) {
+				return candidate;
+			}
+		}
+		return null;
+	}
+
+	private async findFootnoteTarget(doc: Document, href: string): Promise<Element | null> {
+		const fragment = this.extractHrefFragment(href);
+		if (!fragment) {
+			return null;
+		}
+		const visibleFrames = this.getVisibleFramesWithIndex();
+		const currentSectionIndex = this.loadedDocumentSectionIndexes.get(doc);
+		const currentSectionHref =
+			typeof currentSectionIndex === "number"
+				? this.parser.getSectionHrefByIndex(currentSectionIndex)
+				: this.currentChapterHref;
+		const preferredPath = this.extractHrefPath(href, currentSectionHref);
+		const candidateFrames = preferredPath
+			? visibleFrames.filter((frame) => frame.href.endsWith(preferredPath) || preferredPath.endsWith(frame.href))
+			: [];
+		const documents = [
+			doc,
+			...candidateFrames.map((frame) => frame.document),
+			...visibleFrames.map((frame) => frame.document).filter((frameDoc) => frameDoc !== doc),
+		];
+		for (const frameDoc of documents) {
+			const element = this.findFootnoteTargetInDocument(frameDoc, fragment);
+			if (element) {
+				logger.debugWithTag("FoliateReaderService", "Matched footnote target in visible document", {
+					href,
+					fragment,
+					tagName: element.tagName,
+				});
+				return element;
+			}
+		}
+		if (preferredPath) {
+			const externalDoc = await this.parser.getRawDocumentByHref(preferredPath);
+			if (externalDoc) {
+				const element = this.findFootnoteTargetInDocument(externalDoc, fragment);
+				if (element) {
+					logger.debugWithTag("FoliateReaderService", "Matched footnote target in external document", {
+						href,
+						fragment,
+						preferredPath,
+						tagName: element.tagName,
+					});
+					return element;
+				}
+			}
+		}
+		logger.debugWithTag("FoliateReaderService", "Failed to resolve footnote target from any document", {
+			href,
+			fragment,
+			preferredPath,
+		});
+		return null;
+	}
+
+	private extractHrefPath(href: string, baseHref = this.currentChapterHref): string {
+		const hashIndex = href.indexOf("#");
+		if (hashIndex <= 0) {
+			return "";
+		}
+		const rawPath = href.slice(0, hashIndex).split(/[?#]/)[0].trim();
+		if (!rawPath) {
+			return "";
+		}
+		return this.parser.resolveHrefAgainst(baseHref || rawPath, rawPath);
+	}
+
+	private extractHrefFragment(href: string): string {
+		const hashIndex = href.indexOf("#");
+		if (hashIndex < 0 || hashIndex === href.length - 1) {
+			return "";
+		}
+		const fragment = href.slice(hashIndex + 1).trim();
+		if (!fragment) {
+			return "";
+		}
+		try {
+			return decodeURIComponent(fragment);
+		} catch (_error) {
+			return fragment;
+		}
+	}
+
+	private findFootnoteTargetInDocument(doc: Document, fragment: string): Element | null {
+		const directMatch = doc.getElementById(fragment);
+		if (directMatch && directMatch.nodeType === 1) {
+			return directMatch;
+		}
+		const escapedFragment = typeof CSS !== "undefined" && typeof CSS.escape === "function"
+			? CSS.escape(fragment)
+			: fragment.replace(/([\[\]#.;?+*~':"!^$()=>|/@])/g, "\\$1");
+		const selectorMatches = [
+			`[id="${escapedFragment}"]`,
+			`li[id="${escapedFragment}"]`,
+			`aside[id="${escapedFragment}"]`,
+			`section[id="${escapedFragment}"]`,
+			`[data-footnote-id="${escapedFragment}"]`,
+			`a[name="${escapedFragment}"]`,
+		];
+		for (const selector of selectorMatches) {
+			const match = doc.querySelector(selector);
+			if (match && match.nodeType === 1) {
+				return match;
+			}
+		}
+		return null;
+	}
+
+	private createViewportRectFromElement(
+		doc: Document,
+		element: Element
+	): ReaderFootnotePreviewInfo["rect"] | null {
+		const elementRect = element.getBoundingClientRect?.();
+		if (!elementRect || (!elementRect.width && !elementRect.height)) {
+			return null;
+		}
+		const frame = this.getVisibleFramesWithIndex().find((item) => item.document === doc);
+		const iframeRect = frame?.frameElement?.getBoundingClientRect();
+		if (!iframeRect) {
+			return {
+				top: elementRect.top,
+				left: elementRect.left,
+				bottom: elementRect.bottom,
+				right: elementRect.right,
+				width: elementRect.width,
+				height: elementRect.height,
+			};
+		}
+		return {
+			top: elementRect.top + iframeRect.top,
+			left: elementRect.left + iframeRect.left,
+			bottom: elementRect.bottom + iframeRect.top,
+			right: elementRect.right + iframeRect.left,
+			width: elementRect.width,
+			height: elementRect.height,
+		};
+	}
+
+	private notifyFootnotePreview(info: ReaderFootnotePreviewInfo | null): void {
+		for (const callback of this.footnotePreviewCallbacks) {
+			try {
+				callback(info);
+			} catch (error) {
+				logger.warn("[FoliateReaderService] Footnote preview listener failed:", error);
+			}
+		}
 	}
 
 	private createViewportRect(
@@ -1142,11 +2171,7 @@ body .weave-foliate-concealment {
 		}
 
 		const iframe = frame.frameElement;
-		const host =
-			(iframe?.closest(".epub-reader-viewport") as HTMLElement | null) ||
-			(this.renderContainer?.closest(".epub-reader-viewport") as HTMLElement | null) ||
-			this.renderContainer;
-		if (!iframe || !host) {
+		if (!iframe) {
 			return {
 				top: rangeRect.top,
 				left: rangeRect.left,
@@ -1158,12 +2183,11 @@ body .weave-foliate-concealment {
 		}
 
 		const iframeRect = iframe.getBoundingClientRect();
-		const hostRect = host.getBoundingClientRect();
 		return {
-			top: rangeRect.top + iframeRect.top - hostRect.top,
-			left: rangeRect.left + iframeRect.left - hostRect.left,
-			bottom: rangeRect.bottom + iframeRect.top - hostRect.top,
-			right: rangeRect.right + iframeRect.left - hostRect.left,
+			top: rangeRect.top + iframeRect.top,
+			left: rangeRect.left + iframeRect.left,
+			bottom: rangeRect.bottom + iframeRect.top,
+			right: rangeRect.right + iframeRect.left,
 			width: rangeRect.width,
 			height: rangeRect.height,
 		};
@@ -1185,13 +2209,169 @@ body .weave-foliate-concealment {
 	}
 
 	private async ensureFoliateViewRegistered(): Promise<void> {
+		this.ensureDesktopFoliateIframeSandboxPatch();
+		this.ensureMobileBlobIframeFallback();
 		if (customElements.get("foliate-view")) {
 			return;
 		}
 		await import("foliate-js/view.js");
 	}
 
-	private getOverlayerModule(): Promise<typeof import("foliate-js/overlayer.js")> {
+	private ensureDesktopFoliateIframeSandboxPatch(): void {
+		if (
+			Platform.isMobile ||
+			FoliateReaderService.desktopFoliateIframeSandboxPatchInstalled ||
+			typeof HTMLIFrameElement === "undefined"
+		) {
+			return;
+		}
+
+		if (typeof Element.prototype.setAttribute !== "function") {
+			logger.warn(
+				"[FoliateReaderService] Unable to install desktop foliate iframe sandbox patch because setAttribute is unavailable."
+			);
+			return;
+		}
+
+		HTMLIFrameElement.prototype.setAttribute = function (
+			qualifiedName: string,
+			value: string
+		): void {
+			const normalizedValue = FoliateReaderService.normalizeDesktopFoliateSandboxValue(
+				qualifiedName,
+				value,
+				new Error().stack || ""
+			);
+			Element.prototype.setAttribute.call(this, qualifiedName, normalizedValue ?? value);
+		};
+
+		FoliateReaderService.desktopFoliateIframeSandboxPatchInstalled = true;
+	}
+
+	private static normalizeDesktopFoliateSandboxValue(
+		attributeName: string,
+		value: string,
+		stack: string
+	): string | null {
+		if (Platform.isMobile || String(attributeName || "").toLowerCase() !== "sandbox") {
+			return null;
+		}
+		if (!/foliate-js[\\/](?:paginator|fixed-layout)\.js/i.test(String(stack || ""))) {
+			return null;
+		}
+		const tokens = String(value || "")
+			.trim()
+			.split(/\s+/)
+			.filter(Boolean);
+		if (!tokens.includes("allow-same-origin") || !tokens.includes("allow-scripts")) {
+			return null;
+		}
+		const nextTokens = tokens.filter((token) => token !== "allow-scripts");
+		return nextTokens.length > 0 ? nextTokens.join(" ") : null;
+	}
+
+	private ensureMobileBlobIframeFallback(): void {
+		if (
+			!Platform.isMobile ||
+			FoliateReaderService.mobileBlobIframePatchInstalled ||
+			typeof HTMLIFrameElement === "undefined"
+		) {
+			return;
+		}
+
+		const descriptor = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, "src");
+		if (!descriptor?.get || !descriptor?.set) {
+			logger.warn(
+				"[FoliateReaderService] Unable to install mobile blob iframe fallback because the iframe src descriptor is unavailable."
+			);
+			return;
+		}
+
+		const readSrc = (iframe: HTMLIFrameElement): string => {
+			return descriptor.get ? (descriptor.get.call(iframe) as string) : "";
+		};
+		const writeSrc = (iframe: HTMLIFrameElement, href: string): void => {
+			descriptor.set?.call(iframe, href);
+		};
+		const tokenStore = FoliateReaderService.mobileBlobIframeLoadTokens;
+
+		Object.defineProperty(HTMLIFrameElement.prototype, "src", {
+			configurable: true,
+			enumerable: descriptor.enumerable ?? true,
+			get() {
+				return readSrc(this);
+			},
+			set(value: string) {
+				const href = String(value || "");
+				if (!FoliateReaderService.shouldUseMobileSrcdocFallback(this, href)) {
+					try {
+						this.removeAttribute("srcdoc");
+					} catch (_error) {
+						// Ignore transient cleanup failures.
+					}
+					writeSrc(this, href);
+					return;
+				}
+
+				const nextToken = (tokenStore.get(this) || 0) + 1;
+				tokenStore.set(this, nextToken);
+
+				void (async () => {
+					try {
+						const response = await globalThis.fetch(href);
+						if (!response.ok) {
+							throw new Error(
+								`Failed to load iframe blob resource: ${response.status} ${response.statusText}`
+							);
+						}
+						const markup = await response.text();
+						if (tokenStore.get(this) !== nextToken) {
+							return;
+						}
+						this.removeAttribute("src");
+						this.srcdoc = markup;
+					} catch (error) {
+						if (tokenStore.get(this) !== nextToken) {
+							return;
+						}
+						logger.warn(
+							"[FoliateReaderService] Mobile iframe blob fallback failed; falling back to direct iframe src load.",
+							{
+								href,
+								error,
+							}
+						);
+						try {
+							this.removeAttribute("srcdoc");
+						} catch (_cleanupError) {
+							// Ignore cleanup failures before the native fallback.
+						}
+						writeSrc(this, href);
+					}
+				})();
+			},
+		});
+
+		FoliateReaderService.mobileBlobIframePatchInstalled = true;
+	}
+
+	private static shouldUseMobileSrcdocFallback(
+		iframe: HTMLIFrameElement,
+		href: string
+	): boolean {
+		if (!href.startsWith("blob:")) {
+			return false;
+		}
+
+		const sandbox = iframe.getAttribute("sandbox") || "";
+		return (
+			iframe.getAttribute("part") === "filter" &&
+			sandbox.includes("allow-same-origin") &&
+			sandbox.includes("allow-scripts")
+		);
+	}
+
+	private async getOverlayerModule(): Promise<typeof import("foliate-js/overlayer.js")> {
 		if (!this.overlayerModulePromise) {
 			this.overlayerModulePromise = import("foliate-js/overlayer.js");
 		}
@@ -1199,6 +2379,11 @@ body .weave-foliate-concealment {
 	}
 
 	private async destroyViewOnly(): Promise<void> {
+		this.notifyFootnotePreview(null);
+		for (const cleanup of this.documentFootnoteCleanups.values()) {
+			cleanup();
+		}
+		this.documentFootnoteCleanups.clear();
 		for (const cleanup of this.documentSelectionCleanups.values()) {
 			cleanup();
 		}
@@ -1224,7 +2409,7 @@ body .weave-foliate-concealment {
 		currentView.removeEventListener("draw-annotation", this.handleDrawAnnotationEvent as EventListener);
 		currentView.removeEventListener("show-annotation", this.handleShowAnnotationEvent as EventListener);
 		try {
-			currentView.close?.();
+			currentView.close();
 		} catch (error) {
 			logger.warn("[FoliateReaderService] Failed to close foliate view cleanly:", error);
 		}
@@ -1241,6 +2426,7 @@ body .weave-foliate-concealment {
 		this.currentChapterTitle = "";
 		this.currentChapterHref = "";
 		this.relocatedCallbacks.clear();
+		this.footnotePreviewCallbacks.clear();
 		this.selectionChangeCallbacks.clear();
 		this.highlightClickCallbacks.clear();
 	}
@@ -1259,6 +2445,7 @@ body .weave-foliate-concealment {
 		}
 		this.temporarilyRevealedConcealmentTimers.clear();
 		this.highlightDataMap.clear();
+		this.temporaryHighlightDataMap.clear();
 		this.savedHighlights = [];
 		this.renderedAnnotations.clear();
 	}
@@ -1303,6 +2490,8 @@ body .weave-foliate-concealment {
 		return (
 			a.value === b.value &&
 			a.color === b.color &&
+			a.style === b.style &&
+			a.focusColor === b.focusColor &&
 			a.text === b.text &&
 			a.sourceFile === b.sourceFile &&
 			a.sourceRef === b.sourceRef &&
@@ -1312,19 +2501,41 @@ body .weave-foliate-concealment {
 		);
 	}
 
+	private getAnnotationRenderSignature(annotation: FoliateAnnotation): string {
+		const key = this.normalizeLocationKey(annotation.cfiRange);
+		const isTemporarilyRevealed =
+			this.shouldRenderAnnotationAsConceal(annotation) && this.temporarilyRevealedConcealmentTimers.has(key);
+
+		return [
+			`presentation:${annotation.presentation || "highlight"}`,
+			`color:${annotation.color || "yellow"}`,
+			`style:${annotation.style || "highlight"}`,
+			`focus:${annotation.focusColor || ""}`,
+			`strikethrough:${this.currentStrikethroughPresentation}`,
+			`scheme:${this.getCurrentColorScheme()}`,
+			`concealment:${isTemporarilyRevealed ? "revealed" : "concealed"}`,
+		].join("|");
+	}
+
+	private normalizeCurrentPage(totalPositions: number): number {
+		const currentPage = Math.round(this.currentPaginationInfo.currentPage || 0);
+		if (currentPage > 0) {
+			return Math.min(currentPage, Math.max(totalPositions, 1));
+		}
+		if (totalPositions <= 0) {
+			return 0;
+		}
+		return Math.min(
+			totalPositions,
+			Math.max(1, Math.round((this.currentPosition.percent / 100) * totalPositions))
+		);
+	}
+
 	private getConcealmentPalette(): {
 		base: string;
 		stripe: string;
 		border: string;
 	} {
-		if (this.currentTheme === "sepia") {
-			return {
-				base: "rgba(240, 231, 211, 0.96)",
-				stripe: "rgba(225, 213, 190, 0.98)",
-				border: "rgba(125, 103, 76, 0.18)",
-			};
-		}
-
 		if (this.getCurrentColorScheme() === "dark") {
 			return {
 				base: "rgba(86, 92, 104, 0.96)",
@@ -1380,29 +2591,56 @@ body .weave-foliate-concealment {
 		return `${monoFont}, ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace`;
 	}
 
-	private getObsidianFontScale(): number {
+	private getObsidianTextFontSize(): string {
+		const directTextSize = this.getObsidianCSSVar("--font-text-size", "").trim();
+		if (this.isConcreteCssSizeValue(directTextSize)) {
+			return directTextSize;
+		}
+
+		const directEditorSize = this.getObsidianCSSVar("--editor-font-size", "").trim();
+		if (this.isConcreteCssSizeValue(directEditorSize)) {
+			return directEditorSize;
+		}
+
+		const resolvedSize = this.resolveHostFontSizeExpression(
+			"var(--font-text-size, var(--editor-font-size, 16px))"
+		);
+		if (resolvedSize) {
+			return resolvedSize;
+		}
+
 		const rawSize = this.getObsidianCSSVar(
 			"--font-text-size",
 			this.getObsidianCSSVar("--editor-font-size", "16px")
-		)
-			.trim()
-			.toLowerCase();
-		if (!rawSize) {
-			return 1;
-		}
+		).trim();
+		return rawSize || "16px";
+	}
 
-		const numeric = Number.parseFloat(rawSize);
-		if (!Number.isFinite(numeric) || numeric <= 0) {
-			return 1;
+	private isConcreteCssSizeValue(value: string): boolean {
+		if (!value) {
+			return false;
 		}
+		return !value.includes("var(");
+	}
 
-		if (rawSize.endsWith("px")) {
-			return this.clamp(numeric / 16, 0.75, 2.5);
+	private resolveHostFontSizeExpression(valueExpression: string): string | null {
+		try {
+			const styleSource = this.getObsidianStyleSource();
+			const probe = document.createElement("span");
+			applyStyleProps(probe, {
+				position: "absolute",
+				visibility: "hidden",
+				"pointer-events": "none",
+				inset: "0",
+			});
+			probe.style.fontSize = valueExpression;
+			styleSource.appendChild(probe);
+			const resolvedSize = getComputedStyle(probe).fontSize.trim();
+			probe.remove();
+			return resolvedSize || null;
+		} catch {
+			return null;
 		}
-		if (rawSize.endsWith("%")) {
-			return this.clamp(numeric / 100, 0.75, 2.5);
-		}
-		return this.clamp(numeric, 0.75, 2.5);
 	}
 
 	private getCurrentColorScheme(): "light" | "dark" {

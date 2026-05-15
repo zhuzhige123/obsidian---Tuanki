@@ -90,6 +90,8 @@
     return detectClozeModeFromContent(currentContent || card.content || '');
   });
 
+  const secondaryActionLabel = $derived(mode === 'create' ? '取消' : '关闭');
+
   function extractClozeOrdinals(content: string): number[] {
     const ordinals = new Set<number>();
     const clozePattern = /\{\{c(\d+)::/g;
@@ -298,24 +300,10 @@
       return;
     }
     
-    let sourceDeckIds: string[] = [];
-
     try {
       isProcessing = true; //  设置处理中标志
       isLoading = true;
 
-      try {
-        const allDecks = await plugin.dataStorage?.getDecks?.();
-        if (Array.isArray(allDecks) && card?.uuid) {
-          sourceDeckIds = allDecks
-            .filter(d => Array.isArray((d as any).cardUUIDs) && (d as any).cardUUIDs.includes(card.uuid))
-            .map(d => (d as any).id)
-            .filter(Boolean);
-        }
-      } catch (e) {
-        sourceDeckIds = [];
-      }
-      
       logger.debug('[InlineCardEditor] 🔄 开始保存卡片, sessionId:', currentEditSessionId);
       
       // 步骤1：先调用finishEditing获取真实的编辑器内容
@@ -349,11 +337,27 @@
       let nextDeckNames: string[] = [];
       if (shouldBackfillDecks) {
         if (Array.isArray(selectedDeckNames) && selectedDeckNames.length > 0) {
-          nextDeckNames = selectedDeckNames;
+          nextDeckNames = [selectedDeckNames[0]];
         } else {
           const deckName = decks?.find(d => d.id === selectedDeckId)?.name;
           if (deckName) nextDeckNames = [deckName];
         }
+      }
+
+      const currentDeckIds = getCardDeckIds(card, decks).deckIds;
+      const preservedTestDeckIds = currentDeckIds.filter((deckId) => {
+        const matchedDeck = decks?.find(d => d.id === deckId);
+        return matchedDeck?.purpose === 'test';
+      });
+      const runtimeDeckIds = selectedDeckId
+        ? [selectedDeckId, ...preservedTestDeckIds.filter((deckId) => deckId !== selectedDeckId)]
+        : preservedTestDeckIds;
+
+      updatedCard.referencedByDecks = runtimeDeckIds;
+      if (runtimeDeckIds.length > 0) {
+        updatedCard.deckId = runtimeDeckIds[0];
+      } else {
+        (updatedCard as Partial<Card>).deckId = undefined;
       }
 
       if (updatedCard.content) {
@@ -395,27 +399,6 @@
         }
         
         logger.debug('[InlineCardEditor] 数据库保存成功, UUID:', saveResult.data?.uuid);
-
-        const referenceDeckService = (plugin as any).referenceDeckService;
-        if (referenceDeckService && updatedCard.uuid) {
-          const { deckIds: explicitDeckIds } = getCardDeckIds(updatedCard, decks, {
-            fallbackToReferences: false
-          });
-          const targetDeckIds = new Set<string>(explicitDeckIds);
-          const sourceSet = new Set<string>((sourceDeckIds || []).filter(Boolean));
-
-          for (const deckId of sourceSet) {
-            if (!targetDeckIds.has(deckId)) {
-              await referenceDeckService.removeCardsFromDeck(deckId, [updatedCard.uuid]);
-            }
-          }
-
-          for (const deckId of targetDeckIds) {
-            if (!sourceSet.has(deckId)) {
-              await referenceDeckService.addCardsToDeck(deckId, [updatedCard.uuid]);
-            }
-          }
-        }
       } else {
         logger.warn('[InlineCardEditor] dataStorage未初始化，跳过数据库保存');
       }
@@ -602,6 +585,8 @@
             options={decks}
             onchange={(value) => {
               selectedDeckId = value;
+              const nextDeckName = decks?.find(d => d.id === value)?.name;
+              selectedDeckNames = nextDeckName ? [nextDeckName] : [];
               deckSelectionTouched = true;
               logger.debug('[InlineCardEditor] 牌组选择变更:', selectedDeckId);
             }}
@@ -668,14 +653,14 @@
           //  使用 onclick 统一处理，配合 CSS touch-action: manipulation 消除300ms延迟
           e.preventDefault();
           if (!isLoading) {
-            logger.debug('[InlineCardEditor] 📱 取消按钮 click 触发');
+            logger.debug(`[InlineCardEditor] 📱 ${secondaryActionLabel}按钮 click 触发`);
             handleCancel();
           }
         }}
         disabled={isLoading}
       >
         <EnhancedIcon name="x" size={16} />
-        取消
+        {secondaryActionLabel}
       </button>
       
       <button

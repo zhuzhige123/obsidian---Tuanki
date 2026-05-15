@@ -1,5 +1,6 @@
 ﻿<script lang="ts">
   import type { Card } from '../../../data/types';
+  import { Menu, TFile } from "obsidian";
   import StatusBadge from "../../ui/StatusBadge.svelte";
   import { untrack } from "svelte";
   import EnhancedIcon from "../../ui/EnhancedIcon.svelte";
@@ -13,11 +14,12 @@
   import ModifiedCell from "./cells/ModifiedCell.svelte";
   import type { FieldTemplateInfo, SourceDocumentStatusInfo, TableRowProps } from "../types/table-types";
   import { getCardBack, getCardFront } from "../../../utils/card-field-helper";
-  import { getCardDeckNames as getNormalizedCardDeckNames } from "../../../utils/yaml-utils";
+  import { getCardDeckIds } from "../../../utils/yaml-utils";
 
   let {
     card,
     selected,
+    selectionOrder = null,
     columnOrder,
     tableViewMode,
     callbacks,
@@ -45,6 +47,110 @@
 
   function handleRowSelect(checked: boolean) {
     onSelect(card.uuid, checked);
+  }
+
+  function getIRSourceKindLabel(kind: string | undefined): string {
+    if (kind === 'markdown') return 'Markdown';
+    if (kind === 'pdf') return 'PDF';
+    if (kind === 'epub') return 'EPUB';
+    return '-';
+  }
+
+  function getIRPriorityValue(card: any): number {
+    return Number(card.ir_priority_value ?? card.ir_priority ?? 5) || 5;
+  }
+
+  function getIRPriorityClass(value: number): string {
+    if (value >= 8) return 'high';
+    if (value >= 5) return 'medium';
+    return 'low';
+  }
+
+  function isIRDeckIdentifierLike(value: string | null | undefined): boolean {
+    const normalized = String(value || '').trim();
+    return /^deck-[a-z0-9_-]+$/i.test(normalized);
+  }
+
+  function stripMarkdownExtension(name: string): string {
+    return name.replace(/\.md$/i, '');
+  }
+
+  function getAssociatedNotePaths(card: any): string[] {
+    const paths = Array.isArray(card.ir_associated_note_paths)
+      ? card.ir_associated_note_paths
+      : [];
+    return paths.filter((path: unknown): path is string => typeof path === 'string' && !!path);
+  }
+
+  function getAssociatedNoteDisplay(card: any): {
+    paths: string[];
+    primaryPath?: string;
+    remainingCount: number;
+  } {
+    const paths = getAssociatedNotePaths(card);
+    return {
+      paths,
+      primaryPath: paths[0],
+      remainingCount: Math.max(0, paths.length - 1)
+    };
+  }
+
+  function resolveNoteFile(path: string): TFile | null {
+    if (!plugin?.app || !path) return null;
+
+    const direct = plugin.app.vault.getAbstractFileByPath(path);
+    if (direct instanceof TFile) return direct;
+
+    if (!/\.[^/.]+$/i.test(path)) {
+      const markdownFile = plugin.app.vault.getAbstractFileByPath(`${path}.md`);
+      if (markdownFile instanceof TFile) return markdownFile;
+    }
+
+    return null;
+  }
+
+  function getAssociatedNoteLabel(path: string): string {
+    const file = resolveNoteFile(path);
+    if (file instanceof TFile) {
+      return stripMarkdownExtension(file.basename);
+    }
+
+    const normalized = path.replace(/\\/g, '/');
+    return stripMarkdownExtension(normalized.split('/').pop() || normalized);
+  }
+
+  async function openAssociatedNote(path: string) {
+    if (!plugin?.app || !path) return;
+
+    const file = resolveNoteFile(path);
+    const targetPath = file?.path || path;
+    const contextPath = plugin.app.workspace.getActiveFile()?.path ?? '';
+    await plugin.app.workspace.openLinkText(targetPath, contextPath, false);
+  }
+
+  function openAssociatedNotesMenu(event: MouseEvent, notePaths: string[]) {
+    if (!plugin?.app || notePaths.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const menu = new Menu();
+    for (const path of notePaths) {
+      menu.addItem((item) =>
+        item
+          .setTitle(getAssociatedNoteLabel(path))
+          .setIcon('file-text')
+          .onClick(() => {
+            void openAssociatedNote(path);
+          })
+      );
+    }
+    menu.showAtMouseEvent(event);
+  }
+
+  function openAssociatedNotesManager(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    callbacks.onIRAssociatedNotesManage?.(event, card);
   }
 
   function formatFixedTime(dateString: string | number | null | undefined): string {
@@ -113,7 +219,17 @@
 
   let cardDeckNames = $derived.by(() => {
     if (!isVisible) return [];
-    return getNormalizedCardDeckNames(card, decks, '未分组');
+
+    const { deckIds } = getCardDeckIds(card, decks, { fallbackToReferences: false });
+    if (deckIds.length === 0) {
+      return [];
+    }
+
+    const names = deckIds
+      .map((deckId) => decks.find((deck) => deck.id === deckId)?.name || "")
+      .filter(Boolean);
+
+    return Array.from(new Set(names));
   });
 
   let irCardDeckNames = $derived.by(() => {
@@ -126,7 +242,7 @@
     if (Array.isArray(deckIds)) {
       for (const deckId of deckIds) {
         const deck = decks.find(d => d.id === deckId);
-        const deckName = deck?.name || String(deckId);
+        const deckName = deck?.name || '';
         if (deckName && !seen.has(deckName)) {
           seen.add(deckName);
           names.push(deckName);
@@ -139,6 +255,7 @@
       typeof singleDeckName === 'string' &&
       singleDeckName &&
       singleDeckName !== '未分配' &&
+      !isIRDeckIdentifierLike(singleDeckName) &&
       !seen.has(singleDeckName)
     ) {
       names.push(singleDeckName);
@@ -179,15 +296,22 @@
   class:selected={selected}
 >
   <td class="weave-checkbox-column">
-    <DraggableCheckboxWrapper
-      checked={selected}
-      onchange={handleRowSelect}
-      ariaLabel="选择卡片"
-      cardId={card.uuid}
-      {onDragSelectStart}
-      {onDragSelectMove}
-      {isDragSelectActive}
-    />
+    <div class="weave-checkbox-cell">
+      <DraggableCheckboxWrapper
+        checked={selected}
+        onchange={handleRowSelect}
+        ariaLabel="选择卡片"
+        cardId={card.uuid}
+        {onDragSelectStart}
+        {onDragSelectMove}
+        {isDragSelectActive}
+      />
+      {#if selected && selectionOrder}
+        <span class="weave-selection-order-badge" title={`多选序号 ${selectionOrder}`}>
+          {selectionOrder}
+        </span>
+      {/if}
+    </div>
   </td>
 
   {#each columnOrder as columnKey (columnKey)}
@@ -212,24 +336,19 @@
     {:else if columnKey === 'deck'}
       <td class="weave-deck-column">
         <div class="weave-decks-container">
-          {#if cardDeckNames.length > 0}
-            {#each cardDeckNames.slice(0, 2) as deckName}
-              <span class="weave-deck-badge weave-deck-badge--memory" title={deckName}>
-                {truncateText(deckName, 12)}
-              </span>
-            {/each}
-            {#if cardDeckNames.length > 2}
-              <span class="weave-deck-more" title={cardDeckNames.join('\n')}>
-                +{cardDeckNames.length - 2}
-              </span>
-            {/if}
-          {:else}
-            <span class="weave-text-muted">未分配</span>
-          {/if}
+        {#if cardDeckNames.length > 0}
+          {#each cardDeckNames as deckName}
+            <span class="weave-deck-badge weave-deck-badge--memory" title={deckName}>
+              {truncateText(deckName, 12)}
+            </span>
+          {/each}
+        {:else}
+          <span class="weave-text-muted">未分配</span>
+        {/if}
         </div>
       </td>
     {:else if columnKey === 'tags'}
-      <TagsCell {card} {availableTags} onTagsUpdate={callbacks.onTagsUpdate} />
+      <TagsCell app={plugin?.app} {card} {availableTags} onTagsUpdate={callbacks.onTagsUpdate} />
     {:else if columnKey === 'priority'}
       <PriorityCell {card} onPriorityUpdate={callbacks.onPriorityUpdate} />
     {:else if columnKey === 'uuid'}
@@ -325,7 +444,13 @@
     {:else if columnKey === 'ir_source_file'}
       <td class="weave-ir-source-file-column">
         <span class="weave-text-content" title={(card as any).ir_source_file || '-'}>
-          {truncateText((card as any).ir_source_file?.split('/').pop() || '-', 25)}
+          {truncateText((card as any).ir_source_document_label || (card as any).ir_source_file?.split('/').pop() || '-', 25)}
+        </span>
+      </td>
+    {:else if columnKey === 'ir_source_kind'}
+      <td class="weave-ir-source-kind-column">
+        <span class="weave-inline-chip weave-inline-chip--soft">
+          {getIRSourceKindLabel((card as any).ir_source_kind)}
         </span>
       </td>
     {:else if columnKey === 'ir_state'}
@@ -336,31 +461,12 @@
       </td>
     {:else if columnKey === 'ir_priority'}
       <td class="weave-ir-priority-column">
-        <span class="weave-priority-badge weave-priority-{(card as any).ir_priority || 2}">
-          {(card as any).ir_priority === 1 ? '高' :
-           (card as any).ir_priority === 2 ? '中' :
-           (card as any).ir_priority === 3 ? '低' : '中'}
+        <span class="weave-priority-badge weave-priority-{getIRPriorityClass(getIRPriorityValue(card as any))}">
+          P{getIRPriorityValue(card as any)}
         </span>
       </td>
     {:else if columnKey === 'ir_tags'}
-      <td class="weave-ir-tags-column">
-        <div class="weave-tags-container">
-          {#each ((card as any).ir_tags || []).slice(0, 3) as tag}
-            <span class="weave-tag">{tag}</span>
-          {/each}
-          {#if ((card as any).ir_tags || []).length > 3}
-            <span class="weave-tag-more">+{(card as any).ir_tags.length - 3}</span>
-          {/if}
-        </div>
-      </td>
-    {:else if columnKey === 'ir_favorite'}
-      <td class="weave-ir-favorite-column">
-        <EnhancedIcon
-          name="star"
-          size={16}
-          variant={(card as any).ir_favorite ? 'warning' : 'muted'}
-        />
-      </td>
+      <TagsCell app={plugin?.app} {card} {availableTags} onTagsUpdate={callbacks.onTagsUpdate} />
     {:else if columnKey === 'ir_next_review'}
       <td class="weave-ir-next-review-column">
         <span class="weave-text-content">
@@ -389,14 +495,60 @@
         </span>
       </td>
     {:else if columnKey === 'ir_notes'}
-      <td class="weave-ir-notes-column">
-        <span class="weave-text-content" title={(card as any).ir_notes || ''}>
-          {truncateText((card as any).ir_notes || '-', 30)}
+      <td class="weave-ir-notes-column" oncontextmenu={openAssociatedNotesManager}>
+        {#if getAssociatedNoteDisplay(card as any).paths.length === 0}
+          <span class="weave-text-muted">-</span>
+        {:else}
+          <div class="weave-ir-note-links">
+            <button
+              type="button"
+              class="weave-ir-note-link"
+              title={getAssociatedNoteDisplay(card as any).primaryPath}
+              onclick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const primaryPath = getAssociatedNoteDisplay(card as any).primaryPath;
+                if (primaryPath) {
+                  void openAssociatedNote(primaryPath);
+                }
+              }}
+              oncontextmenu={openAssociatedNotesManager}
+            >
+              {getAssociatedNoteLabel(getAssociatedNoteDisplay(card as any).primaryPath || '')}
+            </button>
+            {#if getAssociatedNoteDisplay(card as any).remainingCount > 0}
+              <button
+                type="button"
+                class="weave-ir-note-more"
+                title={`查看其余 ${getAssociatedNoteDisplay(card as any).remainingCount} 个关联笔记`}
+                onclick={(event) => openAssociatedNotesMenu(event, getAssociatedNoteDisplay(card as any).paths)}
+                oncontextmenu={openAssociatedNotesManager}
+              >
+                +{getAssociatedNoteDisplay(card as any).remainingCount}
+              </button>
+            {/if}
+          </div>
+        {/if}
+      </td>
+    {:else if columnKey === 'ir_extract_cards'}
+      <td class="weave-ir-extract-cards-column">
+        <span class="weave-text-content">{(card as any).ir_extract_cards ?? 0}</span>
+      </td>
+    {:else if columnKey === 'ir_memory_cards'}
+      <td class="weave-ir-memory-cards-column">
+        <span class="weave-text-content">{(card as any).ir_memory_cards ?? 0}</span>
+      </td>
+    {:else if columnKey === 'ir_source_subunit'}
+      <td class="weave-ir-source-subunit-column">
+        <span class="weave-text-content" title={(card as any).ir_source_subunit || '-'}>
+          {truncateText((card as any).ir_source_subunit || '-', 28)}
         </span>
       </td>
-    {:else if columnKey === 'ir_extracted_cards'}
-      <td class="weave-ir-extracted-cards-column">
-        <span class="weave-text-content">{(card as any).ir_extracted_cards || 0}张</span>
+    {:else if columnKey === 'ir_tag_group'}
+      <td class="weave-ir-tag-group-column">
+        <span class="weave-inline-chip weave-inline-chip--soft" title={(card as any).ir_tag_group || '默认'}>
+          {(card as any).ir_tag_group || '默认'}
+        </span>
       </td>
     {:else if columnKey === 'ir_created'}
       <td class="weave-ir-created-column">
@@ -474,13 +626,38 @@
   }
 
   .weave-table-row .weave-checkbox-column {
-    width: 48px;
-    min-width: 48px;
-    max-width: 48px;
+    width: 72px;
+    min-width: 72px;
+    max-width: 72px;
     text-align: center;
     padding: var(--weave-table-cell-padding-y, 6px) var(--weave-table-cell-padding-x, 16px);
     text-overflow: clip;
     overflow: visible;
+  }
+
+  .weave-checkbox-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .weave-selection-order-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--interactive-accent) 16%, var(--weave-table-surface-bg, var(--background-secondary)));
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+    color: var(--text-accent);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
   }
 
   .weave-actions-column {
@@ -667,6 +844,18 @@
     color: color-mix(in srgb, var(--interactive-accent) 72%, var(--text-normal));
   }
 
+  .weave-deck-badge--formal {
+    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--weave-table-surface-bg, var(--background-secondary)));
+    border-color: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+    color: color-mix(in srgb, var(--interactive-accent) 72%, var(--text-normal));
+  }
+
+  .weave-deck-badge--emergent {
+    background: color-mix(in srgb, var(--color-orange, #d97706) 10%, var(--weave-table-surface-bg, var(--background-secondary)));
+    border-color: color-mix(in srgb, var(--color-orange, #d97706) 20%, transparent);
+    color: color-mix(in srgb, var(--color-orange, #d97706) 82%, var(--text-normal));
+  }
+
   .weave-table-row:hover .weave-deck-badge {
     transform: translateY(-1px);
   }
@@ -730,53 +919,67 @@
     white-space: nowrap;
   }
 
-  .weave-priority-1 {
+  .weave-priority-high {
     background: color-mix(in srgb, var(--color-red, var(--text-error)) 15%, transparent);
     color: var(--color-red, var(--text-error));
   }
 
-  .weave-priority-2 {
+  .weave-priority-medium {
     background: color-mix(in srgb, var(--color-yellow, var(--interactive-accent)) 15%, transparent);
     color: var(--color-yellow, var(--interactive-accent));
   }
 
-  .weave-priority-3 {
+  .weave-priority-low {
     background: color-mix(in srgb, var(--color-green, var(--interactive-accent)) 15%, transparent);
     color: var(--color-green, var(--interactive-accent));
   }
 
-  .weave-tags-container {
+  .weave-ir-note-links {
     display: flex;
-    flex-wrap: wrap;
     gap: 4px;
     align-items: center;
-    width: 100%;
     min-width: 0;
   }
 
-  .weave-tag {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 6px;
-    background: var(--background-modifier-hover);
-    border-radius: 4px;
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    flex-shrink: 0;
-    max-width: 100%;
+  .weave-ir-note-link,
+  .weave-ir-note-more {
+    appearance: none;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    outline: none;
+    padding: 0;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 0;
+    transform: none;
+  }
+
+  .weave-ir-note-link {
+    color: var(--text-normal);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 100%;
   }
 
-  .weave-tag-more {
+  .weave-ir-note-more {
     display: inline-flex;
     align-items: center;
-    padding: 2px 6px;
-    background: var(--background-modifier-border);
-    border-radius: 4px;
-    font-size: 0.7rem;
     color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .weave-ir-note-link:hover,
+  .weave-ir-note-more:hover,
+  .weave-ir-note-link:focus-visible,
+  .weave-ir-note-more:focus-visible {
+    color: var(--interactive-accent);
+    text-decoration: underline;
+    background: transparent;
+    box-shadow: none;
   }
 
   @media (max-width: 768px) {
@@ -785,10 +988,21 @@
     }
 
     .weave-table-row .weave-checkbox-column {
-      width: 42px;
-      min-width: 42px;
-      max-width: 42px;
+      width: 58px;
+      min-width: 58px;
+      max-width: 58px;
       padding: 4px 10px;
+    }
+
+    .weave-checkbox-cell {
+      gap: 4px;
+    }
+
+    .weave-selection-order-badge {
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      font-size: 9px;
     }
 
     .weave-actions-column {
@@ -832,7 +1046,7 @@
 
     .weave-cell-content,
     .weave-decks-container,
-    .weave-tags-container {
+    .weave-ir-note-links {
       gap: 3px;
     }
 

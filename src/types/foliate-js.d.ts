@@ -39,6 +39,27 @@ declare module "foliate-js/view.js" {
 	}
 }
 
+declare module "foliate-js/footnotes.js" {
+	export class FootnoteHandler extends EventTarget {
+		detectFootnotes: boolean;
+		handle(
+			book: any,
+			event: CustomEvent<{ a: HTMLElement; href: string; follow?: boolean }> & { preventDefault(): void }
+		): Promise<void> | void;
+	}
+}
+
+declare module "foliate-js/dict.js" {
+	export class StarDict {
+		loadIfo(file: Blob): Promise<void>;
+		loadIdx(file: Blob): Promise<void>;
+		loadDict(file: Blob, inflate: (value: Uint8Array) => Uint8Array | Promise<Uint8Array>): Promise<void>;
+		loadSyn(file?: Blob): Promise<void>;
+		lookup(query: string): Promise<Array<{ word: string; data: [string, Uint8Array | Promise<Uint8Array>] | Array<[string, Uint8Array | Promise<Uint8Array>]> }>>;
+		synonyms(query: string): Promise<Array<{ word: string; data: [string, Uint8Array | Promise<Uint8Array>] | Array<[string, Uint8Array | Promise<Uint8Array>]> }>>;
+	}
+}
+
 declare module "foliate-js/overlayer.js" {
 	export class Overlayer {
 		static highlight(rects: any, options?: any): SVGElement;

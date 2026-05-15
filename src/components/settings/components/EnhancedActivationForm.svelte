@@ -19,9 +19,17 @@
   } from '../constants/activation-constants';
   
   import { licenseManager, ActivationAttemptLimiter } from '../../../utils/licenseManager';
+  import {
+    clearPluginLocalLicenses,
+    getPluginEffectiveLicenseState,
+    getPluginLicensedProduct,
+    syncPluginLicenseSettings,
+    upsertPluginLocalLicense
+  } from '../../../utils/plugin-license';
 
   import { ActivationErrorCode } from '../../../utils/types/license-types';
-  import { createSvgIconString } from '../../../utils/svg-icons';
+  import type { EffectiveLicenseState } from '../../../types/license';
+  import Icon from '../../ui/Icon.svelte';
   import { showNotification } from '../../../utils/notifications';
   import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
 
@@ -33,6 +41,8 @@
     onActivationSuccess?: (licenseInfo: any) => void;
     onActivationError?: (error: any) => void;
     standalone?: boolean; // 是否独立显示（显示容器装饰），默认true
+    showHeader?: boolean;
+    displayState?: EffectiveLicenseState | null;
   }
 
   let { 
@@ -40,7 +50,9 @@
     onSave, 
     onActivationSuccess, 
     onActivationError,
-    standalone = true
+    standalone = true,
+    showHeader = true,
+    displayState = null
   }: Props = $props();
 
   // ==================== State Management ====================
@@ -55,7 +67,6 @@
   let activationSuccess = $state(false);
   let showHelp = $state(false);
   let remainingAttempts = $state<number | null>(null);
-  let cloudInfo = $state<any>(null);
   let showActivationCodeFull = $state(false);
 
   // ==================== Derived State ====================
@@ -84,9 +95,11 @@
 
   // ==================== License Status ====================
 
-  let currentLicenseInfo = $derived(plugin.settings?.license || null);
+  let effectiveLicenseState = $derived.by(() => displayState ?? getPluginEffectiveLicenseState(plugin));
 
-  let isLicenseActive = $derived(currentLicenseInfo?.isActivated || false);
+  let currentLicenseInfo = $derived(effectiveLicenseState.primaryLicense || plugin.settings?.license || null);
+
+  let isLicenseActive = $derived(effectiveLicenseState.isPremiumActive);
 
   // ==================== Event Handlers ====================
   
@@ -149,19 +162,16 @@
     activationSuccess = false;
 
     try {
-      const result = await licenseManager.activateLicense(cleanedCode, email);
-
-      // 保存云端信息用于显示
-      if (result.cloudInfo) {
-        cloudInfo = result.cloudInfo;
-      }
+      const result = await licenseManager.activateLicense(cleanedCode, email, {
+        targetProduct: getPluginLicensedProduct(plugin)
+      });
 
       // 记录激活尝试
       await ActivationAttemptLimiter.recordAttempt(result.success);
 
       if (result.success && result.licenseInfo) {
-        // 更新插件设置
-        plugin.settings.license = result.licenseInfo;
+        upsertPluginLocalLicense(plugin, result.licenseInfo);
+        syncPluginLicenseSettings(plugin);
         await onSave();
         
         // 显示成功状态
@@ -297,8 +307,8 @@
       const result = licenseManager.deactivateLicense();
       
       if (result.success) {
-        // 清除许可证信息
-        plugin.settings.license = null;
+        clearPluginLocalLicenses(plugin);
+        syncPluginLicenseSettings(plugin);
         await onSave();
         
         // 显示成功消息
@@ -335,14 +345,16 @@
 <!-- 激活表单容器 -->
 <div class="enhanced-activation-form" class:standalone>
   <!-- 表单标题 -->
-  <div class="form-header">
-    <h3 class="form-title">
-      许可证激活
-    </h3>
-    <p class="form-description">
-      输入激活码和邮箱以解锁高级功能
-    </p>
-  </div>
+  {#if showHeader}
+    <div class="form-header">
+      <h3 class="form-title">
+        许可证激活
+      </h3>
+      <p class="form-description">
+        输入激活码和邮箱以解锁高级功能
+      </p>
+    </div>
+  {/if}
 
   {#if isLicenseActive}
     <!-- 已激活状态 -->
@@ -361,11 +373,6 @@
               绑定邮箱: {currentLicenseInfo.boundEmail}
             </p>
           {/if}
-          {#if currentLicenseInfo.cloudSync?.devicesUsed}
-            <p class="success-details">
-              已激活设备: {currentLicenseInfo.cloudSync.devicesUsed}/{currentLicenseInfo.cloudSync.devicesMax || 5}
-            </p>
-          {/if}
           
           <!-- 激活码查看和复制区域 -->
           {#if currentLicenseInfo.activationCode}
@@ -378,14 +385,14 @@
                     onclick={() => showActivationCodeFull = !showActivationCodeFull}
                     title={showActivationCodeFull ? "收起" : "查看激活码"}
                   >
-                    <!-- /skip {@html} renders trusted internal SVG icon strings -->{@html showActivationCodeFull ? createSvgIconString('file', { size: 14 }) : createSvgIconString('eye', { size: 14 })}
+                    <Icon name={showActivationCodeFull ? 'file' : 'eye'} size={14} ariaHidden={true} />
                   </button>
                   <button
                     class="action-button"
                     onclick={handleCopyActivationCode}
                     title="复制激活码"
                   >
-                    <!-- /skip {@html} renders trusted internal SVG icon strings -->{@html createSvgIconString('copy', { size: 14 })}
+                    <Icon name="copy" size={14} ariaHidden={true} />
                   </button>
                 </div>
               </div>
@@ -624,16 +631,6 @@
         <span class="success-title">激活成功</span>
       </div>
       <div class="success-message">许可证已成功激活，高级功能已启用</div>
-      {#if cloudInfo?.replacedOldDevice}
-        <div class="cloud-notice">
-          由于设备数量已满，已自动移除最久未使用的设备
-        </div>
-      {/if}
-      {#if cloudInfo?.devicesUsed !== undefined}
-        <div class="cloud-notice">
-          当前已激活设备：{cloudInfo.devicesUsed}/{cloudInfo.devicesMax || 5}
-        </div>
-      {/if}
     </div>
   {/if}
 </div>
@@ -1109,15 +1106,6 @@
   .success-message {
     color: var(--text-normal);
     margin-bottom: 0.5rem;
-  }
-
-  .cloud-notice {
-    margin: 0.5rem 0;
-    padding: 0.5rem;
-    background: color-mix(in oklab, var(--interactive-accent), transparent 90%);
-    border-radius: 4px;
-    font-size: 0.9rem;
-    color: var(--text-muted);
   }
 
   /* 响应式设计 */

@@ -25,10 +25,12 @@ import {
 	type CardYAMLMetadata,
 	type CardYAMLType,
 	extractAllTags,
+	getCardDeckIds,
 	getCardMetadata,
-	parseYAMLFromContent,
 } from "../utils/yaml-utils";
-import { getDeckIdByName, getDeckNameMapper } from "./DeckNameMapper";
+import { keepSingleMemoryFormalDeck } from "../utils/memory-deck-membership";
+import { TagExtractor } from "../utils/tag-extractor";
+import { getDeckNameMapper } from "./DeckNameMapper";
 
 // ===== 平台感知配置 =====
 
@@ -271,28 +273,15 @@ export class CardMetadataCache {
 			const rawDeckValues = (yamlMetadata.we_decks || [])
 				.map((value) => String(value || "").trim())
 				.filter(Boolean);
-			const mapper = getDeckNameMapper();
-			const deckIds: string[] = [];
-			const normalizedDeckNames: string[] = [];
-			const seenDeckIds = new Set<string>();
-			const seenDeckNames = new Set<string>();
-
-			for (const value of rawDeckValues) {
-				const matchedDeckId =
-					getDeckIdByName(value) || (mapper.hasDeckId(value) ? value : undefined);
-				const matchedDeckName = mapper.getDeckNameById(value);
-
-				if (matchedDeckId && !seenDeckIds.has(matchedDeckId)) {
-					seenDeckIds.add(matchedDeckId);
-					deckIds.push(matchedDeckId);
-				}
-
-				const normalizedName = matchedDeckName || value;
-				if (!seenDeckNames.has(normalizedName)) {
-					seenDeckNames.add(normalizedName);
-					normalizedDeckNames.push(normalizedName);
-				}
+			let allDecks: ReturnType<ReturnType<typeof getDeckNameMapper>["getAllDecks"]> | undefined;
+			try {
+				allDecks = getDeckNameMapper().getAllDecks();
+			} catch {
+				allDecks = undefined;
 			}
+			const normalizedDeckEntries = keepSingleMemoryFormalDeck(rawDeckValues, allDecks);
+			const deckIds = normalizedDeckEntries.map((entry) => entry.deckId);
+			const normalizedDeckNames = normalizedDeckEntries.map((entry) => entry.deckName);
 
 			// 处理 we_source 可能是数组的情况
 			const sourceValue = Array.isArray(yamlMetadata.we_source)
@@ -320,32 +309,9 @@ export class CardMetadataCache {
 				decks: [],
 				deckIds: [],
 				type: "basic",
-				tags: this.extractTagsFromBodyOnly(content),
+				tags: TagExtractor.extractTagsExcludingCode(content),
 			};
 		}
-	}
-
-	/**
-	 * 仅从正文提取标签（YAML 解析失败时的回退）
-	 * @param content 卡片内容
-	 * @returns 标签数组
-	 */
-	private extractTagsFromBodyOnly(content: string): string[] {
-		const tags: string[] = [];
-		// 移除 wikilink 和 markdown URL，避免链接片段被误识别为标签
-		const cleaned = content.replace(/\[\[[^\]]*\]\]/g, "").replace(/\]\([^)]*\)/g, "](removed)");
-		const hashTagRegex = /#([^\s#\[\]{}()|\\]+)/g;
-		let match;
-
-		while ((match = hashTagRegex.exec(cleaned)) !== null) {
-			const tag = match[1];
-			if (/^\d+$/.test(tag)) continue;
-			if (tag.startsWith("^")) continue;
-			if (tag.includes("%")) continue;
-			tags.push(tag);
-		}
-
-		return tags;
 	}
 
 	// ===== 缓存失效方法 =====
@@ -395,8 +361,7 @@ export class CardMetadataCache {
 	 */
 	filterByDeck(cards: Card[], deckId: string): Card[] {
 		return cards.filter((_card) => {
-			const metadata = this.getMetadata(_card);
-			return metadata.deckIds.includes(deckId);
+			return getCardDeckIds(_card, undefined, { fallbackToReferences: false }).deckIds.includes(deckId);
 		});
 	}
 
@@ -481,8 +446,8 @@ export class CardMetadataCache {
 		const counts = new Map<string, number>();
 
 		for (const card of cards) {
-			const metadata = this.getMetadata(card);
-			for (const deckId of metadata.deckIds) {
+			const { deckIds } = getCardDeckIds(card, undefined, { fallbackToReferences: false });
+			for (const deckId of deckIds) {
 				counts.set(deckId, (counts.get(deckId) || 0) + 1);
 			}
 		}
@@ -517,8 +482,7 @@ export class CardMetadataCache {
 	 */
 	findOrphanCards(cards: Card[]): Card[] {
 		return cards.filter((_card) => {
-			const metadata = this.getMetadata(_card);
-			return metadata.deckIds.length === 0;
+			return getCardDeckIds(_card, undefined, { fallbackToReferences: false }).deckIds.length === 0;
 		});
 	}
 
@@ -528,8 +492,7 @@ export class CardMetadataCache {
 	 * @returns 是否为孤儿
 	 */
 	isOrphanCard(card: Card): boolean {
-		const metadata = this.getMetadata(card);
-		return metadata.deckIds.length === 0;
+		return getCardDeckIds(card, undefined, { fallbackToReferences: false }).deckIds.length === 0;
 	}
 
 	// ===== 统计方法 =====

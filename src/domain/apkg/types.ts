@@ -444,6 +444,14 @@ export interface ImportConfig {
 }
 
 /**
+ * 导入执行选项
+ */
+export interface ImportExecutionOptions {
+	/** 中止信号 */
+	signal?: AbortSignal;
+}
+
+/**
  * 导入阶段
  */
 export type ImportStage =

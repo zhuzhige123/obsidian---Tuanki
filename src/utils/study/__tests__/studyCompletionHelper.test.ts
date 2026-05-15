@@ -1,6 +1,8 @@
 import { CardState, CardType, type Card } from '../../../data/types';
 import {
+	getLatestCompletedStudySessionToday,
   isDeckCompleteForToday,
+  loadCardsByIds,
   loadDeckCardsForStudy,
   selectNewCardsForStudyQueue
 } from '../studyCompletionHelper';
@@ -111,4 +113,94 @@ describe('studyCompletionHelper', () => {
 
     expect(queue.map(card => card.uuid)).toEqual(['fresh-new']);
   });
+
+  it('loads cards by UUID via targeted lookup before any full scan', async () => {
+    const cardA = createCard({ uuid: 'card-a' });
+    const cardB = createCard({ uuid: 'card-b' });
+
+    const dataStorage = {
+      getCardsByUUIDs: vi.fn(async (ids: string[]) => ids.map(id => id === 'card-b' ? cardB : cardA)),
+      getAllCards: vi.fn(async () => {
+        throw new Error('should not scan all cards');
+      })
+    } as any;
+
+    const loaded = await loadCardsByIds(dataStorage, ['card-b', 'card-a']);
+
+    expect(loaded.map(card => card.uuid)).toEqual(['card-b', 'card-a']);
+    expect(dataStorage.getCardsByUUIDs).toHaveBeenCalledWith(['card-b', 'card-a']);
+    expect(dataStorage.getAllCards).not.toHaveBeenCalled();
+  });
+
+	it('returns the latest completed study session today for the same deck', async () => {
+		const dataStorage = {
+			getStudySessions: vi.fn(async () => [
+				{
+					id: 'session-old-today',
+					deckId: 'deck-target',
+					startTime: new Date('2026-03-31T08:00:00.000Z'),
+					endTime: new Date('2026-03-31T08:10:00.000Z'),
+					cardsReviewed: 3,
+					newCardsLearned: 1,
+					correctAnswers: 2,
+					totalTime: 600,
+					cardReviews: [],
+					completionReason: 'completed'
+				},
+				{
+					id: 'session-paused-today',
+					deckId: 'deck-target',
+					startTime: new Date('2026-03-31T10:00:00.000Z'),
+					endTime: new Date('2026-03-31T10:10:00.000Z'),
+					cardsReviewed: 9,
+					newCardsLearned: 0,
+					correctAnswers: 5,
+					totalTime: 600,
+					cardReviews: [],
+					completionReason: 'paused-until-next-due'
+				},
+				{
+					id: 'session-latest-completed',
+					deckId: 'deck-target',
+					startTime: new Date('2026-03-31T11:00:00.000Z'),
+					endTime: new Date('2026-03-31T11:20:00.000Z'),
+					cardsReviewed: 7,
+					newCardsLearned: 2,
+					correctAnswers: 6,
+					totalTime: 1200,
+					cardReviews: [],
+					completionReason: 'completed'
+				},
+				{
+					id: 'session-other-deck',
+					deckId: 'deck-other',
+					startTime: new Date('2026-03-31T11:30:00.000Z'),
+					endTime: new Date('2026-03-31T11:40:00.000Z'),
+					cardsReviewed: 12,
+					newCardsLearned: 0,
+					correctAnswers: 10,
+					totalTime: 600,
+					cardReviews: [],
+					completionReason: 'completed'
+				},
+				{
+					id: 'session-yesterday',
+					deckId: 'deck-target',
+					startTime: new Date('2026-03-30T23:00:00.000Z'),
+					endTime: new Date('2026-03-30T23:10:00.000Z'),
+					cardsReviewed: 20,
+					newCardsLearned: 0,
+					correctAnswers: 18,
+					totalTime: 600,
+					cardReviews: [],
+					completionReason: 'completed'
+				}
+			])
+		} as any;
+
+		const session = await getLatestCompletedStudySessionToday(dataStorage, 'deck-target');
+
+		expect(session?.id).toBe('session-latest-completed');
+		expect(session?.cardsReviewed).toBe(7);
+	});
 });

@@ -9,10 +9,12 @@
 -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { Notice, TFile } from 'obsidian';
   import type { WeavePlugin } from '../../main';
   import type { ReadingMaterial } from '../../types/incremental-reading-types';
   import { getReadingMaterialDueAt } from '../../utils/ir-topic-compat';
   import { logger } from '../../utils/logger';
+  import { showMissingSourceDocumentModal } from './MissingSourceDocumentModal';
 
   // Props
   interface Props {
@@ -122,21 +124,40 @@
     return 'rgba(139, 92, 246, 0.8)';
   }
 
+  async function showMissingSourceDocumentDialog(material: ReadingMaterial): Promise<void> {
+    const itemLabel = String(material.title || '').trim() || '未命名材料';
+    const normalizedPath = String(material.filePath || '').trim();
+    await showMissingSourceDocumentModal(plugin.app, {
+      title: '源文档未找到',
+      message: [
+        `未找到材料「${itemLabel}」对应的源文档。`,
+        normalizedPath ? `记录路径：${normalizedPath}` : '当前材料没有可用的源文档路径记录。',
+        '请检查源文档是否已被移动或删除。'
+      ],
+      acknowledgeText: '知道了'
+    });
+  }
+
   // 处理材料点击
-  function handleMaterialClick(material: ReadingMaterial): void {
+  async function handleMaterialClick(material: ReadingMaterial): Promise<void> {
     try {
       const file = plugin.app.vault.getAbstractFileByPath(material.filePath);
-      if (file) {
-        const contextPath = plugin.app.workspace.getActiveFile()?.path ?? '';
-        const linkToOpen = (material.resumeLink && material.resumeLink.trim().length > 0)
-          ? material.resumeLink
-          : material.filePath;
-        void plugin.app.workspace.openLinkText(linkToOpen, contextPath, false);
+      if (!(file instanceof TFile)) {
+        await showMissingSourceDocumentDialog(material);
+        return;
       }
-    } catch {
+
+      const contextPath = plugin.app.workspace.getActiveFile()?.path ?? '';
+      const linkToOpen = (material.resumeLink && material.resumeLink.trim().length > 0)
+        ? material.resumeLink
+        : material.filePath;
+      await plugin.app.workspace.openLinkText(linkToOpen, contextPath, false);
+      onMaterialSelect(material.uuid);
+      onClose();
+    } catch (error) {
+      logger.warn('[QuickResumeDashboard] 打开材料失败:', error);
+      new Notice('打开阅读材料失败');
     }
-    onMaterialSelect(material.uuid);
-    onClose();
   }
 
   function handleKeydown(_e: KeyboardEvent): void {

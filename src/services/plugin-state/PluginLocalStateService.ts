@@ -14,10 +14,69 @@ import type { IRCalendarSidebarSettings } from "../../types/plugin-settings.d";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
 import type { EpubBookshelfSettings } from "../epub/EpubStorageService";
+import { getEpubRuntime } from "../epub/epub-runtime";
 
 interface PersistedStudySessionState {
 	persistedStudySession?: unknown;
 	savedAt?: string;
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+	if (!Array.isArray(value)) {
+		return undefined;
+	}
+
+	const normalized = Array.from(
+		new Set(
+			value
+				.map((item) => (typeof item === "string" ? item.trim() : ""))
+				.filter(Boolean)
+		)
+	);
+
+	return normalized.length > 0 ? normalized : [];
+}
+
+function normalizeSavedGenerationConfig(value: unknown): AIAssistantSavedGenerationConfig | undefined {
+	if (!isRecord(value)) {
+		return undefined;
+	}
+
+	const normalized: AIAssistantSavedGenerationConfig = {};
+	if (typeof value.cardCount === "number") {
+		normalized.cardCount = value.cardCount;
+	}
+	if (
+		value.difficulty === "easy" ||
+		value.difficulty === "medium" ||
+		value.difficulty === "hard" ||
+		value.difficulty === "mixed"
+	) {
+		normalized.difficulty = value.difficulty;
+	}
+	if (isRecord(value.typeDistribution)) {
+		const { qa, cloze, choice } = value.typeDistribution;
+		if (typeof qa === "number" && typeof cloze === "number" && typeof choice === "number") {
+			normalized.typeDistribution = { qa, cloze, choice };
+		}
+	}
+	if (typeof value.enableHints === "boolean") {
+		normalized.enableHints = value.enableHints;
+	}
+	if (typeof value.temperature === "number") {
+		normalized.temperature = value.temperature;
+	}
+	if (typeof value.maxTokens === "number") {
+		normalized.maxTokens = value.maxTokens;
+	}
+	if (typeof value.maxGenerationLimit === "number") {
+		normalized.maxGenerationLimit = value.maxGenerationLimit;
+	}
+	if (typeof value.prioritizePromptRequirements === "boolean") {
+		normalized.prioritizePromptRequirements = value.prioritizePromptRequirements;
+	}
+
+	return Object.keys(normalized).length > 0 ? normalized : {};
 }
 
 export interface AIAssistantSavedGenerationConfig {
@@ -28,16 +87,24 @@ export interface AIAssistantSavedGenerationConfig {
 		cloze: number;
 		choice: number;
 	};
-	autoTags?: string[];
 	enableHints?: boolean;
 	temperature?: number;
 	maxTokens?: number;
+	maxGenerationLimit?: number;
+	prioritizePromptRequirements?: boolean;
 }
+
+export type AIAssistantSubView = "generate" | "parse-preview";
 
 export interface AIAssistantLocalPreferences {
 	lastUsedProvider?: AIProvider | string;
 	lastUsedModel?: string;
 	savedGenerationConfig?: AIAssistantSavedGenerationConfig;
+	importAutoTags?: string[];
+	subView?: AIAssistantSubView;
+	lastSelectedSourceFilePath?: string;
+	lastSelectedPromptFilePath?: string;
+	lastSelectedParsePresetId?: string;
 }
 
 export interface AIGenerationHistoryEntry {
@@ -48,6 +115,10 @@ export interface AIGenerationHistoryEntry {
 		name: string;
 		size: number;
 		extension: string;
+	} | null;
+	promptFile?: {
+		path: string;
+		name: string;
 	} | null;
 	sourceContent: string;
 	cards: GeneratedCard[];
@@ -112,7 +183,7 @@ const STUDY_INTERFACE_VIEW_PREFERENCES_KEY = "weave-study-interface-view-prefere
 const IR_CALENDAR_SIDEBAR_SETTINGS_KEY = "weave-ir-calendar-sidebar-settings";
 const AI_ASSISTANT_PREFERENCES_KEY = "weave-ai-assistant-preferences";
 const CREATE_CARD_PREFERENCES_KEY = "weave-create-card-preferences";
-const EPUB_BOOKSHELF_SETTINGS_KEY = "weave-epub-bookshelf-settings";
+const EPUB_BOOKSHELF_SETTINGS_KEY = `${getEpubRuntime().pluginId}-epub-bookshelf-settings`;
 const EDITOR_MODAL_SIZE_STATE_KEY = "weave-editor-modal-size-state";
 const PLUGIN_DATA_RECOVERY_DIR_NAME = "config-recovery";
 const LAST_GOOD_PLUGIN_DATA_FILE_NAME = "plugin-data-last-good.json";
@@ -551,9 +622,28 @@ export class PluginLocalStateService {
 		if (typeof value.lastUsedModel === "string") {
 			normalized.lastUsedModel = value.lastUsedModel;
 		}
-		if (isRecord(value.savedGenerationConfig)) {
-			normalized.savedGenerationConfig =
-				value.savedGenerationConfig as unknown as AIAssistantSavedGenerationConfig;
+		const savedGenerationConfig = normalizeSavedGenerationConfig(value.savedGenerationConfig);
+		if (savedGenerationConfig) {
+			normalized.savedGenerationConfig = savedGenerationConfig;
+		}
+		const importAutoTags = normalizeStringArray(value.importAutoTags)
+			?? (isRecord(value.savedGenerationConfig)
+				? normalizeStringArray(value.savedGenerationConfig.autoTags)
+				: undefined);
+		if (Array.isArray(importAutoTags)) {
+			normalized.importAutoTags = importAutoTags;
+		}
+		if (value.subView === "generate" || value.subView === "parse-preview") {
+			normalized.subView = value.subView;
+		}
+		if (typeof value.lastSelectedSourceFilePath === "string") {
+			normalized.lastSelectedSourceFilePath = value.lastSelectedSourceFilePath;
+		}
+		if (typeof value.lastSelectedPromptFilePath === "string") {
+			normalized.lastSelectedPromptFilePath = value.lastSelectedPromptFilePath;
+		}
+		if (typeof value.lastSelectedParsePresetId === "string") {
+			normalized.lastSelectedParsePresetId = value.lastSelectedParsePresetId;
 		}
 		return normalized;
 	}
@@ -580,14 +670,12 @@ export class PluginLocalStateService {
 	private normalizeEpubBookshelfSettings(value: unknown): EpubBookshelfSettings {
 		if (!isRecord(value)) {
 			return {
-				sourceMode: "cache-first",
-				sourceFolder: "",
+				lastScanAt: 0,
 			};
 		}
 
 		return {
-			sourceMode: value.sourceMode === "folder-only" ? "folder-only" : "cache-first",
-			sourceFolder: typeof value.sourceFolder === "string" ? value.sourceFolder : "",
+			lastScanAt: typeof value.lastScanAt === "number" ? value.lastScanAt : 0,
 		};
 	}
 

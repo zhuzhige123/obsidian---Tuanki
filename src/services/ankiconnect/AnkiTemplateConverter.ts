@@ -7,6 +7,7 @@ import { logger } from "../../utils/logger";
 import type { WeavePlugin } from "../../main";
 import type { AnkiModelInfo } from "../../types/ankiconnect-types";
 import type { ParseTemplate, TemplateField } from "../../types/newCardParsingTypes";
+import { wrapWithConfiguredCloze } from "../../utils/cloze-syntax";
 
 export interface ConversionResult {
 	template: ParseTemplate;
@@ -178,7 +179,7 @@ export class AnkiTemplateConverter {
 		markdown = markdown.replace(/<strong>(.*?)<\/strong>/gi, "**$1**");
 		markdown = markdown.replace(/<i>(.*?)<\/i>/gi, "*$1*");
 		markdown = markdown.replace(/<em>(.*?)<\/em>/gi, "*$1*");
-		markdown = markdown.replace(/<u>(.*?)<\/u>/gi, "==$1==");
+		markdown = markdown.replace(/<u>(.*?)<\/u>/gi, (_match, text) => wrapWithConfiguredCloze(text));
 		markdown = markdown.replace(/<code>(.*?)<\/code>/gi, "`$1`");
 
 		// 移除其他 HTML 标签，但保留内容

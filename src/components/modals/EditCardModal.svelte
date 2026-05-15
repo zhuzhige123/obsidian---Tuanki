@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import { logger } from '../../utils/logger';
+  import { MEMORY_DECK_UI_TEXT } from '../../constants/memory-deck-ui-text';
 
   import { onMount, untrack } from 'svelte';
   import type { WeavePlugin } from '../../main';
@@ -84,12 +85,7 @@
       if (matched?.name) names.push(matched.name);
     }
 
-    if (names.length === 0 && decks.length > 0) {
-      names.push(decks[0].name);
-      selectedDeckId = decks[0].id;
-    }
-
-    return Array.from(new Set(names));
+    return names.length > 0 ? [names[0]] : [];
   }
   
   // 移动端禁用透明遮罩，避免事件穿透导致需要点击两次
@@ -154,16 +150,11 @@
   }
 
   function handleDecksChange(names: string[]) {
-    if (!names || names.length === 0) {
-      new Notice('卡片必须至少属于一个牌组', 3000);
-      return;
-    }
-    selectedDeckNames = names;
-    const primaryName = names[0];
+    const nextNames = names.length > 0 ? [names[0]] : [];
+    selectedDeckNames = nextNames;
+    const primaryName = nextNames[0];
     const primaryDeck = decks.find(d => d.name === primaryName);
-    if (primaryDeck?.id) {
-      selectedDeckId = primaryDeck.id;
-    }
+    selectedDeckId = primaryDeck?.id || '';
     logger.debug('[EditCardModal] 牌组变更:', { selectedDeckNames, selectedDeckId });
   }
 
@@ -171,7 +162,7 @@
   let lastMenuPosition: { x: number; y: number } | null = null;
 
   function getDeckSelectorText(): string {
-    if (!selectedDeckNames || selectedDeckNames.length === 0) return '选择牌组...';
+    if (!selectedDeckNames || selectedDeckNames.length === 0) return MEMORY_DECK_UI_TEXT.unassigned;
     return selectedDeckNames.join('、');
   }
 
@@ -186,18 +177,10 @@
         item.setTitle(deck.name);
         item.setIcon(checked ? 'check-square' : 'square');
         item.onClick(() => {
-          const current = Array.isArray(selectedDeckNames) ? selectedDeckNames : [];
-          const wasSelected = current.includes(deck.name);
-
-          if (wasSelected && current.length <= 1) {
-            new Notice('卡片必须至少属于一个牌组', 3000);
-            return;
-          }
-
-          const next = wasSelected
-            ? current.filter(n => n !== deck.name)
-            : (current.includes(deck.name) ? current : current.concat(deck.name));
-
+          const currentName = Array.isArray(selectedDeckNames) && selectedDeckNames.length > 0
+            ? selectedDeckNames[0]
+            : '';
+          const next = currentName === deck.name ? [] : [deck.name];
           handleDecksChange(next);
 
           if (lastMenuPosition) {
@@ -245,7 +228,7 @@
           }
         }}
       >
-        <span class="deck-multi-selector-label">牌组:</span>
+        <span class="deck-multi-selector-label">{MEMORY_DECK_UI_TEXT.editableFormalAssignment}:</span>
         <span class="deck-multi-selector-value">{getDeckSelectorText()}</span>
       </button>
     {/if}
@@ -293,4 +276,5 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
 </style>

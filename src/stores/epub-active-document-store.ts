@@ -5,8 +5,18 @@
  * - services: 全局侧边栏用于读取TOC/高亮并执行导航
  */
 
-import type { EpubAnnotationService, EpubBook, EpubReaderEngine, TocItem } from "../services/epub";
+import type { EpubAnnotationService, EpubBook, EpubExcerptSettings, EpubReaderEngine, TocItem } from "../services/epub";
+import type { FlashStyle, PaginationInfo } from "../services/epub";
 import type { EpubBacklinkHighlightService } from "../services/epub/EpubBacklinkHighlightService";
+
+export interface EpubNavigationRequest {
+	cfi?: string;
+	href?: string;
+	text?: string;
+	flashStyle?: FlashStyle;
+	flashColor?: string;
+	showLocateOverlay?: boolean;
+}
 
 export interface EpubSharedState {
 	filePath: string | null;
@@ -14,11 +24,20 @@ export interface EpubSharedState {
 	annotationService: EpubAnnotationService | null;
 	backlinkService: EpubBacklinkHighlightService | null;
 	book: EpubBook | null;
+	excerptSettings: EpubExcerptSettings | null;
 	annotationRevision: number;
+	bookmarkRevision: number;
 	progress: number;
+	chapterTitle: string;
+	paginationInfo: PaginationInfo | null;
+	navigationBusy: boolean;
+	navigationLabel: string;
+	searchQuerySeed: string;
+	searchRequestNonce: number;
 	onSettingsClick: ((evt: MouseEvent) => void) | null;
 	onSwitchBook: ((filePath: string) => void) | null;
 	onCreateChapterReadingPoint: ((item: TocItem) => Promise<void>) | null;
+	onNavigate: ((request: EpubNavigationRequest) => void) | null;
 }
 
 type Subscriber = (state: EpubSharedState) => void;
@@ -30,11 +49,20 @@ const EMPTY_STATE: EpubSharedState = {
 	annotationService: null,
 	backlinkService: null,
 	book: null,
+	excerptSettings: null,
 	annotationRevision: 0,
+	bookmarkRevision: 0,
 	progress: 0,
+	chapterTitle: "",
+	paginationInfo: null,
+	navigationBusy: false,
+	navigationLabel: "",
+	searchQuerySeed: "",
+	searchRequestNonce: 0,
 	onSettingsClick: null,
 	onSwitchBook: null,
 	onCreateChapterReadingPoint: null,
+	onNavigate: null,
 };
 
 class EpubActiveDocumentStore {

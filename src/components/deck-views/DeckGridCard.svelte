@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { Deck, DeckStats } from '../../data/types';
   import type { ColorScheme, CardState } from '../../config/card-color-schemes';
+  import type { MemoryDeckLevelProgress } from '../../services/deck/MemoryDeckLevelService';
   import { getCardState } from '../../config/card-color-schemes';
+  import DeckLevelBadge from '../ui/DeckLevelBadge.svelte';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   //  导入国际化
   import { tr } from '../../utils/i18n';
@@ -10,12 +12,15 @@
     deck: Deck;
     stats: DeckStats;
     colorScheme: ColorScheme;
+    levelProgress?: MemoryDeckLevelProgress;
     deckMode?: 'memory' | 'question-bank' | 'incremental-reading';
+    statusBadge?: string;
+    statusKind?: 'formal' | 'emergent';
     onStudy: () => void;
     onMenu: (event: MouseEvent) => void;
   }
 
-  let { deck, stats, colorScheme, deckMode = 'memory', onStudy, onMenu }: Props = $props();
+  let { deck, stats, colorScheme, levelProgress, deckMode = 'memory', statusBadge, statusKind = 'formal', onStudy, onMenu }: Props = $props();
   
   //  响应式翻译函数
   let t = $derived($tr);
@@ -50,19 +55,55 @@
     return `background: ${colorScheme.infoBar.background}; color: ${colorScheme.infoBar.textColor};`;
   });
 
+  let pendingStudyPointerId = $state<number | null>(null);
+
   // 处理点击事件
   function handleClick() {
     onStudy();
   }
 
+  function resetStudyPointerIntent() {
+    pendingStudyPointerId = null;
+  }
+
+  function isMenuButtonTarget(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest('.menu-btn') !== null;
+  }
+
+  function handlePointerDown(event: PointerEvent) {
+    if (event.button !== 0 || isMenuButtonTarget(event.target)) {
+      resetStudyPointerIntent();
+      return;
+    }
+
+    pendingStudyPointerId = event.pointerId;
+  }
+
+  function handlePointerUp(event: PointerEvent) {
+    if (pendingStudyPointerId !== event.pointerId || isMenuButtonTarget(event.target)) {
+      resetStudyPointerIntent();
+      return;
+    }
+
+    resetStudyPointerIntent();
+    handleClick();
+  }
+
   // 处理右键菜单
   function handleContextMenu(event: MouseEvent) {
+    resetStudyPointerIntent();
     event.preventDefault();
     onMenu(event);
   }
 
   // 处理菜单按钮点击
+  function handleMenuPointerDown(event: PointerEvent) {
+    resetStudyPointerIntent();
+    event.stopPropagation();
+  }
+
   function handleMenuClick(event: MouseEvent) {
+    resetStudyPointerIntent();
     event.preventDefault();
     event.stopPropagation();
     onMenu(event);
@@ -79,10 +120,9 @@
 
 <div 
   class="deck-grid-card"
-  onclick={(event) => {
-    if (event.defaultPrevented) return;
-    handleClick();
-  }}
+  onpointerdown={handlePointerDown}
+  onpointerup={handlePointerUp}
+  onpointercancel={resetStudyPointerIntent}
   onkeydown={handleKeyDown}
   oncontextmenu={handleContextMenu}
   role="button"
@@ -93,16 +133,29 @@
   <div class="card-main" style={mainStyle()}>
     <!-- 微妙的光效层 -->
     <div class="light-effect"></div>
+
+    {#if statusBadge}
+      <div class="status-badge status-badge--{statusKind}">
+        {statusBadge}
+      </div>
+    {/if}
     
     <!-- 右上角菜单按钮 -->
     <button 
       class="menu-btn"
+      onpointerdown={handleMenuPointerDown}
       onclick={handleMenuClick}
       aria-label={t('decks.card.moreActions')}
       title={t('decks.card.moreActions')}
     >
       <EnhancedIcon name="more-horizontal" size={16} />
     </button>
+    
+    {#if deckMode === 'memory' && levelProgress}
+      <div class="level-badge-wrap">
+        <DeckLevelBadge progress={levelProgress} />
+      </div>
+    {/if}
     
     <div class="deck-title">
       {deck.name}
@@ -203,6 +256,32 @@
     touch-action: manipulation;
   }
 
+  .status-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(8px);
+  }
+
+  .status-badge--formal {
+    background: rgba(15, 23, 42, 0.18);
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .status-badge--emergent {
+    background: rgba(255, 255, 255, 0.16);
+    color: rgba(255, 255, 255, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+  }
+
   .deck-grid-card:hover .menu-btn {
     opacity: 1;
   }
@@ -215,6 +294,17 @@
 
   .menu-btn:active {
     transform: scale(0.95);
+  }
+
+  .level-badge-wrap {
+    position: absolute;
+    right: 20px;
+    bottom: 18px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
   }
 
   /* 移动端始终显示菜单按钮 */
@@ -338,6 +428,11 @@
     gap: 8px;
   }
 
+  :global(body.is-phone) .level-badge-wrap {
+    right: 16px;
+    bottom: 14px;
+  }
+
   /* 手机端：始终显示菜单按钮 */
   :global(body.is-phone) .menu-btn {
     opacity: 1;
@@ -383,6 +478,11 @@
     .menu-btn {
       opacity: 1;
     }
+
+    .level-badge-wrap {
+      right: 16px;
+      bottom: 14px;
+    }
   }
 
   @container deck-card (max-width: 280px) {
@@ -421,6 +521,11 @@
       right: 8px;
       width: 28px;
       height: 28px;
+    }
+
+    .level-badge-wrap {
+      right: 12px;
+      bottom: 12px;
     }
   }
 </style>

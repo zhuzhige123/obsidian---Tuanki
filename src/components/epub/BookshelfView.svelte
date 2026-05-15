@@ -6,17 +6,18 @@
         import { onDestroy, onMount, untrack } from 'svelte';
         import { setIcon, TFile, TAbstractFile, Menu, Notice, normalizePath } from 'obsidian';
         import type { App } from 'obsidian';
-        import { VIEW_TYPE_EPUB } from '../../views/EpubView';
         import { logger } from '../../utils/logger';
         import {
                 EpubStorageService,
-                type EpubBookshelfSettings,
-                DEFAULT_EPUB_BOOKSHELF_SETTINGS
+                EPUB_RUNTIME,
+                resolveEpubHost
         } from '../../services/epub';
+        import { getBookFormatDisplayLabel, isSupportedBookFile, stripSupportedBookExtension } from '../../services/epub/book-format';
         import { FoliateVaultPublicationParser } from '../../services/epub/FoliateVaultPublicationParser';
         import type { EpubBook } from '../../services/epub';
         import { epubActiveDocumentStore } from '../../stores/epub-active-document-store';
         import { showObsidianConfirm } from '../../utils/obsidian-confirm';
+        import { openEpubInPreferredLeaf } from '../../utils/epub-leaf-utils';
 
         interface EpubFileInfo {
                 path: string;
@@ -64,8 +65,8 @@
         let coverLoadTimer: ReturnType<typeof setTimeout> | null = null;
         const storageService = untrack(() => new EpubStorageService(app));
         const MAX_VISIBLE_COVER_LOADS = 18;
-        const BOOKSHELF_SETTINGS_CHANGED_EVENT = 'Weave:epub-bookshelf-settings-changed';
-        const BOOKSHELF_REFRESH_REQUEST_EVENT = 'Weave:epub-bookshelf-refresh-request';
+        const BOOKSHELF_DATA_CHANGED_EVENT = EPUB_RUNTIME.events.bookshelfDataChanged;
+        const BOOKSHELF_REFRESH_REQUEST_EVENT = EPUB_RUNTIME.events.bookshelfRefreshRequest;
 
         function icon(node: HTMLElement, name: string) {
                 setIcon(node, name);
@@ -78,16 +79,8 @@
                 };
         }
 
-        function getBookshelfSettings(): EpubBookshelfSettings {
-                const plugin = (app as any)?.plugins?.getPlugin?.('weave');
-                if (plugin && typeof plugin.getEpubBookshelfSettings === 'function') {
-                        return plugin.getEpubBookshelfSettings();
-                }
-                return { ...DEFAULT_EPUB_BOOKSHELF_SETTINGS };
-        }
-
-        function getWeavePlugin(): any {
-                return (app as any)?.plugins?.getPlugin?.('weave');
+        function getEpubHost(): any {
+                return resolveEpubHost(app) as any;
         }
 
         function setBookshelfFiles(files: EpubFileInfo[]) {
@@ -166,7 +159,7 @@
                                         return entry;
                                 }
 
-                                const newName = remappedPath.split('/').pop()?.replace(/\.epub$/i, '') || entry.name;
+                                const newName = stripSupportedBookExtension(remappedPath.split('/').pop() || '') || entry.name;
                                 const slashIndex = remappedPath.lastIndexOf('/');
                                 return {
                                         ...entry,
@@ -312,6 +305,11 @@
                 return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
         }
 
+        function clampProgress(progress: number): number {
+                if (!Number.isFinite(progress)) return 0;
+                return Math.max(0, Math.min(100, Math.round(progress)));
+        }
+
         function handleBookKeydown(event: KeyboardEvent, path: string) {
                 if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
@@ -344,14 +342,8 @@
                 }
                 loadingBooks = true;
                 try {
-                        const bookshelfSettings = getBookshelfSettings();
                         const currentRunId = ++refreshRunId;
-                        let cached = bookshelfSettings.sourceMode === 'folder-only'
-                                ? await storageService.loadBookshelfEntriesForFolder(bookshelfSettings.sourceFolder)
-                                : await storageService.loadBookshelfIndex();
-                        if (bookshelfSettings.sourceMode === 'cache-first' && cached.length === 0) {
-                                cached = await storageService.rebuildBookshelfIndex();
-                        }
+                        const cached = await storageService.listBookshelfEntries();
                         setBookshelfFiles(cached);
                         syncCoverCacheWithFiles();
                         await loadBookMetadata(cached, currentRunId);
@@ -373,24 +365,10 @@
                 loadingBooks = true;
 
                 try {
-                        const bookshelfSettings = getBookshelfSettings();
-                        if (bookshelfSettings.sourceMode === 'folder-only' && !bookshelfSettings.sourceFolder) {
-                                cancelScheduledCoverLoading();
-                                setBookshelfFiles([]);
-                                syncCoverCacheWithFiles();
-                                bookMetaByPath = new Map();
-                                if (showNotice) {
-                                        new Notice('weave：请先选择 EPUB 书架指定文件夹');
-                                }
-                                return;
-                        }
-
                         const result = await storageService.pruneMissingBooks();
                         const currentRunId = ++refreshRunId;
                         cancelScheduledCoverLoading();
-                        const rebuilt = bookshelfSettings.sourceMode === 'folder-only'
-                                ? await storageService.rebuildBookshelfIndex(bookshelfSettings.sourceFolder)
-                                : await storageService.rebuildBookshelfIndex();
+                        const rebuilt = await storageService.listBookshelfEntries();
                         setBookshelfFiles(rebuilt);
                         syncCoverCacheWithFiles();
                         await loadBookMetadata(rebuilt, currentRunId);
@@ -398,14 +376,14 @@
 
                         if (showNotice) {
                                 const message = result.removedPaths.length > 0
-                                        ? `weave：书架已刷新，并清理 ${result.removedPaths.length} 条失效书籍记录`
-                                        : 'weave：书架已刷新';
+                                        ? `EPUB：书架已刷新，并清理 ${result.removedPaths.length} 条失效书籍记录`
+                                        : 'EPUB：书架已刷新';
                                 new Notice(message);
                         }
                 } catch (error) {
                         logger.error('Failed to refresh EPUB bookshelf:', error);
                         if (showNotice) {
-                                new Notice('weave：刷新书架失败');
+                                new Notice('EPUB：刷新书架失败');
                         }
                 } finally {
                         loadingBooks = false;
@@ -414,75 +392,68 @@
         }
 
         function removeInvalidFile(filePath: string) {
-                        epubFiles = epubFiles.filter((file) => file.path !== filePath);
-                        covers.delete(filePath);
-                        covers = new Map(covers);
-                        coverCache.delete(filePath);
-                        bookMetaByPath.delete(filePath);
-                        bookMetaByPath = new Map(bookMetaByPath);
+                epubFiles = epubFiles.filter((file) => file.path !== filePath);
+                covers.delete(filePath);
+                covers = new Map(covers);
+                coverCache.delete(filePath);
+                bookMetaByPath.delete(filePath);
+                bookMetaByPath = new Map(bookMetaByPath);
         }
 
         function resetBookStateInList(filePath: string) {
-                        bookMetaByPath.delete(filePath);
-                        bookMetaByPath = new Map(bookMetaByPath);
+                bookMetaByPath.delete(filePath);
+                bookMetaByPath = new Map(bookMetaByPath);
         }
 
         function getBookDisplayName(filePath: string): string {
-                        const file = app.vault.getAbstractFileByPath(filePath);
-                        if (file instanceof TFile) {
-                                return file.basename || '当前书籍';
-                        }
-                        return filePath.split('/').pop()?.replace(/\.epub$/i, '') || '当前书籍';
+                const file = app.vault.getAbstractFileByPath(filePath);
+                if (file instanceof TFile) {
+                        return file.basename || '当前书籍';
+                }
+                return stripSupportedBookExtension(filePath.split('/').pop() || '') || '当前书籍';
         }
 
         function closeOpenEpubLeaves(filePath: string) {
-                        const leaves = app.workspace.getLeavesOfType(VIEW_TYPE_EPUB);
-                        for (const leaf of leaves) {
-                                const state = leaf.getViewState();
-                                const leafFilePath = state?.state?.filePath || state?.state?.file || '';
-                                if (leafFilePath === filePath) {
-                                        leaf.detach();
-                                }
+                const leaves = app.workspace.getLeavesOfType(EPUB_RUNTIME.viewTypes.reader);
+                for (const leaf of leaves) {
+                        const state = leaf.getViewState();
+                        const leafFilePath = state?.state?.filePath || state?.state?.file || '';
+                        if (leafFilePath === filePath) {
+                                leaf.detach();
                         }
+                }
         }
 
         async function removeBookFromShelf(filePath: string) {
-                        const displayName = getBookDisplayName(filePath);
-                        const confirmed = await showObsidianConfirm(
-                                app,
-                                `确认从 EPUB 书架移除《${displayName}》吗？\n\n这不会删除库里的原始 EPUB 文件，但会清空这本书的阅读进度、书签、高亮和笔记缓存。之后重新打开该 EPUB 时，会按新导入处理。`,
-                                {
-                                        title: '确认移除书籍',
-                                        confirmText: '移除',
-                                        cancelText: '取消',
-                                        confirmClass: 'mod-warning'
-                                }
-                        );
-                        if (!confirmed) {
-                                return;
+                const displayName = getBookDisplayName(filePath);
+                const confirmed = await showObsidianConfirm(
+                        app,
+                        `确认从 EPUB 书架移除《${displayName}》吗？\n\n这不会删除库里的原始 EPUB 文件，但会清空这本书的阅读进度、书签、高亮和笔记缓存。之后重新打开该 EPUB 时，会按新导入处理。`,
+                        {
+                                title: '确认移除书籍',
+                                confirmText: '移除',
+                                cancelText: '取消',
+                                confirmClass: 'mod-warning'
                         }
+                );
+                if (!confirmed) {
+                        return;
+                }
 
-                        try {
-                                const bookshelfSettings = getBookshelfSettings();
-                                await storageService.removeBookByFilePath(filePath);
+                try {
+                        await storageService.removeBookFromBookshelf(filePath, { purgeCache: true });
 
-                                if (epubActiveDocumentStore.getActiveDocument() === filePath) {
-                                        epubActiveDocumentStore.clearActiveDocument(filePath);
-                                }
-                                closeOpenEpubLeaves(filePath);
-
-                                if (bookshelfSettings.sourceMode === 'folder-only') {
-                                        resetBookStateInList(filePath);
-                                        new Notice(`已清空《${displayName}》的阅读缓存，源文件仍在书架目录中，重新打开即可重新导入`);
-                                        return;
-                                }
-
-                                removeInvalidFile(filePath);
-                                new Notice(`已从书架移除《${displayName}》，之后可重新导入`);
-                        } catch (error) {
-                                logger.error('Failed to remove EPUB book from shelf:', error);
-                                new Notice(`移除《${displayName}》失败`);
+                        if (epubActiveDocumentStore.getActiveDocument() === filePath) {
+                                epubActiveDocumentStore.clearActiveDocument(filePath);
                         }
+                        closeOpenEpubLeaves(filePath);
+
+                        removeInvalidFile(filePath);
+                        new Notice(`已从书架移除《${displayName}》，之后可重新导入`);
+                } catch (error) {
+                        logger.error('Failed to remove EPUB book from shelf:', error);
+                        new Notice(`移除《${displayName}》失败`);
+                }
         }
 
         async function switchBook(filePath: string) {
@@ -491,10 +462,10 @@
                 refreshRunId++;
                 cancelScheduledCoverLoading();
                 const file = app.vault.getAbstractFileByPath(filePath);
-                if (!(file instanceof TFile) || file.extension !== 'epub') {
+                if (!(file instanceof TFile) || !isSupportedBookFile(file)) {
                         removeInvalidFile(filePath);
                         await storageService.pruneMissingBooks();
-                        new Notice('weave：这本书的源文件已不存在，已从书架移除');
+                        new Notice('这本书的源文件已不存在，已从书架移除');
                         openingBookPath = null;
                         return;
                 }
@@ -519,20 +490,13 @@
 
         async function openBookInNewTab(filePath: string) {
                 try {
-                        const plugin = getWeavePlugin();
+                        const plugin = getEpubHost();
                         if (plugin && typeof plugin.openEpubReader === 'function') {
                                 await plugin.openEpubReader(filePath);
                                 return;
                         }
 
-                        const leaf = app.workspace.getLeaf('tab');
-                        if (!leaf) return;
-                        await leaf.setViewState({
-                                type: VIEW_TYPE_EPUB,
-                                active: true,
-                                state: { filePath }
-                        });
-                        app.workspace.revealLeaf(leaf);
+                        await openEpubInPreferredLeaf(app, filePath);
                 } catch (error) {
                         logger.error('Failed to open EPUB:', error);
                 }
@@ -559,13 +523,11 @@
 
         function buildMetaText(file: EpubFileInfo, meta?: BookshelfBookMeta): string {
                 const author = meta?.author || '';
-                const progress = meta?.progress || 0;
+                const formatLabel = getBookFormatDisplayLabel(file.path);
 
-                if (progress > 0) {
-                        return author ? `${author} · ${progress}%` : `${progress}%`;
-                }
-
-                return author ? `${author} · ${formatSize(file.size)}` : formatSize(file.size);
+                return author
+                        ? `${author} · ${formatLabel} · ${formatSize(file.size)}`
+                        : `${formatLabel} · ${formatSize(file.size)}`;
         }
 
         let displayBooks = $derived.by(() => {
@@ -603,17 +565,10 @@
 
         let lastHandledRefreshToken = untrack(() => refreshToken);
         let emptyStateMessage = $derived.by(() => {
-                const bookshelfSettings = getBookshelfSettings();
                 if (epubFiles.length > 0) {
                         return `未找到“${searchQuery}”的结果`;
                 }
-                if (bookshelfSettings.sourceMode === 'folder-only' && !bookshelfSettings.sourceFolder) {
-                        return '请先在底部设置菜单中选择 EPUB 书架文件夹';
-                }
-                if (bookshelfSettings.sourceMode === 'folder-only') {
-                        return `指定文件夹“${bookshelfSettings.sourceFolder}”中未找到 EPUB 文件`;
-                }
-                return '当前仓库中未找到 EPUB 文件。';
+                return '当前书架中还没有书籍或漫画，先去扫描仓库并加入书架吧。';
         });
 
         function handleBookshelfSettingsChanged() {
@@ -624,20 +579,130 @@
                 void refreshBookshelf(true);
         }
 
+        function notifyBookshelfChanged(includeRefreshRequest = false) {
+                window.dispatchEvent(new CustomEvent(BOOKSHELF_DATA_CHANGED_EVENT));
+                if (includeRefreshRequest) {
+                        window.dispatchEvent(new CustomEvent(BOOKSHELF_REFRESH_REQUEST_EVENT));
+                }
+        }
+
+        async function openScanImportModal(
+                showAllEntries = false,
+                scanEntries?: Awaited<ReturnType<typeof storageService.loadScanIndex>>
+        ) {
+                const entries = scanEntries ?? await storageService.loadScanIndex();
+                if (entries.length === 0) {
+                        new Notice('书架：当前仓库中未发现书籍或漫画');
+                        return;
+                }
+
+                const membership = await storageService.loadBookshelfMembership();
+                const membershipPaths = new Set(membership.map((entry) => entry.path));
+                const unaddedCount = entries.filter((entry) => !membershipPaths.has(entry.path)).length;
+                if (!showAllEntries && unaddedCount === 0) {
+                        new Notice('书架：扫描结果里没有新的书籍或漫画可加入');
+                        return;
+                }
+
+                const { EpubBookshelfImportModal } = await import('../modals/EpubBookshelfImportModal');
+                const modal = new EpubBookshelfImportModal(app, {
+                        entries,
+                        membership,
+                        title: '扫描结果',
+                        onConfirm: async (paths: string[]) => {
+                                const addedEntries = await storageService.addBooksToBookshelf(paths);
+                                if (addedEntries.length === 0) {
+                                        new Notice('书架：所选书籍或漫画已在书架中');
+                                        return;
+                                }
+
+                                await refreshBookshelf();
+                                notifyBookshelfChanged(false);
+                                new Notice(`书架：已加入 ${addedEntries.length} 本书籍或漫画`);
+                        },
+                });
+                modal.open();
+        }
+
+        async function scanVaultAndPromptImport() {
+                try {
+                        const scanEntries = await storageService.scanVaultEpubs();
+                        notifyBookshelfChanged(false);
+
+                        if (scanEntries.length === 0) {
+                                new Notice('书架：当前仓库中未发现书籍或漫画');
+                                return;
+                        }
+
+                        await openScanImportModal(false, scanEntries);
+                } catch (error) {
+                        logger.error('Failed to scan vault EPUB files:', error);
+                        new Notice('书架：扫描书籍和漫画失败');
+                }
+        }
+
+        async function requestBookshelfRefresh() {
+                try {
+                        const result = await storageService.pruneMissingBooks();
+                        await refreshBookshelf();
+                        notifyBookshelfChanged(false);
+                        const cleanupText = result.removedPaths.length > 0
+                                ? `，并清理 ${result.removedPaths.length} 条失效记录`
+                                : '';
+                        new Notice(`EPUB：书架已刷新${cleanupText}`);
+                } catch (error) {
+                        logger.error('Failed to refresh EPUB bookshelf:', error);
+                        new Notice('EPUB：刷新 EPUB 书架失败');
+                }
+        }
+
+        function openFallbackSettingsMenu(event: MouseEvent) {
+                const menu = new Menu();
+                menu.addItem((item) => {
+                        item.setTitle('扫描仓库书籍和漫画')
+                                .setIcon('scan-search')
+                                .onClick(() => {
+                                        void scanVaultAndPromptImport();
+                                });
+                });
+                menu.addItem((item) => {
+                        item.setTitle('刷新书架')
+                                .setIcon('refresh-cw')
+                                .onClick(() => {
+                                        void requestBookshelfRefresh();
+                                });
+                });
+                menu.showAtMouseEvent(event);
+        }
+
+        function handleSettingsAction(event: MouseEvent) {
+                if (onSettingsClick) {
+                        onSettingsClick(event);
+                        return;
+                }
+                openFallbackSettingsMenu(event);
+        }
+
         onMount(() => {
                 void loadBookshelfFromCache();
-                window.addEventListener(BOOKSHELF_SETTINGS_CHANGED_EVENT, handleBookshelfSettingsChanged);
+                window.addEventListener(BOOKSHELF_DATA_CHANGED_EVENT, handleBookshelfSettingsChanged);
                 window.addEventListener(BOOKSHELF_REFRESH_REQUEST_EVENT, handleBookshelfRefreshRequest);
                 const renameRef = app.vault.on('rename', (file, oldPath) => {
                         handleVaultRename(file, oldPath);
                 });
+                const deleteRef = app.vault.on('delete', (file) => {
+                        const deletedPath = normalizePath(file.path || '');
+                        if (!deletedPath) return;
+                        removeInvalidFile(deletedPath);
+                });
                 return () => {
                         app.vault.offref(renameRef);
+                        app.vault.offref(deleteRef);
                 };
         });
 
         onDestroy(() => {
-                window.removeEventListener(BOOKSHELF_SETTINGS_CHANGED_EVENT, handleBookshelfSettingsChanged);
+                window.removeEventListener(BOOKSHELF_DATA_CHANGED_EVENT, handleBookshelfSettingsChanged);
                 window.removeEventListener(BOOKSHELF_REFRESH_REQUEST_EVENT, handleBookshelfRefreshRequest);
         });
 
@@ -663,28 +728,32 @@
         </div>
         <div class="epub-bookshelf-actions">
                 <button
-                        class="epub-icon-btn"
+                        type="button"
+                        class="epub-toolbar-btn clickable-icon view-action"
                         title={searching ? '关闭搜索' : '搜索'}
+                        aria-label={searching ? '关闭搜索' : '搜索'}
                         onclick={() => { searching = !searching; if (!searching) searchQuery = ''; }}
                 >
                         <span use:icon={searching ? 'x' : 'search'}></span>
                 </button>
                 <button
-                        class="epub-icon-btn"
+                        type="button"
+                        class="epub-toolbar-btn clickable-icon view-action"
                         title="返回"
+                        aria-label="返回"
                         onclick={() => onClose()}
                 >
-                        <span use:icon={'book-open'}></span>
+                        <span use:icon={'arrow-left'}></span>
                 </button>
-                {#if onSettingsClick}
-                        <button
-                                class="epub-icon-btn"
-                                title="设置"
-                                onclick={(event: MouseEvent) => onSettingsClick?.(event)}
-                        >
-                                <span use:icon={'settings'}></span>
-                        </button>
-                {/if}
+                <button
+                        type="button"
+                        class="epub-toolbar-btn clickable-icon view-action"
+                        title="设置"
+                        aria-label="设置"
+                        onclick={handleSettingsAction}
+                >
+                        <span use:icon={'settings'}></span>
+                </button>
         </div>
 </div>
 
@@ -719,24 +788,28 @@
                 gap: 8px;
         }
 
-        .epub-icon-btn {
-                width: 36px;
-                height: 36px;
+        .epub-toolbar-btn {
+                width: var(--clickable-icon-size, 32px);
+                height: var(--clickable-icon-size, 32px);
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                border: 1px solid color-mix(in srgb, var(--background-modifier-border) 76%, transparent);
-                border-radius: 12px;
-                background: color-mix(in srgb, var(--weave-elevated-background, var(--background-primary)) 96%, transparent);
+                padding: 0;
+                border: none;
+                border-radius: var(--clickable-icon-radius, 4px);
+                background: transparent;
                 color: var(--text-muted);
-                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
-                transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+                box-shadow: none;
+                transition: background-color 0.14s ease, color 0.14s ease;
         }
 
-        .epub-icon-btn:hover {
+        .epub-toolbar-btn:hover {
                 color: var(--text-normal);
-                border-color: color-mix(in srgb, var(--interactive-accent) 20%, var(--background-modifier-border));
-                box-shadow: 0 8px 18px rgba(0, 0, 0, 0.06);
+        }
+
+        .epub-toolbar-btn :global(.svg-icon) {
+                width: 16px;
+                height: 16px;
         }
 
         .epub-bookshelf-search {
@@ -862,6 +935,65 @@
                 overflow: hidden;
                 text-overflow: ellipsis;
         }
+
+        .book-progress-badge {
+                --book-progress: 0%;
+                width: 52px;
+                height: 52px;
+                flex: 0 0 52px;
+                border-radius: 50%;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                position: relative;
+                color: var(--text-normal);
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: -0.02em;
+                background:
+                        radial-gradient(circle at center, color-mix(in srgb, var(--weave-elevated-background, var(--background-primary)) 96%, transparent) 60%, transparent 61%),
+                        conic-gradient(
+                                from -90deg,
+                                color-mix(in srgb, var(--interactive-accent) 82%, white 8%) 0 var(--book-progress),
+                                color-mix(in srgb, var(--background-modifier-border) 78%, transparent) var(--book-progress) 100%
+                        );
+                box-shadow:
+                        inset 0 0 0 1px color-mix(in srgb, var(--background-modifier-border) 72%, transparent),
+                        0 10px 18px rgba(0, 0, 0, 0.06);
+        }
+
+        .book-progress-badge::after {
+                content: '';
+                position: absolute;
+                inset: 6px;
+                border-radius: 50%;
+                background: color-mix(in srgb, var(--weave-elevated-background, var(--background-primary)) 98%, transparent);
+                box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--background-modifier-border) 56%, transparent);
+        }
+
+        .book-progress-badge span {
+                position: relative;
+                z-index: 1;
+                line-height: 1;
+        }
+
+        @container (max-width: 360px) {
+                .epub-book-item {
+                        gap: 12px;
+                        padding: 11px;
+                }
+
+                .book-progress-badge {
+                        width: 46px;
+                        height: 46px;
+                        flex-basis: 46px;
+                        font-size: 10px;
+                }
+
+                .book-progress-badge::after {
+                        inset: 5px;
+                }
+        }
 </style>
 
 {#if searching}
@@ -903,6 +1035,15 @@
                                 <div class="book-info">
                                         <div class="book-name">{file.displayTitle}</div>
                                         <div class="book-meta-text">{file.metaText}</div>
+                                </div>
+                                <div
+                                        class="book-progress-badge"
+                                        style={`--book-progress:${clampProgress(file.progress)}%;`}
+                                        role="img"
+                                        aria-label={`阅读进度 ${clampProgress(file.progress)}%`}
+                                        title={`阅读进度 ${clampProgress(file.progress)}%`}
+                                >
+                                        <span>{clampProgress(file.progress)}%</span>
                                 </div>
                         </div>
                 {/each}

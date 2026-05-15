@@ -9,6 +9,7 @@
   import { AIConfigModalObsidian } from './AIConfigModalObsidian';
   import CardPreviewModal from './CardPreviewModal.svelte';
   import { logger } from '../../utils/logger';
+  import { applyStyleProps } from '../../utils/style-props';
 
   interface Props {
     plugin: WeavePlugin;
@@ -33,6 +34,7 @@
   function createInitialGenerationConfig(): GenerationConfig {
     const aiAssistantPreferences = plugin.getAIAssistantPreferences();
     const saved = aiAssistantPreferences.savedGenerationConfig;
+    const defaultMaxTokens = saved?.maxTokens ?? plugin.settings.aiConfig?.globalParams?.maxTokens ?? 2000;
 
     return {
       templateId: '',
@@ -43,7 +45,7 @@
       provider: (aiAssistantPreferences.lastUsedProvider || plugin.settings.aiConfig?.defaultProvider || 'openai') as AIProvider,
       model: aiAssistantPreferences.lastUsedModel || '',
       temperature: saved?.temperature ?? 0.7,
-      maxTokens: saved?.maxTokens ?? 2000,
+      maxTokens: defaultMaxTokens,
       imageGeneration: {
         enabled: false,
         strategy: 'none',
@@ -55,7 +57,6 @@
         choice: 'official-choice',
         cloze: 'official-cloze'
       },
-      autoTags: [...(saved?.autoTags ?? [])],
       enableHints: saved?.enableHints ?? true
     };
   }
@@ -184,9 +185,9 @@
 
   function adjustTextareaHeight() {
     if (!textareaElement) return;
-    textareaElement.style.height = '36px';
+    applyStyleProps(textareaElement, { height: '36px' });
     const newHeight = Math.min(Math.max(textareaElement.scrollHeight, 36), 120);
-    textareaElement.style.height = `${newHeight}px`;
+    applyStyleProps(textareaElement, { height: `${newHeight}px` });
   }
 
   function handleKeyDown(event: KeyboardEvent) {
@@ -268,7 +269,6 @@
         cardCount: newConfig.cardCount,
         difficulty: newConfig.difficulty,
         typeDistribution: { ...newConfig.typeDistribution },
-        autoTags: newConfig.autoTags ? [...newConfig.autoTags] : [],
         enableHints: newConfig.enableHints,
         temperature: newConfig.temperature,
         maxTokens: newConfig.maxTokens

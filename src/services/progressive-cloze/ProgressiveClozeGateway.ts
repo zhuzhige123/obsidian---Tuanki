@@ -24,7 +24,7 @@ import type {
 } from "../../types/progressive-cloze-v2";
 import { isProgressiveClozeChild } from "../../types/progressive-cloze-v2";
 import { logger } from "../../utils/logger";
-import { getCardDeckIds, setCardProperty } from "../../utils/yaml-utils";
+import { setCardProperty } from "../../utils/yaml-utils";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
 import { PREMIUM_FEATURES, PremiumFeatureGuard } from "../premium/PremiumFeatureGuard";
 import { ProgressiveClozeConverter } from "./ProgressiveClozeConverter";
@@ -99,8 +99,7 @@ export interface GatewayDataStorage {
 	deleteCard: (uuid: string) => Promise<void>;
 	saveCard: (card: Card) => Promise<void>;
 	getDeckCards: (deckId: string) => Promise<Card[]>;
-	getDecks?: () => Promise<Array<{ id: string; name: string }>>;
-	getAllDecks?: () => Promise<Array<{ id: string; name: string }>>;
+	getCardsByUUIDs?: (uuids: string[]) => Promise<Card[]>;
 }
 
 /**
@@ -113,18 +112,6 @@ export class ProgressiveClozeGateway {
 	constructor() {
 		this.converter = new ProgressiveClozeConverter();
 		this.premiumGuard = PremiumFeatureGuard.getInstance();
-	}
-
-	private async getAvailableDecks(
-		dataStorage: GatewayDataStorage
-	): Promise<Array<{ id: string; name: string }> | undefined> {
-		if (typeof dataStorage.getDecks === "function") {
-			return await dataStorage.getDecks();
-		}
-		if (typeof dataStorage.getAllDecks === "function") {
-			return await dataStorage.getAllDecks();
-		}
-		return undefined;
 	}
 
 	// ==========================================================================
@@ -682,16 +669,9 @@ export class ProgressiveClozeGateway {
 
 		// 2. 查找并更新所有子卡片
 		if (oldCard.type === CardType.ProgressiveParent) {
-			// 🆕 v2.2: 优先从 content YAML 的 we_decks 获取牌组ID
-			const allDecks = await this.getAvailableDecks(dataStorage);
-			const { primaryDeckId } = getCardDeckIds(oldCard, allDecks);
-			const deckId = primaryDeckId || oldCard.deckId || "";
-			const allCards = await dataStorage.getDeckCards(deckId);
-			const childCards = allCards.filter(
-				(c) =>
-					c.type === CardType.ProgressiveChild &&
-					(c as ProgressiveClozeChildCard).parentCardId === oldCard.uuid
-			) as ProgressiveClozeChildCard[];
+			const childCards = (await this.findChildCards(oldCard, dataStorage)).filter(
+				isProgressiveClozeChild
+			);
 
 			logger.info(`[ProgressiveClozeGateway] 找到${childCards.length}个子卡片，开始同步内容`);
 
@@ -767,13 +747,54 @@ export class ProgressiveClozeGateway {
 	 * 查找父卡片的所有子卡片
 	 */
 	private async findChildCards(parentCard: Card, dataStorage: GatewayDataStorage): Promise<Card[]> {
-		const allDecks = await this.getAvailableDecks(dataStorage);
-		const { primaryDeckId } = getCardDeckIds(parentCard, allDecks);
-		const deckId = primaryDeckId || parentCard.deckId || "";
-		const allCards = await dataStorage.getDeckCards(deckId);
-		return allCards.filter(
-			(c) => c.type === CardType.ProgressiveChild && c.parentCardId === parentCard.uuid
+		const childCardIds = Array.from(
+			new Set(
+				[
+					...(((parentCard as ProgressiveClozeParentCard).progressiveCloze?.childCardIds || []) as string[]),
+					...((parentCard.relationMetadata?.childCardIds || []) as string[]),
+				]
+					.map((uuid) => String(uuid || "").trim())
+					.filter(Boolean)
+			)
 		);
+
+		const targetedChildren: Card[] = [];
+		const seenUUIDs = new Set<string>();
+		if (childCardIds.length > 0 && typeof dataStorage.getCardsByUUIDs === "function") {
+			for (const card of await dataStorage.getCardsByUUIDs(childCardIds)) {
+				if (
+					card?.type === CardType.ProgressiveChild &&
+					card.parentCardId === parentCard.uuid &&
+					!seenUUIDs.has(card.uuid)
+				) {
+					seenUUIDs.add(card.uuid);
+					targetedChildren.push(card);
+				}
+			}
+
+			if (targetedChildren.length === childCardIds.length) {
+				return targetedChildren;
+			}
+		}
+
+		const deckId = String(parentCard.deckId || "").trim();
+		if (!deckId) {
+			return targetedChildren;
+		}
+
+		const allCards = await dataStorage.getDeckCards(deckId);
+		for (const card of allCards) {
+			if (
+				card?.type === CardType.ProgressiveChild &&
+				card.parentCardId === parentCard.uuid &&
+				!seenUUIDs.has(card.uuid)
+			) {
+				seenUUIDs.add(card.uuid);
+				targetedChildren.push(card);
+			}
+		}
+
+		return targetedChildren;
 	}
 
 	/**

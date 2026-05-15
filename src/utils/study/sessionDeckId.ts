@@ -1,5 +1,5 @@
 import type { Card, Deck } from "../../data/types";
-import { getCardDeckIds } from "../yaml-utils";
+import { resolvePrimaryStudyDeckIdFromCard } from "./memorySchedulingResolver";
 
 interface ResolveStudySessionDeckIdOptions {
 	currentDeckId?: string;
@@ -24,9 +24,5 @@ export function resolveStudySessionDeckId({
 		return "";
 	}
 
-	const { primaryDeckId } = getCardDeckIds(firstCard, decks, {
-		fallbackToReferences: false,
-	});
-
-	return primaryDeckId || firstCard.deckId || "";
+	return resolvePrimaryStudyDeckIdFromCard(firstCard, decks);
 }

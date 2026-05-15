@@ -1,6 +1,7 @@
 import { App, Modal } from "obsidian";
 import { mount, unmount } from "svelte";
-import type { ColumnOrder, ColumnKey, ColumnVisibility } from "../tables/types/table-types";
+import type { ColumnOrder, ColumnKey, ColumnVisibility, ColumnGroups } from "../tables/types/table-types";
+import { configureWeaveObsidianModalLayout } from "../../utils/obsidian-modal-layout";
 import ColumnManager from "../ui/ColumnManager.svelte";
 
 export interface ColumnManagerQuickPreset {
@@ -12,6 +13,7 @@ export interface ColumnManagerQuickPreset {
 export interface ColumnManagerModalObsidianOptions {
 	visibility: ColumnVisibility;
 	columnOrder: ColumnOrder;
+	columnGroups?: ColumnGroups;
 	quickPresets?: ColumnManagerQuickPreset[];
 	activePresetId?: string | null;
 	onVisibilityChange: (key: ColumnKey, value: boolean) => void;
@@ -32,18 +34,9 @@ export class ColumnManagerModalObsidian extends Modal {
 
 	onOpen() {
 		this.setTitle("字段管理");
-		this.modalEl.addClass("weave-column-manager-modal");
-		this.modalEl.setCssProps({
-			width: "min(820px, 92vw)",
-			"max-width": "820px",
-			"max-height": "80vh",
-		});
-
-		this.contentEl.empty();
-		this.contentEl.addClass("weave-column-manager-modal-content");
-		this.contentEl.setCssProps({
-			padding: "0 var(--size-4-6) var(--size-4-6)",
-			overflow: "auto",
+		configureWeaveObsidianModalLayout(this, {
+			modalClass: "weave-column-manager-modal",
+			contentClass: "weave-column-manager-modal-content",
 		});
 
 		this.component = mount(ColumnManager, {
@@ -51,6 +44,7 @@ export class ColumnManagerModalObsidian extends Modal {
 			props: {
 				visibility: this.options.visibility,
 				columnOrder: this.options.columnOrder,
+				columnGroups: this.options.columnGroups,
 				quickPresets: this.options.quickPresets ?? [],
 				activePresetId: this.options.activePresetId ?? null,
 				onVisibilityChange: this.options.onVisibilityChange,

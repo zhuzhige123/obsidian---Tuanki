@@ -43,7 +43,6 @@
       choice: 'official-choice',
       cloze: 'official-cloze'
     },
-    autoTags: [],
     enableHints: true
   };
 

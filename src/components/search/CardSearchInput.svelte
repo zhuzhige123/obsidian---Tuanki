@@ -3,11 +3,14 @@
   import { vaultStorage } from '../../utils/vault-local-storage';
   import { Menu, type App } from 'obsidian';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
+  import FloatingMenu from '../ui/FloatingMenu.svelte';
   import { ICON_NAMES } from '../../icons/index.js';
   import { logger } from '../../utils/logger';
   import type { Deck } from '../../data/types';
+  import { normalizeTagSuggestionOptions, TagInputSuggest } from '../../utils/tag-suggest';
 
   type DataSource = 'memory' | 'questionBank' | 'incremental-reading';
+  type TagSuggestionOption = string | { name: string; count?: number };
 
   interface Props {
     value?: string;
@@ -19,7 +22,7 @@
     dataSource?: DataSource;
     // 卡片数据统计
     availableDecks?: Deck[];
-    availableTags?: string[];
+    availableTags?: TagSuggestionOption[];
     availablePriorities?: number[];
     availableQuestionTypes?: string[];
     availableSources?: string[];
@@ -69,7 +72,13 @@
   let searchHistory = $state<string[]>([]);
   let menuShown = $state(false);
   let showDropdown = $state(false);
+  let anchorWidth = $state(0);
   let activeMenu: Menu | null = null;
+  let tagSuggest: TagInputSuggest | null = null;
+
+  const normalizedAvailableTags = $derived.by(() => {
+    return normalizeTagSuggestionOptions(availableTags || []);
+  });
 
   // 搜索选项定义
   const baseSearchOptions = [
@@ -100,14 +109,34 @@
   });
 
   function handleInputFocus() {
+    updateAnchorWidth();
     showDropdown = true;
   }
 
-  function handleClickOutside(e: MouseEvent) {
-    if (containerRef && !containerRef.contains(e.target as Node)) {
-      showDropdown = false;
-      closeActiveMenu();
+  function updateAnchorWidth() {
+    anchorWidth = containerRef?.getBoundingClientRect().width ?? 0;
+  }
+
+  function getDropdownStyle(): string {
+    const width = Math.max(220, Math.round(anchorWidth || 0));
+    return `width:min(${width}px, calc(100vw - 16px));`;
+  }
+
+  function handleDropdownClose() {
+    showDropdown = false;
+    closeActiveMenu();
+  }
+
+  function handleSearchHistorySelect(historyItem: string, e: MouseEvent) {
+    if ((e.target as HTMLElement).closest('.dropdown-item-remove')) {
+      e.preventDefault();
+      return;
     }
+
+    e.preventDefault();
+    value = historyItem;
+    onSearch?.(value);
+    handleDropdownClose();
   }
 
   function removeHistoryItem(item: string, e: MouseEvent) {
@@ -123,12 +152,6 @@
   }
 
   onMount(() => {
-    document.addEventListener('click', handleClickOutside, true);
-    return () => document.removeEventListener('click', handleClickOutside, true);
-  });
-
-  // 从 localStorage 加载搜索历史和排序偏好
-  onMount(() => {
     try {
       const saved = vaultStorage.getItem(`weave-search-history-${dataSource}`);
       if (saved) {
@@ -137,8 +160,25 @@
     } catch (error) {
       logger.error('加载搜索历史失败:', error);
     }
+
+    return () => {
+      closeActiveMenu();
+    };
   });
-  // NOTE: click-outside listener registered in the onMount above (with showDropdown state)
+
+  $effect(() => {
+    if (!containerRef) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateAnchorWidth();
+    });
+    updateAnchorWidth();
+    resizeObserver.observe(containerRef);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  });
 
   // 保存搜索历史
   function saveSearchHistory() {
@@ -194,43 +234,13 @@
       .replace(/['"]+$/, '');
   }
 
-  function getFilteredStringSuggestions(values: string[], query: string): string[] {
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    const uniqueValues = Array.from(
-      new Map(
-        values
-          .map((item) => item.trim())
-          .filter((item) => item.length > 0)
-          .map((item) => [item.toLocaleLowerCase(), item] as const)
-      ).values()
-    );
-
-    if (!normalizedQuery) {
-      return uniqueValues;
-    }
-
-    const startsWithMatches: string[] = [];
-    const containsMatches: string[] = [];
-
-    uniqueValues.forEach((item) => {
-      const normalizedItem = item.toLocaleLowerCase();
-      if (normalizedItem.startsWith(normalizedQuery)) {
-        startsWithMatches.push(item);
-      } else if (normalizedItem.includes(normalizedQuery)) {
-        containsMatches.push(item);
-      }
-    });
-
-    return [...startsWithMatches, ...containsMatches];
-  }
-
   // 检测并显示建议
   function checkAndShowSuggestions() {
     const lastWord = getCurrentSearchToken();
     const normalizedWord = lastWord.toLowerCase();
 
     if (normalizedWord.startsWith('tag:')) {
-      showTagSuggestions();
+      closeActiveMenu();
     } else if (lastWord.endsWith('deck:')) {
       showDeckSuggestions();
     } else if (lastWord.endsWith('priority:')) {
@@ -456,33 +466,9 @@
 
   // 显示标签建议
   function showTagSuggestions() {
-    if (!containerRef) return;
-
-    const matchedTags = getFilteredStringSuggestions(availableTags, getSuggestionQuery('tag:'));
-    const menu = new Menu();
-    (menu as any).app = app;
-    menu.addItem((item) => {
-      item.setTitle(`标签 (${matchedTags.length}/${availableTags.length})`);
-      item.setDisabled(true);
-    });
-
-    if (matchedTags.length === 0) {
-      menu.addItem((item) => {
-        item.setTitle('没有匹配的标签');
-        item.setDisabled(true);
-      });
-    } else {
-      matchedTags.forEach((tag) => {
-        menu.addItem((item) => {
-          item.setTitle(tag);
-          item.onClick(() => {
-            replaceLastWord(tag);
-          });
-        });
-      });
-    }
-
-    showMenuSafe(menu);
+    closeActiveMenu();
+    inputRef?.focus();
+    inputRef?.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
   // 显示牌组建议
@@ -673,10 +659,9 @@
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       addToHistory(value);
-      showDropdown = false;
+      handleDropdownClose();
     } else if (e.key === 'Escape') {
-      closeActiveMenu();
-      showDropdown = false;
+      handleDropdownClose();
       inputRef?.blur();
     } else if (e.key === ':') {
       // 输入冒号后延迟检查
@@ -685,6 +670,31 @@
       }, 50);
     }
   }
+
+  $effect(() => {
+    if (!inputRef) {
+      tagSuggest?.destroy();
+      tagSuggest = null;
+      return;
+    }
+
+    const suggest = new TagInputSuggest(app, inputRef, {
+      getItems: () => normalizedAvailableTags,
+      getQuery: () => getSuggestionQuery('tag:'),
+      isActive: () => getCurrentSearchToken().toLowerCase().startsWith('tag:'),
+      onSelectTag: (tag) => replaceLastWord(tag),
+      limit: 40,
+    });
+
+    tagSuggest = suggest;
+
+    return () => {
+      suggest.destroy();
+      if (tagSuggest === suggest) {
+        tagSuggest = null;
+      }
+    };
+  });
 </script>
 
 <div class="card-search-container" bind:this={containerRef}>
@@ -736,66 +746,71 @@
     {/if}
   </div>
 
-  {#if showDropdown}
-    <div class="search-dropdown">
-      <div class="dropdown-section">
-        <div class="dropdown-section-header">搜索选项</div>
-        {#each dataSourceOptions as opt}
-          <div
-            class="dropdown-item"
-            role="button"
-            tabindex="-1"
-            onmousedown={(e) => { e.preventDefault(); insertPrefix(opt.prefix); showDropdown = false; if (opt.afterInsert) setTimeout(opt.afterInsert, 100); }}
-          >
-            <span class="dropdown-item-label">{opt.label}</span>
-          </div>
-        {/each}
-      </div>
-
-      {#if searchHistory.length > 0}
-        <div class="dropdown-divider"></div>
+  <FloatingMenu
+    show={showDropdown}
+    anchor={containerRef}
+    placement="bottom-start"
+    offset={4}
+    onClose={handleDropdownClose}
+    class="card-search-floating-menu"
+  >
+    {#snippet children()}
+      <div class="search-dropdown" style={getDropdownStyle()}>
         <div class="dropdown-section">
-          <div class="dropdown-section-header">搜索历史<span
-              class="dropdown-clear-all"
-              role="button"
-              tabindex="-1"
-              onmousedown={clearAllHistory}
-            >清空</span></div>
-          {#each searchHistory.slice(0, 10) as historyItem}
+          <div class="dropdown-section-header">搜索选项</div>
+          {#each dataSourceOptions as opt}
             <div
               class="dropdown-item"
               role="button"
               tabindex="-1"
               onmousedown={(e) => {
-                if ((e.target as HTMLElement).closest('.dropdown-item-remove')) {
-                  e.preventDefault();
-                  return;
-                }
                 e.preventDefault();
-                value = historyItem;
-                onSearch?.(value);
+                insertPrefix(opt.prefix);
                 showDropdown = false;
+                if (opt.afterInsert) setTimeout(opt.afterInsert, 100);
               }}
             >
-              <span class="dropdown-item-label">{historyItem}</span>
-              <span
-                class="dropdown-item-remove"
-                role="button"
-                tabindex="-1"
-                onmousedown={(e) => {
-                  e.preventDefault();
-                  removeHistoryItem(historyItem, e);
-                }}
-                aria-label="删除"
-              >
-                <EnhancedIcon name={ICON_NAMES.TIMES} size={10} />
-              </span>
+              <span class="dropdown-item-label">{opt.label}</span>
             </div>
           {/each}
         </div>
-      {/if}
-    </div>
-  {/if}
+
+        {#if searchHistory.length > 0}
+          <div class="dropdown-divider"></div>
+          <div class="dropdown-section">
+            <div class="dropdown-section-header">搜索历史<span
+                class="dropdown-clear-all"
+                role="button"
+                tabindex="-1"
+                onmousedown={clearAllHistory}
+              >清空</span></div>
+            {#each searchHistory.slice(0, 10) as historyItem}
+              <div
+                class="dropdown-item"
+                role="button"
+                tabindex="-1"
+                onmousedown={(e) => handleSearchHistorySelect(historyItem, e)}
+              >
+                <span class="dropdown-item-label">{historyItem}</span>
+                <span
+                  class="dropdown-item-remove"
+                  role="button"
+                  tabindex="-1"
+                  onmousedown={(e) => {
+                    e.preventDefault();
+                    removeHistoryItem(historyItem, e);
+                  }}
+                  aria-label="删除"
+                >
+                  <EnhancedIcon name={ICON_NAMES.TIMES} size={10} />
+                </span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/snippet}
+  </FloatingMenu>
 </div>
 
 <style>
@@ -813,6 +828,7 @@
     border-radius: 6px;
     padding: 0 8px;
     transition: all 0.2s ease;
+    z-index: 1;
   }
 
   .search-input-wrapper:focus-within {
@@ -891,19 +907,27 @@
   }
 
   .search-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    margin-top: 4px;
-    background: var(--background-primary);
+    background: var(--modal-background, var(--background-primary));
     border: 1px solid var(--background-modifier-border);
     border-radius: 8px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-    z-index: var(--weave-z-float);
-    max-height: 360px;
+    box-shadow: var(--shadow-l, 0 8px 24px rgba(0, 0, 0, 0.16));
+    max-width: calc(100vw - 16px);
+    max-height: min(360px, calc(100vh - 16px));
     overflow-y: auto;
     animation: dropdownFadeIn 0.15s ease;
+  }
+
+  :global(body > .floating-menu.card-search-floating-menu) {
+    min-width: 0;
+    max-width: none;
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    overflow: visible;
+    animation: none;
+    z-index: var(--weave-z-dropdown, 1600);
   }
 
   @keyframes dropdownFadeIn {

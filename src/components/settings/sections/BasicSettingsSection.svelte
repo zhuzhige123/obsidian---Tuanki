@@ -9,6 +9,7 @@
   import VirtualizationSettingsSection from './VirtualizationSettingsSection.svelte';
   import type WeavePlugin from '../../../main';
   import { PremiumFeatureGuard } from '../../../services/premium/PremiumFeatureGuard';
+  import { weaveMainInterfaceStore } from '../../../stores/weave-main-interface-store';
   // 导入国际化系统
   import { tr } from '../../../utils/i18n';
 
@@ -28,6 +29,7 @@
   async function saveSettings() {
     try {
       plugin.settings = settings;
+      weaveMainInterfaceStore.setNavigationVisibility(settings.navigationVisibility);
       await plugin.saveSettings();
     } catch (error) {
       logger.error('保存设置失败:', error);
@@ -53,24 +55,6 @@
     });
     editorModalSize.enableResize = (event.target as HTMLInputElement).checked;
     saveSettings();
-  }
-
-  // 处理导航可见性变更
-  function handleNavigationVisibilityChange(key: string) {
-    return (event: Event) => {
-      if (!settings.navigationVisibility) {
-        settings.navigationVisibility = {};
-      }
-      (settings.navigationVisibility as any)[key] = (event.target as HTMLInputElement).checked;
-      plugin.settings.navigationVisibility = { ...settings.navigationVisibility };
-      
-      // 立即通知主界面更新导航
-      window.dispatchEvent(new CustomEvent('Weave:navigation-visibility-update', {
-        detail: plugin.settings.navigationVisibility
-      }));
-      
-      saveSettings();
-    };
   }
 
   // 处理调试模式变更
@@ -101,6 +85,15 @@
     // 通知父组件实时刷新标签页和界面
     onPremiumFeaturesPreviewToggle?.(checked);
     
+  }
+
+  function handleNavigationVisibilityChange(key: 'apkgImport' | 'csvImport', event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    settings.navigationVisibility = {
+      ...(settings.navigationVisibility ?? {}),
+      [key]: checked,
+    };
+    saveSettings();
   }
 
 
@@ -211,91 +204,26 @@
   
     <div class="group-content">
     <div class="row">
-      <label for="navDeckStudy">{t('navigation.deckStudy')}</label>
-      <label class="modern-switch">
-        <input
-          id="navDeckStudy"
-          type="checkbox"
-          checked={settings.navigationVisibility?.deckStudy !== false}
-          onchange={handleNavigationVisibilityChange('deckStudy')}
-        />
-        <span class="switch-slider"></span>
-      </label>
-    </div>
-
-    <div class="row">
-      <label for="navCardManagement">{t('navigation.cardManagement')}</label>
-      <label class="modern-switch">
-        <input
-          id="navCardManagement"
-          type="checkbox"
-          checked={settings.navigationVisibility?.cardManagement !== false}
-          onchange={handleNavigationVisibilityChange('cardManagement')}
-        />
-        <span class="switch-slider"></span>
-      </label>
-    </div>
-
-    <div class="row">
-      <label for="navAiAssistant">{t('navigation.aiAssistant')}</label>
-      <label class="modern-switch">
-        <input
-          id="navAiAssistant"
-          type="checkbox"
-          checked={settings.navigationVisibility?.aiAssistant !== false}
-          onchange={handleNavigationVisibilityChange('aiAssistant')}
-        />
-        <span class="switch-slider"></span>
-      </label>
-    </div>
-
-    <div class="row">
-      <label for="navApkgImport">{t('deckStudyPage.menu.importAPKG')}</label>
+      <label for="navApkgImport">{t('mainMenu.deckStudy.importLegacyPackage')}</label>
       <label class="modern-switch">
         <input
           id="navApkgImport"
           type="checkbox"
-          checked={settings.navigationVisibility?.apkgImport !== false}
-          onchange={handleNavigationVisibilityChange('apkgImport')}
+          checked={settings.navigationVisibility?.apkgImport ?? true}
+          onchange={(event) => handleNavigationVisibilityChange('apkgImport', event)}
         />
         <span class="switch-slider"></span>
       </label>
     </div>
 
     <div class="row">
-      <label for="navCsvImport">{t('deckStudyPage.menu.importCSV')}</label>
+      <label for="navCsvImport">{t('mainMenu.deckStudy.importCsv')}</label>
       <label class="modern-switch">
         <input
           id="navCsvImport"
           type="checkbox"
-          checked={settings.navigationVisibility?.csvImport !== false}
-          onchange={handleNavigationVisibilityChange('csvImport')}
-        />
-        <span class="switch-slider"></span>
-      </label>
-    </div>
-
-    <div class="row">
-      <label for="navClipboardImport">{t('deckStudyPage.menu.importClipboard')}</label>
-      <label class="modern-switch">
-        <input
-          id="navClipboardImport"
-          type="checkbox"
-          checked={settings.navigationVisibility?.clipboardImport !== false}
-          onchange={handleNavigationVisibilityChange('clipboardImport')}
-        />
-        <span class="switch-slider"></span>
-      </label>
-    </div>
-
-    <div class="row">
-      <label for="navSettingsEntry">{t('common.settings')}</label>
-      <label class="modern-switch">
-        <input
-          id="navSettingsEntry"
-          type="checkbox"
-          checked={settings.navigationVisibility?.settingsEntry !== false}
-          onchange={handleNavigationVisibilityChange('settingsEntry')}
+          checked={settings.navigationVisibility?.csvImport ?? true}
+          onchange={(event) => handleNavigationVisibilityChange('csvImport', event)}
         />
         <span class="switch-slider"></span>
       </label>

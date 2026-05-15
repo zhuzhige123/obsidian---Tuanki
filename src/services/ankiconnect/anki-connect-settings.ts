@@ -54,7 +54,7 @@ function normalizeDeckMapping(mapping: Partial<DeckSyncMapping>): DeckSyncMappin
 		weaveDeckId: mapping.weaveDeckId ?? "",
 		weaveDeckName: mapping.weaveDeckName ?? "",
 		ankiDeckName: mapping.ankiDeckName ?? "",
-		syncDirection: mapping.syncDirection === "from_anki" ? "from_anki" : "to_anki",
+		syncDirection: "to_anki",
 		enabled: mapping.enabled ?? false,
 		lastSyncTime: mapping.lastSyncTime,
 		contentConversion: mapping.contentConversion ?? "standard",

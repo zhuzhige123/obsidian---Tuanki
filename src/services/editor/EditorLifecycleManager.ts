@@ -11,6 +11,7 @@ import type { TFile, WorkspaceLeaf } from "obsidian";
 import type { WeavePlugin } from "../../main";
 import type { EditorResult } from "../../types/editor-types";
 import { logger } from "../../utils/logger";
+import { applyStyleProps } from "../../utils/style-props";
 
 // 编辑器状态枚举
 type EditorState =
@@ -249,7 +250,7 @@ export class EditorLifecycleManager {
 	private hideLeaf(leaf: WorkspaceLeaf): void {
 		const leafContainer = (leaf as any).containerEl as HTMLElement;
 		if (leafContainer) {
-			leafContainer.setCssProps({
+			applyStyleProps(leafContainer, {
 				display: "none",
 				position: "absolute",
 				left: "-9999px",

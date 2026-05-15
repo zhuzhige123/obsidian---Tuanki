@@ -5,12 +5,15 @@
 
 import { derived, get, writable } from "svelte/store";
 import { OFFICIAL_FORMAT_ACTIONS } from "../constants/official-format-actions";
-import { DEFAULT_SPLIT_ACTIONS } from "../data/default-split-actions";
 import type { WeavePlugin } from "../main";
 import type { AIAction, AIProvider } from "../types/ai-types";
 import { logger } from "../utils/logger";
 
 type PersistedAIConfig = NonNullable<WeavePlugin["settings"]["aiConfig"]>;
+
+function normalizeDefaultProvider(value: string | undefined): AIProvider {
+	return value ? (value as AIProvider) : "zhipu";
+}
 
 function createDefaultPersistedAIConfig(): PersistedAIConfig {
 	return {
@@ -18,25 +21,19 @@ function createDefaultPersistedAIConfig(): PersistedAIConfig {
 		defaultProvider: "zhipu",
 		customFormatActions: [],
 		customSplitActions: [],
-		officialFormatActions: {
-			choice: { enabled: true },
-			mathFormula: { enabled: true },
-			memoryAid: { enabled: true },
-		},
 	} as PersistedAIConfig;
 }
 
 function hasPersistableActionIdentity(action: AIAction, expectedType: string): boolean {
 	return (
-		action.category === "custom" &&
 		action.type === expectedType &&
 		typeof action.id === "string" &&
 		action.id.trim().length > 0
 	);
 }
 
-function isActionReadyForMenu(action: AIAction, expectedType: string): boolean {
-	if (!hasPersistableActionIdentity(action, expectedType)) {
+function isActionContentReadyForMenu(action: AIAction, expectedType: string): boolean {
+	if (action.type !== expectedType) {
 		return false;
 	}
 
@@ -55,6 +52,41 @@ function isActionReadyForMenu(action: AIAction, expectedType: string): boolean {
 	}
 
 	return true;
+}
+
+function normalizePersistedCustomAction(
+	action: unknown,
+	expectedType: "format" | "split"
+): AIAction | null {
+	if (!action || typeof action !== "object") {
+		return null;
+	}
+
+	const candidate = action as Partial<AIAction>;
+	const id = typeof candidate.id === "string" ? candidate.id.trim() : "";
+	if (!id) {
+		return null;
+	}
+
+	return {
+		...candidate,
+		id,
+		type: expectedType,
+		category: "custom",
+	} as AIAction;
+}
+
+function normalizePersistedCustomActions(
+	actions: unknown,
+	expectedType: "format" | "split"
+): AIAction[] {
+	if (!Array.isArray(actions)) {
+		return [];
+	}
+
+	return actions
+		.map((action) => normalizePersistedCustomAction(action, expectedType))
+		.filter((action): action is AIAction => Boolean(action));
 }
 
 // ============================================================================
@@ -124,9 +156,13 @@ class AIConfigStore {
 
 		try {
 			this.store.set({
-				customFormatActions: structuredClone((aiConfig.customFormatActions || []) as AIAction[]),
-				customSplitActions: structuredClone((aiConfig.customSplitActions || []) as AIAction[]),
-				defaultProvider: aiConfig.defaultProvider || "zhipu",
+				customFormatActions: structuredClone(
+					normalizePersistedCustomActions(aiConfig.customFormatActions, "format")
+				),
+				customSplitActions: structuredClone(
+					normalizePersistedCustomActions(aiConfig.customSplitActions, "split")
+				),
+				defaultProvider: normalizeDefaultProvider(aiConfig.defaultProvider),
 				apiKeys: structuredClone(aiConfig.apiKeys || {}),
 				lastModified: Date.now(),
 				version: 0,
@@ -135,12 +171,12 @@ class AIConfigStore {
 			logger.warn("[AIConfigStore] 加载时structuredClone失败，使用JSON fallback:", error);
 			this.store.set({
 				customFormatActions: JSON.parse(
-					JSON.stringify((aiConfig.customFormatActions || []) as AIAction[])
+					JSON.stringify(normalizePersistedCustomActions(aiConfig.customFormatActions, "format"))
 				),
 				customSplitActions: JSON.parse(
-					JSON.stringify((aiConfig.customSplitActions || []) as AIAction[])
+					JSON.stringify(normalizePersistedCustomActions(aiConfig.customSplitActions, "split"))
 				),
-				defaultProvider: aiConfig.defaultProvider || "zhipu",
+				defaultProvider: normalizeDefaultProvider(aiConfig.defaultProvider),
 				apiKeys: JSON.parse(JSON.stringify(aiConfig.apiKeys || {})),
 				lastModified: Date.now(),
 				version: 0,
@@ -215,7 +251,11 @@ class AIConfigStore {
 	// ============================================================================
 
 	private validateAndClone(actions: AIAction[], expectedType: string): AIAction[] {
-		return actions
+		const normalizedActions = normalizePersistedCustomActions(
+			actions,
+			expectedType === "split" ? "split" : "format"
+		);
+		return normalizedActions
 			.filter((a) => hasPersistableActionIdentity(a, expectedType))
 			.map((a) => this.deepCloneAction(a));
 	}
@@ -369,32 +409,13 @@ export const allFormatActions = derived(aiConfigStore, ($state) => {
 });
 
 /**
- * 所有AI拆分功能（官方 + 自定义）
- */
-export const allSplitActions = derived(aiConfigStore, ($state) => {
-	const official = DEFAULT_SPLIT_ACTIONS.map((officialAction) => {
-		return {
-			...officialAction,
-			type: "split" as const,
-			category: "official" as const,
-		};
-	});
-
-	const custom = $state.customSplitActions.map((customAction) => {
-		return {
-			...customAction,
-			type: "split" as const,
-			category: "custom" as const,
-		};
-	});
-
-	return [...official, ...custom] as AIAction[];
-});
-
-/**
  * 仅自定义功能（用于AI助手菜单）
  */
 export const customActionsForMenu = derived(aiConfigStore, ($state) => ({
-	format: $state.customFormatActions.filter((a) => isActionReadyForMenu(a, "format")),
-	split: $state.customSplitActions.filter((a) => isActionReadyForMenu(a, "split")),
+	format: $state.customFormatActions.filter(
+		(a) => hasPersistableActionIdentity(a, "format") && isActionContentReadyForMenu(a, "format")
+	),
+	split: $state.customSplitActions.filter(
+		(a) => hasPersistableActionIdentity(a, "split") && isActionContentReadyForMenu(a, "split")
+	),
 }));

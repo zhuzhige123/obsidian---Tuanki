@@ -1,13 +1,15 @@
 import { ItemView, Platform, type ViewStateResult, WorkspaceLeaf } from "obsidian";
 import type { WeavePlugin } from "../main";
+import { IR_RUNTIME } from "../services/incremental-reading/ir-runtime";
 import { i18n } from "../utils/i18n";
 import { logger } from "../utils/logger";
+import { DeferredLeafRedirectController } from "./DeferredLeafRedirectController";
 
 /**
  * 保留旧视图类型字符串，仅用于兼容旧 workspace 布局恢复。
  * 现役增量阅读已不再使用这个独立主阅读视图。
  */
-export const VIEW_TYPE_IR_FOCUS = "weave-ir-focus-view";
+export const VIEW_TYPE_IR_FOCUS = IR_RUNTIME.viewTypes.focus;
 
 /**
  * 旧增量阅读主阅读界面的兼容壳。
@@ -17,11 +19,21 @@ export class IRFocusView extends ItemView {
 	private readonly plugin: WeavePlugin;
 	private deckPath = "";
 	private deckName = "";
+	private isOpen = false;
 	private redirectStarted = false;
+	private readonly redirectController: DeferredLeafRedirectController;
 
 	constructor(leaf: WorkspaceLeaf, plugin: WeavePlugin) {
 		super(leaf);
 		this.plugin = plugin;
+		this.redirectController = new DeferredLeafRedirectController({
+			workspace: plugin.app.workspace as any,
+			leaf,
+			shouldRedirect: () => this.isOpen && !this.redirectStarted,
+			onRedirect: () => {
+				void this.redirectLegacyViewToSidebar();
+			},
+		});
 	}
 
 	private isChinese(): boolean {
@@ -69,11 +81,14 @@ export class IRFocusView extends ItemView {
 	}
 
 	async onOpen(): Promise<void> {
+		this.isOpen = true;
 		this.renderLegacyRemovedMessage();
-		await this.redirectLegacyViewToSidebar();
+		this.redirectController.start();
 	}
 
 	async onClose(): Promise<void> {
+		this.isOpen = false;
+		this.redirectController.stop();
 		this.contentEl.empty();
 	}
 

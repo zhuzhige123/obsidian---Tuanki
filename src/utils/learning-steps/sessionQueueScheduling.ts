@@ -15,6 +15,7 @@ export interface SessionQueueAdvanceResult {
 
 export interface SessionQueueAdvanceOptions {
 	allowFutureDueCards?: boolean;
+	continueWithPendingCards?: boolean;
 }
 
 export function getSessionQueueInsertionPlan(
@@ -96,8 +97,9 @@ export function requeueFutureDueCards(
 	nowMs = Date.now(),
 	options: SessionQueueAdvanceOptions = {}
 ): SessionQueueAdvanceResult {
-	const { allowFutureDueCards = false } = options;
+	const { allowFutureDueCards = false, continueWithPendingCards = false } = options;
 	const searchIndex = currentIndex + 1;
+	const pendingFallbackIndex = searchIndex < queue.length ? searchIndex : -1;
 	let remainingToInspect = queue.length - searchIndex;
 	let movedCount = 0;
 	let nextPendingDueMs: number | null = null;
@@ -125,7 +127,7 @@ export function requeueFutureDueCards(
 	}
 
 	return {
-		nextIndex: -1,
+		nextIndex: continueWithPendingCards ? pendingFallbackIndex : -1,
 		movedCount,
 		nextPendingDueAt: nextPendingDueMs === null ? null : new Date(nextPendingDueMs).toISOString(),
 	};

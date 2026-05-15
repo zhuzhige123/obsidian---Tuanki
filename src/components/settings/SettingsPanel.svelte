@@ -4,7 +4,8 @@
   import TabNavigation from "../atoms/TabNavigation.svelte";
 
   //  高级功能限制
-  import { PremiumFeatureGuard } from "../../services/premium/PremiumFeatureGuard";
+  import { PremiumFeatureGuard, PREMIUM_FEATURES } from "../../services/premium/PremiumFeatureGuard";
+  import ActivationPrompt from "../premium/ActivationPrompt.svelte";
 
   // 重构后的设置组件
   import BasicSettingsSection from "./sections/BasicSettingsSection.svelte";
@@ -24,10 +25,6 @@
 
   // AI配置组件
   import AIConfigSection from './sections/AIConfigSection.svelte';
-
-  // 增量阅读设置组件
-  import IncrementalReadingSettingsSection from './sections/IncrementalReadingSettingsSection.svelte';
-
 
   // 类型和常量
   import type { PluginExtended } from "./types/settings-types";
@@ -80,7 +77,7 @@
   
   // 根据设置动态过滤标签页（响应式）
   // 高级功能标签页列表（未激活时隐藏）
-  const PREMIUM_TABS = ['card-parsing', 'incremental-reading'];
+  const PREMIUM_TABS = ['card-parsing'];
   
   let visibleTabs = $derived(
     SETTINGS_TABS.filter(tab => {
@@ -184,11 +181,6 @@
     <AIConfigSection {plugin} />
   {/if}
   
-  <!-- Incremental Reading Settings -->
-  {#if activeTab === 'incremental-reading'}
-    <IncrementalReadingSettingsSection {plugin} />
-  {/if}
-  
   <!-- Data Management -->
   {#if activeTab === 'data-management'}
     <DataManagementPanel {plugin} onSave={save} />
@@ -210,6 +202,7 @@
     overflow-y: auto;
     height: 100%;
     pointer-events: auto;
+    padding: 0 0 1.5rem;
   }
 
   .header {
@@ -238,7 +231,7 @@
     background: transparent;
     border-radius: 0;
     padding: 0;
-    gap: 0.5rem;
+    gap: 0.35rem;
   }
 
   .tabs :global(.weave-tab) {
@@ -249,7 +242,9 @@
     background: transparent !important;
     color: var(--text-muted);
     transform: none;
-    transition: none !important;
+    transition: background-color 0.15s ease, color 0.15s ease !important;
+    border-radius: var(--radius-s, 8px);
+    padding: 0.45rem 0.85rem;
   }
 
   .tabs :global(.weave-tab:hover:not(.disabled)) {
@@ -277,7 +272,7 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 2rem;
+    gap: 1rem;
   }
 
   /* 动画定义 */

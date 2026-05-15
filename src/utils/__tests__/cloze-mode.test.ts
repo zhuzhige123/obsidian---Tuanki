@@ -36,6 +36,18 @@ describe('cloze-mode', () => {
     expect(hasClozeSyntax('This is a regular QA card.')).toBe(false);
   });
 
+  it('detects only the configured standard delimiter pair when a custom pair is supplied', () => {
+    const customSettings = {
+      enabled: true,
+      openDelimiter: '[[',
+      closeDelimiter: ']]',
+      placeholder: '[...]'
+    };
+
+    expect(hasClozeSyntax('France capital is [[Paris]].', customSettings)).toBe(true);
+    expect(hasClozeSyntax('France capital is ==Paris==.', customSettings)).toBe(false);
+  });
+
   it('writes input mode into yaml instead of body directive', () => {
     const content = ['---', 'we_type: cloze', '---', '', 'France capital is ==Paris==.'].join('\n');
     const output = setClozeModeInContent(content, 'input');

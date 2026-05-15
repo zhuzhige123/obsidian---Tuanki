@@ -606,6 +606,8 @@ export interface SystemPerformanceReport extends PerformanceReport {
 /**
  * 全局性能监控器实例
  */
+let globalPerformanceMonitor: SystemPerformanceMonitor | undefined;
+
 function getOrCreateGlobalPerformanceMonitor(): SystemPerformanceMonitor {
 	if (typeof window === "undefined") {
 		return new SystemPerformanceMonitor();
@@ -613,15 +615,19 @@ function getOrCreateGlobalPerformanceMonitor(): SystemPerformanceMonitor {
 
 	const w = window as any;
 	if (w.__weaveGlobalPerformanceMonitor) {
-		return w.__weaveGlobalPerformanceMonitor as SystemPerformanceMonitor;
+		globalPerformanceMonitor = w.__weaveGlobalPerformanceMonitor as SystemPerformanceMonitor;
+		return globalPerformanceMonitor;
 	}
 
 	const instance = new SystemPerformanceMonitor();
+	globalPerformanceMonitor = instance;
 	w.__weaveGlobalPerformanceMonitor = instance;
 	w.__weaveGlobalPerformanceMonitorCleanup = () => {
 		try {
 			(w.__weaveGlobalPerformanceMonitor as SystemPerformanceMonitor | undefined)?.destroy();
 		} catch {}
+
+		globalPerformanceMonitor = undefined;
 
 		try {
 			w.__weaveGlobalPerformanceMonitor = undefined;
@@ -635,4 +641,6 @@ function getOrCreateGlobalPerformanceMonitor(): SystemPerformanceMonitor {
 	return instance;
 }
 
-export const globalPerformanceMonitor = getOrCreateGlobalPerformanceMonitor();
+export function getGlobalPerformanceMonitor(): SystemPerformanceMonitor {
+	return getOrCreateGlobalPerformanceMonitor();
+}

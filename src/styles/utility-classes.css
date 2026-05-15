@@ -301,17 +301,47 @@
   margin-bottom: 16px;
 }
 
+.obsidian-choice-buttons {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.obsidian-choice-buttons--vertical {
+  flex-direction: column;
+}
+
+.obsidian-choice-buttons--horizontal {
+  flex-direction: row;
+}
+
+.obsidian-choice-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.obsidian-choice-option--horizontal {
+  flex: 1;
+}
+
+.obsidian-choice-option-button {
+  width: 100%;
+}
+
+.obsidian-choice-option-button--left {
+  text-align: left;
+}
+
+.obsidian-choice-option-button--center {
+  text-align: center;
+}
+
 /* 通知图标 */
 .weave-notification-icon {
   font-size: 16px;
   flex-shrink: 0;
-}
-
-/* SVG 图标内联显示 */
-.weave-icon-inline {
-  display: inline-block;
-  vertical-align: middle;
-  fill: currentColor;
 }
 
 /* WeaveView 内容区 */

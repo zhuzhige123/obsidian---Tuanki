@@ -1,9 +1,16 @@
 <script lang="ts">
   import { logger } from '../../../utils/logger';
 
-  import type { PluginExtended, LicenseInfo } from '../types/settings-types';
+  import type { PluginExtended } from '../types/settings-types';
   import { licenseManager } from '../../../utils/licenseManager';
   import { PremiumFeatureGuard } from '../../../services/premium/PremiumFeatureGuard';
+  import {
+    clearPluginLocalLicenses,
+    getPluginEffectiveLicenseState,
+    getPluginLicensedProduct,
+    getPluginLocalLicenses,
+    syncPluginLicenseSettings
+  } from '../../../utils/plugin-license';
   import {
     showNotification,
     handleError
@@ -22,18 +29,51 @@
 
   let { plugin, onSave }: Props = $props();
 
+  let stateVersion = $state(0);
+
+  function refreshSnapshot(): void {
+		stateVersion += 1;
+	}
+
+  let effectiveLicenseState = $derived.by(() => {
+		stateVersion;
+		return getPluginEffectiveLicenseState(plugin);
+	});
+
+  let currentLicense = $derived.by(() => {
+		stateVersion;
+		return effectiveLicenseState.primaryLicense || plugin.settings.license || null;
+	});
+
   // 检查许可证状态
   async function checkLicenseStatus() {
-    if (!plugin.settings.license?.isActivated) {
+    const localLicenses = getPluginLocalLicenses(plugin);
+    if (localLicenses.length === 0) {
       return;
     }
 
     try {
-      const validation = await licenseManager.validateCurrentLicense(plugin.settings.license);
+      let hasValidLicense = false;
+      let firstError: string | undefined;
+      for (const license of localLicenses) {
+        const validation = await licenseManager.validateCurrentLicense(license, {
+          targetProduct: getPluginLicensedProduct(plugin)
+        });
+        if (validation.isValid) {
+          hasValidLicense = true;
+          continue;
+        }
+        firstError ??= validation.error;
+      }
 
-      await PremiumFeatureGuard.getInstance().updateLicense(plugin.settings.license);
+      await PremiumFeatureGuard.getInstance().updateLicenseState({
+        product: getPluginLicensedProduct(plugin),
+        localLicenses: getPluginLocalLicenses(plugin),
+      });
 
-      if (validation.isValid) {
+      refreshSnapshot();
+
+      if (hasValidLicense) {
         showNotification({
           message: '许可证验证成功',
           type: 'success'
@@ -42,7 +82,7 @@
       }
 
       showNotification({
-        message: validation.error ? `许可证验证失败: ${validation.error}` : '许可证验证失败',
+        message: firstError ? `许可证验证失败: ${firstError}` : '许可证验证失败',
         type: 'error'
       });
     } catch (error) {
@@ -54,17 +94,11 @@
   async function resetLicense() {
     const confirmed = await showObsidianConfirm(plugin.app, '确定要重置许可证吗？这将清除当前的激活状态。', { title: '确认重置' });
     if (confirmed) {
-      plugin.settings.license = {
-        activationCode: "",
-        isActivated: false,
-        activatedAt: "",
-        deviceFingerprint: "",
-        expiresAt: "",
-        productVersion: "",
-        licenseType: 'lifetime'
-      };
+      clearPluginLocalLicenses(plugin);
+      syncPluginLicenseSettings(plugin);
       
       await onSave();
+		  refreshSnapshot();
       
       showNotification({
         message: "许可证已重置",
@@ -89,13 +123,14 @@
 
   <!-- 使用增强的许可证状态卡片 -->
   <EnhancedLicenseStatusCard
-    license={plugin.settings.license}
+    license={currentLicense}
+    effectiveState={effectiveLicenseState}
     showActions={true}
     onVerify={checkLicenseStatus}
     onReset={resetLicense}
   />
 
-  {#if !plugin.settings.license?.isActivated}
+  {#if !effectiveLicenseState.isPremiumActive}
     <!-- 使用增强的激活表单（包含邮箱输入） -->
     <EnhancedActivationForm
       {plugin}

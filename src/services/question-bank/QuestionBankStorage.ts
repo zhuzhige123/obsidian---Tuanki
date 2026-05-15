@@ -2,26 +2,25 @@ import { logger } from "../../utils/logger";
 /**
  * 题库数据存储服务
  *
- *  数据结构（v3.0.0 单文件合并）：
+ *  数据结构（v4.0.0 .qbank 单文件格式）：
  * ```
  * weave/question-bank/
- * ├── banks.json                      (题库元数据列表)
- * ├── question-stats.json             (全局题目统计)
- * ├── test-history.json               (所有题库的历史分数)
- * ├── in-progress.json                (所有题库的进行中会话)
- * ├── session-archives.json           (所有题库的会话归档)
- * ├── error-book.json                 (所有题库的错题本)
- * └── banks/
- *     ├── {bankId-1}/
- *     │   └── questions.json          (该题库的题目引用)
- *     └── ...
+ * ├── {题组名称1}.qbank               (题组1，包含所有数据)
+ * ├── {题组名称2}.qbank               (题组2，包含所有数据)
+ * └── ...
+ *
+ * .obsidian/plugins/weave/cache/question-bank/
+ * ├── in-progress.json                (进行中会话，插件缓存)
+ * ├── session-archives.json           (会话归档，插件缓存)
+ * └── question-stats.json             (题目统计缓存)
  * ```
  *
  * @module services/question-bank/QuestionBankStorage
  */
 
 import { App } from "obsidian";
-import { getV2PathsFromApp } from "../../config/paths";
+import type { QBankFileData, QuestionInBank, QBankStats } from "./QBankFileTypes";
+import { getPluginPaths, getV2PathsFromApp } from "../../config/paths";
 import type { Card, Deck } from "../../data/types";
 import type {
 	ErrorBookEntry,
@@ -34,6 +33,17 @@ import type {
 } from "../../types/question-bank-types";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { accuracyCalculator } from "./AccuracyCalculator";
+import { safeReadJson, safeWriteJson } from "../../utils/safe-json-io";
+
+function normalizeFileNameFromPath(path: string): string {
+	const normalized = String(path || "").replace(/\\/g, "/").trim();
+	if (!normalized) {
+		return "";
+	}
+
+	const parts = normalized.split("/").filter(Boolean);
+	return parts[parts.length - 1] || normalized;
+}
 
 /**
  * 题库数据存储服务
@@ -54,6 +64,7 @@ export interface QuestionCardCleanupResult {
 export class QuestionBankStorage {
 	private app: App;
 	private basePath: string;
+	private runtimeCacheDir: string;
 
 	constructor(app: App) {
 		if (!app || !app.vault) {
@@ -62,7 +73,191 @@ export class QuestionBankStorage {
 		this.app = app;
 		// 根据当前数据源动态计算路径
 		this.basePath = this.getQuestionBankPath();
+		this.runtimeCacheDir = `${getPluginPaths(this.app).cache.root}/question-bank`;
 		logger.debug("[QuestionBankStorage] Initialized with basePath:", this.basePath);
+	}
+
+	normalizeQBankFileDataForPersistence(
+		data: (Partial<QBankFileData> & Record<string, unknown>) | null | undefined,
+		filePathOrName = ""
+	): QBankFileData & Record<string, unknown> {
+		const raw = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+		const typed = raw as Partial<QBankFileData>;
+		const fileName =
+			this.sanitizeFileName(
+				normalizeFileNameFromPath(filePathOrName).replace(/\.qbank$/i, "") || "untitled-bank"
+			) || "untitled-bank";
+		const metadata = typed.metadata && typeof typed.metadata === "object"
+			? { ...(typed.metadata as Record<string, unknown>) }
+			: {};
+		const normalizedCreatedAt =
+			typeof metadata.createdAt === "string" && String(metadata.createdAt).trim()
+				? String(metadata.createdAt)
+				: new Date(0).toISOString();
+		const normalizedUpdatedAt =
+			typeof metadata.updatedAt === "string" && String(metadata.updatedAt).trim()
+				? String(metadata.updatedAt)
+				: normalizedCreatedAt;
+		const normalizedQuestions = Array.isArray(typed.questions)
+			? typed.questions
+					.map((question) => this.normalizeQuestionInBank(question))
+					.filter((question): question is QuestionInBank => !!question)
+			: Array.isArray((raw as any).refs)
+				? this.normalizeQuestionRefs((raw as any).refs as any[]).map((ref) => ({
+						cardUuid: ref.cardUuid,
+						addedAt: ref.addedAt,
+						testHistory: [],
+						stats: this.normalizeQuestionStats(undefined),
+					}))
+				: [];
+		const totalTests = normalizedQuestions.reduce(
+			(sum, question) => sum + (question.stats?.totalAttempts || 0),
+			0
+		);
+		const normalizedStats: QBankStats = {
+			totalQuestions: normalizedQuestions.length,
+			totalTests,
+			averageScore:
+				typeof typed.stats?.averageScore === "number" ? typed.stats.averageScore : undefined,
+			highestScore:
+				typeof typed.stats?.highestScore === "number" ? typed.stats.highestScore : undefined,
+			lowestScore:
+				typeof typed.stats?.lowestScore === "number" ? typed.stats.lowestScore : undefined,
+			errorBookCount:
+				typeof typed.stats?.errorBookCount === "number"
+					? typed.stats.errorBookCount
+					: normalizedQuestions.filter((question) => question.stats.isInErrorBook).length,
+			lastTestedAt:
+				typeof typed.stats?.lastTestedAt === "string" && typed.stats.lastTestedAt.trim()
+					? typed.stats.lastTestedAt
+					: undefined,
+		};
+
+		return {
+			...raw,
+			id: typeof typed.id === "string" && typed.id.trim() ? typed.id.trim() : fileName,
+			name: typeof typed.name === "string" && typed.name.trim() ? typed.name.trim() : fileName,
+			description: typeof typed.description === "string" ? typed.description : "",
+			deckType: "question-bank",
+			refs: undefined,
+			metadata: {
+				...metadata,
+				tags: Array.isArray(metadata.tags)
+					? metadata.tags.map((tag) => String(tag)).filter(Boolean)
+					: [],
+				createdAt: normalizedCreatedAt,
+				updatedAt: normalizedUpdatedAt,
+			},
+			config: {
+				defaultMode:
+					typeof typed.config?.defaultMode === "string" && typed.config.defaultMode.trim()
+						? typed.config.defaultMode
+						: "exam",
+				defaultQuestionCount:
+					typeof typed.config?.defaultQuestionCount === "number"
+						? typed.config.defaultQuestionCount
+						: undefined,
+				defaultTimeLimit:
+					typeof typed.config?.defaultTimeLimit === "number"
+						? typed.config.defaultTimeLimit
+						: undefined,
+				enableErrorBook:
+					typeof typed.config?.enableErrorBook === "boolean"
+						? typed.config.enableErrorBook
+						: true,
+				showExplanation:
+					typeof typed.config?.showExplanation === "boolean"
+						? typed.config.showExplanation
+						: false,
+			},
+			questions: normalizedQuestions,
+			stats: normalizedStats,
+			testHistory: this.normalizeTestHistoryEntries((raw as any).testHistory),
+			errorBook: this.normalizeErrorBookEntries((raw as any).errorBook),
+		};
+	}
+
+	async writeQBankFileData(
+		filePath: string,
+		data: (QBankFileData & Record<string, unknown>) | null | undefined
+	): Promise<void> {
+		const raw = data && typeof data === "object" ? ({ ...(data as Record<string, unknown>) } as Record<string, unknown>) : {};
+		const rawMetadata = raw.metadata && typeof raw.metadata === "object"
+			? { ...(raw.metadata as Record<string, unknown>) }
+			: {};
+		const now = new Date().toISOString();
+		raw.metadata = {
+			...rawMetadata,
+			createdAt:
+				typeof rawMetadata.createdAt === "string" && String(rawMetadata.createdAt).trim()
+					? String(rawMetadata.createdAt)
+					: now,
+			updatedAt: now,
+		};
+		const normalized = this.normalizeQBankFileDataForPersistence(
+			raw as QBankFileData & Record<string, unknown>,
+			filePath
+		);
+		await safeWriteJson(
+			this.app.vault.adapter as any,
+			filePath,
+			JSON.stringify(normalized, null, 2),
+			this.app as any
+		);
+	}
+
+	private async readQBankJsonFile(
+		filePath: string
+	): Promise<(QBankFileData & Record<string, unknown>) | null> {
+		return await safeReadJson<QBankFileData & Record<string, unknown>>(
+			this.app.vault.adapter as any,
+			filePath,
+			this.app as any
+		);
+	}
+
+	private async listQBankFilePaths(): Promise<string[]> {
+		const vaultAny = this.app.vault as any;
+		if (typeof vaultAny?.getFiles === "function") {
+			return vaultAny
+				.getFiles()
+				.filter((file: { extension?: string; path?: string }) => {
+					return (
+						file.extension === "qbank" &&
+						typeof file.path === "string" &&
+						file.path.startsWith(this.basePath)
+					);
+				})
+				.map((file: { path: string }) => file.path);
+		}
+
+		const adapter: any = this.app.vault.adapter as any;
+		if (!(await adapter.exists?.(this.basePath)) || typeof adapter.list !== "function") {
+			return [];
+		}
+
+		const filePaths: string[] = [];
+		const walk = async (dirPath: string): Promise<void> => {
+			let listing: any;
+			try {
+				listing = await adapter.list(dirPath);
+			} catch {
+				return;
+			}
+
+			for (const childDir of listing?.folders || []) {
+				await walk(childDir);
+			}
+
+			for (const filePath of listing?.files || []) {
+				if (typeof filePath === "string" && filePath.endsWith(".qbank")) {
+					filePaths.push(filePath);
+				}
+			}
+		};
+
+		await walk(this.basePath);
+		return filePaths;
 	}
 
 	/**
@@ -70,6 +265,18 @@ export class QuestionBankStorage {
 	 */
 	private getQuestionBankPath(): string {
 		return getV2PathsFromApp(this.app).questionBank.root;
+	}
+
+	private getRuntimeInProgressFilePath(): string {
+		return `${this.runtimeCacheDir}/in-progress.json`;
+	}
+
+	private getRuntimeSessionArchivesFilePath(): string {
+		return `${this.runtimeCacheDir}/session-archives.json`;
+	}
+
+	private getRuntimeQuestionStatsFilePath(): string {
+		return `${this.runtimeCacheDir}/question-stats.json`;
 	}
 
 	private buildHistoryQuestionSummaries(questions: unknown[]): TestHistoryQuestionSummary[] {
@@ -218,12 +425,13 @@ export class QuestionBankStorage {
 			await DirectoryUtils.ensureDirRecursive(adapter, this.basePath);
 		}
 
-		const banksDir = `${this.basePath}/banks`;
-		if (!(await adapter.exists(banksDir))) {
-			await DirectoryUtils.ensureDirRecursive(adapter, banksDir);
+		if (!(await adapter.exists(this.runtimeCacheDir))) {
+			await DirectoryUtils.ensureDirRecursive(adapter, this.runtimeCacheDir);
 		}
 
 		await this.migratePerFilesToConsolidated();
+		await this.migrateRuntimeFilesToPluginCache();
+		await this.migrateLegacyBankStateToQBank();
 		await this.migrateLegacyTestSessionsToHistory();
 		await this.migratePerBankQuestionStatsToGlobal();
 	}
@@ -376,6 +584,135 @@ export class QuestionBankStorage {
 		}
 	}
 
+	private async cleanupRemovedQBankFiles(retainedBankIds: Set<string>): Promise<void> {
+		const qbankFilePaths = await this.listQBankFilePaths();
+		for (const filePath of qbankFilePaths) {
+			try {
+				const raw = await this.app.vault.adapter.read(filePath);
+				const parsed = JSON.parse(raw) as Partial<QBankFileData>;
+				const bankId = typeof parsed?.id === "string" ? parsed.id.trim() : "";
+				if (!bankId || retainedBankIds.has(bankId)) {
+					continue;
+				}
+
+				await this.app.vault.adapter.remove(filePath);
+				logger.info(`[QuestionBankStorage] 已删除残留题组文件: ${filePath}`);
+			} catch (error) {
+				logger.warn(`[QuestionBankStorage] 清理残留 .qbank 失败: ${filePath}`, error);
+			}
+		}
+	}
+
+	private async loadLegacyBanksFromJson(): Promise<Deck[]> {
+		try {
+			const legacyBanksPath = getV2PathsFromApp(this.app).questionBank.banks;
+			const exists = await this.app.vault.adapter.exists(legacyBanksPath);
+			if (!exists) return [];
+
+			const raw = await this.app.vault.adapter.read(legacyBanksPath);
+			if (!raw || raw.trim().length === 0) return [];
+
+			const parsed = JSON.parse(raw);
+			if (!Array.isArray(parsed)) return [];
+
+			return parsed
+				.filter((item) => item && typeof item === "object" && typeof (item as any).id === "string")
+				.map((item) => {
+					const bank = item as Partial<Deck> & Record<string, unknown>;
+					return {
+						id: String(bank.id),
+						name: typeof bank.name === "string" ? bank.name : String(bank.id),
+						description: typeof bank.description === "string" ? bank.description : "",
+						category: typeof bank.category === "string" ? bank.category : "",
+						categoryIds: Array.isArray(bank.categoryIds) ? (bank.categoryIds as string[]) : [],
+						parentId: typeof bank.parentId === "string" ? bank.parentId : undefined,
+						path: typeof bank.path === "string" ? bank.path : (typeof bank.name === "string" ? bank.name : String(bank.id)),
+						level: typeof bank.level === "number" ? bank.level : 0,
+						order: typeof bank.order === "number" ? bank.order : 0,
+						created: typeof bank.created === "string" ? bank.created : new Date().toISOString(),
+						modified: typeof bank.modified === "string" ? bank.modified : new Date().toISOString(),
+						tags: Array.isArray(bank.tags) ? (bank.tags as string[]) : [],
+						settings: (bank.settings as any) || ({} as any),
+						stats: (bank.stats as any) || ({} as any),
+						inheritSettings: typeof bank.inheritSettings === "boolean" ? bank.inheritSettings : false,
+						metadata: (bank.metadata as Record<string, unknown>) || {},
+						deckType: (bank.deckType as any) || "question-bank",
+						includeSubdecks: typeof bank.includeSubdecks === "boolean" ? bank.includeSubdecks : false,
+					} as Deck;
+				});
+		} catch (error) {
+			logger.warn("[QuestionBankStorage] 回退加载 legacy banks.json 失败:", error);
+			return [];
+		}
+	}
+
+	private async migrateLegacyBankStateToQBank(): Promise<void> {
+		const adapter = this.app.vault.adapter;
+		const legacyPaths = getV2PathsFromApp(this.app).questionBank;
+
+		const legacyHistoryByBank = await this.loadConsolidatedMap<TestHistoryEntry[]>(
+			legacyPaths.testHistory
+		);
+		const legacyErrorBookByBank = await this.loadConsolidatedMap<ErrorBookEntry[]>(legacyPaths.errorBook);
+
+		if (
+			Object.keys(legacyHistoryByBank).length === 0 &&
+			Object.keys(legacyErrorBookByBank).length === 0
+		) {
+			return;
+		}
+
+		const banks = await this.loadBanks();
+		for (const bank of banks) {
+			const qbankRecord = await this.readQBankDataByBankId(bank.id);
+			if (!qbankRecord) {
+				continue;
+			}
+
+			let changed = false;
+
+			const legacyHistory = this.normalizeTestHistoryEntries(legacyHistoryByBank[bank.id]);
+			if (legacyHistory.length > 0) {
+				const existingHistory = this.normalizeTestHistoryEntries((qbankRecord.data as any).testHistory);
+				(qbankRecord.data as any).testHistory = this.mergeTestHistoryEntries(
+					existingHistory,
+					legacyHistory
+				);
+				changed = true;
+			}
+
+			const legacyErrorBook = this.normalizeErrorBookEntries(legacyErrorBookByBank[bank.id]);
+			if (legacyErrorBook.length > 0) {
+				const existingErrorBook = this.normalizeErrorBookEntries((qbankRecord.data as any).errorBook);
+				(qbankRecord.data as any).errorBook = this.mergeErrorBookEntries(
+					existingErrorBook,
+					legacyErrorBook
+				);
+				changed = true;
+			}
+
+			if (changed) {
+				await this.writeQBankFileData(qbankRecord.filePath, qbankRecord.data);
+			}
+		}
+
+		if (Object.keys(legacyHistoryByBank).length === 0) {
+			if (await adapter.exists(legacyPaths.testHistory)) {
+				await adapter.remove(legacyPaths.testHistory);
+			}
+		} else {
+			await this.saveConsolidatedMap(legacyPaths.testHistory, legacyHistoryByBank);
+		}
+
+		if (Object.keys(legacyErrorBookByBank).length === 0) {
+			if (await adapter.exists(legacyPaths.errorBook)) {
+				await adapter.remove(legacyPaths.errorBook);
+			}
+		} else {
+			await this.saveConsolidatedMap(legacyPaths.errorBook, legacyErrorBookByBank);
+		}
+	}
+
 	/**
 	 * 获取文件完整路径
 	 */
@@ -388,21 +725,183 @@ export class QuestionBankStorage {
 	// ============================================================================
 
 	/**
-	 * 保存考试题组列表
+	 * 保存考试题组列表（新格式：直接生成 .qbank 文件）
 	 */
 	async saveBanks(banks: Deck[]): Promise<void> {
-		const filePath = this.getFilePath("banks.json");
-		const data = JSON.stringify(banks);
-
 		try {
-			await this.app.vault.adapter.write(filePath, data);
-			logger.debug("[QuestionBankStorage] saveBanks 保存成功，题库数:", banks.length);
+			const retainedBankIds = new Set(
+				banks.map((bank) => String(bank?.id || "").trim()).filter(Boolean)
+			);
+
+			// 为每个题组生成/更新 .qbank 文件
+			for (const bank of banks) {
+				await this.saveQBankFile(bank);
+			}
+			await this.cleanupRemovedQBankFiles(retainedBankIds);
+			logger.debug("[QuestionBankStorage] 已保存所有题组为 .qbank 文件，题库数:", banks.length);
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 保存考试题组失败:", error);
 			throw new Error(
 				`保存考试题组失败: ${error instanceof Error ? error.message : String(error)}`
 			);
 		}
+	}
+
+	/**
+	 * 保存单个题组为 .qbank 文件
+	 */
+	private async saveQBankFile(bank: Deck): Promise<void> {
+		try {
+			const bankId = bank.id;
+			const existingQbankRecord = await this.readQBankDataByBankId(bankId);
+			const existingTestHistory = this.normalizeTestHistoryEntries(
+				(existingQbankRecord?.data as any)?.testHistory
+			);
+			const existingErrorBook = this.normalizeErrorBookEntries(
+				(existingQbankRecord?.data as any)?.errorBook
+			);
+
+			// 1. 读取题目引用
+			const refs = await this.loadBankQuestionRefs(bankId);
+
+			// 2. 读取题目统计
+			const globalStats = await this.loadGlobalQuestionStats();
+
+			// 3. 构建题目数据（包含统计信息）
+			const questions: QuestionInBank[] = refs.map(ref => {
+				const stats = globalStats[ref.cardUuid];
+				const normalizedAttempts: QuestionInBank["testHistory"] = Array.isArray(stats?.attempts)
+					? stats.attempts.map((attempt: any, index: number) => ({
+							sessionId:
+								typeof attempt?.sessionId === "string" && attempt.sessionId.trim().length > 0
+									? attempt.sessionId
+									: `${ref.cardUuid}-${index + 1}`,
+							timestamp:
+								typeof attempt?.timestamp === "string" && attempt.timestamp.trim().length > 0
+									? attempt.timestamp
+									: new Date().toISOString(),
+							isCorrect: attempt?.isCorrect === true,
+							score: typeof attempt?.score === "number" ? attempt.score : 0,
+							timeSpent: typeof attempt?.timeSpent === "number" ? attempt.timeSpent : 0,
+							mode: "exam",
+					  }))
+					: [];
+				return {
+					cardUuid: ref.cardUuid,
+					addedAt: ref.addedAt,
+					testHistory: normalizedAttempts,
+					stats: {
+						totalAttempts: stats?.totalAttempts || 0,
+						correctAttempts: stats?.correctAttempts || 0,
+						accuracy: stats?.accuracy || 0,
+						isInErrorBook: stats?.isInErrorBook || false,
+						lastTestedAt: stats?.lastTestDate,
+						averageTimeSpent: stats?.averageResponseTime,
+						highestScore: stats?.bestScore,
+					}
+				};
+			});
+
+			// 4. 计算题库统计
+			const stats: QBankStats = {
+				totalQuestions: questions.length,
+				totalTests: questions.reduce((sum, q) => sum + q.stats.totalAttempts, 0),
+				averageScore: this.calculateAverageScore(questions),
+				highestScore: this.calculateHighestScore(questions),
+				lowestScore: this.calculateLowestScore(questions),
+				errorBookCount: questions.filter(q => q.stats.isInErrorBook).length,
+				lastTestedAt: this.calculateLastTestedAt(questions),
+			};
+
+			// 5. 构建 .qbank 文件数据
+			const qbankData: QBankFileData = {
+				id: bankId,
+				name: bank.name,
+				description: bank.description || '',
+				deckType: 'question-bank',
+				metadata: {
+					pairedMemoryDeckId: (bank.metadata as any)?.pairedMemoryDeckId,
+					tags: bank.tags || [],
+					createdAt: bank.created || new Date().toISOString(),
+					updatedAt: new Date().toISOString(),
+				},
+				config: {
+					defaultMode: 'exam',
+					defaultQuestionCount: undefined,
+					defaultTimeLimit: undefined,
+					enableErrorBook: true,
+					showExplanation: false,
+				},
+				questions,
+				stats,
+			};
+			(qbankData as any).testHistory = existingTestHistory;
+			(qbankData as any).errorBook = existingErrorBook;
+
+			// 6. 生成文件路径（使用题组名称）
+			const filePath =
+				existingQbankRecord?.filePath ||
+				`${this.basePath}/${this.sanitizeFileName(bank.name)}.qbank`;
+
+			// 7. 写入文件
+			await this.writeQBankFileData(filePath, qbankData as QBankFileData & Record<string, unknown>);
+
+			logger.debug(`[QuestionBankStorage] 已保存 .qbank 文件: ${filePath}`);
+		} catch (error) {
+			logger.error(`[QuestionBankStorage] 保存 .qbank 文件失败: ${bank.name}`, error);
+			throw error;
+		}
+	}
+
+	/**
+	 * 清理文件名（移除不安全字符）
+	 */
+	private sanitizeFileName(name: string): string {
+		return name
+			.replace(/[<>:"/\\|?*]/g, '_')  // 替换不安全字符
+			.replace(/\s+/g, '_')            // 空格替换为下划线
+			.replace(/_{2,}/g, '_')          // 多个下划线合并
+			.trim();
+	}
+
+	/**
+	 * 计算平均分
+	 */
+	private calculateAverageScore(questions: QuestionInBank[]): number {
+		const scores = questions
+			.filter(q => q.stats.highestScore !== undefined)
+			.map(q => q.stats.highestScore!);
+		return scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+	}
+
+	/**
+	 * 计算最高分
+	 */
+	private calculateHighestScore(questions: QuestionInBank[]): number {
+		const scores = questions
+			.filter(q => q.stats.highestScore !== undefined)
+			.map(q => q.stats.highestScore!);
+		return scores.length > 0 ? Math.max(...scores) : 0;
+	}
+
+	/**
+	 * 计算最低分
+	 */
+	private calculateLowestScore(questions: QuestionInBank[]): number {
+		const scores = questions
+			.filter(q => q.stats.highestScore !== undefined)
+			.map(q => q.stats.highestScore!);
+		return scores.length > 0 ? Math.min(...scores) : 0;
+	}
+
+	/**
+	 * 计算最后测试时间
+	 */
+	private calculateLastTestedAt(questions: QuestionInBank[]): string | undefined {
+		const dates = questions
+			.filter(q => q.stats.lastTestedAt)
+			.map(q => new Date(q.stats.lastTestedAt!).getTime());
+		return dates.length > 0 ? new Date(Math.max(...dates)).toISOString() : undefined;
 	}
 
 	async saveGlobalQuestionStats(statsByUuid: Record<string, QuestionTestStats>): Promise<void> {
@@ -440,29 +939,63 @@ export class QuestionBankStorage {
 	}
 
 	/**
-	 * 加载考试题组列表
+	 * 加载考试题组列表（新格式：只读取 .qbank 文件）
 	 */
 	async loadBanks(): Promise<Deck[]> {
-		const filePath = this.getFilePath("banks.json");
-
 		try {
-			const exists = await this.app.vault.adapter.exists(filePath);
-			if (!exists) {
-				logger.debug("[QuestionBankStorage] banks.json 不存在，返回空数组");
+			// 只扫描 .qbank 文件
+			const qbankFilePaths = await this.listQBankFilePaths();
+
+			if (qbankFilePaths.length === 0) {
+				const legacyBanks = await this.loadLegacyBanksFromJson();
+				if (legacyBanks.length > 0) {
+					logger.debug(`[QuestionBankStorage] 未找到 .qbank 文件，回退加载 legacy banks.json: ${legacyBanks.length}`);
+					return legacyBanks;
+				}
+				logger.debug("[QuestionBankStorage] 未找到 .qbank 文件");
 				return [];
 			}
 
-			const data = await this.app.vault.adapter.read(filePath);
-			const parsed = JSON.parse(data);
+			const banks: Deck[] = [];
 
-			// 确保返回的是数组
-			if (!Array.isArray(parsed)) {
-				logger.error("[QuestionBankStorage] banks.json 格式错误，期望数组但得到:", typeof parsed);
-				return [];
+			for (const filePath of qbankFilePaths) {
+				try {
+					const qbankData = await this.readQBankJsonFile(filePath);
+					if (!qbankData) {
+						throw new Error(`.qbank 文件读取失败: ${filePath}`);
+					}
+
+					// 转换为 Deck 格式
+					const deck: Deck = {
+						id: qbankData.id,
+						name: qbankData.name,
+						description: qbankData.description || '',
+						deckType: 'question-bank',
+						metadata: qbankData.metadata || {},
+						created: qbankData.metadata?.createdAt || new Date().toISOString(),
+						modified: qbankData.metadata?.updatedAt || new Date().toISOString(),
+						tags: qbankData.metadata?.tags || [],
+						// 平级架构字段
+						category: '',
+						categoryIds: [],
+						parentId: undefined,
+						path: qbankData.name,
+						level: 0,
+						order: 0,
+						inheritSettings: false,
+						settings: {} as any,
+						stats: {} as any,
+						includeSubdecks: false,
+					};
+
+					banks.push(deck);
+				} catch (error) {
+					logger.error(`[QuestionBankStorage] 解析 .qbank 文件失败: ${filePath}`, error);
+				}
 			}
 
-			logger.debug("[QuestionBankStorage] loadBanks 加载完成，题库数:", parsed.length);
-			return parsed as Deck[];
+			logger.debug(`[QuestionBankStorage] 加载了 ${banks.length} 个题组`);
+			return banks;
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 加载考试题组失败:", error);
 			return [];
@@ -499,7 +1032,143 @@ export class QuestionBankStorage {
 	}
 
 	private getGlobalQuestionStatsFilePath(): string {
-		return `${this.basePath}/question-stats.json`;
+		return this.getRuntimeQuestionStatsFilePath();
+	}
+
+	private async loadStatsMapFromFile(filePath: string): Promise<Record<string, QuestionTestStats>> {
+		try {
+			const exists = await this.app.vault.adapter.exists(filePath);
+			if (!exists) return {};
+			const data = await this.app.vault.adapter.read(filePath);
+			if (!data || data.trim().length === 0) return {};
+			const parsed = JSON.parse(data);
+			const stats = parsed.statsByUuid;
+			return stats && typeof stats === "object" ? (stats as Record<string, QuestionTestStats>) : {};
+		} catch {
+			return {};
+		}
+	}
+
+	private async saveStatsMapToFile(
+		filePath: string,
+		statsByUuid: Record<string, QuestionTestStats>
+	): Promise<void> {
+		const payload = {
+			_schemaVersion: "1.0.0",
+			statsByUuid,
+		};
+		await this.app.vault.adapter.write(filePath, JSON.stringify(payload));
+	}
+
+	private normalizeTestHistoryEntries(entries: unknown): TestHistoryEntry[] {
+		if (!Array.isArray(entries)) {
+			return [];
+		}
+
+		return entries.filter((entry): entry is TestHistoryEntry => {
+			return !!entry && typeof (entry as any).sessionId === "string";
+		});
+	}
+
+	private normalizeErrorBookEntries(entries: unknown): ErrorBookEntry[] {
+		if (!Array.isArray(entries)) {
+			return [];
+		}
+
+		return entries.filter((entry): entry is ErrorBookEntry => {
+			return !!entry && typeof (entry as any).cardId === "string";
+		});
+	}
+
+	private mergeTestHistoryEntries(
+		existingEntries: TestHistoryEntry[],
+		incomingEntries: TestHistoryEntry[]
+	): TestHistoryEntry[] {
+		const merged = new Map<string, TestHistoryEntry>();
+
+		for (const entry of incomingEntries) {
+			if (!entry?.sessionId) {
+				continue;
+			}
+			merged.set(entry.sessionId, entry);
+		}
+
+		for (const entry of existingEntries) {
+			if (!entry?.sessionId) {
+				continue;
+			}
+			merged.set(entry.sessionId, entry);
+		}
+
+		return Array.from(merged.values()).sort(
+			(a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+		);
+	}
+
+	private mergeErrorBookEntries(
+		existingEntries: ErrorBookEntry[],
+		incomingEntries: ErrorBookEntry[]
+	): ErrorBookEntry[] {
+		const merged = new Map<string, ErrorBookEntry>();
+
+		for (const entry of incomingEntries) {
+			if (!entry?.cardId) {
+				continue;
+			}
+			merged.set(entry.cardId, entry);
+		}
+
+		for (const entry of existingEntries) {
+			if (!entry?.cardId) {
+				continue;
+			}
+			merged.set(entry.cardId, entry);
+		}
+
+		return Array.from(merged.values());
+	}
+
+	private async migrateRuntimeFilesToPluginCache(): Promise<void> {
+		const legacyPaths = getV2PathsFromApp(this.app).questionBank;
+
+		try {
+			const legacyInProgress = await this.loadConsolidatedMap<PersistedTestSession>(legacyPaths.inProgress);
+			const runtimeInProgress = await this.loadConsolidatedMap<PersistedTestSession>(
+				this.getRuntimeInProgressFilePath()
+			);
+			const mergedInProgress = { ...legacyInProgress, ...runtimeInProgress };
+			if (Object.keys(mergedInProgress).length > 0) {
+				await this.saveConsolidatedMap(this.getRuntimeInProgressFilePath(), mergedInProgress);
+			}
+		} catch (error) {
+			logger.error("[QuestionBankStorage] 迁移 in-progress 到插件缓存失败:", error);
+		}
+
+		try {
+			const legacyArchives = await this.loadConsolidatedMap<Record<string, unknown>>(
+				legacyPaths.sessionArchives
+			);
+			const runtimeArchives = await this.loadConsolidatedMap<Record<string, unknown>>(
+				this.getRuntimeSessionArchivesFilePath()
+			);
+			const mergedArchives = { ...legacyArchives, ...runtimeArchives };
+			if (Object.keys(mergedArchives).length > 0) {
+				await this.saveConsolidatedMap(this.getRuntimeSessionArchivesFilePath(), mergedArchives);
+			}
+		} catch (error) {
+			logger.error("[QuestionBankStorage] 迁移 session-archives 到插件缓存失败:", error);
+		}
+
+		try {
+			const legacyStats = await this.loadStatsMapFromFile(legacyPaths.questionStats);
+			const runtimeStats = await this.loadStatsMapFromFile(this.getRuntimeQuestionStatsFilePath());
+			const mergedStats = { ...legacyStats, ...runtimeStats };
+			if (Object.keys(mergedStats).length > 0) {
+				await this.saveStatsMapToFile(this.getRuntimeQuestionStatsFilePath(), mergedStats);
+			}
+		} catch (error) {
+			logger.error("[QuestionBankStorage] 迁移 question-stats 到插件缓存失败:", error);
+		}
 	}
 
 	private async loadConsolidatedMap<T>(filePath: string): Promise<Record<string, T>> {
@@ -520,6 +1189,88 @@ export class QuestionBankStorage {
 		await this.app.vault.adapter.write(filePath, JSON.stringify(payload));
 	}
 
+	private normalizeQuestionAddedAt(value: unknown): string {
+		if (typeof value === "string") {
+			const trimmed = value.trim();
+			if (trimmed.length > 0) {
+				const parsed = Date.parse(trimmed);
+				if (!Number.isNaN(parsed)) {
+					return new Date(parsed).toISOString();
+				}
+			}
+		}
+
+		if (typeof value === "number" && Number.isFinite(value)) {
+			return new Date(value).toISOString();
+		}
+
+		return new Date().toISOString();
+	}
+
+	private normalizeQuestionStats(stats: unknown): QuestionInBank["stats"] {
+		const raw = stats && typeof stats === "object" ? (stats as Record<string, unknown>) : {};
+
+		return {
+			totalAttempts: typeof raw.totalAttempts === "number" ? raw.totalAttempts : 0,
+			correctAttempts: typeof raw.correctAttempts === "number" ? raw.correctAttempts : 0,
+			accuracy: typeof raw.accuracy === "number" ? raw.accuracy : 0,
+			isInErrorBook: raw.isInErrorBook === true,
+			lastTestedAt: typeof raw.lastTestedAt === "string" ? raw.lastTestedAt : undefined,
+			averageTimeSpent: typeof raw.averageTimeSpent === "number" ? raw.averageTimeSpent : undefined,
+			highestScore: typeof raw.highestScore === "number" ? raw.highestScore : undefined,
+			lowestScore: typeof raw.lowestScore === "number" ? raw.lowestScore : undefined,
+		};
+	}
+
+	private normalizeQuestionInBank(question: unknown): QuestionInBank | null {
+		if (!question || typeof question !== "object") {
+			return null;
+		}
+
+		const cardUuidSource =
+			typeof (question as any).cardUuid === "string"
+				? (question as any).cardUuid
+				: typeof (question as any).uuid === "string"
+				? (question as any).uuid
+				: "";
+		const cardUuid = cardUuidSource.trim();
+		if (!cardUuid) {
+			return null;
+		}
+
+		return {
+			cardUuid,
+			addedAt: this.normalizeQuestionAddedAt((question as any).addedAt),
+			testHistory: Array.isArray((question as any).testHistory) ? (question as any).testHistory : [],
+			stats: this.normalizeQuestionStats((question as any).stats),
+		};
+	}
+
+	private normalizeQuestionRefs(refs: QuestionRef[]): QuestionRef[] {
+		const normalized: QuestionRef[] = [];
+		const seen = new Set<string>();
+
+		for (const ref of refs) {
+			const cardUuid =
+				typeof (ref as any)?.cardUuid === "string"
+					? (ref as any).cardUuid.trim()
+					: typeof (ref as any)?.uuid === "string"
+						? (ref as any).uuid.trim()
+						: "";
+			if (!cardUuid || seen.has(cardUuid)) {
+				continue;
+			}
+
+			normalized.push({
+				cardUuid,
+				addedAt: this.normalizeQuestionAddedAt(ref.addedAt),
+			});
+			seen.add(cardUuid);
+		}
+
+		return normalized;
+	}
+
 	async saveBankQuestionRefs(bankId: string, refs: QuestionRef[]): Promise<void> {
 		if (!Array.isArray(refs)) {
 			const errorMsg = `saveBankQuestionRefs 期望数组参数，但得到: ${typeof refs}`;
@@ -527,80 +1278,181 @@ export class QuestionBankStorage {
 			throw new Error(errorMsg);
 		}
 
-		await this.ensureBankDir(bankId);
-
-		const filePath = this.getBankQuestionRefsFilePath(bankId);
-		const payload = {
-			_schemaVersion: "2.0.0",
-			bankId,
-			refs,
-		};
-
 		try {
-			await this.app.vault.adapter.write(filePath, JSON.stringify(payload));
-			logger.debug(`[QuestionBankStorage] 已保存题库题目引用: ${bankId}, 数量: ${refs.length}`);
+			// 1. 找到对应的 .qbank 文件
+			const qbankFile = await this.findQBankFileByBankId(bankId);
+			if (!qbankFile) {
+				throw new Error(`找不到题库 ${bankId} 的 .qbank 文件`);
+			}
+
+			// 2. 读取现有数据
+			const data = await this.readQBankJsonFile(qbankFile);
+			if (!data) {
+				throw new Error(`.qbank 文件读取失败: ${qbankFile}`);
+			}
+			const normalizedRefs = this.normalizeQuestionRefs(refs);
+			const isLegacyRefFile = Array.isArray((data as any).refs);
+
+			// 3. 更新题目引用（保留现有测试历史和统计）
+			const existingByUuid = new Map<string, QuestionInBank>();
+			for (const question of Array.isArray(data.questions) ? data.questions : []) {
+				const normalized = this.normalizeQuestionInBank(question);
+				if (!normalized) {
+					continue;
+				}
+				existingByUuid.set(normalized.cardUuid, normalized);
+			}
+
+			data.questions = normalizedRefs.map((ref) => {
+				const preserved = existingByUuid.get(ref.cardUuid);
+				if (preserved) {
+					return {
+						...preserved,
+						addedAt: ref.addedAt,
+					};
+				}
+
+				return {
+					cardUuid: ref.cardUuid,
+					addedAt: ref.addedAt,
+					testHistory: [],
+					stats: this.normalizeQuestionStats(undefined),
+				};
+			});
+
+			if (isLegacyRefFile) {
+				(data as any).refs = normalizedRefs;
+			}
+
+			if (!data.stats) {
+				data.stats = {
+					totalQuestions: data.questions.length,
+					totalTests: 0,
+				};
+			} else {
+				data.stats.totalQuestions = data.questions.length;
+			}
+
+			// 4. 写回文件
+			await this.writeQBankFileData(qbankFile, data as QBankFileData & Record<string, unknown>);
+			logger.debug(
+				`[QuestionBankStorage] 已更新 .qbank 文件题目引用: ${bankId}, 数量: ${normalizedRefs.length}`
+			);
 		} catch (error) {
-			logger.error("[QuestionBankStorage] 保存题库题目引用失败:", error);
+			logger.error("[QuestionBankStorage] 更新 .qbank 文件题目引用失败:", error);
 			throw new Error(
-				`保存题库题目引用失败: ${error instanceof Error ? error.message : String(error)}`
+				`更新 .qbank 文件题目引用失败: ${error instanceof Error ? error.message : String(error)}`
 			);
 		}
 	}
 
 	async loadBankQuestionRefs(bankId: string): Promise<QuestionRef[]> {
-		const filePath = this.getBankQuestionRefsFilePath(bankId);
-
 		try {
-			const exists = await this.app.vault.adapter.exists(filePath);
-			if (!exists) {
+			// 1. 找到对应的 .qbank 文件
+			const qbankFile = await this.findQBankFileByBankId(bankId);
+			if (!qbankFile) {
+				logger.warn(`[QuestionBankStorage] 未找到题库的 .qbank 文件: ${bankId}`);
 				return [];
 			}
 
-			const data = await this.app.vault.adapter.read(filePath);
-			if (!data || data.trim().length === 0) {
-				logger.warn(`[QuestionBankStorage] 题库题目文件为空: ${bankId}`);
+			// 2. 读取文件
+			const qbankData = await this.readQBankJsonFile(qbankFile);
+			if (!qbankData) {
+				logger.warn(`[QuestionBankStorage] 读取 .qbank 文件失败: ${qbankFile}`);
 				return [];
 			}
-
-			const parsed = JSON.parse(data);
-			const items: unknown = parsed.refs ?? parsed.questions;
-			if (!Array.isArray(items)) {
-				logger.error(`[QuestionBankStorage] 题目数据格式错误，期望数组但得到: ${typeof items}`);
-				return [];
+			const legacyRefs = Array.isArray((qbankData as any).refs) ? (qbankData as any).refs : null;
+			if (legacyRefs) {
+				return this.normalizeQuestionRefs(legacyRefs as QuestionRef[]);
 			}
 
-			const first = items[0] as any;
-			if (first && typeof first === "object" && typeof first.cardUuid === "string") {
-				return items as QuestionRef[];
-			}
+			const rawQuestions = Array.isArray((qbankData as any).questions) ? (qbankData as any).questions : [];
 
-			// 旧格式：questions 为 Card[]，自动迁移为 refs + question-stats
-			if (first && typeof first === "object" && typeof first.uuid === "string") {
-				const now = new Date().toISOString();
-				const legacyCards = items as Card[];
-				const refs: QuestionRef[] = legacyCards
-					.filter((c) => c && typeof c.uuid === "string")
-					.map((c) => ({ cardUuid: c.uuid, addedAt: c.created || now }));
+			const normalizedQuestions: QuestionInBank[] = [];
+			let hasLegacyShape = false;
 
-				const statsByUuid: Record<string, QuestionTestStats> = {};
-				for (const c of legacyCards) {
-					const uuid = (c as any)?.uuid;
-					const ts = (c as any)?.stats?.testStats;
-					if (uuid && ts) {
-						statsByUuid[uuid] = ts as QuestionTestStats;
-					}
+			for (const question of rawQuestions) {
+				const normalized = this.normalizeQuestionInBank(question);
+				if (!normalized) {
+					hasLegacyShape = true;
+					continue;
 				}
 
-				await this.saveBankQuestionRefs(bankId, refs);
-				await this.saveBankQuestionStats(bankId, statsByUuid);
-				return refs;
+				if (
+					(question as any).cardUuid !== normalized.cardUuid ||
+					typeof (question as any).addedAt !== "string" ||
+					!Array.isArray((question as any).testHistory) ||
+					!(question as any).stats
+				) {
+					hasLegacyShape = true;
+				}
+
+				normalizedQuestions.push(normalized);
 			}
 
-			return [];
+			if (hasLegacyShape || normalizedQuestions.length !== rawQuestions.length) {
+				qbankData.questions = normalizedQuestions;
+				if (qbankData.stats) {
+					qbankData.stats.totalQuestions = normalizedQuestions.length;
+				}
+				await this.writeQBankFileData(qbankFile, qbankData as QBankFileData & Record<string, unknown>);
+				logger.info(`[QuestionBankStorage] 已自修复题库题目引用结构: ${bankId}`);
+			}
+
+			// 3. 提取题目引用
+			return normalizedQuestions.map((q) => ({
+				cardUuid: q.cardUuid,
+				addedAt: q.addedAt,
+			}));
 		} catch (error) {
-			logger.error(`[QuestionBankStorage] 加载题库题目引用失败: ${bankId}`, error);
+			logger.error(`[QuestionBankStorage] 加载题目引用失败: ${bankId}`, error);
 			return [];
 		}
+	}
+
+	/**
+	 * 根据 bankId 查找 .qbank 文件
+	 */
+	private async findQBankFileByBankId(bankId: string): Promise<string | null> {
+		const qbankFilePaths = await this.listQBankFilePaths();
+
+		for (const filePath of qbankFilePaths) {
+			try {
+				const data = await this.readQBankJsonFile(filePath);
+				if (!data) {
+					continue;
+				}
+				if (data.id === bankId) {
+					return filePath;
+				}
+			} catch (error) {
+				continue;
+			}
+		}
+
+		const legacyRefsPath = this.getBankQuestionRefsFilePath(bankId);
+		try {
+			if (await this.app.vault.adapter.exists(legacyRefsPath)) {
+				return legacyRefsPath;
+			}
+		} catch {}
+
+		return null;
+	}
+
+	private async readQBankDataByBankId(
+		bankId: string
+	): Promise<{ filePath: string; data: QBankFileData & Record<string, unknown> } | null> {
+		const qbankFile = await this.findQBankFileByBankId(bankId);
+		if (!qbankFile) {
+			return null;
+		}
+
+		const data = await this.readQBankJsonFile(qbankFile);
+		if (!data) {
+			return null;
+		}
+		return { filePath: qbankFile, data };
 	}
 
 	async saveBankQuestionStats(
@@ -643,7 +1495,7 @@ export class QuestionBankStorage {
 	}
 
 	async saveSessionArchive(bankId: string, sessionId: string, archive: unknown): Promise<void> {
-		const filePath = getV2PathsFromApp(this.app).questionBank.sessionArchives;
+		const filePath = this.getRuntimeSessionArchivesFilePath();
 		const all = await this.loadConsolidatedMap<Record<string, unknown>>(filePath);
 		if (!all[bankId]) all[bankId] = {};
 		all[bankId][sessionId] = archive;
@@ -742,7 +1594,7 @@ export class QuestionBankStorage {
 	// ============================================================================
 
 	async saveInProgressSession(bankId: string, session: PersistedTestSession): Promise<void> {
-		const filePath = getV2PathsFromApp(this.app).questionBank.inProgress;
+		const filePath = this.getRuntimeInProgressFilePath();
 		const all = await this.loadConsolidatedMap<PersistedTestSession>(filePath);
 		all[bankId] = session;
 		try {
@@ -756,13 +1608,13 @@ export class QuestionBankStorage {
 	}
 
 	async loadInProgressSession(bankId: string): Promise<PersistedTestSession | null> {
-		const filePath = getV2PathsFromApp(this.app).questionBank.inProgress;
+		const filePath = this.getRuntimeInProgressFilePath();
 		const all = await this.loadConsolidatedMap<PersistedTestSession>(filePath);
 		return all[bankId] || null;
 	}
 
 	async clearInProgressSession(bankId: string): Promise<void> {
-		const filePath = getV2PathsFromApp(this.app).questionBank.inProgress;
+		const filePath = this.getRuntimeInProgressFilePath();
 		const all = await this.loadConsolidatedMap<PersistedTestSession>(filePath);
 		if (bankId in all) {
 			delete all[bankId];
@@ -775,9 +1627,17 @@ export class QuestionBankStorage {
 	}
 
 	async loadTestHistory(bankId: string): Promise<TestHistoryEntry[]> {
-		const filePath = getV2PathsFromApp(this.app).questionBank.testHistory;
-		const all = await this.loadConsolidatedMap<TestHistoryEntry[]>(filePath);
-		return all[bankId] || [];
+		try {
+			const qbankRecord = await this.readQBankDataByBankId(bankId);
+			if (!qbankRecord) {
+				return [];
+			}
+
+			return this.normalizeTestHistoryEntries((qbankRecord.data as any).testHistory);
+		} catch (error) {
+			logger.error("[QuestionBankStorage] 加载测试历史失败:", error);
+			return [];
+		}
 	}
 
 	async appendTestHistoryEntry(
@@ -785,9 +1645,12 @@ export class QuestionBankStorage {
 		entry: TestHistoryEntry,
 		maxEntries = 200
 	): Promise<void> {
-		const filePath = getV2PathsFromApp(this.app).questionBank.testHistory;
-		const all = await this.loadConsolidatedMap<TestHistoryEntry[]>(filePath);
-		const history = all[bankId] || [];
+		const qbankRecord = await this.readQBankDataByBankId(bankId);
+		if (!qbankRecord) {
+			throw new Error(`找不到题库 ${bankId} 的 .qbank 文件`);
+		}
+
+		const history = this.normalizeTestHistoryEntries((qbankRecord.data as any).testHistory);
 
 		const map = new Map<string, TestHistoryEntry>();
 		for (const it of history) {
@@ -799,9 +1662,12 @@ export class QuestionBankStorage {
 			(a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
 		);
 
-		all[bankId] = merged.length > maxEntries ? merged.slice(-maxEntries) : merged;
+		(qbankRecord.data as any).testHistory = merged.length > maxEntries ? merged.slice(-maxEntries) : merged;
 		try {
-			await this.saveConsolidatedMap(filePath, all);
+			await this.writeQBankFileData(
+				qbankRecord.filePath,
+				qbankRecord.data as QBankFileData & Record<string, unknown>
+			);
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 保存历史分数失败:", error);
 			throw new Error(
@@ -818,33 +1684,53 @@ export class QuestionBankStorage {
 	 * 保存错题本数据
 	 */
 	async saveErrorBook(bankId: string, errors: ErrorBookEntry[]): Promise<void> {
-		const filePath = getV2PathsFromApp(this.app).questionBank.errorBook;
-		const all = await this.loadConsolidatedMap<ErrorBookEntry[]>(filePath);
-		all[bankId] = errors;
+		const qbankRecord = await this.readQBankDataByBankId(bankId);
+		if (!qbankRecord) {
+			throw new Error(`找不到题库 ${bankId} 的 .qbank 文件`);
+		}
+
+		(qbankRecord.data as any).errorBook = this.normalizeErrorBookEntries(errors);
 		try {
-			await this.saveConsolidatedMap(filePath, all);
+			await this.writeQBankFileData(
+				qbankRecord.filePath,
+				qbankRecord.data as QBankFileData & Record<string, unknown>
+			);
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 保存错题本失败:", error);
-			throw new Error(`保存错题本失败: ${error instanceof Error ? error.message : String(error)}`);
+			throw new Error(
+				`保存错题本失败: ${error instanceof Error ? error.message : String(error)}`
+			);
 		}
 	}
 
 	async loadErrorBook(bankId: string): Promise<ErrorBookEntry[]> {
-		const filePath = getV2PathsFromApp(this.app).questionBank.errorBook;
-		const all = await this.loadConsolidatedMap<ErrorBookEntry[]>(filePath);
-		return all[bankId] || [];
+		try {
+			const qbankRecord = await this.readQBankDataByBankId(bankId);
+			if (!qbankRecord) {
+				return [];
+			}
+
+			return this.normalizeErrorBookEntries((qbankRecord.data as any).errorBook);
+		} catch (error) {
+			logger.error("[QuestionBankStorage] 加载错题本失败:", error);
+			return [];
+		}
 	}
 
 	async deleteErrorBook(bankId: string): Promise<void> {
-		const filePath = getV2PathsFromApp(this.app).questionBank.errorBook;
-		const all = await this.loadConsolidatedMap<ErrorBookEntry[]>(filePath);
-		if (bankId in all) {
-			delete all[bankId];
-			try {
-				await this.saveConsolidatedMap(filePath, all);
-			} catch (error) {
-				logger.error("[QuestionBankStorage] 删除错题本失败:", error);
-			}
+		const qbankRecord = await this.readQBankDataByBankId(bankId);
+		if (!qbankRecord) {
+			return;
+		}
+
+		(qbankRecord.data as any).errorBook = [];
+		try {
+			await this.writeQBankFileData(
+				qbankRecord.filePath,
+				qbankRecord.data as QBankFileData & Record<string, unknown>
+			);
+		} catch (error) {
+			logger.error("[QuestionBankStorage] 删除错题本失败:", error);
 		}
 	}
 
@@ -853,16 +1739,24 @@ export class QuestionBankStorage {
 	 * @param bankId 题库ID
 	 */
 	async deleteTestHistory(bankId: string): Promise<void> {
-		const filePath = getV2PathsFromApp(this.app).questionBank.testHistory;
-		await this.deleteConsolidatedBankEntry<TestHistoryEntry[]>(
-			filePath,
-			bankId,
-			"删除测试历史失败"
-		);
+		const qbankRecord = await this.readQBankDataByBankId(bankId);
+		if (!qbankRecord) {
+			return;
+		}
+
+		(qbankRecord.data as any).testHistory = [];
+		try {
+			await this.writeQBankFileData(
+				qbankRecord.filePath,
+				qbankRecord.data as QBankFileData & Record<string, unknown>
+			);
+		} catch (error) {
+			logger.error("[QuestionBankStorage] 删除测试历史失败:", error);
+		}
 	}
 
 	async deleteSessionArchives(bankId: string): Promise<void> {
-		const filePath = getV2PathsFromApp(this.app).questionBank.sessionArchives;
+		const filePath = this.getRuntimeSessionArchivesFilePath();
 		await this.deleteConsolidatedBankEntry<Record<string, unknown>>(
 			filePath,
 			bankId,
@@ -871,15 +1765,88 @@ export class QuestionBankStorage {
 	}
 
 	async deleteBankData(bankId: string): Promise<void> {
+		const qbankRecord = await this.readQBankDataByBankId(bankId);
 		const refs = await this.loadBankQuestionRefs(bankId);
+		const legacyPaths = getV2PathsFromApp(this.app).questionBank;
 
 		await this.deleteBankQuestions(bankId);
 		await this.deleteErrorBook(bankId);
 		await this.deleteTestHistory(bankId);
 		await this.clearInProgressSession(bankId);
 		await this.deleteSessionArchives(bankId);
+		await this.deleteConsolidatedBankEntry<TestHistoryEntry[]>(
+			legacyPaths.testHistory,
+			bankId,
+			"删除 legacy 测试历史失败"
+		);
+		await this.deleteConsolidatedBankEntry<ErrorBookEntry[]>(
+			legacyPaths.errorBook,
+			bankId,
+			"删除 legacy 错题本失败"
+		);
+		await this.deleteConsolidatedBankEntry<PersistedTestSession>(
+			legacyPaths.inProgress,
+			bankId,
+			"删除 legacy 进行中会话失败"
+		);
+		await this.deleteConsolidatedBankEntry<Record<string, unknown>>(
+			legacyPaths.sessionArchives,
+			bankId,
+			"删除 legacy 会话归档失败"
+		);
+
+		if (qbankRecord && qbankRecord.filePath.endsWith(".qbank")) {
+			try {
+				if (await this.app.vault.adapter.exists(qbankRecord.filePath)) {
+					await this.app.vault.adapter.remove(qbankRecord.filePath);
+				}
+			} catch (error) {
+				logger.error(`[QuestionBankStorage] 删除题组文件失败: ${qbankRecord.filePath}`, error);
+			}
+		}
+
+		await this.removeLegacyBankIndexEntry(bankId);
 
 		await this.removeUnreferencedGlobalStats(refs.map((ref) => ref.cardUuid));
+	}
+
+	private async removeLegacyBankIndexEntry(bankId: string): Promise<void> {
+		const legacyBanksPath = getV2PathsFromApp(this.app).questionBank.banks;
+		try {
+			if (!(await this.app.vault.adapter.exists(legacyBanksPath))) {
+				return;
+			}
+
+			const raw = await this.app.vault.adapter.read(legacyBanksPath);
+			if (!raw || raw.trim().length === 0) {
+				return;
+			}
+
+			const parsed = JSON.parse(raw);
+			if (!Array.isArray(parsed)) {
+				return;
+			}
+
+			const filtered = parsed.filter((item) => {
+				if (!item || typeof item !== "object") {
+					return true;
+				}
+				return String((item as Record<string, unknown>).id || "").trim() !== bankId;
+			});
+
+			if (filtered.length === parsed.length) {
+				return;
+			}
+
+			if (filtered.length === 0) {
+				await this.app.vault.adapter.remove(legacyBanksPath);
+				return;
+			}
+
+			await this.app.vault.adapter.write(legacyBanksPath, JSON.stringify(filtered, null, 2));
+		} catch (error) {
+			logger.warn("[QuestionBankStorage] 清理 legacy banks 索引失败:", error);
+		}
 	}
 
 	async cleanupDeletedCards(cardUuids: string[]): Promise<QuestionCardCleanupResult> {
@@ -927,11 +1894,9 @@ export class QuestionBankStorage {
 
 		result.removedGlobalStats = await this.removeUnreferencedGlobalStats(targetCardUuids);
 
-		const errorBookPath = getV2PathsFromApp(this.app).questionBank.errorBook;
-		const errorBooks = await this.loadConsolidatedMap<ErrorBookEntry[]>(errorBookPath);
-		let errorBookChanged = false;
-		for (const [bankId, entries] of Object.entries(errorBooks)) {
-			if (!Array.isArray(entries) || entries.length === 0) {
+		for (const bank of banks) {
+			const entries = await this.loadErrorBook(bank.id);
+			if (entries.length === 0) {
 				continue;
 			}
 
@@ -941,21 +1906,12 @@ export class QuestionBankStorage {
 				continue;
 			}
 
-			if (filteredEntries.length > 0) {
-				errorBooks[bankId] = filteredEntries;
-			} else {
-				delete errorBooks[bankId];
-			}
-
-			affectedBankIds.add(bankId);
+			await this.saveErrorBook(bank.id, filteredEntries);
+			affectedBankIds.add(bank.id);
 			result.removedErrorBookEntries += removedCount;
-			errorBookChanged = true;
-		}
-		if (errorBookChanged) {
-			await this.saveConsolidatedMap(errorBookPath, errorBooks);
 		}
 
-		const inProgressPath = getV2PathsFromApp(this.app).questionBank.inProgress;
+		const inProgressPath = this.getRuntimeInProgressFilePath();
 		const inProgressSessions = await this.loadConsolidatedMap<PersistedTestSession>(inProgressPath);
 		let inProgressChanged = false;
 		for (const [bankId, session] of Object.entries(inProgressSessions)) {
@@ -979,7 +1935,7 @@ export class QuestionBankStorage {
 			await this.saveConsolidatedMap(inProgressPath, inProgressSessions);
 		}
 
-		const sessionArchivesPath = getV2PathsFromApp(this.app).questionBank.sessionArchives;
+		const sessionArchivesPath = this.getRuntimeSessionArchivesFilePath();
 		const sessionArchives =
 			await this.loadConsolidatedMap<Record<string, unknown>>(sessionArchivesPath);
 		let sessionArchivesChanged = false;
@@ -1034,36 +1990,26 @@ export class QuestionBankStorage {
 			await this.saveConsolidatedMap(sessionArchivesPath, sessionArchives);
 		}
 
-		const testHistoryPath = getV2PathsFromApp(this.app).questionBank.testHistory;
-		const testHistoryByBank = await this.loadConsolidatedMap<TestHistoryEntry[]>(testHistoryPath);
-		let testHistoryChanged = false;
-		for (const [bankId, entries] of Object.entries(testHistoryByBank)) {
-			if (!Array.isArray(entries) || entries.length === 0) {
+		for (const bank of banks) {
+			const entries = await this.loadTestHistory(bank.id);
+			if (entries.length === 0) {
 				continue;
 			}
 
 			const cleanup = this.cleanupTestHistoryEntries(
 				entries,
-				historyArchiveOverrides.get(bankId),
+				historyArchiveOverrides.get(bank.id),
 				targetCardUuids
 			);
 			if (cleanup.updatedEntries === 0 && cleanup.removedEntries === 0) {
 				continue;
 			}
 
-			if (cleanup.entries.length > 0) {
-				testHistoryByBank[bankId] = cleanup.entries;
-			} else {
-				delete testHistoryByBank[bankId];
-			}
+			await this.saveTestHistoryEntries(bank.id, cleanup.entries);
 
-			affectedBankIds.add(bankId);
+			affectedBankIds.add(bank.id);
 			result.updatedHistoryEntries += cleanup.updatedEntries;
 			result.removedHistoryEntries += cleanup.removedEntries;
-			testHistoryChanged = true;
-		}
-		if (testHistoryChanged) {
-			await this.saveConsolidatedMap(testHistoryPath, testHistoryByBank);
 		}
 
 		result.affectedBankIds = Array.from(affectedBankIds);
@@ -1113,28 +2059,26 @@ export class QuestionBankStorage {
 
 		let removed = 0;
 		try {
-			const filePath = getV2PathsFromApp(this.app).questionBank.testHistory;
-			const all = await this.loadConsolidatedMap<TestHistoryEntry[]>(filePath);
-			let changed = false;
+			const banks = await this.loadBanks();
 
-			for (const bankId of Object.keys(all)) {
-				const entries = all[bankId];
-				if (!Array.isArray(entries)) continue;
-				const beforeLen = entries.length;
-				all[bankId] = entries.filter((e) => {
+			for (const bank of banks) {
+				const entries = await this.loadTestHistory(bank.id);
+				if (!Array.isArray(entries) || entries.length === 0) {
+					continue;
+				}
+
+				const filteredEntries = entries.filter((e) => {
 					const t = new Date(e.timestamp).getTime();
 					return Number.isFinite(t) && t >= cutoffDate.getTime();
 				});
-				const diff = beforeLen - all[bankId].length;
+
+				const diff = entries.length - filteredEntries.length;
 				if (diff > 0) {
+					await this.saveTestHistoryEntries(bank.id, filteredEntries);
 					removed += diff;
-					changed = true;
 				}
 			}
 
-			if (changed) {
-				await this.saveConsolidatedMap(filePath, all);
-			}
 			logger.debug(`[QuestionBankStorage] 清理了 ${removed} 条过期历史分数`);
 			return removed;
 		} catch (error) {
@@ -1156,18 +2100,20 @@ export class QuestionBankStorage {
 		const sessions = await this.getAllTestHistoryCount();
 
 		let totalQuestions = 0;
+		let errorBooks = 0;
 		for (const bank of banks) {
 			try {
 				const refs = await this.loadBankQuestionRefs(bank.id);
 				totalQuestions += refs.length;
+
+				const errorEntries = await this.loadErrorBook(bank.id);
+				if (errorEntries.length > 0) {
+					errorBooks += 1;
+				}
 			} catch (error) {
 				logger.error(`[QuestionBankStorage] 加载题库${bank.id}题目失败:`, error);
 			}
 		}
-
-		const errorBookPath = getV2PathsFromApp(this.app).questionBank.errorBook;
-		const errorAll = await this.loadConsolidatedMap<ErrorBookEntry[]>(errorBookPath);
-		const errorBooks = Object.keys(errorAll).length;
 
 		return {
 			banks: banks.length,
@@ -1179,11 +2125,11 @@ export class QuestionBankStorage {
 
 	private async getAllTestHistoryCount(): Promise<number> {
 		try {
-			const filePath = getV2PathsFromApp(this.app).questionBank.testHistory;
-			const all = await this.loadConsolidatedMap<TestHistoryEntry[]>(filePath);
+			const banks = await this.loadBanks();
 			let total = 0;
-			for (const entries of Object.values(all)) {
-				if (Array.isArray(entries)) total += entries.length;
+			for (const bank of banks) {
+				const entries = await this.loadTestHistory(bank.id);
+				total += entries.length;
 			}
 			return total;
 		} catch {
@@ -1208,6 +2154,19 @@ export class QuestionBankStorage {
 		} catch (error) {
 			logger.error(`[QuestionBankStorage] ${errorMessage}:`, error);
 		}
+	}
+
+	private async saveTestHistoryEntries(bankId: string, entries: TestHistoryEntry[]): Promise<void> {
+		const qbankRecord = await this.readQBankDataByBankId(bankId);
+		if (!qbankRecord) {
+			return;
+		}
+
+		(qbankRecord.data as any).testHistory = this.normalizeTestHistoryEntries(entries);
+		await this.writeQBankFileData(
+			qbankRecord.filePath,
+			qbankRecord.data as QBankFileData & Record<string, unknown>
+		);
 	}
 
 	private cleanupPersistedSession(
@@ -1374,9 +2333,13 @@ export class QuestionBankStorage {
 			nested: boolean;
 		}> = [
 			{ dirName: "test-history", targetPath: v2.questionBank.testHistory, nested: false },
-			{ dirName: "in-progress", targetPath: v2.questionBank.inProgress, nested: false },
+			{ dirName: "in-progress", targetPath: this.getRuntimeInProgressFilePath(), nested: false },
 			{ dirName: "error-book", targetPath: v2.questionBank.errorBook, nested: false },
-			{ dirName: "session-archives", targetPath: v2.questionBank.sessionArchives, nested: true },
+			{
+				dirName: "session-archives",
+				targetPath: this.getRuntimeSessionArchivesFilePath(),
+				nested: true,
+			},
 		];
 
 		for (const { dirName, targetPath, nested } of dirs) {

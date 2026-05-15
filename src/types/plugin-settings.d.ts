@@ -113,14 +113,6 @@ export interface AIConfig {
   customSplitActions?: any[];
   
   /**
-   * 官方功能配置覆盖
-   */
-  /**
-   * 官方格式化功能状态
-   */
-  officialFormatActions?: Record<string, { enabled: boolean }>;
-  
-  /**
    * 温度参数（0-1）
    */
   temperature?: number;
@@ -318,12 +310,35 @@ export interface IRCalendarSidebarSettings {
   continuousReadingEnabled?: boolean;
   autoStartNextTimerEnabled?: boolean;
   showSchedulingPreview?: boolean;
+  calendarViewMode?: 'full' | 'two-row';
   showMaterialTimers?: boolean;
+  backgroundWall?: {
+    imagePath?: string;
+    fadePercent?: number;
+  };
 }
 
 /**
  * 增量阅读全局设置
  */
+export type IncrementalReadingFolderSubscriptionInitialScheduleMode = 'today' | 'scheduled';
+
+export interface IncrementalReadingFolderSubscriptionRule {
+  id?: string;
+  enabled?: boolean;
+  folderPath?: string;
+  deckId?: string;
+}
+
+export interface IncrementalReadingFolderSubscriptionSettings {
+  rules?: IncrementalReadingFolderSubscriptionRule[];
+  enabled?: boolean;
+  folderPath?: string;
+  deckId?: string;
+  initialScheduleMode?: IncrementalReadingFolderSubscriptionInitialScheduleMode;
+  importConfirmThreshold?: number;
+}
+
 export interface IncrementalReadingSettings {
   /**
    * 默认间隔因子
@@ -374,19 +389,25 @@ export interface IncrementalReadingSettings {
   maxInterval?: number;
   
   /**
-   * 导入材料目标文件夹路径
-   * 导入的文件将复制到此文件夹，原文件保持不变
+   * 旧材料导入 / 非 Markdown 源文件复制用的兼容目录
+   * 不再决定新的正文 Markdown 默认创建位置
    * @default 'weave/incremental-reading'
    */
   importFolder?: string;
 
   selectionQuickCreateDeleteSource?: boolean;
 
+  /**
+   * 正文 Markdown 上一次手动选择的目录
+   * 为空时回退 Obsidian 默认新建笔记位置，再回退库根目录
+   */
   selectionQuickCreateLastFolder?: string;
 
   selectionQuickCreateBacklinkPosition?: 'start' | 'end';
 
   selectionQuickCreateSourceDocumentBacklinkPosition?: 'start' | 'end';
+
+  appendSourceDocumentBacklinkOnSplitImport?: boolean;
   
   /**
    * Global sidebar settings.
@@ -467,6 +488,8 @@ export interface IncrementalReadingSettings {
    * 控制 Callout 标注如何影响内容块优先级
    */
   calloutSignal?: CalloutSignalSettings;
+
+  folderSubscription?: IncrementalReadingFolderSubscriptionSettings;
 }
 
 /**
@@ -534,6 +557,7 @@ export const DEFAULT_IR_SETTINGS: IncrementalReadingSettings = {
   selectionQuickCreateLastFolder: '',
   selectionQuickCreateBacklinkPosition: 'start',
   selectionQuickCreateSourceDocumentBacklinkPosition: 'start',
+  appendSourceDocumentBacklinkOnSplitImport: false,
   // v3.0 新增
   scheduleStrategy: 'processing',
   dailyTimeBudgetMinutes: 40,
@@ -544,11 +568,21 @@ export const DEFAULT_IR_SETTINGS: IncrementalReadingSettings = {
   priorityHalfLifeDays: 7,
   learnAheadDays: 3,
   tagGroupFollowMode: 'ask',
+  folderSubscription: {
+    rules: [],
+    initialScheduleMode: 'today',
+    importConfirmThreshold: 20
+  },
   calendarSidebar: {
     continuousReadingEnabled: false,
     autoStartNextTimerEnabled: false,
     showSchedulingPreview: false,
-    showMaterialTimers: true
+    calendarViewMode: 'full',
+    showMaterialTimers: true,
+    backgroundWall: {
+      imagePath: '',
+      fadePercent: 72
+    }
   }
 };
 
@@ -580,6 +614,18 @@ export interface WeaveSettings {
    * 用于看板视图按标签组分组
    */
   deckTagGroups?: import('../types/deck-kanban-types').DeckTagGroup[];
+
+  /**
+   * 记忆牌组组织配置
+   * 用于正式牌组与涌现式牌组双区模型
+   */
+  memoryDeckOrganization?: {
+    enabled?: boolean;
+    minCandidateCardCount?: number;
+    tagDriftFollowMode?: 'off' | 'ask' | 'auto';
+    activeRuleGroupId?: string;
+    ruleGroups?: import('../services/deck/emergent-rule-groups').EmergentRuleGroup[];
+  };
   
   /**
    * 默认牌组
@@ -629,6 +675,13 @@ export interface WeaveSettings {
     templates?: any[];
     enabled?: boolean;
   };
+
+  clozeSettings?: {
+    enabled?: boolean;
+    openDelimiter?: string;
+    closeDelimiter?: string;
+    placeholder?: string;
+  };
   
   /**
    * 批量解析配置
@@ -658,14 +711,6 @@ export interface WeaveSettings {
     lastSelectedDeckId?: string;
     lastSelectedDeckNames?: string[];
   };
-
-  /**
-   * 是否跳过指南牌组自动创建
-   * 用户手动删除教程牌组后设为 true，防止重启后自动恢复
-   * 用户可通过菜单"恢复官方教程牌组"重置此设置
-   * @default false
-   */
-  skipGuideDeck?: boolean;
 
   /**
    * 超时自动暂停计时（秒）

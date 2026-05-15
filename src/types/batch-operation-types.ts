@@ -53,6 +53,14 @@ export interface TemplateConsistencyCheck {
  */
 export type BatchProgressCallback = (current: number, total: number) => void;
 
+export interface BatchUpdateCardsOptions {
+	onProgress?: BatchProgressCallback;
+	progressTitle?: string;
+	progressDetail?: string;
+	allowNavigation?: boolean;
+	navigationMessage?: string;
+}
+
 /**
  * 批量更新函数类型
  */

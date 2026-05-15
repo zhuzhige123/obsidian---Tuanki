@@ -15,6 +15,7 @@ import { logger } from "../../utils/logger";
 import type { Mask, MaskData, MaskRenderOptions } from "../../types/image-mask-types";
 import { MASK_CONSTANTS } from "../../types/image-mask-types";
 import { parseRGBAColor } from "./mask-operations";
+import { applyStyleProps } from "../../utils/style-props";
 
 export class MaskRenderer {
 	// 遮罩状态追踪 Map<maskId, isVisible>
@@ -89,7 +90,7 @@ export class MaskRenderer {
 	): void {
 		if (!container) return;
 
-		container.setCssProps({
+		applyStyleProps(container, {
 			display: "",
 			opacity: "1",
 			transition: `opacity ${duration}ms ease-in`,
@@ -108,7 +109,7 @@ export class MaskRenderer {
 	): void {
 		if (!container) return;
 
-		container.setCssProps({
+		applyStyleProps(container, {
 			opacity: "0",
 			transition: `opacity ${duration}ms ease-out`,
 		});
@@ -124,7 +125,7 @@ export class MaskRenderer {
 
 		// 动画结束后隐藏元素
 		setTimeout(() => {
-			container.setCssProps({ display: "none" });
+			applyStyleProps(container, { display: "none" });
 		}, duration);
 	}
 
@@ -147,7 +148,7 @@ export class MaskRenderer {
 		// 应用动画
 		if (newState) {
 			// 显示遮罩（重新遮盖）
-			maskElement.setCssProps({
+			applyStyleProps(maskElement, {
 				transition: `fill-opacity ${duration}ms ease-in`,
 				"fill-opacity": maskElement.getAttribute("data-original-opacity") || "0.7",
 			});
@@ -155,7 +156,7 @@ export class MaskRenderer {
 			maskElement.classList.remove("mask-hovering"); // 移除hover标记
 		} else {
 			// 隐藏遮罩（揭示内容）
-			maskElement.setCssProps({
+			applyStyleProps(maskElement, {
 				transition: `fill-opacity ${duration}ms ease-out`,
 				"fill-opacity": "0",
 			});
@@ -169,7 +170,7 @@ export class MaskRenderer {
 	 */
 	private makeMaskInteractive(maskElement: SVGElement, maskId: string): void {
 		// 允许点击事件
-		maskElement.setCssProps({
+		applyStyleProps(maskElement, {
 			"pointer-events": "auto",
 			cursor: "pointer",
 		});
@@ -194,7 +195,7 @@ export class MaskRenderer {
 				const currentOpacity =
 					maskElement.style.fillOpacity || maskElement.getAttribute("fill-opacity") || "0.7";
 				maskElement.setAttribute("data-hover-backup-opacity", currentOpacity);
-				maskElement.setCssProps({
+				applyStyleProps(maskElement, {
 					transition: "fill-opacity 150ms ease",
 					"fill-opacity": "0",
 				});
@@ -207,7 +208,7 @@ export class MaskRenderer {
 			if (isVisible && maskElement.classList.contains("mask-hovering")) {
 				// 恢复原始透明度（仅在未被点击揭示时）
 				const backupOpacity = maskElement.getAttribute("data-hover-backup-opacity") || "0.7";
-				maskElement.setCssProps({ "fill-opacity": backupOpacity });
+				applyStyleProps(maskElement, { "fill-opacity": backupOpacity });
 				maskElement.classList.remove("mask-hovering");
 			}
 		});
@@ -246,15 +247,15 @@ export class MaskRenderer {
 			if (shapeElement) {
 				if (revealIndex === 0) {
 					// 全部显示遮罩
-					shapeElement.setCssProps({
+					applyStyleProps(shapeElement, {
 						"fill-opacity": shapeElement.getAttribute("data-original-opacity") || "0.7",
 					});
 				} else if (maskIndex === revealIndex) {
 					// 揭示指定编号的遮罩
-					shapeElement.setCssProps({ "fill-opacity": "0" });
+					applyStyleProps(shapeElement, { "fill-opacity": "0" });
 				} else {
 					// 其他遮罩保持显示
-					shapeElement.setCssProps({
+					applyStyleProps(shapeElement, {
 						"fill-opacity": shapeElement.getAttribute("data-original-opacity") || "0.7",
 					});
 				}
@@ -328,7 +329,7 @@ export class MaskRenderer {
 
 		// 遮罩层显示尺寸使用 100%，严格跟随图片当前显示尺寸
 		// 这样无论学习预览里图片被缩放到多大，遮罩都能正确覆盖。
-		svg.setCssProps({
+		applyStyleProps(svg, {
 			position: "absolute",
 			top: "0",
 			left: "0",
@@ -388,7 +389,7 @@ export class MaskRenderer {
 
 		// 应用可见性
 		if (!options.visible) {
-			group.setCssProps({ display: "none" });
+			applyStyleProps(group, { display: "none" });
 		}
 
 		return group;
@@ -436,7 +437,7 @@ export class MaskRenderer {
 		text.textContent = String(mask.index);
 
 		const fontSize = Math.max(10, badgeSize * 0.6);
-		text.setCssProps({
+		applyStyleProps(text, {
 			"font-size": `${fontSize}px`,
 			"font-weight": "600",
 			fill: "white",
@@ -498,7 +499,7 @@ export class MaskRenderer {
 		element.setAttribute("data-original-opacity", opacity.toString());
 
 		// 强制元素本身不透明，防止 CSS 的 opacity 覆盖 fill-opacity
-		element.setCssProps({ opacity: "1" });
+		applyStyleProps(element, { opacity: "1" });
 
 		// 应用特殊样式
 		if (mask.style === "blur") {

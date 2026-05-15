@@ -1,7 +1,12 @@
-import { App, SuggestModal, setIcon } from "obsidian";
-import { ensureWeaveSuggestModalTheme, markLatestSuggestionContainer } from "./weaveSuggestModalTheme";
+import { App, SuggestModal } from "obsidian";
+import { filterTagSuggestionItems, type TagSuggestionItem } from "../utils/tag-suggest";
+import {
+	ensureWeaveSuggestModalTheme,
+	markLatestSuggestionContainer,
+} from "./weaveSuggestModalTheme";
+import { applyStyleProps } from "../utils/style-props";
 
-interface AnchorRect {
+export interface AnchorRect {
 	left: number;
 	right: number;
 	top: number;
@@ -10,17 +15,17 @@ interface AnchorRect {
 	height: number;
 }
 
-export interface BatchTagSuggestItem {
-	tag: string;
-	label: string;
+export type BatchTagSuggestItem = TagSuggestionItem & {
 	icon?: string;
-	keywords?: string[];
-}
+};
 
 export class BatchTagSuggestModal extends SuggestModal<BatchTagSuggestItem> {
 	private readonly items: BatchTagSuggestItem[];
 	private readonly onSelect: (item: BatchTagSuggestItem) => void;
 	private readonly anchorRect?: AnchorRect;
+	private readonly initialQuery: string;
+	private readonly onCloseCallback?: () => void;
+	private readonly createSuggestion?: (query: string) => BatchTagSuggestItem | null;
 
 	constructor(
 		app: App,
@@ -29,79 +34,118 @@ export class BatchTagSuggestModal extends SuggestModal<BatchTagSuggestItem> {
 		options?: {
 			placeholder?: string;
 			anchorRect?: AnchorRect;
+			initialQuery?: string;
+			onClose?: () => void;
+			createSuggestion?: (query: string) => BatchTagSuggestItem | null;
 		}
 	) {
 		super(app);
 		this.items = items;
 		this.onSelect = onSelect;
 		this.anchorRect = options?.anchorRect;
+		this.initialQuery = String(options?.initialQuery || "");
+		this.onCloseCallback = options?.onClose;
+		this.createSuggestion = options?.createSuggestion;
 
 		this.setPlaceholder(options?.placeholder ?? "搜索标签...");
-		this.setInstructions([
-			{ command: "↑↓", purpose: "选择标签" },
-			{ command: "Enter", purpose: "确认" },
-			{ command: "Esc", purpose: "关闭" },
-		]);
+		this.setInstructions([]);
 	}
 
 	getSuggestions(query: string): BatchTagSuggestItem[] {
-		const normalizedQuery = query.trim().toLowerCase();
-		if (!normalizedQuery) {
-			return this.items;
-		}
-
-		return this.items.filter((item) => {
-			const haystacks = [
-				item.label,
-				item.tag,
-				...(item.keywords ?? []),
-			];
-			return haystacks.some((value) => value.toLowerCase().includes(normalizedQuery));
-		});
+		const matchedItems = filterTagSuggestionItems(this.items, query, 40);
+		const createItem = this.createSuggestion?.(query) ?? null;
+		return createItem ? [createItem, ...matchedItems] : matchedItems;
 	}
 
 	onOpen(): void {
-		super.onOpen();
+		void super.onOpen();
+		window.dispatchEvent(new CustomEvent("Weave:emergent-child-popup-open"));
 		ensureWeaveSuggestModalTheme();
+		this.hideOverlay();
+		window.requestAnimationFrame(() => this.hideOverlay());
 		markLatestSuggestionContainer("weave-batch-tag-suggest-popover");
 		this.positionNearAnchor();
+		this.applyInitialQuery();
+	}
+
+	onClose(): void {
+		super.onClose();
+		this.onCloseCallback?.();
+		window.dispatchEvent(
+			new CustomEvent("Weave:emergent-child-popup-close", {
+				detail: { graceMs: 220 },
+			})
+		);
 	}
 
 	renderSuggestion(item: BatchTagSuggestItem, el: HTMLElement): void {
 		el.addClass("weave-batch-tag-suggestion");
-		el.style.padding = "0";
-
-		const row = el.createDiv({ cls: "weave-batch-tag-suggestion__row" });
-		row.style.display = "flex";
-		row.style.alignItems = "center";
-		row.style.gap = "8px";
-		row.style.width = "100%";
-		row.style.minWidth = "0";
-		row.style.flexWrap = "nowrap";
-
-		const iconEl = row.createSpan({ cls: "weave-batch-tag-suggestion__icon" });
-		iconEl.style.display = "inline-flex";
-		iconEl.style.alignItems = "center";
-		iconEl.style.justifyContent = "center";
-		iconEl.style.flex = "0 0 auto";
-		iconEl.style.width = "18px";
-		iconEl.style.height = "18px";
-		setIcon(iconEl, item.icon ?? "tag");
-
-		const titleEl = row.createSpan({
+		if (item.isCreateSuggestion) {
+			el.addClass("weave-batch-tag-suggestion--create");
+		}
+		const row = el.createDiv({
+			cls: "weave-batch-tag-suggestion__row",
+		});
+		row.createSpan({
 			text: item.label,
 			cls: "weave-batch-tag-suggestion__title",
 		});
-		titleEl.style.display = "block";
-		titleEl.style.flex = "1 1 auto";
-		titleEl.style.minWidth = "0";
-		titleEl.style.whiteSpace = "nowrap";
-		titleEl.style.overflow = "hidden";
-		titleEl.style.textOverflow = "ellipsis";
+		if ((item.count ?? 0) > 0) {
+			row.createSpan({
+				text: `(${item.count})`,
+				cls: "weave-batch-tag-suggestion__meta",
+			});
+		}
 	}
 
 	onChooseSuggestion(item: BatchTagSuggestItem, _evt: MouseEvent | KeyboardEvent): void {
 		this.onSelect(item);
+		this.close();
+	}
+
+	private hideOverlay(): void {
+		if (typeof document === "undefined") {
+			return;
+		}
+
+		const containerEl = this.containerEl;
+		const siblingCandidates = [containerEl?.previousElementSibling, containerEl?.nextElementSibling]
+			.filter((element): element is HTMLElement => element instanceof HTMLElement)
+			.filter((element) => element.classList.contains("modal-bg"));
+
+		const fallbackModalBg = Array.from(document.querySelectorAll(".modal-bg"))
+			.reverse()
+			.find((element): element is HTMLElement => element instanceof HTMLElement);
+
+		const modalBg = siblingCandidates[0] ?? fallbackModalBg;
+		if (!modalBg) {
+			return;
+		}
+
+		modalBg.classList.add("weave-suggest-modal-bg--hidden");
+		applyStyleProps(modalBg, {
+			display: "none",
+			opacity: "0",
+			"pointer-events": "none",
+		});
+	}
+
+	private applyInitialQuery(): void {
+		if (!this.initialQuery) {
+			return;
+		}
+
+		const inputEl = (this as unknown as { inputEl?: HTMLInputElement }).inputEl;
+		if (!inputEl) {
+			return;
+		}
+
+		inputEl.value = this.initialQuery;
+		inputEl.dispatchEvent(new Event("input"));
+		window.setTimeout(() => {
+			inputEl.focus();
+			inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+		}, 0);
 	}
 
 	private positionNearAnchor(): void {
@@ -109,42 +153,67 @@ export class BatchTagSuggestModal extends SuggestModal<BatchTagSuggestItem> {
 			return;
 		}
 		const anchorRect = this.anchorRect;
+		const modalEl = this.modalEl;
+		const containerEl = this.containerEl;
+		if (!modalEl || !containerEl) {
+			return;
+		}
+
+		const viewportWidth = window.innerWidth;
+		const viewportHeight = window.innerHeight;
+		const spacing = 8;
+		const preferredWidth = Math.min(
+			Math.max(anchorRect.width, 280),
+			Math.min(420, viewportWidth - 24)
+		);
+		const spaceBelow = Math.max(0, viewportHeight - anchorRect.bottom - spacing - 12);
+		const spaceAbove = Math.max(0, anchorRect.top - spacing - 12);
+		const placeAbove = spaceBelow < 220 && spaceAbove > spaceBelow;
+		const maxHeight = Math.max(180, Math.min(360, placeAbove ? spaceAbove : spaceBelow));
+		const initialLeft = Math.max(12, Math.min(anchorRect.left, viewportWidth - preferredWidth - 12));
+		const initialTop = Math.max(
+			12,
+			Math.min(anchorRect.bottom + spacing, viewportHeight - Math.min(maxHeight, 360) - 12)
+		);
+
+		containerEl.classList.add(
+			"weave-suggest-modal-container--anchored",
+			"weave-suggest-modal-container--overlayless"
+		);
+		modalEl.classList.add("weave-suggest-modal--anchored", "weave-suggest-modal--positioning");
+		applyStyleProps(containerEl, {
+			"--weave-suggest-popover-z": "calc(var(--z-index-modal, 400) + 10)",
+			"--weave-suggest-popover-max-height": `${Math.round(maxHeight)}px`,
+		});
+		applyStyleProps(modalEl, {
+			"--weave-suggest-popover-width": `${preferredWidth}px`,
+			"--weave-suggest-popover-z": "calc(var(--z-index-modal, 400) + 10)",
+			"--weave-suggest-popover-max-height": `${Math.round(maxHeight)}px`,
+			"--weave-suggest-popover-left": `${Math.round(initialLeft)}px`,
+			"--weave-suggest-popover-top": `${Math.round(initialTop)}px`,
+		});
 
 		const place = () => {
-			const modalEl = this.modalEl;
-			const containerEl = this.containerEl;
-			if (!modalEl || !containerEl) {
-				return;
-			}
-
-			const viewportWidth = window.innerWidth;
-			const viewportHeight = window.innerHeight;
-			const spacing = 12;
-			const preferredWidth = Math.min(320, viewportWidth - 24);
-
-			modalEl.style.position = "fixed";
-			modalEl.style.width = `${preferredWidth}px`;
-			modalEl.style.maxWidth = `${preferredWidth}px`;
-			modalEl.style.margin = "0";
-			modalEl.style.transform = "none";
-
 			const modalRect = modalEl.getBoundingClientRect();
-			let left = anchorRect.right + spacing;
+			let left = anchorRect.left;
 			if (left + modalRect.width > viewportWidth - 12) {
-				left = anchorRect.left - modalRect.width - spacing;
+				left = anchorRect.right - modalRect.width;
 			}
 			left = Math.max(12, Math.min(left, viewportWidth - modalRect.width - 12));
 
-			let top = anchorRect.top + anchorRect.height / 2 - modalRect.height / 2;
+			let top = placeAbove
+				? anchorRect.top - modalRect.height - spacing
+				: anchorRect.bottom + spacing;
 			if (top + modalRect.height > viewportHeight - 12) {
 				top = viewportHeight - modalRect.height - 12;
 			}
 			top = Math.max(12, top);
 
-			containerEl.style.alignItems = "flex-start";
-			containerEl.style.justifyContent = "flex-start";
-			modalEl.style.left = `${Math.round(left)}px`;
-			modalEl.style.top = `${Math.round(top)}px`;
+			applyStyleProps(modalEl, {
+				"--weave-suggest-popover-left": `${Math.round(left)}px`,
+				"--weave-suggest-popover-top": `${Math.round(top)}px`,
+			});
+			modalEl.classList.remove("weave-suggest-modal--positioning");
 		};
 
 		window.requestAnimationFrame(place);

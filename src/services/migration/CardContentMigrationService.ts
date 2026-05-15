@@ -116,17 +116,4 @@ export class CardContentMigrationService {
 
 		return result;
 	}
-
-	/**
-	 * 自动迁移（插件启动时调用）
-	 * 静默执行，只在有卡片需要迁移时显示通知
-	 */
-	static async autoMigrate(storage: WeaveDataStorage): Promise<void> {
-		const service = new CardContentMigrationService(storage);
-
-		if (await service.needsMigration()) {
-			logger.info("[CardContentMigration] 检测到卡片需要迁移，开始自动迁移...");
-			await service.migrate(true);
-		}
-	}
 }

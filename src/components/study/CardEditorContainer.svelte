@@ -539,7 +539,7 @@
 
 {#if showEditModal}
   <!-- 编辑器容器 - 仅编辑态显示 -->
-  <!-- � 移动端高度由 StudyInterface 的 visualViewport 监听控制 -->
+  <!-- Mobile height is controlled by StudyInterface visualViewport handling -->
   <div 
     class="inline-editor-container" 
     class:mobile-keyboard-active={Platform.isMobile && isKeyboardVisible}

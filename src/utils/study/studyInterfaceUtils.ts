@@ -6,6 +6,8 @@ import { logger } from "../../utils/logger";
  */
 
 import type { WeavePlugin } from "../../main";
+import { replaceConfiguredClozeSyntax } from "../cloze-syntax";
+import { applyStyleProps } from "../style-props";
 
 /**
  * 处理挖空文本
@@ -32,54 +34,21 @@ export function processClozeText(
 	if (!text) return text;
 
 	let processedText = text;
-
-	// 1. 处理Obsidian高亮语法 ==text== 作为挖空
-	const highlightRegex = /==(.*?)==/g;
-
-	if (showAnswerState) {
-		// 显示答案时，高亮文本显示为答案样式
-		processedText = processedText.replace(highlightRegex, `<span class="cloze-answer">$1</span>`);
-	} else if (side === "front") {
-		// 正面未显示答案时，高亮文本显示为挖空占位符
-		processedText = processedText.replace(
-			highlightRegex,
-			`<span class="cloze-placeholder">[...]</span>`
-		);
-	} else {
-		// 背面未显示答案时，高亮文本显示为答案样式
-		processedText = processedText.replace(highlightRegex, `<span class="cloze-answer">$1</span>`);
-	}
-
-	// 2. 处理自定义挖空语法（如果启用）
 	const clozeSettings = plugin?.settings?.clozeSettings;
-	if (clozeSettings?.enabled) {
-		const { openDelimiter, closeDelimiter, placeholder } = clozeSettings;
+	const placeholder = clozeSettings?.placeholder || "[...]";
+	processedText = replaceConfiguredClozeSyntax(
+		processedText,
+		(match) => {
+			if (showAnswerState || side === "back") {
+				return `<span class="cloze-answer">${match.text}</span>`;
+			}
 
-		// 构建正则表达式来匹配挖空语法
-		const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		const openEsc = escapeRegex(openDelimiter);
-		const closeEsc = escapeRegex(closeDelimiter);
-		const customClozeRegex = new RegExp(`${openEsc}(.*?)${closeEsc}`, "g");
+			return `<span class="cloze-placeholder">${placeholder}</span>`;
+		},
+		clozeSettings
+	);
 
-		if (showAnswerState) {
-			processedText = processedText.replace(
-				customClozeRegex,
-				`<span class="cloze-answer">$1</span>`
-			);
-		} else if (side === "front") {
-			processedText = processedText.replace(
-				customClozeRegex,
-				`<span class="cloze-placeholder">${placeholder || "[...]"}</span>`
-			);
-		} else {
-			processedText = processedText.replace(
-				customClozeRegex,
-				`<span class="cloze-answer">$1</span>`
-			);
-		}
-	}
-
-	// 3. 处理Anki风格挖空 {{c1::text}} (支持渐进式挖空)
+	// 处理Anki风格挖空 {{c1::text}} (支持渐进式挖空)
 	const ankiClozeRegex = /\{\{c(\d+)::(.*?)(?:::(.*?))?\}\}/g;
 
 	if (showAnswerState || side === "back") {
@@ -284,7 +253,7 @@ export function setupBlockLinkHandlers(
 			const htmlElement = _linkElement as HTMLElement;
 			const blockLink = htmlElement.textContent?.trim();
 			if (blockLink?.match(/\[\[.*#\^.*\]\]/)) {
-				htmlElement.setCssProps({
+				applyStyleProps(htmlElement, {
 					cursor: "pointer",
 					color: "var(--text-accent)",
 					"text-decoration": "underline",
@@ -298,13 +267,13 @@ export function setupBlockLinkHandlers(
 
 				// 添加 hover 效果
 				htmlElement.addEventListener("mouseenter", () => {
-					htmlElement.setCssProps({
+					applyStyleProps(htmlElement, {
 						background: "color-mix(in srgb, var(--text-accent) 10%, transparent)",
 					});
 				});
 
 				htmlElement.addEventListener("mouseleave", () => {
-					htmlElement.setCssProps({ background: "" });
+					applyStyleProps(htmlElement, { background: "" });
 				});
 			}
 		});

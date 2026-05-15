@@ -29,16 +29,13 @@ export function migrateAnkiConnectSettings(
 ): AnkiConnectSettings {
 	const { bidirectionalSync, ...rest } = legacySettings;
 
-	// 迁移牌组映射：将 'bidirectional' 改为 'to_anki'
+	// 迁移牌组映射：将旧的导入或双向映射统一改为导出到 Anki
 	const migratedDeckMappings: Record<string, DeckSyncMapping> = {};
 
 	for (const [key, mapping] of Object.entries(rest.deckMappings || {})) {
 		migratedDeckMappings[key] = {
 			...mapping,
-			syncDirection:
-				(mapping.syncDirection as any) === "bidirectional"
-					? "to_anki" // 默认改为导出到 Anki
-					: (mapping.syncDirection as "to_anki" | "from_anki"),
+			syncDirection: "to_anki",
 		};
 	}
 
@@ -50,9 +47,9 @@ export function migrateAnkiConnectSettings(
 		migratedTemplateMappings[key] = cleanMapping;
 	}
 
-	logger.debug("[Migration] 已移除双向同步配置，牌组映射已迁移为单向同步");
+	logger.debug("[Migration] 已移除导入/双向同步配置，牌组映射已迁移为仅导出到 Anki");
 	if (bidirectionalSync?.enabled) {
-		logger.warn("[Migration] 双向同步已被禁用，请检查牌组映射的同步方向设置");
+		logger.warn("[Migration] 旧的双向同步配置已停用，牌组映射已统一改为导出到 Anki");
 	}
 
 	return {

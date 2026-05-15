@@ -6,7 +6,14 @@ import { logger } from "../utils/logger";
  */
 
 import { type App, Platform } from "obsidian";
-import type { ActivationCodeData, CloudSyncInfo, LicenseInfo } from "../types/license";
+import type { ActivationCodeData, CloudSyncInfo, LicenseInfo, LicensedProduct } from "../types/license";
+import {
+	LICENSED_PRODUCTS,
+	licenseAppliesToProduct,
+	mapActivationDataToEntitlements,
+	normalizeLicenseInfo,
+} from "./license-state";
+import { vaultStorage } from "./vault-local-storage";
 import { CloudLicenseValidator } from "./cloudLicenseValidator";
 
 // 重新导出类型供其他模块使用（向后兼容）
@@ -38,9 +45,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 +wIDAQAB
 -----END PUBLIC KEY-----`;
 
-	private readonly PRODUCT_ID = "weave-obsidian-plugin";
-	private readonly LEGACY_PRODUCT_ID = "tuanki-obsidian-plugin";
-        private readonly CURRENT_VERSION = "0.7.7.2";
+	private readonly CURRENT_VERSION = "0.8.1";
 
 	constructor() {
 		this.cloudValidator = new CloudLicenseValidator();
@@ -250,12 +255,21 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 		}
 	}
 
+	private getInvalidTargetProductMessage(targetProduct: LicensedProduct): string {
+		return targetProduct === LICENSED_PRODUCTS.EPUB
+			? "激活码不适用于当前 EPUB 插件"
+			: "激活码不适用于当前产品";
+	}
+
 	/**
 	 * 验证激活码
 	 */
 	async validateActivationCode(
 		activationCode: string,
-		_deviceFingerprint?: string
+		_deviceFingerprint?: string,
+		options?: {
+			targetProduct?: LicensedProduct;
+		}
 	): Promise<{
 		isValid: boolean;
 		data?: ActivationCodeData;
@@ -277,9 +291,33 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			// 解析数据
 			const data: ActivationCodeData = JSON.parse(parsed.data);
 
-			// 验证产品ID（兼容更名前的旧产品ID）
-			if (data.productId !== this.PRODUCT_ID && data.productId !== this.LEGACY_PRODUCT_ID) {
+			const entitlements = mapActivationDataToEntitlements(data);
+			if (entitlements.length === 0) {
 				return { isValid: false, error: "激活码不适用于当前产品" };
+			}
+
+			if (options?.targetProduct) {
+				const applicable = licenseAppliesToProduct(
+					normalizeLicenseInfo({
+						activationCode,
+						isActivated: true,
+						activatedAt: new Date().toISOString(),
+						deviceFingerprint: "",
+						expiresAt: data.expiresAt,
+						productVersion: this.CURRENT_VERSION,
+						licenseType: data.licenseType,
+						issuedProductId: data.productId,
+						entitlements,
+						features: data.features,
+					}),
+					options.targetProduct
+				);
+				if (!applicable) {
+					return {
+						isValid: false,
+						error: this.getInvalidTargetProductMessage(options.targetProduct),
+					};
+				}
 			}
 
 			// 验证过期时间
@@ -305,7 +343,10 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 	 */
 	async activateLicense(
 		activationCode: string,
-		email: string
+		email: string,
+		options?: {
+			targetProduct?: LicensedProduct;
+		}
 	): Promise<{
 		success: boolean;
 		licenseInfo?: LicenseInfo;
@@ -328,15 +369,14 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			const deviceFingerprint = await this.generateDeviceFingerprint();
 
 			// 本地RSA签名验证（必须通过）
-			const validation = await this.validateActivationCode(activationCode, deviceFingerprint);
+			const validation = await this.validateActivationCode(activationCode, deviceFingerprint, options);
 			if (!validation.isValid || !validation.data) {
 				return { success: false, error: validation.error };
 			}
 
 			const data = validation.data;
 
-			// 临时禁用云端激活，直接使用本地验证
-			logger.info("[临时禁用云端] 跳过云端验证，使用本地激活");
+			logger.info("许可证激活成功，已完成当前验证流程");
 
 			// 创建许可证信息（本地模式）
 			const licenseInfo: LicenseInfo = {
@@ -347,9 +387,16 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 				expiresAt: data.expiresAt,
 				productVersion: this.CURRENT_VERSION,
 				licenseType: data.licenseType,
+				issuedProductId: data.productId,
+				entitlements: mapActivationDataToEntitlements(data),
+				features: Array.isArray(data.features) ? [...data.features] : [],
+				userId: data.userId,
+				maxDevices: data.maxDevices,
 				fingerprintVersion: 2, // 新版本指纹（不含vault路径）
 				boundEmail: sanitizedEmail, // 邮箱绑定
 				cloudSync: undefined, // 临时禁用云端同步
+				source: "local",
+				metadata: data.metadata,
 			};
 
 			return {
@@ -400,7 +447,12 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 	/**
 	 * 验证当前许可证状态（增强版 - 支持云端验证和自动迁移）
 	 */
-	async validateCurrentLicense(licenseInfo: LicenseInfo): Promise<{
+	async validateCurrentLicense(
+		licenseInfo: LicenseInfo,
+		options?: {
+			targetProduct?: LicensedProduct;
+		}
+	): Promise<{
 		isValid: boolean;
 		error?: string;
 		warnings?: string[];
@@ -408,13 +460,25 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 		const warnings: string[] = [];
 
 		try {
+			const normalizedLicense = normalizeLicenseInfo(licenseInfo, {
+				source: licenseInfo.source,
+				sourcePluginId: licenseInfo.sourcePluginId,
+			});
+
 			// 基础状态检查
-			if (!licenseInfo.isActivated) {
+			if (!normalizedLicense.isActivated) {
 				return { isValid: false, error: "许可证未激活" };
 			}
 
-			if (!licenseInfo.activationCode) {
+			if (!normalizedLicense.activationCode) {
 				return { isValid: false, error: "激活码信息缺失" };
+			}
+
+			if (options?.targetProduct && !licenseAppliesToProduct(normalizedLicense, options.targetProduct)) {
+				return {
+					isValid: false,
+					error: this.getInvalidTargetProductMessage(options.targetProduct),
+				};
 			}
 
 			// 验证许可证数据完整性
@@ -426,15 +490,15 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 				"productVersion",
 			];
 			for (const field of requiredFields) {
-				if (!licenseInfo[field as keyof LicenseInfo]) {
+				if (!normalizedLicense[field as keyof LicenseInfo]) {
 					return { isValid: false, error: `许可证数据不完整，缺少${field}字段` };
 				}
 			}
 
 			// 验证时间有效性
 			const now = new Date();
-			const activatedAt = new Date(licenseInfo.activatedAt);
-			const expiresAt = new Date(licenseInfo.expiresAt);
+			const activatedAt = new Date(normalizedLicense.activatedAt);
+			const expiresAt = new Date(normalizedLicense.expiresAt);
 
 			// 检查激活时间是否合理
 			if (activatedAt > now) {
@@ -450,7 +514,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			const daysUntilExpiry = Math.ceil(
 				(expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
 			);
-			if (licenseInfo.licenseType !== "lifetime" && daysUntilExpiry <= 30) {
+			if (normalizedLicense.licenseType !== "lifetime" && daysUntilExpiry <= 30) {
 				warnings.push(`许可证将在${daysUntilExpiry}天后过期`);
 			}
 
@@ -458,31 +522,30 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			const currentFingerprint = await this.generateDeviceFingerprint();
 
 			// 向后兼容性处理：自动迁移旧版本指纹
-			if (!licenseInfo.fingerprintVersion || licenseInfo.fingerprintVersion === 1) {
+			if (!normalizedLicense.fingerprintVersion || normalizedLicense.fingerprintVersion === 1) {
 				logger.debug("检测到旧版本设备指纹，正在迁移到新版本...");
-				licenseInfo.deviceFingerprint = currentFingerprint;
-				licenseInfo.fingerprintVersion = 2;
+				normalizedLicense.deviceFingerprint = currentFingerprint;
+				normalizedLicense.fingerprintVersion = 2;
 				warnings.push("设备指纹已自动更新到新版本");
 			}
 
-			// 临时禁用云端验证
-			if (licenseInfo.boundEmail) {
-				logger.debug("[临时禁用云端] 检测到邮箱信息，跳过云端验证");
+			if (normalizedLicense.boundEmail) {
+				logger.debug("检测到许可证绑定邮箱信息");
 			}
 
 			// 临时禁用云端验证（后续版本会恢复）
 			// await this.performCloudValidation(licenseInfo, currentFingerprint, warnings);
 
 			// 重新验证激活码
-			const validation = await this.validateActivationCode(licenseInfo.activationCode);
+			const validation = await this.validateActivationCode(normalizedLicense.activationCode, undefined, options);
 			if (!validation.isValid) {
 				return { isValid: false, error: validation.error };
 			}
 
 			// 验证产品版本兼容性
-			if (licenseInfo.productVersion && licenseInfo.productVersion !== this.CURRENT_VERSION) {
+			if (normalizedLicense.productVersion && normalizedLicense.productVersion !== this.CURRENT_VERSION) {
 				warnings.push(
-					`许可证版本(${licenseInfo.productVersion})与当前版本(${this.CURRENT_VERSION})不匹配`
+					`许可证版本(${normalizedLicense.productVersion})与当前版本(${this.CURRENT_VERSION})不匹配`
 				);
 			}
 
@@ -494,6 +557,8 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 				// 超过10年
 				warnings.push("许可证激活时间异常久远，请检查系统时间");
 			}
+
+			Object.assign(licenseInfo, normalizedLicense);
 
 			return {
 				isValid: true,
@@ -596,8 +661,8 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 				}
 			} else if (cloudResult.is_network_error) {
 				// 网络错误，宽容处理
-				logger.warn("云端验证失败（网络错误），使用本地验证");
-				warnings.push("云端验证暂时不可用，当前使用离线模式");
+				logger.warn("许可证验证暂时不可用，将稍后重试");
+				warnings.push("许可证验证暂时不可用，请稍后重试");
 			} else {
 				// 云端拒绝，设备可能被替换
 				throw new Error(cloudResult.error || "云端验证失败，此设备可能已被移除");
@@ -722,7 +787,7 @@ export class ActivationAttemptLimiter {
 	 */
 	private static getAttempts(): ActivationAttempt[] {
 		try {
-			const stored = this.app?.loadLocalStorage(this.STORAGE_KEY);
+			const stored = vaultStorage.getItem(this.STORAGE_KEY);
 			return stored ? JSON.parse(stored) : [];
 		} catch {
 			return [];
@@ -736,7 +801,7 @@ export class ActivationAttemptLimiter {
 		try {
 			// 只保留最近的50条记录
 			const recentAttempts = attempts.slice(-50);
-			this.app?.saveLocalStorage(this.STORAGE_KEY, JSON.stringify(recentAttempts));
+			vaultStorage.setItem(this.STORAGE_KEY, JSON.stringify(recentAttempts));
 		} catch {
 			// 忽略存储错误
 		}
@@ -767,7 +832,7 @@ export class ActivationAttemptLimiter {
 	 * 重置尝试记录（用于测试）
 	 */
 	static resetAttempts(): void {
-		this.app?.saveLocalStorage(this.STORAGE_KEY, undefined as any);
+		vaultStorage.removeItem(this.STORAGE_KEY);
 	}
 }
 

@@ -5,8 +5,10 @@ import {
 	isProgressiveClozeParent,
 } from "../../../types/progressive-cloze-v2";
 import { getCardField, getCardFront } from "../../../utils/card-field-helper";
+import { getAnkiClozeMatches, getConfiguredClozeMatches } from "../../../utils/cloze-syntax";
 import { logger } from "../../../utils/logger";
 import type { PreviewData, PreviewOptions } from "../ContentPreviewEngine";
+import { applyStyleProps } from "../../../utils/style-props";
 
 /**
  * 挖空数据接口
@@ -55,37 +57,6 @@ export class ClozePreview {
 	private plugin: WeavePlugin;
 	private clozeStates: Map<string, boolean> = new Map();
 
-	private static readonly CLOZE_PATTERNS = [
-		// Obsidian 高亮语法
-		{
-			pattern: /==(.*?)==/g,
-			type: "obsidian" as const,
-			placeholder: "[...]",
-			className: "weave-cloze-obsidian",
-		},
-		// Anki 基础挖空语法 {{c1::答案}}
-		{
-			pattern: /\{\{c(\d+)::(.*?)\}\}/g,
-			type: "anki" as const,
-			placeholder: "[...]",
-			className: "weave-cloze-anki",
-		},
-		// Anki 带提示的挖空语法 {{c1::答案::提示}}
-		{
-			pattern: /\{\{c(\d+)::(.*?)::(.*?)\}\}/g,
-			type: "anki-hint" as const,
-			placeholder: "[...]",
-			className: "weave-cloze-anki-hint",
-		},
-		// 自定义挖空语法
-		{
-			pattern: /\[cloze\](.*?)\[\/cloze\]/g,
-			type: "custom" as const,
-			placeholder: "[...]",
-			className: "weave-cloze-custom",
-		},
-	];
-
 	constructor(plugin: WeavePlugin) {
 		this.plugin = plugin;
 	}
@@ -96,53 +67,43 @@ export class ClozePreview {
 	parseClozeContent(content: string): ClozeData[] {
 		const clozeData: ClozeData[] = [];
 		let clozeIndex = 0;
+		const defaultPlaceholder = this.plugin.settings?.clozeSettings?.placeholder || "[...]";
 
-		for (const { pattern, type, placeholder, className } of ClozePreview.CLOZE_PATTERNS) {
-			const regex = new RegExp(pattern.source, pattern.flags);
-			let match;
+		for (const match of getConfiguredClozeMatches(content, this.plugin.settings?.clozeSettings)) {
+			const contextBefore = content.substring(0, match.index);
+			const contextAfter = content.substring(match.endIndex);
+			clozeData.push({
+				id: `cloze-obsidian-${clozeIndex++}`,
+				content: match.text,
+				originalContent: content,
+				contextBefore,
+				contextAfter,
+				placeholder: defaultPlaceholder,
+				revealed: false,
+				startIndex: match.index,
+				endIndex: match.endIndex,
+				type: "obsidian",
+			});
+		}
 
-			while ((match = regex.exec(content)) !== null) {
-				const id = `cloze-${type}-${clozeIndex++}`;
-
-				//  增强Anki语法支持
-				let clozeContent: string;
-				let clozeHint: string | undefined;
-				let groupId: string | undefined;
-				let actualPlaceholder = placeholder;
-
-				if (type === "anki") {
-					clozeContent = match[2];
-					groupId = `group-${match[1]}`;
-				} else if (type === "anki-hint") {
-					clozeContent = match[2];
-					clozeHint = match[3];
-					groupId = `group-${match[1]}`;
-					actualPlaceholder = clozeHint ? `[${clozeHint}]` : placeholder;
-				} else {
-					clozeContent = match[1];
-				}
-
-				// 提取上下文信息
-				const startIndex = match.index;
-				const endIndex = match.index + match[0].length;
-				const contextBefore = content.substring(0, startIndex);
-				const contextAfter = content.substring(endIndex);
-
-				clozeData.push({
-					id,
-					content: clozeContent,
-					originalContent: content, // 保存完整原始内容
-					contextBefore, // 挖空前的文本
-					contextAfter, // 挖空后的文本
-					placeholder: actualPlaceholder,
-					revealed: false,
-					startIndex,
-					endIndex,
-					groupId,
-					type,
-					hint: clozeHint, // 新增：保存提示信息
-				});
-			}
+		for (const match of getAnkiClozeMatches(content)) {
+			const contextBefore = content.substring(0, match.index);
+			const contextAfter = content.substring(match.endIndex);
+			const actualPlaceholder = match.hint ? `[${match.hint}]` : defaultPlaceholder;
+			clozeData.push({
+				id: `cloze-anki-${clozeIndex++}`,
+				content: match.text,
+				originalContent: content,
+				contextBefore,
+				contextAfter,
+				placeholder: actualPlaceholder,
+				revealed: false,
+				startIndex: match.index,
+				endIndex: match.endIndex,
+				groupId: match.ordinal ? `group-${match.ordinal}` : undefined,
+				type: match.hint ? "anki-hint" : "anki",
+				hint: match.hint,
+			});
 		}
 
 		// 按位置排序
@@ -206,11 +167,11 @@ export class ClozePreview {
 	 */
 	applyClozeAnimations(elements: HTMLElement[]): void {
 		elements.forEach((element, index) => {
-			element.setCssProps({ opacity: "0" });
+			applyStyleProps(element, { opacity: "0" });
 			//  已移除浮动动画效果
 
 			setTimeout(() => {
-				element.setCssProps({
+				applyStyleProps(element, {
 					transition: "opacity 0.3s ease-out",
 					opacity: "1",
 				});
@@ -424,7 +385,7 @@ export class ClozePreview {
 			if (!clozeId) return;
 
 			// 添加点击事件
-			clozeElement.setCssProps({ cursor: "pointer" });
+			applyStyleProps(clozeElement, { cursor: "pointer" });
 			clozeElement.addEventListener("click", () => {
 				if (options.revealMode === "individual") {
 					this.toggleClozeReveal(clozeId);
@@ -477,7 +438,7 @@ export class ClozePreview {
 	 */
 	private animateClozeReveal(element: HTMLElement): void {
 		//  已移除缩放动画效果
-		element.setCssProps({ transition: "opacity 0.15s ease-out" });
+		applyStyleProps(element, { transition: "opacity 0.15s ease-out" });
 	}
 
 	/**
@@ -507,11 +468,10 @@ export class ClozePreview {
 	private getClozePattern(cloze: ClozeData): RegExp {
 		switch (cloze.type) {
 			case "obsidian":
-				return new RegExp(`==${cloze.content}==`, "g");
+				return new RegExp(cloze.content, "g");
 			case "anki":
+			case "anki-hint":
 				return new RegExp(`\\{\\{c\\d+::${cloze.content}\\}\\}`, "g");
-			case "custom":
-				return new RegExp(`\\[cloze\\]${cloze.content}\\[\\/cloze\\]`, "g");
 			default:
 				return new RegExp(cloze.content, "g");
 		}

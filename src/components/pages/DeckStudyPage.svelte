@@ -19,17 +19,21 @@
   import { generateId } from '../../utils/helpers';
 // 渐进式挖空支持
   import { isProgressiveClozeParent, isProgressiveClozeChild } from '../../types/progressive-cloze-v2';
-  import { CreateDeckModalObsidian } from "../modals/CreateDeckModalObsidian";
-  import { APKGImportModalObsidian } from "../modals/APKGImportModalObsidian";
-  import { ClipboardImportModalObsidian } from "../modals/ClipboardImportModalObsidian";
   import CSVImportModal from "../modals/CSVImportModal.svelte";
   import CreateQuestionBankModal from "../modals/CreateQuestionBankModal.svelte";
   import { QuestionBankAssociationModal } from "../../modals/QuestionBankAssociationModal";
   import { QuestionBankSelectorModal } from "../../modals/QuestionBankSelectorModal";
-  import type { ImportResult } from "../../domain/apkg/types";
+  import { VaultFolderSuggestModal } from "../../modals/VaultFolderSuggestModal";
+  import { BatchTagSuggestModal, type BatchTagSuggestItem } from "../../modals/BatchTagSuggestModal";
   import { Menu, Modal, Notice, Setting, TFile, normalizePath } from "obsidian";
   import type { DeckTreeNode } from "../../services/deck/DeckHierarchyService";
   import { buildMemoryDeckMenu, type MemoryDeckMenuAction } from "../../services/deck/MemoryDeckMenu";
+  import { openFileWithExistingLeaf } from "../../utils/workspace-navigation";
+  import {
+    buildTagSuggestionOptions,
+    normalizeTagSuggestionOptions,
+    normalizeTagSuggestionValue,
+  } from "../../utils/tag-suggest";
   
   //  导入服务就绪检查工具
   import { waitForService, safeServiceCall } from "../../utils/service-ready-check";
@@ -39,53 +43,81 @@
   import { executeBatchWithProgress } from "../../utils/progress-modal";
   
 // 导入视图组件
-  import KanbanView from "../deck-views/KanbanView.svelte";
-  import GridCardView from "../deck-views/GridCardView.svelte";
-  
-  //  导入庆祝模态窗
-  import CelebrationModal from "../modals/CelebrationModal.svelte";
-  
-  //  导入增量阅读牌组视图
-  import IRDeckView from "../incremental-reading/IRDeckView.svelte";
+  import DeckStudyContentArea from "./deck-study/DeckStudyContentArea.svelte";
+  import DeckStudyModalHost from "./deck-study/DeckStudyModalHost.svelte";
+  import { createDeckStudyMenuCoordinator } from "./deck-study/menu-coordinator";
+  import { createDeckStudyModalCoordinator } from "./deck-study/modal-coordinator";
+  import { createDeckStudyModeActions } from "./deck-study/mode-actions";
+  import { createDeckStudyPageRuntimeController } from "./deck-study/page-runtime-controller";
+  import { createDeckStudyRefreshCoordinator } from "./deck-study/refresh-coordinator";
+  import type {
+    DeckStudyContentAreaProps,
+    DeckStudyModalHostProps,
+  } from "./deck-study/page-shell-types";
   import type { CelebrationStats } from "../../types/celebration-types";
-  
-// 导入无卡片提示模态窗
-  import NoCardsAvailableModal from "../modals/NoCardsAvailableModal.svelte";
   
   //  导入牌组分析模态窗
   import { DeckAnalyticsModalObsidian } from "../modals/DeckAnalyticsModalObsidian";
   
 // 导入学习完成逻辑辅助函数
-  import { loadDeckCardsForStudy, isDeckCompleteForToday, getAdvanceStudyCards, getLearnedNewCardsCountToday } from "../../utils/study/studyCompletionHelper";
+  import { loadDeckCardsForStudy, isDeckCompleteForToday, getAdvanceStudyCards, getLearnedNewCardsCountToday, getLatestCompletedStudySessionToday } from "../../utils/study/studyCompletionHelper";
   
   //  高级功能限制
-  import { PremiumFeatureGuard, PREMIUM_FEATURES } from "../../services/premium/PremiumFeatureGuard";
-  import ActivationPrompt from "../premium/ActivationPrompt.svelte";
+  import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from "../../services/premium/PremiumFeatureGuard";
   import { get } from 'svelte/store';
+  import { getEmergentDeckService } from "../../services/deck/EmergentDeckService";
+  import {
+    getMemoryDeckLevelProgressFromCards,
+    type MemoryDeckLevelProgress,
+  } from "../../services/deck/MemoryDeckLevelService";
+  import {
+    DEFAULT_EMERGENT_RULE_GROUP,
+    getActiveEmergentRuleGroup,
+    getNormalizedEmergentRuleGroups,
+    type EmergentRuleGroup,
+  } from "../../services/deck/emergent-rule-groups";
+  import {
+    appendCreatedEmergentRuleGroupDraftState,
+    appendDuplicatedEmergentRuleGroupDraftState,
+    appendEmergentRuleGroupSourceFolder,
+    appendEmergentRuleGroupTag,
+    clearEmergentRuleConditionState,
+    getCurrentEmergentRuleGroupDraft as resolveCurrentEmergentRuleGroupDraft,
+    normalizeEmergentRuleGroupsForSave,
+    removeEmergentRuleGroupDraftState,
+    removeEmergentRuleGroupSourceFolder,
+    removeEmergentRuleGroupTag,
+    setEmergentRuleConditionVisible as setEmergentRuleConditionVisibleInState,
+    updateEmergentRuleGroupDate,
+    updateEmergentRuleGroupName,
+    updateEmergentRuleGroupOnlyLearnable,
+    updateEmergentRuleGroupPriority,
+    updateEmergentRuleGroupThreshold,
+  } from "../../services/deck/emergent-rule-group-drafts";
+  import {
+    EMERGENT_RULE_ADDABLE_CONDITION_OPTIONS,
+    buildVisibleEmergentRuleConditionKeys,
+    mergeVisibleEmergentRuleConditionKeys,
+    type EmergentRuleConditionKey,
+  } from "../../services/deck/emergent-rule-group-editor";
+  import type { EmergentDeckCandidate, FormalDeckBindingSummary, MemoryDeckOrganizationRuntime, MemoryDeckView } from "../../types/emergent-deck-types";
   
   //  导入国际化
   import { tr } from '../../utils/i18n';
   
   //  导入移动端组件
   import MobileDeckStudyHeader from "../study/MobileDeckStudyHeader.svelte";
-  import { Platform } from 'obsidian';
-// 导入安全设置打开函数
-  import { safeOpenSettings } from '../../utils/obsidian-api-safe';
   import { DirectoryUtils } from '../../utils/directory-utils';
-  import { getCardDeckIds, parseSourceInfo } from '../../utils/yaml-utils';
+  import { extractAllTags, getCardDeckIds, parseSourceInfo } from '../../utils/yaml-utils';
   import { sanitizeFileName } from '../../utils/card-export-utils';
   import { getV2Paths, getReadableWeaveRoot } from '../../config/paths';
   import { migrateLegacyDirectory } from '../../services/data-migration/LegacyWeaveFolderMigration';
   import { resolveDeckNoCardsReason } from '../../utils/study/noCardsReason';
+  import { applyStyleProps } from '../../utils/style-props';
 
   interface Props {
     dataStorage: WeaveDataStorage;
     plugin: WeavePlugin;
-  }
-
-  interface MemoryDeckActionRequestDetail {
-    action: MemoryDeckMenuAction;
-    deckId: string;
   }
 
   let { dataStorage, plugin }: Props = $props();
@@ -110,7 +142,8 @@
   let noCardsReason = $state<'empty' | 'all-learned' | 'no-due'>('empty');
   let noCardsStats = $state<{
     totalCards: number;
-    learnedCards: number;
+    sessionCompletedCards?: number;
+    showSessionCompletedCards?: boolean;
     nextDueTime?: string;
     todayNewCards?: number;
     todayNewLimit?: number;
@@ -119,10 +152,17 @@
 
   // 牌组分析模态窗状态
   let deckAnalyticsModalInstance: DeckAnalyticsModalObsidian | null = null;
-  let createDeckModalInstance: CreateDeckModalObsidian | null = null;
-  let editDeckModalInstance: CreateDeckModalObsidian | null = null;
-  let apkgImportModalInstance: APKGImportModalObsidian | null = null;
-  let clipboardImportModalInstance: ClipboardImportModalObsidian | null = null;
+  let showEmergentRuleGroupPopover = $state(false);
+  let emergentRuleGroupPopoverStyle = $state('top: 56px; left: calc(100vw - 320px);');
+  let emergentRuleGroupAnchor = $state<HTMLElement | null>(null);
+  let emergentRuleGroupDrafts = $state<EmergentRuleGroup[]>([]);
+  let emergentRuleGroupDraftActiveId = $state(DEFAULT_EMERGENT_RULE_GROUP.id);
+  let emergentRuleGroupVisibleConditions = $state<Record<string, string[]>>({});
+  let emergentChildPopupOpenCount = $state(0);
+  let emergentChildPopupCloseGuardUntil = $state(0);
+
+  const EMERGENT_CHILD_POPUP_OPEN_EVENT = 'Weave:emergent-child-popup-open';
+  const EMERGENT_CHILD_POPUP_CLOSE_EVENT = 'Weave:emergent-child-popup-close';
 
   //  移动端状态
   let isMobile = $state(false);
@@ -133,9 +173,14 @@
   // 数据状态
   let decks = $state<Deck[]>([]);
   let deckTree = $state<DeckTreeNode[]>([]);
-  let expandedDeckIds = $state<Set<string>>(new Set());
+  let emergentCandidates = $state<EmergentDeckCandidate[]>([]);
+  let emergentRuntime = $state<MemoryDeckOrganizationRuntime | null>(null);
+  let emergentDeckViews = $state<MemoryDeckView[]>([]);
+  let emergentDeckStats = $state<Record<string, DeckStats>>({});
+  let formalDeckBindingSummary = $state<Record<string, FormalDeckBindingSummary>>({});
   let deckStats = $state<Record<string, DeckStats>>({});
   let studySessions = $state<StudySession[]>([]);
+  let memoryDeckLevels = $state<Record<string, MemoryDeckLevelProgress>>({});
   
   // 考试题组和增量阅读的牌组树（用于看板视图）
   let qbDeckTree = $state<DeckTreeNode[]>([]);
@@ -144,27 +189,49 @@
   let irDeckStats = $state<Record<string, DeckStats>>({});
   
   type ActiveDeckView = 'kanban' | 'grid';
-  type ActiveDeckFilter = 'memory' | 'question-bank' | 'incremental-reading';
+  type ActiveDeckFilter = 'memory' | 'question-bank';
+  type MemoryDeckDisplayMode = 'formal' | 'emergent';
   type DeckFilterInput = ActiveDeckFilter | 'reading' | 'parent' | 'child' | 'all';
 
+  const premiumGuard = PremiumFeatureGuard.getInstance();
+  const deckStudyFeatureContext: PremiumFeatureAccessContext = { page: 'deck-study' };
+  const deckAnalyticsEntryFeatures = [
+    PREMIUM_FEATURES.DECK_ANALYTICS,
+    PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION,
+    PREMIUM_FEATURES.DECK_ANALYTICS_TIMING,
+  ] as const;
+
   function parseStoredDeckFilter(value: string | null): ActiveDeckFilter {
-    if (value === 'question-bank' || value === 'incremental-reading') {
+    if (value === 'question-bank') {
       return value;
     }
 
     return 'memory';
   }
 
-  // 视图状态，从持久化存储加载，默认使用网格卡片视图
   function normalizeDeckStudyView(value: string | null | undefined): ActiveDeckView {
-    return value === 'kanban' ? 'kanban' : 'grid';
+    return value === 'kanban' && premiumGuard.canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, deckStudyFeatureContext)
+      ? 'kanban'
+      : 'grid';
   }
 
   function getInitialDeckStudyView(): ActiveDeckView {
     return normalizeDeckStudyView(plugin.getCachedDeckViewPreference());
   }
 
+  function normalizeMemoryDeckDisplayMode(value: string | null | undefined): MemoryDeckDisplayMode {
+    return value === 'emergent' && premiumGuard.canUseFeature(PREMIUM_FEATURES.EMERGENT_DECKS, deckStudyFeatureContext)
+      ? 'emergent'
+      : 'formal';
+  }
+
   let currentView = $state<ActiveDeckView>(getInitialDeckStudyView());
+  let memoryDeckDisplayMode = $state<MemoryDeckDisplayMode>((() => {
+    try {
+      return normalizeMemoryDeckDisplayMode(vaultStorage.getItem('weave-memory-deck-display-mode'));
+    } catch {}
+    return 'formal';
+  })());
   
   // 牌组模式筛选状态
   // 只保留当前仍可用的筛选值；旧筛选值在读取阶段统一映射到 memory
@@ -175,8 +242,6 @@
     return 'memory';
   })());
   
-  //  高级功能守卫
-  const premiumGuard = PremiumFeatureGuard.getInstance();
   let isPremium = $state(get(premiumGuard.isPremiumActive));
   let showPremiumFeaturesPreview = $state(get(premiumGuard.premiumFeaturesPreviewEnabled));
   let showActivationPrompt = $state(false);
@@ -201,11 +266,11 @@
     return premiumGuard.shouldShowFeatureEntry(featureId, {
       isPremium,
       showPremiumPreview: showPremiumFeaturesPreview
-    });
+    }, deckStudyFeatureContext);
   }
 
   function getPremiumEntryTitle(baseTitle: string, featureId: string): string {
-    return premiumGuard.canUseFeature(featureId) ? baseTitle : `${baseTitle} (高级)`;
+    return premiumGuard.getFeatureEntryTitle(baseTitle, featureId, deckStudyFeatureContext);
   }
 
   function isAPKGImportEnabled(): boolean {
@@ -216,12 +281,504 @@
     return plugin.settings.navigationVisibility?.csvImport !== false;
   }
 
-  function isClipboardImportEnabled(): boolean {
-    return plugin.settings.navigationVisibility?.clipboardImport !== false;
+  function applyMemoryDeckDisplayMode(
+    mode: string | null | undefined,
+    { persist = true }: { persist?: boolean } = {}
+  ): void {
+    const normalizedMode = normalizeMemoryDeckDisplayMode(mode);
+
+    if (
+      normalizedMode === 'emergent' &&
+      premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.EMERGENT_DECKS, deckStudyFeatureContext)
+    ) {
+      promptFeatureId = PREMIUM_FEATURES.EMERGENT_DECKS;
+      showActivationPrompt = true;
+      return;
+    }
+
+    memoryDeckDisplayMode = normalizedMode;
+
+    if (persist) {
+      vaultStorage.setItem('weave-memory-deck-display-mode', normalizedMode);
+    }
+
+    window.dispatchEvent(
+      new CustomEvent('Weave:memory-deck-display-mode-change', {
+        detail: { mode: normalizedMode },
+      })
+    );
   }
 
-  function isSettingsEntryEnabled(): boolean {
-    return plugin.settings.navigationVisibility?.settingsEntry !== false;
+  let canShowMemoryDeckLevels = $derived(
+    premiumGuard.canUseFeature(PREMIUM_FEATURES.MEMORY_DECK_LEVELS, deckStudyFeatureContext)
+  );
+
+  const menuCoordinator = createDeckStudyMenuCoordinator({
+    getPlugin: () => plugin,
+    getDeckCount: () => decks.length,
+    getCurrentView: () => currentView,
+    setCurrentView: (view) => {
+      currentView = view;
+    },
+    getSelectedFilter: () => selectedFilter,
+    setSelectedFilter: (filter) => {
+      selectedFilter = filter;
+    },
+    getMemoryDeckDisplayMode: () => memoryDeckDisplayMode,
+    setMemoryDeckDisplayMode: (mode) => {
+      applyMemoryDeckDisplayMode(mode);
+    },
+    showEmergentRuleGroupMenu,
+    tr: (key: string, vars?: Record<string, string>) => t(key, vars),
+    isFeatureRestricted: (featureId: string) => premiumGuard.isFeatureRestricted(featureId, deckStudyFeatureContext),
+    canUseFeature: (featureId: string) => premiumGuard.canUseFeature(featureId, deckStudyFeatureContext),
+    promptPremiumFeature: (featureId: string) => {
+      promptFeatureId = featureId;
+      showActivationPrompt = true;
+    },
+    isAPKGImportEnabled,
+    isCSVImportEnabled,
+    shouldShowPremiumEntry,
+    getPremiumEntryTitle,
+    openAPKGImport: () => {
+      modalCoordinator.showAPKGImportModal();
+    },
+    handleCSVImport,
+    exportDeck,
+    routeCreateDeckByFilter: async (filter: string) => {
+      await modalCoordinator.handleCreateDeckForCurrentFilter(filter);
+    },
+  });
+
+  function getEmergentRuleGroups(): EmergentRuleGroup[] {
+    return getNormalizedEmergentRuleGroups(plugin.settings.memoryDeckOrganization);
+  }
+
+  function getActiveEmergentRuleGroupState(): EmergentRuleGroup {
+    return getActiveEmergentRuleGroup(plugin.settings.memoryDeckOrganization);
+  }
+
+  async function saveEmergentRuleGroups(
+    groups: EmergentRuleGroup[],
+    activeRuleGroupId: string
+  ): Promise<void> {
+    const normalizedGroups = groups.length > 0 ? groups : [DEFAULT_EMERGENT_RULE_GROUP];
+    const activeGroup =
+      normalizedGroups.find((group) => group.id === activeRuleGroupId) || normalizedGroups[0];
+
+    plugin.settings.memoryDeckOrganization = {
+      ...(plugin.settings.memoryDeckOrganization || {}),
+      enabled: plugin.settings.memoryDeckOrganization?.enabled !== false,
+      minCandidateCardCount: activeGroup.minCandidateCardCount,
+      activeRuleGroupId: activeGroup.id,
+      ruleGroups: normalizedGroups,
+    };
+
+    await plugin.saveSettings();
+    await refreshData(true);
+    plugin.app.workspace.trigger("Weave:data-changed");
+  }
+
+  function getEmergentRuleViewportBox(): {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } {
+    const viewport = window.visualViewport;
+    if (viewport) {
+      return {
+        left: viewport.offsetLeft,
+        top: viewport.offsetTop,
+        width: viewport.width,
+        height: viewport.height,
+      };
+    }
+
+    return {
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
+  }
+
+  function updateEmergentRuleGroupPopoverPosition(): void {
+    const viewport = getEmergentRuleViewportBox();
+    const isCompactViewport = viewport.width <= 720;
+    const preferredWidth = isCompactViewport
+      ? Math.min(400, Math.max(292, viewport.width - 24))
+      : Math.min(720, Math.max(560, viewport.width - 96));
+    const maxHeight = Math.max(320, Math.min(680, viewport.height - 40));
+    const minLeft = viewport.left + 12;
+    const maxLeft = Math.max(minLeft, viewport.left + viewport.width - preferredWidth - 12);
+
+    let left = maxLeft;
+    let top = viewport.top + 56;
+
+    if (emergentRuleGroupAnchor?.isConnected) {
+      const rect = emergentRuleGroupAnchor.getBoundingClientRect();
+      left = Math.max(minLeft, Math.min(rect.right - preferredWidth, maxLeft));
+
+      const preferredTop = rect.bottom + 8;
+      const maxTop = viewport.top + viewport.height - maxHeight - 12;
+      if (preferredTop <= maxTop) {
+        top = preferredTop;
+      } else {
+        top = Math.max(viewport.top + 12, rect.top - maxHeight - 8);
+      }
+    }
+
+    emergentRuleGroupPopoverStyle =
+      `top: ${Math.round(top)}px; ` +
+      `left: ${Math.round(left)}px; ` +
+      `width: ${Math.round(preferredWidth)}px; ` +
+      `max-height: ${Math.round(maxHeight)}px;`;
+  }
+
+  function openEmergentRuleGroupPopover(anchor?: HTMLElement | null): void {
+    const groups = getEmergentRuleGroups();
+    const activeGroup = getActiveEmergentRuleGroupState();
+    emergentRuleGroupDrafts = groups.map((group) => ({ ...group }));
+    emergentRuleGroupDraftActiveId = activeGroup.id;
+    emergentRuleGroupVisibleConditions = Object.fromEntries(
+      groups.map((group) => [group.id, buildVisibleEmergentRuleConditionKeys(group)])
+    );
+    emergentRuleGroupAnchor = anchor || null;
+    updateEmergentRuleGroupPopoverPosition();
+    showEmergentRuleGroupPopover = true;
+  }
+
+  function registerEmergentRuleGroupPopoverBridge(): () => void {
+    const api = window as Window & {
+      __weaveOpenEmergentRuleGroupPopover?: (anchor?: HTMLElement | null) => void;
+    };
+    const openPopover = (anchor?: HTMLElement | null) => {
+      openEmergentRuleGroupPopover(anchor);
+    };
+
+    api.__weaveOpenEmergentRuleGroupPopover = openPopover;
+
+    return () => {
+      if (api.__weaveOpenEmergentRuleGroupPopover === openPopover) {
+        delete api.__weaveOpenEmergentRuleGroupPopover;
+      }
+    };
+  }
+
+  function closeEmergentRuleGroupPopover(): void {
+    showEmergentRuleGroupPopover = false;
+    emergentRuleGroupAnchor = null;
+    emergentRuleGroupVisibleConditions = {};
+  }
+
+  function markEmergentChildPopupClosed(graceMs = 180): void {
+    emergentChildPopupCloseGuardUntil = Date.now() + Math.max(0, graceMs);
+  }
+
+  function isEmergentChildPopupInteractionProtected(): boolean {
+    return Date.now() <= emergentChildPopupCloseGuardUntil;
+  }
+
+  function portalToBody(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        if (node.parentNode === document.body) {
+          document.body.removeChild(node);
+        }
+      }
+    };
+  }
+
+  function getAnchorRect(anchor?: HTMLElement | null):
+    | {
+        left: number;
+        right: number;
+        top: number;
+        bottom: number;
+        width: number;
+        height: number;
+      }
+    | undefined {
+    if (!anchor) return undefined;
+    const rect = anchor.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+
+  function collectAvailableVaultTags(): Array<{ name: string; count: number }> {
+    return buildTagSuggestionOptions(plugin.app, [], "memory");
+  }
+
+  function updateEmergentRuleGroupDraftName(groupId: string, name: string): void {
+    emergentRuleGroupDrafts = updateEmergentRuleGroupName(
+      emergentRuleGroupDrafts,
+      groupId,
+      name.trim() || resolveCurrentEmergentRuleGroupDraft(emergentRuleGroupDrafts, groupId).name
+    );
+  }
+
+  function updateEmergentRuleGroupDraftThreshold(groupId: string, value: string): void {
+    emergentRuleGroupDrafts = updateEmergentRuleGroupThreshold(emergentRuleGroupDrafts, groupId, value);
+  }
+
+  function createEmergentRuleGroupDraft(): void {
+    const nextState = appendCreatedEmergentRuleGroupDraftState({
+      groups: emergentRuleGroupDrafts,
+      activeGroupId: emergentRuleGroupDraftActiveId,
+      primaryTagFieldByGroup: {},
+      visibleConditionsByGroup: emergentRuleGroupVisibleConditions,
+    });
+    emergentRuleGroupDrafts = nextState.groups;
+    emergentRuleGroupDraftActiveId = nextState.activeGroupId;
+    emergentRuleGroupVisibleConditions = nextState.visibleConditionsByGroup;
+  }
+
+  function selectEmergentRuleGroupDraft(groupId: string): void {
+    emergentRuleGroupDraftActiveId = groupId;
+  }
+
+  function getCurrentEmergentRuleGroupDraft(): EmergentRuleGroup {
+    return resolveCurrentEmergentRuleGroupDraft(emergentRuleGroupDrafts, emergentRuleGroupDraftActiveId);
+  }
+
+  function appendEmergentRuleGroupTagDraft(
+    groupId: string,
+    field: "requiredTags" | "excludedTags",
+    tag: string
+  ): void {
+    emergentRuleGroupDrafts = appendEmergentRuleGroupTag(emergentRuleGroupDrafts, groupId, field, tag);
+  }
+
+  function removeEmergentRuleGroupTagDraft(
+    groupId: string,
+    field: "requiredTags" | "excludedTags",
+    tag: string
+  ): void {
+    emergentRuleGroupDrafts = removeEmergentRuleGroupTag(emergentRuleGroupDrafts, groupId, field, tag);
+  }
+
+  function getVisibleEmergentRuleConditions(groupId: string): EmergentRuleConditionKey[] {
+    const group = emergentRuleGroupDrafts.find((item) => item.id === groupId);
+    if (!group) return [];
+
+    return mergeVisibleEmergentRuleConditionKeys(
+      emergentRuleGroupVisibleConditions[groupId] || [],
+      group
+    );
+  }
+
+  function showEmergentRuleGroupSwitcherMenu(event: MouseEvent): void {
+    const menu = new Menu();
+
+    emergentRuleGroupDrafts.forEach((group, index) => {
+      menu.addItem((item) => {
+        item
+          .setTitle(group.name || `规则组 ${index + 1}`)
+          .setIcon(group.id === emergentRuleGroupDraftActiveId ? "check" : "gallery-vertical")
+          .onClick(() => {
+            selectEmergentRuleGroupDraft(group.id);
+          });
+      });
+    });
+
+    menu.showAtMouseEvent(event);
+  }
+
+  function duplicateEmergentRuleGroupDraft(groupId: string): void {
+    const nextState = appendDuplicatedEmergentRuleGroupDraftState(
+      {
+        groups: emergentRuleGroupDrafts,
+        activeGroupId: emergentRuleGroupDraftActiveId,
+        primaryTagFieldByGroup: {},
+        visibleConditionsByGroup: emergentRuleGroupVisibleConditions,
+      },
+      groupId
+    );
+    if (!nextState) return;
+    emergentRuleGroupDrafts = nextState.groups;
+    emergentRuleGroupDraftActiveId = nextState.activeGroupId;
+    emergentRuleGroupVisibleConditions = nextState.visibleConditionsByGroup;
+  }
+
+  function showEmergentRuleGroupMoreMenu(event: MouseEvent, groupId: string): void {
+    const menu = new Menu();
+
+    menu.addItem((item) => {
+      item
+        .setTitle("复制筛选组")
+        .setIcon("copy")
+        .onClick(() => duplicateEmergentRuleGroupDraft(groupId));
+    });
+
+    menu.addItem((item) => {
+      item
+        .setTitle("删除筛选组")
+        .setIcon("trash")
+        .onClick(() => removeEmergentRuleGroupDraftV2(groupId));
+    });
+
+    menu.showAtMouseEvent(event);
+  }
+
+  function setEmergentRuleConditionVisible(groupId: string, conditionKey: EmergentRuleConditionKey): void {
+    emergentRuleGroupVisibleConditions = setEmergentRuleConditionVisibleInState(emergentRuleGroupVisibleConditions, groupId, conditionKey);
+  }
+
+  function clearEmergentRuleCondition(groupId: string, conditionKey: EmergentRuleConditionKey): void {
+    const nextState = clearEmergentRuleConditionState(
+      emergentRuleGroupDrafts,
+      emergentRuleGroupVisibleConditions,
+      groupId,
+      conditionKey
+    );
+    emergentRuleGroupDrafts = nextState.groups;
+    emergentRuleGroupVisibleConditions = nextState.visibleConditionsByGroup;
+  }
+
+  function showEmergentRuleConditionMenu(event: MouseEvent, groupId: string): void {
+    const visibleConditions = new Set(getVisibleEmergentRuleConditions(groupId));
+    const menu = new Menu();
+    let hasItem = false;
+
+    EMERGENT_RULE_ADDABLE_CONDITION_OPTIONS.forEach((condition) => {
+      if (visibleConditions.has(condition.key)) return;
+      hasItem = true;
+      menu.addItem((item) => {
+        item
+          .setTitle(condition.title)
+          .setIcon(condition.icon)
+          .onClick(() => setEmergentRuleConditionVisible(groupId, condition.key));
+      });
+    });
+
+    if (!hasItem) {
+      new Notice("可添加的条件已经全部显示", 2500);
+      return;
+    }
+
+    menu.showAtMouseEvent(event);
+  }
+
+  function showEmergentRuleConditionRowMenu(
+    event: MouseEvent,
+    groupId: string,
+    conditionKey: EmergentRuleConditionKey
+  ): void {
+    const menu = new Menu();
+
+    menu.addItem((item) => {
+      item
+        .setTitle("清空条件")
+        .setIcon("eraser")
+        .onClick(() => clearEmergentRuleCondition(groupId, conditionKey));
+    });
+
+    menu.showAtMouseEvent(event);
+  }
+
+  function openEmergentRuleTagSuggestModal(
+    groupId: string,
+    field: "requiredTags" | "excludedTags",
+    anchor?: HTMLElement | null
+  ): void {
+    const currentGroup = emergentRuleGroupDrafts.find((group) => group.id === groupId);
+    if (!currentGroup) return;
+
+    const existingTags = new Set(
+      (currentGroup[field] || [])
+        .map((tag) => normalizeTagSuggestionValue(tag).toLowerCase())
+        .filter(Boolean)
+    );
+    const items: BatchTagSuggestItem[] = normalizeTagSuggestionOptions(collectAvailableVaultTags())
+      .filter((item) => !existingTags.has(item.key));
+
+    if (items.length === 0) {
+      new Notice("没有可添加的标签", 2500);
+      return;
+    }
+
+    new BatchTagSuggestModal(
+      plugin.app,
+      items,
+      (item) => {
+        appendEmergentRuleGroupTagDraft(groupId, field, item.tag);
+      },
+      {
+        placeholder: field === "requiredTags" ? "搜索要包含的标签..." : "搜索要排除的标签...",
+        anchorRect: getAnchorRect(anchor),
+      }
+    ).open();
+  }
+
+  function updateEmergentRuleGroupDateDraft(
+    groupId: string,
+    field: "createdAfter" | "createdBefore",
+    value: string
+  ): void {
+    emergentRuleGroupDrafts = updateEmergentRuleGroupDate(emergentRuleGroupDrafts, groupId, field, value);
+  }
+
+  function updateEmergentRuleGroupPriorityDraft(
+    groupId: string,
+    field: "priorityMin" | "priorityMax",
+    value: string
+  ): void {
+    emergentRuleGroupDrafts = updateEmergentRuleGroupPriority(emergentRuleGroupDrafts, groupId, field, value);
+  }
+
+  function updateEmergentRuleGroupOnlyLearnableDraft(groupId: string, value: boolean): void {
+    emergentRuleGroupDrafts = updateEmergentRuleGroupOnlyLearnable(emergentRuleGroupDrafts, groupId, value);
+  }
+
+  async function addEmergentRuleGroupSourceFolderDraft(groupId: string, anchor?: HTMLElement | null): Promise<void> {
+    const picker = new VaultFolderSuggestModal(plugin.app, {
+      placeholder: "选择要观察的来源文件夹",
+      anchorRect: getAnchorRect(anchor),
+    });
+    const selectedFolder = await picker.openAndSelect();
+    if (!selectedFolder) return;
+
+    const normalizedFolder = selectedFolder === "/" ? "/" : normalizePath(selectedFolder);
+    emergentRuleGroupDrafts = appendEmergentRuleGroupSourceFolder(emergentRuleGroupDrafts, groupId, normalizedFolder);
+  }
+
+  function removeEmergentRuleGroupSourceFolderDraft(groupId: string, folderPath: string): void {
+    emergentRuleGroupDrafts = removeEmergentRuleGroupSourceFolder(emergentRuleGroupDrafts, groupId, folderPath);
+  }
+
+  function removeEmergentRuleGroupDraftV2(groupId: string): void {
+    const nextState = removeEmergentRuleGroupDraftState(
+      {
+        groups: emergentRuleGroupDrafts,
+        activeGroupId: emergentRuleGroupDraftActiveId,
+        primaryTagFieldByGroup: {},
+        visibleConditionsByGroup: emergentRuleGroupVisibleConditions,
+      },
+      groupId
+    );
+    if (!nextState) {
+      new Notice("至少需要保留一个涌现筛选组", 3000);
+      return;
+    }
+    emergentRuleGroupDrafts = nextState.groups;
+    emergentRuleGroupDraftActiveId = nextState.activeGroupId;
+    emergentRuleGroupVisibleConditions = nextState.visibleConditionsByGroup;
+  }
+
+  async function applyEmergentRuleGroupDraftsV2(): Promise<void> {
+    const nextGroups = normalizeEmergentRuleGroupsForSave(emergentRuleGroupDrafts);
+    await saveEmergentRuleGroups(nextGroups, emergentRuleGroupDraftActiveId);
+    const activeGroup = nextGroups.find((group) => group.id === emergentRuleGroupDraftActiveId) || nextGroups[0];
+    new Notice(`已应用涌现筛选组：${activeGroup?.name || "默认规则组"}`, 3000);
+    closeEmergentRuleGroupPopover();
   }
 
   function promptPremiumFeature(featureId: string): void {
@@ -230,7 +787,7 @@
   }
 
   function openPremiumFeature(featureId: string, onAllowed: () => void): void {
-    if (!premiumGuard.canUseFeature(featureId)) {
+    if (!premiumGuard.canUseFeature(featureId, deckStudyFeatureContext)) {
       promptPremiumFeature(featureId);
       return;
     }
@@ -248,30 +805,8 @@
     });
   }
 
-  function handleClipboardImport(): void {
-    if (!isClipboardImportEnabled()) {
-      return;
-    }
-
-    openPremiumFeature(PREMIUM_FEATURES.CLIPBOARD_IMPORT, () => {
-      showClipboardImportModalWithObsidianAPI();
-    });
-  }
-
   function normalizeDeckFilter(filter: DeckFilterInput): ActiveDeckFilter {
-    if (filter === 'question-bank' && premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.QUESTION_BANK)) {
-      return 'memory';
-    }
-
-    if (filter === 'incremental-reading' && premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.INCREMENTAL_READING)) {
-      return 'memory';
-    }
-
-    if (filter === 'question-bank' || filter === 'incremental-reading') {
-      return filter;
-    }
-
-    return 'memory';
+    return menuCoordinator.normalizeDeckFilter(filter) as ActiveDeckFilter;
   }
 
   $effect(() => {
@@ -284,301 +819,186 @@
     vaultStorage.setItem('weave-deck-mode-filter', selectedFilter);
     window.dispatchEvent(new CustomEvent('Weave:deck-filter-change', { detail: selectedFilter }));
   });
-  
-// 从 Obsidian 持久化存储加载视图偏好
-  onMount(() => {
-    //  检测移动端
-    isMobile = Platform.isMobile || document.body.classList.contains('is-mobile');
-    
-// 订阅数据同步服务（在同步作用域中定义，以便清理函数可以访问）
-    let unsubscribeDecks: (() => void) | undefined;
-    let unsubscribeSessions: (() => void) | undefined;
-    let unsubscribeCards: (() => void) | undefined;
-    
-    // 异步初始化（不阻塞清理函数的返回）
-    (async () => {
-      // selectedFilter 已在状态初始化时同步从 localStorage 恢复，此处无需重复读取
-      
-// 使用插件本地 state/local-storage.json 加载视图偏好
-      try {
-        const savedView = await plugin.loadDeckViewPreference();
-        
-        // 验证并加载保存的视图
-        if (savedView && ['kanban', 'grid'].includes(savedView)) {
-          currentView = normalizeDeckStudyView(savedView);
-          window.dispatchEvent(new CustomEvent('Weave:deck-view-change', { detail: currentView }));
-        } else if (savedView === 'classic' || savedView === 'timeline' || savedView === 'card') {
-          // 已移除的旧视图统一回退到网格卡片视图
-          currentView = normalizeDeckStudyView(null);
-          window.dispatchEvent(new CustomEvent('Weave:deck-view-change', { detail: currentView }));
-        } else {
-          currentView = normalizeDeckStudyView(null);
-          window.dispatchEvent(new CustomEvent('Weave:deck-view-change', { detail: currentView }));
-        }
-      } catch (error) {
-        logger.warn('加载视图偏好失败:', error);
-        currentView = normalizeDeckStudyView(null);
-        window.dispatchEvent(new CustomEvent('Weave:deck-view-change', { detail: currentView }));
-      }
-      
-// 订阅数据同步服务
-      if (plugin.dataSyncService) {
-        // 订阅数据变更通知
-        
-        // 订阅牌组变更
-        unsubscribeDecks = plugin.dataSyncService.subscribe(
-          'decks',
-          async (event: DataChangeEvent) => {
-            // 牌组数据变更
-            await refreshData(false);
-          },
-          { debounce: 300 }
-        );
-        
-        // 订阅学习会话变更
-        unsubscribeSessions = plugin.dataSyncService.subscribe(
-          'sessions',
-          async (event: DataChangeEvent) => {
-            // 学习会话变更
-            await refreshData(false);
-          },
-          { debounce: 300 }
-        );
-        
-        // 订阅卡片变更（影响统计）
-        unsubscribeCards = plugin.dataSyncService.subscribe(
-          'cards',
-          async (event: DataChangeEvent) => {
-            // 卡片数据变更
-            await refreshData(false);
-          },
-          { debounce: 500 }
-        );
-        
-        // 数据同步服务订阅成功
-      }
-    })(); // 结束异步IIFE
-    
-    // 3. 监听workspace事件（备用刷新机制）
-    const handleCardCreated = async () => {
-      // 卡片创建事件
-      await refreshData(false);
-    };
-    
-    const handleCardUpdated = async () => {
-      logger.debug('[DeckStudyPage] 接收到卡片更新事件，刷新数据');
-      await refreshData(false);
-    };
-    
-    (plugin.app.workspace as any).on("Weave:card-created", handleCardCreated);
-    (plugin.app.workspace as any).on("Weave:card-updated", handleCardUpdated);
-    
-    // 4. 从localStorage加载展开状态
-    loadExpandedState();
-    
-    // 5. 立即刷新数据
-    refreshData();
-    
-// 监听全局视图切换事件（移到 onMount，确保只注册一次）
-    const handleShowViewMenu = (e: CustomEvent) => {
-      showViewSwitcher(e.detail.event);
-    };
-    window.addEventListener('show-view-menu', handleShowViewMenu as EventListener);
-    
-// 监听侧边栏筛选事件
-    const handleSidebarFilterSelect = (e: CustomEvent<string>) => {
-      const filter = e.detail as ActiveDeckFilter;
-      handleFilterSelect(filter);
-    };
-    window.addEventListener('Weave:sidebar-filter-select', handleSidebarFilterSelect as EventListener);
 
-    const handleExternalDeckMenuAction = (e: Event) => {
-      const detail = (e as CustomEvent<MemoryDeckActionRequestDetail>).detail;
-      if (!detail?.deckId) {
-        return;
-      }
-      void handleMemoryDeckMenuAction(detail.action, detail.deckId);
-    };
-    window.addEventListener('Weave:request-memory-deck-action', handleExternalDeckMenuAction as EventListener);
-
-    const handleMainInterfaceMenuRequest = (e: Event) => {
-      const detail = (e as CustomEvent<{
-        page?: string;
-        event?: MouseEvent;
-        source?: string;
-      }>).detail;
-
-      if (detail?.page !== 'deck-study') {
-        return;
-      }
-
-      if (!(detail.event instanceof MouseEvent)) {
-        return;
-      }
-
-      e.preventDefault();
-      void showMobileNavMenuWithObsidianAPI(detail.event);
-    };
-    window.addEventListener(
-      'Weave:request-main-interface-menu',
-      handleMainInterfaceMenuRequest as EventListener
-    );
-    
-// 初始化时通知父组件当前筛选状态
-    window.dispatchEvent(new CustomEvent('Weave:deck-filter-change', { detail: selectedFilter }));
-
-    // 清理函数
-    return () => {
-      if (unsubscribeDecks) unsubscribeDecks();
-      if (unsubscribeSessions) unsubscribeSessions();
-      if (unsubscribeCards) unsubscribeCards();
-      (plugin.app.workspace as any).off("Weave:card-created", handleCardCreated);
-      (plugin.app.workspace as any).off("Weave:card-updated", handleCardUpdated);
-      window.removeEventListener('show-view-menu', handleShowViewMenu as EventListener);
-      window.removeEventListener('Weave:sidebar-filter-select', handleSidebarFilterSelect as EventListener);
-      window.removeEventListener('Weave:request-memory-deck-action', handleExternalDeckMenuAction as EventListener);
-      window.removeEventListener(
-        'Weave:request-main-interface-menu',
-        handleMainInterfaceMenuRequest as EventListener
-      );
-    };
+  const pageRuntimeController = createDeckStudyPageRuntimeController({
+    getPlugin: () => plugin,
+    getSelectedFilter: () => selectedFilter,
+    normalizeDeckStudyView,
+    setCurrentView: (value: string) => {
+      currentView = normalizeDeckStudyView(value);
+    },
+    setIsMobile: (value: boolean) => {
+      isMobile = value;
+    },
+    registerEmergentRuleGroupPopoverBridge,
+    refreshData,
+    scheduleBackgroundRefresh,
+    handleFilterSelect: (filter: string) => {
+      handleFilterSelect(filter as DeckFilterInput);
+    },
+    handleMemoryDeckMenuAction,
+    showViewSwitcher,
+    showMobileNavMenu: showMobileNavMenuWithObsidianAPI,
+    showEmergentRuleGroupMenu,
+    setMemoryDeckDisplayMode: (mode: string | null | undefined) => {
+      applyMemoryDeckDisplayMode(mode);
+    },
   });
+
+  onMount(() => pageRuntimeController.mount());
 
   onDestroy(() => {
     deckAnalyticsModalInstance?.close();
     deckAnalyticsModalInstance = null;
-    createDeckModalInstance?.close();
-    createDeckModalInstance = null;
-    editDeckModalInstance?.close();
-    editDeckModalInstance = null;
-    apkgImportModalInstance?.close();
-    apkgImportModalInstance = null;
-    clipboardImportModalInstance?.close();
-    clipboardImportModalInstance = null;
+    modalCoordinator.closeAll();
+    refreshCoordinator.dispose();
+    if (persistStatsTimer) {
+      clearTimeout(persistStatsTimer);
+      persistStatsTimer = null;
+    }
+  });
+
+  $effect(() => {
+    const handleEmergentChildPopupOpen = () => {
+      emergentChildPopupOpenCount += 1;
+    };
+
+    const handleEmergentChildPopupClose = (event: Event) => {
+      const detail = (event as CustomEvent<{ graceMs?: number } | undefined>).detail;
+      emergentChildPopupOpenCount = Math.max(0, emergentChildPopupOpenCount - 1);
+      markEmergentChildPopupClosed(detail?.graceMs ?? 180);
+    };
+
+    window.addEventListener(EMERGENT_CHILD_POPUP_OPEN_EVENT, handleEmergentChildPopupOpen as EventListener);
+    window.addEventListener(EMERGENT_CHILD_POPUP_CLOSE_EVENT, handleEmergentChildPopupClose as EventListener);
+
+    return () => {
+      window.removeEventListener(EMERGENT_CHILD_POPUP_OPEN_EVENT, handleEmergentChildPopupOpen as EventListener);
+      window.removeEventListener(EMERGENT_CHILD_POPUP_CLOSE_EVENT, handleEmergentChildPopupClose as EventListener);
+    };
+  });
+
+  $effect(() => {
+    if (!showEmergentRuleGroupPopover) return;
+
+    updateEmergentRuleGroupPopoverPosition();
+
+    const hasEmergentChildPopupOpen = () => {
+      if (typeof document === "undefined") return false;
+      return Boolean(
+        document.querySelector(".menu") ||
+        document.querySelector(".suggestion-container") ||
+        document.querySelector(".weave-vault-folder-suggest-popover") ||
+        document.querySelector(".weave-batch-tag-suggest-popover") ||
+        document.querySelector(".weave-ir-deck-suggest-popover")
+      );
+    };
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (hasEmergentChildPopupOpen() || isEmergentChildPopupInteractionProtected()) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.weave-emergent-rule-popover')) return;
+      if (target?.closest('.deck-study-toolbar-btn')) return;
+      if (target?.closest('.menu')) return;
+      if (target?.closest('.menu-item')) return;
+      if (target?.closest('.suggestion')) return;
+      if (target?.closest('.suggestion-container')) return;
+      if (target?.closest('.suggestion-item')) return;
+      closeEmergentRuleGroupPopover();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeEmergentRuleGroupPopover();
+      }
+    };
+
+    const handleViewportChange = () => {
+      updateEmergentRuleGroupPopoverPosition();
+    };
+
+    document.addEventListener('mousedown', handlePointerDown, true);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', handleViewportChange);
+    window.addEventListener('scroll', handleViewportChange, true);
+    window.visualViewport?.addEventListener('resize', handleViewportChange);
+    window.visualViewport?.addEventListener('scroll', handleViewportChange);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown, true);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleViewportChange);
+      window.removeEventListener('scroll', handleViewportChange, true);
+      window.visualViewport?.removeEventListener('resize', handleViewportChange);
+      window.visualViewport?.removeEventListener('scroll', handleViewportChange);
+    };
   });
   
 // 视图切换逻辑（使用 Obsidian Menu API）
   function showViewSwitcher(evt: MouseEvent) {
-    const menu = new Menu();
-    
-    //  只保留网格卡片和看板视图
-    const views = [
-      { id: 'grid', label: t('deckStudyPage.views.grid'), icon: 'grid', desc: t('deckStudyPage.views.gridDesc') },
-      { id: 'kanban', label: t('deckStudyPage.views.kanban'), icon: 'columns', desc: t('deckStudyPage.views.kanbanDesc') }
-    ] as const;
-    
-    views.forEach(view => {
-      menu.addItem((item) => {
-        item
-          .setTitle(view.label)
-          .setIcon(view.icon)
-          .setChecked(currentView === view.id)
-          .onClick(async () => {
-            currentView = view.id;
-            // 保存偏好到插件本地 state/
-            try {
-              await plugin.saveDeckViewPreference(view.id);
-            } catch (error) {
-              logger.warn('保存视图偏好失败:', error);
-            }
-            window.dispatchEvent(new CustomEvent('Weave:deck-view-change', { detail: view.id }));
-          });
-      });
-    });
-    
-    menu.showAtMouseEvent(evt);
+    menuCoordinator.showViewSwitcher(evt);
+  }
+
+  function showEmergentRuleGroupMenu(anchor?: HTMLElement | null): void {
+    if (showEmergentRuleGroupPopover) {
+      closeEmergentRuleGroupPopover();
+      return;
+    }
+
+    openEmergentRuleGroupPopover(anchor);
   }
 
   // 显示更多操作菜单（使用 Obsidian 原生菜单）
   function showMoreActionsMenu(event: MouseEvent) {
-    const menu = new Menu();
-    
-// 增量阅读模式：显示导入文件夹选项
-    if (selectedFilter === 'incremental-reading') {
-      menu.addItem((item) => {
-        item
-          .setTitle(t('deckStudyPage.menu.importFolder'))
-          .setIcon("folder-plus")
-          .onClick(() => {
-            document.dispatchEvent(new CustomEvent('ir-import-folder'));
-          });
-      });
-      
-      menu.showAtMouseEvent(event);
-      return;
-    }
-    
-    // 记忆牌组模式的菜单
-    if (isAPKGImportEnabled()) {
-      menu.addItem((item) => {
-        item
-          .setTitle(t('deckStudyPage.menu.importAPKG'))
-          .setIcon("package")
-          .onClick(() => { showAPKGImportModalWithObsidianAPI(); });
-      });
-    }
-    
-    if (isCSVImportEnabled() && shouldShowPremiumEntry(PREMIUM_FEATURES.CSV_IMPORT)) {
-      menu.addItem((item) => {
-        item
-          .setTitle(getPremiumEntryTitle(t('deckStudyPage.menu.importCSV'), PREMIUM_FEATURES.CSV_IMPORT))
-          .setIcon("file-text")
-          .onClick(handleCSVImport);
-      });
-    }
-
-    if (isClipboardImportEnabled() && shouldShowPremiumEntry(PREMIUM_FEATURES.CLIPBOARD_IMPORT)) {
-      menu.addItem((item) => {
-        item
-          .setTitle(getPremiumEntryTitle(t('deckStudyPage.menu.importClipboard'), PREMIUM_FEATURES.CLIPBOARD_IMPORT))
-          .setIcon('clipboard-paste')
-          .onClick(handleClipboardImport);
-      });
-    }
-    
-    menu.addItem((item) => {
-      item
-        .setTitle(t('deckStudyPage.menu.exportJSON'))
-        .setIcon("download")
-        .setDisabled(decks.length === 0)
-        .onClick(exportDeck);
-    });
-    
-    menu.showAtMouseEvent(event);
+    menuCoordinator.showMoreActionsMenu(event);
   }
 
-// 数据刷新
-  async function refreshData(showLoading = false) {
-    if (showLoading) {
-      isLoading = true;
-    }
-    
-    try {
-      // getCards() 依赖 cardFileService，这里需要等待全部核心服务就绪。
-      await waitForServiceReady('allCoreServices', 15000);
-      
-      decks = await dataStorage.getDecks();
-      const allStudySessionsPromise = dataStorage.getStudySessions().catch((error) => {
-        logger.error('[DeckStudyPage] 加载学习历史失败:', error);
-        return [] as StudySession[];
-      });
+  async function waitForAllCoreServices(): Promise<void> {
+    await waitForServiceReady('allCoreServices', 15000);
+  }
 
-      await Promise.all([
-        (async () => {
-          const allStudySessions = await allStudySessionsPromise;
-          await calculateDeckStats(allStudySessions);
-        })(),
-        loadDeckTree(),
-        (async () => {
-          const allStudySessions = await allStudySessionsPromise;
-          await loadStudySessions(allStudySessions);
-        })()
-      ]);
-    } finally {
-      if (showLoading) {
-        isLoading = false;
-      }
-    }
+  async function loadDecks(): Promise<Deck[]> {
+    decks = await dataStorage.getDecks();
+    return decks;
+  }
+
+  async function loadStudySessionsData(): Promise<StudySession[]> {
+    return dataStorage.getStudySessions();
+  }
+
+  async function resolveRefreshTargetDeckIds(
+    targetDeckIds: string[],
+    availableDecks: Deck[]
+  ): Promise<string[]> {
+    const availableDeckIds = new Set(availableDecks.map((deck) => deck.id));
+    return Array.from(
+      new Set(targetDeckIds.map((deckId) => String(deckId || '').trim()).filter(Boolean))
+    ).filter((deckId) => availableDeckIds.has(deckId));
+  }
+
+  const refreshCoordinator = createDeckStudyRefreshCoordinator({
+    setIsLoading: (value: boolean) => {
+      isLoading = value;
+    },
+    loadDecks,
+    loadStudySessionsData,
+    calculateDeckStats,
+    loadDeckTree,
+    loadStudySessions,
+    resolveRefreshTargetDeckIds,
+    waitForAllCoreServices,
+  });
+
+  async function refreshData(showLoading = false) {
+    await refreshCoordinator.refreshData(showLoading);
+  }
+
+  async function refreshTargetedDeckData(targetDeckIds: string[]) {
+    await refreshCoordinator.refreshTargetedDeckData(targetDeckIds);
+  }
+
+  function scheduleBackgroundRefresh(event?: DataChangeEvent): void {
+    refreshCoordinator.scheduleBackgroundRefresh(event);
   }
   
   // 当切换到kanban视图或切换模式时，加载对应的牌组树数据
@@ -588,8 +1008,6 @@
     if (view === 'kanban') {
       if (filter === 'question-bank') {
         loadQBDeckTree();
-      } else if (filter === 'incremental-reading') {
-        loadIRDeckTree();
       }
     }
   });
@@ -626,74 +1044,6 @@
       logger.warn('[DeckStudyPage] loadQBDeckTree failed:', e);
     }
   }
-
-  // 加载增量阅读牌组树（用于看板视图）
-  async function loadIRDeckTree() {
-    try {
-      const { IRStorageService } = await import('../../services/incremental-reading/IRStorageService');
-      const irStorage = new IRStorageService(plugin.app);
-      await irStorage.initialize();
-      const irDecks = await irStorage.getAllDecks();
-      const irDeckList: import('../../types/ir-types').IRDeck[] = Object.values(irDecks);
-      const activeIRDecks = irDeckList.filter(d => !d.archivedAt);
-      
-      // 为每个IR牌组获取真实统计数据
-      const stats: Record<string, DeckStats> = {};
-      const treeNodes: DeckTreeNode[] = [];
-      
-      for (const irDeck of activeIRDecks) {
-        // 使用 IRStorageService.getDeckStats 获取真实统计
-        let irStats = { newCount: 0, learningCount: 0, reviewCount: 0, dueToday: 0, dueWithinDays: 0, totalCount: irDeck.blockIds?.length || 0, fileCount: 0, questionCount: 0, completedQuestionCount: 0 };
-        try {
-          irStats = await irStorage.getDeckStats(irDeck.id);
-        } catch (e) {
-          logger.debug('[DeckStudyPage] IR getDeckStats failed for', irDeck.name, e);
-        }
-        
-        // 映射IR统计到DeckStats格式，与IRDeckCard显示一致:
-        // newCards → 未读(dueToday), learningCards → 待读(dueWithinDays-dueToday), reviewCards → 提问(questionCount)
-        const deckStats: DeckStats = {
-          totalCards: irStats.totalCount,
-          newCards: irStats.dueToday,
-          learningCards: Math.max(0, (irStats.dueWithinDays ?? irStats.dueToday) - irStats.dueToday),
-          reviewCards: irStats.questionCount ?? 0,
-          todayNew: 0, todayReview: 0, todayTime: 0,
-          totalReviews: 0, totalTime: 0,
-          memoryRate: 0, averageEase: 0, forecastDays: {}
-        };
-        
-        const node: DeckTreeNode = {
-          deck: {
-            id: irDeck.id,
-            name: irDeck.name,
-            description: irDeck.description || '',
-            category: '',
-            path: irDeck.path || irDeck.name,
-            level: 0,
-            order: 0,
-            inheritSettings: false,
-            settings: {} as any,
-            includeSubdecks: false,
-            created: irDeck.createdAt,
-            modified: irDeck.updatedAt,
-            tags: irDeck.tags || [],
-            stats: deckStats,
-            metadata: { isIRDeck: true, color: irDeck.color, icon: irDeck.icon }
-          } as Deck,
-          children: []
-        };
-        
-        treeNodes.push(node);
-        stats[irDeck.id] = deckStats;
-      }
-      
-      irDeckTree = treeNodes;
-      irDeckStats = stats;
-    } catch (e) {
-      logger.warn('[DeckStudyPage] loadIRDeckTree failed:', e);
-    }
-  }
-
 // 父子卡片牌组筛选相关函数
   function isParentCardDeck(deck: Deck): boolean {
     return deck.metadata?.pairedChildDeck != null;
@@ -704,24 +1054,7 @@
   }
 
   function handleFilterSelect(filter: DeckFilterInput) {
-    if (filter === 'question-bank' && premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.QUESTION_BANK)) {
-      promptFeatureId = PREMIUM_FEATURES.QUESTION_BANK;
-      showActivationPrompt = true;
-      return;
-    }
-
-    if (filter === 'incremental-reading' && premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.INCREMENTAL_READING)) {
-      promptFeatureId = PREMIUM_FEATURES.INCREMENTAL_READING;
-      showActivationPrompt = true;
-      return;
-    }
-
-    selectedFilter = normalizeDeckFilter(filter);
-    vaultStorage.setItem('weave-deck-mode-filter', selectedFilter);
-    logger.debug('[DeckStudyPage] 切换模式筛选器:', selectedFilter);
-    
-    // 通知父组件状态变化（用于侧边栏导航同步）
-    window.dispatchEvent(new CustomEvent('Weave:deck-filter-change', { detail: selectedFilter }));
+    menuCoordinator.handleFilterSelect(filter);
   }
   
   //  移动端菜单按钮点击处理 - 使用 Obsidian Menu API
@@ -730,132 +1063,8 @@
   }
   
   //  使用 Obsidian 原生 Menu API 显示移动端导航菜单
-  async function showMobileNavMenuWithObsidianAPI(evt: MouseEvent) {
-    const menu = new Menu();
-    
-    // 功能切换分组
-    menu.addItem((item) => {
-      item
-        .setTitle(t('navigation.deckStudy'))
-        .setIcon('graduation-cap')
-        .setChecked(true)
-        .onClick(() => {
-          // 已在牌组学习界面，无需操作
-        });
-    });
-    
-    menu.addItem((item) => {
-      item
-        .setTitle(t('navigation.cardManagement'))
-        .setIcon('list')
-        .onClick(() => {
-          window.dispatchEvent(new CustomEvent('Weave:navigate', { 
-            detail: 'weave-card-management' 
-          }));
-        });
-    });
-    
-    menu.addItem((item) => {
-      item
-        .setTitle(t('navigation.aiAssistant'))
-        .setIcon('bot')
-        .onClick(() => {
-          window.dispatchEvent(new CustomEvent('Weave:navigate', { 
-            detail: 'ai-assistant' 
-          }));
-        });
-    });
-    
-    menu.addSeparator();
-    
-    // 视图切换分组
-    menu.addItem((item) => {
-      item
-        .setTitle(t('navigation.switchView'))
-        .setIcon('layout-grid')
-        .onClick(() => {
-          const viewEvent = new MouseEvent('click', { bubbles: true, clientX: evt.clientX, clientY: evt.clientY });
-          showViewSwitcher(viewEvent);
-        });
-    });
-    
-    menu.addItem((item) => {
-      item
-        .setTitle(getCreateEntryTitle())
-        .setIcon('folder-plus')
-        .onClick(() => {
-          void handleCreateDeckForCurrentFilter();
-        });
-    });
-
-    if (currentView === 'kanban') {
-      menu.addItem((item) => {
-        item
-          .setTitle(t('study.mobileHeader.kanbanColumnSettings'))
-          .setIcon('sliders')
-          .onClick(() => {
-            window.dispatchEvent(new CustomEvent('Weave:open-deck-kanban-menu', {
-              detail: { x: evt.clientX, y: evt.clientY, filter: selectedFilter }
-            }));
-          });
-      });
-    }
-    
-    menu.addSeparator();
-
-    // 导入功能
-    if (isAPKGImportEnabled()) {
-      menu.addItem((item) => {
-        item
-          .setTitle(t('deckStudyPage.menu.importAPKG'))
-          .setIcon('package')
-          .onClick(() => { showAPKGImportModalWithObsidianAPI(); });
-      });
-    }
-    
-    if (isCSVImportEnabled() && shouldShowPremiumEntry(PREMIUM_FEATURES.CSV_IMPORT)) {
-      menu.addItem((item) => {
-        item
-          .setTitle(getPremiumEntryTitle(t('deckStudyPage.menu.importCSV'), PREMIUM_FEATURES.CSV_IMPORT))
-          .setIcon('file-text')
-          .onClick(handleCSVImport);
-      });
-    }
-
-    if (isClipboardImportEnabled() && shouldShowPremiumEntry(PREMIUM_FEATURES.CLIPBOARD_IMPORT)) {
-      menu.addItem((item) => {
-        item
-          .setTitle(getPremiumEntryTitle(t('deckStudyPage.menu.importClipboard'), PREMIUM_FEATURES.CLIPBOARD_IMPORT))
-          .setIcon('clipboard-paste')
-          .onClick(handleClipboardImport);
-      });
-    }
-    
-    menu.addSeparator();
-    
-    // 更多操作子菜单
-    menu.addItem((item) => {
-      const submenu = (item as any).setSubmenu();
-      item.setTitle(t('deckStudyPage.menu.management')).setIcon('more-horizontal');
-      
-      submenu.addItem((subItem: any) => {
-        subItem
-          .setTitle(t('deckStudyPage.menu.restoreTutorialDeck'))
-          .setIcon('book-open')
-          .onClick(async () => {
-            const success = await dataStorage.restoreGuideDeck();
-            if (success) {
-              await refreshData();
-              plugin.app.workspace.trigger('Weave:data-changed');
-              new Notice(t('deckStudyPage.notices.tutorialRestored'));
-            } else {
-              new Notice(t('deckStudyPage.notices.tutorialRestoreFailed'));
-            }
-          });
-      });
-    });
-    
-    menu.showAtMouseEvent(evt);
+  function showMobileNavMenuWithObsidianAPI(evt: MouseEvent) {
+    menuCoordinator.showMobileNavMenu(evt);
   }
   
   // 获取最近学习的牌组ID
@@ -912,21 +1121,6 @@
       );
       
       deckTree = await deckHierarchy.getDeckTree();
-      
-      // 首次加载时从 localStorage 恢复展开状态
-      const hasStoredState = vaultStorage.getItem('weave-deck-expanded-state');
-      
-      if (hasStoredState) {
-        // 恢复保存的展开状态
-        loadExpandedState();
-      } else if (expandedDeckIds.size === 0) {
-        // 首次使用，默认展开根级牌组
-        deckTree.forEach(node => {
-          expandedDeckIds.add(node.deck.id);
-        });
-        expandedDeckIds = new Set(expandedDeckIds);
-        saveExpandedState();
-      }
     } catch (error) {
       logger.error('[DeckStudyPage] Failed to load deck tree:', error);
       deckTree = [];
@@ -946,7 +1140,9 @@
     }
 
     for (const card of cards) {
-      const { deckIds } = getCardDeckIds(card, deckList, { fallbackToReferences: false });
+      const deckIds = plugin.settings.memoryDeckOrganization?.enabled === false
+        ? getCardDeckIds(card, deckList, { fallbackToReferences: false }).deckIds
+        : getEmergentDeckService(plugin).getResolvedDeckIdsForCard(card, deckList, emergentRuntime || undefined);
       if (!deckIds || deckIds.length === 0) {
         continue;
       }
@@ -960,6 +1156,122 @@
     }
 
     return cardsByDeck;
+  }
+
+  function getEmergentRuleCardTags(card: Card): string[] {
+    const contentTags = extractAllTags(card.content || "");
+    const legacyTags = Array.isArray(card.tags) ? card.tags : [];
+    return [...new Set([...contentTags, ...legacyTags].map((tag) => String(tag || "").trim()).filter(Boolean))];
+  }
+
+  function getEmergentRuleCardSourcePath(card: Card): string {
+    const sourceInfo = parseSourceInfo(card.content || "");
+    const fromYaml =
+      typeof sourceInfo?.sourceFile === "string"
+        ? sourceInfo.sourceFile
+        : typeof (sourceInfo as { source?: string } | null)?.source === "string"
+          ? (sourceInfo as { source?: string }).source || ""
+          : "";
+    return normalizePath(String(card.sourceFile || fromYaml || "").trim());
+  }
+
+  function getEmergentRuleCardFolderPath(card: Card): string {
+    const sourcePath = getEmergentRuleCardSourcePath(card);
+    if (!sourcePath) {
+      return "";
+    }
+
+    const parts = sourcePath.split("/");
+    parts.pop();
+    return parts.length > 0 ? parts.join("/") : "/";
+  }
+
+  function matchesEmergentRuleGroup(card: Card, group: EmergentRuleGroup): boolean {
+    const tags = getEmergentRuleCardTags(card);
+    const tagSet = new Set(tags.map((tag) => tag.toLowerCase()));
+
+    if (group.requiredTags.length > 0) {
+      const hasRequiredTag = group.requiredTags.some((tag) => tagSet.has(String(tag).toLowerCase()));
+      if (!hasRequiredTag) {
+        return false;
+      }
+    }
+
+    if (group.excludedTags.length > 0) {
+      const hasExcludedTag = group.excludedTags.some((tag) => tagSet.has(String(tag).toLowerCase()));
+      if (hasExcludedTag) {
+        return false;
+      }
+    }
+
+    if (group.sourceFolders.length > 0) {
+      const folderPath = getEmergentRuleCardFolderPath(card);
+      const matchesFolder = group.sourceFolders.some((folder) => {
+        const normalizedFolder = folder === "/" ? "/" : normalizePath(folder);
+        if (!normalizedFolder) return false;
+        if (normalizedFolder === "/") return !!folderPath;
+        return folderPath === normalizedFolder || folderPath.startsWith(`${normalizedFolder}/`);
+      });
+      if (!matchesFolder) {
+        return false;
+      }
+    }
+
+    const priority = typeof card.priority === "number" ? card.priority : null;
+    if (group.priorityMin !== null && (priority === null || priority < group.priorityMin)) {
+      return false;
+    }
+    if (group.priorityMax !== null && (priority === null || priority > group.priorityMax)) {
+      return false;
+    }
+
+    const createdAt = new Date(card.created).getTime();
+    if (group.createdAfter) {
+      const afterTime = new Date(`${group.createdAfter}T00:00:00`).getTime();
+      if (Number.isFinite(afterTime) && (!Number.isFinite(createdAt) || createdAt < afterTime)) {
+        return false;
+      }
+    }
+    if (group.createdBefore) {
+      const beforeTime = new Date(`${group.createdBefore}T23:59:59.999`).getTime();
+      if (Number.isFinite(beforeTime) && (!Number.isFinite(createdAt) || createdAt > beforeTime)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function hasLearnableCardsInDeckStats(stats?: DeckStats | null): boolean {
+    if (!stats) return false;
+    return (stats.newCards ?? 0) + (stats.learningCards ?? 0) + (stats.reviewCards ?? 0) > 0;
+  }
+
+  async function refreshEmergentDeckRuntime(cards?: Card[]): Promise<MemoryDeckOrganizationRuntime | null> {
+    const emergentDeckService = getEmergentDeckService(plugin);
+    if (!emergentDeckService.isEnabled()) {
+      emergentRuntime = null;
+      emergentCandidates = [];
+      emergentDeckViews = [];
+      emergentDeckStats = {};
+      formalDeckBindingSummary = {};
+      return null;
+    }
+
+    const allCards = Array.isArray(cards) ? cards : await dataStorage.getAllCards();
+    const activeRuleGroup = getActiveEmergentRuleGroupState();
+    const filteredCards = allCards.filter((card) => matchesEmergentRuleGroup(card, activeRuleGroup));
+    const runtime = await emergentDeckService.buildRuntimeWithBindings(filteredCards, decks, {
+      minCandidateCardCount: activeRuleGroup.minCandidateCardCount,
+    });
+    const shouldDeferLearnableOnlyVisibility = activeRuleGroup.onlyLearnableDecks === true;
+    emergentRuntime = runtime;
+    emergentCandidates = shouldDeferLearnableOnlyVisibility
+      ? []
+      : runtime.candidates.filter((candidate) => candidate.status !== 'ignored');
+    emergentDeckViews = shouldDeferLearnableOnlyVisibility ? [] : runtime.emergentDeckViews;
+    formalDeckBindingSummary = runtime.formalDeckSummary;
+    return runtime;
   }
 
   function buildTodayLearnedNewCardsMap(allSessions: StudySession[]): Map<string, number> {
@@ -1001,8 +1313,15 @@
     }
   }
 
-  async function calculateDeckStats(allStudySessions: StudySession[] = []) {
-    const stats: Record<string, DeckStats> = {};
+  async function calculateDeckStats(allStudySessions: StudySession[] = [], targetDeckIds?: string[]) {
+    const normalizedTargetDeckIds = Array.isArray(targetDeckIds)
+      ? Array.from(new Set(targetDeckIds.map((deckId) => String(deckId || '').trim()).filter(Boolean)))
+      : [];
+    const shouldRefreshAllDecks = normalizedTargetDeckIds.length === 0;
+    const stats: Record<string, DeckStats> = shouldRefreshAllDecks ? {} : { ...deckStats };
+    const nextMemoryDeckLevels: Record<string, MemoryDeckLevelProgress> = shouldRefreshAllDecks
+      ? {}
+      : { ...memoryDeckLevels };
     
     //  使用 UnifiedStudyProvider（统一数据源）
     const { UnifiedStudyProvider } = await import('../../services/study/UnifiedStudyProvider');
@@ -1013,17 +1332,24 @@
     const newCardsPerDay = plugin.settings.newCardsPerDay || 20;
     const reviewsPerDay = plugin.settings.reviewsPerDay || 200;
     const allCardsForStats = await dataStorage.getAllCards();
+    const runtime = await refreshEmergentDeckRuntime(allCardsForStats);
     const deckCardsMap = buildDeckCardsMap(allCardsForStats, decks);
     const learnedNewCardsTodayMap = buildTodayLearnedNewCardsMap(allStudySessions);
+    const targetDeckIdSet = shouldRefreshAllDecks ? null : new Set(normalizedTargetDeckIds);
+    const decksToRefresh = shouldRefreshAllDecks
+      ? decks
+      : decks.filter((deck) => targetDeckIdSet?.has(deck.id));
     
-    logger.debug(`[calculateDeckStats] 🚀 开始计算统计 (v3.0 UnifiedStudyProvider), 牌组数: ${decks.length}, 卡片数: ${allCardsForStats.length}`);
+    logger.debug(`[calculateDeckStats] 🚀 开始计算统计 (v3.0 UnifiedStudyProvider), 牌组数: ${decksToRefresh.length}, 卡片数: ${allCardsForStats.length}`);
     
     // 为每个牌组获取统一的学习数据
-    for (const deck of decks) {
+    for (const deck of decksToRefresh) {
       try {
+        const deckCards = deckCardsMap.get(deck.id) || [];
+        nextMemoryDeckLevels[deck.id] = getMemoryDeckLevelProgressFromCards(deckCards);
         const { stats: deckStat, queue, debug } = await unifiedProvider.getStudyDataFromDeckCards(
           deck.id,
-          deckCardsMap.get(deck.id) || [],
+          deckCards,
           {
           newCardsPerDay,
           reviewsPerDay,
@@ -1075,7 +1401,55 @@
       }
     }
 
+    if (!shouldRefreshAllDecks && targetDeckIdSet) {
+      for (const deckId of targetDeckIdSet) {
+        if (!decks.some((deck) => deck.id === deckId)) {
+          delete nextMemoryDeckLevels[deckId];
+        }
+      }
+    }
+
+    const nextEmergentDeckStats: Record<string, DeckStats> = {};
+    if (runtime?.emergentDeckViews?.length) {
+      for (const view of runtime.emergentDeckViews) {
+        try {
+          const deckCards = allCardsForStats.filter((card) => view.cardUUIDs.includes(card.uuid));
+          const learnedNewCardsToday = learnedNewCardsTodayMap.get(view.id) || 0;
+          const { stats: emergentStats } = await unifiedProvider.getStudyDataFromDeckCards(
+            view.id,
+            deckCards,
+            {
+              newCardsPerDay,
+              reviewsPerDay,
+              filterSiblings,
+              onlyDue: true,
+              learnedNewCardsToday,
+            }
+          );
+          nextEmergentDeckStats[view.id] = {
+            ...emergentStats,
+            totalCards: view.cardUUIDs.length,
+          };
+        } catch (error) {
+          logger.warn(`[DeckStudyPage] 计算涌现牌组统计失败: ${view.id}`, error);
+        }
+      }
+    }
+
+    const activeRuleGroup = getActiveEmergentRuleGroupState();
+    const visibleEmergentDeckViews = activeRuleGroup.onlyLearnableDecks
+      ? (runtime?.emergentDeckViews || []).filter((view) => hasLearnableCardsInDeckStats(nextEmergentDeckStats[view.id]))
+      : runtime?.emergentDeckViews || [];
+    const visibleEmergentDeckIds = new Set(visibleEmergentDeckViews.map((view) => view.id));
+
+    emergentDeckStats = nextEmergentDeckStats;
+    emergentDeckViews = visibleEmergentDeckViews;
+    emergentCandidates = (runtime?.candidates || []).filter(
+      (candidate) => candidate.status !== 'ignored' && visibleEmergentDeckIds.has(candidate.id)
+    );
+
     deckStats = stats;
+    memoryDeckLevels = nextMemoryDeckLevels;
     
     // 防抖持久化统计数据到 decks.json，确保云同步后其他设备能看到最新统计
     debouncedPersistDeckStats(stats);
@@ -1083,9 +1457,57 @@
     logger.info('[DeckStudyPage] ✅ 统计完成 (v3.0 UnifiedStudyProvider):', {
       newCardsPerDay,
       filterSiblings,
-      deckCount: decks.length,
+      deckCount: decksToRefresh.length,
+      refreshMode: shouldRefreshAllDecks ? 'full' : 'targeted',
       statsKeys: Object.keys(stats)
     });
+  }
+
+  async function handlePromoteEmergentDeck(candidate: EmergentDeckCandidate, event: MouseEvent): Promise<void> {
+    const emergentDeckService = getEmergentDeckService(plugin);
+    const menu = new Menu();
+
+    menu.addItem((item) => {
+      item
+        .setTitle(`新建正式牌组：${candidate.name}`)
+        .setIcon('plus-circle')
+        .onClick(async () => {
+          try {
+            const newDeck = await plugin.deckHierarchy.createDeck(candidate.name);
+            await emergentDeckService.promoteCandidateToDeck(candidate, newDeck.id);
+            await refreshData(true);
+            plugin.app.workspace.trigger('Weave:data-changed');
+            new Notice(`已将“${candidate.name}”转为正式牌组`);
+          } catch (error) {
+            logger.error('[DeckStudyPage] 创建正式牌组失败:', error);
+            new Notice(`创建正式牌组失败: ${error instanceof Error ? error.message : '未知错误'}`);
+          }
+        });
+    });
+
+    if (decks.length > 0) {
+      menu.addSeparator();
+      for (const deck of decks) {
+        menu.addItem((item) => {
+          item
+            .setTitle(`归入正式牌组：${deck.name}`)
+            .setIcon('folder')
+            .onClick(async () => {
+              try {
+                await emergentDeckService.promoteCandidateToDeck(candidate, deck.id);
+                await refreshData(true);
+                plugin.app.workspace.trigger('Weave:data-changed');
+                new Notice(`已将“${candidate.name}”绑定到正式牌组“${deck.name}”`);
+              } catch (error) {
+                logger.error('[DeckStudyPage] 绑定正式牌组失败:', error);
+                new Notice(`绑定正式牌组失败: ${error instanceof Error ? error.message : '未知错误'}`);
+              }
+            });
+        });
+      }
+    }
+
+    menu.showAtMouseEvent(event);
   }
 
   // 防抖持久化 deckStats（5秒延迟，合并多次快速刷新）
@@ -1101,226 +1523,56 @@
     }, 5000);
   }
 
-  // 处理APKG导入完成
-  async function handleAPKGImportComplete(result: ImportResult) {
-    if (result.success) {
-      const message = t('deckStudyPage.import.success', { deckName: result.deckName || t('common.unknown'), count: String(result.stats.importedCards) });
-      const N = Notice;
-      if (typeof N === 'function') {
-        new N(`✅ ${message}`, 5000);
-      }
+  const modalCoordinator = createDeckStudyModalCoordinator({
+    getPlugin: () => plugin,
+    getDataStorage: () => dataStorage,
+    tr: (key: string, vars?: Record<string, string>) => t(key, vars),
+    setShowCreateQuestionBankModal: (value: boolean) => {
+      showCreateQuestionBankModal = value;
+    },
+    refreshData,
+    refreshTargetedDeckData,
+  });
 
-      // 刷新牌组列表
-      await refreshData();
-      
-      // 通知全局侧边栏刷新
-      plugin.app.workspace.trigger('Weave:data-changed');
-    } else {
-      const errorMessage = result.errors && result.errors.length > 0
-        ? result.errors[0].message
-        : t('notifications.error.importFailed');
-      const N = Notice;
-      if (typeof N === 'function') {
-        new N(`❌ ${errorMessage}`, 8000);
-      }
-    }
-  }
+  const modeActions = createDeckStudyModeActions({
+    getPlugin: () => plugin,
+    getDataStorage: () => dataStorage,
+    tr: (key: string, vars?: Record<string, string>) => t(key, vars),
+    getDecks: () => decks,
+    startStudy,
+    startAdvanceStudy,
+    editDeck,
+    deleteDeck,
+    dissolveDeck,
+    openDeckAnalytics,
+    openKnowledgeGraph,
+    associateQuestionBank,
+    loadQBDeckTree,
+    promptPremiumFeature: (featureId: string) => {
+      promptFeatureId = featureId;
+      showActivationPrompt = true;
+    },
+    isFeatureRestricted: (featureId: string) => premiumGuard.isFeatureRestricted(featureId, deckStudyFeatureContext),
+  });
 
   function showCreateDeckModalWithObsidianAPI() {
-    createDeckModalInstance?.close();
-    createDeckModalInstance = new CreateDeckModalObsidian(plugin.app, {
-      plugin,
-      dataStorage,
-      mode: 'create',
-      onCreated: async () => {
-        await refreshData();
-        plugin.app.workspace.trigger('Weave:data-changed');
-      },
-      onClose: () => {
-        createDeckModalInstance = null;
-      }
-    });
-    createDeckModalInstance.open();
+    modalCoordinator.showCreateDeckModal();
   }
 
   function getCreateEntryTitle(): string {
-    if (selectedFilter === 'incremental-reading') {
-      return '新增增量阅读专题牌组';
-    }
-
-    if (selectedFilter === 'question-bank') {
-      return '创建考试题组';
-    }
-
-    return '创建记忆牌组';
-  }
-
-  async function showCreateIRDeckPrompt(): Promise<void> {
-    try {
-      const { IRStorageService } = await import('../../services/incremental-reading/IRStorageService');
-      const { IRDeckManager } = await import('../../services/incremental-reading/IRDeckManager');
-
-      const storageService = new IRStorageService(plugin.app);
-      await storageService.initialize();
-
-      const deckManager = new IRDeckManager(
-        plugin.app,
-        storageService,
-        plugin.settings?.incrementalReading?.importFolder
-      );
-
-      const modal = new Modal(plugin.app);
-      modal.titleEl.setText('新增增量阅读专题牌组');
-
-      let newName = '';
-      let newTag = '';
-
-      new Setting(modal.contentEl)
-        .setName('名称')
-        .addText((text: any) => {
-          text.setPlaceholder('例如：世界史精读专题');
-          text.onChange((value: string) => {
-            newName = value;
-          });
-          text.inputEl.style.width = '100%';
-          window.setTimeout(() => text.inputEl.focus(), 0);
-        });
-
-      new Setting(modal.contentEl)
-        .setName('牌组标签(单选)')
-        .setDesc('用于看板按标签分组，可留空');
-
-      const tagContainer = modal.contentEl.createDiv({ cls: 'weave-tag-input-container' });
-      const tagDisplay = tagContainer.createDiv({ cls: 'weave-tag-display' });
-
-      function renderTag() {
-        tagDisplay.empty();
-        if (newTag) {
-          const chip = tagDisplay.createSpan({ cls: 'weave-tag-chip', text: newTag });
-          chip.createSpan({ cls: 'weave-tag-remove', text: '\u00d7' }).onclick = () => {
-            newTag = '';
-            renderTag();
-          };
-        }
-      }
-
-      renderTag();
-
-      const tagInput = tagContainer.createEl('input', {
-        type: 'text',
-        placeholder: '输入标签后按回车添加'
-      });
-      tagInput.style.width = '100%';
-      tagInput.addEventListener('keydown', (event: KeyboardEvent) => {
-        if (event.key === 'Enter' && tagInput.value.trim()) {
-          event.preventDefault();
-          newTag = tagInput.value.trim();
-          tagInput.value = '';
-          renderTag();
-        }
-      });
-
-      const btnContainer = modal.contentEl.createDiv({ cls: 'modal-button-container' });
-      btnContainer.style.display = 'flex';
-      btnContainer.style.justifyContent = 'flex-end';
-      btnContainer.style.gap = '8px';
-      btnContainer.style.marginTop = '16px';
-
-      btnContainer.createEl('button', { text: '取消' }).onclick = () => modal.close();
-
-      const createBtn = btnContainer.createEl('button', { text: '创建', cls: 'mod-cta' });
-      createBtn.onclick = async () => {
-        const deckName = newName.trim();
-        if (!deckName) {
-          return;
-        }
-
-        try {
-          const newDeck = await deckManager.createDeck(deckName);
-          newDeck.tags = newTag ? [newTag] : [];
-          newDeck.updatedAt = new Date().toISOString();
-          await storageService.saveDeck(newDeck);
-
-          await loadIRDeckTree();
-          window.dispatchEvent(new CustomEvent('Weave:ir-data-updated'));
-          plugin.app.workspace.trigger('Weave:data-changed');
-          new Notice(`已创建增量阅读专题牌组：${deckName}`);
-          modal.close();
-        } catch (error) {
-          logger.error('[DeckStudyPage] 创建增量阅读专题牌组失败:', error);
-          new Notice('创建增量阅读专题牌组失败');
-        }
-      };
-
-      modal.open();
-    } catch (error) {
-      logger.error('[DeckStudyPage] 打开增量阅读专题牌组创建弹窗失败:', error);
-      new Notice('打开增量阅读专题牌组创建弹窗失败');
-    }
+    return menuCoordinator.getCreateEntryTitle();
   }
 
   async function handleCreateDeckForCurrentFilter(): Promise<void> {
-    if (selectedFilter === 'incremental-reading') {
-      await showCreateIRDeckPrompt();
-      return;
-    }
-
-    if (selectedFilter === 'question-bank') {
-      showCreateQuestionBankModal = true;
-      return;
-    }
-
-    showCreateDeckModalWithObsidianAPI();
+    await menuCoordinator.handleCreateDeckForCurrentFilter();
   }
 
   function showAPKGImportModalWithObsidianAPI() {
-    apkgImportModalInstance?.close();
-    apkgImportModalInstance = new APKGImportModalObsidian(plugin.app, {
-      plugin,
-      dataStorage,
-      wasmUrl: plugin.wasmUrl,
-      legacyImportAvailable: plugin.hasLegacyApkgImportRuntime(),
-      legacyImportHelpText: plugin.getLegacyApkgImportUnavailableMessage(),
-      onImportComplete: handleAPKGImportComplete,
-      onClose: () => {
-        apkgImportModalInstance = null;
-      }
-    });
-    apkgImportModalInstance.open();
-  }
-
-  function showClipboardImportModalWithObsidianAPI() {
-    clipboardImportModalInstance?.close();
-    clipboardImportModalInstance = new ClipboardImportModalObsidian(plugin.app, {
-      plugin,
-      dataStorage,
-      onImportComplete: async () => {
-        await refreshData();
-        plugin.app.workspace.trigger('Weave:data-changed');
-      },
-      onClose: () => {
-        clipboardImportModalInstance = null;
-      }
-    });
-    clipboardImportModalInstance.open();
+    modalCoordinator.showAPKGImportModal();
   }
 
   function showEditDeckModalWithObsidianAPI(deck: Deck) {
-    editDeckModalInstance?.close();
-    editDeckModalInstance = new CreateDeckModalObsidian(plugin.app, {
-      plugin,
-      dataStorage,
-      mode: 'edit',
-      initialDeck: deck,
-      onUpdated: async () => {
-        await refreshData();
-        plugin.app.workspace.trigger('Weave:data-changed');
-      },
-      onClose: () => {
-        editDeckModalInstance = null;
-      }
-    });
-    editDeckModalInstance.open();
+    modalCoordinator.showEditDeckModal(deck);
   }
 
 
@@ -1347,213 +1599,21 @@
   // 根据 selectedFilter 路由到正确的牌组类型处理函数
   
   async function kanbanStartStudy(deckId: string) {
-    if (selectedFilter === 'incremental-reading') {
-      // IR 牌组统一跳转到现役侧边栏阅读流程
-      try {
-        const { IRStorageService: IRStorageServiceCompat } = await import('../../services/incremental-reading/IRStorageService');
-        const irStorageCompat = new IRStorageServiceCompat(plugin.app);
-        await irStorageCompat.initialize();
-        const irDeckCompat = await irStorageCompat.getDeckById(deckId);
-        const redirectDeckName = irDeckCompat?.name || t('deckStudyPage.fallback.incrementalReading');
-
-        await plugin.redirectIncrementalReadingToSidebar({
-          deckPath: deckId,
-          deckName: redirectDeckName,
-          closeLegacyFocusLeaves: true
-        });
-      } catch (error) {
-        logger.error('[DeckStudyPage] IR kanban 开始阅读失败:', error);
-        new Notice(t('deckStudyPage.notices.startReadingFailed'));
-      }
-    } else if (selectedFilter === 'question-bank') {
-      // QB牌组：打开考试界面
-      try {
-        if (!plugin.questionBankService) {
-          new Notice(t('deckStudyPage.notices.qbServiceNotInit'));
-          return;
-        }
-        const questions = await plugin.questionBankService.getQuestionsByBank(deckId);
-        const bank = await plugin.questionBankService.getBankById(deckId);
-        
-        if (questions.length === 0) {
-          new Notice(t('deckStudyPage.notices.noQuestions'));
-          return;
-        }
-        
-        await plugin.openQuestionBankSession({
-          bankId: deckId,
-          bankName: bank?.name || t('deckStudyPage.fallback.unknownBank'),
-          mode: 'exam'
-        });
-      } catch (error) {
-        logger.error('[DeckStudyPage] QB kanban 开始考试失败:', error);
-        new Notice(t('deckStudyPage.notices.startExamFailed'));
-      }
-    } else {
-      // 记忆牌组：原有逻辑
-      await startStudy(deckId);
-    }
+    await modeActions.kanbanStartStudy(selectedFilter, deckId);
   }
   
   async function kanbanEditDeck(deckId: string) {
-    if (selectedFilter === 'incremental-reading') {
-      // IR牌组编辑：使用IRDeckView的编辑模态窗逻辑
-      try {
-        const { IRStorageService } = await import('../../services/incremental-reading/IRStorageService');
-        const { IRChunkFileService } = await import('../../services/incremental-reading/IRChunkFileService');
-        const irStorage = new IRStorageService(plugin.app);
-        await irStorage.initialize();
-        const deck = await irStorage.getDeckById(deckId);
-        if (!deck) { new Notice(t('deckStudyPage.notices.deckNotFound')); return; }
-        
-        const modal = new Modal(plugin.app);
-        modal.titleEl.setText(t('deckStudyPage.edit.title'));
-        let newName = deck.name;
-        let newTag = (deck.tags && deck.tags.length > 0) ? deck.tags[0] : '';
-        
-        new Setting(modal.contentEl).setName(t('deckStudyPage.edit.name')).addText((text: any) => {
-          text.setValue(newName).onChange((v: string) => { newName = v; });
-          text.inputEl.style.width = '100%';
-        });
-        new Setting(modal.contentEl).setName(t('deckStudyPage.edit.tag')).setDesc(t('deckStudyPage.edit.tagDesc'));
-        const tagContainer = modal.contentEl.createDiv({ cls: 'weave-tag-input-container' });
-        const tagDisplay = tagContainer.createDiv({ cls: 'weave-tag-display' });
-        function renderTag() {
-          tagDisplay.empty();
-          if (newTag) {
-            const chip = tagDisplay.createSpan({ cls: 'weave-tag-chip', text: newTag });
-            chip.createSpan({ cls: 'weave-tag-remove', text: '\u00d7' }).onclick = () => { newTag = ''; renderTag(); };
-          }
-        }
-        renderTag();
-        const tagInput = tagContainer.createEl('input', { type: 'text', placeholder: t('deckStudyPage.edit.tagPlaceholder') });
-        tagInput.style.width = '100%';
-        tagInput.addEventListener('keydown', (e: KeyboardEvent) => {
-          if (e.key === 'Enter' && tagInput.value.trim()) { e.preventDefault(); newTag = tagInput.value.trim(); tagInput.value = ''; renderTag(); }
-        });
-        
-        const btnContainer = modal.contentEl.createDiv({ cls: 'modal-button-container' });
-        btnContainer.createEl('button', { text: t('common.cancel') }).onclick = () => modal.close();
-        const saveBtn = btnContainer.createEl('button', { text: t('common.save'), cls: 'mod-cta' });
-        saveBtn.onclick = async () => {
-          if (!newName.trim()) return;
-          try {
-            const oldName = deck.name;
-            deck.name = newName.trim();
-            deck.tags = newTag ? [newTag] : [];
-            deck.updatedAt = new Date().toISOString();
-            await irStorage.saveDeck(deck);
-            if (oldName !== deck.name) {
-              try { await irStorage.migrateChunkDeckNameInYAML(oldName, deck.name); } catch (e) { logger.warn('[kanbanEditDeck] IR YAML migration failed:', e); }
-              try {
-                const outputRoot = plugin.settings?.incrementalReading?.importFolder;
-                const chunkFileService = new IRChunkFileService(plugin.app, outputRoot);
-                await chunkFileService.renameDeckIndexCard(oldName, deck.name);
-              } catch (e) { logger.warn('[kanbanEditDeck] IR index card rename failed:', e); }
-            }
-            await loadIRDeckTree();
-            window.dispatchEvent(new CustomEvent('Weave:ir-data-updated'));
-            plugin.app.workspace.trigger('Weave:data-changed');
-            new Notice(t('deckStudyPage.notices.deckUpdated'));
-            modal.close();
-          } catch (error) { logger.error('[kanbanEditDeck] IR edit failed:', error); new Notice(t('deckStudyPage.notices.editFailed')); }
-        };
-        modal.open();
-      } catch (error) { logger.error('[kanbanEditDeck] IR编辑模态窗创建失败:', error); }
-    } else if (selectedFilter === 'question-bank') {
-      // QB牌组编辑
-      try {
-        const bank = decks.find(d => d.id === deckId) || (await dataStorage.getDeck(deckId));
-        if (!bank) { new Notice(t('deckStudyPage.notices.deckNotFound')); return; }
-        
-        const modal = new Modal(plugin.app);
-        modal.titleEl.setText(t('deckStudyPage.edit.title'));
-        let newName = bank.name;
-        let newTag = (bank.tags && bank.tags.length > 0) ? bank.tags[0] : '';
-        
-        new Setting(modal.contentEl).setName(t('deckStudyPage.edit.name')).addText((text: any) => {
-          text.setValue(newName).onChange((v: string) => { newName = v; });
-          text.inputEl.style.width = '100%';
-        });
-        new Setting(modal.contentEl).setName(t('deckStudyPage.edit.tag')).setDesc(t('deckStudyPage.edit.tagDesc'));
-        const tagContainer = modal.contentEl.createDiv({ cls: 'weave-tag-input-container' });
-        const tagDisplay = tagContainer.createDiv({ cls: 'weave-tag-display' });
-        function renderTag() {
-          tagDisplay.empty();
-          if (newTag) {
-            const chip = tagDisplay.createSpan({ cls: 'weave-tag-chip', text: newTag });
-            chip.createSpan({ cls: 'weave-tag-remove', text: '\u00d7' }).onclick = () => { newTag = ''; renderTag(); };
-          }
-        }
-        renderTag();
-        const tagInput = tagContainer.createEl('input', { type: 'text', placeholder: t('deckStudyPage.edit.tagPlaceholder') });
-        tagInput.style.width = '100%';
-        tagInput.addEventListener('keydown', (e: KeyboardEvent) => {
-          if (e.key === 'Enter' && tagInput.value.trim()) { e.preventDefault(); newTag = tagInput.value.trim(); tagInput.value = ''; renderTag(); }
-        });
-        
-        const btnContainer = modal.contentEl.createDiv({ cls: 'modal-button-container' });
-        btnContainer.createEl('button', { text: t('common.cancel') }).onclick = () => modal.close();
-        const saveBtn = btnContainer.createEl('button', { text: t('common.save'), cls: 'mod-cta' });
-        saveBtn.onclick = async () => {
-          if (!newName.trim()) return;
-          try {
-            const updated = { ...bank, name: newName.trim(), tags: newTag ? [newTag] : [], modified: new Date().toISOString() };
-            const result = await dataStorage.saveDeck(updated);
-            if (!result.success) {
-              throw new Error(result.error || t('common.unknown'));
-            }
-            await loadQBDeckTree();
-            plugin.app.workspace.trigger('Weave:data-changed');
-            new Notice(t('deckStudyPage.notices.deckUpdated'));
-            modal.close();
-          } catch (error) { logger.error('[kanbanEditDeck] QB edit failed:', error); new Notice(t('deckStudyPage.notices.editFailed')); }
-        };
-        modal.open();
-      } catch (error) { logger.error('[kanbanEditDeck] QB编辑模态窗创建失败:', error); }
-    } else {
-      editDeck(deckId);
-    }
+    await modeActions.kanbanEditDeck(selectedFilter, deckId);
   }
   
   async function kanbanDeleteDeck(deckId: string) {
-    if (selectedFilter === 'incremental-reading') {
-      try {
-        const { showObsidianConfirm } = await import('../../utils/obsidian-confirm');
-        const { IRStorageService } = await import('../../services/incremental-reading/IRStorageService');
-        const irStorage = new IRStorageService(plugin.app);
-        await irStorage.initialize();
-        const deck = await irStorage.getDeckById(deckId);
-        if (!deck) { new Notice(t('deckStudyPage.notices.deckNotFound')); return; }
-        const confirmed = await showObsidianConfirm(plugin.app, `${t('common.confirmDelete')}: "${deck.name}"?`, { title: t('common.confirmDelete') });
-        if (!confirmed) return;
-        await irStorage.deleteDeck(deckId);
-        await loadIRDeckTree();
-        window.dispatchEvent(new CustomEvent('Weave:ir-data-updated'));
-        plugin.app.workspace.trigger('Weave:data-changed');
-        new Notice(t('notifications.success.cardDeleted'));
-      } catch (error) { logger.error('[kanbanDeleteDeck] IR delete failed:', error); new Notice(t('notifications.error.deleteFailed')); }
-    } else if (selectedFilter === 'question-bank') {
-      try {
-        const { showObsidianConfirm } = await import('../../utils/obsidian-confirm');
-        const bank = decks.find(d => d.id === deckId) || (await dataStorage.getDeck(deckId));
-        if (!bank) { new Notice(t('deckStudyPage.notices.deckNotFound')); return; }
-        const confirmed = await showObsidianConfirm(plugin.app, `${t('common.confirmDelete')}: "${bank.name}"?`, { title: t('common.confirmDelete') });
-        if (!confirmed) return;
-        await dataStorage.deleteDeck(deckId);
-        await loadQBDeckTree();
-        plugin.app.workspace.trigger('Weave:data-changed');
-        new Notice(t('notifications.success.cardDeleted'));
-      } catch (error) { logger.error('[kanbanDeleteDeck] QB delete failed:', error); new Notice(t('notifications.error.deleteFailed')); }
-    } else {
-      await deleteDeck(deckId);
-    }
+    await modeActions.kanbanDeleteDeck(selectedFilter, deckId);
   }
 
   // 防止重复点击的锁
   let isStartingStudy = false;
   
-  async function startStudy(deckId: string) {
+  async function startStudy(deckId: string, deckNameOverride?: string) {
     //  防止重复点击
     if (isStartingStudy) {
       logger.debug('[DeckStudyPage] 正在启动学习，忽略重复点击');
@@ -1565,6 +1625,7 @@
       let cardsToStudy: Card[] = [];
       
       const deck = decks.find(d => d.id === deckId);
+      const emergentDeckView = emergentDeckViews.find((candidate) => candidate.id === deckId);
       const allDeckCardsRaw = await dataStorage.getDeckCards(deckId);
       logger.debug(`[DeckStudyPage] 按卡片 YAML 获取牌组卡片:`, {
         deckId: deckId.slice(0, 8),
@@ -1640,13 +1701,13 @@
         
         await plugin.openStudySession({
           deckId,
-          deckName: deck?.name,
+          deckName: deck?.name || deckNameOverride || emergentDeckView?.name,
           cardIds
         });
       } else {
         logger.info(`[DeckStudyPage] 无可学卡片，显示提示模态窗`);
         //  智能判断：是完成学习、配额用完、暂无到期，还是空牌组
-        const stats = deckStats[deckId];
+        const stats = deckStats[deckId] || emergentDeckStats[deckId];
         
         // 用物理卡片总数判断是否真的是空牌组。
         const physicalTotalCards = allDeckCards.length;  // 物理总卡片数
@@ -1664,7 +1725,7 @@
           reviewCards
         });
         
-        noCardsDeckName = deck?.name || t('deckStudyPage.fallback.deck');
+        noCardsDeckName = deck?.name || deckNameOverride || emergentDeckView?.name || t('deckStudyPage.fallback.deck');
         noCardsReason = resolveDeckNoCardsReason({
           physicalTotalCards,
           isComplete,
@@ -1683,10 +1744,14 @@
             .sort((a, b) => new Date(a.fsrs!.due).getTime() - new Date(b.fsrs!.due).getTime())[0];
 
           const nextDueTime = nextDueCard ? formatNextDueTime(new Date(nextDueCard.fsrs!.due)) : undefined;
+          const latestCompletedSession = noCardsReason === 'all-learned'
+            ? await getLatestCompletedStudySessionToday(dataStorage, deckId)
+            : null;
 
           noCardsStats = {
             totalCards: physicalTotalCards,
-            learnedCards: physicalTotalCards - learnableTotalCards,
+            sessionCompletedCards: latestCompletedSession?.cardsReviewed,
+            showSessionCompletedCards: noCardsReason === 'all-learned' && !!latestCompletedSession,
             nextDueTime,
             todayNewCards: learnedNewCardsToday,
             todayNewLimit: newCardsPerDay
@@ -2067,16 +2132,180 @@
     }
   }
 
-  // 编辑牌组（使用 Obsidian 原生 Modal API）
-  async function editDeck(deckId: string) {
+  function isVirtualWDeckDeck(deck: any): boolean {
+    if (!deck) return false;
+    return deck?.metadata?.fileType === 'wdeck' || !!plugin.wdeckService?.isWDeckDeckId?.(deck.id);
+  }
+
+  function getWDeckFilePaths(deck: Deck | undefined): string[] {
+    if (!deck) return [];
+    const rawPaths = Array.isArray((deck as any)?.metadata?.filePaths)
+      ? (deck as any).metadata.filePaths
+      : [];
+
+    return Array.from(
+      new Set(
+        rawPaths
+          .map((path: unknown) => normalizePath(String(path || '').trim()))
+          .filter(Boolean)
+      )
+    );
+  }
+
+  function getWDeckFileLabel(filePath: string): string {
+    const normalizedPath = normalizePath(String(filePath || '').trim());
+    return normalizedPath.split('/').pop() || normalizedPath || '.wdeck';
+  }
+
+  async function openWDeckSegmentFile(filePath: string): Promise<void> {
+    const normalizedPath = normalizePath(String(filePath || '').trim());
+    if (!normalizedPath) {
+      new Notice('未找到可打开的 `.wdeck` 文件路径。');
+      return;
+    }
+
+    const abstractFile = plugin.app.vault.getAbstractFileByPath(normalizedPath);
+    if (!(abstractFile instanceof TFile)) {
+      new Notice(`对应的 .wdeck 文件不存在：${normalizedPath}`);
+      return;
+    }
+
+    await openFileWithExistingLeaf(plugin.app, abstractFile, {
+      openInNewTab: true,
+      focus: true
+    });
+  }
+
+  function renderWDeckManagementSection(menu: Menu, deck: Deck): void {
+    const filePaths = getWDeckFilePaths(deck);
+
+    menu.addItem((item) =>
+      item
+        .setTitle(filePaths.length > 1 ? '编辑首个牌组文件' : '编辑牌组文件')
+        .setIcon('file-json')
+        .onClick(async () => {
+          if (filePaths.length === 0) {
+            new Notice('当前 `.wdeck` 牌组缺少分卷文件路径信息。');
+            return;
+          }
+          await openWDeckSegmentFile(filePaths[0]);
+        })
+    );
+
+    if (filePaths.length > 1) {
+      menu.addItem((item) => {
+        item.setTitle(`编辑指定牌组文件 (${filePaths.length})`).setIcon('files');
+        const submenu = (item as any).setSubmenu();
+
+        filePaths.forEach((filePath, index) => {
+          submenu.addItem((subItem: any) => {
+            subItem
+              .setTitle(`${String(index + 1).padStart(2, '0')} · ${getWDeckFileLabel(filePath)}`)
+              .setIcon('file')
+              .onClick(async () => {
+                await openWDeckSegmentFile(filePath);
+              });
+          });
+        });
+      });
+    }
+
+    menu.addItem((item) =>
+      item
+        .setTitle('从牌组文件重新进入学习')
+        .setIcon('refresh-cw')
+        .onClick(async () => {
+          if (filePaths.length === 0) {
+            new Notice('当前 `.wdeck` 牌组缺少分卷文件路径信息。');
+            return;
+          }
+          await plugin.openWDeckStudy(filePaths[0]);
+        })
+    );
+
+    menu.addSeparator();
+
+    menu.addItem((item) =>
+      item
+        .setTitle('删除牌组文件')
+        .setIcon('trash-2')
+        .onClick(async () => {
+          await deleteWDeckDeck(deck.id);
+        })
+    );
+
+    menu.addItem((item) =>
+      item
+        .setTitle('解散牌组文件')
+        .setIcon('unlink')
+        .onClick(async () => {
+          await dissolveWDeckDeck(deck.id);
+        })
+    );
+  }
+
+  async function deleteWDeckDeck(deckId: string): Promise<void> {
     const deck = decks.find(d => d.id === deckId);
     if (!deck) return;
 
+    const { showDangerConfirm } = await import('../../utils/obsidian-confirm');
+    const confirmed = await showDangerConfirm(
+      plugin.app,
+      `将删除牌组文件“${deck.name}”及其全部分卷，文件内卡片与复习数据会一并删除。`,
+      '确认删除牌组文件'
+    );
+    if (!confirmed) return;
+
+    try {
+      await plugin.wdeckService?.deleteDeckByDeckId(deckId);
+      decks = await dataStorage.getDecks();
+      await refreshData();
+      plugin.app.workspace.trigger('Weave:data-changed');
+      new Notice(`已删除牌组文件“${deck.name}”。`);
+    } catch (error) {
+      logger.error('[DeckStudyPage] 删除 .wdeck 牌组文件失败:', error);
+      new Notice(`删除牌组文件失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  }
+
+  async function dissolveWDeckDeck(deckId: string): Promise<void> {
+    const deck = decks.find(d => d.id === deckId);
+    if (!deck) return;
+
+    const { showDangerConfirm } = await import('../../utils/obsidian-confirm');
+    const confirmed = await showDangerConfirm(
+      plugin.app,
+      `将解散牌组文件“${deck.name}”。其中卡片会整体迁入“未归组卡片”牌组文件，并保留复习数据。`,
+      '确认解散牌组文件'
+    );
+    if (!confirmed) return;
+
+    try {
+      const result = await plugin.wdeckService?.dissolveDeckByDeckId(deckId);
+      decks = await dataStorage.getDecks();
+      await refreshData();
+      plugin.app.workspace.trigger('Weave:data-changed');
+      new Notice(`已解散牌组文件“${deck.name}”，共迁移 ${result?.movedCards || 0} 张卡片到“${result?.targetDeckName || '未归组卡片'}”。`);
+    } catch (error) {
+      logger.error('[DeckStudyPage] 解散 .wdeck 牌组文件失败:', error);
+      new Notice(`解散牌组文件失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  }
+
+  async function editDeck(deckId: string) {
+    const deck = decks.find(d => d.id === deckId);
+    if (!deck) return;
     showEditDeckModalWithObsidianAPI(deck);
   }
 
   async function deleteDeck(deckId: string) {
     try {
+      const targetDeck = decks.find(d => d.id === deckId);
+      if (isVirtualWDeckDeck(targetDeck)) {
+        await deleteWDeckDeck(deckId);
+        return;
+      }
+
       //  等待 deckHierarchy 服务就绪
       const deckHierarchy = await waitForService(
         () => plugin?.deckHierarchy,
@@ -2111,10 +2340,12 @@
       
       // 创建按钮容器
       const buttonContainer = modal.contentEl.createDiv({ cls: 'delete-confirm-buttons' });
-      buttonContainer.style.display = 'flex';
-      buttonContainer.style.justifyContent = 'flex-end';
-      buttonContainer.style.gap = '10px';
-      buttonContainer.style.marginTop = '16px';
+      applyStyleProps(buttonContainer, {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '10px',
+        marginTop: '16px'
+      });
       
       let shouldDelete = false;
       
@@ -2177,18 +2408,8 @@
             skipCardDeletion: cardUUIDs.length > 0
           });
           
-          // 如果删除的是官方教程牌组，标记为跳过自动恢复
-          const { GUIDE_DECK_NAME } = await import('../../data/guide-deck-data');
-          if (deck.name === GUIDE_DECK_NAME && plugin.settings) {
-            plugin.settings.skipGuideDeck = true;
-            await plugin.saveSettings();
-            logger.info('[DeckStudyPage] 用户删除了教程牌组，已标记 skipGuideDeck=true');
-          }
-          
           decks = decks.filter(existingDeck => existingDeck.id !== deckId);
           deckTree = deckTree.filter(node => node.deck.id !== deckId);
-          expandedDeckIds.delete(deckId);
-          expandedDeckIds = new Set(expandedDeckIds);
           if (deckStats[deckId]) {
             const { [deckId]: _removedStats, ...remainingStats } = deckStats;
             deckStats = remainingStats;
@@ -2517,9 +2738,9 @@
 // 解散牌组
   async function dissolveDeck(deckId: string) {
     try {
-      // 检查引用式牌组服务是否可用
-      if (!plugin.referenceDeckService) {
-        new Notice(t('deckStudyPage.dissolve.serviceNotInit'));
+      const targetDeck = decks.find(d => d.id === deckId);
+      if (isVirtualWDeckDeck(targetDeck)) {
+        await dissolveWDeckDeck(deckId);
         return;
       }
       
@@ -2549,10 +2770,12 @@
       
       // 创建按钮容器
       const buttonContainer = modal.contentEl.createDiv({ cls: 'dissolve-confirm-buttons' });
-      buttonContainer.style.display = 'flex';
-      buttonContainer.style.justifyContent = 'flex-end';
-      buttonContainer.style.gap = '10px';
-      buttonContainer.style.marginTop = '16px';
+      applyStyleProps(buttonContainer, {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '10px',
+        marginTop: '16px'
+      });
       
       let shouldDissolve = false;
       
@@ -2575,9 +2798,10 @@
         
         try {
           new Notice(t('deckStudyPage.dissolve.inProgress'));
-          
-          const result = await plugin.referenceDeckService!.dissolveDeck(deckId);
-          
+
+          const result = await dataStorage.deleteDeck(deckId, {
+            skipCardDeletion: true,
+          });
           if (!result.success) {
             throw new Error(result.error || t('deckStudyPage.dissolve.failed'));
           }
@@ -2589,11 +2813,7 @@
           // 通知全局侧边栏刷新
           plugin.app.workspace.trigger('Weave:data-changed');
           
-          let message = t('deckStudyPage.dissolve.success', { name: deck.name });
-          if (result.orphanedCards.length > 0) {
-            message += t('deckStudyPage.dissolve.orphanedCards', { count: String(result.orphanedCards.length) });
-          }
-          new Notice(message);
+          new Notice(t('deckStudyPage.dissolve.success', { name: deck.name }));
         } catch (error) {
           logger.error('[DeckStudyPage] Dissolve deck failed:', error);
           new Notice(`${t('deckStudyPage.dissolve.failed')}: ${error instanceof Error ? error.message : t('common.unknown')}`);
@@ -2610,13 +2830,24 @@
   // 打开牌组分析
   async function openDeckAnalytics(deckId: string) {
     try {
+      if (!premiumGuard.canUseAnyFeature([...deckAnalyticsEntryFeatures], deckStudyFeatureContext)) {
+        promptPremiumFeature(PREMIUM_FEATURES.DECK_ANALYTICS);
+        return;
+      }
+
       const deckCards = await dataStorage.getDeckCards(deckId);
+      const initialAnalyticsTab = premiumGuard.canUseFeature(PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION, deckStudyFeatureContext)
+        ? 'retention'
+        : premiumGuard.canUseFeature(PREMIUM_FEATURES.DECK_ANALYTICS_TIMING, deckStudyFeatureContext)
+          ? 'timing'
+          : 'quantity';
       
       deckAnalyticsModalInstance?.close();
       deckAnalyticsModalInstance = new DeckAnalyticsModalObsidian(plugin.app, {
         plugin,
         deckId,
         cards: deckCards,
+        initialTab: initialAnalyticsTab,
         onClose: () => {
           deckAnalyticsModalInstance = null;
         }
@@ -2631,163 +2862,7 @@
   }
 
   async function handleMemoryDeckMenuAction(action: MemoryDeckMenuAction, deckId: string): Promise<void> {
-    switch (action) {
-      case 'advance-study':
-        await startAdvanceStudy(deckId);
-        return;
-      case 'deck-analytics':
-        if (premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.DECK_ANALYTICS)) {
-          promptFeatureId = PREMIUM_FEATURES.DECK_ANALYTICS;
-          showActivationPrompt = true;
-          return;
-        }
-        openDeckAnalytics(deckId);
-        return;
-      case 'knowledge-graph':
-        openKnowledgeGraph(deckId);
-        return;
-      case 'associate-question-bank':
-        await associateQuestionBank(deckId);
-        return;
-      case 'edit-deck':
-        await editDeck(deckId);
-        return;
-      case 'delete-deck':
-        await deleteDeck(deckId);
-        return;
-      case 'dissolve-deck':
-        await dissolveDeck(deckId);
-        return;
-    }
-  }
-
-
-  // 使用 Obsidian 原生 Menu
-  function showDeckMenu(event: MouseEvent, deckId: string) {
-    const menu = new Menu();
-    buildMemoryDeckMenu(
-      menu,
-      {
-        advanceStudy: t('deckStudyPage.contextMenu.advanceStudy'),
-        deckAnalytics: t('deckStudyPage.contextMenu.deckAnalytics'),
-        knowledgeGraph: t('deckStudyPage.contextMenu.knowledgeGraph'),
-        linkQuestionBank: t('deckStudyPage.contextMenu.linkQuestionBank'),
-        editDeck: t('deckStudyPage.contextMenu.editDeck'),
-        deleteDeck: t('deckStudyPage.contextMenu.delete'),
-        dissolveDeck: t('deckStudyPage.contextMenu.dissolveDeck')
-      },
-      {
-        onAdvanceStudy: async () => await handleMemoryDeckMenuAction('advance-study', deckId),
-        onOpenDeckAnalytics: async () => await handleMemoryDeckMenuAction('deck-analytics', deckId),
-        onOpenKnowledgeGraph: async () => await handleMemoryDeckMenuAction('knowledge-graph', deckId),
-        onAssociateQuestionBank: async () => await handleMemoryDeckMenuAction('associate-question-bank', deckId),
-        onEditDeck: async () => await handleMemoryDeckMenuAction('edit-deck', deckId),
-        onDeleteDeck: async () => await handleMemoryDeckMenuAction('delete-deck', deckId),
-        onDissolveDeck: async () => await handleMemoryDeckMenuAction('dissolve-deck', deckId)
-      },
-      {
-        showDeckAnalytics: premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.DECK_ANALYTICS, {
-          isPremium,
-          showPremiumPreview: showPremiumFeaturesPreview
-        }),
-        lockDeckAnalytics: !premiumGuard.canUseFeature(PREMIUM_FEATURES.DECK_ANALYTICS)
-      }
-    );
-
-
-    menu.showAtMouseEvent(event);
-  }
-
-  // 展开/折叠功能
-  function toggleExpand(deckId: string) {
-    if (expandedDeckIds.has(deckId)) {
-      expandedDeckIds.delete(deckId);
-    } else {
-      expandedDeckIds.add(deckId);
-    }
-    expandedDeckIds = new Set(expandedDeckIds);
-    
-    // 保存到 localStorage
-    saveExpandedState();
-  }
-
-  function isExpanded(deckId: string): boolean {
-    return expandedDeckIds.has(deckId);
-  }
-
-  // 保存展开状态到 localStorage
-  function saveExpandedState() {
-    try {
-      const stateArray = Array.from(expandedDeckIds);
-      vaultStorage.setItem('weave-deck-expanded-state', JSON.stringify(stateArray));
-    } catch (error) {
-      logger.error('Failed to save expanded state:', error);
-    }
-  }
-
-  // 从 localStorage 加载展开状态
-  function loadExpandedState() {
-    try {
-      const saved = vaultStorage.getItem('weave-deck-expanded-state');
-      if (saved) {
-        const stateArray = JSON.parse(saved);
-        expandedDeckIds = new Set(stateArray);
-      }
-    } catch (error) {
-      logger.error('Failed to load expanded state:', error);
-      expandedDeckIds = new Set();
-    }
-  }
-
-  // 递归计算牌组总卡片数（包含子牌组）
-  function getTotalCards(node: DeckTreeNode): number {
-    const stats = deckStats[node.deck.id] || { newCards: 0, learningCards: 0, reviewCards: 0 };
-    let total = stats.newCards + stats.learningCards + stats.reviewCards;
-    
-    for (const child of node.children) {
-      total += getTotalCards(child);
-    }
-    
-    return total;
-  }
-
-  // 递归计算子牌组的统计（不包含自己）
-  function getSubdeckStats(node: DeckTreeNode): { newCards: number; learningCards: number; reviewCards: number } {
-    let newCards = 0;
-    let learningCards = 0;
-    let reviewCards = 0;
-
-    for (const child of node.children) {
-      const childStats = deckStats[child.deck.id] || { newCards: 0, learningCards: 0, reviewCards: 0 };
-      newCards += childStats.newCards;
-      learningCards += childStats.learningCards;
-      reviewCards += childStats.reviewCards;
-
-      // 递归累加子牌组的子牌组
-      const subStats = getSubdeckStats(child);
-      newCards += subStats.newCards;
-      learningCards += subStats.learningCards;
-      reviewCards += subStats.reviewCards;
-    }
-
-    return { newCards, learningCards, reviewCards };
-  }
-
-  // 获取总统计（本牌组 + 所有子牌组）
-  function getTotalStats(node: DeckTreeNode): { newCards: number; learningCards: number; reviewCards: number; total: number } {
-    const ownStats = deckStats[node.deck.id] || { newCards: 0, learningCards: 0, reviewCards: 0 };
-    const subStats = getSubdeckStats(node);
-
-    const newCards = ownStats.newCards + subStats.newCards;
-    const learningCards = ownStats.learningCards + subStats.learningCards;
-    const reviewCards = ownStats.reviewCards + subStats.reviewCards;
-
-    return {
-      newCards,
-      learningCards,
-      reviewCards,
-      total: newCards + learningCards + reviewCards
-    };
+    await modeActions.handleMemoryDeckMenuAction(action, deckId);
   }
 
 
@@ -2843,212 +2918,102 @@
       });
     };
 
-    // 粘贴卡片批量导入
-    const handleClipboardImport = () => {
-      if (!isClipboardImportEnabled()) {
-        return;
-      }
-
-      openPremiumFeature(PREMIUM_FEATURES.CLIPBOARD_IMPORT, () => {
-        showClipboardImportModalWithObsidianAPI();
-      });
-    };
-
 // 处理 JSON 导出
     const handleJSONExport = () => {
       exportDeck();
     };
 
-    // 恢复官方教程牌组（来自 SidebarNavHeader 操作管理子菜单）
-    const handleRestoreGuideDeck = async () => {
-      const success = await dataStorage.restoreGuideDeck();
-      if (success) {
-        await refreshData();
-        plugin.app.workspace.trigger('Weave:data-changed');
-        new Notice(t('deckStudyPage.notices.tutorialRestored'));
-      } else {
-        new Notice(t('deckStudyPage.notices.tutorialRestoreFailed'));
-      }
-    };
-
-    // 打开设置（来自 SidebarNavHeader）
-    const handleOpenSettings = () => {
-      if (!isSettingsEntryEnabled()) {
-        return;
-      }
-
-      safeOpenSettings(plugin.app, 'weave');
-    };
-
     document.addEventListener('create-deck', handleCreateDeck);
     document.addEventListener('create-question-bank', handleCreateDeck);
-    document.addEventListener('create-ir-deck', handleCreateDeck);
     document.addEventListener('more-actions', handleMoreActions);
     document.addEventListener('apkg-import', handleAPKGImport);
     document.addEventListener('csv-import', handleCSVImport);
-    document.addEventListener('clipboard-import', handleClipboardImport);
     document.addEventListener('json-export', handleJSONExport);
-    document.addEventListener('Weave:restore-guide-deck', handleRestoreGuideDeck);
-    document.addEventListener('Weave:open-settings', handleOpenSettings);
-
     return () => {
       document.removeEventListener('create-deck', handleCreateDeck);
       document.removeEventListener('create-question-bank', handleCreateDeck);
-      document.removeEventListener('create-ir-deck', handleCreateDeck);
       document.removeEventListener('more-actions', handleMoreActions);
       document.removeEventListener('apkg-import', handleAPKGImport);
       document.removeEventListener('csv-import', handleCSVImport);
-      document.removeEventListener('clipboard-import', handleClipboardImport);
       document.removeEventListener('json-export', handleJSONExport);
-      document.removeEventListener('Weave:restore-guide-deck', handleRestoreGuideDeck);
-      document.removeEventListener('Weave:open-settings', handleOpenSettings);
     };
   });
 
 
 
-  function getUrgencyLevel(stats: any): 'urgent' | 'due' | 'completed' | 'normal' {
-    if (!stats) return 'normal';
+  let contentAreaProps = $derived({
+    currentView,
+    selectedFilter,
+    dataStorage,
+    plugin,
+    deckTree,
+    deckStats,
+    qbDeckTree,
+    qbDeckStats,
+    irDeckTree,
+    irDeckStats,
+    studySessions,
+    memoryDeckLevels,
+    emergentCandidates,
+    emergentDeckViews,
+    emergentDeckStats,
+    formalDeckBindingSummary,
+    memoryDeckDisplayMode,
+    canShowMemoryDeckLevels,
+    onFilterSelect: handleFilterSelect,
+    onStartStudy: startStudy,
+    onContinueStudy: handleContinueStudy,
+    onAdvanceStudy: startAdvanceStudy,
+    onOpenDeckAnalytics: openDeckAnalytics,
+    onAssociateQuestionBank: associateQuestionBank,
+    onEditDeck: editDeck,
+    onDeleteDeck: deleteDeck,
+    onOpenKnowledgeGraph: openKnowledgeGraph,
+    onDissolveDeck: dissolveDeck,
+    onRefreshData: refreshData,
+    onPromoteEmergentDeck: handlePromoteEmergentDeck,
+    memoryDeckMenuActionHandler: handleMemoryDeckMenuAction,
+    onKanbanStartStudy: kanbanStartStudy,
+    onKanbanEditDeck: kanbanEditDeck,
+    onKanbanDeleteDeck: kanbanDeleteDeck,
+  } satisfies DeckStudyContentAreaProps);
 
-    const reviewCards = stats.reviewCards ?? 0;
-    const newCards = stats.newCards ?? 0;
-    const learningCards = stats.learningCards ?? 0;
-
-    if (reviewCards > 10) return 'urgent';
-    if (reviewCards > 0 || learningCards > 0) return 'due';
-    if (newCards === 0 && reviewCards === 0 && learningCards === 0) return 'completed';
-    return 'normal';
-  }
-
-
+  let modalHostProps = $derived({
+    plugin,
+    dataStorage,
+    showCreateQuestionBankModal,
+    showCSVImportModal,
+    showCelebrationModal,
+    celebrationStats,
+    celebrationDeckName,
+    celebrationDeckId,
+    showNoCardsModal,
+    noCardsDeckName,
+    noCardsReason,
+    noCardsStats,
+    promptFeatureId,
+    showActivationPrompt,
+    onSetShowCreateQuestionBankModal: (value: boolean) => {
+      showCreateQuestionBankModal = value;
+    },
+    onSetShowCSVImportModal: (value: boolean) => {
+      showCSVImportModal = value;
+    },
+    onLoadQBDeckTree: loadQBDeckTree,
+    onRefreshData: async () => {
+      await refreshData();
+    },
+    onCloseCelebration: handleCloseCelebration,
+    onStartPractice: handleStartPractice,
+    onCloseNoCardsModal: handleCloseNoCardsModal,
+    onAdvanceStudy: handleAdvanceStudy,
+    onViewStats: handleViewStats,
+    onStartPracticeFromNoCards: handleStartPracticeFromNoCards,
+    onCloseActivationPrompt: () => {
+      showActivationPrompt = false;
+    },
+  } satisfies DeckStudyModalHostProps);
 </script>
-
-{#snippet deckNode(node: DeckTreeNode, depth: number)}
-  {@const stats = deckStats[node.deck.id]}
-  {@const totalDue = (stats?.newCards ?? 0) + (stats?.learningCards ?? 0) + (stats?.reviewCards ?? 0)}
-  {@const urgencyLevel = getUrgencyLevel(stats)}
-  {@const hasChildren = node.children.length > 0}
-  {@const expanded = isExpanded(node.deck.id)}
-
-  <div
-    class="new-deck-row anki-font-interface"
-    class:urgent={urgencyLevel === 'urgent'}
-    class:due={urgencyLevel === 'due'}
-    class:completed={totalDue === 0}
-    class:has-children={hasChildren}
-    style="padding-left: {depth * 24}px"
-    role="button"
-    tabindex="0"
-    oncontextmenu={(e) => {
-      e.preventDefault();
-      showDeckMenu(e, node.deck.id);
-    }}
-  >
-    <!-- 展开/折叠按钮 -->
-    <div class="row-deck-name">
-      {#if hasChildren}
-        <button
-          class="expand-toggle"
-          onclick={(e) => {
-            toggleExpand(node.deck.id);
-          }}
-          aria-label={expanded ? t('deckStudyPage.studyActions.collapse') : t('deckStudyPage.studyActions.expand')}
-        >
-          <ObsidianIcon 
-            name={expanded ? "chevron-down" : "chevron-right"} 
-            size={14} 
-          />
-        </button>
-      {:else}
-        <span class="expand-spacer"></span>
-      {/if}
-
-      <div class="deck-name-content">
-        {#if node.deck.icon}
-          <span class="deck-emoji">{node.deck.icon}</span>
-        {/if}
-        <span class="deck-name">{node.deck.name}</span>
-        
-        <!-- 牌组类型徽章 -->
-        {#if node.deck.deckType === 'choice-only'}
-          <span class="choice-deck-badge">
-            <ObsidianIcon name="check-square" size={12} />
-            <span>{t('deckStudyPage.deckTypes.choice')}</span>
-          </span>
-        {/if}
-        
-        <!-- 子牌组统计气泡（仅当有子牌组时显示） -->
-        {#if hasChildren}
-          {@const totalStats = getTotalStats(node)}
-          {@const subStats = getSubdeckStats(node)}
-          {@const subTotal = subStats.newCards + subStats.learningCards + subStats.reviewCards}
-          {#if subTotal > 0}
-            <span class="subdeck-indicator" title={t('deckStudyPage.subdeck.indicator', { total: String(subTotal), newCards: String(subStats.newCards), learning: String(subStats.learningCards), review: String(subStats.reviewCards) })}>
-              +{subTotal}
-            </span>
-          {/if}
-        {/if}
-        
-        {#if urgencyLevel === 'urgent'}
-          <span class="deck-status urgent">{t('deckStudyPage.urgency.urgent')}</span>
-        {:else if totalDue === 0}
-          <span class="deck-status completed">{t('deckStudyPage.urgency.completed')}</span>
-        {/if}
-      </div>
-    </div>
-
-    <!-- 统计数据区域（仅显示本牌组的统计） -->
-    <div class="row-stat new-cards">
-      <span class="stat-number">{stats?.newCards ?? 0}</span>
-    </div>
-    <div class="row-stat learning-cards">
-      <span class="stat-number">{stats?.learningCards ?? 0}</span>
-    </div>
-    <div class="row-stat review-cards">
-      <span class="stat-number">{stats?.reviewCards ?? 0}</span>
-    </div>
-
-    <!-- 操作 -->
-    <div class="row-actions">
-      <div class="deck-actions">
-        {#if totalDue > 0}
-          <button
-            class="study-button primary"
-            onclick={() => startStudy(node.deck.id)}
-          >
-            <ObsidianIcon name="play" size={16} />
-            {t('deckStudyPage.studyActions.studyButton')} ({totalDue})
-          </button>
-        {:else}
-          <button
-            class="study-button completed"
-            disabled
-          >
-            <ObsidianIcon name="check" size={16} />
-            {t('deckStudyPage.studyActions.completedButton')}
-          </button>
-        {/if}
-
-        <button
-          class="icon-button menu-button"
-          onclick={(e) => {
-            showDeckMenu(e, node.deck.id);
-          }}
-          aria-label={t('deckStudyPage.moreActions')}
-        >
-          <EnhancedIcon name="more-horizontal" size={16} />
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 递归渲染子节点 -->
-  {#if expanded && hasChildren}
-    {#each node.children as child}
-      {@render deckNode(child, depth + 1)}
-    {/each}
-  {/if}
-{/snippet}
 
 <div class="anki-app deck-study-page">
   <!--  移动端头部组件 -->
@@ -3067,106 +3032,372 @@
     </div>
   {:else}
   <div class="deck-study-content">
-    <!-- 看板视图：三种模式统一支持 -->
-    {#if currentView === 'kanban'}
-      <KanbanView 
-        deckTree={selectedFilter === 'question-bank' ? qbDeckTree : selectedFilter === 'incremental-reading' ? irDeckTree : deckTree}
-        deckStats={selectedFilter === 'question-bank' ? qbDeckStats : selectedFilter === 'incremental-reading' ? irDeckStats : deckStats}
-        deckMode={selectedFilter === 'question-bank' ? 'question-bank' : selectedFilter === 'incremental-reading' ? 'incremental-reading' : 'memory'}
-        {dataStorage}
-        {plugin}
-        onStartStudy={kanbanStartStudy}
-        onDeckUpdate={refreshData}
-        onAssociateQuestionBank={selectedFilter === 'memory' ? associateQuestionBank : undefined}
-        onEditDeck={kanbanEditDeck}
-        onDeleteDeck={kanbanDeleteDeck}
-        onOpenKnowledgeGraph={selectedFilter === 'memory' ? openKnowledgeGraph : undefined}
-        onDissolveDeck={selectedFilter === 'memory' ? dissolveDeck : undefined}
-      />
-    <!-- 非看板视图：按模式分别渲染 -->
-    {:else if selectedFilter === 'incremental-reading'}
-      <IRDeckView {plugin} />
-    {:else if currentView === 'grid'}
-      <GridCardView 
-        {deckTree}
-        {deckStats}
-        {studySessions}
-        {plugin}
-        {selectedFilter}
-        onFilterSelect={handleFilterSelect}
-        onStartStudy={startStudy}
-        onContinueStudy={handleContinueStudy}
-        onAdvanceStudy={startAdvanceStudy}
-        onOpenDeckAnalytics={openDeckAnalytics}
-        onAssociateQuestionBank={associateQuestionBank}
-        onEditDeck={editDeck}
-        onDeleteDeck={deleteDeck}
-        onOpenKnowledgeGraph={openKnowledgeGraph}
-        onDissolveDeck={dissolveDeck}
-        onRefreshData={refreshData}
-      />
-    {/if}
+    <DeckStudyContentArea {...contentAreaProps} />
   </div>
   {/if}
 </div>
 
+{#if showEmergentRuleGroupPopover}
+  {@const currentRuleGroupDraft = getCurrentEmergentRuleGroupDraft()}
+  {@const visibleConditions = getVisibleEmergentRuleConditions(currentRuleGroupDraft.id)}
+  <div
+    class="weave-emergent-rule-popover"
+    use:portalToBody
+    style={emergentRuleGroupPopoverStyle}
+  >
+    <div class="weave-emergent-rule-popover__header">
+      <div class="weave-emergent-rule-popover__header-main">
+        <div class="weave-emergent-rule-popover__title">涌现筛选组</div>
+      </div>
 
-<!-- CSV导入向导模态窗 -->
-{#if showCreateQuestionBankModal}
-  <CreateQuestionBankModal
-    bind:open={showCreateQuestionBankModal}
-    {plugin}
-    mode="create"
-    onClose={() => { showCreateQuestionBankModal = false; }}
-    onCreated={async () => {
-      showCreateQuestionBankModal = false;
-      await loadQBDeckTree();
-      plugin.app.workspace.trigger('Weave:data-changed');
-    }}
-  />
+      <div class="weave-emergent-rule-popover__header-actions">
+        <button
+          class="weave-emergent-rule-popover__icon-btn"
+          type="button"
+          onclick={createEmergentRuleGroupDraft}
+          aria-label="新增筛选组"
+          title="新增筛选组"
+        >
+          <ObsidianIcon name="plus" size={14} />
+        </button>
+        <button
+          class="weave-emergent-rule-popover__icon-btn"
+          type="button"
+          onclick={(event) => showEmergentRuleGroupMoreMenu(event, currentRuleGroupDraft.id)}
+          aria-label="更多"
+          title="更多"
+        >
+          <ObsidianIcon name="more-horizontal" size={14} />
+        </button>
+      </div>
+    </div>
+
+    <div class="weave-emergent-rule-popover__body">
+      <section class="weave-emergent-rule-popover__workspace">
+        <div class="weave-emergent-rule-popover__group-row">
+          <button
+            type="button"
+            class="weave-emergent-rule-popover__switcher"
+            onclick={(event) => showEmergentRuleGroupSwitcherMenu(event)}
+          >
+            <span>{currentRuleGroupDraft.name || "默认观察"}</span>
+            <ObsidianIcon name="chevron-down" size={14} />
+          </button>
+          <label class="weave-emergent-rule-popover__field is-inline">
+            <span>筛选组名称</span>
+            <input
+              type="text"
+              value={currentRuleGroupDraft.name}
+              oninput={(event) => updateEmergentRuleGroupDraftName(currentRuleGroupDraft.id, (event.currentTarget as HTMLInputElement).value)}
+              placeholder="默认观察"
+            />
+          </label>
+        </div>
+
+        <section class="weave-emergent-rule-popover__block">
+          <div class="weave-emergent-rule-popover__block-head">
+            <div class="weave-emergent-rule-popover__block-meta">
+              <div class="weave-emergent-rule-popover__block-label">显示门槛</div>
+            </div>
+          </div>
+
+          <div class="weave-emergent-rule-popover__threshold-row">
+            <button type="button" class="weave-emergent-rule-popover__token is-static">
+              标签簇卡片数
+            </button>
+            <button type="button" class="weave-emergent-rule-popover__token is-static">
+              至少
+            </button>
+            <input
+              class="weave-emergent-rule-popover__inline-input"
+              type="number"
+              min="1"
+              value={currentRuleGroupDraft.minCandidateCardCount}
+              oninput={(event) => updateEmergentRuleGroupDraftThreshold(currentRuleGroupDraft.id, (event.currentTarget as HTMLInputElement).value)}
+            />
+            <span class="weave-emergent-rule-popover__inline-suffix">张</span>
+          </div>
+        </section>
+
+        <section class="weave-emergent-rule-popover__block">
+          <div class="weave-emergent-rule-popover__block-head">
+            <div class="weave-emergent-rule-popover__block-meta">
+              <div class="weave-emergent-rule-popover__block-label">候选池过滤</div>
+            </div>
+          </div>
+
+          <div class="weave-emergent-rule-popover__condition-list">
+            <div class="weave-emergent-rule-popover__condition-row">
+              <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                <ObsidianIcon name="grip-vertical" size={14} />
+              </button>
+              <button type="button" class="weave-emergent-rule-popover__logic-pill">当</button>
+              <button type="button" class="weave-emergent-rule-popover__token is-static">标签</button>
+              <button type="button" class="weave-emergent-rule-popover__token is-static">包含任一</button>
+              <div
+                class="weave-emergent-rule-popover__value-surface is-clickable"
+                role="button"
+                tabindex="0"
+                onclick={(event) => openEmergentRuleTagSuggestModal(currentRuleGroupDraft.id, "requiredTags", event.currentTarget as HTMLElement)}
+                onkeydown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openEmergentRuleTagSuggestModal(currentRuleGroupDraft.id, "requiredTags", event.currentTarget as HTMLElement);
+                  }
+                }}
+              >
+                {#if currentRuleGroupDraft.requiredTags.length > 0}
+                  {#each currentRuleGroupDraft.requiredTags as tag (tag)}
+                    <span class="weave-emergent-rule-popover__tag-chip">
+                      <span>{tag}</span>
+                      <button
+                        type="button"
+                        class="weave-emergent-rule-popover__tag-chip-remove"
+                        onclick={(event) => {
+                          event.stopPropagation();
+                          removeEmergentRuleGroupTagDraft(currentRuleGroupDraft.id, "requiredTags", tag);
+                        }}
+                        aria-label={`移除标签 ${tag}`}
+                      >
+                        <ObsidianIcon name="x" size={12} />
+                      </button>
+                    </span>
+                  {/each}
+                {:else}
+                  <span class="weave-emergent-rule-popover__placeholder-text">选择标签</span>
+                {/if}
+              </div>
+              <button
+                type="button"
+                class="weave-emergent-rule-popover__row-menu"
+                aria-label="更多"
+                onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "requiredTags")}
+              >
+                <ObsidianIcon name="more-horizontal" size={14} />
+              </button>
+            </div>
+
+            {#if visibleConditions.includes("createdAt")}
+              <div class="weave-emergent-rule-popover__condition-row">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                  <ObsidianIcon name="grip-vertical" size={14} />
+                </button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">创建时间</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">在范围内</button>
+                <div class="weave-emergent-rule-popover__value-surface is-split">
+                  <input
+                    type="date"
+                    value={currentRuleGroupDraft.createdAfter || ""}
+                    oninput={(event) => updateEmergentRuleGroupDateDraft(currentRuleGroupDraft.id, "createdAfter", (event.currentTarget as HTMLInputElement).value)}
+                  />
+                  <span class="weave-emergent-rule-popover__split-divider"></span>
+                  <input
+                    type="date"
+                    value={currentRuleGroupDraft.createdBefore || ""}
+                    oninput={(event) => updateEmergentRuleGroupDateDraft(currentRuleGroupDraft.id, "createdBefore", (event.currentTarget as HTMLInputElement).value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  class="weave-emergent-rule-popover__row-menu"
+                  aria-label="更多"
+                  onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "createdAt")}
+                >
+                  <ObsidianIcon name="more-horizontal" size={14} />
+                </button>
+              </div>
+            {/if}
+
+            {#if visibleConditions.includes("onlyLearnableDecks")}
+              <div class="weave-emergent-rule-popover__condition-row">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                  <ObsidianIcon name="grip-vertical" size={14} />
+                </button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">卡片状态</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">仅显示</button>
+                <label class="weave-emergent-rule-popover__value-surface">
+                  <input
+                    type="checkbox"
+                    checked={currentRuleGroupDraft.onlyLearnableDecks}
+                    onchange={(event) => updateEmergentRuleGroupOnlyLearnableDraft(currentRuleGroupDraft.id, (event.currentTarget as HTMLInputElement).checked)}
+                  />
+                  <span>含有可学习卡片的涌现牌组</span>
+                </label>
+                <button
+                  type="button"
+                  class="weave-emergent-rule-popover__row-menu"
+                  aria-label="更多"
+                  onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "onlyLearnableDecks")}
+                >
+                  <ObsidianIcon name="more-horizontal" size={14} />
+                </button>
+              </div>
+            {/if}
+
+            {#if visibleConditions.includes("sourceFolders")}
+              <div class="weave-emergent-rule-popover__condition-row">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                  <ObsidianIcon name="grip-vertical" size={14} />
+                </button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">来源文件夹</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">位于</button>
+                <div
+                  class="weave-emergent-rule-popover__value-surface is-clickable"
+                  role="button"
+                  tabindex="0"
+                  onclick={(event) => addEmergentRuleGroupSourceFolderDraft(currentRuleGroupDraft.id, event.currentTarget as HTMLElement)}
+                  onkeydown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      addEmergentRuleGroupSourceFolderDraft(currentRuleGroupDraft.id, event.currentTarget as HTMLElement);
+                    }
+                  }}
+                >
+                  {#if currentRuleGroupDraft.sourceFolders.length > 0}
+                    {#each currentRuleGroupDraft.sourceFolders as folderPath (folderPath)}
+                      <span class="weave-emergent-rule-popover__folder-chip">
+                        <span>{folderPath}</span>
+                        <button
+                          type="button"
+                          class="weave-emergent-rule-popover__folder-chip-remove"
+                          onclick={(event) => {
+                            event.stopPropagation();
+                            removeEmergentRuleGroupSourceFolderDraft(currentRuleGroupDraft.id, folderPath);
+                          }}
+                          aria-label={`移除文件夹 ${folderPath}`}
+                        >
+                          <ObsidianIcon name="x" size={12} />
+                        </button>
+                      </span>
+                    {/each}
+                  {:else}
+                    <span class="weave-emergent-rule-popover__placeholder-text">选择文件夹</span>
+                  {/if}
+                </div>
+                <button
+                  type="button"
+                  class="weave-emergent-rule-popover__row-menu"
+                  aria-label="更多"
+                  onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "sourceFolders")}
+                >
+                  <ObsidianIcon name="more-horizontal" size={14} />
+                </button>
+              </div>
+            {/if}
+
+            {#if visibleConditions.includes("priority")}
+              <div class="weave-emergent-rule-popover__condition-row">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                  <ObsidianIcon name="grip-vertical" size={14} />
+                </button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">优先级</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">介于</button>
+                <div class="weave-emergent-rule-popover__value-surface is-split">
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="最低"
+                    value={currentRuleGroupDraft.priorityMin ?? ""}
+                    oninput={(event) => updateEmergentRuleGroupPriorityDraft(currentRuleGroupDraft.id, "priorityMin", (event.currentTarget as HTMLInputElement).value)}
+                  />
+                  <span class="weave-emergent-rule-popover__split-divider"></span>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="最高"
+                    value={currentRuleGroupDraft.priorityMax ?? ""}
+                    oninput={(event) => updateEmergentRuleGroupPriorityDraft(currentRuleGroupDraft.id, "priorityMax", (event.currentTarget as HTMLInputElement).value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  class="weave-emergent-rule-popover__row-menu"
+                  aria-label="更多"
+                  onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "priority")}
+                >
+                  <ObsidianIcon name="more-horizontal" size={14} />
+                </button>
+              </div>
+            {/if}
+
+            {#if visibleConditions.includes("excludedTags")}
+              <div class="weave-emergent-rule-popover__condition-row">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                  <ObsidianIcon name="grip-vertical" size={14} />
+                </button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">标签</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">不包含</button>
+                <div
+                  class="weave-emergent-rule-popover__value-surface is-clickable"
+                  role="button"
+                  tabindex="0"
+                  onclick={(event) => openEmergentRuleTagSuggestModal(currentRuleGroupDraft.id, "excludedTags", event.currentTarget as HTMLElement)}
+                  onkeydown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openEmergentRuleTagSuggestModal(currentRuleGroupDraft.id, "excludedTags", event.currentTarget as HTMLElement);
+                    }
+                  }}
+                >
+                  {#if currentRuleGroupDraft.excludedTags.length > 0}
+                    {#each currentRuleGroupDraft.excludedTags as tag (tag)}
+                      <span class="weave-emergent-rule-popover__tag-chip is-muted">
+                        <span>{tag}</span>
+                        <button
+                          type="button"
+                          class="weave-emergent-rule-popover__tag-chip-remove"
+                          onclick={(event) => {
+                            event.stopPropagation();
+                            removeEmergentRuleGroupTagDraft(currentRuleGroupDraft.id, "excludedTags", tag);
+                          }}
+                          aria-label={`移除标签 ${tag}`}
+                        >
+                          <ObsidianIcon name="x" size={12} />
+                        </button>
+                      </span>
+                    {/each}
+                  {:else}
+                    <span class="weave-emergent-rule-popover__placeholder-text">选择排除标签</span>
+                  {/if}
+                </div>
+                <button
+                  type="button"
+                  class="weave-emergent-rule-popover__row-menu"
+                  aria-label="更多"
+                  onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "excludedTags")}
+                >
+                  <ObsidianIcon name="more-horizontal" size={14} />
+                </button>
+              </div>
+            {/if}
+          </div>
+          <div class="weave-emergent-rule-popover__block-actions is-condition-footer">
+            <button
+              type="button"
+              class="weave-emergent-rule-popover__text-btn is-inline-action"
+              onclick={(event) => showEmergentRuleConditionMenu(event, currentRuleGroupDraft.id)}
+            >
+              <ObsidianIcon name="plus" size={14} />
+              <span>添加条件</span>
+            </button>
+          </div>
+        </section>
+      </section>
+    </div>
+
+    <div class="weave-emergent-rule-popover__footer">
+      <button type="button" class="weave-emergent-rule-popover__text-btn" onclick={closeEmergentRuleGroupPopover}>取消</button>
+      <button type="button" class="weave-emergent-rule-popover__primary-btn" onclick={applyEmergentRuleGroupDraftsV2}>保存并应用</button>
+    </div>
+  </div>
 {/if}
 
-{#if showCSVImportModal}
-  <CSVImportModal
-    bind:open={showCSVImportModal}
-    {plugin}
-    {dataStorage}
-    onClose={() => { showCSVImportModal = false; }}
-    onImportComplete={async () => { showCSVImportModal = false; await refreshData(); plugin.app.workspace.trigger('Weave:data-changed'); }}
-  />
-{/if}
-
-<!--  庆祝模态窗 -->
-{#if showCelebrationModal && celebrationStats}
-  <CelebrationModal
-    deckName={celebrationDeckName}
-    deckId={celebrationDeckId}
-    stats={celebrationStats}
-    soundEnabled={true}
-    onClose={handleCloseCelebration}
-    onStartPractice={handleStartPractice}
-  />
-{/if}
-
-<!-- 无卡片提示模态窗 -->
-{#if showNoCardsModal}
-  <NoCardsAvailableModal
-    deckName={noCardsDeckName}
-    reason={noCardsReason}
-    stats={noCardsStats}
-    onClose={handleCloseNoCardsModal}
-    onAdvanceStudy={handleAdvanceStudy}
-    onViewStats={handleViewStats}
-    onStartPractice={handleStartPracticeFromNoCards}
-  />
-{/if}
-
-<!--  激活提示 -->
-<ActivationPrompt
-  featureId={promptFeatureId}
-  visible={showActivationPrompt}
-  onClose={() => showActivationPrompt = false}
-/>
+<DeckStudyModalHost {...modalHostProps} />
 
 <style>
   .deck-study-page {
@@ -3225,317 +3456,552 @@
     padding: 4px 2px; /* 减少内容区与标签页的间距 */
   }
 
-
-  /* 卡片化数据行样式 - CSS Table布局 */
-  .new-deck-row {
-    display: table !important; /* 强制table布局 */
-    width: 100%;
-    table-layout: fixed; /* 固定表格布局，与header保持一致 */
-    padding: 8px 12px; /* 减少外层padding，避免与cell padding重复 */
-    border-bottom: none;
-    transition: all 0.2s ease;
-    background: var(--weave-deck-card-bg);
-    position: relative;
-    border-radius: 8px;
-    margin-bottom: 0;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-    border-collapse: separate; /* 确保table布局正常 */
-    border-spacing: 0; /* 消除cell间距 */
-  }
-
-  .new-deck-row:hover {
-    background: var(--background-modifier-hover);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  }
-
-  /* 卡片化状态指示 - 保持状态样式 */
-  .new-deck-row.urgent {
-    background: linear-gradient(135deg, var(--weave-deck-card-bg) 0%, rgba(239, 68, 68, 0.03) 100%);
-    border: 1px solid rgba(239, 68, 68, 0.1);
-    box-shadow: 0 1px 3px rgba(239, 68, 68, 0.1); /* 状态色阴影 */
-  }
-
-  .new-deck-row.due {
-    background: linear-gradient(135deg, var(--weave-deck-card-bg) 0%, rgba(245, 158, 11, 0.03) 100%);
-    border: 1px solid rgba(245, 158, 11, 0.1);
-    box-shadow: 0 1px 3px rgba(245, 158, 11, 0.1); /* 状态色阴影 */
-  }
-
-  .new-deck-row.completed {
-    background: linear-gradient(135deg, var(--weave-deck-card-bg) 0%, rgba(16, 185, 129, 0.03) 100%);
-    border: 1px solid rgba(16, 185, 129, 0.1);
-    box-shadow: 0 1px 3px rgba(16, 185, 129, 0.1); /* 状态色阴影 */
-  }
-
-  /* 牌组名称区域 */
-  .row-deck-name {
+  .weave-emergent-rule-popover {
+    position: fixed;
+    z-index: calc(var(--z-index-overlay, 300) + 20);
     display: flex;
-    align-items: center;
-    gap: 0.25rem;
-  }
-
-  /* 展开/折叠按钮 */
-  .expand-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
+    flex-direction: column;
+    gap: 0;
     padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    color: var(--text-muted);
-    transition: all 0.2s ease;
-    flex-shrink: 0;
+    border-radius: 20px;
+    border: 1px solid var(--background-modifier-border);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 24%),
+      color-mix(in srgb, var(--background-primary) 96%, transparent);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(14px);
+    overflow: visible;
   }
 
-  .expand-toggle:hover {
-    background: var(--background-modifier-hover);
-    color: var(--text-normal);
+  :global(.menu) {
+    z-index: calc(var(--z-index-modal, 400) + 10);
+    font-size: var(--font-ui-small, 13px);
   }
 
-  .expand-spacer {
-    display: inline-block;
-    width: 20px;
-    flex-shrink: 0;
+  :global(.menu .menu-item) {
+    font-size: var(--font-ui-small, 13px);
   }
 
-  .deck-emoji {
-    font-size: 1rem;
-    line-height: 1;
-    margin-right: 0.25rem;
-  }
-
-  .deck-name-content {
+  .weave-emergent-rule-popover__footer {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    flex: 1;
+    justify-content: space-between;
+    gap: 10px;
   }
 
-  .deck-name {
-    font-size: 0.9rem;
-    font-weight: 600;
+  .weave-emergent-rule-popover__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid var(--background-modifier-border);
+  }
+
+  .weave-emergent-rule-popover__header-main {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .weave-emergent-rule-popover__title {
+    font-size: var(--font-ui-medium, 14px);
+    font-weight: 700;
     color: var(--text-normal);
-    margin: 0;
+    line-height: 1.35;
   }
 
-  /* 子牌组统计气泡 */
-  .subdeck-indicator {
+  .weave-emergent-rule-popover__switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 38px;
+    height: 38px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-secondary) 88%, transparent);
+    color: var(--text-normal);
+    cursor: pointer;
+    font-size: var(--font-ui-small, 13px);
+    font-weight: 600;
+    box-sizing: border-box;
+  }
+
+  .weave-emergent-rule-popover__switcher:hover,
+  .weave-emergent-rule-popover__icon-btn:hover,
+  .weave-emergent-rule-popover__text-btn:hover,
+  .weave-emergent-rule-popover__row-menu:hover,
+  .weave-emergent-rule-popover__drag-handle:hover {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--background-modifier-hover) 82%, transparent);
+  }
+
+  .weave-emergent-rule-popover__switcher:focus-visible,
+  .weave-emergent-rule-popover__icon-btn:focus-visible,
+  .weave-emergent-rule-popover__text-btn:focus-visible,
+  .weave-emergent-rule-popover__row-menu:focus-visible,
+  .weave-emergent-rule-popover__drag-handle:focus-visible,
+  .weave-emergent-rule-popover__value-surface.is-clickable:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+  }
+
+  .weave-emergent-rule-popover__header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .weave-emergent-rule-popover__icon-btn,
+  .weave-emergent-rule-popover__text-btn,
+  .weave-emergent-rule-popover__primary-btn,
+  .weave-emergent-rule-popover__token,
+  .weave-emergent-rule-popover__logic-pill,
+  .weave-emergent-rule-popover__drag-handle,
+  .weave-emergent-rule-popover__row-menu {
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-secondary) 88%, transparent);
+    color: var(--text-normal);
+    cursor: pointer;
+  }
+
+  .weave-emergent-rule-popover__icon-btn,
+  .weave-emergent-rule-popover__row-menu,
+  .weave-emergent-rule-popover__drag-handle {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-muted);
+  }
+
+  .weave-emergent-rule-popover__icon-btn {
+    width: 32px;
+    height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0.125rem 0.375rem;
-    margin-left: 0.5rem;
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
+    padding: 0;
+    border-radius: 8px;
+  }
+
+  .weave-emergent-rule-popover__body {
+    padding: 14px 18px 18px;
+    overflow: auto;
+  }
+
+  .weave-emergent-rule-popover__workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .weave-emergent-rule-popover__group-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 180px) minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+  }
+
+  .weave-emergent-rule-popover__field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .weave-emergent-rule-popover__field.is-inline {
+    min-width: 0;
+  }
+
+  .weave-emergent-rule-popover__field.is-inline span {
+    display: none;
+  }
+
+  .weave-emergent-rule-popover__field span {
+    font-size: var(--font-ui-small, 13px);
+    color: var(--text-muted);
+  }
+
+  .weave-emergent-rule-popover__field input {
+    width: 100%;
+    min-height: 38px;
+    padding: 0 12px;
     border-radius: 10px;
-    font-size: 0.7rem;
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-secondary) 82%, transparent);
+    color: var(--text-normal);
+    font-size: var(--font-ui-medium, 14px);
     font-weight: 600;
-    cursor: help;
-    transition: all 0.2s ease;
-    opacity: 0.75;
+    transition: border-color 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
   }
 
-  .subdeck-indicator:hover {
-    opacity: 1;
-    transform: scale(1.05);
+  .weave-emergent-rule-popover__field input:hover,
+  .weave-emergent-rule-popover__inline-input:hover,
+  .weave-emergent-rule-popover__value-surface:hover {
+    border-color: color-mix(in srgb, var(--background-modifier-border) 92%, var(--text-muted));
   }
 
-  /* 菜单按钮 - Cursor 风格圆形设计 */
-  .menu-button {
+  .weave-emergent-rule-popover__field input:focus,
+  .weave-emergent-rule-popover__field input:focus-visible,
+  .weave-emergent-rule-popover__inline-input:focus,
+  .weave-emergent-rule-popover__inline-input:focus-visible,
+  .weave-emergent-rule-popover__value-surface.is-split:focus-within {
+    outline: none;
+    border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--background-primary) 86%, var(--background-secondary));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+  }
+
+  .weave-emergent-rule-popover__block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 16px;
+    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
+    background: color-mix(in srgb, var(--background-secondary) 62%, transparent);
+    transition: border-color 0.14s ease, background-color 0.14s ease;
+  }
+
+  .weave-emergent-rule-popover__block-head {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .weave-emergent-rule-popover__block-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .weave-emergent-rule-popover__block-label,
+  .weave-emergent-rule-popover__placeholder-text,
+  .weave-emergent-rule-popover__inline-suffix {
+    font-size: var(--font-ui-small, 13px);
+    color: var(--text-muted);
+  }
+
+  .weave-emergent-rule-popover__text-btn,
+  .weave-emergent-rule-popover__primary-btn {
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 10px;
+    font-size: var(--font-ui-small, 13px);
+  }
+
+  .weave-emergent-rule-popover__primary-btn {
+    background: color-mix(in srgb, var(--interactive-accent) 82%, black 6%);
+    color: var(--text-on-accent);
+    border-color: color-mix(in srgb, var(--interactive-accent) 72%, black 8%);
+  }
+
+  .weave-emergent-rule-popover__threshold-row {
+    display: grid;
+    grid-template-columns: minmax(110px, max-content) minmax(64px, max-content) 84px minmax(24px, max-content);
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 80%, transparent);
+    background: color-mix(in srgb, var(--background-primary) 78%, var(--background-secondary));
+    transition: border-color 0.14s ease, background-color 0.14s ease;
+  }
+
+  .weave-emergent-rule-popover__token,
+  .weave-emergent-rule-popover__logic-pill {
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
+    gap: 8px;
+    font-size: var(--font-ui-small, 13px);
+    font-weight: 500;
+  }
+
+  .weave-emergent-rule-popover__logic-pill {
+    min-width: 42px;
+    padding: 0 12px;
+    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-secondary));
+    border-color: color-mix(in srgb, var(--interactive-accent) 16%, var(--background-modifier-border));
+    color: var(--text-normal);
+    font-weight: 600;
+  }
+
+  .weave-emergent-rule-popover__inline-input {
+    width: 100%;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-secondary) 82%, transparent);
+    color: var(--text-normal);
+    font-size: var(--font-ui-medium, 14px);
+    font-weight: 600;
+  }
+
+  .weave-emergent-rule-popover__condition-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .weave-emergent-rule-popover__condition-row {
+    display: grid;
+    grid-template-columns: 32px 44px minmax(68px, max-content) minmax(84px, max-content) minmax(0, 1fr) 32px;
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 80%, transparent);
+    background: color-mix(in srgb, var(--background-primary) 78%, var(--background-secondary));
+    transition: border-color 0.14s ease, background-color 0.14s ease;
+  }
+
+  .weave-emergent-rule-popover__threshold-row:hover,
+  .weave-emergent-rule-popover__condition-row:hover {
+    border-color: color-mix(in srgb, var(--background-modifier-border) 96%, var(--text-muted));
+    background: color-mix(in srgb, var(--background-primary) 82%, var(--background-secondary));
+  }
+
+  .weave-emergent-rule-popover__threshold-row .weave-emergent-rule-popover__token {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .weave-emergent-rule-popover__threshold-row .weave-emergent-rule-popover__inline-suffix {
+    justify-self: start;
+    white-space: nowrap;
+  }
+
+  .weave-emergent-rule-popover__drag-handle,
+  .weave-emergent-rule-popover__row-menu {
     width: 32px;
     height: 32px;
     padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: 50%;
-    cursor: pointer;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     color: var(--text-muted);
-    transition: all 0.2s ease;
-    opacity: 0.6;
   }
 
-  .menu-button:hover {
-    opacity: 1;
-    background: var(--background-modifier-hover);
+  .weave-emergent-rule-popover__row-menu {
+    margin-left: auto;
+  }
+
+  .weave-emergent-rule-popover__value-surface {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 38px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-primary) 74%, var(--background-secondary));
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    transition: border-color 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
+  }
+
+  .weave-emergent-rule-popover__token,
+  .weave-emergent-rule-popover__logic-pill,
+  .weave-emergent-rule-popover__placeholder-text {
+    white-space: nowrap;
+  }
+
+  .weave-emergent-rule-popover__condition-row .weave-emergent-rule-popover__token {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .weave-emergent-rule-popover__condition-row .weave-emergent-rule-popover__logic-pill {
+    min-width: 44px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .weave-emergent-rule-popover__value-surface.is-clickable {
+    cursor: pointer;
+  }
+
+  .weave-emergent-rule-popover__value-surface.is-split {
+    flex-wrap: nowrap;
+    gap: 10px;
+  }
+
+  .weave-emergent-rule-popover__value-surface.is-split input {
+    min-width: 0;
+    flex: 1 1 0;
+    min-height: 36px;
+    border: 0;
+    background: transparent;
+    color: var(--text-normal);
+    font-size: var(--font-ui-small, 13px);
+    outline: none;
+  }
+
+  .weave-emergent-rule-popover__split-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--background-modifier-border);
+    flex: 0 0 auto;
+  }
+
+  .weave-emergent-rule-popover__tag-chip,
+  .weave-emergent-rule-popover__folder-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 999px;
+    font-size: var(--font-ui-small, 13px);
     color: var(--text-normal);
   }
 
-  .menu-button:active {
-    transform: scale(0.95);
-    background: var(--background-modifier-active);
+  .weave-emergent-rule-popover__tag-chip {
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--interactive-accent) 18%, var(--background-primary));
   }
 
-  .deck-status {
-    padding: 0.125rem 0.5rem;
-    border-radius: 12px;
-    font-size: 0.7rem;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+  .weave-emergent-rule-popover__tag-chip.is-muted {
+    border-color: var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-primary) 88%, transparent);
   }
 
-  .deck-status.urgent {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
-    border: 1px solid rgba(239, 68, 68, 0.2);
+  .weave-emergent-rule-popover__folder-chip {
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-primary) 82%, transparent);
   }
 
-  .deck-status.completed {
-    background: rgba(16, 185, 129, 0.1);
-    color: #10b981;
-    border: 1px solid rgba(16, 185, 129, 0.2);
-  }
-
-
-  /* 数据行元素 - Table Cell布局 */
-  .row-deck-name,
-  .row-stat,
-  .row-actions {
-    display: table-cell !important; /* 强制覆盖其他样式 */
-    vertical-align: middle;
-    border: none; /* 确保无边框干扰 */
-    position: static !important; /* 防止position干扰table布局 */
-    float: none !important; /* 防止float干扰table布局 */
-    /* 移除通用padding，使用各自的精确padding设置 */
-  }
-
-  .row-deck-name {
-    width: 60%; /* 与header保持一致的宽度 */
-    text-align: left;
-    padding: 4px 0px 4px 8px; /* 右侧无padding，直接贴合统计列 */
-  }
-
-  .row-stat {
-    width: 8%; /* 与header保持一致的宽度 */
-    text-align: center;
-    font-weight: 600;
-    font-size: 0.9rem;
-    padding: 4px 2px; /* 最小padding，节省空间 */
-  }
-
-  .row-actions {
-    width: 16%; /* 与header保持一致的宽度 */
-    text-align: right;
-    padding: 4px 8px 4px 0px; /* 左侧无padding，贴合统计列 */
-  }
-
-  .row-stat.new-cards .stat-number {
-    color: #3b82f6;
-  }
-
-  .row-stat.learning-cards .stat-number {
-    color: #f59e0b;
-  }
-
-  .row-stat.review-cards .stat-number {
-    color: #10b981;
-  }
-
-
-  .deck-actions {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end; /* 确保按钮右对齐在操作列内 */
-    gap: 0.5rem;
-    width: 100%; /* 确保占满table-cell宽度 */
-  }
-
-  .study-button {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.5rem 1rem;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.8rem;
-    font-weight: 500;
+  .weave-emergent-rule-popover__folder-chip-remove,
+  .weave-emergent-rule-popover__tag-chip-remove,
+  .weave-emergent-rule-popover__switcher {
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-secondary) 88%, transparent);
+    color: var(--text-normal);
     cursor: pointer;
-    transition: all 0.2s ease;
   }
 
-  .study-button.primary {
-    background: #3b82f6;
-    color: white;
+  .weave-emergent-rule-popover__folder-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border-radius: 999px;
   }
 
-  .study-button.primary:hover {
-    background: #2563eb;
+  .weave-emergent-rule-popover__tag-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border-radius: 999px;
   }
 
-  .study-button.completed {
-    background: var(--background-modifier-border);
+  .weave-emergent-rule-popover__block-actions {
+    display: flex;
+    justify-content: flex-start;
+    padding-top: 2px;
+  }
+
+  .weave-emergent-rule-popover__block-actions.is-condition-footer {
+    padding-top: 0;
+  }
+
+  .weave-emergent-rule-popover__text-btn.is-inline-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 4px;
+    padding-right: 4px;
+    border: none;
+    background: transparent;
     color: var(--text-muted);
-    cursor: not-allowed;
+    box-shadow: none;
   }
 
-  /* 响应式设计 */
-  @media (max-width: 768px) {
-    .row-deck-name {
-      width: 55%; /* 中屏幕：保持名称列的最大化利用 */
+  .weave-emergent-rule-popover__text-btn.is-inline-action:hover {
+    color: var(--text-normal);
+    background: transparent;
+  }
+
+  .weave-emergent-rule-popover__footer {
+    padding: 12px 18px 16px;
+    border-top: 1px solid var(--background-modifier-border);
+  }
+
+  @media (max-width: 960px) {
+    .weave-emergent-rule-popover__threshold-row {
+      grid-template-columns: minmax(0, 1fr) minmax(64px, max-content) 76px minmax(24px, max-content);
     }
 
-    .row-stat {
-      width: 9%; /* 中屏幕：统计列适中宽度 */
+    .weave-emergent-rule-popover__condition-row {
+      grid-template-columns: 36px 52px 1fr;
+      align-items: start;
     }
 
-    .row-actions {
-      width: 18%; /* 中屏幕：压缩操作列为名称列让出空间 */
+    .weave-emergent-rule-popover__group-row {
+      grid-template-columns: 1fr;
     }
 
-    .deck-name {
-      font-size: 0.85rem;
+    .weave-emergent-rule-popover__token,
+    .weave-emergent-rule-popover__value-surface,
+    .weave-emergent-rule-popover__row-menu {
+      grid-column: 2 / -1;
     }
 
-    .deck-status {
-      font-size: 0.65rem;
-      padding: 0.1rem 0.4rem;
-    }
-
-    .study-button {
-      padding: 0.4rem 0.8rem;
-      font-size: 0.75rem;
+    .weave-emergent-rule-popover__row-menu {
+      justify-self: end;
     }
   }
 
-  @media (max-width: 480px) {
-    .new-deck-row {
-      padding: 0.75rem;
+  @media (max-width: 720px) {
+    .weave-emergent-rule-popover__header,
+    .weave-emergent-rule-popover__body,
+    .weave-emergent-rule-popover__footer {
+      padding-left: 16px;
+      padding-right: 16px;
     }
 
-    .row-deck-name {
-      width: 50%; /* 小屏幕：仍然最大化利用名称空间 */
+    .weave-emergent-rule-popover__header {
+      padding-top: 18px;
+      padding-bottom: 16px;
     }
 
-    .row-stat {
-      width: 10%; /* 小屏幕：统计列保持紧凑 */
+    .weave-emergent-rule-popover__body {
+      padding-top: 16px;
+      padding-bottom: 16px;
     }
 
-    .row-actions {
-      width: 20%; /* 小屏幕：压缩操作列 */
+    .weave-emergent-rule-popover__footer {
+      padding-top: 14px;
+      padding-bottom: 16px;
     }
 
-    .deck-actions {
+    .weave-emergent-rule-popover__header {
       flex-direction: column;
-      gap: 0.25rem;
+      align-items: stretch;
     }
 
-    .study-button {
-      padding: 0.375rem 0.75rem;
-      font-size: 0.7rem;
+    .weave-emergent-rule-popover__header-actions {
+      justify-content: flex-end;
     }
-  }
 
-
-  .stat-number {
-    font-weight: 600;
-    font-size: 1.125rem;
+    .weave-emergent-rule-popover__block-head,
+    .weave-emergent-rule-popover__threshold-row {
+      flex-wrap: wrap;
+    }
   }
 </style>

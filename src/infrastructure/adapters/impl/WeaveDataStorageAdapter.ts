@@ -123,9 +123,16 @@ export class WeaveDataStorageAdapter implements IDataStorageAdapter {
 		}
 	}
 
-	async createCards(cards: Card[]): Promise<void> {
+	async createCards(
+		cards: Card[],
+		onProgress?: (current: number, total: number, detail: string) => void
+	): Promise<void> {
 		try {
-			await this.storage.saveCardsBatch(cards);
+			if (typeof (this.storage as any).saveCardsBatchWithProgress === "function") {
+				await (this.storage as any).saveCardsBatchWithProgress(cards, onProgress);
+			} else {
+				await this.storage.saveCardsBatch(cards);
+			}
 			this.logger.info(`批量创建卡片: ${cards.length} 张`);
 		} catch (error) {
 			this.logger.error("批量创建卡片失败", error);

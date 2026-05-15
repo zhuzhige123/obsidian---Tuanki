@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { Platform } from 'obsidian';
-	import type { App } from 'obsidian';
-	import type { EpubBook, EpubFlowMode, EpubLayoutMode, EpubReaderEngine, EpubReaderSettings, EpubStorageService, PaginationInfo, ReaderHighlight } from '../../services/epub';
-	import type { EpubAnnotationService } from '../../services/epub';
-	import type { EpubBacklinkHighlightService } from '../../services/epub/EpubBacklinkHighlightService';
-	import { logger } from '../../utils/logger';
+ 	import { onMount } from 'svelte';
+ 	import { Platform } from 'obsidian';
+ 	import type { App } from 'obsidian';
+ 	import { reportEpubError } from '../../services/epub/epub-error';
+ 	import type { EpubBook, EpubExcerptSettings, EpubFlowMode, EpubLayoutMode, EpubReaderEngine, EpubReaderSettings, EpubStorageService, PaginationInfo, ReaderHighlight } from '../../services/epub';
+ 	import type { EpubAnnotationService } from '../../services/epub';
+ 	import type { EpubBacklinkHighlightService } from '../../services/epub/EpubBacklinkHighlightService';
+ 	import { logger } from '../../utils/logger';
 
 	interface Props {
 		app: App;
@@ -16,6 +17,8 @@
 		annotationService: EpubAnnotationService;
 		backlinkService: EpubBacklinkHighlightService;
 		settings: EpubReaderSettings;
+		excerptSettings: EpubExcerptSettings;
+		hasPendingNavigation?: boolean;
 		onProgressChange?: (percent: number) => void;
 		onPaginationChange?: (info: PaginationInfo) => void;
 		onChapterChange?: (title: string) => void;
@@ -23,7 +26,23 @@
 		onRenderError?: (message: string) => void;
 	}
 
-	let { app, filePath, book, readerService, storageService, annotationService, backlinkService, settings, onProgressChange, onPaginationChange, onChapterChange, onReaderReady, onRenderError }: Props = $props();
+	let {
+		app,
+		filePath,
+		book,
+		readerService,
+		storageService,
+		annotationService,
+		backlinkService,
+		settings,
+		excerptSettings,
+		hasPendingNavigation = false,
+		onProgressChange: onProgressChangeProp,
+		onPaginationChange: onPaginationChangeProp,
+		onChapterChange,
+		onReaderReady: onReaderReadyProp,
+		onRenderError: onRenderErrorProp,
+	}: Props = $props();
 
 	let viewerContainer: HTMLDivElement;
 	let rendered = false;
@@ -40,6 +59,36 @@
 	let renderSessionToken = 0;
 	let mobileStabilizationToken = 0;
 	let viewDisposed = false;
+
+	function notifyProgressChange(percent: number): void {
+		if (typeof onProgressChangeProp === 'function') {
+			onProgressChangeProp(percent);
+		}
+	}
+
+	function notifyPaginationChange(info: PaginationInfo): void {
+		if (typeof onPaginationChangeProp === 'function') {
+			onPaginationChangeProp(info);
+		}
+	}
+
+	function notifyChapterChange(title: string): void {
+		if (typeof onChapterChange === 'function') {
+			onChapterChange(title);
+		}
+	}
+
+	function notifyReaderReady(): void {
+		if (typeof onReaderReadyProp === 'function') {
+			onReaderReadyProp();
+		}
+	}
+
+	function notifyRenderError(message: string): void {
+		if (typeof onRenderErrorProp === 'function') {
+			onRenderErrorProp(message);
+		}
+	}
 
 	function isStaleRender(renderToken: number): boolean {
 		return viewDisposed || renderToken !== renderSessionToken;
@@ -96,6 +145,56 @@
 		}
 	}
 
+	async function resolveLastOpenBookmark() {
+		const currentBook = book;
+		if (!currentBook) {
+			return null;
+		}
+
+		const savedBookmark = await storageService.loadLastOpenBookmark(currentBook.id);
+		if (!savedBookmark?.cfi) {
+			return savedBookmark;
+		}
+
+		if (typeof readerService.canonicalizeLocation !== 'function') {
+			return savedBookmark;
+		}
+
+		try {
+			const canonicalCfi = await readerService.canonicalizeLocation(savedBookmark.cfi);
+			if (!canonicalCfi) {
+				logger.warn('[EpubReaderView] Skipping saved last-open EPUB bookmark because it could not be canonicalized for the current engine.', {
+					bookId: currentBook.id,
+					cfi: savedBookmark.cfi,
+				});
+				return null;
+			}
+
+			if (canonicalCfi === savedBookmark.cfi) {
+				return savedBookmark;
+			}
+
+			const canonicalBookmark = {
+				...savedBookmark,
+				cfi: canonicalCfi,
+			};
+			await storageService.saveLastOpenBookmark(currentBook.id, canonicalBookmark);
+			logger.info('[EpubReaderView] Canonicalized saved last-open EPUB bookmark before restoring it into the current reader runtime.', {
+				bookId: currentBook.id,
+				from: savedBookmark.cfi,
+				to: canonicalCfi,
+			});
+			return canonicalBookmark;
+		} catch (error) {
+			logger.warn('[EpubReaderView] Failed to canonicalize saved last-open EPUB bookmark before restore:', {
+				bookId: currentBook.id,
+				cfi: savedBookmark.cfi,
+				error,
+			});
+			return null;
+		}
+	}
+
 	async function refreshReaderHighlights() {
 		if (typeof readerService.refreshHighlights === 'function') {
 			await readerService.refreshHighlights();
@@ -131,6 +230,78 @@
 				mobileStabilizationTimer = null;
 				resolve();
 			}, delayMs);
+		});
+	}
+
+	function normalizeLocationKey(value: string | null | undefined): string {
+		let normalized = String(value || "")
+			.replace(/%5B/gi, "[")
+			.replace(/%5D/gi, "]")
+			.replace(/%7C/gi, "|")
+			.trim();
+		if (normalized.includes("%")) {
+			try {
+				normalized = decodeURIComponent(normalized);
+			} catch (_error) {
+				// Keep the original string when decoding fails.
+			}
+		}
+		return normalized.toLowerCase();
+	}
+
+	function isMeaningfullyRestored(savedProgress: NonNullable<Awaited<ReturnType<typeof resolveRestorableProgress>>>): boolean {
+		const currentPosition = readerService.getCurrentPosition();
+		const savedKey = normalizeLocationKey(savedProgress.cfi);
+		const currentKey = normalizeLocationKey(currentPosition.cfi);
+		if (savedKey && currentKey && savedKey === currentKey) {
+			return true;
+		}
+
+		const currentPercent = Number.isFinite(currentPosition.percent) ? currentPosition.percent : 0;
+		const savedPercent = Number.isFinite(savedProgress.percent) ? savedProgress.percent : 0;
+		if (Math.abs(currentPercent - savedPercent) <= 0.35) {
+			return true;
+		}
+
+		return currentPosition.chapterIndex === savedProgress.chapterIndex
+			&& savedPercent > 0
+			&& currentPercent > 0;
+	}
+
+	async function restoreSavedProgress(
+		savedProgress: NonNullable<Awaited<ReturnType<typeof resolveRestorableProgress>>>,
+		renderToken: number
+	): Promise<void> {
+		const retryDelays = [0, 80, 180];
+
+		for (const delayMs of retryDelays) {
+			if (isStaleRender(renderToken)) {
+				return;
+			}
+
+			await readerService.goToLocation(savedProgress.cfi);
+			if (isStaleRender(renderToken)) {
+				return;
+			}
+
+			await waitForNextFrame();
+			if (delayMs > 0) {
+				await waitForDelay(delayMs);
+			}
+			if (isStaleRender(renderToken)) {
+				return;
+			}
+
+			if (isMeaningfullyRestored(savedProgress)) {
+				return;
+			}
+		}
+
+		logger.warn('[EpubReaderView] EPUB saved progress restore did not land on the expected position after retries.', {
+			bookId: book?.id,
+			filePath,
+			savedProgress,
+			currentPosition: readerService.getCurrentPosition(),
 		});
 	}
 
@@ -205,9 +376,9 @@
 				minSpreadWidth: renderMode.minSpreadWidth,
 				width: stableRect.width,
 				height: stableRect.height,
-				theme: settings.theme,
 				lineHeight: settings.lineHeight,
-				widthMode: settings.widthMode
+				widthMode: settings.widthMode,
+				strikethroughPresentation: excerptSettings.strikethroughDisplayMode
 			});
 			if (isStaleRender(renderToken)) {
 				return;
@@ -227,20 +398,34 @@
 				return;
 			}
 
-			// Restore reading progress LAST so nothing can override the position
-			const savedProgress = await resolveRestorableProgress();
-			if (isStaleRender(renderToken)) {
-				return;
-			}
-			if (savedProgress?.cfi) {
-				await readerService.goToLocation(savedProgress.cfi);
+			// Keep source-note / explicit navigation highest priority.
+			if (!hasPendingNavigation) {
+				const savedLastOpenBookmark = await resolveLastOpenBookmark();
 				if (isStaleRender(renderToken)) {
 					return;
 				}
+				if (savedLastOpenBookmark?.cfi) {
+					await restoreSavedProgress(savedLastOpenBookmark, renderToken);
+					if (isStaleRender(renderToken)) {
+						return;
+					}
+				} else {
+					const savedProgress = await resolveRestorableProgress();
+					if (isStaleRender(renderToken)) {
+						return;
+					}
+					if (savedProgress?.cfi) {
+						await restoreSavedProgress(savedProgress, renderToken);
+						if (isStaleRender(renderToken)) {
+							return;
+						}
+					}
+				}
 			}
 
-			onProgressChange?.(readerService.getReadingProgress());
-			onPaginationChange?.(await readerService.getPaginationInfo());
+			notifyProgressChange(readerService.getReadingProgress());
+			notifyPaginationChange(await readerService.getPaginationInfo());
+			notifyChapterChange(readerService.getCurrentChapterTitle());
 			if (isStaleRender(renderToken)) {
 				return;
 			}
@@ -258,16 +443,15 @@
 			}
 			highlightsReady = true;
 
-			onReaderReady?.();
+			notifyReaderReady();
 			void stabilizeMobileRenderer(renderToken);
 		} catch (error) {
 			if (isStaleRender(renderToken)) {
 				return;
 			}
-			logger.error('[EpubReaderView] Failed to render book:', error);
+			const classified = reportEpubError(error, 'render');
 			rendered = false;
-			const message = error instanceof Error ? error.message : 'EPUB 渲染失败';
-			onRenderError?.(message);
+			notifyRenderError(classified.userMessage);
 		}
 	}
 
@@ -287,7 +471,13 @@
 
 	async function applySettings() {
 		if (!rendered) return;
-		await readerService.applyReaderAppearance(settings.theme, settings.lineHeight);
+		await readerService.applyReaderAppearance({
+			lineHeight: settings.lineHeight,
+			letterSpacing: settings.letterSpacing,
+			pageMargin: settings.pageMargin,
+			widthMode: settings.widthMode,
+			strikethroughPresentation: excerptSettings.strikethroughDisplayMode,
+		});
 	}
 
 	async function collectAllHighlights(): Promise<ReaderHighlight[]> {
@@ -367,8 +557,9 @@
 			if (book) {
 				await storageService.saveProgress(book.id, position);
 			}
-			onProgressChange?.(position.percent);
-			onPaginationChange?.(await readerService.getPaginationInfo());
+			notifyProgressChange(position.percent);
+			notifyPaginationChange(await readerService.getPaginationInfo());
+			notifyChapterChange(readerService.getCurrentChapterTitle());
 		});
 	}
 
@@ -390,23 +581,25 @@
 			currentFlowMode = nextFlowMode;
 			currentWidthMode = nextWidthMode;
 			await readerService.setLayoutMode(nextLayoutMode, nextFlowMode, {
-				theme: settings.theme,
 				lineHeight: settings.lineHeight,
+				letterSpacing: settings.letterSpacing,
+				pageMargin: settings.pageMargin,
 				widthMode: nextWidthMode,
+				strikethroughPresentation: excerptSettings.strikethroughDisplayMode,
 			});
 			skipNextAppearanceSync = true;
 
 			await new Promise(r => setTimeout(r, 150));
 
 			await refreshReaderHighlights();
-			onReaderReady?.();
+			notifyReaderReady();
 			void stabilizeMobileRenderer(renderSessionToken);
 		} catch (error) {
-			logger.error('[EpubReaderView] Failed to change reader mode:', error);
+			const classified = reportEpubError(error, 'render');
 			currentLayoutMode = previousLayoutMode;
 			currentFlowMode = previousFlowMode;
 			currentWidthMode = previousWidthMode;
-			onRenderError?.(error instanceof Error ? error.message : '阅读模式切换失败');
+			notifyRenderError(classified.userMessage);
 		}
 	}
 
@@ -417,8 +610,10 @@
 	});
 
 	$effect(() => {
-		const _theme = settings.theme;
 		const _lh = settings.lineHeight;
+		const _ls = settings.letterSpacing;
+		const _pm = settings.pageMargin;
+		const _sp = excerptSettings.strikethroughDisplayMode;
 		if (rendered) {
 			if (skipNextAppearanceSync) {
 				skipNextAppearanceSync = false;

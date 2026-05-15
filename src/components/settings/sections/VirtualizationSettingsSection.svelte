@@ -368,7 +368,8 @@
   }
 
   .section-header {
-    margin-bottom: 2rem;
+    margin-bottom: 0;
+    padding-bottom: 0.4rem;
   }
   
   .section-header .section-title {
@@ -386,33 +387,20 @@
   }
   
   .settings-group {
-    margin-bottom: 2rem;
-    padding: 1rem;
-    background: var(--background-secondary);
-    border-radius: var(--radius-m);
+    margin-bottom: 0;
   }
   
   .group-title {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    margin: 0 0 1rem 0;
-    font-size: 1.1rem;
-    font-weight: 500;
-    color: var(--text-normal);
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
   }
   
   .setting-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 1rem 0;
-    border-bottom: 1px solid var(--background-modifier-border);
-  }
-  
-  .setting-item:last-child {
-    border-bottom: none;
+    align-items: flex-start;
   }
   
   .setting-info {
@@ -574,4 +562,3 @@
     }
   }
 </style>
-

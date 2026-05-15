@@ -5,6 +5,7 @@
   import { MAIN_SEPARATOR } from "../../constants/markdown-delimiters";
   import { sanitizeFileName } from "../../utils/card-export-utils";
   import { extractBodyContent } from "../../utils/yaml-utils";
+  import { applyStyleProps } from "../../utils/style-props";
   import EnhancedIcon from "../ui/EnhancedIcon.svelte";
 
   interface ConfirmPayload {
@@ -196,10 +197,12 @@
     }
 
     const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    applyStyleProps(document.body, { overflow: "hidden" });
 
     return () => {
-      document.body.style.overflow = previousOverflow;
+      applyStyleProps(document.body, {
+        overflow: previousOverflow || null
+      });
     };
   });
 

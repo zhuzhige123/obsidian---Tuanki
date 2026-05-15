@@ -25,6 +25,28 @@ export interface StudyViewState {
 	cardIds?: string[];
 }
 
+export type StudySessionType = "review" | "new" | "learning" | "mixed";
+
+export interface StudyQueueState {
+	currentCardIndex: number;
+	studyQueueCardIds: string[];
+	sessionStudiedCardIds: string[];
+}
+
+export interface StudySessionStats {
+	completed: number;
+	correct: number;
+	incorrect: number;
+}
+
+export interface StudySessionSnapshot {
+	deckId: string;
+	currentCardIndex: number;
+	remainingCardIds: string[];
+	stats: StudySessionStats;
+	sessionType: StudySessionType;
+}
+
 /**
  * 持久化的学习会话状态
  * 用于会话恢复
@@ -46,11 +68,7 @@ export interface PersistedStudySession {
 
 	/** 剩余待学习的卡片ID列表 */
 	remainingCardIds: string[];
-	queueState?: {
-		currentCardIndex: number;
-		studyQueueCardIds: string[];
-		sessionStudiedCardIds: string[];
-	};
+	queueState?: StudyQueueState;
 
 	/** 会话开始时间 */
 	startTime: number;
@@ -59,20 +77,18 @@ export interface PersistedStudySession {
 	pauseTime?: number;
 
 	/** 学习统计 */
-	stats: {
-		/** 已完成数量 */
-		completed: number;
-		/** 正确数量 */
-		correct: number;
-		/** 错误数量 */
-		incorrect: number;
-	};
+	stats: StudySessionStats;
 
 	/** 是否处于暂停状态 */
 	isPaused: boolean;
 
 	/** 会话类型 */
-	sessionType: "review" | "new" | "learning" | "mixed";
+	sessionType: StudySessionType;
+}
+
+export interface PersistedStudySessionStore {
+	activeDeckId?: string;
+	sessionsByDeckId: Record<string, PersistedStudySession>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -91,7 +107,7 @@ function isStudyMode(value: unknown): value is StudyMode {
 	return value === "normal" || value === "advance" || value === "custom";
 }
 
-function isPersistedSessionType(value: unknown): value is PersistedStudySession["sessionType"] {
+function isPersistedSessionType(value: unknown): value is StudySessionType {
 	return value === "review" || value === "new" || value === "learning" || value === "mixed";
 }
 
@@ -152,6 +168,22 @@ export function isPersistedStudySession(value: unknown): value is PersistedStudy
 	}
 
 	return true;
+}
+
+export function isPersistedStudySessionStore(value: unknown): value is PersistedStudySessionStore {
+	if (!isRecord(value)) {
+		return false;
+	}
+
+	if (value.activeDeckId !== undefined && typeof value.activeDeckId !== "string") {
+		return false;
+	}
+
+	if (!isRecord(value.sessionsByDeckId)) {
+		return false;
+	}
+
+	return Object.values(value.sessionsByDeckId).every(isPersistedStudySession);
 }
 
 export interface StudySession {

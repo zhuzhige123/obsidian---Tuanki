@@ -8,6 +8,7 @@
 
 import { ItemView, WorkspaceLeaf } from "obsidian";
 import { logger } from "./logger";
+import { revealLeaf } from "./workspace-navigation";
 
 /** 视图位置类型 */
 export type ViewLocation = "center" | "left" | "right";
@@ -154,7 +155,7 @@ export async function moveViewToLocation(
 		currentLeaf.detach();
 
 		// 显示新的 leaf
-		void workspace.revealLeaf(newLeaf);
+		revealLeaf(view.app, newLeaf);
 
 		logger.debug(`[ViewLocation] ✅ 视图已移动到 ${targetLocation}`);
 		return true;

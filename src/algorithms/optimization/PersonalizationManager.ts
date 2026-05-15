@@ -281,7 +281,7 @@ export class PersonalizationManager {
 		}
 
 		// 计算当前准确性（使用最新数据）
-		const optimizedAccuracy = await this.optimizer.calculatePredictionAccuracy(history);
+		const optimizedAccuracy = this.optimizer.calculatePredictionAccuracy(history);
 
 		// 计算改进幅度（处理除零情况）
 		let improvement = 0;

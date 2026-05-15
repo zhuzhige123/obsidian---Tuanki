@@ -190,7 +190,10 @@ export class StudyAICoordinator {
 					template: this.context.availableTemplates.find((t) => t.id === card.templateId),
 					// 🆕 v2.2: 优先从 content YAML 的 we_decks 获取牌组ID
 					deck: this.context.decks.find(
-						(d) => d.id === (getCardDeckIds(card, this.context.decks).primaryDeckId || card.deckId)
+						(d) =>
+							d.id ===
+							(getCardDeckIds(card, this.context.decks, { fallbackToReferences: false })
+								.primaryDeckId || card.deckId)
 					),
 				},
 				this.context.plugin

@@ -1,4 +1,4 @@
-import { getV2Paths } from '../../config/paths';
+import { getPluginPaths, getV2Paths } from '../../config/paths';
 import { QuestionBankStorage } from '../question-bank/QuestionBankStorage';
 
 function normalizeTestPath(path: string): string {
@@ -141,6 +141,11 @@ function createMemoryApp(initialFiles: Record<string, string> = {}) {
 describe('QuestionBankStorage cleanup', () => {
   it('cleans question-bank references and per-card runtime data for deleted memory cards', async () => {
     const v2Paths = getV2Paths('');
+    const pluginPaths = getPluginPaths({
+      vault: {
+        configDir: '.obsidian',
+      },
+    } as any);
     const bankA = { id: 'bank-a', name: '考试A', metadata: {}, created: '', modified: '' };
     const bankB = { id: 'bank-b', name: '考试B', metadata: {}, created: '', modified: '' };
     const { app } = createMemoryApp({
@@ -335,7 +340,7 @@ describe('QuestionBankStorage cleanup', () => {
     expect(inProgressA?.currentQuestionIndex).toBe(0);
     await expect(storage.loadInProgressSession('bank-b')).resolves.toBeNull();
 
-    const sessionArchivesRaw = await app.vault.adapter.read(v2Paths.questionBank.sessionArchives);
+    const sessionArchivesRaw = await app.vault.adapter.read(pluginPaths.cache.root + '/question-bank/session-archives.json');
     const sessionArchives = JSON.parse(sessionArchivesRaw).byBank;
     expect(sessionArchives['bank-a']['archive-a'].questions.map((question: any) => question.questionId)).toEqual(['card-keep']);
     expect(sessionArchives['bank-b']).toBeUndefined();

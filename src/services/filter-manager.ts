@@ -506,7 +506,9 @@ export class FilterManager {
 
 			case "deck": {
 				// 优先从 content YAML 的 we_decks 获取牌组 ID
-				const { primaryDeckId } = getCardDeckIds(card, this.deckResolver?.());
+				const { primaryDeckId } = getCardDeckIds(card, this.deckResolver?.(), {
+					fallbackToReferences: false,
+				});
 				return primaryDeckId || card.deckId;
 			}
 

@@ -2,7 +2,6 @@
  * AI服务工厂
  */
 
-import type { WeavePlugin } from "../../main";
 import type { AIProvider, IAIService, SystemPromptConfig } from "../../types/ai-types";
 import type { AIConfig } from "../../types/plugin-settings";
 import { AnthropicService } from "./AnthropicService";
@@ -11,6 +10,8 @@ import { GeminiService } from "./GeminiService";
 import { OpenAIService } from "./OpenAIService";
 import { SiliconFlowService } from "./SiliconFlowService";
 import { ZhipuService } from "./ZhipuService";
+import { getDefaultAIModel } from "../../components/settings/constants/settings-constants";
+import { resolveAIConfig, type AIConfigHost } from "./ai-host";
 
 interface AIProviderConfig {
 	apiKey: string;
@@ -36,30 +37,20 @@ const AI_PROVIDERS: AIProvider[] = [
 	"xai",
 ];
 
-const DEFAULT_MODELS: Record<AIProvider, string> = {
-	openai: "gpt-5-mini",
-	zhipu: "glm-4-flash",
-	deepseek: "deepseek-chat",
-	gemini: "gemini-2.5-flash",
-	anthropic: "claude-3-7-sonnet-latest",
-	siliconflow: "Qwen/Qwen3-32B",
-	xai: "grok-beta",
-};
-
 function isAIProvider(value?: string): value is AIProvider {
 	return value !== undefined && AI_PROVIDERS.includes(value as AIProvider);
 }
 
-function getAIConfig(plugin: WeavePlugin): AIConfigWithProviders | undefined {
-	return plugin.settings.aiConfig as AIConfigWithProviders | undefined;
+function getAIConfig(host: AIConfigHost): AIConfigWithProviders | undefined {
+	return resolveAIConfig(host) as AIConfigWithProviders | undefined;
 }
 
 function createService(
 	provider: AIProvider,
-	plugin: WeavePlugin,
+	host: AIConfigHost,
 	customModel?: string
 ): IAIService {
-	const aiConfig = getAIConfig(plugin);
+	const aiConfig = getAIConfig(host);
 
 	if (!aiConfig) {
 		throw new Error("AI配置未初始化");
@@ -73,7 +64,7 @@ function createService(
 
 	const customBaseUrl = providerConfig.baseUrl;
 	const systemPromptConfig = aiConfig.systemPromptConfig;
-	const modelToUse = customModel || providerConfig.model || DEFAULT_MODELS[provider];
+	const modelToUse = customModel || providerConfig.model || getDefaultAIModel(provider);
 
 	if (!modelToUse) {
 		throw new Error(
@@ -138,8 +129,8 @@ function createService(
 	}
 }
 
-function getDefaultService(plugin: WeavePlugin): IAIService {
-	const aiConfig = getAIConfig(plugin);
+function getDefaultService(host: AIConfigHost): IAIService {
+	const aiConfig = getAIConfig(host);
 
 	if (!aiConfig) {
 		throw new Error("AI配置未初始化");
@@ -147,7 +138,7 @@ function getDefaultService(plugin: WeavePlugin): IAIService {
 
 	const provider = isAIProvider(aiConfig.defaultProvider) ? aiConfig.defaultProvider : "zhipu";
 
-	return createService(provider, plugin);
+	return createService(provider, host);
 }
 
 export const AIServiceFactory = {

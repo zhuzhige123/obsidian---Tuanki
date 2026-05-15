@@ -12,6 +12,7 @@ import { ClozeCardParser } from "../parsers/card-type-parsers/ClozeCardParser";
 import { QACardParser } from "../parsers/card-type-parsers/QACardParser";
 import { getCardMetadataService } from "../services/CardMetadataService";
 import { hasProgressiveClozeContent } from "../types/progressive-cloze-v2";
+import { hasAnyClozeSyntax } from "./cloze-syntax";
 import { TagExtractor } from "./tag-extractor";
 
 /**
@@ -375,7 +376,7 @@ export function detectCardTypeFromContent(content: string): "basic" | "cloze" | 
 	// 注意：不区分普通挖空和渐进式挖空，统一返回 'cloze'
 	// 渐进式挖空的检测和转换由 ProgressiveClozeGateway 统一处理
 	const hasAnkiCloze = content.includes("{{c");
-	const hasMarkdownHighlight = /==.+?==/s.test(content);
+	const hasMarkdownHighlight = hasAnyClozeSyntax(content);
 
 	if (hasAnkiCloze || hasMarkdownHighlight) {
 		logger.debug(

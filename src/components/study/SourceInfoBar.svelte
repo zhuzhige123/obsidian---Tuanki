@@ -7,7 +7,7 @@
   import { logger } from "../../utils/logger";
   import { normalizePathForComparison } from "../../utils/source-path-matcher";
   import { tr } from '../../utils/i18n';
-  import { parseSourceInfo } from "../../utils/yaml-utils";
+  import { parseEpubSourceInfo, parseSourceInfo } from "../../utils/yaml-utils";
 
   interface Props {
     card: Card;
@@ -47,13 +47,44 @@
     return fileName ? { fileName, blockId } : null;
   }
 
+  function formatEpubLocationSummary(_text: string | undefined, chapter: number | undefined): string | null {
+    if (chapter !== undefined) {
+      return `章节 ${chapter}`;
+    }
+    return null;
+  }
+
   // -- 解析当前卡片的源文件信息 --
   let sourceParsed = $derived.by(() => {
+    const content = card?.content || '';
+    const epubSource = parseEpubSourceInfo(content);
+    if (epubSource.sourceFile) {
+      const fileName = epubSource.sourceFile.replace(/^.*[\\/]/, '').replace(/\.epub$/i, '');
+      const locationLabel = formatEpubLocationSummary(epubSource.text, epubSource.chapter);
+      return {
+        fileName,
+        blockId: null,
+        isEpub: true,
+        locationLabel,
+        sourcePath: epubSource.sourceFile,
+        displayName: locationLabel || fileName,
+      };
+    }
+
     const raw = metadataService.getCardSource(card);
-    return parseSource(raw);
+    const parsed = parseSource(raw);
+    if (!parsed) return null;
+    return {
+      ...parsed,
+      isEpub: false,
+      locationLabel: null,
+      sourcePath: raw,
+      displayName: parsed.fileName,
+    };
   });
 
-  let sourceDocName = $derived(sourceParsed?.fileName || null);
+  let sourceDocName = $derived(sourceParsed?.displayName || sourceParsed?.fileName || null);
+  let sourceLocationLabel = $derived(sourceParsed?.locationLabel || null);
 
   function hasExplicitExtension(path: string): boolean {
     return /\.[^/.]+$/i.test(path);
@@ -90,6 +121,10 @@
   // -- 最小标题（从 Obsidian metadataCache 获取）--
   let smallestHeading = $derived.by(() => {
     if (!sourceParsed) return null;
+
+    if (sourceParsed.isEpub) {
+      return sourceParsed.locationLabel || null;
+    }
 
     try {
       const app = plugin.app;
@@ -149,8 +184,13 @@
    */
   function normalizeSourceForComparison(source: string | undefined): string | null {
     if (!source) return null;
-    // 移除 #^blockId 部分，移除路径前缀和 .md 后缀
-    return source.replace(/#\^.+$/, '').replace(/^.*[\\/]/, '').replace(/\.md$/, '').toLowerCase();
+    return source
+      .replace(/#\^.+$/, '')
+      .replace(/#weave-loc=.*$/, '')
+      .replace(/#weave-cfi=.*$/, '')
+      .replace(/^.*[\\/]/, '')
+      .replace(/\.(md|epub)$/i, '')
+      .toLowerCase();
   }
 
   // -- 同源卡片数量 --
@@ -247,7 +287,9 @@
     </div>
     <div class="stat-content">
       <span class="stat-value source-doc-name">{sourceDocName || '--'}</span>
-      {#if smallestHeading}
+      {#if !sourceParsed?.isEpub && sourceLocationLabel}
+        <span class="source-heading">{sourceLocationLabel}</span>
+      {:else if smallestHeading}
         <span class="source-heading">{smallestHeading}</span>
       {/if}
     </div>

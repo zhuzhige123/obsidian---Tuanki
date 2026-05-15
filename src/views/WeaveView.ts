@@ -1,6 +1,7 @@
 import { type EventRef, ItemView, Menu, Platform } from "obsidian";
 import type { WorkspaceLeaf } from "obsidian";
 import type { WeavePlugin } from "../main";
+import { i18n } from "../utils/i18n";
 import { logger } from "../utils/logger";
 import {
 	getLocationToggleIcon,
@@ -18,17 +19,21 @@ import {
 	type WeaveTableViewMode,
 	openWeaveMainMenu,
 } from "../utils/weave-main-menu";
+import { weaveMainInterfaceStore } from "../stores/weave-main-interface-store";
 import { computeMobileHeaderCenterTop } from "../utils/mobile-header-center";
+import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from "../services/premium/PremiumFeatureGuard";
 
 export const VIEW_TYPE_WEAVE = "weave-view";
+
+const DECK_STUDY_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: "deck-study" };
 
 export class WeaveView extends ItemView {
 	component: unknown | null = null;
 	plugin: WeavePlugin;
 	private isClosing = false;
-	private currentPage = "deck-study";
-	private pageChangeHandler: ((event: Event) => void) | null = null;
+	private currentPage = weaveMainInterfaceStore.getState().currentPage;
 	private aiSelectionStateHandler: ((event: Event) => void) | null = null;
+	private mainInterfaceUnsubscribe: (() => void) | null = null;
 	private layoutChangeRef: EventRef | null = null;
 	private mobileHeaderCenterComponent: unknown | null = null;
 	private mobileHeaderCenterHost: HTMLElement | null = null;
@@ -38,11 +43,14 @@ export class WeaveView extends ItemView {
 	private aiFileAction: HTMLElement | null = null;
 	private aiPromptAction: HTMLElement | null = null;
 	private aiGenerateAction: HTMLElement | null = null;
+	private aiSubViewToggleAction: HTMLElement | null = null;
+	private currentAISubView: "generate" | "parse-preview" = weaveMainInterfaceStore.getState().aiToolbar.subView;
 	private cardViewChangeHandler: ((event: Event) => void) | null = null;
 	private deckViewChangeHandler: ((event: Event) => void) | null = null;
 	private deckFilterChangeHandler: ((event: Event) => void) | null = null;
 	private cardDataSourceChangeHandler: ((event: Event) => void) | null = null;
 	private cardToolbarStateHandler: ((event: Event) => void) | null = null;
+	private pendingLoadRetryInterval: ReturnType<typeof setInterval> | null = null;
 	private aiSelectionState = {
 		hasCards: false,
 		selectedCount: 0,
@@ -76,7 +84,11 @@ export class WeaveView extends ItemView {
 	constructor(leaf: WorkspaceLeaf, plugin: WeavePlugin) {
 		super(leaf);
 		this.plugin = plugin;
-		this.currentDeckStudyView = plugin.getCachedDeckViewPreference() === "kanban" ? "kanban" : "grid";
+		const cachedDeckStudyView = plugin.getCachedDeckViewPreference() === "kanban" ? "kanban" : "grid";
+		this.currentDeckStudyView = cachedDeckStudyView === "kanban"
+			&& !PremiumFeatureGuard.getInstance().canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, DECK_STUDY_FEATURE_CONTEXT)
+			? "grid"
+			: cachedDeckStudyView;
 	}
 
 	getViewType() {
@@ -142,26 +154,32 @@ export class WeaveView extends ItemView {
 
 		void this.mountMobileHeaderCenter();
 
-		this.mainMenuAction = this.addAction("menu", "打开菜单", () => {
+		this.mainMenuAction = this.addAction("menu", i18n.t("views.weave.mobileOpenMenu"), () => {
 			this.openMobileMainMenu();
 		});
-		this.aiFileAction = this.addAction("folder-open", "选择文件", () => {
+		this.aiFileAction = this.addAction("folder-open", i18n.t("views.weave.mobileChooseFile"), () => {
 			this.dispatchAIToolbarAction("file", this.aiFileAction);
 		});
-		this.aiPromptAction = this.addAction("edit-3", "提示词", () => {
-			this.dispatchAIToolbarAction("prompt", this.aiPromptAction);
+		this.aiPromptAction = this.addAction("edit-3", i18n.t("views.weave.mobilePrompt"), () => {
+			this.dispatchAIToolbarAction("prompt-file", this.aiPromptAction);
 		});
-		this.aiGenerateAction = this.addAction("sparkles", "开始生成", () => {
+		this.aiGenerateAction = this.addAction("sparkles", i18n.t("views.weave.mobileGenerate"), () => {
 			this.dispatchAIToolbarAction("generate", this.aiGenerateAction);
 		});
-
-		this.pageChangeHandler = (event: Event) => {
-			const page = (event as CustomEvent<string>).detail;
-			if (typeof page === "string") {
-				this.currentPage = page;
+		this.aiSubViewToggleAction = this.addAction("sparkles", i18n.t("views.weave.mobileAiCard"), () => {
+			this.toggleAISubView();
+		});
+		this.mainInterfaceUnsubscribe = weaveMainInterfaceStore.subscribe((state) => {
+			if (this.currentPage !== state.currentPage) {
+				this.currentPage = state.currentPage;
 				this.updateMobileHeaderActionsVisibility();
 			}
-		};
+
+			if (this.currentAISubView !== state.aiToolbar.subView) {
+				this.currentAISubView = state.aiToolbar.subView;
+				this.updateAISubViewToggle();
+			}
+		});
 		this.aiSelectionStateHandler = (event: Event) => {
 			const detail = (
 				event as CustomEvent<{
@@ -189,15 +207,20 @@ export class WeaveView extends ItemView {
 		this.deckViewChangeHandler = (event: Event) => {
 			const view = (event as CustomEvent<string>).detail;
 			if (view === "grid" || view === "kanban") {
-				this.currentDeckStudyView = view;
+				this.currentDeckStudyView = view === "kanban"
+					&& !PremiumFeatureGuard.getInstance().canUseFeature(
+						PREMIUM_FEATURES.KANBAN_VIEW,
+						DECK_STUDY_FEATURE_CONTEXT
+					)
+					? "grid"
+					: view;
 			}
 		};
 		this.deckFilterChangeHandler = (event: Event) => {
 			const filter = (event as CustomEvent<string>).detail;
 			if (
 				filter === "memory" ||
-				filter === "question-bank" ||
-				filter === "incremental-reading"
+				filter === "question-bank"
 			) {
 				this.currentDeckStudyFilter = filter;
 			}
@@ -206,8 +229,7 @@ export class WeaveView extends ItemView {
 			const source = (event as CustomEvent<string>).detail;
 			if (
 				source === "memory" ||
-				source === "questionBank" ||
-				source === "incremental-reading"
+				source === "questionBank"
 			) {
 				this.currentCardDataSource = source;
 			}
@@ -254,14 +276,11 @@ export class WeaveView extends ItemView {
 			}
 			if (
 				detail.dataSource === "memory" ||
-				detail.dataSource === "questionBank" ||
-				detail.dataSource === "incremental-reading"
+				detail.dataSource === "questionBank"
 			) {
 				this.currentCardDataSource = detail.dataSource;
 			}
 		};
-
-		window.addEventListener("Weave:page-changed", this.pageChangeHandler as EventListener);
 		window.addEventListener(
 			"Weave:ai-selection-state-change",
 			this.aiSelectionStateHandler as EventListener
@@ -306,32 +325,32 @@ export class WeaveView extends ItemView {
                         currentPage: this.currentPage,
                         leaf: this.leaf,
                         isMobile: Platform.isMobile,
-                        navigationVisibility: this.plugin.settings.navigationVisibility,
+                        navigationVisibility: weaveMainInterfaceStore.getState().navigationVisibility,
                         deckStudyView: this.currentDeckStudyView,
-			deckStudyFilter: this.currentDeckStudyFilter,
-			cardDataSource: this.currentCardDataSource,
-			currentView: this.currentCardView,
-			tableViewMode: this.cardToolbarState.tableViewMode,
-			gridLayoutMode: this.cardToolbarState.gridLayoutMode,
-			kanbanLayoutMode: this.cardToolbarState.kanbanLayoutMode,
-			irTypeFilter: this.cardToolbarState.irTypeFilter,
-			documentFilterMode: this.cardToolbarState.documentFilterMode,
-			currentActiveDocument: this.cardToolbarState.currentActiveDocument,
-			enableCardLocationJump: this.cardToolbarState.enableCardLocationJump,
-			showTableGridBorders: this.cardToolbarState.showTableGridBorders,
-			event: menuEvent,
-			anchorEl: this.mainMenuAction,
-			onNavigate: (pageId) => {
-				this.currentPage = pageId;
-				window.dispatchEvent(new CustomEvent("Weave:navigate", { detail: pageId }));
-			},
-			onCardDataSourceChange: (source) => {
-				this.currentCardDataSource = source;
-			},
-			onViewChange: (view) => {
-				this.currentCardView = view;
-			},
-		});
+                        deckStudyFilter: this.currentDeckStudyFilter,
+                        cardDataSource: this.currentCardDataSource,
+                        currentView: this.currentCardView,
+                        tableViewMode: this.cardToolbarState.tableViewMode,
+                        gridLayoutMode: this.cardToolbarState.gridLayoutMode,
+                        kanbanLayoutMode: this.cardToolbarState.kanbanLayoutMode,
+                        irTypeFilter: this.cardToolbarState.irTypeFilter,
+                        documentFilterMode: this.cardToolbarState.documentFilterMode,
+                        currentActiveDocument: this.cardToolbarState.currentActiveDocument,
+                        enableCardLocationJump: this.cardToolbarState.enableCardLocationJump,
+                        showTableGridBorders: this.cardToolbarState.showTableGridBorders,
+                        event: menuEvent,
+                        anchorEl: this.mainMenuAction,
+                        onNavigate: (pageId) => {
+                            weaveMainInterfaceStore.setCurrentPage(pageId);
+                            window.dispatchEvent(new CustomEvent("Weave:navigate", { detail: pageId }));
+                        },
+                        onCardDataSourceChange: (source) => {
+                            this.currentCardDataSource = source;
+                        },
+                        onViewChange: (view) => {
+                            this.currentCardView = view;
+                        },
+                });
 	}
 
 	private createHeaderMenuMouseEvent(anchorEl: HTMLElement | null): MouseEvent {
@@ -354,7 +373,7 @@ export class WeaveView extends ItemView {
 	}
 
 	private dispatchAIToolbarAction(
-		action: "file" | "provider" | "prompt" | "config" | "generate",
+		action: "file" | "prompt-file" | "config" | "generate" | "model",
 		el: HTMLElement | null
 	): void {
 		const rect = el?.getBoundingClientRect();
@@ -379,9 +398,21 @@ export class WeaveView extends ItemView {
 		);
 	}
 
+	private toggleAISubView(): void {
+		const nextSubView = this.currentAISubView === "generate" ? "parse-preview" : "generate";
+		window.dispatchEvent(
+			new CustomEvent("Weave:ai-toolbar-action", {
+				detail: {
+					action: "sub-view",
+					value: nextSubView,
+				},
+			})
+		);
+	}
+
 	private updateMobileHeaderActionsVisibility(): void {
 		const visible = Platform.isMobile && this.currentPage === "ai-assistant";
-		const actions = [this.aiFileAction, this.aiPromptAction, this.aiGenerateAction];
+		const actions = [this.aiFileAction, this.aiPromptAction, this.aiGenerateAction, this.aiSubViewToggleAction];
 
 		for (const action of actions) {
 			if (!action) continue;
@@ -389,6 +420,26 @@ export class WeaveView extends ItemView {
 		}
 
 		this.scheduleMobileHeaderCenterAlignment();
+	}
+
+	private updateAISubViewToggle(): void {
+		if (!this.aiSubViewToggleAction) return;
+
+		const icon = this.aiSubViewToggleAction.querySelector('.view-action') as HTMLElement;
+		if (!icon) return;
+
+		icon.setAttribute(
+			'aria-label',
+			this.currentAISubView === 'generate'
+				? i18n.t('views.weave.mobileAiCard')
+				: i18n.t('views.weave.mobileParsePreview')
+		);
+
+		const svgUse = icon.querySelector('use');
+		if (svgUse) {
+			const iconId = this.currentAISubView === 'generate' ? 'sparkles' : 'file-search';
+			svgUse.setAttribute('href', `#lucide-${iconId}`);
+		}
 	}
 
 	private resolveMobileHeaderHost(): HTMLElement | null {
@@ -571,7 +622,7 @@ export class WeaveView extends ItemView {
 				menu.addItem((item) => {
 					const shouldDeselect = this.aiSelectionState.isAllSelected;
 					item
-						.setTitle(shouldDeselect ? "取消全选" : "全选卡片")
+						.setTitle(shouldDeselect ? i18n.t("views.weave.deselectAll") : i18n.t("views.weave.selectAllCards"))
 						.setIcon(shouldDeselect ? "square" : "check-square")
 						.onClick(() => {
 							window.dispatchEvent(
@@ -600,8 +651,8 @@ export class WeaveView extends ItemView {
 	 */
 	private showLoadingPlaceholder(): void {
 		this.renderLoadingState({
-			title: "正在初始化 Weave...",
-			message: "正在准备学习空间与核心服务，请稍候片刻",
+			title: i18n.t("views.weave.loadingInitTitle"),
+			message: i18n.t("views.weave.loadingInitMessage"),
 		});
 	}
 
@@ -630,27 +681,53 @@ export class WeaveView extends ItemView {
 	 */
 	private async loadComponentAsync(): Promise<void> {
 		try {
+			if (this.isClosing) {
+				return;
+			}
+
 			// 异步等待 dataStorage 初始化
 			await this.waitForDataStorage();
+
+			if (this.isClosing) {
+				return;
+			}
 
 			// 检查 dataStorage 是否已初始化
 			if (!this.plugin.dataStorage) {
 				logger.warn("[WeaveView] dataStorage 未初始化，显示等待状态");
 				this.renderLoadingState({
-					title: "正在等待数据服务初始化...",
-					message: "Weave 正在同步存储与索引，完成后会自动进入主界面",
-					hint: "如果长时间未响应，请尝试重新加载插件",
+					title: i18n.t("views.weave.loadingDataTitle"),
+					message: i18n.t("views.weave.loadingDataMessage"),
+					hint: i18n.t("views.weave.loadingDataHint"),
 				});
 
 				// 继续等待，每秒检查一次
-				const checkInterval = setInterval(async () => {
-					if (this.plugin.dataStorage) {
-						clearInterval(checkInterval);
-						await this.loadComponentAsync();
-					}
-				}, 1000);
+				if (!this.pendingLoadRetryInterval) {
+					this.pendingLoadRetryInterval = setInterval(async () => {
+						if (this.isClosing) {
+							if (this.pendingLoadRetryInterval) {
+								clearInterval(this.pendingLoadRetryInterval);
+								this.pendingLoadRetryInterval = null;
+							}
+							return;
+						}
+
+						if (this.plugin.dataStorage) {
+							if (this.pendingLoadRetryInterval) {
+								clearInterval(this.pendingLoadRetryInterval);
+								this.pendingLoadRetryInterval = null;
+							}
+							await this.loadComponentAsync();
+						}
+					}, 1000);
+				}
 
 				return;
+			}
+
+			if (this.pendingLoadRetryInterval) {
+				clearInterval(this.pendingLoadRetryInterval);
+				this.pendingLoadRetryInterval = null;
 			}
 
 			// 清空占位符
@@ -664,9 +741,9 @@ export class WeaveView extends ItemView {
 			logger.error("[WeaveView] 组件加载失败:", error);
 			this.contentEl.empty();
 			const errorDiv = this.contentEl.createDiv({ cls: "weave-view-error" });
-			errorDiv.createDiv({ cls: "error-icon", text: "警告" });
-			errorDiv.createDiv({ cls: "error-text", text: "Weave 初始化失败" });
-			errorDiv.createDiv({ cls: "error-hint", text: "请尝试重新加载插件或重启 Obsidian" });
+			errorDiv.createDiv({ cls: "error-icon", text: i18n.t("common.warning") });
+			errorDiv.createDiv({ cls: "error-text", text: i18n.t("views.weave.initFailedTitle") });
+			errorDiv.createDiv({ cls: "error-hint", text: i18n.t("views.weave.initFailedHint") });
 		}
 	}
 
@@ -725,7 +802,7 @@ export class WeaveView extends ItemView {
 			});
 		} catch (error) {
 			logger.error("Failed to create WeaveView component:", error);
-			this.contentEl.createDiv({ cls: "error", text: "Failed to load Weave interface" });
+			this.contentEl.createDiv({ cls: "error", text: i18n.t("views.weave.loadFailed") });
 		}
 	}
 
@@ -736,6 +813,11 @@ export class WeaveView extends ItemView {
 			return;
 		}
 		this.isClosing = true;
+
+		if (this.pendingLoadRetryInterval) {
+			clearInterval(this.pendingLoadRetryInterval);
+			this.pendingLoadRetryInterval = null;
+		}
 
 		if (this.layoutChangeRef) {
 			this.app.workspace.offref(this.layoutChangeRef);
@@ -785,9 +867,9 @@ export class WeaveView extends ItemView {
 		//  清空容器内容
 		this.contentEl.empty();
 
-		if (this.pageChangeHandler) {
-			window.removeEventListener("Weave:page-changed", this.pageChangeHandler as EventListener);
-			this.pageChangeHandler = null;
+		if (this.mainInterfaceUnsubscribe) {
+			this.mainInterfaceUnsubscribe();
+			this.mainInterfaceUnsubscribe = null;
 		}
 		if (this.aiSelectionStateHandler) {
 			window.removeEventListener(

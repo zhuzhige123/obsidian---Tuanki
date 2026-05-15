@@ -5,13 +5,15 @@
    * 设计风格：类 Cursor 现代化界面
    */
   import { Notice } from "obsidian";
+  import { onDestroy, tick } from "svelte";
   import type { WeavePlugin } from "../../main";
   import type { WeaveDataStorage } from "../../data/storage";
-  import type { ImportProgress, ImportResult, ImportConfig } from "../../domain/apkg/types";
+  import type { ImportProgress, ImportResult } from "../../domain/apkg/types";
   import { APKGImportService } from "../../application/services/apkg/APKGImportService";
   import { ObsidianMediaStorageAdapter } from "../../infrastructure/adapters/impl/ObsidianMediaStorageAdapter";
   import { WeaveDataStorageAdapter } from "../../infrastructure/adapters/impl/WeaveDataStorageAdapter";
   import EnhancedIcon from "../ui/EnhancedIcon.svelte";
+  import OperationProgressCard from "../ui/OperationProgressCard.svelte";
   import ResizableModal from "../ui/ResizableModal.svelte";
 
   interface Props {
@@ -42,19 +44,111 @@
   type ImportStage = 'selection' | 'importing' | 'result';
   let importStage = $state<ImportStage>('selection');
   let selectedFile = $state<File | null>(null);
-  // 移除了analysisResult，因为新架构不支持预览模式
   let importResult = $state<ImportResult | null>(null);
-  let importProgress = $state<ImportProgress>({ stage: 'parsing', progress: 0, message: "" });
+  let progressStage = $state<ImportProgress['stage']>('parsing');
+  let progressPercent = $state(0);
+  let progressMessage = $state('');
+  let progressDetail = $state('');
+  let progressTotalItems = $state(0);
+  let progressCompletedItems = $state(0);
   let isImporting = $state(false);
   let isDragOver = $state(false);
-  let preserveCardContentHtml = $state(false);
-  
-  // 卡片切换状态：记录每个模型当前显示的示例卡片索引
-  let currentSampleIndices = $state<Record<string | number, number>>({});
-
-  // 文件选择处理
+  let currentImportController = $state<AbortController | null>(null);
+  let currentImportRunId = 0;
+  let isDestroyed = false;
   let fileInput = $state<HTMLInputElement | undefined>(undefined);
   const canImportLegacyApkg = $derived(legacyImportAvailable && Boolean(wasmUrl));
+
+  const importStageSequence: ImportProgress['stage'][] = ['parsing', 'analyzing', 'media', 'building', 'converting', 'saving'];
+
+  function getImportStageLabel(stage: ImportProgress['stage']): string {
+    switch (stage) {
+      case 'parsing':
+        return '解析中';
+      case 'analyzing':
+        return '分析中';
+      case 'converting':
+        return '转换中';
+      case 'media':
+        return '处理媒体';
+      case 'building':
+        return '构建卡片';
+      case 'saving':
+        return '保存中';
+      default:
+        return '正在导入';
+    }
+  }
+
+  function getImportStageDescription(stage: ImportProgress['stage']): string {
+    switch (stage) {
+      case 'parsing':
+        return '读取 APKG 压缩包与 Anki 数据库';
+      case 'analyzing':
+        return '识别字段布局并转换模板映射';
+      case 'media':
+        return '迁移图片、音频、视频到 Obsidian 附件';
+      case 'converting':
+        return '转换为 Weave 卡片格式与 Obsidian 标准内容';
+      case 'building':
+        return '构建 Weave 卡片数据';
+      case 'saving':
+        return '写入牌组与卡片数据';
+      default:
+        return '准备导入';
+    }
+  }
+
+  function getStageIndex(stage: ImportProgress['stage']): number {
+    return importStageSequence.indexOf(stage);
+  }
+
+  function isStageCompleted(stage: ImportProgress['stage']): boolean {
+    return getStageIndex(stage) < getStageIndex(progressStage);
+  }
+
+  function isStageCurrent(stage: ImportProgress['stage']): boolean {
+    return progressStage === stage;
+  }
+
+  function getProgressCounterLabel(): string {
+    if (progressTotalItems > 0) {
+      const completed = Math.min(progressCompletedItems, progressTotalItems);
+      return `${completed}/${progressTotalItems}`;
+    }
+
+    return `${Math.round(progressPercent)}%`;
+  }
+
+  function applyImportProgress(progress: ImportProgress) {
+    progressStage = progress.stage;
+    progressPercent = progress.progress;
+    progressMessage = progress.message || '';
+    progressDetail = progress.detail || '';
+    progressTotalItems = progress.totalItems || 0;
+    progressCompletedItems = progress.completedItems || 0;
+  }
+
+  async function yieldToNextFrame() {
+    await tick();
+    await new Promise<void>((resolve) => {
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() => resolve());
+        return;
+      }
+
+      setTimeout(resolve, 0);
+    });
+  }
+
+  function resetImportProgress() {
+    progressStage = 'parsing';
+    progressPercent = 0;
+    progressMessage = '';
+    progressDetail = '';
+    progressTotalItems = 0;
+    progressCompletedItems = 0;
+  }
 
   async function handleFileSelect(event: Event) {
     const target = event.target as HTMLInputElement;
@@ -124,29 +218,6 @@
     isDragOver = false;
   }
 
-  function formatFileSize(bytes: number): string {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  }
-
-  // 卡片切换辅助函数
-  function nextSample(modelId: string | number, maxIndex: number) {
-    const current = currentSampleIndices[modelId] || 0;
-    currentSampleIndices[modelId] = (current + 1) % maxIndex;
-  }
-
-  function prevSample(modelId: string | number, maxIndex: number) {
-    const current = currentSampleIndices[modelId] || 0;
-    currentSampleIndices[modelId] = (current - 1 + maxIndex) % maxIndex;
-  }
-
-  function getCurrentSample(modelId: string | number) {
-    return currentSampleIndices[modelId] || 0;
-  }
-
   async function startImport() {
     if (!selectedFile) return;
     if (!canImportLegacyApkg) {
@@ -154,50 +225,68 @@
       return;
     }
 
+    const runId = currentImportRunId + 1;
+    currentImportRunId = runId;
+    const abortController = new AbortController();
+    currentImportController = abortController;
     isImporting = true;
     importResult = null;
     importStage = 'importing';
+    resetImportProgress();
     
     try {
       // 创建新的APKG导入服务
-      const dataStorage = new WeaveDataStorageAdapter(plugin.dataStorage);
+      const dataStorageAdapter = new WeaveDataStorageAdapter(dataStorage);
       const mediaStorage = new ObsidianMediaStorageAdapter(plugin);
-      const importService = new APKGImportService(dataStorage, mediaStorage);
+      const importService = new APKGImportService(dataStorageAdapter, mediaStorage, { wasmUrl });
 
       // 配置导入参数
-      const config: ImportConfig = {
-        file: selectedFile,
-        conversion: {
-          // 使用默认转换配置
-          preserveComplexTables: true,
-          convertSimpleTables: true,
-          mediaFormat: 'wikilink',
-          clozeFormat: '==',
-          preserveStyles: preserveCardContentHtml,
-          preserveCardContentHtml,
-          tableComplexityThreshold: {
-            maxColumns: 10,
-            maxRows: 20,
-            allowMergedCells: false
-          }
-        },
-        skipExisting: false,
-        createDeckIfNotExist: true
-      };
+      const config = APKGImportService.createStandardImportConfig(selectedFile);
 
       // 执行导入
       const result = await importService.import(config, plugin, (progress) => {
-        importProgress = progress;
+        if (shouldIgnoreImportUpdate(runId)) {
+          return;
+        }
+        applyImportProgress(progress);
+      }, {
+        signal: abortController.signal,
       });
 
+      if (shouldIgnoreImportUpdate(runId)) {
+        return;
+      }
+
+      if (abortController.signal.aborted) {
+        resetModal();
+        resetImportProgress();
+        return;
+      }
+
       importResult = result;
-      
+      if (result.success) {
+        applyImportProgress({
+          stage: 'saving',
+          progress: 100,
+          message: '导入完成',
+        });
+      }
       importStage = 'result';
+      await yieldToNextFrame();
 
       if (result.success) {
-        onImportComplete(importResult);
+        setTimeout(() => {
+          if (!shouldIgnoreImportUpdate(runId) && importResult) {
+            void Promise.resolve(onImportComplete(importResult));
+          }
+        }, 0);
       }
     } catch (error) {
+      if (shouldIgnoreImportUpdate(runId) || abortController.signal.aborted) {
+        resetModal();
+        resetImportProgress();
+        return;
+      }
       importResult = {
         success: false,
         stats: { totalCards: 0, importedCards: 0, skippedCards: 0, failedCards: 0, mediaFiles: 0, mediaTotalSize: 0 },
@@ -207,11 +296,14 @@
       };
       importStage = 'result';
     } finally {
-      isImporting = false;
+      if (!shouldIgnoreImportUpdate(runId)) {
+        isImporting = false;
+      }
+      if (currentImportController === abortController) {
+        currentImportController = null;
+      }
     }
   }
-
-  // confirmImport功能已合并到startImport中
 
   function resetModal() {
     importStage = 'selection';
@@ -219,10 +311,26 @@
     importResult = null;
   }
 
+  function invalidateCurrentImport() {
+    currentImportRunId += 1;
+  }
+
+  function shouldIgnoreImportUpdate(runId: number): boolean {
+    return isDestroyed || runId !== currentImportRunId;
+  }
+
+  function abortCurrentImport() {
+    currentImportController?.abort();
+    currentImportController = null;
+  }
+
   function closeModal() {
+    invalidateCurrentImport();
+    abortCurrentImport();
+    isImporting = false;
     selectedFile = null;
     importResult = null;
-    importProgress = { stage: 'parsing', progress: 0, message: "" };
+    resetImportProgress();
     importStage = 'selection';
     show = false;
     if (typeof onClose === 'function') {
@@ -230,6 +338,11 @@
     }
   }
 
+  onDestroy(() => {
+    isDestroyed = true;
+    currentImportRunId += 1;
+    abortCurrentImport();
+  });
 </script>
 
 {#snippet modalBody()}
@@ -237,6 +350,15 @@
     {#if importStage === 'selection'}
       <!-- 文件选择阶段 -->
       <div class="apkg-stage apkg-selection">
+        <div class="selection-hero">
+          <div class="selection-hero-icon">
+            <EnhancedIcon name="package" size={26} />
+          </div>
+          <div class="selection-hero-copy">
+            <h3 class="selection-title">导入旧版 APKG 到 Weave</h3>
+            <p class="selection-desc">导入后会自动转换为 Weave 卡片格式，并将内容标准化为 Obsidian 兼容格式。</p>
+          </div>
+        </div>
         {#if !canImportLegacyApkg}
           <div class="runtime-warning">
             <div class="runtime-warning__title">当前安装包未包含旧版 APKG 导入运行时</div>
@@ -245,7 +367,7 @@
             </div>
           </div>
         {/if}
-        <div class="dropzone" 
+        <div class="dropzone"
              class:is-dragover={isDragOver}
              class:is-disabled={!canImportLegacyApkg}
              onclick={() => selectFile()}
@@ -266,15 +388,21 @@
             {/if}
           </p>
         </div>
-        <label class="import-option">
-          <input type="checkbox" bind:checked={preserveCardContentHtml} />
-          <div class="import-option-copy">
-            <div class="import-option-title">保留卡片内容 HTML</div>
-            <div class="import-option-desc">
-              只针对卡片字段内容跳过格式转换，尽量保留原始 HTML 结构；不会保存或注入 Anki 模板 CSS。
-            </div>
+
+        <div class="selection-capabilities">
+          <div class="capability-card">
+            <div class="capability-title">卡片格式收口</div>
+            <div class="capability-desc">导入结果会统一转换为插件当前使用的 Weave 卡片结构，不保留旧运行时依赖。</div>
           </div>
-        </label>
+          <div class="capability-card">
+            <div class="capability-title">内容标准化</div>
+            <div class="capability-desc">HTML、媒体引用、挖空内容会尽量转换为 Obsidian 兼容的 Markdown 与附件链接。</div>
+          </div>
+          <div class="capability-card">
+            <div class="capability-title">媒体迁移</div>
+            <div class="capability-desc">图片、音频、视频会迁移到 Obsidian 附件路径，避免继续依赖原 APKG 包内部结构。</div>
+          </div>
+        </div>
         <input
           bind:this={fileInput}
           type="file"
@@ -287,13 +415,33 @@
     {:else if importStage === 'importing'}
       <!-- 导入进度阶段 -->
       <div class="apkg-stage apkg-importing">
-        <div class="progress-container">
-          <div class="weave-spinner" style="width: 48px; height: 48px;"></div>
-          <h3 class="progress-title">{importProgress.stage || '正在导入...'}</h3>
-          <div class="weave-progress">
-            <div class="weave-progress-fill" style="width: {importProgress.progress}%"></div>
+        <div class="progress-shell">
+          <OperationProgressCard
+            title={getImportStageLabel(progressStage)}
+            counter={getProgressCounterLabel()}
+            message={progressMessage || getImportStageDescription(progressStage)}
+            detail={progressDetail}
+            percent={progressPercent}
+            status="running"
+            statusLabel="进行中"
+            centered={true}
+            detailInCard={true}
+            progressValueMin={0}
+            progressValueMax={progressTotalItems > 0 ? progressTotalItems : 100}
+            progressValueNow={progressTotalItems > 0 ? Math.min(progressCompletedItems, progressTotalItems) : Math.round(progressPercent)}
+            progressValueText={getProgressCounterLabel()}
+          />
+          <div class="progress-stage-list">
+            {#each importStageSequence as stage}
+              <div class={`stage-item ${isStageCurrent(stage) ? 'is-current' : ''} ${isStageCompleted(stage) ? 'is-completed' : ''}`}>
+                <div class="stage-marker">{getStageIndex(stage) + 1}</div>
+                <div class="stage-copy">
+                  <div class="stage-title">{getImportStageLabel(stage)}</div>
+                  <div class="stage-desc">{getImportStageDescription(stage)}</div>
+                </div>
+              </div>
+            {/each}
           </div>
-          <p class="progress-message">{importProgress.message}</p>
         </div>
       </div>
 
@@ -306,10 +454,16 @@
               <EnhancedIcon name="check-circle" size={56} color="var(--color-green)" />
             </div>
             <h3 class="result-title">导入成功</h3>
-            <p class="result-message">成功导入 {importResult.stats.importedCards} 张卡片</p>
+            <p class="result-message">成功导入 {importResult.stats.importedCards} 张卡片，已完成 Weave 格式与 Obsidian 内容标准化。</p>
+
+            <div class="result-pill-row">
+              <span class="result-pill">Weave 卡片格式</span>
+              <span class="result-pill">Obsidian 标准内容</span>
+              <span class="result-pill">附件已迁移</span>
+            </div>
 
             {#if importResult.deckName}
-              <div class="result-details">
+              <div class="result-details result-grid">
                 <div class="detail-item">
                   <span class="detail-label">牌组：</span>
                   <span class="detail-value">{importResult.deckName}</span>
@@ -324,6 +478,10 @@
                     <span class="detail-value">{importResult.stats.failedCards} 张</span>
                   </div>
                 {/if}
+                <div class="detail-item">
+                  <span class="detail-label">媒体：</span>
+                  <span class="detail-value">{importResult.stats.mediaFiles} 个</span>
+                </div>
               </div>
             {/if}
 
@@ -368,6 +526,12 @@
           关闭
         </button>
       </div>
+    {:else if importStage === 'importing'}
+      <div class="apkg-modal-footer">
+        <button class="apkg-close-btn" onclick={closeModal}>
+          取消并关闭
+        </button>
+      </div>
     {/if}
   </div>
 {/snippet}
@@ -399,6 +563,9 @@
   /* ===== APKG 导入模态窗样式 ===== */
 
   .apkg-modal-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
     padding: 1rem 1.5rem;
   }
 
@@ -407,13 +574,78 @@
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .selection-hero {
+    display: flex;
+    gap: 0.875rem;
+    align-items: flex-start;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 12px;
+    background: var(--background-secondary);
+  }
+
+  .selection-hero-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
+    color: var(--interactive-accent);
+    flex-shrink: 0;
+  }
+
+  .selection-hero-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .selection-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-normal);
+  }
+
+  .selection-desc {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: var(--text-muted);
+  }
+
+  .runtime-warning {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--color-orange) 45%, var(--background-modifier-border));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--color-orange) 12%, var(--background-secondary));
+  }
+
+  .runtime-warning__title {
+    font-weight: 700;
+    color: var(--text-normal);
+  }
+
+  .runtime-warning__desc {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: var(--text-muted);
   }
 
   /* ===== 文件选择阶段（Dropzone）===== */
   .dropzone {
     border: 2px dashed var(--background-modifier-border);
-    border-radius: 8px;
-    padding: 2rem 1.5rem;
+    border-radius: 12px;
+    padding: 2.25rem 1.5rem;
     text-align: center;
     cursor: pointer;
     transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -434,7 +666,8 @@
     box-shadow: none;
   }
 
-  .dropzone.is-disabled:hover {
+  .dropzone.is-disabled:hover,
+  .dropzone.is-disabled.is-dragover {
     border-color: var(--background-modifier-border);
     background: transparent;
     transform: none;
@@ -454,35 +687,30 @@
     color: var(--text-muted);
   }
 
-  .import-option {
-    display: flex;
-    align-items: flex-start;
+  .selection-capabilities {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.75rem;
-    padding: 0.9rem 1rem;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 8px;
-    background: var(--background-secondary);
-    cursor: pointer;
   }
 
-  .import-option input {
-    margin-top: 0.2rem;
-  }
-
-  .import-option-copy {
+  .capability-card {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0.35rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 10px;
+    background: var(--background-secondary);
   }
 
-  .import-option-title {
+  .capability-title {
     font-weight: 600;
     color: var(--text-normal);
   }
 
-  .import-option-desc {
+  .capability-desc {
     font-size: 0.8125rem;
-    line-height: 1.5;
+    line-height: 1.55;
     color: var(--text-muted);
   }
 
@@ -508,43 +736,83 @@
   }
 
   /* ===== 导入进度阶段 ===== */
-  .progress-container {
-    text-align: center;
-    padding: 2rem;
+  .progress-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr);
+    gap: 1rem;
+    align-items: stretch;
+    min-height: 0;
+    flex: 1;
   }
 
-  .progress-title {
-    margin: 1.25rem 0;
-    font-size: 1.125rem;
+  .progress-stage-list {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 12px;
+    background: var(--background-secondary);
+  }
+
+  .progress-stage-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+  }
+
+  .stage-item {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    padding: 0.75rem;
+    border-radius: 10px;
+    background: var(--background-primary);
+    border: 1px solid transparent;
+  }
+
+  .stage-item.is-current {
+    border-color: color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+    background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-primary));
+  }
+
+  .stage-item.is-completed {
+    opacity: 0.85;
+  }
+
+  .stage-marker {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.65rem;
+    height: 1.65rem;
+    border-radius: 999px;
+    background: var(--background-secondary-alt, var(--background-modifier-hover));
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .stage-item.is-current .stage-marker,
+  .stage-item.is-completed .stage-marker {
+    background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+    color: var(--interactive-accent);
+  }
+
+  .stage-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+
+  .stage-title {
+    font-size: 0.875rem;
     font-weight: 600;
     color: var(--text-normal);
   }
 
-  .weave-progress {
-    width: 100%;
-    height: 12px;
-    background: var(--background-secondary);
-    border-radius: 12px;
-    overflow: hidden;
-    margin: 1.25rem 0;
-    border: 1px solid var(--background-modifier-border);
-  }
-
-  .weave-progress-fill {
-    height: 100%;
-    background: linear-gradient(
-      90deg,
-      var(--interactive-accent),
-      color-mix(in srgb, var(--interactive-accent) 80%, white)
-    );
-    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border-radius: 12px;
-    box-shadow: 0 0 10px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
-  }
-
-  .progress-message {
-    margin-top: 1rem;
-    font-size: 0.875rem;
+  .stage-desc {
+    font-size: 0.8125rem;
+    line-height: 1.5;
     color: var(--text-muted);
   }
 
@@ -572,12 +840,38 @@
     margin-bottom: 1.25rem;
   }
 
+  .result-pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .result-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+    color: var(--interactive-accent);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
   .result-details {
     text-align: left;
     background: var(--background-secondary);
     border-radius: 8px;
     padding: 0.75rem 1rem;
     margin-top: 1.25rem;
+  }
+
+  .result-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 1rem;
   }
 
   .detail-item {
@@ -706,6 +1000,12 @@
 
     .dropzone {
       padding: 1.5rem 1rem;
+    }
+
+    .selection-capabilities,
+    .result-grid,
+    .progress-shell {
+      grid-template-columns: 1fr;
     }
   }
 </style>

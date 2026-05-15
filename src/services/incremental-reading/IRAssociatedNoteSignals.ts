@@ -84,10 +84,106 @@ function isMemoryCard(card: Card): boolean {
 	return card.cardPurpose !== "test";
 }
 
-export function resolveAssociatedNotePath(
-	material?: Pick<ReadingMaterial, "associatedNotePath"> | null
+export function resolveAssociatedNotePrimaryPath(
+	material?:
+		| Pick<ReadingMaterial, "primaryAssociatedNotePath" | "associatedNotePath" | "associatedNotePaths">
+		| null
 ): string | undefined {
-	return normalizeNotePath(material?.associatedNotePath) ?? undefined;
+	const normalizedPrimary = normalizeNotePath(material?.primaryAssociatedNotePath);
+	if (normalizedPrimary) {
+		return normalizedPrimary;
+	}
+
+	const normalizedLegacy = normalizeNotePath(material?.associatedNotePath);
+	if (normalizedLegacy) {
+		return normalizedLegacy;
+	}
+
+	if (Array.isArray(material?.associatedNotePaths)) {
+		for (const path of material.associatedNotePaths) {
+			const normalized = normalizeNotePath(path);
+			if (normalized) {
+				return normalized;
+			}
+		}
+	}
+
+	return undefined;
+}
+
+export function resolveAssociatedNotePath(
+	material?:
+		| Pick<ReadingMaterial, "primaryAssociatedNotePath" | "associatedNotePath" | "associatedNotePaths">
+		| null
+): string | undefined {
+	return resolveAssociatedNotePrimaryPath(material);
+}
+
+export function resolveAssociatedNotePaths(input: {
+	associatedNotePath?: string | null;
+	associatedNotePaths?: Array<string | null | undefined> | null;
+}): string[] {
+	const ordered = new Map<string, string>();
+	const candidates = [
+		...(Array.isArray(input.associatedNotePaths) ? input.associatedNotePaths : []),
+		input.associatedNotePath,
+	];
+
+	for (const candidate of candidates) {
+		const normalized = normalizeNotePath(candidate);
+		if (!normalized) {
+			continue;
+		}
+
+		const key = normalizePathForComparison(normalized);
+		if (!key || ordered.has(key)) {
+			if (!key) {
+				continue;
+			}
+			const existing = ordered.get(key);
+			if (existing && !/\.[^/.]+$/i.test(existing) && /\.[^/.]+$/i.test(normalized)) {
+				ordered.set(key, normalized);
+			}
+			continue;
+		}
+
+		ordered.set(key, normalized);
+	}
+
+	return Array.from(ordered.values());
+}
+
+export function remapAssociatedNotePath(
+	path: string | undefined | null,
+	oldPath: string,
+	newPath: string
+): string | null {
+	const normalizedPath = normalizeNotePath(path);
+	const normalizedOldPath = normalizeNotePath(oldPath);
+	const normalizedNewPath = normalizeNotePath(newPath);
+	if (!normalizedPath || !normalizedOldPath || !normalizedNewPath) {
+		return normalizedPath;
+	}
+
+	if (normalizedPath === normalizedOldPath) {
+		return normalizedNewPath;
+	}
+
+	return normalizePathForComparison(normalizedPath) === normalizePathForComparison(normalizedOldPath)
+		? normalizedNewPath
+		: normalizedPath;
+}
+
+export function remapAssociatedNotePaths(
+	notePaths: Array<string | null | undefined>,
+	oldPath: string,
+	newPath: string
+): string[] {
+	return resolveAssociatedNotePaths({
+		associatedNotePaths: notePaths
+			.map((path) => remapAssociatedNotePath(path, oldPath, newPath))
+			.filter((path): path is string => Boolean(path)),
+	});
 }
 
 export function buildAssociatedNoteSignalIndex(cards: Card[]): IRAssociatedNoteSignalIndex {

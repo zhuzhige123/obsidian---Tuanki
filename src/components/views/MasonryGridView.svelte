@@ -389,7 +389,7 @@
 
     <!-- 主容器 -->
     <div 
-      class="masonry-container weave-grid-scrollbar"
+      class="masonry-container"
       bind:this={bottomScrollbar}
       onscroll={() => syncScrollbars('bottom')}
     >
@@ -478,28 +478,11 @@
 
   /* 顶部横向滚动条 */
   .masonry-top-scrollbar {
-    overflow-x: scroll;  /* 强制显示滚动条，而不是 auto */
+    overflow-x: auto;
     overflow-y: hidden;
     height: 12px;
     border-bottom: 1px solid var(--background-modifier-border);
     flex-shrink: 0;
-  }
-
-  .masonry-top-scrollbar::-webkit-scrollbar {
-    height: 12px;
-  }
-
-  .masonry-top-scrollbar::-webkit-scrollbar-track {
-    background: var(--weave-scrollbar-track);
-  }
-
-  .masonry-top-scrollbar::-webkit-scrollbar-thumb {
-    background: var(--weave-scrollbar-thumb);
-    border-radius: 4px;
-  }
-
-  .masonry-top-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
   }
 
   .masonry-scrollbar-content {
@@ -511,30 +494,9 @@
   .masonry-container {
     flex: 1;
     min-height: 0;
-    overflow-x: scroll;  /* 强制显示滚动条，与顶部保持一致 */
-    overflow-y: scroll;
+    overflow-x: auto;
+    overflow-y: auto;
     padding: var(--weave-space-lg);
-    scrollbar-gutter: stable;
-  }
-
-  /* 自定义滚动条 */
-  .masonry-container::-webkit-scrollbar {
-    width: 8px;
-    height: 12px;
-  }
-
-  .masonry-container::-webkit-scrollbar-track {
-    background: var(--weave-scrollbar-track);
-    border-radius: 4px;
-  }
-
-  .masonry-container::-webkit-scrollbar-thumb {
-    background: var(--weave-scrollbar-thumb);
-    border-radius: 4px;
-  }
-
-  .masonry-container::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
   }
 
   /* 瀑布流列容器 */

@@ -18,7 +18,7 @@ const mockCards: Card[] = [
     id: '1',
     uuid: 'card-1',
     templateId: 'template1',
-    content: '前面内容1\n---\n背面内容1',
+    content: '前面内容1\n---div---\n背面内容1',
     fields: {
       front: '前面内容1',
       back: '背面内容1'
@@ -49,7 +49,7 @@ const mockCards: Card[] = [
     id: '2',
     uuid: 'card-2',
     templateId: 'template1',
-    content: '前面内容2\n---\n背面内容2',
+    content: '前面内容2\n---div---\n背面内容2',
     fields: {
       front: '前面内容2',
       back: '背面内容2'
@@ -203,9 +203,13 @@ describe('WeaveCardTable', () => {
     input.value = '新标签1';
     await fireEvent.input(input);
     await fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByText('新标签1')).toBeInTheDocument();
+
     input.value = '新标签2';
     await fireEvent.input(input);
     await fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByText('新标签2')).toBeInTheDocument();
+
     await fireEvent.keyDown(input, { key: 'Enter' });
     
     expect(defaultProps.onTagsUpdate).toHaveBeenCalledWith('card-1', ['标签1', '标签2', '新标签1', '新标签2']);

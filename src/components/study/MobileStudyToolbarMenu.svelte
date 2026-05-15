@@ -5,6 +5,8 @@
    * 计时器信息作为菜单头部显示
    */
   import type { Card, Deck } from '../../data/types';
+  import type { RatingLabelStyle } from './rating-label-style';
+  import type { ChoiceOptionOrder } from '../../utils/study/choiceOptionOrder';
   import { StudyToolbarMenuBuilder, type MenuBuilderConfig, type MenuCallbacks } from '../../services/menu/StudyToolbarMenuBuilder';
   import { customActionsForMenu } from '../../stores/ai-config.store';
 
@@ -18,21 +20,42 @@
     isGraphLinked?: boolean;
     enableDirectDelete?: boolean;
     showTimingInfo?: boolean; // 计时信息栏是否展开
+    autoPlayMedia?: boolean;
+    playMediaMode?: 'first' | 'all';
+    playMediaTiming?: 'cardChange' | 'showAnswer';
+    playbackInterval?: number;
+    cardOrder?: 'sequential' | 'random';
+    choiceOptionOrder?: ChoiceOptionOrder;
+    ratingLabelStyle?: RatingLabelStyle;
+    showRatingIntervalOnButtons?: boolean;
+    timerAutoPauseSeconds?: number;
+    hintMaxUses?: number;
+    showClozeModeSwitchButton?: boolean;
     onClose: () => void;
     onToggleEdit?: () => void;
     onDelete?: (skipConfirm?: boolean) => void;
-    onRemoveFromDeck?: () => void; // 从牌组移除
     onSetReminder?: () => void;
     onChangePriority?: (priority: number) => void;
     onChangeDeck?: (deckId: string) => void | Promise<void>;
     onRecycleCard?: () => void;
-    onAIFormatCustom?: (actionId: string) => void;
     onSplitCard?: (actionId: string) => void;
     onOpenAIConfig?: () => void;
     onGraphLinkToggle?: (enabled: boolean) => void;
     onOpenDetailedView?: () => void;
     onOpenSourceBlock?: () => void;
     onToggleTimingInfo?: () => void; // 切换计时信息栏
+    onMediaAutoPlayChange?: (
+      setting: 'enabled' | 'mode' | 'timing' | 'interval',
+      value: boolean | 'first' | 'all' | 'cardChange' | 'showAnswer' | number
+    ) => void;
+    onDirectDeleteToggle?: (enabled: boolean) => void;
+    onCardOrderChange?: (order: 'sequential' | 'random') => void;
+    onChoiceOptionOrderChange?: (order: ChoiceOptionOrder) => void;
+    onRatingLabelStyleChange?: (style: RatingLabelStyle) => void;
+    onRatingIntervalButtonsToggle?: (enabled: boolean) => void;
+    onTimerAutoPauseChange?: (seconds: number) => void;
+    onHintMaxUsesChange?: (value: number) => void;
+    onClozeModeSwitchButtonToggle?: (enabled: boolean) => void;
   }
 
   let {
@@ -45,21 +68,39 @@
     isGraphLinked = false,
     enableDirectDelete = false,
     showTimingInfo = false,
+    autoPlayMedia = false,
+    playMediaMode = 'first',
+    playMediaTiming = 'cardChange',
+    playbackInterval = 2000,
+    cardOrder = 'sequential',
+    choiceOptionOrder = 'sequential',
+    ratingLabelStyle = 'classic',
+    showRatingIntervalOnButtons = false,
+    timerAutoPauseSeconds = 60,
+    hintMaxUses = 5,
+    showClozeModeSwitchButton = true,
     onClose,
     onToggleEdit,
     onDelete,
-    onRemoveFromDeck, // 从牌组移除
     onSetReminder,
     onChangePriority,
     onChangeDeck,
     onRecycleCard,
-    onAIFormatCustom,
     onSplitCard,
     onOpenAIConfig,
     onGraphLinkToggle,
     onOpenDetailedView,
     onOpenSourceBlock,
     onToggleTimingInfo,
+    onMediaAutoPlayChange,
+    onDirectDeleteToggle,
+    onCardOrderChange,
+    onChoiceOptionOrderChange,
+    onRatingLabelStyleChange,
+    onRatingIntervalButtonsToggle,
+    onTimerAutoPauseChange,
+    onHintMaxUsesChange,
+    onClozeModeSwitchButtonToggle,
   }: Props = $props();
 
   // 从Store获取AI功能列表
@@ -94,8 +135,18 @@
       currentPriority: card.priority || 2,
       enableDirectDelete,
       showTimingInfo,
+      autoPlayMedia,
+      playMediaMode,
+      playMediaTiming,
+      playbackInterval,
+      cardOrder,
+      choiceOptionOrder,
+      ratingLabelStyle,
+      showRatingIntervalOnButtons,
+      timerAutoPauseSeconds,
+      hintMaxUses,
+      showClozeModeSwitchButton,
       aiActions: {
-        format: customActions.format || [],
         split: customActions.split || []
       }
     };
@@ -110,10 +161,6 @@
         onClose();
         onDelete?.(skipConfirm);
       },
-      onRemoveFromDeck: onRemoveFromDeck ? () => {
-        onClose();
-        onRemoveFromDeck?.();
-      } : undefined,
       onSetReminder: () => {
         onClose();
         onSetReminder?.();
@@ -129,10 +176,6 @@
       onRecycleCard: () => {
         onClose();
         onRecycleCard?.();
-      },
-      onAIFormatCustom: (actionId) => {
-        onClose();
-        onAIFormatCustom?.(actionId);
       },
       onSplitCard: (actionId) => {
         onClose();
@@ -156,6 +199,33 @@
       onToggleTimingInfo: onToggleTimingInfo ? () => {
         onToggleTimingInfo?.();
         // 不关闭菜单，让用户可以继续操作
+      } : undefined,
+      onMediaAutoPlayChange: onMediaAutoPlayChange ? (setting, value) => {
+        onMediaAutoPlayChange?.(setting, value);
+      } : undefined,
+      onDirectDeleteToggle: onDirectDeleteToggle ? (enabled) => {
+        onDirectDeleteToggle?.(enabled);
+      } : undefined,
+      onCardOrderChange: onCardOrderChange ? (order) => {
+        onCardOrderChange?.(order);
+      } : undefined,
+      onChoiceOptionOrderChange: onChoiceOptionOrderChange ? (order) => {
+        onChoiceOptionOrderChange?.(order);
+      } : undefined,
+      onRatingLabelStyleChange: onRatingLabelStyleChange ? (style) => {
+        onRatingLabelStyleChange?.(style);
+      } : undefined,
+      onRatingIntervalButtonsToggle: onRatingIntervalButtonsToggle ? (enabled) => {
+        onRatingIntervalButtonsToggle?.(enabled);
+      } : undefined,
+      onTimerAutoPauseChange: onTimerAutoPauseChange ? (seconds) => {
+        onTimerAutoPauseChange?.(seconds);
+      } : undefined,
+      onHintMaxUsesChange: onHintMaxUsesChange ? (value) => {
+        onHintMaxUsesChange?.(value);
+      } : undefined,
+      onClozeModeSwitchButtonToggle: onClozeModeSwitchButtonToggle ? (enabled) => {
+        onClozeModeSwitchButtonToggle?.(enabled);
       } : undefined
     };
 

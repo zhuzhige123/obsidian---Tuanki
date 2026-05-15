@@ -22,13 +22,14 @@
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: visible;
 }
 
 .weave-image-mask-editor-content {
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* ===== 图片遮罩容器 ===== */
@@ -57,7 +58,7 @@
   transition: opacity 300ms ease-out;
 }
 
-/* 🆕 交互模式下允许点击穿透到遮罩 */
+/* 交互模式下允许点击穿透到遮罩 */
 .weave-mask-overlay.interactive {
   pointer-events: auto;
 }
@@ -75,21 +76,21 @@
 /* ===== 遮罩元素样式 ===== */
 
 .weave-mask {
-  /* 🔧 修复：只过渡fill-opacity，避免opacity冲突 */
+  /* 修复：只过渡fill-opacity，避免opacity冲突 */
   transition: fill-opacity 200ms ease;
 }
 
 /* 纯色遮罩 */
 .weave-mask-solid {
-  /* ✅ fill 和 fill-opacity 由 JavaScript 动态设置 */
-  /* ✅ 移除 !important：SVG 元素的 opacity 属性已有足够优先级 */
+  /* fill 和 fill-opacity 由 JavaScript 动态设置 */
+  /* 移除 !important：SVG 元素的 opacity 属性已有足够优先级 */
   opacity: 1;
 }
 
 /* 模糊遮罩 */
 .weave-mask-blur {
-  /* ✅ fill 和 fill-opacity 由 JavaScript 动态设置 */
-  /* ✅ 移除 !important：SVG 元素的 opacity 属性已有足够优先级 */
+  /* fill 和 fill-opacity 由 JavaScript 动态设置 */
+  /* 移除 !important：SVG 元素的 opacity 属性已有足够优先级 */
   opacity: 1;
 }
 
@@ -123,7 +124,7 @@
 
 /* ===== 响应式设计 ===== */
 
-/* ✅ 移除 !important：媒体查询本身已有较高优先级 */
+/* 移除 !important：媒体查询本身已有较高优先级 */
 /* 通过更具体的选择器确保移动端样式生效 */
 @media (max-width: 768px) {
   .modal.weave-image-mask-editor-modal {
@@ -162,7 +163,7 @@
   stroke-width: 3;
 }
 
-/* 🆕 交互式遮罩样式 */
+/* 交互式遮罩样式 */
 .weave-mask-interactive {
   cursor: pointer;
   transition: fill-opacity 150ms ease;
@@ -173,10 +174,10 @@
   filter: brightness(0.9);
 }
 
-/* 🆕 正在hover预览的遮罩 */
+/* 正在hover预览的遮罩 */
 /* .weave-mask.mask-hovering: fill-opacity由JavaScript控制为0 */
 
-/* 🆕 已揭示的遮罩（透明状态） */
+/* 已揭示的遮罩（透明状态） */
 .weave-mask.mask-revealed {
   fill-opacity: 0;
   pointer-events: auto; /* 保持可点击以重新遮盖 */
@@ -191,7 +192,7 @@
 /* ===== 辅助功能 ===== */
 
 /* 减少动画（用户偏好） */
-/* ✅ 保留 !important：无障碍功能，需要强制覆盖所有动画 */
+/* 保留 !important：无障碍功能，需要强制覆盖所有动画 */
 /* 参考：.augment/rules/core/04-anti-force-methods.md */
 @media (prefers-reduced-motion: reduce) {
   .weave-mask-overlay,

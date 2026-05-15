@@ -2,8 +2,18 @@
  * 记忆曲线计算工具函数
  */
 
-import type { Card, Rating, ReviewLog } from "../data/types";
+import { CardState, type Card, Rating, type ReviewLog } from "../data/types";
 import type { MemoryCurveData, MemoryCurvePoint, TimeRange } from "../types/view-card-modal-types";
+
+export interface DeckMemoryCurvePoint {
+	day: number;
+	label: string;
+	avgRetrievability: number | null;
+	actualRetention: number | null;
+	targetRetention: number;
+	reviewSample: number;
+	passedSample: number;
+}
 
 /**
  * 计算预测记忆曲线
@@ -179,6 +189,107 @@ export function generateMemoryCurveData(card: Card, timeRange: TimeRange = "30d"
 			return maxDaysValue === null || _marker.day <= maxDaysValue;
 		}),
 	};
+}
+
+function getCardsWithReviewHistory(cards: Card[]): Card[] {
+	return (cards || []).filter(
+		(card) => Array.isArray(card.reviewHistory) && card.reviewHistory.length > 0
+	);
+}
+
+function getCardProjectedRetrievability(card: Card, dayOffset: number): number | null {
+	const stability = card.fsrs?.stability;
+	if (typeof stability !== "number" || !Number.isFinite(stability) || stability <= 0) {
+		return null;
+	}
+
+	const elapsedDays =
+		typeof card.fsrs?.elapsedDays === "number" && Number.isFinite(card.fsrs.elapsedDays)
+			? Math.max(0, card.fsrs.elapsedDays)
+			: 0;
+
+	const currentRetrievability =
+		typeof card.fsrs?.retrievability === "number" && Number.isFinite(card.fsrs.retrievability)
+			? Math.min(Math.max(card.fsrs.retrievability, 0), 1)
+			: Math.exp(-elapsedDays / Math.max(stability, 0.01));
+
+	const projectedRetrievability =
+		currentRetrievability * Math.exp(-Math.max(dayOffset, 0) / Math.max(stability, 0.01));
+
+	return Math.max(0, Math.min(100, projectedRetrievability * 100));
+}
+
+function shouldCountAsRetentionSample(review: ReviewLog): boolean {
+	return (
+		review.state === CardState.Review ||
+		review.state === CardState.Relearning ||
+		(review.scheduledDays ?? 0) > 0
+	);
+}
+
+export function generateDeckMemoryCurveData(
+	cards: Card[],
+	days: number,
+	targetRetention: number
+): DeckMemoryCurvePoint[] {
+	const safeDays = Math.max(1, Math.round(days));
+	const cardsWithHistory = getCardsWithReviewHistory(cards);
+	const reviewBuckets = new Map<number, { total: number; passed: number }>();
+
+	cardsWithHistory.forEach((card) => {
+		(card.reviewHistory || []).forEach((review) => {
+			if (!shouldCountAsRetentionSample(review)) {
+				return;
+			}
+
+			const bucketDay = Math.max(0, Math.floor(review.elapsedDays || 0));
+			if (bucketDay > safeDays) {
+				return;
+			}
+
+			const bucket = reviewBuckets.get(bucketDay) || { total: 0, passed: 0 };
+			bucket.total += 1;
+			if (review.rating >= Rating.Hard) {
+				bucket.passed += 1;
+			}
+			reviewBuckets.set(bucketDay, bucket);
+		});
+	});
+
+	const points: DeckMemoryCurvePoint[] = [];
+	for (let day = 0; day <= safeDays; day++) {
+		let retrievabilitySum = 0;
+		let retrievabilityCount = 0;
+
+		cardsWithHistory.forEach((card) => {
+			const projected = getCardProjectedRetrievability(card, day);
+			if (typeof projected === "number" && Number.isFinite(projected)) {
+				retrievabilitySum += projected;
+				retrievabilityCount += 1;
+			}
+		});
+
+		const bucket = reviewBuckets.get(day);
+		const actualRetention =
+			bucket && bucket.total > 0
+				? parseFloat(((bucket.passed / bucket.total) * 100).toFixed(1))
+				: null;
+
+		points.push({
+			day,
+			label: String(day),
+			avgRetrievability:
+				retrievabilityCount > 0
+					? parseFloat((retrievabilitySum / retrievabilityCount).toFixed(1))
+					: null,
+			actualRetention,
+			targetRetention,
+			reviewSample: bucket?.total ?? 0,
+			passedSample: bucket?.passed ?? 0,
+		});
+	}
+
+	return points;
 }
 
 /**

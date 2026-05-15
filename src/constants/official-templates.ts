@@ -7,12 +7,39 @@
  */
 
 import { DEFAULT_TEMPLATES, type ParseTemplate } from "../types/newCardParsingTypes";
+import { escapeRegexLiteral, getGlobalClozeDelimiterSettings } from "../utils/cloze-syntax";
+
+function getRuntimeOfficialTemplate(template: ParseTemplate): ParseTemplate {
+	if (template.id !== "official-cloze" || !Array.isArray(template.fields)) {
+		return template;
+	}
+
+	const { openDelimiter, closeDelimiter } = getGlobalClozeDelimiterSettings();
+	const clozePattern = `${escapeRegexLiteral(openDelimiter)}([\\s\\S]+?)${escapeRegexLiteral(closeDelimiter)}`;
+
+	return {
+		...template,
+		fields: template.fields.map((field) =>
+			field.name === "Cloze"
+				? {
+					...field,
+					pattern: clozePattern,
+					flags: "g",
+				}
+				: field
+		),
+	};
+}
 
 /**
  * 官方模板列表
  * 直接从 DEFAULT_TEMPLATES 中筛选出官方模板
  */
 export const OFFICIAL_TEMPLATES: ParseTemplate[] = DEFAULT_TEMPLATES.filter((t) => t.isOfficial);
+
+export function getOfficialTemplates(): ParseTemplate[] {
+	return DEFAULT_TEMPLATES.filter((template) => template.isOfficial).map(getRuntimeOfficialTemplate);
+}
 
 /**
  * 官方模板ID列表（仅包含三个核心模板）
@@ -39,7 +66,7 @@ export function isOfficialTemplate(templateId: string): boolean {
  * @returns 官方模板对象，如果不存在则返回null
  */
 export function getOfficialTemplateById(templateId: string): ParseTemplate | null {
-	return OFFICIAL_TEMPLATES.find((t) => t.id === templateId) || null;
+	return getOfficialTemplates().find((t) => t.id === templateId) || null;
 }
 
 /**
@@ -47,7 +74,7 @@ export function getOfficialTemplateById(templateId: string): ParseTemplate | nul
  * @returns 默认的问答题模板
  */
 export function getDefaultTemplate(): ParseTemplate {
-	const template = OFFICIAL_TEMPLATES.find((t) => t.id === "official-qa");
+	const template = getOfficialTemplates().find((t) => t.id === "official-qa");
 	if (!template) {
 		throw new Error("Default QA template not found. This should never happen.");
 	}

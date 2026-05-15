@@ -35,6 +35,8 @@ jobs:
           TAG_VERSION="${GITHUB_REF#refs/tags/}"
           MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          PUBLIC_VERSIONS_JSON=$(node -p "JSON.stringify(require('./public/versions.json'))")
+          ROOT_VERSIONS_JSON=$(node -p "JSON.stringify(require('./versions.json'))")
 
           echo "tag=$TAG_VERSION" >> "$GITHUB_OUTPUT"
           echo "manifest=$MANIFEST_VERSION" >> "$GITHUB_OUTPUT"
@@ -50,7 +52,7 @@ jobs:
             exit 1
           fi
 
-          node -e "const versions=require('./versions.json'); const version=process.argv[1]; if (!versions[version]) { console.error('versions.json missing version ' + version); process.exit(1); }" "$TAG_VERSION"
+          node -e "const pub=require('./public/versions.json'); const root=require('./versions.json'); const version=process.argv[1]; if (!pub[version]) { console.error('public/versions.json missing version ' + version); process.exit(1); } if (!root[version]) { console.error('versions.json missing version ' + version); process.exit(1); } if (JSON.stringify(pub) !== JSON.stringify(root)) { console.error('Root versions.json is not synchronized with public/versions.json'); process.exit(1); }" "$TAG_VERSION"
 
       - name: Build plugin
         run: npm run build

@@ -8,6 +8,7 @@
 
 import type { Card } from "../../../data/types";
 import { CardType } from "../../../data/types";
+import { isImportAbortError, throwIfImportAborted, yieldImportTask } from "../ImportTaskControl";
 import { APKGLogger } from "../../../infrastructure/logger/APKGLogger";
 import { generateCardUUID } from "../../../services/identifier/WeaveIDGenerator";
 // 导入 YAML 工具函数
@@ -94,6 +95,94 @@ export class CardBuilder {
 				success: true,
 			};
 		} catch (error) {
+			if (isImportAbortError(error)) {
+				throw error;
+			}
+			this.logger.error("卡片构建失败", error);
+
+			return {
+				card: null,
+				warnings: [`构建失败: ${(error as Error).message}`],
+				success: false,
+			};
+		} finally {
+			this.currentConversionConfig = undefined;
+		}
+	}
+
+	/**
+	 * 构建Weave卡片（异步、可取消）
+	 *
+	 * @param params - 构建参数
+	 * @param options - 可选参数（信号）
+	 * @returns 构建结果
+	 */
+	async buildAsync(
+		params: CardBuildParams,
+		options?: {
+			signal?: AbortSignal;
+		}
+	): Promise<CardBuildResult> {
+		const warnings: string[] = [];
+
+		try {
+			throwIfImportAborted(options?.signal);
+			this.logger.debug(`构建卡片: 笔记${params.note.id}`);
+
+			this.currentConversionConfig = params.conversionConfig;
+
+			const fields = this.parseFields(params.note, params.model);
+			const { frontFields, backFields, bothFields } = this.classifyFields(
+				fields,
+				params.fieldSideMap
+			);
+
+			const frontContent = await this.convertFieldsAsync(
+				frontFields,
+				params.mediaPathMap,
+				options?.signal
+			);
+			const backContent = await this.convertFieldsAsync(
+				backFields,
+				params.mediaPathMap,
+				options?.signal
+			);
+			const bothContent = await this.convertFieldsAsync(
+				bothFields,
+				params.mediaPathMap,
+				options?.signal
+			);
+
+			throwIfImportAborted(options?.signal);
+			const content = this.assembleContent(frontContent, backContent, bothContent);
+			const tags = params.note.tags ? params.note.tags.split(" ").filter((t) => t.trim()) : [];
+			const cardType = params.model.type === 1 ? "cloze" : "basic";
+
+			const finalContent = this.buildContentWithMetadata(content, {
+				deckName: params.deckName,
+				cardType,
+				tags,
+			});
+			const card = this.createCard(
+				finalContent,
+				params.deckId,
+				params.templateId,
+				params.note,
+				params.model,
+				fields
+			);
+
+			this.logger.debug(`卡片构建成功: ${card.uuid}`);
+
+			return {
+				card,
+				warnings,
+				success: true,
+			};
+		} catch (error) {
+			if (isImportAbortError(error)) {
+				throw error;
+			}
 			this.logger.error("卡片构建失败", error);
 
 			return {
@@ -184,6 +273,54 @@ export class CardBuilder {
 			// 不添加字段名前缀，直接返回纯净内容
 			// 字段名已保存在 customFields.ankiOriginal.fields 中
 			converted.push(markdown);
+		}
+
+		return converted;
+	}
+
+	/**
+	 * 转换字段内容（异步、可取消）
+	 */
+	private async convertFieldsAsync(
+		fields: Record<string, string>,
+		mediaPathMap: Map<string, string>,
+		signal?: AbortSignal
+	): Promise<string[]> {
+		const converted: string[] = [];
+		const entries = Object.entries(fields);
+
+		for (let index = 0; index < entries.length; index++) {
+			const [, value] = entries[index];
+			throwIfImportAborted(signal);
+
+			if (this.currentConversionConfig?.preserveCardContentHtml) {
+				converted.push(
+					await this.converter.convertRawHtmlAsync(
+						value,
+						mediaPathMap,
+						this.currentConversionConfig,
+						{ signal }
+					)
+				);
+			} else {
+				const result = await this.converter.convertAsync(value, this.currentConversionConfig, {
+					signal,
+				});
+
+				const markdown = await this.converter.replaceMediaPlaceholdersAsync(
+					result.markdown,
+					result.mediaRefs,
+					mediaPathMap,
+					this.currentConversionConfig,
+					{ signal }
+				);
+
+				converted.push(markdown);
+			}
+
+			if (index + 1 < entries.length) {
+				await yieldImportTask(signal);
+			}
 		}
 
 		return converted;

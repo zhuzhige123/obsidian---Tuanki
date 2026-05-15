@@ -79,14 +79,6 @@
       {/if}
     </div>
 
-    <div class="header-center">
-      <div class="header-dots-container">
-        <span class="header-dot" style="background: linear-gradient(135deg, #ef4444, #dc2626)" title="增量阅读"></span>
-        <span class="header-dot" style="background: linear-gradient(135deg, #3b82f6, #2563eb)" title="记忆牌组"></span>
-        <span class="header-dot" style="background: linear-gradient(135deg, #10b981, #059669)" title="考试题组"></span>
-      </div>
-    </div>
-
     <div class="header-right">
       {#if showNavigatorToggle && onToggleNavigator}
         <button
@@ -194,37 +186,6 @@
 
   .progress-total {
     color: var(--text-muted);
-  }
-
-  .header-center {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    pointer-events: auto;
-  }
-
-  .header-dots-container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .header-dot {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .header-dot:hover {
-    transform: scale(1.25);
-    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
   }
 
   .header-right {

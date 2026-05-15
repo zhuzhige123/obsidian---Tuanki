@@ -4,8 +4,8 @@
  * Plugin-owned local key/value state now converges into:
  *   .obsidian/plugins/weave/state/local-storage.json
  *
- * Only non-plugin keys fall back to Obsidian's App#saveLocalStorage /
- * App#loadLocalStorage (for example Obsidian's own `language` setting).
+ * Only non-plugin keys fall back to browser localStorage
+ * (for example Obsidian's own `language` setting).
  */
 
 import type { App } from "obsidian";
@@ -143,15 +143,28 @@ class VaultLocalStorage {
 	}
 
 	private readRawLegacyValue(key: string): string | null {
-		if (!this.app) {
+		if (typeof window === "undefined") {
 			return null;
 		}
-		return (this.app as any).loadLocalStorage(key) ?? null;
+		try {
+			return window.localStorage.getItem(key);
+		} catch {
+			return null;
+		}
 	}
 
 	private writeLegacyValue(key: string, value: string | undefined): void {
-		if (this.app) {
-			(this.app as any).saveLocalStorage(key, value);
+		if (typeof window === "undefined") {
+			return;
+		}
+		try {
+			if (typeof value === "string") {
+				window.localStorage.setItem(key, value);
+			} else {
+				window.localStorage.removeItem(key);
+			}
+		} catch {
+			// ignore browser localStorage failures
 		}
 	}
 

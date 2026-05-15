@@ -1,5 +1,6 @@
 import { Menu } from "obsidian";
 import type { Card } from "../../data/types";
+import type { ChoiceOptionOrder } from "../../utils/study/choiceOptionOrder";
 import { logger } from "../../utils/logger";
 
 /**
@@ -12,6 +13,7 @@ export interface QuestionBankMenuConfig {
 	enableDirectDelete: boolean;
 	showStatsBar?: boolean; // 答题情况信息栏是否展开
 	questionOrder?: "sequential" | "random";
+	choiceOptionOrder?: ChoiceOptionOrder;
 	navColumnMode?: 1 | 3;
 	showNavigator?: boolean; // 📱 题目导航栏是否展开
 }
@@ -26,10 +28,10 @@ export interface QuestionBankMenuCallbacks {
 	onChangePriority: () => void;
 	onOpenDetailedView: () => void;
 	onOpenSourceBlock?: () => void;
-	onOpenCardDebug?: () => void;
 	onToggleStatsBar?: () => void; // 切换答题情况信息栏
 	onToggleNavigator?: () => void; // 📱 切换题目导航栏
 	onQuestionOrderChange?: (order: "sequential" | "random") => void;
+	onChoiceOptionOrderChange?: (order: ChoiceOptionOrder) => void;
 	onNavColumnModeChange?: (mode: 1 | 3) => void;
 	onDirectDeleteToggle?: (enabled: boolean) => void;
 }
@@ -164,6 +166,14 @@ export class QuestionBankMenuBuilder {
 			});
 		}
 
+		if (this.callbacks.onChoiceOptionOrderChange) {
+			menu.addItem((item) => {
+				item.setTitle("选项顺序").setIcon("list-ordered");
+				const submenu = (item as any).setSubmenu();
+				this.buildChoiceOptionOrderSubmenu(submenu);
+			});
+		}
+
 		// 导航列数
 		if (this.callbacks.onNavColumnModeChange) {
 			menu.addItem((item) => {
@@ -204,18 +214,6 @@ export class QuestionBankMenuBuilder {
 						if (this.config.hasSourceFile) {
 							this.safeCallback(() => this.callbacks.onOpenSourceBlock?.());
 						}
-					});
-			});
-		}
-
-		// 查看数据结构（调试）
-		if (this.callbacks.onOpenCardDebug) {
-			menu.addItem((item) => {
-				item
-					.setTitle("查看数据结构")
-					.setIcon("code")
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onOpenCardDebug?.());
 					});
 			});
 		}
@@ -275,6 +273,27 @@ export class QuestionBankMenuBuilder {
 					.setChecked(this.config.questionOrder === value)
 					.onClick(() => {
 						this.safeCallback(() => this.callbacks.onQuestionOrderChange?.(value));
+					});
+			});
+		});
+	}
+
+	/**
+	 * 构建选项顺序子菜单
+	 */
+	private buildChoiceOptionOrderSubmenu(submenu: Menu): void {
+		const options = [
+			{ value: "sequential" as const, label: "正序" },
+			{ value: "random" as const, label: "乱序" },
+		];
+
+		options.forEach(({ value, label }) => {
+			submenu.addItem((item) => {
+				item
+					.setTitle(label)
+					.setChecked(this.config.choiceOptionOrder === value)
+					.onClick(() => {
+						this.safeCallback(() => this.callbacks.onChoiceOptionOrderChange?.(value));
 					});
 			});
 		});

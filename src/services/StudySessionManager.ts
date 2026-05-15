@@ -10,7 +10,12 @@
 
 import type { Card } from "../data/types";
 import { CardState } from "../data/types";
-import type { PersistedStudySession } from "../types/study-types";
+import type {
+	PersistedStudySession,
+	PersistedStudySessionStore,
+	StudySessionSnapshot,
+	StudySessionType,
+} from "../types/study-types";
 import { StepIndexCalculator } from "../utils/learning-steps/StepIndexCalculator";
 import { logger } from "../utils/logger";
 
@@ -39,7 +44,7 @@ export interface FSRSUpdateData {
  * 学习会话管理器类
  */
 export class StudySessionManager {
-	private static instance: StudySessionManager;
+	private static instance: StudySessionManager | null = null;
 	private sessions: Map<string, StudySessionState> = new Map();
 
 	// 会话过期时间（2小时）
@@ -48,8 +53,9 @@ export class StudySessionManager {
 	// 自动清理定时器
 	private cleanupTimer: NodeJS.Timeout | null = null;
 
-	// 持久化的会话状态
-	private persistedSession: PersistedStudySession | null = null;
+	// 按牌组保存的持久化会话状态
+	private persistedSessions = new Map<string, PersistedStudySession>();
+	private activePersistedDeckId: string | null = null;
 
 	// 缓存Learning Steps配置（用于后续计算）
 	private learningStepsConfig: Map<string, { learningSteps: number[]; relearningSteps: number[] }> =
@@ -70,6 +76,15 @@ export class StudySessionManager {
 			StudySessionManager.instance = new StudySessionManager();
 		}
 		return StudySessionManager.instance;
+	}
+
+	public static destroyInstance(): void {
+		if (!StudySessionManager.instance) {
+			return;
+		}
+
+		StudySessionManager.instance.destroy();
+		StudySessionManager.instance = null;
 	}
 
 	/**
@@ -260,6 +275,12 @@ export class StudySessionManager {
 		}
 	}
 
+	public destroy(): void {
+		this.stopAutoCleanup();
+		this.clearAll();
+		this.clearPersistedSession();
+	}
+
 	/**
 	 * 获取当前活跃会话数量
 	 */
@@ -289,13 +310,9 @@ export class StudySessionManager {
 	 */
 	public persistSession(
 		sessionId: string,
-		additionalData: {
-			deckId: string;
-			currentCardIndex: number;
+		additionalData: StudySessionSnapshot & {
 			currentCardId: string;
-			remainingCardIds: string[];
-			stats: { completed: number; correct: number; incorrect: number };
-			sessionType: "review" | "new" | "learning" | "mixed";
+			sessionType: StudySessionType;
 		}
 	): PersistedStudySession {
 		const session = this.sessions.get(sessionId);
@@ -304,7 +321,7 @@ export class StudySessionManager {
 			throw new Error(`[StudySessionManager] 无法持久化：会话不存在 ${sessionId}`);
 		}
 
-		this.persistedSession = {
+		const persistedSession: PersistedStudySession = {
 			sessionId,
 			deckId: additionalData.deckId,
 			currentCardIndex: additionalData.currentCardIndex,
@@ -317,8 +334,11 @@ export class StudySessionManager {
 			sessionType: additionalData.sessionType,
 		};
 
+		this.persistedSessions.set(persistedSession.deckId, persistedSession);
+		this.activePersistedDeckId = persistedSession.deckId;
+
 		logger.debug("[StudySessionManager] 会话已持久化:", sessionId);
-		return this.persistedSession;
+		return persistedSession;
 	}
 
 	/**
@@ -341,8 +361,12 @@ export class StudySessionManager {
 
 		this.sessions.set(sessionId, sessionState);
 
-		// 清除持久化状态（已恢复）
-		this.persistedSession = null;
+		// 清除当前牌组的持久化状态（已恢复）
+		this.persistedSessions.delete(persisted.deckId);
+		if (this.activePersistedDeckId === persisted.deckId) {
+			const nextDeckId = this.persistedSessions.keys().next().value;
+			this.activePersistedDeckId = typeof nextDeckId === "string" ? nextDeckId : null;
+		}
 
 		logger.debug("[StudySessionManager] 会话已恢复:", sessionId);
 		return sessionId;
@@ -381,25 +405,67 @@ export class StudySessionManager {
 	 * 检查是否有持久化的会话
 	 * @returns 是否存在持久化会话
 	 */
-	public hasPersistedSession(): boolean {
-		return this.persistedSession !== null;
+	public hasPersistedSession(deckId?: string): boolean {
+		if (deckId !== undefined) {
+			return this.persistedSessions.has(deckId);
+		}
+		return this.persistedSessions.size > 0;
 	}
 
 	/**
 	 * 获取持久化的会话
 	 * @returns 持久化的会话数据，如果不存在则返回null
 	 */
-	public getPersistedSession(): PersistedStudySession | null {
-		return this.persistedSession;
+	public getPersistedSession(deckId?: string): PersistedStudySession | null {
+		if (deckId !== undefined) {
+			return this.persistedSessions.get(deckId) ?? null;
+		}
+
+		if (this.activePersistedDeckId) {
+			return this.persistedSessions.get(this.activePersistedDeckId) ?? null;
+		}
+
+		const firstSession = this.persistedSessions.values().next();
+		return firstSession.done ? null : firstSession.value;
+	}
+
+	public getPersistedSessionStore(): PersistedStudySessionStore | null {
+		if (this.persistedSessions.size === 0) {
+			return null;
+		}
+
+		const sessionsByDeckId: Record<string, PersistedStudySession> = {};
+		for (const [deckId, session] of this.persistedSessions.entries()) {
+			sessionsByDeckId[deckId] = session;
+		}
+
+		return {
+			activeDeckId: this.activePersistedDeckId ?? undefined,
+			sessionsByDeckId,
+		};
 	}
 
 	/**
 	 * 清除持久化的会话
 	 */
-	public clearPersistedSession(): void {
-		if (this.persistedSession) {
-			logger.debug("[StudySessionManager] 持久化会话已清除:", this.persistedSession.sessionId);
-			this.persistedSession = null;
+	public clearPersistedSession(deckId?: string): void {
+		if (deckId !== undefined) {
+			const session = this.persistedSessions.get(deckId);
+			if (session) {
+				logger.debug("[StudySessionManager] 持久化会话已清除:", session.sessionId);
+				this.persistedSessions.delete(deckId);
+				if (this.activePersistedDeckId === deckId) {
+					const nextDeckId = this.persistedSessions.keys().next().value;
+					this.activePersistedDeckId = typeof nextDeckId === "string" ? nextDeckId : null;
+				}
+			}
+			return;
+		}
+
+		if (this.persistedSessions.size > 0) {
+			logger.debug("[StudySessionManager] 已清除全部持久化会话:", this.persistedSessions.size);
+			this.persistedSessions.clear();
+			this.activePersistedDeckId = null;
 		}
 	}
 
@@ -408,7 +474,18 @@ export class StudySessionManager {
 	 * @param session 持久化的会话数据
 	 */
 	public setPersistedSession(session: PersistedStudySession): void {
-		this.persistedSession = session;
+		this.persistedSessions.set(session.deckId, session);
+		this.activePersistedDeckId = session.deckId;
 		logger.debug("[StudySessionManager] 持久化会话已设置:", session.sessionId);
+	}
+
+	public setPersistedSessionStore(store: PersistedStudySessionStore): void {
+		this.persistedSessions = new Map(Object.entries(store.sessionsByDeckId));
+		const nextActiveDeckId =
+			store.activeDeckId && this.persistedSessions.has(store.activeDeckId)
+				? store.activeDeckId
+				: this.persistedSessions.keys().next().value;
+		this.activePersistedDeckId = typeof nextActiveDeckId === "string" ? nextActiveDeckId : null;
+		logger.debug("[StudySessionManager] 持久化会话集合已设置:", this.persistedSessions.size);
 	}
 }

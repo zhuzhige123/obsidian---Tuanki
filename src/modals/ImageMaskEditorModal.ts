@@ -15,6 +15,7 @@ import { logger } from "../utils/logger";
 import { Modal, Notice } from "obsidian";
 import type { App, TFile } from "obsidian";
 import type { MaskData } from "../types/image-mask-types";
+import { applyStyleProps } from "../utils/style-props";
 
 export interface ImageMaskEditorModalOptions {
 	/** 图片文件 */
@@ -58,7 +59,7 @@ export class ImageMaskEditorModal extends Modal {
 		this.modalEl.addClass("weave-image-mask-editor-modal");
 
 		// 设置宽度和高度
-		this.modalEl.setCssProps({
+		applyStyleProps(this.modalEl, {
 			width: "90vw",
 			"max-width": "1200px",
 			height: "80vh",

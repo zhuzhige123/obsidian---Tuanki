@@ -46,6 +46,27 @@ Body`);
 		expect(extractSourcePath(card)).toBe('notes/source.md');
 	});
 
+	it('normalizes legacy card.sourceFile EPUB protocol links into vault paths', () => {
+		const card = {
+			uuid: 'card-legacy-epub',
+			content: 'Body',
+			sourceFile:
+				'obsidian://weave-epub?vault=Vault&file=Books%2Fdemo.epub&cfi=epubcfi(/6/2)&text=Hello',
+		} as any;
+
+		expect(extractSourcePath(card)).toBe('Books/demo.epub');
+	});
+
+	it('normalizes legacy card.sourceFile wikilinks into vault paths', () => {
+		const card = {
+			uuid: 'card-legacy-link',
+			content: 'Body',
+			sourceFile: '[[notes/source.md#^block-1|来源]]',
+		} as any;
+
+		expect(extractSourcePath(card)).toBe('notes/source.md');
+	});
+
 	it('matches the EPUB document even when markdown source is listed first', () => {
 		const card = createCard(`---
 we_source:

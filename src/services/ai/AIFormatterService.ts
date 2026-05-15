@@ -42,6 +42,10 @@ type AIConfigWithFormattingProvider = AIConfig & {
 	formattingProvider?: string;
 };
 
+type LegacyAIConfig = AIConfig & {
+	formattingProvider?: string;
+};
+
 type FormatContext = { template?: ParseTemplate; deck?: Deck };
 
 const AI_PROVIDERS: AIProvider[] = [
@@ -60,15 +64,19 @@ function isAIProvider(value?: string): value is AIProvider {
 	return value !== undefined && AI_PROVIDERS.includes(value as AIProvider);
 }
 
-function getAIConfig(plugin: WeavePlugin): AIConfigWithFormattingProvider | undefined {
-	return plugin.settings.aiConfig as AIConfigWithFormattingProvider | undefined;
+function getAIConfig(plugin: WeavePlugin): AIConfig | undefined {
+	return plugin.settings.aiConfig as AIConfig | undefined;
+}
+
+function getLegacyFormattingProvider(aiConfig: AIConfig | undefined): string | undefined {
+	return (aiConfig as LegacyAIConfig | undefined)?.formattingProvider;
 }
 
 function getProviderConfig(
-	aiConfig: AIConfigWithFormattingProvider,
+	aiConfig: AIConfig,
 	provider: AIProvider
 ): AIProviderConfig | undefined {
-	return aiConfig.apiKeys?.[provider];
+	return (aiConfig.apiKeys as Partial<Record<AIProvider, AIProviderConfig>> | undefined)?.[provider];
 }
 
 function cleanAIResponse(content: string): string {
@@ -192,8 +200,9 @@ async function formatChoiceQuestion(
 			};
 		}
 
-		const provider =
-			(isAIProvider(aiConfig.formattingProvider) ? aiConfig.formattingProvider : undefined) ||
+		const legacyFormattingProvider = getLegacyFormattingProvider(aiConfig);
+		const provider: AIProvider | undefined =
+			(isAIProvider(legacyFormattingProvider) ? legacyFormattingProvider : undefined) ||
 			(isAIProvider(aiConfig.defaultProvider) ? aiConfig.defaultProvider : undefined);
 
 		if (!provider) {

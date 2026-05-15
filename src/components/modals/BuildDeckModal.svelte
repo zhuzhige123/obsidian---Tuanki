@@ -7,19 +7,20 @@
    * - 支持设置名称和标签
    * - 创建后自动更新卡片的 we_decks
    * 
-   * ⚠️ v2.0+ 平级架构：已移除父牌组选择功能
+   * v2.0+ 平级架构：已移除父牌组选择功能
    */
   import { logger } from '../../utils/logger';
   import { focusManager } from '../../utils/focus-manager';
   import type { WeavePlugin } from "../../main";
   import type { Deck } from "../../data/types";
-  import { Notice } from "obsidian";
+  import { Menu, Notice } from "obsidian";
   import { get } from 'svelte/store';
   import { tr } from '../../utils/i18n';
   import { generateId } from '../../utils/helpers';
   import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
   import { parseChoiceQuestion } from '../../parsing/choice-question-parser';
   import { isInputClozeQuestionContent } from '../../utils/question-bank/input-cloze-utils';
+  import ObsidianIcon from '../ui/ObsidianIcon.svelte';
 
   interface Props {
     open: boolean;
@@ -29,9 +30,18 @@
     pairedMemoryDeckId?: string | null;
     onClose: () => void;
     onCreated?: (deck: Deck) => void;
+    onDeckCreated?: (deck: Deck) => void | Promise<void>;
   }
 
-  let { open, plugin, selectedCardUUIDs, pairedMemoryDeckId, onClose, onCreated }: Props = $props();
+  let {
+    open,
+    plugin,
+    selectedCardUUIDs,
+    pairedMemoryDeckId,
+    onClose,
+    onCreated: legacyOnCreated,
+    onDeckCreated = legacyOnCreated
+  }: Props = $props();
 
   // 响应式翻译
   let t = $derived($tr);
@@ -53,14 +63,32 @@
   
   // DOM引用
   let nameInputRef: HTMLInputElement | null = $state(null);
+  let buildTargetMenuButtonRef: HTMLButtonElement | null = $state(null);
 
   let questionBankEligibleUUIDs = $state<string[]>([]);
 
+  function createMemoryDeckStats(totalCards: number) {
+    return {
+      totalCards,
+      newCards: 0,
+      learningCards: 0,
+      reviewCards: 0,
+      todayNew: 0,
+      todayReview: 0,
+      todayTime: 0,
+      totalReviews: 0,
+      totalTime: 0,
+      memoryRate: 0,
+      averageEase: 0,
+      forecastDays: {}
+    };
+  }
+
   $effect(() => {
-    const unsubscribePremium = premiumGuard.isPremiumActive.subscribe(value => {
+    const unsubscribePremium = premiumGuard.isPremiumActive.subscribe((value) => {
       isPremium = value;
     });
-    const unsubscribePreview = premiumGuard.premiumFeaturesPreviewEnabled.subscribe(value => {
+    const unsubscribePreview = premiumGuard.premiumFeaturesPreviewEnabled.subscribe((value) => {
       showPremiumFeaturesPreview = value;
     });
 
@@ -85,6 +113,10 @@
     buildTarget === 'question-bank'
       ? Math.max(0, selectedCardUUIDs.length - questionBankEligibleUUIDs.length)
       : 0
+  );
+
+  const buildTargetMenuLabel = $derived.by(() =>
+    buildTarget === 'memory' ? '默认格式' : '考试题组'
   );
 
   // 打开时初始化
@@ -120,24 +152,23 @@
   });
 
   $effect(() => {
-    if (!open) return;
-    if (buildTarget !== 'question-bank') return;
+    if (!open || buildTarget !== 'question-bank') {
+      return;
+    }
 
     (async () => {
       try {
         const allCards = await plugin.dataStorage.getCards();
         const cardByUuid = new Map<string, (typeof allCards)[number]>();
-        for (const c of allCards) {
-          cardByUuid.set(c.uuid, c);
+        for (const card of allCards) {
+          cardByUuid.set(card.uuid, card);
         }
 
-        const selectedCards = selectedCardUUIDs
+        questionBankEligibleUUIDs = selectedCardUUIDs
           .map((uuid) => cardByUuid.get(uuid))
-          .filter((c): c is (typeof allCards)[number] => c !== undefined);
-        const uuids = selectedCards
-          .filter((c) => !!parseChoiceQuestion(c.content) || isInputClozeQuestionContent(c.content))
-          .map((c) => c.uuid);
-        questionBankEligibleUUIDs = uuids;
+          .filter((card): card is (typeof allCards)[number] => card !== undefined)
+          .filter((card) => Boolean(parseChoiceQuestion(card.content)) || isInputClozeQuestionContent(card.content))
+          .map((card) => card.uuid);
       } catch (error) {
         logger.error('[BuildDeckModal] 题库题目筛选失败:', error);
         questionBankEligibleUUIDs = [];
@@ -151,88 +182,142 @@
     }
   });
 
-  $effect(() => {
-    if (!open) return;
-
-    const toggleButton = document.querySelector('.modal-header .mode-dots') as HTMLButtonElement | null;
-    if (!toggleButton) return;
-
-    toggleButton.style.display = canShowQuestionBankBuildTarget ? '' : 'none';
-    toggleButton.title = buildTarget === 'memory'
-      ? (canUseQuestionBankBuildTarget ? '切换到组建考试题组' : '组建考试题组 (高级)')
-      : '切换到组建牌组';
-  });
-
-  function toggleBuildTarget() {
-    if (!canShowQuestionBankBuildTarget) {
-      buildTarget = 'memory';
-      return;
-    }
-
-    if (buildTarget === 'memory' && !canUseQuestionBankBuildTarget) {
-      new Notice('组建考试题组是高级功能，请激活许可证后使用');
-      return;
-    }
-
-    buildTarget = buildTarget === 'memory' ? 'question-bank' : 'memory';
-  }
-
-  // 加载可用牌组列表
   async function loadAvailableDecks() {
     try {
-      const result = await plugin.dataStorage.getDecks();
-      availableDecks = result;
+      availableDecks = await plugin.dataStorage.getDecks();
     } catch (error) {
       logger.error('[BuildDeckModal] 加载牌组失败:', error);
       availableDecks = [];
     }
   }
-  
-  // 加载所有现有标签
+
   function loadAvailableTags() {
     const allTags = new Set<string>();
-    availableDecks.forEach(deck => {
-      if (deck.tags && Array.isArray(deck.tags)) {
-        deck.tags.forEach(tag => allTags.add(tag));
-      }
-    });
-    availableTags = Array.from(allTags).sort();
-  }
-  
-  // 选择标签（单选）
-  function selectTag(tag: string) {
-    const trimmedTag = tag.trim();
-    if (trimmedTag) {
-      selectedTag = trimmedTag;
-      tagInput = '';
-      
-      if (!availableTags.includes(trimmedTag)) {
-        availableTags = [...availableTags, trimmedTag].sort();
+    for (const deck of availableDecks) {
+      if (Array.isArray(deck.tags)) {
+        for (const tag of deck.tags) {
+          allTags.add(tag);
+        }
       }
     }
+    availableTags = Array.from(allTags).sort();
   }
-  
-  // 处理标签输入
-  function handleTagInput(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
+
+  function setBuildTarget(nextTarget: 'memory' | 'question-bank') {
+    if (nextTarget === 'question-bank') {
+      if (!canShowQuestionBankBuildTarget) {
+        return;
+      }
+
+      if (!canUseQuestionBankBuildTarget) {
+        new Notice('组建考试题组是高级功能，请激活许可证后使用');
+        return;
+      }
+    }
+
+    buildTarget = nextTarget;
+  }
+
+  function openBuildTargetMenu(event?: MouseEvent | KeyboardEvent) {
+    if (!canShowQuestionBankBuildTarget) {
+      return;
+    }
+
+    const menu = new Menu();
+    menu.setUseNativeMenu?.(false);
+
+    menu.addItem((item) => {
+      item
+        .setTitle('组建牌组')
+        .setIcon('brain')
+        .setChecked(buildTarget === 'memory')
+        .onClick(() => {
+          setBuildTarget('memory');
+        });
+    });
+
+    menu.addItem((item) => {
+      item
+        .setTitle(canUseQuestionBankBuildTarget ? '组建考试题组' : '组建考试题组（高级）')
+        .setIcon('list')
+        .setChecked(buildTarget === 'question-bank')
+        .onClick(() => {
+          setBuildTarget('question-bank');
+        });
+    });
+
+    const trigger =
+      event?.currentTarget instanceof HTMLElement
+        ? event.currentTarget
+        : buildTargetMenuButtonRef;
+
+    if (trigger) {
+      const rect = trigger.getBoundingClientRect();
+      menu.showAtPosition({
+        x: Math.round(rect.left),
+        y: Math.round(rect.bottom)
+      });
+      return;
+    }
+
+    menu.showAtPosition({
+      x: Math.round(window.innerWidth / 2),
+      y: Math.max(96, Math.round(window.innerHeight / 2))
+    });
+  }
+
+  function handleBuildTargetMenuKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    openBuildTargetMenu(event);
+  }
+
+  function selectTag(tag: string) {
+    const trimmedTag = tag.trim();
+    if (!trimmedTag) {
+      return;
+    }
+
+    selectedTag = trimmedTag;
+    tagInput = '';
+    if (!availableTags.includes(trimmedTag)) {
+      availableTags = [...availableTags, trimmedTag].sort();
+    }
+  }
+
+  function handleTagInput(event: KeyboardEvent) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
       if (tagInput.trim()) {
         selectTag(tagInput);
       }
-    } else if (e.key === 'Backspace' && tagInput === '' && selectedTag) {
-      e.preventDefault();
+      return;
+    }
+
+    if (event.key === 'Backspace' && tagInput === '' && selectedTag) {
+      event.preventDefault();
       selectedTag = '';
     }
   }
-  
-  // 清除标签
+
   function clearTag() {
     selectedTag = '';
   }
 
-  // 提交创建
+  async function notifyDeckCreated(deck: Deck) {
+    if (typeof onDeckCreated === 'function') {
+      await onDeckCreated(deck);
+    }
+  }
+
   async function handleSubmit() {
-    if (!name.trim() || isSaving || selectedCardUUIDs.length === 0) return;
+    if (!name.trim() || isSaving || selectedCardUUIDs.length === 0) {
+      return;
+    }
 
     if (buildTarget === 'question-bank' && !canUseQuestionBankBuildTarget) {
       errorMessage = '组建考试题组是高级功能，请激活许可证后使用';
@@ -240,111 +325,148 @@
       return;
     }
 
-    if (buildTarget === 'question-bank' && questionBankEligibleUUIDs.length === 0) return;
-    
+    if (buildTarget === 'question-bank' && questionBankEligibleUUIDs.length === 0) {
+      return;
+    }
+
     errorMessage = '';
     isSaving = true;
-    
+
     try {
       if (buildTarget === 'memory') {
-        if (!plugin.referenceDeckService) {
-          throw new Error('引用式牌组服务未初始化');
+        if (!plugin.dataStorage) {
+          throw new Error('数据存储服务未初始化');
         }
 
-        const result = await plugin.referenceDeckService.createDeckFromCards({
-          name: name.trim(),
-          tag: selectedTag || undefined,
-          cardUUIDs: selectedCardUUIDs
-        });
-        
-        if (!result.success) {
-          throw new Error(result.error || '创建失败');
-        }
-        
-        new Notice(`牌组“${name}”创建成功，引用了 ${selectedCardUUIDs.length} 张卡片`);
-        
-        onCreated?.(result.data!);
-        closeModal();
-      } else {
-        if (!plugin.questionBankService) {
-          throw new Error('题库服务未初始化');
-        }
-
-        const bank: Deck = {
+        const now = new Date().toISOString();
+        const newDeck: Deck = {
           id: generateId(),
           name: name.trim(),
           description: '',
-          category: '',
+          category: selectedTag || '',
           categoryIds: [],
           parentId: undefined,
           path: name.trim(),
           level: 0,
-          order: 0,
+          order: availableDecks.length,
           inheritSettings: false,
-          settings: {} as any,
-          stats: {} as any,
+          settings: plugin.dataStorage.getCurrentDefaultDeckSettings(),
+          stats: createMemoryDeckStats(selectedCardUUIDs.length),
           includeSubdecks: false,
-          deckType: 'question-bank',
-          created: new Date().toISOString(),
-          modified: new Date().toISOString(),
+          deckType: 'mixed',
+          purpose: 'memory',
+          created: now,
+          modified: now,
           tags: selectedTag ? [selectedTag] : [],
-          metadata: {
-            questionCount: 0,
-            ...(pairedMemoryDeckId ? { pairedMemoryDeckId } : {}),
-          }
+          metadata: {}
         };
 
-        const createdBank = await plugin.questionBankService.createBank(bank);
-
-        const uuidsToAdd = questionBankEligibleUUIDs.length > 0 ? questionBankEligibleUUIDs : [];
-        if (uuidsToAdd.length === 0) {
-          throw new Error('所选卡片中没有可加入题库的选择题或带 #input 标签的挖空题');
+        const saveDeckResult = await plugin.dataStorage.saveDeck(newDeck);
+        if (!saveDeckResult.success || !saveDeckResult.data) {
+          throw new Error(saveDeckResult.error || '创建牌组失败');
         }
 
-        await plugin.questionBankService.addQuestionRefs(createdBank.id, uuidsToAdd);
+        const moveResult = await plugin.dataStorage.moveCardsToDeck(
+          selectedCardUUIDs,
+          saveDeckResult.data.id
+        );
+        if (moveResult.failed.length > 0) {
+          throw new Error(`牌组已创建，但有 ${moveResult.failed.length} 张卡片移动失败`);
+        }
 
-        new Notice(`题库“${name}”创建成功，引用了 ${uuidsToAdd.length} 题`);
-        onCreated?.(createdBank);
+        new Notice(`牌组“${name}”创建成功，已收纳 ${moveResult.moved.length} 张卡片`);
+        await notifyDeckCreated(saveDeckResult.data);
         closeModal();
+        return;
       }
+
+      if (!plugin.questionBankService) {
+        throw new Error('题库服务未初始化');
+      }
+
+      const createdAt = new Date().toISOString();
+      const bank: Deck = {
+        id: generateId(),
+        name: name.trim(),
+        description: '',
+        category: '',
+        categoryIds: [],
+        parentId: undefined,
+        path: name.trim(),
+        level: 0,
+        order: 0,
+        inheritSettings: false,
+        settings: {} as any,
+        stats: {} as any,
+        includeSubdecks: false,
+        deckType: 'question-bank',
+        created: createdAt,
+        modified: createdAt,
+        tags: selectedTag ? [selectedTag] : [],
+        metadata: {
+          questionCount: 0,
+          ...(pairedMemoryDeckId ? { pairedMemoryDeckId } : {})
+        }
+      };
+
+      const createdBank = await plugin.questionBankService.createBank(bank);
+      const uuidsToAdd = questionBankEligibleUUIDs.length > 0 ? questionBankEligibleUUIDs : [];
+      if (uuidsToAdd.length === 0) {
+        throw new Error('所选卡片中没有可加入题库的选择题或带 #input 标签的挖空题');
+      }
+
+      await plugin.questionBankService.addQuestionRefs(createdBank.id, uuidsToAdd);
+      new Notice(`题库“${name}”创建成功，引用了 ${uuidsToAdd.length} 题`);
+      await notifyDeckCreated(createdBank);
+      closeModal();
     } catch (error) {
       logger.error('[BuildDeckModal] 创建牌组失败:', error);
       errorMessage = error instanceof Error ? error.message : '创建失败';
-      new Notice(`${errorMessage}`);
+      new Notice(errorMessage);
     } finally {
       isSaving = false;
     }
   }
 
   function closeModal() {
-    name = "";
-    selectedTag = "";
-    tagInput = "";
-    errorMessage = "";
+    name = '';
+    selectedTag = '';
+    tagInput = '';
+    errorMessage = '';
     buildTarget = 'memory';
     questionBankEligibleUUIDs = [];
-    
     focusManager.restoreFocus();
-    
+
     if (typeof onClose === 'function') {
       onClose();
     }
   }
-</script>
-
-{#if open}
+ </script>
+ 
+ {#if open}
   <div class="modal-overlay" role="presentation" onclick={(e) => {
     if (e.target === e.currentTarget) closeModal();
   }}>
-    <div class="modal" role="dialog" aria-modal="true" tabindex="0" 
->
+    <div class="modal" role="dialog" aria-modal="true" tabindex="0" >
       <div class="modal-header">
-        <h3 class="header-title">{buildTarget === 'memory' ? '组建牌组' : '组建考试题组'}</h3>
-        <button class="mode-dots" aria-label="切换组建目标" title={buildTarget === 'memory' ? '切换到组建考试题组' : '切换到组建牌组'} onclick={toggleBuildTarget} type="button">
-          <span class="dot dot-red" class:active={buildTarget === 'memory'}></span>
-          <span class="dot dot-blue" class:active={buildTarget === 'question-bank'}></span>
-          <span class="dot dot-green"></span>
-        </button>
+        <div class="header-leading">
+          {#if canShowQuestionBankBuildTarget}
+            <button
+              bind:this={buildTargetMenuButtonRef}
+              class="build-target-menu-btn"
+              type="button"
+              aria-label="切换组建目标"
+              title="切换组建目标"
+              onclick={(event) => openBuildTargetMenu(event)}
+              onkeydown={handleBuildTargetMenuKeydown}
+            >
+              <span class="build-target-menu-text">{buildTargetMenuLabel}</span>
+              <ObsidianIcon name="chevron-down" size={12} />
+            </button>
+          {:else}
+            <div class="build-target-menu-label">{buildTargetMenuLabel}</div>
+          {/if}
+        </div>
         <button class="icon-btn header-close" aria-label="关闭" onclick={closeModal}>×</button>
       </div>
 
@@ -452,7 +574,7 @@
       </div>
     </div>
   </div>
-{/if}
+ {/if}
 
 <style>
   .modal-overlay {
@@ -476,79 +598,125 @@
     flex-direction: column;
     z-index: calc(var(--layer-notice) + 1);
   }
-  
+
   .modal-header { 
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
     padding: 1rem 1rem 0.5rem; 
   }
 
-  .header-title {
-    justify-self: start;
+  .header-leading {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   .header-close {
-    justify-self: end;
+    flex: 0 0 auto;
   }
 
-  .mode-dots {
+  .build-target-menu-btn {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    border-radius: 999px;
+    gap: 4px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0.25rem 0.15rem;
+    border-radius: 8px;
     border: none;
     background: transparent;
+    color: var(--text-normal);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.2;
     cursor: pointer;
-    justify-self: center;
+    appearance: none;
+    -webkit-appearance: none;
+    box-shadow: none;
+    border-image: none;
+    outline: none;
+    text-decoration: none;
+    transition: color 0.15s ease, opacity 0.15s ease;
   }
 
-  .mode-dots:hover {
-    background: var(--background-modifier-hover);
+  .build-target-menu-btn::before,
+  .build-target-menu-btn::after {
+    display: none;
+    content: none;
   }
 
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    opacity: 0.55;
-    transition: opacity 0.15s ease, transform 0.15s ease;
+  .build-target-menu-btn:hover {
+    background: transparent;
+    color: var(--text-accent, var(--text-normal));
   }
 
-  .dot.active {
-    opacity: 1;
-    transform: scale(1.15);
+  .build-target-menu-btn:focus-visible {
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-accent, var(--text-normal));
+    opacity: 0.9;
   }
 
-  .dot-red {
-    background: #ef4444;
+  .build-target-menu-label {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0.25rem 0.15rem;
+    color: var(--text-normal);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.2;
   }
 
-  .dot-blue {
-    background: #3b82f6;
-  }
-
-  .dot-green {
-    background: #22c55e;
-  }
-  
-  .modal-header h3 { 
-    margin: 0; 
-    font-size: 1.125rem; 
-    font-weight: 700; 
+  .build-target-menu-text {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   
   .icon-btn { 
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    padding: 0.2rem 0.15rem;
     background: transparent; 
     border: none; 
+    border-radius: 8px;
     color: var(--text-muted); 
     font-size: 1.25rem; 
-    cursor: pointer; 
+    line-height: 1;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    box-shadow: none;
+    border-image: none;
+    outline: none;
+    text-decoration: none;
+    transition: color 0.15s ease, opacity 0.15s ease;
+  }
+
+  .icon-btn::before,
+  .icon-btn::after {
+    display: none;
+    content: none;
   }
   
   .icon-btn:hover { 
+    background: transparent;
     color: var(--text-normal); 
+  }
+
+  .icon-btn:focus-visible {
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-normal);
+    opacity: 0.9;
   }
   
   .modal-body { 

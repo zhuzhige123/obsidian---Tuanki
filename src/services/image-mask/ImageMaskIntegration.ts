@@ -15,7 +15,15 @@ import type { App } from "obsidian";
 import type { MaskData } from "../../types/image-mask-types";
 import { MASK_CONSTANTS } from "../../types/image-mask-types";
 import { MaskDataParser } from "./MaskDataParser";
+import { buildMaskTargetKey, getMaskTargetComparablePath, normalizeImageResourceUrl } from "./image-mask-target";
 import { MaskRenderer, revealAllMasks } from "./MaskRenderer";
+import { applyStyleProps } from "../../utils/style-props";
+
+interface ParsedMaskLookup {
+	byIndex: Map<number, MaskData>;
+	byTargetKey: Map<string, MaskData>;
+	knownComparablePaths: string[];
+}
 
 export class ImageMaskIntegration {
 	private app: App;
@@ -34,8 +42,14 @@ export class ImageMaskIntegration {
 	 * @param container 容器元素
 	 * @param content Markdown 内容（用于解析遮罩数据）
 	 * @param interactive 是否启用交互模式（点击单个遮罩切换）
+	 * @param sourceFilePath Markdown 源文件路径，用于解析更稳定的图片目标
 	 */
-	applyMasksInContainer(container: HTMLElement, content: string, interactive = false): void {
+	applyMasksInContainer(
+		container: HTMLElement,
+		content: string,
+		interactive = false,
+		sourceFilePath = ""
+	): void {
 		const images = container.querySelectorAll("img");
 
 		if (images.length === 0) {
@@ -43,21 +57,35 @@ export class ImageMaskIntegration {
 		}
 
 		// 解析内容，查找遮罩注释
-		const maskDataMap = this.parseMaskDataFromContent(content);
+		const maskLookup = this.parseMaskDataFromContent(content, sourceFilePath);
 
-		if (maskDataMap.size === 0) {
+		if (maskLookup.byIndex.size === 0 && maskLookup.byTargetKey.size === 0) {
 			return;
 		}
 
+		const renderedOccurrenceByPath = new Map<string, number>();
+
 		// 为每个图片应用遮罩
 		images.forEach((img, index) => {
-			const imageSrc = img.getAttribute("src") || "";
-			const maskData = this.findMaskDataForImage(imageSrc, index, maskDataMap);
+			const comparablePath = this.resolveRenderedImageComparablePath(
+				img,
+				maskLookup.knownComparablePaths
+			);
+			const occurrence = comparablePath
+				? (renderedOccurrenceByPath.get(comparablePath) || 0) + 1
+				: 0;
+			if (comparablePath) {
+				renderedOccurrenceByPath.set(comparablePath, occurrence);
+			}
+
+			const maskData = this.findMaskDataForImage(index, comparablePath, occurrence, maskLookup);
 
 			if (maskData) {
-				//  调试日志：输出遮罩数据详情
+				// 调试日志：输出遮罩数据详情
 				logger.debug(`[ImageMaskIntegration] 为图片 ${index} 应用遮罩，数据:`, {
 					maskCount: maskData.masks.length,
+					comparablePath,
+					occurrence,
 					masks: maskData.masks.map((m) => ({
 						id: m.id,
 						type: m.type,
@@ -87,7 +115,7 @@ export class ImageMaskIntegration {
 					this.renderer.showMasks(overlay, MASK_CONSTANTS.DEFAULT_ANIMATION_DURATION);
 				} else {
 					//  修复：非动画模式也要恢复 display 属性
-					overlay.setCssProps({
+					applyStyleProps(overlay, {
 						display: "",
 						opacity: "1",
 					});
@@ -135,14 +163,16 @@ export class ImageMaskIntegration {
 
 	/**
 	 * 从内容中解析所有遮罩数据
-	 * 返回 Map<图片序号, MaskData>
-	 *
-	 *  修复：按图片在文件中的出现顺序（0, 1, 2...）建立索引，而不是行号
+	 * 同时维护：
+	 * - 兼容旧逻辑的图片全局顺序索引
+	 * - 更稳定的图片路径 + 同路径出现次数目标索引
 	 */
-	private parseMaskDataFromContent(content: string): Map<number, MaskData> {
-		const maskDataMap = new Map<number, MaskData>();
+	private parseMaskDataFromContent(content: string, sourceFilePath: string): ParsedMaskLookup {
+		const byIndex = new Map<number, MaskData>();
+		const byTargetKey = new Map<string, MaskData>();
+		const knownComparablePaths = new Set<string>();
 		const lines = content.split("\n");
-		let imageCount = 0; // 图片计数器
+		let imageCount = 0;
 
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i].trim();
@@ -158,10 +188,28 @@ export class ImageMaskIntegration {
 						const parseResult = this.parser.parseCommentToMaskData(nextLine);
 
 						if (parseResult.success && parseResult.data) {
-							// 使用图片序号作为 key（从 0 开始）
-							maskDataMap.set(imageCount, parseResult.data);
+							const target =
+								parseResult.data.target ||
+								this.parser.buildMaskTargetForImage(content, i, sourceFilePath) ||
+								undefined;
+							const maskData = target
+								? {
+									...parseResult.data,
+									target,
+								}
+								: parseResult.data;
+							const targetKey = buildMaskTargetKey(maskData.target);
+							const comparablePath = getMaskTargetComparablePath(maskData.target);
+
+							byIndex.set(imageCount, maskData);
+							if (targetKey && !byTargetKey.has(targetKey)) {
+								byTargetKey.set(targetKey, maskData);
+							}
+							if (comparablePath) {
+								knownComparablePaths.add(comparablePath);
+							}
 							logger.debug(
-								`[ImageMaskIntegration] 找到遮罩数据：图片序号=${imageCount}，遮罩数量=${parseResult.data.masks.length}`
+								`[ImageMaskIntegration] 找到遮罩数据：图片序号=${imageCount}，遮罩数量=${maskData.masks.length}`
 							);
 						}
 					}
@@ -173,30 +221,85 @@ export class ImageMaskIntegration {
 		}
 
 		logger.debug(
-			`[ImageMaskIntegration] 解析完成：共 ${imageCount} 张图片，${maskDataMap.size} 张有遮罩`
+			`[ImageMaskIntegration] 解析完成：共 ${imageCount} 张图片，${byIndex.size} 张有遮罩`
 		);
-		return maskDataMap;
+		return {
+			byIndex,
+			byTargetKey,
+			knownComparablePaths: Array.from(knownComparablePaths),
+		};
 	}
 
 	/**
 	 * 查找图片对应的遮罩数据
 	 */
 	private findMaskDataForImage(
-		_imageSrc: string,
 		imageIndex: number,
-		maskDataMap: Map<number, MaskData>
+		comparablePath: string,
+		occurrence: number,
+		maskLookup: ParsedMaskLookup
 	): MaskData | null {
-		// 通过图片序号匹配（修复后的逻辑）
-		const maskData = maskDataMap.get(imageIndex);
+		const targetKey = comparablePath
+			? buildMaskTargetKey({ imagePath: comparablePath, imageOccurrence: occurrence })
+			: null;
+		const maskData = targetKey ? maskLookup.byTargetKey.get(targetKey) : undefined;
 
 		if (maskData) {
 			logger.debug(
-				`[ImageMaskIntegration] 为图片 #${imageIndex} 找到遮罩数据，包含 ${maskData.masks.length} 个遮罩`
+				`[ImageMaskIntegration] 通过稳定 target 为图片 #${imageIndex} 找到遮罩数据，包含 ${maskData.masks.length} 个遮罩`
 			);
 			return maskData;
 		}
 
+		const fallbackMaskData = maskLookup.byIndex.get(imageIndex);
+		if (fallbackMaskData) {
+			logger.debug(
+				`[ImageMaskIntegration] 回退到图片顺序为图片 #${imageIndex} 找到遮罩数据，包含 ${fallbackMaskData.masks.length} 个遮罩`
+			);
+			return fallbackMaskData;
+		}
+
 		return null;
+	}
+
+	private resolveRenderedImageComparablePath(img: HTMLImageElement, knownComparablePaths: string[]): string {
+		if (knownComparablePaths.length === 0) {
+			return "";
+		}
+
+		const rawCandidates = [img.currentSrc, img.getAttribute("src") || "", img.getAttribute("alt") || ""];
+		const candidates = Array.from(
+			new Set(rawCandidates.map((value) => normalizeImageResourceUrl(value)).filter(Boolean))
+		);
+
+		let bestMatch = "";
+		for (const candidate of candidates) {
+			const candidateFileName = this.getPathFileName(candidate);
+			for (const knownPath of knownComparablePaths) {
+				const knownFileName = this.getPathFileName(knownPath);
+				const isMatch =
+					candidate === knownPath ||
+					candidate.endsWith(`/${knownPath}`) ||
+					candidate.endsWith(knownPath) ||
+					knownPath.endsWith(`/${candidate}`) ||
+					(!!candidateFileName && candidateFileName === knownFileName);
+				if (isMatch && knownPath.length > bestMatch.length) {
+					bestMatch = knownPath;
+				}
+			}
+		}
+
+		return bestMatch;
+	}
+
+	private getPathFileName(value: string): string {
+		const normalized = normalizeImageResourceUrl(value);
+		if (!normalized) {
+			return "";
+		}
+
+		const segments = normalized.split("/").filter(Boolean);
+		return segments[segments.length - 1] || "";
 	}
 }
 

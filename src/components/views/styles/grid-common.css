@@ -61,33 +61,6 @@
   font-size: var(--weave-font-size-sm);
 }
 
-/* ===== 自定义滚动条 ===== */
-.weave-grid-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: var(--weave-scrollbar-thumb) var(--weave-scrollbar-track);
-  scrollbar-gutter: stable;
-}
-
-.weave-grid-scrollbar::-webkit-scrollbar {
-  width: 8px;
-  height: 12px;
-}
-
-.weave-grid-scrollbar::-webkit-scrollbar-track {
-  background: var(--weave-scrollbar-track);
-  border-radius: 4px;
-}
-
-.weave-grid-scrollbar::-webkit-scrollbar-thumb {
-  background: var(--weave-scrollbar-thumb);
-  border-radius: 4px;
-  min-height: 48px;
-}
-
-.weave-grid-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
-
 /* ===== 渲染进度遮罩 ===== */
 .weave-rendering-overlay {
   position: absolute;
@@ -155,4 +128,3 @@
   will-change: scroll-position;
   -webkit-overflow-scrolling: touch;
 }
-

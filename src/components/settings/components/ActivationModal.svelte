@@ -4,8 +4,10 @@
    * 通过按钮触发显示激活表单，界面更简洁优雅
    */
   
+  import { untrack } from 'svelte';
   import { ActivationModal } from './ActivationModalObsidian';
   import { tr } from '../../../utils/i18n';
+  import { getPluginEffectiveLicenseState } from '../../../utils/plugin-license';
   
   interface Props {
     plugin: any;
@@ -23,14 +25,21 @@
   let t = $derived($tr);
   
   // 当前许可证状态
-  let currentLicenseInfo = $derived(plugin?.settings?.license);
+  let currentLicenseInfo = $state(
+    untrack(() => getPluginEffectiveLicenseState(plugin).primaryLicense ?? plugin?.settings?.license ?? null)
+  );
   let isLicenseActive = $derived(
     currentLicenseInfo?.isActivated && currentLicenseInfo?.activationCode
   );
+
+  async function handleSave() {
+    await onSave();
+    currentLicenseInfo = getPluginEffectiveLicenseState(plugin).primaryLicense ?? plugin?.settings?.license ?? null;
+  }
   
   function openModal() {
     // 使用Obsidian原生Modal API
-    const modal = new ActivationModal(plugin.app, plugin, onSave);
+    const modal = new ActivationModal(plugin.app, plugin, handleSave);
     modal.open();
   }
 </script>

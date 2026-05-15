@@ -129,7 +129,7 @@ Back`
     });
   });
 
-  it('牌组拖拽选择新增时保留原牌组并加入目标牌组', () => {
+  it('记忆卡拖拽到新牌组时会直接替换为单正式牌组', () => {
     const existingCard = createCard({
       content: `---
 we_decks:
@@ -143,13 +143,14 @@ Back`,
 
     const updatedCard = applyDeckDragToCard(existingCard, decks, 'deck-b', 'add', 'deck-a', NOW);
 
-    expect(updatedCard.content).toContain('- 牌组 A');
     expect(updatedCard.content).toContain('- 牌组 B');
-    expect(updatedCard.referencedByDecks).toEqual(expect.arrayContaining(['deck-a', 'deck-b']));
+    expect(updatedCard.content).not.toContain('- 牌组 A');
+    expect(updatedCard.deckId).toBe('deck-b');
+    expect(updatedCard.referencedByDecks).toEqual(['deck-b']);
     expect(updatedCard.modified).toBe(NOW);
   });
 
-  it('牌组拖拽选择替换当前列时只移除来源牌组', () => {
+  it('记忆卡拖拽时不会保留旧的多牌组残留', () => {
     const existingCard = createCard({
       content: `---
 we_decks:
@@ -177,9 +178,8 @@ Back`,
 
     expect(updatedCard.content).not.toContain('- 牌组 A');
     expect(updatedCard.content).toContain('- 牌组 B');
-    expect(updatedCard.content).toContain('- 牌组 C');
-    expect(updatedCard.referencedByDecks).not.toContain('deck-a');
-    expect(updatedCard.referencedByDecks).toEqual(expect.arrayContaining(['deck-b', 'deck-c']));
+    expect(updatedCard.content).not.toContain('- 牌组 C');
+    expect(updatedCard.referencedByDecks).toEqual(['deck-b']);
   });
 
   it('题库拖拽选择新增时保留原题库并加入目标题库', () => {

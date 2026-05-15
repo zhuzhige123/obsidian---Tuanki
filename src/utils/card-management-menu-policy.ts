@@ -35,6 +35,7 @@ export type CardManagementToolbarActionKey =
 	| "open-kanban-column-settings"
 	| "open-grid-attribute-menu"
 	| "toggle-document-filter"
+	| "toggle-card-relation-filter"
 	| "toggle-card-location-jump";
 
 export type CardManagementMenuSurface = "mobile" | "desktop-main" | "desktop-sidebar";
@@ -78,14 +79,14 @@ export function getCardManagementToolbarMirrorActions(options: {
 
 	if (options.surface === "desktop-sidebar") {
 		/**
-		 * 桌面侧边栏顶部只保留两类就近操作：
-		 * - 关联当前活动文档
-		 * - 定位跳转模式
+		 * 桌面侧边栏顶部只保留“关联当前活动文档”这一类就近操作。
 		 *
 		 * 其余卡片管理功能仍保留在菜单中，避免侧边栏顶部塞太满。
 		 */
 		visibleActions.add("toggle-document-filter");
-		visibleActions.add("toggle-card-location-jump");
+		if (options.currentView === "grid" || options.currentView === "kanban") {
+			visibleActions.add("toggle-card-relation-filter");
+		}
 		return visibleActions;
 	}
 
@@ -116,14 +117,13 @@ export function getCardManagementToolbarMirrorActions(options: {
 		visibleActions.add("grid-layout-masonry");
 		visibleActions.add("grid-layout-timeline");
 		visibleActions.add("open-grid-attribute-menu");
+		visibleActions.add("toggle-card-relation-filter");
 	}
 
 	if (options.currentView === "kanban") {
-		visibleActions.add("kanban-layout-compact");
-		visibleActions.add("kanban-layout-comfortable");
-		visibleActions.add("kanban-layout-spacious");
 		visibleActions.add("open-kanban-column-settings");
 		visibleActions.add("open-grid-attribute-menu");
+		visibleActions.add("toggle-card-relation-filter");
 	}
 
 	return visibleActions;

@@ -4,6 +4,7 @@
 
 import type { TFile } from "obsidian";
 import type { Card } from "../data/types";
+import type { ParsedCard } from "./newCardParsingTypes";
 
 // ===== AI服务提供商 =====
 export type AIProvider =
@@ -54,9 +55,11 @@ export interface GenerationConfig {
 	model: string;
 	temperature: number;
 	maxTokens: number;
+	maxGenerationLimit?: number;
+	prioritizePromptRequirements?: boolean;
 
 	// 图片生成配置
-	imageGeneration: {
+	imageGeneration?: {
 		enabled: boolean;
 		strategy: "none" | "ai-generate" | "search";
 		imagesPerCard: number;
@@ -65,8 +68,82 @@ export interface GenerationConfig {
 
 	// 高级选项
 	targetDeck?: string;
-	autoTags: string[];
-	enableHints: boolean;
+	enableHints?: boolean;
+}
+
+export type GeneratedCardDraftType = "qa" | "cloze" | "choice";
+
+export interface GeneratedChoiceOptionDraft {
+	key: string;
+	text: string;
+}
+
+interface GeneratedCardDraftBase {
+	tags?: string[];
+}
+
+export interface QAGeneratedCardDraft extends GeneratedCardDraftBase {
+	type: "qa";
+	front: string;
+	back: string;
+}
+
+export interface ClozeGeneratedCardDraft extends GeneratedCardDraftBase {
+	type: "cloze";
+	text: string;
+	back?: string;
+}
+
+export interface ChoiceGeneratedCardDraft extends GeneratedCardDraftBase {
+	type: "choice";
+	question: string;
+	options: GeneratedChoiceOptionDraft[];
+	answers: string[];
+	back?: string;
+}
+
+export type GeneratedCardDraft =
+	| QAGeneratedCardDraft
+	| ClozeGeneratedCardDraft
+	| ChoiceGeneratedCardDraft;
+
+export type AICardStatus = "valid" | "warning" | "invalid";
+
+export interface AICardIssue {
+	code:
+		| "missing-front"
+		| "missing-back"
+		| "missing-cloze"
+		| "missing-question"
+		| "missing-options"
+		| "invalid-option-count"
+		| "missing-answer"
+		| "invalid-answer"
+		| "invalid-json"
+		| "unsupported-type";
+	message: string;
+	severity: "warning" | "error";
+}
+
+export interface AICardPreviewItem {
+	id: string;
+	draft: GeneratedCardDraft;
+	status: AICardStatus;
+	issues: AICardIssue[];
+	generatedContent: string;
+	generatedCard: GeneratedCard;
+	isNew?: boolean;
+}
+
+export interface AIParsePreviewItem {
+	id: string;
+	index: number;
+	front: string;
+	back: string;
+	tags: string[];
+	source: string;
+	rawContent: string;
+	parsedCard: ParsedCard;
 }
 
 // ===== 生成的卡片 =====
@@ -257,6 +334,7 @@ export interface IAIService {
 		messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
 		temperature?: number;
 		maxTokens?: number;
+		responseFormat?: "json_object";
 	}): Promise<{
 		success: boolean;
 		content?: string;
@@ -280,6 +358,20 @@ export interface ImportResult {
 	importedCount: number;
 	failedCount: number;
 	errors: string[];
+}
+
+export interface AIPreviewImportOptions {
+	targetDeckId: string;
+	autoTags: string[];
+}
+
+export interface AIPreviewImportResult {
+	importedCount: number;
+	failedCount: number;
+	selectedCount: number;
+	targetDeckId: string;
+	targetDeckName?: string;
+	importedItemIds?: string[];
 }
 
 // ===== 历史记录 =====

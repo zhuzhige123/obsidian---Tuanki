@@ -14,6 +14,25 @@ export interface TabletDebugConfig {
 	enableTouchSimulation: boolean;
 }
 
+type TabletDebugApi = {
+	enable: () => void;
+	disable: () => void;
+	mockiPad: () => void;
+	mockAndroid: () => void;
+	mockMobile: () => void;
+	restore: () => void;
+	stats: () => ReturnType<TabletDebugger["getStats"]>;
+	landscape: () => void;
+	portrait: () => void;
+};
+
+type TabletDebugWindow = Window &
+	typeof globalThis & {
+		__weave_detectDevice?: (() => DeviceInfo) | undefined;
+		__weaveTabletDebugCleanup?: (() => void) | undefined;
+		weaveTabletDebug?: TabletDebugApi | undefined;
+	};
+
 class TabletDebugger {
 	private config: TabletDebugConfig = {
 		enabled: false,
@@ -24,24 +43,35 @@ class TabletDebugger {
 
 	private debugOverlay: HTMLElement | null = null;
 	private originalDeviceInfo: DeviceInfo | null = null;
+	private resizeDebugHandler: (() => void) | null = null;
+	private orientationDebugHandler: (() => void) | null = null;
+	private touchSimulationMouseDownHandler: ((event: MouseEvent) => void) | null = null;
+	private isGlobalApiRegistered = false;
 
 	/**
 	 * 启用平板端调试模式
 	 */
 	enable(config: Partial<TabletDebugConfig> = {}): void {
 		this.config = { ...this.config, enabled: true, ...config };
+		this.initializeGlobalBindings();
 
 		// 禁用自动显示调试信息浮窗，需要时手动调用
 		if (this.config.showDebugInfo && config.showDebugInfo !== undefined) {
 			this.createDebugOverlay();
+		} else if (!this.config.showDebugInfo) {
+			this.removeDebugOverlay();
 		}
 
 		if (this.config.logDeviceChanges) {
 			this.setupDeviceLogging();
+		} else {
+			this.teardownDeviceLogging();
 		}
 
 		if (this.config.enableTouchSimulation) {
 			this.setupTouchSimulation();
+		} else {
+			this.teardownTouchSimulation();
 		}
 
 		logger.debug("[TabletDebugger] 调试模式已启用", this.config);
@@ -51,17 +81,25 @@ class TabletDebugger {
 	 * 禁用调试模式
 	 */
 	disable(): void {
-		this.config.enabled = false;
+		this.config = {
+			...this.config,
+			enabled: false,
+			showDebugInfo: false,
+			logDeviceChanges: false,
+			enableTouchSimulation: false,
+		};
 		this.removeDebugOverlay();
-
-		// ✅ 清理设备日志设置
-		if ((window as any).__weave_debugger_setup) {
-			(window as any).__weave_debugger_setup = undefined;
-			// 注意：不恢复 addEventListener，因为可能影响其他插件
-			logger.debug("[TabletDebugger] 已清理调试设置标记");
-		}
+		this.teardownDeviceLogging();
+		this.teardownTouchSimulation();
+		this.restoreDevice();
 
 		logger.debug("[TabletDebugger] 调试模式已禁用");
+	}
+
+	destroy(): void {
+		this.disable();
+		this.unregisterGlobalBindings();
+		this.originalDeviceInfo = null;
 	}
 
 	/**
@@ -89,7 +127,8 @@ class TabletDebugger {
 	 * 恢复真实设备检测
 	 */
 	restoreDevice(): void {
-		(window as any).__weave_detectDevice = undefined;
+		const debugWindow = window as TabletDebugWindow;
+		debugWindow.__weave_detectDevice = undefined;
 		logger.debug("[TabletDebugger] 已恢复真实设备检测");
 		this.updateDebugOverlay();
 	}
@@ -129,7 +168,8 @@ class TabletDebugger {
 	private updateDebugOverlay(): void {
 		if (!this.debugOverlay) return;
 
-		const deviceInfo = (window as any).__weave_detectDevice?.() || detectDevice();
+		const debugWindow = window as TabletDebugWindow;
+		const deviceInfo = debugWindow.__weave_detectDevice?.() || detectDevice();
 		const screenInfo = {
 			width: window.innerWidth,
 			height: window.innerHeight,
@@ -206,7 +246,7 @@ class TabletDebugger {
 	 */
 	private removeDebugOverlay(): void {
 		if (this.debugOverlay) {
-			document.body.removeChild(this.debugOverlay);
+			this.debugOverlay.remove();
 			this.debugOverlay = null;
 		}
 	}
@@ -215,57 +255,43 @@ class TabletDebugger {
 	 * 设置设备变化日志
 	 */
 	private setupDeviceLogging(): void {
-		// ✅ 添加安全检查，避免重复设置
-		if ((window as any).__weave_debugger_setup) {
-			logger.warn("[TabletDebugger] 设备日志已设置，跳过");
+		if (this.resizeDebugHandler || this.orientationDebugHandler) {
 			return;
 		}
 
-		const originalAddEventListener = window.addEventListener;
-
-		window.addEventListener = function (
-			type: string,
-			listener: EventListenerOrEventListenerObject | null,
-			options?: boolean | AddEventListenerOptions
-		): void {
-			if (type === "resize" || type === "orientationchange") {
-				const wrappedListener = (event: Event) => {
-					// 设备事件触发
-
-					// ✅ 修复上下文绑定问题，安全调用原始监听器
-					try {
-						if (typeof listener === "function") {
-							// 使用事件目标或当前目标作为正确的上下文
-							const context = event.currentTarget || event.target || window;
-							return (listener as EventListener).call(context, event);
-						} else if (
-							listener &&
-							typeof (listener as EventListenerObject).handleEvent === "function"
-						) {
-							// ✅ 支持 EventListener 接口
-							return (listener as EventListenerObject).handleEvent.call(listener, event);
-						}
-					} catch (error) {
-						logger.warn("[TabletDebugger] 监听器调用失败:", error);
-					}
-				};
-				originalAddEventListener.call(this, type, wrappedListener, options);
-				return;
-			}
-			originalAddEventListener.call(this, type, listener!, options);
-			return;
+		this.resizeDebugHandler = () => {
+			logger.debug("[TabletDebugger] resize", this.getStats());
+			this.updateDebugOverlay();
+		};
+		this.orientationDebugHandler = () => {
+			logger.debug("[TabletDebugger] orientationchange", this.getStats());
+			this.updateDebugOverlay();
 		};
 
-		// ✅ 标记已设置，避免重复
-		(window as any).__weave_debugger_setup = true;
+		window.addEventListener("resize", this.resizeDebugHandler);
+		window.addEventListener("orientationchange", this.orientationDebugHandler);
+	}
+
+	private teardownDeviceLogging(): void {
+		if (this.resizeDebugHandler) {
+			window.removeEventListener("resize", this.resizeDebugHandler);
+			this.resizeDebugHandler = null;
+		}
+		if (this.orientationDebugHandler) {
+			window.removeEventListener("orientationchange", this.orientationDebugHandler);
+			this.orientationDebugHandler = null;
+		}
 	}
 
 	/**
 	 * 设置触控模拟
 	 */
 	private setupTouchSimulation(): void {
-		// 为鼠标事件添加触控类模拟
-		document.addEventListener("mousedown", (e) => {
+		if (this.touchSimulationMouseDownHandler) {
+			return;
+		}
+
+		this.touchSimulationMouseDownHandler = (e: MouseEvent) => {
 			const touchEvent = new TouchEvent("touchstart", {
 				touches: [
 					new Touch({
@@ -281,9 +307,20 @@ class TabletDebugger {
 				],
 			});
 			e.target?.dispatchEvent(touchEvent);
-		});
+		};
+
+		document.addEventListener("mousedown", this.touchSimulationMouseDownHandler);
 
 		logger.debug("[TabletDebugger] 触控模拟已启用");
+	}
+
+	private teardownTouchSimulation(): void {
+		if (!this.touchSimulationMouseDownHandler) {
+			return;
+		}
+
+		document.removeEventListener("mousedown", this.touchSimulationMouseDownHandler);
+		this.touchSimulationMouseDownHandler = null;
 	}
 
 	/**
@@ -302,9 +339,10 @@ class TabletDebugger {
 		screenInfo: any;
 		capabilities: any;
 	} {
+		const debugWindow = window as TabletDebugWindow;
 		return {
-			currentDevice: (window as any).__weave_detectDevice?.() || detectDevice(),
-			isMocked: !!(window as any).__weave_detectDevice,
+			currentDevice: debugWindow.__weave_detectDevice?.() || detectDevice(),
+			isMocked: !!debugWindow.__weave_detectDevice,
 			screenInfo: {
 				width: window.innerWidth,
 				height: window.innerHeight,
@@ -321,6 +359,40 @@ class TabletDebugger {
 				pointerEvents: "onpointerdown" in window,
 			},
 		};
+	}
+
+	initializeGlobalBindings(): void {
+		if (this.isGlobalApiRegistered) {
+			return;
+		}
+
+		const debugWindow = window as TabletDebugWindow;
+		debugWindow.weaveTabletDebug = {
+			enable: () => this.enable({ showDebugInfo: true, logDeviceChanges: true }),
+			disable: () => this.disable(),
+			mockiPad: () => this.mockDevice(testDevicePresets.iPad),
+			mockAndroid: () => this.mockDevice(testDevicePresets.AndroidTablet),
+			mockMobile: () => this.mockDevice(testDevicePresets.iPhone),
+			restore: () => this.restoreDevice(),
+			stats: () => this.getStats(),
+			landscape: () => this.simulateOrientationChange("landscape"),
+			portrait: () => this.simulateOrientationChange("portrait"),
+		};
+		debugWindow.__weaveTabletDebugCleanup = () => {
+			this.destroy();
+		};
+		this.isGlobalApiRegistered = true;
+	}
+
+	private unregisterGlobalBindings(): void {
+		if (!this.isGlobalApiRegistered) {
+			return;
+		}
+
+		const debugWindow = window as TabletDebugWindow;
+		debugWindow.weaveTabletDebug = undefined;
+		debugWindow.__weaveTabletDebugCleanup = undefined;
+		this.isGlobalApiRegistered = false;
 	}
 }
 
@@ -369,25 +441,6 @@ export const testDevicePresets = {
 	},
 } as const;
 
-/**
- * 快速开启调试模式的便捷函数
- * 在浏览器控制台中使用
- */
-(window as any).weaveTabletDebug = {
-	enable: () => tabletDebugger.enable({ showDebugInfo: true, logDeviceChanges: true }),
-	disable: () => tabletDebugger.disable(),
-	mockiPad: () => tabletDebugger.mockDevice(testDevicePresets.iPad),
-	mockAndroid: () => tabletDebugger.mockDevice(testDevicePresets.AndroidTablet),
-	mockMobile: () => tabletDebugger.mockDevice(testDevicePresets.iPhone),
-	restore: () => tabletDebugger.restoreDevice(),
-	stats: () => tabletDebugger.getStats(),
-	landscape: () => tabletDebugger.simulateOrientationChange("landscape"),
-	portrait: () => tabletDebugger.simulateOrientationChange("portrait"),
-};
-
-logger.debug("🔧 平板端调试工具已加载！使用 window.weaveTabletDebug 进行调试");
-logger.debug("常用命令:");
-logger.debug("- weaveTabletDebug.enable() - 启用调试");
-logger.debug("- weaveTabletDebug.mockiPad() - 模拟iPad");
-logger.debug("- weaveTabletDebug.landscape() - 模拟横屏");
-logger.debug("- weaveTabletDebug.stats() - 查看设备信息");
+export function initializeGlobalTabletDebugTools(): void {
+	tabletDebugger.initializeGlobalBindings();
+}

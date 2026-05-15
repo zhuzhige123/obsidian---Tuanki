@@ -77,12 +77,42 @@ function hasKnownVaultFileExtension(normalizedPath: string): boolean {
 	return DETACHED_EDITOR_SOURCE_FILE_EXTENSIONS.has(extension);
 }
 
+function sanitizeDetachedEditorSourcePath(sourcePath?: string): string {
+	const rawSourcePath = (sourcePath || "").trim();
+	if (!rawSourcePath) {
+		return "";
+	}
+
+	const normalizedSourcePath = normalizePath(rawSourcePath)
+		.replace(/^['"]+|['"]+$/g, "")
+		.replace(/[?#].*$/, "")
+		.trim();
+
+	if (!normalizedSourcePath) {
+		return "";
+	}
+
+	if (/^[a-z]+:\/\//i.test(normalizedSourcePath)) {
+		return "";
+	}
+
+	if (/^[A-Za-z]:\//.test(normalizedSourcePath)) {
+		return "";
+	}
+
+	if (normalizedSourcePath.startsWith("../") || normalizedSourcePath === "..") {
+		return "";
+	}
+
+	return normalizedSourcePath;
+}
+
 export function getPluginEditorTempDir(app: App): string {
 	return normalizePath(getPluginPaths(app).cache.editorTemp);
 }
 
 export function getVaultEditorTempDir(app: App): string {
-	return normalizePath(`${getV2PathsFromApp(app as any).root}/temp`);
+	return normalizePath(`${getV2PathsFromApp(app as any).root}/editor`);
 }
 
 export function isDetachedEditorTempFileName(name: string): boolean {
@@ -102,15 +132,14 @@ export function isDetachedEditorTempFilePath(path?: string | null): boolean {
 }
 
 export function resolveDetachedEditorTempFolder(app: App, sourcePath?: string): string {
-	const rawSourcePath = (sourcePath || "").trim();
-	if (!rawSourcePath) {
+	const normalizedSourcePath = sanitizeDetachedEditorSourcePath(sourcePath);
+	if (!normalizedSourcePath) {
 		// 嵌入式编辑器最终依赖 TFile + openFile，缓冲区必须放在 Vault 可见目录。
 		return getVaultEditorTempDir(app);
 	}
 
-	const normalizedSourcePath = normalizePath(rawSourcePath);
 	if (!normalizedSourcePath || normalizedSourcePath === "." || normalizedSourcePath === "/") {
-		return "";
+		return getVaultEditorTempDir(app);
 	}
 
 	const existingPathKind = inferExistingVaultPathKind(app, normalizedSourcePath);

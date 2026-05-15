@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { vaultStorage } from '../../utils/vault-local-storage';
-  import type { ColumnVisibility, ColumnKey, ColumnOrder, ColumnGroupType } from '../tables/types/table-types';
+  import type { ColumnVisibility, ColumnKey, ColumnOrder, ColumnGroupType, ColumnGroups } from '../tables/types/table-types';
   import { COLUMN_GROUPS } from '../tables/types/table-types';
 
   interface Props {
     visibility: ColumnVisibility;
     columnOrder: ColumnOrder;
+    columnGroups?: ColumnGroups;
     onVisibilityChange: (key: ColumnKey, value: boolean) => void;
     onOrderChange: (newOrder: ColumnOrder) => void;
     quickPresets?: Array<{
@@ -22,6 +23,7 @@
   let {
     visibility,
     columnOrder,
+    columnGroups = COLUMN_GROUPS,
     onVisibilityChange,
     onOrderChange,
     quickPresets = [],
@@ -50,24 +52,27 @@
     source_document: "来源文档",
     field_template: "字段模板",
     source_document_status: "来源状态",
-    // 🆕 题库专用列
+    // 题库专用列
     question_type: "题型",
     accuracy: "正确率",
     test_attempts: "测试次数",
     last_test: "最后测试",
     error_level: "错题等级",
-    // 🆕 增量阅读专用列
+    // 增量阅读专用列
     ir_title: "标题",
     ir_source_file: "源文档",
     ir_state: "阅读状态",
     ir_priority: "优先级",
     ir_tags: "标签",
-    ir_favorite: "收藏",
     ir_next_review: "下次复习",
     ir_review_count: "复习次数",
     ir_reading_time: "阅读时长",
-    ir_notes: "笔记",
-    ir_extracted_cards: "已提取卡片",
+    ir_notes: "关联笔记",
+    ir_extract_cards: "摘录卡",
+    ir_memory_cards: "记忆卡",
+    ir_source_kind: "来源类型",
+    ir_source_subunit: "目录书签",
+    ir_tag_group: "标签组",
     ir_created: "创建时间",
     ir_decks: "专题",
   };
@@ -86,20 +91,20 @@
   
   const basicColumns = $derived(
     safeColumnOrder.filter(key => 
-      COLUMN_GROUPS.basic?.includes(key) && !COLUMN_GROUPS.advanced?.includes(key)
+      columnGroups.basic?.includes(key) && !columnGroups.advanced?.includes(key)
     )
   );
 
   const reviewColumns = $derived(
     safeColumnOrder.filter(key => 
-      COLUMN_GROUPS.review?.includes(key) && 
-      !COLUMN_GROUPS.basic?.includes(key) &&
-      !COLUMN_GROUPS.advanced?.includes(key)
+      columnGroups.review?.includes(key) && 
+      !columnGroups.basic?.includes(key) &&
+      !columnGroups.advanced?.includes(key)
     )
   );
 
   const advancedColumns = $derived(
-    safeColumnOrder.filter(key => COLUMN_GROUPS.advanced?.includes(key))
+    safeColumnOrder.filter(key => columnGroups.advanced?.includes(key))
   );
 
   const basicSelectedCount = $derived(basicColumns.filter((key) => visibility[key]).length);
@@ -127,12 +132,16 @@
     vaultStorage.setItem(ADVANCED_EXPANDED_KEY, String(showAdvanced));
   }
 
+  function toggleVisibility(key: ColumnKey) {
+    onVisibilityChange(key, !visibility[key]);
+  }
+
   /**
    * 判断字段属于哪个分组
    */
   function getColumnGroup(key: ColumnKey): ColumnGroupType {
-    if (COLUMN_GROUPS.advanced.includes(key)) return 'advanced';
-    if (COLUMN_GROUPS.review.includes(key) && !COLUMN_GROUPS.basic.includes(key)) {
+    if (columnGroups.advanced.includes(key)) return 'advanced';
+    if (columnGroups.review.includes(key) && !columnGroups.basic.includes(key)) {
       return 'review';
     }
     return 'basic';
@@ -142,7 +151,7 @@
    * 判断是否为通用字段
    */
   function isSharedColumn(key: ColumnKey): boolean {
-    return COLUMN_GROUPS.shared.includes(key);
+    return columnGroups.shared.includes(key);
   }
 
   /**
@@ -235,13 +244,7 @@
 <div class="column-manager">
   <!-- 头部 -->
   <div class="column-manager-header">
-    <div class="column-manager-title-block">
-      <div class="column-manager-title-row">
-        <span class="column-manager-title">显示字段</span>
-        <span class="column-count-chip summary">已选 {totalSelectedCount}</span>
-      </div>
-      <span class="drag-hint">拖拽可调整顺序，勾选即可立即生效</span>
-    </div>
+    <span class="column-count-chip summary">已选 {totalSelectedCount}</span>
     <button type="button" class="column-reset-btn" onclick={onResetToDefaults}>
       恢复默认
     </button>
@@ -284,17 +287,26 @@
             ondrop={(e) => handleDrop(e, key, 'basic')}
             ondragend={handleDragEnd}
           >
-            <label>
-              <input
-                type="checkbox"
-                checked={visibility[key]}
-                onchange={(e) => onVisibilityChange(key, e.currentTarget.checked)}
-              />
+            <label class="column-toggle-row">
               <span class="column-label">
                 {columnLabels[key]}
                 {#if isSharedColumn(key)}
                   <span class="shared-badge">[通用]</span>
                 {/if}
+              </span>
+              <span class="column-toggle-switch">
+                <input
+                  class="column-toggle-input"
+                  type="checkbox"
+                  checked={visibility[key]}
+                  onchange={() => toggleVisibility(key)}
+                  aria-label={columnLabels[key]}
+                />
+                <span
+                  class="column-toggle-track"
+                  class:is-enabled={visibility[key]}
+                  aria-hidden="true"
+                ></span>
               </span>
             </label>
           </li>
@@ -321,13 +333,22 @@
             ondrop={(e) => handleDrop(e, key, 'review')}
             ondragend={handleDragEnd}
           >
-            <label>
-              <input
-                type="checkbox"
-                checked={visibility[key]}
-                onchange={(e) => onVisibilityChange(key, e.currentTarget.checked)}
-              />
+            <label class="column-toggle-row">
               <span class="column-label">{columnLabels[key]}</span>
+              <span class="column-toggle-switch">
+                <input
+                  class="column-toggle-input"
+                  type="checkbox"
+                  checked={visibility[key]}
+                  onchange={() => toggleVisibility(key)}
+                  aria-label={columnLabels[key]}
+                />
+                <span
+                  class="column-toggle-track"
+                  class:is-enabled={visibility[key]}
+                  aria-hidden="true"
+                ></span>
+              </span>
             </label>
           </li>
         {/each}
@@ -360,13 +381,22 @@
             ondrop={(e) => handleDrop(e, key, 'advanced')}
             ondragend={handleDragEnd}
           >
-            <label>
-              <input
-                type="checkbox"
-                checked={visibility[key]}
-                onchange={(e) => onVisibilityChange(key, e.currentTarget.checked)}
-              />
+            <label class="column-toggle-row">
               <span class="column-label">{columnLabels[key]}</span>
+              <span class="column-toggle-switch">
+                <input
+                  class="column-toggle-input"
+                  type="checkbox"
+                  checked={visibility[key]}
+                  onchange={() => toggleVisibility(key)}
+                  aria-label={columnLabels[key]}
+                />
+                <span
+                  class="column-toggle-track"
+                  class:is-enabled={visibility[key]}
+                  aria-hidden="true"
+                ></span>
+              </span>
             </label>
           </li>
         {/each}
@@ -387,37 +417,11 @@
   /* 头部 */
   .column-manager-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 0.75rem;
     padding-right: 40px;
-  }
-
-  .column-manager-title-block {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    min-width: 0;
-  }
-
-  .column-manager-title {
-    font-size: 0.95rem;
-    font-weight: 700;
-    color: var(--text-normal);
-  }
-
-  .column-manager-title-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .drag-hint {
-    font-size: 0.72rem;
-    color: var(--text-muted);
-    font-weight: 400;
   }
 
   .column-count-chip {
@@ -511,10 +515,10 @@
   .column-group {
     display: flex;
     flex-direction: column;
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 12px;
-    padding: 0.25rem;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
   }
 
   .column-group-header {
@@ -525,8 +529,8 @@
     font-size: 0.78rem;
     font-weight: 600;
     color: var(--text-muted);
-    padding: 0.5rem 0.6rem 0.4rem;
-    border-bottom: 1px solid var(--background-modifier-border);
+    padding: 0.45rem 0 0.45rem;
+    border-bottom: none;
     margin-bottom: 0.35rem;
   }
 
@@ -534,16 +538,22 @@
     list-style: none;
     margin: 0;
     padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 
   /* 列表项 */
   .column-manager-item {
     display: flex;
     align-items: center;
-    border-radius: var(--radius-s);
-    transition: all 0.2s ease;
+    border-radius: 0;
+    transition: background-color 0.2s ease, opacity 0.2s ease;
     cursor: grab;
-    margin-bottom: 4px;
+    margin-bottom: 0;
+    border: none;
+    box-shadow: none;
+    background: transparent;
   }
 
   .column-manager-item:active {
@@ -561,24 +571,88 @@
     background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
   }
 
-  .column-manager-item label {
+  .column-toggle-row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.55rem 0.6rem;
-    flex: 1;
-    border-radius: 9px;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.7rem 0;
+    width: 100%;
+    border-radius: 0;
     cursor: pointer;
+    margin: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: 1.35;
+    text-align: left;
     transition: background-color 0.2s ease;
+    box-shadow: none;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
   }
 
-  .column-manager-item label:hover {
+  .column-toggle-row:hover {
     background: var(--background-modifier-hover);
   }
 
-  .column-manager-item input[type="checkbox"] {
-    accent-color: var(--color-accent);
+  .column-toggle-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 22px;
     flex-shrink: 0;
+  }
+
+  .column-toggle-input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .column-toggle-input:focus-visible + .column-toggle-track {
+    outline: 2px solid color-mix(in srgb, var(--interactive-accent) 42%, transparent);
+    outline-offset: 2px;
+  }
+
+  .column-toggle-track {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 36px;
+    height: 22px;
+    flex-shrink: 0;
+    border-radius: 999px;
+    background: var(--background-modifier-border);
+    transition: background-color 0.15s ease;
+  }
+
+  .column-toggle-track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--background-primary);
+    box-shadow: none;
+    transition: transform 0.15s ease;
+  }
+
+  .column-toggle-track.is-enabled {
+    background: var(--interactive-accent);
+  }
+
+  .column-toggle-track.is-enabled::after {
+    transform: translateX(14px);
   }
 
   /* 字段标签 */
@@ -587,6 +661,8 @@
     align-items: center;
     gap: 0.25rem;
     flex: 1;
+    min-width: 0;
+    min-height: 22px;
   }
 
   /* 通用字段标签 */
@@ -600,18 +676,18 @@
 
   /* 高级选项区域 */
   .advanced-section {
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    border-radius: 12px;
-    margin-top: 0.25rem;
-    overflow: hidden;
+    border-top: none;
+    background: transparent;
+    border-radius: 0;
+    margin-top: 0.75rem;
+    overflow: visible;
   }
 
   .advanced-section-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.7rem 0.8rem;
+    padding: 0.75rem 0;
     cursor: pointer;
     font-size: 0.78rem;
     font-weight: 600;
@@ -640,8 +716,10 @@
   .advanced-section-list {
     list-style: none;
     margin: 0;
-    padding: 0.5rem;
-    padding-top: 0;
+    padding: 0.2rem 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 
   /* 响应式：小屏幕单列布局 */
@@ -664,11 +742,11 @@
     }
     
     .column-group-header {
-      padding: 0.75rem 0.5rem 0.5rem;
+      padding: 0.75rem 0 0.5rem;
     }
     
-    .column-manager-item label {
-      padding: 0.75rem 0.5rem;
+    .column-toggle-row {
+      padding: 0.75rem 0;
     }
   }
 </style>

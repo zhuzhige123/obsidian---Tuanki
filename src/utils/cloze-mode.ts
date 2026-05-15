@@ -1,3 +1,6 @@
+import type { ClozeDelimiterSettings } from "./cloze-syntax";
+import { hasAnyClozeSyntax } from "./cloze-syntax";
+
 export type ClozeMode = "reveal" | "input";
 
 const CLOZE_MODE_DIRECTIVE_REGEX = /%%\s*weave-cloze-mode\s*:\s*(input|reveal)\s*%%/i;
@@ -9,8 +12,6 @@ const CLOZE_MODE_YAML_TAG_ITEM_REGEX = /^\s*-\s*["']?(?:we_input|input)["']?\s*$
 const CLOZE_MODE_YAML_INLINE_TAG_REGEX =
 	/^\s*tags\s*:\s*\[[^\]]*\b(?:we_input|input)\b[^\]]*\]\s*$/im;
 const CLOZE_MODE_KEY_LINE_REGEX = /^\s*we_cloze_mode\s*:\s*(input|reveal)\s*$/i;
-const INLINE_CLOZE_REGEX = /==.+?==/s;
-const ANKI_CLOZE_REGEX = /\{\{c\d*::/;
 
 export function detectClozeModeFromContent(content: string): ClozeMode {
 	if (!content) return "reveal";
@@ -59,9 +60,12 @@ export function shouldRevealClozeAnswersForRender(
 	return showClozeAnswers;
 }
 
-export function hasClozeSyntax(content: string): boolean {
+export function hasClozeSyntax(
+	content: string,
+	clozeSettings?: ClozeDelimiterSettings | null
+): boolean {
 	if (!content) return false;
-	return INLINE_CLOZE_REGEX.test(content) || ANKI_CLOZE_REGEX.test(content);
+	return hasAnyClozeSyntax(content, clozeSettings);
 }
 
 export function setClozeModeInContent(content: string, mode: ClozeMode): string {

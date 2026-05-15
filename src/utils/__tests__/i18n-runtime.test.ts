@@ -8,15 +8,15 @@ describe('i18n runtime fallbacks', () => {
   });
 
   it('prefers concrete translations for high-value keys', () => {
-    expect(i18n.t('about.license.activation.activateLicense')).toBe('Activate license');
-    expect(i18n.t('toolbar.aiAssistant')).toBe('AI Assistant');
-    expect(i18n.t('study.view.title')).toBe('Study');
-    expect(i18n.t('ankiConnect.connection.testingButton')).toBe('Testing...');
+    expect(i18n.t('about.license.activation.activate')).toBe('Activate');
+    expect(i18n.t('navigation.aiAssistant')).toBe('AI Assistant');
+    expect(i18n.t('study.title')).toBe('Study');
+    expect(i18n.t('ankiConnect.connection.test.testing')).toBe('Testing...');
   });
 
-  it('humanizes unresolved keys instead of exposing raw key paths', () => {
-    expect(i18n.t('runtimeFallback.avgTime')).toBe('Avg Time');
-    expect(i18n.t('runtimeFallback.openMenu')).toBe('Open Menu');
+  it('returns unresolved keys verbatim instead of pseudo-localized English text', () => {
+    expect(i18n.t('runtimeFallback.avgTime')).toBe('runtimeFallback.avgTime');
+    expect(i18n.t('runtimeFallback.openMenu')).toBe('runtimeFallback.openMenu');
   });
 
   it('keeps list translations empty when no real translation exists', () => {

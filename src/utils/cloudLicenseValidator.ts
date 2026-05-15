@@ -1,6 +1,7 @@
 import { requestUrl } from "obsidian";
 import type { App } from "obsidian";
 import { logger } from "../utils/logger";
+import { vaultStorage } from "./vault-local-storage";
 /**
  * Sealos云端License验证器
  */
@@ -148,7 +149,7 @@ export class CloudLicenseValidator {
 
 	private getCache(): { result: CloudValidationResult; cached_at: number } | null {
 		try {
-			const cached = this.app?.loadLocalStorage(this.cacheKey);
+			const cached = vaultStorage.getItem(this.cacheKey);
 			return cached ? JSON.parse(cached) : null;
 		} catch {
 			return null;
@@ -161,7 +162,7 @@ export class CloudLicenseValidator {
 
 	private setCache(result: CloudValidationResult): void {
 		try {
-			this.app?.saveLocalStorage(
+			vaultStorage.setItem(
 				this.cacheKey,
 				JSON.stringify({
 					result,
@@ -175,7 +176,7 @@ export class CloudLicenseValidator {
 
 	clearCache(): void {
 		try {
-			this.app?.saveLocalStorage(this.cacheKey, undefined as any);
+			vaultStorage.removeItem(this.cacheKey);
 		} catch {
 			// 忽略
 		}

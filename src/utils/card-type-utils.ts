@@ -3,7 +3,7 @@
  * 提供统一的题型识别和元数据获取功能
  */
 
-import { OFFICIAL_TEMPLATES } from "../constants/official-templates";
+import { getOfficialTemplateById } from "../constants/official-templates";
 import type { Card } from "../data/types";
 import type { CardType as ParserCardType } from "../parsers/MarkdownFieldsConverter";
 import {
@@ -13,6 +13,7 @@ import {
 	getCardTypeIcon,
 	getCardTypeName,
 } from "../types/unified-card-types";
+import { hasAnyClozeSyntax } from "./cloze-syntax";
 import { getCardProperty } from "./yaml-utils";
 
 type CardTypeResolutionInput = Pick<Card, "content" | "templateId" | "type">;
@@ -26,7 +27,7 @@ function detectFallbackCardTypeFromContent(content?: string): "basic" | "cloze" 
 		return "basic";
 	}
 
-	if (content.includes("{{c") || /==.+?==/s.test(content)) {
+	if (hasAnyClozeSyntax(content)) {
 		return "cloze";
 	}
 
@@ -137,7 +138,7 @@ export function detectCardQuestionType(card: Card): UnifiedCardType {
 
 	// 策略1: 从官方模板查找
 	if (card.templateId) {
-		const officialTemplate = OFFICIAL_TEMPLATES.find((t) => t.id === card.templateId);
+		const officialTemplate = getOfficialTemplateById(card.templateId);
 		if (officialTemplate) {
 			// 官方模板可能有 cardType 字段指示题型
 			const cardType = (officialTemplate as any).cardType;

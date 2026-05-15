@@ -2,7 +2,8 @@ import { App, Modal } from "obsidian";
 import { mount, unmount } from "svelte";
 import type { Card } from "../../data/types";
 import type WeavePlugin from "../../main";
-import DeckAnalyticsModal from "./DeckAnalyticsModal.svelte";
+import { configureWeaveObsidianModalLayout } from "../../utils/obsidian-modal-layout";
+import DeckAnalyticsModal from "./DeckAnalyticsModalShell.svelte";
 
 export interface DeckAnalyticsModalObsidianOptions {
 	plugin: WeavePlugin;
@@ -23,25 +24,9 @@ export class DeckAnalyticsModalObsidian extends Modal {
 
 	onOpen() {
 		this.setTitle("牌组分析");
-		this.modalEl.addClass("weave-deck-analytics-modal");
-		this.modalEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			width: "92vw",
-			"max-width": "1180px",
-			height: "82vh",
-			"max-height": "82vh",
-		});
-
-		this.contentEl.empty();
-		this.contentEl.addClass("weave-deck-analytics-modal-content");
-		this.contentEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			flex: "1",
-			"min-height": "0",
-			padding: "0",
-			overflow: "hidden",
+		configureWeaveObsidianModalLayout(this, {
+			modalClass: "weave-deck-analytics-modal",
+			contentClass: "weave-deck-analytics-modal-content",
 		});
 
 		this.component = mount(DeckAnalyticsModal, {

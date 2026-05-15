@@ -2,6 +2,7 @@ import { App, Modal } from "obsidian";
 import { mount, unmount } from "svelte";
 import type AnkiObsidianPlugin from "../../main";
 import { i18n } from "../../utils/i18n";
+import { configureWeaveObsidianModalLayout } from "../../utils/obsidian-modal-layout";
 import IRAnalyticsModal from "./IRAnalyticsModal.svelte";
 
 export interface IRAnalyticsModalObsidianOptions {
@@ -22,25 +23,9 @@ export class IRAnalyticsModalObsidian extends Modal {
 		this.setTitle(
 			i18n.getCurrentLanguage() === "zh-CN" ? "增量阅读分析图表" : "Incremental Reading Analytics"
 		);
-		this.modalEl.addClass("weave-ir-analytics-modal");
-		this.modalEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			width: "94vw",
-			"max-width": "1260px",
-			height: "84vh",
-			"max-height": "84vh",
-		});
-
-		this.contentEl.empty();
-		this.contentEl.addClass("weave-ir-analytics-modal-content");
-		this.contentEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			flex: "1",
-			"min-height": "0",
-			padding: "0",
-			overflow: "hidden",
+		configureWeaveObsidianModalLayout(this, {
+			modalClass: "weave-ir-analytics-modal",
+			contentClass: "weave-ir-analytics-modal-content",
 		});
 
 		this.component = mount(IRAnalyticsModal, {

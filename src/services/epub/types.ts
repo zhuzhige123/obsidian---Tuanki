@@ -1,6 +1,8 @@
 export interface EpubBook {
 	id: string;
 	filePath: string;
+	sourceId?: string;
+	sourceFingerprint?: string;
 	sourceMtime?: number;
 	sourceSize?: number;
 	metadata: BookMetadata;
@@ -19,6 +21,10 @@ export interface BookMetadata {
 	chapterCount: number;
 }
 
+export type EpubHighlightStyle = "underline" | "strikethrough" | "wavy";
+
+export type EpubStrikethroughDisplayMode = "strikethrough" | "conceal";
+
 export interface ReadingPosition {
 	chapterIndex: number;
 	cfi: string;
@@ -32,20 +38,22 @@ export interface ReadingStats {
 	completedTime?: number;
 }
 
-export interface Bookmark {
-	id: string;
+export interface EpubLastOpenBookmark extends ReadingPosition {
 	title: string;
-	chapterIndex: number;
-	cfi: string;
 	preview: string;
-	pageNumber?: number;
-	createdTime: number;
+	savedAt: number;
+}
+
+export interface EpubReadingReferencePoint extends ReadingPosition {
+	title: string;
+	savedAt: number;
 }
 
 export interface Highlight {
 	id: string;
 	text: string;
 	color: HighlightColor;
+	style?: EpubHighlightStyle;
 	chapterIndex: number;
 	cfiRange: string;
 	createdTime: number;
@@ -89,14 +97,17 @@ export interface PaginationInfo {
 	totalPages: number;
 }
 
-export type EpubTheme = "default" | "sepia";
 export type EpubWidthMode = "standard" | "full";
 export type EpubLayoutMode = "paginated" | "double";
 export type EpubFlowMode = "paginated" | "scrolled";
+export type EpubTheme = "default" | "sepia";
 
 export interface EpubReaderSettings {
 	lineHeight: number;
-	theme: EpubTheme;
+	letterSpacing: number;
+	pageMargin: number;
+	viewportSidePadding: number;
+	theme?: EpubTheme;
 	widthMode: EpubWidthMode;
 	layoutMode: EpubLayoutMode;
 	flowMode: EpubFlowMode;

@@ -1,7 +1,7 @@
 import { pathToFileURL } from "url";
 import { createRequire } from "module";
+import { builtinModules as builtins } from "node:module";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
-import builtins from "builtin-modules";
 import UnoCSS from "unocss/vite";
 import { defineConfig } from "vite";
 import { viteStaticCopy } from "vite-plugin-static-copy";
@@ -17,6 +17,12 @@ const {
 	resolvePluginDir,
 	syncRuntimeFiles,
 } = require("./scripts/hot-reload-utils.cjs");
+
+const STANDALONE_EPUB_PLUGIN_ID = "weave-epub-reader";
+const STANDALONE_EPUB_MANIFEST = "manifest.epub.json";
+const STANDALONE_IR_PLUGIN_ID = "weave-incremental-reading";
+const STANDALONE_IR_MANIFEST = "manifest.ir.json";
+const DEFAULT_MANIFEST = "manifest.json";
 
 function resolveInstalledPackageVersion(packageName: string): string {
 	const packageJsonPath = path.resolve(
@@ -68,6 +74,9 @@ export default defineConfig(({ mode }) => {
 			: process.platform === "win32";
 	const isMobileHotReloadBuild = process.env.WEAVE_MOBILE_HOT_RELOAD === "1";
 	const isDesktopHotReloadBuild = process.env.WEAVE_DESKTOP_HOT_RELOAD === "1";
+	const isStandaloneEpubBuild = process.env.WEAVE_EPUB_STANDALONE === "1";
+	const isStandaloneIRBuild = process.env.WEAVE_IR_STANDALONE === "1";
+	const shouldInlineDynamicImports = true;
 	const mobileHotReloadOutputDir = process.env.WEAVE_MOBILE_SOURCE_DIR?.trim()
 		? path.resolve(process.env.WEAVE_MOBILE_SOURCE_DIR)
 		: path.resolve(process.cwd(), ".mobile-hot-reload");
@@ -85,9 +94,19 @@ export default defineConfig(({ mode }) => {
 		"a11y_interactive_supports_focus",
 		"css_unused_selector",
 	]);
+	const pluginId = isStandaloneEpubBuild
+		? STANDALONE_EPUB_PLUGIN_ID
+		: isStandaloneIRBuild
+			? STANDALONE_IR_PLUGIN_ID
+			: "weave";
+	const manifestFileName = isStandaloneEpubBuild
+		? STANDALONE_EPUB_MANIFEST
+		: isStandaloneIRBuild
+			? STANDALONE_IR_MANIFEST
+			: DEFAULT_MANIFEST;
 
 	const resolvedPluginDir =
-		resolvePluginDir("weave", process.env) ?? path.resolve(process.cwd(), "dist");
+		resolvePluginDir(pluginId, process.env) ?? path.resolve(process.cwd(), "dist");
 	const buildOutDir = isMobileHotReloadBuild
 		? mobileHotReloadOutputDir
 		: isDesktopHotReloadBuild
@@ -105,6 +124,8 @@ export default defineConfig(({ mode }) => {
 		define: {
 			"process.env.NODE_ENV": JSON.stringify(mode),
 			global: "globalThis",
+			__WEAVE_EPUB_STANDALONE__: JSON.stringify(isStandaloneEpubBuild),
+			__WEAVE_IR_STANDALONE__: JSON.stringify(isStandaloneIRBuild),
 		},
 		server: isDev
 			? {
@@ -172,7 +193,7 @@ export default defineConfig(({ mode }) => {
 			{
 				name: "copy-manifest-with-retry",
 				async writeBundle() {
-					const manifestSource = path.resolve(process.cwd(), "manifest.json");
+					const manifestSource = path.resolve(process.cwd(), manifestFileName);
 					const manifestTarget = path.resolve(buildOutDir, "manifest.json");
 
 					try {
@@ -193,9 +214,12 @@ export default defineConfig(({ mode }) => {
 						src: "node_modules/sql.js/dist/sql-wasm.wasm",
 						dest: ".",
 					},
-					...(isDev
-						? []
-						: [
+					{
+						src: "public/assets/coffee-support-qr.png",
+						dest: "assets",
+					},
+					...(!isDev && !isStandaloneEpubBuild && !isStandaloneIRBuild
+						? [
 								{
 									src: "README.md",
 									dest: ".",
@@ -204,7 +228,10 @@ export default defineConfig(({ mode }) => {
 									src: "public/versions.json",
 									dest: ".",
 								},
-						  ]),
+						  ]
+						: isDev
+							? []
+							: []),
 				],
 			}),
 			svelte({
@@ -278,15 +305,19 @@ export default defineConfig(({ mode }) => {
 		],
 
 			build: {
-			lib: {
-				entry: "src/main",
+				lib: {
+				entry: isStandaloneEpubBuild
+					? "src/epub-main"
+					: isStandaloneIRBuild
+						? "src/ir-main"
+						: "src/main",
 				formats: ["cjs"],
 			},
 			cssCodeSplit: false,
 			assetsInlineLimit: 4096000,
 			...(isDev && {
 				watch: {
-					include: ["src/**", "manifest.json"],
+					include: ["src/**", DEFAULT_MANIFEST, STANDALONE_EPUB_MANIFEST, STANDALONE_IR_MANIFEST],
 					exclude: ["node_modules/**", "dist/**", "**/*.test.*", ".git/**"],
 					buildDelay: 120,
 					chokidar: {
@@ -310,7 +341,8 @@ export default defineConfig(({ mode }) => {
 				},
 				output: {
 					entryFileNames: "main.js",
-					inlineDynamicImports: true,
+					inlineDynamicImports: shouldInlineDynamicImports,
+					chunkFileNames: undefined,
 					manualChunks: undefined,
 					assetFileNames: "styles.css",
 					sourcemapBaseUrl:
@@ -338,7 +370,7 @@ export default defineConfig(({ mode }) => {
 			},
 			outDir: isDev ? buildOutDir : "dist",
 			copyPublicDir: false,
-			emptyOutDir: false,
+			emptyOutDir: !isDev && (isStandaloneEpubBuild || isStandaloneIRBuild),
 			sourcemap: buildSourceMap,
 			target: ["es2020"],
 			minify: shouldMinifyOutput ? "esbuild" : false,

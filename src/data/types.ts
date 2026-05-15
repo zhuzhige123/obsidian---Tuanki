@@ -226,6 +226,13 @@ export interface Card {
 	 * - 迁移后：使用 CardMetadataCache.getMetadata(card).source 获取
 	 */
 	sourceFile?: string;
+	sourceDocumentKey?: string;
+	sourceSubunitKey?: string;
+	sourceKind?: "markdown" | "pdf" | "epub" | "unknown";
+	outputKind?: "extract" | "memory";
+	primaryAssociatedNotePath?: string;
+	associatedNotePath?: string;
+	associatedNotePaths?: string[];
 
 	/**
 	 * Compatibility note: retained for legacy YAML metadata and planned for removal
@@ -370,8 +377,11 @@ export interface Card {
 	ir_next_review?: string | null;
 	ir_review_count?: number;
 	ir_reading_time?: number;
-	ir_notes?: string;
-	ir_extracted_cards?: number;
+	ir_notes?: number;
+	ir_extract_cards?: number;
+	ir_memory_cards?: number;
+	ir_source_kind?: "markdown" | "pdf" | "epub" | "unknown";
+	ir_source_subunit?: string;
 	ir_created?: string;
 }
 

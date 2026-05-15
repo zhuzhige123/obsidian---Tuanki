@@ -1,7 +1,9 @@
 import { normalizePath } from "obsidian";
 
 export interface AssociatedNoteCarrier {
+	primaryAssociatedNotePath?: string;
 	associatedNotePath?: string;
+	associatedNotePaths?: string[];
 	associatedNoteScope?: "point" | "material";
 }
 
@@ -10,7 +12,13 @@ export function normalizeAssociatedNotePath(path?: string | null): string {
 }
 
 export function getVisibleAssociatedNotePath(material?: AssociatedNoteCarrier | null): string {
-	return normalizeAssociatedNotePath(material?.associatedNotePath);
+	return (
+		normalizeAssociatedNotePath(material?.primaryAssociatedNotePath) ||
+		normalizeAssociatedNotePath(material?.associatedNotePath) ||
+		(Array.isArray(material?.associatedNotePaths)
+			? material.associatedNotePaths.map((path) => normalizeAssociatedNotePath(path)).find(Boolean) || ""
+			: "")
+	);
 }
 
 export function getPointAssociatedNotePath(material?: AssociatedNoteCarrier | null): string {

@@ -27,6 +27,7 @@
   interface Props {
     isOpen: boolean;
     currentView?: string;
+    memoryDeckDisplayMode?: 'formal' | 'emergent';
     onClose: () => void;
     onMenuItemClick: (itemId: string) => void;
   }
@@ -34,6 +35,7 @@
   let {
     isOpen = false,
     currentView = 'deck-study',
+    memoryDeckDisplayMode = 'formal',
     onClose,
     onMenuItemClick
   }: Props = $props();
@@ -54,6 +56,12 @@
       title: t('study.mobileMenu.viewSwitch'),
       items: [
         { id: 'toggle-view', icon: 'refresh-cw', label: t('study.mobileMenu.toggleView') },
+        {
+          id: 'toggle-deck-mode',
+          icon: memoryDeckDisplayMode === 'formal' ? 'folder' : 'sparkles',
+          label: memoryDeckDisplayMode === 'formal' ? t('study.mobileMenu.showEmergentDecks') : t('study.mobileMenu.showFormalDecks'),
+          active: false
+        },
         { id: 'new-deck', icon: 'plus', label: t('study.mobileMenu.newDeck') },
         { id: 'more-actions', icon: 'more-horizontal', label: t('study.mobileMenu.moreActions') }
       ]

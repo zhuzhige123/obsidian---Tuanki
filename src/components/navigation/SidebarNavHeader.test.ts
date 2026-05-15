@@ -1,6 +1,5 @@
 import { render, fireEvent } from '@testing-library/svelte';
 import SidebarNavHeader from './SidebarNavHeader.svelte';
-import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
 import { Menu } from 'obsidian';
 import type { MenuItem as MockMenuItem } from '../../tests/mocks/obsidian';
 
@@ -15,15 +14,37 @@ const premiumFeatureIds = vi.hoisted(() => new Set([
   'grid-view',
   'kanban-view',
   'timeline-view',
-  'csv-import',
-  'clipboard-import'
+  'emergent-decks',
+  'csv-import'
 ]));
 const premiumMockState = vi.hoisted(() => ({
   isPremium: false,
   showPreview: false,
   blockedFeatures: new Set<string>()
 }));
+const translationMap = vi.hoisted(() => ({
+  'navigation.deckStudy': '牌组学习',
+  'navigation.cardManagement': '卡片管理',
+  'navigation.aiAssistant': 'AI制卡',
+  'mainMenu.deckStudy.switchView': '切换视图',
+  'mainMenu.deckStudy.createMemoryDeck': '创建记忆牌组',
+  'mainMenu.deckStudy.kanbanColumnSettings': '看板列设置',
+  'mainMenu.deckStudy.importLegacyPackage': '导入旧版卡包',
+  'mainMenu.deckStudy.importCsv': '导入CSV文件',
+  'mainMenu.cardManagement.dataSourceSwitch': '数据源切换',
+  'mainMenu.cardManagement.memoryDeck': '记忆牌组',
+  'mainMenu.cardManagement.incrementalReading': '增量阅读',
+  'mainMenu.cardManagement.incrementalReadingPremium': '增量阅读（高级）',
+  'mainMenu.cardManagement.questionBank': '考试题组',
+  'mainMenu.cardManagement.questionBankPremium': '考试题组（高级）',
+  'mainMenu.cardManagement.timeline': '时间线视图'
+}));
+
 const mockPremiumGuard = vi.hoisted(() => {
+  const isDeckStudyLimitedTimeFeature = (featureId: string, context?: { page?: string }) => {
+    return context?.page === 'deck-study' && (featureId === 'kanban-view' || featureId === 'emergent-decks');
+  };
+
   const createStore = <T, K extends 'isPremium' | 'showPreview'>(key: K) => ({
     subscribe: vi.fn((callback: (value: T) => void) => {
       callback(premiumMockState[key] as T);
@@ -37,7 +58,11 @@ const mockPremiumGuard = vi.hoisted(() => {
     })
   });
 
-  const canUseFeature = vi.fn((featureId: string) => {
+  const canUseFeature = vi.fn((featureId: string, context?: { page?: string }) => {
+    if (isDeckStudyLimitedTimeFeature(featureId, context)) {
+      return true;
+    }
+
     if (!premiumFeatureIds.has(featureId)) {
       return true;
     }
@@ -47,19 +72,34 @@ const mockPremiumGuard = vi.hoisted(() => {
 
   return {
     canUseFeature,
-    isFeatureRestricted: vi.fn((featureId: string) => {
+    isFeatureRestricted: vi.fn((featureId: string, context?: { page?: string }) => {
+      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
+        return false;
+      }
+
       if (!premiumFeatureIds.has(featureId)) {
         return false;
       }
 
-      return !canUseFeature(featureId);
+      return !canUseFeature(featureId, context);
     }),
-    shouldShowFeatureEntry: vi.fn((featureId: string) => {
+    shouldShowFeatureEntry: vi.fn((featureId: string, _options?: unknown, context?: { page?: string }) => {
+      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
+        return true;
+      }
+
       if (!premiumFeatureIds.has(featureId)) {
         return true;
       }
 
       return premiumMockState.isPremium || premiumMockState.showPreview;
+    }),
+    getFeatureEntryTitle: vi.fn((baseTitle: string, featureId: string, context?: { page?: string }) => {
+      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
+        return `${baseTitle} (限时开放)`;
+      }
+
+      return canUseFeature(featureId, context) ? baseTitle : `${baseTitle} (高级)`;
     }),
     isPremiumActive: createStore<boolean, 'isPremium'>('isPremium'),
     premiumFeaturesPreviewEnabled: createStore<boolean, 'showPreview'>('showPreview'),
@@ -96,8 +136,8 @@ vi.mock('../../services/premium/PremiumFeatureGuard', () => {
       GRID_VIEW: 'grid-view',
       KANBAN_VIEW: 'kanban-view',
       TIMELINE_VIEW: 'timeline-view',
-      CSV_IMPORT: 'csv-import',
-      CLIPBOARD_IMPORT: 'clipboard-import'
+      EMERGENT_DECKS: 'emergent-decks',
+      CSV_IMPORT: 'csv-import'
     }
   };
 });
@@ -105,9 +145,12 @@ vi.mock('../../services/premium/PremiumFeatureGuard', () => {
 vi.mock('../../utils/i18n', () => ({
   tr: {
     subscribe: (callback: (translator: (key: string) => string) => void) => {
-      callback((key: string) => key);
+      callback((key: string) => translationMap[key as keyof typeof translationMap] ?? key);
       return () => {};
     }
+  },
+  i18n: {
+    t: (key: string) => translationMap[key as keyof typeof translationMap] ?? key
   }
 }));
 
@@ -203,8 +246,8 @@ describe('SidebarNavHeader', () => {
 
     const menu = menuInstances[0];
     const submenu = menu.findItemByTitle('数据源切换')?.getSubmenu();
-    const irItem = submenu?.findItemByTitle('增量阅读 (高级)');
-    const questionBankItem = submenu?.findItemByTitle('考试题组 (高级)');
+    const irItem = submenu?.findItemByTitle('增量阅读（高级）');
+    const questionBankItem = submenu?.findItemByTitle('考试题组（高级）');
 
     expect(irItem).toBeTruthy();
     expect(questionBankItem).toBeTruthy();
@@ -272,6 +315,23 @@ describe('SidebarNavHeader', () => {
     window.removeEventListener('show-view-menu', eventListener);
   });
 
+  it('牌组学习页看板视图在限时开放期间显示看板列设置', async () => {
+    const { container } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'deck-study',
+        selectedFilter: 'memory',
+        deckStudyView: 'kanban',
+        onNavigate: mockOnNavigate,
+        onFilterSelect: mockOnFilterSelect
+      }
+    });
+
+    await fireEvent.click(container.querySelector('.sidebar-menu-trigger')!);
+
+    const menu = menuInstances[0];
+    expect(menu.findItemByTitle('看板列设置')).toBeTruthy();
+  });
+
   it('在 AI 助手页面不显示无效功能入口', async () => {
     const { container } = render(SidebarNavHeader, {
       props: {
@@ -285,15 +345,13 @@ describe('SidebarNavHeader', () => {
     const menu = menuInstances[0];
     expect(menu.findItemByTitle('牌组学习')?.isChecked()).toBe(false);
     expect(menu.findItemByTitle('卡片管理')?.isChecked()).toBe(false);
-    expect(menu.findItemByTitle('AI助手')?.isChecked()).toBe(true);
+    expect(menu.findItemByTitle('AI制卡')?.isChecked()).toBe(true);
     expect(menu.findItemByTitle('切换视图')).toBeUndefined();
     expect(menu.findItemByTitle('新建牌组')).toBeUndefined();
     expect(menu.findItemByTitle('数据源切换')).toBeUndefined();
-    expect(menu.findItemByTitle('APKG导入')).toBeUndefined();
+    expect(menu.findItemByTitle('导入旧版卡包')).toBeUndefined();
     expect(menu.findItemByTitle('导入CSV文件')).toBeUndefined();
-    expect(menu.findItemByTitle('粘贴卡片批量导入')).toBeUndefined();
     expect(menu.findItemByTitle('操作管理')).toBeUndefined();
-    expect(menu.findItemByTitle('设置')).toBeUndefined();
   });
 
   it('在卡片管理页面不显示仅牌组学习可用的全局操作', async () => {
@@ -313,11 +371,9 @@ describe('SidebarNavHeader', () => {
 
     const menu = menuInstances[0];
     expect(menu.findItemByTitle('数据源切换')).toBeTruthy();
-    expect(menu.findItemByTitle('APKG导入')).toBeUndefined();
+    expect(menu.findItemByTitle('导入旧版卡包')).toBeUndefined();
     expect(menu.findItemByTitle('导入CSV文件')).toBeUndefined();
-    expect(menu.findItemByTitle('粘贴卡片批量导入')).toBeUndefined();
     expect(menu.findItemByTitle('操作管理')).toBeUndefined();
-    expect(menu.findItemByTitle('设置')).toBeUndefined();
   });
 
   it('在卡片管理菜单中显示时间线视图入口并触发切换', async () => {
@@ -418,7 +474,41 @@ describe('SidebarNavHeader', () => {
     window.removeEventListener('Weave:card-management-toolbar-action', toolbarListener);
   });
 
-  it('在导航可见性关闭时隐藏导入与设置入口', async () => {
+  it('看板视图顶部密度按钮会按当前模式循环切换到下一种布局', async () => {
+    premiumMockState.isPremium = true;
+
+    const toolbarListener = vi.fn();
+    window.addEventListener('Weave:card-management-toolbar-action', toolbarListener);
+
+    const { container, queryByLabelText } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'weave-card-management',
+        currentView: 'kanban',
+        cardDataSource: 'memory',
+        onNavigate: mockOnNavigate,
+        onViewChange: mockOnViewChange,
+        onCardDataSourceChange: mockOnCardDataSourceChange
+      }
+    });
+
+    expect(queryByLabelText('紧凑布局')).toBeNull();
+    expect(queryByLabelText('舒适布局')).toBeNull();
+    expect(queryByLabelText('宽松布局')).toBeNull();
+
+    const densityButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('密度·舒适')
+    );
+    expect(densityButton).toBeTruthy();
+
+    await fireEvent.click(densityButton as HTMLButtonElement);
+
+    expect(toolbarListener).toHaveBeenCalledTimes(1);
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('kanban-layout-spacious');
+
+    window.removeEventListener('Weave:card-management-toolbar-action', toolbarListener);
+  });
+
+  it('在导航可见性关闭时隐藏导入入口', async () => {
     premiumMockState.showPreview = true;
 
     const { container } = render(SidebarNavHeader, {
@@ -427,9 +517,7 @@ describe('SidebarNavHeader', () => {
         selectedFilter: 'memory',
         navigationVisibility: {
           apkgImport: false,
-          csvImport: false,
-          clipboardImport: false,
-          settingsEntry: false
+          csvImport: false
         },
         onNavigate: mockOnNavigate,
         onFilterSelect: mockOnFilterSelect
@@ -439,13 +527,11 @@ describe('SidebarNavHeader', () => {
     await fireEvent.click(container.querySelector('.sidebar-menu-trigger')!);
 
     const menu = menuInstances[0];
-    expect(menu.findItemByTitle('APKG导入')).toBeUndefined();
+    expect(menu.findItemByTitle('导入旧版卡包')).toBeUndefined();
     expect(menu.findItemByTitle('导入CSV文件 (高级)')).toBeUndefined();
-    expect(menu.findItemByTitle('粘贴卡片批量导入 (高级)')).toBeUndefined();
-    expect(menu.findItemByTitle('设置')).toBeUndefined();
   });
 
-  it('侧边栏模式下默认只显示搜索图标，点击后在下方展开搜索框', async () => {
+  it('侧边栏模式下默认只显示搜索图标，点击后在下方展开搜索栏', async () => {
     const searchLabel = '\u641c\u7d22\u5361\u7247';
     const { container, getByLabelText } = render(SidebarNavHeader, {
       props: {
@@ -467,3 +553,6 @@ describe('SidebarNavHeader', () => {
     expect(container.querySelector('.sidebar-card-search-panel input[aria-label=\"搜索卡片\"]')).toBeTruthy();
   });
 });
+
+
+

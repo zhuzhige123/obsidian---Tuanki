@@ -41,16 +41,15 @@ export class AnimationController {
 			}
 
 			this.options.reducedMotion = Boolean(mediaQuery.matches);
+			const handleChange = (event: MediaQueryListEvent): void => {
+				this.options.reducedMotion = event.matches;
+			};
 
 			// 监听偏好变化
 			if (typeof mediaQuery.addEventListener === "function") {
-				mediaQuery.addEventListener("change", (e) => {
-					this.options.reducedMotion = e.matches;
-				});
-			} else if (typeof mediaQuery.addListener === "function") {
-				mediaQuery.addListener((e) => {
-					this.options.reducedMotion = e.matches;
-				});
+				mediaQuery.addEventListener("change", handleChange);
+			} else {
+				mediaQuery.onchange = handleChange;
 			}
 		}
 	}

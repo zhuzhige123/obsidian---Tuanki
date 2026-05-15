@@ -131,7 +131,6 @@ export class GeminiService extends AIService {
 					tags: card.tags || [],
 					images: card.images || [],
 					explanation: card.explanation,
-					sourceText: card.sourceText ? this.ensureString(card.sourceText) : undefined,
 					metadata: {
 						generatedAt: new Date().toISOString(),
 						provider: "gemini",

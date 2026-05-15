@@ -12,6 +12,7 @@ import type { Card, Deck } from "../../data/types";
 import type { ReadingMaterial } from "../../types/incremental-reading-types";
 import type { CreateCardOptions } from "../../types/modal-types";
 import { logger } from "../../utils/logger";
+import { detectTraceSourceKind, normalizeTraceDocumentKey } from "./IRSourceTraceStats";
 import type { ReadingMaterialManager } from "./ReadingMaterialManager";
 import type { ReadingSessionManager } from "./ReadingSessionManager";
 
@@ -23,7 +24,7 @@ export interface ExtractCardOptions {
 	selectedText: string;
 	/** 源文件 */
 	file: TFile;
-	/** 自定义导入文件夹路径（可选） */
+	/** 旧导入/复制兼容目录（可选） */
 	importFolder?: string;
 	/** 编辑器实例（用于获取光标位置） */
 	editor?: Editor;
@@ -176,6 +177,8 @@ export class ExtractCardService {
 		}
 
 		try {
+			const sourceKind = detectTraceSourceKind(file.path);
+			const sourceDocumentKey = normalizeTraceDocumentKey(file.path, sourceKind) || undefined;
 			if (await this.isIRFile(file)) {
 				const sourceInfo = this.getSourceInfo(file, editor);
 				const formattedContent = this.formatExtractContent(selectedText, cardType);
@@ -189,7 +192,10 @@ export class ExtractCardService {
 					cardMetadata: {
 						content: formattedContent,
 						sourceFile: file.path,
+						sourceDocumentKey,
+						sourceKind,
 						sourceBlock: sourceInfo.blockId,
+						outputKind: "extract",
 						targetDeckId: targetDeckId,
 						deckId: targetDeckId,
 					},
@@ -239,7 +245,10 @@ export class ExtractCardService {
 				cardMetadata: {
 					content: formattedContent,
 					sourceFile: file.path,
+					sourceDocumentKey,
+					sourceKind,
 					sourceBlock: sourceInfo.blockId,
+					outputKind: "extract",
 					targetDeckId: deckId,
 					deckId: deckId,
 				},

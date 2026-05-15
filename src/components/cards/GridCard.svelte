@@ -51,7 +51,6 @@
   // 计算属性
   const frontText = $derived(getCardFieldContent(card, 'front'));
   const backText = $derived(getCardFieldContent(card, 'back'));
-  const tags = $derived(card.tags || []);
   const sourceDocument = $derived(getCardFieldContent(card, 'source_document'));
   
   // 合并完整内容，优先使用 content 字段
@@ -87,20 +86,6 @@
     }
     return '';
   });
-  
-  /**
-   * 根据标签名生成颜色类名
-   */
-  function getTagColor(tag: string): string {
-    const colors = ['blue', 'purple', 'pink', 'red', 'orange', 'green', 'cyan', 'gray'];
-    // 使用简单的哈希函数
-    let hash = 0;
-    for (let i = 0; i < tag.length; i++) {
-      hash = tag.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const index = Math.abs(hash) % colors.length;
-    return colors[index];
-  }
   
   // UUID 显示格式：前8位-后4位
   const displayUuid = $derived.by(() => {
@@ -166,7 +151,7 @@
    */
   function handleCardClick(event: MouseEvent) {
     // 防止事件冒泡
-    if ((event.target as HTMLElement).closest('.card-tags, .card-source, .card-actions')) {
+    if ((event.target as HTMLElement).closest('.card-source, .card-actions')) {
       return;
     }
 
@@ -335,20 +320,6 @@
       {/if}
     </div>
   </div>
-
-  <!-- 卡片底部 - 只有标签时才显示，避免空div边框残留 -->
-  {#if tags.length > 0}
-    <div class="card-footer">
-      <div class="card-tags">
-        {#each tags.slice(0, 3) as tag}
-          <span class="tag tag-{getTagColor(tag)}">{tag}</span>
-        {/each}
-        {#if tags.length > 3}
-          <span class="tag-more">+{tags.length - 3}</span>
-        {/if}
-      </div>
-    </div>
-  {/if}
 
   <!-- 选中遮罩 -->
   {#if selected}
@@ -668,89 +639,6 @@
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
   }
-
-  /* 卡片底部 */
-  .card-footer {
-    margin-top: auto;
-    padding-top: var(--weave-space-sm);
-    border-top: 1px solid var(--weave-border);
-    display: flex;
-    flex-direction: column;
-    gap: var(--weave-space-xs);
-    position: relative;
-    z-index: 2;
-  }
-
-  /* 标签 */
-  .card-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .tag {
-    font-size: var(--weave-font-size-xs);
-    padding: 2px 8px;
-    border-radius: var(--weave-radius-sm);
-    font-weight: 500;
-    transition: all 0.15s ease;
-  }
-
-  /* 多彩标签 */
-  .tag-blue {
-    background: var(--weave-tag-blue-bg);
-    color: var(--weave-tag-blue-text);
-    border: 1px solid var(--weave-tag-blue-border);
-  }
-
-  .tag-purple {
-    background: var(--weave-tag-purple-bg);
-    color: var(--weave-tag-purple-text);
-    border: 1px solid var(--weave-tag-purple-border);
-  }
-
-  .tag-pink {
-    background: var(--weave-tag-pink-bg);
-    color: var(--weave-tag-pink-text);
-    border: 1px solid var(--weave-tag-pink-border);
-  }
-
-  .tag-red {
-    background: var(--weave-tag-red-bg);
-    color: var(--weave-tag-red-text);
-    border: 1px solid var(--weave-tag-red-border);
-  }
-
-  .tag-orange {
-    background: var(--weave-tag-orange-bg);
-    color: var(--weave-tag-orange-text);
-    border: 1px solid var(--weave-tag-orange-border);
-  }
-
-  .tag-green {
-    background: var(--weave-tag-green-bg);
-    color: var(--weave-tag-green-text);
-    border: 1px solid var(--weave-tag-green-border);
-  }
-
-  .tag-cyan {
-    background: var(--weave-tag-cyan-bg);
-    color: var(--weave-tag-cyan-text);
-    border: 1px solid var(--weave-tag-cyan-border);
-  }
-
-  .tag-gray {
-    background: var(--weave-tag-gray-bg);
-    color: var(--weave-tag-gray-text);
-    border: 1px solid var(--weave-tag-gray-border);
-  }
-
-  .tag-more {
-    font-size: var(--weave-font-size-xs);
-    color: var(--weave-text-faint);
-    font-weight: 500;
-  }
-
 
   /* 响应式 */
   @media (max-width: 768px) {

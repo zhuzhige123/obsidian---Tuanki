@@ -1,11 +1,12 @@
 import { logger } from "../utils/logger";
 /**
- * 缁熶竴绠＄悊 Weave 鐨勪富棰樻娴嬨€佺洃鍚拰涓婚鍙橀噺娉ㄥ叆銆? */
+ * 统一管理 Weave 的主题检测、监听和主题变量注入。
+ */
 import { untrack } from "svelte";
 
 export type ThemeMode = "light" | "dark" | "auto";
 
-/** 褰撳墠涓婚鐨勬娴嬬粨鏋溿€?*/
+/** 当前主题的检测结果。 */
 export interface ThemeDetectionResult {
 	mode: ThemeMode;
 	isDark: boolean;
@@ -13,7 +14,7 @@ export interface ThemeDetectionResult {
 	confidence: "high" | "medium" | "low";
 }
 
-/** 缁熶竴涓婚鐘舵€侊紝骞跺悜浣跨敤鏂瑰箍鎾彉鏇淬€?*/
+/** 统一主题状态，并向使用方广播变更。 */
 export class UnifiedThemeManager {
 	private static instance: UnifiedThemeManager;
 	private currentTheme: ThemeDetectionResult;
@@ -128,7 +129,7 @@ export class UnifiedThemeManager {
 			const oldTheme = this.currentTheme;
 			this.currentTheme = newTheme;
 
-			logger.debug("[ThemeManager] 涓婚鍙樺寲:", {
+			logger.debug("[ThemeManager] 主题变化:", {
 				from: oldTheme,
 				to: newTheme,
 			});
@@ -137,7 +138,7 @@ export class UnifiedThemeManager {
 				try {
 					_listener(newTheme);
 				} catch (error) {
-					logger.error("[ThemeManager] 鐩戝惉鍣ㄦ墽琛屽け璐?", error);
+					logger.error("[ThemeManager] 监听器执行失败:", error);
 				}
 			});
 		}
@@ -155,19 +156,19 @@ export class UnifiedThemeManager {
 		return { ...this.currentTheme };
 	}
 
-	/** 淇濈暀缁欐棫璋冪敤鏂圭殑娣辫壊妯″紡鍒ゆ柇銆?*/
+	/** 保留给旧调用方的深色模式判断。 */
 	isDarkMode(): boolean {
 		return this.currentTheme.isDark;
 	}
 
-	/** 娉ㄥ唽鐩戝惉鍣紝骞剁珛鍗虫帹閫佷竴娆″綋鍓嶇姸鎬併€?*/
+	/** 注册监听器，并立即推送一次当前状态。 */
 	addListener(callback: (result: ThemeDetectionResult) => void): () => void {
 		this.listeners.push(callback);
 
 		try {
 			callback(this.currentTheme);
 		} catch (error) {
-			logger.error("[ThemeManager] 鍒濆鐩戝惉鍣ㄨ皟鐢ㄥけ璐?", error);
+			logger.error("[ThemeManager] 初始监听器调用失败:", error);
 		}
 
 		return () => {
@@ -178,7 +179,7 @@ export class UnifiedThemeManager {
 		};
 	}
 
-	/** 閲婃斁鐩戝惉鍣紝渚涙祴璇曟垨鏄惧紡閲嶇疆鏃朵娇鐢ㄣ€?*/
+	/** 释放监听器，供测试或显式重置时使用。 */
 	destroy(): void {
 		if (this.mediaQueryChangeHandler) {
 			this.mediaQuery.removeEventListener("change", this.mediaQueryChangeHandler);
@@ -198,21 +199,7 @@ export class UnifiedThemeManager {
 	}
 }
 
-/** @deprecated 寤鸿鏀圭敤 `UnifiedThemeManager.getInstance().isDarkMode()`銆?*/
-export function isDarkMode(): boolean {
-	return UnifiedThemeManager.getInstance().isDarkMode();
-}
-
-/** @deprecated 寤鸿鏀圭敤 `UnifiedThemeManager.getInstance().addListener()`銆?*/
-export function createThemeListener(callback: (isDark: boolean) => void): () => void {
-	const themeManager = UnifiedThemeManager.getInstance();
-
-	return themeManager.addListener((result) => {
-		callback(result.isDark);
-	});
-}
-
-/** 鍒涘缓鍙湪缁勪欢閲屽鐢ㄧ殑鍝嶅簲寮忎富棰樺揩鐓с€?*/
+/** 创建可在组件里复用的响应式主题快照。 */
 export function createReactiveThemeState() {
 	const themeManager = UnifiedThemeManager.getInstance();
 	let currentResult = themeManager.getCurrentTheme();
@@ -281,7 +268,7 @@ export function getThemeClasses(): string[] {
 	return classes;
 }
 
-/** 涓哄厓绱犻檮鍔犱富棰樼被锛屽苟鍦ㄤ富棰樺彉鍖栨椂鑷姩鏇存柊銆?*/
+/** 为元素附加主题类，并在主题变化时自动更新。 */
 export function addThemeClasses(element: HTMLElement): () => void {
 	const themeManager = UnifiedThemeManager.getInstance();
 
@@ -300,7 +287,7 @@ export function addThemeClasses(element: HTMLElement): () => void {
 	return cleanup;
 }
 
-/** 娓呴櫎鏈伐鍏锋坊鍔犺繃鐨勪富棰樼被銆?*/
+/** 清除本工具添加过的主题类。 */
 export function removeThemeClasses(element: HTMLElement): void {
 	element.classList.remove("theme-dark", "theme-light");
 
@@ -315,9 +302,10 @@ export function removeThemeClasses(element: HTMLElement): void {
 		"theme-confidence-medium",
 		"theme-confidence-low"
 	);
+
 }
 
-/** 杩斿洖缂栬緫鍣ㄧ浉鍏崇殑涓婚鍙橀噺銆?*/
+/** Returns editor-related theme variables. */
 export function getThemeVariables(): Record<string, string> {
 	const themeManager = UnifiedThemeManager.getInstance();
 	const result = themeManager.getCurrentTheme();
@@ -349,7 +337,7 @@ export function getThemeVariables(): Record<string, string> {
 	return { ...baseVariables, ...themeVariables };
 }
 
-/** 灏嗗綋鍓嶄富棰樺彉閲忓啓鍏ュ厓绱狅紝骞跺湪涓婚鍙樺寲鏃跺悓姝ユ洿鏂般€?*/
+/** 将当前主题变量写入元素，并在主题变化时同步更新。 */
 export function applyThemeVariables(element: HTMLElement): () => void {
 	const themeManager = UnifiedThemeManager.getInstance();
 
@@ -368,4 +356,3 @@ export function applyThemeVariables(element: HTMLElement): () => void {
 
 	return cleanup;
 }
-

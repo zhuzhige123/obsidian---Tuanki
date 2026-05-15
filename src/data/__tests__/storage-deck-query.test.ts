@@ -4,20 +4,28 @@ const { processBatchMock, processNewCardMock, processContentChangeMock } = vi.ho
   processContentChangeMock: vi.fn()
 }));
 
-vi.mock('obsidian', () => ({
-  Notice: class Notice {},
-  TFile: class TFile {
-    path: string;
+vi.mock('obsidian', async () => {
+  const actual = await vi.importActual<typeof import('../../tests/mocks/obsidian')>(
+    '../../tests/mocks/obsidian'
+  );
+
+  class TFile extends actual.TFile {
     stat?: { mtime: number };
 
     constructor(path = '', mtime?: number) {
-      this.path = path;
+      super(path);
       if (mtime !== undefined) {
         this.stat = { mtime };
       }
     }
   }
-}));
+
+  return {
+    ...actual,
+    Notice: class Notice {},
+    TFile,
+  };
+});
 
 vi.mock('../../services/progressive-cloze/ProgressiveClozeGateway', () => ({
   getProgressiveClozeGateway: () => ({
@@ -29,6 +37,7 @@ vi.mock('../../services/progressive-cloze/ProgressiveClozeGateway', () => ({
 
 import { WeaveDataStorage } from '../storage';
 import { TFile } from 'obsidian';
+import { MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE } from '../../services/DataSyncService';
 import { parseYAMLFromContent } from '../../utils/yaml-utils';
 
 function createMockTFile(path: string, mtime?: number): TFile {
@@ -80,6 +89,237 @@ describe('WeaveDataStorage deck query', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('牌组名称「重复牌组」已存在');
     expect(writeDecksFileSpy).not.toHaveBeenCalled();
+  });
+
+  it('saves memory decks directly into .wdeck definitions without writing legacy deck JSON', async () => {
+    const saveDeckDefinition = vi.fn(async (deck: any) => ({
+      runtimeDeckId: 'wdeck:deck-1',
+      logicalDeckId: 'deck-1',
+      logicalDeckName: deck.name,
+      files: [{ path: 'vault/study/renamed-deck_01.wdeck' }],
+      segmentIndices: [1],
+      cards: [],
+      deck: {
+        id: 'deck-1',
+        name: deck.name,
+        category: deck.category,
+        tags: deck.tags,
+        created: deck.created,
+        modified: deck.modified,
+        metadata: {}
+      }
+    }));
+    const plugin = {
+      settings: {},
+      wdeckService: {
+        getAllDeckAggregates: vi.fn(async () => []),
+        getDeckAggregateByAnyDeckId: vi.fn(async () => null),
+        saveDeckDefinition
+      },
+      app: {
+        vault: {
+          adapter: {
+            exists: vi.fn(async () => false),
+            read: vi.fn(async () => {
+              throw new Error('missing');
+            }),
+            write: vi.fn(async () => undefined),
+            mkdir: vi.fn(async () => undefined)
+          },
+          configDir: '.obsidian',
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    const writeDecksFileSpy = vi.spyOn(storage as any, 'writeDecksFile').mockResolvedValue(undefined);
+
+    const result = await storage.saveDeck({
+      id: 'deck-1',
+      name: 'Renamed Deck',
+      description: '',
+      category: 'memory',
+      cardUUIDs: [],
+      tags: [],
+      metadata: {},
+      created: '2026-04-15T00:00:00.000Z',
+      modified: '2026-04-15T00:00:00.000Z'
+    } as any);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      id: 'wdeck:deck-1',
+      name: 'Renamed Deck',
+      metadata: expect.objectContaining({
+        fileType: 'wdeck',
+        logicalDeckId: 'deck-1'
+      })
+    });
+    expect(saveDeckDefinition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'deck-1',
+        name: 'Renamed Deck',
+        purpose: 'memory'
+      })
+    );
+    expect(writeDecksFileSpy).not.toHaveBeenCalled();
+  });
+
+  it('skips deck stats persistence when persisted values are unchanged', async () => {
+    const plugin = {
+      settings: {},
+      app: {
+        vault: {
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    vi.spyOn(storage, 'getDecks').mockResolvedValue([
+      {
+        id: 'deck-1',
+        name: 'Deck 1',
+        description: '',
+        category: '默认',
+        tags: [],
+        metadata: {},
+        created: '2026-03-15T00:00:00.000Z',
+        modified: '2026-03-15T00:00:00.000Z',
+        stats: {
+          totalCards: 10,
+          newCards: 2,
+          learningCards: 3,
+          reviewCards: 5,
+          memoryRate: 0.75
+        }
+      } as any
+    ]);
+    const saveDeckSpy = vi.spyOn(storage, 'saveDeck').mockResolvedValue({
+      success: true,
+      data: null,
+      timestamp: '2026-03-15T00:00:00.000Z'
+    } as any);
+
+    await storage.persistAllDeckStats({
+      'deck-1': {
+        totalCards: 10,
+        newCards: 2,
+        learningCards: 3,
+        reviewCards: 5,
+        memoryRate: 0.75
+      }
+    });
+
+    expect(saveDeckSpy).not.toHaveBeenCalled();
+  });
+
+  it('suppresses deck notifications while persisting changed deck stats', async () => {
+    const previousDataChangeContext = {
+      source: MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE,
+      deckIds: ['deck-origin']
+    };
+    const plugin = {
+      settings: {},
+      __weaveDataChangeContext: previousDataChangeContext,
+      app: {
+        vault: {
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    vi.spyOn(storage, 'getDecks').mockResolvedValue([
+      {
+        id: 'deck-1',
+        name: 'Deck 1',
+        description: '',
+        category: '默认',
+        tags: [],
+        metadata: {},
+        created: '2026-03-15T00:00:00.000Z',
+        modified: '2026-03-15T00:00:00.000Z',
+        stats: {
+          totalCards: 10,
+          newCards: 2,
+          learningCards: 3,
+          reviewCards: 5,
+          memoryRate: 0.75
+        }
+      } as any,
+      {
+        id: 'deck-2',
+        name: 'Deck 2',
+        description: '',
+        category: '默认',
+        tags: [],
+        metadata: {},
+        created: '2026-03-15T00:00:00.000Z',
+        modified: '2026-03-15T00:00:00.000Z',
+        stats: {
+          totalCards: 4,
+          newCards: 1,
+          learningCards: 1,
+          reviewCards: 2,
+          memoryRate: 0.5
+        }
+      } as any
+    ]);
+
+    const seenDataChangeContexts: any[] = [];
+    const saveDeckSpy = vi.spyOn(storage, 'saveDeck').mockImplementation(async (deck: any) => {
+      seenDataChangeContexts.push((plugin as any).__weaveDataChangeContext);
+      return {
+        success: true,
+        data: deck,
+        timestamp: '2026-03-15T00:00:00.000Z'
+      } as any;
+    });
+
+    await storage.persistAllDeckStats({
+      'deck-1': {
+        totalCards: 10,
+        newCards: 2,
+        learningCards: 3,
+        reviewCards: 5,
+        memoryRate: 0.75
+      },
+      'deck-2': {
+        totalCards: 6,
+        reviewCards: 4,
+        memoryRate: 0.66
+      }
+    });
+
+    expect(saveDeckSpy).toHaveBeenCalledTimes(1);
+    expect(saveDeckSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'deck-2',
+        stats: expect.objectContaining({
+          totalCards: 6,
+          newCards: 1,
+          learningCards: 1,
+          reviewCards: 4,
+          memoryRate: 0.66
+        })
+      })
+    );
+    expect(seenDataChangeContexts).toEqual([
+      expect.objectContaining({
+        source: MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE,
+        suppressDeckNotifications: true,
+        deckIds: ['deck-2']
+      })
+    ]);
+    expect((plugin as any).__weaveDataChangeContext).toBe(previousDataChangeContext);
   });
 
   it('returns YAML-linked deck cards when querying by deckId', async () => {
@@ -492,13 +732,7 @@ describe('WeaveDataStorage deck query', () => {
     const result = await storage.refreshSourceFileStatuses();
 
     expect(result).toEqual({ updated: 1, missing: 0 });
-    expect(plugin.cardFileService.saveCardsBatch).toHaveBeenCalledWith([
-      expect.objectContaining({
-        uuid: 'card-1',
-        sourceExists: true,
-        sourceFileMtime: 123456
-      })
-    ]);
+    expect(plugin.cardFileService.saveCardsBatch).not.toHaveBeenCalled();
   });
 
   it('marks cards as missing when the source file no longer exists', async () => {
@@ -535,21 +769,22 @@ describe('WeaveDataStorage deck query', () => {
     const result = await storage.refreshSourceFileStatuses('notes/missing.md');
 
     expect(result).toEqual({ updated: 1, missing: 1 });
-    expect(plugin.cardFileService.saveCardsBatch).toHaveBeenCalledWith([
-      expect.objectContaining({
-        uuid: 'card-1',
-        sourceExists: false,
-        sourceFileMtime: undefined
-      })
-    ]);
+    expect(plugin.cardFileService.saveCardsBatch).not.toHaveBeenCalled();
   });
 
   it('adds we_decks when saving a new card with only deckId', async () => {
     processNewCardMock.mockReset();
     processNewCardMock.mockImplementation(async (card: any) => ({ converted: false, cards: [card] }));
+    const notifyChange = vi.fn(async () => {});
 
     const plugin = {
       settings: {},
+      __weaveDataChangeContext: {
+        source: MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE
+      },
+      dataSyncService: {
+        notifyChange
+      },
       cardFileService: {
         getAllCards: vi.fn(async () => []),
         saveCard: vi.fn(async (_card: any) => true)
@@ -589,6 +824,77 @@ describe('WeaveDataStorage deck query', () => {
     expect(yaml.we_decks).toEqual(['目标牌组']);
     expect(savedCard.deckId).toBe('deck-target');
     expect(savedCard.referencedByDecks).toEqual(['deck-target']);
+    expect(notifyChange).toHaveBeenCalledWith({
+      type: 'cards',
+      action: 'create',
+      ids: ['33333333-3333-4333-8333-333333333333'],
+      metadata: {
+        source: MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE,
+        deckId: 'deck-target',
+        deckIds: ['deck-target']
+      }
+    });
+  });
+
+  it('propagates memory study source metadata when saving study sessions', async () => {
+    const notifyChange = vi.fn(async () => {});
+    const plugin = {
+      settings: {},
+      __weaveDataChangeContext: {
+        source: MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE
+      },
+      dataSyncService: {
+        notifyChange
+      },
+      externalSyncWatcher: {
+        markInternalWrite: vi.fn()
+      },
+      app: {
+        vault: {
+          adapter: {
+            exists: vi.fn(async () => false),
+            read: vi.fn(async () => JSON.stringify({})),
+            write: vi.fn(async () => undefined),
+            mkdir: vi.fn(async () => undefined)
+          },
+          configDir: '.obsidian',
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        },
+        workspace: {
+          trigger: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    vi.spyOn(storage as any, 'ensureFolder').mockResolvedValue(undefined);
+    vi.spyOn(storage as any, 'readJsonFile').mockRejectedValue(new Error('missing'));
+    vi.spyOn(storage as any, 'writeJsonFile').mockResolvedValue(undefined);
+
+    const result = await storage.saveStudySession({
+      id: 'session-1',
+      deckId: 'deck-target',
+      startTime: new Date('2026-04-26T01:00:00.000Z'),
+      cardsReviewed: 1,
+      newCardsLearned: 1,
+      correctAnswers: 1,
+      totalTime: 30,
+      cardReviews: []
+    } as any);
+
+    expect(result.success).toBe(true);
+    expect(notifyChange).toHaveBeenCalledWith({
+      type: 'sessions',
+      action: 'create',
+      ids: ['session-1'],
+      metadata: {
+        source: MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE,
+        deckId: 'deck-target',
+        deckIds: ['deck-target']
+      }
+    });
   });
 
   it('does not re-add we_decks when an existing card save intentionally removes it', async () => {
@@ -642,6 +948,96 @@ describe('WeaveDataStorage deck query', () => {
     expect(yaml.we_decks).toBeUndefined();
   });
 
+  it('suppresses deck notifications during deferred deck cardUUID flush after saveCard', async () => {
+    vi.useFakeTimers();
+    try {
+      processNewCardMock.mockReset();
+      processNewCardMock.mockImplementation(async (card: any) => ({ converted: false, cards: [card] }));
+
+      const previousDataChangeContext = {
+        source: MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE,
+        deckIds: ['deck-origin']
+      };
+      const plugin = {
+        settings: {},
+        __weaveDataChangeContext: previousDataChangeContext,
+        cardFileService: {
+          getAllCards: vi.fn(async () => []),
+          saveCard: vi.fn(async (_card: any) => true)
+        },
+        app: {
+          vault: {
+            getMarkdownFiles: () => [],
+            getAbstractFileByPath: () => null,
+            cachedRead: vi.fn()
+          },
+          workspace: {
+            trigger: vi.fn()
+          }
+        }
+      } as any;
+
+      const storage = new WeaveDataStorage(plugin);
+      vi.spyOn(storage, 'getDecks').mockResolvedValue([
+        { id: 'deck-target', name: '目标牌组' } as any
+      ]);
+
+      const flushedDeck = {
+        id: 'deck-target',
+        name: '目标牌组',
+        cardUUIDs: [],
+        description: '',
+        category: '',
+        tags: [],
+        metadata: {},
+        created: '2026-03-15T00:00:00.000Z',
+        modified: '2026-03-15T00:00:00.000Z'
+      } as any;
+      vi.spyOn(storage, 'getDeck').mockResolvedValue(flushedDeck);
+
+      const seenDataChangeContexts: any[] = [];
+      const saveDeckSpy = vi.spyOn(storage, 'saveDeck').mockImplementation(async (deck: any) => {
+        seenDataChangeContexts.push((plugin as any).__weaveDataChangeContext);
+        return {
+          success: true,
+          data: deck,
+          timestamp: '2026-03-15T00:00:00.000Z'
+        } as any;
+      });
+
+      const result = await storage.saveCard({
+        uuid: '77777777-7777-4777-8777-777777777777',
+        deckId: 'deck-target',
+        content: '正面',
+        tags: [],
+        created: '2026-03-15T00:00:00.000Z',
+        modified: '2026-03-15T00:00:00.000Z',
+        stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
+      } as any);
+
+      expect(result.success).toBe(true);
+      expect(saveDeckSpy).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(saveDeckSpy).toHaveBeenCalledTimes(1);
+      expect(saveDeckSpy).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'deck-target',
+        cardUUIDs: ['77777777-7777-4777-8777-777777777777']
+      }));
+      expect(seenDataChangeContexts).toEqual([
+        expect.objectContaining({
+          source: MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE,
+          suppressDeckNotifications: true,
+          deckIds: ['deck-target']
+        })
+      ]);
+      expect((plugin as any).__weaveDataChangeContext).toBe(previousDataChangeContext);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('adds we_decks for new cards saved through saveCardsBatch', async () => {
     processBatchMock.mockReset();
     processBatchMock.mockImplementation(async (cards: any[]) => cards);
@@ -687,6 +1083,69 @@ describe('WeaveDataStorage deck query', () => {
     const yaml = parseYAMLFromContent(savedCard.content);
     expect(yaml.we_decks).toEqual(['目标牌组']);
     expect(savedCard.referencedByDecks).toEqual(['deck-target']);
+  });
+
+  it('uses WDeck getCardsByUUIDs for batch existence checks before falling back to legacy storage', async () => {
+    processBatchMock.mockReset();
+    processBatchMock.mockImplementation(async (cards: any[]) => cards);
+
+    const plugin = {
+      settings: {},
+      wdeckService: {
+        getCardsByUUIDs: vi.fn(async () => [
+          {
+            uuid: '66666666-6666-4666-8666-666666666666',
+            deckId: 'wdeck:deck-target',
+            content: 'existing',
+            created: '2026-03-15T00:00:00.000Z',
+            modified: '2026-03-15T00:00:00.000Z',
+            stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
+          }
+        ]),
+        getAllCards: vi.fn(async () => {
+          throw new Error('should not scan all WDeck cards');
+        }),
+        getDeckInfoByAnyDeckId: vi.fn(async () => null),
+        saveCardsToDeck: vi.fn(async (_deck: any, cards: any[]) => cards),
+        hasRuntimeCardMeta: vi.fn(() => false),
+        isWDeckCard: vi.fn(() => false),
+        isWDeckDeckId: vi.fn(() => false)
+      },
+      cardFileService: {
+        getCardsByUUIDsBatch: vi.fn(async () => ({ found: [], notFound: [] })),
+        saveCardsBatch: vi.fn(async (_cards: any[]) => true)
+      },
+      app: {
+        vault: {
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        },
+        workspace: {
+          trigger: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    vi.spyOn(storage, 'getDeck').mockResolvedValue(undefined as any);
+
+    await storage.saveCardsBatch([
+      {
+        uuid: '66666666-6666-4666-8666-666666666666',
+        deckId: 'deck-target',
+        content: '批量正面',
+        tags: [],
+        created: '2026-03-15T00:00:00.000Z',
+        modified: '2026-03-15T00:00:00.000Z',
+        stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
+      } as any
+    ]);
+
+    expect(plugin.wdeckService.getCardsByUUIDs).toHaveBeenCalledWith([
+      '66666666-6666-4666-8666-666666666666'
+    ]);
+    expect(plugin.wdeckService.getAllCards).not.toHaveBeenCalled();
   });
 
   it('writes target deck membership into card YAML when saving deck cards', async () => {
@@ -759,7 +1218,7 @@ describe('WeaveDataStorage deck query', () => {
     }));
   });
 
-  it('removes deck membership from omitted cards when saving deck cards', async () => {
+  it('clears omitted cards to unassigned when removing their唯一正式牌组', async () => {
     processBatchMock.mockReset();
     processBatchMock.mockImplementation(async (cards: any[]) => cards);
 
@@ -822,9 +1281,9 @@ describe('WeaveDataStorage deck query', () => {
 
     const savedCard = plugin.cardFileService.saveCardsBatch.mock.calls[0][0][0];
     const yaml = parseYAMLFromContent(savedCard.content);
-    expect(yaml.we_decks).toEqual(['其他牌组']);
-    expect(savedCard.deckId).toBe('deck-other');
-    expect(savedCard.referencedByDecks).toEqual(['deck-other']);
+    expect(yaml.we_decks).toBeUndefined();
+    expect(savedCard.deckId).toBeUndefined();
+    expect(savedCard.referencedByDecks).toEqual([]);
 
     expect(saveDeckSpy).toHaveBeenCalledWith(expect.objectContaining({
       id: 'deck-target',
@@ -846,63 +1305,331 @@ describe('WeaveDataStorage deck query', () => {
     } as any;
 
     const storage = new WeaveDataStorage(plugin);
-    const sourceDeck = {
-      id: 'deck-source',
-      name: '源牌组',
-      cardUUIDs: ['card-1'],
-      description: '',
-      category: '',
-      tags: [],
-      metadata: {},
-      created: '2026-03-15T00:00:00.000Z',
-      modified: '2026-03-15T00:00:00.000Z'
-    } as any;
-    const targetDeck = {
-      id: 'deck-target',
-      name: '目标牌组',
-      cardUUIDs: [],
-      description: '',
-      category: '',
-      tags: [],
-      metadata: {},
-      created: '2026-03-15T00:00:00.000Z',
-      modified: '2026-03-15T00:00:00.000Z'
-    } as any;
-    const card = {
+    const movedCard = {
       uuid: 'card-1',
-      deckId: 'deck-source',
-      referencedByDecks: ['deck-source'],
-      content: '---\nwe_decks:\n  - 源牌组\n---\n正面',
+      deckId: 'deck-target',
+      referencedByDecks: ['deck-target'],
+      content: '---\nwe_decks:\n  - 目标牌组\n---\n正面',
       tags: [],
       created: '2026-03-15T00:00:00.000Z',
       modified: '2026-03-15T00:00:00.000Z',
       stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
     } as any;
-
-    vi.spyOn(storage, 'getDecks').mockResolvedValue([sourceDeck, targetDeck]);
-    vi.spyOn(storage, 'getCards').mockResolvedValue([card]);
-    const saveDeckSpy = vi.spyOn(storage, 'saveDeck').mockResolvedValue({
-      success: true,
-      timestamp: '2026-03-15T00:00:00.000Z'
-    } as any);
-    const saveCardSpy = vi.spyOn(storage, 'saveCard').mockResolvedValue({
-      success: true,
-      data: card,
-      timestamp: '2026-03-15T00:00:00.000Z'
-    } as any);
+    const moveCardsToDeckSpy = vi.spyOn(storage, 'moveCardsToDeck').mockResolvedValue({
+      moved: [movedCard],
+      failed: []
+    });
 
     const result = await storage.moveCardToDeck('card-1', 'deck-source', 'deck-target');
 
     expect(result.success).toBe(true);
-    expect(saveDeckSpy).toHaveBeenCalledTimes(2);
-    expect(sourceDeck.cardUUIDs).toEqual([]);
-    expect(targetDeck.cardUUIDs).toEqual(['card-1']);
+    expect(moveCardsToDeckSpy).toHaveBeenCalledWith(['card-1'], 'deck-target');
+    expect(result.data?.deckId).toBe('deck-target');
+    expect(result.data?.referencedByDecks).toEqual(['deck-target']);
 
-    const movedCard = saveCardSpy.mock.calls[0][0];
-    expect(movedCard.deckId).toBe('deck-target');
-    expect(movedCard.referencedByDecks).toEqual(['deck-target']);
-
-    const yaml = parseYAMLFromContent(movedCard.content);
+    const yaml = parseYAMLFromContent(result.data?.content || '');
     expect(yaml.we_decks).toEqual(['目标牌组']);
+  });
+
+  it('prefers .wdeck cards when the same UUID exists in both storage sources', async () => {
+    const plugin = {
+      settings: {},
+      cardFileService: {
+        getAllCards: vi.fn(async () => [
+          {
+            uuid: 'card-1',
+            deckId: 'legacy-deck',
+            content: 'legacy',
+            created: '2026-04-14T00:00:00.000Z',
+            modified: '2026-04-14T00:00:00.000Z',
+            stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
+          }
+        ])
+      },
+      wdeckService: {
+        getAllCards: vi.fn(async () => [
+          {
+            uuid: 'card-1',
+            deckId: 'wdeck:deck-1',
+            content: 'wdeck',
+            created: '2026-04-14T00:00:00.000Z',
+            modified: '2026-04-14T00:00:00.000Z',
+            stats: { totalReviews: 1, totalTime: 10, averageTime: 10 }
+          }
+        ])
+      },
+      app: {
+        vault: {
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    const cards = await (storage as any).readAllCardsIncludingWDeck();
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].content).toBe('wdeck');
+  });
+
+  it('prefers targeted UUID readers before any full card scan', async () => {
+    const plugin = {
+      settings: {},
+      cardFileService: {
+        getCardsByUUIDsBatch: vi.fn(async () => ({
+          found: [
+            {
+              uuid: 'card-2',
+              content: 'legacy-card-2',
+              created: '2026-04-14T00:00:00.000Z',
+              modified: '2026-04-14T00:00:00.000Z',
+              stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
+            }
+          ],
+          notFound: []
+        })),
+        getAllCards: vi.fn(async () => {
+          throw new Error('should not scan legacy cards');
+        })
+      },
+      wdeckService: {
+        getCardsByUUIDs: vi.fn(async () => [
+          {
+            uuid: 'card-1',
+            deckId: 'wdeck:deck-1',
+            content: 'wdeck-card-1',
+            created: '2026-04-14T00:00:00.000Z',
+            modified: '2026-04-14T00:00:00.000Z',
+            stats: { totalReviews: 1, totalTime: 10, averageTime: 10 }
+          }
+        ]),
+        getAllCards: vi.fn(async () => {
+          throw new Error('should not scan wdeck cards');
+        })
+      },
+      app: {
+        vault: {
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    const cards = await storage.getCardsByUUIDs(['card-2', 'card-1']);
+
+    expect(cards.map(card => card.uuid)).toEqual(['card-2', 'card-1']);
+    expect(plugin.wdeckService.getCardsByUUIDs).toHaveBeenCalledWith(['card-2', 'card-1']);
+    expect(plugin.cardFileService.getCardsByUUIDsBatch).toHaveBeenCalledWith(['card-2']);
+    expect(plugin.wdeckService.getAllCards).not.toHaveBeenCalled();
+    expect(plugin.cardFileService.getAllCards).not.toHaveBeenCalled();
+  });
+
+  it('hides migrated legacy decks and exposes aggregated .wdeck decks', async () => {
+    const files = new Map<string, string>([
+      [
+        'weave/memory/decks.json',
+        JSON.stringify({
+          decks: [
+            {
+              id: 'legacy-visible',
+              name: 'legacy-visible',
+              metadata: {},
+              created: '2026-04-14T00:00:00.000Z',
+              modified: '2026-04-14T00:00:00.000Z'
+            },
+            {
+              id: 'legacy-migrated',
+              name: 'circulation',
+              metadata: {
+                wdeckMigration: {
+                  status: 'migrated',
+                  filePath: 'weave/memory/deck-files/circulation_01.wdeck'
+                }
+              },
+              created: '2026-04-14T00:00:00.000Z',
+              modified: '2026-04-14T00:00:00.000Z'
+            }
+          ]
+        })
+      ]
+    ]);
+
+    const adapter = {
+      exists: vi.fn(async (path: string) => files.has(path)),
+      read: vi.fn(async (path: string) => {
+        const value = files.get(path);
+        if (value === undefined) throw new Error(`Missing file: ${path}`);
+        return value;
+      }),
+      write: vi.fn(async (path: string, content: string) => {
+        files.set(path, content);
+      }),
+      mkdir: vi.fn(async () => undefined)
+    };
+
+    const plugin = {
+      settings: {},
+      wdeckService: {
+        getAllDeckSummaries: vi.fn(async () => [
+          {
+            runtimeDeckId: 'wdeck:legacy-migrated',
+            logicalDeckId: 'legacy-migrated',
+            logicalDeckName: 'circulation',
+            filePaths: ['weave/memory/deck-files/circulation_01.wdeck'],
+            segmentIndices: [1],
+            cardUUIDs: ['card-1', 'card-2'],
+            deck: {
+              id: 'legacy-migrated',
+              name: 'circulation'
+            }
+          }
+        ]),
+        getAllDeckAggregates: vi.fn(async () => {
+          throw new Error('getAllDeckAggregates should not be used when getAllDeckSummaries exists');
+        })
+      },
+      app: {
+        vault: {
+          adapter,
+          configDir: '.obsidian',
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    const decks = await storage.getDecks();
+
+    expect(decks.map((deck) => deck.id)).toEqual(['legacy-visible', 'wdeck:legacy-migrated']);
+    expect(plugin.wdeckService.getAllDeckSummaries).toHaveBeenCalledTimes(1);
+    expect(plugin.wdeckService.getAllDeckAggregates).not.toHaveBeenCalled();
+    expect(decks[1]).toMatchObject({
+      name: 'circulation',
+      cardUUIDs: ['card-1', 'card-2'],
+      metadata: expect.objectContaining({
+        fileType: 'wdeck',
+        logicalDeckId: 'legacy-migrated'
+      })
+    });
+  });
+
+  it('removes legacy memory deck JSON entries after saving the deck into .wdeck', async () => {
+    const files = new Map<string, string>([
+      [
+        'weave/memory/decks.json',
+        JSON.stringify({
+          decks: [
+            {
+              id: 'legacy-visible',
+              name: 'legacy-visible',
+              metadata: {},
+              created: '2026-04-14T00:00:00.000Z',
+              modified: '2026-04-14T00:00:00.000Z'
+            }
+          ]
+        })
+      ]
+    ]);
+
+    const adapter = {
+      exists: vi.fn(async (path: string) => files.has(path)),
+      read: vi.fn(async (path: string) => {
+        const value = files.get(path);
+        if (value === undefined) throw new Error(`Missing file: ${path}`);
+        return value;
+      }),
+      write: vi.fn(async (path: string, content: string) => {
+        files.set(path, content);
+      }),
+      mkdir: vi.fn(async () => undefined)
+    };
+
+    const plugin = {
+      settings: {},
+      wdeckService: {
+        getAllDeckAggregates: vi.fn(async () => []),
+        getDeckAggregateByAnyDeckId: vi.fn(async () => null),
+        saveDeckDefinition: vi.fn(async (deck: any) => ({
+          runtimeDeckId: 'wdeck:legacy-visible',
+          logicalDeckId: 'legacy-visible',
+          logicalDeckName: deck.name,
+          files: [{ path: 'weave/memory/deck-files/legacy-visible_01.wdeck' }],
+          segmentIndices: [1],
+          cards: [{ uuid: 'legacy-card-1' }],
+          deck: {
+            id: 'legacy-visible',
+            name: deck.name,
+            created: deck.created,
+            modified: deck.modified,
+            metadata: {}
+          }
+        }))
+      },
+      app: {
+        vault: {
+          adapter,
+          configDir: '.obsidian',
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    const result = await storage.saveDeck({
+      id: 'legacy-visible',
+      name: 'legacy-visible-updated',
+      description: '',
+      category: 'legacy',
+      cardUUIDs: ['legacy-card-1'],
+      tags: [],
+      metadata: {},
+      created: '2026-04-14T00:00:00.000Z',
+      modified: '2026-04-14T00:00:00.000Z'
+    } as any);
+
+    expect(result.success).toBe(true);
+
+    const persisted = JSON.parse(files.get('weave/memory/decks.json') || '{"decks":[]}');
+    expect(persisted.decks).toEqual([]);
+    expect(result.data?.id).toBe('wdeck:legacy-visible');
+  });
+
+  it('delegates deleting virtual .wdeck runtime decks to WDeckService', async () => {
+    const deleteDeckByDeckId = vi.fn(async () => ({
+      deletedFiles: ['weave/memory/deck-files/circulation_01.wdeck'],
+      deletedCards: 2
+    }));
+    const plugin = {
+      settings: {},
+      wdeckService: {
+        isWDeckDeckId: vi.fn((deckId: string) => deckId.startsWith('wdeck:')),
+        deleteDeckByDeckId
+      },
+      app: {
+        vault: {
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    const writeDecksFileSpy = vi.spyOn(storage as any, 'writeDecksFile').mockResolvedValue(undefined);
+
+    const result = await storage.deleteDeck('wdeck:legacy-migrated');
+
+    expect(result.success).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(deleteDeckByDeckId).toHaveBeenCalledWith('wdeck:legacy-migrated');
+    expect(writeDecksFileSpy).not.toHaveBeenCalled();
   });
 });

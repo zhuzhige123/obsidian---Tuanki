@@ -65,6 +65,7 @@ export class ContentObserverImpl implements ContentObserver {
 	private scrollHandler: (() => void) | null = null;
 	private imageLoadHandlers: Map<HTMLImageElement, () => void> = new Map();
 	private rafId: number | null = null;
+	private scheduledUpdateType: "raf" | "timeout" | null = null;
 	private isRunning = false;
 	private lastUpdateTime = 0;
 	private minUpdateInterval = 16; // 约 60fps
@@ -124,8 +125,13 @@ export class ContentObserverImpl implements ContentObserver {
 
 		// 取消待处理的 RAF
 		if (this.rafId !== null) {
-			cancelAnimationFrame(this.rafId);
+			if (this.scheduledUpdateType === "timeout") {
+				clearTimeout(this.rafId);
+			} else {
+				cancelAnimationFrame(this.rafId);
+			}
 			this.rafId = null;
+			this.scheduledUpdateType = null;
 		}
 	}
 
@@ -278,14 +284,18 @@ export class ContentObserverImpl implements ContentObserver {
 			// 延迟到下一个合适的时间点
 			this.rafId = window.setTimeout(() => {
 				this.rafId = null;
+				this.scheduledUpdateType = null;
 				this.executeUpdate();
 			}, this.minUpdateInterval - timeSinceLastUpdate) as unknown as number;
+			this.scheduledUpdateType = "timeout";
 		} else {
 			// 使用 RAF 在下一帧执行
 			this.rafId = requestAnimationFrame(() => {
 				this.rafId = null;
+				this.scheduledUpdateType = null;
 				this.executeUpdate();
 			});
+			this.scheduledUpdateType = "raf";
 		}
 	}
 

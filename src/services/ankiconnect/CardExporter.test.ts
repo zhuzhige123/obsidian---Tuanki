@@ -1,7 +1,7 @@
 import { App } from 'obsidian';
 
 import { CardExporter } from './CardExporter';
-import { OFFICIAL_TEMPLATES } from '../../constants/official-templates';
+import { getOfficialTemplateById } from '../../constants/official-templates';
 import type { Card } from '../../data/types';
 import type { AnkiModelInfo, ConversionResult } from '../../types/ankiconnect-types';
 
@@ -47,7 +47,7 @@ function createExporter(mediaSyncEnabled = true) {
 }
 
 function getOfficialTemplate(templateId: string) {
-  const template = OFFICIAL_TEMPLATES.find(item => item.id === templateId);
+  const template = getOfficialTemplateById(templateId);
   if (!template) {
     throw new Error(`Missing official template: ${templateId}`);
   }

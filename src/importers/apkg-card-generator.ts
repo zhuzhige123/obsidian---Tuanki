@@ -1,3 +1,5 @@
+import { wrapWithConfiguredCloze } from "../utils/cloze-syntax";
+
 /**
  * APKG 卡片生成器
  * 将 Anki 字段数据转换为 Weave Markdown 格式卡片
@@ -90,9 +92,9 @@ export class WeaveCardGenerator {
 
 		let markdown = html;
 
-		//  清理 Anki 特殊标记
-		// 挖空语法转换: {{c1::text}} → ==text==
-		markdown = markdown.replace(/\{\{c\d+::(.*?)\}\}/g, "==$1==");
+		markdown = markdown.replace(/\{\{c\d+::(.*?)\}\}/g, (_match, text) =>
+			wrapWithConfiguredCloze(text)
+		);
 
 		//  HTML 标签转换
 		// 换行

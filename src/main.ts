@@ -1,3 +1,6 @@
+import "./utils/foliate-custom-element-guard";
+import "./utils/group-by-compat";
+
 import {
 	Editor,
 	MarkdownFileInfo,
@@ -22,27 +25,23 @@ import {
 } from "./services/data-management/DataManagementService";
 import EditorContextManager from "./services/editor/EditorContextManager";
 import type { EmbeddableEditorManager } from "./services/editor/EmbeddableEditorManager";
-import type { LicenseInfo } from "./types/license";
-import { DEFAULT_LICENSE_INFO } from "./types/license";
+import type { EffectiveLicenseState, LicenseInfo, LicensedProduct } from "./types/license";
+import { DEFAULT_LICENSE_INFO, DEFAULT_LICENSE_STORE } from "./types/license";
 import type { CreateCardOptions } from "./types/modal-types";
 import { focusManager } from "./utils/focus-manager"; // 导入焦点管理器以启用全局监控
 import { licenseManager } from "./utils/licenseManager";
 import { initMediaDebug } from "./utils/mediaDebugHelper";
 import { createSafeNotice, safeOpenSettings } from "./utils/obsidian-api-safe";
 import type { SafeNotice } from "./utils/obsidian-api-safe";
-import {
-	EpubBookshelfSidebarView,
-	VIEW_TYPE_EPUB_BOOKSHELF_SIDEBAR,
-} from "./views/EpubBookshelfSidebarView";
-import { EpubSidebarView, VIEW_TYPE_EPUB_SIDEBAR } from "./views/EpubSidebarView";
-import { EpubView, VIEW_TYPE_EPUB } from "./views/EpubView";
-import { IRCalendarView, VIEW_TYPE_IR_CALENDAR } from "./views/IRCalendarView"; // 📅 增量阅读日历视图
-import { IRFocusView, VIEW_TYPE_IR_FOCUS } from "./views/IRFocusView"; // 📖 增量阅读聚焦视图
-import { QuestionBankView, VIEW_TYPE_QUESTION_BANK } from "./views/QuestionBankView"; // 🆕 考试学习视图
+import { IR_RUNTIME } from "./services/incremental-reading/ir-runtime";
+import { QuestionBankView, VIEW_TYPE_QUESTION_BANK } from "./views/QuestionBankView"; // 考试学习视图
 import { StudyView, VIEW_TYPE_STUDY } from "./views/StudyView";
+import { VIEW_TYPE_WDECK, WDeckView } from "./views/WDeckView";
 import { VIEW_TYPE_WEAVE, WeaveView } from "./views/WeaveView";
 
 import { DEFAULT_AI_CONFIG } from "./components/settings/constants/settings-constants";
+import { DEFAULT_RATING_LABEL_STYLE } from "./components/study/rating-label-style";
+import { DEFAULT_EMERGENT_RULE_GROUP } from "./services/deck/emergent-rule-groups";
 import type {
 	SettingsWithEditor,
 	StudyInterfaceViewPreferences,
@@ -59,43 +58,83 @@ import {
 	PluginLocalStateService,
 	migrateLegacyPluginRuntimeState,
 } from "./services/plugin-state/PluginLocalStateService";
+import type {
+	IRCalendarSidebarSettings,
+	IncrementalReadingFolderSubscriptionInitialScheduleMode,
+	IncrementalReadingFolderSubscriptionRule,
+	IncrementalReadingFolderSubscriptionSettings,
+} from "./types/plugin-settings.d";
 import { DEFAULT_SIMPLIFIED_PARSING_SETTINGS } from "./types/newCardParsingTypes";
 
 import {
-	LEGACY_DOT_TUANKI,
-	getMachineWeaveRoot,
-	getReadableWeaveRoot,
 	getV2PathsFromApp,
 	normalizeWeaveParentFolder,
 	resolveIRImportFolder,
 } from "./config/paths";
+import {
+	buildDefaultIncrementalReadingSettings,
+	normalizeIncrementalReadingSettings,
+} from "./services/incremental-reading/ir-settings";
+import {
+	getActiveIncrementalReadingFolderSubscriptionRules as getActiveIncrementalReadingFolderSubscriptionRulesState,
+	isFileWithinIncrementalReadingFolderSubscription as isFileWithinIncrementalReadingFolderSubscriptionPath,
+	normalizeIncrementalReadingFolderSubscriptionSettings as normalizeIncrementalReadingFolderSubscriptionSettingsState,
+	resolveIncrementalReadingFolderSubscriptionRuleForFile as resolveIncrementalReadingFolderSubscriptionRuleForFileState,
+} from "./services/incremental-reading/folder-subscription-settings";
 import { BatchParsingFileWatcher } from "./services/BatchParsingFileWatcher";
 import { GlobalDataCache } from "./services/GlobalDataCache";
 import { BatchCardSaver } from "./services/batch/BatchCardSaver";
 import { ParsedCardConverter } from "./services/converter/ParsedCardConverter";
 import { MaskDataParser } from "./services/image-mask/MaskDataParser";
+import { registerExtensionsSafely } from "./services/epub/epub-plugin-support";
+import {
+	generateUniqueVaultFilePath,
+	normalizeIRReadableMarkdownFolderPath,
+	resolveIRReadableMarkdownTargetFolder,
+} from "./services/incremental-reading/IRReadableMarkdownPathResolver";
+import { IRHostSharedService } from "./services/incremental-reading/IRHostSharedService";
 import { replaceSelectionInMarkdownContent } from "./services/incremental-reading/SelectionQuickCreateSourceTransform";
 import { createWeaveDeckCodeBlockProcessor } from "./services/markdown/WeaveDeckCodeBlockProcessor";
 import { WEAVE_DECKS_CODE_BLOCK_LANGUAGE } from "./services/markdown/weaveDeckCodeBlock";
 import { ReadingCategory } from "./types/incremental-reading-types";
 import type { ParsedCard } from "./types/newCardParsingTypes";
 import { registerMobileCanvasPaneMenuPatch } from "./utils/canvas-pane-menu-mobile";
-import { DirectoryUtils } from "./utils/directory-utils";
-import { getPreferredEpubLeaf } from "./utils/epub-leaf-utils";
-import { initI18n } from "./utils/i18n";
+import { initI18n, syncI18nWithObsidianLanguage } from "./utils/i18n";
 import { logger } from "./utils/logger";
+import {
+	cloneLicenseAsInherited,
+	getLegacyPrimaryLicense,
+	LICENSED_PRODUCTS,
+	normalizeLicenseStore,
+	resolveEffectiveLicenseState,
+} from "./utils/license-state";
+import { hasLegacyMemoryCardStorage } from "./utils/legacy-memory-storage";
+import { getPdfOutlineForFile } from "./utils/pdf-outline";
 import { SimplifiedCardParser } from "./utils/simplifiedParser/SimplifiedCardParser";
-import { tabletDebugger } from "./utils/tablet-debug";
+import {
+	normalizeClozeDelimiterSettings,
+	setGlobalClozeDelimiterSettings,
+} from "./utils/cloze-syntax";
+import { ensureExistingWeaveDataReadmes } from "./utils/weave-data-readme";
 import { createContentWithMetadata } from "./utils/yaml-utils";
-// 🆕 平板端支持
+import {
+	type EpubBookshelfSettings,
+	DEFAULT_EPUB_BOOKSHELF_SETTINGS,
+	EpubStorageService,
+} from "./services/epub/EpubStorageService";
+import { isSupportedBookFile } from "./services/epub/book-format";
+import { exportBookNotesToMarkdown, exportBookSectionToMarkdown } from "./services/epub/book-markdown-export";
+import { EPUB_RUNTIME, registerEpubHost, unregisterEpubHost, type EpubHostCapabilities } from "./services/epub";
 import { applyDeviceClasses, detectDevice } from "./utils/tablet-detection";
 import { vaultStorage } from "./utils/vault-local-storage";
-import { openFileWithExistingLeaf, openLinkWithExistingLeaf } from "./utils/workspace-navigation";
+import { findOpenEpubLeaf, getAllOpenEpubLeaves, getOpenEpubFilePath } from "./utils/epub-leaf-utils";
+import { openFileWithExistingLeaf, openLinkWithExistingLeaf, revealLeaf } from "./utils/workspace-navigation";
 
 import { get } from "svelte/store";
 // AI
 import { aiConfigStore } from "./stores/ai-config.store";
 import { customActionsForMenu } from "./stores/ai-config.store";
+import { weaveMainInterfaceStore } from "./stores/weave-main-interface-store";
 
 import { BatchParsingManager } from "./services/batch-parsing";
 import { DeckStorageAdapter } from "./services/storage/DeckStorageAdapter";
@@ -113,6 +152,7 @@ import { MediaManagementService } from "./services/media/MediaManagementService"
 
 // 高级功能守卫
 import { PREMIUM_FEATURES, PremiumFeatureGuard } from "./services/premium/PremiumFeatureGuard";
+import { dispatchCardManagementFilterByCards } from "./services/navigation/card-management-navigation";
 
 // 学习会话管理
 import { StudySessionManager } from "./services/StudySessionManager";
@@ -124,8 +164,10 @@ import type { SupportedLanguage } from "./utils/i18n";
 // 🆕 学习模式类型
 import {
 	type PersistedStudySession,
+	type PersistedStudySessionStore,
 	type StudyMode,
 	isPersistedStudySession,
+	isPersistedStudySessionStore,
 } from "./types/study-types";
 
 import type { Deck, FSRSParameters } from "./data/types";
@@ -134,29 +176,36 @@ import type { ExtendedNotice } from "./types/plugin-types";
 
 import { CleanupProgressModal } from "./components/modals/CleanupProgressModal";
 import { IRDeckSelectorModal } from "./modals/IRDeckSelectorModal";
-// 块链接清理系统
+// 
 import { BlockLinkCleanupService } from "./services/cleanup/BlockLinkCleanupService";
 import { EditorTempFileCleanupService } from "./services/cleanup/EditorTempFileCleanupService";
 import { GlobalCleanupScanner } from "./services/cleanup/GlobalCleanupScanner";
-import { migrateLegacyWeaveFolders } from "./services/data-migration/LegacyWeaveFolderMigration";
-import { UnifiedDataMigrationService } from "./services/data-migration/UnifiedDataMigrationService";
-import { IREpubBookmarkTaskService } from "./services/incremental-reading/IREpubBookmarkTaskService";
 import { IRPdfBookmarkTaskService } from "./services/incremental-reading/IRPdfBookmarkTaskService";
-import { recomputeAndBroadcastIRData } from "./services/incremental-reading/IRScheduleRefreshService";
+import { IRPointDataReadService } from "./services/incremental-reading/IRPointDataReadService";
+import { IRPointStorageService } from "./services/incremental-reading/IRPointStorageService";
+import { IRPointTagService } from "./services/incremental-reading/IRPointTagService";
+import { detectTraceSourceKind, normalizeTraceDocumentKey } from "./services/incremental-reading/IRSourceTraceStats";
+import {
+	broadcastIRDataUpdated,
+	recomputeAndBroadcastIRData,
+} from "./services/incremental-reading/IRScheduleRefreshService";
 import { IRStorageService } from "./services/incremental-reading/IRStorageService";
+import { getCanvasTextCandidatesFromText } from "./services/ui/canvas-source-locate";
 import { getWeaveOperationsSubmenu } from "./services/menu/WeaveContextMenuBuilder";
 import { createDefaultChunkFileData, generateChunkId, generateSourceId } from "./types/ir-types";
 import { showObsidianConfirm } from "./utils/obsidian-confirm";
+import { extractAllTags } from "./utils/yaml-utils";
 
 import { EditorAIToolbarManager } from "./services/editor/EditorAIToolbarManager";
 import { SelectedTextAICardPanelManager } from "./services/editor/SelectedTextAICardPanelManager";
+import { AIActionManagerObsidian } from "./components/study/AIActionManagerObsidian";
 
 import { CardIndexService } from "./services/data/CardIndexService";
 // DirectFileCardReader - 高性能数据读取服务
 import { DirectFileCardReader } from "./services/data/DirectFileCardReader";
+import { WDeckService } from "./services/wdeck/WDeckService";
 
 // 优化后的CSS导入 - 减少重复，使用global.css统一管理
-import "./styles/fonts.css"; // 字体文件（独立）
 import "./styles/global.css"; // 全局样式（包含核心@import）
 import "virtual:uno.css";
 
@@ -169,7 +218,8 @@ import "./styles/image-mask.css"; // 图片遮罩
 import "./styles/inline-card-editor.css"; // 内联编辑器
 import "./styles/progressive-cloze.css"; // 渐进式挖空
 import "./styles/study-interface.css"; // 学习界面
-import "./styles/study-view-layout.css"; // 学习视图布局（三界面共享）
+import "./styles/study-view-layout.css";
+import { applyStyleProps } from "./utils/style-props"; // 学习视图布局（三界面共享）
 
 /**
  * ========================================
@@ -264,31 +314,25 @@ export interface WeaveSettings extends SettingsWithEditor {
 		aiAssistant?: boolean;
 		apkgImport?: boolean;
 		csvImport?: boolean;
-		clipboardImport?: boolean;
-		settingsEntry?: boolean;
 	};
 
-	// 导航栏设置按钮显示控制
+	// 
 	showSettingsButton?: boolean;
 
 	epubBookshelf?: {
-		sourceMode: "cache-first" | "folder-only";
-		sourceFolder: string;
+		lastScanAt?: number;
 	};
 
-	// 🆕 v1.0.0: 数据文件夹可见性配置
+	// v1.0.0: 
 	dataFolderVisibility?: {
-		hideInFileExplorer: boolean; // 是否在文件浏览器中隐藏数据文件夹（默认true）
-		folderName: string; // 数据文件夹名称（固定为'weave'）
-		userAcknowledgedRisk: boolean; // 用户是否已确认理解CSS隐藏的风险
+		hideInFileExplorer: boolean; // 
+		folderName: string; // 
+		userAcknowledgedRisk: boolean; // 
 	};
 
 	weaveParentFolder?: string;
 
-	// 是否跳过指南牌组自动创建（用户删除后不再自动恢复）
-	skipGuideDeck?: boolean;
-
-	// 🆕 卡片管理页面视图偏好设置
+	// 
 	cardManagementViewPreferences?: {
 		currentView: "table" | "grid" | "kanban";
 		gridLayout: "fixed" | "masonry" | "timeline";
@@ -303,57 +347,68 @@ export interface WeaveSettings extends SettingsWithEditor {
 			| "question_type"
 			| "ir_state"
 			| "ir_priority";
+		kanbanGroupBy?: "status" | "type" | "priority" | "deck" | "createTime" | "tag" | "tagGroup" | "ir_tag_group";
+		kanbanGroupByBySource?: {
+			memory?: "status" | "type" | "priority" | "deck" | "createTime" | "tag" | "tagGroup" | "ir_tag_group";
+			questionBank?: "status" | "type" | "priority" | "deck" | "createTime" | "tag" | "tagGroup" | "ir_tag_group";
+			"incremental-reading"?: "status" | "type" | "priority" | "deck" | "createTime" | "tag" | "tagGroup" | "ir_tag_group";
+		};
+		kanbanSelectedTagGroupIdBySource?: {
+			memory?: string | null;
+			questionBank?: string | null;
+			"incremental-reading"?: string | null;
+		};
 		kanbanLayoutMode: "compact" | "comfortable" | "spacious";
 		tableViewMode: "basic" | "review" | "questionBank" | "irContent";
+		enableCardRelationFilterMode?: boolean;
 		enableCardLocationJump: boolean;
 		showTableGridBorders: boolean;
 	};
 
-	// 学习视图间距模式
+	// 
 	studyViewSpacing?: "compact" | "default" | "comfortable";
 
-	// 🆕 学习界面视图偏好设置
-	studyInterfaceViewPreferences?: {
-		showSidebar: boolean;
-		sidebarCompactModeSetting: "auto" | "fixed";
-		statsCollapsed: boolean;
-		cardOrder: "sequential" | "random"; // 🆕 卡片学习顺序
-		sidebarPosition: "right" | "bottom"; // 🆕 侧边栏位置
-	};
+	// 
+	studyInterfaceViewPreferences?: StudyInterfaceViewPreferences;
 
-	// 🆕 牌组标签组配置
-	// 用于看板视图按标签组分组
+	// 
 	deckTagGroups?: import("./types/deck-kanban-types").DeckTagGroup[];
 
-	// 🆕 队列优化系统配置（v2.0）
-	queueOptimization?: import("./types/queue-optimization-types").QueueOptimizationSettings;
-
-	// 🆕 删除功能设置
-	enableDirectDelete?: boolean;
-
-	// 🆕 教程按钮显示设置
-	showTutorialButton?: boolean;
-
-	// 编辑器模态窗尺寸设置
-	editorModalSize?: {
-		preset: "small" | "medium" | "large" | "extra-large" | "custom";
-		customWidth?: number; // 像素值
-		customHeight?: number; // 像素值
-		rememberLastSize?: boolean; // 是否记住上次调整的尺寸
-		enableResize?: boolean; // 是否启用拖拽调整
+	// 
+	memoryDeckOrganization?: {
+		enabled?: boolean;
+		minCandidateCardCount?: number;
+		tagDriftFollowMode?: "off" | "ask" | "auto";
+		activeRuleGroupId?: string;
+		ruleGroups?: import("./services/deck/emergent-rule-groups").EmergentRuleGroup[];
 	};
 
-	// 🔒 激活码相关（使用统一的类型定义）
+	// 
+	queueOptimization?: import("./types/queue-optimization-types").QueueOptimizationSettings;
+
+	// 
+	enableDirectDelete?: boolean;
+
+	// 
+	editorModalSize?: {
+		preset: "small" | "medium" | "large" | "extra-large" | "custom";
+		customWidth?: number; // 
+		customHeight?: number; // 
+		rememberLastSize?: boolean; // 
+		enableResize?: boolean; // 
+	};
+
+	// 
 	license: LicenseInfo;
 
-	// FSRS 参数
+	// FSRS 
 	fsrsParams: FSRSParameters;
 
-	// 🎯 FSRS6优化历史显示状态
-	showOptimizationHistory?: boolean; // 优化历史记录展开/折叠状态
+	// 
+	showOptimizationHistory?: boolean; // 
 
-	// 🎯 FSRS6个性化优化设置
-	enablePersonalization?: boolean; // 启用个性化算法优化
+	// 
+	enablePersonalization?: boolean; // 
 	personalizationSettings?: {
 		enabled: boolean;
 		minDataPoints: number;
@@ -363,10 +418,10 @@ export interface WeaveSettings extends SettingsWithEditor {
 		autoOptimization: boolean;
 	};
 
-	// 🔥 数据迁移标记
+	// 
 	migrationCompleted?: boolean;
 
-	// 编辑器与链接/附件配置
+	// 
 	editor?: {
 		linkStyle: "wikilink" | "markdown";
 		linkPath: "short" | "relative" | "absolute";
@@ -375,7 +430,7 @@ export interface WeaveSettings extends SettingsWithEditor {
 		embedImages: boolean;
 	};
 
-	// 卡片管理视图偏好
+	// 
 	cardManager?: {
 		visibleFields?: {
 			table?: Record<string, boolean>;
@@ -391,7 +446,7 @@ export interface WeaveSettings extends SettingsWithEditor {
 		};
 	};
 
-	// 挖空功能设置
+	// 
 	clozeSettings?: {
 		enabled: boolean;
 		openDelimiter: string;
@@ -399,33 +454,32 @@ export interface WeaveSettings extends SettingsWithEditor {
 		placeholder: string;
 	};
 
-	// 媒体自动播放设置
+	// 
 	mediaAutoPlay?: {
-		enabled: boolean; // 是否启用自动播放
-		mode: "first" | "all"; // 播放模式：仅第一个/全部
-		timing: "cardChange" | "showAnswer"; // 播放时机：切换卡片/显示答案
-		playbackInterval: number; // 播放间隔（毫秒）
+		enabled: boolean; // 
+		mode: "first" | "all"; // 
+		timing: "cardChange" | "showAnswer"; // 
+		playbackInterval: number; // 
 	};
 
-	// 调试
 	enableDebugMode?: boolean;
 
-	// 🆕 显示性能优化设置标签页
+	// 
 	showPerformanceSettings?: boolean;
 
-	// 🆕 显示高级功能预览（开启后，未激活的高级功能将以锁定状态显示）
+	// 
 	showPremiumFeaturesPreview?: boolean;
 
-	// 🆕 牌组卡片设计样式
+	// 
 	deckCardStyle?: "default" | "chinese-elegant";
 
-	// 🆕 主界面打开位置偏好（通过侧边栏图标打开时）
+	// 
 	mainInterfaceOpenLocation?: "content" | "sidebar";
 
-	// 新版简化解析设置
+	// 
 	simplifiedParsing?: import("./types/newCardParsingTypes").SimplifiedParsingSettings;
 
-	// 修复工具设置
+	// 
 	repairTool?: {
 		repairScope?: "current-file" | "open-files" | "all-files";
 		repairMissingBlockIds?: boolean;
@@ -438,16 +492,12 @@ export interface WeaveSettings extends SettingsWithEditor {
 		timestampStrategy?: "current" | "file-modified" | "preserve-existing";
 	};
 
-	// AnkiConnect 同步设置
+	// AnkiConnect 
 	ankiConnect?: import("./components/settings/types/settings-types").AnkiConnectSettings;
 
-	// ✅ Phase 3: APKG 导入配置（字段显示面配置持久化）
-	// 暂时注释，等待实现
-	// apkgImportConfig?: import('./importers/apkg-config-manager').APKGImportConfiguration;
-
-	// AI配置
+	// 
 	aiConfig?: {
-		// API密钥配置（加密存储）
+		// API
 		apiKeys?: {
 			openai?: {
 				apiKey: string;
@@ -469,7 +519,7 @@ export interface WeaveSettings extends SettingsWithEditor {
 			};
 		};
 
-		// 默认AI服务
+		// 
 		defaultProvider?:
 			| "openai"
 			| "gemini"
@@ -479,18 +529,18 @@ export interface WeaveSettings extends SettingsWithEditor {
 			| "siliconflow"
 			| "xai";
 
-		// 🆕 上次使用的AI服务提供商（用于持久化用户选择）
+		// 
 		lastUsedProvider?: string;
 
-		// 🆕 上次使用的AI模型（用于持久化用户选择）
+		// 
 		lastUsedModel?: string;
 
-		// AI格式化开关
+		// AI
 		formatting?: {
 			enabled: boolean;
 		};
 
-		// 🆕 AI卡片拆分配置
+		// 
 		cardSplitting?: {
 			enabled: boolean;
 			defaultTargetCount: number;
@@ -502,7 +552,7 @@ export interface WeaveSettings extends SettingsWithEditor {
 			defaultInstruction?: string;
 		};
 
-		// 全局AI参数
+		// 
 		globalParams?: {
 			temperature: number;
 			maxTokens: number;
@@ -510,17 +560,17 @@ export interface WeaveSettings extends SettingsWithEditor {
 			concurrentLimit: number;
 		};
 
-		// 🆕 全局系统提示词配置
+		// 
 		systemPromptConfig?: {
 			useBuiltin: boolean;
 			customPrompt: string;
 			lastModified?: string;
-			// 🆕 自定义系统提示词列表
+			// 
 			customSystemPrompts?: import("./types/ai-types").CustomSystemPrompt[];
 			selectedSystemPromptId?: string;
 		};
 
-		// 提示词模板
+		// 
 		promptTemplates?: {
 			official: Array<{
 				id: string;
@@ -537,20 +587,11 @@ export interface WeaveSettings extends SettingsWithEditor {
 			custom: import("./types/ai-types").PromptTemplate[];
 		};
 
-		// 自定义AI功能列表
+		// 
 		customFormatActions?: import("./types/ai-types").CustomFormatAction[];
 		customSplitActions?: import("./types/ai-types").AIAction[];
 
-		/** @deprecated 已弃用。仅为向后兼容保留 */
-		officialFormatActions?: {
-			choice: { enabled: boolean };
-			mathFormula: { enabled: boolean };
-			memoryAid: { enabled: boolean };
-		};
-
-		/** @deprecated 已弃用。仅为向后兼容保留 */
-
-		// 持久化的AI制卡生成配置
+		// 
 		savedGenerationConfig?: {
 			cardCount?: number;
 			difficulty?: "easy" | "medium" | "hard" | "mixed";
@@ -563,6 +604,8 @@ export interface WeaveSettings extends SettingsWithEditor {
 			enableHints?: boolean;
 			temperature?: number;
 			maxTokens?: number;
+			maxGenerationLimit?: number;
+			prioritizePromptRequirements?: boolean;
 		};
 		generationHistory?: Array<{
 			id: string;
@@ -581,7 +624,7 @@ export interface WeaveSettings extends SettingsWithEditor {
 		}>;
 	};
 
-	// 负荷控制管理配置
+	// 
 	loadBalance?: {
 		dailyCapacity: number;
 		thresholds: {
@@ -597,48 +640,48 @@ export interface WeaveSettings extends SettingsWithEditor {
 		};
 	};
 
-	// 🆕 笔记类型配置
+	// 
 	noteTypeConfig?: import("./types/extract-types").NoteTypeConfig;
 
-	// 🆕 v2.0 引用式牌组系统设置
-	autoCheckDataConsistency?: boolean; // 启动时自动检查数据一致性（默认关闭）
+	// 
+	autoCheckDataConsistency?: boolean; // 
 
-	// 🆕 增量阅读全局设置（使用统一的类型定义）
+	// 
 	incrementalReading?: import("./types/plugin-settings").IncrementalReadingSettings;
 
-	// 🆕 置顶牌组列表（用于热门牌组识别）
+	// 
 	pinnedDecks?: string[];
 	createCardPreferences?: {
 		lastSelectedDeckId?: string;
 		lastSelectedDeckNames?: string[];
 	};
 
-	// 超时自动暂停计时（秒）
+	// 
 	timerAutoPauseSeconds?: number;
-	// 提示功能每次学习会话最大使用次数
+	// 
 	hintMaxUses?: number;
 	showClozeModeSwitchButton?: boolean;
 	tutorialHints?: import("./services/tutorial/GlobalTutorialHints").GlobalTutorialHintState;
 }
 
 const DEFAULT_SETTINGS: WeaveSettings = {
-	defaultDeck: "默认牌组",
+	defaultDeck: "",
 	reviewsPerDay: 20,
-	newCardsPerDay: 20, // 🆕 默认每天20张新卡片（参考Anki）
+	newCardsPerDay: 20, // 
 	enableNotifications: true,
 	theme: "auto",
-	language: "zh-CN", // 🌍 默认语言为简体中文
+	language: "zh-CN", // 
 
 	autoShowAnswerSeconds: 0,
 	learningSteps: [1, 10],
 	relearningSteps: [10],
 	graduatingInterval: 1,
-	maxAdvanceDays: 7, // 🆕 默认提前学习最多7天（基于FSRS研究建议）
+	maxAdvanceDays: 7, // 
 
 	enableShortcuts: true,
 	showFloatingCreateButton: true,
 
-	// 🆕 自动备份配置
+	// 
 	autoBackupConfig: {
 		enabled: true,
 		intervalHours: 24,
@@ -669,22 +712,19 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 		aiAssistant: true,
 		apkgImport: true,
 		csvImport: true,
-		clipboardImport: true,
-		settingsEntry: true,
 	},
 
 	showSettingsButton: true,
 	epubBookshelf: {
-		sourceMode: "cache-first",
-		sourceFolder: "",
+		lastScanAt: 0,
 	},
 
 	studyViewSpacing: "compact",
 
 	weaveParentFolder: "",
 
-	// 🎯 FSRS6个性化优化设置
-	enablePersonalization: true, // 默认启用
+	// 
+	enablePersonalization: true, // 
 	personalizationSettings: {
 		enabled: true,
 		minDataPoints: 50,
@@ -694,42 +734,56 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 		autoOptimization: true,
 	},
 
-	// 编辑器模态窗尺寸默认设置（🔑 默认启用尺寸记忆）
+	// 
 	editorModalSize: {
 		preset: "large",
 		customWidth: 800,
 		customHeight: 600,
-		rememberLastSize: true, // 默认启用尺寸持久化
-		enableResize: true, // 默认启用拖拽调整
+		rememberLastSize: true, // 
+		enableResize: true, // 
 	},
 
-	// 🆕 卡片管理页面视图偏好默认设置
+	// 
 	cardManagementViewPreferences: {
 		currentView: "table",
 		gridLayout: "fixed",
 		gridCardAttribute: "uuid",
+		kanbanGroupBy: "status",
+		kanbanGroupByBySource: {
+			memory: "status",
+			questionBank: "status",
+			"incremental-reading": "deck",
+		},
+		kanbanSelectedTagGroupIdBySource: {
+			memory: null,
+			questionBank: null,
+			"incremental-reading": null,
+		},
 		kanbanLayoutMode: "comfortable",
 		tableViewMode: "basic",
+		enableCardRelationFilterMode: false,
 		enableCardLocationJump: false,
 		showTableGridBorders: false,
 	},
 
-	// 🆕 学习界面视图偏好默认设置
+	// 
 	studyInterfaceViewPreferences: {
 		showSidebar: true,
 		sidebarCompactModeSetting: "auto",
 		statsCollapsed: true,
 		cardOrder: "sequential",
+		choiceOptionOrder: "sequential",
 		sidebarPosition: "right",
+		ratingLabelStyle: DEFAULT_RATING_LABEL_STYLE,
 	},
 
-	// 🆕 牌组卡片设计样式
+	// 
 	deckCardStyle: "default",
 
-	// 🆕 主界面打开位置偏好（默认在主内容区打开）
+	// 
 	mainInterfaceOpenLocation: "content",
 
-	// 🆕 队列优化系统配置（v2.0）
+	// 
 	queueOptimization: {
 		learningSteps: {
 			enabled: true,
@@ -758,19 +812,18 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 		},
 	},
 
-	// 🆕 删除功能默认设置
+	// 
 	enableDirectDelete: false,
 
-	// 🆕 教程按钮默认显示
+	// 
 	createCardPreferences: {
 		lastSelectedDeckId: "",
 		lastSelectedDeckNames: [],
 	},
 
-	showTutorialButton: true,
 	showClozeModeSwitchButton: true,
 
-	// 提示功能每次学习会话最大使用次数
+	// 
 	hintMaxUses: 5,
 
 	license: {
@@ -782,26 +835,27 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 		productVersion: "",
 		licenseType: "lifetime",
 	},
+	licenseState: DEFAULT_LICENSE_STORE,
 
 	fsrsParams: {
-		// FSRS6 官方默认参数 (21个权重参数)
+		// FSRS6 
 		w: [
 			0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796, 1.4835,
 			0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542,
 		],
 		requestRetention: 0.9,
-		maximumInterval: 365, // 默认1年，用户可在设置中调整至5年
+		maximumInterval: 365, // 
 		enableFuzz: true,
 
-		// 🎯 优化历史记录和待确认优化建议（默认为空）
+		// 
 		optimizationHistory: [],
 		pendingOptimization: undefined,
 	},
 
-	// 新版简化解析设置
+	// 
 	simplifiedParsing: DEFAULT_SIMPLIFIED_PARSING_SETTINGS,
 
-	// 🔥 数据迁移标记
+	// 
 	migrationCompleted: false,
 
 	editor: {
@@ -842,18 +896,18 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 		placeholder: "[...]",
 	},
 
-	// 媒体自动播放默认设置
+	// 
 	mediaAutoPlay: {
-		enabled: false, // 默认关闭，用户按需启用
-		mode: "first", // 默认只播放第一个媒体文件
-		timing: "cardChange", // 默认在切换卡片时播放
-		playbackInterval: 2000, // 默认播放间隔2秒（毫秒）
+		enabled: false, // 
+		mode: "first", // 
+		timing: "cardChange", // 
+		playbackInterval: 2000, // 
 	},
 
 	enableDebugMode: false,
-	showPerformanceSettings: false, // 🆕 默认隐藏性能优化设置
+	showPerformanceSettings: false, // 
 
-	// 修复工具默认设置
+	// 
 	repairTool: {
 		repairScope: "current-file",
 		repairMissingBlockIds: true,
@@ -866,16 +920,23 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 		timestampStrategy: "current",
 	},
 
-	// AnkiConnect 同步设置默认配置
+	// AnkiConnect 
 	ankiConnect: createDefaultAnkiConnectSettings(),
 
-	// AI配置默认设置（单一事实源：settings-constants.ts 的 DEFAULT_AI_CONFIG）
+	// AI
 	aiConfig: { ...DEFAULT_AI_CONFIG },
 
-	// 🆕 牌组标签组配置（用于看板视图按标签组分组）
+	// 
 	deckTagGroups: [],
+	memoryDeckOrganization: {
+		enabled: true,
+		minCandidateCardCount: DEFAULT_EMERGENT_RULE_GROUP.minCandidateCardCount,
+		tagDriftFollowMode: "ask",
+		activeRuleGroupId: DEFAULT_EMERGENT_RULE_GROUP.id,
+		ruleGroups: [DEFAULT_EMERGENT_RULE_GROUP],
+	},
 
-	// 📊 负荷控制管理默认配置
+	// 
 	loadBalance: {
 		dailyCapacity: 100,
 		thresholds: {
@@ -891,8 +952,18 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 		},
 	},
 
-	// 🆕 笔记类型配置（默认使用内置类型）
-	noteTypeConfig: undefined, // 首次使用时会自动使用 DEFAULT_NOTE_TYPE_CONFIG
+	// 
+	noteTypeConfig: undefined, // 
+
+	// 
+	autoCheckDataConsistency: false, // 
+
+	// 
+	incrementalReading: buildDefaultIncrementalReadingSettings("") as any,
+
+	pinnedDecks: [],
+	timerAutoPauseSeconds: undefined,
+	tutorialHints: undefined,
 };
 
 type IRQuickCreateSelectionRange = {
@@ -915,101 +986,122 @@ export class WeavePlugin extends Plugin {
 	settings!: WeaveSettings;
 	dataStorage!: WeaveDataStorage;
 	fsrs!: FSRS;
-	private irEpubBookmarkTaskService: IREpubBookmarkTaskService | null = null;
+	private irHostSharedService: IRHostSharedService | null = null;
 	private irPdfBookmarkTaskService: IRPdfBookmarkTaskService | null = null;
 	private lastIRSidebarRedirectNoticeAt = 0;
 	wasmUrl!: string;
 	private legacyApkgRuntimePath: string | null = null;
 	private legacyApkgImportAvailable = false;
 	editorPoolManager!: EmbeddableEditorManager;
-	cardRelationService!: any; // v0.9 卡片关系服务（支持渐进式挖空）
+	cardRelationService!: any; // 
 	deckHierarchy!: DeckHierarchyService;
 	mediaManager!: MediaManagementService;
 	indexManager!: IndexManagerService;
-	filterStateService!: FilterStateService; // 🆕 全局筛选状态服务
-	dataSyncService!: DataSyncService; // 🆕 全局数据同步服务
-	externalSyncWatcher?: ExternalSyncWatcher; // 🆕 外部同步文件变更监听
+	filterStateService!: FilterStateService; // 
+	dataSyncService!: DataSyncService; // 
+	externalSyncWatcher?: ExternalSyncWatcher; // 
 	deckMembershipIndexService?: import("./services/index/DeckMembershipIndexService").DeckMembershipIndexService;
 
-	// 🆕 v2.1 YAML 元数据服务
+	// 
 	deckNameMapper?: import("./services/DeckNameMapper").DeckNameMapper;
 	cardMetadataCache?: import("./services/CardMetadataCache").CardMetadataCache;
 
-	// 🆕 v0.10 题库功能服务
+	// 
 	questionBankStorage?: import("./services/question-bank/QuestionBankStorage").QuestionBankStorage;
 	questionBankService?: import("./services/question-bank/QuestionBankService").QuestionBankService;
 	questionBankHierarchy?: import("./services/question-bank/QuestionBankHierarchyService").QuestionBankHierarchyService;
 
-	// 🎨 UI管理器 - 统一管理所有全局UI组件的生命周期
+	// 
 	public uiManager!: import("./services/ui/UIManager").UIManager;
 
-	// 🧹 块链接清理系统
+	// 
 	public blockLinkCleanupService!: BlockLinkCleanupService;
 	private editorTempFileCleanupService?: EditorTempFileCleanupService;
 	private selectedTextAICardPanelManager?: SelectedTextAICardPanelManager;
 	private editorAIToolbarManager?: EditorAIToolbarManager;
+	private incrementalReadingFolderSubscriptionSyncPromise: Promise<number> | null = null;
+	private incrementalReadingFolderSubscriptionResyncTimer: number | null = null;
 
-	// 🚀 高性能数据读取服务
+	// 
 	public directFileReader!: DirectFileCardReader;
 	public cardIndexService!: CardIndexService;
+	private readonly supportedImageMaskExtensions = new Set([
+		"png",
+		"jpg",
+		"jpeg",
+		"gif",
+		"bmp",
+		"webp",
+		"svg",
+		"avif",
+		"tiff",
+		"tif",
+		"heic",
+		"heif",
+		"ico",
+	]);
 
-	// 📚 增量阅读服务
+	// 
 	public readingMaterialStorage?: import("./services/incremental-reading/ReadingMaterialStorage").ReadingMaterialStorage;
 	public readingMaterialManager?: import("./services/incremental-reading/ReadingMaterialManager").ReadingMaterialManager;
 	public readingSessionManager?: import("./services/incremental-reading/ReadingSessionManager").ReadingSessionManager;
 	public anchorManager?: import("./services/incremental-reading/AnchorManager").AnchorManager;
 	public extractCardService?: import("./services/incremental-reading/ExtractCardService").ExtractCardService;
 	private irStorageServiceForRename?: IRStorageService;
-	// 🆕 v3.0 增量阅读标签组服务
+	// 
 	public irTagGroupService?: import("./services/incremental-reading/IRTagGroupService").IRTagGroupService;
 
-	// 🔄 批量解析自动触发系统（监听文件变更，实时解析）
-	// 功能：监听 Markdown 文件的保存事件，自动检测并解析卡片标记，同步到数据库
-	// 配置开关：settings.simplifiedParsing.batchParsing.autoTrigger
-	// 触发时机：用户保存文件时（带防抖机制）
+	// 
+	// 
+	// 
 	private batchParsingWatcher?: BatchParsingFileWatcher;
 
-	// 🆕 批量解析卡片转换器和保存器
+	// 
+	// 
 	private cardConverter?: ParsedCardConverter;
 	private batchCardSaver?: BatchCardSaver;
 
-	// 📋 批量解析手动触发系统（执行批量解析命令，按需处理）
-	// 功能：用户主动执行批量解析命令时，扫描指定文件/文件夹，批量创建/更新卡片
-	// 相关命令："batch-parse-current-file"（解析当前文件）, "batch-parse-all-mappings"（解析所有映射文件）
-	// 核心职责：文件选择、牌组映射、UUID管理、三方合并
+	// 
+	// 
+	// 
 	public batchParsingManager?: BatchParsingManager;
 	private simplifiedCardParser?: SimplifiedCardParser;
 
-	// ✅ 新建卡片模态窗单例控制（由 UIManager 管理DOM，这里仅保留业务逻辑引用）
+	// 
+	// 
 	private currentCreateCardModal: {
 		instance: any;
 		container: HTMLElement;
 		updateContent: (content: string, metadata: any) => Promise<void>;
 	} | null = null;
 
-	// 🆕 编辑卡片模态窗单例控制（全局显示）
+	// 
+	// 
 	private currentEditCardModal: {
 		instance: any;
 		container: HTMLElement;
 	} | null = null;
 
-	// 🆕 查看卡片详情模态窗单例控制（Obsidian 原生 modal）
+	// 
+	// 
 	private currentViewCardModal: { close: () => void } | null = null;
+	private currentAIActionManagerModal: { close: () => void } | null = null;
+	private currentEpubSelectedTextAIPanelFilePath: string | null = null;
 
-	// AnkiConnect 服务（插件级别持久化）
+	// AnkiConnect 
 	public ankiConnectService:
 		| import("./services/ankiconnect/AnkiConnectService").AnkiConnectService
 		| null = null;
 
-	// 自动备份调度器
+	// 
 	private autoBackupScheduler:
 		| import("./services/backup/AutoBackupScheduler").AutoBackupScheduler
 		| null = null;
 
-	// 队列优化系统
+	// 
 	public queueOptimizationSystem!: import("./services/queue/QueueOptimizationFactory").QueueOptimizationSystem;
 
-	// 性能优化：牌组数据缓存（避免编辑卡片时重复加载）
+	// 
 	private cachedDecks: import("./data/types").Deck[] = [];
 
 	private sourceTraceNoticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1022,19 +1114,36 @@ export class WeavePlugin extends Plugin {
 		epubLinks: 0,
 	};
 
-	// 引用式牌组系统服务
-	public referenceDeckService?: import("./services/reference-deck").ReferenceDeckService;
+	// 
 	public dataConsistencyService?: import("./services/reference-deck").DataConsistencyService;
 	public referenceMigrationService?: import("./services/reference-deck").ReferenceMigrationService;
 	public cardFileService?: import("./services/reference-deck").CardFileService;
+	public wdeckService!: WDeckService;
 	private workspaceViewsRegistered = false;
 	private pluginLocalStateService?: PluginLocalStateService;
 	private deckViewPreferenceCache: string | null = null;
 	private studyInterfaceViewPreferencesCache: StudyInterfaceViewPreferences | null = null;
+	private irCalendarSidebarSettingsCache: IRCalendarSidebarSettings | null = null;
 	private aiAssistantPreferencesCache: AIAssistantLocalPreferences | null = null;
 	private createCardPreferencesCache: CreateCardPreferencesState | null = null;
 	private editorModalSizeStateCache: EditorModalSizeState | null = null;
 	private aiGenerationHistoryCache: AIGenerationHistoryEntry[] | null = null;
+	private epubBookshelfSettingsCache: EpubBookshelfSettings = {
+		...DEFAULT_EPUB_BOOKSHELF_SETTINGS,
+	};
+
+	private normalizeNavigationVisibility(
+		navigationVisibility: WeaveSettings["navigationVisibility"] | undefined
+	): NonNullable<WeaveSettings["navigationVisibility"]> {
+		return {
+			...DEFAULT_SETTINGS.navigationVisibility,
+			...(navigationVisibility ?? {}),
+			deckStudy: true,
+			cardManagement: true,
+			incrementalReading: true,
+			aiAssistant: true,
+		};
+	}
 
 	async refreshLegacyApkgImportRuntimeStatus(): Promise<void> {
 		const runtimePath = `${this.manifest.dir}/sql-wasm.wasm`;
@@ -1061,10 +1170,15 @@ export class WeavePlugin extends Plugin {
 
 	async loadSettings() {
 		const loadedData = await this.loadData();
+		let needsSave = false;
 
 		// 深度合并设置，确保嵌套对象正确合并
 		this.settings = this.deepMerge(DEFAULT_SETTINGS, loadedData);
-		let needsSave = false;
+		if (this.syncLicenseSettings()) {
+			needsSave = true;
+		}
+		this.settings.clozeSettings = normalizeClozeDelimiterSettings(this.settings.clozeSettings);
+		setGlobalClozeDelimiterSettings(this.settings.clozeSettings);
 
 		// 更名迁移：将旧字段名 tuankiParentFolder 映射到 weaveParentFolder
 		if ((loadedData as any)?.tuankiParentFolder && !this.settings.weaveParentFolder) {
@@ -1089,8 +1203,19 @@ export class WeavePlugin extends Plugin {
 		const shouldPersistAnkiConnect =
 			JSON.stringify(this.settings.ankiConnect) !== JSON.stringify(normalizedAnkiConnect);
 		this.settings.ankiConnect = normalizedAnkiConnect;
+		const normalizedNavigationVisibility = this.normalizeNavigationVisibility(
+			this.settings.navigationVisibility
+		);
+		const shouldPersistNavigationVisibility =
+			JSON.stringify(this.settings.navigationVisibility ?? {}) !==
+			JSON.stringify(normalizedNavigationVisibility);
+		this.settings.navigationVisibility = normalizedNavigationVisibility;
 
 		if (shouldPersistAnkiConnect) {
+			needsSave = true;
+		}
+
+		if (shouldPersistNavigationVisibility) {
 			needsSave = true;
 		}
 
@@ -1119,25 +1244,9 @@ export class WeavePlugin extends Plugin {
 		}
 
 		if (!this.settings.incrementalReading) {
-			this.settings.incrementalReading = {
-				defaultIntervalFactor: 1.5,
-				dailyNewLimit: 20,
-				dailyReviewLimit: 50,
-				defaultSplitLevel: 2,
-				interleaveMode: true,
-				maxConsecutiveSameTopic: 3,
-				reviewThreshold: 7,
-				maxInterval: 365,
-				importFolder: resolveIRImportFolder(undefined, this.settings.weaveParentFolder),
-				scheduleStrategy: "processing",
-				dailyTimeBudgetMinutes: 40,
-				maxAppearancesPerDay: 2,
-				enableTagGroupPrior: true,
-				agingStrength: "low",
-				autoPostponeStrategy: "gentle",
-				priorityHalfLifeDays: 7,
-				learnAheadDays: 3,
-			} as any;
+			this.settings.incrementalReading = buildDefaultIncrementalReadingSettings(
+				this.settings.weaveParentFolder
+			) as any;
 			needsSave = true;
 		} else {
 			const resolvedImportFolder = resolveIRImportFolder(
@@ -1146,6 +1255,20 @@ export class WeavePlugin extends Plugin {
 			);
 			if (this.settings.incrementalReading.importFolder !== resolvedImportFolder) {
 				this.settings.incrementalReading.importFolder = resolvedImportFolder;
+				needsSave = true;
+			}
+			if (this.settings.incrementalReading.appendSourceDocumentBacklinkOnSplitImport === undefined) {
+				this.settings.incrementalReading.appendSourceDocumentBacklinkOnSplitImport = false;
+				needsSave = true;
+			}
+			const normalizedFolderSubscription = this.normalizeIncrementalReadingFolderSubscriptionSettings(
+				this.settings.incrementalReading.folderSubscription
+			);
+			if (
+				JSON.stringify(this.settings.incrementalReading.folderSubscription || {})
+				!== JSON.stringify(normalizedFolderSubscription)
+			) {
+				this.settings.incrementalReading.folderSubscription = normalizedFolderSubscription;
 				needsSave = true;
 			}
 		}
@@ -1161,6 +1284,11 @@ export class WeavePlugin extends Plugin {
 
 		// 初始化国际化系统 - 检测Obsidian语言设置
 		initI18n();
+		this.registerInterval(window.setInterval(() => {
+			try {
+				syncI18nWithObsidianLanguage();
+			} catch {}
+		}, 1000));
 
 		// 注入学习视图间距 CSS 变量
 		this.applyStudyViewSpacing();
@@ -1214,6 +1342,7 @@ export class WeavePlugin extends Plugin {
 				};
 				logger.info("FSRS参数已初始化");
 				await this.saveSettings();
+
 				return;
 			}
 
@@ -1304,14 +1433,15 @@ export class WeavePlugin extends Plugin {
 	 */
 	private async migrateLicenseData(): Promise<void> {
 		try {
-			const license = this.settings.license;
-
-			if (!license) {
+			if (!this.settings.license) {
 				logger.warn("许可证数据不存在，使用默认值");
 				this.settings.license = DEFAULT_LICENSE_INFO;
 				await this.saveSettings();
 				return;
 			}
+
+			this.syncLicenseSettings();
+			const license = this.settings.license;
 
 			let needsSave = false;
 
@@ -1366,232 +1496,7 @@ export class WeavePlugin extends Plugin {
 	 * 阶段3: weave/IR → weave/incremental-reading/IR（IR 归入增量阅读模块）
 	 * 阶段4: 隐藏标记文件重命名（去掉点前缀）
 	 */
-	private async migrateLegacyToWeaveDataFolder(): Promise<void> {
-		const adapter: any = this.app.vault.adapter as any;
-		const parentFolder = normalizeWeaveParentFolder(this.settings?.weaveParentFolder);
-		const targetRoot = getReadableWeaveRoot(parentFolder);
-
-		const conflictsRoot = `${targetRoot}/_migration_conflicts`;
-
-		// ===== 工具函数 =====
-
-		const safeCopyFile = async (fromPath: string, toPath: string): Promise<void> => {
-			try {
-				if (typeof adapter.readBinary === "function" && typeof adapter.writeBinary === "function") {
-					const bin = await adapter.readBinary(fromPath);
-					await adapter.writeBinary(toPath, bin);
-					return;
-				}
-			} catch {
-				/* fall back */
-			}
-			const text = await adapter.read(fromPath);
-			await adapter.write(toPath, text);
-		};
-
-		const ensureDirForFile = async (filePath: string): Promise<void> => {
-			const slash = filePath.lastIndexOf("/");
-			if (slash <= 0) return;
-			await DirectoryUtils.ensureDirRecursive(adapter, filePath.slice(0, slash));
-		};
-
-		const moveFileWithConflict = async (
-			fromPath: string,
-			toPath: string,
-			sourceWins = false
-		): Promise<"moved" | "conflict"> => {
-			if (!(await adapter.exists(toPath))) {
-				await safeCopyFile(fromPath, toPath);
-				try {
-					await adapter.remove(fromPath);
-				} catch {}
-				return "moved";
-			}
-			await DirectoryUtils.ensureDirRecursive(adapter, conflictsRoot);
-			if (sourceWins) {
-				const safeName = toPath.replace(/[\\/:]/g, "_").replace(/^\.+/, "");
-				await safeCopyFile(toPath, `${conflictsRoot}/${safeName}-${Date.now()}`);
-				await safeCopyFile(fromPath, toPath);
-				try {
-					await adapter.remove(fromPath);
-				} catch {}
-				return "moved";
-			}
-			const safeName = fromPath.replace(/[\\/:]/g, "_").replace(/^\.+/, "");
-			await safeCopyFile(fromPath, `${conflictsRoot}/${safeName}-${Date.now()}`);
-			try {
-				await adapter.remove(fromPath);
-			} catch {}
-			return "conflict";
-		};
-
-		const mergeFolderTo = async (
-			fromRoot: string,
-			toRoot: string,
-			sourceWins = false
-		): Promise<{ moved: number; conflicts: number }> => {
-			let moved = 0;
-			let conflicts = 0;
-			const walk = async (dir: string): Promise<void> => {
-				let listing: any;
-				try {
-					listing = await adapter.list(dir);
-				} catch {
-					return;
-				}
-				for (const folder of listing?.folders || []) {
-					await walk(folder);
-				}
-				for (const file of listing?.files || []) {
-					const relative = file.startsWith(fromRoot)
-						? file.slice(fromRoot.length).replace(/^\//, "")
-						: file;
-					const targetPath = `${toRoot}/${relative}`;
-					await ensureDirForFile(targetPath);
-					const result = await moveFileWithConflict(file, targetPath, sourceWins);
-					if (result === "moved") moved++;
-					else conflicts++;
-				}
-			};
-			await walk(fromRoot);
-			return { moved, conflicts };
-		};
-
-		const tryRemoveEmptyFolderDeep = async (dir: string): Promise<void> => {
-			let listing: any;
-			try {
-				listing = await adapter.list(dir);
-			} catch {
-				return;
-			}
-			for (const folder of listing?.folders || []) {
-				await tryRemoveEmptyFolderDeep(folder);
-			}
-			try {
-				const after = await adapter.list(dir);
-				if ((after?.files || []).length === 0 && (after?.folders || []).length === 0) {
-					if (typeof adapter.rmdir === "function") await adapter.rmdir(dir, false);
-					else if (typeof adapter.remove === "function") await adapter.remove(dir);
-				}
-			} catch {}
-		};
-
-		let movedTotal = 0;
-		let conflictTotal = 0;
-
-		// ===== 阶段0: tuanki/ → weave/（插件更名迁移）=====
-		const oldWeaveCandidates = new Set<string>();
-		oldWeaveCandidates.add("tuanki");
-		if (parentFolder) oldWeaveCandidates.add(`${parentFolder}/tuanki`);
-
-		for (const oldPath of oldWeaveCandidates) {
-			try {
-				if (oldPath && oldPath !== targetRoot && (await adapter.exists(oldPath))) {
-					await DirectoryUtils.ensureDirRecursive(adapter, targetRoot);
-					const stats = await mergeFolderTo(oldPath, targetRoot, true);
-					movedTotal += stats.moved;
-					conflictTotal += stats.conflicts;
-					await tryRemoveEmptyFolderDeep(oldPath);
-					logger.info(
-						`[Migration] Phase0 weave->weave: ${oldPath} -> ${targetRoot}, moved=${stats.moved}`
-					);
-				}
-			} catch (error) {
-				logger.warn(`[Migration] Phase0 weave->weave failed: ${oldPath}`, error);
-			}
-		}
-
-		// ===== 阶段1: .weave → weave/ =====
-		const dotWeaveCandidates = new Set<string>();
-		dotWeaveCandidates.add(LEGACY_DOT_TUANKI);
-		if (parentFolder) dotWeaveCandidates.add(`${parentFolder}/${LEGACY_DOT_TUANKI}`);
-		try {
-			const top = await adapter.list("");
-			for (const f of top?.folders || []) {
-				if (f) dotWeaveCandidates.add(`${f}/${LEGACY_DOT_TUANKI}`);
-			}
-		} catch {}
-
-		for (const legacy of dotWeaveCandidates) {
-			try {
-				if (legacy && legacy !== targetRoot && (await adapter.exists(legacy))) {
-					await DirectoryUtils.ensureDirRecursive(adapter, targetRoot);
-					const stats = await mergeFolderTo(legacy, targetRoot);
-					movedTotal += stats.moved;
-					conflictTotal += stats.conflicts;
-					await tryRemoveEmptyFolderDeep(legacy);
-					logger.info(
-						`[Migration] Phase1 .weave: ${legacy} -> ${targetRoot}, moved=${stats.moved}`
-					);
-				}
-			} catch (error) {
-				logger.warn(`[Migration] Phase1 failed: ${legacy}`, error);
-			}
-		}
-
-		// ===== 阶段2: weave/_data/* → weave/*（_data 版本优先，因为是 v2.x 运行时数据） =====
-		const dataSubdir = getMachineWeaveRoot(parentFolder);
-		try {
-			if (dataSubdir !== targetRoot && (await adapter.exists(dataSubdir))) {
-				const stats = await mergeFolderTo(dataSubdir, targetRoot, true);
-				movedTotal += stats.moved;
-				conflictTotal += stats.conflicts;
-				await tryRemoveEmptyFolderDeep(dataSubdir);
-				logger.info(
-					`[Migration] Phase2 _data uplift: ${dataSubdir} -> ${targetRoot}, moved=${stats.moved}`
-				);
-			}
-		} catch (error) {
-			logger.warn("[Migration] Phase2 _data uplift failed", error);
-		}
-
-		// ===== 阶段3: weave/IR → weave/incremental-reading/IR =====
-		const legacyIR = `${targetRoot}/IR`;
-		const newIR = `${targetRoot}/incremental-reading/IR`;
-		try {
-			if (await adapter.exists(legacyIR)) {
-				await DirectoryUtils.ensureDirRecursive(adapter, newIR);
-				const stats = await mergeFolderTo(legacyIR, newIR);
-				movedTotal += stats.moved;
-				conflictTotal += stats.conflicts;
-				await tryRemoveEmptyFolderDeep(legacyIR);
-				logger.info(`[Migration] Phase3 IR move: ${legacyIR} -> ${newIR}, moved=${stats.moved}`);
-			}
-		} catch (error) {
-			logger.warn("[Migration] Phase3 IR move failed", error);
-		}
-
-		// ===== 阶段4: 隐藏标记文件重命名（去掉点前缀） =====
-		const dotFileRenames: Array<[string, string]> = [
-			[`${targetRoot}/.schema-version`, `${targetRoot}/schema-version.json`],
-			[`${targetRoot}/schema-version`, `${targetRoot}/schema-version.json`],
-			[`${targetRoot}/.migration-completed`, `${targetRoot}/migration-completed`],
-		];
-		for (const [oldPath, newPath] of dotFileRenames) {
-			try {
-				if ((await adapter.exists(oldPath)) && !(await adapter.exists(newPath))) {
-					await safeCopyFile(oldPath, newPath);
-					await adapter.remove(oldPath);
-					movedTotal++;
-					logger.info(`[Migration] Phase4 rename: ${oldPath} -> ${newPath}`);
-				}
-			} catch (error) {
-				logger.warn(`[Migration] Phase4 rename failed: ${oldPath}`, error);
-			}
-		}
-
-		if (movedTotal > 0 || conflictTotal > 0) {
-			logger.info(
-				`[Migration] 完成: moved=${movedTotal}, conflicts=${conflictTotal}, target=${targetRoot}`
-			);
-			new Notice(
-				`Weave: 数据目录已迁移至新结构（${movedTotal} 文件${
-					conflictTotal > 0 ? `，冲突 ${conflictTotal}` : ""
-				}）`,
-				5000
-			);
-		}
-	}
+	// 移除旧的 migrateLegacyToWeaveDataFolder 实现
 
 	/**
 	 * 🔧 分隔符配置迁移逻辑
@@ -1602,61 +1507,30 @@ export class WeavePlugin extends Plugin {
 	 * 3. 映射配置中的分隔符
 	 */
 	private async runUnifiedDataMigration(): Promise<void> {
-		const migrationService = new UnifiedDataMigrationService(this.app, this.settings);
-		const plan = await migrationService.planDataMigration({ reason: "startup-auto" });
-		if (!plan.requiresMigration) return;
+		try {
+			const migrationCheck = await new DataManagementService(this as any).checkSchemaMigration();
+			if (migrationCheck.count <= 0) {
+				return;
+			}
 
-		const report = await migrationService.executeDataMigration(plan);
-		await this.saveSettings();
-
-		if (report.movedFiles > 0 || report.conflicts > 0) {
-			logger.info(
-				`[Migration] Unified migration completed: moved=${report.movedFiles}, conflicts=${report.conflicts}, target=${report.plan.targetRoot}`
-			);
-			new Notice(
-				`Weave: 数据目录已迁移到 ${report.plan.targetRoot}（迁移 ${report.movedFiles} 个文件${
-					report.conflicts > 0 ? `，冲突 ${report.conflicts}` : ""
-				}）`,
-				6000
-			);
+			logger.info("[Migration] 检测到真源数据仍需迁移/归位，请在数据管理中手动执行");
+			new Notice("检测到旧数据目录或结构需要迁移，请在卡片管理界面的数据管理中执行", 8000);
+		} catch (error) {
+			logger.error("[Migration] 启动阶段迁移检测失败:", error);
 		}
 	}
 
 	private async recoverMigrationConflictsOnStartup(): Promise<void> {
 		try {
 			const dataManagementService = new DataManagementService(this as any);
-			const recovered = await dataManagementService.recoverMigrationConflictData();
-			const hasRecoveredData = recovered.importedCards > 0 || recovered.importedDecks > 0;
-			const hasCleanupWork =
-				recovered.deletedCardFiles > 0 ||
-				recovered.mergedCardFiles > 0 ||
-				recovered.renamedManifests > 0;
-
-			if (hasRecoveredData) {
-				logger.info(
-					`[Migration] Recovered conflict data on startup: cards=${recovered.importedCards}, decks=${recovered.importedDecks}`
-				);
-				new Notice(
-					`Weave: 已自动恢复迁移冲突数据（卡片 ${recovered.importedCards}，牌组 ${recovered.importedDecks}）`,
-					7000
-				);
-			} else if (hasCleanupWork) {
-				logger.info(
-					`[Migration] Cleaned migration leftovers on startup: deletedCardFiles=${recovered.deletedCardFiles}, mergedCardFiles=${recovered.mergedCardFiles}, renamedManifests=${recovered.renamedManifests}`
-				);
-			}
-
-			if (recovered.errors.length > 0) {
-				for (const error of recovered.errors) {
-					logger.warn("[Migration] Startup conflict recovery warning:", error);
-				}
-				if (!hasRecoveredData) {
-					new Notice("Weave: 检测到迁移冲突副本，但自动恢复未完全成功，请在数据管理中检查", 8000);
-				}
+			const checkResult = await dataManagementService.checkMigrationConflictFiles();
+			if (checkResult.count > 0) {
+				logger.warn("[Migration] 检测到迁移冲突副本，请在数据管理中手动检查/恢复");
+				new Notice("Weave: 检测到迁移冲突副本，请在卡片管理界面的数据管理中检查并手动恢复", 8000);
 			}
 		} catch (error) {
-			logger.error("[Migration] Failed to recover migration conflicts on startup:", error);
-			new Notice("Weave: 检测到迁移冲突副本，但自动恢复失败，请在数据管理中检查", 8000);
+			logger.error("[Migration] Failed to inspect migration conflicts on startup:", error);
+			new Notice("Weave: 迁移冲突检测失败，请在卡片管理界面的数据管理中检查", 8000);
 		}
 	}
 
@@ -1796,19 +1670,75 @@ export class WeavePlugin extends Plugin {
 	/**
 	 * 将学习视图间距设置注入为 CSS 变量
 	 */
-	applyStudyViewSpacing() {
-		const spacingMap: Record<string, string> = {
+	private applyStudyViewSpacing(): void {
+		const spacingMap: Record<NonNullable<WeaveSettings["studyViewSpacing"]>, string> = {
 			compact: "12px",
-			default: "20px",
-			comfortable: "32px",
+			default: "16px",
+			comfortable: "20px",
 		};
 		const value = spacingMap[this.settings.studyViewSpacing ?? "compact"] ?? "12px";
 		document.documentElement.style.setProperty("--weave-study-view-spacing", value);
 	}
 
+	refreshStudyViewSpacing(): void {
+		this.applyStudyViewSpacing();
+	}
+
+	getLicensedProductId(): LicensedProduct {
+		return LICENSED_PRODUCTS.WEAVE;
+	}
+
+	getLocalLicenses(): LicenseInfo[] {
+		return this.settings.licenseState?.localLicenses ?? [];
+	}
+
+	getEffectiveLicenseState(product: LicensedProduct = LICENSED_PRODUCTS.WEAVE): EffectiveLicenseState {
+		return resolveEffectiveLicenseState({
+			product,
+			localLicenses: this.getLocalLicenses(),
+		});
+	}
+
+	getEpubInheritedLicenses(): LicenseInfo[] {
+		return this.getLocalLicenses().map((license) => cloneLicenseAsInherited(license, LICENSED_PRODUCTS.WEAVE));
+	}
+
+	hasEpubPremiumAccess(): boolean {
+		return this.getEffectiveLicenseState(LICENSED_PRODUCTS.EPUB).isPremiumActive;
+	}
+
+	openEpubPremiumSettings(): void {
+		safeOpenSettings(this.app, "weave");
+		setTimeout(() => {
+			window.dispatchEvent(
+				new CustomEvent("Weave:navigate", {
+					detail: { page: "settings", tab: "about" },
+				})
+			);
+		}, 100);
+	}
+
+	private syncLicenseSettings(): boolean {
+		const normalizedStore = normalizeLicenseStore(this.settings.license, this.settings.licenseState);
+		const normalizedPrimary = getLegacyPrimaryLicense(normalizedStore.localLicenses);
+		const changed =
+			JSON.stringify(this.settings.licenseState ?? DEFAULT_LICENSE_STORE) !== JSON.stringify(normalizedStore) ||
+			JSON.stringify(this.settings.license ?? DEFAULT_LICENSE_INFO) !== JSON.stringify(normalizedPrimary);
+
+		this.settings.licenseState = normalizedStore;
+		this.settings.license = normalizedPrimary;
+		return changed;
+	}
+
 	async saveSettings() {
 		// 更新日志管理器的调试模式
 		logger.setDebugMode(this.settings.enableDebugMode || false);
+		this.syncLicenseSettings();
+		this.settings.clozeSettings = normalizeClozeDelimiterSettings(this.settings.clozeSettings);
+		setGlobalClozeDelimiterSettings(this.settings.clozeSettings);
+		this.settings.navigationVisibility = this.normalizeNavigationVisibility(
+			this.settings.navigationVisibility
+		);
 
 		await this.saveData(this.settings);
 
@@ -1827,7 +1757,10 @@ export class WeavePlugin extends Plugin {
 
 		// 更新高级功能守卫的许可证状态
 		const premiumGuard = PremiumFeatureGuard.getInstance();
-		await premiumGuard.updateLicense(this.settings.license);
+		await premiumGuard.updateLicenseState({
+			product: this.getLicensedProductId(),
+			localLicenses: this.getLocalLicenses(),
+		});
 		premiumGuard.setPremiumFeaturesPreview(this.settings.showPremiumFeaturesPreview ?? false);
 
 		// 🆕 重新初始化批量解析监听器（如果设置变更）
@@ -1909,19 +1842,36 @@ export class WeavePlugin extends Plugin {
 	 */
 	async validateLicense(): Promise<void> {
 		try {
-			if (this.settings.license.isActivated) {
-				const result = await licenseManager.validateCurrentLicense(this.settings.license);
-				if (!result.isValid) {
-					logger.warn("许可证验证失败:", result.error);
-					// 重置许可证状态
-					this.settings.license.isActivated = false;
-					await this.saveSettings();
+			if (this.getLocalLicenses().length > 0) {
+				let hasValidLicense = false;
+				let needsSave = false;
+				let firstError: string | undefined;
+				for (const license of this.getLocalLicenses()) {
+					const result = await licenseManager.validateCurrentLicense(license, {
+						targetProduct: this.getLicensedProductId(),
+					});
+					if (result.isValid) {
+						hasValidLicense = true;
+						if (result.warnings?.includes("设备指纹已自动更新到新版本")) {
+							needsSave = true;
+						}
+						continue;
+					}
 
-					// 显示许可证失效通知
-					this.showLicenseExpiredNotice(result.error || "许可证验证失败");
-				} else if (result.warnings?.includes("设备指纹已自动更新到新版本")) {
-					// 🔧 设备指纹迁移后自动保存
+					if (license.isActivated) {
+						license.isActivated = false;
+						needsSave = true;
+					}
+					firstError ??= result.error;
+				}
+
+				if (needsSave) {
 					await this.saveSettings();
+				}
+
+				if (!hasValidLicense && firstError) {
+					logger.warn("许可证验证失败:", firstError);
+					this.showLicenseExpiredNotice(firstError || "许可证验证失败");
 				}
 			}
 		} catch (error) {
@@ -1971,7 +1921,7 @@ export class WeavePlugin extends Plugin {
 	 */
 	async checkAndValidateLicense(): Promise<boolean> {
 		try {
-			if (!this.settings.license.isActivated) {
+			if (!this.getEffectiveLicenseState().isPremiumActive) {
 				return false;
 			}
 
@@ -1979,18 +1929,36 @@ export class WeavePlugin extends Plugin {
 			const needsValidation = this.needsLicenseValidation();
 
 			if (needsValidation) {
-				const result = await licenseManager.validateCurrentLicense(this.settings.license);
+				let hasValidLicense = false;
+				let needsSave = false;
+				let firstError: string | undefined;
+				for (const license of this.getLocalLicenses()) {
+					const result = await licenseManager.validateCurrentLicense(license, {
+						targetProduct: this.getLicensedProductId(),
+					});
+					if (result.isValid) {
+						hasValidLicense = true;
+						continue;
+					}
+					if (license.isActivated) {
+						license.isActivated = false;
+						needsSave = true;
+					}
+					firstError ??= result.error;
+				}
 
-				if (!result.isValid) {
-					logger.warn("许可证验证失败:", result.error);
-					this.settings.license.isActivated = false;
-					await this.saveSettings();
-					this.showLicenseExpiredNotice(result.error || "许可证验证失败");
+				if (!hasValidLicense) {
+					if (needsSave) {
+						await this.saveSettings();
+					}
+					this.showLicenseExpiredNotice(firstError || "许可证验证失败");
 					return false;
 				}
 
 				// 验证成功，保存更新的验证时间
-				await this.saveSettings();
+				if (needsSave) {
+					await this.saveSettings();
+				}
 			}
 
 			return true;
@@ -2004,7 +1972,11 @@ export class WeavePlugin extends Plugin {
 	 * 🔒 判断是否需要执行许可证验证（基于7天间隔）
 	 */
 	private needsLicenseValidation(): boolean {
-		const license = this.settings.license;
+		const license = this.getEffectiveLicenseState().primaryLicense;
+
+		if (!license) {
+			return false;
+		}
 
 		if (!license.cloudSync?.lastValidatedAt) {
 			return true; // 无验证记录，需要验证
@@ -2022,18 +1994,19 @@ export class WeavePlugin extends Plugin {
 	 * 检查是否为试用版
 	 */
 	isTrialVersion(): boolean {
-		return licenseManager.isTrialVersion(this.settings.license);
+		return !this.getEffectiveLicenseState().isPremiumActive;
 	}
 
 	/**
 	 * 获取许可证状态
 	 */
 	getLicenseStatus(): { isValid: boolean; isActivated: boolean; remainingDays?: number } {
-		if (!this.settings.license.isActivated) {
+		const effectiveState = this.getEffectiveLicenseState();
+		if (!effectiveState.isPremiumActive || !effectiveState.primaryLicense) {
 			return { isValid: false, isActivated: false };
 		}
 
-		const remainingDays = licenseManager.getLicenseRemainingDays(this.settings.license);
+		const remainingDays = licenseManager.getLicenseRemainingDays(effectiveState.primaryLicense);
 		return {
 			isValid: remainingDays > 0,
 			isActivated: true,
@@ -2052,41 +2025,7 @@ export class WeavePlugin extends Plugin {
 	 * - 配置/索引/缓存 → .obsidian/plugins/weave/
 	 */
 	private async migrateToSchemaV2(): Promise<void> {
-		try {
-			const { SchemaV2MigrationService } = await import(
-				"./services/data-migration/SchemaV2MigrationService"
-			);
-			const migrationService = new SchemaV2MigrationService(this.app);
-
-			// 检查是否需要迁移
-			const needsMigration = await migrationService.needsMigration({
-				allowWhenSchemaUpToDate: true,
-			});
-			if (!needsMigration) {
-				logger.debug("[Schema V2] 无需迁移，数据结构已是最新版本");
-				return;
-			}
-
-			logger.info("[Schema V2] 检测到旧版本数据结构，开始迁移...");
-			new Notice("Weave: 正在进行数据结构升级，请稍候...", 5000);
-
-			const result = await migrationService.migrate();
-
-			if (result.success) {
-				logger.info(`✅ [Schema V2] 迁移完成: ${result.migratedCount} 项成功`);
-			} else {
-				logger.warn(
-					`⚠️ [Schema V2] 迁移部分完成: ${result.migratedCount} 成功, ${result.failedCount} 失败`
-				);
-				if (result.errors.length > 0) {
-					logger.warn("[Schema V2] 错误详情:", result.errors.slice(0, 5).join(", "));
-				}
-			}
-		} catch (error) {
-			logger.error("❌ [Schema V2] 迁移过程出错:", error);
-			// 不抛出错误，允许插件继续运行
-			new Notice("Weave: 数据结构升级遇到问题，插件将继续运行", 5000);
-		}
+		logger.debug("[Schema V2] 启动阶段不再自动执行真源迁移，请在数据管理中手动执行");
 	}
 
 	/**
@@ -2097,6 +2036,23 @@ export class WeavePlugin extends Plugin {
 	 * 2. vault.createFolder() 创建的文件夹立即在 UI 中可见
 	 * 3. 避免文件系统缓存不一致导致的显示问题
 	 */
+	private async shouldInitializeLegacyCardFileService(): Promise<boolean> {
+		return hasLegacyMemoryCardStorage(this.app, this.settings.weaveParentFolder);
+	}
+
+	private async ensureLegacyCardFileServiceInitializedIfNeeded(): Promise<boolean> {
+		if (!(await this.shouldInitializeLegacyCardFileService())) {
+			return false;
+		}
+
+		const { initCardFileService } = await import("./services/reference-deck");
+		if (!this.cardFileService) {
+			this.cardFileService = initCardFileService(this);
+		}
+		await this.cardFileService.initialize();
+		return true;
+	}
+
 	private async initializeDataStorage(): Promise<void> {
 		try {
 			logger.info("🚀 [Layout Ready] 文件系统已就绪，开始初始化数据存储...");
@@ -2104,17 +2060,25 @@ export class WeavePlugin extends Plugin {
 			// v3.0.0: 五阶段迁移（tuanki→weave、.tuanki→weave、_data上移、IR归位、隐藏标记重命名）
 			await this.runUnifiedDataMigration();
 
+			// v4.0.0: 考试题组 .qbank 格式迁移检测
+			try {
+				const dataManagementService = new DataManagementService(this);
+				const migrationCheck = await dataManagementService.checkQBankMigration();
+
+				if (migrationCheck.count > 0) {
+					logger.info("🔄 检测到旧格式考试题组数据，需要迁移到 .qbank 格式");
+					new Notice("检测到旧格式考试题组数据，请在卡片管理界面的数据管理中执行迁移", 8000);
+				}
+			} catch (error) {
+				logger.error("❌ 考试题组迁移检测失败:", error);
+			}
+
 			// v2.0.0: Schema V2 数据结构规范化迁移（已整合旧版迁移）
 			await this.migrateToSchemaV2();
-			await migrateLegacyWeaveFolders(this.app, this.settings.weaveParentFolder);
 
-			// 🔥 预先初始化 CardFileService，避免 dataStorage 在启动时读不到 V2 卡片文件
+			// 仅在真实旧记忆 JSON 仍存在时才初始化兼容卡片文件服务，避免清理后自动重建空文件。
 			try {
-				const { initCardFileService } = await import("./services/reference-deck");
-				if (!this.cardFileService) {
-					this.cardFileService = initCardFileService(this);
-				}
-				await this.cardFileService.initialize();
+				await this.ensureLegacyCardFileServiceInitializedIfNeeded();
 			} catch (error) {
 				logger.error("[Layout Ready] CardFileService 预初始化失败（不阻塞启动）:", error);
 			}
@@ -2136,12 +2100,14 @@ export class WeavePlugin extends Plugin {
 
 			// v2.1.3: 卡片内容迁移（we_source + we_block 合并）
 			try {
-				const { CardContentMigrationService } = await import(
-					"./services/migration/CardContentMigrationService"
-				);
-				await CardContentMigrationService.autoMigrate(this.dataStorage);
+				const dataManagementService = new DataManagementService(this);
+				const migrationCheck = await dataManagementService.check("we_block_migration");
+				if (migrationCheck.count > 0) {
+					logger.info("[CardContentMigration] 检测到卡片内容迁移需求，请在数据管理中手动执行");
+					new Notice("检测到卡片内容需要迁移，请在卡片管理界面的数据管理中执行", 8000);
+				}
 			} catch (error) {
-				logger.error("❌ [卡片内容迁移] 迁移过程出错:", error);
+				logger.error("❌ [卡片内容迁移] 检测过程出错:", error);
 			}
 
 			// 3. 初始化依赖数据存储的服务
@@ -2158,11 +2124,6 @@ export class WeavePlugin extends Plugin {
 		}
 	}
 
-	/**
-	 * 🔥 初始化依赖数据存储的服务
-	 *
-	 * 这些服务必须在 dataStorage 初始化完成后才能初始化
-	 */
 	private async initializeServicesAfterStorage(): Promise<void> {
 		const startTime = Date.now();
 		logger.info("[Services] 🚀 开始初始化依赖数据存储的服务...");
@@ -2211,9 +2172,6 @@ export class WeavePlugin extends Plugin {
 		parallelInitPromises.push(
 			(async () => {
 				try {
-					const { QuestionBankMigration } = await import("./utils/question-bank-migration");
-					await QuestionBankMigration.autoMigrate(this);
-
 					const { QuestionBankStorage, QuestionBankService, QuestionBankHierarchyService } =
 						await import("./services/question-bank");
 
@@ -2311,20 +2269,14 @@ export class WeavePlugin extends Plugin {
 			(async () => {
 				try {
 					const {
-						initReferenceDeckService,
 						initDataConsistencyService,
 						initReferenceMigrationService,
-						initCardFileService,
 					} = await import("./services/reference-deck");
 
-					// 初始化服务
-					this.referenceDeckService = initReferenceDeckService(this);
 					this.dataConsistencyService = initDataConsistencyService(this);
 					this.referenceMigrationService = initReferenceMigrationService(this);
 					if (!this.cardFileService) {
-						this.cardFileService = initCardFileService(this);
-						// 初始化卡片文件系统
-						await this.cardFileService.initialize();
+						await this.ensureLegacyCardFileServiceInitializedIfNeeded();
 					}
 
 					// 检查是否需要迁移到引用式架构
@@ -2423,6 +2375,14 @@ export class WeavePlugin extends Plugin {
 		// 11. 🚀 获取数据路径
 		const v2Paths = getV2PathsFromApp(this.app);
 		logger.debug(`数据路径: ${v2Paths.root}`);
+		try {
+			await ensureExistingWeaveDataReadmes(
+				this.app.vault.adapter,
+				normalizeWeaveParentFolder(this.settings.weaveParentFolder)
+			);
+		} catch (error) {
+			logger.warn("[WeaveDataReadme] 初始化数据目录说明文件失败", error);
+		}
 
 		// 12. 🚀 初始化DirectFileCardReader（高性能数据读取服务）
 		logger.debug("初始化DirectFileCardReader...");
@@ -2782,6 +2742,10 @@ export class WeavePlugin extends Plugin {
 				this.batchCardSaver = new BatchCardSaver(this.dataStorage, GlobalDataCache.getInstance());
 			}
 
+			try {
+				this.simplifiedCardParser?.destroy();
+			} catch {}
+
 			const parser = new SimplifiedCardParser(this.settings.simplifiedParsing, this.app);
 			this.simplifiedCardParser = parser;
 
@@ -3058,20 +3022,7 @@ export class WeavePlugin extends Plugin {
 					return false;
 				}
 
-				if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.BATCH_PARSING)) {
-					return false;
-				}
-
 				if (!checking) {
-					if (
-						!this.ensurePremiumFeatureAccess(
-							PREMIUM_FEATURES.BATCH_PARSING,
-							"批量解析系统需要激活许可证才能使用"
-						)
-					) {
-						return false;
-					}
-
 					// ✅ 使用 BatchParsingManager 统一入口
 					void this.batchParsingManager?.parseSingleFile(activeFile);
 				}
@@ -3184,20 +3135,7 @@ export class WeavePlugin extends Plugin {
 			name: "批量解析所有映射文件",
 			icon: "files",
 			checkCallback: (checking: boolean) => {
-				if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.BATCH_PARSING)) {
-					return false;
-				}
-
 				if (!checking) {
-					if (
-						!this.ensurePremiumFeatureAccess(
-							PREMIUM_FEATURES.BATCH_PARSING,
-							"批量解析系统需要激活许可证才能使用"
-						)
-					) {
-						return false;
-					}
-
 					void this.batchParsingManager?.executeBatchParsing();
 				}
 
@@ -3211,20 +3149,7 @@ export class WeavePlugin extends Plugin {
 			name: "批量解析：全局同步",
 			icon: "refresh-cw",
 			checkCallback: (checking: boolean) => {
-				if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.BATCH_PARSING)) {
-					return false;
-				}
-
 				if (!checking) {
-					if (
-						!this.ensurePremiumFeatureAccess(
-							PREMIUM_FEATURES.BATCH_PARSING,
-							"批量解析系统需要激活许可证才能使用"
-						)
-					) {
-						return false;
-					}
-
 					new Notice("开始全局同步批量解析...");
 
 					const syncTask = this.batchParsingManager?.executeBatchParsing();
@@ -3360,16 +3285,10 @@ export class WeavePlugin extends Plugin {
 		logger.debug("注册视图...");
 		this.registerView(VIEW_TYPE_WEAVE, (leaf) => new WeaveView(leaf, this));
 		this.registerView(VIEW_TYPE_STUDY, (leaf) => new StudyView(leaf, this));
+		this.registerView(VIEW_TYPE_WDECK, (leaf) => new WDeckView(leaf, this));
 		this.registerView(VIEW_TYPE_QUESTION_BANK, (leaf) => new QuestionBankView(leaf, this));
-		this.registerView(VIEW_TYPE_IR_FOCUS, (leaf) => new IRFocusView(leaf, this));
-		this.registerView(VIEW_TYPE_IR_CALENDAR, (leaf) => new IRCalendarView(leaf, this));
-		this.registerView(VIEW_TYPE_EPUB, (leaf) => new EpubView(leaf, this));
-		this.registerView(
-			VIEW_TYPE_EPUB_BOOKSHELF_SIDEBAR,
-			(leaf) => new EpubBookshelfSidebarView(leaf, this)
-		);
-		this.registerView(VIEW_TYPE_EPUB_SIDEBAR, (leaf) => new EpubSidebarView(leaf, this));
-		this.registerExtensions(["epub"], VIEW_TYPE_EPUB);
+		registerExtensionsSafely(this, this.app, ["wdeck"], VIEW_TYPE_WDECK, "[Plugin]", "Weave ");
+		registerExtensionsSafely(this, this.app, ["qbank"], VIEW_TYPE_QUESTION_BANK, "[Plugin]", "Weave ");
 
 		this.workspaceViewsRegistered = true;
 		logger.info("✅ 视图已注册（在 workspace 恢复前）");
@@ -3377,12 +3296,14 @@ export class WeavePlugin extends Plugin {
 
 	async onload() {
 		try {
+			registerEpubHost(this.app, this);
 			this.registerWorkspaceViews();
+			this.wdeckService = new WDeckService(this);
 
 			// 旧版 APKG 导入只在增强安装包中启用，社区版允许缺失该运行时资源。
 			await this.refreshLegacyApkgImportRuntimeStatus();
 
-			// 🔥 热重载开发环境已启动 - 代码变更将自动构建
+			// 热重载开发环境已启动 - 代码变更将自动构建
 			logger.info("🚀 Weave plugin loading with Hot Reload");
 			await vaultStorage.initialize(this.app);
 			await this.loadSettings();
@@ -3393,6 +3314,21 @@ export class WeavePlugin extends Plugin {
 			}
 			await this.hydratePluginLocalState();
 			await this.loadPersistedStudySession();
+
+			const { WeaveCardReferenceSuggest, WeaveTagSuggest } = await import("./utils/obsidian-suggest");
+			this.registerEditorSuggest(new WeaveTagSuggest(this.app, this));
+			this.registerEditorSuggest(new WeaveCardReferenceSuggest(this.app, this));
+			const editorExtensionHost = this as WeavePlugin & {
+				registerEditorExtension?: (extension: unknown) => void;
+			};
+			if (typeof editorExtensionHost.registerEditorExtension === "function") {
+				const { createWeaveCardReferenceEditorExtension } = await import(
+					"./services/editor/WeaveCardReferenceEditorExtension"
+				);
+				editorExtensionHost.registerEditorExtension(
+					createWeaveCardReferenceEditorExtension(this)
+				);
+			}
 
 			try {
 				this.editorTempFileCleanupService = new EditorTempFileCleanupService(this.app);
@@ -3411,23 +3347,23 @@ export class WeavePlugin extends Plugin {
 				})
 			);
 
-			// 🔧 初始化日志管理器（必须在loadSettings之后）
+			// 初始化日志管理器（必须在loadSettings之后）
 			logger.setDebugMode(this.settings.enableDebugMode || false);
 
-			// 🔧 初始化焦点管理器以防止输入焦点丢失
+			// 初始化焦点管理器以防止输入焦点丢失
 			logger.info("✅ 焦点管理器已初始化（全局监控已启动）");
 			// focusManager 已通过导入自动初始化，这里只是记录日志
 
-			// ✅ 初始化AI配置Store
+			// 初始化AI配置Store
 			logger.debug("初始化AI配置Store...");
 			aiConfigStore.initialize(this);
 			logger.info("✅ AI配置Store已初始化");
 
 			// 初始化平板端适配
 			logger.debug("初始化平板端适配...");
-			this.initializeTabletSupport();
+			void this.initializeTabletSupport();
 
-			// 🆕 5. 初始化移动端模态窗全局适配
+			// 5. 初始化移动端模态窗全局适配
 			logger.debug("初始化移动端模态窗适配...");
 			const { initMobileModalAdaptation } = await import("./utils/mobile-modal-bounds");
 			initMobileModalAdaptation();
@@ -3435,35 +3371,9 @@ export class WeavePlugin extends Plugin {
 
 			registerMobileCanvasPaneMenuPatch(this);
 
-			// EPUB link post-processor
-			void import("./services/epub/EpubLinkPostProcessor").then(
-				({ createEpubLinkPostProcessor }) => {
-					this.registerMarkdownPostProcessor(createEpubLinkPostProcessor(this.app));
-				}
-			);
-
-			this.registerMarkdownCodeBlockProcessor(
-				WEAVE_DECKS_CODE_BLOCK_LANGUAGE,
-				createWeaveDeckCodeBlockProcessor(this)
-			);
-
-			// EPUB protocol handler: obsidian://weave-epub?file=...&cfi=...&text=...
-			this.registerObsidianProtocolHandler("weave-epub", async (params) => {
-				const { EpubLinkService } = await import("./services/epub/EpubLinkService");
-				const parsed = EpubLinkService.parseProtocolParams(params);
-				if (!parsed) {
-					logger.warn("[EPUB Protocol] Invalid params:", params);
-					return;
-				}
-				const linkService = new EpubLinkService(this.app);
-				await linkService.navigateToEpubLocation(parsed.filePath, parsed.cfi, parsed.text);
-			});
-
-			// 🔥 关键修复：等待 layout-ready 事件后再初始化数据存储
-			// 原因：Obsidian 文件系统在 layout-ready 之前可能尚未完全就绪
-			// 这会导致 vault.getAbstractFileByPath() 和 vault.createFolder() 行为不一致
-			logger.debug("⏳ 等待 workspace layout-ready 事件...");
-			this.app.workspace.onLayoutReady(async () => {
+			void import("./services/markdown/WeaveCardReferencePostProcessor").then(
+				async ({ createWeaveCardReferencePostProcessor }) => {
+					this.registerMarkdownPostProcessor(createWeaveCardReferencePostProcessor(this.app));
 				try {
 					document.querySelectorAll(".weave-ir-markdown-bottom-toolbar-container").forEach((el) => {
 						try {
@@ -3492,7 +3402,10 @@ export class WeavePlugin extends Plugin {
 			const premiumGuard = PremiumFeatureGuard.getInstance();
 			premiumGuard.setPremiumFeaturesPreview(this.settings.showPremiumFeaturesPreview ?? false);
 			premiumGuard
-				.initialize(this.settings.license)
+				.initializeForProduct({
+					product: this.getLicensedProductId(),
+					localLicenses: this.getLocalLicenses(),
+				})
 				.then(() => {
 					logger.info("高级功能守卫初始化完成");
 				})
@@ -3578,42 +3491,9 @@ export class WeavePlugin extends Plugin {
 				});
 			} catch {}
 
-			// 🎨 注册Ribbon图标（不依赖dataStorage）
+			// 注册Ribbon图标（不依赖dataStorage）
 			this.addRibbonIcon("brain", "打开主界面", () => {
 				void this.activateView(VIEW_TYPE_WEAVE);
-			});
-
-			const openEpubReaderRibbon = this.addRibbonIcon("book-open", "打开 EPUB 书架", () => {
-				void this.openEpubBookshelf();
-			});
-
-			const incrementalReadingRibbon = this.addRibbonIcon("calendar", "增量阅读日历", () => {
-				const guard = PremiumFeatureGuard.getInstance();
-				if (!guard.canUseFeature(PREMIUM_FEATURES.INCREMENTAL_READING)) {
-					new Notice("增量阅读是高级功能，请激活许可证后使用");
-					return;
-				}
-				void this.activateIRCalendarView();
-			});
-
-			const updateIncrementalReadingRibbonVisibility = (premiumActive: boolean) => {
-				incrementalReadingRibbon.setCssProps({ display: premiumActive ? "" : "none" });
-			};
-
-			const updateEpubReaderRibbonVisibility = (premiumActive: boolean) => {
-				openEpubReaderRibbon.setCssProps({ display: premiumActive ? "" : "none" });
-			};
-
-			updateIncrementalReadingRibbonVisibility(get(premiumGuard.isPremiumActive));
-			updateEpubReaderRibbonVisibility(get(premiumGuard.isPremiumActive));
-			const unsubscribeIncrementalReadingRibbon = premiumGuard.isPremiumActive.subscribe(
-				(premiumActive) => {
-					updateIncrementalReadingRibbonVisibility(premiumActive);
-					updateEpubReaderRibbonVisibility(premiumActive);
-				}
-			);
-			this.register(() => {
-				unsubscribeIncrementalReadingRibbon();
 			});
 
 			// 注册命令（不依赖dataStorage）
@@ -3661,58 +3541,11 @@ export class WeavePlugin extends Plugin {
 				},
 			});
 
-			this.addCommand({
-				id: "open-epub-reader",
-				name: "打开 EPUB 阅读器",
-				icon: "book-open",
-				checkCallback: (checking: boolean) => {
-					const activeFile = this.app.workspace.getActiveFile();
-					if (!activeFile || activeFile.extension !== "epub") {
-						return false;
-					}
-
-					if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)) {
-						return false;
-					}
-
-					if (!checking) {
-						void this.openActiveEpubReader();
-					}
-
-					return true;
-				},
-			});
-
-			this.addCommand({
-				id: "ir-import-epub",
-				name: "增量阅读：导入 EPUB 内容",
-				icon: "book-plus",
-				checkCallback: (checking: boolean) => {
-					if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)) {
-						return false;
-					}
-
-					if (!checking) {
-						if (
-							!this.ensurePremiumFeatureAccess(
-								PREMIUM_FEATURES.INCREMENTAL_READING,
-								"增量阅读是高级功能，请激活许可证后使用"
-							)
-						) {
-							return false;
-						}
-						document.dispatchEvent(new CustomEvent("ir-import-epub"));
-					}
-
-					return true;
-				},
-			});
-
 			// 命令：插入内容块标记（v2.2: 使用 UUID 标记）
 			this.addCommand({
 				id: "insert-ir-block-marker",
 				name: "插入内容块标记",
-				icon: "split",
+				icon: "git-branch",
 				editorCallback: async (editor: Editor) => {
 					const cursor = editor.getCursor();
 					const lineContent = editor.getLine(cursor.line);
@@ -4444,6 +4277,7 @@ export class WeavePlugin extends Plugin {
 	}
 
 	onunload() {
+		unregisterEpubHost(this.app);
 		this.cleanupServices();
 	}
 
@@ -4476,6 +4310,11 @@ export class WeavePlugin extends Plugin {
 		} catch {}
 		try {
 			this.selectedTextAICardPanelManager?.dispose();
+		} catch {}
+		try {
+			if (this.currentEpubSelectedTextAIPanelFilePath) {
+				void this.closeSelectedTextAIPanelFromEpub(this.currentEpubSelectedTextAIPanelFilePath);
+			}
 		} catch {}
 		try {
 			this.editorAIToolbarManager?.destroy();
@@ -4530,6 +4369,13 @@ export class WeavePlugin extends Plugin {
 			this.batchParsingManager = undefined;
 		} catch {}
 		try {
+			this.simplifiedCardParser?.destroy();
+			this.simplifiedCardParser = undefined;
+		} catch {}
+		try {
+			StudySessionManager.destroyInstance();
+		} catch {}
+		try {
 			this.directFileReader?.dispose();
 		} catch {}
 		try {
@@ -4538,6 +4384,7 @@ export class WeavePlugin extends Plugin {
 
 		// 8. 清理全局 window 上注册的清理函数
 		const globalCleanupKeys = [
+			"__weaveTabletDebugCleanup",
 			"__weaveMobileModalAdaptationCleanup",
 			"__weaveThemeManagerCleanup",
 			"__weaveGlobalErrorReporterCleanup",
@@ -4609,9 +4456,9 @@ export class WeavePlugin extends Plugin {
 					});
 					// 轻微高亮提示（避免过度动画造成"重开"的感觉）
 					const container = this.currentCreateCardModal.container;
-					container.setCssProps({ "box-shadow": "0 0 20px rgba(88, 166, 255, 0.5)" });
+					applyStyleProps(container, { "box-shadow": "0 0 20px rgba(88, 166, 255, 0.5)" });
 					setTimeout(() => {
-						container.setCssProps({ "box-shadow": "" });
+						applyStyleProps(container, { "box-shadow": "" });
 					}, 300);
 				}
 				return;
@@ -4659,6 +4506,10 @@ export class WeavePlugin extends Plugin {
 				hasCardMetadata: !!params.cardMetadata,
 				cardMetadata: params.cardMetadata,
 				sourceFile: params.cardMetadata?.sourceFile,
+				sourceDocumentKey: params.cardMetadata?.sourceDocumentKey,
+				sourceSubunitKey: params.cardMetadata?.sourceSubunitKey,
+				sourceKind: params.cardMetadata?.sourceKind,
+				outputKind: params.cardMetadata?.outputKind ?? "memory",
 				sourceBlock: params.cardMetadata?.sourceBlock,
 			});
 
@@ -5023,7 +4874,7 @@ export class WeavePlugin extends Plugin {
 		try {
 			await this.activateIRCalendarView();
 			if (options?.closeLegacyFocusLeaves) {
-				this.app.workspace.detachLeavesOfType(VIEW_TYPE_IR_FOCUS);
+				this.app.workspace.detachLeavesOfType(IR_RUNTIME.viewTypes.focus);
 			}
 			this.showIRSidebarRedirectNotice(options?.deckPath, options?.deckName);
 		} catch (error) {
@@ -5033,8 +4884,7 @@ export class WeavePlugin extends Plugin {
 	}
 
 	/**
-	 * 打开卡片详情模态框 - 直接挂载到 document.body（全局显示）
-	 * ✅ 支持在其他标签页上方显示，不局限于插件视图
+	 * 打开查看卡片详情模态窗（全局方法，支持从任意位置调用）
 	 *
 	 * @param card 要查看的卡片对象
 	 * @param options 可选配置
@@ -5043,27 +4893,25 @@ export class WeavePlugin extends Plugin {
 		card: import("./data/types").Card,
 		options?: {
 			allDecks?: Array<{ id: string; name: string }>;
+			resolvedDeckRefs?: import("./types/emergent-deck-types").ResolvedDeckRef[];
+			source?: "memory" | "questionBank" | "incremental-reading";
 			onClose?: () => void;
 		}
 	): Promise<void> {
 		try {
-			const { allDecks, onClose } = options || {};
+			const { allDecks, resolvedDeckRefs, source, onClose } = options || {};
 
-			// ✅ 强制清理旧模态窗（防止重复实例）
 			if (this.currentViewCardModal) {
-				logger.debug("🎯 [openViewCardModal] 强制清理旧模态窗");
 				this.currentViewCardModal.close();
 				this.currentViewCardModal = null;
 			}
 
-			// ✅ 检查必要服务
 			if (!this.dataStorage) {
 				logger.error("❌ [openViewCardModal] 服务未初始化");
 				new Notice("插件正在初始化，请稍候再试");
 				return;
 			}
 
-			// ✅ 加载牌组数据（如果未提供）
 			const decks =
 				allDecks ||
 				(this.cachedDecks.length > 0 ? this.cachedDecks : await this.dataStorage.getAllDecks());
@@ -5074,6 +4922,8 @@ export class WeavePlugin extends Plugin {
 				card,
 				plugin: this,
 				allDecks: decks,
+				resolvedDeckRefs,
+				source,
 				onClose: () => {
 					logger.debug("🎯 [openViewCardModal] 关闭并清理");
 					this.currentViewCardModal = null;
@@ -5083,7 +4933,7 @@ export class WeavePlugin extends Plugin {
 
 			this.currentViewCardModal = modal;
 			modal.open();
-			logger.debug("🎯 [openViewCardModal] ✅ 打开成功", { isTestCard });
+			logger.debug("🎯 [openViewCardModal] ✅ 打开成功", { isTestCard, source });
 		} catch (error) {
 			logger.error("🎯 [openViewCardModal] 失败:", error);
 			new Notice("打开卡片详情模态框时发生错误");
@@ -5207,7 +5057,7 @@ export class WeavePlugin extends Plugin {
 			// 🔧 修复：确保leaf存在后再调用revealLeaf
 			const targetLeaves = this.app.workspace.getLeavesOfType(viewType);
 			if (targetLeaves.length > 0 && targetLeaves[0]) {
-				void this.app.workspace.revealLeaf(targetLeaves[0]);
+				revealLeaf(this.app, targetLeaves[0]);
 				logger.debug(`[WeavePlugin] 成功激活视图: ${viewType}`);
 			} else {
 				logger.error(`[WeavePlugin] activateView: 找不到指定类型的视图leaf: ${viewType}`);
@@ -5259,7 +5109,7 @@ export class WeavePlugin extends Plugin {
 				}
 			} catch {}
 
-			void workspace.revealLeaf(leaf);
+			revealLeaf(this.app, leaf);
 
 			const syncDeckStudyState = () => {
 				window.dispatchEvent(
@@ -5282,102 +5132,96 @@ export class WeavePlugin extends Plugin {
 		}
 	}
 
-	private async openActiveEpubReader(options?: { missingFileNotice?: string }): Promise<void> {
-		const activeFile = this.app.workspace.getActiveFile();
-		if (!(activeFile instanceof TFile) || activeFile.extension !== "epub") {
-			if (options?.missingFileNotice) {
-				new Notice(options.missingFileNotice);
-			}
-			return;
+	private getStandaloneEpubHost(): EpubHostCapabilities | null {
+		const standalonePlugin = (this.app as any)?.plugins?.getPlugin?.(LICENSED_PRODUCTS.EPUB);
+		if (!standalonePlugin || typeof standalonePlugin !== "object") {
+			return null;
 		}
-
-		await this.openEpubReader(activeFile.path);
-	}
-
-	private async openEpubBookshelf(): Promise<void> {
-		if (
-			!this.ensurePremiumFeatureAccess(
-				PREMIUM_FEATURES.INCREMENTAL_READING,
-				"增量阅读是高级功能，请激活许可证后使用"
-			)
-		) {
-			return;
-		}
-
-		try {
-			const workspace = this.app.workspace;
-			let leaf: WorkspaceLeaf | null =
-				workspace.getLeavesOfType(VIEW_TYPE_EPUB_BOOKSHELF_SIDEBAR)[0] ?? null;
-			if (!leaf) {
-				leaf = workspace.getLeftLeaf(false);
-			}
-			if (!leaf) {
-				logger.error("[WeavePlugin] openEpubBookshelf: cannot create leaf");
-				return;
-			}
-			await leaf.setViewState({
-				type: VIEW_TYPE_EPUB_BOOKSHELF_SIDEBAR,
-				active: true,
-			});
-			void workspace.revealLeaf(leaf);
-		} catch (error) {
-			logger.error("[WeavePlugin] openEpubBookshelf failed:", error);
-			new Notice("打开 EPUB 书架失败");
-		}
+		return standalonePlugin as EpubHostCapabilities;
 	}
 
 	async openEpubReader(filePath: string): Promise<void> {
-		if (
-			!this.ensurePremiumFeatureAccess(
-				PREMIUM_FEATURES.INCREMENTAL_READING,
-				"增量阅读是高级功能，请激活许可证后使用"
-			)
-		) {
+		const normalizedPath = String(filePath || "").trim();
+		const targetFile = this.app.vault.getAbstractFileByPath(normalizedPath);
+		if (!(targetFile instanceof TFile) || !isSupportedBookFile(targetFile)) {
+			new Notice("未找到对应的书籍文件");
 			return;
 		}
-
-		try {
-			const leaf = getPreferredEpubLeaf(this.app, filePath);
-			if (!leaf) {
-				logger.error("[WeavePlugin] openEpubReader: cannot create leaf");
-				return;
-			}
-			await leaf.setViewState({
-				type: VIEW_TYPE_EPUB,
-				active: true,
-				state: { filePath },
-			});
-			void this.app.workspace.revealLeaf(leaf);
-		} catch (error) {
-			logger.error("[WeavePlugin] openEpubReader failed:", error);
-			new Notice("打开 EPUB 失败");
+		const standaloneHost = this.getStandaloneEpubHost();
+		if (!standaloneHost?.openEpubReader) {
+			new Notice("请先启用独立 EPUB 阅读器插件");
+			return;
 		}
+		await standaloneHost.openEpubReader(targetFile.path);
 	}
 
 	/**
-	 * 📅 激活增量阅读日历视图（在左侧边栏）
+	 * 激活增量阅读日历视图（在左侧边栏）
 	 */
-	async activateIRCalendarView() {
+	async activateIRCalendarView(options: {
+		preferredLeaf?: WorkspaceLeaf;
+		state?: Record<string, unknown>;
+	} = {}) {
 		const { workspace } = this.app;
 
-		// 检查是否已经打开
-		let leaf = workspace.getLeavesOfType(VIEW_TYPE_IR_CALENDAR)[0];
+		let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(IR_RUNTIME.viewTypes.calendar)[0] || null;
 
 		if (!leaf) {
-			// 在左侧边栏创建新leaf
-			const leftLeaf = workspace.getLeftLeaf(false);
-			if (leftLeaf) {
-				await leftLeaf.setViewState({
-					type: VIEW_TYPE_IR_CALENDAR,
-					active: true,
-				});
-				leaf = leftLeaf;
-			}
+			leaf = workspace.getLeftLeaf(false) ?? workspace.getLeftLeaf(true);
 		}
 
 		if (leaf) {
-			void workspace.revealLeaf(leaf);
+			await leaf.setViewState({
+				type: IR_RUNTIME.viewTypes.calendar,
+				active: true,
+				...(options.state ? { state: options.state } : {}),
+			});
+			if (options.preferredLeaf && options.preferredLeaf !== leaf) {
+				options.preferredLeaf.detach();
+			}
+			try {
+				const ws: any = workspace as any;
+				if (typeof ws.setActiveLeaf === "function") {
+					try {
+						ws.setActiveLeaf(leaf, { focus: true });
+					} catch {
+						ws.setActiveLeaf(leaf, true);
+					}
+				}
+			} catch {}
+			revealLeaf(this.app, leaf);
 		}
+	}
+
+	async openIRDeckCalendar(filePath: string, preferredLeaf?: WorkspaceLeaf): Promise<void> {
+		const normalizedPath = normalizePath(String(filePath || "").trim());
+		if (!normalizedPath) {
+			throw new Error("IRDeck 文件路径为空");
+		}
+
+		let focusDeckId = "";
+		let focusDeckName = "";
+		try {
+			const pointReadService = new IRPointDataReadService(this.app);
+			const entry = await pointReadService.getPointFileEntryByPath(normalizedPath);
+			focusDeckId = String(entry?.topicId || "").trim();
+			focusDeckName =
+				String(entry?.topicName || "").trim() ||
+				normalizedPath.split("/").pop()?.replace(/\.irdeck$/i, "") ||
+				"";
+		} catch (error) {
+			logger.warn("[Plugin] 反查 .irdeck 专题失败，回退到通用月历视图:", error);
+			focusDeckName = normalizedPath.split("/").pop()?.replace(/\.irdeck$/i, "") || "";
+		}
+
+		await this.activateIRCalendarView({
+			preferredLeaf,
+			state: {
+				filePath: normalizedPath,
+				focusDeckId,
+				focusDeckName,
+			},
+		});
 	}
 
 	/**
@@ -5514,17 +5358,31 @@ export class WeavePlugin extends Plugin {
 				this.app.metadataCache.on("changed", (file) => {
 					if (file instanceof TFile) {
 						this.irTagGroupService?.invalidateDocumentCache(file.path);
+						if (file.extension === "md") {
+							void this.syncReadingPointTagsFromMarkdown(file.path, "metadata_changed");
+						}
+					}
+				})
+			);
+			this.registerEvent(
+				this.app.vault.on("create", (file) => {
+					if (file instanceof TFile) {
+						void this.handleIncrementalReadingFolderSubscriptionFileChange(file);
 					}
 				})
 			);
 			this.registerEvent(
 				this.app.vault.on("rename", (file, oldPath) => {
-					void this.handleEpubSourceFileRenamed(file, oldPath);
-					void this.handleCardSourceFileRenamed(file, oldPath);
 					if (file instanceof TFile) {
+						void this.handleEpubSourceFileRenamed(file, oldPath);
+						void this.handleCardSourceFileRenamed(file, oldPath);
 						this.irTagGroupService?.invalidateDocumentCache(oldPath);
 						this.irTagGroupService?.invalidateDocumentCache(file.path);
 						void this.handleIncrementalReadingFileRenamed(file, oldPath);
+						void this.handleIncrementalReadingFolderSubscriptionFileChange(file);
+						if (file.extension === "md") {
+							void this.syncReadingPointTagsFromMarkdown(file.path, "metadata_renamed");
+						}
 					}
 				})
 			);
@@ -5532,7 +5390,11 @@ export class WeavePlugin extends Plugin {
 				this.app.vault.on("delete", (file) => {
 					void this.handleCardSourceFileDeleted(file);
 					if (file instanceof TFile) {
+						void this.handleEpubSourceFileDeleted(file);
 						this.irTagGroupService?.invalidateDocumentCache(file.path);
+						if (file.extension === "md") {
+							void this.syncReadingPointTagsFromMarkdown(file.path, "metadata_deleted");
+						}
 					}
 				})
 			);
@@ -5550,6 +5412,7 @@ export class WeavePlugin extends Plugin {
 			// 🔥 标记增量摘录服务已就绪
 			const { markServiceReady } = await import("./utils/service-ready-event");
 			markServiceReady("readingMaterialManager");
+			void this.syncIncrementalReadingFolderSubscriptionFromSettings();
 
 			const duration = Date.now() - startTime;
 			logger.info(`[Services] ✅ 增量摘录服务初始化完成 (${duration}ms)`);
@@ -5558,7 +5421,7 @@ export class WeavePlugin extends Plugin {
 		}
 	}
 
-	private async handleCardSourceFileRenamed(file: TAbstractFile, oldPath: string): Promise<void> {
+	private async handleCardSourceFileRenamed(file: TFile, oldPath: string): Promise<void> {
 		const newPath = file.path;
 		if (!oldPath || oldPath === newPath) return;
 
@@ -5579,7 +5442,7 @@ export class WeavePlugin extends Plugin {
 		}
 	}
 
-	private async handleEpubSourceFileRenamed(file: TAbstractFile, oldPath: string): Promise<void> {
+	private async handleEpubSourceFileRenamed(file: TFile, oldPath: string): Promise<void> {
 		const newPath = file.path;
 		if (!oldPath || oldPath === newPath) return;
 
@@ -5589,6 +5452,7 @@ export class WeavePlugin extends Plugin {
 			const result = await syncService.syncRenamedTarget(file, oldPath);
 			const affectedItems =
 				result.updatedMarkdownFiles +
+				result.updatedBookmarkFiles +
 				result.updatedCanvasFiles +
 				result.updatedCardFiles +
 				result.updatedCanvasBindings +
@@ -5596,14 +5460,16 @@ export class WeavePlugin extends Plugin {
 				result.updatedTasks;
 			const affectedRefs =
 				result.updatedLinks +
+				result.updatedBookmarkFiles +
 				result.updatedCanvasBindings +
 				result.updatedBooks +
 				result.updatedTasks;
 
-			if (affectedRefs > 0) {
+			if (affectedItems > 0) {
 				logger.info(
-					`[EpubPathSync] 已同步 EPUB 引用: old=${oldPath}, new=${newPath}, links=${result.updatedLinks}, markdown=${result.updatedMarkdownFiles}, canvas=${result.updatedCanvasFiles}, cardJson=${result.updatedCardFiles}, canvasBindings=${result.updatedCanvasBindings}, books=${result.updatedBooks}, tasks=${result.updatedTasks}`
+					`[EpubPathSync] 已同步 EPUB 引用: old=${oldPath}, new=${newPath}, links=${result.updatedLinks}, markdown=${result.updatedMarkdownFiles}, bookmarkMarkdown=${result.updatedBookmarkFiles}, canvas=${result.updatedCanvasFiles}, cardJson=${result.updatedCardFiles}, canvasBindings=${result.updatedCanvasBindings}, books=${result.updatedBooks}, tasks=${result.updatedTasks}`
 				);
+				window.dispatchEvent(new CustomEvent(EPUB_RUNTIME.events.bookshelfDataChanged));
 				this.queueSourceTraceNotice({
 					epubFiles: affectedItems,
 					epubLinks: affectedRefs,
@@ -5615,6 +5481,31 @@ export class WeavePlugin extends Plugin {
 		}
 	}
 
+	private async handleEpubSourceFileDeleted(file: TFile): Promise<void> {
+		const deletedPath = normalizePath(file.path || "");
+		if (!deletedPath) return;
+
+		try {
+			const storageService = new EpubStorageService(this.app);
+			const result = await storageService.removeTrackedEpubTarget(deletedPath);
+			const affectedCount =
+				result.removedScanEntries +
+				result.removedMembershipEntries +
+				result.removedBookIds.length;
+			if (affectedCount > 0) {
+				logger.info(
+					`[EpubPathSync] 已清理失效 EPUB 跟踪数据: path=${deletedPath}, scan=${result.removedScanEntries}, membership=${result.removedMembershipEntries}, books=${result.removedBookIds.length}`
+				);
+				window.dispatchEvent(new CustomEvent(EPUB_RUNTIME.events.bookshelfDataChanged));
+				this.queueSourceTraceNotice({
+					epubFiles: affectedCount,
+				});
+			}
+		} catch (error) {
+			logger.warn("[EpubPathSync] EPUB 文件删除后清理跟踪数据失败:", error);
+		}
+	}
+
 	private async handleCardSourceFileDeleted(file: TAbstractFile): Promise<void> {
 		const deletedPath = file.path;
 		if (!deletedPath) return;
@@ -5623,7 +5514,7 @@ export class WeavePlugin extends Plugin {
 			const result = await this.dataStorage?.refreshSourceFileStatuses(deletedPath);
 			if (result && result.updated > 0) {
 				logger.info(
-					`[SourceTrace] 已将 ${result.updated} 张卡片标记为源文件变更/缺失: ${deletedPath}`
+					`[SourceTrace] 已检测到 ${result.updated} 张卡片的源状态与当前文件系统不一致: ${deletedPath}`
 				);
 				this.queueSourceTraceNotice({ invalidCards: result.updated });
 			}
@@ -5637,7 +5528,7 @@ export class WeavePlugin extends Plugin {
 			const result = await this.dataStorage?.refreshSourceFileStatuses();
 			if (result && result.updated > 0) {
 				logger.info(
-					`[SourceTrace] 启动时已刷新 ${result.updated} 张卡片的溯源状态，其中 ${result.missing} 张源文件缺失`
+					`[SourceTrace] 启动时检测到 ${result.updated} 张卡片的源状态与当前文件系统不一致，其中 ${result.missing} 张源文件缺失`
 				);
 			}
 		} catch (error) {
@@ -5710,13 +5601,11 @@ export class WeavePlugin extends Plugin {
 	}
 
 	private async refreshOpenEpubViewsAfterRename(oldPath: string, newPath: string): Promise<void> {
-		const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_EPUB);
+		const leaves = getAllOpenEpubLeaves(this.app);
 		for (const leaf of leaves) {
 			try {
 				const state = leaf.getViewState();
-				const currentPath = String(
-					(state as any)?.state?.filePath || (state as any)?.state?.file || ""
-				);
+				const currentPath = getOpenEpubFilePath(leaf);
 				const remappedPath = this.remapVaultPath(currentPath, oldPath, newPath);
 				if (!remappedPath || remappedPath === currentPath) {
 					continue;
@@ -5756,6 +5645,25 @@ export class WeavePlugin extends Plugin {
 		return null;
 	}
 
+
+	private async syncReadingPointTagsFromMarkdown(filePath: string, reason: "metadata_changed" | "metadata_renamed" | "metadata_deleted"): Promise<void> {
+		if (!filePath || !filePath.toLowerCase().endsWith(".md")) return;
+
+		try {
+			const pointTagService = new IRPointTagService(this.app);
+			await pointTagService.initialize();
+			const changed = await pointTagService.syncMarkdownChunkTags(filePath);
+			if (changed) {
+				await recomputeAndBroadcastIRData(this.app, reason, {
+					filePath,
+					tagSource: "weave_tags",
+				} as any);
+			}
+		} catch (error) {
+			logger.warn(`[IR] markdown weave_tags ????: ${filePath}`, error);
+		}
+	}
+
 	private async handleIncrementalReadingFileRenamed(file: TFile, oldPath: string): Promise<void> {
 		const newPath = file.path;
 		if (!oldPath || oldPath === newPath) return;
@@ -5778,6 +5686,33 @@ export class WeavePlugin extends Plugin {
 			}
 		} catch (error) {
 			logger.warn("[IR] 重命名后更新材料索引失败:", error);
+		}
+
+		if (file.extension === "md") {
+			try {
+				const materialLinkedNoteUpdated =
+					(await this.readingMaterialStorage?.remapAssociatedNoteFileReferences(oldPath, newPath)) || 0;
+				if (materialLinkedNoteUpdated > 0) {
+					changed = true;
+					logger.info(`[IR] 重命名后更新 ${materialLinkedNoteUpdated} 个阅读材料的关联笔记路径`);
+				}
+			} catch (error) {
+				logger.warn("[IR] 重命名后更新阅读材料关联笔记路径失败:", error);
+			}
+
+			try {
+				const pointStorage = new IRPointStorageService(this.app);
+				const pointLinkedNoteUpdated = await pointStorage.remapAssociatedNoteFileReferences(
+					oldPath,
+					newPath
+				);
+				if (pointLinkedNoteUpdated > 0) {
+					changed = true;
+					logger.info(`[IR] 重命名后更新 ${pointLinkedNoteUpdated} 个阅读点的关联笔记路径`);
+				}
+			} catch (error) {
+				logger.warn("[IR] 重命名后更新阅读点关联笔记路径失败:", error);
+			}
 		}
 
 		try {
@@ -5859,7 +5794,7 @@ export class WeavePlugin extends Plugin {
 		}
 
 		if (changed && typeof window !== "undefined") {
-			window.dispatchEvent(new CustomEvent("Weave:ir-data-updated"));
+			await recomputeAndBroadcastIRData(this.app, "metadata_renamed");
 		}
 	}
 
@@ -5973,6 +5908,7 @@ export class WeavePlugin extends Plugin {
 					deckName?: string;
 					mode?: StudyMode;
 					cardIds?: string[];
+					preferredLeaf?: WorkspaceLeaf;
 					cards?: import("./data/types").Card[]; // 支持直接传递卡片对象
 			  }
 	): Promise<void> {
@@ -5981,6 +5917,7 @@ export class WeavePlugin extends Plugin {
 		const deckName = typeof options === "object" ? options?.deckName : undefined;
 		const mode = typeof options === "object" ? options?.mode : undefined;
 		const cardIds = typeof options === "object" ? options?.cardIds : undefined;
+		const preferredLeaf = typeof options === "object" ? options?.preferredLeaf : undefined;
 		const cards = typeof options === "object" ? options?.cards : undefined;
 
 		logger.debug("[Plugin] 打开学习会话");
@@ -6005,13 +5942,16 @@ export class WeavePlugin extends Plugin {
 						}
 					}
 				} catch {}
-				void workspace.revealLeaf(leaf);
+				revealLeaf(this.app, leaf);
 
 				// 更新视图状态（传递新的学习模式和卡片列表）
 				await leaf.setViewState({
 					type: VIEW_TYPE_STUDY,
 					state: { deckId, deckName, mode, cardIds, cards },
 				});
+				if (preferredLeaf && preferredLeaf !== leaf) {
+					preferredLeaf.detach();
+				}
 
 				// 📱 移动端兜底：某些版本仅 revealLeaf 不会切换到 tab
 				if (Platform.isMobile) {
@@ -6024,7 +5964,7 @@ export class WeavePlugin extends Plugin {
 								ws.setActiveLeaf(leaf, true);
 							}
 						}
-						void workspace.revealLeaf(leaf);
+						revealLeaf(this.app, leaf);
 						workspace.trigger("layout-change");
 					} catch {}
 				}
@@ -6034,7 +5974,10 @@ export class WeavePlugin extends Plugin {
 			}
 
 			// 创建新的学习标签页
-			const leaf = workspace.getLeaf("tab");
+			const leaf = preferredLeaf || workspace.getLeaf("tab");
+			if (!leaf) {
+				throw new Error("无法创建学习视图标签页");
+			}
 
 			await leaf.setViewState({
 				type: VIEW_TYPE_STUDY,
@@ -6052,7 +5995,7 @@ export class WeavePlugin extends Plugin {
 					}
 				}
 			} catch {}
-			void workspace.revealLeaf(leaf);
+			revealLeaf(this.app, leaf);
 
 			logger.debug("[Plugin] ✅ 学习会话已打开");
 		} catch (error) {
@@ -6065,6 +6008,19 @@ export class WeavePlugin extends Plugin {
 	 * 打开学习界面
 	 * @param params 学习参数
 	 */
+	async openWDeckStudy(filePath: string, preferredLeaf?: WorkspaceLeaf): Promise<void> {
+		if (!this.wdeckService) {
+			throw new Error("WDeckService 未初始化");
+		}
+
+		const aggregate = await this.wdeckService.loadDeckAggregateFromFilePath(filePath);
+		await this.openStudySession({
+			deckId: aggregate.runtimeDeckId,
+			deckName: aggregate.logicalDeckName,
+			preferredLeaf,
+		});
+	}
+
 	async openStudyInterface(params: {
 		deckId: string;
 		mode: string;
@@ -6112,7 +6068,7 @@ export class WeavePlugin extends Plugin {
 
 			if (existingLeaf) {
 				// 已有相同题库的会话，激活它
-				void workspace.revealLeaf(existingLeaf);
+				revealLeaf(this.app, existingLeaf);
 				logger.debug("[Plugin] ✅ 激活已存在的考试会话");
 				return;
 			}
@@ -6126,7 +6082,7 @@ export class WeavePlugin extends Plugin {
 			});
 
 			// 激活该标签页
-			void workspace.revealLeaf(leaf);
+			revealLeaf(this.app, leaf);
 
 			logger.debug("[Plugin] ✅ 考试会话已打开（标签页模式）");
 		} catch (error) {
@@ -6190,6 +6146,24 @@ export class WeavePlugin extends Plugin {
 		return this.pluginLocalStateService;
 	}
 
+	getEpubBookshelfSettings(): EpubBookshelfSettings {
+		return {
+			...DEFAULT_EPUB_BOOKSHELF_SETTINGS,
+			...(this.epubBookshelfSettingsCache ?? this.settings?.epubBookshelf ?? {}),
+		};
+	}
+
+	async saveEpubBookshelfSettings(settings: Partial<EpubBookshelfSettings>): Promise<void> {
+		const nextSettings: EpubBookshelfSettings = {
+			...DEFAULT_EPUB_BOOKSHELF_SETTINGS,
+			...this.getEpubBookshelfSettings(),
+			...settings,
+		};
+		this.epubBookshelfSettingsCache = nextSettings;
+		this.settings.epubBookshelf = { ...nextSettings };
+		await this.getPluginLocalStateService().saveEpubBookshelfSettings(nextSettings);
+	}
+
 	private getDefaultStudyInterfaceViewPreferences(): StudyInterfaceViewPreferences {
 		const defaults =
 			this.settings?.studyInterfaceViewPreferences ??
@@ -6199,8 +6173,71 @@ export class WeavePlugin extends Plugin {
 			sidebarCompactModeSetting: defaults?.sidebarCompactModeSetting ?? "auto",
 			statsCollapsed: defaults?.statsCollapsed ?? true,
 			cardOrder: defaults?.cardOrder ?? "sequential",
+			choiceOptionOrder: defaults?.choiceOptionOrder ?? "sequential",
 			sidebarPosition: defaults?.sidebarPosition ?? "right",
+			ratingLabelStyle: defaults?.ratingLabelStyle ?? DEFAULT_RATING_LABEL_STYLE,
+			showRatingIntervalOnButtons: defaults?.showRatingIntervalOnButtons ?? false,
 		};
+	}
+
+	private normalizeIRCalendarSidebarSettings(
+		settings?: IRCalendarSidebarSettings | null
+	): IRCalendarSidebarSettings {
+		const defaultIncrementalReadingSettings =
+			DEFAULT_SETTINGS.incrementalReading ?? { calendarSidebar: {} };
+		const defaultCalendarSidebarSettings =
+			defaultIncrementalReadingSettings.calendarSidebar ?? {};
+		const defaults =
+			this.settings?.incrementalReading?.calendarSidebar ??
+			defaultCalendarSidebarSettings;
+		const defaultBackgroundWall = defaults?.backgroundWall ??
+			defaultCalendarSidebarSettings.backgroundWall;
+		const rawBackgroundWall = settings?.backgroundWall;
+		const normalizedImagePath =
+			typeof rawBackgroundWall?.imagePath === "string"
+				? normalizePath(rawBackgroundWall.imagePath.trim())
+				: typeof defaultBackgroundWall?.imagePath === "string"
+					? normalizePath(defaultBackgroundWall.imagePath.trim())
+					: "";
+		const rawFadePercent = Number(
+			rawBackgroundWall?.fadePercent ?? defaultBackgroundWall?.fadePercent ?? 72
+		);
+
+		return {
+			continuousReadingEnabled:
+				settings?.continuousReadingEnabled ?? defaults?.continuousReadingEnabled ?? false,
+			autoStartNextTimerEnabled:
+				settings?.autoStartNextTimerEnabled ?? defaults?.autoStartNextTimerEnabled ?? false,
+			showSchedulingPreview:
+				settings?.showSchedulingPreview ?? defaults?.showSchedulingPreview ?? false,
+			calendarViewMode:
+				settings?.calendarViewMode === "two-row" || defaults?.calendarViewMode === "two-row"
+					? (settings?.calendarViewMode ?? defaults?.calendarViewMode ?? "full")
+					: "full",
+			showMaterialTimers: settings?.showMaterialTimers ?? defaults?.showMaterialTimers ?? true,
+			backgroundWall: {
+				imagePath: normalizedImagePath,
+				fadePercent: Number.isFinite(rawFadePercent)
+					? Math.max(0, Math.min(100, Math.round(rawFadePercent)))
+					: 72,
+			},
+		};
+	}
+
+	private hasLegacyIRCalendarBackgroundWallRandomFields(
+		settings?: IRCalendarSidebarSettings | null
+	): boolean {
+		const backgroundWall = settings?.backgroundWall as
+			| ({ randomEnabled?: unknown; selectedImagePaths?: unknown } &
+				IRCalendarSidebarSettings["backgroundWall"])
+			| undefined;
+		if (!backgroundWall || typeof backgroundWall !== "object") {
+			return false;
+		}
+		return (
+			Object.prototype.hasOwnProperty.call(backgroundWall, "randomEnabled") ||
+			Object.prototype.hasOwnProperty.call(backgroundWall, "selectedImagePaths")
+		);
 	}
 
 	private getDefaultCreateCardPreferences(): CreateCardPreferencesState {
@@ -6225,20 +6262,58 @@ export class WeavePlugin extends Plugin {
 
 	private getAIAssistantPreferencesFromSettings(): AIAssistantLocalPreferences {
 		const aiConfig = this.settings?.aiConfig;
+		const savedGenerationConfig = aiConfig?.savedGenerationConfig;
+		const importAutoTags = Array.isArray(this.aiAssistantPreferencesCache?.importAutoTags)
+			? [...this.aiAssistantPreferencesCache.importAutoTags]
+			: Array.isArray(savedGenerationConfig?.autoTags)
+				? [...savedGenerationConfig.autoTags]
+				: undefined;
 		return {
 			lastUsedProvider:
 				typeof aiConfig?.lastUsedProvider === "string"
 					? aiConfig.lastUsedProvider
 					: aiConfig?.defaultProvider,
 			lastUsedModel: typeof aiConfig?.lastUsedModel === "string" ? aiConfig.lastUsedModel : undefined,
-			savedGenerationConfig: aiConfig?.savedGenerationConfig
+			savedGenerationConfig: savedGenerationConfig
 				? {
-						...aiConfig.savedGenerationConfig,
-						autoTags: Array.isArray(aiConfig.savedGenerationConfig.autoTags)
-							? [...aiConfig.savedGenerationConfig.autoTags]
-							: [],
+						cardCount: savedGenerationConfig.cardCount,
+						difficulty: savedGenerationConfig.difficulty,
+						typeDistribution: savedGenerationConfig.typeDistribution
+							? { ...savedGenerationConfig.typeDistribution }
+							: undefined,
+						enableHints: savedGenerationConfig.enableHints,
+						temperature: savedGenerationConfig.temperature,
+						maxTokens: savedGenerationConfig.maxTokens,
+						maxGenerationLimit: savedGenerationConfig.maxGenerationLimit,
+						prioritizePromptRequirements: savedGenerationConfig.prioritizePromptRequirements,
 				  }
 				: undefined,
+			importAutoTags,
+			subView: this.aiAssistantPreferencesCache?.subView,
+			lastSelectedSourceFilePath: this.aiAssistantPreferencesCache?.lastSelectedSourceFilePath,
+			lastSelectedPromptFilePath: this.aiAssistantPreferencesCache?.lastSelectedPromptFilePath,
+			lastSelectedParsePresetId: this.aiAssistantPreferencesCache?.lastSelectedParsePresetId,
+		};
+	}
+
+	private cloneSavedGenerationConfig(
+		savedGenerationConfig: AIAssistantLocalPreferences["savedGenerationConfig"]
+	): AIAssistantLocalPreferences["savedGenerationConfig"] {
+		if (!savedGenerationConfig) {
+			return undefined;
+		}
+
+		return {
+			cardCount: savedGenerationConfig.cardCount,
+			difficulty: savedGenerationConfig.difficulty,
+			typeDistribution: savedGenerationConfig.typeDistribution
+				? { ...savedGenerationConfig.typeDistribution }
+				: undefined,
+			enableHints: savedGenerationConfig.enableHints,
+			temperature: savedGenerationConfig.temperature,
+			maxTokens: savedGenerationConfig.maxTokens,
+			maxGenerationLimit: savedGenerationConfig.maxGenerationLimit,
+			prioritizePromptRequirements: savedGenerationConfig.prioritizePromptRequirements,
 		};
 	}
 
@@ -6248,14 +6323,14 @@ export class WeavePlugin extends Plugin {
 		return {
 			lastUsedProvider: preferences.lastUsedProvider,
 			lastUsedModel: preferences.lastUsedModel,
-			savedGenerationConfig: preferences.savedGenerationConfig
-				? {
-						...preferences.savedGenerationConfig,
-						autoTags: Array.isArray(preferences.savedGenerationConfig.autoTags)
-							? [...preferences.savedGenerationConfig.autoTags]
-							: [],
-				  }
+			savedGenerationConfig: this.cloneSavedGenerationConfig(preferences.savedGenerationConfig),
+			importAutoTags: Array.isArray(preferences.importAutoTags)
+				? [...preferences.importAutoTags]
 				: undefined,
+			subView: preferences.subView,
+			lastSelectedSourceFilePath: preferences.lastSelectedSourceFilePath,
+			lastSelectedPromptFilePath: preferences.lastSelectedPromptFilePath,
+			lastSelectedParsePresetId: preferences.lastSelectedParsePresetId,
 		};
 	}
 
@@ -6274,20 +6349,31 @@ export class WeavePlugin extends Plugin {
 			this.getDefaultStudyInterfaceViewPreferences();
 		this.settings.studyInterfaceViewPreferences = { ...this.studyInterfaceViewPreferencesCache };
 
+		const rawIRCalendarSidebarSettings =
+			(await service.loadIRCalendarSidebarSettings()) ??
+			this.settings?.incrementalReading?.calendarSidebar;
+		this.irCalendarSidebarSettingsCache = this.normalizeIRCalendarSidebarSettings(
+			rawIRCalendarSidebarSettings
+		);
+		this.settings.incrementalReading = {
+			...(this.settings.incrementalReading ?? DEFAULT_SETTINGS.incrementalReading),
+			calendarSidebar: {
+				...this.irCalendarSidebarSettingsCache,
+			},
+		};
+		if (this.hasLegacyIRCalendarBackgroundWallRandomFields(rawIRCalendarSidebarSettings)) {
+			await service.saveIRCalendarSidebarSettings(this.irCalendarSidebarSettingsCache);
+		}
+
 		this.aiAssistantPreferencesCache =
 			(await service.loadAIAssistantPreferences()) ?? this.getAIAssistantPreferencesFromSettings();
 		this.settings.aiConfig = {
 			...(this.settings.aiConfig ?? { ...DEFAULT_SETTINGS.aiConfig }),
 			lastUsedProvider: this.aiAssistantPreferencesCache.lastUsedProvider,
 			lastUsedModel: this.aiAssistantPreferencesCache.lastUsedModel,
-			savedGenerationConfig: this.aiAssistantPreferencesCache.savedGenerationConfig
-				? {
-						...this.aiAssistantPreferencesCache.savedGenerationConfig,
-						autoTags: Array.isArray(this.aiAssistantPreferencesCache.savedGenerationConfig.autoTags)
-							? [...this.aiAssistantPreferencesCache.savedGenerationConfig.autoTags]
-							: [],
-				  }
-				: undefined,
+			savedGenerationConfig: this.cloneSavedGenerationConfig(
+				this.aiAssistantPreferencesCache.savedGenerationConfig
+			),
 		};
 
 		this.createCardPreferencesCache =
@@ -6305,6 +6391,10 @@ export class WeavePlugin extends Plugin {
 			...(this.settings.editorModalSize ?? DEFAULT_SETTINGS.editorModalSize),
 			...this.editorModalSizeStateCache,
 		};
+
+		this.epubBookshelfSettingsCache =
+			(await service.loadEpubBookshelfSettings()) ?? { ...DEFAULT_EPUB_BOOKSHELF_SETTINGS };
+		this.settings.epubBookshelf = { ...this.epubBookshelfSettingsCache };
 
 		this.aiGenerationHistoryCache =
 			(await service.loadAIGenerationHistory()) ?? this.getAIGenerationHistoryFromSettings();
@@ -6347,15 +6437,55 @@ export class WeavePlugin extends Plugin {
 	}
 
 	async saveStudyInterfaceViewPreferences(
-		preferences: StudyInterfaceViewPreferences
+		preferences: Partial<StudyInterfaceViewPreferences>
 	): Promise<void> {
-		const nextPreferences = {
+		const nextPreferences: StudyInterfaceViewPreferences = {
 			...this.getDefaultStudyInterfaceViewPreferences(),
+			...(this.settings.studyInterfaceViewPreferences ?? {}),
+			...(this.studyInterfaceViewPreferencesCache ?? {}),
 			...preferences,
 		};
 		this.studyInterfaceViewPreferencesCache = nextPreferences;
 		this.settings.studyInterfaceViewPreferences = { ...nextPreferences };
 		await this.getPluginLocalStateService().saveStudyInterfaceViewPreferences(nextPreferences);
+	}
+
+	getIRCalendarSidebarSettings(): IRCalendarSidebarSettings {
+		if (!this.irCalendarSidebarSettingsCache) {
+			this.irCalendarSidebarSettingsCache = this.normalizeIRCalendarSidebarSettings(
+				this.settings?.incrementalReading?.calendarSidebar
+			);
+		}
+		return {
+			...this.irCalendarSidebarSettingsCache,
+			backgroundWall: {
+				...(this.irCalendarSidebarSettingsCache.backgroundWall ?? {}),
+			},
+		};
+	}
+
+	async saveIRCalendarSidebarSettings(
+		settings: Partial<IRCalendarSidebarSettings>
+	): Promise<void> {
+		const currentSettings = this.getIRCalendarSidebarSettings();
+		const nextSettings = this.normalizeIRCalendarSidebarSettings({
+			...currentSettings,
+			...settings,
+			backgroundWall: {
+				...(currentSettings.backgroundWall ?? {}),
+				...(settings.backgroundWall ?? {}),
+			},
+		});
+
+		await this.getPluginLocalStateService().saveIRCalendarSidebarSettings(nextSettings);
+
+		this.irCalendarSidebarSettingsCache = nextSettings;
+		this.settings.incrementalReading = {
+			...(this.settings.incrementalReading ?? DEFAULT_SETTINGS.incrementalReading),
+			calendarSidebar: {
+				...nextSettings,
+			},
+		};
 	}
 
 	getAIAssistantPreferences(): AIAssistantLocalPreferences {
@@ -6372,14 +6502,7 @@ export class WeavePlugin extends Plugin {
 			...(this.settings.aiConfig ?? { ...DEFAULT_SETTINGS.aiConfig }),
 			lastUsedProvider: nextPreferences.lastUsedProvider,
 			lastUsedModel: nextPreferences.lastUsedModel,
-			savedGenerationConfig: nextPreferences.savedGenerationConfig
-				? {
-						...nextPreferences.savedGenerationConfig,
-						autoTags: Array.isArray(nextPreferences.savedGenerationConfig.autoTags)
-							? [...nextPreferences.savedGenerationConfig.autoTags]
-							: [],
-				  }
-				: undefined,
+			savedGenerationConfig: this.cloneSavedGenerationConfig(nextPreferences.savedGenerationConfig),
 		};
 		await this.getPluginLocalStateService().saveAIAssistantPreferences(nextPreferences);
 	}
@@ -6454,11 +6577,19 @@ export class WeavePlugin extends Plugin {
 	async loadPersistedStudySession(): Promise<void> {
 		try {
 			const persistedSession =
-				await this.getPluginLocalStateService().loadPersistedStudySession<PersistedStudySession>();
-			if (isPersistedStudySession(persistedSession)) {
-				const sessionManager = StudySessionManager.getInstance();
+				await this.getPluginLocalStateService().loadPersistedStudySession<unknown>();
+			const sessionManager = StudySessionManager.getInstance();
+			if (isPersistedStudySessionStore(persistedSession)) {
+				sessionManager.setPersistedSessionStore(persistedSession);
+				logger.debug("[Plugin] 已加载持久化的学习会话集合", {
+					sessionCount: Object.keys(persistedSession.sessionsByDeckId).length,
+					activeDeckId: persistedSession.activeDeckId,
+				});
+			} else if (isPersistedStudySession(persistedSession)) {
 				sessionManager.setPersistedSession(persistedSession);
 				logger.debug("[Plugin] 已加载持久化的学习会话");
+			} else {
+				sessionManager.clearPersistedSession();
 			}
 		} catch (error) {
 			logger.error("[Plugin] 加载持久化学习会话失败:", error);
@@ -6471,11 +6602,13 @@ export class WeavePlugin extends Plugin {
 	async savePersistedStudySession(): Promise<void> {
 		try {
 			const sessionManager = StudySessionManager.getInstance();
-			const persistedSession = sessionManager.getPersistedSession();
+			const persistedSessionStore = sessionManager.getPersistedSessionStore();
 
-			if (persistedSession) {
+			if (persistedSessionStore) {
 				// 保存到插件数据
-				await this.getPluginLocalStateService().savePersistedStudySession(persistedSession);
+				await this.getPluginLocalStateService().savePersistedStudySession(
+					persistedSessionStore satisfies PersistedStudySessionStore
+				);
 				logger.debug("[Plugin] 学习会话已持久化到磁盘");
 			} else {
 				await this.getPluginLocalStateService().clearPersistedStudySession();
@@ -6488,14 +6621,24 @@ export class WeavePlugin extends Plugin {
 	/**
 	 * 清除持久化的学习会话
 	 */
-	async clearPersistedStudySession(): Promise<void> {
+	async clearPersistedStudySession(deckId?: string): Promise<void> {
 		try {
-			await this.getPluginLocalStateService().clearPersistedStudySession();
-
 			const sessionManager = StudySessionManager.getInstance();
-			sessionManager.clearPersistedSession();
+			sessionManager.clearPersistedSession(deckId);
 
-			logger.debug("[Plugin] 已清除持久化的学习会话");
+			const persistedSessionStore = sessionManager.getPersistedSessionStore();
+			if (persistedSessionStore) {
+				await this.getPluginLocalStateService().savePersistedStudySession(
+					persistedSessionStore satisfies PersistedStudySessionStore
+				);
+			} else {
+				await this.getPluginLocalStateService().clearPersistedStudySession();
+			}
+
+			logger.debug("[Plugin] 已清除持久化的学习会话", {
+				deckId: deckId ?? "all",
+				remainingSessions: Object.keys(persistedSessionStore?.sessionsByDeckId ?? {}).length,
+			});
 		} catch (error) {
 			logger.error("[Plugin] 清除学习会话失败:", error);
 		}
@@ -6645,7 +6788,7 @@ export class WeavePlugin extends Plugin {
 
 		this.addCommand({
 			id: "ir-slim-markdown-frontmatter",
-			name: "清理增量阅读YAML冗余字段（ir-chunk/ir-index）",
+			name: "清理增量阅读冗余字段",
 			icon: "eraser",
 			callback: async () => {
 				try {
@@ -6747,25 +6890,6 @@ export class WeavePlugin extends Plugin {
 		this.editorAIToolbarManager = new EditorAIToolbarManager(this);
 
 		this.registerEvent(
-			this.app.workspace.on("file-menu", (menu, file) => {
-				if (
-					file instanceof TFile &&
-					file.extension === "epub" &&
-					this.shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)
-				) {
-					menu.addItem((item) => {
-						item
-							.setTitle("用 Weave 打开")
-							.setIcon("book-open")
-							.onClick(async () => {
-								await this.openEpubReader(file.path);
-							});
-					});
-				}
-			})
-		);
-
-		this.registerEvent(
 			this.app.workspace.on("editor-menu", (menu, editor, view) => {
 				try {
 					if (!(view instanceof MarkdownView)) return;
@@ -6841,16 +6965,7 @@ export class WeavePlugin extends Plugin {
 				try {
 					if (!this.dataStorage) return;
 
-					// 获取节点内容
-					let nodeContent = "";
-					const nodeData = node?.getData?.();
-
-					if (nodeData?.type === "text" && nodeData?.text) {
-						nodeContent = nodeData.text.trim();
-					} else if (nodeData?.type === "file" && nodeData?.file) {
-						nodeContent = `![[${nodeData.file}]]`;
-					}
-
+					const nodeContent = this.getCanvasNodeContent(node);
 					if (!nodeContent) return;
 
 					menu.addItem((item) => {
@@ -6861,6 +6976,16 @@ export class WeavePlugin extends Plugin {
 						// 异步加载记忆牌组列表（submenu 在用户 hover 时才展开，加载时间充裕）
 						void this.buildCanvasCardDeckSubmenu(submenu, nodeContent, node);
 					});
+
+					if (this.shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)) {
+						menu.addItem((item) => {
+							item.setTitle("Weave 阅读点");
+							item.setIcon("book-plus");
+							const submenu = (item as any).setSubmenu() as Menu;
+
+							void this.buildCanvasIRDeckSubmenu(submenu, node);
+						});
+					}
 				} catch {}
 			})
 		);
@@ -6879,6 +7004,205 @@ export class WeavePlugin extends Plugin {
 	/**
 	 * Canvas 节点添加为卡片 - 构建牌组子菜单
 	 */
+	private getCanvasNodeContent(node: any): string {
+		const nodeData = node?.getData?.() ?? node;
+		if (nodeData?.type === "text" && typeof nodeData?.text === "string") {
+			return nodeData.text.trim();
+		}
+		if (nodeData?.type === "file" && typeof nodeData?.file === "string") {
+			const filePath = nodeData.file.trim();
+			return filePath ? `![[${filePath}]]` : "";
+		}
+		return "";
+	}
+
+	private buildCanvasNodeIRPointContext(node: any): {
+		canvasFile: TFile;
+		nodeId: string;
+		selectedText: string;
+		sourceLink: string;
+		initialTitle: string;
+		textCandidates: string[];
+	} | null {
+		const selectedText = this.getCanvasNodeContent(node);
+		if (!selectedText) {
+			return null;
+		}
+
+		const canvasPath = this.getActiveCanvasPath();
+		if (!canvasPath) {
+			return null;
+		}
+
+		const canvasFile = this.app.vault.getAbstractFileByPath(canvasPath);
+		if (!(canvasFile instanceof TFile)) {
+			return null;
+		}
+
+		const nodeId = this.getCanvasNodeId(node);
+		const sourceLink = this.buildCanvasNodeSourceLink(node);
+		if (!nodeId || !sourceLink) {
+			return null;
+		}
+
+		const nodeData = node?.getData?.() ?? node;
+		let initialTitle = "";
+		if (nodeData?.type === "file" && typeof nodeData?.file === "string") {
+			const basename =
+				nodeData.file.split("/").pop()?.replace(/\.[^.]+$/u, "") || String(nodeData.file || "");
+			initialTitle = this.cleanIRReadingPointTitle(basename);
+		}
+		if (!initialTitle) {
+			initialTitle = this.deriveIRReadingPointDraftFromSelection(selectedText).title;
+		}
+
+		return {
+			canvasFile,
+			nodeId,
+			selectedText,
+			sourceLink,
+			initialTitle,
+			textCandidates: getCanvasTextCandidatesFromText(selectedText),
+		};
+	}
+
+	private buildCanvasIRSourceId(canvasPath: string): string {
+		const normalizedPath = normalizePath(String(canvasPath || "").trim()).toLowerCase();
+		const readableName =
+			normalizedPath
+				.split("/")
+				.pop()
+				?.replace(/\.canvas$/i, "")
+				.replace(/[^a-z0-9]+/gi, "-")
+				.replace(/^-+|-+$/g, "")
+				.toLowerCase() || "canvas";
+		let hash = 0;
+		for (let index = 0; index < normalizedPath.length; index += 1) {
+			hash = (hash * 31 + normalizedPath.charCodeAt(index)) | 0;
+		}
+		return `canvas-src-${readableName}-${Math.abs(hash).toString(36)}`;
+	}
+
+	private async ensureCanvasNodeReadingPointScheduled(
+		context: {
+			canvasFile: TFile;
+			nodeId: string;
+			selectedText: string;
+			sourceLink: string;
+			initialTitle: string;
+			textCandidates: string[];
+		},
+		deckId: string,
+		deckName: string
+	): Promise<"created" | "updated" | "unchanged"> {
+		const storage = new IRStorageService(this.app);
+		await storage.initialize();
+		const chunks = await storage.getAllChunkData();
+		const normalizedCanvasPath = normalizePath(context.canvasFile.path);
+		const now = Date.now();
+		const existing = Object.values(chunks).find((chunk: any) => {
+			const chunkPath = normalizePath(String(chunk?.filePath || "").trim());
+			const chunkNodeId = String(chunk?.meta?.canvasNodeId || "").trim();
+			return chunkPath === normalizedCanvasPath && chunkNodeId === context.nodeId;
+		}) as any;
+
+		if (existing) {
+			const existingMeta = { ...(existing.meta || {}) };
+			const existingDeckIds = Array.isArray(existing.deckIds) ? existing.deckIds : [];
+			const existingTopicIds = Array.isArray(existing.topicIds) ? existing.topicIds : [];
+			const existingStatus = String(existing.scheduleStatus || "").trim();
+			const shouldResetDueAt =
+				existingStatus === "removed" ||
+				existingStatus === "done" ||
+				existingStatus === "suspended" ||
+				!existingStatus ||
+				!Number(existing.nextRepDate || 0);
+			let changed = false;
+
+			if (existingDeckIds.length !== 1 || existingDeckIds[0] !== deckId) {
+				existing.deckIds = [deckId];
+				changed = true;
+			}
+			if (existingTopicIds.length !== 1 || existingTopicIds[0] !== deckId) {
+				existing.topicIds = [deckId];
+				changed = true;
+			}
+			if (existing.topicTag !== `#IR_deck_${deckName}`) {
+				existing.topicTag = `#IR_deck_${deckName}`;
+				changed = true;
+			}
+			if (existing.deckTag !== `#IR_deck_${deckName}`) {
+				existing.deckTag = `#IR_deck_${deckName}`;
+				changed = true;
+			}
+			if (shouldResetDueAt && existing.nextRepDate !== now) {
+				existing.nextRepDate = now;
+				changed = true;
+			}
+			if (!existing.intervalDays) {
+				existing.intervalDays = 1;
+				changed = true;
+			}
+			if (shouldResetDueAt && existing.scheduleStatus !== "new") {
+				existing.scheduleStatus = "new";
+				changed = true;
+			}
+			if (existingMeta.externalDocument !== true) {
+				existingMeta.externalDocument = true;
+				changed = true;
+			}
+			if (existingMeta.pointTitle !== context.initialTitle) {
+				existingMeta.pointTitle = context.initialTitle;
+				changed = true;
+			}
+			if (existingMeta.resumeLink !== context.sourceLink) {
+				existingMeta.resumeLink = context.sourceLink;
+				changed = true;
+			}
+			if (existingMeta.canvasNodeId !== context.nodeId) {
+				existingMeta.canvasNodeId = context.nodeId;
+				changed = true;
+			}
+			const existingCandidates = Array.isArray(existingMeta.canvasTextCandidates)
+				? (existingMeta.canvasTextCandidates as unknown[])
+					.map((value) => String(value || "").trim())
+					.filter(Boolean)
+				: [];
+			if (JSON.stringify(existingCandidates) !== JSON.stringify(context.textCandidates)) {
+				existingMeta.canvasTextCandidates = context.textCandidates;
+				changed = true;
+			}
+			if (!changed) {
+				return "unchanged";
+			}
+
+			existing.updatedAt = now;
+			existing.meta = existingMeta;
+			await storage.saveChunkData(existing);
+			return "updated";
+		}
+
+		const chunkId = generateChunkId();
+		const sourceId = this.buildCanvasIRSourceId(context.canvasFile.path) || generateSourceId();
+		const chunk = createDefaultChunkFileData(chunkId, sourceId, context.canvasFile.path) as any;
+		chunk.topicIds = [deckId];
+		chunk.deckIds = [deckId];
+		chunk.topicTag = `#IR_deck_${deckName}`;
+		chunk.deckTag = `#IR_deck_${deckName}`;
+		chunk.updatedAt = now;
+		chunk.nextRepDate = now;
+		chunk.meta = {
+			...(chunk.meta || {}),
+			externalDocument: true,
+			pointTitle: context.initialTitle,
+			resumeLink: context.sourceLink,
+			canvasNodeId: context.nodeId,
+			canvasTextCandidates: context.textCandidates,
+		};
+		await storage.saveChunkData(chunk);
+		return "created";
+	}
+
 	private async buildCanvasCardDeckSubmenu(
 		submenu: Menu,
 		content: string,
@@ -6912,6 +7236,87 @@ export class WeavePlugin extends Plugin {
 		}
 	}
 
+	private async buildCanvasIRDeckSubmenu(submenu: Menu, node: any): Promise<void> {
+		try {
+			const context = this.buildCanvasNodeIRPointContext(node);
+			if (!context) {
+				submenu.addItem((subItem) => {
+					subItem.setTitle("当前节点暂无可用内容").setDisabled(true);
+				});
+				return;
+			}
+
+			const storage = new IRStorageService(this.app);
+			await storage.initialize();
+			const decksData = await storage.getAllDecks();
+			const decks = Object.values(decksData)
+				.filter((deck) => !deck.archivedAt)
+				.sort((a, b) => a.name.localeCompare(b.name));
+
+			if (decks.length === 0) {
+				submenu.addItem((subItem) => {
+					subItem.setTitle("暂无可用增量阅读专题").setDisabled(true);
+				});
+				return;
+			}
+
+			for (const deck of decks) {
+				submenu.addItem((subItem) => {
+					subItem.setTitle(deck.name).onClick(async () => {
+						await this.addCanvasNodeAsIRReadingPoint(context, deck.id, deck.name);
+					});
+				});
+			}
+		} catch (error) {
+			logger.error("[Canvas] 加载增量阅读专题列表失败:", error);
+			submenu.addItem((subItem) => {
+				subItem.setTitle("加载增量阅读专题失败").setDisabled(true);
+			});
+		}
+	}
+
+	private async addCanvasNodeAsIRReadingPoint(
+		context: {
+			canvasFile: TFile;
+			nodeId: string;
+			selectedText: string;
+			sourceLink: string;
+			initialTitle: string;
+			textCandidates: string[];
+		},
+		deckId: string,
+		deckName: string
+	): Promise<void> {
+		if (
+			!this.ensurePremiumFeatureAccess(
+				PREMIUM_FEATURES.INCREMENTAL_READING,
+				"增量阅读是高级功能，请激活许可证后使用"
+			)
+		) {
+			return;
+		}
+
+		try {
+			const result = await this.ensureCanvasNodeReadingPointScheduled(context, deckId, deckName);
+			await recomputeAndBroadcastIRData(this.app, "ui_refresh", {
+				deckIds: [deckId],
+			});
+			broadcastIRDataUpdated(this.app, {
+				reason: "ui_refresh",
+			});
+			new Notice(
+				result === "created"
+					? `阅读点已添加到专题「${deckName}」`
+					: result === "updated"
+						? `阅读点已更新到专题「${deckName}」`
+						: `阅读点已存在于专题「${deckName}」`
+			);
+		} catch (error) {
+			logger.error("[Canvas] 添加增量阅读点失败:", error);
+			new Notice("添加为 Weave 阅读点失败");
+		}
+	}
+
 	/**
 	 * 将 Canvas 节点内容创建为卡片并保存到指定牌组
 	 */
@@ -6939,6 +7344,12 @@ export class WeavePlugin extends Plugin {
 				type: CardType.Basic,
 				content: cardContent,
 				sourceFile: sourceFile,
+				sourceDocumentKey: normalizeTraceDocumentKey(
+					sourceFile,
+					detectTraceSourceKind(sourceFile)
+				) || undefined,
+				sourceKind: detectTraceSourceKind(sourceFile),
+				outputKind: "memory",
 				sourceBlock: sourceBlock ? `^${sourceBlock}` : undefined,
 				fsrs: {
 					due: now,
@@ -7084,65 +7495,488 @@ export class WeavePlugin extends Plugin {
 		);
 	}
 
-	private getIncrementalReadingSettings(): {
+	getIncrementalReadingSettings(): {
 		importFolder: string;
 		selectionQuickCreateLastFolder: string;
+		folderSubscription: IncrementalReadingFolderSubscriptionSettings;
 	} {
 		if (!this.settings.incrementalReading) {
-			this.settings.incrementalReading = {
-				importFolder: resolveIRImportFolder(undefined, this.settings.weaveParentFolder),
-				selectionQuickCreateLastFolder: "",
-			} as any;
+			this.settings.incrementalReading = buildDefaultIncrementalReadingSettings(
+				this.settings.weaveParentFolder
+			) as any;
 		}
 
-		const irSettings = this.settings.incrementalReading as any;
-		irSettings.importFolder = resolveIRImportFolder(
-			irSettings.importFolder,
+		const irSettings = normalizeIncrementalReadingSettings(
+			this.settings.incrementalReading,
 			this.settings.weaveParentFolder
-		);
-		irSettings.selectionQuickCreateLastFolder = String(
-			irSettings.selectionQuickCreateLastFolder || ""
-		).trim();
+		) as any;
+		this.settings.incrementalReading = irSettings;
 
 		return irSettings;
 	}
 
-	private normalizeSelectionQuickCreateFolderPath(folderPath: string): string {
-		const raw = String(folderPath || "")
-			.trim()
-			.replace(/\\/g, "/");
-		if (!raw || raw === "." || raw === "/") {
-			return "/";
+	async saveIncrementalReadingSettings(
+		settings: import("./types/plugin-settings").IncrementalReadingSettings,
+		options?: { syncFolderSubscription?: boolean }
+	): Promise<import("./types/plugin-settings").IncrementalReadingSettings> {
+		this.settings.incrementalReading = normalizeIncrementalReadingSettings(
+			settings,
+			this.settings.weaveParentFolder
+		);
+		await this.saveSettings();
+		if (options?.syncFolderSubscription) {
+			await this.syncIncrementalReadingFolderSubscriptionFromSettings({ trigger: "settings" });
 		}
-
-		return normalizePath(raw);
+		return this.settings.incrementalReading;
 	}
 
-	private getSelectionQuickCreateFolderConfig(): {
+	private normalizeIncrementalReadingFolderSubscriptionSettings(
+		settings?: IncrementalReadingFolderSubscriptionSettings | null
+	): IncrementalReadingFolderSubscriptionSettings {
+		return normalizeIncrementalReadingFolderSubscriptionSettingsState(settings);
+	}
+
+	private getIncrementalReadingFolderSubscriptionSettings(): IncrementalReadingFolderSubscriptionSettings {
+		const irSettings = this.getIncrementalReadingSettings();
+		return this.normalizeIncrementalReadingFolderSubscriptionSettings(irSettings.folderSubscription);
+	}
+
+	private getActiveIncrementalReadingFolderSubscriptionRules(): IncrementalReadingFolderSubscriptionRule[] {
+		return getActiveIncrementalReadingFolderSubscriptionRulesState(
+			this.getIncrementalReadingFolderSubscriptionSettings()
+		);
+	}
+
+	private isFileWithinIncrementalReadingFolderSubscription(filePath: string, folderPath: string): boolean {
+		return isFileWithinIncrementalReadingFolderSubscriptionPath(filePath, folderPath);
+	}
+
+	private resolveIncrementalReadingFolderSubscriptionRuleForFile(
+		filePath: string,
+		rules?: IncrementalReadingFolderSubscriptionRule[]
+	): IncrementalReadingFolderSubscriptionRule | null {
+		return resolveIncrementalReadingFolderSubscriptionRuleForFileState(
+			filePath,
+			rules || this.getActiveIncrementalReadingFolderSubscriptionRules()
+		);
+	}
+
+	private async isIncrementalReadingFolderSubscriptionCandidate(file: TFile, folderPath: string): Promise<boolean> {
+		if (file.extension !== "md") {
+			return false;
+		}
+		if (!this.isFileWithinIncrementalReadingFolderSubscription(file.path, folderPath)) {
+			return false;
+		}
+		const pluginConfigPath = normalizePath(`${this.app.vault.configDir}/plugins/weave/`);
+		if (normalizePath(file.path).startsWith(pluginConfigPath)) {
+			return false;
+		}
+		try {
+			const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+			const weaveType = typeof frontmatter?.weave_type === "string" ? frontmatter.weave_type.trim() : "";
+			if (weaveType.startsWith("ir-")) {
+				return false;
+			}
+		} catch {}
+		return true;
+	}
+
+	private isIncrementalReadingFolderSubscriptionDeletedTag(tag: string): boolean {
+		const normalizedTag = String(tag || "").trim().replace(/^#/, "").toLowerCase();
+		return (
+			normalizedTag === "已删除" ||
+			normalizedTag === "we_已删除" ||
+			normalizedTag === "we_deleted"
+		);
+	}
+
+	private async hasIncrementalReadingFolderSubscriptionExcludedTag(file: TFile): Promise<boolean> {
+		if (file.extension !== "md") {
+			return false;
+		}
+		try {
+			const content = await this.app.vault.read(file);
+			const tags = extractAllTags(content);
+			return tags.some((tag) => this.isIncrementalReadingFolderSubscriptionDeletedTag(tag));
+		} catch (error) {
+			logger.warn(`[IR] 读取订阅文件夹候选文档标签失败: ${file.path}`, error);
+			return false;
+		}
+	}
+
+	private doesIncrementalReadingFolderSubscriptionMaterialNeedUpdate(
+		material: any,
+		deckId: string
+	): boolean {
+		if (!material) {
+			return true;
+		}
+		const currentDeckId = String(material?.readingDeckId || material?.topicId || "").trim();
+		return currentDeckId !== deckId;
+	}
+
+	private async getIncrementalReadingFolderSubscriptionExistingMaterial(file: TFile): Promise<any> {
+		if (!this.readingMaterialManager) {
+			return null;
+		}
+		const byFile = await this.readingMaterialManager.getMaterialByFile(file);
+		if (byFile) {
+			return byFile;
+		}
+		return this.readingMaterialManager.getMaterialByPath(file.path);
+	}
+
+	private doesIncrementalReadingFolderSubscriptionChunkNeedUpdate(
+		existing: any,
+		deckId: string,
+		deckName: string,
+		autoSubscribedAt: string,
+		autoSubscribedFolderPath: string,
+		initialScheduleMode?: IncrementalReadingFolderSubscriptionInitialScheduleMode
+	): boolean {
+		if (!existing) {
+			return true;
+		}
+		const existingDeckIds = Array.isArray(existing.deckIds) ? existing.deckIds : [];
+		const existingTopicIds = Array.isArray(existing.topicIds) ? existing.topicIds : [];
+		const existingStatus = String(existing.scheduleStatus || "").trim();
+		const pinToToday = initialScheduleMode !== "scheduled";
+		const todayStartMs = this.getIncrementalReadingTodayStart().getTime();
+		const todayDateKey = this.getIncrementalReadingDateKey(this.getIncrementalReadingTodayStart());
+		const shouldResetDueAt =
+			existingStatus === "removed" ||
+			existingStatus === "done" ||
+			existingStatus === "suspended" ||
+			!existingStatus ||
+			!Number(existing.nextRepDate || 0);
+		const existingMeta = { ...(existing.meta || {}) };
+		const existingNextRepDate = Number(existing.nextRepDate || 0);
+		const existingSourceSequenceLocked = existingMeta.sourceSequenceLocked === true;
+		const existingSourceSequenceAnchorDateKey =
+			typeof existingMeta.sourceSequenceAnchorDateKey === "string"
+				? existingMeta.sourceSequenceAnchorDateKey.trim()
+				: "";
+		return (
+			existingDeckIds.length !== 1 ||
+			existingDeckIds[0] !== deckId ||
+			existingTopicIds.length !== 1 ||
+			existingTopicIds[0] !== deckId ||
+			existing.topicTag !== `#IR_deck_${deckName}` ||
+			existing.deckTag !== `#IR_deck_${deckName}` ||
+			shouldResetDueAt ||
+			Boolean(pinToToday && existingNextRepDate !== todayStartMs) ||
+			Boolean(pinToToday && !existingSourceSequenceLocked) ||
+			Boolean(pinToToday && existingSourceSequenceAnchorDateKey !== todayDateKey) ||
+			Boolean(!pinToToday && existingSourceSequenceLocked) ||
+			Boolean(!pinToToday && existingSourceSequenceAnchorDateKey) ||
+			!existing.intervalDays ||
+			existingMeta.externalDocument !== true ||
+			Boolean(autoSubscribedAt && existingMeta.autoSubscribedAt !== autoSubscribedAt) ||
+			Boolean(
+				autoSubscribedFolderPath &&
+					existingMeta.autoSubscribedFolderPath !== autoSubscribedFolderPath
+			)
+		);
+	}
+
+	private scheduleIncrementalReadingFolderSubscriptionResync(): void {
+		if (this.incrementalReadingFolderSubscriptionResyncTimer !== null) {
+			window.clearTimeout(this.incrementalReadingFolderSubscriptionResyncTimer);
+		}
+		this.incrementalReadingFolderSubscriptionResyncTimer = window.setTimeout(() => {
+			this.incrementalReadingFolderSubscriptionResyncTimer = null;
+			void this.syncIncrementalReadingFolderSubscriptionFromSettings({ trigger: "file-change" });
+		}, 300);
+	}
+
+	private getIRHostSharedService(): IRHostSharedService {
+		if (!this.irHostSharedService) {
+			this.irHostSharedService = new IRHostSharedService(this.app);
+		}
+		return this.irHostSharedService;
+	}
+
+	private getIncrementalReadingTodayStart(): Date {
+		return this.getIRHostSharedService().getIncrementalReadingTodayStart();
+	}
+
+	private getIncrementalReadingDateKey(date: Date): string {
+		return this.getIRHostSharedService().getIncrementalReadingDateKey(date);
+	}
+
+	private async handleIncrementalReadingFolderSubscriptionFileChange(file: TFile): Promise<void> {
+		try {
+			const matchedRule = this.resolveIncrementalReadingFolderSubscriptionRuleForFile(file.path);
+			if (!matchedRule || file.extension !== "md") {
+				return;
+			}
+			this.scheduleIncrementalReadingFolderSubscriptionResync();
+		} catch (error) {
+			logger.warn("[IR] 订阅文件夹处理失败:", error);
+		}
+	}
+
+	async syncIncrementalReadingFolderSubscriptionFromSettings(options?: {
+		file?: TFile;
+		trigger?: "startup" | "settings" | "file-change" | "manual";
+	}): Promise<number> {
+		const previous = this.incrementalReadingFolderSubscriptionSyncPromise ?? Promise.resolve(0);
+		const current = previous
+			.catch(() => 0)
+			.then(async () => await this.performIncrementalReadingFolderSubscriptionSync(options));
+		this.incrementalReadingFolderSubscriptionSyncPromise = current;
+		try {
+			return await current;
+		} finally {
+			if (this.incrementalReadingFolderSubscriptionSyncPromise === current) {
+				this.incrementalReadingFolderSubscriptionSyncPromise = null;
+			}
+		}
+	}
+
+	private async performIncrementalReadingFolderSubscriptionSync(options?: {
+		file?: TFile;
+		trigger?: "startup" | "settings" | "file-change" | "manual";
+	}): Promise<number> {
+		if (!PremiumFeatureGuard.getInstance().canUseFeature(PREMIUM_FEATURES.INCREMENTAL_READING)) {
+			return 0;
+		}
+		if (!this.readingMaterialManager) {
+			return 0;
+		}
+
+		const subscriptionSettings = this.getIncrementalReadingFolderSubscriptionSettings();
+		const activeRules = this.getActiveIncrementalReadingFolderSubscriptionRules();
+		if (activeRules.length === 0) {
+			return 0;
+		}
+
+		const storage = new IRStorageService(this.app);
+		await storage.initialize();
+		const deckById = new Map<string, any>();
+		for (const deckId of [...new Set(activeRules.map((rule) => String(rule.deckId || "").trim()).filter(Boolean))]) {
+			const deck = await storage.getDeckById(deckId);
+			if (deck && !deck.archivedAt) {
+				deckById.set(deckId, deck);
+			}
+		}
+		const validRules = activeRules.filter((rule) => deckById.has(String(rule.deckId || "").trim()));
+		if (validRules.length === 0) {
+			return 0;
+		}
+
+		const trigger = options?.trigger || (options?.file ? "file-change" : "manual");
+		const candidateFiles = options?.file ? [options.file] : this.app.vault.getFiles();
+		const allChunks = await storage.getAllChunkData();
+		const chunkByFilePath = new Map<string, any>();
+		for (const chunk of Object.values(allChunks)) {
+			const chunkFilePath = normalizePath(String((chunk as any)?.filePath || "").trim());
+			if (chunkFilePath) {
+				chunkByFilePath.set(chunkFilePath, chunk);
+			}
+		}
+
+		const pendingCandidates: Array<{
+			file: TFile;
+			existingMaterial: any;
+			existingChunk: any;
+			autoSubscribedAt: string;
+			needsMaterialCreation: boolean;
+			rule: IncrementalReadingFolderSubscriptionRule;
+			deck: any;
+		}> = [];
+		for (const candidate of candidateFiles) {
+			if (!(candidate instanceof TFile)) {
+				continue;
+			}
+			const matchedRule = this.resolveIncrementalReadingFolderSubscriptionRuleForFile(candidate.path, validRules);
+			if (!matchedRule) {
+				continue;
+			}
+			if (!(await this.isIncrementalReadingFolderSubscriptionCandidate(candidate, matchedRule.folderPath || ""))) {
+				continue;
+			}
+			try {
+				const deck = deckById.get(String(matchedRule.deckId || "").trim());
+				if (!deck) {
+					continue;
+				}
+				if (await this.hasIncrementalReadingFolderSubscriptionExcludedTag(candidate)) {
+					continue;
+				}
+				const existingMaterial =
+					await this.getIncrementalReadingFolderSubscriptionExistingMaterial(candidate);
+				const existingChunk = chunkByFilePath.get(normalizePath(candidate.path)) || null;
+				const needsMaterialCreation = !existingMaterial;
+				const autoSubscribedAt =
+					typeof existingChunk?.meta?.autoSubscribedAt === "string" && existingChunk.meta.autoSubscribedAt.trim()
+						? existingChunk.meta.autoSubscribedAt
+						: existingChunk
+							? ""
+							: new Date().toISOString();
+				const materialNeedsUpdate = this.doesIncrementalReadingFolderSubscriptionMaterialNeedUpdate(
+					existingMaterial,
+					deck.id
+				);
+				const chunkNeedsUpdate = this.doesIncrementalReadingFolderSubscriptionChunkNeedUpdate(
+					existingChunk,
+					deck.id,
+					deck.name,
+					autoSubscribedAt,
+					String(matchedRule.folderPath || ""),
+					subscriptionSettings.initialScheduleMode
+				);
+				if (materialNeedsUpdate || chunkNeedsUpdate) {
+					pendingCandidates.push({
+						file: candidate,
+						existingMaterial,
+						existingChunk,
+						autoSubscribedAt,
+						needsMaterialCreation,
+						rule: matchedRule,
+						deck,
+					});
+				}
+			} catch (error) {
+				logger.warn(`[IR] 订阅文件夹自动导入失败: ${candidate.path}`, error);
+			}
+		}
+
+		const confirmThreshold = Number(subscriptionSettings.importConfirmThreshold ?? 20);
+		const pendingNewMaterialCandidates = pendingCandidates.filter(
+			(candidate) => candidate.needsMaterialCreation
+		);
+		let allowPendingNewMaterialCandidates = true;
+		if (
+			trigger !== "file-change" &&
+			confirmThreshold > 0 &&
+			pendingNewMaterialCandidates.length > confirmThreshold
+		) {
+			const matchedRuleCount = new Set(
+				pendingNewMaterialCandidates.map(
+					(candidate) => String(candidate.rule.id || `${candidate.rule.folderPath || ""}::${candidate.rule.deckId || ""}`)
+				)
+			).size;
+			const firstPendingCandidate = pendingNewMaterialCandidates[0];
+			const confirmed = await showObsidianConfirm(
+				this.app,
+				i18n.t(
+					matchedRuleCount > 1
+						? "irSettings.autoSubscribeBulkConfirmMultiRuleMessage"
+						: "irSettings.autoSubscribeBulkConfirmMessage",
+					matchedRuleCount > 1
+						? {
+							count: pendingNewMaterialCandidates.length,
+							threshold: confirmThreshold,
+							ruleCount: matchedRuleCount,
+						}
+						: {
+							count: pendingNewMaterialCandidates.length,
+							threshold: confirmThreshold,
+							folder: String(firstPendingCandidate?.rule.folderPath || ""),
+							deck: String(firstPendingCandidate?.deck?.name || ""),
+						}
+				),
+				{
+					title: i18n.t("irSettings.autoSubscribeBulkConfirmTitle"),
+					confirmText: i18n.t("common.confirm"),
+					cancelText: i18n.t("common.cancel"),
+					confirmClass: "mod-warning",
+				}
+			);
+			if (!confirmed) {
+				allowPendingNewMaterialCandidates = false;
+			}
+		}
+
+		const candidatesToProcess =
+			trigger !== "file-change" && confirmThreshold > 0
+				? pendingCandidates.filter(
+					(candidate) =>
+						allowPendingNewMaterialCandidates || !candidate.needsMaterialCreation
+				)
+				: pendingCandidates;
+
+		let changedCount = 0;
+		const changedDeckIds = new Set<string>();
+		for (const pendingCandidate of candidatesToProcess) {
+			try {
+				const material = await this.readingMaterialManager.getOrCreateMaterial(pendingCandidate.file, {
+					copyToImportFolder: false,
+					source: "auto",
+				});
+				let materialChanged = !pendingCandidate.existingMaterial;
+				const targetDeck = pendingCandidate.deck;
+				if (
+					this.doesIncrementalReadingFolderSubscriptionMaterialNeedUpdate(
+						pendingCandidate.existingMaterial,
+						targetDeck.id
+					)
+				) {
+					await this.readingMaterialManager.setReadingDeck(material.uuid, targetDeck.id);
+					materialChanged = true;
+				}
+
+				const chunkChanged = await this.ensureExternalDocumentChunkScheduled(
+					pendingCandidate.file,
+					targetDeck.id,
+					targetDeck.name,
+					{
+						autoSubscribedAt: pendingCandidate.autoSubscribedAt,
+						autoSubscribedFolderPath: String(pendingCandidate.rule.folderPath || ""),
+						pinToToday: subscriptionSettings.initialScheduleMode !== "scheduled",
+						storage,
+						existingChunk: pendingCandidate.existingChunk,
+					}
+				);
+				if (chunkChanged) {
+					chunkByFilePath.set(normalizePath(pendingCandidate.file.path), {
+						...(pendingCandidate.existingChunk || {}),
+						filePath: pendingCandidate.file.path,
+					});
+				}
+				if (materialChanged || chunkChanged) {
+					changedCount++;
+					changedDeckIds.add(String(targetDeck.id || ""));
+				}
+			} catch (error) {
+				logger.warn(`[IR] 订阅文件夹自动导入失败: ${pendingCandidate.file.path}`, error);
+			}
+		}
+
+		if (changedCount > 0) {
+			await recomputeAndBroadcastIRData(this.app, "import_materials", {
+				deckIds: [...changedDeckIds].filter(Boolean),
+			});
+		}
+
+		return changedCount;
+	}
+
+	private normalizeSelectionQuickCreateFolderPath(folderPath: string): string {
+		return this.getIRHostSharedService().normalizeSelectionQuickCreateFolderPath(folderPath);
+	}
+
+	private getSelectionQuickCreateFolderConfig(contextPath?: string): {
 		initialFolder: string;
 	} {
-		const irSettings = this.getIncrementalReadingSettings();
-		const defaultFolder = "/";
-		const initialFolder = this.normalizeSelectionQuickCreateFolderPath(
-			irSettings.selectionQuickCreateLastFolder || defaultFolder
+		return this.getIRHostSharedService().getSelectionQuickCreateFolderConfig(
+			this.getIncrementalReadingSettings(),
+			contextPath
 		);
-
-		return {
-			initialFolder,
-		};
 	}
 
 	private async saveSelectionQuickCreatePreferences(update: {
 		folderPath?: string;
 	}): Promise<void> {
-		const irSettings = this.getIncrementalReadingSettings() as any;
-
-		if (update.folderPath !== undefined) {
-			irSettings.selectionQuickCreateLastFolder = this.normalizeSelectionQuickCreateFolderPath(
-				update.folderPath
-			);
-		}
-
+		Object.assign(
+			this.getIncrementalReadingSettings() as any,
+			this.getIRHostSharedService().getUpdatedSelectionQuickCreatePreferences(
+				this.getIncrementalReadingSettings(),
+				update
+			)
+		);
 		await this.saveSettings();
 	}
 
@@ -7151,6 +7985,7 @@ export class WeavePlugin extends Plugin {
 		title: string;
 		tocHref: string;
 		tocLevel: number;
+		deckId?: string;
 	}): Promise<void> {
 		if (
 			!this.ensurePremiumFeatureAccess(
@@ -7161,59 +7996,92 @@ export class WeavePlugin extends Plugin {
 			return;
 		}
 
-		const sourceFile = this.app.vault.getAbstractFileByPath(String(options.filePath || "").trim());
-		if (!(sourceFile instanceof TFile) || sourceFile.extension !== "epub") {
-			new Notice("未找到对应的 EPUB 文件", 3000);
-			return;
-		}
-
-		const service = await this.ensureIREpubBookmarkTaskServiceReady();
-		const normalizedHref = this.normalizeEpubBookmarkHref(options.tocHref);
-		if (!normalizedHref) {
-			new Notice("未能读取章节定位信息", 3000);
-			return;
-		}
-
-		const picked = await this.pickIRDeck();
-		if (!picked) {
-			return;
-		}
-		const existingTasks = await service.getTasksByDeckIdentifiers(
-			await this.getIRDeckIdentifiers(picked)
+		await this.getIRHostSharedService().scheduleEpubChapterForIncrementalReading(
+			options,
+			this.resolveIRDeckById.bind(this),
+			this.pickIRDeck.bind(this)
 		);
+	}
 
-		const title =
-			this.cleanIRReadingPointTitle(options.title) ||
-			sourceFile.basename ||
-			"EPUB 章节";
-
-		const duplicateTask = existingTasks.find(
-			(task) =>
-				String(task.epubFilePath || "").trim() === sourceFile.path &&
-				this.normalizeEpubBookmarkHref(task.tocHref) === normalizedHref
+	async markEpubResumePointFromReader(options: {
+		filePath: string;
+		cfi: string;
+		chapterHref?: string;
+		chapterTitle?: string;
+		deckId?: string;
+	}): Promise<void> {
+		await this.getIRHostSharedService().markEpubResumePointFromReader(
+			options,
+			this.resolveIRDeckById.bind(this)
 		);
-		if (duplicateTask) {
-			new Notice(`章节「${title}」已存在于专题「${picked.name}」中`, 3500);
+	}
+
+	async getAvailableEpubIncrementalReadingTopics(): Promise<Array<{ id: string; name: string }>> {
+		return await this.getIRHostSharedService().getAvailableEpubIncrementalReadingTopics();
+	}
+
+	async openSelectedTextAIPanelFromEpub(options: {
+		filePath: string;
+		selectedText: string;
+		actionId: string;
+		sourceLink?: string;
+	}): Promise<void> {
+		const normalizedFilePath = normalizePath(String(options.filePath || "").trim());
+		const selectedText = String(options.selectedText || "").trim();
+		const actionId = String(options.actionId || "").trim();
+		if (!normalizedFilePath || !selectedText || !actionId) {
+			new Notice("AI 预览参数不完整");
 			return;
 		}
-		const nextRepDate = Date.now();
 
-		await service.batchCreateTasks([
-			{
-				deckId: picked.id,
-				epubFilePath: sourceFile.path,
-				title,
-				tocHref: normalizedHref,
-				tocLevel: Math.max(0, Number(options.tocLevel || 0)),
-				priorityUi: 5,
-				nextRepDate,
-			},
-		]);
+		if (
+			this.currentEpubSelectedTextAIPanelFilePath
+			&& this.currentEpubSelectedTextAIPanelFilePath !== normalizedFilePath
+		) {
+			await this.closeSelectedTextAIPanelFromEpub(this.currentEpubSelectedTextAIPanelFilePath);
+		}
 
-		await recomputeAndBroadcastIRData(this.app, "import_materials", {
-			deckIds: [picked.id],
+		const leaf = findOpenEpubLeaf(this.app, normalizedFilePath);
+		const view = leaf?.view as {
+			openSelectedTextAIPanel?: (input: {
+				selectedText: string;
+				actionId: string;
+				sourceLink?: string;
+			}) => Promise<void>;
+		} | undefined;
+
+		if (!view?.openSelectedTextAIPanel) {
+			new Notice("未找到对应的 EPUB 阅读视图");
+			return;
+		}
+
+		await view.openSelectedTextAIPanel({
+			selectedText,
+			actionId,
+			sourceLink: String(options.sourceLink || "").trim() || undefined,
 		});
-		new Notice(`已将「${title}」添加到专题「${picked.name}」，月历与专题数据已刷新`, 4000);
+		this.currentEpubSelectedTextAIPanelFilePath = normalizedFilePath;
+	}
+
+	async closeSelectedTextAIPanelFromEpub(filePath: string): Promise<void> {
+		const normalizedFilePath = normalizePath(String(filePath || "").trim());
+		if (!normalizedFilePath) {
+			this.currentEpubSelectedTextAIPanelFilePath = null;
+			return;
+		}
+
+		const leaf = findOpenEpubLeaf(this.app, normalizedFilePath);
+		const view = leaf?.view as {
+			closeSelectedTextAIPanel?: () => Promise<void>;
+		} | undefined;
+
+		if (view?.closeSelectedTextAIPanel) {
+			await view.closeSelectedTextAIPanel();
+		}
+
+		if (this.currentEpubSelectedTextAIPanelFilePath === normalizedFilePath) {
+			this.currentEpubSelectedTextAIPanelFilePath = null;
+		}
 	}
 
 	async exportEpubChapterToMarkdown(options: {
@@ -7232,35 +8100,22 @@ export class WeavePlugin extends Plugin {
 		bookTitle?: string;
 		author?: string;
 	}): Promise<void> {
-		const sourceFile = this.app.vault.getAbstractFileByPath(String(options.filePath || "").trim());
-		if (!(sourceFile instanceof TFile) || sourceFile.extension !== "epub") {
-			new Notice("未找到对应的 EPUB 文件", 3000);
-			return;
-		}
-
-		const exportFolder =
-			sourceFile.parent?.path && sourceFile.parent.path.trim()
-				? normalizePath(sourceFile.parent.path)
-				: "/";
-		const title = this.cleanIRReadingPointTitle(options.title) || "EPUB 章节";
-		const fileTitle = options.bookTitle
-			? `${String(options.bookTitle).trim()} - ${title}`
-			: `${sourceFile.basename} - ${title}`;
-
-		await this.ensureSelectionQuickCreateFolderExists(exportFolder);
-		const targetPath = await this.generateUniqueIRReadingPointPath(exportFolder, fileTitle);
-		const assetReplacements = await this.writeEpubChapterExportAssets(targetPath, options.assets || []);
-		const content = this.buildEpubChapterMarkdownContent({
-			title,
-			body: options.markdown || options.body,
-			sourceLink: options.sourceLink,
-			bookTitle: options.bookTitle,
-			author: options.author,
-			assetReplacements,
+		await exportBookSectionToMarkdown(this.app, {
+			...options,
+			lastSelectedFolder: this.getIncrementalReadingSettings().selectionQuickCreateLastFolder,
 		});
-		const createdFile = await this.app.vault.create(targetPath, content);
-		await openFileWithExistingLeaf(this.app, createdFile, { openInNewTab: true, focus: true });
-		new Notice(`已导出 Markdown：${createdFile.basename}`, 3000);
+	}
+
+	async exportEpubBookNotesToMarkdown(options: {
+		filePath: string;
+		markdown: string;
+		bookTitle?: string;
+		sourceLink?: string;
+	}): Promise<void> {
+		await exportBookNotesToMarkdown(this.app, {
+			...options,
+			lastSelectedFolder: this.getIncrementalReadingSettings().selectionQuickCreateLastFolder,
+		});
 	}
 
 	async openIRReadingPointFromExternalSelection(options: {
@@ -7326,7 +8181,7 @@ export class WeavePlugin extends Plugin {
 						titleDetected: true,
 				  }
 				: this.deriveIRReadingPointDraftFromSelection(context.selectedText);
-			const folderConfig = this.getSelectionQuickCreateFolderConfig();
+			const folderConfig = this.getSelectionQuickCreateFolderConfig(context.file.path);
 			const storage = new IRStorageService(this.app);
 			await storage.initialize();
 			const decksData = await storage.getAllDecks();
@@ -7410,45 +8265,14 @@ export class WeavePlugin extends Plugin {
 	}
 
 	private cleanIRReadingPointTitle(rawTitle: string): string {
-		return String(rawTitle || "")
-			.replace(/\r\n?/g, " ")
-			.replace(/^\s*#{1,6}\s+/, "")
-			.replace(/\s+/g, " ")
-			.trim();
+		return this.getIRHostSharedService().cleanIRReadingPointTitle(rawTitle);
 	}
 
 	private deriveIRReadingPointDraftFromSelection(selectedText: string): {
 		title: string;
 		titleDetected: boolean;
 	} {
-		const normalized = String(selectedText || "")
-			.replace(/\r\n?/g, "\n")
-			.trim();
-		const lines = normalized.split("\n");
-		const firstNonEmptyIndex = lines.findIndex((line) => line.trim().length > 0);
-		if (firstNonEmptyIndex >= 0) {
-			const firstLine = lines[firstNonEmptyIndex].trim();
-			const headingMatch = firstLine.match(/^#{1,6}\s+(.+)$/);
-			if (headingMatch?.[1]) {
-				const title = this.cleanIRReadingPointTitle(headingMatch[1]) || "未命名阅读点";
-				return {
-					title,
-					titleDetected: true,
-				};
-			}
-		}
-
-		const firstMeaningfulLine = lines.find((line) => line.trim().length > 0) || normalized;
-		const cleanedLine = this.cleanIRReadingPointTitle(firstMeaningfulLine);
-		const title =
-			cleanedLine.length > 80
-				? `${cleanedLine.slice(0, 80).trim()}...`
-				: cleanedLine || "未命名阅读点";
-
-		return {
-			title,
-			titleDetected: false,
-		};
+		return this.getIRHostSharedService().deriveIRReadingPointDraftFromSelection(selectedText);
 	}
 
 	private async ensureSelectionQuickCreateFolderExists(folderPath: string): Promise<void> {
@@ -7483,21 +8307,7 @@ export class WeavePlugin extends Plugin {
 	): Promise<string> {
 		const normalizedFolder = this.normalizeSelectionQuickCreateFolderPath(folderPath);
 		const baseName = this.sanitizeIRReadingPointFileName(title);
-
-		for (let index = 0; index < 500; index++) {
-			const suffix = index === 0 ? "" : ` ${index + 1}`;
-			const fileName = `${baseName}${suffix}.md`;
-			const candidatePath =
-				normalizedFolder === "/" ? fileName : normalizePath(`${normalizedFolder}/${fileName}`);
-			if (!(await this.app.vault.adapter.exists(candidatePath))) {
-				return candidatePath;
-			}
-		}
-
-		const fallbackFileName = `${baseName}-${Date.now()}.md`;
-		return normalizedFolder === "/"
-			? fallbackFileName
-			: normalizePath(`${normalizedFolder}/${fallbackFileName}`);
+		return await generateUniqueVaultFilePath(this.app, normalizedFolder, `${baseName}.md`);
 	}
 
 	private buildIRReadingPointContent(
@@ -7639,7 +8449,15 @@ export class WeavePlugin extends Plugin {
 			throw new Error("selection-ir-deck-missing");
 		}
 
-		const folderPath = this.normalizeSelectionQuickCreateFolderPath(payload.folderPath);
+		const folderPath = this.normalizeSelectionQuickCreateFolderPath(
+			payload.folderPath ||
+				resolveIRReadableMarkdownTargetFolder(this.app, {
+					lastSelectedFolder:
+						this.getIncrementalReadingSettings().selectionQuickCreateLastFolder,
+					contextPath: context.file.path,
+					allowActiveFileFallback: true,
+				})
+		);
 		const body = String(context.selectedText || "")
 			.replace(/\r\n?/g, "\n")
 			.trim();
@@ -7680,7 +8498,9 @@ export class WeavePlugin extends Plugin {
 				  )
 				: false;
 
-			window.dispatchEvent(new CustomEvent("Weave:ir-data-updated"));
+			await recomputeAndBroadcastIRData(this.app, "import_materials", {
+				deckIds: [deck.id],
+			});
 			const successNotice = String(context.successNotice || "").trim();
 			if (successNotice) {
 				new Notice(successNotice, 3500);
@@ -7697,7 +8517,10 @@ export class WeavePlugin extends Plugin {
 		} catch (error) {
 			logger.error("[SelectionToIR] 从选区创建增量阅读点失败:", error);
 			if (createdFile) {
-				window.dispatchEvent(new CustomEvent("Weave:ir-data-updated"));
+				broadcastIRDataUpdated(this.app, {
+					reason: "ui_refresh",
+					deckIds: [deck.id],
+				});
 				new Notice("阅读点文件已创建，但加入增量阅读或回写源文档失败，请检查控制台日志", 4500);
 				return;
 			}
@@ -7772,10 +8595,13 @@ export class WeavePlugin extends Plugin {
 			const yamlManager = createYAMLFrontmatterManager(this.app);
 			await yamlManager.updateReadingFields(file, {
 				"weave-reading-ir-deck-id": deckId,
+				"weave-reading-topic-id": deckId,
 			});
 
 			await this.ensureExternalDocumentChunkScheduled(file, deckId, deckName);
-			window.dispatchEvent(new CustomEvent("Weave:ir-data-updated"));
+			await recomputeAndBroadcastIRData(this.app, "import_materials", {
+				deckIds: [deckId],
+			});
 
 			new Notice(`已添加为增量阅读文档：${deckName}`);
 		} catch (error) {
@@ -7787,40 +8613,21 @@ export class WeavePlugin extends Plugin {
 	private async ensureExternalDocumentChunkScheduled(
 		file: TFile,
 		deckId: string,
-		deckName: string
-	): Promise<void> {
-		const storage = new IRStorageService(this.app);
-		await storage.initialize();
-		const chunks = await storage.getAllChunkData();
-
-		const existing = Object.values(chunks).find(
-			(c: any) => (c as any)?.filePath === file.path
-		) as any;
-		const now = Date.now();
-
-		if (existing) {
-			existing.deckIds = [deckId];
-			existing.deckTag = `#IR_deck_${deckName}`;
-			existing.nextRepDate = now;
-			existing.intervalDays = existing.intervalDays || 1;
-			existing.scheduleStatus = "queued";
-			existing.updatedAt = now;
-			(existing.meta as any) = { ...(existing.meta || {}), externalDocument: true };
-			await storage.saveChunkData(existing);
-			return;
+		deckName: string,
+		options?: {
+			autoSubscribedAt?: string;
+			autoSubscribedFolderPath?: string;
+			pinToToday?: boolean;
+			storage?: IRStorageService;
+			existingChunk?: any;
 		}
-
-		const chunkId = generateChunkId();
-		const sourceId = generateSourceId();
-		const chunk = createDefaultChunkFileData(chunkId, sourceId, file.path) as any;
-		chunk.deckIds = [deckId];
-		chunk.deckTag = `#IR_deck_${deckName}`;
-		chunk.nextRepDate = now;
-		chunk.intervalDays = 1;
-		chunk.scheduleStatus = "queued";
-		chunk.updatedAt = now;
-		chunk.meta = { ...(chunk.meta || {}), externalDocument: true };
-		await storage.saveChunkData(chunk);
+	): Promise<boolean> {
+		return await this.getIRHostSharedService().ensureExternalDocumentChunkScheduled(
+			file,
+			deckId,
+			deckName,
+			options
+		);
 	}
 
 	private async ensureIRPdfBookmarkTaskServiceReady(): Promise<IRPdfBookmarkTaskService> {
@@ -7831,204 +8638,16 @@ export class WeavePlugin extends Plugin {
 		return this.irPdfBookmarkTaskService;
 	}
 
-	private async ensureIREpubBookmarkTaskServiceReady(): Promise<IREpubBookmarkTaskService> {
-		if (!this.irEpubBookmarkTaskService) {
-			this.irEpubBookmarkTaskService = new IREpubBookmarkTaskService(this.app);
-		}
-		await this.irEpubBookmarkTaskService.initialize();
-		return this.irEpubBookmarkTaskService;
-	}
-
 	private async resolveIRDeckById(deckId: string): Promise<{ id: string; name: string } | null> {
-		const normalizedDeckId = String(deckId || "").trim();
-		if (!normalizedDeckId) {
-			return null;
-		}
-
-		try {
-			const storage = new IRStorageService(this.app);
-			await storage.initialize();
-			const deck = await storage.getDeck(normalizedDeckId);
-			if (!deck || (deck as any).archivedAt) {
-				return null;
-			}
-
-			return {
-				id: normalizedDeckId,
-				name: String((deck as any).name || "").trim() || "增量阅读",
-			};
-		} catch {
-			return null;
-		}
+		return await this.getIRHostSharedService().resolveIRDeckById(deckId);
 	}
 
 	private async getIRDeckIdentifiers(deck: { id: string; path?: string }): Promise<string[]> {
-		const identifiers = new Set<string>();
-		const deckId = String(deck?.id || "").trim();
-		if (deckId) {
-			identifiers.add(deckId);
-		}
-
-		const deckPath = String(deck?.path || "").trim();
-		if (deckPath) {
-			identifiers.add(deckPath);
-		}
-
-		if (!deckId || deckPath) {
-			return Array.from(identifiers);
-		}
-
-		try {
-			const storage = new IRStorageService(this.app);
-			await storage.initialize();
-			const storedDeck = await storage.getDeck(deckId);
-			const legacyPath = String((storedDeck as any)?.path || "").trim();
-			if (legacyPath) {
-				identifiers.add(legacyPath);
-			}
-		} catch {}
-
-		return Array.from(identifiers);
+		return await this.getIRHostSharedService().getIRDeckIdentifiers(deck);
 	}
 
 	private normalizeEpubBookmarkHref(href: string): string {
-		return String(href || "").trim();
-	}
-
-	private normalizeEpubChapterExportBody(body: string, title: string): string {
-		let normalized = String(body || "")
-			.replace(/\r\n?/g, "\n")
-			.trim();
-
-		const normalizedTitle = this.cleanIRReadingPointTitle(title).toLowerCase();
-		const headingMatch = normalized.match(/^#\s+(.+?)\n+/);
-		if (headingMatch) {
-			const firstHeading = this.cleanIRReadingPointTitle(headingMatch[1]).toLowerCase();
-			if (firstHeading && firstHeading === normalizedTitle) {
-				normalized = normalized.slice(headingMatch[0].length).trim();
-			}
-		}
-
-		return normalized.replace(/\n{3,}/g, "\n\n").trim();
-	}
-
-	private buildEpubChapterMarkdownContent(options: {
-		title: string;
-		body: string;
-		sourceLink?: string;
-		bookTitle?: string;
-		author?: string;
-		assetReplacements?: Map<string, string>;
-	}): string {
-		const title = this.cleanIRReadingPointTitle(options.title) || "EPUB 章节";
-		const body = this.normalizeEpubChapterExportBody(
-			this.replaceEpubExportAssetPlaceholders(options.body, options.assetReplacements),
-			title
-		);
-		const metaLines = [
-			options.bookTitle ? `> 来源书籍：${String(options.bookTitle).trim()}` : "",
-			options.author ? `> 作者：${String(options.author).trim()}` : "",
-			options.sourceLink ? `> EPUB 溯源：${String(options.sourceLink).trim()}` : "",
-		].filter(Boolean);
-
-		const sections = [`# ${title}`, ""];
-		if (metaLines.length > 0) {
-			sections.push(...metaLines, "");
-		}
-		sections.push("## 正文", "", body || "（当前章节暂无可导出的正文内容）", "");
-
-		const markdown = sections.join("\n");
-		return options.sourceLink
-			? createContentWithMetadata({ we_source: options.sourceLink }, markdown)
-			: markdown;
-	}
-
-	private replaceEpubExportAssetPlaceholders(
-		markdown: string,
-		replacements?: Map<string, string>
-	): string {
-		let result = String(markdown || "");
-		if (!replacements || replacements.size === 0) {
-			return result;
-		}
-		for (const [placeholder, replacement] of replacements.entries()) {
-			result = result.split(placeholder).join(replacement);
-		}
-		return result;
-	}
-
-	private async writeEpubChapterExportAssets(
-		notePath: string,
-		assets: Array<{
-			placeholder: string;
-			suggestedName: string;
-			data: Uint8Array;
-			mimeType: string;
-			originalHref?: string;
-		}>
-	): Promise<Map<string, string>> {
-		const replacements = new Map<string, string>();
-		if (!Array.isArray(assets) || assets.length === 0) {
-			return replacements;
-		}
-
-		const assetFolderPath = this.buildEpubChapterAssetFolderPath(notePath);
-		await this.ensureSelectionQuickCreateFolderExists(assetFolderPath);
-		const usedNames = new Set<string>();
-
-		for (const asset of assets) {
-			const placeholder = String(asset?.placeholder || "").trim();
-			if (!placeholder || !(asset?.data instanceof Uint8Array) || asset.data.length === 0) {
-				continue;
-			}
-			const assetPath = await this.generateUniqueEpubAssetPath(
-				assetFolderPath,
-				String(asset.suggestedName || "").trim() || "image"
-			);
-			const assetName = assetPath.split("/").pop() || assetPath;
-			if (usedNames.has(assetName)) {
-				continue;
-			}
-			usedNames.add(assetName);
-			await this.app.vault.createBinary(assetPath, this.uint8ArrayToArrayBuffer(asset.data));
-			replacements.set(placeholder, `![[${assetPath}]]`);
-		}
-
-		return replacements;
-	}
-
-	private buildEpubChapterAssetFolderPath(notePath: string): string {
-		const normalizedNotePath = normalizePath(String(notePath || "").trim());
-		const noteBasePath = normalizedNotePath.replace(/\.md$/i, "");
-		return normalizePath(`${noteBasePath}.assets`);
-	}
-
-	private async generateUniqueEpubAssetPath(folderPath: string, suggestedName: string): Promise<string> {
-		const rawFileName = String(suggestedName || "").trim();
-		const dotIndex = rawFileName.lastIndexOf(".");
-		const baseName = dotIndex > 0 ? rawFileName.slice(0, dotIndex) : rawFileName;
-		const extension = dotIndex > 0 ? rawFileName.slice(dotIndex).toLowerCase() : "";
-		const safeBaseName =
-			this.sanitizeIRReadingPointFileName(baseName || "image").replace(/\.md$/i, "") || "image";
-		let attempt = 0;
-
-		while (attempt < 2000) {
-			const fileName =
-				attempt === 0
-					? `${safeBaseName}${extension}`
-					: `${safeBaseName}-${attempt + 1}${extension}`;
-			const candidatePath = normalizePath(`${folderPath}/${fileName}`);
-			if (!this.app.vault.getAbstractFileByPath(candidatePath)) {
-				return candidatePath;
-			}
-			attempt += 1;
-		}
-
-		return normalizePath(`${folderPath}/${safeBaseName}-${Date.now()}${extension}`);
-	}
-
-	private uint8ArrayToArrayBuffer(data: Uint8Array): ArrayBuffer {
-		return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+		return this.getIRHostSharedService().normalizeEpubBookmarkHref(href);
 	}
 
 	private async readClipboardTextOrPrompt(promptText: string): Promise<string | null> {
@@ -8192,7 +8811,9 @@ export class WeavePlugin extends Plugin {
 			link,
 		});
 
-		window.dispatchEvent(new CustomEvent("Weave:ir-data-updated"));
+		await recomputeAndBroadcastIRData(this.app, "import_materials", {
+			deckIds: [picked.id],
+		});
 		new Notice(`已创建 PDF 书签任务：${picked.name}`);
 	}
 
@@ -8312,7 +8933,16 @@ export class WeavePlugin extends Plugin {
 			}
 		}
 
-		window.dispatchEvent(new CustomEvent("Weave:ir-data-updated"));
+		if (picked) {
+			await recomputeAndBroadcastIRData(this.app, "import_materials", {
+				deckIds: [picked.id],
+			});
+		} else {
+			broadcastIRDataUpdated(this.app, {
+				reason: "ui_refresh",
+				invalidateScheduleCache: false,
+			});
+		}
 		new Notice("已记录 PDF 续读位置");
 	}
 
@@ -8343,72 +8973,10 @@ export class WeavePlugin extends Plugin {
 		const activeFile = this.app.workspace.getActiveFile();
 		if (!activeFile || activeFile.extension !== "pdf") return [];
 
-		const pickPdfView = (): any => {
-			try {
-				const leaves = this.app.workspace.getLeavesOfType?.("pdf") || [];
-				for (const leaf of leaves) {
-					const v: any = leaf?.view;
-					const filePath = v?.file?.path;
-					if (filePath && filePath === activeFile.path) {
-						return v;
-					}
-				}
-			} catch {}
-			return this.app.workspace.getMostRecentLeaf?.()?.view as any;
-		};
-
-		const view = pickPdfView();
-		const pdfDocument =
-			view?.viewer?.pdfViewer?.pdfDocument ||
-			view?.pdfViewer?.pdfDocument ||
-			view?.viewer?.pdfDocument ||
-			view?.pdfDocument;
-		if (!pdfDocument?.getOutline) return [];
-
-		let outline: any[];
-		try {
-			outline = await pdfDocument.getOutline();
-		} catch {
-			outline = [];
-		}
-		if (!Array.isArray(outline) || outline.length === 0) return [];
-
-		const results: Array<{ title: string; pageNumber: number; path: string[] }> = [];
-
-		const resolvePageNumber = async (item: any): Promise<number | null> => {
-			const dest = item?.dest;
-			if (!dest) return null;
-
-			try {
-				const destArray = typeof dest === "string" ? await pdfDocument.getDestination(dest) : dest;
-				if (!Array.isArray(destArray) || destArray.length === 0) return null;
-				const ref = destArray[0];
-				const idx = await pdfDocument.getPageIndex(ref);
-				if (typeof idx !== "number" || Number.isNaN(idx)) return null;
-				return idx + 1;
-			} catch {
-				return null;
-			}
-		};
-
-		const walk = async (items: any[], ancestors: string[]) => {
-			for (const it of items) {
-				const rawTitle = String(it?.title || "").trim();
-				const title = rawTitle || "目录";
-				const nextPath = [...ancestors, title];
-				const pageNumber = await resolvePageNumber(it);
-				if (pageNumber && pageNumber > 0) {
-					results.push({ title, pageNumber, path: nextPath });
-				}
-				const children = it?.items;
-				if (Array.isArray(children) && children.length > 0) {
-					await walk(children, nextPath);
-				}
-			}
-		};
-
-		await walk(outline, []);
-		return results;
+		return getPdfOutlineForFile(this.app, activeFile, {
+			includeEntriesWithoutPage: false,
+			preferOpenView: true,
+		});
 	}
 
 	private async createPdfBookmarkTasksFromOutline(): Promise<void> {
@@ -8481,7 +9049,9 @@ export class WeavePlugin extends Plugin {
 			created++;
 		}
 
-		window.dispatchEvent(new CustomEvent("Weave:ir-data-updated"));
+		await recomputeAndBroadcastIRData(this.app, "import_materials", {
+			deckIds: [picked.id],
+		});
 		new Notice(`已生成 PDF 书签任务：${created} 个（跳过 ${skipped} 个）`);
 	}
 
@@ -8547,7 +9117,7 @@ export class WeavePlugin extends Plugin {
 				await storage.deleteBlocksByFile(file.path);
 			} catch {}
 
-			window.dispatchEvent(new CustomEvent("Weave:ir-data-updated"));
+			await recomputeAndBroadcastIRData(this.app, "ui_refresh");
 			new Notice("已从增量阅读中移除");
 		} catch (error) {
 			logger.error("[WeaveContextMenu] 移除增量阅读文档失败:", error);
@@ -8593,6 +9163,23 @@ export class WeavePlugin extends Plugin {
 	private registerImageMaskFeatures(): void {
 		logger.debug("[Plugin] 注册图片遮罩功能...");
 
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, file, source, leaf) => {
+				if (!(file instanceof TFile) || !this.isSupportedImageMaskFile(file)) {
+					return;
+				}
+
+				menu.addItem((item) => {
+					item
+						.setTitle("Weave 图片遮罩")
+						.setIcon("image")
+						.onClick(async () => {
+							await this.openImageMaskModalForImageFile(file, source, leaf);
+						});
+				});
+			})
+		);
+
 		// 1. 注册编辑器右键菜单
 		this.registerEvent(
 			this.app.workspace.on("editor-menu", (menu, editor, view) => {
@@ -8632,7 +9219,237 @@ export class WeavePlugin extends Plugin {
 			},
 		});
 
-		logger.debug("[Plugin] ✅ 图片遮罩功能已注册");
+		logger.debug("[Plugin] 图片遮罩功能已注册");
+	}
+
+	private async openImageMaskModalForImageFile(
+		imageFile: TFile,
+		source?: string,
+		leaf?: WorkspaceLeaf
+	): Promise<void> {
+		const parser = new MaskDataParser(this.app);
+		const candidateViews = this.getOpenMarkdownViewsForImageMask(leaf);
+		logger.debug("[Plugin] 通过图片右键菜单打开图片遮罩", {
+			imagePath: imageFile.path,
+			source,
+			hasLeaf: !!leaf,
+			candidateViewCount: candidateViews.length,
+		});
+
+		for (const view of candidateViews) {
+			const sourceFilePath = view.file?.path || "";
+			const editor = view.editor;
+			if (!sourceFilePath || !editor) {
+				continue;
+			}
+
+			const content = editor.getValue();
+			const preferredLineIndex = editor.getCursor()?.line;
+			const imageLineNumber = parser.findImageLineForFile(
+				content,
+				sourceFilePath,
+				imageFile.path,
+				preferredLineIndex
+			);
+			if (typeof imageLineNumber !== "number") {
+				continue;
+			}
+
+			await this.openImageMaskModalFromEditor(editor, imageLineNumber, sourceFilePath);
+			return;
+		}
+
+		new Notice("当前打开的 Markdown 笔记中未找到这张图片的引用");
+	}
+
+	private getOpenMarkdownViewsForImageMask(preferredLeaf?: WorkspaceLeaf): MarkdownView[] {
+		const views: MarkdownView[] = [];
+		const seen = new Set<MarkdownView>();
+
+		const preferredView = this.getMarkdownViewForImageMaskLeaf(preferredLeaf);
+		if (preferredView?.file && preferredView.editor) {
+			views.push(preferredView);
+			seen.add(preferredView);
+		}
+
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (activeView?.file && activeView.editor) {
+			if (!seen.has(activeView)) {
+				views.push(activeView);
+				seen.add(activeView);
+			}
+		}
+
+		const workspace = this.app.workspace as any;
+		if (typeof workspace?.iterateAllLeaves !== "function") {
+			return views;
+		}
+
+		try {
+			workspace.iterateAllLeaves((leaf: { view?: MarkdownView }) => {
+				const view = leaf?.view;
+				if (!(view instanceof MarkdownView) || !view.file || !view.editor || seen.has(view)) {
+					return;
+				}
+				seen.add(view);
+				views.push(view);
+			});
+		} catch (error) {
+			logger.warn("[Plugin] 枚举 Markdown 视图失败，图片遮罩将仅使用当前激活视图", error);
+		}
+
+		return views;
+	}
+
+	private getMarkdownViewForImageMaskLeaf(leaf?: WorkspaceLeaf): MarkdownView | null {
+		const view = leaf?.view;
+		return view instanceof MarkdownView && view.file && view.editor ? view : null;
+	}
+
+	private isSupportedImageMaskFile(file: TFile): boolean {
+		return this.supportedImageMaskExtensions.has((file.extension || "").toLowerCase());
+	}
+
+	openSelectedTextAISplitMenu(options: {
+		event: MouseEvent | KeyboardEvent;
+		selectedText: string;
+		onSelectAction: (actionId: string) => void;
+	}): void {
+		const selectedText = options.selectedText?.trim() || "";
+		if (!selectedText) {
+			new Notice("请先选中要拆分的文本");
+			return;
+		}
+
+		const splitActions = get(customActionsForMenu).split;
+		const menu = new Menu();
+
+		if (splitActions.length === 0) {
+			menu.addItem((item) => {
+				item.setTitle("暂无可用的 AI 拆分功能").setDisabled(true);
+			});
+		} else {
+			for (const action of splitActions) {
+				menu.addItem((item) => {
+					item.setTitle(action.name).onClick(() => {
+						options.onSelectAction(action.id);
+					});
+				});
+			}
+		}
+
+		menu.addSeparator();
+		menu.addItem((item) => {
+			item.setTitle("AI拆分配置...").setIcon("settings").onClick(() => {
+				void this.openAISplitConfigModal();
+			});
+		});
+
+		if (options.event instanceof MouseEvent) {
+			menu.showAtMouseEvent(options.event);
+			return;
+		}
+
+		const anchor =
+			options.event.currentTarget instanceof HTMLElement
+				? options.event.currentTarget
+				: options.event.target instanceof HTMLElement
+					? options.event.target
+					: null;
+
+		if (anchor) {
+			const rect = anchor.getBoundingClientRect();
+			menu.showAtPosition({
+				x: Math.round(rect.left),
+				y: Math.round(rect.bottom + 6),
+			});
+			return;
+		}
+
+		menu.showAtPosition({
+			x: Math.round(window.innerWidth / 2),
+			y: Math.round(window.innerHeight / 2),
+		});
+	}
+
+	async openCardBacklinkFromEpub(cardUuid: string): Promise<void> {
+		const normalizedCardUuid = String(cardUuid || "").trim();
+		if (!normalizedCardUuid) {
+			new Notice("未找到可定位的卡片");
+			return;
+		}
+
+		try {
+			const canUseGridView = PremiumFeatureGuard.getInstance().canUseFeature(
+				PREMIUM_FEATURES.GRID_VIEW,
+				{ page: "weave-card-management" }
+			);
+			const targetView: "grid" | "table" = canUseGridView ? "grid" : "table";
+			const filterRequest = {
+				requestId: `epub-backlink-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+				cardIds: [normalizedCardUuid],
+				filterName: "EPUB 摘录来源卡片",
+				replaceExisting: true,
+				targetView,
+				selectCards: true,
+				scrollToCard: true,
+			};
+
+			weaveMainInterfaceStore.setCurrentPage("weave-card-management");
+			await this.activateView(VIEW_TYPE_WEAVE);
+
+			window.dispatchEvent(
+				new CustomEvent("Weave:navigate", {
+					detail: "weave-card-management",
+				})
+			);
+
+			window.setTimeout(() => {
+				dispatchCardManagementFilterByCards(filterRequest);
+			}, 160);
+
+			new Notice("已在卡片管理中定位该摘录卡片");
+		} catch (error) {
+			logger.error("[WeavePlugin] openCardBacklinkFromEpub failed:", error);
+			new Notice("打开摘录来源卡片失败");
+		}
+	}
+
+	async openAISplitConfigModal(options?: {
+		availableDecks?: Deck[];
+		title?: string;
+		onClose?: () => void;
+	}): Promise<void> {
+		try {
+			const { availableDecks, title, onClose } = options || {};
+
+			if (this.currentAIActionManagerModal) {
+				this.currentAIActionManagerModal.close();
+				this.currentAIActionManagerModal = null;
+			}
+
+			const resolvedDecks =
+				availableDecks && availableDecks.length > 0
+					? availableDecks
+					: ((await this.dataStorage?.getDecks?.()) || []);
+
+			const modal = new AIActionManagerObsidian(this.app, {
+				plugin: this,
+				availableDecks: resolvedDecks,
+				allowedTypes: ["split"],
+				title: title || "AI拆分配置",
+				onClose: () => {
+					this.currentAIActionManagerModal = null;
+					onClose?.();
+				},
+			});
+
+			this.currentAIActionManagerModal = modal;
+			modal.open();
+		} catch (error) {
+			logger.error("[openAISplitConfigModal] 打开失败:", error);
+			new Notice("打开 AI拆分配置失败");
+		}
 	}
 
 	private registerSelectedTextAICardFeatures(): void {
@@ -8689,7 +9506,6 @@ export class WeavePlugin extends Plugin {
 								subItem.setTitle("主动提问...").onClick(() => {
 									this.selectedTextAICardPanelManager?.openPanel({
 										view,
-										editor,
 										selectedText: selection,
 										actionId: "Weave:proactive-question",
 									});
@@ -8708,7 +9524,6 @@ export class WeavePlugin extends Plugin {
 										subItem.setTitle(action.name).onClick(() => {
 											this.selectedTextAICardPanelManager?.openPanel({
 												view,
-												editor,
 												selectedText: selection,
 												actionId: action.id,
 											});
@@ -8716,6 +9531,13 @@ export class WeavePlugin extends Plugin {
 									});
 								});
 							}
+
+							submenu.addSeparator();
+							submenu.addItem((subItem) => {
+								subItem.setTitle("AI拆分配置...").setIcon("settings").onClick(() => {
+									void this.openAISplitConfigModal();
+								});
+							});
 						});
 					} catch {}
 				})
@@ -8740,14 +9562,12 @@ export class WeavePlugin extends Plugin {
 
 		this.openSelectedTextAICardActionSelector({
 			view: mdView,
-			editor,
 			selectedText: selection,
 		});
 	}
 
 	private openSelectedTextAICardActionSelector(params: {
 		view: MarkdownView;
-		editor: Editor;
 		selectedText: string;
 	}): void {
 		const actions = get(customActionsForMenu).split;
@@ -8767,7 +9587,6 @@ export class WeavePlugin extends Plugin {
 		const modal = new SelectedTextAICardActionSuggestModal(this.app, items, (item) => {
 			this.selectedTextAICardPanelManager?.openPanel({
 				view: params.view,
-				editor: params.editor,
 				selectedText: params.selectedText,
 				actionId: item.id,
 			});
@@ -8776,7 +9595,7 @@ export class WeavePlugin extends Plugin {
 	}
 
 	/**
-	 * 🖼️ 从编辑器打开图片遮罩模态窗
+	 * 从编辑器打开图片遮罩模态窗
 	 */
 	private async openImageMaskModalFromEditor(
 		editor: import("obsidian").Editor,
@@ -8812,7 +9631,15 @@ export class WeavePlugin extends Plugin {
 			if (commentLocation.found && commentLocation.content) {
 				const parseResult = parser.parseCommentToMaskData(commentLocation.content);
 				if (parseResult.success) {
-					initialMaskData = parseResult.data || null;
+					initialMaskData = parseResult.data
+						? {
+							...parseResult.data,
+							target:
+								parseResult.data.target ||
+								parser.buildMaskTargetForImage(content, lineNumber, sourceFilePath) ||
+								parseResult.data.target,
+						}
+						: null;
 				}
 			}
 
@@ -8823,7 +9650,7 @@ export class WeavePlugin extends Plugin {
 				imageFile,
 				initialMaskData,
 				onSave: async (maskData) => {
-					await this.saveMaskData(editor, lineNumber, maskData, parser);
+					await this.saveMaskData(editor, lineNumber, maskData, parser, sourceFilePath);
 				},
 			});
 
@@ -8835,22 +9662,31 @@ export class WeavePlugin extends Plugin {
 	}
 
 	/**
-	 * 🖼️ 保存遮罩数据到编辑器
-	 * 🔧 修复：删除遮罩后清理注释数据
+	 * 保存遮罩数据到编辑器
+	 * 修复：删除遮罩后清理注释数据，并为新数据补充稳定 target
 	 */
 	private async saveMaskData(
 		editor: import("obsidian").Editor,
 		imageLineNumber: number,
 		maskData: import("./types/image-mask-types").MaskData,
-		parser: import("./services/image-mask/MaskDataParser").MaskDataParser
+		parser: import("./services/image-mask/MaskDataParser").MaskDataParser,
+		sourceFilePath: string
 	): Promise<void> {
 		try {
 			// 检查是否已存在注释
 			const content = editor.getValue();
 			const commentLocation = parser.findMaskCommentForImage(content, imageLineNumber);
+			const enrichedMaskData = maskData.target
+				? maskData
+				: {
+					...maskData,
+					target:
+						parser.buildMaskTargetForImage(content, imageLineNumber, sourceFilePath) ||
+						maskData.target,
+				};
 
-			// 🔧 修复：如果遮罩为空，删除注释行
-			if (maskData.masks.length === 0) {
+			// 修复：如果遮罩为空，删除注释行
+			if (enrichedMaskData.masks.length === 0) {
 				if (commentLocation.found && typeof commentLocation.line === "number") {
 					// 删除整行（包括换行符）
 					const _lineContent = editor.getLine(commentLocation.line);
@@ -8868,7 +9704,7 @@ export class WeavePlugin extends Plugin {
 			}
 
 			// 生成 HTML 注释
-			const comment = parser.maskDataToComment(maskData);
+			const comment = parser.maskDataToComment(enrichedMaskData);
 
 			if (commentLocation.found && typeof commentLocation.line === "number") {
 				// 更新现有注释
@@ -8897,7 +9733,7 @@ export class WeavePlugin extends Plugin {
 	}
 
 	/**
-	 * 🖼️ 检测文本行是否包含图片链接
+	 * 检测文本行是否包含图片链接
 	 */
 	private hasImageLink(line: string): boolean {
 		try {
@@ -8981,7 +9817,7 @@ export class WeavePlugin extends Plugin {
 		}
 	}
 
-	private initializeTabletSupport(): void {
+	private async initializeTabletSupport(): Promise<void> {
 		try {
 			// 检测当前设备类型
 			const deviceInfo = detectDevice();
@@ -9033,10 +9869,17 @@ export class WeavePlugin extends Plugin {
 
 			// 在开发环境启用调试工具（不显示浮窗）
 			if (process.env.NODE_ENV === "development") {
-				tabletDebugger.enable({
-					showDebugInfo: false, // 禁用设备信息浮窗
-					logDeviceChanges: false, // 禁用设备变化日志
-				});
+				void import("./utils/tablet-debug")
+					.then(({ tabletDebugger, initializeGlobalTabletDebugTools }) => {
+						initializeGlobalTabletDebugTools();
+						tabletDebugger.enable({
+							showDebugInfo: false,
+							logDeviceChanges: false,
+						});
+					})
+					.catch((error) => {
+						logger.warn("[平板端适配] 开发调试工具初始化失败:", error);
+					});
 			}
 
 			// 添加全局设备信息到window（供其他组件使用）
@@ -9087,7 +9930,7 @@ export class WeavePlugin extends Plugin {
 					const currentWidth = _button.offsetWidth;
 
 					if (currentHeight < 44 || currentWidth < 44) {
-						_button.setCssProps({
+						applyStyleProps(_button, {
 							"min-height": "44px",
 							"min-width": "44px",
 						});
@@ -9101,7 +9944,7 @@ export class WeavePlugin extends Plugin {
 			);
 			scrollContainers.forEach((_container) => {
 				if (_container instanceof HTMLElement) {
-					_container.setCssProps({
+					applyStyleProps(_container, {
 						"-webkit-overflow-scrolling": "touch",
 						"overscroll-behavior": "contain",
 					});

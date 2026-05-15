@@ -1,11 +1,24 @@
 import type { App } from "obsidian";
-import { MarkdownPostProcessorContext, setIcon } from "obsidian";
+import { MarkdownPostProcessorContext, TFile, setIcon } from "obsidian";
 import { EpubLinkService } from "./EpubLinkService";
+import { isSupportedEpubProtocolName } from "./epub-runtime";
 
 type BoundEpubLinkElement = HTMLAnchorElement & {
 	__weaveEpubClickHandler?: (event: MouseEvent) => void;
 	__weaveEpubBoundHref?: string;
 };
+
+function extractEpubProtocolName(href: string): string {
+	const normalizedHref = String(href || "").trim();
+	if (!normalizedHref) {
+		return "";
+	}
+
+	const withoutScheme = normalizedHref.startsWith("obsidian://")
+		? normalizedHref.slice("obsidian://".length)
+		: normalizedHref;
+	return withoutScheme.split("?")[0]?.trim() || "";
+}
 
 function clearBoundEpubHandler(linkEl: BoundEpubLinkElement): void {
 	if (linkEl.__weaveEpubClickHandler) {
@@ -16,7 +29,35 @@ function clearBoundEpubHandler(linkEl: BoundEpubLinkElement): void {
 }
 
 export function createEpubLinkPostProcessor(app: App) {
-	return (el: HTMLElement, _ctx: MarkdownPostProcessorContext) => {
+	const migratedSourcePaths = new Set<string>();
+	return (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
+		const sourcePath = String(ctx?.sourcePath || "").trim();
+		if (sourcePath && !migratedSourcePaths.has(sourcePath)) {
+			migratedSourcePaths.add(sourcePath);
+			queueMicrotask(async () => {
+				try {
+					const sourceFile = app.vault.getAbstractFileByPath(sourcePath);
+					if (!(sourceFile instanceof TFile) || sourceFile.extension !== "md") {
+						return;
+					}
+					const originalContent = await app.vault.cachedRead(sourceFile);
+					const linkService = new EpubLinkService(app);
+					const migration = await linkService.enrichEpubLinksWithSourceIdsInContent(
+						originalContent,
+						sourcePath
+					);
+					if (!migration.changed || migration.content === originalContent) {
+						return;
+					}
+					await app.vault.process(sourceFile, (content) =>
+						content === originalContent ? migration.content : content
+					);
+				} catch {
+					// ignore background enrichment failures
+				}
+			});
+		}
+
 		const links = el.querySelectorAll("a");
 
 		links.forEach((linkEl) => {
@@ -64,6 +105,15 @@ export function createEpubLinkPostProcessor(app: App) {
 					e.preventDefault();
 					e.stopImmediatePropagation();
 					const linkService = new EpubLinkService(app);
+					if (parsed.sourceId) {
+						await linkService.navigateToEpubLocation(
+							filePath,
+							parsed.cfi,
+							parsed.text,
+							parsed.sourceId
+						);
+						return;
+					}
 					await linkService.navigateToEpubLocation(filePath, parsed.cfi, parsed.text);
 				};
 				linkEl.addEventListener("click", boundLinkEl.__weaveEpubClickHandler);
@@ -72,18 +122,18 @@ export function createEpubLinkPostProcessor(app: App) {
 
 			clearBoundEpubHandler(boundLinkEl);
 
-			// Legacy protocol format: obsidian://weave-epub?...
-			if (!href.includes("weave-epub")) return;
+			const protocolName = extractEpubProtocolName(href);
+			if (!isSupportedEpubProtocolName(protocolName)) return;
 
 			try {
 				const url = new URL(href.startsWith("obsidian://") ? href : `obsidian://${href}`);
 				const params = Object.fromEntries(url.searchParams.entries());
-				if (!params.file || !params.cfi) return;
+				if ((!params.file && !params.sid) || !params.cfi) return;
 
 				const displayText = params.text
 					? decodeURIComponent(params.text)
 					: linkEl.textContent ||
-					  decodeURIComponent(params.file)
+					  decodeURIComponent(params.file || "")
 							.split("/")
 							.pop()
 							?.replace(/\.epub$/i, "") ||

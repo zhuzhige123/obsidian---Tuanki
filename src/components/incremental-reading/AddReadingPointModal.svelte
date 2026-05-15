@@ -9,7 +9,7 @@
 <script lang="ts">
   import { Notice } from 'obsidian';
   import type { WeavePlugin } from '../../main';
-  import { IRPdfBookmarkTaskService } from '../../services/incremental-reading/IRPdfBookmarkTaskService';
+  import { IRPointWriteService } from '../../services/incremental-reading/IRPointWriteService';
   import { recomputeAndBroadcastIRData } from '../../services/incremental-reading/IRScheduleRefreshService';
   import { parsePdfCallouts } from '../../utils/pdf-callout-parser';
   import type { ParsedReadingPoint } from '../../utils/pdf-callout-parser';
@@ -99,12 +99,11 @@
 
     creating = true;
     try {
-      const pdfService = new IRPdfBookmarkTaskService(plugin.app);
-      await pdfService.initialize();
+      const pointWriteService = new IRPointWriteService(plugin.app);
 
       let createdCount = 0;
       for (const pt of parsedPoints) {
-        await pdfService.createTask({
+        await pointWriteService.createPdfPoint({
           deckId,
           pdfPath,
           title: pt.title,

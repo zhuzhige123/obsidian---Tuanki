@@ -319,7 +319,8 @@ logger.info('[兄弟分散设置] 配置已保存:', siblingConfig);
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0;
+    padding-bottom: 0.4rem;
   }
 
   .icon-button {
@@ -358,15 +359,7 @@ logger.info('[兄弟分散设置] 配置已保存:', siblingConfig);
 
   /* ===== 设置行 ===== */
   .row {
-    display: flex;
-    justify-content: space-between;
     align-items: flex-start;
-    padding: 12px 0;
-    border-bottom: 1px solid var(--background-modifier-border);
-  }
-
-  .row:last-child {
-    border-bottom: none;
   }
 
   .setting-label-group {

@@ -9,9 +9,17 @@
     onTabChange: (tabId: string) => void;
     useObsidianIcons?: boolean;
     toolbarStyle?: boolean;
+    variant?: 'default' | 'plain';
   }
 
-  let { tabs, activeTab, onTabChange, useObsidianIcons = false, toolbarStyle = false }: Props = $props();
+  let {
+    tabs,
+    activeTab,
+    onTabChange,
+    useObsidianIcons = false,
+    toolbarStyle = false,
+    variant = 'default'
+  }: Props = $props();
 
   // 检测是否为图标模式（所有标签都没有label）
   let isIconOnly = $derived(tabs.every(tab => !tab.label));
@@ -40,6 +48,7 @@
 <div 
   class="tab-navigation"
   class:weave-toolbar-tabs={toolbarStyle}
+  class:tab-navigation--plain={variant === 'plain'}
   class:icon-only={isIconOnly}
   role="tablist"
   tabindex="0"
@@ -125,6 +134,41 @@
     white-space: nowrap;
   }
 
+  .tab-navigation--plain {
+    background: transparent;
+    border-radius: 0;
+    padding: 0;
+    gap: 0.35rem;
+  }
+
+  .tab-navigation--plain .tab-button {
+    border-radius: var(--radius-s, 8px);
+    padding: 0.45rem 0.85rem;
+    background: transparent;
+    color: var(--text-muted);
+    box-shadow: none;
+  }
+
+  .tab-navigation--plain .tab-button:hover:not(.disabled) {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+  }
+
+  .tab-navigation--plain .tab-button.active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    box-shadow: none;
+  }
+
+  .tab-navigation--plain .tab-button.active:hover:not(.disabled) {
+    background: var(--interactive-accent-hover);
+    color: var(--text-on-accent);
+  }
+
+  .tab-navigation--plain .tab-button:focus-visible {
+    outline-offset: 2px;
+  }
+
   /* 响应式适配 */
   @media (max-width: 600px) {
     .tab-label {
@@ -134,6 +178,10 @@
     .tab-button {
       padding: 5px 10px;
       gap: 4px;
+    }
+
+    .tab-navigation--plain .tab-button {
+      padding: 0.45rem 0.75rem;
     }
   }
 

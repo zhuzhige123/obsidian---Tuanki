@@ -13,8 +13,8 @@
   import { onMount } from 'svelte';
   import { Notice, Menu } from 'obsidian';
   import { tr as trStore } from '../../../utils/i18n';
-  import type WeavePlugin from '../../../main';
   import type { IRTagGroup, IRTagGroupProfile } from '../../../types/ir-types';
+  import type { IncrementalReadingSettingsHost } from '../types/incremental-reading-settings-host';
   import { DEFAULT_TAG_GROUP_PROFILE } from '../../../types/ir-types';
   import EnhancedIcon from '../../ui/EnhancedIcon.svelte';
   import IRTagGroupEditor from './IRTagGroupEditor.svelte';
@@ -26,7 +26,7 @@
   let t = $derived($trStore);
 
   interface Props {
-    plugin: WeavePlugin;
+    plugin: IncrementalReadingSettingsHost;
   }
 
   let { plugin }: Props = $props();
@@ -38,11 +38,20 @@
   let isLoading = $state(true);
   let showEditor = $state(false);
   let editingGroup = $state<IRTagGroup | null>(null);
+  let editingProfile = $state<IRTagGroupProfile | null>(null);
+  let deckScopes = $state<Array<{ topicId: string; topicName: string }>>([]);
+  let editingScopeTopicIds = $state<string[]>([]);
   let loadError = $state<string | null>(null);
   let hasInitialized = $state(false);
   let showStatsModal = $state(false);
   let statsGroup = $state<IRTagGroup | null>(null);
   let statsProfile = $state<IRTagGroupProfile | null>(null);
+
+  type EditorSavePayload = {
+    group: IRTagGroup;
+    profile: IRTagGroupProfile;
+    targetTopicIds: string[];
+  };
 
   // 获取或创建服务
   async function getOrCreateService(): Promise<IRTagGroupService> {
@@ -71,6 +80,7 @@
       
       // 获取所有标签组
       const allGroups = await service.getAllGroups();
+      deckScopes = await service.getDeckScopes();
       tagGroups = allGroups.filter(g => g.id !== 'default');
       
       // 获取统计信息
@@ -101,12 +111,22 @@
   // 新建标签组
   function handleCreate() {
     editingGroup = null;
+    editingProfile = null;
+    editingScopeTopicIds = deckScopes.map((scope) => scope.topicId);
     showEditor = true;
   }
 
   // 编辑标签组
-  function handleEdit(group: IRTagGroup) {
+  async function handleEdit(group: IRTagGroup) {
+    const service = await getOrCreateService();
     editingGroup = { ...group };
+    editingProfile = profiles[group.id]
+      ? { ...profiles[group.id] }
+      : { ...DEFAULT_TAG_GROUP_PROFILE, groupId: group.id };
+    const scopedTopicIds = await service.getGroupScopeTopicIds(group.id);
+    editingScopeTopicIds = scopedTopicIds.length > 0
+      ? scopedTopicIds
+      : deckScopes.map((scope) => scope.topicId);
     showEditor = true;
   }
 
@@ -159,20 +179,29 @@
   }
 
   // 保存标签组
-  async function handleSave(group: IRTagGroup) {
+  async function handleSave(payload: EditorSavePayload) {
     try {
       const service = await getOrCreateService();
 
-      // saveGroup 同时适用于新建和编辑，确保 matchSource 等完整字段被保存
-      await service.saveGroup(group);
-      // 确保新建时 profile 存在
-      if (!editingGroup) {
-        await service.getProfile(group.id);
-      }
-      new Notice(editingGroup ? t('irTagGroup.updated', { name: group.name }) : t('irTagGroup.created', { name: group.name }));
+      const groupResult = await service.saveGroup(payload.group, {
+        targetTopicIds: payload.targetTopicIds
+      });
+      const profileResult = await service.saveProfile(payload.profile, {
+        targetTopicIds: payload.targetTopicIds
+      });
+      const affectedTopicIds = Array.from(new Set([
+        ...groupResult.affectedTopicIds,
+        ...profileResult.affectedTopicIds
+      ]));
+      const actionNotice = editingGroup
+        ? t('irTagGroup.updated', { name: payload.group.name })
+        : t('irTagGroup.created', { name: payload.group.name });
+      new Notice(`${actionNotice}，已同步到 ${affectedTopicIds.length} 个专题文件`);
 
       showEditor = false;
       editingGroup = null;
+      editingProfile = null;
+      editingScopeTopicIds = [];
       
       // 重新加载数据
       hasInitialized = false;
@@ -186,6 +215,8 @@
   function handleCloseEditor() {
     showEditor = false;
     editingGroup = null;
+    editingProfile = null;
+    editingScopeTopicIds = [];
   }
 
   // 格式化参数显示
@@ -206,7 +237,9 @@
     menu.addItem((item) => {
       item.setTitle('编辑')
         .setIcon('edit-2')
-        .onClick(() => handleEdit(group));
+        .onClick(() => {
+          void handleEdit(group);
+        });
     });
     
     menu.addSeparator();
@@ -313,6 +346,9 @@
   <IRTagGroupEditor
     {plugin}
     group={editingGroup}
+    profile={editingProfile}
+    availableScopes={deckScopes}
+    selectedScopeTopicIds={editingScopeTopicIds}
     onSave={handleSave}
     onCancel={handleCloseEditor}
   />

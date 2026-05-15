@@ -2,6 +2,7 @@ import { App, Modal } from "obsidian";
 import { mount, unmount } from "svelte";
 import type WeavePlugin from "../../main";
 import type { BatchImportResult } from "../../services/incremental-reading/ReadingMaterialManager";
+import { configureWeaveObsidianModalLayout } from "../../utils/obsidian-modal-layout";
 import MaterialImportModal from "./MaterialImportModal.svelte";
 
 export interface MaterialImportModalObsidianOptions {
@@ -21,27 +22,9 @@ export class MaterialImportModalObsidian extends Modal {
 
 	onOpen() {
 		this.setTitle("导入阅读材料");
-		this.modalEl.addClass("weave-material-import-modal");
-		this.modalEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			width: "92vw",
-			"max-width": "1120px",
-			height: "84vh",
-			"max-height": "84vh",
-			"min-height": "0",
-			overflow: "hidden",
-		});
-
-		this.contentEl.empty();
-		this.contentEl.addClass("weave-material-import-modal-content");
-		this.contentEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			flex: "1",
-			"min-height": "0",
-			padding: "0",
-			overflow: "hidden",
+		configureWeaveObsidianModalLayout(this, {
+			modalClass: "weave-material-import-modal",
+			contentClass: "weave-material-import-modal-content",
 		});
 
 		this.component = mount(MaterialImportModal, {

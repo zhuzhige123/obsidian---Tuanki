@@ -1,40 +1,26 @@
 <!--
   增量阅读负载预测模态窗组件
-  显示增量阅读内容块的未来负载预测曲线
+  统一通过 IRAnalyticsService 提供 forecast / session 快照
 -->
 <script lang="ts">
-  import { logger } from '../../utils/logger';
-  import { onMount, onDestroy } from 'svelte';
-  import { Platform, Menu } from 'obsidian';
+  import { onDestroy, onMount } from 'svelte';
+  import { Menu, Platform } from 'obsidian';
   import type AnkiObsidianPlugin from '../../main';
+  import type {
+    IRAnalyticsForecastPoint,
+    IRLoadForecastSnapshot,
+    IRStudySessionSnapshot
+  } from '../../services/incremental-reading/IRAnalyticsService';
+  import { IRAnalyticsService } from '../../services/incremental-reading/IRAnalyticsService';
+  import type { IRDeck } from '../../types/ir-types';
+  import { createManagedChartRuntime } from '../../utils/chart-runtime';
+  import { createGradient } from '../../utils/echarts-theme';
+  import { getMobileChartTooltipPosition } from '../../utils/chart-tooltip';
+  import { logger } from '../../utils/logger';
+  import IRActivityHeatmap from '../analytics/IRActivityHeatmap.svelte';
+  import IRStudySessionChart from '../analytics/IRStudySessionChart.svelte';
   import ResizableModal from '../ui/ResizableModal.svelte';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
-  import type { IRDeck, IRChunkFileData, IRBlock } from '../../types/ir-types';
-  import { IRStorageService } from '../../services/incremental-reading/IRStorageService';
-  import { IRPdfBookmarkTaskService } from '../../services/incremental-reading/IRPdfBookmarkTaskService';
-  import { IREpubBookmarkTaskService } from '../../services/incremental-reading/IREpubBookmarkTaskService';
-  import { getChunkTopicIds, getTaskTopicId } from '../../utils/ir-topic-compat';
-  import IRStudySessionChart from '../analytics/IRStudySessionChart.svelte';
-  import IRActivityHeatmap from '../analytics/IRActivityHeatmap.svelte';
-  import * as echarts from 'echarts/core';
-  import {
-    TooltipComponent,
-    GridComponent,
-    LegendComponent,
-    MarkLineComponent
-  } from 'echarts/components';
-  import { LineChart, BarChart } from 'echarts/charts';
-  import { CanvasRenderer } from 'echarts/renderers';
-
-  echarts.use([
-    TooltipComponent,
-    GridComponent,
-    LegendComponent,
-    MarkLineComponent,
-    LineChart,
-    BarChart,
-    CanvasRenderer
-  ]);
 
   interface Props {
     open: boolean;
@@ -43,26 +29,14 @@
     initialDeckId?: string;
   }
 
-  let { open = $bindable(), onClose, plugin, initialDeckId }: Props = $props();
-
-  // 标签页状态
   type TabType = 'loadRatio' | 'loadForecast' | 'studySessions' | 'activityHeatmap';
-  let activeTab = $state<TabType>('loadRatio');
 
-  // 图表容器引用
-  let loadForecastChartRef: HTMLDivElement | null = $state(null);
-  let loadForecastChart: echarts.ECharts | null = null;
-  let loadRatioChartRef: HTMLDivElement | null = $state(null);
-  let loadRatioChart: echarts.ECharts | null = null;
-  let themeObserver: MutationObserver | null = null;
+  interface ForecastStatusInfo {
+    label: string;
+    color: string;
+  }
 
-  // 牌组选择相关
-  let allIRDecks = $state<IRDeck[]>([]);
-  let selectedDeckIds = $state<Set<string>>(new Set());
-  let showGlobalLoad = $state(false);
-
-  // 时间范围
-  let selectedDays = $state(30);
+  const isMobile = Platform.isMobile;
   const quickRangeOptions = [
     { value: 7, label: '7天' },
     { value: 14, label: '14天' },
@@ -71,716 +45,393 @@
     { value: 90, label: '90天' }
   ];
 
-  // 移动端检测
-  const isMobile = Platform.isMobile;
+  let { open = $bindable(), onClose, plugin, initialDeckId }: Props = $props();
+  let activeTab = $state<TabType>('loadRatio');
+  let allIRDecks = $state<IRDeck[]>([]);
+  let selectedDeckIds = $state<Set<string>>(new Set());
+  let showGlobalLoad = $state(false);
+  let selectedDays = $state(30);
+  let analyticsService = $state<IRAnalyticsService | null>(null);
+  let forecastSnapshot = $state<IRLoadForecastSnapshot | null>(null);
+  let sessionSnapshot = $state<IRStudySessionSnapshot | null>(null);
+  let isLoading = $state(false);
+  let loadError = $state('');
+  let loadRequestId = 0;
+  let loadForecastChartRef = $state<HTMLDivElement | null>(null);
+  let loadRatioChartRef = $state<HTMLDivElement | null>(null);
 
-  // 负载状态类型和常量
-  type LoadStatus = 'low' | 'normal' | 'high' | 'overload';
-  const LoadStatus = {
-    LOW: 'low' as LoadStatus,
-    NORMAL: 'normal' as LoadStatus,
-    HIGH: 'high' as LoadStatus,
-    OVERLOAD: 'overload' as LoadStatus
-  };
-
-  // 获取主题颜色
-  function getThemeColors() {
-    const isDark = document.body.classList.contains('theme-dark');
-    return {
-      textColor: isDark ? '#e0e0e0' : '#2c3e50',
-      axisLineColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)',
-      splitLineColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-      tooltipBg: isDark ? '#1a1a1a' : '#ffffff',
-      tooltipBorder: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)'
-    };
-  }
-
-  // 移动端tooltip位置
-  function getMobileTooltipPosition(point: number[], params: any, dom: HTMLElement, rect: any, size: any) {
-    if (!isMobile) return null;
-    const viewWidth = size.viewSize[0];
-    const contentWidth = size.contentSize[0];
-    const contentHeight = size.contentSize[1];
-    let x = point[0] - contentWidth / 2;
-    if (x < 10) x = 10;
-    if (x + contentWidth > viewWidth - 10) x = viewWidth - contentWidth - 10;
-    let y = point[1] - contentHeight - 30;
-    if (y < 10) y = 10;
-    return [x, y];
-  }
-
-  // 获取负载状态信息
-  function getLoadStatusInfo(status: LoadStatus) {
-    switch (status) {
-      case LoadStatus.LOW:
-        return { label: '负载低', color: '#51cf66' };
-      case LoadStatus.NORMAL:
-        return { label: '正常', color: '#4dabf7' };
-      case LoadStatus.HIGH:
-        return { label: '负载高', color: '#ffd43b' };
-      case LoadStatus.OVERLOAD:
-        return { label: '过载', color: '#ff6b6b' };
-      default:
-        return { label: '正常', color: '#4dabf7' };
+  async function getAnalyticsService(): Promise<IRAnalyticsService> {
+    if (!analyticsService) {
+      analyticsService = new IRAnalyticsService(plugin.app);
+      await analyticsService.initialize();
     }
+    return analyticsService;
   }
 
-  function buildSessionTotalsByBlockId(sessions: Array<{ blockId?: string; duration?: number }> | undefined | null): Map<string, number> {
-    const totals = new Map<string, number>();
-    for (const session of sessions || []) {
-      const blockId = String(session?.blockId || '').trim();
-      const duration = Number(session?.duration || 0);
-      if (!blockId || duration <= 0) continue;
-      totals.set(blockId, (totals.get(blockId) || 0) + duration);
-    }
-    return totals;
+  function getSelectedDeckIdArray(): string[] | undefined {
+    return showGlobalLoad ? undefined : Array.from(selectedDeckIds);
   }
 
-  // IR存储服务实例
-  let irStorage: IRStorageService | null = null;
-
-  // 初始化IR存储服务
-  async function initIRStorage(): Promise<IRStorageService> {
-    if (!irStorage) {
-      irStorage = new IRStorageService(plugin.app);
-      await irStorage.initialize();
-    }
-    return irStorage;
-  }
-
-  // 加载IR牌组列表
-  async function loadIRDecks() {
+  async function loadIRDecks(): Promise<void> {
     try {
-      const storage = await initIRStorage();
-      const decksData = await storage.getAllDecks();
-      allIRDecks = Object.values(decksData);
-      
-      if (initialDeckId && allIRDecks.some(d => d.id === initialDeckId)) {
-        selectedDeckIds = new Set([initialDeckId]);
-      } else if (allIRDecks.length > 0) {
-        selectedDeckIds = new Set([allIRDecks[0].id]);
+      const service = await getAnalyticsService();
+      const decks = await service.getAvailableDecks();
+      allIRDecks = decks;
+
+      if (selectedDeckIds.size > 0) {
+        const validIds = new Set(decks.map((deck) => deck.id));
+        selectedDeckIds = new Set(Array.from(selectedDeckIds).filter((deckId) => validIds.has(deckId)));
       }
-      
-      logger.debug('[IRLoadForecast] 加载IR牌组:', allIRDecks.length);
+
+      if (selectedDeckIds.size === 0 && decks.length > 0) {
+        const preferredDeck = decks.find((deck) => deck.id === initialDeckId || deck.path === initialDeckId);
+        selectedDeckIds = new Set([preferredDeck?.id || decks[0].id]);
+      }
     } catch (error) {
       logger.error('[IRLoadForecast] 加载牌组失败:', error);
+      allIRDecks = [];
+      selectedDeckIds = new Set();
     }
   }
 
-  // 切换标签页
+  async function loadSnapshots(): Promise<void> {
+    const requestId = ++loadRequestId;
+    isLoading = true;
+    loadError = '';
+
+    try {
+      const service = await getAnalyticsService();
+      const deckIds = getSelectedDeckIdArray();
+      const [nextForecastSnapshot, nextSessionSnapshot] = await Promise.all([
+        service.getLoadForecastSnapshot({
+          deckIds,
+          days: selectedDays
+        }),
+        service.getStudySessionSnapshot({
+          deckIds
+        })
+      ]);
+
+      if (requestId !== loadRequestId) return;
+      forecastSnapshot = nextForecastSnapshot;
+      sessionSnapshot = nextSessionSnapshot;
+    } catch (error) {
+      if (requestId !== loadRequestId) return;
+      logger.error('[IRLoadForecast] 加载分析快照失败:', error);
+      loadError = '分析数据加载失败';
+      forecastSnapshot = null;
+      sessionSnapshot = null;
+    } finally {
+      if (requestId !== loadRequestId) return;
+      isLoading = false;
+    }
+  }
+
+  function getForecastStatusInfo(
+    point: IRAnalyticsForecastPoint,
+    theme: {
+      loadStatusColors: { low: string; normal: string; high: string; overload: string };
+    }
+  ): ForecastStatusInfo {
+    if (point.totalEstimatedMinutes <= 0 && point.itemCount <= 0) {
+      return { label: '负载低', color: theme.loadStatusColors.low };
+    }
+    if (point.overloadLevel === 'overloaded') {
+      return { label: '过载', color: theme.loadStatusColors.overload };
+    }
+    if (point.overloadLevel === 'warning') {
+      return { label: '负载高', color: theme.loadStatusColors.high };
+    }
+    return { label: '正常', color: theme.loadStatusColors.normal };
+  }
+
+  function getRatioColor(
+    ratio: number,
+    theme: {
+      loadStatusColors: { low: string; normal: string; high: string; overload: string };
+    }
+  ): string {
+    if (ratio <= 50) return theme.loadStatusColors.low;
+    if (ratio <= 80) return theme.loadStatusColors.normal;
+    if (ratio <= 120) return theme.loadStatusColors.high;
+    return theme.loadStatusColors.overload;
+  }
+
+  const loadForecastChartRuntime = createManagedChartRuntime<IRLoadForecastSnapshot>({
+    buildOption(snapshot, theme) {
+      const dates = snapshot.forecast.map((point) => point.label);
+      const minutes = snapshot.forecast.map((point) => point.totalEstimatedMinutes);
+
+      return {
+        backgroundColor: 'transparent',
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: theme.tooltipBg,
+          borderColor: theme.tooltipBorder,
+          borderWidth: 1,
+          textStyle: { color: theme.textColor, fontSize: 14 },
+          confine: true,
+          position: isMobile ? getMobileChartTooltipPosition : undefined,
+          formatter(params: any) {
+            const index = params?.[0]?.dataIndex ?? -1;
+            const point = snapshot.forecast[index];
+            if (!point) return '';
+            const statusInfo = getForecastStatusInfo(point, theme);
+            const ratio = snapshot.dailyBudgetMinutes > 0
+              ? ((point.totalEstimatedMinutes / snapshot.dailyBudgetMinutes) * 100).toFixed(0)
+              : '0';
+
+            return `<div style="padding:12px;min-width:180px;">
+              <div style="font-weight:600;font-size:15px;margin-bottom:10px;color:${theme.textColor};">${point.dateKey}</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                <span style="display:inline-block;width:10px;height:10px;background:${statusInfo.color};border-radius:50%;"></span>
+                <span style="color:${theme.textColor};">预计阅读: <strong>${point.totalEstimatedMinutes}</strong> 分钟</span>
+              </div>
+              <div style="color:${theme.textColor};margin-bottom:6px;">到期内容块: <strong>${point.itemCount}</strong> 个</div>
+              <div style="color:${theme.textColor};margin-bottom:6px;">负载率: <strong style="color:${statusInfo.color};">${ratio}%</strong></div>
+              <div style="color:${statusInfo.color};font-weight:500;margin-top:8px;padding-top:8px;border-top:1px solid ${theme.splitLineColor};">${statusInfo.label}</div>
+              <div style="color:${theme.subTextColor};font-size:12px;margin-top:4px;">时间预算: ${snapshot.dailyBudgetMinutes} 分钟/天</div>
+            </div>`;
+          }
+        },
+        grid: {
+          top: isMobile ? 25 : 50,
+          right: isMobile ? 8 : 30,
+          bottom: isMobile ? 40 : 70,
+          left: isMobile ? 8 : 40,
+          containLabel: true
+        },
+        xAxis: {
+          type: 'category',
+          data: dates,
+          axisLine: { lineStyle: { color: theme.axisLineColor } },
+          axisLabel: {
+            color: theme.textColor,
+            rotate: isMobile ? 45 : (snapshot.days > 30 ? 45 : 0),
+            fontSize: isMobile ? 10 : 12
+          },
+          name: '日期',
+          nameLocation: 'middle',
+          nameGap: snapshot.days > 30 ? 50 : 35,
+          nameTextStyle: { color: theme.textColor, fontSize: 13 }
+        },
+        yAxis: {
+          type: 'value',
+          name: '预计阅读时间 (分钟)',
+          nameTextStyle: { color: theme.textColor, fontSize: 13 },
+          axisLabel: {
+            color: theme.textColor,
+            formatter: '{value}min'
+          },
+          splitLine: { lineStyle: { color: theme.splitLineColor, type: 'dashed' } }
+        },
+        series: [
+          {
+            name: '预计负载',
+            type: 'bar',
+            data: minutes,
+            itemStyle: {
+              color(params: any) {
+                const point = snapshot.forecast[params.dataIndex];
+                return point ? getForecastStatusInfo(point, theme).color : theme.loadStatusColors.low;
+              },
+              borderRadius: [4, 4, 0, 0]
+            },
+            markLine: {
+              silent: true,
+              symbol: 'none',
+              data: [
+                {
+                  yAxis: snapshot.dailyBudgetMinutes,
+                  label: {
+                    show: true,
+                    formatter: '时间预算',
+                    color: theme.textColor,
+                    fontSize: 11,
+                    position: 'end'
+                  },
+                  lineStyle: {
+                    color: theme.loadStatusColors.overload,
+                    type: 'dashed',
+                    width: 2
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      };
+    }
+  });
+
+  const loadRatioChartRuntime = createManagedChartRuntime<IRLoadForecastSnapshot>({
+    buildOption(snapshot, theme) {
+      const ratios = snapshot.forecast.map((point) =>
+        snapshot.dailyBudgetMinutes > 0
+          ? Math.round((point.totalEstimatedMinutes / snapshot.dailyBudgetMinutes) * 100)
+          : 0
+      );
+
+      return {
+        backgroundColor: 'transparent',
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: theme.tooltipBg,
+          borderColor: theme.tooltipBorder,
+          borderWidth: 1,
+          textStyle: { color: theme.textColor, fontSize: 14 },
+          confine: true,
+          position: isMobile ? getMobileChartTooltipPosition : undefined,
+          formatter(params: any) {
+            const index = params?.[0]?.dataIndex ?? -1;
+            const point = snapshot.forecast[index];
+            const ratio = ratios[index] ?? 0;
+            if (!point) return '';
+            const color = getRatioColor(ratio, theme);
+            const statusInfo = getForecastStatusInfo(point, theme);
+
+            return `<div style="padding:12px;min-width:160px;">
+              <div style="font-weight:600;font-size:15px;margin-bottom:10px;color:${theme.textColor};">${point.dateKey}</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                <span style="display:inline-block;width:10px;height:10px;background:${color};border-radius:50%;"></span>
+                <span style="color:${theme.textColor};">负载率: <strong style="color:${color};">${ratio}%</strong></span>
+              </div>
+              <div style="color:${theme.textColor};margin-bottom:6px;">预计时间: <strong>${point.totalEstimatedMinutes}</strong> 分钟</div>
+              <div style="color:${statusInfo.color};font-weight:500;margin-top:8px;padding-top:8px;border-top:1px solid ${theme.splitLineColor};">${statusInfo.label}</div>
+            </div>`;
+          }
+        },
+        grid: {
+          top: isMobile ? 20 : 40,
+          right: isMobile ? 8 : 30,
+          bottom: isMobile ? 35 : 60,
+          left: isMobile ? 8 : 40,
+          containLabel: true
+        },
+        xAxis: {
+          type: 'category',
+          data: snapshot.forecast.map((point) => point.label),
+          axisLine: { lineStyle: { color: theme.axisLineColor } },
+          axisLabel: {
+            color: theme.textColor,
+            rotate: isMobile ? 45 : (snapshot.days > 30 ? 45 : 0),
+            fontSize: isMobile ? 10 : 12
+          },
+          name: '日期',
+          nameLocation: 'middle',
+          nameGap: snapshot.days > 30 ? 50 : 35,
+          nameTextStyle: { color: theme.textColor, fontSize: 13 }
+        },
+        yAxis: {
+          type: 'value',
+          name: '负载率 (%)',
+          nameTextStyle: { color: theme.textColor, fontSize: 13 },
+          axisLabel: {
+            color: theme.textColor,
+            formatter: '{value}%'
+          },
+          splitLine: { lineStyle: { color: theme.splitLineColor, type: 'dashed' } },
+          max(value: { max: number }) {
+            return Math.max(150, Math.ceil(value.max / 50) * 50);
+          }
+        },
+        series: [
+          {
+            name: '负载率',
+            type: 'line',
+            data: ratios,
+            smooth: true,
+            symbol: 'circle',
+            symbolSize: 6,
+            lineStyle: {
+              width: 3,
+              color: theme.accentColor
+            },
+            itemStyle: {
+              color(params: any) {
+                return getRatioColor(Number(params.value || 0), theme);
+              },
+              borderWidth: 2,
+              borderColor: theme.bgColor
+            },
+            areaStyle: {
+              color: createGradient(theme.accentColor, 0.33, 0.03)
+            },
+            markLine: {
+              silent: true,
+              symbol: 'none',
+              data: [
+                {
+                  yAxis: 100,
+                  label: {
+                    show: true,
+                    formatter: '100%',
+                    color: theme.loadStatusColors.overload,
+                    fontSize: 11,
+                    position: 'end'
+                  },
+                  lineStyle: {
+                    color: theme.loadStatusColors.overload,
+                    type: 'dashed',
+                    width: 2
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      };
+    }
+  });
+
   function switchTab(tab: TabType) {
     activeTab = tab;
-    setTimeout(() => {
-      if (tab === 'loadRatio') {
-        initLoadRatioChart();
-      } else if (tab === 'loadForecast') {
-        initLoadForecastChart();
-      }
-    }, 150);
   }
 
-  // 切换牌组选择
-  async function toggleDeckSelection(id: string) {
-    const newSet = new Set(selectedDeckIds);
-    if (newSet.has(id)) {
-      newSet.delete(id);
+  function toggleDeckSelection(id: string) {
+    const next = new Set(selectedDeckIds);
+    if (next.has(id)) {
+      next.delete(id);
     } else {
-      newSet.add(id);
+      next.add(id);
     }
-    selectedDeckIds = newSet;
-    setTimeout(() => refreshCurrentTab(), 100);
+    selectedDeckIds = next;
+    void loadSnapshots();
   }
 
-  // 全选/取消全选
   function toggleSelectAll() {
     if (selectedDeckIds.size === allIRDecks.length) {
       selectedDeckIds = new Set();
     } else {
-      selectedDeckIds = new Set(allIRDecks.map(d => d.id));
+      selectedDeckIds = new Set(allIRDecks.map((deck) => deck.id));
     }
-    setTimeout(() => refreshCurrentTab(), 100);
+    void loadSnapshots();
   }
 
-  // 切换全局负载显示
   function toggleGlobalLoad(useGlobal: boolean) {
     showGlobalLoad = useGlobal;
-    setTimeout(() => refreshCurrentTab(), 100);
+    void loadSnapshots();
   }
 
-  // 快捷时间范围选择
   function selectQuickRange(days: number) {
+    if (selectedDays === days) return;
     selectedDays = days;
-    setTimeout(() => refreshCurrentTab(), 100);
+    void loadSnapshots();
   }
 
-  // 刷新当前标签页
-  function refreshCurrentTab() {
-    if (activeTab === 'loadRatio') {
-      initLoadRatioChart();
-    } else if (activeTab === 'loadForecast') {
-      initLoadForecastChart();
-    }
-  }
-
-  // 生成负载预测数据
-  async function generateLoadForecastData(days: number): Promise<Array<{
-    date: string;
-    dateDisplay: string;
-    totalMinutes: number;
-    blockCount: number;
-    status: LoadStatus;
-  }>> {
-    const forecast: Array<{
-      date: string;
-      dateDisplay: string;
-      totalMinutes: number;
-      blockCount: number;
-      status: LoadStatus;
-    }> = [];
-    
-    const storage = await initIRStorage();
-
-    const dailyBudget = plugin.settings.incrementalReading?.dailyTimeBudgetMinutes || 30;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // 获取所有chunks数据
-    let allChunks: IRChunkFileData[] = [];
-    let allBlocks: IRBlock[] = [];
-    
-    try {
-      const chunksData = await storage.getAllChunkData();
-      allChunks = Object.values(chunksData);
-      
-      const blocksData = await storage.getAllBlocks();
-      allBlocks = Object.values(blocksData);
-    } catch (error) {
-      logger.error('[IRLoadForecast] 获取数据失败:', error);
-    }
-    const history = await storage.getHistory();
-    const readingSecondsById = buildSessionTotalsByBlockId(history.sessions);
-
-    // 过滤选中牌组的数据
-    const selectedDeckSet = showGlobalLoad
-      ? null
-      : new Set(
-          allIRDecks.flatMap((deck) => {
-            if (!selectedDeckIds.has(deck.id)) {
-              return [];
-            }
-            return [deck.id, String((deck as any)?.path || '').trim()].filter(Boolean);
-          })
-        );
-    
-    const filteredChunks = selectedDeckSet 
-      ? allChunks.filter(chunk => {
-          const deckIds = getChunkTopicIds(chunk);
-          if (deckIds.length > 0) {
-            return deckIds.some(id => selectedDeckSet.has(id));
-          }
-          return false;
-        })
-      : allChunks;
-
-    const filteredBlocks = selectedDeckSet
-      ? allBlocks.filter(block => {
-          const deck = allIRDecks.find(d => d.blockIds?.includes(block.id));
-          return !!deck && (
-            selectedDeckSet.has(deck.id) ||
-            selectedDeckSet.has(String((deck as any)?.path || '').trim())
-          );
-        })
-      : allBlocks;
-
-    // 加载 PDF 书签任务
-    let allPdfTasks: any[] = [];
-    let allEpubTasks: any[] = [];
-    try {
-      const pdfService = new IRPdfBookmarkTaskService(plugin.app);
-      await pdfService.initialize();
-      allPdfTasks = await pdfService.getAllTasks();
-    } catch (e) {
-      logger.debug('[IRLoadForecast] 加载 PDF 书签任务失败', e);
-    }
-    try {
-      const epubService = new IREpubBookmarkTaskService(plugin.app);
-      await epubService.initialize();
-      allEpubTasks = await epubService.getAllTasks();
-    } catch (e) {
-      logger.debug('[IRLoadForecast] 加载 EPUB 书签任务失败', e);
-    }
-
-    const filteredPdfTasks = selectedDeckSet
-      ? allPdfTasks.filter(t => selectedDeckSet.has(String(getTaskTopicId(t) || '').trim()))
-      : allPdfTasks;
-    const filteredEpubTasks = selectedDeckSet
-      ? allEpubTasks.filter(t => selectedDeckSet.has(String(getTaskTopicId(t) || '').trim()))
-      : allEpubTasks;
-
-    // 预估每个块的阅读时间（分钟）
-    const estimateReadingTime = (chunk?: IRChunkFileData, block?: IRBlock): number => {
-      if (chunk) {
-        const historicalSeconds = readingSecondsById.get(String(chunk.chunkId || '')) || 0;
-        if (historicalSeconds > 0 && chunk.stats.impressions > 0) {
-          return (historicalSeconds / chunk.stats.impressions) / 60;
-        }
-      }
-      if (chunk?.stats?.effectiveReadingTimeSec && chunk.stats.impressions > 0) {
-        return (chunk.stats.effectiveReadingTimeSec / chunk.stats.impressions) / 60;
-      }
-      if (block) {
-        const historicalSeconds = readingSecondsById.get(String(block.id || '')) || 0;
-        if (historicalSeconds > 0 && block.reviewCount > 0) {
-          return (historicalSeconds / block.reviewCount) / 60;
-        }
-      }
-      if (block?.totalReadingTime && block.reviewCount > 0) {
-        return (block.totalReadingTime / block.reviewCount) / 60;
-      }
-      return 3; // 默认3分钟
-    };
-
-    const estimatePdfTaskMinutes = (task: any): number => {
-      const historicalSeconds = readingSecondsById.get(String(task?.id || '')) || 0;
-      const impressions = Number(task?.stats?.impressions || 0);
-      if (historicalSeconds > 0 && impressions > 0) {
-        return (historicalSeconds / impressions) / 60;
-      }
-      const s = task?.stats;
-      if (s?.effectiveReadingTimeSec && s?.impressions > 0) {
-        return (s.effectiveReadingTimeSec / s.impressions) / 60;
-      }
-      return 5;
-    };
-
-    const estimateEpubTaskMinutes = (task: any): number => {
-      const historicalSeconds = readingSecondsById.get(String(task?.id || '')) || 0;
-      const impressions = Number(task?.stats?.impressions || 0);
-      if (historicalSeconds > 0 && impressions > 0) {
-        return (historicalSeconds / impressions) / 60;
-      }
-      const s = task?.stats;
-      if (s?.effectiveReadingTimeSec && s?.impressions > 0) {
-        return (s.effectiveReadingTimeSec / s.impressions) / 60;
-      }
-      return 5;
-    };
-
-    // 统计每天的负载
-    for (let i = 0; i < days; i++) {
-      const targetDate = new Date(today);
-      targetDate.setDate(targetDate.getDate() + i);
-      const targetMs = targetDate.getTime();
-      const nextDayMs = targetMs + 24 * 60 * 60 * 1000;
-
-      let totalMinutes = 0;
-      let blockCount = 0;
-
-      // 统计chunks
-      for (const chunk of filteredChunks) {
-        if (chunk.scheduleStatus === 'suspended' || chunk.scheduleStatus === 'done') continue;
-        
-        const nextRepDate = chunk.nextRepDate || 0;
-        if (nextRepDate >= targetMs && nextRepDate < nextDayMs) {
-          totalMinutes += estimateReadingTime(chunk);
-          blockCount++;
-        } else if (nextRepDate < targetMs && i === 0) {
-          // 过期的也算在今天
-          totalMinutes += estimateReadingTime(chunk);
-          blockCount++;
-        }
-      }
-
-      // 统计旧版blocks
-      for (const block of filteredBlocks) {
-        if (block.state === 'suspended') continue;
-        
-        if (block.nextReview) {
-          const reviewMs = new Date(block.nextReview).getTime();
-          if (reviewMs >= targetMs && reviewMs < nextDayMs) {
-            totalMinutes += estimateReadingTime(undefined, block);
-            blockCount++;
-          } else if (reviewMs < targetMs && i === 0) {
-            totalMinutes += estimateReadingTime(undefined, block);
-            blockCount++;
-          }
-        } else if (block.state === 'new' && i === 0) {
-          totalMinutes += estimateReadingTime(undefined, block);
-          blockCount++;
-        }
-      }
-
-      // 统计 PDF 书签任务
-      for (const task of filteredPdfTasks) {
-        const status = String(task.status || 'new');
-        if (status === 'done' || status === 'suspended' || status === 'removed') continue;
-        const nrd = (task.nextRepDate as number) || 0;
-        if (nrd >= targetMs && nrd < nextDayMs) {
-          totalMinutes += estimatePdfTaskMinutes(task);
-          blockCount++;
-        } else if (nrd < targetMs && i === 0) {
-          totalMinutes += estimatePdfTaskMinutes(task);
-          blockCount++;
-        }
-      }
-
-      for (const task of filteredEpubTasks) {
-        const status = String(task.status || 'new');
-        if (status === 'done' || status === 'suspended' || status === 'removed') continue;
-        const nrd = (task.nextRepDate as number) || 0;
-        if (nrd >= targetMs && nrd < nextDayMs) {
-          totalMinutes += estimateEpubTaskMinutes(task);
-          blockCount++;
-        } else if (nrd < targetMs && i === 0) {
-          totalMinutes += estimateEpubTaskMinutes(task);
-          blockCount++;
-        }
-      }
-
-      // 计算负载状态
-      const ratio = totalMinutes / dailyBudget;
-      let status: LoadStatus;
-      if (ratio <= 0.5) {
-        status = LoadStatus.LOW;
-      } else if (ratio <= 0.8) {
-        status = LoadStatus.NORMAL;
-      } else if (ratio <= 1.2) {
-        status = LoadStatus.HIGH;
-      } else {
-        status = LoadStatus.OVERLOAD;
-      }
-
-      forecast.push({
-        date: targetDate.toISOString().split('T')[0],
-        dateDisplay: targetDate.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }),
-        totalMinutes: Math.round(totalMinutes * 10) / 10,
-        blockCount,
-        status
-      });
-    }
-
-    return forecast;
-  }
-
-  // 初始化负载预测图表
-  async function initLoadForecastChart() {
-    if (!loadForecastChartRef) return;
-
-    if (loadForecastChart) {
-      loadForecastChart.dispose();
-    }
-    loadForecastChart = echarts.init(loadForecastChartRef);
-
-    const colors = getThemeColors();
-    const forecast = await generateLoadForecastData(selectedDays);
-    const dailyBudget = plugin.settings.incrementalReading?.dailyTimeBudgetMinutes || 30;
-
-    const dates = forecast.map(f => f.dateDisplay);
-    const minutes = forecast.map(f => f.totalMinutes);
-
-    const option = {
-      backgroundColor: 'transparent',
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: colors.tooltipBg,
-        borderColor: colors.tooltipBorder,
-        borderWidth: 1,
-        textStyle: { color: colors.textColor, fontSize: 14 },
-        extraCssText: 'border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);',
-        confine: true,
-        position: isMobile ? getMobileTooltipPosition : undefined,
-        formatter: function(params: any) {
-          const index = params[0].dataIndex;
-          const data = forecast[index];
-          if (!data) return '';
-          
-          const statusInfo = getLoadStatusInfo(data.status);
-          const ratio = ((data.totalMinutes / dailyBudget) * 100).toFixed(0);
-          
-          return `<div style="padding: 12px; min-width: 180px;">
-            <div style="font-weight: 600; font-size: 15px; margin-bottom: 10px; color: ${colors.textColor};">${data.date}</div>
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-              <span style="display: inline-block; width: 10px; height: 10px; background: ${statusInfo.color}; border-radius: 50%;"></span>
-              <span style="color: ${colors.textColor};">预计阅读: <strong>${data.totalMinutes}</strong> 分钟</span>
-            </div>
-            <div style="color: ${colors.textColor}; margin-bottom: 6px;">到期内容块: <strong>${data.blockCount}</strong> 个</div>
-            <div style="color: ${colors.textColor}; margin-bottom: 6px;">负载率: <strong style="color: ${statusInfo.color};">${ratio}%</strong></div>
-            <div style="color: ${statusInfo.color}; font-weight: 500; margin-top: 8px; padding-top: 8px; border-top: 1px solid ${colors.splitLineColor};">${statusInfo.label}</div>
-            <div style="color: ${colors.textColor}; opacity: 0.7; font-size: 12px; margin-top: 4px;">时间预算: ${dailyBudget} 分钟/天</div>
-          </div>`;
-        }
-      },
-      grid: {
-        top: isMobile ? 25 : 50,
-        right: isMobile ? 8 : 30,
-        bottom: isMobile ? 40 : 70,
-        left: isMobile ? 8 : 40,
-        containLabel: true
-      },
-      xAxis: {
-        type: 'category',
-        data: dates,
-        axisLine: { show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10], lineStyle: { color: colors.axisLineColor } },
-        axisLabel: { 
-          color: colors.textColor, 
-          rotate: isMobile ? 45 : (selectedDays > 30 ? 45 : 0),
-          fontSize: isMobile ? 10 : 12
-        },
-        name: '日期',
-        nameLocation: 'middle',
-        nameGap: selectedDays > 30 ? 50 : 35,
-        nameTextStyle: { color: colors.textColor, fontSize: 13 }
-      },
-      yAxis: {
-        type: 'value',
-        name: '预计阅读时间 (分钟)',
-        nameTextStyle: { color: colors.textColor, fontSize: 13 },
-        axisLine: { show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10], lineStyle: { color: colors.axisLineColor } },
-        axisLabel: { 
-          color: colors.textColor,
-          formatter: '{value}min'
-        },
-        splitLine: { lineStyle: { color: colors.splitLineColor, type: 'dashed' } }
-      },
-      series: [
-        {
-          name: '预计负载',
-          type: 'bar',
-          data: minutes,
-          itemStyle: {
-            color: function(params: any) {
-              const data = forecast[params.dataIndex];
-              if (data) {
-                return getLoadStatusInfo(data.status).color;
-              }
-              return '#51cf66';
-            },
-            borderRadius: [4, 4, 0, 0]
-          },
-          emphasis: {
-            itemStyle: {
-              shadowBlur: 10,
-              shadowColor: 'rgba(0, 0, 0, 0.3)'
-            }
-          },
-          markLine: {
-            silent: true,
-            symbol: 'none',
-            data: [
-              {
-                yAxis: dailyBudget,
-                label: {
-                  show: true,
-                  formatter: '时间预算',
-                  color: colors.textColor,
-                  fontSize: 11,
-                  position: 'end'
-                },
-                lineStyle: {
-                  color: '#ff6b6b',
-                  type: 'dashed',
-                  width: 2
-                }
-              }
-            ]
-          }
-        }
-      ]
-    };
-
-    loadForecastChart.setOption(option);
-  }
-
-  // 初始化负载率曲线图
-  async function initLoadRatioChart() {
-    if (!loadRatioChartRef) return;
-
-    if (loadRatioChart) {
-      loadRatioChart.dispose();
-    }
-    loadRatioChart = echarts.init(loadRatioChartRef);
-
-    const colors = getThemeColors();
-    const forecast = await generateLoadForecastData(selectedDays);
-    const dailyBudget = plugin.settings.incrementalReading?.dailyTimeBudgetMinutes || 30;
-
-    const dates = forecast.map(f => f.dateDisplay);
-    const ratios = forecast.map(f => Math.round((f.totalMinutes / dailyBudget) * 100));
-
-    // 根据负载率获取颜色
-    const getColorByRatio = (ratio: number): string => {
-      if (ratio <= 50) return '#51cf66';
-      if (ratio <= 80) return '#4dabf7';
-      if (ratio <= 120) return '#ffd43b';
-      return '#ff6b6b';
-    };
-
-    const option = {
-      backgroundColor: 'transparent',
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: colors.tooltipBg,
-        borderColor: colors.tooltipBorder,
-        borderWidth: 1,
-        textStyle: { color: colors.textColor, fontSize: 14 },
-        extraCssText: 'border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);',
-        confine: true,
-        position: isMobile ? getMobileTooltipPosition : undefined,
-        formatter: function(params: any) {
-          const index = params[0].dataIndex;
-          const data = forecast[index];
-          if (!data) return '';
-          
-          const ratio = ratios[index];
-          const statusInfo = getLoadStatusInfo(data.status);
-          
-          return `<div style="padding: 12px; min-width: 160px;">
-            <div style="font-weight: 600; font-size: 15px; margin-bottom: 10px; color: ${colors.textColor};">${data.date}</div>
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-              <span style="display: inline-block; width: 10px; height: 10px; background: ${getColorByRatio(ratio)}; border-radius: 50%;"></span>
-              <span style="color: ${colors.textColor};">负载率: <strong style="color: ${getColorByRatio(ratio)};">${ratio}%</strong></span>
-            </div>
-            <div style="color: ${colors.textColor}; margin-bottom: 6px;">预计时间: <strong>${data.totalMinutes}</strong> 分钟</div>
-            <div style="color: ${statusInfo.color}; font-weight: 500; margin-top: 8px; padding-top: 8px; border-top: 1px solid ${colors.splitLineColor};">${statusInfo.label}</div>
-          </div>`;
-        }
-      },
-      grid: {
-        top: isMobile ? 20 : 40,
-        right: isMobile ? 8 : 30,
-        bottom: isMobile ? 35 : 60,
-        left: isMobile ? 8 : 40,
-        containLabel: true
-      },
-      xAxis: {
-        type: 'category',
-        data: dates,
-        axisLine: { show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10], lineStyle: { color: colors.axisLineColor } },
-        axisLabel: { 
-          color: colors.textColor, 
-          rotate: isMobile ? 45 : (selectedDays > 30 ? 45 : 0),
-          fontSize: isMobile ? 10 : 12
-        },
-        name: '日期',
-        nameLocation: 'middle',
-        nameGap: selectedDays > 30 ? 50 : 35,
-        nameTextStyle: { color: colors.textColor, fontSize: 13 }
-      },
-      yAxis: {
-        type: 'value',
-        name: '负载率 (%)',
-        nameTextStyle: { color: colors.textColor, fontSize: 13 },
-        axisLine: { show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10], lineStyle: { color: colors.axisLineColor } },
-        axisLabel: { 
-          color: colors.textColor,
-          formatter: '{value}%'
-        },
-        splitLine: { lineStyle: { color: colors.splitLineColor, type: 'dashed' } },
-        max: function(value: { max: number }) {
-          return Math.max(150, Math.ceil(value.max / 50) * 50);
-        }
-      },
-      series: [
-        {
-          name: '负载率',
-          type: 'line',
-          data: ratios,
-          smooth: true,
-          symbol: 'circle',
-          symbolSize: 6,
-          lineStyle: {
-            width: 3,
-            color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-              { offset: 0, color: '#51cf66' },
-              { offset: 0.4, color: '#4dabf7' },
-              { offset: 0.7, color: '#ffd43b' },
-              { offset: 1, color: '#ff6b6b' }
-            ])
-          },
-          itemStyle: {
-            color: function(params: any) {
-              return getColorByRatio(params.value);
-            },
-            borderWidth: 2,
-            borderColor: '#fff'
-          },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(77, 171, 247, 0.3)' },
-              { offset: 1, color: 'rgba(77, 171, 247, 0.05)' }
-            ])
-          },
-          emphasis: {
-            itemStyle: {
-              shadowBlur: 10,
-              shadowColor: 'rgba(0, 0, 0, 0.3)'
-            }
-          },
-          markLine: {
-            silent: true,
-            symbol: 'none',
-            data: [
-              {
-                yAxis: 100,
-                label: {
-                  show: true,
-                  formatter: '100%',
-                  color: '#ff6b6b',
-                  fontSize: 11,
-                  position: 'end'
-                },
-                lineStyle: {
-                  color: '#ff6b6b',
-                  type: 'dashed',
-                  width: 2
-                }
-              }
-            ]
-          }
-        }
-      ]
-    };
-
-    loadRatioChart.setOption(option);
-  }
-
-  // 响应式调整
-  function handleResize() {
-    loadForecastChart?.resize();
-    loadRatioChart?.resize();
-  }
-
-  // 主题变化处理
-  function updateChartTheme() {
-    if (loadForecastChart) {
-      loadForecastChart.dispose();
-      loadForecastChart = null;
-    }
-    if (loadRatioChart) {
-      loadRatioChart.dispose();
-      loadRatioChart = null;
-    }
-    if (activeTab === 'loadRatio' && loadRatioChartRef) {
-      initLoadRatioChart();
-    } else if (activeTab === 'loadForecast' && loadForecastChartRef) {
-      initLoadForecastChart();
-    }
-  }
-
-  // 显示牌组选择菜单
   function showDeckMenu(event: MouseEvent) {
     const menu = new Menu();
-    
+
     menu.addItem((item) =>
       item
         .setTitle(selectedDeckIds.size === allIRDecks.length ? '取消全选' : '全选')
         .setIcon('check-square')
         .onClick(() => toggleSelectAll())
     );
-    
+
     menu.addSeparator();
-    
-    allIRDecks.forEach((deck, index) => {
+
+    allIRDecks.forEach((deck) => {
       menu.addItem((item) =>
         item
           .setTitle(deck.name)
@@ -788,14 +439,13 @@
           .onClick(() => toggleDeckSelection(deck.id))
       );
     });
-    
+
     menu.showAtMouseEvent(event);
   }
 
-  // 显示预测天数菜单
   function showDaysMenu(event: MouseEvent) {
     const menu = new Menu();
-    
+
     quickRangeOptions.forEach((option) => {
       menu.addItem((item) =>
         item
@@ -804,66 +454,71 @@
           .onClick(() => selectQuickRange(option.value))
       );
     });
-    
+
     menu.showAtMouseEvent(event);
   }
 
-  // 显示负载图例菜单
   function showLegendMenu(event: MouseEvent) {
     const menu = new Menu();
-    
-    menu.addItem((item) =>
-      item.setTitle('负载低 (<50%)').setIcon('circle').onClick(() => {})
-    );
-    menu.addItem((item) =>
-      item.setTitle('正常 (50%-80%)').setIcon('circle').onClick(() => {})
-    );
-    menu.addItem((item) =>
-      item.setTitle('负载高 (80%-120%)').setIcon('circle').onClick(() => {})
-    );
-    menu.addItem((item) =>
-      item.setTitle('过载 (>120%)').setIcon('circle').onClick(() => {})
-    );
+
+    menu.addItem((item) => item.setTitle('负载低 (<50%)').setIcon('circle'));
+    menu.addItem((item) => item.setTitle('正常 (50%-80%)').setIcon('circle'));
+    menu.addItem((item) => item.setTitle('负载高 (80%-120%)').setIcon('circle'));
+    menu.addItem((item) => item.setTitle('过载 (>120%)').setIcon('circle'));
     menu.addSeparator();
-    menu.addItem((item) =>
-      item.setTitle('100% 基准线').setIcon('minus').onClick(() => {})
-    );
-    
+    menu.addItem((item) => item.setTitle('100% 基准线').setIcon('minus'));
+
     menu.showAtMouseEvent(event);
   }
 
+  function handleClose() {
+    if (typeof onClose === 'function') {
+      onClose();
+    }
+  }
+
+  function getActiveEmptyText(): string {
+    if (activeTab === 'studySessions') {
+      return '当前筛选条件下，还没有可展示的学习会话。';
+    }
+    if (activeTab === 'activityHeatmap') {
+      return '当前筛选条件下，还没有可展示的活动热力图数据。';
+    }
+    return showGlobalLoad || selectedDeckIds.size > 0
+      ? '当前时间范围内暂无未来负荷数据。'
+      : '先选择一个牌组，或切换到全局负荷后再查看图表。';
+  }
+
+  $effect(() => {
+    loadForecastChartRuntime.setContainer(loadForecastChartRef);
+  });
+
+  $effect(() => {
+    loadRatioChartRuntime.setContainer(loadRatioChartRef);
+  });
+
+  $effect(() => {
+    if (forecastSnapshot && activeTab === 'loadForecast') {
+      loadForecastChartRuntime.render(forecastSnapshot);
+    }
+  });
+
+  $effect(() => {
+    if (forecastSnapshot && activeTab === 'loadRatio') {
+      loadRatioChartRuntime.render(forecastSnapshot);
+    }
+  });
+
   onMount(() => {
-    loadIRDecks().then(() => {
-      setTimeout(() => {
-        if (open && loadRatioChartRef) {
-          initLoadRatioChart();
-        }
-      }, 150);
-    });
-    
-    window.addEventListener('resize', handleResize);
+    void loadIRDecks().then(() => loadSnapshots());
 
     const handleIRRefresh = () => {
       if (!open) return;
-      void loadIRDecks().then(() => {
-        setTimeout(() => refreshCurrentTab(), 100);
-      });
+      void loadIRDecks().then(() => loadSnapshots());
     };
+
     window.addEventListener('Weave:ir-data-updated', handleIRRefresh);
     window.addEventListener('Weave:ir-timer-updated', handleIRRefresh);
-
-    themeObserver = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-          setTimeout(() => updateChartTheme(), 100);
-          break;
-        }
-      }
-    });
-    themeObserver.observe(document.body, {
-      attributes: true,
-      attributeFilter: ['class']
-    });
 
     return () => {
       window.removeEventListener('Weave:ir-data-updated', handleIRRefresh);
@@ -871,27 +526,10 @@
     };
   });
 
-  $effect(() => {
-    if (open && activeTab === 'loadRatio' && loadRatioChartRef && !loadRatioChart) {
-      setTimeout(() => initLoadRatioChart(), 150);
-    }
-    if (open && activeTab === 'loadForecast' && loadForecastChartRef && !loadForecastChart) {
-      setTimeout(() => initLoadForecastChart(), 150);
-    }
-  });
-
   onDestroy(() => {
-    loadForecastChart?.dispose();
-    loadRatioChart?.dispose();
-    window.removeEventListener('resize', handleResize);
-    themeObserver?.disconnect();
+    loadForecastChartRuntime.dispose();
+    loadRatioChartRuntime.dispose();
   });
-
-  function handleClose() {
-    if (typeof onClose === 'function') {
-      onClose();
-    }
-  }
 </script>
 
 {#if open}
@@ -907,11 +545,10 @@
   initialHeight={820}
 >
   <div class="ir-load-forecast-modal">
-    <!-- 标签页切换与控制栏 -->
     <div class="tabs-bar">
       <div class="tabs-left weave-toolbar-tabs">
-        <button 
-          class="tab-btn weave-toolbar-tab" 
+        <button
+          class="tab-btn weave-toolbar-tab"
           class:active={activeTab === 'loadRatio'}
           onclick={() => switchTab('loadRatio')}
           title="负载率"
@@ -919,8 +556,8 @@
           <ObsidianIcon name="trending-up" size={isMobile ? 18 : 16} />
           {#if !isMobile}<span>负载率</span>{/if}
         </button>
-        <button 
-          class="tab-btn weave-toolbar-tab" 
+        <button
+          class="tab-btn weave-toolbar-tab"
           class:active={activeTab === 'loadForecast'}
           onclick={() => switchTab('loadForecast')}
           title="阅读时间"
@@ -928,8 +565,8 @@
           <ObsidianIcon name="bar-chart-2" size={isMobile ? 18 : 16} />
           {#if !isMobile}<span>阅读时间</span>{/if}
         </button>
-        <button 
-          class="tab-btn weave-toolbar-tab" 
+        <button
+          class="tab-btn weave-toolbar-tab"
           class:active={activeTab === 'studySessions'}
           onclick={() => switchTab('studySessions')}
           title="学习记录"
@@ -937,8 +574,8 @@
           <ObsidianIcon name="activity" size={isMobile ? 18 : 16} />
           {#if !isMobile}<span>学习记录</span>{/if}
         </button>
-        <button 
-          class="tab-btn weave-toolbar-tab" 
+        <button
+          class="tab-btn weave-toolbar-tab"
           class:active={activeTab === 'activityHeatmap'}
           onclick={() => switchTab('activityHeatmap')}
           title="活动热力图"
@@ -947,10 +584,9 @@
           {#if !isMobile}<span>活动热力图</span>{/if}
         </button>
       </div>
-      
+
       <div class="tabs-right">
-        <!-- 数据源切换图标 -->
-        <button 
+        <button
           class="control-icon-btn"
           class:active={showGlobalLoad}
           onclick={() => toggleGlobalLoad(!showGlobalLoad)}
@@ -959,11 +595,10 @@
           <ObsidianIcon name={showGlobalLoad ? 'globe' : 'layers'} size={16} />
         </button>
 
-        <!-- 牌组选择器 -->
         {#if !showGlobalLoad && allIRDecks.length > 0}
-          <button 
+          <button
             class="control-menu-btn"
-            onclick={(e) => showDeckMenu(e)}
+            onclick={(event) => showDeckMenu(event)}
           >
             <ObsidianIcon name="folder" size={14} />
             <span>{selectedDeckIds.size}/{allIRDecks.length}</span>
@@ -971,19 +606,18 @@
           </button>
         {/if}
 
-        <!-- 预测天数 (负载率和阅读时间标签页) -->
         {#if activeTab === 'loadRatio' || activeTab === 'loadForecast'}
-          <button 
+          <button
             class="control-menu-btn"
-            onclick={(e) => showDaysMenu(e)}
+            onclick={(event) => showDaysMenu(event)}
           >
             <ObsidianIcon name="calendar-days" size={14} />
             <span>{selectedDays}天</span>
             <ObsidianIcon name="chevron-down" size={12} />
           </button>
-          <button 
+          <button
             class="control-icon-btn"
-            onclick={(e) => showLegendMenu(e)}
+            onclick={(event) => showLegendMenu(event)}
             title="负载状态说明"
           >
             <ObsidianIcon name="info" size={14} />
@@ -992,54 +626,48 @@
       </div>
     </div>
 
-    <!-- 负载率曲线图标签页 -->
-    {#if activeTab === 'loadRatio'}
+    {#if isLoading}
+      <div class="state-panel state-panel--loading">
+        <ObsidianIcon name="loader" size={18} />
+        <span>正在生成分析图表…</span>
+      </div>
+    {:else if loadError}
+      <div class="state-panel state-panel--error">{loadError}</div>
+    {:else if activeTab === 'loadRatio'}
       <div class="chart-section">
         <div class="section-title with-accent-bar accent-purple">
           未来 {selectedDays} 天负载率趋势
         </div>
-        <div class="chart-container" bind:this={loadRatioChartRef}></div>
+        {#if forecastSnapshot && (showGlobalLoad || selectedDeckIds.size > 0)}
+          <div class="chart-container" bind:this={loadRatioChartRef}></div>
+        {:else}
+          <div class="state-panel state-panel--empty">{getActiveEmptyText()}</div>
+        {/if}
       </div>
-
-    {/if}
-
-    <!-- 阅读时间柱状图标签页 -->
-    {#if activeTab === 'loadForecast'}
+    {:else if activeTab === 'loadForecast'}
       <div class="chart-section">
         <div class="section-title with-accent-bar accent-cyan">
           未来 {selectedDays} 天预计阅读时间
         </div>
-        <div class="chart-container" bind:this={loadForecastChartRef}></div>
+        {#if forecastSnapshot && (showGlobalLoad || selectedDeckIds.size > 0)}
+          <div class="chart-container" bind:this={loadForecastChartRef}></div>
+        {:else}
+          <div class="state-panel state-panel--empty">{getActiveEmptyText()}</div>
+        {/if}
       </div>
-    {/if}
-
-    <!-- 学习记录视图 -->
-    {#if activeTab === 'studySessions'}
+    {:else if activeTab === 'studySessions'}
       <div class="chart-section">
         <div class="section-title with-accent-bar accent-purple">
           历史学习会话
         </div>
-        <IRStudySessionChart
-          {plugin}
-          allDecks={allIRDecks}
-          {selectedDeckIds}
-          {showGlobalLoad}
-        />
+        <IRStudySessionChart snapshot={sessionSnapshot} />
       </div>
-    {/if}
-
-    <!-- 活动热力图视图 -->
-    {#if activeTab === 'activityHeatmap'}
+    {:else}
       <div class="chart-section">
         <div class="section-title with-accent-bar accent-green">
           年度活动热力图
         </div>
-        <IRActivityHeatmap
-          {plugin}
-          allDecks={allIRDecks}
-          {selectedDeckIds}
-          {showGlobalLoad}
-        />
+        <IRActivityHeatmap snapshot={sessionSnapshot} />
       </div>
     {/if}
   </div>
@@ -1056,7 +684,6 @@
     gap: 16px;
   }
 
-  /* 标签页栏 */
   .tabs-bar {
     display: flex;
     justify-content: space-between;
@@ -1082,7 +709,6 @@
     font-weight: 500;
   }
 
-  /* 控制图标按钮 */
   .control-icon-btn {
     display: flex;
     align-items: center;
@@ -1108,7 +734,6 @@
     border-color: var(--interactive-accent);
   }
 
-  /* 控制菜单按钮 */
   .control-menu-btn {
     display: flex;
     align-items: center;
@@ -1131,7 +756,6 @@
     border-color: var(--interactive-accent);
   }
 
-  /* 区块标题 - 多彩侧边条 */
   .section-title {
     position: relative;
     padding-left: 16px;
@@ -1161,70 +785,45 @@
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.9), rgba(124, 58, 237, 0.7));
   }
 
-  /* 图表区域 */
+  .section-title.accent-green::before {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(22, 163, 74, 0.7));
+  }
+
   .chart-section {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: var(--background-secondary);
-    border-radius: 10px;
-    padding: 12px 6px 12px 2px;
-    border: 1px solid var(--background-modifier-border);
   }
 
   .chart-container {
     flex: 1;
-    min-height: 300px;
+    min-height: 420px;
     width: 100%;
+    background: var(--background-primary);
+    border-radius: 10px;
   }
 
-  /* 响应式 */
-  @media (max-width: 600px) {
-    .ir-load-forecast-modal {
-      padding: 8px 4px;
-      gap: 8px;
-    }
+  .state-panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 180px;
+    border-radius: 10px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    font-size: 13px;
+  }
 
-    .tabs-bar {
-      flex-direction: row;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
+  .state-panel--error {
+    color: var(--text-error);
+  }
 
-    .tabs-left {
-      display: flex;
-      flex-wrap: nowrap;
-      gap: 4px;
-      flex: 1;
-      justify-content: flex-start;
-      overflow-x: auto;
-      scrollbar-width: none;
-    }
-
-    .tabs-left::-webkit-scrollbar {
-      display: none;
-    }
-
-    .tabs-bar .tab-btn {
-      min-height: 40px;
-      padding: 8px 10px;
-      min-width: 40px;
-      justify-content: center;
-    }
-
-    .tabs-right {
-      width: 100%;
-      justify-content: flex-end;
-    }
-
-    .chart-container {
-      min-height: 250px;
-    }
-
-    .section-title {
-      font-size: 13px;
-      margin-bottom: 8px;
-    }
+  .state-panel--empty {
+    border-style: dashed;
+    text-align: center;
+    padding: 24px;
   }
 </style>

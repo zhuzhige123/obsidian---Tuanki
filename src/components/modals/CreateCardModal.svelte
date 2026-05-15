@@ -5,7 +5,13 @@
 -->
 <script lang="ts">
   import { logger } from '../../utils/logger';
+  import { MEMORY_DECK_UI_TEXT } from '../../constants/memory-deck-ui-text';
   import { EpubLinkService } from '../../services/epub/EpubLinkService';
+  import {
+    detectTraceSourceKind,
+    normalizeTraceDocumentKey,
+    normalizeTraceSubunitKey
+  } from '../../services/incremental-reading/IRSourceTraceStats';
 
   import { onMount, onDestroy, untrack } from 'svelte';
   import type { WeavePlugin } from '../../main';
@@ -16,6 +22,7 @@
   import InlineCardEditor from '../editor/InlineCardEditor.svelte';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import { Notice, Platform, Menu } from 'obsidian';
+  import { applyStyleProps } from '../../utils/style-props';
 
   function findFirstPdfPlusLinkFromBody(body: string): string | undefined {
     if (!body) return undefined;
@@ -30,6 +37,29 @@
 
   function findFirstEpubLinkFromBody(body: string): string | undefined {
     return EpubLinkService.extractFirstEpubLinkMarkup(body);
+  }
+
+  function resolveTraceMetadata(metadata: any, currentCard?: Card) {
+    const sourceFile = metadata?.sourceFile || metadata?.file || currentCard?.sourceFile;
+    const sourceKind = metadata?.sourceKind || currentCard?.sourceKind || detectTraceSourceKind(sourceFile);
+    const sourceDocumentKey =
+      metadata?.sourceDocumentKey ||
+      currentCard?.sourceDocumentKey ||
+      normalizeTraceDocumentKey(sourceFile, sourceKind) ||
+      undefined;
+    const sourceSubunitKey =
+      metadata?.sourceSubunitKey ||
+      currentCard?.sourceSubunitKey ||
+      normalizeTraceSubunitKey(metadata?.sourceBlock || metadata?.blockId || currentCard?.sourceBlock) ||
+      undefined;
+
+    return {
+      sourceFile,
+      sourceKind,
+      sourceDocumentKey,
+      sourceSubunitKey,
+      outputKind: metadata?.outputKind || currentCard?.outputKind || 'memory'
+    } as const;
   }
 
   interface Props {
@@ -124,7 +154,9 @@
               : Array.from(node.querySelectorAll(selector));
 
             for (const el of elements) {
-              (el as HTMLElement).style.zIndex = 'var(--layer-menu, 65)';
+              applyStyleProps(el as HTMLElement, {
+                zIndex: 'var(--layer-menu, 65)'
+              });
             }
           }
         }
@@ -152,12 +184,9 @@
 
     if (preferredDeckNames.length > 0 && primaryDeckByName?.id) {
       selectedDeckId = primaryDeckByName.id;
-      selectedDeckNames = preferredDeckNames;
+      selectedDeckNames = [preferredDeckNames[0]];
     } else if (primaryDeckById?.name) {
       selectedDeckNames = [primaryDeckById.name];
-    } else if (decks.length > 0) {
-      selectedDeckId = decks[0].id;
-      selectedDeckNames = [decks[0].name];
     }
 
     if (selectedDeckId && selectedDeckNames.length > 0) {
@@ -249,12 +278,18 @@
         }
         const initialContent = createContentWithMetadata(yamlMetadata, '');
         
+        const traceMetadata = resolveTraceMetadata(undefined, card);
         const newCard: Card = {
           uuid: generateCardUUID(),
           deckId: newDeckId,
           templateId: selectedTemplateId,
           type: CardType.Basic,
           content: initialContent,  //  包含 YAML frontmatter
+          sourceFile: traceMetadata.sourceFile,
+          sourceKind: traceMetadata.sourceKind,
+          sourceDocumentKey: traceMetadata.sourceDocumentKey,
+          sourceSubunitKey: traceMetadata.sourceSubunitKey,
+          outputKind: traceMetadata.outputKind,
           tags: [],
           fsrs: {
             state: 0,
@@ -313,19 +348,13 @@
 
   // 处理牌组变更 - 同步更新 YAML 中的 we_decks
   async function handleDecksChange(names: string[]) {
-    if (!names || names.length === 0) {
-      new Notice('卡片必须至少属于一个牌组', 3000);
-      return;
-    }
-
-    selectedDeckNames = names;
-    const primaryName = names[0];
+    const nextNames = names.length > 0 ? [names[0]] : [];
+    selectedDeckNames = nextNames;
+    const primaryName = nextNames[0];
     const primaryDeck = decks.find(d => d.name === primaryName);
-    if (primaryDeck?.id) {
-      selectedDeckId = primaryDeck.id;
-    }
+    selectedDeckId = primaryDeck?.id || '';
 
-    if (selectedDeckId) {
+    if (selectedDeckId && selectedDeckNames.length > 0) {
       persistDeckSelection(selectedDeckId, selectedDeckNames);
     }
 
@@ -342,7 +371,7 @@
         const bodyContent = extractBodyContent(currentContent) || '';
         
         // 更新 we_decks（支持多牌组引用架构）
-        existingYaml.we_decks = selectedDeckNames;
+        existingYaml.we_decks = selectedDeckNames.length > 0 ? selectedDeckNames : undefined;
         
         // 重新生成带更新后 YAML 的内容
         const updatedContent = createContentWithMetadata(existingYaml, bodyContent);
@@ -370,6 +399,7 @@
       // 兼容两种字段名格式（sourceInfo: file/blockId 或 sourceFile/sourceBlock）
       const sourceFile = metadata?.sourceFile || metadata?.file;
       const sourceBlock = metadata?.sourceBlock || metadata?.blockId;
+      const traceMetadata = resolveTraceMetadata(metadata, card);
       
       // 将来源信息写入 YAML frontmatter
       let finalContent = content;
@@ -412,6 +442,10 @@
       if (metadata) {
         card.sourceFile = sourceFile;
         card.sourceBlock = sourceBlock;
+        card.sourceKind = traceMetadata.sourceKind;
+        card.sourceDocumentKey = traceMetadata.sourceDocumentKey;
+        card.sourceSubunitKey = traceMetadata.sourceSubunitKey;
+        card.outputKind = traceMetadata.outputKind;
         logger.debug('[CreateCardModal] ✅ 溯源信息已更新到 card 对象');
       }
       
@@ -467,7 +501,7 @@
   let lastMenuPosition: { x: number; y: number } | null = null;
 
   function getDeckSelectorText(): string {
-    if (!selectedDeckNames || selectedDeckNames.length === 0) return '选择牌组...';
+    if (!selectedDeckNames || selectedDeckNames.length === 0) return MEMORY_DECK_UI_TEXT.unassigned;
     return selectedDeckNames.join('、');
   }
 
@@ -482,18 +516,10 @@
         item.setTitle(deck.name);
         item.setIcon(checked ? 'check-square' : 'square');
         item.onClick(() => {
-          const current = Array.isArray(selectedDeckNames) ? selectedDeckNames : [];
-          const wasSelected = current.includes(deck.name);
-
-          if (wasSelected && current.length <= 1) {
-            new Notice('卡片必须至少属于一个牌组', 3000);
-            return;
-          }
-
-          const next = wasSelected
-            ? current.filter(n => n !== deck.name)
-            : (current.includes(deck.name) ? current : current.concat(deck.name));
-
+          const currentName = Array.isArray(selectedDeckNames) && selectedDeckNames.length > 0
+            ? selectedDeckNames[0]
+            : '';
+          const next = currentName === deck.name ? [] : [deck.name];
           handleDecksChange(next);
 
           if (lastMenuPosition) {
@@ -557,11 +583,13 @@
     {#if decks && decks.length > 0}
       <button
         bind:this={deckButtonRef}
-      class="deck-selector-btn mobile"
-      onclick={(e) => {
-        e.preventDefault();
-        showDeckMenu(e);
-      }}
+        class="deck-selector-btn mobile"
+        title={MEMORY_DECK_UI_TEXT.selectEditableFormalAssignment}
+        aria-label={MEMORY_DECK_UI_TEXT.selectEditableFormalAssignment}
+        onclick={(e) => {
+          e.preventDefault();
+          showDeckMenu(e);
+        }}
         onkeydown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();

@@ -31,12 +31,6 @@ export function showObsidianConfirm(
 		});
 
 		const buttonContainer = modal.contentEl.createDiv({ cls: "obsidian-confirm-buttons" });
-		buttonContainer.setCssProps({
-			display: "flex",
-			"justify-content": "flex-end",
-			gap: "10px",
-			"margin-top": "16px",
-		});
 
 		let confirmed = false;
 
@@ -120,31 +114,30 @@ export function showObsidianChoice<T extends string>(
 		}
 
 		const choiceContainer = modal.contentEl.createDiv({ cls: "obsidian-choice-buttons" });
-		choiceContainer.setCssProps({
-			display: "flex",
-			"flex-direction": layout === "horizontal" ? "row" : "column",
-			"align-items": "stretch",
-			gap: "12px",
-			"margin-top": "16px",
-		});
+		choiceContainer.addClass(
+			layout === "horizontal"
+				? "obsidian-choice-buttons--horizontal"
+				: "obsidian-choice-buttons--vertical"
+		);
 
 		let result: T | null = null;
 
 		for (const choice of choices) {
 			const optionEl = choiceContainer.createDiv({ cls: "obsidian-choice-option" });
-			optionEl.setCssProps({
-				display: "flex",
-				"flex-direction": "column",
-				gap: "4px",
-				flex: layout === "horizontal" ? "1" : "unset",
-			});
+			if (layout === "horizontal") {
+				optionEl.addClass("obsidian-choice-option--horizontal");
+			}
 
 			const button = optionEl.createEl("button", {
 				text: choice.text,
 				cls: choice.className || "mod-cta",
 			});
-			button.style.textAlign = layout === "horizontal" ? "center" : "left";
-			button.setCssProps({ width: "100%" });
+			button.addClass("obsidian-choice-option-button");
+			button.addClass(
+				layout === "horizontal"
+					? "obsidian-choice-option-button--center"
+					: "obsidian-choice-option-button--left"
+			);
 
 			if (choice.description) {
 				const desc = optionEl.createDiv({ text: choice.description });
@@ -158,12 +151,6 @@ export function showObsidianChoice<T extends string>(
 		}
 
 		const buttonContainer = modal.contentEl.createDiv({ cls: "obsidian-confirm-buttons" });
-		buttonContainer.setCssProps({
-			display: "flex",
-			"justify-content": "flex-end",
-			gap: "10px",
-			"margin-top": "16px",
-		});
 
 		const cancelButton = buttonContainer.createEl("button", { text: cancelText });
 		cancelButton.onclick = () => modal.close();
@@ -194,18 +181,9 @@ export function showObsidianInput(
 			value: defaultValue,
 			placeholder,
 		});
-		inputEl.setCssProps({
-			width: "100%",
-			"margin-top": "8px",
-			"margin-bottom": "16px",
-		});
+		inputEl.addClass("obsidian-confirm-input");
 
 		const buttonContainer = modal.contentEl.createDiv({ cls: "obsidian-input-buttons" });
-		buttonContainer.setCssProps({
-			display: "flex",
-			"justify-content": "flex-end",
-			gap: "10px",
-		});
 
 		let result: string | null = null;
 

@@ -1,6 +1,7 @@
 import { Menu, type WorkspaceLeaf } from "obsidian";
 import { get } from "svelte/store";
-import { PREMIUM_FEATURES, PremiumFeatureGuard } from "../services/premium/PremiumFeatureGuard";
+import { PREMIUM_FEATURES, PremiumFeatureGuard, type PremiumFeatureAccessContext } from "../services/premium/PremiumFeatureGuard";
+import { i18n } from "./i18n";
 import {
 	getCardManagementToolbarMirrorActions,
 	type CardManagementToolbarActionKey,
@@ -9,6 +10,8 @@ import {
 } from "./card-management-menu-policy";
 import { isInSidebar } from "./view-location-utils";
 import { addWeaveNavigationItems, type WeavePageId } from "./weave-navigation-menu";
+
+const DECK_STUDY_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: "deck-study" };
 
 export type WeaveCardDataSource = "memory" | "questionBank" | "incremental-reading";
 export type WeaveCardViewType = "table" | "grid" | "kanban";
@@ -21,8 +24,6 @@ export type WeaveIRTypeFilter = "all" | "md" | "pdf";
 type NavigationVisibility = {
 	apkgImport?: boolean;
 	csvImport?: boolean;
-	clipboardImport?: boolean;
-	settingsEntry?: boolean;
 };
 
 export interface WeaveMainMenuOptions {
@@ -47,6 +48,7 @@ export interface WeaveMainMenuOptions {
 	irTypeFilter?: WeaveIRTypeFilter;
 	documentFilterMode?: "all" | "current";
 	currentActiveDocument?: string | null;
+	enableCardRelationFilterMode?: boolean;
 	enableCardLocationJump?: boolean;
 	showTableGridBorders?: boolean;
 	event?: MouseEvent;
@@ -150,9 +152,10 @@ function shouldShowPremiumEntry(
 function getPremiumEntryTitle(
 	guard: ReturnType<typeof PremiumFeatureGuard.getInstance>,
 	baseTitle: string,
-	featureId: string
+	featureId: string,
+	context?: PremiumFeatureAccessContext
 ): string {
-	return guard.canUseFeature(featureId) ? baseTitle : `${baseTitle} (\u9ad8\u7ea7)`;
+	return guard.getFeatureEntryTitle(baseTitle, featureId, context);
 }
 
 function emitCardManagementToolbarAction(action: string, anchor?: HTMLElement | null): void {
@@ -167,20 +170,15 @@ function getDeckStudyCreateEntry(filter: WeaveDeckStudyFilter): {
 	eventName: string;
 } {
 	switch (filter) {
-		case "incremental-reading":
-			return {
-				title: "新增增量阅读专题牌组",
-				eventName: "create-ir-deck",
-			};
 		case "question-bank":
 			return {
-				title: "创建考试题组",
+				title: i18n.t("mainMenu.deckStudy.createQuestionBank"),
 				eventName: "create-question-bank",
 			};
 		case "memory":
 		default:
 			return {
-				title: "创建记忆牌组",
+				title: i18n.t("mainMenu.deckStudy.createMemoryDeck"),
 				eventName: "create-deck",
 			};
 	}
@@ -229,7 +227,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 	if (options.currentPage === "ai-assistant") {
 		menu.addItem((item) => {
 			item
-				.setTitle("历史记录")
+				.setTitle(i18n.t("mainMenu.aiAssistant.history"))
 				.setIcon("history")
 				.onClick(() => {
 					dispatchWindowEvent("Weave:ai-toolbar-action", {
@@ -240,18 +238,29 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 
 		menu.addItem((item) => {
 			item
-				.setTitle("选择模型")
+				.setTitle(i18n.t("mainMenu.aiAssistant.selectModel"))
 				.setIcon("cpu")
 				.onClick(() => {
 					dispatchWindowEvent("Weave:ai-toolbar-action", {
-						action: "provider",
+						action: "model",
 					});
 				});
 		});
 
 		menu.addItem((item) => {
 			item
-				.setTitle("AI制卡配置")
+				.setTitle(i18n.t("mainMenu.aiAssistant.systemPrompt"))
+				.setIcon("sliders-horizontal")
+				.onClick(() => {
+					dispatchWindowEvent("Weave:ai-toolbar-action", {
+						action: "system-prompt",
+					});
+				});
+		});
+
+		menu.addItem((item) => {
+			item
+				.setTitle(i18n.t("mainMenu.aiAssistant.config"))
 				.setIcon("settings")
 				.onClick(() => {
 					dispatchWindowEvent("Weave:ai-toolbar-action", {
@@ -266,7 +275,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 
 		menu.addItem((item) => {
 			item
-				.setTitle("\u5207\u6362\u89c6\u56fe")
+				.setTitle(i18n.t("mainMenu.deckStudy.switchView"))
 				.setIcon("layout-grid")
 				.onClick(() => {
 					dispatchWindowEvent("show-view-menu", {
@@ -286,10 +295,13 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 					});
 		});
 
-		if (deckStudyView === "kanban") {
+		if (
+			deckStudyView === "kanban"
+			&& premiumGuard.canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, DECK_STUDY_FEATURE_CONTEXT)
+		) {
 			menu.addItem((item) => {
 				item
-					.setTitle("\u770b\u677f\u5217\u8bbe\u7f6e")
+					.setTitle(i18n.t("mainMenu.deckStudy.kanbanColumnSettings"))
 					.setIcon("sliders")
 					.onClick(() => {
 						dispatchWindowEvent("Weave:open-deck-kanban-menu", {
@@ -304,12 +316,12 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 	if (options.currentPage === "weave-card-management") {
 		if (shouldShowCardManagementMenuAction("data-source-switch")) {
 			menu.addItem((item) => {
-				item.setTitle("\u6570\u636e\u6e90\u5207\u6362").setIcon("database");
+				item.setTitle(i18n.t("mainMenu.cardManagement.dataSourceSwitch")).setIcon("database");
 				const submenu = (item as any).setSubmenu() as Menu;
 
 				submenu.addItem((subItem: any) => {
 					subItem
-						.setTitle("\u8bb0\u5fc6\u724c\u7ec4")
+						.setTitle(i18n.t("mainMenu.cardManagement.memoryDeck"))
 						.setIcon("brain")
 						.setChecked(cardDataSource === "memory")
 						.onClick(() => {
@@ -321,8 +333,8 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 				if (shouldShowPremiumEntry(premiumGuard, premiumState, PREMIUM_FEATURES.INCREMENTAL_READING)) {
 					submenu.addItem((subItem: any) => {
 						const title = premiumGuard.canUseFeature(PREMIUM_FEATURES.INCREMENTAL_READING)
-							? "\u589e\u91cf\u9605\u8bfb"
-							: "\u589e\u91cf\u9605\u8bfb (\u9ad8\u7ea7)";
+							? i18n.t("mainMenu.cardManagement.incrementalReading")
+							: i18n.t("mainMenu.cardManagement.incrementalReadingPremium");
 
 						subItem
 							.setTitle(title)
@@ -338,8 +350,8 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 				if (shouldShowPremiumEntry(premiumGuard, premiumState, PREMIUM_FEATURES.QUESTION_BANK)) {
 					submenu.addItem((subItem: any) => {
 						const title = premiumGuard.canUseFeature(PREMIUM_FEATURES.QUESTION_BANK)
-							? "\u8003\u8bd5\u9898\u7ec4"
-							: "\u8003\u8bd5\u9898\u7ec4 (\u9ad8\u7ea7)";
+							? i18n.t("mainMenu.cardManagement.questionBank")
+							: i18n.t("mainMenu.cardManagement.questionBankPremium");
 
 						subItem
 							.setTitle(title)
@@ -361,7 +373,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		) {
 			menu.addItem((item) => {
 				item
-					.setTitle("\u57fa\u7840\u4fe1\u606f\u6a21\u5f0f")
+					.setTitle(i18n.t("mainMenu.cardManagement.tableBasic"))
 					.setIcon("table")
 					.setChecked(options.tableViewMode === "basic")
 					.onClick(() => {
@@ -372,7 +384,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			if (shouldShowCardManagementMenuAction("table-view-review")) {
 				menu.addItem((item) => {
 					item
-						.setTitle("\u590d\u4e60\u5386\u53f2\u6a21\u5f0f")
+						.setTitle(i18n.t("mainMenu.cardManagement.tableReview"))
 						.setIcon("bar-chart-2")
 						.setChecked(options.tableViewMode === "review")
 						.onClick(() => {
@@ -383,13 +395,14 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		}
 
 		if (
-			currentView === "table"
+			inSidebar
+			&& currentView === "table"
 			&& cardDataSource === "incremental-reading"
 			&& shouldShowCardManagementMenuAction("ir-type-md")
 		) {
 			menu.addItem((item) => {
 				item
-					.setTitle("MD\u6587\u4ef6")
+					.setTitle("Markdown 文件")
 					.setIcon("file-text")
 					.setChecked(options.irTypeFilter === "md")
 					.onClick(() => {
@@ -400,7 +413,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			if (shouldShowCardManagementMenuAction("ir-type-pdf")) {
 				menu.addItem((item) => {
 					item
-						.setTitle("PDF\u4e66\u7b7e")
+						.setTitle("PDF书签")
 						.setIcon("file")
 						.setChecked(options.irTypeFilter === "pdf")
 						.onClick(() => {
@@ -413,7 +426,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		if (currentView === "grid" && shouldShowCardManagementMenuAction("grid-layout-fixed")) {
 			menu.addItem((item) => {
 				item
-					.setTitle("\u56fa\u5b9a\u5e03\u5c40")
+					.setTitle(i18n.t("mainMenu.cardManagement.gridFixed"))
 					.setIcon("layout-grid")
 					.setChecked(gridLayoutMode === "fixed")
 					.onClick(() => {
@@ -424,7 +437,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			if (shouldShowCardManagementMenuAction("grid-layout-masonry")) {
 				menu.addItem((item) => {
 					item
-						.setTitle("\u7011\u5e03\u6d41\u5e03\u5c40")
+						.setTitle(i18n.t("mainMenu.cardManagement.gridMasonry"))
 						.setIcon("panels-top-left")
 						.setChecked(gridLayoutMode === "masonry")
 						.onClick(() => {
@@ -445,7 +458,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 					.setTitle(
 						getPremiumEntryTitle(
 							premiumGuard,
-							"\u65f6\u95f4\u7ebf\u89c6\u56fe",
+							i18n.t("mainMenu.cardManagement.timeline"),
 							PREMIUM_FEATURES.TIMELINE_VIEW
 						)
 					)
@@ -467,7 +480,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		if (currentView === "table" && shouldShowCardManagementMenuAction("open-column-manager")) {
 			menu.addItem((item) => {
 				item
-					.setTitle("\u5b57\u6bb5\u7ba1\u7406")
+					.setTitle(i18n.t("mainMenu.cardManagement.columnManager"))
 					.setIcon("columns-2")
 					.onClick(() => {
 						emitCardManagementToolbarAction("open-column-manager");
@@ -479,7 +492,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			if (shouldShowCardManagementMenuAction("kanban-layout-compact")) {
 				menu.addItem((item) => {
 					item
-						.setTitle("\u7d27\u51d1\u6a21\u5f0f")
+						.setTitle(i18n.t("mainMenu.cardManagement.kanbanCompact"))
 						.setIcon("minimize-2")
 						.setChecked(options.kanbanLayoutMode === "compact")
 						.onClick(() => {
@@ -491,7 +504,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			if (shouldShowCardManagementMenuAction("kanban-layout-comfortable")) {
 				menu.addItem((item) => {
 					item
-						.setTitle("\u8212\u9002\u6a21\u5f0f")
+						.setTitle(i18n.t("mainMenu.cardManagement.kanbanComfortable"))
 						.setIcon("square")
 						.setChecked(options.kanbanLayoutMode === "comfortable")
 						.onClick(() => {
@@ -503,7 +516,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			if (shouldShowCardManagementMenuAction("kanban-layout-spacious")) {
 				menu.addItem((item) => {
 					item
-						.setTitle("\u5bbd\u677e\u6a21\u5f0f")
+						.setTitle(i18n.t("mainMenu.cardManagement.kanbanSpacious"))
 						.setIcon("maximize-2")
 						.setChecked(options.kanbanLayoutMode === "spacious")
 						.onClick(() => {
@@ -515,7 +528,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			if (shouldShowCardManagementMenuAction("open-kanban-column-settings")) {
 				menu.addItem((item) => {
 					item
-						.setTitle("\u770b\u677f\u5217\u8bbe\u7f6e")
+						.setTitle(i18n.t("mainMenu.cardManagement.kanbanColumnSettings"))
 						.setIcon("sliders-horizontal")
 						.onClick(() => {
 							emitCardManagementToolbarAction("open-kanban-column-settings");
@@ -530,7 +543,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		) {
 			menu.addItem((item) => {
 				item
-					.setTitle("\u5361\u7247\u5c5e\u6027")
+					.setTitle(i18n.t("mainMenu.cardManagement.gridAttributes"))
 					.setIcon("tag")
 					.onClick(() => {
 						emitCardManagementToolbarAction("open-grid-attribute-menu");
@@ -538,10 +551,25 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			});
 		}
 
+		if (
+			(currentView === "grid" || currentView === "kanban")
+			&& shouldShowCardManagementMenuAction("toggle-card-relation-filter")
+		) {
+			menu.addItem((item) => {
+				item
+					.setTitle(i18n.t("mainMenu.cardManagement.relationMode"))
+					.setIcon("link-2")
+					.setChecked(options.enableCardRelationFilterMode === true)
+					.onClick(() => {
+						emitCardManagementToolbarAction("toggle-card-relation-filter");
+					});
+			});
+		}
+
 		if (inSidebar && shouldShowCardManagementMenuAction("toggle-document-filter")) {
 			menu.addItem((item) => {
 				item
-					.setTitle("\u5173\u8054\u5f53\u524d\u6d3b\u52a8\u6587\u6863")
+					.setTitle(i18n.t("mainMenu.cardManagement.currentDocumentOnly"))
 					.setIcon(documentFilterMode === "current" ? "file-text" : "file")
 					.setChecked(documentFilterMode === "current")
 					.setDisabled(!options.currentActiveDocument)
@@ -555,7 +583,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			if (shouldShowCardManagementMenuAction("toggle-card-location-jump")) {
 				menu.addItem((item) => {
 					item
-						.setTitle("\u5b9a\u4f4d\u8df3\u8f6c\u6a21\u5f0f")
+						.setTitle(i18n.t("mainMenu.cardManagement.cardLocationJump"))
 						.setIcon("navigation")
 						.setChecked(enableCardLocationJump)
 						.onClick(() => {
@@ -568,7 +596,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		if (shouldShowCardManagementMenuAction("open-data-management")) {
 			menu.addItem((item) => {
 				item
-					.setTitle("\u6570\u636e\u7ba1\u7406")
+					.setTitle(i18n.t("mainMenu.cardManagement.dataManagement"))
 					.setIcon("database")
 					.onClick(() => {
 						emitCardManagementToolbarAction("open-data-management");
@@ -583,7 +611,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		if (navigationVisibility.apkgImport !== false) {
 			menu.addItem((item) => {
 				item
-					.setTitle("\u65e7\u7248APKG\u683c\u5f0f\u5bfc\u5165")
+					.setTitle(i18n.t("mainMenu.deckStudy.importLegacyPackage"))
 					.setIcon("package")
 					.onClick(() => {
 						dispatchDocumentEvent("apkg-import", {
@@ -602,7 +630,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 					.setTitle(
 						getPremiumEntryTitle(
 							premiumGuard,
-							"\u5bfc\u5165CSV\u6587\u4ef6",
+							i18n.t("mainMenu.deckStudy.importCsv"),
 							PREMIUM_FEATURES.CSV_IMPORT
 						)
 					)
@@ -614,44 +642,6 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 					});
 			});
 		}
-
-		if (
-			navigationVisibility.clipboardImport !== false &&
-			shouldShowPremiumEntry(premiumGuard, premiumState, PREMIUM_FEATURES.CLIPBOARD_IMPORT)
-		) {
-			menu.addItem((item) => {
-				item
-					.setTitle(
-						getPremiumEntryTitle(
-							premiumGuard,
-							"\u7c98\u8d34\u5361\u7247\u6279\u91cf\u5bfc\u5165",
-							PREMIUM_FEATURES.CLIPBOARD_IMPORT
-						)
-					)
-					.setIcon("clipboard-paste")
-					.onClick(() => {
-						dispatchDocumentEvent("clipboard-import", {
-							event: actionEvent,
-						});
-					});
-			});
-		}
-
-		menu.addSeparator();
-
-		menu.addItem((item) => {
-			item.setTitle("\u64cd\u4f5c\u7ba1\u7406").setIcon("more-horizontal");
-			const operationSubmenu = (item as any).setSubmenu() as Menu;
-
-			operationSubmenu.addItem((subItem: any) => {
-				subItem
-					.setTitle("\u6062\u590d\u5b98\u65b9\u6559\u7a0b\u724c\u7ec4")
-					.setIcon("book-open")
-					.onClick(() => {
-						dispatchDocumentEvent("Weave:restore-guide-deck");
-					});
-			});
-		});
 
 	}
 }

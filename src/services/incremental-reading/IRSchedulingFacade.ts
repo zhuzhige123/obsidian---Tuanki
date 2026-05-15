@@ -1,7 +1,6 @@
 /** 统一协调增量阅读的队列生成、调度执行和文件化块入口。 */
 
 import type { App } from "obsidian";
-import { resolveIRImportFolder } from "../../config/paths";
 import type { IRChunkFileData } from "../../types/ir-types";
 import type {
 	IRAdvancedScheduleSettings,
@@ -36,8 +35,6 @@ export interface IRSchedulingFacadeConfig {
 	advancedSettings?: Partial<IRAdvancedScheduleSettings>;
 	/** 可选传入现成的存储服务，避免重复创建。 */
 	storageService?: IRStorageService;
-	/** 文件化块根目录，默认按插件设置解析。 */
-	chunkRoot?: string;
 }
 
 /** 调度外观返回的学习队列结果。 */
@@ -68,7 +65,6 @@ export class IRSchedulingFacade {
 	private queueGenerator: IRQueueGenerator;
 	private tagGroupService: IRTagGroupService;
 	private chunkAdapter?: IRChunkScheduleAdapter;
-	private chunkRoot: string;
 
 	private strategy: IRScheduleStrategy;
 	private advancedSettings: IRAdvancedScheduleSettings;
@@ -80,9 +76,6 @@ export class IRSchedulingFacade {
 		const passedStorageService = config?.storageService;
 		logger.debug(`[IRSchedulingFacade] 构造函数: storageService 传入=${!!passedStorageService}`);
 		this.storage = passedStorageService || new IRStorageService(app);
-		const plugin: any = (app as any)?.plugins?.getPlugin?.("weave");
-		const parentFolder = plugin?.settings?.weaveParentFolder;
-		this.chunkRoot = resolveIRImportFolder(config?.chunkRoot, parentFolder);
 
 		this.strategy =
 			config?.strategy === "reading-list" ? READING_LIST_STRATEGY : PROCESSING_STRATEGY;
@@ -124,7 +117,7 @@ export class IRSchedulingFacade {
 	/** 懒加载文件化块调度适配器。 */
 	getChunkAdapter(): IRChunkScheduleAdapter {
 		if (!this.chunkAdapter) {
-			this.chunkAdapter = new IRChunkScheduleAdapter(this.app, this.storage, this.chunkRoot);
+			this.chunkAdapter = new IRChunkScheduleAdapter(this.app, this.storage);
 		}
 		return this.chunkAdapter;
 	}

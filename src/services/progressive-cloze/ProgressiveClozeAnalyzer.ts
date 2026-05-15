@@ -12,6 +12,7 @@ import type {
 	ClozeData,
 	ClozeValidationResult,
 } from "../../types/progressive-cloze-types";
+import { getConfiguredClozeMatches, hasConfiguredClozeSyntax } from "../../utils/cloze-syntax";
 
 export class ProgressiveClozeAnalyzer {
 	/**
@@ -25,9 +26,7 @@ export class ProgressiveClozeAnalyzer {
 		const clozeMatches = content.matchAll(/\{\{c(\d+)::([^}:]+)(?:::([^}]+))?\}\}/g);
 		const clozes = Array.from(clozeMatches);
 
-		// 检测==高亮==模式
-		const highlightMatches = content.matchAll(/==([^=]+)==/g);
-		const highlights = Array.from(highlightMatches);
+		const highlights = getConfiguredClozeMatches(content);
 
 		// 提取挖空数据
 		const clozeData = this.extractProgressiveClozes(content);
@@ -180,6 +179,6 @@ export class ProgressiveClozeAnalyzer {
 	 * @returns 是否包含==文本==语法
 	 */
 	hasObsidianHighlight(content: string): boolean {
-		return /==.+?==/.test(content);
+		return hasConfiguredClozeSyntax(content);
 	}
 }

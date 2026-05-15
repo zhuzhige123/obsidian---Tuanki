@@ -9,6 +9,7 @@ import { ItemView, Menu, Notice, Platform, WorkspaceLeaf } from "obsidian";
 import type { unmount } from "svelte";
 import type { Card } from "../data/types";
 import type { WeavePlugin } from "../main";
+import { i18n } from "../utils/i18n";
 import type {
 	QuestionBankModeConfig,
 	QuestionBankResumeBehavior,
@@ -261,7 +262,9 @@ export class QuestionBankView extends ItemView {
 			logger.debug("[QuestionBankView] 保存成功");
 		} catch (error) {
 			logger.error("[QuestionBankView] 保存失败:", error);
-			new Notice(`保存失败: ${error instanceof Error ? error.message : "未知错误"}`);
+			new Notice(i18n.t("views.questionBank.saveFailed", {
+				error: error instanceof Error ? error.message : i18n.t("common.unknown"),
+			}));
 		}
 	}
 

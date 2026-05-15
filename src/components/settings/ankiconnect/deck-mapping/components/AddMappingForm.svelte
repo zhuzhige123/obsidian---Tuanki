@@ -15,7 +15,6 @@
     isVisible: boolean;
     ankiDecks: AnkiDeckInfo[];
     weaveDecks: Deck[];
-    isPremium?: boolean;
     onAdd: (mapping: DeckSyncMapping) => void;
   }
 
@@ -23,13 +22,11 @@
     isVisible, 
     ankiDecks, 
     weaveDecks, 
-    isPremium = false,
     onAdd
   }: Props = $props();
 
   let selectedWeaveDeckId = $state('');
   let selectedAnkiDeckName = $state('');
-  let selectedSyncDirection = $state<'to_anki' | 'from_anki'>('to_anki');
   let selectedContentConversion = $state<'standard' | 'preserve_style' | 'minimal'>('standard');
 
   function handleAdd() {
@@ -42,7 +39,7 @@
       weaveDeckId: selectedWeaveDeckId,
       weaveDeckName: weaveDeck.name,
       ankiDeckName: selectedAnkiDeckName,
-      syncDirection: selectedSyncDirection,
+      syncDirection: 'to_anki',
       contentConversion: selectedContentConversion,
       enabled: false,
       lastSyncTime: undefined
@@ -51,7 +48,6 @@
     // 重置表单
     selectedWeaveDeckId = '';
     selectedAnkiDeckName = '';
-    selectedSyncDirection = 'to_anki';
     selectedContentConversion = 'standard';
   }
 
@@ -81,17 +77,6 @@
           ]}
           value={selectedAnkiDeckName}
           onchange={(value) => { selectedAnkiDeckName = value; }}
-        />
-      </div>
-      <div class="form-field">
-        <label for="sync-direction-select">{t('ankiConnect.addMapping.syncDirectionLabel')}</label>
-        <ObsidianDropdown
-          options={[
-            { id: 'to_anki', label: '→ ' + t('ankiConnect.deckMapping.directions.toAnki') },
-            { id: 'from_anki', label: '← ' + t('ankiConnect.deckMapping.directions.fromAnki') }
-          ]}
-          value={selectedSyncDirection}
-          onchange={(value) => { selectedSyncDirection = value as 'to_anki' | 'from_anki'; }}
         />
       </div>
       <div class="form-field">
@@ -137,7 +122,7 @@
 
   .form-row {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr 1fr auto;
+    grid-template-columns: 1fr 1fr 1fr auto;
     gap: 12px;
     align-items: end;
   }

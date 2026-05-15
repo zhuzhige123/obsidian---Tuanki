@@ -1,12 +1,14 @@
 <script lang="ts">
   interface Props {
     message?: string;
+    compact?: boolean;
+    showMessage?: boolean;
   }
 
-  let { message = "加载中..." }: Props = $props();
+  let { message = "加载中...", compact = false, showMessage = true }: Props = $props();
 </script>
 
-<div class="bouncing-balls-loader">
+<div class:compact class="bouncing-balls-loader">
   <div class="loader-wrapper">
     <div class="circle"></div>
     <div class="circle"></div>
@@ -15,7 +17,7 @@
     <div class="shadow"></div>
     <div class="shadow"></div>
   </div>
-  {#if message}
+  {#if showMessage && message}
     <div class="loader-message">{message}</div>
   {/if}
 </div>
@@ -33,11 +35,24 @@
     min-height: 300px;
   }
 
+  .bouncing-balls-loader.compact {
+    gap: 0.5rem;
+    padding: 0;
+    width: auto;
+    height: auto;
+    min-height: 0;
+  }
+
   .loader-wrapper {
     width: 200px;
     height: 60px;
     position: relative;
     z-index: 1;
+  }
+
+  .bouncing-balls-loader.compact .loader-wrapper {
+    width: 84px;
+    height: 28px;
   }
 
   .circle {
@@ -51,6 +66,12 @@
     animation: circle-bounce 0.5s alternate infinite ease;
   }
 
+  .bouncing-balls-loader.compact .circle {
+    width: 10px;
+    height: 10px;
+    animation-name: circle-bounce-compact;
+  }
+
   @keyframes circle-bounce {
     0% {
       top: 60px;
@@ -61,6 +82,25 @@
 
     40% {
       height: 20px;
+      border-radius: 50%;
+      transform: scaleX(1);
+    }
+
+    100% {
+      top: 0%;
+    }
+  }
+
+  @keyframes circle-bounce-compact {
+    0% {
+      top: 28px;
+      height: 3px;
+      border-radius: 50px 50px 25px 25px;
+      transform: scaleX(1.7);
+    }
+
+    40% {
+      height: 10px;
       border-radius: 50%;
       transform: scaleX(1);
     }
@@ -95,7 +135,30 @@
     animation: shadow-scale 0.5s alternate infinite ease;
   }
 
+  .bouncing-balls-loader.compact .shadow {
+    width: 10px;
+    height: 2px;
+    top: 30px;
+    animation-name: shadow-scale-compact;
+  }
+
   @keyframes shadow-scale {
+    0% {
+      transform: scaleX(1.5);
+    }
+
+    40% {
+      transform: scaleX(1);
+      opacity: 0.7;
+    }
+
+    100% {
+      transform: scaleX(0.2);
+      opacity: 0.4;
+    }
+  }
+
+  @keyframes shadow-scale-compact {
     0% {
       transform: scaleX(1.5);
     }
@@ -128,6 +191,10 @@
     font-weight: 500;
     text-align: center;
     animation: fade-pulse 2s ease-in-out infinite;
+  }
+
+  .bouncing-balls-loader.compact .loader-message {
+    font-size: 0.75rem;
   }
 
   @keyframes fade-pulse {

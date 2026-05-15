@@ -3,7 +3,7 @@
  * WeaveCardTable 组件拆分 - 共享工具函数
  */
 
-import { OFFICIAL_TEMPLATES } from "../../../constants/official-templates";
+import { getOfficialTemplateById } from "../../../constants/official-templates";
 import { ICON_NAMES } from "../../../icons/index.js";
 import type { ParseTemplate } from "../../../types/newCardParsingTypes";
 // 🆕 v2.2: 导入牌组信息获取工具
@@ -141,7 +141,7 @@ export function getFieldTemplateInfo(
 	}
 
 	// 1. 优先查找官方模板
-	const officialTemplate = OFFICIAL_TEMPLATES.find((t) => t.id === templateId);
+	const officialTemplate = getOfficialTemplateById(templateId);
 	if (officialTemplate) {
 		return {
 			name: officialTemplate.name,

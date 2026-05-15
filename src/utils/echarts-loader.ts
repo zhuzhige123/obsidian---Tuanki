@@ -13,17 +13,19 @@ import * as echarts from "echarts/core";
 import type { EChartsType } from "echarts/core";
 
 // 引入需要的图表类型
-import { BarChart, HeatmapChart, LineChart, PieChart } from "echarts/charts";
+import { BarChart, HeatmapChart, LineChart, PieChart, ScatterChart } from "echarts/charts";
 
 // 引入需要的组件
 import {
 	DataZoomComponent,
 	GridComponent,
 	LegendComponent,
+	MarkLineComponent,
 	MarkPointComponent,
 	TooltipComponent,
 	VisualMapComponent,
 } from "echarts/components";
+import { LabelLayout } from "echarts/features";
 
 // 引入Canvas渲染器（必须）
 import { CanvasRenderer } from "echarts/renderers";
@@ -33,6 +35,7 @@ echarts.use([
 	// 图表类型
 	LineChart,
 	BarChart,
+	ScatterChart,
 	HeatmapChart,
 	PieChart,
 
@@ -42,7 +45,9 @@ echarts.use([
 	LegendComponent,
 	DataZoomComponent,
 	VisualMapComponent,
+	MarkLineComponent,
 	MarkPointComponent,
+	LabelLayout,
 
 	// 渲染器
 	CanvasRenderer,

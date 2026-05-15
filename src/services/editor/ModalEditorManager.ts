@@ -19,6 +19,7 @@ import {
 	isLegacyModalEditorPermanentFilePath,
 	isPluginCacheModalEditorPermanentFilePath,
 } from "./editor-temp-file-policy";
+import { applyStyleProps } from "../../utils/style-props";
 
 export class ModalEditorManager {
 	private static instance: ModalEditorManager | null = null;
@@ -68,7 +69,7 @@ export class ModalEditorManager {
 			const els = rootEl.querySelectorAll(selector);
 			els.forEach((el) => {
 				const h = el as HTMLElement;
-				h.setCssProps({
+				applyStyleProps(h, {
 					display: "none",
 					height: "0",
 					"min-height": "0",
@@ -281,7 +282,7 @@ export class ModalEditorManager {
 		if (leafEl) {
 			slot.leafHomeParent = leafEl.parentElement;
 			slot.leafHomeNextSibling = leafEl.nextSibling;
-			leafEl.setCssProps({
+			applyStyleProps(leafEl, {
 				position: "absolute",
 				left: "-9999px",
 				top: "-9999px",
@@ -309,11 +310,11 @@ export class ModalEditorManager {
 			this.hideLeafUiElements((slot.leaf as any).containerEl as HTMLElement);
 			const tabEl = (slot.leaf as any).tabHeaderEl as HTMLElement;
 			if (tabEl) {
-				tabEl.setCssProps({ display: "none" });
+				applyStyleProps(tabEl, { display: "none" });
 			}
 			const titleEl = (slot.leaf as any).titleEl as HTMLElement;
 			if (titleEl) {
-				titleEl.setCssProps({ display: "none" });
+				applyStyleProps(titleEl, { display: "none" });
 			}
 		} catch {}
 	}
@@ -572,7 +573,7 @@ export class ModalEditorManager {
 			container.replaceChildren();
 			container.appendChild(contentEl);
 
-			contentEl.setCssProps({
+			applyStyleProps(contentEl, {
 				position: "relative",
 				left: "0",
 				top: "0",
@@ -797,7 +798,7 @@ export class ModalEditorManager {
 					container.replaceChildren();
 					container.appendChild(contentEl);
 
-					contentEl.setCssProps({
+					applyStyleProps(contentEl, {
 						position: "relative",
 						left: "0",
 						top: "0",
@@ -890,7 +891,7 @@ export class ModalEditorManager {
 	 * 设置编辑器样式
 	 */
 	private setupEditorStyles(editorEl: HTMLElement): void {
-		editorEl.setCssProps({
+		applyStyleProps(editorEl, {
 			background: "var(--background-primary)",
 			color: "var(--text-normal)",
 			height: "100%",
@@ -898,7 +899,7 @@ export class ModalEditorManager {
 
 		const cmEditor = editorEl.querySelector(".cm-editor") as HTMLElement;
 		if (cmEditor) {
-			cmEditor.setCssProps({
+			applyStyleProps(cmEditor, {
 				height: "100%",
 				"font-size": "var(--font-text-size)",
 				"font-family": "var(--font-text)",
@@ -907,7 +908,7 @@ export class ModalEditorManager {
 
 		const cmContent = editorEl.querySelector(".cm-content") as HTMLElement;
 		if (cmContent) {
-			cmContent.setCssProps({
+			applyStyleProps(cmContent, {
 				padding: "20px 24px",
 				"min-height": "unset",
 			});

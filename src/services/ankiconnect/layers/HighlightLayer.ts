@@ -8,6 +8,7 @@
  */
 
 import type { ConversionContext, LayerConversionResult } from "../../../types/ankiconnect-types";
+import { getConfiguredClozeMatches } from "../../../utils/cloze-syntax";
 import { BoundaryDetector, CONVERSION_REGEX, StringUtils } from "../utils/conversion-utils";
 import { BaseConversionLayer } from "./ConversionLayer";
 
@@ -55,20 +56,26 @@ export class HighlightLayer extends BaseConversionLayer {
 	 */
 	private convertHighlight(content: string): { content: string; count: number } {
 		let count = 0;
+		const matches = getConfiguredClozeMatches(content);
+		if (matches.length === 0) {
+			return { content, count };
+		}
 
-		const result = content.replace(CONVERSION_REGEX.HIGHLIGHT, (match, text, offset) => {
-			// 检查是否在代码块中
-			if (BoundaryDetector.shouldSkipMatch(content, offset)) {
-				return match;
+		let cursor = 0;
+		let result = "";
+		for (const match of matches) {
+			result += content.slice(cursor, match.index);
+			if (BoundaryDetector.shouldSkipMatch(content, match.index)) {
+				result += match.fullMatch;
+			} else {
+				count++;
+				result += `<mark style="background-color:#FEF08A;padding:2px 4px;border-radius:2px;">${StringUtils.escapeHtml(
+					match.text
+				)}</mark>`;
 			}
-
-			count++;
-
-			// 转换为 mark 标签，带黄色背景
-			return `<mark style="background-color:#FEF08A;padding:2px 4px;border-radius:2px;">${StringUtils.escapeHtml(
-				text
-			)}</mark>`;
-		});
+			cursor = match.endIndex;
+		}
+		result += content.slice(cursor);
 
 		return { content: result, count };
 	}

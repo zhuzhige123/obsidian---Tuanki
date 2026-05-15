@@ -113,4 +113,118 @@ describe("IRV4SchedulerService bookmark deck fallback", () => {
 			})
 		);
 	});
+
+	it("统一计划生成器会把标签组 profile 映射成轻量排序偏置", async () => {
+		const app = {
+			plugins: {
+				getPlugin: vi.fn(() => ({
+					settings: {
+						incrementalReading: {
+							enableTagGroupPrior: true,
+							defaultIntervalFactor: 1.5,
+							interleaveMode: false,
+							maxConsecutiveSameTopic: 3,
+						},
+					},
+				})),
+			},
+			vault: {
+				adapter: {},
+			},
+		} as any;
+
+		const service = new IRV4SchedulerService(app);
+		const denseBlock = {
+			...createDefaultIRBlockV4("dense", "notes/dense.md"),
+			status: "scheduled",
+			priorityUi: 5,
+			priorityEff: 5,
+			nextRepDate: Date.now(),
+			meta: {
+				...createDefaultIRBlockV4("dense-meta", "notes/dense.md").meta,
+				tagGroup: "dense",
+			},
+		} as any;
+		const looseBlock = {
+			...createDefaultIRBlockV4("loose", "notes/loose.md"),
+			status: "scheduled",
+			priorityUi: 5.1,
+			priorityEff: 5.1,
+			nextRepDate: Date.now(),
+			meta: {
+				...createDefaultIRBlockV4("loose-meta", "notes/loose.md").meta,
+				tagGroup: "loose",
+			},
+		} as any;
+
+		(service as any).tagGroupService = {
+			getProfile: vi.fn(async (groupId: string) => {
+				if (groupId === "dense") {
+					return { groupId, intervalFactorBase: 1.2, sampleCount: 8 };
+				}
+				return { groupId, intervalFactorBase: 1.8, sampleCount: 8 };
+			}),
+		};
+
+		const result = await (service as any).generateUnifiedQueue([denseBlock, looseBlock], 15, null);
+
+		expect(result.queue.map((block: any) => block.id)).toEqual(["dense", "loose"]);
+	});
+
+	it("关闭 enableTagGroupPrior 时不会应用标签组排序偏置", async () => {
+		const app = {
+			plugins: {
+				getPlugin: vi.fn(() => ({
+					settings: {
+						incrementalReading: {
+							enableTagGroupPrior: false,
+							defaultIntervalFactor: 1.5,
+							interleaveMode: false,
+							maxConsecutiveSameTopic: 3,
+						},
+					},
+				})),
+			},
+			vault: {
+				adapter: {},
+			},
+		} as any;
+
+		const service = new IRV4SchedulerService(app);
+		const denseBlock = {
+			...createDefaultIRBlockV4("dense", "notes/dense.md"),
+			status: "scheduled",
+			priorityUi: 5,
+			priorityEff: 5,
+			nextRepDate: Date.now(),
+			meta: {
+				...createDefaultIRBlockV4("dense-meta", "notes/dense.md").meta,
+				tagGroup: "dense",
+			},
+		} as any;
+		const looseBlock = {
+			...createDefaultIRBlockV4("loose", "notes/loose.md"),
+			status: "scheduled",
+			priorityUi: 5.1,
+			priorityEff: 5.1,
+			nextRepDate: Date.now(),
+			meta: {
+				...createDefaultIRBlockV4("loose-meta", "notes/loose.md").meta,
+				tagGroup: "loose",
+			},
+		} as any;
+
+		(service as any).tagGroupService = {
+			getProfile: vi.fn(async (groupId: string) => {
+				if (groupId === "dense") {
+					return { groupId, intervalFactorBase: 1.2, sampleCount: 8 };
+				}
+				return { groupId, intervalFactorBase: 1.8, sampleCount: 8 };
+			}),
+		};
+
+		const result = await (service as any).generateUnifiedQueue([denseBlock, looseBlock], 15, null);
+
+		expect(result.queue.map((block: any) => block.id)).toEqual(["loose", "dense"]);
+	});
 });

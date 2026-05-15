@@ -1,6 +1,7 @@
 import type { App } from "obsidian";
 import { Notice } from "obsidian";
 import { DirectoryUtils } from "../../utils/directory-utils";
+import { i18n } from "../../utils/i18n";
 import { logger } from "../../utils/logger";
 import { EpubLinkService } from "./EpubLinkService";
 
@@ -205,7 +206,7 @@ export class EpubScreenshotService {
 		const arrayBuffer = await blob.arrayBuffer();
 		await adapter.writeBinary(fullPath, new Uint8Array(arrayBuffer) as any);
 
-		new Notice(`Screenshot saved: ${fileName}`);
+		new Notice(i18n.t("views.epubView.notice.screenshotSaved", { fileName }));
 		return fullPath;
 	}
 

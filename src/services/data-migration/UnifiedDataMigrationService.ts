@@ -240,7 +240,6 @@ export async function verifyDataMigration(
 	const adapter = app.vault.adapter as any;
 	const expectedDirs = [
 		result.plan.layout.v2Paths.memory.root,
-		result.plan.layout.v2Paths.memory.cards,
 		result.plan.layout.v2Paths.memory.learning.root,
 		result.plan.layout.v2Paths.ir.root,
 		result.plan.layout.v2Paths.questionBank.root,
@@ -451,7 +450,7 @@ async function createMigrationBackup(app: App, plan: DataMigrationPlan): Promise
 		plan.layout.v2Paths.schemaVersion,
 		plan.layout.v2Paths.memory.decks,
 		plan.layout.v2Paths.ir.blocks,
-		plan.layout.v2Paths.ir.decks,
+		plan.layout.v2Paths.ir.legacyDecks,
 		plan.layout.v2Paths.ir.chunks,
 		plan.layout.v2Paths.ir.sources,
 		plan.layout.v2Paths.ir.materials.index,

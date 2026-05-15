@@ -4,6 +4,7 @@
  */
 
 import { type App, Modal } from "obsidian";
+import { writable } from "svelte/store";
 import { logger } from "./logger";
 
 export interface ProgressModalOptions {
@@ -19,13 +20,24 @@ function injectProgressStyles() {
 	// no-op: styles now in static CSS
 }
 
+interface ProgressModalViewState {
+	title: string;
+	description: string;
+	total: number;
+	current: number;
+	detail: string;
+	etaText: string;
+	percent: number;
+	percentText: string;
+	status: "running" | "success" | "error";
+	cancellable: boolean;
+	allowClose: boolean;
+	isCancelled: boolean;
+	actionLabel: string;
+}
+
 export class ProgressModal extends Modal {
-	private fillEl!: HTMLDivElement;
-	private percentageEl!: HTMLDivElement;
-	private statsEl!: HTMLDivElement;
-	private etaEl!: HTMLDivElement;
-	private descEl!: HTMLDivElement;
-	private cancelButton: HTMLButtonElement | null = null;
+	private modalComponent: unknown = null;
 
 	private total: number;
 	private current = 0;
@@ -33,11 +45,30 @@ export class ProgressModal extends Modal {
 	private allowClose = false;
 	private options: ProgressModalOptions;
 	private startTime = 0;
+	private progressState = writable<ProgressModalViewState>(this.createInitialState());
 
 	constructor(app: App, options: ProgressModalOptions) {
 		super(app);
 		this.options = options;
 		this.total = options.total;
+	}
+
+	private createInitialState(): ProgressModalViewState {
+		return {
+			title: this.options.title,
+			description: this.options.description || "",
+			total: this.total,
+			current: 0,
+			detail: "",
+			etaText: "",
+			percent: 0,
+			percentText: "0%",
+			status: "running",
+			cancellable: this.options.cancellable === true,
+			allowClose: false,
+			isCancelled: false,
+			actionLabel: this.options.cancellable ? "取消操作" : "",
+		};
 	}
 
 	onOpen() {
@@ -48,42 +79,10 @@ export class ProgressModal extends Modal {
 
 		this.titleEl.setText(this.options.title);
 		this.startTime = Date.now();
-
-		// 描述
-		this.descEl = contentEl.createDiv({ cls: "progress-desc" });
-		if (this.options.description) {
-			this.descEl.setText(this.options.description);
-		}
-
-		// 百分比大数字
-		this.percentageEl = contentEl.createDiv({ cls: "progress-percentage" });
-		this.percentageEl.setText("0%");
-
-		// 进度条轨道 + 填充
-		const track = contentEl.createDiv({ cls: "progress-bar-track" });
-		this.fillEl = track.createDiv({ cls: "progress-bar-fill animating" });
-
-		// 统计行 (N / Total)
-		this.statsEl = contentEl.createDiv({ cls: "progress-stats" });
-		this.statsEl.empty();
-		this.statsEl.createSpan({ text: `0 / ${this.total}` });
-		this.statsEl.createSpan();
-
-		// ETA
-		this.etaEl = contentEl.createDiv({ cls: "progress-eta" });
-
-		// 取消按钮
-		if (this.options.cancellable) {
-			const btnBox = contentEl.createDiv({ cls: "progress-buttons" });
-			this.cancelButton = btnBox.createEl("button", { text: "取消操作" });
-			this.cancelButton.onclick = () => {
-				this.cancelled = true;
-				if (this.cancelButton) {
-					this.cancelButton.setText("正在取消...");
-					this.cancelButton.disabled = true;
-				}
-			};
-		}
+		this.cancelled = false;
+		this.allowClose = false;
+		this.progressState.set(this.createInitialState());
+		void this.mountComponent();
 
 		// 拦截 ESC 和点击背景关闭
 		this.scope.register([], "Escape", (e) => {
@@ -103,11 +102,56 @@ export class ProgressModal extends Modal {
 		);
 	}
 
-	onClose() {
+	private async mountComponent(): Promise<void> {
+		try {
+			const { mount } = await import("svelte");
+			const { default: Component } = await import("../components/modals/ProgressModalContent.svelte");
+			this.modalComponent = mount(Component, {
+				target: this.contentEl,
+				props: {
+					progressState: this.progressState,
+					onAction: () => this.handleAction(),
+				},
+			});
+		} catch (error) {
+			logger.error("[ProgressModal] 创建组件失败:", error);
+			this.close();
+		}
+	}
+
+	private handleAction(): void {
+		if (this.allowClose) {
+			this.close();
+			return;
+		}
+
+		if (!this.options.cancellable || this.cancelled) {
+			return;
+		}
+
+		this.cancelled = true;
+		this.progressState.update((state) => ({
+			...state,
+			isCancelled: true,
+			actionLabel: "正在取消...",
+		}));
+	}
+
+	async onClose() {
 		// 如果操作仍在进行，阻止关闭（回滚）
 		if (!this.allowClose) {
 			// Modal 已经执行了 close，无法阻止；标记取消
 			this.cancelled = true;
+		}
+
+		if (this.modalComponent) {
+			try {
+				const { unmount } = await import("svelte");
+				void unmount(this.modalComponent as never);
+				this.modalComponent = null;
+			} catch (error) {
+				logger.error("[ProgressModal] 销毁组件失败:", error);
+			}
 		}
 	}
 
@@ -116,30 +160,31 @@ export class ProgressModal extends Modal {
 		this.current = current;
 		const pct = this.total > 0 ? Math.min(100, Math.round((current / this.total) * 100)) : 0;
 
-		this.fillEl.setCssProps({ width: `${pct}%` });
-		this.percentageEl.setText(`${pct}%`);
-
-		const rightText = detail || "";
-		this.statsEl.empty();
-		this.statsEl.createSpan({ text: `${current} / ${this.total}` });
-		this.statsEl.createSpan({ text: rightText });
-
 		// 预估剩余时间
+		let etaText = "";
 		const elapsed = Date.now() - this.startTime;
 		if (current > 0 && current < this.total) {
 			const avgMs = elapsed / current;
 			const remainMs = avgMs * (this.total - current);
-			this.etaEl.setText(this.formatETA(remainMs));
-		} else if (current >= this.total) {
-			this.etaEl.setText("");
+			etaText = this.formatETA(remainMs);
 		}
+
+		this.progressState.update((state) => ({
+			...state,
+			current,
+			detail: detail || "",
+			percent: pct,
+			percentText: `${pct}%`,
+			etaText,
+		}));
 	}
 
 	/** 更新描述文案 */
 	updateDescription(description: string) {
-		if (this.descEl) {
-			this.descEl.setText(description);
-		}
+		this.progressState.update((state) => ({
+			...state,
+			description,
+		}));
 	}
 
 	/** 递增进度 */
@@ -155,20 +200,17 @@ export class ProgressModal extends Modal {
 	/** 设置完成状态 */
 	setComplete(message: string) {
 		this.allowClose = true;
-		this.fillEl.setCssProps({ width: "100%" });
-		this.fillEl.classList.remove("animating");
-		this.fillEl.classList.add("complete");
-		this.percentageEl.setText("100%");
-		this.statsEl.empty();
-		this.statsEl.createSpan({ text: message });
-		this.statsEl.createSpan();
-		this.etaEl.setText("");
-
-		if (this.cancelButton) {
-			this.cancelButton.setText("关闭");
-			this.cancelButton.disabled = false;
-			this.cancelButton.onclick = () => this.close();
-		}
+		this.progressState.update((state) => ({
+			...state,
+			current: this.total,
+			detail: message,
+			etaText: "",
+			percent: 100,
+			percentText: "100%",
+			status: "success",
+			allowClose: true,
+			actionLabel: "关闭",
+		}));
 
 		setTimeout(() => this.close(), 1200);
 	}
@@ -176,19 +218,15 @@ export class ProgressModal extends Modal {
 	/** 设置错误状态 */
 	setError(message: string) {
 		this.allowClose = true;
-		this.fillEl.classList.remove("animating");
-		this.fillEl.classList.add("error");
-		this.percentageEl.setText("--");
-		this.statsEl.empty();
-		this.statsEl.createSpan({ text: message });
-		this.statsEl.createSpan();
-		this.etaEl.setText("");
-
-		if (this.cancelButton) {
-			this.cancelButton.setText("关闭");
-			this.cancelButton.disabled = false;
-			this.cancelButton.onclick = () => this.close();
-		}
+		this.progressState.update((state) => ({
+			...state,
+			detail: message,
+			etaText: "",
+			status: "error",
+			allowClose: true,
+			actionLabel: "关闭",
+			percentText: "--",
+		}));
 	}
 
 	private formatETA(ms: number): string {

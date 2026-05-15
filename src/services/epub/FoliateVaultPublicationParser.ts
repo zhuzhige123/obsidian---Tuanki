@@ -2,6 +2,14 @@ import JSZip from "jszip";
 import { type App, TFile } from "obsidian";
 import { logger } from "../../utils/logger";
 import { readVaultBinaryData } from "./EpubBinaryData";
+import {
+	getBookExtensionFromPath,
+	stripSupportedBookExtension,
+	usesFoliateGenericBookLoader,
+	usesPlainTextBookAdapter,
+} from "./book-format";
+import { EpubError } from "./epub-error";
+import { makePlainTextBook } from "./plain-text-book";
 import * as EpubCfi from "./vendor/epubcfi";
 import type { TocItem } from "./types";
 
@@ -68,6 +76,10 @@ const MARKDOWN_BLOCK_TAGS = new Set([
 	"img",
 ]);
 
+function createCssDataUrl(cssText: string): string {
+	return `data:text/css;charset=utf-8,${encodeURIComponent(cssText)}`;
+}
+
 type TextQuote = {
 	highlight?: string;
 	before?: string;
@@ -87,9 +99,20 @@ type SectionDescriptor = {
 	title: string;
 	linear: boolean;
 	textLength: number;
+	wordCount: number;
 	positionCount: number;
 	positionStart: number;
 };
+
+export interface FoliateSectionReadingMetrics {
+	index: number;
+	href: string;
+	title: string;
+	textLength: number;
+	wordCount: number;
+	positionCount: number;
+	positionStart: number;
+}
 
 type LegacyStoredLocationPayload = {
 	href?: string;
@@ -111,10 +134,11 @@ type CompactReadiumLocation = {
 };
 
 type FoliateSection = {
-	id?: string;
+	id?: string | number;
 	cfi?: string;
 	linear?: string;
 	size?: number;
+	load?: () => Promise<string> | string;
 	createDocument?: () => Promise<Document>;
 	resolveHref?: (href: string) => string;
 };
@@ -128,7 +152,12 @@ type FoliateBook = {
 	dir?: string;
 	transformTarget?: EventTarget;
 	resolveCFI?: (cfi: string) => { index: number; anchor: (doc: Document) => unknown } | null;
-	resolveHref: (href: string) => { index: number; anchor: (doc: Document) => unknown } | null;
+	resolveHref: (
+		href: string
+	) =>
+		| { index: number; anchor: (doc: Document) => unknown }
+		| Promise<{ index: number; anchor: (doc: Document) => unknown } | null>
+		| null;
 	getCover?: () => Promise<Blob | null>;
 	destroy?: () => void;
 };
@@ -145,6 +174,7 @@ export interface FoliateLoadedPublication {
 		publisher?: string;
 		language?: string;
 		identifier?: string;
+		wordCount?: number;
 		chapterCount: number;
 		isFixedLayout: boolean;
 	};
@@ -200,6 +230,7 @@ export class FoliateVaultPublicationParser {
 	private metadata: FoliateLoadedPublication["metadata"] = {
 		title: "",
 		author: "",
+		wordCount: 0,
 		chapterCount: 0,
 		isFixedLayout: false,
 	};
@@ -213,26 +244,75 @@ export class FoliateVaultPublicationParser {
 	async load(filePath: string): Promise<FoliateLoadedPublication> {
 		this.dispose();
 		this.filePath = filePath;
-		this.fileName = filePath.split("/").pop() || "book.epub";
+		this.fileName = filePath.split("/").pop() || "book";
 
 		const vaultFile = this.app.vault.getAbstractFileByPath(filePath);
 		if (!(vaultFile instanceof TFile)) {
-			throw new Error(`EPUB 文件不存在: ${filePath}`);
+			throw new EpubError("file_not_found", `书籍文件不存在: ${filePath}`, { filePath });
 		}
 
-		const normalizedBinary = await readVaultBinaryData(this.app, vaultFile, filePath);
-		this.archive = await JSZip.loadAsync(normalizedBinary);
-		this.rebuildArchiveEntryLookup();
-		this.packageDocumentPath = await this.findPackageDocumentPath();
-		await this.buildManifestMediaTypeLookup();
+		const extension = getBookExtensionFromPath(filePath);
+		if (extension === "epub") {
+			const normalizedBinary = await readVaultBinaryData(this.app, vaultFile, filePath, {
+				requireZipSignature: true,
+				failureLabel: "EPUB",
+			});
+			try {
+				this.archive = await JSZip.loadAsync(normalizedBinary, {
+					checkCRC32: false,
+				});
+			} catch (error) {
+				throw new EpubError(
+					"invalid_archive",
+					error instanceof Error ? error.message : `EPUB ZIP parse failed: ${filePath}`,
+					{
+						filePath,
+						byteLength: normalizedBinary.byteLength,
+					}
+				);
+			}
+			this.rebuildArchiveEntryLookup();
+			this.packageDocumentPath = await this.findPackageDocumentPath();
+			await this.buildManifestMediaTypeLookup();
 
-		const { EPUB } = await import("foliate-js/epub.js");
-		const loader = this.createFoliateLoader();
-		this.currentBook = (await new EPUB(loader).init()) as FoliateBook;
+			const { EPUB } = await import("foliate-js/epub.js");
+			const loader = this.createFoliateLoader();
+			this.currentBook = (await new EPUB(loader).init()) as FoliateBook;
+		} else if (usesPlainTextBookAdapter(extension)) {
+			this.archive = null;
+			this.archiveEntryLookup.clear();
+			this.manifestMediaTypeByHref.clear();
+			this.packageDocumentPath = "";
+			const text = await this.app.vault.read(vaultFile);
+			this.currentBook = makePlainTextBook({
+				fileName: vaultFile.name,
+				text,
+			}) as FoliateBook;
+		} else if (usesFoliateGenericBookLoader(extension)) {
+			this.archive = null;
+			this.archiveEntryLookup.clear();
+			this.manifestMediaTypeByHref.clear();
+			this.packageDocumentPath = "";
+			const normalizedBinary = await readVaultBinaryData(this.app, vaultFile, filePath, {
+				requireZipSignature: false,
+				failureLabel: "Book",
+			});
+			const file = new File([normalizedBinary], vaultFile.name, {
+				type: this.getGenericPublicationMimeType(extension),
+			});
+			const viewModule = (await import("foliate-js/view.js")) as unknown as {
+				makeBook: (input: File) => Promise<FoliateBook>;
+			};
+			this.currentBook = await viewModule.makeBook(file);
+		} else {
+			throw new EpubError("unknown", `暂不支持的书籍格式: ${filePath}`, { filePath });
+		}
+
 		this.attachHtmlTransformPipeline(this.currentBook);
 		this.buildMetadata();
 		this.buildTocItems();
 		await this.buildSectionDescriptors();
+		await this.hydrateTocPageNumbers();
 
 		return {
 			filePath,
@@ -264,6 +344,26 @@ export class FoliateVaultPublicationParser {
 		return this.totalPositions;
 	}
 
+	getTotalWordCount(): number {
+		return this.metadata.wordCount || 0;
+	}
+
+	getSectionReadingMetrics(index: number): FoliateSectionReadingMetrics | null {
+		const section = this.sectionDescriptors[index];
+		if (!section) {
+			return null;
+		}
+		return {
+			index: section.index,
+			href: section.href,
+			title: section.title,
+			textLength: section.textLength,
+			wordCount: section.wordCount,
+			positionCount: section.positionCount,
+			positionStart: section.positionStart,
+		};
+	}
+
 	isFixedLayout(): boolean {
 		return this.metadata.isFixedLayout;
 	}
@@ -288,6 +388,10 @@ export class FoliateVaultPublicationParser {
 
 	getSectionHrefByIndex(index: number): string {
 		return this.sectionDescriptors[index]?.href || "";
+	}
+
+	resolveHrefAgainst(baseHref: string, rawHref: string): string {
+		return this.normalizeInternalHref(baseHref, rawHref);
 	}
 
 	async getSectionReadingPointDraft(
@@ -329,6 +433,10 @@ export class FoliateVaultPublicationParser {
 		return typeof index === "number" ? this.getSectionHrefByIndex(index) : null;
 	}
 
+	async getRawDocumentByHref(href: string): Promise<Document | null> {
+		return this.loadRawDocumentByHref(href);
+	}
+
 	getSectionIndexForCfi(cfi: string): number | null {
 		const resolved = this.resolveCfiTarget(cfi);
 		return typeof resolved?.index === "number" ? resolved.index : null;
@@ -340,8 +448,34 @@ export class FoliateVaultPublicationParser {
 	}
 
 	async getRawDocumentByIndex(index: number): Promise<Document | null> {
-		const href = this.sectionDescriptors[index]?.href || this.getBook().sections[index]?.id || "";
-		return href ? this.getRawDocumentByHref(href) : null;
+		const href = this.sectionDescriptors[index]?.href || this.getSectionIdentifier(this.getBook().sections[index]);
+		return href ? this.loadRawDocumentByHref(href) : null;
+	}
+
+	private getSectionIdentifier(section: FoliateSection | undefined): string {
+		return String(section?.id ?? "").trim();
+	}
+
+	private resolveSectionHref(section: FoliateSection | undefined): string {
+		const sectionId = this.getSectionIdentifier(section);
+		if (!sectionId) {
+			return "";
+		}
+		if (!this.archive && /^\d+$/.test(sectionId)) {
+			return "";
+		}
+		return this.normalizeInternalHref(this.packageDocumentPath || sectionId, sectionId);
+	}
+
+	private async resolveDescriptorHref(
+		section: FoliateSection | undefined,
+		index: number
+	): Promise<string> {
+		const directHref = this.resolveSectionHref(section);
+		if (directHref) {
+			return directHref;
+		}
+		return (await this.findTocHrefForSection(index)) || "";
 	}
 
 	resolveRangeInLoadedSection(
@@ -360,7 +494,11 @@ export class FoliateVaultPublicationParser {
 			if (!resolved || resolved.index !== sectionIndex) {
 				return null;
 			}
-			return this.resolveAnchorAsRange(doc, resolved.anchor(doc), currentRoot);
+			return this.resolveAnchorAsRange(
+				doc,
+				this.executeResolvedAnchor(resolved.anchor, doc, normalizedTarget),
+				currentRoot
+			);
 		}
 
 		const legacyReadium = this.parseAnyLegacyReadiumLocation(normalizedTarget);
@@ -419,8 +557,9 @@ export class FoliateVaultPublicationParser {
 			return this.resolveCfiNavigationTarget(normalizedTarget);
 		}
 
-		if (this.isDocumentHrefLike(normalizedTarget)) {
-			return this.resolveHrefTarget(normalizedTarget, textHint);
+		const resolvedHrefTarget = await this.resolveHrefTarget(normalizedTarget, textHint);
+		if (resolvedHrefTarget) {
+			return resolvedHrefTarget;
 		}
 
 		return null;
@@ -433,8 +572,7 @@ export class FoliateVaultPublicationParser {
 		}
 
 		if (this.isCfiLike(normalized)) {
-			const wrapped = this.wrapCfi(normalized);
-			return this.resolveCfiTarget(wrapped) ? wrapped : null;
+			return (await this.resolveCfiNavigationTarget(this.wrapCfi(normalized)))?.cfi || null;
 		}
 
 		const resolved = await this.resolveNavigationTarget(normalized, textHint);
@@ -492,6 +630,55 @@ export class FoliateVaultPublicationParser {
 		if (!resolved) {
 			return undefined;
 		}
+		return this.resolveResolvedTargetPageNumber(resolved);
+	}
+
+	async resolveCfiForPage(pageNumber: number): Promise<string | null> {
+		if (this.sectionDescriptors.length === 0 || this.totalPositions <= 0) {
+			return null;
+		}
+
+		const normalizedPage = this.clamp(Math.round(pageNumber), 1, this.totalPositions);
+		const targetPosition = normalizedPage - 1;
+		const section = this.sectionDescriptors.find(
+			(item) => targetPosition >= item.positionStart && targetPosition < item.positionStart + item.positionCount
+		) || this.sectionDescriptors[this.sectionDescriptors.length - 1];
+		if (!section) {
+			return null;
+		}
+
+		if (section.positionCount <= 1) {
+			return this.getBaseSectionCfi(section.index);
+		}
+
+		const doc = await this.loadRawDocumentByHref(section.href);
+		if (!doc) {
+			return this.getBaseSectionCfi(section.index);
+		}
+
+		const root = doc.body || doc.documentElement;
+		const segments = this.collectTextSegments(root);
+		if (segments.length === 0) {
+			return this.getBaseSectionCfi(section.index);
+		}
+
+		const totalLength = segments[segments.length - 1]?.end || 0;
+		if (totalLength <= 0) {
+			return this.getBaseSectionCfi(section.index);
+		}
+
+		const positionOffset = targetPosition - section.positionStart;
+		const progression = positionOffset / Math.max(section.positionCount - 1, 1);
+		const targetOffset = Math.round(progression * Math.max(totalLength - 1, 0));
+		const range = this.createCollapsedRangeFromTextOffset(
+			doc,
+			segments,
+			this.clamp(targetOffset, 0, Math.max(totalLength - 1, 0))
+		);
+		return this.createCanonicalCfiForRange(section.index, range, section.href);
+	}
+
+	private resolveResolvedTargetPageNumber(resolved: FoliateResolvedTarget): number | undefined {
 		const section = this.sectionDescriptors[resolved.index];
 		if (!section) {
 			return undefined;
@@ -505,6 +692,36 @@ export class FoliateVaultPublicationParser {
 			Math.max(0, Math.round(progression * Math.max(section.positionCount - 1, 0)))
 		);
 		return section.positionStart + positionOffset + 1;
+	}
+
+	private async hydrateTocPageNumbers(): Promise<void> {
+		if (this.tocItems.length === 0 || this.sectionDescriptors.length === 0) {
+			return;
+		}
+
+		await Promise.all(this.tocItems.map((item) => this.hydrateTocItemPageNumber(item)));
+	}
+
+	private async hydrateTocItemPageNumber(item: TocItem): Promise<void> {
+		const pageNumber = await this.resolveHrefPageNumber(item.href);
+		if (typeof pageNumber === "number" && Number.isFinite(pageNumber) && pageNumber > 0) {
+			item.pageNumber = pageNumber;
+		} else {
+			delete item.pageNumber;
+		}
+
+		if (item.subitems?.length) {
+			await Promise.all(item.subitems.map((child) => this.hydrateTocItemPageNumber(child)));
+		}
+	}
+
+	private async resolveHrefPageNumber(href: string): Promise<number | undefined> {
+		const resolved = await this.resolveHrefTarget(href);
+		if (!resolved) {
+			return undefined;
+		}
+
+		return this.resolveResolvedTargetPageNumber(resolved);
 	}
 
 	dispose(): void {
@@ -571,14 +788,18 @@ export class FoliateVaultPublicationParser {
 	private async findPackageDocumentPath(): Promise<string> {
 		const containerEntry = this.findArchiveEntry("META-INF/container.xml");
 		if (!containerEntry) {
-			throw new Error("EPUB 缺少 META-INF/container.xml");
+			throw new EpubError("missing_container", "EPUB 缺少 META-INF/container.xml", {
+				filePath: this.filePath,
+			});
 		}
 		const raw = await containerEntry.async("text");
 		const doc = this.parseMarkupDocument(raw, "application/xml", "META-INF/container.xml");
 		const rootfile = doc.querySelector("rootfile");
 		const fullPath = rootfile?.getAttribute("full-path")?.trim();
 		if (!fullPath) {
-			throw new Error("EPUB 缺少 package 文档路径");
+			throw new EpubError("missing_package_document", "EPUB 缺少 package 文档路径", {
+				filePath: this.filePath,
+			});
 		}
 		return this.normalizePath(fullPath);
 	}
@@ -618,7 +839,7 @@ export class FoliateVaultPublicationParser {
 		const book = this.getBook();
 		const metadata = book.metadata || {};
 		this.metadata = {
-			title: this.readFoliateMetadataValue(metadata.title) || this.fileName.replace(/\.epub$/i, ""),
+			title: this.readFoliateMetadataValue(metadata.title) || stripSupportedBookExtension(this.fileName),
 			author:
 				this.readFoliateMetadataValue(metadata.author) ||
 				this.readFoliateMetadataValue(metadata.creator) ||
@@ -636,18 +857,18 @@ export class FoliateVaultPublicationParser {
 		this.sectionTitleByHref.clear();
 		const toc = Array.isArray(book.toc) ? book.toc : [];
 		if (toc.length > 0) {
-			this.tocItems = this.convertFoliateTocEntries(toc, 0);
+			this.tocItems = this.convertFoliateTocEntries(toc, 1);
 			return;
 		}
 		this.tocItems = book.sections.map((section, index) => {
-			const href = this.normalizeInternalHref(this.packageDocumentPath || section.id || "", section.id || "");
+			const href = this.resolveSectionHref(section);
 			const label = this.readableTitleFromHref(href) || `章节 ${index + 1}`;
 			this.sectionTitleByHref.set(href, label);
 			return {
 				id: `${index}-${href}`,
 				label,
 				href,
-				level: 0,
+				level: 1,
 			};
 		});
 	}
@@ -695,14 +916,16 @@ export class FoliateVaultPublicationParser {
 		const sections = this.getBook().sections;
 		this.sectionDescriptors = [];
 		let positionStart = 0;
+		let totalWordCount = 0;
 		for (const [index, section] of sections.entries()) {
-			const href = this.normalizeInternalHref(this.packageDocumentPath || section.id || "", section.id || "");
+			const href = await this.resolveDescriptorHref(section, index);
 			const doc = await this.getRawDocumentByHref(href);
-			const textLength = ((doc?.body || doc?.documentElement)?.textContent || "")
-				.replace(/\s+/g, " ")
-				.trim().length;
+			const textLength = this.extractReadableSectionText(doc?.body || doc?.documentElement || null).length;
+			const wordCount = this.estimateWordCount(
+				this.extractReadableSectionText(doc?.body || doc?.documentElement || null)
+			);
 			const title =
-				this.sectionTitleByHref.get(href) ||
+				this.getSectionTitleByHref(href) ||
 				this.readableTitleFromHref(href) ||
 				`章节 ${index + 1}`;
 			this.sectionTitleByHref.set(href, title);
@@ -715,13 +938,26 @@ export class FoliateVaultPublicationParser {
 				title,
 				linear: (section.linear || "yes").toLowerCase() !== "no",
 				textLength,
+				wordCount,
 				positionCount,
 				positionStart,
 			});
 			positionStart += positionCount;
+			totalWordCount += wordCount;
 		}
 		this.totalPositions = positionStart;
+		this.metadata.wordCount = totalWordCount;
 		this.metadata.chapterCount = this.sectionDescriptors.length;
+	}
+
+	private estimateWordCount(text: string): number {
+		const normalized = String(text || "").trim();
+		if (!normalized) {
+			return 0;
+		}
+		const latinWords = normalized.match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g)?.length || 0;
+		const cjkUnits = normalized.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu)?.length || 0;
+		return latinWords + cjkUnits;
 	}
 
 	private async extractCoverDataUrl(): Promise<string | null> {
@@ -741,9 +977,11 @@ export class FoliateVaultPublicationParser {
 		}
 		const doc = await this.getRawDocumentByIndex(resolved.index);
 		const root = doc?.body || doc?.documentElement || null;
-		const range = doc ? this.resolveAnchorAsRange(doc, resolved.anchor(doc), root) : null;
+		const range = doc
+			? this.resolveAnchorAsRange(doc, this.executeResolvedAnchor(resolved.anchor, doc, cfi), root)
+			: null;
 		return {
-			cfi: this.wrapCfi(cfi),
+			cfi: this.createCanonicalCfiForRange(resolved.index, range),
 			index: resolved.index,
 			href: this.getSectionHrefByIndex(resolved.index),
 			doc,
@@ -753,7 +991,7 @@ export class FoliateVaultPublicationParser {
 
 	private async resolveHrefTarget(href: string, textHint?: string): Promise<FoliateResolvedTarget | null> {
 		const normalizedHref = this.normalizeInternalHref(this.packageDocumentPath || href, href);
-		const resolved = this.getBook().resolveHref(normalizedHref);
+		const resolved = await Promise.resolve(this.getBook().resolveHref(normalizedHref));
 		if (!resolved || typeof resolved.index !== "number") {
 			return null;
 		}
@@ -764,7 +1002,11 @@ export class FoliateVaultPublicationParser {
 				? this.findRangeByTextQuote(root, { highlight: textHint.trim() })
 				: null;
 		if (!range && doc) {
-			range = this.resolveAnchorAsRange(doc, resolved.anchor(doc), root);
+			range = this.resolveAnchorAsRange(
+				doc,
+				this.executeResolvedAnchor(resolved.anchor, doc, normalizedHref),
+				root
+			);
 		}
 		if (!range && doc) {
 			const fragment = this.extractHrefFragment(normalizedHref);
@@ -774,9 +1016,9 @@ export class FoliateVaultPublicationParser {
 			range = this.createDocumentStartRange(doc);
 		}
 		return {
-			cfi: range ? this.createCfiFromRange(resolved.index, range) : this.getBaseSectionCfi(resolved.index),
+			cfi: this.createCanonicalCfiForRange(resolved.index, range, normalizedHref),
 			index: resolved.index,
-			href: this.getSectionHrefByIndex(resolved.index),
+			href: this.getSectionHrefByIndex(resolved.index) || normalizedHref,
 			doc,
 			range,
 			textHint: textHint?.trim() || undefined,
@@ -863,13 +1105,98 @@ export class FoliateVaultPublicationParser {
 		return scopeRoot ? this.createDocumentStartRange(doc) : null;
 	}
 
-	private async getRawDocumentByHref(href: string): Promise<Document | null> {
+	private executeResolvedAnchor(
+		anchorResolver: ((doc: Document) => unknown) | undefined,
+		doc: Document,
+		target: string
+	): unknown {
+		if (typeof anchorResolver !== "function") {
+			return null;
+		}
+		try {
+			return anchorResolver(doc);
+		} catch (error) {
+			logger.debugWithTag("FoliateVaultPublicationParser", "Failed to execute EPUB anchor resolver", {
+				target,
+				error,
+			});
+			return null;
+		}
+	}
+
+	private createCanonicalCfiForRange(index: number, range: Range | null, fallbackHref?: string): string {
+		if (!this.supportsEpubCfiNavigation()) {
+			return fallbackHref || this.getSectionHrefByIndex(index);
+		}
+		if (!range) {
+			return this.getBaseSectionCfi(index);
+		}
+		try {
+			return this.createCfiFromRange(index, range);
+		} catch (error) {
+			logger.debugWithTag(
+				"FoliateVaultPublicationParser",
+				"Failed to canonicalize EPUB range back to CFI",
+				{
+					index,
+					error,
+				}
+			);
+			return this.getBaseSectionCfi(index);
+		}
+	}
+
+	private supportsEpubCfiNavigation(): boolean {
+		return Boolean(this.archive || typeof this.getBook().resolveCFI === "function");
+	}
+
+	private async findTocHrefForSection(targetIndex: number): Promise<string> {
+		for (const href of this.collectTocHrefs(this.tocItems)) {
+			try {
+				const resolved = await Promise.resolve(this.getBook().resolveHref(href));
+				if (resolved?.index === targetIndex) {
+					return this.normalizeInternalHref(this.packageDocumentPath || href, href);
+				}
+			} catch {
+			}
+		}
+		return "";
+	}
+
+	private collectTocHrefs(items: TocItem[]): string[] {
+		const results: string[] = [];
+		const visit = (entries: TocItem[]) => {
+			for (const entry of entries) {
+				if (entry.href) {
+					results.push(entry.href);
+				}
+				if (entry.subitems?.length) {
+					visit(entry.subitems);
+				}
+			}
+		};
+		visit(items);
+		return Array.from(new Set(results));
+	}
+
+	private async loadRawDocumentByHref(href: string): Promise<Document | null> {
 		const normalizedHref = this.normalizeSectionHref(href);
 		if (!normalizedHref) {
 			return null;
 		}
 		if (this.rawDocumentCache.has(normalizedHref)) {
 			return this.rawDocumentCache.get(normalizedHref) || null;
+		}
+		if (!this.archive) {
+			const sectionIndex = this.getSectionIndexForHref(normalizedHref);
+			if (sectionIndex < 0) {
+				return null;
+			}
+			const doc = await this.getRawDocumentFromGenericSection(sectionIndex);
+			if (doc) {
+				this.rawDocumentCache.set(normalizedHref, doc);
+			}
+			return doc;
 		}
 		const entry = this.findArchiveEntry(normalizedHref);
 		if (!entry) {
@@ -888,6 +1215,17 @@ export class FoliateVaultPublicationParser {
 		);
 		this.rawDocumentCache.set(normalizedHref, doc);
 		return doc;
+	}
+
+	private async getRawDocumentFromGenericSection(index: number): Promise<Document | null> {
+		const section = this.getBook().sections[index];
+		if (!section) {
+			return null;
+		}
+		if (typeof section.createDocument === "function") {
+			return section.createDocument();
+		}
+		return null;
 	}
 
 	private attachHtmlTransformPipeline(book: FoliateBook): void {
@@ -987,6 +1325,35 @@ export class FoliateVaultPublicationParser {
 				}
 			}
 		}
+
+		// Remove problematic inline color styles that conflict with dark mode
+		this.sanitizeInlineColorStyles(doc);
+	}
+
+	private sanitizeInlineColorStyles(doc: Document): void {
+		const textElements = doc.querySelectorAll(
+			"p, div, span, li, dd, dt, blockquote, figcaption, h1, h2, h3, h4, h5, h6, td, th, caption, label, legend"
+		);
+
+		for (const element of Array.from(textElements)) {
+			const style = element.getAttribute("style");
+			if (!style) {
+				continue;
+			}
+
+			// Remove color and background-color from inline styles
+			// This allows our reader styles to take precedence
+			const sanitized = style
+				.replace(/\bcolor\s*:\s*[^;]+;?/gi, "")
+				.replace(/\bbackground-color\s*:\s*[^;]+;?/gi, "")
+				.trim();
+
+			if (sanitized) {
+				element.setAttribute("style", sanitized);
+			} else {
+				element.removeAttribute("style");
+			}
+		}
 	}
 
 	private async normalizeFoliateCssText(cssText: string): Promise<string> {
@@ -1042,7 +1409,7 @@ export class FoliateVaultPublicationParser {
 		doc: Document,
 		cssText: string,
 		linkElement?: Element | null
-	): HTMLStyleElement | Element {
+	): HTMLLinkElement | Element {
 		const styleElement = doc.createElement("style");
 		styleElement.setAttribute("type", "text/css");
 		styleElement.setAttribute("data-weave-inline-stylesheet", "true");
@@ -1060,14 +1427,28 @@ export class FoliateVaultPublicationParser {
 
 	private async readTextResource(href: string): Promise<string> {
 		try {
-			const response = await fetch(href);
-			return response.ok ? await response.text() : "";
+			if (href.startsWith("blob:") || href.startsWith("data:")) {
+				return await readTextResourceViaFetch(href);
+			}
+			return await readTextResourceViaXhr(href);
 		} catch (error) {
 			logger.warn("[FoliateVaultPublicationParser] Failed to read transformed resource:", {
 				href,
 				error,
 			});
 			return "";
+		}
+	}
+
+	private async readBinaryResource(href: string): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
+		try {
+			return await readBinaryResourceViaFetch(href);
+		} catch (error) {
+			logger.warn("[FoliateVaultPublicationParser] Failed to read transformed binary resource:", {
+				href,
+				error,
+			});
+			return null;
 		}
 	}
 
@@ -1147,8 +1528,13 @@ export class FoliateVaultPublicationParser {
 		return location.href;
 	}
 
+	private stripCfiAssertions(value: string): string {
+		return String(value || "").replace(/\[[^\]]*]/g, "");
+	}
+
 	private wrapCfi(value: string): string {
-		return EpubCfi.isCFI.test(value) ? value : `epubcfi(${value})`;
+		const normalizedValue = this.stripCfiAssertions(this.normalizeLocationString(value));
+		return EpubCfi.isCFI.test(normalizedValue) ? normalizedValue : `epubcfi(${normalizedValue})`;
 	}
 
 	private isCfiLike(value: string): boolean {
@@ -1227,11 +1613,41 @@ export class FoliateVaultPublicationParser {
 		return score;
 	}
 
+	private findFragmentTargetElement(doc: Document, fragment: string): Element | null {
+		const normalizedFragment = String(fragment || "").trim();
+		if (!normalizedFragment) {
+			return null;
+		}
+
+		const byId = doc.getElementById(normalizedFragment);
+		if (byId) {
+			return byId;
+		}
+
+		try {
+			const bySelector = doc.querySelector(
+				`[id="${CSS.escape(normalizedFragment)}"],[name="${CSS.escape(normalizedFragment)}"]`
+			);
+			if (bySelector) {
+				return bySelector;
+			}
+		} catch {
+		}
+
+		for (const element of Array.from(doc.getElementsByTagName("*"))) {
+			if (
+				element.getAttribute("xml:id") === normalizedFragment
+				|| element.getAttributeNS("http://www.w3.org/XML/1998/namespace", "id") === normalizedFragment
+			) {
+				return element;
+			}
+		}
+
+		return null;
+	}
+
 	private createRangeForFragment(doc: Document, fragment: string): Range | null {
-		const target =
-			doc.getElementById(fragment) ||
-			doc.querySelector(`[name="${CSS.escape(fragment)}"]`) ||
-			doc.querySelector(`#${CSS.escape(fragment)}`);
+		const target = this.findFragmentTargetElement(doc, fragment);
 		return this.createRangeForNode(target);
 	}
 
@@ -1329,6 +1745,24 @@ export class FoliateVaultPublicationParser {
 		const range = doc.createRange();
 		range.setStart(startSegment.node, Math.max(0, startOffset - startSegment.start));
 		range.setEnd(endSegment.node, Math.max(0, endOffset - endSegment.start));
+		return range;
+	}
+
+	private createCollapsedRangeFromTextOffset(
+		doc: Document,
+		segments: TextNodeSegment[],
+		offset: number
+	): Range | null {
+		const targetSegment = segments.find(
+			(segment) => offset >= segment.start && offset <= segment.end
+		) || segments[segments.length - 1];
+		if (!targetSegment) {
+			return null;
+		}
+		const textOffset = this.clamp(offset - targetSegment.start, 0, targetSegment.text.length);
+		const range = doc.createRange();
+		range.setStart(targetSegment.node, textOffset);
+		range.setEnd(targetSegment.node, textOffset);
 		return range;
 	}
 
@@ -1755,7 +2189,7 @@ export class FoliateVaultPublicationParser {
 		if (!src) {
 			return altText;
 		}
-		if (this.shouldKeepOriginalUrl(src)) {
+		if (this.isRemoteResourceUrl(src) || src.startsWith("//")) {
 			const alt = altText || "image";
 			return `![${alt}](${src})`;
 		}
@@ -1794,13 +2228,26 @@ export class FoliateVaultPublicationParser {
 			}
 			bytes = decoded.bytes;
 			mimeType = decoded.mimeType;
-		} else {
-			const entry = this.findArchiveEntry(sourceKey);
-			if (!entry) {
+		} else if (sourceKey.startsWith("blob:")) {
+			const blobResource = await this.readBinaryResource(sourceKey);
+			if (!blobResource) {
 				return null;
 			}
-			bytes = new Uint8Array(await entry.async("uint8array"));
-			mimeType = this.inferMimeType(sourceKey);
+			bytes = blobResource.bytes;
+			mimeType = blobResource.mimeType || mimeType;
+		} else {
+			const entry = this.findArchiveEntry(sourceKey);
+			if (entry) {
+				bytes = new Uint8Array(await entry.async("uint8array"));
+				mimeType = this.inferMimeType(sourceKey);
+			} else {
+				const blobResource = await this.readBinaryResource(sourceKey);
+				if (!blobResource) {
+					return null;
+				}
+				bytes = blobResource.bytes;
+				mimeType = blobResource.mimeType || this.inferMimeType(sourceKey);
+			}
 		}
 
 		if (!bytes || bytes.length === 0) {
@@ -2023,7 +2470,11 @@ export class FoliateVaultPublicationParser {
 			return primaryDoc;
 		}
 		if (!allowHtmlFallback || parserType === "text/html") {
-			throw new Error(`EPUB XML parse failed: ${path}`);
+			throw new EpubError("invalid_markup", `EPUB XML parse failed: ${path}`, {
+				filePath: this.filePath,
+				path,
+				parserType,
+			});
 		}
 
 		const htmlDoc = new DOMParser().parseFromString(raw, "text/html");
@@ -2032,7 +2483,11 @@ export class FoliateVaultPublicationParser {
 			expectedRootNames.length === 0 ||
 			expectedRootNames.some((localName) => Boolean(this.findFirstElementByLocalName(htmlDoc, localName)));
 		if (!hasExpectedRoot) {
-			throw new Error(`EPUB XML parse failed: ${path}`);
+			throw new EpubError("invalid_markup", `EPUB XML parse failed: ${path}`, {
+				filePath: this.filePath,
+				path,
+				parserType,
+			});
 		}
 		return htmlDoc;
 	}
@@ -2383,6 +2838,23 @@ export class FoliateVaultPublicationParser {
 		return "application/octet-stream";
 	}
 
+	private getGenericPublicationMimeType(extension: string): string {
+		switch (extension) {
+			case "mobi":
+				return "application/x-mobipocket-ebook";
+			case "azw3":
+				return "application/vnd.amazon.mobi8-ebook";
+			case "fb2":
+				return "application/x-fictionbook+xml";
+			case "fbz":
+				return "application/x-zip-compressed-fb2";
+			case "cbz":
+				return "application/vnd.comicbook+zip";
+			default:
+				return "application/octet-stream";
+		}
+	}
+
 	private readableTitleFromHref(href: string): string {
 		const path = this.stripFragmentAndQuery(href);
 		const lastSegment = path.split("/").pop() || path;
@@ -2424,4 +2896,61 @@ export class FoliateVaultPublicationParser {
 	private clamp(value: number, min: number, max: number): number {
 		return Math.min(Math.max(value, min), max);
 	}
+}
+
+function readTextResourceViaXhr(href: string): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const request = new XMLHttpRequest();
+		request.open("GET", href, true);
+		request.responseType = "text";
+		request.onload = () => {
+			if (request.status === 0 || (request.status >= 200 && request.status < 300)) {
+				resolve(request.responseText || "");
+				return;
+			}
+			reject(
+				new Error(
+					`Failed to load text resource: ${request.status} ${request.statusText || "Unknown error"}`
+				)
+			);
+		};
+		request.onerror = async () => {
+			try {
+				resolve(await readTextResourceViaFetch(href));
+			} catch (error) {
+				reject(error);
+			}
+		};
+		request.send();
+	});
+}
+
+async function readTextResourceViaFetch(href: string): Promise<string> {
+	if (typeof globalThis.fetch !== "function") {
+		throw new Error("Failed to load text resource");
+	}
+
+	const response = await globalThis.fetch(href);
+	if (!response.ok) {
+		throw new Error(`Failed to load text resource: ${response.status} ${response.statusText}`);
+	}
+	return response.text();
+}
+
+async function readBinaryResourceViaFetch(href: string): Promise<{ bytes: Uint8Array; mimeType: string }> {
+	if (typeof globalThis.fetch !== "function") {
+		throw new Error("Failed to load binary resource");
+	}
+
+	const response = await globalThis.fetch(href);
+	if (!response.ok) {
+		throw new Error(`Failed to load binary resource: ${response.status} ${response.statusText}`);
+	}
+	const bytes = new Uint8Array(await response.arrayBuffer());
+	return {
+		bytes,
+		mimeType: String(response.headers.get("content-type") || "application/octet-stream")
+			.trim()
+			.toLowerCase(),
+	};
 }

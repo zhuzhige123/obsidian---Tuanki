@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { WeavePlugin } from '../../main';
+  import { applyStyleProps } from '../../utils/style-props';
 
   let {
     value = $bindable(""),
@@ -15,8 +16,10 @@
   // 自动调整高度
   function autoResize() {
     if (textareaElement) {
-      textareaElement.style.height = 'auto';
-      textareaElement.style.height = Math.max(minHeight, textareaElement.scrollHeight) + 'px';
+      applyStyleProps(textareaElement, { height: 'auto' });
+      applyStyleProps(textareaElement, {
+        height: `${Math.max(minHeight, textareaElement.scrollHeight)}px`
+      });
     }
   }
 

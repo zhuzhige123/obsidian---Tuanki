@@ -40,7 +40,7 @@ afterEach(() => {
 });
 
 describe('ModalEditorManager.cleanupRestoredLeaves', () => {
-  it('stores active modal editor buffers in weave/temp so Obsidian can open them as TFile', () => {
+  it('stores active modal editor buffers in weave/editor so Obsidian can open them as TFile', () => {
     const app = {
       vault: { configDir: '.obsidian' },
       workspace: {
@@ -50,7 +50,7 @@ describe('ModalEditorManager.cleanupRestoredLeaves', () => {
 
     const manager = ModalEditorManager.getInstance(app) as any;
 
-    expect(manager.getEditorTempDirPath()).toBe('weave/temp');
+    expect(manager.getEditorTempDirPath()).toBe('weave/editor');
   });
 
   it('detaches plugin cache editor buffers and legacy weave temp buffers only', () => {
@@ -63,6 +63,7 @@ describe('ModalEditorManager.cleanupRestoredLeaves', () => {
     const pluginPaths = getPluginPaths(app);
 
     const cacheLeaf = createLeaf(`${pluginPaths.cache.editorTemp}/modal-editor-permanent-2.md`);
+    const currentWeaveLeaf = createLeaf('weave/editor/modal-editor-permanent.md');
     const legacyWeaveLeaf = createLeaf('weave/temp/modal-editor-permanent.md');
     const nestedLegacyWeaveLeaf = createLeaf('projects/weave/temp/modal-editor-permanent-4.md');
     const legacyDotTuankiLeaf = createLeaf('.tuanki/temp/modal-editor-permanent.md');
@@ -72,6 +73,7 @@ describe('ModalEditorManager.cleanupRestoredLeaves', () => {
 
     app.workspace.getLeavesOfType.mockReturnValue([
       cacheLeaf,
+      currentWeaveLeaf,
       legacyWeaveLeaf,
       nestedLegacyWeaveLeaf,
       legacyDotTuankiLeaf,
@@ -83,6 +85,7 @@ describe('ModalEditorManager.cleanupRestoredLeaves', () => {
     ModalEditorManager.cleanupRestoredLeaves(app);
 
     expect(cacheLeaf.detach).toHaveBeenCalledOnce();
+    expect(currentWeaveLeaf.detach).not.toHaveBeenCalled();
     expect(legacyWeaveLeaf.detach).toHaveBeenCalledOnce();
     expect(nestedLegacyWeaveLeaf.detach).toHaveBeenCalledOnce();
     expect(legacyDotTuankiLeaf.detach).toHaveBeenCalledOnce();

@@ -2,30 +2,35 @@
 	import { onMount } from 'svelte';
 	import { Notice, setIcon } from 'obsidian';
 	import type { App } from 'obsidian';
-	import { logger } from '../../utils/logger';
-	import type { EpubBook, TocItem, Highlight, Note } from '../../services/epub';
-	import { EpubLinkService } from '../../services/epub/EpubLinkService';
-	import { epubActiveDocumentStore } from '../../stores/epub-active-document-store';
-	import type { EpubSharedState } from '../../stores/epub-active-document-store';
-	import TableOfContents from './TableOfContents.svelte';
-	import NotesPanel from './NotesPanel.svelte';
-	import BookmarkPanel from './BookmarkPanel.svelte';
-	import BookshelfView from './BookshelfView.svelte';
-	import EpubAnnotationCard from './EpubAnnotationCard.svelte';
-	import { VIEW_TYPE_EPUB } from '../../views/EpubView';
+ 	import { logger } from '../../utils/logger';
+ 	import { findOpenEpubLeaf } from '../../utils/epub-leaf-utils';
+	import { revealLeaf } from '../../utils/workspace-navigation';
+ 	import { EPUB_RUNTIME, type EpubBook, type TocItem, type ReaderHighlight } from '../../services/epub';
+	import { EpubBookmarkService } from '../../services/epub/EpubBookmarkService';
+ 	import { epubActiveDocumentStore } from '../../stores/epub-active-document-store';
+ 	import type { EpubNavigationRequest, EpubSharedState } from '../../stores/epub-active-document-store';
+ 	import TableOfContents from './TableOfContents.svelte';
+	import EpubBookmarksPanel from './EpubBookmarksPanel.svelte';
+ 	import NotesPanel from './NotesPanel.svelte';
+ 	import BookshelfView from './BookshelfView.svelte';
+ 	import EpubAnnotationCard from './EpubAnnotationCard.svelte';
 
 	interface Props {
 		app: App;
 	}
 
-	let { app }: Props = $props();
+ 	let { app }: Props = $props();
 
-	let sharedState = $state<EpubSharedState | null>(null);
-	let activeTab = $state<'toc' | 'highlights' | 'bookmarks'>('toc');
-	let sidebarView = $state<'details' | 'bookshelf'>('details');
-	let tocItems = $state<TocItem[]>([]);
-	let bookshelfRefreshToken = $state(0);
-	let effectiveSidebarView = $derived(sharedState?.book ? sidebarView : 'bookshelf');
+	function getBookmarkService(): EpubBookmarkService {
+		return new EpubBookmarkService(app);
+	}
+
+ 	let sharedState = $state<EpubSharedState | null>(null);
+	let activeTab = $state<'toc' | 'bookmarks' | 'highlights'>('toc');
+ 	let sidebarView = $state<'details' | 'bookshelf'>('details');
+ 	let tocItems = $state<TocItem[]>([]);
+ 	let bookshelfRefreshToken = $state(0);
+ 	let effectiveSidebarView = $derived(sharedState?.book ? sidebarView : 'bookshelf');
 
 	let searchQuery = $state('');
 	let searchResults = $state<Array<{ cfi: string; excerpt: string; chapterTitle: string }>>([]);
@@ -38,16 +43,17 @@
 	let collapsedChapters = $state<Set<string>>(new Set());
 	let lastSearchedQuery = $state('');
 	let lastSearchContextKey = '';
-	let matchingHighlights = $state<Highlight[]>([]);
-	type SearchDisplayNote = Note & { color?: string };
-	let matchingNotes = $state<SearchDisplayNote[]>([]);
-	let highlightCount = $state(0);
-	let highlightCountLoadToken = 0;
+ 	let matchingHighlights = $state<ReaderHighlight[]>([]);
+ 	let highlightCount = $state(0);
+ 	let highlightCountLoadToken = 0;
+ 	let lastHighlightCountContextKey = '';
 	let bookmarkCount = $state(0);
 	let bookmarkCountLoadToken = 0;
-	let tocLoadToken = 0;
-	let sidebarDisposed = false;
-	const SIDEBAR_PROGRESS_SEGMENT_COUNT = 16;
+	let lastBookmarkCountContextKey = '';
+ 	let tocLoadToken = 0;
+ 	let sidebarDisposed = false;
+ 	let lastExternalSearchNonce = 0;
+ 	const SIDEBAR_PROGRESS_SEGMENT_COUNT = 16;
 	let sidebarProgressPercent = $derived(Math.max(0, Math.min(100, Math.round(sharedState?.progress ?? 0))));
 	let sidebarProgressSegments = $derived(
 		Array.from({ length: SIDEBAR_PROGRESS_SEGMENT_COUNT }, (_, index) => ({
@@ -58,14 +64,12 @@
 	let hasAnyResults = $derived(
 		activeTab === 'toc'
 			? searchResults.length > 0
-			: activeTab === 'highlights'
-				? matchingHighlights.length > 0 || matchingNotes.length > 0
-				: false
+			: matchingHighlights.length > 0
 	);
 	let resultCount = $derived(
 		activeTab === 'toc'
 			? searchResults.length
-			: matchingHighlights.length + matchingNotes.length
+			: matchingHighlights.length
 	);
 
 	const SEARCH_SNIPPET_CONTEXT = 36;
@@ -94,18 +98,33 @@
 		};
 	}
 
-	function switchTab(tab: 'toc' | 'highlights' | 'bookmarks') {
-		activeTab = tab;
-		if (isSearchActive) {
-			if (searchTimer) clearTimeout(searchTimer);
-			lastSearchContextKey = '';
-		}
+	function switchTab(tab: 'toc' | 'bookmarks' | 'highlights') {
+ 		activeTab = tab;
+ 		if (isSearchActive) {
+ 			if (searchTimer) clearTimeout(searchTimer);
+ 			lastSearchContextKey = '';
+ 		}
 	}
 
 	function clearSearchResultsState() {
 		searchResults = [];
 		matchingHighlights = [];
-		matchingNotes = [];
+	}
+
+	function shouldShowSidebarHighlight(highlight: Pick<ReaderHighlight, 'style' | 'presentation'>): boolean {
+		const showStrikethrough = Boolean(sharedState?.excerptSettings?.showStrikethroughInSidebar);
+		if (highlight.presentation === 'conceal') {
+			return showStrikethrough;
+		}
+		return highlight.style !== 'strikethrough' || showStrikethrough;
+	}
+
+	function filterSidebarHighlights(highlights: ReaderHighlight[]): ReaderHighlight[] {
+		return highlights.filter((highlight) => shouldShowSidebarHighlight(highlight));
+	}
+
+	function getEmptyExcerptHint(text?: string): string {
+		return String(text || '').trim() ? '' : '摘录内容为空';
 	}
 
 	function getSearchContextKey(tab = activeTab): string {
@@ -113,14 +132,18 @@
 			tab,
 			sharedState?.filePath ?? '',
 			sharedState?.book?.id ?? '',
-			tab === 'highlights' ? String(sharedState?.annotationRevision ?? 0) : '',
+			tab === 'highlights'
+				? `${String(sharedState?.annotationRevision ?? 0)}::${sharedState?.excerptSettings?.showStrikethroughInSidebar ? 'with-strikethrough' : 'without-strikethrough'}`
+				: tab === 'bookmarks'
+					? `${String(sharedState?.bookmarkRevision ?? 0)}`
+					: '',
 		].join('::');
 	}
 
 	function isStaleSearchRequest(
 		requestToken: number,
 		query: string,
-		tab: 'toc' | 'highlights' | 'bookmarks',
+		tab: 'toc' | 'bookmarks' | 'highlights',
 		contextKey: string,
 	): boolean {
 		return sidebarDisposed
@@ -186,35 +209,15 @@
 					return true;
 				});
 				matchingHighlights = [];
-				matchingNotes = [];
 			} else if (tab === 'highlights') {
 				searchResults = [];
-				const [highlights, notes] = await Promise.all([
-					annotationService && book && backlinkService && filePath
-						? annotationService.collectAllHighlights(book.id, filePath, backlinkService)
-						: annotationService && book
-							? annotationService.getHighlights(book.id)
-							: Promise.resolve([] as Highlight[]),
-					annotationService && book
-						? annotationService.getNotes(book.id)
-						: Promise.resolve([] as Note[])
-				]);
+				const highlights = annotationService && book && backlinkService && filePath
+					? await annotationService.collectAllHighlights(book.id, filePath, backlinkService)
+					: [];
 				if (isStaleSearchRequest(requestToken, q, tab, contextKey)) {
 					return;
 				}
-				const colorByCfi = new Map<string, string>();
-				for (const highlight of highlights) {
-					if (highlight.cfiRange) {
-						colorByCfi.set(EpubLinkService.normalizeCfi(highlight.cfiRange), highlight.color);
-					}
-				}
-				matchingHighlights = highlights.filter((hl) => textMatchesQuery(hl.text || '', q)) as Highlight[];
-				matchingNotes = notes.filter((n) =>
-					textMatchesQuery(n.content, q) || textMatchesQuery(n.quotedText || '', q)
-				).map((note) => ({
-					...note,
-					color: note.cfi ? colorByCfi.get(EpubLinkService.normalizeCfi(note.cfi)) || 'yellow' : 'yellow'
-				}));
+				matchingHighlights = filterSidebarHighlights(highlights).filter((hl) => textMatchesQuery(hl.text || '', q));
 			} else {
 				clearSearchResultsState();
 			}
@@ -265,6 +268,7 @@
 	}
 
 	function formatAnnotationTime(timestamp: number): string {
+		if (!timestamp) return '';
 		const now = Date.now();
 		const diff = now - timestamp;
 		const minutes = Math.floor(diff / 60000);
@@ -388,9 +392,9 @@
 		try {
 			const highlights = backlinkService && filePath
 				? await annotationService.collectAllHighlights(book.id, filePath, backlinkService)
-				: await annotationService.getHighlights(book.id);
+				: [];
 			if (loadToken !== highlightCountLoadToken) return;
-			highlightCount = highlights.length;
+			highlightCount = filterSidebarHighlights(highlights).length;
 		} catch (error) {
 			logger.error('[EpubGlobalSidebar] Failed to load highlight count:', error);
 			if (loadToken === highlightCountLoadToken) {
@@ -399,15 +403,12 @@
 		}
 	}
 
-	async function loadBookmarkCount(
-		book: EpubBook,
-		annotationService: NonNullable<EpubSharedState['annotationService']>
-	) {
+	async function loadBookmarkCount(book: EpubBook) {
 		const loadToken = ++bookmarkCountLoadToken;
 		try {
-			const bookmarks = await annotationService.getBookmarks(book.id);
+			const count = await getBookmarkService().getBookmarkCountForBook(book);
 			if (loadToken !== bookmarkCountLoadToken) return;
-			bookmarkCount = bookmarks.length;
+			bookmarkCount = count;
 		} catch (error) {
 			logger.error('[EpubGlobalSidebar] Failed to load bookmark count:', error);
 			if (loadToken === bookmarkCountLoadToken) {
@@ -445,40 +446,45 @@
 
 	async function ensureEpubLeafActive(): Promise<boolean> {
 		if (!sharedState?.filePath) return false;
-		const leaves = app.workspace.getLeavesOfType(VIEW_TYPE_EPUB);
-		let targetLeaf = leaves[0] ?? null;
-		for (const leaf of leaves) {
-			const state = leaf.view?.getState?.();
-			if (state?.filePath === sharedState.filePath || state?.file === sharedState.filePath) {
-				targetLeaf = leaf;
-				break;
-			}
-		}
+		const targetLeaf = findOpenEpubLeaf(app, sharedState.filePath);
 		if (!targetLeaf) {
 			return false;
 		}
 		app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-		void app.workspace.revealLeaf(targetLeaf);
+		revealLeaf(app, targetLeaf);
 		await waitForAnimationFrame();
 		await waitForAnimationFrame();
 		return true;
 	}
 
+	async function requestReaderNavigation(request: EpubNavigationRequest): Promise<void> {
+		if (!sharedState?.filePath) {
+			return;
+		}
+		const activated = await ensureEpubLeafActive();
+		if (!activated) {
+			return;
+		}
+		if (sharedState.onNavigate) {
+			sharedState.onNavigate(request);
+			return;
+		}
+		window.dispatchEvent(new CustomEvent(EPUB_RUNTIME.events.navigate, {
+			detail: {
+				filePath: sharedState.filePath,
+				...request,
+			}
+		}));
+	}
+
 	async function handleTocNavigate(href: string) {
 		if (!sharedState?.readerService || !sharedState.filePath) return;
 		try {
-			const activated = await ensureEpubLeafActive();
-			if (!activated) {
-				return;
-			}
-			window.dispatchEvent(new CustomEvent('Weave:epub-navigate', {
-				detail: {
-					filePath: sharedState.filePath,
-					href,
-					flashStyle: 'none',
-					showLocateOverlay: true,
-				}
-			}));
+			await requestReaderNavigation({
+				href,
+				flashStyle: 'none',
+				showLocateOverlay: true,
+			});
 		} catch (error) {
 			logger.error('[EpubGlobalSidebar] Failed to navigate:', error);
 		}
@@ -511,15 +517,12 @@
 	) {
 		if (!sharedState?.readerService) return;
 		try {
-			await ensureEpubLeafActive();
-			await sharedState.readerService.navigateAndHighlight({
+			await requestReaderNavigation({
 				cfi,
 				text,
 				flashStyle: 'pulse',
 				flashColor: color,
-				sourceFile: metadata?.sourceFile,
-				sourceRef: metadata?.sourceRef,
-				createdTime: metadata?.createdTime,
+				showLocateOverlay: true,
 			});
 		} catch (error) {
 			logger.error('[EpubGlobalSidebar] Failed to navigate to highlight:', error);
@@ -529,8 +532,12 @@
 	async function handleSearchResultNavigate(cfi: string, text?: string) {
 		if (!sharedState?.readerService) return;
 		try {
-			await ensureEpubLeafActive();
-			await sharedState.readerService.navigateAndHighlight({ cfi, text, flashStyle: 'highlight' });
+			await requestReaderNavigation({
+				cfi,
+				text,
+				flashStyle: 'highlight',
+				showLocateOverlay: true,
+			});
 		} catch (error) {
 			logger.error('[EpubGlobalSidebar] Failed to navigate to search result:', error);
 		}
@@ -545,24 +552,66 @@
 	});
 
 	$effect(() => {
+		const externalSearchNonce = sharedState?.searchRequestNonce ?? 0;
+		const externalSearchQuery = String(sharedState?.searchQuerySeed || '').trim();
+		if (!externalSearchNonce || externalSearchNonce === lastExternalSearchNonce) {
+			return;
+		}
+		lastExternalSearchNonce = externalSearchNonce;
+		if (!externalSearchQuery) {
+			return;
+		}
+		sidebarView = 'details';
+		activeTab = 'toc';
+		searchQuery = externalSearchQuery;
+		searched = false;
+		if (searchTimer) {
+			clearTimeout(searchTimer);
+			searchTimer = null;
+		}
+		void doSearch();
+	});
+
+	$effect(() => {
 		const book = sharedState?.book;
 		const annotationService = sharedState?.annotationService;
 		const filePath = sharedState?.filePath;
 		const backlinkService = sharedState?.backlinkService;
-		const annotationRevision = sharedState?.annotationRevision ?? 0;
+		const highlightRevision = sharedState?.annotationRevision ?? 0;
+		const showStrikethroughInSidebar = sharedState?.excerptSettings?.showStrikethroughInSidebar ? '1' : '0';
+		const highlightContextKey = [book?.id ?? '', filePath ?? '', String(highlightRevision), showStrikethroughInSidebar].join('::');
 
-		annotationRevision;
+		highlightRevision;
 
 		if (!book || !annotationService) {
 			highlightCountLoadToken += 1;
-			bookmarkCountLoadToken += 1;
 			highlightCount = 0;
-			bookmarkCount = 0;
+			lastHighlightCountContextKey = '';
 			return;
 		}
 
-		void loadHighlightCount(book, annotationService, filePath, backlinkService);
-		void loadBookmarkCount(book, annotationService);
+		if (highlightContextKey !== lastHighlightCountContextKey) {
+			lastHighlightCountContextKey = highlightContextKey;
+			void loadHighlightCount(book, annotationService, filePath, backlinkService);
+		}
+	});
+
+	$effect(() => {
+		const book = sharedState?.book;
+		const bookmarkRevision = sharedState?.bookmarkRevision ?? 0;
+		const bookmarkContextKey = [book?.id ?? '', String(bookmarkRevision)].join('::');
+
+		if (!book) {
+			bookmarkCountLoadToken += 1;
+			bookmarkCount = 0;
+			lastBookmarkCountContextKey = '';
+			return;
+		}
+
+		if (bookmarkContextKey !== lastBookmarkCountContextKey) {
+			lastBookmarkCountContextKey = bookmarkContextKey;
+			void loadBookmarkCount(book);
+		}
 	});
 
 	$effect(() => {
@@ -781,7 +830,7 @@
 											<div class="annotation-search-group-header">
 												<div>
 													<div class="annotation-search-group-kicker">Highlights</div>
-													<h3 class="annotation-search-group-title" id="search-highlights-heading">匹配到的高亮</h3>
+													<h3 class="annotation-search-group-title" id="search-highlights-heading">匹配到的摘录</h3>
 												</div>
 												<span class="annotation-search-group-count">{matchingHighlights.length}</span>
 											</div>
@@ -791,32 +840,10 @@
 														clickable={true}
 														onActivate={() => handleSearchResultNavigate(hl.cfiRange, hl.text)}
 														color={hl.color}
-														quoteHtml={highlightExcerpt(hl.text, searchQuery)}
-														metaRight={formatAnnotationTime(hl.createdTime)}
-													/>
-												{/each}
-											</div>
-										</section>
-									{/if}
-									{#if matchingNotes.length > 0}
-										<section class="annotation-search-group" aria-labelledby="search-notes-heading">
-											<div class="annotation-search-group-header">
-												<div>
-													<div class="annotation-search-group-kicker">Notes</div>
-													<h3 class="annotation-search-group-title" id="search-notes-heading">匹配到的笔记</h3>
-												</div>
-												<span class="annotation-search-group-count">{matchingNotes.length}</span>
-											</div>
-											<div class="annotation-search-group-list">
-												{#each matchingNotes as note}
-													<EpubAnnotationCard
-														clickable={true}
-														onActivate={() => note.cfi && handleSearchResultNavigate(note.cfi, note.content)}
-														color={note.color}
-														quoteHtml={note.quotedText ? highlightExcerpt(note.quotedText, searchQuery) : undefined}
-														commentHtml={highlightExcerpt(note.content, searchQuery)}
-														metaRight={formatAnnotationTime(note.createdTime)}
+														quoteHtml={highlightExcerpt(hl.text || '', searchQuery)}
+														commentText={getEmptyExcerptHint(hl.text)}
 														commentMuted={true}
+														metaRight={formatAnnotationTime(hl.createdTime || 0)}
 													/>
 												{/each}
 											</div>
@@ -830,15 +857,27 @@
 					<TableOfContents
 						items={tocItems}
 						onNavigate={handleTocNavigate}
-						onAddToIncrementalReading={handleTocCreateReadingPoint}
+						onAddToIncrementalReading={sharedState?.onCreateChapterReadingPoint ? handleTocCreateReadingPoint : undefined}
+					/>
+				{:else if activeTab === 'bookmarks'}
+					<EpubBookmarksPanel
+						app={app}
+						book={sharedState.book}
+						bookmarkRevision={sharedState.bookmarkRevision}
+						onNavigate={handleHighlightNavigate}
 					/>
 				{:else if activeTab === 'highlights'}
 					{#if sharedState.annotationService}
-						<NotesPanel book={sharedState.book} annotationService={sharedState.annotationService} backlinkService={sharedState.backlinkService ?? undefined} filePath={sharedState.filePath ?? undefined} annotationRevision={sharedState.annotationRevision} onNavigate={handleHighlightNavigate} />
-					{/if}
-				{:else if activeTab === 'bookmarks'}
-					{#if sharedState.annotationService}
-						<BookmarkPanel book={sharedState.book} annotationService={sharedState.annotationService} readerService={sharedState.readerService ?? undefined} annotationRevision={sharedState.annotationRevision} onNavigate={handleHighlightNavigate} />
+						<NotesPanel
+							book={sharedState.book}
+							readerService={sharedState.readerService ?? undefined}
+							annotationService={sharedState.annotationService}
+							backlinkService={sharedState.backlinkService ?? undefined}
+							filePath={sharedState.filePath ?? undefined}
+							highlightRevision={sharedState.annotationRevision}
+							showStrikethroughHighlights={Boolean(sharedState.excerptSettings?.showStrikethroughInSidebar)}
+							onNavigate={handleHighlightNavigate}
+						/>
 					{/if}
 				{/if}
 			</div>
@@ -847,7 +886,7 @@
 </div>
 
 <style>
-	:global(.workspace-leaf-content[data-type="weave-epub-sidebar"] > .view-content) {
+	:global(.view-content.weave-epub-sidebar-view) {
 		background: var(--weave-surface-background, var(--background-primary));
 	}
 
@@ -902,18 +941,18 @@
 	}
 
 	.epub-global-sidebar-header .book-meta {
-		display: flex;
-		align-items: center;
-		font-size: 12px;
+		font-size: 13px;
+		line-height: 1.5;
 		color: var(--text-muted);
 		margin-bottom: 8px;
 	}
 
 	.epub-global-sidebar-header .book-progress-track {
-		display: flex;
-		align-items: center;
+		display: grid;
+		grid-template-columns: repeat(16, minmax(0, 1fr));
 		gap: 4px;
-		width: 100%;
+		align-items: center;
+		margin-top: 2px;
 	}
 
 	.epub-global-sidebar-header .book-progress-segment {
@@ -924,12 +963,14 @@
 		box-sizing: border-box;
 		border: 1px solid color-mix(in srgb, var(--text-muted) 60%, transparent);
 		background: transparent;
+		opacity: 0.6;
 		transition: background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;
 	}
 
 	.epub-global-sidebar-header .book-progress-segment.filled {
 		background: var(--text-normal);
 		border-color: var(--text-normal);
+		opacity: 1;
 	}
 
 	.epub-global-sidebar-header .header-flex {
@@ -971,81 +1012,97 @@
 
 	.epub-global-sidebar-tabs {
 		display: flex;
-		gap: 2px;
-		padding: 6px 12px;
+		align-items: stretch;
+		gap: 4px;
+		padding: 6px 12px 0;
 		flex-shrink: 0;
 		background: var(--weave-epub-sidebar-surface-background);
+		overflow: hidden;
+		border-bottom: none;
 	}
 
 	.epub-global-tab {
-		flex: 1;
+		flex: 1 1 0;
 		min-width: 0;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 5px;
-		padding: 6px 8px;
+		gap: 6px;
+		padding: 8px 10px;
 		background: transparent;
 		border: none;
-		border-radius: 6px;
+		border-radius: 0;
+		box-shadow: none;
+		outline: none;
+		appearance: none;
+		-webkit-appearance: none;
 		font-size: 12px;
 		font-weight: 500;
 		color: var(--text-muted);
 		cursor: pointer;
-		transition: all 0.15s ease;
+		transition: color 0.15s ease, background-color 0.15s ease;
 		line-height: 1;
 	}
 
-	.epub-global-tab .tab-icon {
+	button.epub-global-tab .tab-icon {
 		display: flex;
 		align-items: center;
 		flex-shrink: 0;
 	}
 
-	.epub-global-tab .tab-icon :global(.svg-icon) {
+	button.epub-global-tab .tab-icon :global(.svg-icon) {
 		width: 14px;
 		height: 14px;
 	}
 
-	.epub-global-tab .tab-label {
+	button.epub-global-tab .tab-label {
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
-	.epub-global-tab .tab-count {
+	button.epub-global-tab .tab-count {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		min-width: 18px;
-		height: 18px;
-		padding: 0 6px;
+		min-width: 0;
+		height: auto;
+		padding: 0;
 		flex-shrink: 0;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--weave-epub-sidebar-surface-background) 90%, transparent);
-		border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+		border-radius: 0;
+		background: transparent;
+		border: none;
 		color: var(--text-faint);
-		font-size: 11px;
+		font-size: 12px;
 		font-weight: 600;
 		line-height: 1;
+		font-variant-numeric: tabular-nums;
 	}
 
-	.epub-global-tab.active .tab-count {
-		background: color-mix(in srgb, var(--interactive-accent) 12%, var(--weave-epub-sidebar-surface-background));
-		border-color: color-mix(in srgb, var(--interactive-accent) 18%, var(--background-modifier-border));
-		color: var(--text-normal);
+	button.epub-global-tab.active .tab-count {
+		color: var(--text-muted);
 	}
 
-	.epub-global-tab:hover {
+	button.epub-global-tab:hover {
 		color: var(--text-normal);
-		background: var(--background-modifier-hover);
+		background: color-mix(in srgb, var(--background-modifier-hover) 80%, transparent);
 	}
 
-	.epub-global-tab.active {
+	button.epub-global-tab.active {
 		color: var(--text-normal);
-		background: var(--background-modifier-hover);
 		font-weight: 600;
+		background: var(--background-secondary);
+		border: none;
+		box-shadow: none;
+	}
+
+	button.epub-global-tab:focus,
+	button.epub-global-tab:focus-visible,
+	button.epub-global-tab:hover,
+	button.epub-global-tab.active {
+		outline: none;
+		box-shadow: none;
 	}
 
 	.epub-global-search-bar {
@@ -1466,18 +1523,17 @@
 		}
 
 		.epub-global-sidebar-tabs {
-			padding: 6px 10px;
+			padding: 6px 10px 0;
 			gap: 4px;
 		}
 
-		.epub-global-tab {
+		button.epub-global-tab {
 			gap: 4px;
-			padding: 6px 6px;
+			padding: 8px 8px;
 		}
 
-		.epub-global-tab .tab-count {
-			min-width: 16px;
-			padding: 0 4px;
+		button.epub-global-tab .tab-count {
+			padding: 0;
 		}
 
 		.epub-global-search-bar {
@@ -1506,24 +1562,25 @@
 	@container (max-width: 300px) {
 		.epub-global-sidebar-tabs {
 			flex-wrap: nowrap;
+			gap: 4px;
 		}
 
-		.epub-global-tab {
+		button.epub-global-tab {
 			flex: 1 1 0;
 			gap: 2px;
-			padding: 6px 4px;
+			padding: 8px 6px;
 			font-size: 11px;
 		}
 
-		.epub-global-tab .tab-icon :global(.svg-icon) {
+		button.epub-global-tab .tab-icon :global(.svg-icon) {
 			width: 12px;
 			height: 12px;
 		}
 
-		.epub-global-tab .tab-count {
-			min-width: 14px;
-			height: 14px;
-			padding: 0 3px;
+		button.epub-global-tab .tab-count {
+			min-width: 0;
+			height: auto;
+			padding: 0;
 			font-size: 10px;
 		}
 

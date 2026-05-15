@@ -1,7 +1,16 @@
 import { UnifiedCardType } from "../../types/unified-card-types";
 import { detectCardQuestionType } from "../../utils/card-type-utils";
+import { i18n } from "../../utils/i18n";
 import { logger } from "../../utils/logger";
+import { getCardTagValues } from "../../utils/tag-utils";
 import { getCardDeckIds } from "../../utils/yaml-utils";
+import {
+  createDeckTagColumnKey,
+  DECK_TAG_GROUP_OTHER_KEY,
+  findMatchingTagInDeckTagGroup,
+  normalizeDeckTagGroup,
+  type DeckTagGroup,
+} from "../../types/deck-kanban-types";
 import { getQuestionBankDeckIdsForCard } from "../pages/kanban-card-update";
 
 /**
@@ -13,45 +22,119 @@ import type { WeaveDataStorage } from "../../data/storage";
 import type { Card, CardState, Deck } from "../../data/types";
 
 export interface CardStateUpdate {
-	cardId: string;
-	newState: CardState;
-	oldState: CardState;
-	timestamp: Date;
+  cardId: string;
+  newState: CardState;
+  oldState: CardState;
+  timestamp: Date;
 }
 
 export interface CardGroupInfo {
-	key: string;
-	label: string;
-	color: string;
-	icon: string;
-	cards: Card[];
-	count: number;
-	dueCount: number;
+  key: string;
+  label: string;
+  color: string;
+  icon: string;
+  cards: Card[];
+  count: number;
+  dueCount: number;
 }
 
 export class CardStateManager {
-	private dataStorage: WeaveDataStorage;
-	private updateHistory: CardStateUpdate[] = [];
-	private decks: Deck[] = [];
+  private dataStorage: WeaveDataStorage;
+  private updateHistory: CardStateUpdate[] = [];
+  private decks: Deck[] = [];
+  private dataSourceType: "memory" | "questionBank" | "incremental-reading" = "memory";
 
-	constructor(dataStorage: WeaveDataStorage) {
-		this.dataStorage = dataStorage;
-	}
+  private t(key: string, params?: Record<string, string | number>): string {
+    return i18n.t(key, params);
+  }
 
-	/**
-	 * 设置牌组列表（用于牌组名称映射）
-	 */
-	setDecks(decks: Deck[]): void {
-		this.decks = decks;
-	}
+  constructor(dataStorage: WeaveDataStorage) {
+    this.dataStorage = dataStorage;
+  }
 
-	private getDeckGroupKeys(card: Card): string[] {
-		const questionBankDeckIds = getQuestionBankDeckIdsForCard(card);
-		if (questionBankDeckIds.length > 0) {
-			return questionBankDeckIds;
+  /**
+   * 设置牌组列表（用于牌组名称映射）
+   */
+  setDecks(decks: Deck[]): void {
+    this.decks = decks;
+  }
+
+  setDataSourceType(dataSourceType: "memory" | "questionBank" | "incremental-reading"): void {
+    this.dataSourceType = dataSourceType;
+  }
+
+  private getIRDeckGroupKeys(card: Card): string[] {
+    const cardLike = card as any;
+    const metadataDeckIds = Array.isArray(cardLike?.metadata?.deckIds)
+      ? cardLike.metadata.deckIds.filter(
+          (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
+        )
+      : [];
+    const irDeckIds = Array.isArray(cardLike?.ir_deck_ids)
+      ? cardLike.ir_deck_ids.filter(
+          (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
+        )
+      : [];
+    const deckIds = metadataDeckIds.length > 0 ? metadataDeckIds : irDeckIds;
+    if (deckIds.length > 0) {
+      return Array.from(new Set(deckIds));
+    }
+    if (typeof card.deckId === "string" && card.deckId.trim().length > 0) {
+      return [card.deckId];
+    }
+    return ["_none"];
+  }
+
+  private getIRPriorityValue(card: Card): number {
+    const cardLike = card as any;
+    const candidates = [
+      cardLike?.ir_priority_value,
+      cardLike?.ir_priority,
+      cardLike?.metadata?.priorityUi,
+      cardLike?.metadata?.priorityEff,
+      card.priority,
+    ];
+    for (const value of candidates) {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+      }
+    }
+    return 5;
+  }
+
+  private getIRTagGroupValue(card: Card): string {
+    const value = String((card as any)?.ir_tag_group || "").trim();
+    return value || "_default";
+  }
+
+  private getTagGroupValues(card: Card): string[] {
+    return getCardTagValues(card, this.dataSourceType);
+  }
+
+  private getSelectedTagGroupKey(card: Card, selectedTagGroup?: DeckTagGroup | null): string {
+    const normalizedTagGroup = selectedTagGroup ? normalizeDeckTagGroup(selectedTagGroup) : null;
+    if (!normalizedTagGroup) {
+      return DECK_TAG_GROUP_OTHER_KEY;
+    }
+
+    const matchedTag = findMatchingTagInDeckTagGroup(this.getTagGroupValues(card), normalizedTagGroup);
+    return matchedTag ? createDeckTagColumnKey(matchedTag) : DECK_TAG_GROUP_OTHER_KEY;
+  }
+
+  private getDeckGroupKeys(card: Card): string[] {
+    if (this.dataSourceType === "incremental-reading") {
+      return this.getIRDeckGroupKeys(card);
+    }
+
+		if (this.dataSourceType === "questionBank") {
+			const questionBankDeckIds = getQuestionBankDeckIdsForCard(card);
+			if (questionBankDeckIds.length > 0) {
+				return questionBankDeckIds;
+			}
+			return ["_none"];
 		}
 
-		const { deckIds } = getCardDeckIds(card, this.decks);
+		const { deckIds } = getCardDeckIds(card, this.decks, { preserveAllDeckIds: true });
 		if (deckIds.length > 0) {
 			return Array.from(new Set(deckIds));
 		}
@@ -163,7 +246,7 @@ export class CardStateManager {
 		return [
 			{
 				key: "0",
-				label: "新卡片",
+				label: this.t("cards.kanban.status.new"),
 				color: "#6b7280",
 				icon: "plus-circle",
 				cards: [],
@@ -172,7 +255,7 @@ export class CardStateManager {
 			},
 			{
 				key: "1",
-				label: "学习中",
+				label: this.t("cards.kanban.status.learning"),
 				color: "#3b82f6",
 				icon: "book-open",
 				cards: [],
@@ -181,7 +264,7 @@ export class CardStateManager {
 			},
 			{
 				key: "2",
-				label: "复习",
+				label: this.t("cards.kanban.status.review"),
 				color: "#10b981",
 				icon: "refresh-cw",
 				cards: [],
@@ -190,7 +273,7 @@ export class CardStateManager {
 			},
 			{
 				key: "3",
-				label: "重新学习",
+				label: this.t("cards.kanban.status.relearning"),
 				color: "#f59e0b",
 				icon: "rotate-ccw",
 				cards: [],
@@ -207,7 +290,7 @@ export class CardStateManager {
 		return [
 			{
 				key: UnifiedCardType.BASIC_QA,
-				label: "问答题",
+				label: this.t("cards.kanban.type.qa"),
 				color: "var(--interactive-accent)",
 				icon: "file-text",
 				cards: [],
@@ -216,7 +299,7 @@ export class CardStateManager {
 			},
 			{
 				key: UnifiedCardType.SINGLE_CHOICE,
-				label: "选择题",
+				label: this.t("cards.kanban.type.choice"),
 				color: "#06b6d4",
 				icon: "check-circle",
 				cards: [],
@@ -225,7 +308,7 @@ export class CardStateManager {
 			},
 			{
 				key: UnifiedCardType.CLOZE_DELETION,
-				label: "挖空题",
+				label: this.t("cards.kanban.type.cloze"),
 				color: "#ec4899",
 				icon: "edit",
 				cards: [],
@@ -238,11 +321,27 @@ export class CardStateManager {
 	/**
 	 * 获取优先级分组信息
 	 */
-	getPriorityGroups(): CardGroupInfo[] {
+	getPriorityGroups(cards: Card[] = []): CardGroupInfo[] {
+		if (this.dataSourceType === "incremental-reading") {
+			const priorityValues = Array.from(
+				new Set(cards.map((card) => this.getIRPriorityValue(card)))
+			).sort((a, b) => b - a);
+			const colors = ["#ef4444", "#f97316", "#f59e0b", "#3b82f6", "#10b981", "#6b7280"];
+			return priorityValues.map((value, index) => ({
+				key: String(value),
+				label: `P${value}`,
+				color: colors[index % colors.length],
+				icon: "flag",
+				cards: [],
+				count: 0,
+				dueCount: 0,
+			}));
+		}
+
 		return [
 			{
 				key: "4",
-				label: "紧急",
+				label: this.t("cards.kanban.priorityLevel.urgent"),
 				color: "#ef4444",
 				icon: "alert-triangle",
 				cards: [],
@@ -251,7 +350,7 @@ export class CardStateManager {
 			},
 			{
 				key: "3",
-				label: "高优先级",
+				label: this.t("cards.kanban.priorityLevel.high"),
 				color: "#f59e0b",
 				icon: "flag",
 				cards: [],
@@ -260,7 +359,7 @@ export class CardStateManager {
 			},
 			{
 				key: "2",
-				label: "中优先级",
+				label: this.t("cards.kanban.priorityLevel.medium"),
 				color: "#3b82f6",
 				icon: "flag",
 				cards: [],
@@ -269,7 +368,7 @@ export class CardStateManager {
 			},
 			{
 				key: "1",
-				label: "低优先级",
+				label: this.t("cards.kanban.priorityLevel.low"),
 				color: "#fbbf24",
 				icon: "minus-circle",
 				cards: [],
@@ -322,9 +421,13 @@ export class CardStateManager {
 			for (const cardDeckId of deckIds) {
 				if (!addedDeckIds.has(cardDeckId)) {
 					const matchedDeck = this.decks.find((deck) => deck.id === cardDeckId);
+					const fallbackLabel =
+						this.dataSourceType === "incremental-reading"
+							? String((_card as any)?.ir_deck || "").trim() || this.t("cards.kanban.fallback.unassignedTopic")
+							: cardDeckId;
 					deckGroups.push({
 						key: cardDeckId,
-						label: matchedDeck?.name || cardDeckId, // 没有牌组名称时使用ID
+						label: matchedDeck?.name || fallbackLabel,
 						color: colors[colorIndex % colors.length],
 						icon: "layers",
 						cards: [],
@@ -340,7 +443,7 @@ export class CardStateManager {
 		// 3. 添加"无牌组"分组
 		deckGroups.push({
 			key: "_none",
-			label: "无牌组",
+			label: this.t("cards.kanban.fallback.noDeck"),
 			color: "#6b7280",
 			icon: "inbox",
 			cards: [],
@@ -358,7 +461,7 @@ export class CardStateManager {
 		return [
 			{
 				key: "today",
-				label: "今天",
+				label: this.t("cards.kanban.time.today"),
 				color: "#3b82f6",
 				icon: "calendar",
 				cards: [],
@@ -367,7 +470,7 @@ export class CardStateManager {
 			},
 			{
 				key: "yesterday",
-				label: "昨天",
+				label: this.t("cards.kanban.time.yesterday"),
 				color: "#10b981",
 				icon: "calendar",
 				cards: [],
@@ -376,7 +479,7 @@ export class CardStateManager {
 			},
 			{
 				key: "last7days",
-				label: "过去7天",
+				label: this.t("cards.kanban.time.last7days"),
 				color: "#f59e0b",
 				icon: "calendar",
 				cards: [],
@@ -385,7 +488,7 @@ export class CardStateManager {
 			},
 			{
 				key: "last30days",
-				label: "过去30天",
+				label: this.t("cards.kanban.time.last30days"),
 				color: "#ec4899",
 				icon: "calendar",
 				cards: [],
@@ -394,7 +497,7 @@ export class CardStateManager {
 			},
 			{
 				key: "earlier",
-				label: "更早",
+				label: this.t("cards.kanban.time.earlier"),
 				color: "#6b7280",
 				icon: "calendar",
 				cards: [],
@@ -412,7 +515,7 @@ export class CardStateManager {
 		const tagColors = ["#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4", "#ef4444"];
 
 		for (const _card of cards) {
-			const cardTags = _card.tags || [];
+			const cardTags = this.getTagGroupValues(_card);
 			if (cardTags.length > 0) {
 				tagSet.add(cardTags[0]);
 			}
@@ -432,7 +535,76 @@ export class CardStateManager {
 
 		groups.push({
 			key: "_noTag",
-			label: "无标签",
+			label: this.t("cards.kanban.fallback.noTag"),
+			color: "#6b7280",
+			icon: "circle",
+			cards: [],
+			count: 0,
+			dueCount: 0,
+		});
+
+		return groups;
+	}
+
+	getIRTagGroupGroups(cards: Card[]): CardGroupInfo[] {
+		const groupSet = new Set<string>();
+		const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4"];
+
+		for (const _card of cards) {
+			groupSet.add(this.getIRTagGroupValue(_card));
+		}
+
+		const groups: CardGroupInfo[] = Array.from(groupSet)
+			.sort((a, b) => {
+				if (a === "_default") return 1;
+				if (b === "_default") return -1;
+				return a.localeCompare(b, "zh-CN");
+			})
+			.map((groupKey, index) => ({
+				key: groupKey,
+				label: groupKey === "_default" ? this.t("cards.kanban.fallback.defaultTagGroup") : groupKey,
+				color: colors[index % colors.length],
+				icon: "layers",
+				cards: [],
+				count: 0,
+				dueCount: 0,
+			}));
+
+		if (!groups.some((group) => group.key === "_default")) {
+			groups.push({
+				key: "_default",
+				label: this.t("cards.kanban.fallback.defaultTagGroup"),
+				color: "#6b7280",
+				icon: "layers",
+				cards: [],
+				count: 0,
+				dueCount: 0,
+			});
+		}
+
+		return groups;
+	}
+
+	getSelectedTagGroupGroups(selectedTagGroup?: DeckTagGroup | null): CardGroupInfo[] {
+		const normalizedTagGroup = selectedTagGroup ? normalizeDeckTagGroup(selectedTagGroup) : null;
+		if (!normalizedTagGroup) {
+			return [];
+		}
+
+		const groupColor = normalizedTagGroup.color || "#3b82f6";
+		const groups = normalizedTagGroup.tags.map((tag) => ({
+			key: createDeckTagColumnKey(tag),
+			label: tag,
+			color: groupColor,
+			icon: "tag",
+			cards: [],
+			count: 0,
+			dueCount: 0,
+		}));
+
+		groups.push({
+			key: DECK_TAG_GROUP_OTHER_KEY,
+			label: this.t("cards.kanban.fallback.other"),
 			color: "#6b7280",
 			icon: "circle",
 			cards: [],
@@ -448,7 +620,8 @@ export class CardStateManager {
 	 */
 	groupCards(
 		cards: Card[],
-		groupBy: "status" | "type" | "priority" | "deck" | "createTime" | "tag"
+		groupBy: "status" | "type" | "priority" | "deck" | "createTime" | "tag" | "tagGroup" | "ir_tag_group",
+		selectedTagGroup?: DeckTagGroup | null
 	): Record<string, Card[]> {
 		const groups: Record<string, Card[]> = {};
 		let groupInfos: CardGroupInfo[];
@@ -461,7 +634,7 @@ export class CardStateManager {
 				groupInfos = this.getTypeGroups();
 				break;
 			case "priority":
-				groupInfos = this.getPriorityGroups();
+				groupInfos = this.getPriorityGroups(cards);
 				break;
 			case "deck":
 				groupInfos = this.getDeckGroups(cards);
@@ -471,6 +644,12 @@ export class CardStateManager {
 				break;
 			case "tag":
 				groupInfos = this.getTagGroups(cards);
+				break;
+			case "tagGroup":
+				groupInfos = this.getSelectedTagGroupGroups(selectedTagGroup);
+				break;
+			case "ir_tag_group":
+				groupInfos = this.getIRTagGroupGroups(cards);
 				break;
 			default:
 				groupInfos = this.getStateGroups();
@@ -507,7 +686,10 @@ export class CardStateManager {
 					break;
 				}
 				case "priority":
-					groupKey = (_card.priority || 1).toString();
+					groupKey =
+						this.dataSourceType === "incremental-reading"
+							? this.getIRPriorityValue(_card).toString()
+							: (_card.priority || 1).toString();
 					break;
 				case "deck":
 					groupKey = this.getDeckGroupKeys(_card)[0];
@@ -516,7 +698,7 @@ export class CardStateManager {
 					groupKey = this.getTimeGroupKey(_card.created);
 					break;
 				case "tag": {
-					const cardTags = _card.tags || [];
+					const cardTags = this.getTagGroupValues(_card);
 					if (cardTags.length > 0) {
 						groupKey = cardTags[0];
 					} else {
@@ -524,6 +706,12 @@ export class CardStateManager {
 					}
 					break;
 				}
+				case "tagGroup":
+					groupKey = this.getSelectedTagGroupKey(_card, selectedTagGroup);
+					break;
+				case "ir_tag_group":
+					groupKey = this.getIRTagGroupValue(_card);
+					break;
 				default:
 					groupKey = "0";
 			}

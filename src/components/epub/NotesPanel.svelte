@@ -1,18 +1,19 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { logger } from '../../utils/logger';
-	import type { EpubBook, Note } from '../../services/epub';
+	import type { EpubBook, EpubReaderEngine, ReaderHighlight } from '../../services/epub';
 	import type { EpubAnnotationService } from '../../services/epub';
 	import type { EpubBacklinkHighlightService } from '../../services/epub/EpubBacklinkHighlightService';
-	import { EpubLinkService } from '../../services/epub/EpubLinkService';
 	import EpubAnnotationCard from './EpubAnnotationCard.svelte';
 
 	interface Props {
 		book: EpubBook | null;
+		readerService?: EpubReaderEngine | null;
 		annotationService: EpubAnnotationService;
 		backlinkService?: EpubBacklinkHighlightService;
 		filePath?: string;
-		annotationRevision?: number;
+		highlightRevision?: number;
+		showStrikethroughHighlights?: boolean;
 		onNavigate?: (
 			cfi: string,
 			text?: string,
@@ -25,7 +26,16 @@
 		) => void;
 	}
 
-	let { book, annotationService, backlinkService, filePath, annotationRevision = 0, onNavigate }: Props = $props();
+	let {
+		book,
+		readerService = null,
+		annotationService,
+		backlinkService,
+		filePath,
+		highlightRevision = 0,
+		showStrikethroughHighlights = false,
+		onNavigate,
+	}: Props = $props();
 
 	type HighlightColor = 'yellow' | 'green' | 'blue' | 'red' | 'purple';
 
@@ -34,19 +44,16 @@
 		text: string;
 		color: HighlightColor;
 		createdTime: number;
+		pageLabel?: string;
 		sourceFile?: string;
 		sourceRef?: string;
 	}
 
-	interface DisplayNote extends Note {
-		color: HighlightColor;
-	}
-
 	let highlights = $state<DisplayHighlight[]>([]);
-	let notes = $state<DisplayNote[]>([]);
 	let loading = $state(false);
 	let annotationLoadToken = 0;
 	let panelDisposed = false;
+	let lastLoadContextKey = '';
 
 	function formatTime(timestamp: number): string {
 		if (!timestamp) return '';
@@ -60,7 +67,34 @@
 	}
 
 	function getSourceLabel(sourceFile?: string): string {
-		return sourceFile ? (sourceFile.split('/').pop() || sourceFile) : '';
+		if (!sourceFile) {
+			return '';
+		}
+		const normalized = sourceFile.replace(/\\/g, '/');
+		const basename = normalized.split('/').pop() || normalized;
+		const displayName = basename.replace(/\.[^.]+$/, '');
+		return displayName ? `- 《${displayName}》` : '';
+	}
+
+	function getEmptyExcerptHint(text?: string): string {
+		return String(text || '').trim() ? '' : '摘录内容为空';
+	}
+
+	async function resolveHighlightPageLabel(cfiRange: string, text?: string): Promise<string> {
+		if (!readerService || !cfiRange) {
+			return '';
+		}
+		try {
+			const canonical = typeof readerService.canonicalizeLocation === 'function'
+				? (await readerService.canonicalizeLocation(cfiRange, text)) || cfiRange
+				: cfiRange;
+			const pageNumber = await readerService.getPageNumberFromCfi(canonical);
+			return typeof pageNumber === 'number' && Number.isFinite(pageNumber) && pageNumber > 0
+				? `p.${pageNumber}`
+				: '';
+		} catch (_error) {
+			return '';
+		}
 	}
 
 	function navigateToHighlight(hl: DisplayHighlight) {
@@ -73,10 +107,11 @@
 		}
 	}
 
-	function navigateToNote(note: DisplayNote) {
-		if (note.cfi) {
-			onNavigate?.(note.cfi, note.quotedText || note.content, note.color);
+	function shouldDisplayHighlight(highlight: Pick<ReaderHighlight, 'style' | 'presentation'>): boolean {
+		if (highlight.presentation === 'conceal') {
+			return showStrikethroughHighlights;
 		}
+		return highlight.style !== 'strikethrough' || showStrikethroughHighlights;
 	}
 
 	function normalizeColor(color?: string): HighlightColor {
@@ -104,7 +139,6 @@
 		const currentBook = book;
 		if (!currentBook) {
 			highlights = [];
-			notes = [];
 			loading = false;
 			return;
 		}
@@ -112,46 +146,36 @@
 		const loadToken = ++annotationLoadToken;
 		loading = true;
 		try {
-			const [allHighlights, allNotes] = await Promise.all([
-				backlinkService && expectedFilePath
-					? annotationService.collectAllHighlights(currentBook.id, expectedFilePath, backlinkService)
-					: annotationService.getHighlights(currentBook.id),
-				annotationService.getNotes(currentBook.id)
-			]);
+			const allHighlights = backlinkService && expectedFilePath
+				? await annotationService.collectAllHighlights(currentBook.id, expectedFilePath, backlinkService)
+				: [];
 			if (isStaleAnnotationsLoad(loadToken, currentBook.id, expectedFilePath)) {
 				return;
 			}
 
-			const mappedHighlights = allHighlights
-				.map((highlight) => ({
+			const visibleHighlights = allHighlights.filter((highlight) => shouldDisplayHighlight(highlight));
+			const mappedHighlights = (await Promise.all(visibleHighlights.map(async (highlight) => ({
 					cfiRange: highlight.cfiRange,
 					text: highlight.text || '',
 					color: normalizeColor(highlight.color),
 					createdTime: highlight.createdTime || 0,
+					pageLabel: await resolveHighlightPageLabel(highlight.cfiRange, highlight.text),
 					sourceFile: 'sourceFile' in highlight ? highlight.sourceFile : undefined,
 					sourceRef: 'sourceRef' in highlight ? highlight.sourceRef : undefined,
-				}))
+				}))))
 				.sort((a, b) => (b.createdTime || 0) - (a.createdTime || 0));
 
-			const colorByCfi = new Map<string, HighlightColor>();
-			for (const highlight of mappedHighlights) {
-				colorByCfi.set(EpubLinkService.normalizeCfi(highlight.cfiRange), highlight.color);
+			if (isStaleAnnotationsLoad(loadToken, currentBook.id, expectedFilePath)) {
+				return;
 			}
 
 			highlights = mappedHighlights;
-			notes = allNotes
-				.map((note) => ({
-					...note,
-					color: note.cfi ? (colorByCfi.get(EpubLinkService.normalizeCfi(note.cfi)) || 'yellow') : 'yellow'
-				}))
-				.sort((a, b) => b.createdTime - a.createdTime);
 		} catch (error) {
 			if (isStaleAnnotationsLoad(loadToken, currentBook.id, expectedFilePath)) {
 				return;
 			}
 			logger.error('[NotesPanel] Failed to load annotations:', error);
 			highlights = [];
-			notes = [];
 		} finally {
 			if (!isStaleAnnotationsLoad(loadToken, currentBook.id, expectedFilePath)) {
 				loading = false;
@@ -160,14 +184,18 @@
 	}
 
 	$effect(() => {
-		annotationRevision;
+		const contextKey = [book?.id ?? '', filePath ?? '', String(highlightRevision), showStrikethroughHighlights ? '1' : '0'].join('::');
 		if (book && annotationService) {
+			if (contextKey === lastLoadContextKey) {
+				return;
+			}
+			lastLoadContextKey = contextKey;
 			void loadAnnotations();
 		} else {
 			annotationLoadToken += 1;
 			highlights = [];
-			notes = [];
 			loading = false;
+			lastLoadContextKey = '';
 		}
 	});
 
@@ -181,9 +209,9 @@
 
 <div class="epub-notes-panel">
 	{#if loading}
-		<div class="epub-placeholder">正在加载摘录与笔记...</div>
-	{:else if highlights.length === 0 && notes.length === 0}
-		<div class="epub-placeholder">暂时还没有摘录或笔记，阅读时选中文本后就可以在这里回看。</div>
+		<div class="epub-placeholder">正在加载摘录...</div>
+	{:else if highlights.length === 0}
+		<div class="epub-placeholder">暂时还没有摘录，阅读时选中文本后就可以在这里回看。</div>
 	{:else}
 		{#if highlights.length > 0}
 			<section class="notes-section">
@@ -194,30 +222,11 @@
 							onActivate={() => navigateToHighlight(hl)}
 							color={hl.color}
 							quoteText={hl.text}
-							metaLeft={getSourceLabel(hl.sourceFile)}
-							metaRight={formatTime(hl.createdTime)}
-						/>
-					{/each}
-				</div>
-			</section>
-		{/if}
-
-		{#if notes.length > 0}
-			<section class="notes-section" aria-labelledby="epub-notes-heading">
-				<div class="notes-section-header">
-					<h3 class="notes-section-title" id="epub-notes-heading">笔记批注</h3>
-					<span class="notes-section-count">{notes.length}</span>
-				</div>
-				<div class="notes-section-list">
-					{#each notes as note}
-						<EpubAnnotationCard
-							clickable={true}
-							onActivate={() => navigateToNote(note)}
-							color={note.color}
-							quoteText={note.quotedText || ''}
-							commentText={note.content}
-							metaRight={formatTime(note.createdTime)}
+							commentText={getEmptyExcerptHint(hl.text)}
 							commentMuted={true}
+							metaLeft={getSourceLabel(hl.sourceFile)}
+							metaRightPrefix={formatTime(hl.createdTime)}
+							metaRight={hl.pageLabel}
 						/>
 					{/each}
 				</div>
@@ -247,36 +256,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: 10px;
-	}
-
-	.notes-section-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
-		padding: 0 4px;
-	}
-
-	.notes-section-title {
-		margin: 0;
-		font-size: 15px;
-		font-weight: 600;
-		line-height: 1.25;
-		color: var(--text-normal);
-	}
-
-	.notes-section-count {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		padding: 4px 10px;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--weave-elevated-background, var(--background-secondary)) 92%, transparent);
-		border: 1px solid color-mix(in srgb, var(--background-modifier-border) 68%, transparent);
-		color: var(--text-muted);
-		font-size: 12px;
-		font-weight: 600;
-		line-height: 1;
 	}
 
 	.notes-section-list {

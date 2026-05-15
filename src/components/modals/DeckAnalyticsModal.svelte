@@ -1,6 +1,9 @@
 <!--
   牌组分析模态窗组件
   显示记忆保持率趋势图表和分析数据
+  Legacy note:
+  This component is intentionally retained because the working tree already had in-progress edits here.
+  The active deck analytics runtime has moved to DeckAnalyticsModalShell.svelte via DeckAnalyticsModalObsidian.ts.
 -->
 <script lang="ts">
   import { logger } from '../../utils/logger';
@@ -9,31 +12,16 @@
   import { Platform, Menu } from 'obsidian';
   import type { WeavePlugin } from '../../main';
   import type { Card, Deck } from '../../data/types';
+  import { currentLanguage } from '../../utils/i18n';
+  import type { SupportedLanguage } from '../../utils/i18n';
+  import { createDeckAnalyticsText, formatDeckAnalyticsShortDate } from './deck-analytics-text';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import { LoadStatus } from '../../services/LoadBalanceManager';
-  import * as echarts from 'echarts/core';
-  import {
-    TooltipComponent,
-    GridComponent,
-    LegendComponent
-  } from 'echarts/components';
-  import { LineChart, BarChart, ScatterChart } from 'echarts/charts';
-  import { CanvasRenderer } from 'echarts/renderers';
-  import { LabelLayout } from 'echarts/features';
-  import { applyRetentionChartLayout, createRetentionChartGrid, createRetentionScrollableLegend } from '../charts/retentionChartStyle';
+  import { generateDeckMemoryCurveData } from '../../utils/memory-curve-utils';
+  import echarts, { type EChartsType } from '../../utils/echarts-loader';
+  import { applyRetentionChartLayout } from '../charts/retentionChartStyle';
+  import { buildRetentionCurveOption } from '../charts/retentionCurveOption';
   import { bindPinchRangeGesture } from '../../utils/pinch-range-gesture';
-
-  // 注册ECharts组件
-  echarts.use([
-    TooltipComponent,
-    GridComponent,
-    LegendComponent,
-    LineChart,
-    BarChart,
-    ScatterChart,
-    LabelLayout,
-    CanvasRenderer
-  ]);
 
   type AnalyticsTab = 'retention' | 'quantity' | 'timing' | 'difficulty' | 'loadForecast';
 
@@ -60,6 +48,9 @@
 
   // 标签页状态：弹窗打开时读取一次初始标签页，后续由组件内切换维护
   let activeTab = $state<AnalyticsTab>(untrack(() => initialTab));
+  const uiLanguage = $derived(($currentLanguage ?? 'zh-CN') as SupportedLanguage);
+  const isEnglishUI = $derived(uiLanguage === 'en-US');
+  const uiText = $derived.by(() => createDeckAnalyticsText(uiLanguage));
   
   // 图表容器引用
   let retentionChartRef: HTMLDivElement | null = $state(null);
@@ -67,12 +58,13 @@
   let timingChartRef: HTMLDivElement | null = $state(null);
   let difficultyChartRef: HTMLDivElement | null = $state(null);
   let loadForecastChartRef: HTMLDivElement | null = $state(null);
-  let retentionChart: echarts.ECharts | null = null;
-  let quantityChart: echarts.ECharts | null = null;
-  let timingChart: echarts.ECharts | null = null;
-  let difficultyChart: echarts.ECharts | null = null;
-  let loadForecastChart: echarts.ECharts | null = null;
+  let retentionChart: EChartsType | null = null;
+  let quantityChart: EChartsType | null = null;
+  let timingChart: EChartsType | null = null;
+  let difficultyChart: EChartsType | null = null;
+  let loadForecastChart: EChartsType | null = null;
   let themeObserver: MutationObserver | null = null;
+  let renderedLanguage = $state<SupportedLanguage | null>(null);
   const pinchGestureCleanupMap = new Map<HTMLDivElement, () => void>();
   
   // 多牌组选择
@@ -124,6 +116,19 @@
   const hasReviewData = $derived(activeCards && activeCards.filter(c => c.reviewHistory && c.reviewHistory.length > 0).length > 0);
   const cardCount = $derived(activeCards ? activeCards.length : 0);
   const reviewedCardCount = $derived(activeCards ? activeCards.filter(c => c.reviewHistory && c.reviewHistory.length > 0).length : 0);
+  const retentionSummaryData = $derived.by(() => {
+    const retentionPoints = generateRetentionData(selectedDays);
+    const currentPoint = retentionPoints[0] ?? null;
+    const totalSamples = retentionPoints.reduce((sum, point) => sum + point.reviewSample, 0);
+    const totalPassed = retentionPoints.reduce((sum, point) => sum + point.passedSample, 0);
+
+    return {
+      targetRetention: getTargetRetentionPercent(),
+      avgRetrievability: currentPoint?.avgRetrievability ?? null,
+      actualRetention: totalSamples > 0 ? parseFloat(((totalPassed / totalSamples) * 100).toFixed(1)) : null,
+      sampleCount: totalSamples
+    };
+  });
   
   // 加载所有牌组列表
   async function loadAllDecks() {
@@ -214,13 +219,13 @@
   const WHEEL_THROTTLE_MS = 200;
   
   // 快捷时间范围选项
-  const quickRangeOptions = [
-    { value: 7, label: '最近7天', mobileLabel: '7天' },
-    { value: 14, label: '最近14天', mobileLabel: '14天' },
-    { value: 30, label: '最近30天', mobileLabel: '30天' },
-    { value: 60, label: '最近60天', mobileLabel: '60天' },
-    { value: 90, label: '最近90天', mobileLabel: '90天' }
-  ];
+  const quickRangeOptions = $derived.by(() => (
+    [7, 14, 30, 60, 90].map((value) => ({
+      value,
+      label: uiText.range.lastDaysLabel(value),
+      mobileLabel: uiText.range.lastDaysShort(value)
+    }))
+  ));
   
   // 移动端检测
   const isMobile = Platform.isMobile;
@@ -258,9 +263,9 @@
       const quickMatch = quickRangeOptions.find((option) => option.value === currentQuickRange);
       if (quickMatch) return quickMatch.label;
     }
-    const start = `${startDate.getMonth() + 1}/${startDate.getDate()}`;
-    const end = `${endDate.getMonth() + 1}/${endDate.getDate()}`;
-    return `${start}-${end}`;
+    const start = formatShortDate(startDate);
+    const end = formatShortDate(endDate);
+    return `${start} ${uiText.range.separator} ${end}`;
   });
 
   // 获取当前主题颜色
@@ -277,123 +282,51 @@
     };
   }
 
-  // 为单个牌组生成记忆保持率数据（基于日期维度的 FSRS 预测保持率）
-  function generateRetentionDataForDeck(deckCards: Card[], days: number): { dates: string[]; retentionData: (number | null)[] } {
-    const dates: string[] = [];
-    const retentionData: (number | null)[] = [];
-    const today = new Date();
-    
-    const cardsWithReviews = (deckCards || []).filter(c => c.reviewHistory && c.reviewHistory.length > 0);
-    
-    for (let i = days - 1; i >= 0; i--) {
-      const targetDate = new Date(today);
-      targetDate.setDate(targetDate.getDate() - i);
-      dates.push(`${targetDate.getMonth() + 1}/${targetDate.getDate()}`);
-      const targetEnd = new Date(targetDate);
-      targetEnd.setHours(23, 59, 59, 999);
-      const targetEndTime = targetEnd.getTime();
-      
-      if (cardsWithReviews.length > 0) {
-        let totalRetention = 0;
-        let count = 0;
-        
-        cardsWithReviews.forEach(card => {
-          if (!card.reviewHistory) return;
-          const reviewsBefore = card.reviewHistory
-            .filter(r => new Date(r.review).getTime() <= targetEndTime)
-            .sort((a, b) => new Date(b.review).getTime() - new Date(a.review).getTime());
-          
-          if (reviewsBefore.length > 0) {
-            const lastReview = reviewsBefore[0];
-            const elapsed = (targetEndTime - new Date(lastReview.review).getTime()) / (1000 * 60 * 60 * 24);
-            const stability = lastReview.stability || card.fsrs?.stability || 7;
-            const retention = Math.exp(-elapsed / Math.max(stability, 0.01)) * 100;
-            totalRetention += retention;
-            count++;
-          }
-        });
-        
-        retentionData.push(count > 0 ? parseFloat((totalRetention / count).toFixed(1)) : null);
-      } else {
-        retentionData.push(null);
-      }
+  function formatShortDate(date: Date): string {
+    return formatDeckAnalyticsShortDate(date, uiLanguage);
+  }
+
+  function getTargetRetentionPercent(): number {
+    const configuredRetention = plugin.settings?.fsrsParams?.requestRetention ?? 0.9;
+    return parseFloat((Math.min(Math.max(configuredRetention, 0.5), 0.99) * 100).toFixed(1));
+  }
+
+  type RetentionSeriesPoint = {
+    day: number;
+    label: string;
+    avgRetrievability: number | null;
+    actualRetention: number | null;
+    targetRetention: number;
+    reviewSample: number;
+    passedSample: number;
+  };
+
+  function formatRetentionDayTitle(dayValue: number | string): string {
+    const numericDay = typeof dayValue === 'number' ? dayValue : Number(dayValue);
+    if (!Number.isFinite(numericDay)) {
+      return String(dayValue);
     }
-    
-    return { dates, retentionData };
+
+    if (numericDay === 0) {
+      return isEnglishUI ? 'Current' : '当前';
+    }
+
+    return isEnglishUI ? `Day ${numericDay}` : `第 ${numericDay} 天`;
+  }
+
+  // 为单个牌组生成记忆保持率数据（基于当前及未来天数的 FSRS 预测保持率）
+  function generateRetentionDataForDeck(deckCards: Card[], days: number): { dayLabels: string[]; retrievabilityData: (number | null)[] } {
+    const points = generateDeckMemoryCurveData(deckCards, days, getTargetRetentionPercent());
+
+    return {
+      dayLabels: points.map(point => point.label),
+      retrievabilityData: points.map(point => point.avgRetrievability)
+    };
   }
   
-  // 生成真实记忆保持率数据（基于 FSRS）
-  function generateRetentionData(days: number) {
-    const data: Array<{date: string; predicted: number | null; actual: number | null; threshold: number}> = [];
-    const today = new Date();
-    const currentCards = activeCards;
-    
-    if (currentCards && currentCards.length > 0) {
-      const cardsWithReviews = currentCards.filter(c => c.reviewHistory && c.reviewHistory.length > 0);
-      
-      for (let i = days - 1; i >= 0; i--) {
-        const targetDate = new Date(today);
-        targetDate.setDate(targetDate.getDate() - i);
-        const dateLabel = `${targetDate.getMonth() + 1}/${targetDate.getDate()}`;
-        const targetStart = new Date(targetDate);
-        targetStart.setHours(0, 0, 0, 0);
-        const targetEnd = new Date(targetDate);
-        targetEnd.setHours(23, 59, 59, 999);
-        const targetEndTime = targetEnd.getTime();
-        
-        let totalPredicted = 0;
-        let predictedCount = 0;
-        let correctCount = 0;
-        let reviewOnDayCount = 0;
-        
-        cardsWithReviews.forEach(card => {
-          if (!card.reviewHistory) return;
-          
-          const reviewsBefore = card.reviewHistory
-            .filter(r => new Date(r.review).getTime() <= targetEndTime)
-            .sort((a, b) => new Date(b.review).getTime() - new Date(a.review).getTime());
-          
-          if (reviewsBefore.length > 0) {
-            const lastReview = reviewsBefore[0];
-            const elapsed = (targetEndTime - new Date(lastReview.review).getTime()) / (1000 * 60 * 60 * 24);
-            const stability = lastReview.stability || card.fsrs?.stability || 7;
-            const retention = Math.exp(-elapsed / Math.max(stability, 0.01)) * 100;
-            totalPredicted += retention;
-            predictedCount++;
-          }
-          
-          card.reviewHistory.forEach(log => {
-            const reviewDate = new Date(log.review);
-            if (reviewDate >= targetStart && reviewDate <= targetEnd) {
-              reviewOnDayCount++;
-              if (log.rating >= 3) {
-                correctCount++;
-              }
-            }
-          });
-        });
-        
-        data.push({
-          date: dateLabel,
-          predicted: predictedCount > 0 ? parseFloat((totalPredicted / predictedCount).toFixed(1)) : null,
-          actual: reviewOnDayCount > 0 ? parseFloat(((correctCount / reviewOnDayCount) * 100).toFixed(1)) : null,
-          threshold: 80
-        });
-      }
-    } else {
-      for (let i = days - 1; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        data.push({
-          date: `${date.getMonth() + 1}/${date.getDate()}`,
-          predicted: null,
-          actual: null,
-          threshold: 80
-        });
-      }
-    }
-    
-    return data;
+  // 生成牌组记忆保持率数据（基于当前及未来天数）
+  function generateRetentionData(days: number): RetentionSeriesPoint[] {
+    return generateDeckMemoryCurveData(activeCards || [], days, getTargetRetentionPercent());
   }
 
   // 初始化记忆率图表
@@ -405,29 +338,65 @@
 
     const colors = getThemeColors();
     const isMultiDeck = selectedDeckIds.size > 1;
+    const buildTooltipHeader = (dayValue: number | string) =>
+      `<div style="font-weight: 600; font-size: 16px; margin-bottom: 12px; color: ${colors.textColor};">${formatRetentionDayTitle(dayValue)}</div>`;
+    const buildTooltipRow = ({
+      seriesName,
+      color,
+      value,
+      dotSize,
+      margin,
+      labelSize,
+      valueSize,
+      valueColor = color,
+      lineHeight,
+    }: {
+      seriesName: string;
+      color: string;
+      value: number;
+      dotSize: number;
+      margin: string;
+      labelSize: number;
+      valueSize: number;
+      valueColor?: string;
+      lineHeight?: string;
+    }) => {
+      const lineHeightStyle = lineHeight ? ` line-height: ${lineHeight};` : '';
+      const dotSpacing = Math.max(dotSize - 2, 8);
+
+      return `<div style="display: flex; align-items: center; margin: ${margin};${lineHeightStyle}">`
+        + `<span style="display: inline-block; width: ${dotSize}px; height: ${dotSize}px; border-radius: 50%; background: ${color}; margin-right: ${dotSpacing}px;"></span>`
+        + `<span style="color: ${colors.textColor}; font-size: ${labelSize}px;">${seriesName}:</span>`
+        + `<strong style="margin-left: 8px; color: ${valueColor}; font-size: ${valueSize}px;">${value.toFixed(1)}%</strong>`
+        + `</div>`;
+    };
+    const wrapTooltipHtml = (dayValue: number | string, bodyHtml: string, useInterfaceFont = false) => {
+      const wrapperStyle = useInterfaceFont
+        ? 'padding: 12px; font-family: var(--font-interface);'
+        : 'padding: 12px;';
+      return `<div style="${wrapperStyle}">${buildTooltipHeader(dayValue)}${bodyHtml}</div>`;
+    };
     
     // 多牌组对比模式
     if (isMultiDeck) {
       const selectedDecksArray = Array.from(selectedDeckIds);
-      const legendData: string[] = [];
       const series: any[] = [];
-      let dateLabels: string[] = [];
+      let dayLabels: string[] = [];
       
       // 为每个牌组生成独立的曲线
       selectedDecksArray.forEach((deckId, index) => {
         const deck = allDecks.find(d => d.id === deckId);
         const deckCards = deckCardsMap.get(deckId) || [];
-        const deckName = deck?.name || `牌组${index + 1}`;
+        const deckName = deck?.name || `${uiText.deckFallbackPrefix}${index + 1}`;
         const color = getDeckColor(index);
         
-        legendData.push(deckName);
-        const { dates, retentionData } = generateRetentionDataForDeck(deckCards, selectedDays);
-        if (dateLabels.length === 0) dateLabels = dates;
+        const { dayLabels: generatedDayLabels, retrievabilityData } = generateRetentionDataForDeck(deckCards, selectedDays);
+        if (dayLabels.length === 0) dayLabels = generatedDayLabels;
         
         series.push({
           name: deckName,
           type: 'line',
-          data: retentionData,
+          data: retrievabilityData,
           connectNulls: true,
           smooth: true,
           lineStyle: { color, width: 2 },
@@ -436,69 +405,49 @@
         });
       });
       
-      // 添加风险阈值线
-      legendData.push('风险阈值');
+      // 添加目标保持率线
       series.push({
-        name: '风险阈值',
+        name: uiText.retention.targetRetention,
         type: 'line',
-        data: dateLabels.map(() => 80),
+        data: dayLabels.map(() => getTargetRetentionPercent()),
         lineStyle: { color: '#f5576c', width: 2, type: 'dashed' },
         itemStyle: { color: '#f5576c' },
         symbol: 'none'
       });
       
-      const option = {
-        tooltip: {
-          trigger: 'axis',
-          backgroundColor: colors.tooltipBg,
-          borderColor: colors.tooltipBorder,
-          borderWidth: 1,
-          textStyle: { color: colors.textColor, fontSize: 14 },
-          extraCssText: 'border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);',
-          confine: true,
-          position: isMobile ? getMobileTooltipPosition : undefined,
-          formatter: function(params: any) {
-            let html = `<div style="padding: 12px;">`;
-            html += `<div style="font-weight: 600; font-size: 16px; margin-bottom: 12px; color: ${colors.textColor};">${params[0].axisValue}</div>`;
-            params.forEach((param: any) => {
-              if (param.value !== null && param.value !== undefined && typeof param.value === 'number') {
-                html += `<div style="display: flex; align-items: center; margin: 6px 0;">`;
-                html += `<span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${param.color}; margin-right: 8px;"></span>`;
-                html += `<span style="color: ${colors.textColor}; font-size: 13px;">${param.seriesName}:</span>`;
-                html += `<strong style="margin-left: 8px; color: ${param.color}; font-size: 14px;">${param.value.toFixed(1)}%</strong>`;
-                html += `</div>`;
-              }
-            });
-            html += `</div>`;
-            return html;
+      const option = buildRetentionCurveOption({
+        colors,
+        isMobile,
+        xAxisData: dayLabels,
+        axisXName: uiText.retention.axisX,
+        axisYName: uiText.retention.axisY,
+        tooltipPosition: isMobile ? getMobileTooltipPosition : undefined,
+        tooltipFormatter: function(params: any) {
+          if (!Array.isArray(params) || params.length === 0) {
+            return '';
           }
-        },
-        legend: createRetentionScrollableLegend(legendData, colors, isMobile),
-        grid: createRetentionChartGrid(isMobile, true),
-        xAxis: {
-          type: 'category',
-          data: dateLabels,
-          name: '日期',
-          nameLocation: 'middle',
-          nameGap: 24,
-          axisLine: { show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10], lineStyle: { color: colors.axisLineColor } },
-          axisLabel: { color: colors.textColor, fontSize: 12 },
-          nameTextStyle: { color: colors.textColor, fontSize: 12 }
-        },
-        yAxis: {
-          type: 'value',
-          name: '记忆保持率 (%)',
-          min: 0,
-          max: 100,
-          axisLine: { show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10], lineStyle: { color: colors.axisLineColor } },
-          axisLabel: { color: colors.textColor, formatter: '{value}%', fontSize: 12 },
-          nameTextStyle: { color: colors.textColor, fontSize: 12 },
-          splitLine: { lineStyle: { color: colors.splitLineColor, type: 'dashed' } }
+
+          let rows = '';
+          params.forEach((param: any) => {
+            if (param.value !== null && param.value !== undefined && typeof param.value === 'number') {
+              const color = typeof param.color === 'string' ? param.color : colors.textColor;
+              rows += buildTooltipRow({
+                seriesName: param.seriesName,
+                color,
+                value: param.value,
+                dotSize: 10,
+                margin: '6px 0',
+                labelSize: 13,
+                valueSize: 14,
+              });
+            }
+          });
+
+          return wrapTooltipHtml(params[0].axisValue, rows);
         },
         series
-      };
-      
-      applyRetentionChartLayout(option, colors, isMobile);
+      });
+
       retentionChart.setOption(option, true);
       return;
     }
@@ -506,96 +455,52 @@
     // 单牌组模式
     const data = generateRetentionData(selectedDays);
 
-    const option = {
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: colors.tooltipBg,
-        borderColor: colors.tooltipBorder,
-        borderWidth: 1,
-        textStyle: {
-          color: colors.textColor,
-          fontSize: 14
-        },
-        shadowBlur: 10,
-        shadowColor: 'rgba(0, 0, 0, 0.2)',
-        extraCssText: 'border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);',
-        confine: true,
-        position: isMobile ? getMobileTooltipPosition : undefined,
-        formatter: function(params: any) {
-          let html = `<div style="padding: 12px; font-family: var(--font-interface);">`;
-          html += `<div style="font-weight: 600; font-size: 16px; margin-bottom: 12px; color: ${colors.textColor};">${params[0].axisValue}</div>`;
-          params.forEach((param: any) => {
-            if (param.value !== null && param.value !== undefined && typeof param.value === 'number') {
-              let color = param.color;
-              if (param.seriesName === '预测保持率') {
-                color = '#667eea';
-              } else if (param.seriesName === '实际保持率') {
-                color = '#4facfe';
-              } else if (param.seriesName === '风险阈值') {
-                color = '#f5576c';
-              }
-              
-              html += `<div style="display: flex; align-items: center; margin: 8px 0; line-height: 1.4;">`;
-              html += `<span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: ${color}; margin-right: 10px;"></span>`;
-              html += `<span style="color: ${colors.textColor}; font-size: 14px;">${param.seriesName}:</span>`;
-              html += `<strong style="margin-left: 8px; color: var(--interactive-accent); font-size: 15px;">${param.value.toFixed(1)}%</strong>`;
-              html += `</div>`;
+    const option = buildRetentionCurveOption({
+      colors,
+      isMobile,
+      xAxisData: data.map(d => d.label),
+      axisXName: uiText.retention.axisX,
+      axisYName: uiText.retention.axisY,
+      tooltipPosition: isMobile ? getMobileTooltipPosition : undefined,
+      tooltipFormatter: function(params: any) {
+        if (!Array.isArray(params) || params.length === 0) {
+          return '';
+        }
+
+        const dataIndex = typeof params[0]?.dataIndex === 'number' ? params[0].dataIndex : -1;
+        const point = dataIndex >= 0 ? data[dataIndex] : null;
+        let rows = '';
+        params.forEach((param: any) => {
+          if (param.value !== null && param.value !== undefined && typeof param.value === 'number') {
+            const color = typeof param.color === 'string' ? param.color : colors.textColor;
+
+            rows += buildTooltipRow({
+              seriesName: param.seriesName,
+              color,
+              value: param.value,
+              dotSize: 12,
+              margin: '8px 0',
+              labelSize: 14,
+              valueSize: 15,
+              valueColor: 'var(--interactive-accent)',
+              lineHeight: '1.4',
+            });
+
+            if (point && param.seriesName === uiText.retention.firstReviewPassRate && point.reviewSample > 0) {
+              rows += `<div style="margin: -2px 0 8px 22px; color: ${colors.textColor}; opacity: 0.75; font-size: 12px;">`;
+              rows += uiText.misc.firstReviewSamples(point.reviewSample);
+              rows += `</div>`;
             }
-          });
-          html += `</div>`;
-          return html;
-        }
-      },
-      grid: createRetentionChartGrid(isMobile, false),
-      xAxis: {
-        type: 'category',
-        data: data.map(d => d.date),
-        name: '日期',
-        nameLocation: 'middle',
-        nameGap: 30,
-        axisLine: {
-          show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10],
-          lineStyle: { color: colors.axisLineColor }
-        },
-        axisLabel: {
-          color: colors.textColor,
-          fontSize: 12
-        },
-        nameTextStyle: {
-          color: colors.textColor,
-          fontSize: 13
-        }
-      },
-      yAxis: {
-        type: 'value',
-        name: '记忆保持率 (%)',
-        min: 0,
-        max: 100,
-        axisLine: {
-          show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10],
-          lineStyle: { color: colors.axisLineColor }
-        },
-        axisLabel: {
-          color: colors.textColor,
-          formatter: '{value}%',
-          fontSize: 12
-        },
-        nameTextStyle: {
-          color: colors.textColor,
-          fontSize: 13
-        },
-        splitLine: {
-          lineStyle: {
-            color: colors.splitLineColor,
-            type: 'dashed'
           }
-        }
+        });
+
+        return wrapTooltipHtml(params[0].axisValue, rows, true);
       },
       series: [
         {
-          name: '预测保持率',
+          name: uiText.retention.avgPredictedRecall,
           type: 'line',
-          data: data.map(d => d.predicted),
+          data: data.map(d => d.avgRetrievability),
           connectNulls: true,
           smooth: true,
           lineStyle: {
@@ -617,11 +522,11 @@
           }
         },
         {
-          name: '实际保持率',
+          name: uiText.retention.firstReviewPassRate,
           type: 'line',
-          data: data.map(d => d.actual),
-          connectNulls: true,
-          smooth: true,
+          data: data.map(d => d.actualRetention),
+          connectNulls: false,
+          smooth: false,
           lineStyle: {
             color: '#4facfe',
             width: 2,
@@ -630,12 +535,12 @@
           itemStyle: {
             color: '#4facfe'
           },
-          symbolSize: 6
+          symbolSize: 7
         },
         {
-          name: '风险阈值',
+          name: uiText.retention.targetRetention,
           type: 'line',
-          data: data.map(d => d.threshold),
+          data: data.map(d => d.targetRetention),
           lineStyle: {
             color: '#f5576c',
             width: 2,
@@ -647,14 +552,15 @@
           symbol: 'none'
         }
       ]
-    };
+    });
 
     retentionChart.setOption(option);
 
     // 点击事件
+    retentionChart.off('click');
     retentionChart.on('click', function(params: any) {
-      if (params.seriesName === '实际保持率' && params.value < 80) {
-        logger.debug(`第 ${params.name} 天的记忆保持率为 ${params.value.toFixed(1)}%`);
+      if (params.seriesName === uiText.retention.firstReviewPassRate && params.value < getTargetRetentionPercent()) {
+        logger.debug(`[DeckAnalytics] ${formatRetentionDayTitle(params.name)}的实际保持率为 ${params.value.toFixed(1)}%`);
       }
     });
   }
@@ -679,7 +585,7 @@
         const targetDate = new Date(today);
         targetDate.setDate(targetDate.getDate() - i);
         targetDate.setHours(23, 59, 59, 999); // 设置为当天结束时间
-        data.dates.push(`${targetDate.getMonth() + 1}/${targetDate.getDate()}`);
+        data.dates.push(formatShortDate(targetDate));
 
         // 统计该日期时各状态的卡片数量
         let newCount = 0, learningCount = 0, reviewCount = 0, masteredCount = 0;
@@ -768,7 +674,7 @@
         }
       },
       legend: {
-        data: ['新卡片', '学习中', '待复习', '已掌握', '掌握率'],
+        data: [uiText.quantity.newCards, uiText.quantity.learning, uiText.quantity.review, uiText.quantity.mastered, uiText.quantity.masteryRate],
         bottom: 20,
         textStyle: {
           color: colors.textColor,
@@ -787,7 +693,7 @@
       xAxis: {
         type: 'category',
         data: data.dates,
-        name: '日期',
+        name: uiText.quantity.axisX,
         nameLocation: 'middle',
         nameGap: 30,
         axisLine: {
@@ -806,7 +712,7 @@
       yAxis: [
         {
           type: 'value',
-          name: '卡片数量',
+          name: uiText.quantity.axisCount,
           position: 'left',
           axisLine: {
             show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10],
@@ -829,7 +735,7 @@
         },
         {
           type: 'value',
-          name: '掌握率 (%)',
+          name: uiText.quantity.axisRate,
           position: 'right',
           min: 0,
           max: 100,
@@ -853,9 +759,9 @@
       ],
       series: [
         {
-          name: '新卡片',
+          name: uiText.quantity.newCards,
           type: 'bar',
-          stack: '卡片',
+          stack: uiText.quantity.stack,
           barWidth: '60%',
           itemStyle: {
             color: '#4facfe'
@@ -863,34 +769,34 @@
           data: data.newCards
         },
         {
-          name: '学习中',
+          name: uiText.quantity.learning,
           type: 'bar',
-          stack: '卡片',
+          stack: uiText.quantity.stack,
           itemStyle: {
             color: '#feca57'
           },
           data: data.learning
         },
         {
-          name: '待复习',
+          name: uiText.quantity.review,
           type: 'bar',
-          stack: '卡片',
+          stack: uiText.quantity.stack,
           itemStyle: {
             color: '#ff9ff3'
           },
           data: data.review
         },
         {
-          name: '已掌握',
+          name: uiText.quantity.mastered,
           type: 'bar',
-          stack: '卡片',
+          stack: uiText.quantity.stack,
           itemStyle: {
             color: '#48dbfb'
           },
           data: data.mastered
         },
         {
-          name: '掌握率',
+          name: uiText.quantity.masteryRate,
           type: 'line',
           yAxisIndex: 1,
           smooth: true,
@@ -942,7 +848,7 @@
         const targetDate = new Date(today);
         targetDate.setDate(targetDate.getDate() - i);
         const targetDateStr = targetDate.toDateString();
-        data.dates.push(`${targetDate.getMonth() + 1}/${targetDate.getDate()}`);
+        data.dates.push(formatShortDate(targetDate));
 
         let earlyCount = 0, ontimeCount = 0, lateCount = 0;
         
@@ -1064,12 +970,12 @@
           let html = `<div style="padding: 12px; font-family: var(--font-interface);">`;
           html += `<div style="font-weight: 600; font-size: 16px; margin-bottom: 12px; color: ${colors.textColor};">${item.tag}</div>`;
           html += `<div style="display: flex; align-items: center; margin: 8px 0;">`;
-          html += `<span style="color: ${colors.textColor}; font-size: 14px;">难度:</span>`;
+          html += `<span style="color: ${colors.textColor}; font-size: 14px;">${uiText.difficulty.axisDifficulty}:</span>`;
           html += `<strong style="margin-left: 8px; color: var(--interactive-accent); font-size: 15px;">${item.difficulty.toFixed(1)}</strong>`;
           html += `</div>`;
           html += `<div style="display: flex; align-items: center; margin: 8px 0;">`;
-          html += `<span style="color: ${colors.textColor}; font-size: 14px;">卡片数量:</span>`;
-          html += `<strong style="margin-left: 8px; color: var(--interactive-accent); font-size: 15px;">${item.count}张</strong>`;
+          html += `<span style="color: ${colors.textColor}; font-size: 14px;">${uiText.difficulty.count}:</span>`;
+          html += `<strong style="margin-left: 8px; color: var(--interactive-accent); font-size: 15px;">${item.count}${uiText.difficulty.cardsUnit}</strong>`;
           html += `</div>`;
           html += `</div>`;
           return html;
@@ -1084,7 +990,7 @@
       },
       xAxis: {
         type: 'value',
-        name: '卡片数量',
+        name: uiText.difficulty.axisCount,
         nameLocation: 'middle',
         nameGap: 30,
         axisLine: {
@@ -1108,7 +1014,7 @@
       },
       yAxis: {
         type: 'value',
-        name: '难度',
+        name: uiText.difficulty.axisDifficulty,
         min: 0,
         max: 10,
         axisLine: {
@@ -1208,9 +1114,9 @@
           params.forEach((param: any) => {
             if (param.value !== null && param.value !== undefined && typeof param.value === 'number') {
               const colorMap: Record<string, string> = {
-                '提前复习': '#feca57',
-                '准时复习': '#26a641',
-                '延迟复习': '#f5576c'
+                [uiText.timing.early]: '#feca57',
+                [uiText.timing.onTime]: '#26a641',
+                [uiText.timing.late]: '#f5576c'
               };
               const color = colorMap[param.seriesName] || param.color;
               html += `<div style="display: flex; align-items: center; margin: 8px 0; line-height: 1.4;">`;
@@ -1225,7 +1131,7 @@
         }
       },
       legend: {
-        data: ['提前复习', '准时复习', '延迟复习'],
+        data: [uiText.timing.early, uiText.timing.onTime, uiText.timing.late],
         bottom: 20,
         textStyle: {
           color: colors.textColor,
@@ -1244,7 +1150,7 @@
       xAxis: {
         type: 'category',
         data: data.dates,
-        name: '日期',
+        name: uiText.timing.axisX,
         nameLocation: 'middle',
         nameGap: 30,
         axisLine: {
@@ -1263,7 +1169,7 @@
       },
       yAxis: {
         type: 'value',
-        name: '百分比 (%)',
+        name: uiText.timing.axisY,
         max: 100,
         axisLine: {
           show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10],
@@ -1287,7 +1193,7 @@
       },
       series: [
         {
-          name: '提前复习',
+          name: uiText.timing.early,
           type: 'bar',
           stack: 'total',
           barWidth: '60%',
@@ -1297,7 +1203,7 @@
           data: data.early
         },
         {
-          name: '准时复习',
+          name: uiText.timing.onTime,
           type: 'bar',
           stack: 'total',
           itemStyle: {
@@ -1311,7 +1217,7 @@
           data: data.ontime
         },
         {
-          name: '延迟复习',
+          name: uiText.timing.late,
           type: 'bar',
           stack: 'total',
           itemStyle: {
@@ -1328,29 +1234,13 @@
   
   // 更新记忆率图表数据
   function updateRetentionChart() {
-    if (!retentionChart) return;
-    
-    const data = generateRetentionData(selectedDays);
-    
-    const option = {
-      xAxis: {
-        data: data.map(d => d.date)
-      },
-      series: [
-        {
-          data: data.map(d => d.predicted)
-        },
-        {
-          data: data.map(d => d.actual)
-        },
-        {
-          data: data.map(d => d.threshold)
-        }
-      ]
-    };
-    
+    if (!retentionChartRef) return;
+
+    retentionChart?.dispose();
+    retentionChart = null;
+
     requestAnimationFrame(() => {
-      retentionChart?.setOption(option);
+      initRetentionChart();
     });
   }
   
@@ -1482,7 +1372,7 @@
     for (let i = 0; i < days; i++) {
       const date = new Date();
       date.setDate(date.getDate() + i);
-      labels.push(date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }));
+      labels.push(formatShortDate(date));
     }
     return labels;
   }
@@ -1500,7 +1390,7 @@
 
     return {
       forecast,
-      dates: forecast.map((item) => new Date(item.date).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })),
+      dates: forecast.map((item) => formatShortDate(new Date(item.date))),
       loads: forecast.map((item) => item.total || 0)
     };
   }
@@ -1529,13 +1419,13 @@
             const status = getLoadStatusInfo(load.status || LoadStatus.NORMAL);
 
             return `<div style="padding: 8px;">
-              <div style="font-weight: 600; margin-bottom: 4px;">${new Date(date).toLocaleDateString('zh-CN', { weekday: 'short', month: 'long', day: 'numeric' })}</div>
+              <div style="font-weight: 600; margin-bottom: 4px;">${new Date(date).toLocaleDateString(uiLanguage, { weekday: 'short', month: 'long', day: 'numeric' })}</div>
               <div style="display: flex; align-items: center; gap: 6px;">
                 <span style="display: inline-block; width: 10px; height: 10px; background: ${status.color}; border-radius: 50%;"></span>
-                <span>负荷：${load.total || 0} 张卡片</span>
+                <span>${uiText.load.cardsLine(load.total || 0)}</span>
               </div>
               <div style="color: ${status.color}; margin-top: 4px;">${status.label}</div>
-              <div style="color: #999; font-size: 0.9em; margin-top: 4px;">容量：${dailyCapacity} 张/天</div>
+              <div style="color: #999; font-size: 0.9em; margin-top: 4px;">${uiText.load.capacityLine(dailyCapacity)}</div>
             </div>`;
           }
 
@@ -1544,10 +1434,10 @@
             <div style="font-weight: 600; margin-bottom: 4px;">${dateStr}</div>
             <div style="display: flex; align-items: center; gap: 6px;">
               <span style="display: inline-block; width: 10px; height: 10px; background: #51cf66; border-radius: 50%;"></span>
-              <span>负荷：${loadValue} 张卡片</span>
+              <span>${uiText.load.cardsLine(loadValue)}</span>
             </div>
-            <div style="color: #51cf66; margin-top: 4px;">负荷低</div>
-            <div style="color: #999; font-size: 0.9em; margin-top: 4px;">容量：${dailyCapacity} 张/天</div>
+            <div style="color: #51cf66; margin-top: 4px;">${uiText.load.low}</div>
+            <div style="color: #999; font-size: 0.9em; margin-top: 4px;">${uiText.load.capacityLine(dailyCapacity)}</div>
           </div>`;
         }
       },
@@ -1566,7 +1456,7 @@
       },
       yAxis: {
         type: 'value',
-        name: '卡片数量',
+        name: uiText.load.axisY,
         nameTextStyle: { color: colors.textColor },
         axisLine: { show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10], lineStyle: { color: colors.axisLineColor } },
         axisLabel: { color: colors.textColor },
@@ -1574,7 +1464,7 @@
       },
       series: [
         {
-          name: '每日负荷',
+          name: uiText.load.dailyLoad,
           type: 'bar',
           data: loads,
           itemStyle: {
@@ -1592,7 +1482,7 @@
                 yAxis: dailyCapacity,
                 label: {
                   show: true,
-                  formatter: '日容量',
+                  formatter: uiText.load.capacity,
                   color: colors.textColor
                 },
                 lineStyle: {
@@ -1634,15 +1524,15 @@
   function getLoadStatusInfo(status: LoadStatus) {
     switch (status) {
       case LoadStatus.LOW:
-        return { label: '负荷低', color: '#51cf66', icon: '😌' };
+        return { label: uiText.load.low, color: '#51cf66', icon: '😌' };
       case LoadStatus.NORMAL:
-        return { label: '正常', color: '#4dabf7', icon: '😊' };
+        return { label: uiText.load.normal, color: '#4dabf7', icon: '😊' };
       case LoadStatus.HIGH:
-        return { label: '负荷高', color: '#ffd43b', icon: '😓' };
+        return { label: uiText.load.high, color: '#ffd43b', icon: '😓' };
       case LoadStatus.OVERLOAD:
-        return { label: '过载', color: '#ff6b6b', icon: '😰' };
+        return { label: uiText.load.overload, color: '#ff6b6b', icon: '😰' };
       default:
-        return { label: '正常', color: '#4dabf7', icon: '😊' };
+        return { label: uiText.load.normal, color: '#4dabf7', icon: '😊' };
     }
   }
   
@@ -1690,7 +1580,7 @@
     
     menu.addItem((item) =>
       item
-        .setTitle(selectedDeckIds.size === allDecks.length ? '取消全选' : '全选')
+        .setTitle(selectedDeckIds.size === allDecks.length ? uiText.toolbar.clearSelection : uiText.toolbar.selectAll)
         .setIcon('check-square')
         .onClick(() => toggleSelectAll())
     );
@@ -1715,13 +1605,13 @@
     
     menu.addItem((item) =>
       item
-        .setTitle('选中牌组')
+        .setTitle(uiText.toolbar.currentDeck)
         .setIcon(!showGlobalLoad ? 'check' : 'layers')
         .onClick(() => { showGlobalLoad = false; updateLoadForecastChart(); })
     );
     menu.addItem((item) =>
       item
-        .setTitle('全局（所有卡片）')
+        .setTitle(uiText.toolbar.globalDecks)
         .setIcon(showGlobalLoad ? 'check' : 'globe')
         .onClick(() => { showGlobalLoad = true; updateLoadForecastChart(); })
     );
@@ -2004,6 +1894,19 @@
     }, 100);
   });
 
+  $effect(() => {
+    const language = uiLanguage;
+    if (renderedLanguage === null) {
+      renderedLanguage = language;
+      return;
+    }
+
+    if (renderedLanguage !== language) {
+      renderedLanguage = language;
+      setTimeout(() => updateChartsTheme(), 100);
+    }
+  });
+
   onDestroy(() => {
     retentionChart?.dispose();
     quantityChart?.dispose();
@@ -2027,7 +1930,7 @@
     {#if isUpdating}
       <div class="updating-indicator">
         <div class="spinner"></div>
-        <span>更新中...</span>
+        <span>{uiText.updating}</span>
       </div>
     {/if}
     
@@ -2039,45 +1942,45 @@
           class="tab-btn weave-toolbar-tab"
           class:active={activeTab === 'retention'}
           onclick={(e) => { e.preventDefault(); switchTab('retention'); }}
-          title="记忆率曲线图"
+          title={uiText.tab.retention.title}
         >
-          {isMobile ? '记忆率' : '记忆率曲线图'}
+          {isMobile ? uiText.tab.retention.mobile : uiText.tab.retention.title}
         </button>
         <button 
           type="button"
           class="tab-btn weave-toolbar-tab"
           class:active={activeTab === 'quantity'}
           onclick={(e) => { e.preventDefault(); switchTab('quantity'); }}
-          title="卡片数量变化双轴图"
+          title={uiText.tab.quantity.title}
         >
-          {isMobile ? '数量变化' : '卡片数量变化双轴图'}
+          {isMobile ? uiText.tab.quantity.mobile : uiText.tab.quantity.title}
         </button>
         <button 
           type="button"
           class="tab-btn weave-toolbar-tab"
           class:active={activeTab === 'timing'}
           onclick={(e) => { e.preventDefault(); switchTab('timing'); }}
-          title="复习时机分析图"
+          title={uiText.tab.timing.title}
         >
-          {isMobile ? '复习时机' : '复习时机分析图'}
+          {isMobile ? uiText.tab.timing.mobile : uiText.tab.timing.title}
         </button>
         <button 
           type="button"
           class="tab-btn weave-toolbar-tab"
           class:active={activeTab === 'difficulty'}
           onclick={(e) => { e.preventDefault(); switchTab('difficulty'); }}
-          title="难度-标签矩阵图"
+          title={uiText.tab.difficulty.title}
         >
-          {isMobile ? '难度矩阵' : '难度-标签矩阵图'}
+          {isMobile ? uiText.tab.difficulty.mobile : uiText.tab.difficulty.title}
         </button>
         <button 
           type="button"
           class="tab-btn weave-toolbar-tab"
           class:active={activeTab === 'loadForecast'}
           onclick={(e) => { e.preventDefault(); switchTab('loadForecast'); }}
-          title="负荷预测"
+          title={uiText.tab.loadForecast.title}
         >
-          负荷预测
+          {isMobile ? uiText.tab.loadForecast.mobile : uiText.tab.loadForecast.title}
         </button>
       </div>
       
@@ -2091,7 +1994,7 @@
             class="summary-btn"
             onclick={(e) => showDeckMenu(e)}
           >
-            <span class="summary-label">牌组</span>
+            <span class="summary-label">{uiText.toolbar.decks}</span>
             <span class="summary-value">{selectedDeckIds.size}/{allDecks.length}</span>
             <ObsidianIcon name="chevron-down" size={12} />
           </button>
@@ -2100,7 +2003,7 @@
           class="summary-btn"
           onclick={() => toggleRangeEditor()}
         >
-          <span class="summary-label">范围</span>
+          <span class="summary-label">{uiText.toolbar.range}</span>
           <span class="summary-value">{rangeSummaryText}</span>
           <ObsidianIcon name={filterPanelOpen ? 'chevron-up' : 'chevron-down'} size={12} />
         </button>
@@ -2109,8 +2012,8 @@
             class="summary-btn"
             onclick={(e) => showDataSourceMenu(e)}
           >
-            <span class="summary-label">数据源</span>
-            <span class="summary-value">{showGlobalLoad ? '全局' : '牌组'}</span>
+            <span class="summary-label">{uiText.toolbar.dataSource}</span>
+            <span class="summary-value">{showGlobalLoad ? uiText.toolbar.globalShort : uiText.toolbar.deckShort}</span>
             <ObsidianIcon name="chevron-down" size={12} />
           </button>
         {/if}
@@ -2124,14 +2027,14 @@
               class:active={expandedRange === 'quick'}
               onclick={() => toggleRangePanel('quick')}
             >
-              <span>快捷范围</span>
+              <span>{uiText.toolbar.quickRange}</span>
             </button>
             <button 
               class="range-toggle-btn"
               class:active={expandedRange === 'custom'}
               onclick={() => toggleRangePanel('custom')}
             >
-              <span>自定义范围</span>
+              <span>{uiText.toolbar.customRange}</span>
             </button>
           </div>
           
@@ -2164,7 +2067,7 @@
                     handleDateChange();
                   }}
                 />
-                <span class="date-separator">至</span>
+                <span class="date-separator">{uiText.range.separator}</span>
                 <input 
                   type="date" 
                   class="date-input"
@@ -2177,7 +2080,7 @@
                   }}
                 />
                 {#if !isMobile}
-                  <span class="days-indicator">（{selectedDays}天）</span>
+                  <span class="days-indicator">({selectedDays} {uiText.range.daysSuffix})</span>
                 {/if}
               </div>
             </div>
@@ -2193,7 +2096,7 @@
         <path d="M12 20V10M12 10l-4 4m4-4l4 4"/>
         <path d="M12 4v2"/>
       </svg>
-      <span>滚动鼠标滚轮可快速切换快捷范围</span>
+      <span>{uiText.range.scrollHint}</span>
     </div>
     {/if}
     
@@ -2220,18 +2123,18 @@
           <div class="retention-indicator-panel">
             <div class="retention-indicator-item">
               <span class="indicator-line indicator-line--predicted"></span>
-              <span class="indicator-title">预测保持率</span>
-              <span class="indicator-desc">模型估算趋势</span>
+              <span class="indicator-title">{uiText.retention.avgPredictedRecall}</span>
+              <span class="indicator-desc">{retentionSummaryData.avgRetrievability !== null ? uiText.retention.avgDesc(retentionSummaryData.avgRetrievability) : uiText.retention.avgEmpty}</span>
             </div>
             <div class="retention-indicator-item">
               <span class="indicator-line indicator-line--actual"></span>
-              <span class="indicator-title">实际保持率</span>
-              <span class="indicator-desc">复习记录结果</span>
+              <span class="indicator-title">{uiText.retention.firstReviewPassRate}</span>
+              <span class="indicator-desc">{retentionSummaryData.actualRetention !== null ? uiText.retention.trueDesc(retentionSummaryData.actualRetention, retentionSummaryData.sampleCount) : uiText.retention.trueEmpty}</span>
             </div>
             <div class="retention-indicator-item">
               <span class="indicator-line indicator-line--risk"></span>
-              <span class="indicator-title">风险阈值</span>
-              <span class="indicator-desc">低于 80% 提示</span>
+              <span class="indicator-title">{uiText.retention.targetRetention}</span>
+              <span class="indicator-desc">{uiText.retention.targetDesc(retentionSummaryData.targetRetention)}</span>
             </div>
           </div>
         {/if}

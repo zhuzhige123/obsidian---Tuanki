@@ -11,6 +11,7 @@ import { logger } from "../../utils/logger";
  */
 
 import { App, Command, Modal, Notice, TFile } from "obsidian";
+import { writable } from "svelte/store";
 import { CleanupProgressModal } from "../../components/modals/CleanupProgressModal";
 import { ParsedCard, SimplifiedParsingSettings } from "../../types/newCardParsingTypes";
 import type { IWeavePlugin } from "../../types/plugin-interfaces";
@@ -30,12 +31,8 @@ import {
 	SimpleBatchParsingService,
 	SimpleFileSelectorService,
 	UUIDManager,
-	//  已移除 ICardSaver 导入
 	createDefaultBatchConfig,
 } from "./index";
-
-//  高级功能权限检查
-import { PREMIUM_FEATURES, PremiumFeatureGuard } from "../premium/PremiumFeatureGuard";
 
 /**
  * 进度回调类型
@@ -169,13 +166,6 @@ export class BatchParsingManager {
 	 * 职责：协调解析和保存，调用插件的统一保存流程
 	 */
 	async executeBatchParsing(): Promise<BatchParseResult | null> {
-		//  权限检查：验证是否可以使用批量解析功能
-		const premiumGuard = PremiumFeatureGuard.getInstance();
-		if (!premiumGuard.canUseFeature(PREMIUM_FEATURES.BATCH_PARSING)) {
-			new Notice("批量解析系统需要激活许可证才能使用");
-			return null;
-		}
-
 		if (!this.isInitialized) {
 			new Notice("批量解析服务未初始化");
 			return null;
@@ -618,14 +608,22 @@ export class BatchParsingManager {
 /**
  * 批量解析进度模态窗
  */
+interface BatchProgressViewState {
+	progress: ParseProgress | null;
+	isCancelling: boolean;
+}
+
 class BatchProgressModal extends Modal {
 	// 删除 contentEl 属性遮蔽，使用父类 Modal 提供的 contentEl
 	// private contentEl: HTMLElement;  ← 已删除，避免遮蔽父类属性
 
-	private progressBar!: HTMLElement; // 在onOpen中初始化
-	private statusText!: HTMLElement; // 在onOpen中初始化
-	private detailsText!: HTMLElement; // 在onOpen中初始化
 	private onCancel: () => void;
+	private modalComponent: unknown = null;
+	private isCancelling = false;
+	private progressState = writable<BatchProgressViewState>({
+		progress: null,
+		isCancelling: false,
+	});
 
 	constructor(app: App, onCancel: () => void) {
 		super(app);
@@ -638,48 +636,68 @@ class BatchProgressModal extends Modal {
 
 		this.contentEl.empty();
 		this.contentEl.addClass("batch-progress-modal");
-
-		// 标题
-		const _title = this.contentEl.createEl("h2", { text: "批量解析进行中" });
-
-		// 进度条
-		const progressContainer = this.contentEl.createDiv("progress-container");
-		this.progressBar = progressContainer.createDiv("progress-bar");
-		this.progressBar.setCssProps({ width: "0%" });
-
-		// 状态文本
-		this.statusText = this.contentEl.createDiv("status-text");
-		this.statusText.setText("正在初始化...");
-
-		// 详细信息
-		this.detailsText = this.contentEl.createDiv("details-text");
-
-		// 取消按钮
-		const cancelBtn = this.contentEl.createEl("button", { text: "取消" });
-		cancelBtn.onclick = () => {
-			this.onCancel();
-			this.close();
-		};
+		this.isCancelling = false;
+		this.progressState.set({ progress: null, isCancelling: false });
+		void this.mountComponent();
 
 		// 添加样式
 		this.addStyles();
 	}
 
+	private async mountComponent(): Promise<void> {
+		try {
+			const { mount } = await import("svelte");
+			const { default: Component } = await import("../../components/modals/BatchProgressModalContent.svelte");
+			this.modalComponent = mount(Component, {
+				target: this.contentEl,
+				props: {
+					progressState: this.progressState,
+					onCancel: () => this.handleCancel(),
+				},
+			});
+		} catch (error) {
+			logger.error("[BatchProgressModal] 创建组件失败:", error);
+			new Notice("批量解析进度窗口创建失败", 3000);
+			this.close();
+		}
+	}
+
 	updateProgress(progress: ParseProgress) {
-		this.progressBar.setCssProps({ width: `${progress.percentage}%` });
+		this.progressState.update((state) => ({
+			...state,
+			progress,
+		}));
+	}
 
-		this.statusText.setText(
-			`正在处理: ${progress.currentFile} (${progress.processedFiles}/${progress.totalFiles})`
-		);
+	private handleCancel() {
+		if (this.isCancelling) {
+			return;
+		}
 
-		this.detailsText.setText(`成功: ${progress.successCount} | 失败: ${progress.errorCount}`);
+		this.isCancelling = true;
+		this.progressState.update((state) => ({
+			...state,
+			isCancelling: true,
+		}));
+		this.onCancel();
+		this.close();
 	}
 
 	private addStyles() {
 		// 样式已迁移到 styles/dynamic-injected.css
 	}
 
-	onClose() {
+	async onClose() {
+		if (this.modalComponent) {
+			try {
+				const { unmount } = await import("svelte");
+				void unmount(this.modalComponent as never);
+				this.modalComponent = null;
+			} catch (error) {
+				logger.error("[BatchProgressModal] 销毁组件失败:", error);
+			}
+		}
+
 		// 使用 this.contentEl 确保正确访问
 		this.contentEl.empty();
 	}

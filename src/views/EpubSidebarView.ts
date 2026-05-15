@@ -1,16 +1,17 @@
 import { type EventRef, ItemView, WorkspaceLeaf } from "obsidian";
-import type { WeavePlugin } from "../main";
+import { EPUB_RUNTIME } from "../services/epub";
 import { logger } from "../utils/logger";
 import { getViewSurfaceTokens } from "../utils/view-location-utils";
+import type { EpubViewHost } from "./epub-view-host";
 
-export const VIEW_TYPE_EPUB_SIDEBAR = "weave-epub-sidebar";
+export const VIEW_TYPE_EPUB_SIDEBAR = EPUB_RUNTIME.viewTypes.sidebar;
 
 export class EpubSidebarView extends ItemView {
 	private component: object | null = null;
-	private plugin: WeavePlugin;
+	private plugin: EpubViewHost;
 	private layoutChangeRef: EventRef | null = null;
 
-	constructor(leaf: WorkspaceLeaf, plugin: WeavePlugin) {
+	constructor(leaf: WorkspaceLeaf, plugin: EpubViewHost) {
 		super(leaf);
 		this.plugin = plugin;
 	}

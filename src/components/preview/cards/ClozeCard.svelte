@@ -7,6 +7,7 @@
   import { resolveClozeModeForRender } from '../../../utils/cloze-mode';
   import { extractBodyContent } from '../../../utils/yaml-utils';
   import { MAIN_SEPARATOR, DELIMITER_PATTERNS } from '../../../constants/markdown-delimiters';
+  import { applyStyleProps } from '../../../utils/style-props';
 
   interface Props {
     sections: PreviewSection[];
@@ -110,7 +111,7 @@
     */
     const qLabelEl = document.createElement('span');
     qLabelEl.className = 'weave-qa-label';
-    qLabelEl.textContent = 'Question';
+    qLabelEl.textContent = '问题';
     qTitleEl.appendChild(qLabelEl);
     container.insertBefore(qTitleEl, container.firstChild);
     questionTitleEl = qTitleEl;
@@ -129,7 +130,7 @@
     */
     const aLabelEl = document.createElement('span');
     aLabelEl.className = 'weave-qa-label weave-qa-label--answer';
-    aLabelEl.textContent = 'Answer';
+    aLabelEl.textContent = '答案';
     aTitleEl.appendChild(aLabelEl);
     container.appendChild(aTitleEl);
     answerTitleEl = aTitleEl;
@@ -148,13 +149,13 @@
 
   function updateBackVisibility(): void {
     if (backDividerEl) {
-      backDividerEl.style.display = showAnswer ? '' : 'none';
+      applyStyleProps(backDividerEl, { display: showAnswer ? null : 'none' });
     }
     if (answerTitleEl) {
-      answerTitleEl.style.display = showAnswer ? '' : 'none';
+      applyStyleProps(answerTitleEl, { display: showAnswer ? null : 'none' });
     }
     if (backSectionEl) {
-      backSectionEl.style.display = showAnswer ? '' : 'none';
+      applyStyleProps(backSectionEl, { display: showAnswer ? null : 'none' });
     }
   }
 
@@ -231,7 +232,6 @@
     border-radius: var(--weave-radius-sm, 0.375rem);
     font-size: var(--weave-font-size-xs, 0.75rem);
     font-weight: 600;
-    text-transform: uppercase;
     letter-spacing: 0.025em;
   }
 
@@ -249,8 +249,8 @@
   }
 
   .weave-cloze-text :global(.weave-qa-label--answer) {
-    background: var(--weave-success-light, rgba(16, 185, 129, 0.1));
-    color: var(--weave-success, #10b981);
+    background: color-mix(in srgb, var(--color-green) 12%, transparent);
+    color: var(--color-green);
   }
 
   /* 背面内容区域样式（由 JS 动态插入，需要 :global） */

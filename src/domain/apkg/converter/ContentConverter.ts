@@ -7,6 +7,8 @@
  */
 
 import { APKGLogger } from "../../../infrastructure/logger/APKGLogger";
+import { wrapWithConfiguredCloze } from "../../../utils/cloze-syntax";
+import { throwIfImportAborted, yieldImportTask } from "../ImportTaskControl";
 import type { ConversionConfig } from "../types";
 
 /**
@@ -197,6 +199,255 @@ export class ContentConverter {
 		return result;
 	}
 
+	/**
+	 * 异步转换HTML为Markdown
+	 *
+	 * @param html - 原始HTML内容
+	 * @param options - 可选参数，包括 signal 用于取消转换
+	 * @returns 转换结果
+	 */
+	async convertAsync(
+		html: string,
+		config?: ConversionConfig,
+		options?: { signal?: AbortSignal }
+	): Promise<{ markdown: string; mediaRefs: MediaRef[] }> {
+		throwIfImportAborted(options?.signal);
+
+		const startTime = Date.now();
+		this.logger.debug(`开始转换HTML (长度: ${html.length})`);
+		this.logger.debug(`原始HTML预览: ${html.substring(0, 200)}...`);
+
+		this.config = config || null;
+
+		// 重置媒体计数器
+		this.mediaCounter = 0;
+
+		// 步骤1: 提取媒体引用并替换为占位符
+		const { html: processedHtml, mediaRefs } = await this.extractMediaReferencesAsync(html, options);
+		this.logger.debug(`[步骤1] 提取媒体: ${mediaRefs.length} 个媒体文件`);
+
+		// 步骤2: 转换Anki特定语法
+		let result = this.convertAnkiSyntax(processedHtml);
+		this.logger.debug("[步骤2] 转换Anki语法完成");
+		await yieldImportTask(options?.signal);
+
+		if (this.config?.preserveStyles) {
+			// 轻量转换：尽量保留原始HTML样式，只处理结构换行
+			result = this.convertBasicHTMLLight(result);
+			this.logger.debug("[步骤3] 轻量HTML结构处理完成");
+			await yieldImportTask(options?.signal);
+		} else {
+			// 标准转换：完整HTML->Markdown
+			result = this.convertBasicHTML(result);
+			this.logger.debug("[步骤3] 转换基础HTML标签完成");
+			await yieldImportTask(options?.signal);
+
+			// 步骤4: 转换引用块
+			result = this.convertBlockquotes(result);
+			this.logger.debug("[步骤4] 转换引用块完成");
+			await yieldImportTask(options?.signal);
+
+			// 步骤5: 转换列表
+			result = this.convertLists(result);
+			this.logger.debug("[步骤5] 转换列表完成");
+			await yieldImportTask(options?.signal);
+
+			// 步骤6: 转换表格
+			result = this.convertTables(result);
+			this.logger.debug("[步骤6] 转换表格完成");
+			await yieldImportTask(options?.signal);
+
+			// 步骤7: 转换标题
+			result = this.convertHeadings(result);
+			this.logger.debug("[步骤7] 转换标题完成");
+			await yieldImportTask(options?.signal);
+		}
+
+		// 步骤8: 清理和标准化
+		result = this.cleanupMarkdown(result);
+		this.logger.debug("[步骤8] 清理完成");
+
+		const duration = Date.now() - startTime;
+		this.logger.debug(`转换完成 (耗时: ${duration}ms)`);
+		this.logger.debug(`结果预览: ${result.substring(0, 200)}...`);
+
+		return {
+			markdown: result,
+			mediaRefs,
+		};
+	}
+
+	/**
+	 * 异步提取媒体引用并替换为占位符
+	 *
+	 * @param html - 原始HTML内容
+	 * @param options - 可选参数，包括 signal 用于取消转换
+	 * @returns 提取媒体引用结果
+	 */
+	private async extractMediaReferencesAsync(
+		html: string,
+		options?: { signal?: AbortSignal }
+	): Promise<{ html: string; mediaRefs: MediaRef[] }> {
+		const mediaRefs: MediaRef[] = [];
+		let result = html;
+
+		// 提取图片
+		result = result.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (_match, src) => {
+			const filename = this.extractFilename(src);
+			const placeholder = `__MEDIA_${this.mediaCounter++}__`;
+
+			mediaRefs.push({
+				originalName: filename,
+				placeholder,
+				type: "image",
+			});
+
+			return placeholder;
+		});
+
+		// 提取音频
+		result = result.replace(/\[sound:([^\]]+)\]/gi, (_match, filename) => {
+			const placeholder = `__MEDIA_${this.mediaCounter++}__`;
+
+			mediaRefs.push({
+				originalName: filename.trim(),
+				placeholder,
+				type: "audio",
+			});
+
+			return placeholder;
+		});
+
+		// 提取视频
+		result = result.replace(/<video[^>]+src=["']([^"']+)["'][^>]*>/gi, (_match, src) => {
+			const filename = this.extractFilename(src);
+			const placeholder = `__MEDIA_${this.mediaCounter++}__`;
+
+			mediaRefs.push({
+				originalName: filename,
+				placeholder,
+				type: "video",
+			});
+
+			return placeholder;
+		});
+
+		await yieldImportTask(options?.signal);
+
+		return { html: result, mediaRefs };
+	}
+
+	/**
+	 * 异步保留卡片字段内容的原始 HTML 结构，仅重写媒体路径
+	 *
+	 * 用于需要尽量保留卡片字段原始 HTML 内容的导入场景。
+	 */
+	async convertRawHtmlAsync(
+		html: string,
+		mediaPathMap: Map<string, string>,
+		config?: ConversionConfig,
+		options?: { signal?: AbortSignal }
+	): Promise<string> {
+		if (!html) {
+			return "";
+		}
+
+		let result = html;
+		const mediaFormat = config?.mediaFormat || "wikilink";
+
+		throwIfImportAborted(options?.signal);
+		result = result.replace(
+			/(<img\b[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi,
+			(_match, prefix, src, suffix) => {
+				const filename = this.extractFilename(src);
+				const path = mediaPathMap.get(filename);
+				return path ? `${prefix}${path}${suffix}` : _match;
+			}
+		);
+		await yieldImportTask(options?.signal);
+
+		result = result.replace(
+			/(<video\b[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi,
+			(_match, prefix, src, suffix) => {
+				const filename = this.extractFilename(src);
+				const path = mediaPathMap.get(filename);
+				return path ? `${prefix}${path}${suffix}` : _match;
+			}
+		);
+		await yieldImportTask(options?.signal);
+
+		result = result.replace(/\[sound:([^\]]+)\]/gi, (_match, rawFilename) => {
+			const filename = String(rawFilename || "").trim();
+			const path = mediaPathMap.get(filename);
+
+			if (!path) {
+				return _match;
+			}
+
+			if (mediaFormat === "markdown") {
+				return `[${filename}](${path})`;
+			}
+
+			return `<audio controls preload="metadata" src="${path}"></audio>`;
+		});
+
+		return result.trim();
+	}
+
+	/**
+	 * 异步替换媒体占位符为实际路径
+	 *
+	 * @param markdown - 包含占位符的Markdown
+	 * @param mediaRefs - 媒体引用列表
+	 * @param mediaPathMap - 媒体路径映射 (原始文件名 → Obsidian路径)
+	 * @param options - 可选参数，包括 signal 用于取消转换
+	 * @returns 替换后的Markdown (媒体已转换为WikiLink格式)
+	 */
+	async replaceMediaPlaceholdersAsync(
+		markdown: string,
+		mediaRefs: MediaRef[],
+		mediaPathMap: Map<string, string>,
+		config?: ConversionConfig,
+		options?: { signal?: AbortSignal }
+	): Promise<string> {
+		let result = markdown;
+
+		const MEDIA_REPLACEMENT_YIELD_BATCH_SIZE = 10;
+
+		for (let index = 0; index < mediaRefs.length; index++) {
+			const ref = mediaRefs[index];
+			throwIfImportAborted(options?.signal);
+			const path = mediaPathMap.get(ref.originalName);
+
+			if (path) {
+				const mediaFormat = config?.mediaFormat || this.config?.mediaFormat || "wikilink";
+				const filename = path.split("/").pop() || path;
+
+				const replacement = (() => {
+					if (mediaFormat === "markdown") {
+						if (ref.type === "image") {
+							return `![](${path})`;
+						}
+						return `[${filename}](${path})`;
+					}
+
+					return `![[${path}]]`;
+				})();
+
+				const escapedPlaceholder = this.escapeRegExp(ref.placeholder);
+				result = result.replace(new RegExp(escapedPlaceholder, "g"), replacement);
+			} else {
+				this.logger.warn(`未找到媒体文件映射: ${ref.originalName}`);
+			}
+
+			if ((index + 1) % MEDIA_REPLACEMENT_YIELD_BATCH_SIZE === 0 && index + 1 < mediaRefs.length) {
+				await yieldImportTask(options?.signal);
+			}
+		}
+
+		return result;
+	}
+
 	private convertMathSyntax(html: string): string {
 		let result = html;
 
@@ -311,11 +562,13 @@ export class ContentConverter {
 		result = this.convertMathSyntax(result);
 
 		if (this.config?.clozeFormat !== "{{c::}}") {
-			// 转换挖空语法 {{c1::text}} -> ==text==
-			result = result.replace(/\{\{c\d+::([^}]+)\}\}/g, "==$1==");
+			result = result.replace(/\{\{c\d+::([^}]+)\}\}/g, (_match, text) =>
+				wrapWithConfiguredCloze(text)
+			);
 
-			// 转换挖空语法带提示 {{c1::text::hint}} -> ==text==
-			result = result.replace(/\{\{c\d+::([^:}]+)::[^}]+\}\}/g, "==$1==");
+			result = result.replace(/\{\{c\d+::([^:}]+)::[^}]+\}\}/g, (_match, text) =>
+				wrapWithConfiguredCloze(text)
+			);
 		}
 
 		return result;
@@ -402,8 +655,9 @@ export class ContentConverter {
 		result = result.replace(/<sup>(.*?)<\/sup>/gi, "^$1^");
 		result = result.replace(/<sub>(.*?)<\/sub>/gi, "~$1~");
 
-		// 高亮标记（转换为 Obsidian 语法）
-		result = result.replace(/<mark[^>]*>(.*?)<\/mark>/gi, "==$1==");
+		result = result.replace(/<mark[^>]*>(.*?)<\/mark>/gi, (_match, text) =>
+			wrapWithConfiguredCloze(text)
+		);
 
 		// 居中标签（移除标签保留内容，Obsidian 不支持居中）
 		result = result.replace(/<center[^>]*>(.*?)<\/center>/gis, "$1");

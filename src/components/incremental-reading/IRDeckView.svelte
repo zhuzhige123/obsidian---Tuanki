@@ -4,7 +4,6 @@
    */
   import { IRStorageService } from '../../services/incremental-reading/IRStorageService';
   import { IRDeckManager } from '../../services/incremental-reading/IRDeckManager';
-  import { IRChunkFileService } from '../../services/incremental-reading/IRChunkFileService';
   import type { App } from 'obsidian';
 
   let _storageService: IRStorageService | null = null;
@@ -50,38 +49,32 @@
    * @version 2.0.0
    */
   import { onMount, onDestroy } from 'svelte';
-  import { Notice, Menu, Modal, Setting, TFile } from 'obsidian';
+  import { Notice, Menu } from 'obsidian';
   import { MaterialImportModalObsidian } from './MaterialImportModalObsidian';
   import IRLoadForecastModal from '../modals/IRLoadForecastModal.svelte';
   import type { BatchImportResult } from '../../services/incremental-reading/ReadingMaterialManager';
   import type { WeavePlugin } from '../../main';
-  import type { IRDeck, IRDeckStats, IRChunkFileData, IRBlock } from '../../types/ir-types';
+  import type { IRDeck, IRDeckStats } from '../../types/ir-types';
   import type { Deck, DeckStats } from '../../data/types';
   import { logger } from '../../utils/logger';
-  import { showObsidianInput, showObsidianConfirm } from '../../utils/obsidian-confirm';
+  import { showObsidianConfirm } from '../../utils/obsidian-confirm';
   // v3.0: 移除旧的 IRScheduler 导入，改用 getServices 中的 schedulingFacade
   // 增量阅读专用卡片组件
   import IRDeckCard from './IRDeckCard.svelte';
   import DeckGridCard from '../deck-views/DeckGridCard.svelte';
   import type { DeckCardStyle } from '../../types/plugin-settings.d';
   import { getColorSchemeForDeck } from '../../config/card-color-schemes';
-  import { IRPdfBookmarkTaskService } from '../../services/incremental-reading/IRPdfBookmarkTaskService';
-  import { IREpubBookmarkTaskService } from '../../services/incremental-reading/IREpubBookmarkTaskService';
   import { recomputeAndBroadcastIRData } from '../../services/incremental-reading/IRScheduleRefreshService';
+  import { toDeckStats as mapIRDeckStatsToDeckStats } from '../../services/incremental-reading/IRDeckStatsMapper';
+  import { getSharedIRWorkspaceSnapshotService } from '../../services/incremental-reading/IRWorkspaceSnapshotService';
+  import { openObsidianDeckEditModal } from '../../utils/obsidian-deck-edit-modal';
 
   interface Props {
     plugin: WeavePlugin;
   }
 
-  function buildSessionTotalsByBlockId(sessions: Array<{ blockId?: string; duration?: number }> | undefined | null): Map<string, number> {
-    const totals = new Map<string, number>();
-    for (const session of sessions || []) {
-      const blockId = String(session?.blockId || '').trim();
-      const duration = Number(session?.duration || 0);
-      if (!blockId || duration <= 0) continue;
-      totals.set(blockId, (totals.get(blockId) || 0) + duration);
-    }
-    return totals;
+  function getWorkspaceSnapshotService() {
+    return getSharedIRWorkspaceSnapshotService(plugin.app);
   }
 
   let { plugin }: Props = $props();
@@ -131,237 +124,33 @@
     }
     
     // 导入弹窗内部已经触发统一重排，这里只刷新当前视图
+    getWorkspaceSnapshotService().invalidate();
     void loadDecks();
   }
 
-  // 加载牌组数据
   async function loadDecks() {
     const startTime = Date.now();
     isLoading = true;
-    logger.debug('[IRDeckView] loadDecks 开始');
-    
+    logger.debug('[IRDeckView] loadDecks snapshot start');
+
     try {
-      // 直接初始化必要的服务
-      const storageService = new IRStorageService(plugin.app);
-      await storageService.initialize();
-      
-      const deckManager = new IRDeckManager(plugin.app, storageService, plugin.settings?.incrementalReading?.importFolder);
-      const decksWithStats = await deckManager.getDecksWithStats({
+      const snapshot = await getWorkspaceSnapshotService().getDeckOverview({
         dailyNewLimit: plugin.settings?.incrementalReading?.dailyNewLimit ?? 20,
         dailyReviewLimit: plugin.settings?.incrementalReading?.dailyReviewLimit ?? 50,
-        learnAheadDays: plugin.settings?.incrementalReading?.learnAheadDays ?? 3
+        learnAheadDays: plugin.settings?.incrementalReading?.learnAheadDays ?? 3,
+        dailyTimeBudgetMinutes: plugin.settings?.incrementalReading?.dailyTimeBudgetMinutes ?? 30,
+        loadRateDays: 3
       });
-      const history = await storageService.getHistory();
-      const readingSecondsById = buildSessionTotalsByBlockId(history.sessions);
-      
-      const dailyBudget = plugin.settings?.incrementalReading?.dailyTimeBudgetMinutes || 30;
-      const loadRateDays = 3;
 
-      let chunksByDeckId: Map<string, IRChunkFileData[]> | null = null;
-      let blockById: Record<string, IRBlock> | null = null;
-
-      try {
-        const chunksData = await storageService.getAllChunkData();
-        const allChunks = Object.values(chunksData);
-        const blocksData = await storageService.getAllBlocks();
-
-        chunksByDeckId = new Map();
-        for (const chunk of allChunks) {
-          const deckIds = (chunk as any).deckIds as string[] | undefined;
-          if (!deckIds || deckIds.length === 0) continue;
-          for (const deckId of deckIds) {
-            const list = chunksByDeckId.get(deckId);
-            if (list) {
-              list.push(chunk);
-            } else {
-              chunksByDeckId.set(deckId, [chunk]);
-            }
-          }
-        }
-
-        blockById = blocksData as unknown as Record<string, IRBlock>;
-      } catch (e) {
-        logger.debug('[IRDeckView] 计算负载率：读取数据失败', e);
-        chunksByDeckId = null;
-        blockById = null;
-      }
-
-      decks = [...decksWithStats.map(d => d.deck)];
-
-      // 加载 PDF 书签任务，按牌组分组，用于合并到主统计和负载率计算
-      let pdfTasksByDeckId = new Map<string, any[]>();
-      let epubTasksByDeckId = new Map<string, any[]>();
-      try {
-        const pdfService = new IRPdfBookmarkTaskService(plugin.app);
-        await pdfService.initialize();
-        const allPdfTasks = await pdfService.getAllTasks();
-        for (const task of allPdfTasks) {
-          const deckId = String((task as any)?.deckId || '').trim();
-          if (!deckId) continue;
-          const status = String((task as any)?.status || 'new');
-          if (status === 'done' || status === 'suspended' || status === 'removed') continue;
-          const list = pdfTasksByDeckId.get(deckId);
-          if (list) { list.push(task); } else { pdfTasksByDeckId.set(deckId, [task]); }
-        }
-      } catch (e) {
-        logger.debug('[IRDeckView] 加载 PDF 书签任务失败', e);
-      }
-      try {
-        const epubService = new IREpubBookmarkTaskService(plugin.app);
-        await epubService.initialize();
-        const allEpubTasks = await epubService.getAllTasks();
-        for (const task of allEpubTasks) {
-          const deckId = String((task as any)?.deckId || '').trim();
-          if (!deckId) continue;
-          const status = String((task as any)?.status || 'new');
-          if (status === 'done' || status === 'suspended' || status === 'removed') continue;
-          const list = epubTasksByDeckId.get(deckId);
-          if (list) { list.push(task); } else { epubTasksByDeckId.set(deckId, [task]); }
-        }
-      } catch (e) {
-        logger.debug('[IRDeckView] 加载 EPUB 书签任务失败', e);
-      }
-      
-      const newStats: Record<string, IRDeckStats> = {};
-      for (const d of decksWithStats) {
-        const deckKey = d.deck.id || d.deck.path || '';
-        if (deckKey) {
-          let loadRatePercent: number | undefined = undefined;
-
-          if (dailyBudget > 0) {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const todayMs = today.getTime();
-            const dayMs = 24 * 60 * 60 * 1000;
-
-            const estimateChunkMinutes = (chunk: IRChunkFileData): number => {
-              const historicalSeconds = readingSecondsById.get(String(chunk.chunkId || '')) || 0;
-              if (historicalSeconds > 0 && chunk.stats?.impressions > 0) {
-                return (historicalSeconds / chunk.stats.impressions) / 60;
-              }
-              const stats = (chunk as any).stats as any;
-              if (stats?.effectiveReadingTimeSec && stats?.impressions > 0) {
-                return (stats.effectiveReadingTimeSec / stats.impressions) / 60;
-              }
-              return 3;
-            };
-
-            const estimateBlockMinutes = (block: IRBlock): number => {
-              const historicalSeconds = readingSecondsById.get(String(block.id || '')) || 0;
-              if (historicalSeconds > 0 && block.reviewCount && block.reviewCount > 0) {
-                return (historicalSeconds / block.reviewCount) / 60;
-              }
-              const totalReadingTime = (block as any).totalReadingTime as number | undefined;
-              const reviewCount = (block as any).reviewCount as number | undefined;
-              if (totalReadingTime && reviewCount && reviewCount > 0) {
-                return (totalReadingTime / reviewCount) / 60;
-              }
-              return 3;
-            };
-
-            const estimatePdfTaskMinutes = (task: any): number => {
-              const historicalSeconds = readingSecondsById.get(String(task?.id || '')) || 0;
-              const impressions = Number(task?.stats?.impressions || 0);
-              if (historicalSeconds > 0 && impressions > 0) {
-                return (historicalSeconds / impressions) / 60;
-              }
-              const s = task?.stats;
-              if (s?.effectiveReadingTimeSec && s?.impressions > 0) {
-                return (s.effectiveReadingTimeSec / s.impressions) / 60;
-              }
-              return 5;
-            };
-
-            const estimateEpubTaskMinutes = (task: any): number => {
-              const historicalSeconds = readingSecondsById.get(String(task?.id || '')) || 0;
-              const impressions = Number(task?.stats?.impressions || 0);
-              if (historicalSeconds > 0 && impressions > 0) {
-                return (historicalSeconds / impressions) / 60;
-              }
-              const s = task?.stats;
-              if (s?.effectiveReadingTimeSec && s?.impressions > 0) {
-                return (s.effectiveReadingTimeSec / s.impressions) / 60;
-              }
-              return 5;
-            };
-
-            const deckChunks = chunksByDeckId?.get(deckKey) || [];
-            const deckBlocks = blockById ? (d.deck.blockIds || []).map(id => blockById![id]).filter(Boolean) : [];
-            const deckPdfTasks = pdfTasksByDeckId.get(deckKey) || [];
-            const deckEpubTasks = epubTasksByDeckId.get(deckKey) || [];
-
-            let maxRatio = 0;
-            for (let i = 0; i < loadRateDays; i++) {
-              const targetMs = todayMs + i * dayMs;
-              const nextDayMs = targetMs + dayMs;
-
-              let dayMinutes = 0;
-
-              for (const chunk of deckChunks) {
-                const scheduleStatus = (chunk as any).scheduleStatus as string | undefined;
-                if (scheduleStatus === 'suspended' || scheduleStatus === 'done') continue;
-                const nextRepDate = ((chunk as any).nextRepDate as number | undefined) || 0;
-
-                if (nextRepDate >= targetMs && nextRepDate < nextDayMs) {
-                  dayMinutes += estimateChunkMinutes(chunk);
-                } else if (nextRepDate < targetMs && i === 0) {
-                  dayMinutes += estimateChunkMinutes(chunk);
-                }
-              }
-
-              for (const block of deckBlocks) {
-                const state = (block as any).state as string | undefined;
-                if (state === 'suspended') continue;
-
-                const nextReview = (block as any).nextReview as string | null | undefined;
-                if (nextReview) {
-                  const reviewMs = new Date(nextReview).getTime();
-                  if (reviewMs >= targetMs && reviewMs < nextDayMs) {
-                    dayMinutes += estimateBlockMinutes(block);
-                  } else if (reviewMs < targetMs && i === 0) {
-                    dayMinutes += estimateBlockMinutes(block);
-                  }
-                } else if (state === 'new' && i === 0) {
-                  dayMinutes += estimateBlockMinutes(block);
-                }
-              }
-
-              for (const task of deckPdfTasks) {
-                const nrd = (task.nextRepDate as number) || 0;
-                if (nrd >= targetMs && nrd < nextDayMs) {
-                  dayMinutes += estimatePdfTaskMinutes(task);
-                } else if (nrd < targetMs && i === 0) {
-                  dayMinutes += estimatePdfTaskMinutes(task);
-                }
-              }
-
-              for (const task of deckEpubTasks) {
-                const nrd = (task.nextRepDate as number) || 0;
-                if (nrd >= targetMs && nrd < nextDayMs) {
-                  dayMinutes += estimateEpubTaskMinutes(task);
-                } else if (nrd < targetMs && i === 0) {
-                  dayMinutes += estimateEpubTaskMinutes(task);
-                }
-              }
-
-              maxRatio = Math.max(maxRatio, dayMinutes / dailyBudget);
-            }
-
-            loadRatePercent = Math.round(maxRatio * 100);
-          }
-
-          // PDF / EPUB 书签任务的统计已在 IRStorageService.getDeckStats 中纳入，此处仅覆盖 loadRatePercent
-          newStats[deckKey] = {
-            ...d.stats,
-            loadRatePercent
-          };
-        }
-      }
-      deckStats = newStats;
-      
-      logger.info('[IRDeckView] 加载完成:', decks.length, '个牌组,', Date.now() - startTime, 'ms');
+      decks = [...snapshot.decks];
+      deckStats = { ...snapshot.deckStats };
+      logger.info('[IRDeckView] snapshot load complete', {
+        deckCount: decks.length,
+        durationMs: Date.now() - startTime,
+        generatedAt: snapshot.generatedAt
+      });
     } catch (error) {
-      logger.error('[IRDeckView] 加载失败:', error);
+      logger.error('[IRDeckView] snapshot load failed:', error);
       decks = [];
       deckStats = {};
     } finally {
@@ -370,7 +159,6 @@
     }
   }
 
-  // 获取牌组统计
   function getStats(deckPath: string): IRDeckStats {
     return deckStats[deckPath] || {
       newCount: 0,
@@ -391,7 +179,7 @@
     const deckId = irDeck.id || irDeck.path || '';
     return {
       id: deckId,
-      name: irDeck.name || '未命名牌组',
+      name: irDeck.name || '未命名专题',
       icon: 'book-open',
       description: `${getStats(deckId).fileCount} 个文件`,
       created: irDeck.createdAt || now,
@@ -413,20 +201,7 @@
 
   // 将 IRDeckStats 转换为 DeckStats 格式（适配卡片组件）
   function toMemoryStats(irStats: IRDeckStats): DeckStats {
-    return {
-      newCards: irStats.dueToday,
-      learningCards: Math.max(0, (irStats.dueWithinDays ?? irStats.dueToday) - irStats.dueToday),
-      reviewCards: irStats.questionCount,
-      totalCards: irStats.totalCount,
-      memoryRate: 0,
-      todayNew: 0,
-      todayReview: 0,
-      todayTime: 0,
-      totalReviews: 0,
-      totalTime: 0,
-      averageEase: 0,
-      forecastDays: {}
-    };
+    return mapIRDeckStatsToDeckStats(irStats);
   }
 
   // 显示牌组菜单，使用 deckId 作为主要标识
@@ -434,28 +209,10 @@
     const menu = new Menu();
     const deckId = deck.id || deck.path || '';
     
-    // 开始阅读（学习队列）
-    menu.addItem((item) =>
-      item
-        .setTitle('开始阅读')
-        .setIcon('play')
-        .onClick(() => handleStartReading(deckId))
-    );
-    
-    // 提前阅读所有内容块
-    menu.addItem((item) =>
-      item
-        .setTitle('提前阅读')
-        .setIcon('fast-forward')
-        .onClick(() => handleAdvanceReading(deckId))
-    );
-    
-    menu.addSeparator();
-    
     // 牌组编辑
     menu.addItem((item) =>
       item
-        .setTitle('牌组编辑')
+        .setTitle('专题编辑')
         .setIcon('edit-3')
         .onClick(() => handleEditDeck(deckId))
     );
@@ -463,7 +220,7 @@
     // 牌组分析（负载预测）
     menu.addItem((item) =>
       item
-        .setTitle('牌组分析')
+        .setTitle('专题分析')
         .setIcon('bar-chart-2')
         .onClick(() => {
           loadForecastDeckId = deckId;
@@ -473,49 +230,25 @@
     
     menu.addSeparator();
     
-    // 解散牌组（保留内容块数据）
+    // 删除专题
     menu.addItem((item) =>
       item
-        .setTitle('解散牌组')
-        .setIcon('unlink')
-        .onClick(async () => {
-          const confirmed = await confirmAction(
-            '解散牌组',
-            '解散后牌组将被删除，但内容块数据会保留。确定继续？'
-          );
-          if (confirmed) {
-            const storageService = new IRStorageService(plugin.app);
-            await storageService.initialize();
-            const deckManager = new IRDeckManager(plugin.app, storageService, plugin.settings?.incrementalReading?.importFolder);
-            logger.debug(`[IRDeckView] 解散牌组: ${deckId}`);
-            await deckManager.disbandDeck(deckId);
-            await loadDecks();
-            await recomputeAndBroadcastIRData(plugin.app, 'remove_block');
-            new Notice('牌组已解散（内容块数据已保留）');
-          }
-        })
-    );
-    
-    // 删除牌组（同时删除内容块数据）
-    menu.addItem((item) =>
-      item
-        .setTitle('删除牌组')
+        .setTitle('删除专题')
         .setIcon('trash-2')
         .setWarning(true)
         .onClick(async () => {
           const confirmed = await confirmAction(
-            '删除牌组',
-            '此操作将删除牌组及其所有内容块数据，不可恢复。确定继续？'
+            '删除专题',
+            '此操作将删除专题及其增量阅读调度数据，并清理源文档中的增量阅读信息，同时添加“we_已删除”标签；不会删除源文档。确定继续？'
           );
           if (confirmed) {
             const storageService = new IRStorageService(plugin.app);
             await storageService.initialize();
             const deckManager = new IRDeckManager(plugin.app, storageService, plugin.settings?.incrementalReading?.importFolder);
-            logger.debug(`[IRDeckView] 删除牌组: ${deckId}`);
+            logger.debug(`[IRDeckView] 删除专题: ${deckId}`);
             await deckManager.deleteDeck(deckId);
-            await loadDecks();
             await recomputeAndBroadcastIRData(plugin.app, 'remove_block');
-            new Notice('牌组及内容块数据已删除');
+            new Notice('专题已删除，源文档已保留，并已清理增量阅读信息');
           }
         })
     );
@@ -537,99 +270,40 @@
     const deck = await storageService.getDeckById(deckId);
     if (!deck) return;
 
-    const modal = new Modal(plugin.app);
-    modal.titleEl.setText('编辑牌组');
-    
-    let newName = deck.name;
-    let newTag = (deck.tags && deck.tags.length > 0) ? deck.tags[0] : '';
-    
-    // 名称
-    new Setting(modal.contentEl)
-      .setName('名称')
-      .addText((text: any) => {
-        text.setValue(newName).onChange((v: string) => { newName = v; });
-        text.inputEl.style.width = '100%';
-      });
-    
-    // 牌组标签（单选）
-    const tagSetting = new Setting(modal.contentEl)
-      .setName('牌组标签(单选)')
-      .setDesc('标签用于牌组分类，仅可选择一个标签');
-    
-    const tagInputContainer = modal.contentEl.createDiv({ cls: 'weave-tag-input-container' });
-    const tagDisplay = tagInputContainer.createDiv({ cls: 'weave-tag-display' });
-    
-    function renderTag() {
-      tagDisplay.empty();
-      if (newTag) {
-        const chip = tagDisplay.createSpan({ cls: 'weave-tag-chip', text: newTag });
-        const removeBtn = chip.createSpan({ cls: 'weave-tag-remove', text: '\u00d7' });
-        removeBtn.onclick = () => { newTag = ''; renderTag(); };
-      }
-    }
-    renderTag();
-    
-    const tagInput = tagInputContainer.createEl('input', { 
-      type: 'text', 
-      placeholder: '输入标签后按回车添加' 
-    });
-    tagInput.style.width = '100%';
-    tagInput.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && tagInput.value.trim()) {
-        e.preventDefault();
-        newTag = tagInput.value.trim();
-        tagInput.value = '';
-        renderTag();
-      }
-    });
-    
-    // 按钮
-    const btnContainer = modal.contentEl.createDiv({ cls: 'modal-button-container' });
-    btnContainer.style.display = 'flex';
-    btnContainer.style.justifyContent = 'flex-end';
-    btnContainer.style.gap = '8px';
-    btnContainer.style.marginTop = '16px';
-    
-    const cancelBtn = btnContainer.createEl('button', { text: '取消' });
-    cancelBtn.onclick = () => modal.close();
-    
-    const saveBtn = btnContainer.createEl('button', { text: '保存', cls: 'mod-cta' });
-    saveBtn.onclick = async () => {
-      if (!newName.trim()) return;
-      try {
-        const oldName = deck.name;
-        deck.name = newName.trim();
-        deck.tags = newTag ? [newTag] : [];
-        deck.updatedAt = new Date().toISOString();
-        await storageService.saveDeck(deck);
+    const allDecks = Object.values(await storageService.getAllDecks());
+    const availableTags = Array.from(
+      new Set(allDecks.flatMap((item) => Array.isArray(item.tags) ? item.tags : []).filter(Boolean))
+    ).sort((left, right) => left.localeCompare(right, 'zh-CN'));
 
-        if (oldName !== deck.name) {
-          try {
-            await storageService.migrateChunkDeckNameInYAML(oldName, deck.name);
-          } catch (e) {
-            logger.warn('[IRDeckView] YAML 迁移失败:', e);
-          }
-          try {
-            const outputRoot = plugin.settings?.incrementalReading?.importFolder;
-            const chunkFileService = new IRChunkFileService(plugin.app, outputRoot);
-            await chunkFileService.renameDeckIndexCard(oldName, deck.name);
-          } catch (e) {
-            logger.warn('[IRDeckView] 索引卡片重命名失败:', e);
-          }
+    openObsidianDeckEditModal({
+      app: plugin.app,
+      title: '编辑专题',
+      nameLabel: '名称',
+      tagLabel: '标签',
+      tagPlaceholder: '输入标签后按回车',
+      tagHint: '可为专题设置一个标签，用于分组和筛选。',
+      confirmText: '保存',
+      cancelText: '取消',
+      initialName: deck.name,
+      initialTag: (deck.tags && deck.tags.length > 0) ? deck.tags[0] : '',
+      availableTags,
+      onSubmit: async ({ name, tag }) => {
+        try {
+          deck.name = name;
+          deck.tags = tag ? [tag] : [];
+          deck.updatedAt = new Date().toISOString();
+          await storageService.saveDeck(deck);
+
+          await recomputeAndBroadcastIRData(plugin.app, 'tag_group_changed');
+          plugin.app.workspace.trigger('Weave:data-changed');
+          new Notice('专题已更新');
+        } catch (error) {
+          logger.error('[IRDeckView] 编辑失败:', error);
+          new Notice('编辑专题失败');
+          throw error;
         }
-
-        await loadDecks();
-        await recomputeAndBroadcastIRData(plugin.app, 'tag_group_changed');
-        plugin.app.workspace.trigger('Weave:data-changed');
-        new Notice('牌组已更新');
-        modal.close();
-      } catch (error) {
-        logger.error('[IRDeckView] 编辑失败:', error);
-        new Notice('编辑失败');
       }
-    };
-    
-    modal.open();
+    });
   }
 
   // 处理开始阅读：统一跳转到现役侧边栏阅读流程
@@ -645,22 +319,6 @@
     } catch (error) {
       logger.error('[IRDeckView] 开始阅读失败:', error);
       new Notice('开始阅读失败');
-    }
-  }
-  
-  // 提前阅读入口也统一跳转到现役侧边栏阅读流程
-  async function handleAdvanceReading(deckPath: string) {
-    try {
-      const redirectDeck = decks.find(d => d.id === deckPath || d.path === deckPath);
-      const redirectDeckName = redirectDeck?.name || deckPath.split('/').pop() || '增量阅读';
-      await plugin.redirectIncrementalReadingToSidebar({
-        deckPath,
-        deckName: redirectDeckName,
-        closeLegacyFocusLeaves: true
-      });
-    } catch (error) {
-      logger.error('[IRDeckView] 提前阅读V4失败:', error);
-      new Notice('提前阅读失败');
     }
   }
 
@@ -679,20 +337,25 @@
   // 监听数据更新事件（学习结束、删除牌组等操作后刷新统计）
   $effect(() => {
     const handleDataUpdate = () => {
-      loadDecks();
+      getWorkspaceSnapshotService().invalidate();
+      void loadDecks();
+    };
+
+    const handleTimerUpdate = () => {
+      void loadDecks();
     };
     
     window.addEventListener('Weave:ir-data-updated', handleDataUpdate);
-    window.addEventListener('Weave:ir-timer-updated', handleDataUpdate);
+    window.addEventListener('Weave:ir-timer-updated', handleTimerUpdate);
     
     return () => {
       window.removeEventListener('Weave:ir-data-updated', handleDataUpdate);
-      window.removeEventListener('Weave:ir-timer-updated', handleDataUpdate);
+      window.removeEventListener('Weave:ir-timer-updated', handleTimerUpdate);
     };
   });
 
   onMount(() => {
-    loadDecks();
+    void loadDecks();
   });
 
   onDestroy(() => {
@@ -713,7 +376,7 @@
     <div class="mode-placeholder">
       <div class="placeholder-icon">--</div>
       <h2 class="placeholder-title">暂无增量阅读专题</h2>
-      <p class="placeholder-desc">点击左上角菜单导入文件夹开始增量阅读</p>
+      <p class="placeholder-desc">点击左上角菜单导入材料，或创建正文阅读点开始增量阅读</p>
     </div>
   {:else}
     <!-- 牌组网格（复用记忆牌组的卡片设计） -->

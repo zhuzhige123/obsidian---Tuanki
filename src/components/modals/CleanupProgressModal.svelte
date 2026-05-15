@@ -4,176 +4,145 @@
   将原TypeScript类转换为Svelte组件
 -->
 <script lang="ts">
-  import { logger } from '../../utils/logger';
-
-  import { onMount, onDestroy } from 'svelte';
-  import type { GlobalCleanupScanner } from '../../services/cleanup/GlobalCleanupScanner';
-  import type { ScanProgress, GlobalScanResult } from '../../services/cleanup/types';
+  import type { Readable } from 'svelte/store';
+  import OperationProgressCard from '../ui/OperationProgressCard.svelte';
+  import type { CleanupDetail, GlobalScanResult, ScanProgress } from '../../services/cleanup/types';
 
   interface Props {
-    /** 是否显示模态窗 */
-    open: boolean;
-    
-    /** 关闭回调 */
+    progressState: Readable<{
+      progress: ScanProgress | null;
+      details: CleanupDetail[];
+      stats: {
+        totalFiles: number;
+        processedFiles: number;
+        detectedOrphans: number;
+        cleanedOrphans: number;
+        errorCount: number;
+      };
+      elapsedMs: number;
+      isCompleted: boolean;
+      isCancelled: boolean;
+      result: GlobalScanResult | null;
+    }>;
     onClose: () => void;
-    
-    /** 清理扫描器实例 */
-    scanner: GlobalCleanupScanner;
+    onCancel: () => void;
   }
 
-  let { 
-    open = $bindable(), 
-    onClose, 
-    scanner 
-  }: Props = $props();
+  let { progressState, onClose, onCancel }: Props = $props();
 
-  // 组件状态
-  let progress = $state(0);
-  let currentFile = $state('');
-  let progressText = $state('准备开始...');
-  let stats = $state<GlobalScanResult | null>(null);
-  let isCancelled = $state(false);
-  let isCompleted = $state(false);
+  let viewState = $derived($progressState);
+  let progress = $derived(viewState.progress);
+  let currentFile = $derived(
+    progress?.currentFile || (viewState.isCompleted ? '扫描完成' : '准备扫描...')
+  );
+  let percentage = $derived(
+    viewState.isCompleted
+      ? 100
+      : (progress ? Math.max(0, Math.min(100, Math.round(progress.percentage || 0))) : 0)
+  );
+  let counterLabel = $derived(
+    viewState.stats.totalFiles > 0
+      ? `${viewState.stats.processedFiles} / ${viewState.stats.totalFiles}`
+      : `${percentage}%`
+  );
+  let detailLabel = $derived(
+    `检测：${viewState.stats.detectedOrphans} ｜ 已清理：${viewState.stats.cleanedOrphans} ｜ 错误：${viewState.stats.errorCount}`
+  );
+  let elapsedText = $derived(`${(viewState.elapsedMs / 1000).toFixed(1)}秒`);
+  let showDetails = $state(true);
 
-  // 启动清理进程
-  async function startCleanup() {
-    isCancelled = false;
-    isCompleted = false;
-    
-    try {
-      // 监听进度更新
-      const unsubscribe = scanner.onProgress((progressData: ScanProgress) => {
-        progress = progressData.percentage;
-        currentFile = progressData.currentFile;
-        progressText = `${progressData.processedFiles}/${progressData.totalFiles}`;
-      });
-
-      // 执行清理
-      const result = await scanner.performCleanup();
-      stats = result;
-      isCompleted = true;
-
-      // 清理监听器
-      unsubscribe?.();
-    } catch (error) {
-      logger.error('清理过程出错:', error);
-      progressText = '清理失败';
-    }
+  function resolveStatusLabel(status: CleanupDetail['status']): string {
+    if (status === 'success') return '已清理';
+    if (status === 'protected') return '受保护';
+    if (status === 'processing') return '处理中';
+    if (status === 'error') return '失败';
+    return '已跳过';
   }
-
-  // 取消清理
-  function cancelCleanup() {
-    isCancelled = true;
-    scanner.cancel?.();
-  }
-
-  // 关闭模态窗
-  function handleClose() {
-    if (!isCompleted && !isCancelled) {
-      cancelCleanup();
-    }
-    if (typeof onClose === 'function') {
-      onClose();
-    }
-  }
-
-  // 组件挂载时启动清理
-  onMount(() => {
-    if (open) {
-      startCleanup();
-    }
-  });
-
-  // 监听open变化
-  $effect(() => {
-    if (open && !isCompleted && !isCancelled) {
-      startCleanup();
-    }
-  });
 </script>
 
-{#if open}
-<div 
-  class="modal-overlay" 
-  onclick={(e) => {
-    // 只有点击overlay背景时才关闭，点击内容区域不关闭
-    if (e.target === e.currentTarget) {
-      handleClose();
-    }
-  }}
-  onkeydown={(_e) => {}}
-  role="dialog"
-  aria-modal="true"
-  tabindex="-1"
->
-  <!-- 模态窗内容容器：纯展示容器，无需事件处理器 -->
-  <div 
-    class="cleanup-progress-modal" 
-    aria-labelledby="cleanup-modal-title"
-  >
-    <!-- 标题栏 -->
-    <header class="modal-header">
-      <h2 id="cleanup-modal-title">全局清理孤立块链接</h2>
-    </header>
+<div class="cleanup-progress-modal" aria-labelledby="cleanup-modal-title">
+  <header class="modal-header">
+    <h2 id="cleanup-modal-title">全局清理孤立块链接</h2>
+  </header>
 
-    <!-- 主体内容 -->
-    <div class="modal-body">
-      <!-- 进度条 -->
-      <div class="progress-container">
-        <div class="progress-bar" style="width: {progress}%"></div>
+  <div class="modal-body">
+    <OperationProgressCard
+      title={viewState.isCompleted ? '扫描完成' : '正在清理残留元数据'}
+      counter={counterLabel}
+      message={`当前处理：${currentFile}`}
+      detail={detailLabel}
+      percent={percentage}
+      status={viewState.isCompleted ? 'success' : 'running'}
+      statusLabel={viewState.isCompleted ? '已完成' : (viewState.isCancelled ? '已取消' : '进行中')}
+      detailInCard={true}
+      footerHint={`用时：${elapsedText}`}
+      footerPrimary={`${percentage}%`}
+      footerSecondary={counterLabel}
+      progressValueMin={0}
+      progressValueMax={Math.max(1, viewState.stats.totalFiles || 0)}
+      progressValueNow={Math.min(viewState.stats.processedFiles || 0, Math.max(1, viewState.stats.totalFiles || 0))}
+      progressValueText={counterLabel}
+    />
+
+    <div class="stats-section">
+      <div class="stat-item">
+        <span class="stat-label">文件</span>
+        <span class="stat-value">{viewState.stats.processedFiles} / {viewState.stats.totalFiles}</span>
       </div>
-
-      <!-- 状态信息 -->
-      <div class="status-section">
-        {#if currentFile}
-          <div class="current-file">
-            <span class="label">当前处理:</span>
-            <span class="value">{currentFile}</span>
-          </div>
-        {/if}
-        
-        <div class="progress-text">
-          <span class="label">进度:</span>
-          <span class="value">{progressText}</span>
-        </div>
+      <div class="stat-item">
+        <span class="stat-label">检测</span>
+        <span class="stat-value">{viewState.stats.detectedOrphans}</span>
       </div>
+      <div class="stat-item">
+        <span class="stat-label">已清理</span>
+        <span class="stat-value cleaned">{viewState.stats.cleanedOrphans}</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">错误</span>
+        <span class="stat-value error">{viewState.stats.errorCount}</span>
+      </div>
+    </div>
 
-      <!-- 统计信息 -->
-      {#if stats}
-        <div class="stats-section">
-          <div class="stat-item">
-            <span class="stat-label">处理文件</span>
-            <span class="stat-value processed">{stats.totalFiles}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">清理链接</span>
-            <span class="stat-value cleaned">{stats.cleanedOrphans}</span>
-          </div>
-          {#if stats.errors && stats.errors.length > 0}
-            <div class="stat-item error">
-              <span class="stat-label">错误</span>
-              <span class="stat-value">{stats.errors.length}</span>
-            </div>
+    <section class="details-section">
+      <button
+        class="details-toggle"
+        type="button"
+        onclick={() => {
+          showDetails = !showDetails;
+        }}
+      >
+        <span>清理详情</span>
+        <span>{showDetails ? '收起' : '展开'}</span>
+      </button>
+
+      {#if showDetails}
+        <div class="details-list">
+          {#if viewState.details.length === 0}
+            <div class="details-empty">等待扫描结果...</div>
+          {:else}
+            {#each viewState.details as detail (detail.filePath + detail.message + detail.status)}
+              <div class={`detail-item status-${detail.status}`}>
+                <div class="detail-main">
+                  <span class="detail-file">{detail.filePath.split('/').pop() || detail.filePath}</span>
+                  <span class="detail-status">{resolveStatusLabel(detail.status)}</span>
+                </div>
+                <div class="detail-message">{detail.message}</div>
+              </div>
+            {/each}
           {/if}
         </div>
       {/if}
-    </div>
-
-    <!-- 底部按钮 -->
-    <footer class="modal-footer">
-      {#if !isCompleted && !isCancelled}
-        <button class="cancel-btn" onclick={cancelCleanup}>
-          取消清理
-        </button>
-      {:else}
-        <button class="close-btn" onclick={handleClose}>
-          完成
-        </button>
-      {/if}
-    </footer>
+    </section>
   </div>
-</div>
-{/if}
+
+  <footer class="modal-footer">
+    {#if !viewState.isCompleted && !viewState.isCancelled}
+      <button class="cancel-btn" onclick={onCancel}>取消清理</button>
+    {:else}
+      <button class="close-btn" onclick={onClose}>完成</button>
+    {/if}
+  </footer>
+  </div>
 
 <style>
   /* =========================== 模态窗口主体 =========================== */
@@ -187,24 +156,11 @@
     --error-color: var(--color-red);
     --stat-label-color: var(--text-muted);
     
-    max-width: 600px;
+    width: min(720px, 92vw);
     padding: 0;
     background: var(--modal-bg);
     border-radius: 12px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-  }
-
-  .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: var(--layer-modal);
   }
 
   .modal-header {
@@ -224,6 +180,9 @@
   .modal-body {
     padding: 32px;
     background: var(--modal-bg);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
   }
 
   /* =========================== 进度条 =========================== */
@@ -242,11 +201,6 @@
     transition: width 0.3s ease;
     border-radius: 4px;
     animation: progress-glow 2s ease-in-out infinite;
-  }
-
-  /* 当进度完成时，停止动画 */
-  .progress-bar[style*="width: 100%"] {
-    animation: none;
   }
 
   @keyframes progress-glow {
@@ -286,14 +240,14 @@
 
   /* =========================== 统计区域 =========================== */
   .stats-section {
-    background: var(--background-secondary);
-    border-radius: 8px;
-    padding: 16px 20px;
-    margin-bottom: 24px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
   }
 
   .stat-item {
     display: flex;
+    flex-direction: column;
     justify-content: space-between;
     align-items: center;
     padding: 8px 0;
@@ -323,10 +277,6 @@
 
   .stat-value.cleaned {
     color: var(--success-color);
-  }
-
-  .stat-item.error .stat-value {
-    color: var(--error-color);
   }
 
   /* =========================== 底部按钮 =========================== */
@@ -378,14 +328,17 @@
   /* =========================== 响应式设计 =========================== */
   @media (max-width: 768px) {
     .cleanup-progress-modal {
-      max-width: 90vw;
+      width: 95vw;
     }
     
     .modal-header,
     .modal-body,
     .modal-footer {
-      padding-left: 20px;
-      padding-right: 20px;
+      padding: 20px;
+    }
+
+    .stats-section {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 

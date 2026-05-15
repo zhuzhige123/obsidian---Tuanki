@@ -1,14 +1,13 @@
 <!--
-  IRPrioritySlider - 优先级滑动条组件 v3.0
-  
-  设计：
-  - 点击功能键后展开显示
-  - 使用 0-10 连续优先级轴
-  - 实时预览当前值
-  - 与侧边功能栏风格统一
+  IRPrioritySlider - 优先级滑动条组件 v4.0
+
+  设计目标：
+  - 与继续阅读建议弹窗统一为同一套轻书卷编辑卡片语言
+  - 突出当前优先级、节奏含义与快捷选择
+  - 保留 0-10 连续优先级轴与实时预览能力
 -->
 <script lang="ts">
-  import { createEventDispatcher, untrack } from 'svelte';
+  import { untrack } from 'svelte';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
 
   interface Props {
@@ -18,6 +17,17 @@
     onToggle: () => void;
     onChange: (value: number) => void;
     onPreview?: (value: number) => void;
+  }
+
+  type PriorityTone = 'lowest' | 'low' | 'medium' | 'high' | 'urgent';
+
+  interface PriorityPreset {
+    tone: PriorityTone;
+    value: number;
+    label: string;
+    shortHint: string;
+    description: string;
+    color: string;
   }
 
   let {
@@ -32,358 +42,562 @@
   let localValue = $state(untrack(() => value));
   let isDragging = $state(false);
 
-  // 同步外部值
+  const priorityPresets: PriorityPreset[] = [
+    {
+      tone: 'lowest',
+      value: 0,
+      label: '最低',
+      shortHint: '尽量少打扰',
+      description: '仅在整体负载较低时再推进，适合暂不着急的阅读点。',
+      color: 'var(--text-faint)'
+    },
+    {
+      tone: 'low',
+      value: 2.5,
+      label: '低',
+      shortHint: '低频出现',
+      description: '保留在计划里，但不会主动占用太多今天的阅读注意力。',
+      color: 'var(--text-muted)'
+    },
+    {
+      tone: 'medium',
+      value: 5,
+      label: '中',
+      shortHint: '常规节奏',
+      description: '按当前默认节奏安排，是最平衡的推进频率。',
+      color: 'var(--interactive-accent)'
+    },
+    {
+      tone: 'high',
+      value: 7.5,
+      label: '高',
+      shortHint: '更积极推进',
+      description: '会更频繁回到你的阅读流里，适合当前值得优先推进的内容。',
+      color: 'var(--text-warning)'
+    },
+    {
+      tone: 'urgent',
+      value: 10,
+      label: '紧急',
+      shortHint: '优先处理',
+      description: '尽可能优先出现，适合你现在明确不想继续拖延的阅读点。',
+      color: 'var(--text-error)'
+    }
+  ];
+
   $effect(() => {
     if (!isDragging) {
       localValue = value;
     }
   });
 
-  // 优先级标签
-  const priorityLabels = [
-    { value: 0, label: '最低', color: 'var(--text-faint)' },
-    { value: 2, label: '低', color: 'var(--text-muted)' },
-    { value: 5, label: '中', color: 'var(--text-normal)' },
-    { value: 7, label: '高', color: 'var(--text-warning)' },
-    { value: 10, label: '紧急', color: 'var(--text-error)' }
-  ];
-
-  // 获取当前优先级标签
-  function getPriorityLabel(v: number): string {
-    if (v <= 1) return '最低';
-    if (v <= 3) return '低';
-    if (v <= 6) return '中';
-    if (v <= 8) return '高';
-    return '紧急';
+  function getPriorityPreset(v: number): PriorityPreset {
+    if (v <= 1) return priorityPresets[0];
+    if (v <= 3.5) return priorityPresets[1];
+    if (v <= 6.5) return priorityPresets[2];
+    if (v <= 8.5) return priorityPresets[3];
+    return priorityPresets[4];
   }
 
-  // 获取当前优先级颜色
   function getPriorityColor(v: number): string {
-    if (v <= 1) return 'var(--text-faint)';
-    if (v <= 3) return 'var(--text-muted)';
-    if (v <= 6) return 'var(--interactive-accent)';
-    if (v <= 8) return 'var(--text-warning)';
-    return 'var(--text-error)';
+    return getPriorityPreset(v).color;
   }
 
-  // 获取感叹号数量
-  function getExclamationCount(v: number): number {
-    if (v <= 1) return 0;
-    if (v <= 3) return 1;
-    if (v <= 6) return 2;
-    if (v <= 8) return 3;
-    return 4;
+  function getPriorityLabel(v: number): string {
+    return getPriorityPreset(v).label;
   }
 
-  // 处理滑动
-  function handleInput(event: Event) {
+  function getPriorityHint(v: number): string {
+    return getPriorityPreset(v).shortHint;
+  }
+
+  function getPriorityDescription(v: number): string {
+    return getPriorityPreset(v).description;
+  }
+
+  function isPresetActive(preset: PriorityPreset, v: number): boolean {
+    return getPriorityPreset(v).tone === preset.tone;
+  }
+
+  function handleInput(event: Event): void {
     const target = event.target as HTMLInputElement;
     localValue = parseFloat(target.value);
     isDragging = true;
     onPreview?.(localValue);
   }
 
-  // 处理滑动结束
-  function handleChange(event: Event) {
+  function handleChange(event: Event): void {
     const target = event.target as HTMLInputElement;
     const newValue = parseFloat(target.value);
     isDragging = false;
     onChange(newValue);
   }
 
-  // 快捷设置
-  function quickSet(v: number) {
+  function quickSet(v: number): void {
     localValue = v;
+    isDragging = false;
     onPreview?.(v);
     onChange(v);
   }
+
+  let currentPreset = $derived(getPriorityPreset(localValue));
+  let currentColor = $derived(getPriorityColor(localValue));
 </script>
 
-<div class="ir-priority-slider" class:expanded class:disabled>
-  <!-- 触发按钮 -->
-  <button 
-    class="trigger-btn toolbar-btn priority-btn"
-    onclick={onToggle}
-    title="设置优先级"
-    {disabled}
-    style="color: {getPriorityColor(localValue)}"
-  >
-    <div class="priority-indicator">
-      {#if getExclamationCount(localValue) === 0}
-        <span class="priority-dash">—</span>
-      {:else}
-        {'!'.repeat(getExclamationCount(localValue))}
-      {/if}
-    </div>
-    <span class="btn-label">优先级</span>
-    <EnhancedIcon name={expanded ? "chevron-up" : "chevron-down"} size={12} />
-  </button>
-
-  <!-- 展开面板 -->
+<div class="ir-priority-slider" class:disabled>
   {#if expanded}
-    <div class="slider-panel">
-      <!-- 当前值显示 -->
-      <div class="current-value" style="color: {getPriorityColor(localValue)}">
-        <span class="value-number">{localValue.toFixed(1)}</span>
-        <span class="value-label">{getPriorityLabel(localValue)}</span>
+    <div class="priority-editor" style={`--priority-accent: ${currentColor};`}>
+      <div class="priority-editor__header">
+        <div class="priority-editor__title-group">
+          <span class="priority-editor__kicker">
+            <span class="priority-editor__kicker-dot" aria-hidden="true"></span>
+            阅读节奏
+          </span>
+          <div class="priority-editor__title-row">
+            <span class="priority-editor__title">优先级</span>
+            <span class="priority-editor__state">{currentPreset.label}</span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="priority-editor__close"
+          onclick={onToggle}
+          title="关闭优先级面板"
+          aria-label="关闭优先级面板"
+        >
+          <EnhancedIcon name="x" size={14} color="var(--text-muted)" />
+        </button>
       </div>
 
-      <!-- 滑动条 -->
-      <div class="slider-container">
-        <input
-          type="range"
-          min="0"
-          max="10"
-          step="0.5"
-          value={localValue}
-          class="priority-slider"
-          style="--slider-color: {getPriorityColor(localValue)}"
-          oninput={handleInput}
-          onchange={handleChange}
-          {disabled}
-        />
-        <div class="slider-track">
-          <div 
-            class="slider-fill" 
-            style="width: {localValue * 10}%; background: {getPriorityColor(localValue)}"
-          ></div>
+      <div class="priority-editor__hero">
+        <div class="priority-editor__value-block">
+          <span class="priority-editor__value">{localValue.toFixed(1)}</span>
+          <span class="priority-editor__value-label">{getPriorityLabel(localValue)}</span>
+        </div>
+        <span class="priority-editor__value-hint">{getPriorityHint(localValue)}</span>
+      </div>
+
+      <p class="priority-editor__description">
+        {getPriorityDescription(localValue)}
+      </p>
+
+      <div class="priority-editor__slider-section">
+        <div class="priority-editor__scale">
+          <span>轻推进</span>
+          <span>更常出现</span>
+        </div>
+
+        <div class="priority-editor__slider-shell">
+          <input
+            type="range"
+            min="0"
+            max="10"
+            step="0.5"
+            value={localValue}
+            class="priority-editor__range"
+            oninput={handleInput}
+            onchange={handleChange}
+            {disabled}
+          />
+          <div class="priority-editor__track" aria-hidden="true">
+            <div class="priority-editor__fill" style={`width: ${localValue * 10}%;`}></div>
+            <div class="priority-editor__thumb" style={`left: ${localValue * 10}%;`}></div>
+          </div>
         </div>
       </div>
 
-      <!-- 刻度标签 -->
-      <div class="slider-ticks">
-        {#each priorityLabels as tick}
-          <button 
-            class="tick-btn"
-            class:active={Math.abs(localValue - tick.value) < 1}
-            style="left: {tick.value * 10}%; color: {tick.color}"
-            onclick={() => quickSet(tick.value)}
-            title={tick.label}
+      <div class="priority-editor__presets">
+        {#each priorityPresets as preset}
+          <button
+            type="button"
+            class="priority-editor__preset"
+            class:is-active={isPresetActive(preset, localValue)}
+            onclick={() => quickSet(preset.value)}
+            title={preset.label}
           >
-            <span class="tick-dot"></span>
-            <span class="tick-label">{tick.label}</span>
+            <span class="priority-editor__preset-value">{preset.value.toFixed(1)}</span>
+            <span class="priority-editor__preset-label">{preset.label}</span>
           </button>
         {/each}
       </div>
 
-      <!-- 说明文字 -->
-      <div class="slider-hint">
-        高优先级内容将更频繁出现
+      <div class="priority-editor__hint">
+        高优先级内容会更积极地回到你的今日阅读流中。
       </div>
     </div>
+  {:else}
+    <button
+      type="button"
+      class="priority-editor__launcher"
+      onclick={onToggle}
+      {disabled}
+      title="设置优先级"
+      aria-label="设置优先级"
+    >
+      <span class="priority-editor__launcher-copy">
+        <span class="priority-editor__launcher-label">优先级</span>
+        <span class="priority-editor__launcher-value" style={`color: ${currentColor};`}>
+          {localValue.toFixed(1)} {currentPreset.label}
+        </span>
+      </span>
+      <EnhancedIcon name="chevron-down" size={12} color="var(--text-muted)" />
+    </button>
   {/if}
 </div>
 
 <style>
   .ir-priority-slider {
     position: relative;
-    display: flex;
-    flex-direction: column;
     width: 100%;
   }
 
   .ir-priority-slider.disabled {
-    opacity: 0.5;
+    opacity: 0.55;
     pointer-events: none;
   }
 
-  /* 触发按钮 - 继承侧边栏工具按钮风格 */
-  .trigger-btn {
+  .priority-editor {
     display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+    color: var(--text-normal);
+    background: transparent;
+  }
+
+  .priority-editor__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .priority-editor__title-group {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .priority-editor__kicker {
+    display: inline-flex;
     align-items: center;
     gap: 6px;
-    width: 100%;
-    padding: 8px 12px;
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-    color: inherit;
-    font-size: 0.85rem;
-    transition: all 0.15s ease;
-  }
-
-  .trigger-btn:hover {
-    background: var(--background-modifier-hover);
-  }
-
-  .ir-priority-slider.expanded .trigger-btn {
-    background: var(--background-modifier-hover);
-  }
-
-  .priority-indicator {
+    font-size: 10px;
     font-weight: 700;
-    font-size: 1rem;
-    min-width: 24px;
-    text-align: center;
+    letter-spacing: 0.04em;
+    color: var(--priority-accent);
+    text-transform: uppercase;
   }
 
-  .priority-dash {
-    color: var(--text-faint);
+  .priority-editor__kicker-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--priority-accent);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--priority-accent) 12%, transparent);
   }
 
-  .btn-label {
-    flex: 1;
-    text-align: left;
+  .priority-editor__title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .priority-editor__title {
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.2;
     color: var(--text-normal);
   }
 
-  /* 展开面板 */
-  .slider-panel {
-    padding: 12px;
-    margin-top: 4px;
-    background: var(--background-secondary);
-    border-radius: 8px;
+  .priority-editor__state {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--priority-accent) 14%, var(--background-secondary));
+    color: var(--priority-accent);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .priority-editor__close {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
     border: 1px solid var(--background-modifier-border);
-    animation: slideDown 0.2s ease;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--background-secondary) 92%, transparent);
+    box-shadow: none;
+    cursor: pointer;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease,
+      transform 0.15s ease;
   }
 
-  @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+  .priority-editor__close:hover {
+    border-color: color-mix(in srgb, var(--priority-accent) 34%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--priority-accent) 8%, var(--background-secondary));
+    transform: translateY(-1px);
   }
 
-  /* 当前值显示 */
-  .current-value {
+  .priority-editor__close:focus-visible,
+  .priority-editor__preset:focus-visible,
+  .priority-editor__launcher:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--priority-accent) 72%, transparent);
+    outline-offset: 2px;
+  }
+
+  .priority-editor__hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid color-mix(in srgb, var(--priority-accent) 18%, var(--background-modifier-border));
+    border-radius: 16px;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--priority-accent) 9%, var(--background-secondary)),
+      color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary))
+    );
+  }
+
+  .priority-editor__value-block {
     display: flex;
     align-items: baseline;
     gap: 8px;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--background-modifier-border);
+    min-width: 0;
   }
 
-  .value-number {
-    font-size: 1.5rem;
-    font-weight: 700;
+  .priority-editor__value {
+    font-size: 34px;
+    font-weight: 750;
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--priority-accent);
     font-variant-numeric: tabular-nums;
   }
 
-  .value-label {
-    font-size: 0.9rem;
-    font-weight: 500;
+  .priority-editor__value-label {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-normal);
   }
 
-  /* 滑动条容器 */
-  .slider-container {
+  .priority-editor__value-hint {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--background-secondary) 84%, transparent);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .priority-editor__description {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .priority-editor__slider-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .priority-editor__scale {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--text-faint);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .priority-editor__slider-shell {
     position: relative;
-    height: 24px;
-    margin: 8px 0;
+    height: 28px;
   }
 
-  .priority-slider {
+  .priority-editor__range {
     position: absolute;
-    top: 0;
-    left: 0;
+    inset: 0;
     width: 100%;
-    height: 24px;
+    height: 28px;
     margin: 0;
     opacity: 0;
     cursor: pointer;
     z-index: 2;
   }
 
-  .slider-track {
+  .priority-editor__track {
     position: absolute;
     top: 50%;
     left: 0;
     right: 0;
-    height: 6px;
-    background: var(--background-modifier-border);
-    border-radius: 3px;
+    height: 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--background-modifier-border) 82%, transparent);
     transform: translateY(-50%);
-    overflow: hidden;
+    overflow: visible;
   }
 
-  .slider-fill {
+  .priority-editor__fill {
     height: 100%;
-    border-radius: 3px;
-    transition: width 0.1s ease, background 0.15s ease;
+    border-radius: inherit;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--priority-accent) 70%, white 30%),
+      var(--priority-accent)
+    );
+    transition:
+      width 0.12s ease,
+      background 0.18s ease;
   }
 
-  /* 滑块 */
-  .priority-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
+  .priority-editor__thumb {
+    position: absolute;
+    top: 50%;
     width: 18px;
     height: 18px;
-    background: var(--interactive-accent);
-    border-radius: 50%;
-    cursor: grab;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    border-radius: 999px;
+    border: 2px solid color-mix(in srgb, var(--background-primary) 92%, white);
+    background: var(--priority-accent);
+    box-shadow:
+      0 6px 14px color-mix(in srgb, var(--priority-accent) 18%, transparent),
+      0 1px 4px rgba(0, 0, 0, 0.12);
+    transform: translate(-50%, -50%);
+    transition:
+      left 0.12s ease,
+      background 0.18s ease;
   }
 
-  .priority-slider::-webkit-slider-thumb:active {
-    cursor: grabbing;
-    transform: scale(1.1);
+  .priority-editor__presets {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
   }
 
-  /* 刻度标签 */
-  .slider-ticks {
-    position: relative;
-    height: 32px;
-    margin-top: 8px;
-  }
-
-  .tick-btn {
-    position: absolute;
-    transform: translateX(-50%);
+  .priority-editor__preset {
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    align-items: center;
+    align-items: flex-start;
     gap: 4px;
-    background: none;
-    border: none;
-    padding: 0;
+    padding: 10px 10px 11px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--background-secondary) 88%, var(--background-primary));
+    box-shadow: none;
     cursor: pointer;
-    transition: opacity 0.15s ease;
+    text-align: left;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease,
+      transform 0.15s ease;
   }
 
-  .tick-btn:hover {
-    opacity: 1;
+  .priority-editor__preset:hover {
+    border-color: color-mix(in srgb, var(--priority-accent) 32%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--priority-accent) 7%, var(--background-secondary));
+    transform: translateY(-1px);
   }
 
-  .tick-btn:not(.active) {
-    opacity: 0.6;
+  .priority-editor__preset.is-active {
+    border-color: color-mix(in srgb, var(--priority-accent) 40%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--priority-accent) 10%, var(--background-secondary));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--priority-accent) 12%, transparent);
   }
 
-  .tick-dot {
-    width: 6px;
-    height: 6px;
-    background: currentColor;
-    border-radius: 50%;
+  .priority-editor__preset-value {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--priority-accent);
+    font-variant-numeric: tabular-nums;
   }
 
-  .tick-label {
-    font-size: 0.7rem;
+  .priority-editor__preset-label {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--text-muted);
     white-space: nowrap;
   }
 
-  /* 说明文字 */
-  .slider-hint {
-    margin-top: 12px;
-    padding-top: 8px;
-    border-top: 1px solid var(--background-modifier-border);
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    text-align: center;
+  .priority-editor__hint {
+    padding-top: 2px;
+    color: var(--text-faint);
+    font-size: 11px;
+    line-height: 1.5;
   }
 
-  /* 移动端适配 */
-  :global(body.is-mobile) .slider-panel {
-    padding: 16px;
+  .priority-editor__launcher {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--background-secondary) 90%, var(--background-primary));
+    box-shadow: none;
+    cursor: pointer;
   }
 
-  :global(body.is-mobile) .priority-slider {
-    height: 32px;
+  .priority-editor__launcher-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    text-align: left;
   }
 
-  :global(body.is-mobile) .slider-track {
-    height: 8px;
+  .priority-editor__launcher-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .priority-editor__launcher-value {
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  :global(body.is-mobile) .priority-editor {
+    padding: 14px;
+  }
+
+  @media (max-width: 420px) {
+    .priority-editor__hero {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .priority-editor__presets {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
   }
 </style>

@@ -28,13 +28,14 @@ export function buildKnownPathReferenceFiles(args: {
 	const { v2Paths, pluginPaths } = args;
 	return [
 		v2Paths.ir.blocks,
-		v2Paths.ir.decks,
+		v2Paths.ir.legacyDecks,
 		v2Paths.ir.chunks,
 		v2Paths.ir.sources,
 		v2Paths.ir.materials.index,
 		v2Paths.ir.documentGroupMap,
 		v2Paths.ir.pdfBookmarkTasks,
 		v2Paths.ir.epubBookmarkTasks,
+		pluginPaths.state.incrementalReading.readingMaterialsRuntime,
 		pluginPaths.state.userProfile,
 	];
 }

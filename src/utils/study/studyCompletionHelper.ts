@@ -18,6 +18,19 @@ import {
 	isProgressiveClozeParent,
 } from "../../types/progressive-cloze-v2";
 
+function filterTodayStudySessions(sessions: StudySession[], deckId?: string): StudySession[] {
+	const now = new Date();
+	const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+	const todayStartTimestamp = todayStart.getTime();
+
+	return sessions.filter((_session) => {
+		const sessionStart = new Date(_session.startTime).getTime();
+		const matchesTime = sessionStart >= todayStartTimestamp;
+		const matchesDeck = !deckId || _session.deckId === deckId;
+		return matchesTime && matchesDeck;
+	});
+}
+
 /**
  * 统一的时间解析函数
  * 处理 string | number | Date 类型的时间
@@ -115,21 +128,11 @@ export async function getLearnedNewCardsCountToday(
 	deckId?: string
 ): Promise<number> {
 	try {
-		// 获取今天的开始时间（零点）
-		const now = new Date();
-		const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-		const todayStartTimestamp = todayStart.getTime();
-
 		// 获取所有学习会话
 		const allSessions = await dataStorage.getStudySessions();
 
 		// 筛选今天的会话
-		const todaySessions = allSessions.filter((_session) => {
-			const sessionStart = new Date(_session.startTime).getTime();
-			const matchesTime = sessionStart >= todayStartTimestamp;
-			const matchesDeck = !deckId || _session.deckId === deckId;
-			return matchesTime && matchesDeck;
-		});
+		const todaySessions = filterTodayStudySessions(allSessions, deckId);
 
 		// 统计新卡片数量
 		const totalNewCards = todaySessions.reduce((sum, session) => {
@@ -140,6 +143,29 @@ export async function getLearnedNewCardsCountToday(
 	} catch (error) {
 		logger.error("[studyCompletionHelper] 获取今日新卡片数量失败:", error);
 		return 0;
+	}
+}
+
+export async function getLatestCompletedStudySessionToday(
+	dataStorage: WeaveDataStorage,
+	deckId: string
+): Promise<StudySession | null> {
+	try {
+		const allSessions = await dataStorage.getStudySessions();
+		const todaySessions = filterTodayStudySessions(allSessions, deckId);
+
+		const latestCompletedSession = todaySessions
+			.filter((session) => session.completionReason !== "paused-until-next-due")
+			.sort((a, b) => {
+				const aTime = new Date(a.endTime || a.startTime).getTime();
+				const bTime = new Date(b.endTime || b.startTime).getTime();
+				return bTime - aTime;
+			})[0];
+
+		return latestCompletedSession || null;
+	} catch (error) {
+		logger.error("[studyCompletionHelper] 获取今日最近完成学习会话失败:", error);
+		return null;
 	}
 }
 
@@ -330,20 +356,20 @@ export async function loadCardsByIds(
 			deckId,
 		});
 
-		//  修复：引用式牌组架构下，卡片可能分布在多个牌组文件中
-		// 必须使用 getAllCards() 才能找到所有被引用的卡片
-		// 不能使用 getCards({ deckId })，因为引用式牌组没有自己的 cards.json 文件
-		const allCards = await dataStorage.getAllCards();
+		const allCards: Card[] =
+			typeof (dataStorage as any).getCardsByUUIDs === "function"
+				? await (dataStorage as any).getCardsByUUIDs(cardIds)
+				: await dataStorage.getAllCards();
 
 		logger.debug("[loadCardsByIds] getCards结果:", {
 			totalCards: allCards.length,
-			sampleCardIds: allCards.slice(0, 5).map((c) => c.uuid.slice(0, 8)),
-			fromDeck: false, // 始终从全局加载
+			sampleCardIds: allCards.slice(0, 5).map((c: Card) => c.uuid.slice(0, 8)),
+			fromDeck: false,
 		});
 
 		// 创建ID到卡片的映射
 		const cardMap = new Map<string, Card>();
-		allCards.forEach((_card) => {
+		allCards.forEach((_card: Card) => {
 			cardMap.set(_card.uuid, _card);
 		});
 

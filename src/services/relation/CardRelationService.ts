@@ -194,10 +194,25 @@ export class CardRelationService {
 	 * @returns 子卡片数组
 	 */
 	async getChildCards(parentCardId: string): Promise<Card[]> {
-		const allCards = await this.dataStorage.getAllCards();
+		const parentCard =
+			typeof (this.dataStorage as any).getCardByUUID === "function"
+				? await (this.dataStorage as any).getCardByUUID(parentCardId)
+				: null;
+		const childCardIds = Array.isArray(parentCard?.relationMetadata?.childCardIds)
+			? parentCard.relationMetadata.childCardIds.filter(Boolean)
+			: [];
 
-		// 根据parentCardId筛选子卡片
-		const childCards = allCards.filter((card) => card.parentCardId === parentCardId);
+		let childCards: Card[] = [];
+		if (childCardIds.length > 0 && typeof (this.dataStorage as any).getCardsByUUIDs === "function") {
+			childCards = (await (this.dataStorage as any).getCardsByUUIDs(childCardIds)).filter(
+				(card: Card) => card?.parentCardId === parentCardId
+			);
+		} else {
+			const allCards = await this.dataStorage.getAllCards();
+
+			// 根据parentCardId筛选子卡片
+			childCards = allCards.filter((card) => card.parentCardId === parentCardId);
+		}
 
 		logger.debug(
 			`[CardRelationService] 找到${childCards.length}张子卡片（父卡片: ${parentCardId.slice(

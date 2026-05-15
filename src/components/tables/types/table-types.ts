@@ -3,6 +3,7 @@
  * WeaveCardTable 组件拆分 - 类型系统
  */
 
+import type { App } from "obsidian";
 import type { Card, Deck } from "../../../data/types";
 import type WeavePlugin from "../../../main";
 
@@ -65,12 +66,15 @@ export interface ColumnVisibility {
 	ir_state: boolean; // 阅读状态
 	ir_priority: boolean; // 优先级
 	ir_tags: boolean; // 标签
-	ir_favorite: boolean; // 收藏
 	ir_next_review: boolean; // 下次复习
 	ir_review_count: boolean; // 复习次数
 	ir_reading_time: boolean; // 阅读时长
-	ir_notes: boolean; // 笔记
-	ir_extracted_cards: boolean; // 已提取卡片
+	ir_notes: boolean; // 关联笔记
+	ir_extract_cards: boolean; // 摘录卡
+	ir_memory_cards: boolean; // 记忆卡
+	ir_source_kind: boolean; // 来源类型
+	ir_source_subunit: boolean; // 目录书签
+	ir_tag_group: boolean; // 标签组
 	ir_created: boolean; // 创建时间
 	ir_decks: boolean; // 所属牌组，支持多牌组
 }
@@ -118,12 +122,15 @@ export const DEFAULT_COLUMN_ORDER: ColumnOrder = [
 	"ir_state",
 	"ir_priority",
 	"ir_tags",
-	"ir_favorite",
 	"ir_next_review",
 	"ir_review_count",
 	"ir_reading_time",
 	"ir_notes",
-	"ir_extracted_cards",
+	"ir_extract_cards",
+	"ir_memory_cards",
+	"ir_source_kind",
+	"ir_source_subunit",
+	"ir_tag_group",
 	"ir_created",
 	"ir_decks", // 所属牌组
 	"actions",
@@ -173,12 +180,15 @@ export interface ColumnWidths {
 	ir_state: number;
 	ir_priority: number;
 	ir_tags: number;
-	ir_favorite: number;
 	ir_next_review: number;
 	ir_review_count: number;
 	ir_reading_time: number;
 	ir_notes: number;
-	ir_extracted_cards: number;
+	ir_extract_cards: number;
+	ir_memory_cards: number;
+	ir_source_kind: number;
+	ir_source_subunit: number;
+	ir_tag_group: number;
 	ir_created: number;
 	ir_decks: number; // 所属牌组列宽度
 }
@@ -194,6 +204,7 @@ export interface TableRowCallbacks {
 	onTempFileEdit?: (cardId: string) => void;
 	onView?: (cardId: string) => void;
 	onJumpToSource?: (card: Card) => void;
+	onIRAssociatedNotesManage?: (event: MouseEvent, card: Card) => void;
 }
 
 /**
@@ -208,12 +219,15 @@ export interface BaseCellProps {
 	card: Card;
 }
 
+export type TableTagOption = string | { name: string; count: number };
+
 /**
  * 标签单元格 Props
  */
 export interface TagsCellProps extends BaseCellProps {
+	app?: App;
 	onTagsUpdate?: (cardId: string, tags: string[]) => void;
-	availableTags?: string[];
+	availableTags?: TableTagOption[];
 }
 
 /**
@@ -276,6 +290,7 @@ export interface TableHeaderProps {
 export interface TableRowProps {
 	card: Card;
 	selected: boolean;
+	selectionOrder?: number | null;
 	columnVisibility: ColumnVisibility;
 	columnOrder: ColumnOrder;
 	tableViewMode?: TableViewMode;
@@ -283,7 +298,7 @@ export interface TableRowProps {
 	plugin?: WeavePlugin;
 	decks?: Array<{ id: string; name: string }> | Deck[];
 	fieldTemplates?: FieldTemplateInfo[];
-	availableTags?: string[];
+	availableTags?: TableTagOption[];
 	onSelect: (cardId: string, selected: boolean) => void;
 	// 拖拽批量选择支持
 	// 注：这些Props由TableRow传递给DraggableCheckboxWrapper

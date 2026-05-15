@@ -1,8 +1,14 @@
-vi.mock('obsidian', () => ({
-	Notice: class Notice {
-		constructor(_message?: string) {}
-	},
-}));
+vi.mock('obsidian', async () => {
+	const actual = await vi.importActual<typeof import('../../../tests/mocks/obsidian')>(
+		'../../../tests/mocks/obsidian'
+	);
+	return {
+		...actual,
+		Notice: class Notice {
+			constructor(_message?: string) {}
+		},
+	};
+});
 
 import { EpubScreenshotService } from '../EpubScreenshotService';
 

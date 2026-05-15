@@ -26,8 +26,12 @@
     groupKey: string;
     /** 列配置 */
     columnConfig: KanbanVirtualizationConfig;
+    focusedCardUUIDs?: string[];
+    interactionMode?: 'selection' | 'action';
     /** 卡片选择回调 */
     onCardSelect?: (card: Card) => void;
+    /** 卡片编辑回调 */
+    onCardEdit?: (card: Card) => void;
     /** 卡片更新回调 */
     onCardUpdate?: (card: Card) => void;
     /** 卡片删除回调 */
@@ -44,7 +48,10 @@
     cards,
     groupKey,
     columnConfig,
+    focusedCardUUIDs = [],
+    interactionMode = 'selection',
     onCardSelect,
+    onCardEdit,
     onCardUpdate,
     onCardDelete,
     plugin,
@@ -58,6 +65,7 @@
   let draggingCardId: string | null = $state(null);
   let hoveredCardId: string | null = $state(null);
   let selectedCards = $state(new Set<string>());
+  let focusedCardSet = $derived(new Set(focusedCardUUIDs));
   
   // 初始化高度缓存
   heightCache = untrack(() => new HeightCacheService(columnConfig.overscan * 50)); // 动态缓存大小
@@ -215,6 +223,11 @@
    * 处理卡片点击
    */
   function handleCardClick(card: Card): void {
+    if (interactionMode === 'action') {
+      onCardSelect?.(card);
+      return;
+    }
+
     // 切换选中状态
     if (selectedCards.has(card.uuid)) {
       selectedCards.delete(card.uuid);
@@ -228,10 +241,16 @@
    * 处理卡片双击
    */
   function handleCardDoubleClick(card: Card): void {
-    if (onCardSelect) {
-      onCardSelect(card);
+    if (onCardEdit) {
+      onCardEdit(card);
     }
   }
+
+  $effect(() => {
+    if (interactionMode === 'action' && selectedCards.size > 0) {
+      selectedCards = new Set();
+    }
+  });
   
   /**
    * 拖拽处理：开始
@@ -314,6 +333,7 @@
         {@const card = cards[virtualRow.index]}
         {@const renderMode = getCardRenderMode(virtualRow.index)}
         {@const isSelected = selectedCards.has(card.uuid)}
+        {@const isFocused = focusedCardSet.has(card.uuid)}
         {@const isHovered = hoveredCardId === card.uuid}
         {@const isDragging = draggingCardId === card.uuid}
         
@@ -352,6 +372,7 @@
             {layoutMode}
             {plugin}
             selected={isSelected}
+            emphasized={isFocused}
             hovered={isHovered}
             onClick={() => handleCardClick(card)}
             onDoubleClick={() => handleCardDoubleClick(card)}

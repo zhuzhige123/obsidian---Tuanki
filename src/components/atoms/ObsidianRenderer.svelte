@@ -4,6 +4,8 @@
   import type { WeavePlugin } from '../../main';
   import { logger } from '../../utils/logger';
   import { shouldRevealClozeAnswersForRender } from '../../utils/cloze-mode';
+  import { escapeHtml, replaceAnkiClozeSyntax, replaceConfiguredClozeSyntax } from '../../utils/cloze-syntax';
+  import { applyStyleProps } from '../../utils/style-props';
 
   interface Props {
     plugin: WeavePlugin;
@@ -31,9 +33,21 @@
     card,
     studyInstance, // 渐进式挖空学习实例
     activeClozeOrdinal, // 渐进式挖空序号
-    onRenderComplete,
-    onRenderError
+    onRenderComplete: onRenderCompleteProp,
+    onRenderError: onRenderErrorProp
   }: Props = $props();
+
+  function notifyRenderComplete(element: HTMLElement): void {
+    if (typeof onRenderCompleteProp === 'function') {
+      onRenderCompleteProp(element);
+    }
+  }
+
+  function notifyRenderError(error: Error): void {
+    if (typeof onRenderErrorProp === 'function') {
+      onRenderErrorProp(error);
+    }
+  }
 
   // 未显式传入 sourcePath 时，回退到卡片来源路径，保证内部链接与悬停预览可用
   const effectiveSourcePath = $derived(
@@ -186,7 +200,7 @@
     resetClozeStateClasses(markEl);
     markEl.classList.add('weave-cloze-input-mode');
     markEl.replaceChildren();
-    markEl.style.cursor = 'text';
+    applyStyleProps(markEl, { cursor: 'text' });
     markEl.setAttribute('tabindex', '-1');
     markEl.setAttribute('role', 'group');
     markEl.setAttribute('aria-label', getClozeAriaLabel(false, hint));
@@ -203,13 +217,13 @@
     inputEl.setAttribute('aria-label', hint ? `输入答案，提示：${hint}` : '输入答案');
     inputEl.addEventListener('input', () => {
       markEl.setAttribute('data-user-answer', inputEl.value);
-      inputEl.style.width = computeClozeInputWidth(answerText, inputEl.value, inputEl);
+      applyStyleProps(inputEl, { width: computeClozeInputWidth(answerText, inputEl.value, inputEl) });
     });
 
     markEl.appendChild(inputEl);
-    inputEl.style.width = computeClozeInputWidth(answerText, userAnswer, inputEl);
+    applyStyleProps(inputEl, { width: computeClozeInputWidth(answerText, userAnswer, inputEl) });
     requestAnimationFrame(() => {
-      inputEl.style.width = computeClozeInputWidth(answerText, inputEl.value, inputEl);
+      applyStyleProps(inputEl, { width: computeClozeInputWidth(answerText, inputEl.value, inputEl) });
     });
   }
 
@@ -222,7 +236,7 @@
     markEl.setAttribute('tabindex', '0');
     markEl.setAttribute('role', 'button');
     markEl.setAttribute('aria-label', getClozeAriaLabel(shouldShow, hint));
-    markEl.style.cursor = shouldShow ? 'default' : 'pointer';
+    applyStyleProps(markEl, { cursor: shouldShow ? 'default' : 'pointer' });
 
     if (shouldShow) {
       markEl.classList.add('weave-cloze-revealed');
@@ -241,7 +255,7 @@
     resetClozeStateClasses(markEl);
     markEl.classList.add('weave-cloze-revealed', isCorrect ? 'weave-cloze-correct' : 'weave-cloze-incorrect');
     markEl.replaceChildren(document.createTextNode(answerText));
-    markEl.style.cursor = 'default';
+    applyStyleProps(markEl, { cursor: 'default' });
     markEl.setAttribute('tabindex', '0');
     markEl.setAttribute('role', 'status');
     markEl.setAttribute(
@@ -277,74 +291,54 @@
   let isMounted = $state(false);  
   let pendingRender = $state(false);
 
-  // 按优先级预处理挖空内容：
-  // 1. 直接使用 activeClozeOrdinal 指定当前激活的挖空
-  // 2. 从渐进式挖空学习实例中读取 activeClozeOrd
-  // 3. 将普通 Anki 挖空转换为 ==高亮==
-  // 4. 已是 Obsidian 高亮格式时保持原样
+  function buildWeaveClozeMarkup(answerText: string, hint?: string | null): string {
+    const markHtml = `<mark data-weave-cloze="true">${escapeHtml(answerText)}</mark>`;
+    if (!hint) {
+      return markHtml;
+    }
+
+    return `<span data-cloze-hint="${escapeHtml(hint)}">${markHtml}</span>`;
+  }
+
   function preprocessClozeContent(rawContent: string): string {
     if (!rawContent) return rawContent;
     
     let processedContent = rawContent;
+    const clozeSettings = plugin?.settings?.clozeSettings;
     
-    // 优先级 1：直接传入的 activeClozeOrdinal 参数（1-based）
     if (activeClozeOrdinal !== undefined) {
-      // 渐进式挖空：区分当前挖空和其他挖空
-      const activeClozeOrd = activeClozeOrdinal - 1; // 转换为 0-based
-      
-      processedContent = processedContent.replace(
-        /\{\{c(\d+)::([^}:]+)(?:::([^}]+))?\}\}/g,
-        (match, num, text, hint) => {
-          const ord = parseInt(num) - 1;
-          
-          if (ord === activeClozeOrd) {
-            // 当前激活的挖空：转换为高亮（让Obsidian渲染为<mark>）
-            return `==${text}==`;
-          } else {
-            // 其他挖空：直接显示答案文本（移除挖空标记）
-            return text;
-          }
+      processedContent = replaceAnkiClozeSyntax(processedContent, (match) => {
+        if (match.ordinal === activeClozeOrdinal) {
+          return buildWeaveClozeMarkup(match.text, match.hint);
         }
-      );
-      
+
+        return match.text;
+      });
+
       logger.debug('[ObsidianRenderer]',`✅ 渲染渐进式挖空（activeCloze: c${activeClozeOrdinal}）`);
-      
     } else if (studyInstance && typeof studyInstance === 'object' && 'activeClozeOrd' in studyInstance) {
-      // 优先级 2：从渐进式挖空学习实例中获取当前挖空
-      // 渐进式挖空学习实例：区分当前挖空和其他挖空
       const activeClozeOrd = studyInstance.activeClozeOrd;
-      
-      processedContent = processedContent.replace(
-        /\{\{c(\d+)::([^}:]+)(?:::([^}]+))?\}\}/g,
-        (match, num, text, hint) => {
-          const ord = parseInt(num) - 1;
-          
-          if (ord === activeClozeOrd) {
-            // 当前激活的挖空：转换为高亮（让Obsidian渲染为<mark>）
-            return `==${text}==`;
-          } else {
-            // 其他挖空：直接显示答案文本（移除挖空标记）
-            return text;
-          }
+
+      processedContent = replaceAnkiClozeSyntax(processedContent, (match) => {
+        if (match.ordinal === activeClozeOrd + 1) {
+          return buildWeaveClozeMarkup(match.text, match.hint);
         }
-      );
-      
+
+        return match.text;
+      });
+
       logger.debug('[ObsidianRenderer]',`✅ 渲染渐进式挖空学习实例（activeCloze: c${activeClozeOrd + 1}）`);
-      
     } else {
-      // 普通挖空：将所有 Anki 格式转换为 Obsidian 高亮
-      const ankiClozeRegex = /\{\{c(\d+)::([^:}]+)(?:::([^}]+))?\}\}/g;
-      const hasAnkiCloze = ankiClozeRegex.test(rawContent);
-      ankiClozeRegex.lastIndex = 0;
-      
-      if (hasAnkiCloze) {
-        processedContent = processedContent.replace(ankiClozeRegex, (match, num, text, hint) => {
-          return `==${text}==`;
-        });
-        
-        logger.debug('[ObsidianRenderer]','✅ 已转换Anki挖空格式为Obsidian高亮格式');
-      }
+      processedContent = replaceAnkiClozeSyntax(processedContent, (match) =>
+        buildWeaveClozeMarkup(match.text, match.hint)
+      );
     }
+
+    processedContent = replaceConfiguredClozeSyntax(
+      processedContent,
+      (match) => buildWeaveClozeMarkup(match.text),
+      clozeSettings
+    );
     
     return processedContent;
   }
@@ -603,17 +597,23 @@
     activeFootnotePopover = popover;
 
     const rect = refEl.getBoundingClientRect();
-    popover.style.left = `${rect.left}px`;
-    popover.style.top = `${rect.bottom + 6}px`;
+    applyStyleProps(popover, {
+      left: `${rect.left}px`,
+      top: `${rect.bottom + 6}px`
+    });
 
     requestAnimationFrame(() => {
       if (!activeFootnotePopover) return;
       const pr = popover.getBoundingClientRect();
       if (pr.right > window.innerWidth - 16) {
-        popover.style.left = `${window.innerWidth - pr.width - 16}px`;
+        applyStyleProps(popover, {
+          left: `${window.innerWidth - pr.width - 16}px`
+        });
       }
       if (pr.bottom > window.innerHeight - 16) {
-        popover.style.top = `${rect.top - pr.height - 6}px`;
+        applyStyleProps(popover, {
+          top: `${rect.top - pr.height - 6}px`
+        });
       }
     });
   }
@@ -622,7 +622,7 @@
   function postProcessRenderedContent(element: HTMLElement): void {
     if (!enableClozeProcessing) return;
 
-    const markElements = element.querySelectorAll('mark');
+    const markElements = element.querySelectorAll('mark[data-weave-cloze]');
     const shouldReveal = effectiveShowClozeAnswers;
     
     markElements.forEach((mark, index) => {
@@ -746,7 +746,7 @@
       }
       
       // 防止切换卡片时答案闪烁：渲染期间隐藏容器，等待onRenderComplete处理后才显示
-      container.style.visibility = 'hidden';
+      applyStyleProps(container, { visibility: 'hidden' });
 
       container.innerHTML = '';
 
@@ -793,11 +793,11 @@
       setupFootnoteHandlers(container);
 
       // 触发完成回调（父组件在此回调中分割DOM并隐藏答案区域）
-      onRenderComplete?.(container);
+      notifyRenderComplete(container);
 
       // 回调完成后恢复可见（答案已被隐藏）
       if (isMounted && container) {
-        container.style.visibility = '';
+        applyStyleProps(container, { visibility: null });
       }
       
       logger.debug('[ObsidianRenderer]','✅ 渲染成功', {
@@ -820,7 +820,7 @@
       renderError = error instanceof Error ? error.message : '未知渲染错误';
       
       // 错误时恢复可见
-      container.style.visibility = '';
+      applyStyleProps(container, { visibility: null });
       
       // 降级到简单HTML渲染
       container.innerHTML = `
@@ -831,7 +831,7 @@
         </div>
       `;
 
-      onRenderError?.(error instanceof Error ? error : new Error('渲染失败'));
+      notifyRenderError(error instanceof Error ? error : new Error('渲染失败'));
     } finally {
       isRendering = false;
 
@@ -908,7 +908,7 @@
   function updateClozeDisplay(shouldShow: boolean): void {
     if (!container) return;
     
-    const markElements = container.querySelectorAll('mark.weave-cloze-mark');
+    const markElements = container.querySelectorAll('mark[data-weave-cloze].weave-cloze-mark');
     logger.debug('[ObsidianRenderer]',`更新 ${markElements.length} 个挖空的显示状态`);
     
     markElements.forEach((mark) => {

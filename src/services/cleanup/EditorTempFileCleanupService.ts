@@ -1,9 +1,11 @@
-import type { App, TFile } from "obsidian";
+import { type App, TFile } from "obsidian";
 import { normalizePath } from "obsidian";
 import { logger } from "../../utils/logger";
 import {
 	getPluginEditorTempDir,
+	getVaultEditorTempDir,
 	isDetachedEditorTempFilePath,
+	isModalEditorPermanentFilePath,
 } from "../editor/editor-temp-file-policy";
 
 export class EditorTempFileCleanupService {
@@ -118,7 +120,11 @@ export class EditorTempFileCleanupService {
 			// 正式插件缓存目录
 			if (p.startsWith(`${pluginEditorTempDir}/`)) return true;
 
-			// 兼容任意父目录：只要包含 /weave/temp/ 或 /Weave/temp/ 都认为是临时目录
+			// 正式 vault 可见桥接目录
+			if (p.includes("/weave/editor/")) return true;
+			if (p.includes("/Weave/editor/")) return true;
+
+			// 兼容任意父目录：只要包含 /weave/temp/ 或 /Weave/temp/ 都认为是旧临时目录
 			if (p.includes("/weave/temp/")) return true;
 			if (p.includes("/Weave/temp/")) return true;
 
@@ -171,7 +177,141 @@ export class EditorTempFileCleanupService {
 			});
 		}
 
+		try {
+			await this.cleanupLegacyTempDirectories(openPaths);
+		} catch (error) {
+			logger.warn("[EditorTempFileCleanup] 清理 legacy temp 目录失败:", error);
+		}
+
 		return { scanned: candidates.length, deleted, skippedOpen };
+	}
+
+	private getLegacyTempDirectories(): string[] {
+		try {
+			const normalized = normalizePath(getVaultEditorTempDir(this.app));
+			const rootDir = normalized.includes("/") ? normalized.slice(0, normalized.lastIndexOf("/")) : "";
+			if (!rootDir) {
+				return [];
+			}
+			return [normalizePath(`${rootDir}/temp`)];
+		} catch {
+			return [];
+		}
+	}
+
+	private async cleanupLegacyTempDirectories(openPaths: Set<string>): Promise<void> {
+		const adapter: any = this.app.vault.adapter as any;
+		for (const dir of this.getLegacyTempDirectories()) {
+			let deletedInDir = 0;
+			for (const filePath of await this.collectFilesRecursively(dir)) {
+				const normalizedPath = normalizePath(filePath);
+				if (openPaths.has(normalizedPath)) {
+					continue;
+				}
+
+				if (!this.isLegacyEditorTempFilePath(normalizedPath)) {
+					continue;
+				}
+
+				const abstractFile = this.app.vault.getAbstractFileByPath(normalizedPath);
+				if (abstractFile instanceof TFile) {
+					await this.app.fileManager.trashFile(abstractFile);
+				} else {
+					await adapter.remove(normalizedPath);
+				}
+				deletedInDir += 1;
+			}
+
+			await this.removeEmptyDirectoriesDeep(dir);
+
+			if (deletedInDir > 0) {
+				logger.info("[EditorTempFileCleanup] 已清理 legacy temp 目录临时文件:", {
+					dir,
+					deleted: deletedInDir,
+				});
+			}
+		}
+	}
+
+	private isLegacyEditorTempFilePath(path: string): boolean {
+		try {
+			const normalized = normalizePath(path);
+			if (isDetachedEditorTempFilePath(normalized)) return true;
+			if (isModalEditorPermanentFilePath(normalized)) return true;
+			return false;
+		} catch {
+			return false;
+		}
+	}
+
+	private async collectFilesRecursively(dirPath: string): Promise<string[]> {
+		const adapter: any = this.app.vault.adapter as any;
+		const normalizedDirPath = normalizePath(dirPath);
+		if (!(await adapter.exists(normalizedDirPath))) {
+			return [];
+		}
+
+		const files: string[] = [];
+
+		const walk = async (currentDir: string): Promise<void> => {
+			let listing: any;
+			try {
+				listing = await adapter.list(currentDir);
+			} catch {
+				return;
+			}
+
+			for (const childDir of listing?.folders || []) {
+				await walk(childDir);
+			}
+
+			for (const filePath of listing?.files || []) {
+				files.push(filePath);
+			}
+		};
+
+		await walk(normalizedDirPath);
+		return files;
+	}
+
+	private async removeEmptyDirectoriesDeep(dirPath: string): Promise<void> {
+		const adapter: any = this.app.vault.adapter as any;
+		const normalizedPath = normalizePath(dirPath);
+		if (!(await adapter.exists(normalizedPath))) {
+			return;
+		}
+
+		let listing: any;
+		try {
+			listing = await adapter.list(normalizedPath);
+		} catch {
+			return;
+		}
+
+		for (const childDir of listing?.folders || []) {
+			await this.removeEmptyDirectoriesDeep(childDir);
+		}
+
+		let latestListing: any;
+		try {
+			latestListing = await adapter.list(normalizedPath);
+		} catch {
+			return;
+		}
+
+		const hasFiles = (latestListing?.files || []).length > 0;
+		const hasFolders = (latestListing?.folders || []).length > 0;
+		if (hasFiles || hasFolders) {
+			return;
+		}
+
+		try {
+			if (typeof adapter.rmdir === "function") {
+				await adapter.rmdir(normalizedPath, false);
+			} else {
+				await adapter.remove(normalizedPath);
+			}
+		} catch {}
 	}
 
 	private getOpenMarkdownFilePaths(): Set<string> {
