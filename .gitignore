@@ -223,6 +223,7 @@ backup-before-migration/
 
 # 设计文档和原型
 design/
+prototypes/
 heatmap-designs/
 heatmap_prototype.html
 
