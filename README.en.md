@@ -9,59 +9,75 @@
 
 </div>
 
-Weave is a learning workflow plugin built specifically for Obsidian. The main in-plugin UI view is called Weave.
+Weave is a learning workflow plugin for Obsidian focused on turning notes, memory cards, and quiz practice into one traceable and reviewable study loop.
 
-Weave connects three stages into one traceable, verifiable, and reviewable learning loop:
+The main plugin currently focuses on two core capability groups:
 
-- Reading decks: reading material management and incremental reading workflows
 - Memory decks: subjective memorization and review scheduling based on FSRS6
-- Question decks: generate quizzes from memory cards and track objective performance (including EWMA trend tracking)
+- Question decks: generate quizzes from memory cards and track objective performance, including EWMA-based trend tracking
 
-In this loop, your excerpt notes, memory cards, and quiz questions can all be located via block references and backlinks, making everything traceable and interconnected.
+Cards, quiz items, and source references created in Weave remain linkable through block references and backlinks, so you can trace where knowledge came from and review it in context.
 
 Minimum supported Obsidian version: 1.7.0
 
-## Plugin Introduction
+## Who It Is For
 
-Weave means “to weave”. It is a plugin that focuses on three core modules: Reading Decks, Memory Decks, and Question Decks. It applies TVP-DS, FSRS6, and EWMA algorithms respectively, and is designed to serve Obsidian across all platforms. Its functions target:
+- People who want a full “note -> card -> review -> test” loop inside Obsidian
+- People who want cards and questions to stay connected to their source notes
+- People who want to sync cards with local Anki through AnkiConnect
 
-- Transforming external reading materials into internal knowledge documents
-- Creating memory cards from any Obsidian Markdown content for subjective memorization and review
-- Using generated memory cards to create quizzes and verify learning outcomes objectively
+## Core Capabilities
 
-Here, all your excerpt notes, memory cards, and quiz questions can be precisely traced through block references, forming a coherent and reinforcing loop to help you consolidate and master your own Obsidian knowledge network.
+- Memory card study with FSRS6-based scheduling
+- Question-bank and quiz workflows generated from memory cards
+- Reference-based deck architecture that allows flexible deck reuse and reorganization
+- Card management views including table, grid, and kanban
+- Source tracing from cards or quiz items back to the original context
+- AnkiConnect integration for local Anki interoperability
 
-You can move the main Weave view into Obsidian’s sidebar. By clicking related documents, Weave can automatically filter and show excerpt notes, memory cards, and related quiz questions generated from the currently active document. With a reference-based deck architecture, a card is no longer bound to a single deck: it can be reused by multiple decks, and you can freely dissolve and reorganize decks to optimize their composition. Weave presents reading documents, memory cards, and practice questions that you import or generate from Obsidian Markdown files through multiple data sources and multiple views, and supports batch management.
+## About The Separate Incremental Reading Plugin
 
-Weave also integrates with Anki via AnkiConnect. You can fetch decks and cards from Anki, or sync cards from Weave to Anki. Both import and export include necessary content format conversions to adapt to different editing and preview environments.
+Starting after `0.8.0`, **incremental reading has been progressively split into a separate Obsidian plugin direction**.  
+This README now describes the main Weave plugin only and no longer presents incremental reading as a core capability of the main plugin.
 
-And Weave is far more than that. The in-plugin content editor uses Obsidian’s official editor, so you can use essentially all plugins and enhancements that apply to Obsidian’s editing scenarios. Weave can also link with Obsidian’s graph view, helping you understand where a reading document or memory card is positioned in your vault’s backlink network. The UI is built on top of Obsidian theme variables and is highly customizable, so you can apply any of the many available Obsidian themes to the plugin UI.
+## Free vs Premium
 
-Likewise, Weave is far more than that. Based on the three interconnected core modules, features such as image masking, time dispersion, progressive cloze, curves, heatmaps, and workload charts can naturally emerge.
+Legend:
+- `✅` available
+- `❌` not included
+- `⚠️` limited or fallback experience in the free version
 
-We look forward to your experience and support.
+At a glance:
+- The free version already covers the main view, memory-card study, FSRS6 review, base deck study, table management, and source tracing for the core learning loop.
+- Premium mainly expands the experience with question-bank workflows, deck analytics, advanced views, batch parsing, progressive cloze, image occlusion, and AI-assisted features.
 
-## Basic vs Advanced Features
-
-| Module | Feature | Basic (Not Activated) | Advanced (Activated) | License Feature ID | Notes |
-|---|---|---|---|---|---|
-| Overview | Weave main view and core navigation | Available | Available | N/A | Primary entry point |
-| Memory decks | Learning and review scheduling (FSRS6) | Available | Available | N/A | Core capability |
-| Deck study | Deck study (Deck Study) | Available | Available | N/A | Core capability |
-| Card management | Table view | Available | Available | N/A | Default view |
-| Card management | Grid view | Not available | Available | `grid-view` | Falls back to table view and prompts activation when restricted |
-| Card management | Kanban view | Not available | Available | `kanban-view` | Falls back to table view and prompts activation when restricted |
-| Deck analytics | Per-deck analytics modal (curves, workload, etc.) | Not available | Available | `deck-analytics` | Main entry for analytics |
-| Incremental reading | Incremental reading (IR annotation notes workflow) | Not available | Available | `incremental-reading` | Reading material management and incremental reading workflows |
-| Question bank | Question bank / quizzes | Not available | Available | `question-bank` | Test sessions and performance tracking |
-| Batch parsing | Batch parsing system | Not available | Available | `batch-parsing` | Automatic parsing, mapping, and triggers |
-| AI | AI assistant | Not available or hidden | Available | `ai-assistant` | Depends on current implementation |
-| Cloze | Progressive cloze | Not available | Available | `progressive-cloze` | Depends on feature entry points |
-| Source tracing | View source / open source context | Available | Available | N/A | Fully free, no restrictions |
+| Feature | Free | Premium | Notes |
+|---|---|---|---|
+| Weave main view and core navigation | ✅ | ✅ | Primary plugin entry |
+| Memory card study and FSRS6 review scheduling | ✅ | ✅ | Core learning capability |
+| Deck study workflow | ✅ | ✅ | Base study flow |
+| Table view | ✅ | ✅ | Default management view |
+| View source / open source context | ✅ | ✅ | Fully free with no restrictions |
+| Grid view | ⚠️ | ✅ | Free users fall back to table view with an activation prompt |
+| Timeline view | ⚠️ | ✅ | Free users stay on the regular grid layout with an activation prompt |
+| Kanban view | ⚠️ | ✅ | Free users fall back to table view with an activation prompt |
+| Deck analytics | ❌ | ✅ | Full analytics entry is available in Premium |
+| Question bank / quizzes | ❌ | ✅ | Includes test sessions and performance tracking |
+| Image occlusion | ❌ | ✅ | For visual masking and recall-oriented study |
+| Batch parsing system | ❌ | ✅ | For automatic parsing, mapping, and triggers |
+| AI assistant | ⚠️ | ✅ | The free entry may be hidden or unavailable depending on the current implementation |
+| Progressive cloze | ❌ | ✅ | Premium-only advanced study capability |
 
 ## Installation
 
-### Option 1: Community plugins (not listed yet)
+Most users only need these three core files:
+- `main.js`
+- `manifest.json`
+- `styles.css`
+
+You only need the extra `sql-wasm.wasm` file if you want to use `Legacy APKG import`.
+
+### Option 1: Community plugins
 
 1. Open Obsidian settings
 2. Go to Community plugins
@@ -70,16 +86,16 @@ We look forward to your experience and support.
 5. Install and enable
 
 Notes:
-- The community-store build only relies on `main.js`, `manifest.json`, and `styles.css`.
-- `Legacy APKG import` is an optional enhanced capability. The community-store build does not ship the extra `sql-wasm.wasm` runtime by default.
+- The community-store installation only relies on the three core files above.
+- `Legacy APKG import` is an optional enhanced capability. The community-store installation does not ship the extra `sql-wasm.wasm` runtime by default.
 
 ### Option 2: Manual installation
 
-1. Download the following files from the release package:
+1. Download the three core files:
    - `main.js`
    - `manifest.json`
    - `styles.css`
-2. If you need `Legacy APKG import`, also add:
+2. If you need `Legacy APKG import`, also download:
    - `sql-wasm.wasm`
 3. Copy them into:
 
@@ -89,7 +105,7 @@ Notes:
 
 Additional notes:
 - If you do not need legacy APKG import, the core three files are enough for the main plugin functionality.
-- `versions.json` is repository metadata for version compatibility, not a runtime file required by the community-store installation flow.
+- `versions.json` is repository version-compatibility metadata, not a runtime file required by the community-store installation flow.
 
 ## Quick Start
 
@@ -98,24 +114,28 @@ Additional notes:
 2. Open settings
    - Configure data paths, decks, and feature toggles
 3. Start with a closed loop
-   - Import reading materials and create excerpts
    - Create memory cards from Markdown content
    - Start learning and reviewing
    - Generate quizzes from cards and start a test session
 
-## Data Directories and Sync
+## Default Data Locations
 
-The project divides data into two categories:
+Weave stores its primary study data inside the current Obsidian vault under the `weave/` directory by default.
 
-1. Vault data (recommended to sync across devices)
-   - Data root: `weave/`
-   - Includes memory (`weave/memory/`), incremental reading (`weave/incremental-reading/`), and question bank (`weave/question-bank/`) learning state and scheduling data
+Common locations:
+- Memory deck data: `weave/memory/`
+- Question-bank data: `weave/question-bank/`
+- Plugin-local cache and runtime state: `.obsidian/plugins/weave/`
 
-2. Plugin directory data (recommended to keep local, not synced)
-   - Root directory: `.obsidian/plugins/weave/`
-   - Includes configuration, indices, caches, logs, backups, and migration state
+File format overview:
+- `.wdeck`: memory-deck file format used for formal deck structure and ownership data.
+- `.qbank`: question-bank file format. Each question bank is stored as its own `.qbank` file.
+- Markdown and attachments: your notes, images, audio, and other vault content remain stored and linked the normal Obsidian way.
 
-Incremental Reading can also output readable Markdown into a visible directory after processing (defaults to `weave/incremental-reading/IR`, configurable in settings).
+Additional notes:
+- The `weave/` directory mainly stores long-lived study data.
+- `.obsidian/plugins/weave/` mainly stores cache, local state, logs, and other rebuildable runtime data.
+- Unless you know exactly what you are doing, avoid bulk renaming, moving, or deleting `.wdeck` and `.qbank` files manually.
 
 ## Disclosures
 
