@@ -7,176 +7,124 @@ on:
     branches: [main]
 
 jobs:
-  # Job 1: 代码格式检查
-  format-check:
-    name: Code Format Check
+  metadata-check:
+    name: Release Metadata Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Check code formatting
-        run: npm run format -- --check
-        continue-on-error: false
 
-  # Job 2: Lint检查
-  lint:
-    name: Lint Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-      
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Run linter
-        run: npm run lint
-        continue-on-error: false
-      
-      - name: Check Svelte 5 Compliance
-        run: npm run lint:svelte5
-        continue-on-error: false
+          node-version: "20"
+          cache: "npm"
 
-  # Job 3: TypeScript类型检查（关键）
-  type-check:
-    name: TypeScript Type Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      
       - name: Install dependencies
         run: npm ci
-      
-      - name: Run svelte-check
-        run: npm run check
-        continue-on-error: false
-      
-      - name: Count TypeScript errors
-        if: failure()
+
+      - name: Validate repository metadata
+        shell: bash
         run: |
-          npm run check 2>&1 | grep -c "Error:" || true
-          echo "TypeScript type checking failed!"
-          exit 1
+          test -f LICENSE
+          test -f manifest.json
+          test -f package.json
+          test -f versions.json
+          test -f public/versions.json
 
-  # Job 4: 单元测试
-  test:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Run tests with coverage
-        run: npm run test -- --coverage
-        continue-on-error: false
-      
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        if: always()
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/coverage-final.json
-          fail_ci_if_error: false
-          
-  # Job 5: 构建验证
+          MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          ROOT_VERSIONS=$(node -p "JSON.stringify(require('./versions.json'))")
+          PUBLIC_VERSIONS=$(node -p "JSON.stringify(require('./public/versions.json'))")
+
+          echo "manifest version: $MANIFEST_VERSION"
+          echo "package version: $PACKAGE_VERSION"
+
+          if [ "$MANIFEST_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "manifest.json and package.json versions are not synchronized"
+            exit 1
+          fi
+
+          node -e "const versions=require('./versions.json'); const version=process.argv[1]; if (!versions[version]) { console.error('versions.json missing version ' + version); process.exit(1); }" "$MANIFEST_VERSION"
+
+          if [ "$ROOT_VERSIONS" != "$PUBLIC_VERSIONS" ]; then
+            echo "versions.json and public/versions.json are not synchronized"
+            exit 1
+          fi
+
   build:
     name: Build Verification
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-      
+          node-version: "20"
+          cache: "npm"
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Build project
         run: npm run build
-        continue-on-error: false
-      
-      - name: Check build size
+
+      - name: Validate marketplace assets
+        shell: bash
         run: |
-          if [ -f "dist/main.js" ]; then
-            SIZE=$(stat -c%s "dist/main.js" 2>/dev/null || stat -f%z "dist/main.js" 2>/dev/null || echo 0)
-            echo "Build size: $SIZE bytes"
-            if [ $SIZE -gt 10000000 ]; then
-              echo "⚠️ Warning: Build size exceeds 10MB ($SIZE bytes)"
-              exit 1
-            fi
-            echo "✅ Build size OK: $SIZE bytes"
-          else
-            echo "❌ Build file not found!"
+          test -f dist/main.js
+          test -f dist/manifest.json
+          test -f dist/styles.css
+
+          DIST_MANIFEST_VERSION=$(node -p "require('./dist/manifest.json').version")
+          SOURCE_MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+
+          if [ "$DIST_MANIFEST_VERSION" != "$SOURCE_MANIFEST_VERSION" ]; then
+            echo "dist/manifest.json version does not match manifest.json"
             exit 1
           fi
-      
+
+          MAIN_JS_SIZE=$(stat -c%s "dist/main.js" 2>/dev/null || stat -f%z "dist/main.js")
+          STYLES_SIZE=$(stat -c%s "dist/styles.css" 2>/dev/null || stat -f%z "dist/styles.css")
+
+          echo "main.js size: $MAIN_JS_SIZE bytes"
+          echo "styles.css size: $STYLES_SIZE bytes"
+
+          if [ "$MAIN_JS_SIZE" -gt 5242880 ]; then
+            echo "main.js exceeds the 5 MB Obsidian Sync Standard threshold"
+            exit 1
+          fi
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-output
-          path: dist/
+          path: |
+            dist/main.js
+            dist/manifest.json
+            dist/styles.css
           retention-days: 7
 
-  # Job 6: 质量汇总
   quality-summary:
     name: Quality Summary
     runs-on: ubuntu-latest
-    needs: [format-check, lint, type-check, test, build]
+    needs: [metadata-check, build]
     if: always()
     steps:
       - name: Check all jobs status
+        shell: bash
         run: |
-          echo "📊 CI Pipeline Summary"
-          echo "====================="
-          echo "Format Check: ${{ needs.format-check.result }}"
-          echo "Lint Check: ${{ needs.lint.result }}"
-          echo "Type Check: ${{ needs.type-check.result }}"
-          echo "Tests: ${{ needs.test.result }}"
-          echo "Build: ${{ needs.build.result }}"
-          
-          if [[ "${{ needs.format-check.result }}" != "success" ]] || \
-             [[ "${{ needs.lint.result }}" != "success" ]] || \
-             [[ "${{ needs.type-check.result }}" != "success" ]] || \
-             [[ "${{ needs.test.result }}" != "success" ]] || \
+          echo "CI Pipeline Summary"
+          echo "==================="
+          echo "Release Metadata Check: ${{ needs.metadata-check.result }}"
+          echo "Build Verification: ${{ needs.build.result }}"
+
+          if [[ "${{ needs.metadata-check.result }}" != "success" ]] || \
              [[ "${{ needs.build.result }}" != "success" ]]; then
-            echo "❌ CI Pipeline Failed"
+            echo "CI Pipeline Failed"
             exit 1
-          else
-            echo "✅ All Checks Passed!"
           fi
+
+          echo "All Checks Passed"

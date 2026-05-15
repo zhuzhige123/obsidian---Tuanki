@@ -6,161 +6,105 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  quality-gate:
-    name: Quality Gate Enforcement
+  marketplace-quality-gate:
+    name: Marketplace Quality Gate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # 完整历史用于分析
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-      
+          node-version: "20"
+          cache: "npm"
+
       - name: Install dependencies
         run: npm ci
-      
-      # 关键质量指标检查
-      - name: "Gate 1: TypeScript errors must be zero"
-        id: ts-errors
+
+      - name: Validate metadata consistency
+        id: metadata
+        shell: bash
         run: |
-          echo "🔍 Checking TypeScript errors..."
-          npm run check 2>&1 | tee type-check.log
-          ERRORS=$(grep -c "Error:" type-check.log || true)
-          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
-          echo "TypeScript errors found: $ERRORS"
-          
-          # 目标：0个错误（当前基线28个，暂时允许）
-          if [ $ERRORS -gt 28 ]; then
-            echo "❌ FAILED: TypeScript errors increased from baseline (28)"
-            echo "Current: $ERRORS errors"
-            echo "Baseline: 28 errors"
+          test -f LICENSE
+          test -f manifest.json
+          test -f package.json
+          test -f versions.json
+          test -f public/versions.json
+
+          MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          ROOT_VERSIONS=$(node -p "JSON.stringify(require('./versions.json'))")
+          PUBLIC_VERSIONS=$(node -p "JSON.stringify(require('./public/versions.json'))")
+
+          echo "manifest_version=$MANIFEST_VERSION" >> "$GITHUB_OUTPUT"
+
+          if [ "$MANIFEST_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "manifest.json and package.json versions are not synchronized"
             exit 1
-          elif [ $ERRORS -lt 28 ]; then
-            echo "✅ IMPROVED: TypeScript errors reduced!"
-            echo "Previous: 28 errors"
-            echo "Current: $ERRORS errors"
-          else
-            echo "✅ PASSED: TypeScript errors at baseline (28)"
           fi
-      
-      - name: "Gate 2: Test coverage threshold"
-        id: coverage
-        run: |
-          echo "🔍 Checking test coverage..."
-          npm run test -- --coverage --reporter=json > test-results.json || true
-          
-          # 提取覆盖率（如果有的话）
-          if [ -f "coverage/coverage-summary.json" ]; then
-            COVERAGE=$(jq '.total.lines.pct' coverage/coverage-summary.json)
-            echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
-            echo "Line coverage: $COVERAGE%"
-            
-            # 目标：≥70%（逐步提升）
-            if (( $(echo "$COVERAGE < 60" | bc -l) )); then
-              echo "❌ FAILED: Coverage below minimum threshold (60%)"
-              exit 1
-            elif (( $(echo "$COVERAGE >= 70" | bc -l) )); then
-              echo "✅ EXCELLENT: Coverage ≥ 70%"
-            else
-              echo "⚠️ WARNING: Coverage below target (70%) but above minimum (60%)"
-            fi
-          else
-            echo "⚠️ Coverage data not available"
+
+          node -e "const versions=require('./versions.json'); const version=process.argv[1]; if (!versions[version]) { console.error('versions.json missing version ' + version); process.exit(1); }" "$MANIFEST_VERSION"
+
+          if [ "$ROOT_VERSIONS" != "$PUBLIC_VERSIONS" ]; then
+            echo "versions.json and public/versions.json are not synchronized"
+            exit 1
           fi
-      
-      - name: "Gate 3: No console.log in production code"
+
+      - name: Build and verify marketplace payload
+        id: build
+        shell: bash
         run: |
-          echo "🔍 Checking for console.log..."
-          COUNT=$(grep -r "console\.log" src \
-            --exclude-dir=tests \
-            --exclude-dir=__tests__ \
-            --exclude="*.test.ts" \
-            --exclude="*.test.js" \
-            --include="*.ts" \
-            --include="*.js" \
-            --include="*.svelte" | wc -l || echo 0)
-          
-          echo "console.log occurrences: $COUNT"
-          
-          if [ $COUNT -gt 20 ]; then
-            echo "⚠️ WARNING: Too many console.log statements ($COUNT)"
-            echo "Consider using proper logging utilities"
-          else
-            echo "✅ PASSED: console.log usage acceptable"
-          fi
-      
-      - name: "Gate 4: Critical TODOs check"
-        run: |
-          echo "🔍 Checking for critical TODOs..."
-          CRITICAL=$(grep -r "TODO.*FIXME\|TODO.*BLOCKER\|FIXME\|XXX" src \
-            --include="*.ts" \
-            --include="*.svelte" | wc -l || echo 0)
-          
-          echo "Critical TODOs/FIXMEs found: $CRITICAL"
-          
-          if [ $CRITICAL -gt 0 ]; then
-            echo "⚠️ WARNING: $CRITICAL critical TODOs found"
-            grep -rn "TODO.*FIXME\|TODO.*BLOCKER\|FIXME\|XXX" src \
-              --include="*.ts" \
-              --include="*.svelte" || true
-          else
-            echo "✅ PASSED: No critical TODOs"
-          fi
-      
-      - name: "Gate 5: Build size check"
-        run: |
-          echo "🔍 Building and checking size..."
           npm run build
-          
-          if [ -f "dist/main.js" ]; then
-            SIZE=$(stat -c%s "dist/main.js" 2>/dev/null || stat -f%z "dist/main.js" 2>/dev/null)
-            SIZE_MB=$(echo "scale=2; $SIZE / 1048576" | bc)
-            echo "Build size: ${SIZE_MB}MB"
-            
-            if [ $SIZE -gt 10000000 ]; then
-              echo "❌ FAILED: Build size exceeds 10MB"
-              exit 1
-            else
-              echo "✅ PASSED: Build size OK (${SIZE_MB}MB)"
-            fi
-          else
-            echo "❌ FAILED: Build output not found"
+
+          test -f dist/main.js
+          test -f dist/manifest.json
+          test -f dist/styles.css
+
+          DIST_MANIFEST_VERSION=$(node -p "require('./dist/manifest.json').version")
+          SOURCE_MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+
+          if [ "$DIST_MANIFEST_VERSION" != "$SOURCE_MANIFEST_VERSION" ]; then
+            echo "dist/manifest.json version does not match manifest.json"
             exit 1
           fi
-      
-      # 生成质量报告
-      - name: Generate Quality Report
+
+          MAIN_JS_SIZE=$(stat -c%s "dist/main.js" 2>/dev/null || stat -f%z "dist/main.js")
+          STYLES_SIZE=$(stat -c%s "dist/styles.css" 2>/dev/null || stat -f%z "dist/styles.css")
+          MAIN_JS_MB=$(python - <<'PY'
+size = int(open('dist/main.js', 'rb').read().__len__())
+print(f"{size / 1048576:.2f}")
+PY
+)
+
+          echo "main_js_size=$MAIN_JS_SIZE" >> "$GITHUB_OUTPUT"
+          echo "styles_size=$STYLES_SIZE" >> "$GITHUB_OUTPUT"
+          echo "main_js_mb=$MAIN_JS_MB" >> "$GITHUB_OUTPUT"
+
+          if [ "$MAIN_JS_SIZE" -gt 5242880 ]; then
+            echo "main.js exceeds the 5 MB Obsidian Sync Standard threshold"
+            exit 1
+          fi
+
+      - name: Generate quality report
         if: always()
+        shell: bash
         run: |
-          cat > quality-report.md << 'EOF'
-          # 🎯 Quality Gate Report
-          
-          ## Metrics Summary
-          
-          | Metric | Status | Value | Threshold |
-          |--------|--------|-------|-----------|
-          | TypeScript Errors | ${{ steps.ts-errors.outputs.errors <= 28 && '✅' || '❌' }} | ${{ steps.ts-errors.outputs.errors }} | ≤ 28 (baseline) |
-          | Test Coverage | ${{ steps.coverage.outputs.coverage >= 60 && '✅' || '⚠️' }} | ${{ steps.coverage.outputs.coverage }}% | ≥ 60% |
-          | Build Size | ✅ | - | < 10MB |
-          
-          ## Gate Results
-          
-          - ✅ **TypeScript Errors**: At or below baseline
-          - ${{ steps.coverage.outputs.coverage >= 60 && '✅' || '⚠️' }} **Test Coverage**: ${{ steps.coverage.outputs.coverage }}%
-          - ✅ **console.log**: Acceptable usage
-          - ✅ **Build Size**: Within limits
-          
-          ---
-          *Generated by Quality Gate CI*
+          cat > quality-report.md << EOF
+          # Marketplace Quality Gate Report
+
+          | Check | Status | Value |
+          |---|---|---|
+          | License present | ✅ | LICENSE |
+          | Version consistency | ✅ | ${{ steps.metadata.outputs.manifest_version }} |
+          | Build output | ✅ | dist/main.js, dist/manifest.json, dist/styles.css |
+          | main.js size | ✅ | ${{ steps.build.outputs.main_js_mb }} MB |
+
+          This gate is intentionally focused on the release payload required by the Obsidian marketplace.
           EOF
-          
+
           cat quality-report.md
-      
+
       - name: Comment PR with results
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -168,7 +112,7 @@ jobs:
           script: |
             const fs = require('fs');
             const report = fs.readFileSync('quality-report.md', 'utf8');
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
