@@ -65,10 +65,6 @@ dist
 
 # Gatsby files
 .cache/
-public
-!public/
-public/*
-!public/versions.json
 
 # Storybook build outputs
 .out
@@ -269,9 +265,6 @@ COMMIT_MSG.txt
 
 # 庆祝消息等非必要数据
 celebration-messages.json
-
-# public 目录
-public/
 
 # 不必要的配置和文档
 CHANGELOG.md
