@@ -1278,7 +1278,9 @@
     apkgImportModalInstance = new APKGImportModalObsidian(plugin.app, {
       plugin,
       dataStorage,
-      wasmUrl: "https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.wasm",
+      wasmUrl: plugin.wasmUrl,
+      legacyImportAvailable: plugin.hasLegacyApkgImportRuntime(),
+      legacyImportHelpText: plugin.getLegacyApkgImportUnavailableMessage(),
       onImportComplete: handleAPKGImportComplete,
       onClose: () => {
         apkgImportModalInstance = null;

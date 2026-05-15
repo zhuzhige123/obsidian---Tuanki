@@ -919,6 +919,8 @@ export class WeavePlugin extends Plugin {
 	private irPdfBookmarkTaskService: IRPdfBookmarkTaskService | null = null;
 	private lastIRSidebarRedirectNoticeAt = 0;
 	wasmUrl!: string;
+	private legacyApkgRuntimePath: string | null = null;
+	private legacyApkgImportAvailable = false;
 	editorPoolManager!: EmbeddableEditorManager;
 	cardRelationService!: any; // v0.9 卡片关系服务（支持渐进式挖空）
 	deckHierarchy!: DeckHierarchyService;
@@ -1033,6 +1035,29 @@ export class WeavePlugin extends Plugin {
 	private createCardPreferencesCache: CreateCardPreferencesState | null = null;
 	private editorModalSizeStateCache: EditorModalSizeState | null = null;
 	private aiGenerationHistoryCache: AIGenerationHistoryEntry[] | null = null;
+
+	async refreshLegacyApkgImportRuntimeStatus(): Promise<void> {
+		const runtimePath = `${this.manifest.dir}/sql-wasm.wasm`;
+		this.legacyApkgRuntimePath = runtimePath;
+
+		const adapter = this.app.vault.adapter;
+		const runtimeAvailable =
+			typeof adapter.exists === "function" ? await adapter.exists(runtimePath) : false;
+
+		this.legacyApkgImportAvailable = runtimeAvailable;
+		this.wasmUrl =
+			runtimeAvailable && typeof adapter.getResourcePath === "function"
+				? adapter.getResourcePath(runtimePath)
+				: "";
+	}
+
+	hasLegacyApkgImportRuntime(): boolean {
+		return this.legacyApkgImportAvailable;
+	}
+
+	getLegacyApkgImportUnavailableMessage(): string {
+		return "当前安装包未包含旧版 APKG 导入运行时。社区市场版不提供该附加资源；如需导入旧版 APKG，请改用手动增强安装包并补充 sql-wasm.wasm。";
+	}
 
 	async loadSettings() {
 		const loadedData = await this.loadData();
@@ -3354,8 +3379,8 @@ export class WeavePlugin extends Plugin {
 		try {
 			this.registerWorkspaceViews();
 
-			// 依赖路径解析的能力也尽量提前准备，避免 layout-ready 即时触发时再碰到资源竞态。
-			this.wasmUrl = this.app.vault.adapter.getResourcePath(`${this.manifest.dir}/sql-wasm.wasm`);
+			// 旧版 APKG 导入只在增强安装包中启用，社区版允许缺失该运行时资源。
+			await this.refreshLegacyApkgImportRuntimeStatus();
 
 			// 🔥 热重载开发环境已启动 - 代码变更将自动构建
 			logger.info("🚀 Weave plugin loading with Hot Reload");

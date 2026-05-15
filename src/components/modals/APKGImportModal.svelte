@@ -17,14 +17,26 @@
   interface Props {
     show: boolean;
     dataStorage: WeaveDataStorage;
-    wasmUrl: string;
+    wasmUrl?: string;
+    legacyImportAvailable?: boolean;
+    legacyImportHelpText?: string;
     plugin: WeavePlugin;
     onClose: () => void;
     onImportComplete: (result: ImportResult) => void;
     useObsidianModal?: boolean;
   }
 
-  let { show = $bindable(), dataStorage, wasmUrl, plugin, onClose, onImportComplete, useObsidianModal = false }: Props = $props();
+  let {
+    show = $bindable(),
+    dataStorage,
+    wasmUrl = "",
+    legacyImportAvailable = true,
+    legacyImportHelpText = "",
+    plugin,
+    onClose,
+    onImportComplete,
+    useObsidianModal = false
+  }: Props = $props();
 
   // 状态管理
   type ImportStage = 'selection' | 'importing' | 'result';
@@ -42,6 +54,7 @@
 
   // 文件选择处理
   let fileInput = $state<HTMLInputElement | undefined>(undefined);
+  const canImportLegacyApkg = $derived(legacyImportAvailable && Boolean(wasmUrl));
 
   async function handleFileSelect(event: Event) {
     const target = event.target as HTMLInputElement;
@@ -59,6 +72,10 @@
   }
 
   function selectFile() {
+    if (!canImportLegacyApkg) {
+      new Notice(legacyImportHelpText || '当前安装包未包含旧版 APKG 导入运行时');
+      return;
+    }
     if (fileInput) {
       fileInput.click();
     }
@@ -75,6 +92,11 @@
     event.preventDefault();
     isDragOver = false;
 
+    if (!canImportLegacyApkg) {
+      new Notice(legacyImportHelpText || '当前安装包未包含旧版 APKG 导入运行时');
+      return;
+    }
+
     const files = event.dataTransfer?.files;
     if (files && files.length > 0) {
       const file = files[0];
@@ -90,6 +112,10 @@
 
   function handleDragOver(event: DragEvent) {
     event.preventDefault();
+    if (!canImportLegacyApkg) {
+      isDragOver = false;
+      return;
+    }
     isDragOver = true;
   }
 
@@ -123,6 +149,10 @@
 
   async function startImport() {
     if (!selectedFile) return;
+    if (!canImportLegacyApkg) {
+      new Notice(legacyImportHelpText || '当前安装包未包含旧版 APKG 导入运行时');
+      return;
+    }
 
     isImporting = true;
     importResult = null;
@@ -207,18 +237,34 @@
     {#if importStage === 'selection'}
       <!-- 文件选择阶段 -->
       <div class="apkg-stage apkg-selection">
+        {#if !canImportLegacyApkg}
+          <div class="runtime-warning">
+            <div class="runtime-warning__title">当前安装包未包含旧版 APKG 导入运行时</div>
+            <div class="runtime-warning__desc">
+              {legacyImportHelpText || '社区市场版默认只包含上架所需核心文件。若你需要导入旧版 APKG，请改用手动增强安装包并补充 sql-wasm.wasm。'}
+            </div>
+          </div>
+        {/if}
         <div class="dropzone" 
              class:is-dragover={isDragOver}
+             class:is-disabled={!canImportLegacyApkg}
              onclick={() => selectFile()}
              onkeydown={handleKeyDown}
              ondragover={handleDragOver}
              ondragleave={handleDragLeave}
              ondrop={handleDrop}
              role="button"
-             tabindex="0">
+             tabindex={canImportLegacyApkg ? 0 : -1}
+             aria-disabled={!canImportLegacyApkg}>
           <EnhancedIcon name="upload" size={56} />
           <h3 class="dropzone-title">选择或拖拽 APKG 文件</h3>
-          <p class="dropzone-hint">支持 Anki 标准导出格式</p>
+          <p class="dropzone-hint">
+            {#if canImportLegacyApkg}
+              支持 Anki 标准导出格式
+            {:else}
+              当前安装包未启用该导入运行时
+            {/if}
+          </p>
         </div>
         <label class="import-option">
           <input type="checkbox" bind:checked={preserveCardContentHtml} />
@@ -381,6 +427,20 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   }
 
+  .dropzone.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.72;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .dropzone.is-disabled:hover {
+    border-color: var(--background-modifier-border);
+    background: transparent;
+    transform: none;
+    box-shadow: none;
+  }
+
   .dropzone-title {
     margin-top: 1.25rem;
     font-size: 1.125rem;
@@ -423,6 +483,27 @@
   .import-option-desc {
     font-size: 0.8125rem;
     line-height: 1.5;
+    color: var(--text-muted);
+  }
+
+  .runtime-warning {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--color-orange) 45%, var(--background-modifier-border));
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--color-orange) 12%, var(--background-secondary));
+  }
+
+  .runtime-warning__title {
+    font-weight: 700;
+    color: var(--text-normal);
+  }
+
+  .runtime-warning__desc {
+    font-size: 0.875rem;
+    line-height: 1.6;
     color: var(--text-muted);
   }
 

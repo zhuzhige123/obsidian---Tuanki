@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Weave](https://img.shields.io/badge/Weave-Weave-blue?style=for-the-badge)
-![Version](https://img.shields.io/badge/version-0.7.7.2-green?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.8.2-green?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-GPL--3.0-orange?style=for-the-badge)
 ![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-purple?style=for-the-badge)
 
@@ -62,19 +62,27 @@ Weave,意为编织，一款以阅读牌组，记忆牌组，刷题牌组等三�
 4. 搜索 Weave
 5. 安装并启用
 
+说明：
+- 社区市场版只依赖 `main.js`、`manifest.json`、`styles.css` 三个核心文件。
+- `旧版 APKG 导入` 属于可选增强能力；社区市场版默认不包含它所需的 `sql-wasm.wasm` 运行时资源。
+
 ### 方式二：手动安装
 
 1. 下载发布包中的文件：
    - `main.js`
    - `manifest.json`
    - `styles.css`
-   - `sql-wasm.wasm`（如发布包包含）
-   - `versions.json`（如发布包包含）
-2. 复制到：
+2. 如需使用 `旧版 APKG 导入`，再额外补充：
+   - `sql-wasm.wasm`
+3. 复制到：
 
    `.obsidian/plugins/weave/`
 
-3. 重启 Obsidian 并启用插件
+4. 重启 Obsidian 并启用插件
+
+补充说明：
+- 不需要旧版 APKG 导入时，只复制三件套即可正常使用插件主体功能。
+- `versions.json` 用于仓库版本兼容映射，不是社区市场安装所需运行时文件。
 
 ## 快速开始
 

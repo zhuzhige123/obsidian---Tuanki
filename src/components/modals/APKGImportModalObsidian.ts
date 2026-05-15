@@ -10,6 +10,8 @@ export interface APKGImportModalObsidianOptions {
 	plugin: WeavePlugin;
 	dataStorage: WeaveDataStorage;
 	wasmUrl?: string;
+	legacyImportAvailable?: boolean;
+	legacyImportHelpText?: string;
 	onImportComplete?: (result: ImportResult) => void;
 	onClose?: () => void;
 }
@@ -53,8 +55,13 @@ export class APKGImportModalObsidian extends Modal {
 				useObsidianModal: true,
 				plugin: this.options.plugin,
 				dataStorage: this.options.dataStorage,
-				wasmUrl:
-					this.options.wasmUrl ?? "https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.wasm",
+				wasmUrl: this.options.wasmUrl ?? this.options.plugin.wasmUrl,
+				legacyImportAvailable:
+					this.options.legacyImportAvailable ??
+					this.options.plugin.hasLegacyApkgImportRuntime(),
+				legacyImportHelpText:
+					this.options.legacyImportHelpText ??
+					this.options.plugin.getLegacyApkgImportUnavailableMessage(),
 				onClose: () => this.close(),
 				onImportComplete: (result: ImportResult) => this.options.onImportComplete?.(result),
 			},

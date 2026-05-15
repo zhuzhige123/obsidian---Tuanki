@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Weave](https://img.shields.io/badge/Weave-Weave-blue?style=for-the-badge)
-![Version](https://img.shields.io/badge/version-0.7.6-green?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-0.8.2-green?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-GPL--3.0-orange?style=for-the-badge)
 ![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-purple?style=for-the-badge)
 
@@ -69,19 +69,27 @@ We look forward to your experience and support.
 4. Search for Weave
 5. Install and enable
 
+Notes:
+- The community-store build only relies on `main.js`, `manifest.json`, and `styles.css`.
+- `Legacy APKG import` is an optional enhanced capability. The community-store build does not ship the extra `sql-wasm.wasm` runtime by default.
+
 ### Option 2: Manual installation
 
 1. Download the following files from the release package:
    - `main.js`
    - `manifest.json`
    - `styles.css`
-   - `sql-wasm.wasm` (if included in the release)
-   - `versions.json` (if included in the release)
-2. Copy them into:
+2. If you need `Legacy APKG import`, also add:
+   - `sql-wasm.wasm`
+3. Copy them into:
 
    `.obsidian/plugins/weave/`
 
-3. Restart Obsidian and enable the plugin
+4. Restart Obsidian and enable the plugin
+
+Additional notes:
+- If you do not need legacy APKG import, the core three files are enough for the main plugin functionality.
+- `versions.json` is repository metadata for version compatibility, not a runtime file required by the community-store installation flow.
 
 ## Quick Start
 
