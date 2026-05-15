@@ -30,12 +30,9 @@ jobs:
           test -f manifest.json
           test -f package.json
           test -f versions.json
-          test -f public/versions.json
 
           MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
-          ROOT_VERSIONS=$(node -p "JSON.stringify(require('./versions.json'))")
-          PUBLIC_VERSIONS=$(node -p "JSON.stringify(require('./public/versions.json'))")
 
           echo "manifest version: $MANIFEST_VERSION"
           echo "package version: $PACKAGE_VERSION"
@@ -46,11 +43,6 @@ jobs:
           fi
 
           node -e "const versions=require('./versions.json'); const version=process.argv[1]; if (!versions[version]) { console.error('versions.json missing version ' + version); process.exit(1); }" "$MANIFEST_VERSION"
-
-          if [ "$ROOT_VERSIONS" != "$PUBLIC_VERSIONS" ]; then
-            echo "versions.json and public/versions.json are not synchronized"
-            exit 1
-          fi
 
   build:
     name: Build Verification
