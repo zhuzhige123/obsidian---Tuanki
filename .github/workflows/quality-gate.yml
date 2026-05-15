@@ -71,11 +71,7 @@ jobs:
 
           MAIN_JS_SIZE=$(stat -c%s "dist/main.js" 2>/dev/null || stat -f%z "dist/main.js")
           STYLES_SIZE=$(stat -c%s "dist/styles.css" 2>/dev/null || stat -f%z "dist/styles.css")
-          MAIN_JS_MB=$(python - <<'PY'
-size = int(open('dist/main.js', 'rb').read().__len__())
-print(f"{size / 1048576:.2f}")
-PY
-)
+          MAIN_JS_MB=$(node -e "console.log((require('fs').statSync('dist/main.js').size / 1048576).toFixed(2))")
 
           echo "main_js_size=$MAIN_JS_SIZE" >> "$GITHUB_OUTPUT"
           echo "styles_size=$STYLES_SIZE" >> "$GITHUB_OUTPUT"
