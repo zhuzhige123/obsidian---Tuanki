@@ -10,7 +10,15 @@ const obsidianMocks = vi.hoisted(() => ({
   TFolder: class {}
 }));
 
-vi.mock("obsidian", () => obsidianMocks);
+vi.mock("obsidian", async () => {
+  const actual = await vi.importActual<typeof import("../../tests/mocks/obsidian")>(
+    "../../tests/mocks/obsidian"
+  );
+  return {
+    ...actual,
+    ...obsidianMocks
+  };
+});
 
 import CardToMarkdownModal from "./CardToMarkdownModal.svelte";
 

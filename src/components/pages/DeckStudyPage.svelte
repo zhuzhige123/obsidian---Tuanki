@@ -113,6 +113,7 @@
   import { getV2Paths, getReadableWeaveRoot } from '../../config/paths';
   import { migrateLegacyDirectory } from '../../services/data-migration/LegacyWeaveFolderMigration';
   import { resolveDeckNoCardsReason } from '../../utils/study/noCardsReason';
+  import { applyStyleProps } from '../../utils/style-props';
 
   interface Props {
     dataStorage: WeaveDataStorage;
@@ -2339,10 +2340,12 @@
       
       // 创建按钮容器
       const buttonContainer = modal.contentEl.createDiv({ cls: 'delete-confirm-buttons' });
-      buttonContainer.style.display = 'flex';
-      buttonContainer.style.justifyContent = 'flex-end';
-      buttonContainer.style.gap = '10px';
-      buttonContainer.style.marginTop = '16px';
+      applyStyleProps(buttonContainer, {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '10px',
+        marginTop: '16px'
+      });
       
       let shouldDelete = false;
       
@@ -2767,10 +2770,12 @@
       
       // 创建按钮容器
       const buttonContainer = modal.contentEl.createDiv({ cls: 'dissolve-confirm-buttons' });
-      buttonContainer.style.display = 'flex';
-      buttonContainer.style.justifyContent = 'flex-end';
-      buttonContainer.style.gap = '10px';
-      buttonContainer.style.marginTop = '16px';
+      applyStyleProps(buttonContainer, {
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '10px',
+        marginTop: '16px'
+      });
       
       let shouldDissolve = false;
       

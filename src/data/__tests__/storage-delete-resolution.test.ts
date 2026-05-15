@@ -1,13 +1,14 @@
-vi.mock('obsidian', () => {
-  class TFile {
-    path: string;
+vi.mock('obsidian', async () => {
+  const actual = await vi.importActual<typeof import('../../tests/mocks/obsidian')>('../../tests/mocks/obsidian');
 
+  class TFile extends actual.TFile {
     constructor(path = '') {
-      this.path = path;
+      super(path);
     }
   }
 
   return {
+    ...actual,
     TFile,
     Notice: class Notice {}
   };

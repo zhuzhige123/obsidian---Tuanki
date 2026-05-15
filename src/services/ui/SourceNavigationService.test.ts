@@ -6,15 +6,21 @@ const overlayStub = {
 	showAtRect: vi.fn(() => true),
 };
 
-vi.mock("obsidian", () => ({
-	MarkdownView: class MarkdownView {},
-	Notice: class Notice {
-		message: string;
-		constructor(message: string) {
-			this.message = message;
-		}
-	},
-}));
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../../tests/mocks/obsidian")>(
+		"../../tests/mocks/obsidian"
+	);
+	return {
+		...actual,
+		MarkdownView: class MarkdownView extends actual.MarkdownView {},
+		Notice: class Notice {
+			message: string;
+			constructor(message: string) {
+				this.message = message;
+			}
+		},
+	};
+});
 
 vi.mock("./SourceLocateOverlayService", () => ({
 	getSourceLocateOverlayService: () => overlayStub,

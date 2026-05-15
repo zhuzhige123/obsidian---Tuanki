@@ -24,7 +24,11 @@ vi.mock("@codemirror/view", () => ({
 	keymap: { of: <T>(value: T) => value },
 }));
 
-vi.mock("obsidian", () => {
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../../tests/mocks/obsidian")>(
+		"../../tests/mocks/obsidian"
+	);
+
 	class EditorSuggest<T> {
 		app: any;
 		context: any = null;
@@ -41,18 +45,15 @@ vi.mock("obsidian", () => {
 	EditorSuggest.prototype.open = vi.fn();
 	EditorSuggest.prototype.close = vi.fn();
 
-	class MarkdownView {}
-	class TFile {
+	class TFile extends actual.TFile {
 		path = "";
 	}
 	class Editor {}
-	class App {}
 
 	return {
-		App,
+		...actual,
 		Editor,
 		EditorSuggest,
-		MarkdownView,
 		TFile,
 		normalizePath: (value: string) => value.replace(/\\/g, "/"),
 	};

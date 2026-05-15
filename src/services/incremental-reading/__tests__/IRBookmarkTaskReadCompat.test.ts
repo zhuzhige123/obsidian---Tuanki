@@ -4,9 +4,15 @@ import { IREpubBookmarkTaskService } from "../IREpubBookmarkTaskService";
 import { IRPdfBookmarkTaskService } from "../IRPdfBookmarkTaskService";
 import { IRPointStorageService } from "../IRPointStorageService";
 
-vi.mock("obsidian", () => ({
-	normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/\/$/, ""),
-}));
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../../../tests/mocks/obsidian")>(
+		"../../../tests/mocks/obsidian"
+	);
+	return {
+		...actual,
+		normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/\/$/, ""),
+	};
+});
 
 vi.mock("../../epub/EpubStorageService", () => ({
 	EpubStorageService: class {

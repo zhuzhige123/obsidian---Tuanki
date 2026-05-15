@@ -47,7 +47,7 @@ describe("card-management-menu-policy", () => {
 		});
 
 		expect(actions.has("toggle-document-filter")).toBe(true);
-		expect(actions.has("toggle-card-location-jump")).toBe(true);
+  expect(actions.has("toggle-card-location-jump")).toBe(false);
 		expect(actions.has("data-source-switch")).toBe(false);
 		expect(actions.has("open-data-management")).toBe(false);
 	});

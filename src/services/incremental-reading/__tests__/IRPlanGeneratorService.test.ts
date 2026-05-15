@@ -1,6 +1,12 @@
-vi.mock("obsidian", () => ({
-  normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/"),
-}));
+vi.mock("obsidian", async () => {
+  const actual = await vi.importActual<typeof import("../../../tests/mocks/obsidian")>(
+    "../../../tests/mocks/obsidian"
+  );
+  return {
+    ...actual,
+    normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/"),
+  };
+});
 
 vi.mock("../../../config/paths", () => ({
   normalizeWeaveParentFolder: (path?: string) => String(path || "").trim(),

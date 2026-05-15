@@ -597,17 +597,23 @@
     activeFootnotePopover = popover;
 
     const rect = refEl.getBoundingClientRect();
-    popover.style.left = `${rect.left}px`;
-    popover.style.top = `${rect.bottom + 6}px`;
+    applyStyleProps(popover, {
+      left: `${rect.left}px`,
+      top: `${rect.bottom + 6}px`
+    });
 
     requestAnimationFrame(() => {
       if (!activeFootnotePopover) return;
       const pr = popover.getBoundingClientRect();
       if (pr.right > window.innerWidth - 16) {
-        popover.style.left = `${window.innerWidth - pr.width - 16}px`;
+        applyStyleProps(popover, {
+          left: `${window.innerWidth - pr.width - 16}px`
+        });
       }
       if (pr.bottom > window.innerHeight - 16) {
-        popover.style.top = `${rect.top - pr.height - 6}px`;
+        applyStyleProps(popover, {
+          top: `${rect.top - pr.height - 6}px`
+        });
       }
     });
   }
@@ -740,7 +746,7 @@
       }
       
       // 防止切换卡片时答案闪烁：渲染期间隐藏容器，等待onRenderComplete处理后才显示
-      container.style.visibility = 'hidden';
+      applyStyleProps(container, { visibility: 'hidden' });
 
       container.innerHTML = '';
 
@@ -791,7 +797,7 @@
 
       // 回调完成后恢复可见（答案已被隐藏）
       if (isMounted && container) {
-        container.style.visibility = '';
+        applyStyleProps(container, { visibility: null });
       }
       
       logger.debug('[ObsidianRenderer]','✅ 渲染成功', {
@@ -814,7 +820,7 @@
       renderError = error instanceof Error ? error.message : '未知渲染错误';
       
       // 错误时恢复可见
-      container.style.visibility = '';
+      applyStyleProps(container, { visibility: null });
       
       // 降级到简单HTML渲染
       container.innerHTML = `

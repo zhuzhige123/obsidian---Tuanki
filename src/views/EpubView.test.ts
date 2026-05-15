@@ -72,26 +72,25 @@ vi.mock('./EpubSidebarView', () => ({
 	VIEW_TYPE_EPUB_SIDEBAR: 'weave-epub-sidebar',
 }));
 
-vi.mock('obsidian', () => {
-	class ItemView {
-		public leaf: unknown;
+vi.mock('obsidian', async () => {
+	const actual = await vi.importActual<typeof import('../tests/mocks/obsidian')>(
+		'../tests/mocks/obsidian'
+	);
+
+	class ItemView extends actual.ItemView {
 		public contentEl = enhanceDiv(document.createElement('div'));
 
 		constructor(leaf: unknown) {
-			this.leaf = leaf;
+			super(leaf as any);
 		}
 
 		async setState(): Promise<void> {}
 	}
 
 	return {
+		...actual,
 		ItemView,
-		MarkdownView: class {},
-		Menu: class {},
-		Notice: class {},
-		Platform: { isMobile: true },
-		TFile: class {},
-		WorkspaceLeaf: class {},
+		Platform: { ...actual.Platform, isMobile: true },
 		setIcon: vi.fn(),
 	};
 });

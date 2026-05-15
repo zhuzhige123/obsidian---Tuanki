@@ -1,17 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getV2Paths } from "../../../config/paths";
 
-vi.mock("obsidian", () => {
-	class TFile {
-		path: string;
-
-		constructor(path: string) {
-			this.path = path;
-		}
-	}
-
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../../../tests/mocks/obsidian")>(
+		"../../../tests/mocks/obsidian"
+	);
 	return {
-		TFile,
+		...actual,
 		normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/\/$/, ""),
 	};
 });

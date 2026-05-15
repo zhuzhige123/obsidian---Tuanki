@@ -22,6 +22,7 @@
   import InlineCardEditor from '../editor/InlineCardEditor.svelte';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import { Notice, Platform, Menu } from 'obsidian';
+  import { applyStyleProps } from '../../utils/style-props';
 
   function findFirstPdfPlusLinkFromBody(body: string): string | undefined {
     if (!body) return undefined;
@@ -153,7 +154,9 @@
               : Array.from(node.querySelectorAll(selector));
 
             for (const el of elements) {
-              (el as HTMLElement).style.zIndex = 'var(--layer-menu, 65)';
+              applyStyleProps(el as HTMLElement, {
+                zIndex: 'var(--layer-menu, 65)'
+              });
             }
           }
         }

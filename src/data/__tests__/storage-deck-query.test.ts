@@ -4,20 +4,28 @@ const { processBatchMock, processNewCardMock, processContentChangeMock } = vi.ho
   processContentChangeMock: vi.fn()
 }));
 
-vi.mock('obsidian', () => ({
-  Notice: class Notice {},
-  TFile: class TFile {
-    path: string;
+vi.mock('obsidian', async () => {
+  const actual = await vi.importActual<typeof import('../../tests/mocks/obsidian')>(
+    '../../tests/mocks/obsidian'
+  );
+
+  class TFile extends actual.TFile {
     stat?: { mtime: number };
 
     constructor(path = '', mtime?: number) {
-      this.path = path;
+      super(path);
       if (mtime !== undefined) {
         this.stat = { mtime };
       }
     }
   }
-}));
+
+  return {
+    ...actual,
+    Notice: class Notice {},
+    TFile,
+  };
+});
 
 vi.mock('../../services/progressive-cloze/ProgressiveClozeGateway', () => ({
   getProgressiveClozeGateway: () => ({
@@ -1097,6 +1105,7 @@ describe('WeaveDataStorage deck query', () => {
         getAllCards: vi.fn(async () => {
           throw new Error('should not scan all WDeck cards');
         }),
+        getDeckInfoByAnyDeckId: vi.fn(async () => null),
         saveCardsToDeck: vi.fn(async (_deck: any, cards: any[]) => cards),
         hasRuntimeCardMeta: vi.fn(() => false),
         isWDeckCard: vi.fn(() => false),

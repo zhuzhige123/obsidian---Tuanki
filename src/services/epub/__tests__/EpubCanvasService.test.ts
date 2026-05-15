@@ -1,6 +1,12 @@
-vi.mock('obsidian', () => ({
-	Notice: vi.fn(),
-}));
+vi.mock('obsidian', async () => {
+	const actual = await vi.importActual<typeof import('../../../tests/mocks/obsidian')>(
+		'../../../tests/mocks/obsidian'
+	);
+	return {
+		...actual,
+		Notice: vi.fn(),
+	};
+});
 
 import { EpubCanvasService } from '../EpubCanvasService';
 import type { CanvasData, CanvasEdge, CanvasNode } from '../canvas-types';

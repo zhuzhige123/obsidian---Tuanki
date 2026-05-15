@@ -7,6 +7,7 @@
   import { resolveClozeModeForRender } from '../../../utils/cloze-mode';
   import { extractBodyContent } from '../../../utils/yaml-utils';
   import { MAIN_SEPARATOR, DELIMITER_PATTERNS } from '../../../constants/markdown-delimiters';
+  import { applyStyleProps } from '../../../utils/style-props';
 
   interface Props {
     sections: PreviewSection[];
@@ -148,13 +149,13 @@
 
   function updateBackVisibility(): void {
     if (backDividerEl) {
-      backDividerEl.style.display = showAnswer ? '' : 'none';
+      applyStyleProps(backDividerEl, { display: showAnswer ? null : 'none' });
     }
     if (answerTitleEl) {
-      answerTitleEl.style.display = showAnswer ? '' : 'none';
+      applyStyleProps(answerTitleEl, { display: showAnswer ? null : 'none' });
     }
     if (backSectionEl) {
-      backSectionEl.style.display = showAnswer ? '' : 'none';
+      applyStyleProps(backSectionEl, { display: showAnswer ? null : 'none' });
     }
   }
 

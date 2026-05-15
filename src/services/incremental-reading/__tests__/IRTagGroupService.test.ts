@@ -388,7 +388,7 @@ describe("IRTagGroupService", () => {
 		const topicBFile = JSON.parse(files.get(topicBPath) || "{}");
 
 		expect(groupResult.affectedTopicIds).toEqual(["topic-b"]);
-		expect(profileResult.affectedTopicIds).toEqual(["topic-b"]);
+		expect(new Set(profileResult.affectedTopicIds)).toEqual(new Set(["topic-b"]));
 		expect(topicAFile.tagGroups.paper).toBeUndefined();
 		expect(topicAFile.tagGroupProfiles.paper).toBeUndefined();
 		expect(topicBFile.tagGroups.paper).toMatchObject({

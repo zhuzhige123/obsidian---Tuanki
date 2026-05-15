@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("obsidian", () => {
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../tests/mocks/obsidian")>(
+		"../tests/mocks/obsidian"
+	);
 	const createMockContentEl = () => {
 		const el = document.createElement("div") as HTMLDivElement & {
 			empty: () => void;
@@ -35,22 +38,26 @@ vi.mock("obsidian", () => {
 		return el;
 	};
 
-	class ItemView {
+	class ItemView extends actual.Component {
 		public leaf: unknown;
+		public app = new actual.App();
+		public containerEl = document.createElement("div");
 		public contentEl = createMockContentEl();
 
 		constructor(leaf: unknown) {
+			super();
 			this.leaf = leaf;
+			this.containerEl.appendChild(this.contentEl);
 		}
 
 		async setState(): Promise<void> {}
 	}
 
 	return {
+		...actual,
 		ItemView,
 		Notice: class {},
-		Platform: { isMobile: false },
-		WorkspaceLeaf: class {},
+		Platform: { ...actual.Platform, isMobile: false },
 	};
 });
 

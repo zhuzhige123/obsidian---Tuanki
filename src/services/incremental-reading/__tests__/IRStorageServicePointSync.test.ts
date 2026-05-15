@@ -29,12 +29,15 @@ const pointStorageSpies = {
 	initialize: vi.fn(),
 };
 
-vi.mock("obsidian", () => ({
-	App: class {},
-	TFile: class {},
-	TFolder: class {},
-	normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/+/g, "/"),
-}));
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../../../tests/mocks/obsidian")>(
+		"../../../tests/mocks/obsidian"
+	);
+	return {
+		...actual,
+		normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/+/g, "/"),
+	};
+});
 
 vi.mock("../IRPointStorageService", () => ({
 	IRPointStorageService: class {

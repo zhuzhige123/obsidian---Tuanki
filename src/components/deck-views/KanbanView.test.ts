@@ -7,7 +7,9 @@ import KanbanView from './KanbanView.svelte';
 const groupDecksMock = vi.hoisted(() => vi.fn(async (decks: Deck[]) => ({ completed: decks })));
 const updateDeckStatsMock = vi.hoisted(() => vi.fn());
 
-vi.mock('obsidian', () => {
+vi.mock('obsidian', async () => {
+  const actual = await vi.importActual<typeof import('../../tests/mocks/obsidian')>('../../tests/mocks/obsidian');
+
   class Menu {
     addItem(callback: (item: any) => void) {
       callback({
@@ -49,6 +51,7 @@ vi.mock('obsidian', () => {
   }
 
   return {
+    ...actual,
     Menu,
     Notice: class Notice {},
   };

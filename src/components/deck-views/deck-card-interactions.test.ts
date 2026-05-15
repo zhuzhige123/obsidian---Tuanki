@@ -103,7 +103,7 @@ describe('deck card menu interactions', () => {
     expect(onStudy).not.toHaveBeenCalled();
   });
 
-  it.each(cases)('opens study when clicking the card for $name', async ({ component, props }) => {
+  it.each(cases)('opens study when activating the card for $name', async ({ component, props }) => {
     const onStudy = vi.fn();
     const onMenu = vi.fn();
     const { container } = render(component, {
@@ -118,7 +118,7 @@ describe('deck card menu interactions', () => {
 
     expect(card).not.toBeNull();
 
-    await fireEvent.click(card!);
+    await fireEvent.keyDown(card!, { key: 'Enter' });
     expect(onStudy).toHaveBeenCalledTimes(1);
     expect(onMenu).not.toHaveBeenCalled();
   });

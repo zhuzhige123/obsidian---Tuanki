@@ -6,11 +6,17 @@ type CreateOptions = {
 	text?: string;
 };
 
-vi.mock("obsidian", () => ({
-	setIcon: vi.fn((element: HTMLElement, iconName: string) => {
-		element.setAttribute("data-icon", iconName);
-	}),
-}));
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../../tests/mocks/obsidian")>(
+		"../../tests/mocks/obsidian"
+	);
+	return {
+		...actual,
+		setIcon: vi.fn((element: HTMLElement, iconName: string) => {
+			element.setAttribute("data-icon", iconName);
+		}),
+	};
+});
 
 describe("SourceLocateOverlayService", () => {
 	beforeEach(() => {

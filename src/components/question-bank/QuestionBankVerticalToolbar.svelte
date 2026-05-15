@@ -16,6 +16,7 @@
   import { openLinkWithExistingLeaf } from '../../utils/workspace-navigation';
   import { getSourceLocateOverlayService } from '../../services/ui/SourceLocateOverlayService';
   import { SourceNavigationService } from '../../services/ui/SourceNavigationService';
+  import { applyStyleProps } from '../../utils/style-props';
 
   interface Props {
     card: Card;
@@ -101,8 +102,10 @@
     dragCurrentY = clientY;
     
     const deltaY = dragCurrentY - dragStartY;
-    draggedButtonElement.style.transform = `translateY(${deltaY}px)`;
-    draggedButtonElement.style.zIndex = '100';
+    applyStyleProps(draggedButtonElement, {
+      transform: `translateY(${deltaY}px)`,
+      zIndex: '100'
+    });
     
     const parent = draggedButtonElement.parentElement;
     if (!parent) return;
@@ -118,12 +121,12 @@
       if (deltaY > 0 && draggedCenter > btnCenter && btn.compareDocumentPosition(draggedButtonElement) & Node.DOCUMENT_POSITION_PRECEDING) {
         parent.insertBefore(btn, draggedButtonElement);
         dragStartY = dragCurrentY;
-        draggedButtonElement.style.transform = '';
+        applyStyleProps(draggedButtonElement, { transform: null });
         break;
       } else if (deltaY < 0 && draggedCenter < btnCenter && btn.compareDocumentPosition(draggedButtonElement) & Node.DOCUMENT_POSITION_FOLLOWING) {
         parent.insertBefore(draggedButtonElement, btn);
         dragStartY = dragCurrentY;
-        draggedButtonElement.style.transform = '';
+        applyStyleProps(draggedButtonElement, { transform: null });
         break;
       }
     }
@@ -137,8 +140,10 @@
     
     if (isDraggingButton && draggedButtonElement) {
       draggedButtonElement.classList.remove('dragging');
-      draggedButtonElement.style.transform = '';
-      draggedButtonElement.style.zIndex = '';
+      applyStyleProps(draggedButtonElement, {
+        transform: null,
+        zIndex: null
+      });
     }
     
     isDraggingButton = false;

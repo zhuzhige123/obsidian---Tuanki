@@ -150,6 +150,7 @@
   
   import { SourceNavigationService } from "../../services/ui/SourceNavigationService";
   import { createGlobalOperationController, type GlobalOperationController } from "../../utils/global-operation-progress";
+  import { applyStyleProps } from "../../utils/style-props";
   
   class ExportFolderPickerModal extends FuzzySuggestModal<string> {
     private folders: string[];
@@ -4810,10 +4811,12 @@
     modal.contentEl.setText(`确定要删除选中的 ${selectedCardIds.length} 张卡片吗？\n\n此操作不可撤销！`);
     
     const buttonContainer = modal.contentEl.createDiv({ cls: 'confirm-buttons' });
-    buttonContainer.style.display = 'flex';
-    buttonContainer.style.justifyContent = 'flex-end';
-    buttonContainer.style.gap = '10px';
-    buttonContainer.style.marginTop = '16px';
+    applyStyleProps(buttonContainer, {
+      display: 'flex',
+      justifyContent: 'flex-end',
+      gap: '10px',
+      marginTop: '16px'
+    });
     
     let shouldDelete = false;
     

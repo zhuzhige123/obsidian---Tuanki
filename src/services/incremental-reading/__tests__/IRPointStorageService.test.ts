@@ -160,6 +160,17 @@ function getPointFilesIndexPath(app: any): string {
 	return normalizeTestPath(getPluginPaths(app as any).cache.incrementalReading.pointFilesIndex);
 }
 
+function getIndexedPointFilePath(v2Paths: ReturnType<typeof getV2Paths>, pointIndex: any): string {
+	const indexedPath = String(pointIndex.files?.[0]?.file || "");
+	if (!indexedPath) {
+		return "";
+	}
+	if (normalizeTestPath(indexedPath).startsWith(normalizeTestPath(v2Paths.ir.root))) {
+		return normalizeTestPath(indexedPath);
+	}
+	return normalizeTestPath(`${v2Paths.ir.root}/${indexedPath}`);
+}
+
 beforeEach(() => {
 	vi.useFakeTimers();
 	vi.setSystemTime(new Date("2026-04-16T10:00:00.000Z"));
@@ -195,9 +206,9 @@ describe("IRPointStorageService", () => {
 		});
 
 		const pointIndex = JSON.parse(files.get(getPointFilesIndexPath(app)) || "{}");
-		expect(pointIndex.files[0]?.file).toBe("points/Readable Topic.irdeck");
+		expect(pointIndex.files[0]?.file).toBe("weave/incremental-reading/points/Readable Topic.irdeck");
 
-		const pointFilePath = normalizeTestPath(`${v2Paths.ir.root}/points/Readable Topic.irdeck`);
+		const pointFilePath = getIndexedPointFilePath(v2Paths, pointIndex);
 		const pointFile = JSON.parse(files.get(pointFilePath) || "{}");
 		expect(pointFile.topicName).toBe("Readable Topic");
 		expect(pointFile.points).toHaveLength(1);
@@ -385,9 +396,7 @@ chunk body`,
 		const pointIndex = JSON.parse(
 			files.get(getPointFilesIndexPath(app)) || "{}"
 		);
-		const pointFilePath = normalizeTestPath(
-			`${v2Paths.ir.root}/${pointIndex.files?.[0]?.file || ""}`
-		);
+		const pointFilePath = getIndexedPointFilePath(v2Paths, pointIndex);
 		const pointFile = JSON.parse(files.get(pointFilePath) || "{}");
 		expect(pointFile.points).toHaveLength(1);
 		expect(pointFile.points[0].id).toBe("chunk-1");
@@ -448,7 +457,7 @@ chunk body`,
 		expect(files.has(normalizeTestPath(`${v2Paths.ir.root}/points/New Topic.irdeck`))).toBe(true);
 
 		const pointIndex = JSON.parse(files.get(getPointFilesIndexPath(app)) || "{}");
-		expect(pointIndex.files[0]?.file).toBe("points/New Topic.irdeck");
+		expect(pointIndex.files[0]?.file).toBe("weave/incremental-reading/points/New Topic.irdeck");
 	});
 
 	it("reuses the current .irdeck topic name when legacy-format sync no longer has topics.json", async () => {
@@ -564,7 +573,7 @@ chunk body`,
 		expect(files.has(normalizeTestPath(`${v2Paths.ir.root}/points/Topic One.irdeck`))).toBe(true);
 
 		const pointIndex = JSON.parse(files.get(getPointFilesIndexPath(app)) || "{}");
-		expect(pointIndex.files[0]?.file).toBe("points/Topic One.irdeck");
+		expect(pointIndex.files[0]?.file).toBe("weave/incremental-reading/points/Topic One.irdeck");
 	});
 
 	it("resolves point topic metadata from a .irdeck file path", async () => {
@@ -598,7 +607,7 @@ chunk body`,
 		expect(entry).toEqual({
 			topicId: "topic-1",
 			topicName: "Topic One",
-			relativePath: "points/Topic One.irdeck",
+			relativePath: "weave/incremental-reading/points/Topic One.irdeck",
 			absolutePath: `${v2Paths.ir.root}/points/Topic One.irdeck`,
 		});
 	});
@@ -691,9 +700,7 @@ chunk body`,
 		const pointIndex = JSON.parse(
 			files.get(getPointFilesIndexPath(app)) || "{}"
 		);
-		const pointFilePath = normalizeTestPath(
-			`${v2Paths.ir.root}/${pointIndex.files?.[0]?.file || ""}`
-		);
+		const pointFilePath = getIndexedPointFilePath(v2Paths, pointIndex);
 		const pointFile = JSON.parse(files.get(pointFilePath) || "{}");
 		expect(pointFile.points).toHaveLength(1);
 		expect(pointFile.points[0].id).toBe("pdfbm-1");
@@ -857,9 +864,7 @@ chunk body`,
 		const pointIndex = JSON.parse(
 			files.get(getPointFilesIndexPath(app)) || "{}"
 		);
-		const pointFilePath = normalizeTestPath(
-			`${v2Paths.ir.root}/${pointIndex.files?.[0]?.file || ""}`
-		);
+		const pointFilePath = getIndexedPointFilePath(v2Paths, pointIndex);
 		const pointFile = JSON.parse(files.get(pointFilePath) || "{}");
 		expect(pointFile.points[0].source).toMatchObject({
 			id: "src-active",
@@ -1002,9 +1007,7 @@ chunk body`,
 		const pointIndex = JSON.parse(
 			files.get(getPointFilesIndexPath(app)) || "{}"
 		);
-		const pointFilePath = normalizeTestPath(
-			`${v2Paths.ir.root}/${pointIndex.files?.[0]?.file || ""}`
-		);
+		const pointFilePath = getIndexedPointFilePath(v2Paths, pointIndex);
 		const pointFile = JSON.parse(files.get(pointFilePath) || "{}");
 		expect(pointFile.points).toHaveLength(1);
 		expect(pointFile.points[0].id).toBe("legacy-block-1");
@@ -1060,9 +1063,7 @@ chunk body`,
 
 		const report = await service.executeMigration();
 		const pointIndex = JSON.parse(files.get(getPointFilesIndexPath(app)) || "{}");
-		const pointFilePath = normalizeTestPath(
-			`${v2Paths.ir.root}/${pointIndex.files?.[0]?.file || ""}`
-		);
+		const pointFilePath = getIndexedPointFilePath(v2Paths, pointIndex);
 		const pointFile = JSON.parse(files.get(pointFilePath) || "{}");
 
 		expect(report.summary.migratedPoints).toBe(1);

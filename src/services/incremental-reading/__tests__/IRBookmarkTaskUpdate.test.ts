@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("obsidian", () => ({
-	normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/"),
-	Platform: { isMobile: false },
-	TAbstractFile: class TAbstractFile {},
-	TFile: class TFile {},
-}));
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../../../tests/mocks/obsidian")>(
+		"../../../tests/mocks/obsidian"
+	);
+	return {
+		...actual,
+		normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/"),
+		Platform: { ...actual.Platform, isMobile: false },
+		TAbstractFile: class TAbstractFile {},
+	};
+});
 
 vi.mock("../../../config/paths", () => ({
 	getReadableWeaveRoot: () => "weave",
@@ -83,6 +88,42 @@ vi.mock("../../../config/paths", () => ({
 			root: ".obsidian/plugins/weave/data/cache/migration",
 		},
 		backups: ".obsidian/plugins/weave/data/backups",
+	}),
+	getPluginPathsById: (_app: any, pluginId = "weave") => ({
+		state: {
+			incrementalReading: {
+				root: `.obsidian/plugins/${pluginId}/data/state/incremental-reading`,
+				readingMaterialsRuntime:
+					`.obsidian/plugins/${pluginId}/data/state/incremental-reading/reading-materials-runtime.json`,
+				epubReaderData:
+					`.obsidian/plugins/${pluginId}/data/state/incremental-reading/epub-reader-data.json`,
+				monitoring:
+					`.obsidian/plugins/${pluginId}/data/state/incremental-reading/monitoring.json`,
+				history: `.obsidian/plugins/${pluginId}/data/state/incremental-reading/history.json`,
+				studySessions:
+					`.obsidian/plugins/${pluginId}/data/state/incremental-reading/study-sessions.json`,
+				calendarProgress:
+					`.obsidian/plugins/${pluginId}/data/state/incremental-reading/calendar-progress.json`,
+				readerState: `.obsidian/plugins/${pluginId}/data/state/incremental-reading/reader-state`,
+			},
+		},
+		cache: {
+			incrementalReading: {
+				root: `.obsidian/plugins/${pluginId}/data/cache/incremental-reading`,
+				documentGroupMap:
+					`.obsidian/plugins/${pluginId}/data/cache/incremental-reading/document-group-map.json`,
+				pointFilesIndex:
+					`.obsidian/plugins/${pluginId}/data/cache/incremental-reading/point-files-index.json`,
+				syncState:
+					`.obsidian/plugins/${pluginId}/data/cache/incremental-reading/sync-state.json`,
+				readerArtifacts:
+					`.obsidian/plugins/${pluginId}/data/cache/incremental-reading/reader-artifacts`,
+			},
+		},
+		migration: {
+			root: `.obsidian/plugins/${pluginId}/data/cache/migration`,
+		},
+		backups: `.obsidian/plugins/${pluginId}/data/backups`,
 	}),
 }));
 

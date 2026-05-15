@@ -1,29 +1,32 @@
 import { describe, expect, it, vi } from "vitest";
 import { MarkdownFileSuggestModal } from "./MarkdownFileSuggestModal";
 
-vi.mock("obsidian", () => {
-	class TFile {
-		path: string;
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../tests/mocks/obsidian")>(
+		"../tests/mocks/obsidian"
+	);
 
+	class TFile extends actual.TFile {
 		constructor(path: string) {
-			this.path = path;
+			super(path);
 		}
 	}
 
-	class App {
-		vault: { getMarkdownFiles: () => TFile[] };
-
+	class App extends actual.App {
 		constructor(files: TFile[] = []) {
+			super();
 			this.vault = {
+				...this.vault,
 				getMarkdownFiles: () => files,
-			};
+			} as any;
 		}
 	}
 
-	class FuzzySuggestModal<T> {
+	class FuzzySuggestModal<T> extends actual.Component {
 		app: App;
 
 		constructor(app: App) {
+			super();
 			this.app = app;
 		}
 
@@ -33,6 +36,7 @@ vi.mock("obsidian", () => {
 	}
 
 	return {
+		...actual,
 		App,
 		FuzzySuggestModal,
 		TFile,

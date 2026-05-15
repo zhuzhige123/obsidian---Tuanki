@@ -1410,15 +1410,14 @@ export class FoliateVaultPublicationParser {
 		cssText: string,
 		linkElement?: Element | null
 	): HTMLLinkElement | Element {
-		const styleElement = doc.createElement("link");
-		styleElement.setAttribute("rel", "stylesheet");
+		const styleElement = doc.createElement("style");
 		styleElement.setAttribute("type", "text/css");
 		styleElement.setAttribute("data-weave-inline-stylesheet", "true");
 		const media = linkElement?.getAttribute("media");
 		if (media) {
 			styleElement.setAttribute("media", media);
 		}
-		styleElement.setAttribute("href", createCssDataUrl(cssText));
+		styleElement.textContent = cssText;
 		return styleElement;
 	}
 
@@ -1428,6 +1427,9 @@ export class FoliateVaultPublicationParser {
 
 	private async readTextResource(href: string): Promise<string> {
 		try {
+			if (href.startsWith("blob:") || href.startsWith("data:")) {
+				return await readTextResourceViaFetch(href);
+			}
 			return await readTextResourceViaXhr(href);
 		} catch (error) {
 			logger.warn("[FoliateVaultPublicationParser] Failed to read transformed resource:", {

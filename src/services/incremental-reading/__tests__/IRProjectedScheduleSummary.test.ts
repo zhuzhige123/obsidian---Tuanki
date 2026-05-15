@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("obsidian", () => ({
-	normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/"),
-}));
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../../../tests/mocks/obsidian")>(
+		"../../../tests/mocks/obsidian"
+	);
+	return {
+		...actual,
+		normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/"),
+	};
+});
 
 import {
 	buildProjectedDayLoadMap,

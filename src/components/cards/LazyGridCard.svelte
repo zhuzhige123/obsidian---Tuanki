@@ -17,6 +17,7 @@
   import { normalizeCanvasNodeId } from '../../services/ui/canvas-source-locate';
   import { getQuestionTypeLabelFromCard } from '../../utils/question-type-utils';
   import { buildWeaveCardReferenceToken } from '../../utils/weave-card-reference';
+  import { applyStyleProps } from '../../utils/style-props';
 
   type GridCardAttributeType = 'none' | 'uuid' | 'source' | 'priority' | 'retention' | 'modified' | 'accuracy' | 'question_type' | 'ir_state' | 'ir_priority';
   
@@ -323,9 +324,11 @@
       const textArea = document.createElement('textarea');
       textArea.value = normalizedText;
       textArea.setAttribute('readonly', 'true');
-      textArea.style.position = 'fixed';
-      textArea.style.opacity = '0';
-      textArea.style.pointerEvents = 'none';
+      applyStyleProps(textArea, {
+        position: 'fixed',
+        opacity: '0',
+        pointerEvents: 'none'
+      });
       document.body.appendChild(textArea);
       textArea.select();
       textArea.setSelectionRange(0, normalizedText.length);

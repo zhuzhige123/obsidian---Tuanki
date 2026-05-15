@@ -7,14 +7,17 @@ type CreateOptions = {
 	text?: string;
 };
 
-vi.mock("obsidian", () => {
-	class App {}
+vi.mock("obsidian", async () => {
+	const actual = await vi.importActual<typeof import("../tests/mocks/obsidian")>(
+		"../tests/mocks/obsidian"
+	);
 
-	class SuggestModal<T> {
-		app: App;
+	class SuggestModal<T> extends actual.Component {
+		app: InstanceType<typeof actual.App>;
 		close = vi.fn();
 
-		constructor(app: App) {
+		constructor(app: InstanceType<typeof actual.App>) {
+			super();
 			this.app = app;
 		}
 
@@ -23,7 +26,7 @@ vi.mock("obsidian", () => {
 	}
 
 	return {
-		App,
+		...actual,
 		SuggestModal,
 		setIcon: vi.fn((element: HTMLElement, iconName: string) => {
 			element.setAttribute("data-icon", iconName);

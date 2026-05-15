@@ -6,6 +6,7 @@
   import ObsidianRenderer from '../../atoms/ObsidianRenderer.svelte';
   import { extractBodyContent } from '../../../utils/yaml-utils';
   import { MAIN_SEPARATOR, DELIMITER_PATTERNS } from '../../../constants/markdown-delimiters';
+  import { applyStyleProps } from '../../../utils/style-props';
 
   interface Props {
     sections: PreviewSection[];
@@ -146,13 +147,13 @@
   // 根据 showAnswer 控制答案区域的显隐
   function updateAnswerVisibility(): void {
     if (answerDividerEl) {
-      answerDividerEl.style.display = showAnswer ? '' : 'none';
+      applyStyleProps(answerDividerEl, { display: showAnswer ? null : 'none' });
     }
     if (answerTitleEl) {
-      answerTitleEl.style.display = showAnswer ? '' : 'none';
+      applyStyleProps(answerTitleEl, { display: showAnswer ? null : 'none' });
     }
     if (answerSectionEl) {
-      answerSectionEl.style.display = showAnswer ? '' : 'none';
+      applyStyleProps(answerSectionEl, { display: showAnswer ? null : 'none' });
     }
   }
 

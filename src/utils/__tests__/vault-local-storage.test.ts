@@ -14,7 +14,6 @@ function parentPath(path: string): string {
 function createMemoryApp(initialFiles: Record<string, string> = {}) {
   const files = new Map<string, string>();
   const folders = new Set<string>(['', '.obsidian', '.obsidian/plugins', '.obsidian/plugins/weave']);
-  const localStorageState = new Map<string, string>();
 
   const ensureDir = (dir: string) => {
     const normalized = normalizeTestPath(dir);
@@ -61,22 +60,11 @@ function createMemoryApp(initialFiles: Record<string, string> = {}) {
       configDir: '.obsidian',
       adapter,
     },
-    loadLocalStorage: (key: string) => localStorageState.get(key) ?? null,
-    saveLocalStorage: (key: string, value: string | undefined) => {
-      if (value === undefined) {
-        localStorageState.delete(key);
-        window.localStorage.removeItem(key);
-        return;
-      }
-      localStorageState.set(key, value);
-      window.localStorage.setItem(key, value);
-    },
   } as any;
 
   return {
     app,
     files,
-    localStorageState,
   };
 }
 
@@ -88,11 +76,11 @@ afterEach(async () => {
 
 describe('vaultStorage', () => {
   it('migrates managed legacy localStorage entries into state/local-storage.json', async () => {
-    const { app, files, localStorageState } = createMemoryApp();
+    const { app, files } = createMemoryApp();
     const pluginPaths = getPluginPaths(app);
 
-    app.saveLocalStorage('weave-deck-view', 'kanban');
-    app.saveLocalStorage('weave-deck-filter', 'memory');
+    window.localStorage.setItem('weave-deck-view', 'kanban');
+    window.localStorage.setItem('weave-deck-filter', 'memory');
 
     await vaultStorage.initialize(app);
 
@@ -102,12 +90,12 @@ describe('vaultStorage', () => {
       'weave-deck-filter': 'memory',
       'weave-deck-view': 'kanban',
     });
-    expect(localStorageState.has('weave-deck-view')).toBe(false);
-    expect(localStorageState.has('weave-deck-filter')).toBe(false);
+    expect(window.localStorage.getItem('weave-deck-view')).toBeNull();
+    expect(window.localStorage.getItem('weave-deck-filter')).toBeNull();
   });
 
   it('persists managed keys to file while leaving non-plugin keys in Obsidian localStorage', async () => {
-    const { app, files, localStorageState } = createMemoryApp();
+    const { app, files } = createMemoryApp();
     const pluginPaths = getPluginPaths(app);
 
     await vaultStorage.initialize(app);
@@ -119,14 +107,14 @@ describe('vaultStorage', () => {
     expect(JSON.parse(files.get(normalizeTestPath(pluginPaths.state.localStorage)) || '{}')).toEqual({
       'weave-deck-filter': 'question-bank',
     });
-    expect(localStorageState.get('language')).toBe('en');
-    expect(localStorageState.has('weave-deck-filter')).toBe(false);
+    expect(window.localStorage.getItem('language')).toBe('en');
+    expect(window.localStorage.getItem('weave-deck-filter')).toBeNull();
 
     vaultStorage.removeItem('weave-deck-filter');
     await vaultStorage.flush();
 
     expect(JSON.parse(files.get(normalizeTestPath(pluginPaths.state.localStorage)) || '{}')).toEqual({});
     expect(vaultStorage.getItem('weave-deck-filter')).toBeNull();
-    expect(localStorageState.get('language')).toBe('en');
+    expect(window.localStorage.getItem('language')).toBe('en');
   });
 });
