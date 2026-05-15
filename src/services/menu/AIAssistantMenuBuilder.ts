@@ -13,7 +13,6 @@ import { DerivationMethod } from "../relation/types";
 export class AIAssistantMenuBuilder {
 	constructor(
 		private card: Card,
-		private onAIFormatCustom: (actionId: string) => void,
 		private onSplitCard: (actionId: string) => void,
 		private onManageActions: () => void
 	) {}
@@ -52,42 +51,12 @@ export class AIAssistantMenuBuilder {
 		const menu = new Menu();
 
 		menu.addItem((item) => {
-			item.setTitle("AI格式化");
-			const formatSubmenu = (item as any).setSubmenu();
-			this.buildFormatSubmenu(formatSubmenu);
+			item.setTitle("AI拆分");
+			const splitSubmenu = (item as any).setSubmenu();
+			this.buildSplitSubmenu(splitSubmenu);
 		});
-
-		if (!this.isChildCard(this.card)) {
-			menu.addItem((item) => {
-				item.setTitle("AI拆分");
-				const splitSubmenu = (item as any).setSubmenu();
-				this.buildSplitSubmenu(splitSubmenu);
-			});
-		}
 
 		menu.showAtMouseEvent(evt);
-	}
-
-	/**
-	 * 构建AI格式化子菜单内容
-	 */
-	private buildFormatSubmenu(menu: Menu): void {
-		const actions = this.getFormatActions();
-
-		actions.forEach((action) => {
-			menu.addItem((item) => {
-				item.setTitle(action.name).onClick(() => {
-					this.onAIFormatCustom(action.id);
-				});
-			});
-		});
-
-		menu.addSeparator();
-		menu.addItem((item) => {
-			item.setTitle("管理功能...").onClick(() => {
-				this.onManageActions();
-			});
-		});
 	}
 
 	/**
@@ -98,6 +67,19 @@ export class AIAssistantMenuBuilder {
 
 		logger.debug("[AIAssistantMenuBuilder] 构建AI拆分子菜单");
 		logger.debug("[AIAssistantMenuBuilder] 可用的拆分功能数量:", actions.length);
+
+		if (this.isChildCard(this.card)) {
+			menu.addItem((item) => {
+				item.setTitle("已拆分子卡不支持再次拆分").setDisabled(true);
+			});
+			menu.addSeparator();
+			menu.addItem((item) => {
+				item.setTitle("AI拆分配置...").onClick(() => {
+					this.onManageActions();
+				});
+			});
+			return;
+		}
 
 		// 添加所有拆分功能
 		if (actions.length === 0) {
@@ -122,18 +104,10 @@ export class AIAssistantMenuBuilder {
 		// 添加分隔线和管理设置
 		menu.addSeparator();
 		menu.addItem((item) => {
-			item.setTitle("管理功能...").onClick(() => {
+			item.setTitle("AI拆分配置...").onClick(() => {
 				this.onManageActions();
 			});
 		});
-	}
-
-	/**
-	 *  获取所有格式化功能（直接从Store读取）
-	 */
-	private getFormatActions(): AIAction[] {
-		const actions = get(customActionsForMenu);
-		return actions.format;
 	}
 
 	/**

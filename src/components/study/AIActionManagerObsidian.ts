@@ -2,12 +2,16 @@ import { App, Modal } from "obsidian";
 import { mount, unmount } from "svelte";
 import type { Deck } from "../../data/types";
 import type WeavePlugin from "../../main";
+import type { AIActionType } from "../../types/ai-types";
 import { showObsidianConfirm } from "../../utils/obsidian-confirm";
+import { configureWeaveObsidianModalLayout } from "../../utils/obsidian-modal-layout";
 import AIActionManager from "./AIActionManager.svelte";
 
 export interface AIActionManagerObsidianOptions {
 	plugin: WeavePlugin;
 	availableDecks: Deck[];
+	allowedTypes?: AIActionType[];
+	title?: string;
 	onClose?: () => void;
 }
 
@@ -23,26 +27,10 @@ export class AIActionManagerObsidian extends Modal {
 	}
 
 	onOpen() {
-		this.setTitle("AI功能配置");
-		this.modalEl.addClass("weave-ai-action-manager-host");
-		this.modalEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			width: "92vw",
-			"max-width": "1200px",
-			height: "86vh",
-			"max-height": "86vh",
-		});
-
-		this.contentEl.empty();
-		this.contentEl.addClass("weave-ai-action-manager-host-content");
-		this.contentEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			flex: "1",
-			"min-height": "0",
-			padding: "0",
-			overflow: "hidden",
+		this.setTitle(this.options.title || "AI功能配置");
+		configureWeaveObsidianModalLayout(this, {
+			modalClass: "weave-ai-action-manager-host",
+			contentClass: "weave-ai-action-manager-host-content",
 		});
 
 		this.component = mount(AIActionManager, {
@@ -51,6 +39,8 @@ export class AIActionManagerObsidian extends Modal {
 				show: true,
 				plugin: this.options.plugin,
 				availableDecks: this.options.availableDecks,
+				allowedTypes: this.options.allowedTypes,
+				title: this.options.title,
 				useObsidianModal: true,
 				onClose: () => this.forceClose(),
 				onUnsavedChangesChange: (dirty: boolean) => {

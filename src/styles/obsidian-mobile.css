@@ -2079,3 +2079,38 @@ body.is-phone .preset-editor-overlay .editor-footer .btn-save {
   overflow-y: auto !important;
   touch-action: pan-y !important;
 }
+
+/* ==================== AI助手页面移动端优化 ==================== */
+
+/* 移动端AI助手页面：确保圆点可见且易于点击 */
+body.is-mobile .sidebar-nav-header.ai-assistant-layout .sidebar-header-center {
+  flex-shrink: 0;
+  min-width: fit-content;
+}
+
+body.is-mobile .sidebar-nav-header.ai-assistant-layout .sidebar-dots-container {
+  gap: 16px;
+}
+
+/* 移动端AI助手页面：增大圆点尺寸以便触控 */
+body.is-mobile .sidebar-nav-header.ai-assistant-layout .sidebar-dot {
+  --weave-sidebar-dot-size: 18px;
+}
+
+/* 手机端AI助手页面：进一步优化布局 */
+body.is-phone .sidebar-nav-header.ai-assistant-layout {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, auto);
+  gap: 6px;
+}
+
+body.is-phone .sidebar-nav-header.ai-assistant-layout .sidebar-header-left {
+  overflow: hidden;
+}
+
+body.is-phone .sidebar-nav-header.ai-assistant-layout .sidebar-dots-container {
+  gap: 18px;
+}
+
+body.is-phone .sidebar-nav-header.ai-assistant-layout .sidebar-dot {
+  --weave-sidebar-dot-size: 20px;
+}

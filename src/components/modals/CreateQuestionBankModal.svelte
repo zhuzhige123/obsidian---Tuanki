@@ -16,7 +16,9 @@
     initialBank?: Deck;
     onClose: () => void;
     onCreated?: (bank: Deck) => void;
+    onBankCreated?: (bank: Deck) => void | Promise<void>;
     onUpdated?: (bank: Deck) => void;
+    onBankUpdated?: (bank: Deck) => void | Promise<void>;
   }
 
   let {
@@ -25,8 +27,10 @@
     mode = "create",
     initialBank,
     onClose,
-    onCreated,
-    onUpdated
+    onCreated: legacyOnCreated,
+    onBankCreated = legacyOnCreated,
+    onUpdated: legacyOnUpdated,
+    onBankUpdated = legacyOnUpdated
   }: Props = $props();
 
   // 表单状态
@@ -98,6 +102,18 @@
     }
   }
 
+  async function notifyBankCreated(bank: Deck) {
+    if (typeof onBankCreated === 'function') {
+      await onBankCreated(bank);
+    }
+  }
+
+  async function notifyBankUpdated(bank: Deck) {
+    if (typeof onBankUpdated === 'function') {
+      await onBankUpdated(bank);
+    }
+  }
+
   // 提交表单
   async function handleSubmit() {
     if (!validateForm()) {
@@ -144,9 +160,7 @@
         await plugin.questionBankService.createBank(newBank);
         new Notice(`题库 "${newBank.name}" 创建成功`);
 
-        if (onCreated) {
-          onCreated(newBank);
-        }
+        await notifyBankCreated(newBank);
       } else if (mode === "edit" && initialBank) {
         // 更新题库
         const updatedBank: Deck = {
@@ -165,9 +179,7 @@
         await plugin.questionBankService.updateBank(updatedBank);
         new Notice(`题库 "${updatedBank.name}" 更新成功`);
 
-        if (onUpdated) {
-          onUpdated(updatedBank);
-        }
+        await notifyBankUpdated(updatedBank);
       }
 
       handleClose();

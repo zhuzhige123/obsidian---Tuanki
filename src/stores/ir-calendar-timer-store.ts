@@ -8,12 +8,10 @@ export interface IRCalendarActiveReadingTimerState {
 
 interface IRCalendarTimerRuntimeState {
 	activeReadingTimer: IRCalendarActiveReadingTimerState | null;
-	autoTimerChainBlockId: string | null;
 }
 
 let runtimeState: IRCalendarTimerRuntimeState = {
 	activeReadingTimer: null,
-	autoTimerChainBlockId: null,
 };
 
 export function getIRCalendarTimerRuntimeState(): Readonly<IRCalendarTimerRuntimeState> {

@@ -1,5 +1,6 @@
 import type { App } from "obsidian";
 import { Notice } from "obsidian";
+import { i18n } from "../../utils/i18n";
 import { logger } from "../../utils/logger";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
 import { EpubLinkService } from "./EpubLinkService";
@@ -11,6 +12,7 @@ import type {
 	CanvasNode,
 	CanvasSide,
 } from "./canvas-types";
+import type { EpubHighlightStyle } from "./types";
 import {
 	DEFAULT_NODE_HEIGHT,
 	DEFAULT_NODE_WIDTH,
@@ -107,7 +109,8 @@ export class EpubCanvasService {
 		chapterTitle?: string,
 		color?: string,
 		timestamp?: string,
-		sourceId?: string
+		sourceId?: string,
+		style?: EpubHighlightStyle
 	): Promise<CanvasNode | null> {
 		if (!this.canvasPath) return null;
 
@@ -123,7 +126,9 @@ export class EpubCanvasService {
 				chapterTitle,
 				timestamp,
 				this.canvasPath || undefined,
-				sourceId
+				sourceId,
+				undefined,
+				style
 			);
 
 			const nodeId = this.generateNodeId();
@@ -166,7 +171,7 @@ export class EpubCanvasService {
 			return node;
 		} catch (e) {
 			logger.error("[EpubCanvasService] Failed to add excerpt node:", e);
-			new Notice("Failed to add node to canvas");
+			new Notice(i18n.t("views.epubView.notice.canvasAddNodeFailed"));
 			return null;
 		}
 	}
@@ -216,7 +221,7 @@ export class EpubCanvasService {
 			return node;
 		} catch (e) {
 			logger.error("[EpubCanvasService] Failed to add raw text node:", e);
-			new Notice("Failed to add node to canvas");
+			new Notice(i18n.t("views.epubView.notice.canvasAddNodeFailed"));
 			return null;
 		}
 	}

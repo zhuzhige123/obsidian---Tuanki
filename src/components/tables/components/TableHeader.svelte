@@ -274,9 +274,9 @@
 
   /* 复选框列：使用更高优先级选择器覆盖 .weave-table-header th 的 text-align: left */
   .weave-table-header .weave-checkbox-column {
-    width: 48px;
-    min-width: 48px;
-    max-width: 48px;
+    width: 72px;
+    min-width: 72px;
+    max-width: 72px;
     text-align: center;
     /* 与表格行 td 的 padding 完全一致 */
     padding: var(--weave-table-cell-padding-y, 6px) var(--weave-table-cell-padding-x, 16px);

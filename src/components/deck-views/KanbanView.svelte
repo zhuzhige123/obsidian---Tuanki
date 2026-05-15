@@ -5,16 +5,19 @@
   import { onMount, tick, untrack } from 'svelte';
   import { get } from 'svelte/store';
   import { Menu, Notice, type MenuPositionDef } from 'obsidian';
-  import type { Deck, Card } from '../../data/types';
+  import type { Deck, Card, DeckStats } from '../../data/types';
   import type { DeckTreeNode } from '../../services/deck/DeckHierarchyService';
   import type { WeaveDataStorage } from '../../data/storage';
   import type AnkiObsidianPlugin from '../../main';
+  import type { MemoryDeckLevelProgress } from '../../services/deck/MemoryDeckLevelService';
+  import type { EmergentDeckCandidate, FormalDeckBindingSummary, MemoryDeckView } from '../../types/emergent-deck-types';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import DeckGridCard from './DeckGridCard.svelte';
   import ChineseElegantDeckCard from './ChineseElegantDeckCard.svelte';
   import { QuestionBankAnalyticsModalObsidian } from '../modals/QuestionBankAnalyticsModalObsidian';
   import type { DeckCardStyle } from '../../types/plugin-settings.d';
   import { getColorSchemeForDeck } from '../../config/card-color-schemes';
+  import { MEMORY_DECK_UI_TEXT } from '../../constants/memory-deck-ui-text';
   
   // 导入牌组聚合服务和类型
   import { DeckAggregationService } from '../../services/deck/DeckAggregationService';
@@ -25,42 +28,54 @@
     DECK_GROUP_BY_LABELS,
     DECK_TAG_EMPTY_GROUP_KEY,
     DECK_TAG_GROUP_OTHER_KEY,
+    getDeckTagLabelFromColumnKey,
     normalizeDeckTagGroup,
-    normalizeDeckTagGroupTags,
-    normalizeDeckTagName
+    normalizeDeckTagGroupTags
   } from '../../types/deck-kanban-types';
   import { tr } from '../../utils/i18n';
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
-  import { buildMemoryDeckMenu, type MemoryDeckMenuAction } from '../../services/deck/MemoryDeckMenu';
-  import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
+  import { type MemoryDeckMenuAction } from '../../services/deck/MemoryDeckMenu';
+  import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from '../../services/premium/PremiumFeatureGuard';
   
   // 导入快速标签组创建器
   import QuickTagGroupCreator from './QuickTagGroupCreator.svelte';
-  
-  interface DeckStats {
-    newCards: number;
-    learningCards: number;
-    reviewCards: number;
-    memoryRate: number;
-  }
   
   interface Props {
     deckTree: DeckTreeNode[];
     deckStats: Record<string, DeckStats>;
     dataStorage: WeaveDataStorage;
     plugin?: AnkiObsidianPlugin;
+    memoryDeckLevels?: Record<string, MemoryDeckLevelProgress>;
+    emergentCandidates?: EmergentDeckCandidate[];
+    emergentDeckViews?: MemoryDeckView[];
+    emergentDeckStats?: Record<string, DeckStats>;
+    formalDeckBindingSummary?: Record<string, FormalDeckBindingSummary>;
+    memoryDeckDisplayMode?: 'formal' | 'emergent';
     groupBy?: DeckGroupByType;
     deckMode?: 'memory' | 'question-bank' | 'incremental-reading';
     onStartStudy: (deckId: string) => void;
+    onStartEmergentStudy?: (deckId: string, deckName: string) => void | Promise<void>;
     onDeckUpdate?: () => void; //  牌组更新回调
     onOpenDeckAnalytics?: (deckId: string) => void;
     onOpenLoadForecast?: (deckId: string) => void;
     onEditDeck?: (deckId: string) => void;
     onDeleteDeck?: (deckId: string) => void;
     onOpenKnowledgeGraph?: (deckId: string) => void;
-    onAssociateQuestionBank?: (deckId: string) => void | Promise<void>;
+    onAssociateQuestionBank?: (deckId: string, bankId?: string) => void | Promise<void>;
+    getQuestionBankSubmenuData?: (deckId: string) => Promise<{
+      banks: Array<{ id: string; name: string; isCurrent: boolean }>;
+    } | null>;
+    onBeforeOpenDeckMenu?: () => void;
+    memoryDeckMenuActionHandler?: (action: MemoryDeckMenuAction, deckId: string) => void | Promise<void>;
     // 引用式牌组系统
     onDissolveDeck?: (deckId: string) => void;
+    onPromoteEmergentDeck?: (candidate: EmergentDeckCandidate, event: MouseEvent) => void | Promise<void>;
+  }
+
+  type MemoryDeckDisplayMode = 'formal' | 'emergent';
+
+  function normalizeMemoryDeckDisplayMode(mode: MemoryDeckDisplayMode | undefined): MemoryDeckDisplayMode {
+    return mode === 'emergent' ? 'emergent' : 'formal';
   }
 
   //  响应式翻译函数
@@ -71,9 +86,16 @@
     deckStats, 
     dataStorage,
     plugin,
+    memoryDeckLevels = {},
+    emergentCandidates = [],
+    emergentDeckViews = [],
+    emergentDeckStats = {},
+    formalDeckBindingSummary = {},
+    memoryDeckDisplayMode = 'formal',
     groupBy: initialGroupBy = 'completion',
     deckMode = 'memory',
     onStartStudy,
+    onStartEmergentStudy,
     onDeckUpdate,
     onOpenDeckAnalytics,
     onOpenLoadForecast,
@@ -81,8 +103,12 @@
     onDeleteDeck,
     onOpenKnowledgeGraph,
     onAssociateQuestionBank,
+    getQuestionBankSubmenuData,
+    onBeforeOpenDeckMenu,
+    memoryDeckMenuActionHandler,
     // 引用式牌组系统
-    onDissolveDeck
+    onDissolveDeck,
+    onPromoteEmergentDeck
   }: Props = $props();
   
   // 状态管理
@@ -91,6 +117,12 @@
   let isLoading = $state(false);
   let aggregationService: DeckAggregationService;
   const premiumGuard = PremiumFeatureGuard.getInstance();
+  const deckStudyFeatureContext: PremiumFeatureAccessContext = { page: 'deck-study' };
+  const deckAnalyticsEntryFeatures = [
+    PREMIUM_FEATURES.DECK_ANALYTICS,
+    PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION,
+    PREMIUM_FEATURES.DECK_ANALYTICS_TIMING,
+  ] as const;
   
   // 标签组分组相关状态
   let selectedTagGroupId = $state<string | null>(null);
@@ -146,8 +178,59 @@
     }
     return result;
   }
+
+  function createVirtualDeck(view: MemoryDeckView): Deck {
+    return {
+      id: view.id,
+      name: view.name,
+      description: '',
+      category: '默认',
+      cardUUIDs: view.cardUUIDs,
+      path: view.name,
+      level: 0,
+      order: 0,
+      inheritSettings: false,
+      settings: {} as any,
+      includeSubdecks: false,
+      created: new Date(0).toISOString(),
+      modified: new Date().toISOString(),
+      stats: emergentDeckStats[view.id] || {
+        totalCards: view.cardUUIDs.length,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 0,
+        todayNew: 0,
+        todayReview: 0,
+        todayTime: 0,
+        totalReviews: 0,
+        totalTime: 0,
+        memoryRate: 0,
+        averageEase: 0,
+        forecastDays: {}
+      },
+      tags: Array.isArray(view.sourceTags) ? view.sourceTags : [],
+      metadata: {
+        weaveVirtualDeckKind: view.kind,
+        statusBadge: view.statusBadge
+      },
+      purpose: 'memory'
+    };
+  }
   
-  const allDecks = $derived(flattenDeckTree(deckTree));
+  const allFormalDecks = $derived(flattenDeckTree(deckTree));
+  const currentMemoryDeckDisplayMode = $derived(normalizeMemoryDeckDisplayMode(memoryDeckDisplayMode));
+  const showingEmergentMemoryDecks = $derived(
+    deckMode === 'memory' && currentMemoryDeckDisplayMode === 'emergent'
+  );
+  const emergentDeckViewMap = $derived(new Map(emergentDeckViews.map((view) => [view.id, view])));
+  const allDecks = $derived(
+    showingEmergentMemoryDecks ? emergentDeckViews.map((view) => createVirtualDeck(view)) : allFormalDecks
+  );
+
+  $effect(() => {
+    allDecks;
+    aggregationService.clearCache();
+  });
   
   // 获取选定的标签组
   const selectedTagGroup = $derived((() => {
@@ -161,21 +244,25 @@
   // 获取当前分组配置（动态生成标签分组）
   const currentGroupConfig = $derived((() => {
     if (groupBy === 'tag') {
-      // 动态生成标签分组列
-      const tagSet = new Set<string>();
-      allDecks.forEach(deck => {
-        if (deck.tags && deck.tags.length > 0) {
-          const normalizedTag = normalizeDeckTagName(deck.tags[0]);
-          if (normalizedTag) {
-            tagSet.add(normalizedTag);
-          }
-        }
-      });
+      const tagColumnKeys = Array.from(
+        new Set(
+          Object.keys(groupedDecks).filter(
+            (key) => key === DECK_TAG_EMPTY_GROUP_KEY || getDeckTagLabelFromColumnKey(key) !== null
+          )
+        )
+      );
       
       const tagColors = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444'];
-      const tagGroups = Array.from(tagSet).sort().map((tag, index) => ({
-        key: createDeckTagColumnKey(tag),
-        label: tag,
+      const tagGroups = tagColumnKeys
+        .filter((key) => key !== DECK_TAG_EMPTY_GROUP_KEY)
+        .sort((left, right) => {
+          const leftLabel = getDeckTagLabelFromColumnKey(left) || '';
+          const rightLabel = getDeckTagLabelFromColumnKey(right) || '';
+          return leftLabel.localeCompare(rightLabel, 'zh-CN');
+        })
+        .map((key, index) => ({
+        key,
+        label: getDeckTagLabelFromColumnKey(key) || key,
         color: tagColors[index % tagColors.length],
         icon: 'tag'
       }));
@@ -270,6 +357,25 @@
     
     updateGrouping();
   });
+
+  function shouldShowDeckAnalyticsEntry(isPremium: boolean, showPremiumFeaturesPreview: boolean): boolean {
+    return premiumGuard.shouldShowAnyFeatureEntry(
+      [...deckAnalyticsEntryFeatures],
+      {
+        isPremium,
+        showPremiumPreview: showPremiumFeaturesPreview
+      },
+      deckStudyFeatureContext
+    );
+  }
+
+  function getDeckAnalyticsEntryTitle(): string {
+    return premiumGuard.getAnyFeatureEntryTitle(
+      t('decks.menu.deckAnalytics'),
+      [...deckAnalyticsEntryFeatures],
+      deckStudyFeatureContext
+    );
+  }
 
   function hasTagGroupChanged(original: DeckTagGroup, normalized: DeckTagGroup): boolean {
     if (original.name !== normalized.name) return true;
@@ -419,15 +525,16 @@
     };
   }
 
-  function withSubmenu(item: unknown, builder: (submenu: Menu) => void) {
+  function withSubmenu(item: unknown, builder: (submenu: Menu) => void): boolean {
     const submenuFactory = (item as { setSubmenu?: () => Menu }).setSubmenu;
     if (typeof submenuFactory !== 'function') {
-      return;
+      return false;
     }
 
     const submenu = submenuFactory.call(item as { setSubmenu: () => Menu });
     submenu.setUseNativeMenu(false);
     builder(submenu);
+    return true;
   }
 
   function closeActiveKanbanMenu() {
@@ -540,7 +647,7 @@
         .setTitle(t('decks.kanban.reset'))
         .setIcon('rotate-ccw')
         .onClick(() => {
-          handleReset();
+          resetColumnConfig();
           reopenKanbanNativeMenu();
         });
     });
@@ -869,7 +976,7 @@
 
   
   // 重置配置
-  function handleReset() {
+  function resetColumnConfig() {
     columnConfig = {
       hidden: [],
       pinned: [],
@@ -878,25 +985,62 @@
     };
     saveColumnConfig();
   }
-  
-  
-  // 获取牌组统计数据（用于显示）
-  function getDeckStats(deck: Deck): any {
-    return deckStats[deck.id] || {
-      newCards: 0,
-      learningCards: 0,
-      reviewCards: 0,
-      memoryRate: 0,
-      totalCards: 0,
-      todayNew: 0,
-      todayReview: 0,
-      todayTime: 0
-    };
+
+  const emptyDeckStats: DeckStats = {
+    totalCards: 0,
+    newCards: 0,
+    learningCards: 0,
+    reviewCards: 0,
+    todayNew: 0,
+    todayReview: 0,
+    todayTime: 0,
+    totalReviews: 0,
+    totalTime: 0,
+    memoryRate: 0,
+    averageEase: 0,
+    forecastDays: {}
+  };
+
+  function addEmergentDeckMenuItems(menu: Menu, deckId: string): boolean {
+    let hasItems = false;
+    const isPremium = get(premiumGuard.isPremiumActive);
+    const showPremiumFeaturesPreview = get(premiumGuard.premiumFeaturesPreviewEnabled);
+
+    menu.addItem((item) =>
+      item
+        .setTitle(t('decks.menu.advanceStudy'))
+        .setIcon('fast-forward')
+        .onClick(async () => await dispatchMemoryDeckMenuAction('advance-study', deckId))
+    );
+    hasItems = true;
+
+    if (shouldShowDeckAnalyticsEntry(isPremium, showPremiumFeaturesPreview)) {
+      menu.addItem((item) =>
+        item
+          .setTitle(getDeckAnalyticsEntryTitle())
+          .setIcon('bar-chart-2')
+          .onClick(async () => await dispatchMemoryDeckMenuAction('deck-analytics', deckId))
+      );
+    }
+
+    menu.addItem((item) =>
+      item
+        .setTitle(t('decks.menu.knowledgeGraph'))
+        .setIcon('git-fork')
+        .onClick(async () => await dispatchMemoryDeckMenuAction('knowledge-graph', deckId))
+    );
+
+    return hasItems;
   }
-  
+
   // 显示牌组菜单（根据 deckMode 显示不同菜单项）
   async function dispatchMemoryDeckMenuAction(action: MemoryDeckMenuAction, deckId: string): Promise<void> {
     try {
+      if (memoryDeckMenuActionHandler) {
+        await memoryDeckMenuActionHandler(action, deckId);
+        return;
+      }
+
       window.dispatchEvent(new CustomEvent('Weave:request-memory-deck-action', {
         detail: { action, deckId }
       }));
@@ -933,80 +1077,53 @@
     }
   }
 
-  function showDeckMenu(event: MouseEvent, deckId: string) {
+  async function showDeckMenu(event: MouseEvent, deckId: string) {
     event.preventDefault();
-    const menu = new Menu();
+    event.stopPropagation();
+    onBeforeOpenDeckMenu?.();
+    const menu = registerKanbanMenu(new Menu());
     
     const deck = allDecks.find(d => d.id === deckId);
     if (!deck) return;
+
+    const emergentView = emergentDeckViewMap.get(deckId);
+    if (deckMode === 'memory' && showingEmergentMemoryDecks && emergentView) {
+      const candidate = emergentCandidates.find(item => item.id === emergentView.id);
+      const hasSharedItems = addEmergentDeckMenuItems(menu, emergentView.id);
+
+      if (candidate && onPromoteEmergentDeck) {
+        if (hasSharedItems) {
+          menu.addSeparator();
+        }
+
+        menu.addItem((item) =>
+          item
+            .setTitle('转为正式牌组')
+            .setIcon('folder-plus')
+            .onClick(async () => await onPromoteEmergentDeck(candidate, event))
+        );
+      }
+
+      menu.showAtMouseEvent(event);
+      return;
+    }
     
     if (deckMode === 'incremental-reading') {
       // === 增量阅读牌组菜单（与 IRDeckView 网格视图一致）===
       menu.addItem((item) =>
-        item.setTitle(t('decks.kanban.startReading')).setIcon('play')
-          .onClick(() => onStartStudy(deckId))
-      );
-      
-      menu.addItem((item) =>
-        item.setTitle(t('decks.kanban.advanceReading')).setIcon('fast-forward')
-          .onClick(async () => {
-            try {
-              const { IRStorageService } = await import('../../services/incremental-reading/IRStorageService');
-              const irStorage = new IRStorageService(plugin!.app);
-              await irStorage.initialize();
-              const irDeck = await irStorage.getDeckById(deckId);
-              const deckName = irDeck?.name || t('deckStudyPage.fallback.incrementalReading');
-              await plugin!.redirectIncrementalReadingToSidebar({
-                deckPath: deckId,
-                deckName,
-                closeLegacyFocusLeaves: true
-              });
-            } catch (e) {
-              logger.error('[KanbanView] 提前阅读失败:', e);
-              new Notice(t('decks.kanban.advanceReadingFailed'));
-            }
-          })
-      );
-      
-      menu.addSeparator();
-      
-      menu.addItem((item) =>
-        item.setTitle(t('decks.kanban.editDeck')).setIcon('edit-3')
+        item.setTitle('专题编辑').setIcon('edit-3')
           .onClick(() => onEditDeck?.(deckId))
       );
       
       menu.addItem((item) =>
-        item.setTitle(t('decks.kanban.deckAnalytics')).setIcon('bar-chart-2')
+        item.setTitle('专题分析').setIcon('bar-chart-2')
           .onClick(() => onOpenLoadForecast?.(deckId))
       );
       
       menu.addSeparator();
       
       menu.addItem((item) =>
-        item.setTitle(t('decks.kanban.dissolveDeck')).setIcon('unlink')
-          .onClick(async () => {
-            try {
-              const { showObsidianConfirm } = await import('../../utils/obsidian-confirm');
-              const confirmed = await showObsidianConfirm(plugin!.app, t('decks.kanban.dissolveConfirmIR'), { title: t('decks.kanban.dissolveDeck') });
-              if (!confirmed) return;
-              const { IRStorageService } = await import('../../services/incremental-reading/IRStorageService');
-              const { IRDeckManager } = await import('../../services/incremental-reading/IRDeckManager');
-              const irStorage = new IRStorageService(plugin!.app);
-              await irStorage.initialize();
-              const deckManager = new IRDeckManager(plugin!.app, irStorage, plugin!.settings?.incrementalReading?.importFolder);
-              await deckManager.disbandDeck(deckId);
-              onDeckUpdate?.();
-              window.dispatchEvent(new CustomEvent('Weave:ir-data-updated'));
-              new Notice(t('decks.kanban.deckDissolved'));
-            } catch (e) {
-              logger.error('[KanbanView] 解散牌组失败:', e);
-              new Notice(t('decks.kanban.dissolveFailed'));
-            }
-          })
-      );
-      
-      menu.addItem((item) =>
-        item.setTitle(t('decks.kanban.deleteDeck')).setIcon('trash-2').setWarning(true)
+        item.setTitle('删除专题').setIcon('trash-2').setWarning(true)
           .onClick(() => onDeleteDeck?.(deckId))
       );
     } else if (deckMode === 'question-bank') {
@@ -1032,33 +1149,97 @@
       const isPremium = get(premiumGuard.isPremiumActive);
       const showPremiumFeaturesPreview = get(premiumGuard.premiumFeaturesPreviewEnabled);
 
-      buildMemoryDeckMenu(
-        menu,
-        {
-          advanceStudy: t('decks.menu.advanceStudy'),
-          deckAnalytics: t('decks.menu.deckAnalytics'),
-          knowledgeGraph: t('decks.menu.knowledgeGraph'),
-          linkQuestionBank: t('decks.menu.linkQuestionBank'),
-          editDeck: t('decks.menu.editDeck'),
-          deleteDeck: t('decks.menu.delete'),
-          dissolveDeck: t('decks.menu.dissolveDeck')
-        },
-        {
-          onAdvanceStudy: async () => await dispatchMemoryDeckMenuAction('advance-study', deckId),
-          onOpenDeckAnalytics: async () => await dispatchMemoryDeckMenuAction('deck-analytics', deckId),
-          onOpenKnowledgeGraph: async () => await dispatchMemoryDeckMenuAction('knowledge-graph', deckId),
-          onAssociateQuestionBank: async () => await onAssociateQuestionBank?.(deckId),
-          onEditDeck: async () => await dispatchMemoryDeckMenuAction('edit-deck', deckId),
-          onDeleteDeck: async () => await dispatchMemoryDeckMenuAction('delete-deck', deckId),
-          onDissolveDeck: async () => await dispatchMemoryDeckMenuAction('dissolve-deck', deckId)
-        },
-        {
-          showDeckAnalytics: premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.DECK_ANALYTICS, {
-            isPremium,
-            showPremiumPreview: showPremiumFeaturesPreview
-          }),
-          lockDeckAnalytics: !premiumGuard.canUseFeature(PREMIUM_FEATURES.DECK_ANALYTICS)
+      menu.addItem((item) =>
+        item
+          .setTitle(t('decks.menu.advanceStudy'))
+          .setIcon('fast-forward')
+          .onClick(async () => await dispatchMemoryDeckMenuAction('advance-study', deckId))
+      );
+
+      if (shouldShowDeckAnalyticsEntry(isPremium, showPremiumFeaturesPreview)) {
+        menu.addItem((item) =>
+          item
+            .setTitle(getDeckAnalyticsEntryTitle())
+            .setIcon('bar-chart-2')
+            .onClick(async () => await dispatchMemoryDeckMenuAction('deck-analytics', deckId))
+        );
+      }
+
+      menu.addItem((item) =>
+        item
+          .setTitle(t('decks.menu.knowledgeGraph'))
+          .setIcon('git-fork')
+          .onClick(async () => await dispatchMemoryDeckMenuAction('knowledge-graph', deckId))
+      );
+
+      if (onAssociateQuestionBank) {
+        const canUseQuestionBank = premiumGuard.canUseFeature(PREMIUM_FEATURES.QUESTION_BANK);
+
+        if (!canUseQuestionBank) {
+          menu.addItem((item) =>
+            item
+              .setTitle(`${t('decks.menu.linkQuestionBank')} (高级)`)
+              .setIcon('link-2')
+              .onClick(async () => await onAssociateQuestionBank?.(deckId))
+          );
+        } else {
+          const submenuData = getQuestionBankSubmenuData
+            ? await getQuestionBankSubmenuData(deckId)
+            : null;
+
+          if (submenuData && submenuData.banks.length > 0) {
+            menu.addItem((item) => {
+              item
+                .setTitle(t('decks.menu.linkQuestionBank'))
+                .setIcon('link-2');
+
+              const hasSubmenu = withSubmenu(item, (submenu) => {
+                submenuData.banks.forEach((bank) => {
+                  submenu.addItem((subItem) => {
+                    subItem
+                      .setTitle(bank.name)
+                      .setIcon(bank.isCurrent ? 'check' : 'gallery-vertical')
+                      .onClick(async () => await onAssociateQuestionBank?.(deckId, bank.id));
+                  });
+                });
+              });
+
+              if (!hasSubmenu) {
+                item.onClick(async () => await onAssociateQuestionBank?.(deckId));
+              }
+            });
+          } else {
+            menu.addItem((item) =>
+              item
+                .setTitle(t('decks.menu.linkQuestionBank'))
+                .setIcon('link-2')
+                .onClick(async () => await onAssociateQuestionBank?.(deckId))
+            );
+          }
         }
+      }
+
+      menu.addSeparator();
+
+      menu.addItem((item) =>
+        item
+          .setTitle(t('decks.menu.editDeck'))
+          .setIcon('edit')
+          .onClick(async () => await dispatchMemoryDeckMenuAction('edit-deck', deckId))
+      );
+
+      menu.addItem((item) =>
+        item
+          .setTitle(t('decks.menu.delete'))
+          .setIcon('trash-2')
+          .onClick(async () => await dispatchMemoryDeckMenuAction('delete-deck', deckId))
+      );
+
+      menu.addItem((item) =>
+        item
+          .setTitle(t('decks.menu.dissolveDeck'))
+          .setIcon('unlink')
+          .onClick(async () => await dispatchMemoryDeckMenuAction('dissolve-deck', deckId))
       );
     }
     
@@ -1068,7 +1249,7 @@
   // 判断是否可拖拽（根据分组方式决定）
   function isDraggable(): boolean {
     // 只有在优先级分组时才允许拖拽
-    return groupBy === 'priority';
+    return groupBy === 'priority' && !showingEmergentMemoryDecks;
   }
   
   // 拖拽开始
@@ -1196,15 +1377,18 @@
                 </div>
               {:else}
                 {#each decks as deck (deck.id)}
-                  {@const stats = getDeckStats(deck)}
+                  {@const emergentView = showingEmergentMemoryDecks ? emergentDeckViewMap.get(deck.id) : undefined}
+                  {@const stats = showingEmergentMemoryDecks ? (emergentDeckStats[deck.id] || deck.stats || emptyDeckStats) : (deckStats[deck.id] || emptyDeckStats)}
                   {@const colorScheme = getColorSchemeForDeck(deck.id)}
                   {@const colorVariant = ((decks.indexOf(deck) % 4) + 1) as 1 | 2 | 3 | 4}
+                  {@const bindingSummary = !showingEmergentMemoryDecks ? formalDeckBindingSummary[deck.id] : undefined}
+                  {@const formalStatusBadge = bindingSummary ? `${MEMORY_DECK_UI_TEXT.autoTopicPrefix} ${bindingSummary.bindingCount}` : undefined}
+                  {@const levelProgress = !showingEmergentMemoryDecks ? memoryDeckLevels[deck.id] : undefined}
                   <div 
                     class="kanban-card-wrapper"
                     class:dragging={draggedDeck?.id === deck.id}
                     class:draggable={isDraggable()}
-                    role="button"
-                    tabindex="0"
+                    role="group"
                     draggable={isDraggable()}
                     ondragstart={(e) => handleDragStart(e, deck)}
                     ondragend={handleDragEnd}
@@ -1213,19 +1397,33 @@
                       <ChineseElegantDeckCard
                         {deck}
                         stats={stats}
+                        {levelProgress}
                         {colorVariant}
                         {deckMode}
-                        onStudy={() => onStartStudy(deck.id)}
-                        onMenu={(e) => showDeckMenu(e, deck.id)}
+                        statusBadge={showingEmergentMemoryDecks ? emergentView?.statusBadge : formalStatusBadge}
+                        statusKind={showingEmergentMemoryDecks ? 'emergent' : 'formal'}
+                        onStudy={() => showingEmergentMemoryDecks && emergentView
+                          ? onStartEmergentStudy?.(emergentView.id, emergentView.name)
+                          : onStartStudy(deck.id)}
+                        onMenu={(e) => {
+                          void showDeckMenu(e, deck.id);
+                        }}
                       />
                     {:else}
                       <DeckGridCard
                         {deck}
                         stats={stats}
                         colorScheme={colorScheme}
+                        {levelProgress}
                         {deckMode}
-                        onStudy={() => onStartStudy(deck.id)}
-                        onMenu={(e) => showDeckMenu(e, deck.id)}
+                        statusBadge={showingEmergentMemoryDecks ? emergentView?.statusBadge : formalStatusBadge}
+                        statusKind={showingEmergentMemoryDecks ? 'emergent' : 'formal'}
+                        onStudy={() => showingEmergentMemoryDecks && emergentView
+                          ? onStartEmergentStudy?.(emergentView.id, emergentView.name)
+                          : onStartStudy(deck.id)}
+                        onMenu={(e) => {
+                          void showDeckMenu(e, deck.id);
+                        }}
                       />
                     {/if}
                   </div>
@@ -1480,8 +1678,8 @@
   }
   
   :global(body.is-mobile) .kanban-column {
-    min-width: 168px;
-    max-width: 220px;
+    min-width: 280px;
+    max-width: 360px;
     flex-shrink: 0;
     padding: 12px;
     border-radius: 10px;

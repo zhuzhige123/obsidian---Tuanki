@@ -2,6 +2,7 @@ import type { Card } from "../../../data/types";
 import {
 	buildAssociatedNoteSignalIndex,
 	getAssociatedNoteSignal,
+	remapAssociatedNotePaths,
 	resolveAssociatedNotePath,
 	resolveAssociatedNotePaths,
 	resolveAssociatedNotePrimaryPath,
@@ -105,5 +106,15 @@ describe("IRAssociatedNoteSignals", () => {
 				associatedNotePaths: ["Folder/Topic", "Folder/Topic.md", "Folder/Other.md", "Folder/Other"],
 			})
 		).toEqual(["Folder/Topic.md", "Folder/Other.md"]);
+	});
+
+	test("remapAssociatedNotePaths 会把无扩展名旧路径一起迁移到新的 Markdown 文件名", () => {
+		expect(
+			remapAssociatedNotePaths(
+				["Folder/Topic", "Folder/Appendix.md", "Folder/Topic.md"],
+				"Folder/Topic.md",
+				"Folder/Renamed Topic.md"
+			)
+		).toEqual(["Folder/Renamed Topic.md", "Folder/Appendix.md"]);
 	});
 });

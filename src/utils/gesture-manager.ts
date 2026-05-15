@@ -57,6 +57,12 @@ export class GestureManager {
 		{
 			handlers: Map<string, GestureHandler>;
 			touchState: TouchState;
+			listeners: {
+				touchstart: EventListener;
+				touchmove: EventListener;
+				touchend: EventListener;
+				touchcancel: EventListener;
+			};
 		}
 	> = new Map();
 
@@ -74,9 +80,11 @@ export class GestureManager {
 	 */
 	addGestureListener(element: HTMLElement, gestureType: string, handler: GestureHandler): void {
 		if (!this.elements.has(element)) {
+			const listeners = this.createElementListeners(element);
 			this.elements.set(element, {
 				handlers: new Map(),
 				touchState: { ...this.touchState },
+				listeners,
 			});
 			this.setupEventListeners(element);
 		}
@@ -94,6 +102,10 @@ export class GestureManager {
 
 		if (gestureType) {
 			elementData.handlers.delete(gestureType);
+			if (elementData.handlers.size === 0) {
+				this.cleanup(element);
+				this.elements.delete(element);
+			}
 		} else {
 			this.cleanup(element);
 			this.elements.delete(element);
@@ -103,18 +115,36 @@ export class GestureManager {
 	/**
 	 * 设置基础事件监听器
 	 */
+	private createElementListeners(element: HTMLElement): {
+		touchstart: EventListener;
+		touchmove: EventListener;
+		touchend: EventListener;
+		touchcancel: EventListener;
+	} {
+		return {
+			touchstart: ((event: Event) => this.handleTouchStart(element, event as TouchEvent)) as EventListener,
+			touchmove: ((event: Event) => this.handleTouchMove(element, event as TouchEvent)) as EventListener,
+			touchend: ((event: Event) => this.handleTouchEnd(element, event as TouchEvent)) as EventListener,
+			touchcancel: ((event: Event) =>
+				this.handleTouchCancel(element, event as TouchEvent)) as EventListener,
+		};
+	}
+
 	private setupEventListeners(element: HTMLElement): void {
+		const elementData = this.elements.get(element);
+		if (!elementData) return;
+
 		// 使用被动监听器优化性能
-		element.addEventListener("touchstart", this.handleTouchStart.bind(this, element), {
+		element.addEventListener("touchstart", elementData.listeners.touchstart, {
 			passive: false,
 		});
-		element.addEventListener("touchmove", this.handleTouchMove.bind(this, element), {
+		element.addEventListener("touchmove", elementData.listeners.touchmove, {
 			passive: false,
 		});
-		element.addEventListener("touchend", this.handleTouchEnd.bind(this, element), {
+		element.addEventListener("touchend", elementData.listeners.touchend, {
 			passive: false,
 		});
-		element.addEventListener("touchcancel", this.handleTouchCancel.bind(this, element), {
+		element.addEventListener("touchcancel", elementData.listeners.touchcancel, {
 			passive: false,
 		});
 	}
@@ -368,12 +398,14 @@ export class GestureManager {
 	 * 清理元素资源
 	 */
 	private cleanup(element: HTMLElement): void {
-		element.removeEventListener("touchstart", this.handleTouchStart.bind(this, element));
-		element.removeEventListener("touchmove", this.handleTouchMove.bind(this, element));
-		element.removeEventListener("touchend", this.handleTouchEnd.bind(this, element));
-		element.removeEventListener("touchcancel", this.handleTouchCancel.bind(this, element));
-
 		const elementData = this.elements.get(element);
+		if (!elementData) return;
+
+		element.removeEventListener("touchstart", elementData.listeners.touchstart);
+		element.removeEventListener("touchmove", elementData.listeners.touchmove);
+		element.removeEventListener("touchend", elementData.listeners.touchend);
+		element.removeEventListener("touchcancel", elementData.listeners.touchcancel);
+
 		if (elementData?.touchState.longPressTimer) {
 			clearTimeout(elementData.touchState.longPressTimer);
 		}

@@ -66,7 +66,10 @@ export interface IDataStorageAdapter {
 	/**
 	 * 批量创建卡片
 	 */
-	createCards(cards: Card[]): Promise<void>;
+	createCards(
+		cards: Card[],
+		onProgress?: (current: number, total: number, detail: string) => void
+	): Promise<void>;
 
 	/**
 	 * 更新卡片
@@ -132,9 +135,13 @@ export class PluginDataStorageAdapter implements IDataStorageAdapter {
 		await this.plugin.dataStorage.addCard(card);
 	}
 
-	async createCards(cards: Card[]): Promise<void> {
-		for (const card of cards) {
-			await this.createCard(card);
+	async createCards(
+		cards: Card[],
+		onProgress?: (current: number, total: number, detail: string) => void
+	): Promise<void> {
+		for (let index = 0; index < cards.length; index++) {
+			await this.createCard(cards[index]);
+			onProgress?.(index + 1, cards.length, `正在写入第 ${index + 1}/${cards.length} 张卡片`);
 		}
 	}
 

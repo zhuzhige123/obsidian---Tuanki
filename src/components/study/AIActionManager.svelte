@@ -5,7 +5,7 @@
   import { TEMPLATE_VARIABLES } from '../../types/ai-types';
   import type { Deck } from '../../data/types';
   import type { WeavePlugin } from '../../main';
-  import { AI_PROVIDER_LABELS, AI_MODEL_OPTIONS } from '../settings/constants/settings-constants';
+  import { AI_PROVIDER_LABELS, AI_MODEL_OPTIONS, getDefaultAIModel } from '../settings/constants/settings-constants';
   import ActionTypeTabBar from './ActionTypeTabBar.svelte';
   import EnhancedButton from '../ui/EnhancedButton.svelte';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
@@ -15,19 +15,34 @@
   import { DEFAULT_SPLIT_ACTIONS } from '../../data/default-split-actions';
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
   import { Menu, Notice } from 'obsidian';
-  
+
   interface Props {
     show: boolean;
     availableDecks: Deck[];
     plugin: WeavePlugin;
     onClose: () => void;
+    allowedTypes?: AIActionType[];
+    title?: string;
     useObsidianModal?: boolean;
     onUnsavedChangesChange?: (dirty: boolean) => void;
   }
-  
-  let { show, availableDecks, plugin, onClose, useObsidianModal = false, onUnsavedChangesChange }: Props = $props();
+
+  let {
+    show,
+    availableDecks,
+    plugin,
+    onClose,
+    allowedTypes = ['format', 'split'],
+    title = 'AI功能配置',
+    useObsidianModal = false,
+    onUnsavedChangesChange
+  }: Props = $props();
   const isModalOpen = $derived(useObsidianModal || show);
-  
+  const normalizedAllowedTypes = $derived(
+    allowedTypes.filter((type): type is AIActionType => type === 'format' || type === 'split')
+  );
+  const showTypeTabs = $derived(normalizedAllowedTypes.length > 1);
+
   // 状态管理
   let activeType = $state<AIActionType>('format');
   let selectedActionId = $state<string | null>(null);
@@ -158,6 +173,16 @@
   );
 
   $effect(() => {
+    if (normalizedAllowedTypes.length === 0) return;
+
+    if (!normalizedAllowedTypes.includes(activeType)) {
+      activeType = normalizedAllowedTypes[0];
+      selectedActionId = null;
+      showVariableHelp = false;
+    }
+  });
+
+  $effect(() => {
     if (!isModalOpen) return;
 
     if (currentActions.length === 0) {
@@ -171,7 +196,7 @@
       selectedActionId = currentActions[0].id;
     }
   });
-  
+
   const availableVariables = $derived(TEMPLATE_VARIABLES);
   const providers: AIProvider[] = ['openai', 'gemini', 'anthropic', 'deepseek', 'zhipu', 'siliconflow', 'xai'];
 
@@ -182,25 +207,98 @@
   function getDefaultModelForProvider(provider?: AIProvider): string {
     if (!provider) return '';
     const providerConfig = (plugin.settings.aiConfig?.apiKeys as any)?.[provider];
-    return providerConfig?.model || (AI_MODEL_OPTIONS[provider]?.[0]?.id || '');
+    return providerConfig?.model || getDefaultAIModel(provider);
   }
 
-  const availableModels = $derived.by(() => {
-    if (!selectedAction?.provider) return [];
-    return AI_MODEL_OPTIONS[selectedAction.provider] || [];
-  });
+  function getModelLabel(provider: AIProvider, modelId?: string): string {
+    const fallbackModel = getDefaultModelForProvider(provider);
+    const resolvedModelId = (modelId || fallbackModel || '').trim();
+    if (!resolvedModelId) return '未选择模型';
 
-  const defaultModel = $derived.by(() => {
-    return getDefaultModelForProvider(selectedAction?.provider);
-  });
+    const providerOptions = AI_MODEL_OPTIONS[provider] || [];
+    const matched = providerOptions.find((item) => item.id === resolvedModelId);
+    return matched?.label || resolvedModelId;
+  }
+
+  function getActionProviderModelLabel(action: AIAction): string {
+    const effectiveProvider = action.provider || getPreferredProvider();
+    return `${AI_PROVIDER_LABELS[effectiveProvider]} · ${getModelLabel(effectiveProvider, action.model)}`;
+  }
+
+  function openActionProviderModelMenu(event: MouseEvent) {
+    if (!selectedAction) return;
+
+    const menu = new Menu();
+    const apiKeys = (plugin.settings.aiConfig?.apiKeys || {}) as Record<string, { model?: string } | undefined>;
+
+    menu.addItem((item) => {
+      item
+        .setTitle('使用默认配置')
+        .setIcon(!selectedAction.provider ? 'check' : '')
+        .onClick(() => {
+          updateSelectedAction({ provider: undefined, model: undefined });
+        });
+    });
+
+    menu.addSeparator();
+
+    providers.forEach((provider) => {
+      const models = AI_MODEL_OPTIONS[provider] || [];
+      menu.addItem((item) => {
+        item
+          .setTitle(AI_PROVIDER_LABELS[provider])
+          .setIcon((selectedAction.provider || getPreferredProvider()) === provider ? 'check' : '');
+
+        const submenu = (item as any).setSubmenu();
+        const configuredModel = apiKeys[provider]?.model?.trim();
+        const staticModelIds: string[] = models.map((model) => model.id);
+
+        if (configuredModel && !staticModelIds.includes(configuredModel)) {
+          submenu.addItem((modelItem: any) => {
+            modelItem
+              .setTitle(configuredModel)
+              .setIcon(
+                (selectedAction.provider || getPreferredProvider()) === provider &&
+                (selectedAction.model || getDefaultModelForProvider(provider)) === configuredModel
+                  ? 'check'
+                  : ''
+              )
+              .onClick(() => {
+                updateSelectedAction({ provider, model: configuredModel });
+              });
+          });
+          submenu.addSeparator();
+        }
+
+        models.forEach((model) => {
+          submenu.addItem((modelItem: any) => {
+            modelItem
+              .setTitle(model.label)
+              .setIcon(
+                (selectedAction.provider || getPreferredProvider()) === provider &&
+                (selectedAction.model || getDefaultModelForProvider(provider)) === model.id
+                  ? 'check'
+                  : ''
+              )
+              .onClick(() => {
+                updateSelectedAction({ provider, model: model.id });
+              });
+          });
+        });
+      });
+    });
+
+    menu.showAtMouseEvent(event);
+  }
 
   $effect(() => {
     if (selectedAction && !selectedAction.model) {
-      const computedDefaultModel = defaultModel;
+      const effectiveProvider = selectedAction.provider || getPreferredProvider();
+      const computedDefaultModel = getDefaultModelForProvider(effectiveProvider);
       if (computedDefaultModel && selectedAction.category === 'custom') {
         logger.debug('[AIActionManager] 自动初始化model字段:', {
           actionId: selectedAction.id,
-          provider: selectedAction.provider,
+          provider: effectiveProvider,
           model: computedDefaultModel
         });
         updateSelectedAction({ model: computedDefaultModel }, false);
@@ -209,6 +307,7 @@
   });
   
   function handleTypeChange(type: AIActionType) {
+    if (!normalizedAllowedTypes.includes(type)) return;
     activeType = type;
     selectedActionId = null;
     showVariableHelp = false;
@@ -395,12 +494,7 @@
           apiKeys: {},
           defaultProvider: 'zhipu',
           customFormatActions: [],
-          customSplitActions: [],
-          officialFormatActions: {
-            choice: { enabled: true },
-            mathFormula: { enabled: true },
-            memoryAid: { enabled: true }
-          }
+          customSplitActions: []
         } as any;
       }
 
@@ -461,18 +555,20 @@
 {#snippet modalHeader()}
   <div class="modal-toolbar">
     <div class="modal-toolbar-main">
-      <h3 id="modal-title" class="modal-toolbar-title">AI功能配置</h3>
+      <h3 id="modal-title" class="modal-toolbar-title">{title}</h3>
     </div>
 
     <div class="modal-toolbar-center">
-      <div class="top-navigation-shell">
-        <ActionTypeTabBar
-          activeType={activeType}
-          formatCount={currentFormatActions.length}
-          splitCount={currentSplitActions.length}
-          onTypeChange={handleTypeChange}
-        />
-      </div>
+      {#if showTypeTabs}
+        <div class="top-navigation-shell">
+          <ActionTypeTabBar
+            activeType={activeType}
+            formatCount={currentFormatActions.length}
+            splitCount={currentSplitActions.length}
+            onTypeChange={handleTypeChange}
+          />
+        </div>
+      {/if}
     </div>
 
     <div class="top-actions">
@@ -610,59 +706,21 @@
               </div>
               
               <div class="form-group">
-                <label class="form-label" for="ai-provider-select">AI服务商</label>
-                <div class="form-select">
-                  <ObsidianDropdown
-                    options={[
-                      { id: '', label: '使用默认配置' },
-                      ...providers.map((p) => ({ id: p, label: AI_PROVIDER_LABELS[p] }))
-                    ]}
-                    value={selectedAction.provider || ''}
-                    onchange={(value) => {
-                      const provider = value as AIProvider | '';
-                      if (provider) {
-                        const providerConfig = (plugin.settings.aiConfig?.apiKeys as any)?.[provider];
-                        const configuredModel = providerConfig?.model;
-                        const firstModel = AI_MODEL_OPTIONS[provider]?.[0]?.id;
-                        const modelToUse = configuredModel || firstModel;
-
-                        updateSelectedAction({
-                          provider: provider as AIProvider,
-                          model: modelToUse || undefined
-                        });
-                      } else {
-                        updateSelectedAction({ provider: undefined, model: undefined });
-                      }
-                    }}
-                  />
-                </div>
+                <label class="form-label" for="action-provider-model-trigger">服务商与模型</label>
+                <button
+                  id="action-provider-model-trigger"
+                  type="button"
+                  class="form-input form-menu-trigger"
+                  onclick={openActionProviderModelMenu}
+                  aria-label="选择服务商与模型"
+                >
+                  <span>{getActionProviderModelLabel(selectedAction)}</span>
+                  <EnhancedIcon name="chevron-down" size="14" />
+                </button>
                 <div class="form-hint">
-                  未选择时将使用插件设置中的默认服务商和模型
+                  使用 Obsidian 列表菜单选择服务商与模型；未指定时可回退到默认配置
                 </div>
               </div>
-              
-              {#if selectedAction.provider}
-                <div class="form-group">
-                  <label class="form-label" for="ai-model-select">AI模型</label>
-                  <div class="form-select">
-                    <ObsidianDropdown
-                      options={availableModels.map((opt) => ({
-                        id: opt.id,
-                        label: opt.label,
-                        description: opt.description
-                      }))}
-                      value={selectedAction.model || defaultModel}
-                      onchange={(value) => {
-                        const model = value;
-                        updateSelectedAction({ model: model || undefined });
-                      }}
-                    />
-                  </div>
-                  <div class="form-hint">
-                    选择该服务商下可用的AI模型
-                  </div>
-                </div>
-              {/if}
             </div>
             
             <div class="form-section form-section-prompt">
@@ -735,16 +793,18 @@
 
 {#if useObsidianModal}
   <div class="ai-action-manager ai-action-manager-native">
-    <div class="modal-header-tabs modal-header-tabs-native">
-      <div class="top-navigation-shell">
-        <ActionTypeTabBar
-          activeType={activeType}
-          formatCount={currentFormatActions.length}
-          splitCount={currentSplitActions.length}
-          onTypeChange={handleTypeChange}
-        />
+    {#if showTypeTabs}
+      <div class="modal-header-tabs modal-header-tabs-native">
+        <div class="top-navigation-shell">
+          <ActionTypeTabBar
+            activeType={activeType}
+            formatCount={currentFormatActions.length}
+            splitCount={currentSplitActions.length}
+            onTypeChange={handleTypeChange}
+          />
+        </div>
       </div>
-    </div>
+    {/if}
     {@render managerContent()}
   </div>
 {:else}
@@ -752,7 +812,7 @@
     open={show}
     onClose={handleCloseRequest}
     size="xl"
-    title="AI功能配置"
+    title={title}
     header={modalHeader}
     zIndex={6000}
     mask={false}

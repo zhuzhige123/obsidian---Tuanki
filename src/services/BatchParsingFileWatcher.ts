@@ -9,9 +9,6 @@ import { BatchParseConfig } from "../types/newCardParsingTypes";
 import { logger } from "../utils/logger";
 import { SimplifiedCardParser } from "../utils/simplifiedParser/SimplifiedCardParser";
 
-//  高级功能权限检查
-import { PREMIUM_FEATURES, PremiumFeatureGuard } from "./premium/PremiumFeatureGuard";
-
 /**
  * 批量解析文件监听器选项
  */
@@ -60,13 +57,6 @@ export class BatchParsingFileWatcher {
 	 * 初始化监听器
 	 */
 	async initialize(): Promise<void> {
-		//  权限检查：验证是否可以使用批量解析功能
-		const premiumGuard = PremiumFeatureGuard.getInstance();
-		if (!premiumGuard.canUseFeature(PREMIUM_FEATURES.BATCH_PARSING)) {
-			logger.debug("[BatchParsingWatcher] 批量解析功能需要激活许可证，跳过初始化");
-			return;
-		}
-
 		if (!this.options.autoTrigger) {
 			logger.debug("[BatchParsingWatcher] 自动触发已禁用");
 			return;

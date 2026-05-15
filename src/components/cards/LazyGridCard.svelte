@@ -7,14 +7,16 @@
   import { logger } from '../../utils/logger';
 
   import { onMount } from 'svelte';
-  import { MarkdownRenderer, Component, Platform } from 'obsidian';
+  import { MarkdownRenderer, Component, Platform, Notice } from 'obsidian';
   import type { Card } from '../../data/types';
   import type { WeavePlugin } from '../../main';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import { stripClozeForDisplay } from '../../utils/cloze-utils';
   import { getCardFieldContent } from '../../utils/card-field-helper';
   import { extractBodyContent, parseSourceInfo } from '../../utils/yaml-utils';
+  import { normalizeCanvasNodeId } from '../../services/ui/canvas-source-locate';
   import { getQuestionTypeLabelFromCard } from '../../utils/question-type-utils';
+  import { buildWeaveCardReferenceToken } from '../../utils/weave-card-reference';
 
   type GridCardAttributeType = 'none' | 'uuid' | 'source' | 'priority' | 'retention' | 'modified' | 'accuracy' | 'question_type' | 'ir_state' | 'ir_priority';
   
@@ -107,6 +109,7 @@
   let clickTimer: NodeJS.Timeout | null = null;
   let isHovered = $state(false);
   let contentComponent: Component | null = null;
+  let renderedContentSignature = $state('');
   let observer: IntersectionObserver | null = null;
   
   // 长按检测状态
@@ -126,7 +129,6 @@
   // 计算属性
   const frontText = $derived(getCardFieldContent(card, 'front'));
   const backText = $derived(getCardFieldContent(card, 'back'));
-  const tags = $derived(card.tags || []);
   const sourceInfo = $derived.by(() => {
     if (!card.content) {
       return null;
@@ -211,8 +213,8 @@
 
   const sourceBlockId = $derived.by(() => {
     const block = sourceInfo?.sourceBlock?.trim();
-    if (block) return block.replace(/^canvas:/, '').replace(/^\^/, '').split('?')[0];
-    if (card.sourceBlock) return String(card.sourceBlock).trim().replace(/^canvas:/, '').replace(/^\^/, '').split('?')[0];
+    if (block) return normalizeCanvasNodeId(block) || '';
+    if (card.sourceBlock) return normalizeCanvasNodeId(String(card.sourceBlock).trim()) || '';
     return '';
   });
   
@@ -242,25 +244,18 @@
     return !!sourceDocument;
   });
   
-  // 根据标签名生成颜色
-  function getTagColor(tag: string): string {
-    const colors = ['blue', 'purple', 'pink', 'red', 'orange', 'green', 'cyan', 'gray'];
-    let hash = 0;
-    for (let i = 0; i < tag.length; i++) {
-      hash = tag.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const index = Math.abs(hash) % colors.length;
-    return colors[index];
-  }
-  
   // UUID 显示格式
+  const fullUuid = $derived.by(() => String(card.uuid || '').trim());
+
   const displayUuid = $derived.by(() => {
-    const uuid = card.uuid;
+    const uuid = fullUuid;
     if (uuid.length > 12) {
       return `${uuid.slice(0, 8)}...${uuid.slice(-4)}`;
     }
     return uuid;
   });
+
+  const canCopyReference = $derived.by(() => attributeType === 'uuid' && fullUuid.length > 0);
   
   // 根据属性类型获取显示内容
   const attributeDisplay = $derived.by(() => {
@@ -313,18 +308,75 @@
     }
   });
 
+  async function copyTextToClipboard(text: string): Promise<boolean> {
+    const normalizedText = String(text || '');
+    if (!normalizedText) {
+      return false;
+    }
+
+    try {
+      await navigator.clipboard.writeText(normalizedText);
+      return true;
+    } catch {}
+
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = normalizedText;
+      textArea.setAttribute('readonly', 'true');
+      textArea.style.position = 'fixed';
+      textArea.style.opacity = '0';
+      textArea.style.pointerEvents = 'none';
+      document.body.appendChild(textArea);
+      textArea.select();
+      textArea.setSelectionRange(0, normalizedText.length);
+      const copied = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return copied;
+    } catch {
+      return false;
+    }
+  }
+
+  async function handleAttributeClick(event: MouseEvent): Promise<void> {
+    if (!canCopyReference) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const copied = await copyTextToClipboard(buildWeaveCardReferenceToken(fullUuid));
+    new Notice(copied ? '已复制关联卡片引用' : '复制失败，请手动复制', copied ? 2000 : 3000);
+  }
+
+  function disposeRenderedContent(): void {
+    contentComponent?.unload();
+    contentComponent = null;
+    renderedContentSignature = '';
+    contentElement?.replaceChildren();
+  }
+
   /**
    * 渲染 Markdown 内容
    */
   async function renderMarkdown() {
-    if (!contentElement || !plugin?.app || isRendering || contentComponent) {
+    if (!contentElement || !plugin?.app || isRendering) {
+      return;
+    }
+
+    const currentSignature = `${card.uuid || ''}|${card.modified || ''}|${sourcePath || ''}|${previewContent}`;
+    if (contentComponent && renderedContentSignature === currentSignature) {
       return;
     }
     
     isRendering = true;
     
     try {
-      contentElement.replaceChildren();
+      if (contentComponent) {
+        disposeRenderedContent();
+      } else {
+        contentElement.replaceChildren();
+      }
       
       const component = new Component();
       component.load();
@@ -340,6 +392,7 @@
       );
       
       contentComponent = component;
+      renderedContentSignature = currentSignature;
       
     } catch (error) {
       logger.error('[LazyGridCard] Render failed:', error);
@@ -347,6 +400,7 @@
         // 降级处理：显示纯文本（previewContent 已压缩预览空白）
         contentElement.textContent = previewContent;
       }
+      renderedContentSignature = currentSignature;
     } finally {
       isRendering = false;
     }
@@ -359,7 +413,7 @@
    */
   function handleCardClick(event: MouseEvent) {
     // 如果点击的是标签、源文档显示区或操作按钮，忽略点击
-    if ((event.target as HTMLElement).closest('.card-tags, .card-source, .card-actions')) {
+    if ((event.target as HTMLElement).closest('.card-source, .card-actions')) {
       return;
     }
     
@@ -608,9 +662,11 @@
    * 监听hasRendered变化，当为true时渲染Markdown
    */
   $effect(() => {
-    if (hasRendered && contentElement && !contentComponent) {
+    const renderSignature = `${card.uuid || ''}|${card.modified || ''}|${sourcePath || ''}|${previewContent}`;
+    if (hasRendered && contentElement) {
       // 使用setTimeout确保DOM完全更新
       setTimeout(() => {
+        void renderSignature;
         renderMarkdown();
       }, 0);
     }
@@ -657,7 +713,7 @@
     
     return () => {
       observer?.disconnect();
-      contentComponent?.unload();
+      disposeRenderedContent();
       if (clickTimer) {
         clearTimeout(clickTimer);
       }
@@ -712,14 +768,35 @@
     </div>
   {/if}
 
+  {#if emphasized}
+    <div class="current-card-indicator">
+      <span>当前卡片</span>
+    </div>
+  {/if}
+
   <!-- 动态属性显示（左上角） -->
   {#if attributeDisplay}
-    <div class="card-attribute" title={attributeDisplay?.label}>
-      {#if attributeDisplay?.icon}
-        <EnhancedIcon name={attributeDisplay.icon} size={12} />
-      {/if}
-      <span>{attributeDisplay?.value}</span>
-    </div>
+    {#if canCopyReference}
+      <button
+        type="button"
+        class="card-attribute card-attribute--clickable"
+        title="点击复制关联卡片格式"
+        aria-label="复制关联卡片格式"
+        onclick={handleAttributeClick}
+      >
+        {#if attributeDisplay?.icon}
+          <EnhancedIcon name={attributeDisplay.icon} size={12} />
+        {/if}
+        <span>{attributeDisplay?.value}</span>
+      </button>
+    {:else}
+      <div class="card-attribute" title={attributeDisplay?.label}>
+        {#if attributeDisplay?.icon}
+          <EnhancedIcon name={attributeDisplay.icon} size={12} />
+        {/if}
+        <span>{attributeDisplay?.value}</span>
+      </div>
+    {/if}
   {/if}
 
   <!-- 功能菜单（右上角） -->
@@ -733,7 +810,7 @@
   >
     {#if onSourceJump && hasSourceDocument}
       <button class="action-menu-item" onclick={handleSourceJump} title="跳转到源文档">
-        <EnhancedIcon name="file-text" size={16} />
+        <EnhancedIcon name="external-link" size={16} />
       </button>
     {/if}
     {#if onConvertToMarkdown}
@@ -777,20 +854,6 @@
     {/if}
   </div>
 
-  <!-- 卡片底部 - 只有标签时才显示，避免空div边框残留 -->
-  {#if tags.length > 0}
-    <div class="card-footer">
-      <div class="card-tags">
-        {#each tags.slice(0, 3) as tag}
-          <span class="tag tag-{getTagColor(tag)}">{tag}</span>
-        {/each}
-        {#if tags.length > 3}
-          <span class="tag-more">+{tags.length - 3}</span>
-        {/if}
-      </div>
-    </div>
-  {/if}
-
   <!-- 选中遮罩 -->
   {#if selected}
     <div class="selected-overlay"></div>
@@ -827,17 +890,20 @@
   }
 
   .lazy-grid-card.fixed-height .card-body {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: hidden;
   }
 
   .lazy-grid-card.fixed-height .content-area {
-    flex: none;
-    max-height: 200px;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
   }
 
   .lazy-grid-card.fixed-height .skeleton-placeholder {
-    flex: none;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   /* 瀑布流模式 */
@@ -860,10 +926,6 @@
 
   .lazy-grid-card.masonry .skeleton-placeholder {
     flex: none;
-  }
-
-  .lazy-grid-card.masonry .card-footer {
-    margin-top: 2px;
   }
 
   /* 由 Obsidian 主题变量统一驱动边框和悬停阴影，避免深浅色硬编码 */
@@ -930,6 +992,30 @@
     box-shadow: var(--weave-shadow-sm);
   }
 
+  .current-card-indicator {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 24px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--interactive-accent) 18%, var(--background-primary));
+    color: var(--text-accent);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 38%, transparent),
+      0 4px 12px color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+    font-size: var(--weave-font-size-xs);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
   .selected-overlay {
     position: absolute;
     top: 0;
@@ -962,31 +1048,53 @@
   }
 
   /* 卡片属性显示（左上角） */
-  .card-attribute {
+  .lazy-grid-card .card-attribute {
     position: absolute;
     top: 8px;
     left: 8px;
     /*  固定高度，与右侧操作按钮对齐 */
-    height: 28px;
+    min-height: 28px;
     font-size: var(--weave-font-size-xs);
     font-weight: 500;
     color: var(--text-muted);
     /*  使用与卡片内容区相同的背景色，消除色差 */
-    background: var(--weave-surface-background, var(--background-primary));
-    padding: 0 8px;
-    border-radius: var(--weave-radius-sm);
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
     z-index: 2;
     display: flex;
     align-items: center;
     gap: 4px;
     /*  移除边框，使用透明边框保持布局一致 */
     border: none;
+    box-shadow: none;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    font-family: inherit;
+    text-align: left;
+    cursor: default;
     transition: all 0.2s ease;
   }
 
-  .card-attribute:hover {
-    background: var(--background-modifier-hover);
+  .lazy-grid-card .card-attribute:hover {
+    background: transparent;
+    color: var(--text-normal);
+  }
+
+  .lazy-grid-card .card-attribute--clickable {
+    cursor: pointer;
+  }
+
+  .lazy-grid-card .card-attribute--clickable:hover,
+  .lazy-grid-card .card-attribute--clickable:focus-visible {
+    outline: none;
+    background: transparent;
+    box-shadow: none;
     color: var(--interactive-accent);
+    text-decoration: underline;
+    text-underline-offset: 0.14em;
+    text-decoration-thickness: 1px;
   }
 
   /* 功能菜单（右上角） */
@@ -1017,33 +1125,6 @@
   .card-actions.mobile-visible {
     opacity: 1;
     pointer-events: auto;
-  }
-
-  .menu-button {
-    width: 28px;
-    height: 28px;
-    /*  使用与卡片内容区相同的背景色 */
-    background: var(--weave-surface-background, var(--background-primary));
-    border: none;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    color: var(--text-muted);
-  }
-
-  .menu-button:hover {
-    background: var(--background-modifier-hover);
-    color: var(--text-normal);
-  }
-
-  .action-menu {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    animation: slideInLeft 0.2s ease-out;
   }
 
   @keyframes slideInLeft {
@@ -1235,48 +1316,6 @@
     height: auto;
     border-radius: var(--weave-radius-sm);
     margin: var(--weave-space-xs) 0;
-  }
-
-  /* 卡片底部 */
-  .card-footer {
-    margin-top: auto;
-    padding-top: 2px;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    position: relative;
-    z-index: 2;
-  }
-
-  /* 标签 */
-  .card-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px;
-  }
-
-  .tag {
-    font-size: var(--weave-font-size-xs);
-    padding: 1px 6px;
-    border-radius: var(--weave-radius-sm);
-    font-weight: 500;
-    line-height: 1.3;
-  }
-
-  /* 多彩标签 */
-  .tag-blue { background: var(--weave-tag-blue-bg); color: var(--weave-tag-blue-text); border: 1px solid var(--weave-tag-blue-border); }
-  .tag-purple { background: var(--weave-tag-purple-bg); color: var(--weave-tag-purple-text); border: 1px solid var(--weave-tag-purple-border); }
-  .tag-pink { background: var(--weave-tag-pink-bg); color: var(--weave-tag-pink-text); border: 1px solid var(--weave-tag-pink-border); }
-  .tag-red { background: var(--weave-tag-red-bg); color: var(--weave-tag-red-text); border: 1px solid var(--weave-tag-red-border); }
-  .tag-orange { background: var(--weave-tag-orange-bg); color: var(--weave-tag-orange-text); border: 1px solid var(--weave-tag-orange-border); }
-  .tag-green { background: var(--weave-tag-green-bg); color: var(--weave-tag-green-text); border: 1px solid var(--weave-tag-green-border); }
-  .tag-cyan { background: var(--weave-tag-cyan-bg); color: var(--weave-tag-cyan-text); border: 1px solid var(--weave-tag-cyan-border); }
-  .tag-gray { background: var(--weave-tag-gray-bg); color: var(--weave-tag-gray-text); border: 1px solid var(--weave-tag-gray-border); }
-
-  .tag-more {
-    font-size: var(--weave-font-size-xs);
-    color: var(--weave-text-faint);
-    font-weight: 500;
   }
 
 </style>

@@ -232,12 +232,14 @@ body .weave-notification:hover {
 
 /* --- SourceLocateOverlayService.ts --- */
 .weave-source-locate-overlay {
-  position: absolute;
+  position: fixed;
   z-index: 2147483000;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
+  max-width: min(320px, calc(100vw - 24px));
+  box-sizing: border-box;
   border-radius: 14px;
   background: rgba(15, 23, 42, 0.96);
   color: #f8fafc;
@@ -245,6 +247,11 @@ body .weave-notification:hover {
   border: 1px solid rgba(255, 255, 255, 0.08);
   pointer-events: none;
   animation: weave-source-locate-overlay-in 0.18s ease-out forwards;
+}
+
+.weave-source-locate-overlay--measuring {
+  opacity: 0;
+  animation: none;
 }
 
 .weave-source-locate-overlay__icon {
@@ -772,6 +779,42 @@ body.is-mobile .receipt-modal .printer-container {
   background: var(--background-modifier-hover);
 }
 
+.suggestion-container.weave-batch-tag-suggest-popover {
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.suggestion-container.weave-batch-tag-suggest-popover .suggestion-item {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 66%, transparent);
+}
+
+.suggestion-container.weave-batch-tag-suggest-popover .suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.suggestion-container.weave-batch-tag-suggest-popover .suggestion-item.is-selected {
+  background: color-mix(in srgb, var(--background-modifier-hover) 88%, var(--background-primary));
+}
+
+.suggestion-container.weave-markdown-file-suggest-popover .suggestion-item {
+  padding: 7px 10px;
+  margin: 1px 0;
+  border-radius: 8px;
+}
+
+.suggestion-container.weave-markdown-file-suggest-popover .suggestion-item:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 64%, var(--background-primary));
+}
+
+.suggestion-container.weave-markdown-file-suggest-popover .suggestion-item.is-selected {
+  background: color-mix(in srgb, var(--background-modifier-hover) 76%, var(--background-primary));
+}
+
 .suggestion-container .weave-batch-tag-suggestion,
 .suggestion-container .weave-ir-deck-suggestion,
 .suggestion-container .weave-markdown-file-suggestion {
@@ -791,6 +834,14 @@ body.is-mobile .receipt-modal .printer-container {
   flex-wrap: nowrap;
 }
 
+.suggestion-container .weave-markdown-file-suggestion.weave-markdown-file-suggestion--no-icon {
+  gap: 0;
+}
+
+.suggestion-container.weave-batch-tag-suggest-popover .weave-batch-tag-suggestion__row {
+  gap: 0;
+}
+
 .suggestion-container .weave-batch-tag-suggestion__icon,
 .suggestion-container .weave-ir-deck-suggestion-icon,
 .suggestion-container .weave-markdown-file-suggestion__icon {
@@ -801,6 +852,14 @@ body.is-mobile .receipt-modal .printer-container {
   width: 18px;
   height: 18px;
   color: var(--text-muted);
+}
+
+.suggestion-container .weave-batch-tag-suggestion__icon svg,
+.suggestion-container .weave-ir-deck-suggestion-icon svg,
+.suggestion-container .weave-markdown-file-suggestion__icon svg {
+  display: block;
+  width: 15px;
+  height: 15px;
 }
 
 .suggestion-container .weave-batch-tag-suggestion__title,
@@ -815,6 +874,18 @@ body.is-mobile .receipt-modal .printer-container {
   color: var(--text-normal);
   font-size: var(--font-ui-small, 13px);
   font-weight: 500;
+  line-height: 1.35;
+}
+
+.suggestion-container.weave-batch-tag-suggest-popover .weave-batch-tag-suggestion__title {
+  font-weight: 500;
+}
+
+.suggestion-container .weave-batch-tag-suggestion__meta {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   line-height: 1.35;
 }
 
@@ -851,7 +922,21 @@ body.is-mobile .receipt-modal .printer-container {
   z-index: var(--weave-suggest-popover-z, calc(var(--z-index-modal, 400) + 10));
 }
 
-.modal.weave-suggest-modal--anchored {
+.modal-container.weave-suggest-modal-container--overlayless {
+  pointer-events: none;
+}
+
+.modal-container.weave-suggest-modal-container--overlayless .modal,
+.modal-container.weave-suggest-modal-container--overlayless .prompt {
+  pointer-events: auto;
+}
+
+.modal-bg.weave-suggest-modal-bg--hidden {
+  display: none;
+}
+
+.modal.weave-suggest-modal--anchored,
+.prompt.weave-suggest-modal--anchored {
   position: fixed;
   width: var(--weave-suggest-popover-width, min(320px, calc(100vw - 24px)));
   max-width: var(--weave-suggest-popover-width, min(320px, calc(100vw - 24px)));
@@ -861,4 +946,10 @@ body.is-mobile .receipt-modal .printer-container {
   left: var(--weave-suggest-popover-left, 12px);
   top: var(--weave-suggest-popover-top, 12px);
   z-index: var(--weave-suggest-popover-z, calc(var(--z-index-modal, 400) + 10));
+}
+
+.modal.weave-suggest-modal--positioning,
+.prompt.weave-suggest-modal--positioning {
+  opacity: 0;
+  visibility: hidden;
 }

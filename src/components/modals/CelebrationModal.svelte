@@ -48,7 +48,6 @@
   let showContent = $state(false);
   
   onMount(() => {
-    
     // 播放音效
     if (soundEnabled) {
       const sound = getCelebrationSound();
@@ -61,22 +60,6 @@
     setTimeout(() => {
       showContent = true;
     }, 300);
-    
-    // 键盘事件
-    const handleKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        if (typeof onClose === 'function') {
-          onClose();
-        }
-      }
-    };
-    
-    document.addEventListener('keydown', handleKeydown);
-    
-    return () => {
-      document.removeEventListener('keydown', handleKeydown);
-    };
   });
 </script>
 
@@ -84,11 +67,12 @@
 <!-- 背景遮罩 -->
 <div 
       class="celebration-backdrop"
-      onclick={() => { if (typeof onClose === 'function') onClose(); }}
-      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { if (typeof onClose === 'function') onClose(); } }}
-      role="button"
-      tabindex="0"
-      aria-label={t('celebration.footer.closeButton')}
+      onclick={(event) => {
+        if (event.target === event.currentTarget && typeof onClose === 'function') {
+          onClose();
+        }
+      }}
+      role="presentation"
     >
       <!-- 礼花动画层 -->
       <ConfettiEffect />
@@ -100,10 +84,12 @@
         data-deck-id={deckId}
         data-deck-name={deckName}
         onclick={(e) => {
-      e.preventDefault();
-      // Svelte 5: 内容卡片点击不关闭模态框
-    }}
-        onkeydown={(e) => { e.preventDefault(); }}
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onkeydown={(e) => {
+          e.stopPropagation();
+        }}
         role="dialog"
         tabindex="-1"
         aria-label={t('celebration.title')}
@@ -385,4 +371,3 @@
     }
   }
 </style>
-

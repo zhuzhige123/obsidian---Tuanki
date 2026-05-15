@@ -1,5 +1,6 @@
 import type { Card } from "../../data/types";
 import { UnifiedCardType } from "../../types/unified-card-types";
+import { getAnkiClozeMatches, getConfiguredClozeMatches } from "../../utils/cloze-syntax";
 import { logger } from "../../utils/logger";
 import { isMultipleChoiceCard, parseChoiceOptions } from "../../utils/multiple-choice-parser";
 
@@ -52,15 +53,6 @@ export interface DetectionMetadata {
  * 负责智能检测卡片的题型并提供详细的检测结果
  */
 export class CardTypeDetector {
-	private static readonly CLOZE_PATTERNS = [
-		// Obsidian 高亮语法
-		{ pattern: /==(.*?)==/g, type: "obsidian_highlight", weight: 0.9 },
-		// Anki 挖空语法
-		{ pattern: /\{\{c\d+::(.*?)\}\}/g, type: "anki_cloze", weight: 1.0 },
-		// 自定义挖空语法
-		{ pattern: /\[cloze\](.*?)\[\/cloze\]/g, type: "custom_cloze", weight: 0.8 },
-	];
-
 	private static readonly QA_PATTERNS = [
 		// 问答结构模式（需全局匹配，供 matchAll 使用）
 		{ pattern: /^(问题?|Question|Q)[:：]\s*(.+)/gim, type: "explicit_question", weight: 0.9 },
@@ -86,8 +78,9 @@ export class CardTypeDetector {
 	static detectCardType(card: Card): CardTypeDetectionResult {
 		const startTime = performance.now();
 
-		// 收集所有字段内容
-		const allContent = Object.values(card.fields || {}).join("\n");
+		const allContent = [card.content || "", ...Object.values(card.fields || {})]
+			.filter((value) => typeof value === "string" && value.trim())
+			.join("\n");
 		const features: DetectedFeature[] = [];
 
 		// 1. 检测选择题特征
@@ -166,18 +159,24 @@ export class CardTypeDetector {
 	 */
 	private static detectClozeFeatures(content: string): DetectedFeature[] {
 		const features: DetectedFeature[] = [];
+		const configuredMatches = getConfiguredClozeMatches(content);
+		if (configuredMatches.length > 0) {
+			features.push({
+				type: "cloze",
+				pattern: "configured_standard",
+				matches: configuredMatches.map((match) => match.text),
+				confidence: 0.9 * Math.min(1.0, configuredMatches.length / 3),
+			});
+		}
 
-		for (const { pattern, type, weight } of this.CLOZE_PATTERNS) {
-			const matches = Array.from(content.matchAll(pattern));
-
-			if (matches.length > 0) {
-				features.push({
-					type: "cloze",
-					pattern: type,
-					matches: matches.map((match) => match[1] || match[0]),
-					confidence: weight * Math.min(1.0, matches.length / 3), // 挖空数量影响置信度
-				});
-			}
+		const ankiMatches = getAnkiClozeMatches(content);
+		if (ankiMatches.length > 0) {
+			features.push({
+				type: "cloze",
+				pattern: "anki_cloze",
+				matches: ankiMatches.map((match) => match.text),
+				confidence: 1.0 * Math.min(1.0, ankiMatches.length / 3),
+			});
 		}
 
 		return features;

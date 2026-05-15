@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistedStudySession } from "../types/study-types";
 import { StudySessionManager } from "./StudySessionManager";
 
@@ -29,12 +29,18 @@ function createPersistedSession(deckId: string, sessionId: string): PersistedStu
 }
 
 describe("StudySessionManager persisted sessions", () => {
-	const manager = StudySessionManager.getInstance();
+	let manager: StudySessionManager;
 
 	beforeEach(() => {
+		manager = StudySessionManager.getInstance();
 		(manager as any).sessions.clear();
 		manager.clearPersistedSession();
 		(manager as any).activePersistedDeckId = null;
+	});
+
+	afterEach(() => {
+		StudySessionManager.destroyInstance();
+		vi.restoreAllMocks();
 	});
 
 	it("stores paused sessions per deck instead of overwriting them", () => {
@@ -60,5 +66,14 @@ describe("StudySessionManager persisted sessions", () => {
 
 		expect(manager.getPersistedSession("deck-a")).toBeNull();
 		expect(manager.getPersistedSession("deck-b")?.sessionId).toBe("session-b");
+	});
+
+	it("destroyInstance stops cleanup timer and resets singleton", () => {
+		const stopAutoCleanupSpy = vi.spyOn(manager, "stopAutoCleanup");
+
+		StudySessionManager.destroyInstance();
+
+		expect(stopAutoCleanupSpy).toHaveBeenCalledTimes(1);
+		expect((StudySessionManager as any).instance).toBeNull();
 	});
 });

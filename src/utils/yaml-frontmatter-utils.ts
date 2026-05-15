@@ -122,13 +122,18 @@ export class YAMLFrontmatterManager {
 			await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
 				// 更新每个字段
 				if (updates["weave-reading-id"] !== undefined) {
-					frontmatter["weave-reading-id"] = updates["weave-reading-id"];
+					const readingId = String(updates["weave-reading-id"] || "").trim();
+					if (readingId) {
+						frontmatter["weave-reading-id"] = readingId;
+					} else {
+						delete frontmatter["weave-reading-id"];
+					}
 				}
 				if (updates["weave-reading-category"] !== undefined) {
-					frontmatter["weave-reading-category"] = updates["weave-reading-category"];
+					delete frontmatter["weave-reading-category"];
 				}
 				if (updates["weave-reading-priority"] !== undefined) {
-					frontmatter["weave-reading-priority"] = updates["weave-reading-priority"];
+					delete frontmatter["weave-reading-priority"];
 				}
 				if (updates["weave_tags"] !== undefined) {
 					const normalizedTags = normalizeWeaveTags(updates["weave_tags"] || []);
@@ -140,11 +145,8 @@ export class YAMLFrontmatterManager {
 				}
 				const topicId = updates[READING_TOPIC_YAML_KEY] ?? updates[READING_LEGACY_DECK_YAML_KEY];
 				if (topicId !== undefined) {
-					if (topicId) {
-						frontmatter[READING_TOPIC_YAML_KEY] = topicId;
-					} else {
-						delete frontmatter[READING_TOPIC_YAML_KEY];
-					}
+					void topicId;
+					delete frontmatter[READING_TOPIC_YAML_KEY];
 					delete frontmatter[READING_LEGACY_DECK_YAML_KEY];
 				}
 			});
@@ -173,6 +175,7 @@ export class YAMLFrontmatterManager {
 			"weave-reading-id": uuid,
 			"weave-reading-category": category,
 			"weave-reading-priority": priority,
+			[READING_TOPIC_YAML_KEY]: "",
 		});
 	}
 

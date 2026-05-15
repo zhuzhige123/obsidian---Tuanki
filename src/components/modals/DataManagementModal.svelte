@@ -8,6 +8,7 @@
   import { logger } from '../../utils/logger';
   import type { WeavePlugin } from '../../main';
   import type { Card } from '../../data/types';
+  import type { TabDefinition } from '../../types/view-card-modal-types';
   import { 
     getDataManagementService,
     DEFAULT_BATCH_FIX_TYPES,
@@ -28,7 +29,9 @@
   import type { IssueSeverity } from '../../types/card-quality-types';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import EnhancedButton from '../ui/EnhancedButton.svelte';
+  import TabNavigation from '../ui/TabNavigation.svelte';
   import { showDangerConfirm } from '../../utils/obsidian-confirm';
+  import { createGlobalOperationController, type GlobalOperationController } from '../../utils/global-operation-progress';
 
   // ===== Props =====
   interface Props {
@@ -55,7 +58,12 @@
   let scanTargetCards = $derived(scanScope === 'all' ? allCards : cards);
 
   // ===== 标签页 =====
-  const activeTab = 'data';
+  type ManagementLifecycleTab = 'long_term' | 'temporary';
+  let activeTab = $state<ManagementLifecycleTab>('long_term');
+  const managementTabs: TabDefinition[] = [
+    { id: 'long_term', label: '长期健康检查', icon: '' },
+    { id: 'temporary', label: '临时迁移/清理', icon: '' }
+  ];
 
   // ===== 数据管理 State =====
   let isChecking = $state(false);
@@ -65,12 +73,13 @@
   let fixResults = $state<DataFixResult[]>([]);
   let migrationResults = $state<DataCheckResult[]>([]);
   let latestMigrationSummary = $state<{ targetRoot: string; movedFiles: number; conflicts: number; rewrittenReferences: number; remainingLegacyRoots: number; reportTime: string } | null>(null);
-  let latestIRPointMigrationSummary = $state<{ targetRoot: string; migratedMaterials: number; migratedPoints: number; migratedReaderStateFiles: number; failures: number; completedAt: string; status: 'completed' | 'failed' } | null>(null);
+  let latestIRPointMigrationSummary = $state<{ targetRoot: string; migratedMaterials: number; migratedPoints: number; migratedReaderStateFiles: number; removedLegacyReaderStateFiles: number; removedLegacyBookmarkTaskFiles: number; failures: number; completedAt: string; status: 'completed' | 'failed' } | null>(null);
   let logs = $state<string[]>([]);
   let progressMessage = $state('');
   let progressCurrent = $state(0);
   let progressTotal = $state(0);
   let progressPercent = $derived(progressTotal > 0 ? Math.round((progressCurrent / progressTotal) * 100) : 0);
+  let activeGlobalOperation = $state<GlobalOperationController | null>(null);
 
   // ===== 质量扫描 State =====
   let isScanning = $state(false);
@@ -194,6 +203,8 @@
       migratedMaterials: report.summary.migratedMaterials,
       migratedPoints: report.summary.migratedPoints,
       migratedReaderStateFiles: report.summary.migratedReaderStateFiles,
+      removedLegacyReaderStateFiles: report.summary.removedLegacyReaderStateFiles ?? 0,
+      removedLegacyBookmarkTaskFiles: report.summary.removedLegacyBookmarkTaskFiles ?? 0,
       failures: report.summary.failures.length,
       completedAt: report.summary.completedAt,
       status: report.status,
@@ -206,20 +217,257 @@
     logs = [...logs, `[${time}] ${message}`];
   }
 
+  function startGlobalProgress(title: string, total: number, detail: string) {
+    activeGlobalOperation = createGlobalOperationController({
+      title,
+      total: Math.max(1, total),
+      detail,
+      allowNavigation: false,
+      navigationMessage: '数据管理任务正在执行，请暂时留在当前界面，完成后会自动刷新结果。'
+    });
+    return activeGlobalOperation.operationId;
+  }
+
+  function updateSharedProgress(current: number, total: number, message: string) {
+    progressCurrent = current;
+    progressTotal = total;
+    progressMessage = message;
+
+    if (!activeGlobalOperation) {
+      return;
+    }
+
+    activeGlobalOperation.update({
+      status: 'running',
+      current,
+      total,
+      detail: message,
+    });
+  }
+
+  function finishGlobalProgress(status: 'success' | 'error', detail: string, current?: number, total?: number) {
+    if (!activeGlobalOperation) {
+      return;
+    }
+
+    const finalTotal = Math.max(1, total ?? (progressTotal || 1));
+    const finalCurrent = Math.max(0, Math.min(finalTotal, current ?? (progressCurrent || finalTotal)));
+    activeGlobalOperation.finish({
+      status,
+      current: finalCurrent,
+      total: finalTotal,
+      detail,
+    }, status === 'error' ? 2500 : 1500);
+    activeGlobalOperation = null;
+  }
+
+  function resetLocalProgress() {
+    progressMessage = '';
+    progressCurrent = 0;
+    progressTotal = 0;
+  }
+
+  const temporaryCheckTypes = new Set<CheckType>([
+    'yaml_migration',
+    'we_decks_fix',
+    'we_block_migration',
+    'epub_source_link_migration',
+    'epub_markdown_source_id_backfill',
+    'deprecated_fields',
+    'ir_redundant_frontmatter_cleanup',
+    'schema_migration',
+    'ir_point_storage_migration',
+    'ir_legacy_readable_markdown_migration',
+    'ir_local_state_relocation',
+    'ir_legacy_bookmark_cleanup',
+    'wdeck_migration',
+    'qbank_migration',
+    'qbank_legacy_cleanup',
+    'legacy_memory_files',
+    'migration_conflict_files',
+    'legacy_cleanup'
+  ]);
+
+  function getLifecycleKind(type: CheckType): 'temporary' | 'long_term' {
+    return temporaryCheckTypes.has(type) ? 'temporary' : 'long_term';
+  }
+
+  function getLifecycleLabel(type: CheckType): string {
+    return getLifecycleKind(type) === 'temporary' ? '临时' : '长期';
+  }
+
+  function getLifecycleNote(type: CheckType): string {
+    switch (type) {
+      case 'yaml_migration':
+      case 'we_decks_fix':
+      case 'we_block_migration':
+      case 'epub_source_link_migration':
+      case 'deprecated_fields':
+        return '临时兼容项：主要用于清理旧卡片结构与历史字段，旧数据完成收口后应考虑移除。';
+      case 'epub_markdown_source_id_backfill':
+        return '临时迁移项：用于为 Vault Markdown 中旧 EPUB 链接补写 sourceId，完成收口后应考虑移除。';
+      case 'ir_redundant_frontmatter_cleanup':
+        return '临时批量处理项：当前仅用于清理插件历史遗留的多余增量阅读 frontmatter 字段。由于插件现已不再写入这些字段，后续会移除此检测项。';
+      case 'schema_migration':
+      case 'ir_point_storage_migration':
+      case 'ir_legacy_readable_markdown_migration':
+      case 'ir_local_state_relocation':
+      case 'ir_legacy_bookmark_cleanup':
+      case 'wdeck_migration':
+      case 'qbank_migration':
+      case 'qbank_legacy_cleanup':
+      case 'legacy_memory_files':
+      case 'migration_conflict_files':
+      case 'legacy_cleanup':
+        return '临时迁移/清理项：主要服务于旧架构数据迁移、遗留文件清理或迁移收尾，数据稳定后应移除。';
+      default:
+        return '';
+    }
+  }
+
+  function isTemporaryType(type: CheckType): boolean {
+    return getLifecycleKind(type) === 'temporary';
+  }
+
+  const longTermCheckResults = $derived(checkResults.filter(result => !isTemporaryType(result.type)));
+  const temporaryCheckResults = $derived(checkResults.filter(result => isTemporaryType(result.type)));
+  const longTermMigrationResults = $derived(migrationResults.filter(result => !isTemporaryType(result.type)));
+  const temporaryMigrationResults = $derived(migrationResults.filter(result => isTemporaryType(result.type)));
+
+  const activeCheckResults = $derived(activeTab === 'long_term' ? longTermCheckResults : temporaryCheckResults);
+  const activeMigrationResults = $derived(activeTab === 'long_term' ? longTermMigrationResults : temporaryMigrationResults);
+  const activeCheckSectionTitle = $derived(activeTab === 'long_term' ? '长期健康检查' : '临时兼容与清理项');
+  const activeMigrationSectionTitle = $derived(activeTab === 'long_term' ? '长期运行与结构状态' : '临时迁移与收尾项');
+  const activeMigrationActionLabel = $derived(activeTab === 'long_term' ? '检测长期运行状态' : '检测临时迁移状态');
+  const activeFixableTypes = $derived(
+    activeCheckResults
+      .filter(result => result.count > 0 && DEFAULT_BATCH_FIX_TYPES.includes(result.type))
+      .map(result => result.type)
+  );
+
+  function getMigrationCheckTasks(): Array<{ label: string; run: () => Promise<DataCheckResult> }> {
+    return [
+      { label: 'Schema 迁移状态', run: () => dataService.checkSchemaMigration() },
+      { label: 'EPUB Markdown sourceId 回填', run: () => dataService.check('epub_markdown_source_id_backfill') },
+      { label: '增量阅读点存储迁移', run: () => dataService.check('ir_point_storage_migration') },
+      { label: '增量阅读正文迁移', run: () => dataService.check('ir_legacy_readable_markdown_migration') },
+      { label: '增量阅读本地状态迁移', run: () => dataService.check('ir_local_state_relocation') },
+      { label: '增量阅读旧书签清理', run: () => dataService.check('ir_legacy_bookmark_cleanup') },
+      { label: '.wdeck 迁移状态', run: () => dataService.checkWDeckMigration() },
+      { label: '考试题组迁移', run: () => dataService.check('qbank_migration') },
+      { label: '旧题库清理', run: () => dataService.check('qbank_legacy_cleanup') },
+      { label: '旧记忆文件迁移', run: () => dataService.check('legacy_memory_files') },
+      { label: '.wdeck 冲突', run: () => dataService.check('wdeck_conflicts') },
+      { label: '.wdeck 缓存', run: () => dataService.check('wdeck_cache') },
+      { label: '迁移冲突文件', run: () => dataService.check('migration_conflict_files') },
+      { label: '目录结构', run: () => dataService.checkStructure() },
+      { label: '旧目录', run: () => dataService.checkLegacyDirectories() },
+    ];
+  }
+
+  async function runMigrationChecks(
+    onProgress?: (current: number, total: number, message: string) => void
+  ): Promise<DataCheckResult[]> {
+    const results: DataCheckResult[] = [];
+    const migrationChecks = getMigrationCheckTasks();
+
+    for (let i = 0; i < migrationChecks.length; i++) {
+      const task = migrationChecks[i];
+      onProgress?.(i, migrationChecks.length, `检测 ${task.label}...`);
+      const result = await task.run();
+      results.push(result);
+      onProgress?.(i + 1, migrationChecks.length, `已完成 ${task.label}`);
+    }
+
+    await refreshLatestMigrationSummary();
+    await refreshLatestIRPointMigrationSummary();
+
+    return results;
+  }
+
+  function upsertMigrationResult(result: DataCheckResult) {
+    const existingIndex = migrationResults.findIndex(item => item.type === result.type);
+    if (existingIndex >= 0) {
+      migrationResults[existingIndex] = result;
+      migrationResults = [...migrationResults];
+      return;
+    }
+
+    migrationResults = [...migrationResults, result];
+  }
+
+  async function executeTrackedMigrationTask<T>(config: {
+    title: string;
+    startLog: string;
+    initialDetail: string;
+    totalSteps: number;
+    run: () => Promise<T>;
+    postRunDetail?: string | ((result: T) => string);
+    afterRun?: (result: T) => Promise<void>;
+    successLog: (result: T) => string;
+    successDetail: (result: T) => string;
+    errorLogPrefix: string;
+    errorDetailPrefix: string;
+  }): Promise<T | null> {
+    isMigrating = true;
+    addLog(config.startLog);
+    startGlobalProgress(config.title, config.totalSteps, config.initialDetail);
+    updateSharedProgress(0, config.totalSteps, config.initialDetail);
+
+    try {
+      const result = await config.run();
+      if (config.afterRun) {
+        const postRunDetail = typeof config.postRunDetail === 'function'
+          ? config.postRunDetail(result)
+          : (config.postRunDetail || '正在刷新结果...');
+        updateSharedProgress(1, config.totalSteps, postRunDetail);
+        await config.afterRun(result);
+      }
+
+      addLog(config.successLog(result));
+      finishGlobalProgress('success', config.successDetail(result), config.totalSteps, config.totalSteps);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addLog(`${config.errorLogPrefix}: ${message}`);
+      finishGlobalProgress('error', `${config.errorDetailPrefix}：${message}`, progressCurrent, progressTotal || config.totalSteps);
+      return null;
+    } finally {
+      isMigrating = false;
+      resetLocalProgress();
+    }
+  }
+
   function getHighRiskFixWarning(type: CheckType): string {
+    if (type === 'ir_redundant_frontmatter_cleanup') {
+      return '这会批量删除 Markdown frontmatter 中 4 个已弃用的增量阅读历史字段：weave-reading-category、weave-reading-priority、weave-reading-topic-id、weave-reading-ir-deck-id。不会改正文，不会删除 weave-reading-id，也不会改动其他正常字段。';
+    }
+
+    if (type === 'epub_markdown_source_id_backfill') {
+      return '这会批量改写 Vault 中的 Markdown 文件，为旧 EPUB 链接补写 sourceId，以避免后续继续依赖启动自动回填。';
+    }
+
     if (type === 'wdeck_migration') {
       return '这会在 vault 中写入新的 `.wdeck` 牌组文件，但不会自动删除原有卡片数据。';
     }
 
     if (type === 'ir_point_storage_migration') {
-      return '这会把旧增量阅读材料、书签任务和阅读器状态写入新的 points/materials/registry 结构，但第一轮不会自动删除旧文件。';
+      return '这会把旧增量阅读材料元数据回填到阅读点内，并迁移旧书签任务和阅读器状态；成功后会清理已弃用的旧材料文件、旧书签文件和旧阅读器状态文件。';
+    }
+
+    if (type === 'ir_legacy_readable_markdown_migration') {
+      return '这会把旧 `weave/incremental-reading/IR` 中的人类可读正文 Markdown 迁移到当前 Obsidian 默认新建笔记目录，并同步回写 Weave 内部路径引用。';
+    }
+
+    if (type === 'qbank_migration') {
+      return '这会将分散的考试题组 JSON 文件合并为单个 `.qbank` 文件，并迁移会话数据到插件缓存目录；成功后会删除旧的 JSON 文件和 banks 文件夹。';
     }
 
     switch (type) {
       case 'migration_conflict_files':
         return '这会把可恢复的迁移冲突副本合并回正式数据，并删除已处理完成的冲突副本。';
       case 'duplicate_cards':
-        return '这会删除重复卡片，并重写牌组里的卡片引用。';
+        return '这会删除重复卡片，并在删除后重建牌组缓存。';
       case 'ir_material_consistency':
         return '这会清理失效的增量阅读材料记录、孤立块和无效引用。';
       case 'filename_compatibility':
@@ -247,23 +495,22 @@
     isChecking = true;
     checkResults = [];
     addLog('开始全面检测...');
+    startGlobalProgress('正在全面检测数据', 1, '正在准备数据检测项');
 
     try {
       checkResults = await dataService.checkAll((current, total, msg) => {
-        progressCurrent = current;
-        progressTotal = total;
-        progressMessage = msg;
+        updateSharedProgress(current, total, msg);
       });
 
       const totalIssues = checkResults.reduce((sum, r) => sum + r.count, 0);
       addLog(`检测完成，发现 ${totalIssues} 个问题`);
+      finishGlobalProgress('success', `数据检测完成，发现 ${totalIssues} 个问题`, progressTotal, progressTotal);
     } catch (e) {
       addLog(`检测失败: ${e}`);
+      finishGlobalProgress('error', `数据检测失败：${String(e)}`, progressCurrent, progressTotal || 1);
     } finally {
       isChecking = false;
-      progressMessage = '';
-      progressCurrent = 0;
-      progressTotal = 0;
+      resetLocalProgress();
     }
   }
 
@@ -271,12 +518,11 @@
     isFixing = true;
     fixResults = [];
     addLog('开始一键修复...');
+    startGlobalProgress('正在一键修复数据问题', 1, '正在准备安全修复项');
 
     try {
       fixResults = await dataService.fixAll((current, total, msg) => {
-        progressCurrent = current;
-        progressTotal = total;
-        progressMessage = msg;
+        updateSharedProgress(current, total, msg);
       });
 
       const totalSuccess = fixResults.reduce((sum, r) => sum + r.success, 0);
@@ -286,15 +532,61 @@
       // 重新检测
       addLog(`一键修复仅执行安全项：${DEFAULT_BATCH_FIX_TYPES.map(type => getTypeName(type)).join('、')}`);
       addLog(`以下高风险项需单独确认：${HIGH_RISK_FIX_TYPES.map(type => getTypeName(type)).join('、')}`);
+      finishGlobalProgress('success', `一键修复完成：成功 ${totalSuccess}，失败 ${totalFailed}`, progressTotal, progressTotal);
       await handleCheckAll();
     } catch (e) {
       addLog(`修复失败: ${e}`);
+      finishGlobalProgress('error', `一键修复失败：${String(e)}`, progressCurrent, progressTotal || 1);
     } finally {
       isFixing = false;
-      progressMessage = '';
-      progressCurrent = 0;
-      progressTotal = 0;
+      resetLocalProgress();
     }
+  }
+
+  async function handleCheckCurrentTab() {
+		await handleCheckAll();
+		await handleCheckMigration();
+  }
+
+  async function handleFixCurrentTab() {
+		if (activeFixableTypes.length === 0) {
+			new Notice('当前标签页没有可安全批量修复的项目');
+			return;
+		}
+
+		isFixing = true;
+		fixResults = [];
+		addLog(`开始修复当前标签页安全项：${activeFixableTypes.map(type => getTypeName(type)).join('、')}`);
+		startGlobalProgress('正在修复当前标签页数据问题', activeFixableTypes.length, '正在准备安全修复项');
+
+		try {
+			const results: DataFixResult[] = [];
+			for (let i = 0; i < activeFixableTypes.length; i++) {
+				const type = activeFixableTypes[i];
+				updateSharedProgress(i + 1, activeFixableTypes.length, `修复 ${getTypeName(type)}...`);
+				const result = await dataService.fix(type);
+				results.push(result);
+				plugin.cardFileService?.clearCache?.();
+			}
+
+			fixResults = results;
+			const totalSuccess = results.reduce((sum, result) => sum + result.success, 0);
+			const totalFailed = results.reduce((sum, result) => sum + result.failed, 0);
+			addLog(`当前标签页修复完成，成功 ${totalSuccess}，失败 ${totalFailed}`);
+			finishGlobalProgress(
+				'success',
+				`当前标签页修复完成：成功 ${totalSuccess}，失败 ${totalFailed}`,
+				activeFixableTypes.length,
+				activeFixableTypes.length
+			);
+			await handleCheckCurrentTab();
+		} catch (e) {
+			addLog(`当前标签页修复失败: ${e}`);
+			finishGlobalProgress('error', `当前标签页修复失败：${String(e)}`, progressCurrent, progressTotal || 1);
+		} finally {
+			isFixing = false;
+			resetLocalProgress();
+		}
   }
 
   async function handleCheck(type: CheckType) {
@@ -344,25 +636,24 @@
     }
 
     isFixing = true;
-    progressCurrent = 0;
-    progressTotal = 1;
-    progressMessage = `修复 ${getTypeName(type)}...`;
+    startGlobalProgress(`正在修复 ${getTypeName(type)}`, 2, `修复 ${getTypeName(type)}...`);
+    updateSharedProgress(0, 2, `修复 ${getTypeName(type)}...`);
     addLog(`修复 ${getTypeName(type)}...`);
 
     try {
       const result = await dataService.fix(type, { allowHighRisk: isHighRiskFixType(type) });
-      progressCurrent = 1;
+      updateSharedProgress(1, 2, `已完成修复 ${getTypeName(type)}，正在重新检测...`);
       addLog(`修复完成: 成功 ${result.success}，失败 ${result.failed}`);
 
-      progressMessage = `重新检测 ${getTypeName(type)}...`;
       await refreshResultsAfterFix(type);
+      updateSharedProgress(2, 2, `${getTypeName(type)} 修复与复检完成`);
+      finishGlobalProgress('success', `${getTypeName(type)} 修复完成：成功 ${result.success}，失败 ${result.failed}`, 2, 2);
     } catch (e) {
       addLog(`修复失败: ${e}`);
+      finishGlobalProgress('error', `${getTypeName(type)} 修复失败：${String(e)}`, progressCurrent, progressTotal || 2);
     } finally {
       isFixing = false;
-      progressMessage = '';
-      progressCurrent = 0;
-      progressTotal = 0;
+      resetLocalProgress();
     }
   }
 
@@ -375,50 +666,23 @@
     isMigrating = true;
     migrationResults = [];
     addLog('开始迁移相关检测...');
+    const migrationChecks = getMigrationCheckTasks();
+    startGlobalProgress('正在检测迁移与存储状态', migrationChecks.length, '正在准备迁移检测项');
 
     try {
-      // 检测 Schema 迁移状态
-      const schemaResult = await dataService.checkSchemaMigration();
-      migrationResults = [...migrationResults, schemaResult];
-
-      const irPointResult = await dataService.check('ir_point_storage_migration');
-      migrationResults = [...migrationResults, irPointResult];
-
-      const irLocalStateResult = await dataService.check('ir_local_state_relocation');
-      migrationResults = [...migrationResults, irLocalStateResult];
-
-      const wdeckResult = await dataService.checkWDeckMigration();
-      migrationResults = [...migrationResults, wdeckResult];
-
-      const legacyMemoryResult = await dataService.check('legacy_memory_files');
-      migrationResults = [...migrationResults, legacyMemoryResult];
-
-      const wdeckConflictResult = await dataService.check('wdeck_conflicts');
-      migrationResults = [...migrationResults, wdeckConflictResult];
-
-      const wdeckCacheResult = await dataService.check('wdeck_cache');
-      migrationResults = [...migrationResults, wdeckCacheResult];
-
-      const migrationConflictResult = await dataService.check('migration_conflict_files');
-      migrationResults = [...migrationResults, migrationConflictResult];
-      
-      // 检测目录结构
-      const structureResult = await dataService.checkStructure();
-      migrationResults = [...migrationResults, structureResult];
-      
-      // 检测旧目录
-      const legacyResult = await dataService.checkLegacyDirectories();
-      migrationResults = [...migrationResults, legacyResult];
-
-      await refreshLatestMigrationSummary();
-      await refreshLatestIRPointMigrationSummary();
+      migrationResults = await runMigrationChecks((current, total, message) => {
+        updateSharedProgress(current, total, message);
+      });
 
       const totalIssues = migrationResults.reduce((sum, r) => sum + r.count, 0);
       addLog(`迁移检测完成，发现 ${totalIssues} 个问题`);
+      finishGlobalProgress('success', `迁移检测完成，发现 ${totalIssues} 个问题`, migrationChecks.length, migrationChecks.length);
     } catch (e) {
       addLog(`迁移检测失败: ${e}`);
+      finishGlobalProgress('error', `迁移检测失败：${String(e)}`, progressCurrent, progressTotal || migrationChecks.length);
     } finally {
       isMigrating = false;
+      resetLocalProgress();
     }
   }
 
@@ -433,21 +697,24 @@
       return;
     }
 
-    isMigrating = true;
-    addLog('开始执行 Schema V2 迁移...');
-
-    try {
-      const result = await dataService.executeSchemaMigration({ confirmed: true });
-      await refreshLatestMigrationSummary();
-      addLog(`迁移完成: 成功 ${result.success}，失败 ${result.failed}`);
-      
-      // 重新检测
-      await handleCheckMigration();
-    } catch (e) {
-      addLog(`迁移执行失败: ${e}`);
-    } finally {
-      isMigrating = false;
-    }
+    const migrationCheckCount = getMigrationCheckTasks().length;
+    await executeTrackedMigrationTask({
+      title: '正在执行 Schema V2 数据迁移',
+      startLog: '开始执行 Schema V2 迁移...',
+      initialDetail: '正在执行 Schema V2 数据迁移',
+      totalSteps: 1 + migrationCheckCount,
+      run: () => dataService.executeSchemaMigration({ confirmed: true }),
+      postRunDetail: 'Schema V2 迁移完成，正在重新检测迁移状态',
+      afterRun: async () => {
+        migrationResults = await runMigrationChecks((current, total, message) => {
+          updateSharedProgress(1 + current, 1 + total, message);
+        });
+      },
+      successLog: (result) => `迁移完成: 成功 ${result.success}，失败 ${result.failed}`,
+      successDetail: (result) => `Schema V2 数据迁移完成：成功 ${result.success}，失败 ${result.failed}`,
+      errorLogPrefix: '迁移执行失败',
+      errorDetailPrefix: 'Schema V2 数据迁移失败'
+    });
   }
 
   async function handleExecuteWDeckMigration() {
@@ -461,24 +728,30 @@
       return;
     }
 
-    isMigrating = true;
-    addLog('开始执行 .wdeck 牌组文件迁移...');
-
-    try {
-      const result = await dataService.executeWDeckMigration({ confirmed: true });
-      addLog(`.wdeck 迁移完成：成功 ${result.success}，失败 ${result.failed}`);
-      await handleCheckMigration();
-    } catch (e) {
-      addLog(`.wdeck 迁移执行失败：${e}`);
-    } finally {
-      isMigrating = false;
-    }
+    const migrationCheckCount = getMigrationCheckTasks().length;
+    await executeTrackedMigrationTask({
+      title: '正在执行 .wdeck 牌组文件迁移',
+      startLog: '开始执行 .wdeck 牌组文件迁移...',
+      initialDetail: '正在执行 .wdeck 牌组文件迁移',
+      totalSteps: 1 + migrationCheckCount,
+      run: () => dataService.executeWDeckMigration({ confirmed: true }),
+      postRunDetail: '.wdeck 迁移完成，正在重新检测迁移状态',
+      afterRun: async () => {
+        migrationResults = await runMigrationChecks((current, total, message) => {
+          updateSharedProgress(1 + current, 1 + total, message);
+        });
+      },
+      successLog: (result) => `.wdeck 迁移完成：成功 ${result.success}，失败 ${result.failed}`,
+      successDetail: (result) => `.wdeck 迁移完成：成功 ${result.success}，失败 ${result.failed}`,
+      errorLogPrefix: '.wdeck 迁移执行失败',
+      errorDetailPrefix: '.wdeck 迁移失败'
+    });
   }
 
   async function handleExecuteIRPointMigration() {
     const confirmed = await showDangerConfirm(
       plugin.app,
-      '这会把旧增量阅读材料、书签任务和阅读器状态写入新的 points/materials/registry 结构。\n第一轮不会自动删除旧文件，但会开始建立新结构的权威副本。',
+      '这会把旧增量阅读书签、旧材料溯源元数据和阅读器状态迁入新的 points/registry 与插件本地状态结构。\n迁移成功后，会同步清理已弃用的旧书签文件、旧材料残留文件和旧阅读器状态文件。',
       '确认执行增量阅读数据迁移'
     );
     if (!confirmed) {
@@ -486,41 +759,44 @@
       return;
     }
 
-    isMigrating = true;
-    addLog('开始执行增量阅读数据迁移...');
-
-    try {
-      const result = await dataService.executeIRPointStorageMigration({ confirmed: true });
-      addLog(`增量阅读数据迁移完成：成功 ${result.success}，失败 ${result.failed}`);
-      await refreshLatestIRPointMigrationSummary();
-      await handleCheckMigration();
-    } catch (e) {
-      addLog(`增量阅读数据迁移执行失败：${e}`);
-    } finally {
-      isMigrating = false;
-    }
+    const migrationCheckCount = getMigrationCheckTasks().length;
+    await executeTrackedMigrationTask({
+      title: '正在执行增量阅读数据迁移',
+      startLog: '开始执行增量阅读数据迁移...',
+      initialDetail: '正在执行增量阅读数据迁移',
+      totalSteps: 1 + migrationCheckCount,
+      run: () => dataService.executeIRPointStorageMigration({ confirmed: true }),
+      postRunDetail: '增量阅读数据迁移完成，正在重新检测迁移状态',
+      afterRun: async () => {
+        migrationResults = await runMigrationChecks((current, total, message) => {
+          updateSharedProgress(1 + current, 1 + total, message);
+        });
+      },
+      successLog: (result) => `增量阅读数据迁移完成：成功 ${result.success}，失败 ${result.failed}`,
+      successDetail: (result) => `增量阅读数据迁移完成：成功 ${result.success}，失败 ${result.failed}`,
+      errorLogPrefix: '增量阅读数据迁移执行失败',
+      errorDetailPrefix: '增量阅读数据迁移失败'
+    });
   }
 
   async function handleFixStructure() {
-    isMigrating = true;
-    addLog('开始修复目录结构...');
-
-    try {
-      const result = await dataService.fixStructure();
-      addLog(`修复完成: 成功创建 ${result.success} 个目录，失败 ${result.failed} 个`);
-      
-      // 重新检测目录结构
-      const structureResult = await dataService.checkStructure();
-      const existingIndex = migrationResults.findIndex(r => r.type === 'structure_check');
-      if (existingIndex >= 0) {
-        migrationResults[existingIndex] = structureResult;
-        migrationResults = [...migrationResults];
-      }
-    } catch (e) {
-      addLog(`修复失败: ${e}`);
-    } finally {
-      isMigrating = false;
-    }
+    await executeTrackedMigrationTask({
+      title: '正在修复目录结构',
+      startLog: '开始修复目录结构...',
+      initialDetail: '正在修复目录结构',
+      totalSteps: 2,
+      run: () => dataService.fixStructure(),
+      postRunDetail: '目录结构修复完成，正在重新检测目录结构',
+      afterRun: async () => {
+        const structureResult = await dataService.checkStructure();
+        upsertMigrationResult(structureResult);
+        updateSharedProgress(2, 2, '目录结构复检完成');
+      },
+      successLog: (result) => `修复完成: 成功创建 ${result.success} 个目录，失败 ${result.failed} 个`,
+      successDetail: (result) => `目录结构修复完成：成功 ${result.success}，失败 ${result.failed}`,
+      errorLogPrefix: '修复失败',
+      errorDetailPrefix: '目录结构修复失败'
+    });
   }
 
   async function handleCleanupLegacy() {
@@ -534,33 +810,97 @@
       return;
     }
 
-    isMigrating = true;
-    addLog('开始清理旧目录...');
+    await executeTrackedMigrationTask({
+      title: '正在清理旧目录',
+      startLog: '开始清理旧目录...',
+      initialDetail: '正在清理旧目录',
+      totalSteps: 2,
+      run: () => dataService.cleanupLegacyDirectories({ allowHighRisk: true }),
+      postRunDetail: '旧目录清理完成，正在重新检测旧目录状态',
+      afterRun: async () => {
+        const legacyResult = await dataService.checkLegacyDirectories();
+        upsertMigrationResult(legacyResult);
+        updateSharedProgress(2, 2, '旧目录复检完成');
+      },
+      successLog: (result) => `清理完成: 成功删除 ${result.success} 个目录，失败 ${result.failed} 个`,
+      successDetail: (result) => `旧目录清理完成：成功 ${result.success}，失败 ${result.failed}`,
+      errorLogPrefix: '清理失败',
+      errorDetailPrefix: '旧目录清理失败'
+    });
+  }
 
-    try {
-      const result = await dataService.cleanupLegacyDirectories({ allowHighRisk: true });
-      addLog(`清理完成: 成功删除 ${result.success} 个目录，失败 ${result.failed} 个`);
-      
-      // 重新检测旧目录
-      const legacyResult = await dataService.checkLegacyDirectories();
-      const existingIndex = migrationResults.findIndex(r => r.type === 'legacy_cleanup');
-      if (existingIndex >= 0) {
-        migrationResults[existingIndex] = legacyResult;
-        migrationResults = [...migrationResults];
-      }
-    } catch (e) {
-      addLog(`清理失败: ${e}`);
-    } finally {
-      isMigrating = false;
+  async function handleExecuteQBankMigration() {
+    const confirmed = await showDangerConfirm(
+      plugin.app,
+      '这会将分散的考试题组 JSON 文件合并为单个 `.qbank` 文件，并迁移会话数据到插件缓存目录。\n迁移成功后，会删除旧的 JSON 文件和 banks 文件夹。',
+      '确认执行考试题组迁移'
+    );
+    if (!confirmed) {
+      addLog('已取消考试题组迁移');
+      return;
     }
+
+    const migrationCheckCount = getMigrationCheckTasks().length;
+    await executeTrackedMigrationTask({
+      title: '正在执行考试题组迁移',
+      startLog: '开始执行考试题组迁移...',
+      initialDetail: '正在执行考试题组迁移',
+      totalSteps: 1 + migrationCheckCount,
+      run: () => dataService.fix('qbank_migration', { allowHighRisk: true }),
+      postRunDetail: '考试题组迁移完成，正在重新检测迁移状态',
+      afterRun: async () => {
+        migrationResults = await runMigrationChecks((current, total, message) => {
+          updateSharedProgress(1 + current, 1 + total, message);
+        });
+      },
+      successLog: (result) => `考试题组迁移完成：成功 ${result.success}，失败 ${result.failed}`,
+      successDetail: (result) => `考试题组迁移完成：成功 ${result.success}，失败 ${result.failed}`,
+      errorLogPrefix: '考试题组迁移失败',
+      errorDetailPrefix: '考试题组迁移失败'
+    });
+  }
+
+  async function handleExecuteQBankLegacyCleanup() {
+    const confirmed = await showDangerConfirm(
+      plugin.app,
+      '这会删除已迁移到 .qbank 文件的旧题库 JSON 文件（banks.json、question-stats.json、test-history.json 等）和 banks/ 文件夹。\n请确保 .qbank 文件已正确创建且数据完整。',
+      '确认清理旧题库文件'
+    );
+    if (!confirmed) {
+      addLog('已取消旧题库文件清理');
+      return;
+    }
+
+    const migrationCheckCount = getMigrationCheckTasks().length;
+    await executeTrackedMigrationTask({
+      title: '正在清理旧题库文件',
+      startLog: '开始清理旧题库文件...',
+      initialDetail: '正在清理旧题库文件',
+      totalSteps: 1 + migrationCheckCount,
+      run: () => dataService.fix('qbank_legacy_cleanup', { allowHighRisk: true }),
+      postRunDetail: '旧题库文件清理完成，正在重新检测迁移状态',
+      afterRun: async () => {
+        migrationResults = await runMigrationChecks((current, total, message) => {
+          updateSharedProgress(1 + current, 1 + total, message);
+        });
+      },
+      successLog: (result) => `旧题库文件清理完成：成功 ${result.success}，失败 ${result.failed}`,
+      successDetail: (result) => `旧题库文件清理完成：成功 ${result.success}，失败 ${result.failed}`,
+      errorLogPrefix: '旧题库文件清理失败',
+      errorDetailPrefix: '旧题库文件清理失败'
+    });
   }
 
   function getTypeName(type: CheckType): string {
     if (type === 'wdeck_migration') return '.wdeck 牌组文件迁移';
     if (type === 'ir_point_storage_migration') return '增量阅读数据迁移';
-    if (type === 'ir_topic_migration') return '增量阅读专题迁移';
+    if (type === 'qbank_migration') return '.qbank 考试题组迁移';
+    if (type === 'structured_data_format') return '结构化数据文件格式修复';
+
     const names: Record<string, string> = {
-      'ir_local_state_relocation': '阅读器本地状态迁移',
+      'ir_legacy_readable_markdown_migration': '旧 IR 正文迁移',
+      'ir_local_state_relocation': '增量阅读本地状态迁移',
+      'ir_legacy_bookmark_cleanup': '增量阅读旧书签文件清理',
       'legacy_memory_files': '旧记忆 JSON 残留',
       'wdeck_conflicts': '.wdeck 冲突检测',
       'wdeck_cache': '.wdeck 私有缓存',
@@ -569,8 +909,10 @@
       'we_decks_fix': 'we_decks 牌组 ID',
       'we_block_migration': 'we_block 合并迁移',
       'epub_source_link_migration': 'EPUB 溯源链接迁移',
+      'epub_markdown_source_id_backfill': 'EPUB Markdown sourceId 回填',
       'deprecated_fields': '弃用字段',
-      'card_deck_consistency': '引用式牌组一致性',
+      'ir_redundant_frontmatter_cleanup': '增量阅读历史 frontmatter 清理（临时）',
+      'card_deck_consistency': '牌组缓存一致性',
       'ir_material_consistency': '导入材料一致性',
       'orphan_cards': '孤立卡片',
       'duplicate_cards': '重复卡片',
@@ -751,7 +1093,7 @@
 
   // 初始化时自动检测
   onMount(() => {
-    handleCheckAll();
+    void handleCheckCurrentTab();
     void refreshLatestMigrationSummary();
     void refreshLatestIRPointMigrationSummary();
   });
@@ -760,38 +1102,40 @@
 <div class="unified-management-modal">
     <!-- 顶部导航栏：分段标签 + 上下文操作 -->
     <div class="modal-header-bar">
-      <div class="segmented-tabs">
-        <div class="seg-tab active">
-          <EnhancedIcon name="database" size={14} />
-          数据管理
-        </div>
+      <div class="modal-tabs-nav">
+        <TabNavigation
+          tabs={managementTabs}
+          activeTab={activeTab}
+          onTabChange={(tabId) => (activeTab = tabId as ManagementLifecycleTab)}
+          toolbarStyle={true}
+        />
       </div>
       <div class="header-actions">
         <button
           class="header-action-btn"
-          onclick={handleCheckAll}
-          disabled={isChecking || isFixing}
-          title="检测全部"
+          onclick={handleCheckCurrentTab}
+          disabled={isChecking || isFixing || isMigrating}
+          title="检测当前标签页"
         >
-          {#if isChecking}
+          {#if isChecking || isMigrating}
             <EnhancedIcon name="loader" size={14} animation="spin" />
           {:else}
             <EnhancedIcon name="refresh-cw" size={14} />
           {/if}
-          <span>检测全部</span>
+          <span>检测当前页</span>
         </button>
         <button
           class="header-action-btn fix"
-          onclick={handleFixAll}
-          disabled={isChecking || isFixing || checkResults.every(r => r.count === 0)}
-          title="一键修复"
+          onclick={handleFixCurrentTab}
+          disabled={isChecking || isFixing || isMigrating || activeFixableTypes.length === 0}
+          title="修复当前标签页安全项"
         >
           {#if isFixing}
             <EnhancedIcon name="loader" size={14} animation="spin" />
           {:else}
             <EnhancedIcon name="wrench" size={14} />
           {/if}
-          <span>一键修复</span>
+          <span>修复当前页</span>
         </button>
       </div>
     </div>
@@ -801,26 +1145,30 @@
       <div class="data-management-content">
           <!-- 检测状态 -->
           <section class="section">
-            <h3 class="section-title">数据检测</h3>
+            <h3 class="section-title">{activeCheckSectionTitle}</h3>
       <div class="check-results">
-        {#if checkResults.length === 0 && !isChecking}
-          <div class="empty-state">点击"检测全部"开始检测</div>
+        {#if activeCheckResults.length === 0 && !isChecking}
+          <div class="empty-state">当前标签页暂无检测结果，点击“检测当前页”开始检测</div>
         {/if}
 
-        {#each checkResults as result}
+        {#each activeCheckResults as result}
           <div class="check-item {getStatusClass(result.status)}">
             <div class="check-info">
               <div class="check-title-row">
                 <span class="check-name">{getTypeName(result.type)}</span>
                 <div class="check-badges">
                   <span class={`check-status-pill ${getStatusClass(result.status)}`}>{getResultCountText(result)}</span>
+                  <span class={`check-lifecycle-pill ${getLifecycleKind(result.type)}`}>{getLifecycleLabel(result.type)}</span>
                   {#if result.count > 0 && isHighRiskFixType(result.type)}
                     <span class="check-risk-pill">高风险</span>
                   {/if}
                 </div>
               </div>
               <span class="check-message">{result.message}</span>
-              {#if result.items.length > 0 && (result.type === 'filename_compatibility' || result.type === 'sync_conflict_files' || result.type === 'wdeck_migration')}
+              {#if getLifecycleNote(result.type)}
+                <span class="check-note">{getLifecycleNote(result.type)}</span>
+              {/if}
+              {#if result.items.length > 0 && (result.type === 'filename_compatibility' || result.type === 'sync_conflict_files' || result.type === 'wdeck_migration' || result.type === 'ir_legacy_readable_markdown_migration' || result.type === 'ir_redundant_frontmatter_cleanup')}
                 <div class="check-details">
                   {#each result.items.slice(0, 5) as item}
                     <span class="detail-item">{item}</span>
@@ -887,7 +1235,7 @@
 
           <!-- 数据迁移与结构核对 -->
           <section class="section">
-            <h3 class="section-title">数据迁移与结构核对</h3>
+            <h3 class="section-title">{activeMigrationSectionTitle}</h3>
             <div class="migration-actions">
               <EnhancedButton
                 variant="secondary"
@@ -900,10 +1248,10 @@
                 {:else}
                   <EnhancedIcon name="folder-search" size={14} />
                 {/if}
-                检测迁移状态
+                {activeMigrationActionLabel}
               </EnhancedButton>
             </div>
-            {#if latestMigrationSummary}
+            {#if activeTab === 'temporary' && latestMigrationSummary}
               <div class="check-item latest-migration-summary">
                 <div class="check-info">
                   <span class="check-name">最近一次迁移报告</span>
@@ -918,15 +1266,17 @@
                 </div>
               </div>
             {/if}
-            {#if latestIRPointMigrationSummary}
+            {#if activeTab === 'temporary' && latestIRPointMigrationSummary}
               <div class="check-item latest-migration-summary">
                 <div class="check-info">
                   <span class="check-name">最近一次增量阅读迁移</span>
                   <span class="check-message">目标路径：{latestIRPointMigrationSummary.targetRoot}</span>
                   <div class="check-details">
-                    <span class="detail-item">材料 {latestIRPointMigrationSummary.migratedMaterials}</span>
+                    <span class="detail-item">溯源回填 {latestIRPointMigrationSummary.migratedMaterials}</span>
                     <span class="detail-item">阅读点 {latestIRPointMigrationSummary.migratedPoints}</span>
                     <span class="detail-item">本地状态 {latestIRPointMigrationSummary.migratedReaderStateFiles}</span>
+                    <span class="detail-item">清理旧状态 {latestIRPointMigrationSummary.removedLegacyReaderStateFiles}</span>
+                    <span class="detail-item">清理旧书签 {latestIRPointMigrationSummary.removedLegacyBookmarkTaskFiles}</span>
                     <span class="detail-item">失败 {latestIRPointMigrationSummary.failures}</span>
                     <span class="detail-item">状态 {latestIRPointMigrationSummary.status}</span>
                     <span class="detail-item">时间 {latestIRPointMigrationSummary.completedAt}</span>
@@ -935,20 +1285,27 @@
               </div>
             {/if}
             <div class="check-results">
-              {#each migrationResults as result}
+              {#if activeMigrationResults.length === 0 && !isMigrating}
+                <div class="empty-state">当前标签页暂无迁移/结构结果，点击上方按钮开始检测</div>
+              {/if}
+              {#each activeMigrationResults as result}
                 <div class="check-item {getStatusClass(result.status)}">
                   <div class="check-info">
                     <div class="check-title-row">
                       <span class="check-name">{getTypeName(result.type)}</span>
                       <div class="check-badges">
                         <span class={`check-status-pill ${getStatusClass(result.status)}`}>{getResultCountText(result)}</span>
+                        <span class={`check-lifecycle-pill ${getLifecycleKind(result.type)}`}>{getLifecycleLabel(result.type)}</span>
                         {#if result.count > 0 && isHighRiskFixType(result.type)}
                           <span class="check-risk-pill">高风险</span>
                         {/if}
                       </div>
                     </div>
                     <span class="check-message">{result.message}</span>
-                    {#if result.items.length > 0 && (result.type === 'legacy_cleanup' || result.type === 'wdeck_migration' || result.type === 'migration_conflict_files' || result.type === 'ir_point_storage_migration' || result.type === 'ir_local_state_relocation')}
+                    {#if getLifecycleNote(result.type)}
+                      <span class="check-note">{getLifecycleNote(result.type)}</span>
+                    {/if}
+                    {#if result.items.length > 0 && (result.type === 'legacy_cleanup' || result.type === 'wdeck_migration' || result.type === 'migration_conflict_files' || result.type === 'ir_point_storage_migration' || result.type === 'ir_legacy_readable_markdown_migration' || result.type === 'ir_local_state_relocation' || result.type === 'ir_legacy_bookmark_cleanup')}
                       <div class="check-details">
                         {#each result.items.slice(0, 3) as item}
                           <span class="detail-item">{item}</span>
@@ -984,6 +1341,18 @@
                         IR迁移
                       </EnhancedButton>
                     {/if}
+                    {#if result.type === 'ir_legacy_readable_markdown_migration' && result.count > 0}
+                      <EnhancedButton
+                        variant="primary"
+                        size="sm"
+                        onclick={() => handleFix(result.type)}
+                        disabled={isMigrating || isFixing}
+                        tooltip="迁移旧 IR 正文到 Obsidian 默认新建笔记目录"
+                      >
+                        <EnhancedIcon name="folder-output" size={14} />
+                        正文迁移
+                      </EnhancedButton>
+                    {/if}
                     {#if result.type === 'wdeck_migration' && result.status !== 'error' && result.count > 0}
                       <EnhancedButton
                         variant="primary"
@@ -996,13 +1365,37 @@
                         .wdeck
                       </EnhancedButton>
                     {/if}
+                    {#if result.type === 'qbank_migration' && result.status !== 'error' && result.count > 0}
+                      <EnhancedButton
+                        variant="primary"
+                        size="sm"
+                        onclick={handleExecuteQBankMigration}
+                        disabled={isMigrating}
+                        tooltip="迁移到 .qbank"
+                      >
+                        <EnhancedIcon name="play" size={14} />
+                        .qbank
+                      </EnhancedButton>
+                    {/if}
+                    {#if result.type === 'qbank_legacy_cleanup' && result.status !== 'error' && result.count > 0}
+                      <EnhancedButton
+                        variant="danger"
+                        size="sm"
+                        onclick={handleExecuteQBankLegacyCleanup}
+                        disabled={isMigrating}
+                        tooltip="清理旧题库文件"
+                      >
+                        <EnhancedIcon name="trash-2" size={14} />
+                        清理
+                      </EnhancedButton>
+                    {/if}
                     {#if result.type === 'ir_local_state_relocation' && result.count > 0}
                       <EnhancedButton
                         variant="ghost"
                         size="sm"
                         onclick={() => handleFix(result.type)}
                         disabled={isMigrating || isFixing}
-                        tooltip="迁移阅读器本地状态"
+                        tooltip="迁移增量阅读本地状态与缓存"
                       >
                         <EnhancedIcon name="folder-output" size={14} />
                       </EnhancedButton>
@@ -1090,45 +1483,12 @@
       var(--background-primary);
   }
 
-  .segmented-tabs {
+  .modal-tabs-nav {
     display: flex;
     align-items: center;
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 12px;
-    padding: 4px;
-    gap: 4px;
-  }
-
-  .seg-tab {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 36px;
-    padding: 0.45rem 0.95rem;
-    border: none;
-    border-radius: 9px;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 0.82rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    white-space: nowrap;
-  }
-
-  .seg-tab:hover {
-    color: var(--text-normal);
-    background: var(--background-modifier-hover);
-  }
-
-  .seg-tab.active {
-    background: var(--background-primary);
-    color: var(--text-normal);
-    border: 1px solid var(--background-modifier-border);
-    box-shadow:
-      0 8px 18px rgba(15, 23, 42, 0.08),
-      0 1px 2px rgba(15, 23, 42, 0.06);
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
   }
 
   .header-actions {
@@ -1315,6 +1675,12 @@
     line-height: 1.45;
   }
 
+  .check-note {
+    font-size: 0.74rem;
+    color: var(--text-faint);
+    line-height: 1.45;
+  }
+
   .check-badges {
     display: flex;
     align-items: center;
@@ -1323,6 +1689,7 @@
   }
 
   .check-status-pill,
+  .check-lifecycle-pill,
   .check-risk-pill {
     display: inline-flex;
     align-items: center;
@@ -1353,6 +1720,18 @@
     background: rgba(239, 68, 68, 0.12);
     color: rgb(185, 28, 28);
     border-color: rgba(239, 68, 68, 0.18);
+  }
+
+  .check-lifecycle-pill.long_term {
+    background: rgba(59, 130, 246, 0.12);
+    color: rgb(29, 78, 216);
+    border-color: rgba(59, 130, 246, 0.18);
+  }
+
+  .check-lifecycle-pill.temporary {
+    background: rgba(107, 114, 128, 0.12);
+    color: var(--text-muted);
+    border-color: rgba(107, 114, 128, 0.18);
   }
 
   .check-risk-pill {

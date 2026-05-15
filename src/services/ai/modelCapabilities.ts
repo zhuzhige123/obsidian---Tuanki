@@ -25,7 +25,7 @@ export function getModelCapabilities(provider: AIProvider, model?: string): Mode
 	if (provider === "deepseek" && normalizedModel === "deepseek-reasoner") {
 		return {
 			structuredOutputMode: "prompt_only",
-			structuredFallbackModel: "deepseek-chat",
+			structuredFallbackModel: "deepseek-v4-flash",
 			omitTemperature: true,
 			reasoningModel: true,
 		};
@@ -37,7 +37,7 @@ export function getModelCapabilities(provider: AIProvider, model?: string): Mode
 	) {
 		return {
 			structuredOutputMode: "prompt_only",
-			structuredFallbackModel: "deepseek-ai/DeepSeek-V3",
+			structuredFallbackModel: "deepseek-ai/DeepSeek-V3.2",
 			omitTemperature: true,
 			reasoningModel: true,
 		};

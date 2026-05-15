@@ -3,6 +3,8 @@
  * 提供各题型内容解析所需的正则表达式
  */
 
+import { getAnkiClozeMatches, getConfiguredClozeMatches } from "../utils/cloze-syntax";
+
 /**
  * 问答题正则表达式
  */
@@ -97,22 +99,10 @@ export const CHOICE_PATTERNS = {
  */
 export const CLOZE_PATTERNS = {
 	/**
-	 * Obsidian风格挖空
-	 * 匹配: ==文本==
-	 */
-	OBSIDIAN_STYLE: /==([^=]+)==/g,
-
-	/**
 	 * Anki风格挖空
 	 * 匹配: {{c1::文本}} 或 {{c1::文本::提示}}
 	 */
 	ANKI_STYLE: /\{\{c(\d+)::([^:}]+)(?:::([^}]+))?\}\}/g,
-
-	/**
-	 * 混合挖空检测（全局）
-	 * 匹配任意风格的挖空标记
-	 */
-	ANY_CLOZE: /(?:==([^=]+)==|\{\{c\d+::([^}]+)\}\})/g,
 
 	/**
 	 * Context部分
@@ -270,27 +260,22 @@ export function extractClozeContents(content: string): Array<{
 		style: "obsidian" | "anki";
 	}> = [];
 
-	// 提取Obsidian风格挖空
-	let _match;
-	const obsidianMatches = content.matchAll(CLOZE_PATTERNS.OBSIDIAN_STYLE);
 	let obsidianIndex = 1;
-	for (const m of obsidianMatches) {
+	for (const match of getConfiguredClozeMatches(content)) {
 		clozes.push({
-			original: m[0],
-			clozeText: m[1],
+			original: match.fullMatch,
+			clozeText: match.text,
 			index: obsidianIndex++,
 			style: "obsidian",
 		});
 	}
 
-	// 提取Anki风格挖空
-	const ankiMatches = content.matchAll(CLOZE_PATTERNS.ANKI_STYLE);
-	for (const m of ankiMatches) {
+	for (const match of getAnkiClozeMatches(content)) {
 		clozes.push({
-			original: m[0],
-			clozeText: m[2],
-			hint: m[3] || undefined,
-			index: parseInt(m[1]),
+			original: match.fullMatch,
+			clozeText: match.text,
+			hint: match.hint,
+			index: match.ordinal || 0,
 			style: "anki",
 		});
 	}

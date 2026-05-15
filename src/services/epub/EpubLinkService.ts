@@ -1,6 +1,10 @@
 import { App, TFile } from "obsidian";
+import type { EpubHighlightStyle } from "./types";
 import { inflateRaw } from "pako";
+import { openEpubInPreferredLeaf } from "../../utils/epub-leaf-utils";
 import { logger } from "../../utils/logger";
+import { EPUB_RUNTIME } from "./epub-runtime";
+import { ensureEpubPremiumAccess } from "./epub-premium";
 
 export interface EpubLinkParams {
 	filePath: string;
@@ -8,6 +12,7 @@ export interface EpubLinkParams {
 	text: string;
 	chapter?: number;
 	sourceId?: string;
+	excerptId?: string;
 }
 
 interface EpubLinkMarkupRange {
@@ -22,12 +27,96 @@ export class EpubLinkService {
 	private static readonly MAX_CHAPTER_LABEL_LENGTH = 24;
 	private static readonly EPUB_WIKILINK_REGEX =
 		/\[\[(?:(?!\]\]).)+\.epub(?:(?!\]\]).)*\]\]/gi;
-	private static readonly LEGACY_PROTOCOL_LINK_START_REGEX =
-		/\[[^\]]*]\(obsidian:\/\/weave-epub\?/gi;
+	private static readonly HIGHLIGHT_STYLE_TOKENS = new Set<EpubHighlightStyle>([
+		"underline",
+		"strikethrough",
+		"wavy",
+	]);
 	private app: App;
 
 	constructor(app: App) {
 		this.app = app;
+	}
+
+	private static escapeRegex(value: string): string {
+		return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	}
+
+	private static createSupportedProtocolLinkStartRegex(): RegExp {
+		const protocolPattern = EPUB_RUNTIME.protocol.allNames
+			.map((name) => EpubLinkService.escapeRegex(name))
+			.join("|");
+		return new RegExp(`\\[[^\\]]*]\\(obsidian:\\/\\/(?:${protocolPattern})\\?`, "gi");
+	}
+
+	private static createSupportedBareProtocolHrefRegex(): RegExp {
+		const protocolPattern = EPUB_RUNTIME.protocol.allNames
+			.map((name) => EpubLinkService.escapeRegex(name))
+			.join("|");
+		return new RegExp(`obsidian:\\/\\/(?:${protocolPattern})\\?[^\\s\"'<>]+`, "gi");
+	}
+
+	private static matchesSupportedProtocolHref(value: string): boolean {
+		return EPUB_RUNTIME.protocol.allNames.some((name) =>
+			value.startsWith(`obsidian://${name}?`)
+		);
+	}
+
+	static normalizeHighlightColorToken(color?: string): string | undefined {
+		switch (String(color || "").trim().toLowerCase()) {
+			case "blue":
+			case "green":
+			case "purple":
+			case "red":
+			case "yellow":
+				return String(color || "").trim().toLowerCase();
+			case "pink":
+				return "red";
+			default:
+				return undefined;
+		}
+	}
+
+	static isHighlightStyleToken(value?: string): value is EpubHighlightStyle {
+		return EpubLinkService.HIGHLIGHT_STYLE_TOKENS.has(
+			String(value || "").trim().toLowerCase() as EpubHighlightStyle
+		);
+	}
+
+	static parseHighlightCalloutMeta(meta?: string): {
+		color?: string;
+		style?: EpubHighlightStyle;
+	} {
+		const tokens = String(meta || "")
+			.split(/[+\s]+/)
+			.map((token) => token.trim().toLowerCase())
+			.filter(Boolean);
+		let color: string | undefined;
+		let style: EpubHighlightStyle | undefined;
+		for (const token of tokens) {
+			const normalizedColor = EpubLinkService.normalizeHighlightColorToken(token);
+			if (normalizedColor) {
+				color = normalizedColor;
+				continue;
+			}
+			if (EpubLinkService.isHighlightStyleToken(token)) {
+				style = token;
+			}
+		}
+		return { color, style };
+	}
+
+	static buildHighlightCalloutMeta(color?: string, style?: EpubHighlightStyle): string {
+		const normalizedColor = EpubLinkService.normalizeHighlightColorToken(color);
+		const tokens = [normalizedColor, style].filter((token): token is string => Boolean(token));
+		return tokens.join("+");
+	}
+
+	private static findSupportedProtocolHrefIndex(value: string): number {
+		const matches = EPUB_RUNTIME.protocol.allNames
+			.map((name) => value.indexOf(`obsidian://${name}?`))
+			.filter((index) => index >= 0);
+		return matches.length > 0 ? Math.min(...matches) : -1;
 	}
 
 	static encodeCfiForWikilink(cfi: string): string {
@@ -124,12 +213,16 @@ export class EpubLinkService {
 		cfi: string,
 		_text: string,
 		_chapterIndex?: number,
-		sourceId?: string
+		sourceId?: string,
+		excerptId?: string
 	): string {
 		const safeCfi = EpubLinkService.encodeCfiForWikilink(cfi);
 		let subpath = `weave-cfi=${safeCfi}`;
 		if (sourceId) {
 			subpath += `&sid=${encodeURIComponent(sourceId)}`;
+		}
+		if (excerptId) {
+			subpath += `&eid=${encodeURIComponent(excerptId)}`;
 		}
 		return subpath;
 	}
@@ -159,8 +252,8 @@ export class EpubLinkService {
 		if (!markup) return false;
 
 		if (
-			markup.startsWith("obsidian://weave-epub?") ||
-			markup.includes("(obsidian://weave-epub?")
+			EpubLinkService.matchesSupportedProtocolHref(markup) ||
+			EpubLinkService.findSupportedProtocolHrefIndex(markup) >= 0
 		) {
 			return true;
 		}
@@ -207,10 +300,7 @@ export class EpubLinkService {
 			});
 		}
 
-		const protocolStartRegex = new RegExp(
-			EpubLinkService.LEGACY_PROTOCOL_LINK_START_REGEX.source,
-			"gi"
-		);
+		const protocolStartRegex = EpubLinkService.createSupportedProtocolLinkStartRegex();
 		let startMatch: RegExpExecArray | null;
 		while ((startMatch = protocolStartRegex.exec(content)) !== null) {
 			const start = startMatch.index;
@@ -246,7 +336,33 @@ export class EpubLinkService {
 			protocolStartRegex.lastIndex = end;
 		}
 
+		const bareProtocolRegex = EpubLinkService.createSupportedBareProtocolHrefRegex();
+		let bareProtocolMatch: RegExpExecArray | null;
+		while ((bareProtocolMatch = bareProtocolRegex.exec(content)) !== null) {
+			const markup = bareProtocolMatch[0];
+			const start = bareProtocolMatch.index;
+			if (start === undefined) {
+				continue;
+			}
+			const end = start + markup.length;
+			const overlapsExistingRange = ranges.some(
+				(range) => start < range.end && end > range.start
+			);
+			if (overlapsExistingRange) {
+				continue;
+			}
+			ranges.push({
+				start,
+				end,
+				markup,
+			});
+		}
+
 		return ranges.sort((a, b) => a.start - b.start);
+	}
+
+	static collectEpubLinkMarkups(content: string): string[] {
+		return EpubLinkService.collectEpubLinkMarkupRanges(content).map(({ markup }) => markup);
 	}
 
 	migrateEpubLinkMarkup(markup: string, sourcePath?: string): string | null {
@@ -329,7 +445,7 @@ export class EpubLinkService {
 			return `[[${prefix}${hashContent}&sid=${encodeURIComponent(sourceId)}${suffix}]]`;
 		}
 
-		const href = markup.startsWith("obsidian://weave-epub?")
+		const href = EpubLinkService.matchesSupportedProtocolHref(markup)
 			? markup
 			: EpubLinkService.extractProtocolHrefFromMarkdownLink(markup);
 		if (!href || /(?:^|[?&])sid=/.test(href)) {
@@ -347,21 +463,29 @@ export class EpubLinkService {
 	}
 
 	async enrichEpubLinksWithSourceIdsInContent(
-		content: string
+		content: string,
+		sourcePath?: string
 	): Promise<{ content: string; changed: boolean; updatedLinks: number }> {
 		if (!content) {
 			return { content, changed: false, updatedLinks: 0 };
 		}
 
+		const normalized = this.migrateLegacyEpubLinksInContent(content, sourcePath);
+		const baseContent = normalized.content;
+		let updatedLinks = normalized.updatedLinks;
+
 		const { EpubStorageService } = await import("./EpubStorageService");
 		const storageService = new EpubStorageService(this.app);
-		const ranges = EpubLinkService.collectEpubLinkMarkupRanges(content);
+		const ranges = EpubLinkService.collectEpubLinkMarkupRanges(baseContent);
 		if (ranges.length === 0) {
-			return { content, changed: false, updatedLinks: 0 };
+			return {
+				content: baseContent,
+				changed: normalized.changed,
+				updatedLinks,
+			};
 		}
 
-		let migratedContent = content;
-		let updatedLinks = 0;
+		let migratedContent = baseContent;
 		for (const range of [...ranges].sort((a, b) => b.start - a.start)) {
 			const parsed = EpubLinkService.parseLinkMarkup(range.markup);
 			if (!parsed?.filePath || parsed.sourceId) {
@@ -387,7 +511,7 @@ export class EpubLinkService {
 
 		return {
 			content: migratedContent,
-			changed: updatedLinks > 0,
+			changed: updatedLinks > 0 || normalized.changed,
 			updatedLinks,
 		};
 	}
@@ -405,7 +529,7 @@ export class EpubLinkService {
 			return inner.slice(0, boundaryIndex) || null;
 		}
 
-		const href = markup.startsWith("obsidian://weave-epub?")
+		const href = EpubLinkService.matchesSupportedProtocolHref(markup)
 			? markup
 			: EpubLinkService.extractProtocolHrefFromMarkdownLink(markup) || "";
 		if (!href) return null;
@@ -414,35 +538,13 @@ export class EpubLinkService {
 	}
 
 	private static extractLegacyProtocolLinkMarkup(content: string): string | undefined {
-		const startMatch = content.match(/\[[^\]]*]\(obsidian:\/\/weave-epub\?/i);
-		const startIndex = startMatch?.index;
-		if (startIndex === undefined) {
-			return undefined;
-		}
-
-		const openParenIndex = content.indexOf("(", startIndex);
-		if (openParenIndex < 0) {
-			return undefined;
-		}
-
-		let depth = 0;
-		for (let i = openParenIndex; i < content.length; i++) {
-			const char = content[i];
-			if (char === "(") {
-				depth++;
-			} else if (char === ")") {
-				depth--;
-				if (depth === 0) {
-					return content.slice(startIndex, i + 1);
-				}
-			}
-		}
-
-		return undefined;
+		return EpubLinkService.collectEpubLinkMarkupRanges(content).find(({ markup }) => !markup.startsWith("[["))
+			?.markup;
 	}
 
 	private static extractProtocolHrefFromMarkdownLink(markup: string): string | null {
-		const openParenIndex = markup.indexOf("(obsidian://weave-epub?");
+		const hrefStartIndex = EpubLinkService.findSupportedProtocolHrefIndex(markup);
+		const openParenIndex = hrefStartIndex > 0 ? hrefStartIndex - 1 : -1;
 		const closeParenIndex = markup.lastIndexOf(")");
 		if (openParenIndex < 0 || closeParenIndex <= openParenIndex) {
 			return null;
@@ -561,6 +663,25 @@ export class EpubLinkService {
 		return EpubLinkService.sanitizeWikilinkAlias(bookName) || "EPUB";
 	}
 
+	static formatQuotedExcerptText(text: string, style?: EpubHighlightStyle): string {
+		if (style !== "strikethrough") {
+			return text;
+		}
+
+		return text
+			.split("\n")
+			.map((line) => {
+				const trimmed = line.trim();
+				if (!trimmed || (/^~~.*~~$/).test(trimmed)) {
+					return line;
+				}
+				const leadingWhitespace = line.match(/^\s*/)?.[0] || "";
+				const trailingWhitespace = line.match(/\s*$/)?.[0] || "";
+				return `${leadingWhitespace}~~${trimmed}~~${trailingWhitespace}`;
+			})
+			.join("\n");
+	}
+
 	buildEpubLink(
 		filePath: string,
 		cfi: string,
@@ -568,11 +689,12 @@ export class EpubLinkService {
 		_chapterIndex?: number,
 		_chapterTitle?: string,
 		sourcePath?: string,
-		sourceId?: string
+		sourceId?: string,
+		excerptId?: string
 	): string {
 		const displayText = EpubLinkService.buildDisplayAlias(filePath);
 		const linkPath = this.extractLinkPath(filePath, sourcePath);
-		const subpath = EpubLinkService.buildLegacySubpath(cfi, "", undefined, sourceId);
+		const subpath = EpubLinkService.buildLegacySubpath(cfi, "", undefined, sourceId, excerptId);
 		return `[[${linkPath}#${subpath}|${displayText}]]`;
 	}
 
@@ -585,7 +707,9 @@ export class EpubLinkService {
 		chapterTitle?: string,
 		timestamp?: string,
 		sourcePath?: string,
-		sourceId?: string
+		sourceId?: string,
+		excerptId?: string,
+		style?: EpubHighlightStyle
 	): string {
 		const link = this.buildEpubLink(
 			filePath,
@@ -594,15 +718,17 @@ export class EpubLinkService {
 			chapterIndex,
 			chapterTitle,
 			sourcePath,
-			sourceId
+			sourceId,
+			excerptId
 		);
-		const calloutMeta = color ? `|${color}` : "";
+		const calloutMetaValue = EpubLinkService.buildHighlightCalloutMeta(color, style);
+		const calloutMeta = calloutMetaValue ? `|${calloutMetaValue}` : "";
 		const titleSuffix = EpubLinkService.buildQuoteTitleSuffix(
 			chapterIndex,
 			chapterTitle,
 			timestamp
 		);
-		const quotedLines = text
+		const quotedLines = EpubLinkService.formatQuotedExcerptText(text, style)
 			.split("\n")
 			.map((_line) => `> ${_line}`)
 			.join("\n");
@@ -626,7 +752,7 @@ export class EpubLinkService {
 			return filePath || parsed.sourceId ? { ...parsed, filePath: filePath || "" } : null;
 		}
 
-		const href = markup.startsWith("obsidian://weave-epub?")
+		const href = EpubLinkService.matchesSupportedProtocolHref(markup)
 			? markup
 			: EpubLinkService.extractProtocolHrefFromMarkdownLink(markup) || "";
 		if (!href) {
@@ -667,6 +793,7 @@ export class EpubLinkService {
 			const chapterMatch = hashContent.match(/[&?]chapter=(\d+)/);
 			const textMatch = hashContent.match(/[&?]text=([^&|\]]*)/);
 			const sourceIdMatch = hashContent.match(/[&?]sid=([^&|\]]*)/);
+			const excerptIdMatch = hashContent.match(/[&?]eid=([^&|\]]*)/);
 
 			if (!cfiMatch) {
 				return null;
@@ -690,6 +817,7 @@ export class EpubLinkService {
 					: EpubLinkService.extractEmbeddedTextFromReadiumLocator(cfi) || "",
 				chapter: chapterMatch ? parseInt(chapterMatch[1], 10) : undefined,
 				sourceId: sourceIdMatch?.[1] ? decodeURIComponent(sourceIdMatch[1]) : undefined,
+				excerptId: excerptIdMatch?.[1] ? decodeURIComponent(excerptIdMatch[1]) : undefined,
 			};
 		} catch (e) {
 			logger.warn("[EpubLinkService] Failed to parse epub link:", subpath, e);
@@ -722,11 +850,10 @@ export class EpubLinkService {
 		sourceId?: string
 	): Promise<void> {
 		try {
+			if (!ensureEpubPremiumAccess(this.app)) {
+				return;
+			}
 			const { EpubStorageService } = await import("./EpubStorageService");
-			const [{ VIEW_TYPE_EPUB }, { getPreferredEpubLeaf }] = await Promise.all([
-				import("../../views/EpubView"),
-				import("../../utils/epub-leaf-utils"),
-			]);
 			const resolvedFilePath = await new EpubStorageService(this.app).resolveSourceFilePath(
 				sourceId,
 				filePath
@@ -738,16 +865,13 @@ export class EpubLinkService {
 				});
 				return;
 			}
-			const targetLeaf = getPreferredEpubLeaf(this.app, resolvedFilePath);
+			const targetLeaf = await openEpubInPreferredLeaf(this.app, resolvedFilePath, {
+				pendingCfi: cfi,
+				pendingText: text,
+			});
 			if (!targetLeaf) return;
 
 			this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
-			await targetLeaf.setViewState({
-				type: VIEW_TYPE_EPUB,
-				active: true,
-				state: { filePath: resolvedFilePath, pendingCfi: cfi, pendingText: text },
-			});
-			void this.app.workspace.revealLeaf(targetLeaf);
 
 			logger.debug("[EpubLinkService] Navigated to:", resolvedFilePath, cfi, sourceId);
 		} catch (error) {

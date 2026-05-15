@@ -3,6 +3,12 @@
  * 这是唯一的权威类型定义，所有其他地方必须导入使用此类型
  */
 
+export type LicensedProduct = 'weave' | 'weave-epub-reader';
+
+export type LicenseEntitlement = 'weave-premium' | 'epub-premium';
+
+export type LicenseSource = 'local' | 'inherited';
+
 /**
  * 云端同步状态
  */
@@ -51,6 +57,22 @@ export interface LicenseInfo {
   boundEmail?: string;
   /** 云端同步状态 */
   cloudSync?: CloudSyncInfo;
+  /** 用户ID */
+  userId?: string;
+  /** 最大设备数 */
+  maxDevices?: number;
+  /** 原始功能列表 */
+  features?: string[];
+  /** 权限集合 */
+  entitlements?: LicenseEntitlement[];
+  /** 激活码签发的原始产品ID */
+  issuedProductId?: string;
+  /** 本地或继承来源 */
+  source?: LicenseSource;
+  /** 若为继承授权，对应源插件ID */
+  sourcePluginId?: string;
+  /** 附加元数据 */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -69,8 +91,27 @@ export interface ActivationCodeData {
   maxDevices: number;
   /** 功能列表 */
   features: string[];
+  /** 权限集合 */
+  entitlements?: LicenseEntitlement[];
   /** 发行时间 */
   issuedAt: string;
+  /** 附加元数据 */
+  metadata?: Record<string, unknown>;
+}
+
+export interface LicenseStore {
+  localLicenses: LicenseInfo[];
+  updatedAt?: string;
+}
+
+export interface EffectiveLicenseState {
+  product: LicensedProduct;
+  localLicenses: LicenseInfo[];
+  inheritedLicenses: LicenseInfo[];
+  activeLicenses: LicenseInfo[];
+  entitlements: LicenseEntitlement[];
+  primaryLicense: LicenseInfo | null;
+  isPremiumActive: boolean;
 }
 
 /**
@@ -83,5 +124,12 @@ export const DEFAULT_LICENSE_INFO: LicenseInfo = {
   deviceFingerprint: '',
   expiresAt: '',
   productVersion: '',
-  licenseType: 'lifetime'
+  licenseType: 'lifetime',
+  entitlements: [],
+  source: 'local'
 };
+
+export const DEFAULT_LICENSE_STORE: LicenseStore = {
+  localLicenses: []
+};
+

@@ -69,10 +69,10 @@ export class IRStorageAdapterV4 {
 
 	/**
 	 * 获取牌组的所有内容块 (V4格式)
-	 * v5.4: 优先使用 chunks.json 数据，回退到 blocks.json
+	 * v5.4: 优先使用 chunk 阅读点兼容视图，必要时回退到 legacy block 兼容视图
 	 */
 	async getBlocksByDeckV4(deckId: string, includeIgnored = false): Promise<IRBlockV4[]> {
-		// 1. 优先从 chunks.json 获取 (V4 新架构)
+		// 1. 优先从 chunk 阅读点兼容视图获取（旧 chunks 文件已删除时会由新 points 投影）
 		const deck = await this.storage.getDeckById(deckId);
 		if (deck) {
 			const allChunks = await this.storage.getAllChunkData();
@@ -91,7 +91,7 @@ export class IRStorageAdapterV4 {
 
 			if (matchedChunks.length > 0) {
 				logger.info(
-					`[IRStorageAdapterV4] getBlocksByDeckV4: 从 chunks.json 获取 ${matchedChunks.length} 个块`
+					`[IRStorageAdapterV4] getBlocksByDeckV4: 从 chunk 阅读点兼容视图获取 ${matchedChunks.length} 个块`
 				);
 
 				// v5.4: 转换 IRChunkFileData → IRBlockV4，并从块文件读取标题
@@ -110,7 +110,7 @@ export class IRStorageAdapterV4 {
 			}
 		}
 
-		// 2. 回退到旧版 blocks.json
+		// 2. 回退到旧版 block 兼容视图
 		const blocks = await this.storage.getBlocksByDeck(deckId, includeIgnored, "IRStorageAdapterV4");
 
 		if (blocks.length > 0) {
@@ -119,7 +119,7 @@ export class IRStorageAdapterV4 {
 				v3StateCounts[b.state] = (v3StateCounts[b.state] || 0) + 1;
 			}
 			logger.debug(
-				`[IRStorageAdapterV4] getBlocksByDeckV4: 从 blocks.json 获取，V3状态分布=${JSON.stringify(
+				`[IRStorageAdapterV4] getBlocksByDeckV4: 从 legacy block 兼容视图获取，V3状态分布=${JSON.stringify(
 					v3StateCounts
 				)}`
 			);
@@ -163,7 +163,7 @@ export class IRStorageAdapterV4 {
 			}
 		}
 
-		// 回退到旧版 blocks.json
+		// 回退到旧版 block 兼容视图
 		const blocks = await this.storage.getBlocksByDeck(
 			deckId,
 			includeIgnored,

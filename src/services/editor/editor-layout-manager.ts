@@ -1,4 +1,5 @@
 import { logger } from "../../utils/logger";
+import { applyStyleProps } from "../../utils/style-props";
 /**
  * 编辑器布局管理器
  *
@@ -110,13 +111,13 @@ export class EditorLayoutManager {
 
 		// 确保容器有明确的高度
 		if (!this.container.style.height && this.container.clientHeight === 0) {
-			this.container.setCssProps({ height: "100%" });
+			applyStyleProps(this.container, { height: "100%" });
 		}
 
 		// 确保容器可以滚动
 		const computedStyle = window.getComputedStyle(this.container);
 		if (computedStyle.overflow === "visible") {
-			this.container.setCssProps({ overflow: "hidden" });
+			applyStyleProps(this.container, { overflow: "hidden" });
 		}
 
 		this.log("Container styles set up");
@@ -129,7 +130,7 @@ export class EditorLayoutManager {
 		if (!this.editorElement) return;
 
 		// 确保编辑器容器可以滚动
-		this.editorElement.setCssProps({
+		applyStyleProps(this.editorElement, {
 			overflow: "auto",
 			position: "relative",
 		});
@@ -138,7 +139,7 @@ export class EditorLayoutManager {
 		const wrapper = this.editorElement.closest(".embedded-editor-wrapper");
 		if (wrapper) {
 			const wrapperEl = wrapper as HTMLElement;
-			wrapperEl.setCssProps({
+			applyStyleProps(wrapperEl, {
 				flex: "1",
 				overflow: "hidden",
 				display: "flex",
@@ -160,7 +161,7 @@ export class EditorLayoutManager {
 		const cmScroller = this.editorElement.querySelector(".cm-scroller") as HTMLElement;
 		if (cmScroller) {
 			// 强制启用垂直滚动
-			cmScroller.setCssProps({
+			applyStyleProps(cmScroller, {
 				"overflow-y": "auto",
 				"overflow-x": "auto",
 				height: "100%",
@@ -174,7 +175,7 @@ export class EditorLayoutManager {
 		// 确保cm-editor也设置正确
 		const cmEditor = this.editorElement.querySelector(".cm-editor") as HTMLElement;
 		if (cmEditor) {
-			cmEditor.setCssProps({
+			applyStyleProps(cmEditor, {
 				height: "100%",
 				"min-height": `${this.MIN_EDITOR_HEIGHT}px`,
 			});
@@ -183,7 +184,7 @@ export class EditorLayoutManager {
 		// 确保cm-content高度自适应
 		const cmContent = this.editorElement.querySelector(".cm-content") as HTMLElement;
 		if (cmContent) {
-			cmContent.setCssProps({
+			applyStyleProps(cmContent, {
 				"min-height": "unset",
 				height: "auto",
 			});

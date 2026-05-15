@@ -4,21 +4,33 @@
  * 上方为月历热力图，下方为选中日期的阅读材料列表
  */
 
-import { type EventRef, ItemView, WorkspaceLeaf, setIcon } from "obsidian";
+import { type EventRef, ItemView, type ViewStateResult, WorkspaceLeaf, setIcon } from "obsidian";
 import type { unmount } from "svelte";
 import type { WeavePlugin } from "../main";
 import { PREMIUM_FEATURES, PremiumFeatureGuard } from "../services/premium/PremiumFeatureGuard";
+import { IR_RUNTIME } from "../services/incremental-reading/ir-runtime";
 import { logger } from "../utils/logger";
 import { getViewSurfaceTokens } from "../utils/view-location-utils";
 
-export const VIEW_TYPE_IR_CALENDAR = "weave-ir-calendar-view";
+export const VIEW_TYPE_IR_CALENDAR = IR_RUNTIME.viewTypes.calendar;
 
 type MountedIRCalendarComponent = Parameters<typeof unmount>[0];
+
+type IRCalendarViewState = {
+	filePath?: string;
+	file?: string;
+	focusDeckId?: string;
+	focusDeckName?: string;
+};
 
 export class IRCalendarView extends ItemView {
 	private component: MountedIRCalendarComponent | null = null;
 	private plugin: WeavePlugin;
 	private layoutChangeRef: EventRef | null = null;
+	private focusDeckId = "";
+	private focusDeckName = "";
+	private sourceFilePath = "";
+	private isOpen = false;
 
 	constructor(leaf: WorkspaceLeaf, plugin: WeavePlugin) {
 		super(leaf);
@@ -36,7 +48,7 @@ export class IRCalendarView extends ItemView {
 	 * 获取视图显示名称
 	 */
 	getDisplayText(): string {
-		return "增量阅读日历";
+		return this.focusDeckName || "增量阅读日历";
 	}
 
 	/**
@@ -46,10 +58,34 @@ export class IRCalendarView extends ItemView {
 		return "calendar";
 	}
 
+	getState(): IRCalendarViewState {
+		return {
+			filePath: this.sourceFilePath,
+			file: this.sourceFilePath,
+			focusDeckId: this.focusDeckId,
+			focusDeckName: this.focusDeckName,
+		};
+	}
+
+	async setState(state: IRCalendarViewState, result: ViewStateResult): Promise<void> {
+		await super.setState(state, result);
+
+		this.sourceFilePath = String(state?.filePath || state?.file || "").trim();
+		this.focusDeckId = String(state?.focusDeckId || "").trim();
+		this.focusDeckName = String(state?.focusDeckName || "").trim();
+
+		if (this.isOpen) {
+			// 工作区恢复阶段会同步等待 setState() 返回，若这里继续等待 allCoreServices，
+			// 会和 main.ts 中依赖 onLayoutReady 的存储初始化形成循环等待，直接拖慢启动。
+			void this.loadComponentAsync();
+		}
+	}
+
 	/**
 	 * 视图打开时调用
 	 */
 	async onOpen(): Promise<void> {
+		this.isOpen = true;
 		logger.debug("[IRCalendarView] Opening calendar view");
 
 		const { contentEl } = this;
@@ -113,6 +149,12 @@ export class IRCalendarView extends ItemView {
 		try {
 			await this.waitForDataStorage();
 
+			if (this.component) {
+				const { unmount } = await import("svelte");
+				void unmount(this.component);
+				this.component = null;
+			}
+
 			this.contentEl.empty();
 
 			const { mount } = await import("svelte");
@@ -123,6 +165,9 @@ export class IRCalendarView extends ItemView {
 				target: this.contentEl,
 				props: {
 					plugin: this.plugin,
+					initialDeckId: this.focusDeckId,
+					initialDeckName: this.focusDeckName,
+					sourceFilePath: this.sourceFilePath,
 				},
 			});
 
@@ -173,6 +218,7 @@ export class IRCalendarView extends ItemView {
 	 * 视图关闭时调用
 	 */
 	async onClose(): Promise<void> {
+		this.isOpen = false;
 		logger.debug("[IRCalendarView] Closing calendar view");
 
 		if (this.layoutChangeRef) {

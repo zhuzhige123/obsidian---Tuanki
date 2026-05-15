@@ -30,12 +30,15 @@
   import { CardAccessor } from '../../services/progressive-cloze/CardAccessor';
   import { CardStoreAdapter } from '../../services/progressive-cloze/CardStoreAdapter';
   import { getCardMetadataService } from '../../services/CardMetadataService';
+  import type { ChoiceOptionOrder } from '../../utils/study/choiceOptionOrder';
+  import { applyChoiceQuestionOptionOrder } from '../../utils/study/choiceOptionOrder';
 
   // Props
   interface Props {
     card: Card | null;
     template?: FieldTemplate;
     showAnswer: boolean;
+    choiceOptionOrder?: ChoiceOptionOrder;
     enableAnimations?: boolean;
     themeMode?: 'auto' | 'light' | 'dark';
     renderingMode?: 'performance' | 'quality';
@@ -56,6 +59,7 @@
     card = $bindable(),
     template,
     showAnswer = $bindable(),
+    choiceOptionOrder = 'sequential',
     enableAnimations = true,
     enableAnswerControls = true,
     themeMode = 'auto',
@@ -92,6 +96,7 @@
   let lastAnswerControls = $state(untrack(() => enableAnswerControls));
   let lastCardContent = $state<string | null>(null);
   let lastRefreshTrigger = $state(0); // 跟踪上次的刷新触发器值
+  let lastChoiceOptionOrder = $state<ChoiceOptionOrder>('sequential');
 
   let renderRequestId = $state(0);
 
@@ -151,6 +156,7 @@
       lastAnswerControls = enableAnswerControls;
       lastCardContent = card.content || '';
       lastRefreshTrigger = refreshTrigger;
+      lastChoiceOptionOrder = choiceOptionOrder;
       renderPreview();
     }
   });
@@ -292,7 +298,8 @@
       card.uuid !== lastCardId ||
       currentCardContent !== (lastCardContent || '') ||
       enableAnswerControls !== lastAnswerControls ||
-      refreshTrigger !== lastRefreshTrigger
+      refreshTrigger !== lastRefreshTrigger ||
+      choiceOptionOrder !== lastChoiceOptionOrder
     )) {
       if (!previewEngine) {
         return;
@@ -302,6 +309,7 @@
       lastAnswerControls = enableAnswerControls;
       lastCardContent = currentCardContent;
       lastRefreshTrigger = refreshTrigger; // 更新刷新触发器
+      lastChoiceOptionOrder = choiceOptionOrder;
       renderPreview();
     } else if (card && showAnswer !== lastShowAnswer) {
       //  仅更新状态跟踪，不重新渲染
@@ -346,8 +354,18 @@
               
               // 应用遮罩，启用交互模式（点击单个遮罩切换）
               const content = effectiveCard?.content || card.content || '';
+              const sourceFilePath =
+                (currentPreviewData?.metadata as any)?.sourcePath ||
+                effectiveCard?.sourceFile ||
+                card.sourceFile ||
+                '';
               const enableInteractive = !showAnswer; // 仅在未显示答案时启用交互
-              maskIntegration.applyMasksInContainer(cachedContainer, content, enableInteractive);
+              maskIntegration.applyMasksInContainer(
+                cachedContainer,
+                content,
+                enableInteractive,
+                sourceFilePath
+              );
               return; // 成功应用，退出
             }
             
@@ -448,7 +466,13 @@
           previewData.cardType === UnifiedCardType.MULTIPLE_CHOICE) {
         const cardContent = getCardContentForChoice(cardForRender);
         const parsed = parseCardContent(cardContent);
-        choiceQuestionData = parsed.kind === 'choice' ? parsed.choice : null;
+        choiceQuestionData = parsed.kind === 'choice'
+          ? applyChoiceQuestionOptionOrder(
+              parsed.choice,
+              choiceOptionOrder,
+              `${cardForRender.uuid || cardForRender.sourceFile || cardContent}::${parsed.choice.question}`
+            ).question
+          : null;
         selectedOptions = [];
       } else {
         choiceQuestionData = null;
@@ -725,6 +749,7 @@
         content={getCardContentForChoice(effectiveCard || card)}
         sourcePath={(currentPreviewData.metadata as any).sourcePath || (effectiveCard?.sourceFile ?? card.sourceFile ?? '')}
         section="full"
+        {choiceOptionOrder}
         {showAnswer}
         bind:selectedOptions
         onOptionSelect={handleOptionSelect}

@@ -2,6 +2,7 @@ import type { Card } from "../../../data/types";
 import type WeavePlugin from "../../../main";
 import { getCardBack, getCardFront } from "../../../utils/card-field-helper";
 import type { PreviewData, PreviewOptions, PreviewSection } from "../ContentPreviewEngine";
+import { applyStyleProps } from "../../../utils/style-props";
 
 /**
  * 问答渲染选项接口
@@ -368,14 +369,14 @@ export class BasicQAPreview {
 	 * 应用问题过渡效果
 	 */
 	private applyQuestionTransitions(element: HTMLElement): void {
-		element.setCssProps({
+		applyStyleProps(element, {
 			opacity: "0",
 			transform: "translateY(-10px)",
 		});
 
 		// 使用requestAnimationFrame确保样式已应用
 		requestAnimationFrame(() => {
-			element.setCssProps({
+			applyStyleProps(element, {
 				transition: "opacity 0.3s ease-out, transform 0.3s ease-out",
 				opacity: "1",
 				transform: "translateY(0)",
@@ -387,13 +388,13 @@ export class BasicQAPreview {
 	 * 应用答案过渡效果
 	 */
 	private applyAnswerTransitions(element: HTMLElement): void {
-		element.setCssProps({
+		applyStyleProps(element, {
 			opacity: "0",
 			transform: "translateY(10px)",
 		});
 
 		requestAnimationFrame(() => {
-			element.setCssProps({
+			applyStyleProps(element, {
 				transition: "opacity 0.4s ease-out 0.1s, transform 0.4s ease-out 0.1s",
 				opacity: "1",
 				transform: "translateY(0)",
@@ -405,13 +406,13 @@ export class BasicQAPreview {
 	 * 应用揭示过渡效果
 	 */
 	private applyRevealTransition(element: HTMLElement): void {
-		element.setCssProps({
+		applyStyleProps(element, {
 			opacity: "0",
 			transform: "scale(0.95)",
 		});
 
 		requestAnimationFrame(() => {
-			element.setCssProps({
+			applyStyleProps(element, {
 				transition: "opacity 0.25s ease-out, transform 0.25s ease-out",
 				opacity: "1",
 				transform: "scale(1)",

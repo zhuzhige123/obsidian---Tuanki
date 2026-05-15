@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { setIcon, Notice, Platform } from 'obsidian';
+	import { setIcon, Platform } from 'obsidian';
 	import type { App } from 'obsidian';
 	import { onMount, tick } from 'svelte';
 	import { logger } from '../../utils/logger';
-	import type { EpubBook, EpubReaderEngine, ReaderFrame } from '../../services/epub';
+	import type { EpubBook, EpubHighlightStyle, EpubReaderEngine, ReaderFrame } from '../../services/epub';
+	import { computeToolbarPosition, createEventBinder, isEventOutsideToolbar } from './toolbar-positioning';
 
 	interface Props {
 		app: App;
@@ -12,11 +13,11 @@
 		readerVersion?: number;
 		autoInsert?: boolean;
 		canvasMode?: boolean;
-		onInsertToNote?: (text: string, cfiRange: string, color?: string) => void;
-		onAutoInsert?: (text: string, cfiRange: string, color?: string) => void;
+		onInsertToNote?: (text: string, cfiRange: string, color?: string, style?: EpubHighlightStyle) => void;
+		onAutoInsert?: (text: string, cfiRange: string, color?: string, style?: EpubHighlightStyle) => void;
 		onExtractToCard?: (text: string, cfiRange: string) => void;
 		onCreateReadingPoint?: (text: string, cfiRange: string) => void;
-		onConcealText?: (text: string, cfiRange: string) => void;
+		onOpenAIMenu: (event: MouseEvent, text: string, cfiRange: string) => void;
 	}
 
 	let {
@@ -30,7 +31,7 @@
 		onAutoInsert,
 		onExtractToCard,
 		onCreateReadingPoint,
-		onConcealText
+		onOpenAIMenu
 	}: Props = $props();
 
 	let toolbarEl: HTMLDivElement | undefined = $state(undefined);
@@ -49,9 +50,6 @@
 	let pendingSyncFrame: number | null = null;
 
 	const isMobileToolbar = Platform.isMobile || document.body.classList.contains('is-mobile');
-	const FLOATING_EDGE_MARGIN = 12;
-	const FLOATING_GAP = 12;
-	const FLOATING_ARROW_PADDING = 18;
 
 	function icon(node: HTMLElement, name: string) {
 		setIcon(node, name);
@@ -62,11 +60,6 @@
 				setIcon(node, newName);
 			}
 		};
-	}
-
-	function clamp(value: number, min: number, max: number) {
-		if (max < min) return min;
-		return Math.min(Math.max(value, min), max);
 	}
 
 	function getFrameElement(frame: ReaderFrame | null | undefined): HTMLIFrameElement | null {
@@ -145,14 +138,14 @@
 		hideToolbar();
 	}
 
-	async function handleHighlight(color: string) {
+	async function handleHighlight(color: string, style?: EpubHighlightStyle) {
 		if (!book || !selectedText || !currentCfiRange) {
 			clearAndHide();
 			return;
 		}
 
 		try {
-			const highlight = { cfiRange: currentCfiRange, color, text: selectedText };
+			const highlight = { cfiRange: currentCfiRange, color, style, text: selectedText };
 			if (autoInsert || canvasMode) {
 				readerService.addHighlight(highlight);
 			} else {
@@ -162,12 +155,7 @@
 			logger.warn('[SelectionToolbar] Failed to apply highlight:', e);
 		}
 
-		onAutoInsert?.(selectedText, currentCfiRange, color);
-		clearAndHide();
-	}
-
-	function handleAction(action: string) {
-		new Notice(`${action}: 尚未实现`);
+		onAutoInsert?.(selectedText, currentCfiRange, color, style);
 		clearAndHide();
 	}
 
@@ -192,9 +180,9 @@
 		clearAndHide();
 	}
 
-	function handleConcealText() {
+	function handleOpenAIMenu(event: MouseEvent) {
 		if (selectedText && currentCfiRange) {
-			onConcealText?.(selectedText, currentCfiRange);
+			onOpenAIMenu(event, selectedText, currentCfiRange);
 		}
 		clearAndHide();
 	}
@@ -236,41 +224,33 @@
 	}
 
 	async function positionToolbar(anchorRect: DOMRect, containerEl: HTMLElement) {
-		toolbarMode = isMobileToolbar ? 'docked' : 'floating';
 		isVisible = true;
 		await tick();
 
 		if (!toolbarEl) return;
 
-		if (toolbarMode === 'docked') {
-			posLeft = containerEl.clientWidth / 2;
-			posTop = 0;
-			isBelowSelection = true;
-			arrowOffset = 0;
-			return;
-		}
-
 		const containerRect = containerEl.getBoundingClientRect();
-		const toolbarWidth = toolbarEl.offsetWidth || 280;
-		const toolbarHeight = toolbarEl.offsetHeight || 72;
-		const anchorCenterX = anchorRect.left - containerRect.left + anchorRect.width / 2;
-		const minCenterX = FLOATING_EDGE_MARGIN + toolbarWidth / 2;
-		const maxCenterX = containerEl.clientWidth - FLOATING_EDGE_MARGIN - toolbarWidth / 2;
-		const nextLeft = clamp(anchorCenterX, minCenterX, maxCenterX);
-		const availableAbove = anchorRect.top - containerRect.top - FLOATING_GAP - FLOATING_EDGE_MARGIN;
-		const availableBelow = containerRect.bottom - anchorRect.bottom - FLOATING_GAP - FLOATING_EDGE_MARGIN;
-		const shouldPlaceBelow = availableAbove < toolbarHeight && availableBelow > availableAbove;
-		const preferredTop = shouldPlaceBelow
-			? anchorRect.bottom - containerRect.top + FLOATING_GAP
-			: anchorRect.top - containerRect.top - toolbarHeight - FLOATING_GAP;
-		const maxTop = containerEl.clientHeight - toolbarHeight - FLOATING_EDGE_MARGIN;
+		const position = computeToolbarPosition({
+			anchorRect: {
+				top: anchorRect.top - containerRect.top,
+				left: anchorRect.left - containerRect.left,
+				bottom: anchorRect.bottom - containerRect.top,
+				right: anchorRect.right - containerRect.left,
+				width: anchorRect.width,
+				height: anchorRect.height,
+			},
+			containerWidth: containerEl.clientWidth,
+			containerHeight: containerEl.clientHeight,
+			toolbarWidth: toolbarEl.offsetWidth || 280,
+			toolbarHeight: toolbarEl.offsetHeight || 72,
+			mobile: isMobileToolbar,
+		});
 
-		posTop = clamp(preferredTop, FLOATING_EDGE_MARGIN, maxTop);
-		posLeft = nextLeft;
-		isBelowSelection = shouldPlaceBelow;
-
-		const arrowLimit = Math.max(0, toolbarWidth / 2 - FLOATING_ARROW_PADDING);
-		arrowOffset = clamp(anchorCenterX - nextLeft, -arrowLimit, arrowLimit);
+		toolbarMode = position.mode;
+		posTop = position.top;
+		posLeft = position.left;
+		isBelowSelection = position.isBelowAnchor;
+		arrowOffset = position.arrowOffset;
 	}
 
 	function scheduleActiveSync() {
@@ -292,32 +272,23 @@
 		activeFrame = frame;
 
 		const iframeWindow = frame.window || frame.document?.defaultView;
+		const iframeDocument = iframeWindow?.document;
 		const scrollHost = getScrollTrackingHost(frame);
 		const visualViewport = window.visualViewport;
-		const listeners: Array<() => void> = [];
-		const bind = (
-			target: EventTarget | null | undefined,
-			event: string,
-			handler: EventListenerOrEventListenerObject,
-			options?: AddEventListenerOptions | boolean
-		) => {
-			if (!target?.addEventListener || !target?.removeEventListener) return;
-			target.addEventListener(event, handler, options);
-			listeners.push(() => target.removeEventListener(event, handler, options));
-		};
+		const binder = createEventBinder();
 
-		bind(scrollHost, 'scroll', scheduleActiveSync, { passive: true });
-		bind(iframeWindow, 'scroll', scheduleActiveSync, { passive: true });
-		bind(iframeWindow, 'resize', scheduleActiveSync);
-		bind(window, 'resize', scheduleActiveSync);
-		bind(window, 'orientationchange', scheduleActiveSync);
-		bind(visualViewport, 'resize', scheduleActiveSync);
-		bind(visualViewport, 'scroll', scheduleActiveSync);
+		binder.bind(scrollHost, 'scroll', scheduleActiveSync, { passive: true });
+		binder.bind(iframeWindow, 'scroll', scheduleActiveSync, { passive: true });
+		binder.bind(iframeWindow, 'resize', scheduleActiveSync);
+		binder.bind(iframeDocument, 'mousedown', handleClickOutside);
+		binder.bind(iframeDocument, 'touchstart', handleClickOutside, { passive: true });
+		binder.bind(window, 'resize', scheduleActiveSync);
+		binder.bind(window, 'orientationchange', scheduleActiveSync);
+		binder.bind(visualViewport, 'resize', scheduleActiveSync);
+		binder.bind(visualViewport, 'scroll', scheduleActiveSync);
 
 		teardownPositionTracking = () => {
-			for (const dispose of listeners) {
-				dispose();
-			}
+			binder.dispose();
 		};
 	}
 
@@ -389,7 +360,7 @@
 	}
 
 	function handleClickOutside(e: Event) {
-		if (isVisible && toolbarEl && !toolbarEl.contains(e.target as Node)) {
+		if (isVisible && isEventOutsideToolbar(toolbarEl, e)) {
 			hideToolbar();
 		}
 	}
@@ -447,46 +418,59 @@
 	style={`top: ${posTop}px; left: ${posLeft}px; --toolbar-arrow-offset: ${arrowOffset}px;`}
 	bind:this={toolbarEl}
 >
-	<div class="toolbar-row colors-row">
-		<button class="color-btn yellow" onclick={() => handleHighlight('yellow')} aria-label="黄色高亮"><span class="color-btn-core"></span></button>
-		<button class="color-btn blue" onclick={() => handleHighlight('blue')} aria-label="蓝色高亮"><span class="color-btn-core"></span></button>
-		<button class="color-btn red" onclick={() => handleHighlight('red')} aria-label="红色高亮"><span class="color-btn-core"></span></button>
-		<button class="color-btn purple" onclick={() => handleHighlight('purple')} aria-label="紫色高亮"><span class="color-btn-core"></span></button>
-		<button class="color-btn green" onclick={() => handleHighlight('green')} aria-label="绿色高亮"><span class="color-btn-core"></span></button>
-	</div>
+	<div class="selection-main-row">
+		<div class="selection-top-row">
+			<div class="toolbar-row colors-row selection-color-row selection-primary-row">
+				<button class="color-btn yellow" onclick={() => handleHighlight('yellow')} aria-label="黄色高亮" title="黄色高亮"><span class="color-btn-core"></span></button>
+				<button class="color-btn blue" onclick={() => handleHighlight('blue')} aria-label="蓝色高亮" title="蓝色高亮"><span class="color-btn-core"></span></button>
+				<button class="color-btn red" onclick={() => handleHighlight('red')} aria-label="红色高亮" title="红色高亮"><span class="color-btn-core"></span></button>
+				<button class="color-btn purple" onclick={() => handleHighlight('purple')} aria-label="紫色高亮" title="紫色高亮"><span class="color-btn-core"></span></button>
+				<button class="color-btn green" onclick={() => handleHighlight('green')} aria-label="绿色高亮" title="绿色高亮"><span class="color-btn-core"></span></button>
+			</div>
 
-	<div class="toolbar-row actions-row">
-		<button class="action-item" onclick={handleInsertToNote}>
-			<span class="action-icon" use:icon={autoInsert ? 'clipboard-paste' : 'clipboard-copy'}></span>
-			<span class="action-label">{autoInsert ? '插入' : '复制'}</span>
-		</button>
-		<button class="action-item" onclick={handleSearch}>
-			<span class="action-icon" use:icon={'search'}></span>
-			<span class="action-label">搜索</span>
-		</button>
-		<button class="action-item" onclick={handleConcealText}>
-			<span class="action-icon" use:icon={'eye-off'}></span>
-			<span class="action-label">隐藏</span>
-		</button>
+			<div class="selection-style-shell">
+				<div class="toolbar-row selection-style-row">
+					<button class="action-item icon-only style-action-item" onclick={() => handleHighlight('yellow', 'underline')} title="下划线" aria-label="下划线">
+						<span class="action-icon style-icon underline-style-icon" use:icon={'underline'}></span>
+					</button>
+					<button class="action-item icon-only style-action-item" onclick={() => handleHighlight('yellow', 'strikethrough')} title="删除线" aria-label="删除线">
+						<span class="action-icon style-icon strikethrough-style-icon" use:icon={'strikethrough'}></span>
+					</button>
+					<button class="action-item icon-only style-action-item" onclick={() => handleHighlight('yellow', 'wavy')} title="波浪线" aria-label="波浪线">
+						<span class="action-icon style-icon wavy-style-icon" use:icon={'pen-tool'}></span>
+					</button>
+				</div>
+			</div>
+		</div>
 
-		<div class="row-divider"></div>
+		<div class="selection-actions-shell">
+			<div class="toolbar-row actions-row selection-actions-row">
+				<button class="action-item" onclick={handleInsertToNote} title={autoInsert ? '插入' : '复制'} aria-label={autoInsert ? '插入' : '复制'}>
+					<span class="action-icon" use:icon={autoInsert ? 'clipboard-paste' : 'clipboard-copy'}></span>
+					<span class="action-label">{autoInsert ? '插入' : '复制'}</span>
+				</button>
+				<button class="action-item" onclick={handleSearch} title="搜索" aria-label="搜索">
+					<span class="action-icon" use:icon={'search'}></span>
+					<span class="action-label">搜索</span>
+				</button>
 
-		<button class="action-item accent" onclick={() => handleAction('cloze')}>
-			<span class="action-icon" use:icon={'brackets'}></span>
-			<span class="action-label">Cloze</span>
-		</button>
-		<button class="action-item accent" onclick={handleExtractToCard}>
-			<span class="action-icon" use:icon={'scissors'}></span>
-			<span class="action-label">摘录</span>
-		</button>
-		<button class="action-item accent" onclick={handleCreateReadingPoint}>
-			<span class="action-icon" use:icon={'book-plus'}></span>
-			<span class="action-label">阅读点</span>
-		</button>
-		<button class="action-item ai" onclick={() => handleAction('ai-explain')}>
-			<span class="action-icon" use:icon={'sparkles'}></span>
-			<span class="action-label">AI</span>
-		</button>
+				<div class="row-divider"></div>
+
+				<button class="action-item accent" onclick={handleExtractToCard} title="摘录为记忆卡片" aria-label="摘录为记忆卡片">
+					<span class="action-icon" use:icon={'scissors'}></span>
+					<span class="action-label">制卡</span>
+				</button>
+
+				<button class="action-item accent" onclick={handleCreateReadingPoint} title="创建增量阅读点" aria-label="创建增量阅读点">
+					<span class="action-icon" use:icon={'book-plus'}></span>
+					<span class="action-label">阅读点</span>
+				</button>
+				<button class="action-item ai" onclick={handleOpenAIMenu} title="AI" aria-label="AI">
+					<span class="action-icon" use:icon={'sparkles'}></span>
+					<span class="action-label">AI</span>
+				</button>
+			</div>
+		</div>
 	</div>
 
 	<div class="toolbar-arrow"></div>

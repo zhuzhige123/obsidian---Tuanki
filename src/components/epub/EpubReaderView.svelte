@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { Platform } from 'obsidian';
-	import type { App } from 'obsidian';
-	import type { EpubBook, EpubFlowMode, EpubLayoutMode, EpubReaderEngine, EpubReaderSettings, EpubStorageService, PaginationInfo, ReaderHighlight } from '../../services/epub';
-	import type { EpubAnnotationService } from '../../services/epub';
-	import type { EpubBacklinkHighlightService } from '../../services/epub/EpubBacklinkHighlightService';
-	import { logger } from '../../utils/logger';
+ 	import { onMount } from 'svelte';
+ 	import { Platform } from 'obsidian';
+ 	import type { App } from 'obsidian';
+ 	import { reportEpubError } from '../../services/epub/epub-error';
+ 	import type { EpubBook, EpubExcerptSettings, EpubFlowMode, EpubLayoutMode, EpubReaderEngine, EpubReaderSettings, EpubStorageService, PaginationInfo, ReaderHighlight } from '../../services/epub';
+ 	import type { EpubAnnotationService } from '../../services/epub';
+ 	import type { EpubBacklinkHighlightService } from '../../services/epub/EpubBacklinkHighlightService';
+ 	import { logger } from '../../utils/logger';
 
 	interface Props {
 		app: App;
@@ -16,6 +17,7 @@
 		annotationService: EpubAnnotationService;
 		backlinkService: EpubBacklinkHighlightService;
 		settings: EpubReaderSettings;
+		excerptSettings: EpubExcerptSettings;
 		hasPendingNavigation?: boolean;
 		onProgressChange?: (percent: number) => void;
 		onPaginationChange?: (info: PaginationInfo) => void;
@@ -24,7 +26,23 @@
 		onRenderError?: (message: string) => void;
 	}
 
-	let { app, filePath, book, readerService, storageService, annotationService, backlinkService, settings, hasPendingNavigation = false, onProgressChange, onPaginationChange, onChapterChange, onReaderReady, onRenderError }: Props = $props();
+	let {
+		app,
+		filePath,
+		book,
+		readerService,
+		storageService,
+		annotationService,
+		backlinkService,
+		settings,
+		excerptSettings,
+		hasPendingNavigation = false,
+		onProgressChange: onProgressChangeProp,
+		onPaginationChange: onPaginationChangeProp,
+		onChapterChange,
+		onReaderReady: onReaderReadyProp,
+		onRenderError: onRenderErrorProp,
+	}: Props = $props();
 
 	let viewerContainer: HTMLDivElement;
 	let rendered = false;
@@ -41,6 +59,36 @@
 	let renderSessionToken = 0;
 	let mobileStabilizationToken = 0;
 	let viewDisposed = false;
+
+	function notifyProgressChange(percent: number): void {
+		if (typeof onProgressChangeProp === 'function') {
+			onProgressChangeProp(percent);
+		}
+	}
+
+	function notifyPaginationChange(info: PaginationInfo): void {
+		if (typeof onPaginationChangeProp === 'function') {
+			onPaginationChangeProp(info);
+		}
+	}
+
+	function notifyChapterChange(title: string): void {
+		if (typeof onChapterChange === 'function') {
+			onChapterChange(title);
+		}
+	}
+
+	function notifyReaderReady(): void {
+		if (typeof onReaderReadyProp === 'function') {
+			onReaderReadyProp();
+		}
+	}
+
+	function notifyRenderError(message: string): void {
+		if (typeof onRenderErrorProp === 'function') {
+			onRenderErrorProp(message);
+		}
+	}
 
 	function isStaleRender(renderToken: number): boolean {
 		return viewDisposed || renderToken !== renderSessionToken;
@@ -328,9 +376,9 @@
 				minSpreadWidth: renderMode.minSpreadWidth,
 				width: stableRect.width,
 				height: stableRect.height,
-				theme: settings.theme,
 				lineHeight: settings.lineHeight,
-				widthMode: settings.widthMode
+				widthMode: settings.widthMode,
+				strikethroughPresentation: excerptSettings.strikethroughDisplayMode
 			});
 			if (isStaleRender(renderToken)) {
 				return;
@@ -375,8 +423,9 @@
 				}
 			}
 
-			onProgressChange?.(readerService.getReadingProgress());
-			onPaginationChange?.(await readerService.getPaginationInfo());
+			notifyProgressChange(readerService.getReadingProgress());
+			notifyPaginationChange(await readerService.getPaginationInfo());
+			notifyChapterChange(readerService.getCurrentChapterTitle());
 			if (isStaleRender(renderToken)) {
 				return;
 			}
@@ -394,16 +443,15 @@
 			}
 			highlightsReady = true;
 
-			onReaderReady?.();
+			notifyReaderReady();
 			void stabilizeMobileRenderer(renderToken);
 		} catch (error) {
 			if (isStaleRender(renderToken)) {
 				return;
 			}
-			logger.error('[EpubReaderView] Failed to render book:', error);
+			const classified = reportEpubError(error, 'render');
 			rendered = false;
-			const message = error instanceof Error ? error.message : 'EPUB 渲染失败';
-			onRenderError?.(message);
+			notifyRenderError(classified.userMessage);
 		}
 	}
 
@@ -423,7 +471,13 @@
 
 	async function applySettings() {
 		if (!rendered) return;
-		await readerService.applyReaderAppearance(settings.theme, settings.lineHeight);
+		await readerService.applyReaderAppearance({
+			lineHeight: settings.lineHeight,
+			letterSpacing: settings.letterSpacing,
+			pageMargin: settings.pageMargin,
+			widthMode: settings.widthMode,
+			strikethroughPresentation: excerptSettings.strikethroughDisplayMode,
+		});
 	}
 
 	async function collectAllHighlights(): Promise<ReaderHighlight[]> {
@@ -503,8 +557,9 @@
 			if (book) {
 				await storageService.saveProgress(book.id, position);
 			}
-			onProgressChange?.(position.percent);
-			onPaginationChange?.(await readerService.getPaginationInfo());
+			notifyProgressChange(position.percent);
+			notifyPaginationChange(await readerService.getPaginationInfo());
+			notifyChapterChange(readerService.getCurrentChapterTitle());
 		});
 	}
 
@@ -526,23 +581,25 @@
 			currentFlowMode = nextFlowMode;
 			currentWidthMode = nextWidthMode;
 			await readerService.setLayoutMode(nextLayoutMode, nextFlowMode, {
-				theme: settings.theme,
 				lineHeight: settings.lineHeight,
+				letterSpacing: settings.letterSpacing,
+				pageMargin: settings.pageMargin,
 				widthMode: nextWidthMode,
+				strikethroughPresentation: excerptSettings.strikethroughDisplayMode,
 			});
 			skipNextAppearanceSync = true;
 
 			await new Promise(r => setTimeout(r, 150));
 
 			await refreshReaderHighlights();
-			onReaderReady?.();
+			notifyReaderReady();
 			void stabilizeMobileRenderer(renderSessionToken);
 		} catch (error) {
-			logger.error('[EpubReaderView] Failed to change reader mode:', error);
+			const classified = reportEpubError(error, 'render');
 			currentLayoutMode = previousLayoutMode;
 			currentFlowMode = previousFlowMode;
 			currentWidthMode = previousWidthMode;
-			onRenderError?.(error instanceof Error ? error.message : '阅读模式切换失败');
+			notifyRenderError(classified.userMessage);
 		}
 	}
 
@@ -553,8 +610,10 @@
 	});
 
 	$effect(() => {
-		const _theme = settings.theme;
 		const _lh = settings.lineHeight;
+		const _ls = settings.letterSpacing;
+		const _pm = settings.pageMargin;
+		const _sp = excerptSettings.strikethroughDisplayMode;
 		if (rendered) {
 			if (skipNextAppearanceSync) {
 				skipNextAppearanceSync = false;

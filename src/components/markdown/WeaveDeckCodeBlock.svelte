@@ -9,7 +9,7 @@
   import { buildMemoryDeckMenu, type MemoryDeckMenuAction } from '../../services/deck/MemoryDeckMenu';
   import type { DeckCardStyle } from '../../types/plugin-settings.d';
   import { get } from 'svelte/store';
-  import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
+  import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from '../../services/premium/PremiumFeatureGuard';
 
   interface Props {
     plugin: WeavePlugin;
@@ -26,6 +26,12 @@
   let deckCardStyle = $state<DeckCardStyle>(untrack(() => (plugin.settings.deckCardStyle as DeckCardStyle) || 'default'));
   let cardSize = $state<'small' | 'medium' | 'large'>('medium');
   const premiumGuard = PremiumFeatureGuard.getInstance();
+  const deckStudyFeatureContext: PremiumFeatureAccessContext = { page: 'deck-study' };
+  const deckAnalyticsEntryFeatures = [
+    PREMIUM_FEATURES.DECK_ANALYTICS,
+    PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION,
+    PREMIUM_FEATURES.DECK_ANALYTICS_TIMING,
+  ] as const;
   let isPremium = $state(get(premiumGuard.isPremiumActive));
   let showPremiumFeaturesPreview = $state(get(premiumGuard.premiumFeaturesPreviewEnabled));
 
@@ -119,11 +125,18 @@
         onDissolveDeck: async () => await dispatchDeckMenuAction('dissolve-deck', item.deck.id)
       },
       {
-        showDeckAnalytics: premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.DECK_ANALYTICS, {
-          isPremium,
-          showPremiumPreview: showPremiumFeaturesPreview
-        }),
-        lockDeckAnalytics: !premiumGuard.canUseFeature(PREMIUM_FEATURES.DECK_ANALYTICS)
+        showDeckAnalytics: premiumGuard.shouldShowAnyFeatureEntry(
+          [...deckAnalyticsEntryFeatures],
+          {
+            isPremium,
+            showPremiumPreview: showPremiumFeaturesPreview
+          },
+          deckStudyFeatureContext
+        ),
+        lockDeckAnalytics: !premiumGuard.canUseAnyFeature(
+          [...deckAnalyticsEntryFeatures],
+          deckStudyFeatureContext
+        )
       }
     );
 

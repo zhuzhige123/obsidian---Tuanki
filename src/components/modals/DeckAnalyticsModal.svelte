@@ -1,6 +1,9 @@
 <!--
   牌组分析模态窗组件
   显示记忆保持率趋势图表和分析数据
+  Legacy note:
+  This component is intentionally retained because the working tree already had in-progress edits here.
+  The active deck analytics runtime has moved to DeckAnalyticsModalShell.svelte via DeckAnalyticsModalObsidian.ts.
 -->
 <script lang="ts">
   import { logger } from '../../utils/logger';
@@ -14,29 +17,11 @@
   import { createDeckAnalyticsText, formatDeckAnalyticsShortDate } from './deck-analytics-text';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import { LoadStatus } from '../../services/LoadBalanceManager';
-  import * as echarts from 'echarts/core';
-  import {
-    TooltipComponent,
-    GridComponent,
-    LegendComponent
-  } from 'echarts/components';
-  import { LineChart, BarChart, ScatterChart } from 'echarts/charts';
-  import { CanvasRenderer } from 'echarts/renderers';
-  import { LabelLayout } from 'echarts/features';
-  import { applyRetentionChartLayout, createRetentionChartGrid, createRetentionScrollableLegend } from '../charts/retentionChartStyle';
+  import { generateDeckMemoryCurveData } from '../../utils/memory-curve-utils';
+  import echarts, { type EChartsType } from '../../utils/echarts-loader';
+  import { applyRetentionChartLayout } from '../charts/retentionChartStyle';
+  import { buildRetentionCurveOption } from '../charts/retentionCurveOption';
   import { bindPinchRangeGesture } from '../../utils/pinch-range-gesture';
-
-  // 注册ECharts组件
-  echarts.use([
-    TooltipComponent,
-    GridComponent,
-    LegendComponent,
-    LineChart,
-    BarChart,
-    ScatterChart,
-    LabelLayout,
-    CanvasRenderer
-  ]);
 
   type AnalyticsTab = 'retention' | 'quantity' | 'timing' | 'difficulty' | 'loadForecast';
 
@@ -63,7 +48,7 @@
 
   // 标签页状态：弹窗打开时读取一次初始标签页，后续由组件内切换维护
   let activeTab = $state<AnalyticsTab>(untrack(() => initialTab));
-  const uiLanguage = $derived(((plugin.settings?.language as SupportedLanguage | undefined) ?? $currentLanguage ?? 'zh-CN'));
+  const uiLanguage = $derived(($currentLanguage ?? 'zh-CN') as SupportedLanguage);
   const isEnglishUI = $derived(uiLanguage === 'en-US');
   const uiText = $derived.by(() => createDeckAnalyticsText(uiLanguage));
   
@@ -73,11 +58,11 @@
   let timingChartRef: HTMLDivElement | null = $state(null);
   let difficultyChartRef: HTMLDivElement | null = $state(null);
   let loadForecastChartRef: HTMLDivElement | null = $state(null);
-  let retentionChart: echarts.ECharts | null = null;
-  let quantityChart: echarts.ECharts | null = null;
-  let timingChart: echarts.ECharts | null = null;
-  let difficultyChart: echarts.ECharts | null = null;
-  let loadForecastChart: echarts.ECharts | null = null;
+  let retentionChart: EChartsType | null = null;
+  let quantityChart: EChartsType | null = null;
+  let timingChart: EChartsType | null = null;
+  let difficultyChart: EChartsType | null = null;
+  let loadForecastChart: EChartsType | null = null;
   let themeObserver: MutationObserver | null = null;
   let renderedLanguage = $state<SupportedLanguage | null>(null);
   const pinchGestureCleanupMap = new Map<HTMLDivElement, () => void>();
@@ -133,11 +118,15 @@
   const reviewedCardCount = $derived(activeCards ? activeCards.filter(c => c.reviewHistory && c.reviewHistory.length > 0).length : 0);
   const retentionSummaryData = $derived.by(() => {
     const retentionPoints = generateRetentionData(selectedDays);
+    const currentPoint = retentionPoints[0] ?? null;
+    const totalSamples = retentionPoints.reduce((sum, point) => sum + point.reviewSample, 0);
+    const totalPassed = retentionPoints.reduce((sum, point) => sum + point.passedSample, 0);
+
     return {
       targetRetention: getTargetRetentionPercent(),
-      avgRetrievability: getLatestDefinedValue(retentionPoints.map(point => point.avgRetrievability)),
-      trueRetention: getLatestDefinedValue(retentionPoints.map(point => point.trueRetention)),
-      latestSample: retentionPoints.reduceRight((sample, point) => sample || point.reviewSample, 0)
+      avgRetrievability: currentPoint?.avgRetrievability ?? null,
+      actualRetention: totalSamples > 0 ? parseFloat(((totalPassed / totalSamples) * 100).toFixed(1)) : null,
+      sampleCount: totalSamples
     };
   });
   
@@ -302,149 +291,42 @@
     return parseFloat((Math.min(Math.max(configuredRetention, 0.5), 0.99) * 100).toFixed(1));
   }
 
-  function getLatestDefinedValue(values: Array<number | null>): number | null {
-    for (let i = values.length - 1; i >= 0; i--) {
-      const value = values[i];
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        return value;
-      }
-    }
-    return null;
-  }
-
   type RetentionSeriesPoint = {
-    date: string;
+    day: number;
+    label: string;
     avgRetrievability: number | null;
-    trueRetention: number | null;
+    actualRetention: number | null;
     targetRetention: number;
     reviewSample: number;
+    passedSample: number;
   };
 
-  function calculateAverageRetrievabilityForCards(deckCards: Card[], targetEndTime: number): number | null {
-    const cardsWithReviews = (deckCards || []).filter(card => card.reviewHistory && card.reviewHistory.length > 0);
-    if (cardsWithReviews.length === 0) return null;
+  function formatRetentionDayTitle(dayValue: number | string): string {
+    const numericDay = typeof dayValue === 'number' ? dayValue : Number(dayValue);
+    if (!Number.isFinite(numericDay)) {
+      return String(dayValue);
+    }
 
-    let totalRetrievability = 0;
-    let count = 0;
+    if (numericDay === 0) {
+      return isEnglishUI ? 'Current' : '当前';
+    }
 
-    cardsWithReviews.forEach(card => {
-      const reviewsBefore = (card.reviewHistory || [])
-        .filter(review => new Date(review.review).getTime() <= targetEndTime)
-        .sort((a, b) => new Date(b.review).getTime() - new Date(a.review).getTime());
-
-      if (reviewsBefore.length === 0) return;
-
-      const lastReview = reviewsBefore[0];
-      const elapsed = (targetEndTime - new Date(lastReview.review).getTime()) / (1000 * 60 * 60 * 24);
-      const stability = lastReview.stability || card.fsrs?.stability || 7;
-      const retrievability = Math.exp(-elapsed / Math.max(stability, 0.01)) * 100;
-
-      totalRetrievability += retrievability;
-      count++;
-    });
-
-    return count > 0 ? parseFloat((totalRetrievability / count).toFixed(1)) : null;
+    return isEnglishUI ? `Day ${numericDay}` : `第 ${numericDay} 天`;
   }
 
-  // 为单个牌组生成记忆保持率数据（基于日期维度的 FSRS 预测保持率）
-  function generateRetentionDataForDeck(deckCards: Card[], days: number): { dates: string[]; retrievabilityData: (number | null)[]; targetRetention: number } {
-    const dates: string[] = [];
-    const retrievabilityData: (number | null)[] = [];
-    const today = new Date();
-    const targetRetention = getTargetRetentionPercent();
-    
-    for (let i = days - 1; i >= 0; i--) {
-      const targetDate = new Date(today);
-      targetDate.setDate(targetDate.getDate() - i);
-      dates.push(formatShortDate(targetDate));
-      const targetEnd = new Date(targetDate);
-      targetEnd.setHours(23, 59, 59, 999);
-      retrievabilityData.push(calculateAverageRetrievabilityForCards(deckCards, targetEnd.getTime()));
-    }
-    
-    return { dates, retrievabilityData, targetRetention };
+  // 为单个牌组生成记忆保持率数据（基于当前及未来天数的 FSRS 预测保持率）
+  function generateRetentionDataForDeck(deckCards: Card[], days: number): { dayLabels: string[]; retrievabilityData: (number | null)[] } {
+    const points = generateDeckMemoryCurveData(deckCards, days, getTargetRetentionPercent());
+
+    return {
+      dayLabels: points.map(point => point.label),
+      retrievabilityData: points.map(point => point.avgRetrievability)
+    };
   }
   
-  // 生成真实记忆保持率数据（基于 FSRS）
+  // 生成牌组记忆保持率数据（基于当前及未来天数）
   function generateRetentionData(days: number): RetentionSeriesPoint[] {
-    const data: RetentionSeriesPoint[] = [];
-    const today = new Date();
-    const currentCards = activeCards;
-    const targetRetention = getTargetRetentionPercent();
-    
-    if (currentCards && currentCards.length > 0) {
-      const cardsWithReviews = currentCards.filter(c => c.reviewHistory && c.reviewHistory.length > 0);
-      
-      for (let i = days - 1; i >= 0; i--) {
-        const targetDate = new Date(today);
-        targetDate.setDate(targetDate.getDate() - i);
-        const dateLabel = formatShortDate(targetDate);
-        const targetStart = new Date(targetDate);
-        targetStart.setHours(0, 0, 0, 0);
-        const targetEnd = new Date(targetDate);
-        targetEnd.setHours(23, 59, 59, 999);
-        const targetEndTime = targetEnd.getTime();
-        
-        let totalRetrievability = 0;
-        let retrievabilityCount = 0;
-        let passedFirstReviews = 0;
-        let firstReviewSample = 0;
-        
-        cardsWithReviews.forEach(card => {
-          if (!card.reviewHistory) return;
-          
-          const reviewsBefore = card.reviewHistory
-            .filter(r => new Date(r.review).getTime() <= targetEndTime)
-            .sort((a, b) => new Date(b.review).getTime() - new Date(a.review).getTime());
-          
-          if (reviewsBefore.length > 0) {
-            const lastReview = reviewsBefore[0];
-            const elapsed = (targetEndTime - new Date(lastReview.review).getTime()) / (1000 * 60 * 60 * 24);
-            const stability = lastReview.stability || card.fsrs?.stability || 7;
-            const retrievability = Math.exp(-elapsed / Math.max(stability, 0.01)) * 100;
-            totalRetrievability += retrievability;
-            retrievabilityCount++;
-          }
-          
-          const reviewsOnDay = card.reviewHistory
-            .filter(log => {
-              const reviewDate = new Date(log.review);
-              return reviewDate >= targetStart && reviewDate <= targetEnd;
-            })
-            .sort((a, b) => new Date(a.review).getTime() - new Date(b.review).getTime());
-
-          const firstReview = reviewsOnDay[0];
-          if (firstReview && (firstReview.state === 2 || firstReview.state === 3 || (firstReview.scheduledDays ?? 0) > 0)) {
-            firstReviewSample++;
-            if (firstReview.rating >= 2) {
-              passedFirstReviews++;
-            }
-          }
-        });
-        
-        data.push({
-          date: dateLabel,
-          avgRetrievability: retrievabilityCount > 0 ? parseFloat((totalRetrievability / retrievabilityCount).toFixed(1)) : null,
-          trueRetention: firstReviewSample > 0 ? parseFloat(((passedFirstReviews / firstReviewSample) * 100).toFixed(1)) : null,
-          targetRetention,
-          reviewSample: firstReviewSample
-        });
-      }
-    } else {
-      for (let i = days - 1; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        data.push({
-          date: formatShortDate(date),
-          avgRetrievability: null,
-          trueRetention: null,
-          targetRetention,
-          reviewSample: 0
-        });
-      }
-    }
-    
-    return data;
+    return generateDeckMemoryCurveData(activeCards || [], days, getTargetRetentionPercent());
   }
 
   // 初始化记忆率图表
@@ -456,13 +338,50 @@
 
     const colors = getThemeColors();
     const isMultiDeck = selectedDeckIds.size > 1;
+    const buildTooltipHeader = (dayValue: number | string) =>
+      `<div style="font-weight: 600; font-size: 16px; margin-bottom: 12px; color: ${colors.textColor};">${formatRetentionDayTitle(dayValue)}</div>`;
+    const buildTooltipRow = ({
+      seriesName,
+      color,
+      value,
+      dotSize,
+      margin,
+      labelSize,
+      valueSize,
+      valueColor = color,
+      lineHeight,
+    }: {
+      seriesName: string;
+      color: string;
+      value: number;
+      dotSize: number;
+      margin: string;
+      labelSize: number;
+      valueSize: number;
+      valueColor?: string;
+      lineHeight?: string;
+    }) => {
+      const lineHeightStyle = lineHeight ? ` line-height: ${lineHeight};` : '';
+      const dotSpacing = Math.max(dotSize - 2, 8);
+
+      return `<div style="display: flex; align-items: center; margin: ${margin};${lineHeightStyle}">`
+        + `<span style="display: inline-block; width: ${dotSize}px; height: ${dotSize}px; border-radius: 50%; background: ${color}; margin-right: ${dotSpacing}px;"></span>`
+        + `<span style="color: ${colors.textColor}; font-size: ${labelSize}px;">${seriesName}:</span>`
+        + `<strong style="margin-left: 8px; color: ${valueColor}; font-size: ${valueSize}px;">${value.toFixed(1)}%</strong>`
+        + `</div>`;
+    };
+    const wrapTooltipHtml = (dayValue: number | string, bodyHtml: string, useInterfaceFont = false) => {
+      const wrapperStyle = useInterfaceFont
+        ? 'padding: 12px; font-family: var(--font-interface);'
+        : 'padding: 12px;';
+      return `<div style="${wrapperStyle}">${buildTooltipHeader(dayValue)}${bodyHtml}</div>`;
+    };
     
     // 多牌组对比模式
     if (isMultiDeck) {
       const selectedDecksArray = Array.from(selectedDeckIds);
-      const legendData: string[] = [];
       const series: any[] = [];
-      let dateLabels: string[] = [];
+      let dayLabels: string[] = [];
       
       // 为每个牌组生成独立的曲线
       selectedDecksArray.forEach((deckId, index) => {
@@ -471,9 +390,8 @@
         const deckName = deck?.name || `${uiText.deckFallbackPrefix}${index + 1}`;
         const color = getDeckColor(index);
         
-        legendData.push(deckName);
-        const { dates, retrievabilityData } = generateRetentionDataForDeck(deckCards, selectedDays);
-        if (dateLabels.length === 0) dateLabels = dates;
+        const { dayLabels: generatedDayLabels, retrievabilityData } = generateRetentionDataForDeck(deckCards, selectedDays);
+        if (dayLabels.length === 0) dayLabels = generatedDayLabels;
         
         series.push({
           name: deckName,
@@ -488,68 +406,48 @@
       });
       
       // 添加目标保持率线
-      legendData.push(uiText.retention.targetRetention);
       series.push({
         name: uiText.retention.targetRetention,
         type: 'line',
-        data: dateLabels.map(() => getTargetRetentionPercent()),
+        data: dayLabels.map(() => getTargetRetentionPercent()),
         lineStyle: { color: '#f5576c', width: 2, type: 'dashed' },
         itemStyle: { color: '#f5576c' },
         symbol: 'none'
       });
       
-      const option = {
-        tooltip: {
-          trigger: 'axis',
-          backgroundColor: colors.tooltipBg,
-          borderColor: colors.tooltipBorder,
-          borderWidth: 1,
-          textStyle: { color: colors.textColor, fontSize: 14 },
-          extraCssText: 'border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);',
-          confine: true,
-          position: isMobile ? getMobileTooltipPosition : undefined,
-          formatter: function(params: any) {
-            let html = `<div style="padding: 12px;">`;
-            html += `<div style="font-weight: 600; font-size: 16px; margin-bottom: 12px; color: ${colors.textColor};">${params[0].axisValue}</div>`;
-            params.forEach((param: any) => {
-              if (param.value !== null && param.value !== undefined && typeof param.value === 'number') {
-                html += `<div style="display: flex; align-items: center; margin: 6px 0;">`;
-                html += `<span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: ${param.color}; margin-right: 8px;"></span>`;
-                html += `<span style="color: ${colors.textColor}; font-size: 13px;">${param.seriesName}:</span>`;
-                html += `<strong style="margin-left: 8px; color: ${param.color}; font-size: 14px;">${param.value.toFixed(1)}%</strong>`;
-                html += `</div>`;
-              }
-            });
-            html += `</div>`;
-            return html;
+      const option = buildRetentionCurveOption({
+        colors,
+        isMobile,
+        xAxisData: dayLabels,
+        axisXName: uiText.retention.axisX,
+        axisYName: uiText.retention.axisY,
+        tooltipPosition: isMobile ? getMobileTooltipPosition : undefined,
+        tooltipFormatter: function(params: any) {
+          if (!Array.isArray(params) || params.length === 0) {
+            return '';
           }
-        },
-        legend: createRetentionScrollableLegend(legendData, colors, isMobile),
-        grid: createRetentionChartGrid(isMobile, true),
-        xAxis: {
-          type: 'category',
-          data: dateLabels,
-          name: uiText.retention.axisX,
-          nameLocation: 'middle',
-          nameGap: 24,
-          axisLine: { show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10], lineStyle: { color: colors.axisLineColor } },
-          axisLabel: { color: colors.textColor, fontSize: 12 },
-          nameTextStyle: { color: colors.textColor, fontSize: 12 }
-        },
-        yAxis: {
-          type: 'value',
-          name: uiText.retention.axisY,
-          min: 0,
-          max: 100,
-          axisLine: { show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10], lineStyle: { color: colors.axisLineColor } },
-          axisLabel: { color: colors.textColor, formatter: '{value}%', fontSize: 12 },
-          nameTextStyle: { color: colors.textColor, fontSize: 12 },
-          splitLine: { lineStyle: { color: colors.splitLineColor, type: 'dashed' } }
+
+          let rows = '';
+          params.forEach((param: any) => {
+            if (param.value !== null && param.value !== undefined && typeof param.value === 'number') {
+              const color = typeof param.color === 'string' ? param.color : colors.textColor;
+              rows += buildTooltipRow({
+                seriesName: param.seriesName,
+                color,
+                value: param.value,
+                dotSize: 10,
+                margin: '6px 0',
+                labelSize: 13,
+                valueSize: 14,
+              });
+            }
+          });
+
+          return wrapTooltipHtml(params[0].axisValue, rows);
         },
         series
-      };
-      
-      applyRetentionChartLayout(option, colors, isMobile);
+      });
+
       retentionChart.setOption(option, true);
       return;
     }
@@ -557,91 +455,46 @@
     // 单牌组模式
     const data = generateRetentionData(selectedDays);
 
-    const option = {
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: colors.tooltipBg,
-        borderColor: colors.tooltipBorder,
-        borderWidth: 1,
-        textStyle: {
-          color: colors.textColor,
-          fontSize: 14
-        },
-        shadowBlur: 10,
-        shadowColor: 'rgba(0, 0, 0, 0.2)',
-        extraCssText: 'border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);',
-        confine: true,
-        position: isMobile ? getMobileTooltipPosition : undefined,
-        formatter: function(params: any) {
-          let html = `<div style="padding: 12px; font-family: var(--font-interface);">`;
-          html += `<div style="font-weight: 600; font-size: 16px; margin-bottom: 12px; color: ${colors.textColor};">${params[0].axisValue}</div>`;
-          const dataIndex = typeof params[0]?.dataIndex === 'number' ? params[0].dataIndex : -1;
-          const point = dataIndex >= 0 ? data[dataIndex] : null;
-          params.forEach((param: any) => {
-            if (param.value !== null && param.value !== undefined && typeof param.value === 'number') {
-              const color = param.color;
-              
-              html += `<div style="display: flex; align-items: center; margin: 8px 0; line-height: 1.4;">`;
-              html += `<span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: ${color}; margin-right: 10px;"></span>`;
-              html += `<span style="color: ${colors.textColor}; font-size: 14px;">${param.seriesName}:</span>`;
-              html += `<strong style="margin-left: 8px; color: var(--interactive-accent); font-size: 15px;">${param.value.toFixed(1)}%</strong>`;
-              html += `</div>`;
+    const option = buildRetentionCurveOption({
+      colors,
+      isMobile,
+      xAxisData: data.map(d => d.label),
+      axisXName: uiText.retention.axisX,
+      axisYName: uiText.retention.axisY,
+      tooltipPosition: isMobile ? getMobileTooltipPosition : undefined,
+      tooltipFormatter: function(params: any) {
+        if (!Array.isArray(params) || params.length === 0) {
+          return '';
+        }
 
-              if (point && param.seriesName === uiText.retention.firstReviewPassRate && point.reviewSample > 0) {
-                html += `<div style="margin: -2px 0 8px 22px; color: ${colors.textColor}; opacity: 0.75; font-size: 12px;">`;
-                html += uiText.misc.firstReviewSamples(point.reviewSample);
-                html += `</div>`;
-              }
+        const dataIndex = typeof params[0]?.dataIndex === 'number' ? params[0].dataIndex : -1;
+        const point = dataIndex >= 0 ? data[dataIndex] : null;
+        let rows = '';
+        params.forEach((param: any) => {
+          if (param.value !== null && param.value !== undefined && typeof param.value === 'number') {
+            const color = typeof param.color === 'string' ? param.color : colors.textColor;
+
+            rows += buildTooltipRow({
+              seriesName: param.seriesName,
+              color,
+              value: param.value,
+              dotSize: 12,
+              margin: '8px 0',
+              labelSize: 14,
+              valueSize: 15,
+              valueColor: 'var(--interactive-accent)',
+              lineHeight: '1.4',
+            });
+
+            if (point && param.seriesName === uiText.retention.firstReviewPassRate && point.reviewSample > 0) {
+              rows += `<div style="margin: -2px 0 8px 22px; color: ${colors.textColor}; opacity: 0.75; font-size: 12px;">`;
+              rows += uiText.misc.firstReviewSamples(point.reviewSample);
+              rows += `</div>`;
             }
-          });
-          html += `</div>`;
-          return html;
-        }
-      },
-      grid: createRetentionChartGrid(isMobile, false),
-      xAxis: {
-        type: 'category',
-        data: data.map(d => d.date),
-          name: uiText.retention.axisX,
-        nameLocation: 'middle',
-        nameGap: 30,
-        axisLine: {
-          show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10],
-          lineStyle: { color: colors.axisLineColor }
-        },
-        axisLabel: {
-          color: colors.textColor,
-          fontSize: 12
-        },
-        nameTextStyle: {
-          color: colors.textColor,
-          fontSize: 13
-        }
-      },
-      yAxis: {
-        type: 'value',
-        name: uiText.retention.axisY,
-        min: 0,
-        max: 100,
-        axisLine: {
-          show: true, symbol: ['none', 'arrow'], symbolSize: [8, 10],
-          lineStyle: { color: colors.axisLineColor }
-        },
-        axisLabel: {
-          color: colors.textColor,
-          formatter: '{value}%',
-          fontSize: 12
-        },
-        nameTextStyle: {
-          color: colors.textColor,
-          fontSize: 13
-        },
-        splitLine: {
-          lineStyle: {
-            color: colors.splitLineColor,
-            type: 'dashed'
           }
-        }
+        });
+
+        return wrapTooltipHtml(params[0].axisValue, rows, true);
       },
       series: [
         {
@@ -671,7 +524,7 @@
         {
           name: uiText.retention.firstReviewPassRate,
           type: 'line',
-          data: data.map(d => d.trueRetention),
+          data: data.map(d => d.actualRetention),
           connectNulls: false,
           smooth: false,
           lineStyle: {
@@ -699,14 +552,15 @@
           symbol: 'none'
         }
       ]
-    };
+    });
 
     retentionChart.setOption(option);
 
     // 点击事件
+    retentionChart.off('click');
     retentionChart.on('click', function(params: any) {
       if (params.seriesName === uiText.retention.firstReviewPassRate && params.value < getTargetRetentionPercent()) {
-        logger.debug(`第 ${params.name} 天的首次复习通过率为 ${params.value.toFixed(1)}%`);
+        logger.debug(`[DeckAnalytics] ${formatRetentionDayTitle(params.name)}的实际保持率为 ${params.value.toFixed(1)}%`);
       }
     });
   }
@@ -1380,29 +1234,13 @@
   
   // 更新记忆率图表数据
   function updateRetentionChart() {
-    if (!retentionChart) return;
-    
-    const data = generateRetentionData(selectedDays);
-    
-    const option = {
-      xAxis: {
-        data: data.map(d => d.date)
-      },
-      series: [
-        {
-          data: data.map(d => d.avgRetrievability)
-        },
-        {
-          data: data.map(d => d.trueRetention)
-        },
-        {
-          data: data.map(d => d.targetRetention)
-        }
-      ]
-    };
-    
+    if (!retentionChartRef) return;
+
+    retentionChart?.dispose();
+    retentionChart = null;
+
     requestAnimationFrame(() => {
-      retentionChart?.setOption(option);
+      initRetentionChart();
     });
   }
   
@@ -2291,7 +2129,7 @@
             <div class="retention-indicator-item">
               <span class="indicator-line indicator-line--actual"></span>
               <span class="indicator-title">{uiText.retention.firstReviewPassRate}</span>
-              <span class="indicator-desc">{retentionSummaryData.trueRetention !== null ? uiText.retention.trueDesc(retentionSummaryData.trueRetention, retentionSummaryData.latestSample) : uiText.retention.trueEmpty}</span>
+              <span class="indicator-desc">{retentionSummaryData.actualRetention !== null ? uiText.retention.trueDesc(retentionSummaryData.actualRetention, retentionSummaryData.sampleCount) : uiText.retention.trueEmpty}</span>
             </div>
             <div class="retention-indicator-item">
               <span class="indicator-line indicator-line--risk"></span>

@@ -89,7 +89,6 @@
   let activeCardType = $state(untrack(() => resolveInitialCardType(mapping)));
   let fieldOrderByCardType = $state(createInitialFieldOrderState());
 
-  let isExportMapping = $derived(localMapping.syncDirection !== 'from_anki');
   let activeCardTypeMapping = $derived(getCardTypeMapping(activeCardType));
   let activeSelectedModel = $derived(getModelByName(activeCardTypeMapping.ankiModelName));
   let activeFieldDefinitions = $derived(getOrderedFieldDefinitions(activeCardType));
@@ -279,70 +278,64 @@
     </div>
   </div>
 
-  {#if !isExportMapping}
-    <div class="status-card">
-      当前映射方向是“从 Anki 导入”，题型字段映射仅在导出到 Anki 时生效。
-    </div>
-  {:else}
-    <div class="status-stack">
-      {#if !isConnected}
-        <div class="status-card warning">
-          还没有完成 Anki 连接测试，建议先测试连接后再读取模板与配置字段。
-        </div>
-      {/if}
+  <div class="status-stack">
+    {#if !isConnected}
+      <div class="status-card warning">
+        还没有完成 Anki 连接测试，建议先测试连接后再读取模板与配置字段。
+      </div>
+    {/if}
 
-      {#if localModels.length === 0}
-        <div class="status-card warning">
-          还没有读取到 Anki 模板。先获取模板，再按题型选择目标模板并建立字段映射。
-        </div>
-      {/if}
+    {#if localModels.length === 0}
+      <div class="status-card warning">
+        还没有读取到 Anki 模板。先获取模板，再按题型选择目标模板并建立字段映射。
+      </div>
+    {/if}
 
-      {#if activeCardTypeMapping.ankiModelName && !activeSelectedModel}
-        <div class="status-card warning">
-          当前选择的模板不在最近一次读取结果中，请刷新模板后重新确认。
-        </div>
-      {/if}
-    </div>
+    {#if activeCardTypeMapping.ankiModelName && !activeSelectedModel}
+      <div class="status-card warning">
+        当前选择的模板不在最近一次读取结果中，请刷新模板后重新确认。
+      </div>
+    {/if}
+  </div>
 
-    <section class="mapping-table-card" aria-label="题型字段映射表">
-      <div class="mapping-table-scroll">
-        <table class="mapping-table">
-          <thead>
-            <tr>
-              <th>Weave 解析字段</th>
-              <th>Anki 字段</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each activeFieldDefinitions as fieldDefinition, index}
-              <tr class:group-start={index === 0}>
-                <td class="field-cell">
-                  <ObsidianDropdown
-                    className="mapping-dropdown weave-field-dropdown"
-                    options={getWeaveFieldOptions(activeCardType)}
-                    value={fieldDefinition.key}
-                    onchange={(value) => reorderWeaveField(activeCardType, index, value)}
-                  />
-                </td>
+  <section class="mapping-table-card" aria-label="题型字段映射表">
+    <div class="mapping-table-scroll">
+      <table class="mapping-table">
+        <thead>
+          <tr>
+            <th>Weave 解析字段</th>
+            <th>Anki 字段</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each activeFieldDefinitions as fieldDefinition, index}
+            <tr class:group-start={index === 0}>
+              <td class="field-cell">
+                <ObsidianDropdown
+                  className="mapping-dropdown weave-field-dropdown"
+                  options={getWeaveFieldOptions(activeCardType)}
+                  value={fieldDefinition.key}
+                  onchange={(value) => reorderWeaveField(activeCardType, index, value)}
+                />
+              </td>
 
-                <td class="anki-field-cell">
-                  <ObsidianDropdown
-                    className="mapping-dropdown"
-                    options={getModelFieldOptions(activeSelectedModel?.name ?? '')}
-                    value={getMappedFieldValue(activeCardType, fieldDefinition.key)}
-                    placeholder={activeSelectedModel ? '自动匹配' : '先选择模板'}
-                    disabled={!activeSelectedModel}
-                    onchange={(value) =>
-                      updateCardTypeFieldMapping(activeCardType, fieldDefinition.key, value)}
-                  />
-                </td>
+              <td class="anki-field-cell">
+                <ObsidianDropdown
+                  className="mapping-dropdown"
+                  options={getModelFieldOptions(activeSelectedModel?.name ?? '')}
+                  value={getMappedFieldValue(activeCardType, fieldDefinition.key)}
+                  placeholder={activeSelectedModel ? '自动匹配' : '先选择模板'}
+                  disabled={!activeSelectedModel}
+                  onchange={(value) =>
+                    updateCardTypeFieldMapping(activeCardType, fieldDefinition.key, value)}
+                />
+              </td>
               </tr>
             {/each}
           </tbody>
         </table>
       </div>
     </section>
-  {/if}
 </div>
 
 <style>

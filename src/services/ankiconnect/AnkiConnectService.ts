@@ -36,7 +36,6 @@ import { AnkiConnectClient } from "./AnkiConnectClient";
 import { AnkiTemplateConverter } from "./AnkiTemplateConverter";
 import { AutoSyncScheduler } from "./AutoSyncScheduler";
 import { CardExporter } from "./CardExporter";
-import { CardImporter } from "./CardImporter";
 import { ConnectionManager } from "./ConnectionManager";
 import { IncrementalSyncTracker } from "./IncrementalSyncTracker";
 import { MediaSyncService } from "./MediaSyncService";
@@ -71,14 +70,13 @@ export class AnkiConnectService {
 	private stateTracker: SyncStateTracker;
 	private mediaService: MediaSyncService;
 
-	// 新增：模板和卡片管理服务
+	// 模板和卡片管理服务
 	private templateConverter: AnkiTemplateConverter;
 	private templateExporter: WeaveTemplateExporter;
-	private cardImporter: CardImporter;
 	private cardExporter: CardExporter;
 	private templateManager: TemplateManager;
 
-	// 🆕 连接管理和自动同步服务
+	// 连接管理和自动同步服务
 	private connectionManager: ConnectionManager;
 	private incrementalTracker: IncrementalSyncTracker;
 	private autoSyncScheduler: AutoSyncScheduler | null = null;
@@ -107,11 +105,10 @@ export class AnkiConnectService {
 		// 初始化新服务
 		this.templateConverter = new AnkiTemplateConverter(plugin);
 		this.templateExporter = new WeaveTemplateExporter(plugin, this.client);
-		this.cardImporter = new CardImporter(plugin, this.client, this.templateConverter);
 		this.cardExporter = new CardExporter(plugin, this.client, this.templateExporter);
 		this.templateManager = new TemplateManager(plugin);
 
-		// 🆕 初始化连接管理和自动同步服务
+		// 初始化连接管理和自动同步服务
 		this.connectionManager = new ConnectionManager(this.client);
 		this.incrementalTracker = new IncrementalSyncTracker(plugin);
 		this.cardExporter = new CardExporter(
@@ -418,85 +415,6 @@ export class AnkiConnectService {
 	}
 
 	/**
-	 * 从 Anki 导入牌组
-	 */
-	async importDeckFromAnki(
-		ankiDeckName: string,
-		targetDeck: Deck,
-		template: ParseTemplate
-	): Promise<SyncLogEntry> {
-		const startTime = Date.now();
-		const logEntry: SyncLogEntry = {
-			id: this.generateLogId(),
-			timestamp: new Date().toISOString(),
-			direction: "from_anki",
-			summary: {
-				totalCards: 0,
-				successCount: 0,
-				failedCount: 0,
-				skippedCount: 0,
-			},
-			duration: 0,
-			errors: [],
-			details: [],
-		};
-
-		try {
-			this.updateProgress(SyncStatus.PREPARING, 0, 0);
-
-			// 查找所有笔记
-			const noteIds = await this.client.findNotesByDeck(ankiDeckName);
-			logEntry.summary.totalCards = noteIds.length;
-
-			this.updateProgress(SyncStatus.SYNCING, 0, noteIds.length);
-
-			// 获取笔记信息（分批处理）
-			const batchSize = 50;
-			for (let i = 0; i < noteIds.length; i += batchSize) {
-				const batch = noteIds.slice(i, i + batchSize);
-				const notesInfo = await this.client.getNotesInfo(batch);
-
-				for (const note of notesInfo) {
-					try {
-						await this.importSingleNote(note, targetDeck, template);
-						logEntry.summary.successCount++;
-					} catch (error: any) {
-						logEntry.summary.failedCount++;
-						logEntry.errors?.push(`笔记 ${note.noteId}: ${error.message}`);
-					}
-				}
-
-				this.updateProgress(
-					SyncStatus.SYNCING,
-					Math.min(i + batchSize, noteIds.length),
-					noteIds.length
-				);
-			}
-
-			this.updateProgress(SyncStatus.COMPLETED, noteIds.length, noteIds.length);
-		} catch (error: any) {
-			this.updateProgress(SyncStatus.FAILED, 0, 0, error.message);
-			logEntry.errors?.push(`导入失败: ${error.message}`);
-		}
-
-		logEntry.duration = Date.now() - startTime;
-		return logEntry;
-	}
-
-	/**
-	 * 导入单条笔记
-	 */
-	private async importSingleNote(
-		note: any,
-		targetDeck: Deck,
-		template: ParseTemplate
-	): Promise<void> {
-		// 这里需要调用卡片创建服务
-		// 由于依赖其他服务，这里先预留接口
-		logger.debug("导入笔记:", note, targetDeck, template);
-	}
-
-	/**
 	 * 更新同步进度
 	 */
 	private updateProgress(
@@ -648,7 +566,7 @@ export class AnkiConnectService {
 			errors.push("Anki 牌组名称不能为空");
 		}
 
-		if (!["to_anki", "from_anki"].includes(mapping.syncDirection)) {
+		if (mapping.syncDirection !== "to_anki") {
 			errors.push("无效的同步方向");
 		}
 
@@ -682,31 +600,7 @@ export class AnkiConnectService {
 		return JSON.stringify(logs, null, 2);
 	}
 
-	// ==================== 新增：模板和卡片导入导出功能 ====================
-
-	/**
-	 * 从 Anki 导入整个牌组（包括模板和卡片）
-	 */
-	async importDeckWithTemplates(
-		ankiDeckName: string,
-		targetWeaveDeckId: string,
-		contentConversion?: "standard" | "preserve_style" | "minimal",
-		onProgress?: (current: number, total: number, status: string) => void
-	): Promise<import("../../types/ankiconnect-types").ImportResult> {
-		try {
-			const result = await this.cardImporter.importDeck(
-				ankiDeckName,
-				targetWeaveDeckId,
-				contentConversion,
-				onProgress
-			);
-
-			return result;
-		} catch (error: any) {
-			logger.error("导入牌组失败:", error);
-			throw new AnkiConnectError(`导入牌组失败: ${error.message}`, ConnectionErrorType.UNKNOWN);
-		}
-	}
+	// ==================== 模板和卡片导出功能 ====================
 
 	/**
 	 * 导出 Weave 牌组到 Anki
@@ -1023,7 +917,7 @@ export class AnkiConnectService {
 		return this.templateManager.getTemplatesBySource(source);
 	}
 
-	// ==================== 🆕 连接管理和自动同步方法 ====================
+	// ==================== 连接管理和自动同步方法 ====================
 
 	/**
 	 * 启动连接监控（心跳检测）
@@ -1282,31 +1176,11 @@ export class AnkiConnectService {
 				}
 
 				try {
-					if (mapping.syncDirection === "from_anki") {
-						const importResult = await this.cardImporter.importDeck(
-							mapping.ankiDeckName,
-							mapping.weaveDeckId
-						);
-
-						result.deckResults.push({
-							deckName: mapping.ankiDeckName,
-							direction: "from_anki",
-						});
-						result.importedCards += importResult.importedCards;
-						result.totalCards += importResult.importedCards + importResult.skippedCards;
-						result.skippedCards += importResult.skippedCards;
-						result.errors.push(
-							...importResult.errors.map((error) => `${mapping.ankiDeckName}: ${error.message}`)
-						);
-					}
-
-					if (mapping.syncDirection === "to_anki") {
-						const exportResult = await this.cardExporter.exportDeckIncremental(
-							mapping.weaveDeckId,
-							mapping.ankiDeckName
-						);
-						this.mergeExportResultIntoIncremental(result, mapping.ankiDeckName, exportResult);
-					}
+					const exportResult = await this.cardExporter.exportDeckIncremental(
+						mapping.weaveDeckId,
+						mapping.ankiDeckName
+					);
+					this.mergeExportResultIntoIncremental(result, mapping.ankiDeckName, exportResult);
 				} catch (error) {
 					result.errors.push(
 						`${mapping.ankiDeckName}: ${error instanceof Error ? error.message : "未知错误"}`
@@ -1314,7 +1188,7 @@ export class AnkiConnectService {
 				}
 			}
 
-			result.changedCards = result.importedCards + result.exportedCards;
+			result.changedCards = result.exportedCards;
 			result.summary.totalCards = result.totalCards;
 			result.summary.exportedCards = result.exportedCards;
 			result.summary.skippedCards = result.skippedCards;

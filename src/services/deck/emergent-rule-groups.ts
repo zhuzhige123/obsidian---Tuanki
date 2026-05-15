@@ -2,6 +2,7 @@ export interface EmergentRuleGroup {
 	id: string;
 	name: string;
 	minCandidateCardCount: number;
+	onlyLearnableDecks: boolean;
 	requiredTags: string[];
 	excludedTags: string[];
 	sourceFolders: string[];
@@ -21,6 +22,7 @@ export const DEFAULT_EMERGENT_RULE_GROUP: EmergentRuleGroup = {
 	id: "default",
 	name: "默认规则组",
 	minCandidateCardCount: 2,
+	onlyLearnableDecks: false,
 	requiredTags: [],
 	excludedTags: [],
 	sourceFolders: [],
@@ -85,6 +87,7 @@ export function normalizeEmergentRuleGroup(
 			Number.isFinite(minCandidateCardCount) && minCandidateCardCount > 0
 				? Math.max(1, Math.floor(minCandidateCardCount))
 				: fallbackMinCount,
+		onlyLearnableDecks: input?.onlyLearnableDecks === true,
 		requiredTags: normalizeStringArray(input?.requiredTags),
 		excludedTags: normalizeStringArray(input?.excludedTags),
 		sourceFolders: normalizeStringArray(input?.sourceFolders),
@@ -149,5 +152,6 @@ export function countEmergentRuleConditions(group: EmergentRuleGroup): number {
 	if (group.priorityMin !== null || group.priorityMax !== null) count += 1;
 	if (group.createdAfter || group.createdBefore) count += 1;
 	if (group.minCandidateCardCount !== DEFAULT_EMERGENT_RULE_GROUP.minCandidateCardCount) count += 1;
+	if (group.onlyLearnableDecks) count += 1;
 	return count;
 }

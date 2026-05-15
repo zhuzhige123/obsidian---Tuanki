@@ -2,11 +2,15 @@ import { type App, TAbstractFile, TFile, normalizePath } from "obsidian";
 import { getV2PathsFromApp } from "../../config/paths";
 import { logger } from "../../utils/logger";
 import { IREpubBookmarkTaskService } from "../incremental-reading/IREpubBookmarkTaskService";
+import { EpubBookmarkService } from "./EpubBookmarkService";
 import { EpubLinkService } from "./EpubLinkService";
 import { EpubStorageService } from "./EpubStorageService";
+import { isSupportedBookFile, isSupportedBookPath, SUPPORTED_BOOK_EXTENSIONS } from "./book-format";
+import { EPUB_RUNTIME } from "./epub-runtime";
 
 export interface EpubPathSyncResult {
 	updatedMarkdownFiles: number;
+	updatedBookmarkFiles: number;
 	updatedCanvasFiles: number;
 	updatedCardFiles: number;
 	updatedCanvasBindings: number;
@@ -17,6 +21,7 @@ export interface EpubPathSyncResult {
 
 const EMPTY_RESULT: EpubPathSyncResult = {
 	updatedMarkdownFiles: 0,
+	updatedBookmarkFiles: 0,
 	updatedCanvasFiles: 0,
 	updatedCardFiles: 0,
 	updatedCanvasBindings: 0,
@@ -25,13 +30,29 @@ const EMPTY_RESULT: EpubPathSyncResult = {
 	updatedLinks: 0,
 };
 
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const EPUB_PROTOCOL_LINK_PATTERN = new RegExp(
+	`obsidian://(?:${EPUB_RUNTIME.protocol.allNames.map(escapeRegExp).join("|")})\\?[^\\s"'<>]*`,
+	"gi"
+);
+const SUPPORTED_BOOK_WIKILINK_PATH_PATTERN = `(?:[^\]\n]+?(?:\\.fb2\\.zip|\\.(?:${SUPPORTED_BOOK_EXTENSIONS.map(escapeRegExp).join("|")})))`;
+const SUPPORTED_BOOK_WIKILINK_PATTERN = new RegExp(
+	`\\[\\[(${SUPPORTED_BOOK_WIKILINK_PATH_PATTERN})(#[^\\]\n|]*)?(\\|[^\\]\n]*)?\\]\\]`,
+	"gi"
+);
+
 export class EpubPathSyncService {
 	private app: App;
+	private bookmarkService: EpubBookmarkService;
 	private storageService: EpubStorageService;
 	private irEpubTaskService: IREpubBookmarkTaskService;
 
 	constructor(app: App) {
 		this.app = app;
+		this.bookmarkService = new EpubBookmarkService(app);
 		this.storageService = new EpubStorageService(app);
 		this.irEpubTaskService = new IREpubBookmarkTaskService(app);
 	}
@@ -46,7 +67,7 @@ export class EpubPathSyncService {
 
 		const affectsEpubLinks =
 			file instanceof TFile
-				? file.extension === "epub"
+				? isSupportedBookFile(file)
 				: this.containsTrackedEpubDescendant(normalizedOldPath);
 
 		const result: EpubPathSyncResult = { ...EMPTY_RESULT };
@@ -74,6 +95,10 @@ export class EpubPathSyncService {
 			normalizedOldPath,
 			newPath
 		);
+		result.updatedBookmarkFiles = await this.bookmarkService.updateBookFileReferences(
+			normalizedOldPath,
+			newPath
+		);
 		result.updatedTasks = await this.irEpubTaskService.updateEpubFileReferences(
 			normalizedOldPath,
 			newPath
@@ -86,7 +111,7 @@ export class EpubPathSyncService {
 		const prefix = `${folderPath}/`;
 		return this.app.vault
 			.getFiles()
-			.some((file) => file.extension === "epub" && normalizePath(file.path).startsWith(prefix));
+			.some((file) => isSupportedBookFile(file) && normalizePath(file.path).startsWith(prefix));
 	}
 
 	private async updateVaultTextFiles(
@@ -171,7 +196,7 @@ export function rewriteEpubReferences(
 	let nextContent = content;
 
 	nextContent = nextContent.replace(
-		/\[\[([^\]\n]+?\.epub)(#[^\]\n|]*)?(\|[^\]\n]*)?\]\]/gi,
+		SUPPORTED_BOOK_WIKILINK_PATTERN,
 		(fullMatch, filePath: string, hash = "", alias = "") => {
 			const remapped = remapEpubPath(filePath, oldPath, newPath);
 			if (!remapped || remapped === filePath) {
@@ -184,7 +209,7 @@ export function rewriteEpubReferences(
 		}
 	);
 
-	nextContent = nextContent.replace(/obsidian:\/\/weave-epub\?[^\s"'<>]*/gi, (fullMatch) => {
+	nextContent = nextContent.replace(EPUB_PROTOCOL_LINK_PATTERN, (fullMatch) => {
 		const rewritten = rewriteProtocolLink(fullMatch, oldPath, newPath);
 		if (rewritten === fullMatch) {
 			return fullMatch;
@@ -278,7 +303,12 @@ function remapEpubPath(filePath: string, oldPath: string, newPath: string): stri
 	const normalizedOldPath = normalizePath(oldPath || "");
 	const normalizedNewPath = normalizePath(newPath || "");
 
-	if (!normalizedFilePath || !normalizedOldPath || !normalizedNewPath) {
+	if (
+		!normalizedFilePath ||
+		!normalizedOldPath ||
+		!normalizedNewPath ||
+		!isSupportedBookPath(normalizedFilePath)
+	) {
 		return null;
 	}
 

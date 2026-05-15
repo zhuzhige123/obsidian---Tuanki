@@ -8,6 +8,7 @@
 
 import initSqlJs, { type Database as SqlDatabase } from "sql.js";
 import { APKGLogger } from "../../../infrastructure/logger/APKGLogger";
+import { throwIfImportAborted, yieldImportTask } from "../ImportTaskControl";
 import type { APKGFormat, APKGMetadata, AnkiDeck, AnkiModel, AnkiNote } from "../types";
 
 /**
@@ -48,11 +49,37 @@ type NoteRow = [number, number, string, string, number | null, string | null, st
 export class SQLiteReader {
 	private logger: APKGLogger;
 	private wasmUrl: string;
+	private readonly sqlInitTimeoutMs: number;
 
-	constructor(wasmUrl?: string) {
+	constructor(wasmUrl?: string, sqlInitTimeoutMs = 15000) {
 		this.logger = new APKGLogger({ prefix: "[SQLiteReader]" });
-		// 默认WASM路径
-		this.wasmUrl = wasmUrl || "https://sql.js.org/dist/sql-wasm.wasm";
+		this.wasmUrl = String(wasmUrl || "sql-wasm.wasm");
+		this.sqlInitTimeoutMs = sqlInitTimeoutMs;
+	}
+
+	private async initializeSqlJs(): Promise<Awaited<ReturnType<typeof initSqlJs>>> {
+		let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+		try {
+			return await Promise.race([
+				initSqlJs({
+					locateFile: (file) => (file.endsWith(".wasm") ? this.wasmUrl : file),
+				}),
+				new Promise<never>((_, reject) => {
+					timeoutHandle = setTimeout(() => {
+						reject(
+							new Error(
+								`加载 SQLite 解析器超时（>${this.sqlInitTimeoutMs}ms），资源路径: ${this.wasmUrl}`
+							)
+						);
+					}, this.sqlInitTimeoutMs);
+				}),
+			]);
+		} finally {
+			if (timeoutHandle !== null) {
+				clearTimeout(timeoutHandle);
+			}
+		}
 	}
 
 	/**
@@ -60,26 +87,61 @@ export class SQLiteReader {
 	 *
 	 * @param dbData - 数据库二进制数据
 	 * @param format - APKG格式信息
+	 * @param options - 读取选项
 	 * @returns 读取结果
 	 */
-	async read(dbData: Uint8Array, format: APKGFormat): Promise<SQLiteReadResult> {
+	async read(
+		dbData: Uint8Array,
+		format: APKGFormat,
+		options?: {
+			signal?: AbortSignal;
+			onProgress?: (progress: {
+				progress: number;
+				message: string;
+				totalItems?: number;
+				completedItems?: number;
+			}) => void;
+		}
+	): Promise<SQLiteReadResult> {
 		this.logger.info(`开始读取SQLite数据库 (格式: ${format.version})`);
 
 		try {
-			// 初始化sql.js
-			const SQL = await initSqlJs({ locateFile: () => this.wasmUrl });
+			throwIfImportAborted(options?.signal);
+			options?.onProgress?.({ progress: 10, message: "正在初始化 SQLite 解析器..." });
+			const SQL = await this.initializeSqlJs();
+			throwIfImportAborted(options?.signal);
+			options?.onProgress?.({ progress: 20, message: "正在打开 SQLite 数据库..." });
 			const db: SqlDatabase = new SQL.Database(dbData);
 
 			try {
-				// 读取各类数据
+				options?.onProgress?.({ progress: 35, message: "正在读取模型信息..." });
 				const models = this.readModels(db);
+				await yieldImportTask(options?.signal);
+				options?.onProgress?.({ progress: 45, message: "正在读取牌组信息..." });
 				const decks = this.readDecks(db);
-				const notes = this.readNotes(db);
+				await yieldImportTask(options?.signal);
+				const noteCount = this.readNoteCount(db);
+				options?.onProgress?.({
+					progress: 55,
+					message: "正在读取笔记数据...",
+					totalItems: noteCount,
+					completedItems: 0,
+				});
+				const notes = await this.readNotes(db, options);
+				await yieldImportTask(options?.signal);
+				options?.onProgress?.({ progress: 95, message: "正在整理数据库元信息..." });
 				const metadata = this.readMetadata(db, notes.length);
 
 				this.logger.info(
 					`数据读取完成: ${models.length} 个模型, ${decks.length} 个牌组, ${notes.length} 个笔记`
 				);
+
+				options?.onProgress?.({
+					progress: 100,
+					message: `数据库读取完成: ${notes.length} 个笔记`,
+					totalItems: notes.length,
+					completedItems: notes.length,
+				});
 
 				return { models, decks, notes, metadata };
 			} finally {
@@ -146,27 +208,63 @@ export class SQLiteReader {
 	}
 
 	/**
-	 * 读取笔记数据
+	 * 读取笔记数量
 	 */
-	private readNotes(db: SqlDatabase): AnkiNote[] {
-		const results = db.exec("SELECT id, mid, flds, tags, mod, guid, sfld FROM notes");
-		if (!results.length) {
-			this.logger.warn("未找到笔记数据");
-			return [];
+	private readNoteCount(db: SqlDatabase): number {
+		const results = db.exec("SELECT COUNT(*) FROM notes");
+		if (!results.length || !results[0].values.length) {
+			return 0;
 		}
 
-		const notes: AnkiNote[] = results[0].values.map((_row) => {
-			const [id, mid, flds, tags, mod, guid, sfld] = _row as NoteRow;
-			return {
-				id,
-				mid,
-				flds,
-				tags,
-				mod: mod ?? undefined,
-				guid: guid ?? undefined,
-				sfld: sfld ?? undefined,
-			};
-		});
+		return Number(results[0].values[0][0] || 0);
+	}
+
+	/**
+	 * 读取笔记数据
+	 */
+	private async readNotes(db: SqlDatabase, options?: {
+		signal?: AbortSignal;
+		onProgress?: (progress: {
+			progress: number;
+			message: string;
+			totalItems?: number;
+			completedItems?: number;
+		}) => void;
+	}): Promise<AnkiNote[]> {
+		const notes: AnkiNote[] = [];
+		const totalNotes = this.readNoteCount(db);
+		const statement = db.prepare("SELECT id, mid, flds, tags, mod, guid, sfld FROM notes");
+
+		try {
+			while (statement.step()) {
+				throwIfImportAborted(options?.signal);
+				const [id, mid, flds, tags, mod, guid, sfld] = statement.get() as NoteRow;
+				notes.push({
+					id,
+					mid,
+					flds,
+					tags,
+					mod: mod ?? undefined,
+					guid: guid ?? undefined,
+					sfld: sfld ?? undefined,
+				});
+
+				if (
+					notes.length % 100 === 0 &&
+					notes.length < totalNotes
+				) {
+					options?.onProgress?.({
+						progress: 55 + (Math.min(notes.length, totalNotes) / Math.max(1, totalNotes)) * 35,
+						message: "正在读取笔记数据...",
+						totalItems: totalNotes,
+						completedItems: notes.length,
+					});
+					await yieldImportTask(options?.signal);
+				}
+			}
+		} finally {
+			statement.free();
+		}
 
 		this.logger.debug(`读取到 ${notes.length} 个笔记`);
 		return notes;

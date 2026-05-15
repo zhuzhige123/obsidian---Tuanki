@@ -2,19 +2,12 @@
   import { onMount } from 'svelte';
   import WavingDots from '../celebration/WavingDots.svelte';
   import { tr } from '../../utils/i18n';
-  
-  interface DeckStats {
-    totalCards: number;
-    learnedCards: number;
-    nextDueTime?: string;
-    todayNewCards?: number;
-    todayNewLimit?: number;
-  }
+  import { buildNoCardsStatRows, resolveNoCardsStatsTitle, type NoCardsModalStats, type NoCardsModalStatsText } from './no-cards-modal-stats';
   
   interface Props {
     deckName: string;
     reason: 'empty' | 'all-learned' | 'no-due';
-    stats?: DeckStats;
+    stats?: NoCardsModalStats;
     onClose: () => void;
     onAdvanceStudy?: () => void;
     onViewStats?: () => void;
@@ -32,6 +25,26 @@
   }: Props = $props();
   
   let t = $derived($tr);
+
+  const statsText = $derived<NoCardsModalStatsText>({
+    title: t('study.noCardsModal.stats.title'),
+    sessionSummaryTitle: t('study.noCardsModal.stats.sessionSummaryTitle'),
+    deckStatusTitle: t('study.noCardsModal.stats.deckStatusTitle'),
+    totalCards: t('study.noCardsModal.stats.totalCards'),
+    sessionCompleted: t('study.noCardsModal.stats.sessionCompleted'),
+    nextDue: t('study.noCardsModal.stats.nextDue'),
+    todayNew: t('study.noCardsModal.stats.todayNew'),
+    completed: t('study.noCardsModal.stats.completed'),
+    unit: t('study.noCardsModal.stats.unit')
+  });
+
+  const statsTitle = $derived(() => {
+    return resolveNoCardsStatsTitle(reason, statsText);
+  });
+
+  const statsRows = $derived(() => {
+    return buildNoCardsStatRows(reason, stats, statsText);
+  });
   
   // 动画状态
   let showContent = $state(false);
@@ -41,26 +54,26 @@
     switch (reason) {
       case 'empty':
         return {
-          title: t('noCardsModal.empty.title'),
-          message: t('noCardsModal.empty.message'),
+          title: t('study.noCardsModal.empty.title'),
+          message: t('study.noCardsModal.empty.message'),
           svgPath: 'M3 3h18v18H3V3zm2 2v14h14V5H5zm4 4h6v2H9V9zm0 4h6v2H9v-2z'
         };
       case 'all-learned':
         return {
-          title: t('noCardsModal.allLearned.title'),
-          message: t('noCardsModal.allLearned.message', { deckName }),
+          title: t('study.noCardsModal.allLearned.title'),
+          message: t('study.noCardsModal.allLearned.message', { deckName }),
           svgPath: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z'
         };
       case 'no-due':
         return {
-          title: t('noCardsModal.noDue.title'),
-          message: stats ? t('noCardsModal.noDue.messageWithCount', { count: String(stats.totalCards) }) : t('noCardsModal.noDue.messageDefault'),
+          title: t('study.noCardsModal.noDue.title'),
+          message: stats ? t('study.noCardsModal.noDue.messageWithCount', { count: String(stats.totalCards) }) : t('study.noCardsModal.noDue.messageDefault'),
           svgPath: 'M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z'
         };
       default:
         return {
-          title: t('noCardsModal.default.title'),
-          message: t('noCardsModal.default.message'),
+          title: t('study.noCardsModal.default.title'),
+          message: t('study.noCardsModal.default.message'),
           svgPath: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z'
         };
     }
@@ -96,7 +109,7 @@
   onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { if (typeof onClose === 'function') onClose(); } }}
   role="button"
   tabindex="0"
-  aria-label={t('noCardsModal.closeAriaLabel')}
+  aria-label={t('study.noCardsModal.closeAriaLabel')}
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -124,37 +137,16 @@
     {#if stats && reason !== 'empty'}
     <div class="stats-card">
       <div class="stats-header">
-        <span class="stats-title">{t('noCardsModal.stats.title')}</span>
+        <span class="stats-title">{statsTitle()}</span>
       </div>
       
       <div class="stats-list">
-        <!-- 总卡片数 -->
+        {#each statsRows() as row}
         <div class="stat-row">
-          <span class="stat-label">{t('noCardsModal.stats.totalCards')}</span>
-          <span class="stat-value">{stats.totalCards}{t('noCardsModal.stats.unit') ? ' ' + t('noCardsModal.stats.unit') : ''}</span>
+          <span class="stat-label">{row.label}</span>
+          <span class="stat-value">{row.value}</span>
         </div>
-        
-        <!-- 已学完卡片 -->
-        <div class="stat-row">
-          <span class="stat-label">{t('noCardsModal.stats.learned')}</span>
-          <span class="stat-value">{stats.learnedCards}{t('noCardsModal.stats.unit') ? ' ' + t('noCardsModal.stats.unit') : ''}</span>
-        </div>
-        
-        <!-- 最近到期时间 -->
-        {#if stats.nextDueTime}
-        <div class="stat-row">
-          <span class="stat-label">{t('noCardsModal.stats.nextDue')}</span>
-          <span class="stat-value">{stats.nextDueTime}</span>
-        </div>
-        {/if}
-        
-        <!-- 今日新卡完成情况 -->
-        {#if stats.todayNewCards !== undefined && stats.todayNewLimit}
-        <div class="stat-row">
-          <span class="stat-label">{t('noCardsModal.stats.todayNew')}</span>
-          <span class="stat-value">{stats.todayNewCards}/{stats.todayNewLimit} {t('noCardsModal.stats.completed')}</span>
-        </div>
-        {/if}
+        {/each}
       </div>
     </div>
     {/if}
@@ -168,7 +160,7 @@
           <path d="M9 11l3 3L22 4"/>
           <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
         </svg>
-        <span>{t('noCardsModal.buttons.startExam')}</span>
+        <span>{t('study.noCardsModal.buttons.startExam')}</span>
       </button>
       {/if}
       
@@ -177,7 +169,7 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
         </svg>
-        <span>{t('noCardsModal.buttons.advanceStudy')}</span>
+        <span>{t('study.noCardsModal.buttons.advanceStudy')}</span>
       </button>
       {/if}
       
@@ -187,7 +179,7 @@
           <path d="M3 3v18h18"/>
           <path d="M18 17V9M13 17V5M8 17v-3"/>
         </svg>
-        <span>{t('noCardsModal.buttons.viewStats')}</span>
+        <span>{t('study.noCardsModal.buttons.viewStats')}</span>
       </button>
       {/if}
     </div>

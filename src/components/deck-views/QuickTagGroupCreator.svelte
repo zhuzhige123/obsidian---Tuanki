@@ -106,7 +106,7 @@
       id: editingTagGroup?.id || `tag-group-${Date.now()}`, // 编辑模式保留原 ID
       name: name.trim(),
       tags: normalizedTags,
-      icon: editingTagGroup?.icon || '📦', // 保留原图标
+      icon: editingTagGroup?.icon,
       color: editingTagGroup?.color || '#3b82f6' // 保留原颜色
     };
 

@@ -12,8 +12,7 @@ function createConfig(): GenerationConfig {
     provider: 'openai',
     model: 'gpt-test',
     temperature: 0.3,
-    maxTokens: 2000,
-    autoTags: ['auto-tag']
+    maxTokens: 2000
   };
 }
 

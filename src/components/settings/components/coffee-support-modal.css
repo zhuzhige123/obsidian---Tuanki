@@ -1,0 +1,58 @@
+.weave-coffee-support-modal {
+  --modal-width: 420px;
+}
+
+.weave-coffee-support-modal .modal {
+  width: var(--modal-width);
+  max-width: min(92vw, 420px);
+}
+
+.weave-coffee-support-modal .modal-content {
+  padding: 1.5rem;
+}
+
+.weave-coffee-support-modal__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+.weave-coffee-support-modal__loading,
+.weave-coffee-support-modal__error {
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.weave-coffee-support-modal__image {
+  display: block;
+  width: min(100%, 320px);
+  height: auto;
+  border-radius: 0.75rem;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.weave-coffee-support-modal__image.is-hidden {
+  display: none;
+}
+
+.weave-coffee-support-modal__caption {
+  margin: 0;
+  color: var(--text-normal);
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.weave-coffee-support-modal__path {
+  display: block;
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  word-break: break-all;
+  white-space: pre-wrap;
+  text-align: left;
+}

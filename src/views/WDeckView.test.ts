@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("obsidian", async () => {
-	const actual = await vi.importActual<typeof import("../tests/mocks/obsidian")>(
-		"../tests/mocks/obsidian"
-	);
-
+vi.mock("obsidian", () => {
 	const createMockContentEl = () => {
 		const el = document.createElement("div") as HTMLDivElement & {
 			empty: () => void;
@@ -51,12 +47,70 @@ vi.mock("obsidian", async () => {
 	}
 
 	return {
-		...actual,
 		ItemView,
+		Notice: class {},
+		Platform: { isMobile: false },
+		WorkspaceLeaf: class {},
 	};
 });
 
 import { WDeckView } from "./WDeckView";
+
+type WorkspaceEventRef = {
+	name: string;
+	callback: (value: unknown) => void;
+};
+
+type MockWorkspace = {
+	layoutReady: boolean;
+	activeLeaf: unknown;
+	getActiveLeaf: () => unknown;
+	on: (name: string, callback: (value: unknown) => void) => WorkspaceEventRef;
+	offref: (ref: WorkspaceEventRef) => void;
+	onLayoutReady: (callback: () => void) => void;
+	emit: (name: string, value: unknown) => void;
+	markLayoutReady: () => void;
+	setActiveLeaf: (nextLeaf: unknown) => void;
+};
+
+function createMockWorkspace(leaf: unknown, options?: { layoutReady?: boolean; activeLeaf?: unknown }) {
+	const listeners = new Map<string, Set<(value: unknown) => void>>();
+	const layoutReadyCallbacks: Array<() => void> = [];
+	const workspace: MockWorkspace = {
+		layoutReady: options?.layoutReady ?? true,
+		activeLeaf: options?.activeLeaf ?? leaf,
+		getActiveLeaf: () => workspace.activeLeaf,
+		on: (name: string, callback: (value: unknown) => void) => {
+			const current = listeners.get(name) ?? new Set();
+			current.add(callback);
+			listeners.set(name, current);
+			return { name, callback };
+		},
+		offref: (ref: WorkspaceEventRef) => {
+			listeners.get(ref.name)?.delete(ref.callback);
+		},
+		onLayoutReady: (callback: () => void) => {
+			layoutReadyCallbacks.push(callback);
+		},
+		emit(name: string, value: unknown) {
+			for (const callback of listeners.get(name) ?? []) {
+				callback(value);
+			}
+		},
+		markLayoutReady() {
+			workspace.layoutReady = true;
+			for (const callback of layoutReadyCallbacks) {
+				callback();
+			}
+		},
+		setActiveLeaf(nextLeaf: unknown) {
+			workspace.activeLeaf = nextLeaf;
+			workspace.emit("active-leaf-change", nextLeaf);
+		},
+	};
+
+	return workspace;
+}
 
 describe("WDeckView", () => {
 	afterEach(() => {
@@ -73,7 +127,8 @@ describe("WDeckView", () => {
 					// keep pending to simulate the leaf view transition waiting on Obsidian internals
 				})
 		);
-		const plugin = { openWDeckStudy } as any;
+		const workspace = createMockWorkspace(leaf);
+		const plugin = { app: { workspace }, openWDeckStudy } as any;
 		const view = new WDeckView(leaf as any, plugin);
 
 		await view.setState({ filePath: "vault/study/demo_01.wdeck" }, {} as any);
@@ -82,6 +137,36 @@ describe("WDeckView", () => {
 		await expect(onOpenPromise).resolves.toBeUndefined();
 		expect(openWDeckStudy).not.toHaveBeenCalled();
 
+		await vi.runOnlyPendingTimersAsync();
+
+		expect(openWDeckStudy).toHaveBeenCalledTimes(1);
+		expect(openWDeckStudy).toHaveBeenCalledWith("vault/study/demo_01.wdeck", leaf);
+	});
+
+	it("defers the startup redirect until workspace restore finishes and the tab becomes active", async () => {
+		vi.useFakeTimers();
+
+		const leaf = {};
+		const hiddenLeaf = {};
+		const openWDeckStudy = vi.fn(() => Promise.resolve());
+		const workspace = createMockWorkspace(leaf, {
+			layoutReady: false,
+			activeLeaf: hiddenLeaf,
+		});
+		const plugin = { app: { workspace }, openWDeckStudy } as any;
+		const view = new WDeckView(leaf as any, plugin);
+
+		await view.setState({ filePath: "vault/study/demo_01.wdeck" }, {} as any);
+		await expect(view.onOpen()).resolves.toBeUndefined();
+
+		await vi.runOnlyPendingTimersAsync();
+		expect(openWDeckStudy).not.toHaveBeenCalled();
+
+		workspace.markLayoutReady();
+		await vi.runOnlyPendingTimersAsync();
+		expect(openWDeckStudy).not.toHaveBeenCalled();
+
+		workspace.setActiveLeaf(leaf);
 		await vi.runOnlyPendingTimersAsync();
 
 		expect(openWDeckStudy).toHaveBeenCalledTimes(1);

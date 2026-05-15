@@ -1,7 +1,11 @@
-// Anki Plugin Icons - 基于 FontAwesome 图标库
-// 这个模块提供插件中使用的所有图标，统一使用 FontAwesome SVG 字符串
+// Anki Plugin Icons - 兼容层
+// 保留历史常量与别名，底层统一解析为 Obsidian 原生图标名称
 
-import { type FontAwesomeIconName, getFontAwesomeIcon, hasFontAwesomeIcon } from "./fontawesome.js";
+import {
+	isKnownIconAlias,
+	isKnownObsidianIconName,
+	resolveObsidianIconName,
+} from "./obsidian-icon-resolver";
 
 // FontAwesome 图标名称映射 - 必须在getIcon函数之前定义！
 const ICON_MAPPING: Record<string, string> = {
@@ -215,77 +219,13 @@ const ICON_MAPPING: Record<string, string> = {
 	unlink: "link", // 取消链接 - 使用链接图标
 	"alert-octagon": "warning", // 警告八角 - 使用警告图标
 	"file-minus": "file", // 文件减 - 使用文件图标
-};
-
-// === 自定义SVG图标 ===
-// 用于那些FontAwesome不包含的特殊图标
-const CUSTOM_ICONS: Record<string, string> = {
-	// AI拆分图标 - 一张卡片分裂成多张
-	split: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <!-- 主卡片 -->
-    <rect x="4" y="3" width="16" height="7" rx="1.5"/>
-    <!-- 连接线 -->
-    <path d="M12 10 L12 13"/>
-    <!-- 分叉线 -->
-    <path d="M12 13 L7 16"/>
-    <path d="M12 13 L12 16"/>
-    <path d="M12 13 L17 16"/>
-    <!-- 三张子卡片 -->
-    <rect x="2" y="16" width="5" height="5" rx="1"/>
-    <rect x="9.5" y="16" width="5" height="5" rx="1"/>
-    <rect x="17" y="16" width="5" height="5" rx="1"/>
-  </svg>`,
-
-	// 可以继续添加其他自定义图标...
+	split: "git-branch", // 拆分 - 使用分支图标
 };
 
 // 用于插件系统的图标获取函数
 export function getIcon(name: string): string {
-	// 首先检查自定义图标
-	if (CUSTOM_ICONS[name]) {
-		return CUSTOM_ICONS[name];
-	}
-
-	// 然后尝试直接匹配 FontAwesome 图标
-	if (hasFontAwesomeIcon(name)) {
-		return getFontAwesomeIcon(name as FontAwesomeIconName);
-	}
-
-	// 最后尝试映射表
-	const mappedName = ICON_MAPPING[name];
-	if (mappedName && hasFontAwesomeIcon(mappedName)) {
-		return getFontAwesomeIcon(mappedName as FontAwesomeIconName);
-	}
-
-	// 默认返回信息图标
-	return getFontAwesomeIcon("info");
-}
-
-// 创建SVG元素的工具函数
-export function createSvgElement(iconName: string, size = "16"): HTMLElement {
-	const wrapper = document.createElement("span");
-	const parser = new DOMParser();
-	const doc = parser.parseFromString(getIcon(iconName), "image/svg+xml");
-	const svg = doc.querySelector("svg");
-
-	if (svg) {
-		wrapper.appendChild(document.importNode(svg, true));
-		const wrapperSvg = wrapper.querySelector("svg");
-		if (!wrapperSvg) {
-			return wrapper;
-		}
-		wrapperSvg.setAttribute("width", size);
-		wrapperSvg.setAttribute("height", size);
-		wrapperSvg.classList.add("weave-icon-inline");
-		return wrapper;
-	}
-
-	const fallbackSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-	fallbackSvg.setAttribute("width", size);
-	fallbackSvg.setAttribute("height", size);
-	fallbackSvg.classList.add("weave-icon-inline");
-	wrapper.appendChild(fallbackSvg);
-	return wrapper;
+	const mappedName = ICON_MAPPING[name] ?? name;
+	return resolveObsidianIconName(mappedName);
 }
 
 // 获取所有可用的图标名称
@@ -295,19 +235,15 @@ export function getAvailableIcons(): string[] {
 
 // 检查图标是否存在
 export function hasIcon(name: string): boolean {
-	// 检查自定义图标
-	if (CUSTOM_ICONS[name]) {
-		return true;
+	if (!name || !name.trim()) {
+		return false;
 	}
-
-	// 检查是否为直接的 FontAwesome 图标
-	if (hasFontAwesomeIcon(name)) {
-		return true;
-	}
-
-	// 检查映射表
-	const mappedName = ICON_MAPPING[name];
-	return mappedName ? hasFontAwesomeIcon(mappedName) : false;
+	const normalized = name.trim();
+	return (
+		Boolean(ICON_MAPPING[normalized]) ||
+		isKnownIconAlias(normalized) ||
+		isKnownObsidianIconName(normalized)
+	);
 }
 
 // 导出图标名称类型 - 支持所有 Obsidian 原生图标名称和语义化别名

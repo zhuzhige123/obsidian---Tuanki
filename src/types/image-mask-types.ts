@@ -15,12 +15,20 @@ import type { Editor, TFile } from "obsidian";
 /**
  * 遮罩数据容器
  */
+export interface MaskTarget {
+	imagePath?: string;
+	imageLink?: string;
+	imageOccurrence?: number;
+}
+
 export interface MaskData {
 	/** 数据格式版本 */
 	version: "1.0";
 
 	/** 遮罩数组 */
 	masks: Mask[];
+
+	target?: MaskTarget;
 }
 
 /**
@@ -134,7 +142,7 @@ export interface MaskRenderOptions {
 	/** 是否启用动画 */
 	enableAnimation?: boolean;
 
-	/** 🆕 是否启用交互模式（点击单个遮罩切换显示） */
+	/** 是否启用交互模式（点击单个遮罩切换显示） */
 	interactive?: boolean;
 }
 

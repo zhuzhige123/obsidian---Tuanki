@@ -1,6 +1,5 @@
 import { TFile } from 'obsidian';
-import { IREpubBookmarkTaskService } from '../IREpubBookmarkTaskService';
-import { IRPdfBookmarkTaskService } from '../IRPdfBookmarkTaskService';
+import { IRPointWriteService } from '../IRPointWriteService';
 import { IRStorageService } from '../IRStorageService';
 
 describe('IRStorageService.deleteChunkData', () => {
@@ -74,10 +73,11 @@ describe('IRStorageService.deleteChunkData', () => {
     const writeFile = vi.spyOn(service as any, 'writeFile').mockResolvedValue(undefined);
     const saveDeck = vi.spyOn(service as any, 'saveDeck').mockResolvedValue(undefined);
     const deleteFileSyncState = vi.spyOn(service as any, 'deleteFileSyncState').mockResolvedValue(undefined);
+    vi.spyOn(service as any, 'deleteChunkPointFromNewStorage').mockResolvedValue(undefined);
 
     await service.deleteChunkData('chunk-1');
 
-    expect(writeFile).toHaveBeenCalledTimes(2);
+    expect(writeFile).not.toHaveBeenCalled();
     expect(saveDeck).toHaveBeenCalledWith(expect.objectContaining({
       blockIds: [],
       sourceFiles: []
@@ -152,6 +152,7 @@ describe('IRStorageService.deleteChunkData', () => {
     const saveDeck = vi.spyOn(service as any, 'saveDeck').mockResolvedValue(undefined);
     const deleteFileSyncState = vi.spyOn(service as any, 'deleteFileSyncState').mockResolvedValue(undefined);
     vi.spyOn(service as any, 'writeFile').mockResolvedValue(undefined);
+    vi.spyOn(service as any, 'deleteChunkPointFromNewStorage').mockResolvedValue(undefined);
 
     await service.deleteChunkData('chunk-external');
 
@@ -169,155 +170,263 @@ describe('IRStorageService.deleteChunkData', () => {
   });
 });
 
-describe('IRStorageService.getDeckStats', () => {
-  it('会将 EPUB 书签任务计入专题统计与文件数', async () => {
+describe('IRStorageService.deleteDeck', () => {
+  it('删除专题时应保留 Markdown 源文档，仅清理增量阅读 frontmatter 并追加已删除标签', async () => {
+    const frontmatter: Record<string, unknown> = {
+      'weave-reading-id': 'rm-deck-1',
+      'weave-reading-category': 'later',
+      'weave-reading-priority': 40,
+      'weave-reading-ir-deck-id': 'deck-1',
+      status: 'active',
+      topic_tag: '#IR_deck_测试专题',
+      chunk_id: 'chunk-1',
+      source_id: 'source-1',
+      weave_type: 'ir-chunk',
+      tags: ['原标签']
+    };
+
+    const sourceFile = Object.assign(Object.create(TFile.prototype), {
+      path: 'notes/topic-source.md'
+    }) as TFile;
+
+    const trashFile = vi.fn(async () => {});
+    const remove = vi.fn(async () => {});
     const app = {
       vault: {
-        getAbstractFileByPath: vi.fn(() => null)
+        getAbstractFileByPath: vi.fn((filePath: string) => filePath === 'notes/topic-source.md' ? sourceFile : null),
+        adapter: {
+          remove,
+          exists: vi.fn(async () => false)
+        }
       },
-      metadataCache: {
-        getFileCache: vi.fn(() => null)
+      fileManager: {
+        trashFile,
+        processFrontMatter: vi.fn(async (_file: TFile, updater: (fm: Record<string, unknown>) => void) => {
+          updater(frontmatter);
+        })
       }
     };
 
     const service = new IRStorageService(app as any);
-
-    vi.spyOn(service as any, 'getBlocksByDeck').mockResolvedValue([]);
-    vi.spyOn(service as any, 'getDeckById').mockResolvedValue({
-      id: 'deck-1',
-      name: '测试专题'
+    vi.spyOn(service as any, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(service as any, 'getAllDecks').mockResolvedValue({
+      'deck-1': {
+        id: 'deck-1',
+        path: 'topics/deck-1',
+        name: '测试专题',
+        sourceFiles: ['notes/topic-source.md']
+      }
     });
+    vi.spyOn(service as any, 'getAllBlocks').mockResolvedValue({});
     vi.spyOn(service as any, 'getAllChunkData').mockResolvedValue({});
-    vi.spyOn(service as any, 'countQuestionsInFiles').mockResolvedValue({
-      total: 0,
-      completed: 0
+    vi.spyOn(service as any, 'getAllSources').mockResolvedValue({});
+    vi.spyOn(service as any, 'getStudySessions').mockResolvedValue([]);
+    vi.spyOn(service as any, 'getAllSyncStates').mockResolvedValue({});
+    vi.spyOn(service as any, 'saveSyncStates').mockResolvedValue(undefined);
+
+    const deletePointDeck = vi.fn(async () => ({ removed: true, topicName: '测试专题', pointIds: [], sourceFiles: [] }));
+    vi.spyOn(service as any, 'getPointStorageService').mockReturnValue({
+      deletePointDeck,
+      deletePointByLegacyId: vi.fn(async () => undefined)
     });
 
-    vi.spyOn(IRPdfBookmarkTaskService.prototype, 'initialize').mockResolvedValue(undefined);
-    vi.spyOn(IRPdfBookmarkTaskService.prototype, 'getTasksByDeck').mockResolvedValue([]);
-    vi.spyOn(IRPdfBookmarkTaskService.prototype, 'getAllTasks').mockResolvedValue([]);
-    vi.spyOn(IREpubBookmarkTaskService.prototype, 'initialize').mockResolvedValue(undefined);
-    vi.spyOn(IREpubBookmarkTaskService.prototype, 'getTasksByDeck').mockResolvedValue([
-      {
-        id: 'epubbm-new',
-        deckId: 'deck-1',
-        epubFilePath: 'books/demo.epub',
-        status: 'new',
-        nextRepDate: 0
-      },
-      {
-        id: 'epubbm-scheduled',
-        deckId: 'deck-1',
-        epubFilePath: 'books/demo.epub',
-        status: 'scheduled',
-        nextRepDate: Date.now() + 2 * 24 * 60 * 60 * 1000
-      }
-    ] as any);
-    vi.spyOn(IREpubBookmarkTaskService.prototype, 'getAllTasks').mockResolvedValue([
-      {
-        id: 'epubbm-new',
-        deckId: 'deck-1',
-        epubFilePath: 'books/demo.epub',
-        status: 'new',
-        nextRepDate: 0
-      },
-      {
-        id: 'epubbm-scheduled',
-        deckId: 'deck-1',
-        epubFilePath: 'books/demo.epub',
-        status: 'scheduled',
-        nextRepDate: Date.now() + 2 * 24 * 60 * 60 * 1000
-      }
-    ] as any);
+    vi.spyOn(IRPointWriteService.prototype, 'deletePointsByDeckIdentifiers').mockResolvedValue(0);
+    vi.spyOn(IRPointWriteService.prototype, 'deletePdfPointsByPaths').mockResolvedValue(0);
+    vi.spyOn(IRPointWriteService.prototype, 'deleteEpubPointsByPaths').mockResolvedValue(0);
 
-    const stats = await service.getDeckStats('deck-1', 20, 50, 3);
+    await service.deleteDeck('deck-1');
 
-    expect(stats.totalCount).toBe(2);
-    expect(stats.newCount).toBe(1);
-    expect(stats.reviewCount).toBe(1);
-    expect(stats.dueToday).toBe(1);
-    expect(stats.dueWithinDays).toBe(2);
-    expect(stats.fileCount).toBe(1);
+    expect(deletePointDeck).toHaveBeenCalledWith('deck-1');
+    expect(trashFile).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+    expect(frontmatter['weave-reading-id']).toBeUndefined();
+    expect(frontmatter['weave-reading-category']).toBeUndefined();
+    expect(frontmatter['weave-reading-priority']).toBeUndefined();
+    expect(frontmatter['weave-reading-ir-deck-id']).toBeUndefined();
+    expect(frontmatter.status).toBeUndefined();
+    expect(frontmatter.topic_tag).toBeUndefined();
+    expect(frontmatter.chunk_id).toBeUndefined();
+    expect(frontmatter.source_id).toBeUndefined();
+    expect(frontmatter.weave_type).toBeUndefined();
+    expect(frontmatter.tags).toEqual(['原标签', 'we_已删除']);
   });
 
-  it('传入 deckId 时也会兼容统计挂在旧 deckPath 上的书签任务', async () => {
+  it('删除专题时即使只剩外部文档字段也应清理并追加已删除标签', async () => {
+    const frontmatter: Record<string, unknown> = {
+      status: 'removed',
+      priority_ui: 5,
+      topic_tag: '#IR_deck_测试专题',
+      deck_names: ['测试专题'],
+      chunk_id: 'chunk-2',
+      source_id: 'source-2',
+      weave_type: 'ir-chunk',
+      tags: ['旧标签']
+    };
+
+    const sourceFile = Object.assign(Object.create(TFile.prototype), {
+      path: 'notes/topic-external.md'
+    }) as TFile;
+
     const app = {
       vault: {
-        getAbstractFileByPath: vi.fn(() => null)
+        getAbstractFileByPath: vi.fn((filePath: string) => filePath === 'notes/topic-external.md' ? sourceFile : null),
+        adapter: {
+          remove: vi.fn(async () => {}),
+          exists: vi.fn(async () => false)
+        }
       },
-      metadataCache: {
-        getFileCache: vi.fn(() => null)
+      fileManager: {
+        trashFile: vi.fn(async () => {}),
+        processFrontMatter: vi.fn(async (_file: TFile, updater: (fm: Record<string, unknown>) => void) => {
+          updater(frontmatter);
+        })
       }
     };
 
     const service = new IRStorageService(app as any);
+    vi.spyOn(service as any, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(service as any, 'getAllDecks').mockResolvedValue({
+      'deck-1': {
+        id: 'deck-1',
+        path: 'topics/deck-1',
+        name: '测试专题',
+        sourceFiles: ['notes/topic-external.md']
+      }
+    });
+    vi.spyOn(service as any, 'getAllBlocks').mockResolvedValue({});
+    vi.spyOn(service as any, 'getAllChunkData').mockResolvedValue({});
+    vi.spyOn(service as any, 'getAllSources').mockResolvedValue({});
+    vi.spyOn(service as any, 'getStudySessions').mockResolvedValue([]);
+    vi.spyOn(service as any, 'getAllSyncStates').mockResolvedValue({});
+    vi.spyOn(service as any, 'saveSyncStates').mockResolvedValue(undefined);
+    vi.spyOn(service as any, 'getPointStorageService').mockReturnValue({
+      deletePointDeck: vi.fn(async () => ({ removed: true, topicName: '测试专题', pointIds: [], sourceFiles: [] })),
+      deletePointByLegacyId: vi.fn(async () => undefined)
+    });
 
-    vi.spyOn(service as any, 'getBlocksByDeck').mockResolvedValue([]);
-    vi.spyOn(service as any, 'getDeckById').mockResolvedValue({
-      id: 'deck-1',
-      path: 'topics/demo',
-      name: '测试专题'
+    vi.spyOn(IRPointWriteService.prototype, 'deletePointsByDeckIdentifiers').mockResolvedValue(0);
+    vi.spyOn(IRPointWriteService.prototype, 'deletePdfPointsByPaths').mockResolvedValue(0);
+    vi.spyOn(IRPointWriteService.prototype, 'deleteEpubPointsByPaths').mockResolvedValue(0);
+
+    await service.deleteDeck('deck-1');
+
+    expect(frontmatter.status).toBeUndefined();
+    expect(frontmatter.priority_ui).toBeUndefined();
+    expect(frontmatter.topic_tag).toBeUndefined();
+    expect(frontmatter.deck_names).toBeUndefined();
+    expect(frontmatter.chunk_id).toBeUndefined();
+    expect(frontmatter.source_id).toBeUndefined();
+    expect(frontmatter.weave_type).toBeUndefined();
+    expect(frontmatter.tags).toEqual(['旧标签', 'we_已删除']);
+  });
+});
+
+describe('IRStorageService deprecated chunk/source write guards', () => {
+  it('cleanupDeckChunksAndSources 不会再写回弃用的 chunks/sources 文件', async () => {
+    const service = new IRStorageService({} as any);
+
+    vi.spyOn(service as any, 'getAllChunkData').mockResolvedValue({
+      'chunk-1': {
+        chunkId: 'chunk-1',
+        sourceId: 'source-1',
+        filePath: 'notes/source.md',
+        deckIds: ['deck-1'],
+        deckTag: '#TopicOne',
+        priorityEff: 5,
+        intervalDays: 1,
+        nextRepDate: 0,
+        scheduleStatus: 'queued'
+      }
+    });
+    vi.spyOn(service as any, 'getAllSources').mockResolvedValue({
+      'source-1': {
+        sourceId: 'source-1',
+        originalPath: 'notes/source.md',
+        rawFilePath: '',
+        indexFilePath: 'weave/incremental-reading/index/source-1.md',
+        chunkIds: ['chunk-1'],
+        title: 'source',
+        tagGroup: 'default',
+        createdAt: 0,
+        updatedAt: 0
+      }
+    });
+    const writeFile = vi.spyOn(service as any, 'writeFile').mockResolvedValue(undefined);
+    const deleteChunkPoint = vi
+      .spyOn(service as any, 'deleteChunkPointFromNewStorage')
+      .mockResolvedValue(undefined);
+
+    await (service as any).cleanupDeckChunksAndSources('deck-1', '#TopicOne');
+
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(deleteChunkPoint).toHaveBeenCalledWith('chunk-1');
+  });
+
+  it('cleanupInvalidChunks 不会再写回弃用的 chunks.json', async () => {
+    const app = {
+      vault: {
+        adapter: {
+          exists: vi.fn(async () => false)
+        }
+      }
+    };
+    const service = new IRStorageService(app as any);
+
+    vi.spyOn(service as any, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(service as any, 'getAllChunkData').mockResolvedValue({
+      'chunk-1': {
+        chunkId: 'chunk-1',
+        sourceId: 'source-1',
+        filePath: 'notes/missing.md',
+        priorityEff: 5,
+        intervalDays: 1,
+        nextRepDate: 0,
+        scheduleStatus: 'new'
+      }
+    });
+    const writeFile = vi.spyOn(service as any, 'writeFile').mockResolvedValue(undefined);
+    const deleteChunkPoint = vi
+      .spyOn(service as any, 'deleteChunkPointFromNewStorage')
+      .mockResolvedValue(undefined);
+
+    const result = await service.cleanupInvalidChunks();
+
+    expect(result.removed).toBe(1);
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(deleteChunkPoint).toHaveBeenCalledWith('chunk-1');
+  });
+
+  it('cleanupInvalidSources 不会再写回弃用的 sources.json', async () => {
+    const app = {
+      vault: {
+        adapter: {
+          exists: vi.fn(async () => false)
+        }
+      }
+    };
+    const service = new IRStorageService(app as any);
+
+    vi.spyOn(service as any, 'initialize').mockResolvedValue(undefined);
+    vi.spyOn(service as any, 'getAllSources').mockResolvedValue({
+      'source-1': {
+        sourceId: 'source-1',
+        originalPath: 'notes/source.md',
+        rawFilePath: '',
+        indexFilePath: 'weave/incremental-reading/index/source-1.md',
+        chunkIds: ['chunk-1'],
+        title: 'source',
+        tagGroup: 'default',
+        createdAt: 0,
+        updatedAt: 0
+      }
     });
     vi.spyOn(service as any, 'getAllChunkData').mockResolvedValue({});
-    vi.spyOn(service as any, 'countQuestionsInFiles').mockResolvedValue({
-      total: 0,
-      completed: 0
-    });
+    const writeFile = vi.spyOn(service as any, 'writeFile').mockResolvedValue(undefined);
 
-    vi.spyOn(IRPdfBookmarkTaskService.prototype, 'initialize').mockResolvedValue(undefined);
-    vi.spyOn(IRPdfBookmarkTaskService.prototype, 'getTasksByDeck').mockImplementation(async (deckId: string) => {
-      if (deckId !== 'topics/demo') return [];
-      return [
-        {
-          id: 'pdfbm-1',
-          deckId: 'topics/demo',
-          pdfPath: 'pdfs/demo.pdf',
-          status: 'new',
-          nextRepDate: 0
-        }
-      ] as any;
-    });
-    vi.spyOn(IRPdfBookmarkTaskService.prototype, 'getAllTasks').mockResolvedValue([
-      {
-        id: 'pdfbm-1',
-        deckId: 'topics/demo',
-        pdfPath: 'pdfs/demo.pdf',
-        status: 'new',
-        nextRepDate: 0
-      }
-    ] as any);
+    const result = await service.cleanupInvalidSources();
 
-    vi.spyOn(IREpubBookmarkTaskService.prototype, 'initialize').mockResolvedValue(undefined);
-    vi.spyOn(IREpubBookmarkTaskService.prototype, 'getTasksByDeck').mockImplementation(async (deckId: string) => {
-      if (deckId !== 'topics/demo') return [];
-      return [
-        {
-          id: 'epubbm-legacy-path',
-          deckId: 'topics/demo',
-          epubFilePath: 'books/demo.epub',
-          status: 'scheduled',
-          nextRepDate: Date.now() + 24 * 60 * 60 * 1000
-        }
-      ] as any;
-    });
-    vi.spyOn(IREpubBookmarkTaskService.prototype, 'getAllTasks').mockResolvedValue([
-      {
-        id: 'epubbm-legacy-path',
-        deckId: 'topics/demo',
-        epubFilePath: 'books/demo.epub',
-        status: 'scheduled',
-        nextRepDate: Date.now() + 24 * 60 * 60 * 1000
-      }
-    ] as any);
-
-    const stats = await service.getDeckStats('deck-1', 20, 50, 3);
-
-    expect(stats.totalCount).toBe(2);
-    expect(stats.newCount).toBe(1);
-    expect(stats.reviewCount).toBe(1);
-    expect(stats.dueToday).toBe(1);
-    expect(stats.dueWithinDays).toBe(2);
-    expect(stats.fileCount).toBe(2);
+    expect(result.removed).toBe(1);
+    expect(writeFile).not.toHaveBeenCalled();
   });
 });
 

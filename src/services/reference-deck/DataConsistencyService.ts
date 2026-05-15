@@ -39,26 +39,13 @@ export class DataConsistencyService {
 			const cardUUIDSet = new Set(allCards.map((card) => card.uuid).filter(Boolean));
 
 			const orphanCards: string[] = [];
-			const inconsistentBackReferences: DataConsistencyCheckResult["inconsistentBackReferences"] =
-				[];
 			const invalidReferences: DataConsistencyCheckResult["invalidReferences"] = [];
 
 			for (const card of allCards) {
 				const expectedRefs = this.getExpectedDeckIds(card, decks);
-				const actualRefs = Array.from(
-					new Set((card.referencedByDecks || []).filter(Boolean))
-				).sort();
 
 				if (expectedRefs.length === 0) {
 					orphanCards.push(card.uuid);
-				}
-
-				if (!this.sameStringArray(expectedRefs, actualRefs)) {
-					inconsistentBackReferences.push({
-						cardUUID: card.uuid,
-						expected: expectedRefs,
-						actual: actualRefs,
-					});
 				}
 			}
 
@@ -83,13 +70,13 @@ export class DataConsistencyService {
 			}
 
 			const result: DataConsistencyCheckResult = {
-				isConsistent: invalidReferences.length === 0 && inconsistentBackReferences.length === 0,
+				isConsistent: invalidReferences.length === 0,
 				checkedAt: Date.now(),
 				totalCards: allCards.length,
 				totalDecks: decks.length,
 				orphanCards,
 				invalidReferences,
-				inconsistentBackReferences,
+				inconsistentBackReferences: [],
 			};
 
 			logger.info(`[DataConsistency] 检查完成 (${Date.now() - startTime}ms)`, {
@@ -98,7 +85,7 @@ export class DataConsistencyService {
 				totalDecks: result.totalDecks,
 				orphanCards: orphanCards.length,
 				invalidDeckRefs: invalidReferences.length,
-				inconsistentBackReferences: inconsistentBackReferences.length,
+				inconsistentBackReferences: 0,
 			});
 
 			return result;
@@ -139,42 +126,18 @@ export class DataConsistencyService {
 				await this.plugin.dataStorage.saveDeck(deck);
 			}
 
-			const changedCards: Card[] = [];
-			const updatedCards = allCards.map((_card) => {
-				const expectedRefs = this.getExpectedDeckIds(_card, decks);
-				const currentRefs = Array.from(
-					new Set((_card.referencedByDecks || []).filter(Boolean))
-				).sort();
-
-				if (this.sameStringArray(expectedRefs, currentRefs)) {
-					return _card;
-				}
-
-				const updatedCard: Card = {
-					..._card,
-					referencedByDecks: expectedRefs,
-					modified: new Date().toISOString(),
-				};
-				changedCards.push(updatedCard);
-				return updatedCard;
-			});
-
-			if (changedCards.length > 0) {
-				await this.plugin.dataStorage.saveCardsBatch(changedCards);
-			}
-
 			if (this.plugin.deckMembershipIndexService) {
-				await this.plugin.deckMembershipIndexService.rebuildFromCards(updatedCards, decks);
+				await this.plugin.deckMembershipIndexService.rebuildFromCards(allCards, decks);
 			}
 
 			logger.info("[DataConsistency] 修复完成", {
-				repairedCards: changedCards.length,
+				repairedCards: 0,
 				cleanedInvalidRefs,
 			});
 
 			return {
 				success: true,
-				repairedCards: changedCards.length,
+				repairedCards: 0,
 				cleanedInvalidRefs,
 			};
 		} catch (error) {

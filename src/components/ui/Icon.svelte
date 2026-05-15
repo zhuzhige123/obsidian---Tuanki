@@ -1,11 +1,13 @@
 <!--
   通用图标组件
-  基于 FontAwesome 图标系统
+  基于 Obsidian 原生图标系统
 -->
 <script lang="ts">
-  import { logger } from '../../utils/logger';
+  import { onMount } from 'svelte';
+  import { setIcon } from 'obsidian';
+  import { resolveObsidianIconName } from '../../icons/obsidian-icon-resolver';
 
-  import { getIcon, hasIcon, type IconName } from '../../icons/index.js';
+  type IconName = string;
 
   interface Props {
     name: IconName;
@@ -27,13 +29,43 @@
     ariaHidden = false
   }: Props = $props();
 
-  // 计算图标 SVG 内容
-  let iconSvg = $derived.by(() => {
-    if (!name || !hasIcon(name)) {
-      logger.warn(`[Icon] 图标 "${name}" 不存在，使用默认图标`);
-      return getIcon('info');
+  let iconElement: HTMLSpanElement;
+
+  const pixelSize = $derived.by(() => {
+    if (typeof size === 'number' && Number.isFinite(size)) {
+      return size;
     }
-    return getIcon(name);
+    if (typeof size === 'string') {
+      const parsed = Number.parseInt(size, 10);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return 16;
+  });
+
+  function renderIcon() {
+    if (!iconElement) {
+      return;
+    }
+    setIcon(iconElement, resolveObsidianIconName(name));
+    const svg = iconElement.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('width', String(pixelSize));
+      svg.setAttribute('height', String(pixelSize));
+      svg.style.width = `${pixelSize}px`;
+      svg.style.height = `${pixelSize}px`;
+    }
+  }
+
+  onMount(() => {
+    renderIcon();
+  });
+
+  $effect(() => {
+    name;
+    pixelSize;
+    renderIcon();
   });
 
   // 计算尺寸
@@ -75,7 +107,7 @@
 
   // 计算 CSS 类
   let iconClasses = $derived.by(() => {
-    let classes = ['weave-icon'];
+    let classes = ['weave-inline-icon'];
     if (className) {
       classes.push(className);
     }
@@ -103,99 +135,102 @@
 </script>
 
 <span
+  bind:this={iconElement}
   class={iconClasses}
   style={iconStyle}
   role={ariaHidden ? 'presentation' : 'img'}
   {...accessibilityProps}
->
-  <!-- /skip {@html} renders trusted internal SVG icon strings -->{@html iconSvg}
-</span>
+></span>
 
 <style>
-  .weave-icon {
+  .weave-inline-icon {
     /* 确保图标正确显示 */
     line-height: 1;
     user-select: none;
     pointer-events: none;
   }
 
-  .weave-icon :global(svg) {
+  .weave-inline-icon :global(svg) {
     width: 100%;
     height: 100%;
-    fill: currentColor;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
     display: block;
   }
 
   /* 响应式尺寸 */
-  .weave-icon.small {
+  .weave-inline-icon.small {
     width: 12px;
     height: 12px;
   }
 
-  .weave-icon.medium {
+  .weave-inline-icon.medium {
     width: 16px;
     height: 16px;
   }
 
-  .weave-icon.large {
+  .weave-inline-icon.large {
     width: 20px;
     height: 20px;
   }
 
-  .weave-icon.xl {
+  .weave-inline-icon.xl {
     width: 24px;
     height: 24px;
   }
 
 
   /* 状态颜色 */
-  .weave-icon.success {
+  .weave-inline-icon.success {
     color: var(--color-green);
   }
 
-  .weave-icon.warning {
+  .weave-inline-icon.warning {
     color: var(--color-orange);
   }
 
-  .weave-icon.error {
+  .weave-inline-icon.error {
     color: var(--color-red);
   }
 
-  .weave-icon.info {
+  .weave-inline-icon.info {
     color: var(--color-blue);
   }
 
-  .weave-icon.muted {
+  .weave-inline-icon.muted {
     color: var(--text-muted);
   }
 
   /* 交互状态 */
-  .weave-icon.interactive {
+  .weave-inline-icon.interactive {
     cursor: pointer;
     pointer-events: auto;
     transition: color 0.2s ease, opacity 0.2s ease;
   }
 
-  .weave-icon.interactive:hover {
+  .weave-inline-icon.interactive:hover {
     opacity: 0.8;
   }
 
-  .weave-icon.interactive:active {
+  .weave-inline-icon.interactive:active {
     opacity: 0.6;
   }
 
   /* 禁用状态 */
-  .weave-icon.disabled {
+  .weave-inline-icon.disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
 
   /* 动画效果 */
-  .weave-icon.spin :global(svg) {
+  .weave-inline-icon.spin :global(svg) {
     animation: spin 1s linear infinite;
   }
 
-  .weave-icon.pulse :global(svg) {
+  .weave-inline-icon.pulse :global(svg) {
     animation: pulse 2s ease-in-out infinite;
   }
 

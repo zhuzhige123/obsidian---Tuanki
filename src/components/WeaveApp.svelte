@@ -8,14 +8,24 @@
   import SettingsPage from "./settings/SettingsPanel.svelte";
   import AIAssistantPage from "./pages/AIAssistantPage.svelte";
   import SidebarNavHeader from "./navigation/SidebarNavHeader.svelte";
+  import WeaveInspirationModal from "./navigation/WeaveInspirationModal.svelte";
   import ResponsiveContainer from "./ui/ResponsiveContainer.svelte";
+  import GlobalOperationProgressBar from "./ui/GlobalOperationProgressBar.svelte";
+  import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from "../services/premium/PremiumFeatureGuard";
   import { getViewSurfaceTokens, isInSidebar as isLeafInSidebar } from "../utils/view-location-utils";
 
-  import { Platform } from 'obsidian';
+  import { Notice, Platform } from 'obsidian';
   import type { WorkspaceLeaf } from 'obsidian';
   import { logger } from "../utils/logger";
-  import { addThemeClasses, createThemeListener } from "../utils/theme-detection";
+  import { addThemeClasses, UnifiedThemeManager } from "../utils/theme-detection";
   import AutoRulesConfigModal from "./modals/AutoRulesConfigModal.svelte";
+  import { weaveMainInterfaceStore } from "../stores/weave-main-interface-store";
+  import type {
+    WeaveGlobalOperationProgressState,
+    WeaveNavigationVisibilityState,
+  } from "../stores/weave-main-interface-store";
+
+  const deckStudyFeatureContext: PremiumFeatureAccessContext = { page: 'deck-study' };
 
   interface Props {
     plugin: WeavePlugin;
@@ -33,14 +43,21 @@
 
 
   let { plugin, dataStorage, fsrs, currentLeaf }: Props = $props();
-  let activePage = $state<string>("deck-study");
+  let activePage = $state<string>(weaveMainInterfaceStore.getState().currentPage);
 
   function normalizeDeckStudyView(view: string | null | undefined): 'grid' | 'kanban' {
     return view === 'kanban' ? 'kanban' : 'grid';
   }
 
   function getInitialDeckStudyView(): 'grid' | 'kanban' {
-    return normalizeDeckStudyView(plugin.getCachedDeckViewPreference());
+    const initialView = normalizeDeckStudyView(plugin.getCachedDeckViewPreference());
+    if (
+      initialView === 'kanban'
+      && !PremiumFeatureGuard.getInstance().canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, deckStudyFeatureContext)
+    ) {
+      return 'grid';
+    }
+    return initialView;
   }
 
   // 移动端检测状态
@@ -50,26 +67,85 @@
   let isInSidebarMode = $state(false);
   
   // 侧边栏导航状态（用于与子页面同步）
-  let sidebarDeckFilter = $state<'memory' | 'incremental-reading' | 'question-bank'>('memory');
+  let sidebarDeckFilter = $state<'memory' | 'question-bank'>('memory');
   let sidebarCardView = $state<'table' | 'grid' | 'kanban'>('table');
   let sidebarDeckStudyView = $state<'grid' | 'kanban'>(getInitialDeckStudyView());
   // 卡片管理页面的数据源状态
   let cardDataSource = $state<'memory' | 'questionBank' | 'incremental-reading'>('memory');
+  let globalOperationProgress = $state<WeaveGlobalOperationProgressState>(
+    weaveMainInterfaceStore.getState().globalOperationProgress
+  );
 
   let appElement: HTMLElement;
   let themeClassCleanup: (() => void) | null = null;
   let themeSurfaceCleanup: (() => void) | null = null;
   let mobileViewportCleanup: (() => void) | null = null;
   let nativeTooltipCleanup: (() => void) | null = null;
+  let visibilityCorrectionFrameId = 0;
+  let lastVisibilityCorrectionSignature = '';
 
   function createNavigationVisibilitySnapshot() {
-    return {
-      deckStudy: true,
-      cardManagement: true,
-      incrementalReading: true,
-      aiAssistant: true,
-      ...(plugin.settings.navigationVisibility ?? {})
+    weaveMainInterfaceStore.setNavigationVisibility(plugin.settings.navigationVisibility);
+    return weaveMainInterfaceStore.getState().navigationVisibility;
+  }
+
+  function getNavigationVisibilitySignature(visibility: WeaveNavigationVisibilityState) {
+    return JSON.stringify(visibility);
+  }
+
+  function getFirstVisiblePage(visibility: WeaveNavigationVisibilityState): string | null {
+    const pageVisibilityMap: Record<string, boolean> = {
+      'deck-study': visibility.deckStudy !== false,
+      'weave-card-management': visibility.cardManagement !== false,
+      'ai-assistant': visibility.aiAssistant !== false,
     };
+
+    return Object.keys(pageVisibilityMap).find(page => pageVisibilityMap[page]) ?? null;
+  }
+
+  function scheduleCurrentPageVisibilityCorrection(currentPage: string, visibility: WeaveNavigationVisibilityState) {
+    const pageVisibilityMap: Record<string, boolean> = {
+      'deck-study': visibility.deckStudy !== false,
+      'weave-card-management': visibility.cardManagement !== false,
+      'ai-assistant': visibility.aiAssistant !== false,
+    };
+
+    if (pageVisibilityMap[currentPage] !== false) {
+      lastVisibilityCorrectionSignature = '';
+      if (visibilityCorrectionFrameId) {
+        window.cancelAnimationFrame(visibilityCorrectionFrameId);
+        visibilityCorrectionFrameId = 0;
+      }
+      return;
+    }
+
+    const firstVisiblePage = getFirstVisiblePage(visibility);
+    if (!firstVisiblePage || firstVisiblePage === currentPage) {
+      return;
+    }
+
+    const visibilitySignature = getNavigationVisibilitySignature(visibility);
+    const correctionSignature = `${currentPage}->${firstVisiblePage}:${visibilitySignature}`;
+    if (lastVisibilityCorrectionSignature === correctionSignature) {
+      return;
+    }
+
+    lastVisibilityCorrectionSignature = correctionSignature;
+    if (visibilityCorrectionFrameId) {
+      window.cancelAnimationFrame(visibilityCorrectionFrameId);
+    }
+
+    visibilityCorrectionFrameId = window.requestAnimationFrame(() => {
+      visibilityCorrectionFrameId = 0;
+      const latestState = weaveMainInterfaceStore.getState();
+      const latestVisibilitySignature = getNavigationVisibilitySignature(latestState.navigationVisibility);
+      if (latestState.currentPage !== currentPage || latestVisibilitySignature !== visibilitySignature) {
+        return;
+      }
+
+      weaveMainInterfaceStore.setCurrentPage(firstVisiblePage);
+      logger.info(`[WeaveApp] 当前页面已隐藏，自动切换到: ${firstVisiblePage}`);
+    });
   }
   
   // 导航可见性本地响应式状态
@@ -77,6 +153,55 @@
 
   // 插件配置模态窗状态
   let showPluginConfigModal = $state<string | null>(null);
+  let showInspirationPopover = $state(false);
+  let inspirationPopoverAnchor = $state<HTMLElement | null>(null);
+
+  function closeInspirationPopover() {
+    showInspirationPopover = false;
+    inspirationPopoverAnchor = null;
+  }
+
+  function toggleInspirationPopover(anchor: HTMLElement | null) {
+    if (showInspirationPopover && inspirationPopoverAnchor === anchor) {
+      closeInspirationPopover();
+      return;
+    }
+
+    inspirationPopoverAnchor = anchor;
+    showInspirationPopover = true;
+  }
+
+  function navigateToPage(pageId: string): boolean {
+    if (typeof pageId !== 'string' || pageId.length === 0) {
+      return false;
+    }
+
+    const progressState = weaveMainInterfaceStore.getState().globalOperationProgress;
+    if (
+      progressState.active
+      && !progressState.allowNavigation
+      && pageId !== weaveMainInterfaceStore.getState().currentPage
+    ) {
+      new Notice(progressState.navigationMessage || '当前任务处理中，请暂时不要切换页面。');
+      return false;
+    }
+
+    weaveMainInterfaceStore.setCurrentPage(pageId);
+    return true;
+  }
+
+  function requestNavigation(pageId: string) {
+    if (typeof pageId !== 'string' || pageId.length === 0) {
+      return;
+    }
+
+    const didNavigate = navigateToPage(pageId);
+    if (!didNavigate) {
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent('Weave:navigate', { detail: pageId }));
+  }
 
   function detectSidebarMode() {
     if (!currentLeaf || !appElement) {
@@ -153,37 +278,42 @@
     // 检测移动端设备
     isMobileDevice = Platform.isMobile || document.body.classList.contains('is-mobile');
     logger.debug('[WeaveApp] 移动端检测结果:', isMobileDevice);
-    
-    const handleNavigate = (e: CustomEvent<string>) => {
-      activePage = e.detail;
-    };
 
-    // 监听导航可见性更新事件
-    const handleNavigationVisibilityUpdate = (e: CustomEvent<any>) => {
-      navigationVisibility = { ...e.detail };
-      logger.debug('[WeaveApp] 导航可见性已更新:', navigationVisibility);
-      
-      // 如果当前页面被隐藏，自动切换到第一个可见页面
-      const pageVisibilityMap: Record<string, boolean> = {
-        'deck-study': navigationVisibility.deckStudy !== false,
-        'weave-card-management': navigationVisibility.cardManagement !== false,
-        'incremental-reading': navigationVisibility.incrementalReading !== false,
-        'ai-assistant': navigationVisibility.aiAssistant !== false,
-      };
-      
-      // 如果当前页面被隐藏，切换到第一个可见页面
-      if (pageVisibilityMap[activePage] === false) {
-        const firstVisiblePage = Object.keys(pageVisibilityMap).find(page => pageVisibilityMap[page]);
-        if (firstVisiblePage) {
-          activePage = firstVisiblePage;
-          logger.info(`[WeaveApp] 当前页面已隐藏，自动切换到: ${firstVisiblePage}`);
-        }
+    weaveMainInterfaceStore.setNavigationVisibility(plugin.settings.navigationVisibility);
+
+    const unsubscribeMainInterfaceStore = weaveMainInterfaceStore.subscribe((state) => {
+      if (activePage !== state.currentPage) {
+        activePage = state.currentPage;
       }
+
+      const nextVisibility = state.navigationVisibility;
+      if (getNavigationVisibilitySignature(navigationVisibility) !== getNavigationVisibilitySignature(nextVisibility)) {
+        navigationVisibility = nextVisibility;
+        logger.debug('[WeaveApp] 导航可见性已同步:', navigationVisibility);
+      }
+
+      globalOperationProgress = state.globalOperationProgress;
+
+      scheduleCurrentPageVisibilityCorrection(state.currentPage, nextVisibility);
+    });
+    
+    const handleNavigate = (e: CustomEvent<string | { page?: string }>) => {
+      const nextPage = typeof e.detail === 'string' ? e.detail : e.detail?.page;
+      if (typeof nextPage !== 'string') {
+        return;
+      }
+
+      navigateToPage(nextPage);
     };
 
     window.addEventListener("Weave:navigate", handleNavigate as EventListener);
-    window.addEventListener("Weave:navigation-visibility-update", handleNavigationVisibilityUpdate as EventListener);
-    
+
+    // 监听打开来源说明模态窗事件
+    const handleOpenInspirationModal = () => {
+      toggleInspirationPopover(null);
+    };
+    window.addEventListener("Weave:open-inspiration-modal", handleOpenInspirationModal);
+
     // 监听插件配置打开事件
     const handleOpenPluginConfig = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -195,7 +325,7 @@
     
     // 监听子页面状态变化（用于侧边栏导航同步）
     const handleDeckFilterChange = (e: CustomEvent<string>) => {
-      sidebarDeckFilter = e.detail as 'memory' | 'question-bank' | 'incremental-reading';
+      sidebarDeckFilter = e.detail as 'memory' | 'question-bank';
       logger.debug('[WeaveApp] 牌组筛选变化:', sidebarDeckFilter);
     };
     const handleCardViewChange = (e: CustomEvent<string>) => {
@@ -216,7 +346,8 @@
     // 应用主题类到应用容器
     if (appElement) {
       themeClassCleanup = addThemeClasses(appElement);
-      themeSurfaceCleanup = createThemeListener(() => {
+      const themeManager = UnifiedThemeManager.getInstance();
+      themeSurfaceCleanup = themeManager.addListener(() => {
         detectSidebarMode();
       });
       logger.debug('[WeaveApp] 主题类已应用到应用容器');
@@ -269,10 +400,14 @@
     });
 
     return () => {
+      if (visibilityCorrectionFrameId) {
+        window.cancelAnimationFrame(visibilityCorrectionFrameId);
+        visibilityCorrectionFrameId = 0;
+      }
+      unsubscribeMainInterfaceStore();
       window.removeEventListener("Weave:navigate", handleNavigate as EventListener);
-      window.removeEventListener("Weave:navigation-visibility-update", handleNavigationVisibilityUpdate as EventListener);
+      window.removeEventListener("Weave:open-inspiration-modal", handleOpenInspirationModal);
       window.removeEventListener("Weave:deck-filter-change", handleDeckFilterChange as EventListener);
-      window.removeEventListener("Weave:card-view-change", handleCardViewChange as EventListener);
       window.removeEventListener("Weave:deck-view-change", handleDeckViewChange as EventListener);
       document.removeEventListener('Weave:open-plugin-config', handleOpenPluginConfig);
       plugin.app.workspace.offref(layoutChangeRef);
@@ -297,7 +432,9 @@
   });
 
   $effect(() => {
-    window.dispatchEvent(new CustomEvent('Weave:page-changed', { detail: activePage }));
+    if (isMobileDevice && showInspirationPopover) {
+      closeInspirationPopover();
+    }
   });
 
 </script>
@@ -323,6 +460,8 @@
             cardDataSource={cardDataSource}
             app={plugin.app}
             {isInSidebarMode}
+            inspirationPopoverOpen={showInspirationPopover}
+            onOpenInspirationModal={toggleInspirationPopover}
             onFilterSelect={(filter) => {
               sidebarDeckFilter = filter;
               window.dispatchEvent(new CustomEvent('Weave:sidebar-filter-select', { detail: filter }));
@@ -336,11 +475,13 @@
               window.dispatchEvent(new CustomEvent('Weave:card-data-source-change', { detail: source }));
             }}
             onNavigate={(pageId) => {
-              activePage = pageId;
+              requestNavigation(pageId);
             }}
           />
         </div>
       {/if}
+
+      <GlobalOperationProgressBar progress={globalOperationProgress} />
       
       <main
         class="weave-main-content"
@@ -351,24 +492,24 @@
           <DeckStudyPage {dataStorage} {plugin} />
         {:else if activePage === "weave-card-management"}
           <WeaveCardManagementPage {dataStorage} {fsrs} {plugin} {currentLeaf} />
-        {:else if activePage === "incremental-reading"}
-          <div class="removed-feature-notice">
-            <div class="notice-icon">提示</div>
-            <h3>增量阅读</h3>
-            <p>增量阅读功能已整合到左侧边栏中。<br />点击左侧边栏图标即可访问日历视图和材料列表。</p>
-          </div>
         {:else if activePage === "ai-assistant"}
           <AIAssistantPage
             {plugin}
             {dataStorage}
             {fsrs}
             onNavigate={(pageId) => {
-              activePage = pageId;
+              requestNavigation(pageId);
             }}
           />
         {:else if activePage === "settings"}
           <SettingsPage plugin={plugin as any} />
         {/if}
+
+        <WeaveInspirationModal
+          visible={showInspirationPopover}
+          anchorEl={inspirationPopoverAnchor}
+          onClose={closeInspirationPopover}
+        />
       </main>
       {#if showPluginConfigModal === 'auto-rules'}
         <AutoRulesConfigModal
@@ -389,6 +530,7 @@
     --weave-elevated-background: var(--background-secondary);
     --weave-secondary-bg: var(--weave-elevated-background);
     --weave-surface-secondary: var(--weave-elevated-background);
+    position: relative;
     height: 100%;
     width: 100%;
     display: flex;
@@ -417,6 +559,7 @@
   }
 
   .weave-main-content {
+    position: relative;
     flex: 1;
     overflow-y: auto;
     display: flex;
@@ -470,36 +613,4 @@
     margin-top: 0 !important;
   }
 
-  /* 功能移除提示样式 */
-  .removed-feature-notice {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 20px;
-    text-align: center;
-    color: var(--text-muted);
-    max-width: 600px;
-    margin: 0 auto;
-  }
-
-  .removed-feature-notice .notice-icon {
-    font-size: 4rem;
-    margin-bottom: 20px;
-    opacity: 0.4;
-  }
-
-  .removed-feature-notice h3 {
-    font-size: 1.5rem;
-    font-weight: 600;
-    color: var(--text-normal);
-    margin: 0 0 12px 0;
-  }
-
-  .removed-feature-notice p {
-    font-size: 1rem;
-    line-height: 1.6;
-    color: var(--text-muted);
-    margin: 0;
-  }
 </style>

@@ -6,6 +6,7 @@
 import { ProgressiveClozeAnalyzer } from "../../services/progressive-cloze/ProgressiveClozeAnalyzer";
 import type { ParseResult } from "../../types/metadata-types";
 import { ParseErrorType } from "../../types/metadata-types";
+import { replaceConfiguredClozeSyntax, wrapWithConfiguredCloze } from "../../utils/cloze-syntax";
 import { stripHintBlock } from "../../utils/hint-block-utils";
 import { extractBodyContent } from "../../utils/yaml-utils";
 import { CardType, MarkdownFieldsConverter } from "../MarkdownFieldsConverter";
@@ -120,9 +121,8 @@ export class ClozeCardParser extends MarkdownFieldsConverter {
 		let result = content;
 		let clozeIndex = 1;
 
-		// 将所有==text==替换为{{c1::text}}格式
-		result = result.replace(CLOZE_PATTERNS.OBSIDIAN_STYLE, (_match, text: string) => {
-			const replacement = `{{c${clozeIndex}::${text}}}`;
+		result = replaceConfiguredClozeSyntax(result, (match) => {
+			const replacement = `{{c${clozeIndex}::${match.text}}}`;
 			clozeIndex++;
 			return replacement;
 		});
@@ -135,8 +135,8 @@ export class ClozeCardParser extends MarkdownFieldsConverter {
 	 */
 	static convertAnkiToObsidianStyle(content: string): string {
 		return content.replace(CLOZE_PATTERNS.ANKI_STYLE, (_match, _num, text, hint) => {
-			// 如果有hint，保留在括号中
-			return hint ? `==${text}==(${hint})` : `==${text}==`;
+			const wrapped = wrapWithConfiguredCloze(text);
+			return hint ? `${wrapped}(${hint})` : wrapped;
 		});
 	}
 }

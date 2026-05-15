@@ -8,7 +8,7 @@
  * 布局：头部标题 + 中间编辑区 + 底部工具栏（绘制工具 + 操作按钮）
  */
 
-import { onMount, untrack } from 'svelte';
+import { onMount, tick, untrack } from 'svelte';
 import MaskEditorSVG from './MaskEditorSVG.svelte';
 import EnhancedIcon from '../ui/EnhancedIcon.svelte';
 import type { App, TFile } from 'obsidian';
@@ -44,9 +44,15 @@ let currentOpacity = $state<number>(70);
 
 // 设置状态
 let showSettings = $state(false);
+let settingsButtonEl = $state<HTMLButtonElement | null>(null);
+let settingsDropdownEl = $state<HTMLDivElement | null>(null);
+let settingsDropdownStyle = $state('top: -9999px; left: -9999px; visibility: hidden;');
 let sensitivity = $state<number>(8); // 默认8%
 //  简化：固定使用原始尺寸模式，确保编辑器和预览坐标一致
 const imageDisplayMode = 'original' as const;
+const SETTINGS_DROPDOWN_WIDTH = 360;
+const SETTINGS_DROPDOWN_GAP = 8;
+const SETTINGS_VIEWPORT_MARGIN = 12;
 
 // 预设颜色定义
 const PRESET_COLORS = [
@@ -227,6 +233,104 @@ onMount(() => {
   // 初始化全局灵敏度
   (window as any).__maskEditorSensitivity = sensitivity / 100;
 });
+
+function portalToBody(node: HTMLElement) {
+  document.body.appendChild(node);
+
+  return {
+    destroy() {
+      if (node.parentNode) {
+        node.parentNode.removeChild(node);
+      }
+    }
+  };
+}
+
+function toggleSettingsDropdown() {
+  showSettings = !showSettings;
+}
+
+function updateSettingsDropdownPosition() {
+  if (!showSettings || !settingsButtonEl || !settingsDropdownEl) {
+    return;
+  }
+
+  const anchorRect = settingsButtonEl.getBoundingClientRect();
+  const dropdownRect = settingsDropdownEl.getBoundingClientRect();
+  const dropdownWidth = dropdownRect.width || Math.min(SETTINGS_DROPDOWN_WIDTH, window.innerWidth - SETTINGS_VIEWPORT_MARGIN * 2);
+  const dropdownHeight = dropdownRect.height;
+  const maxLeft = Math.max(SETTINGS_VIEWPORT_MARGIN, window.innerWidth - SETTINGS_VIEWPORT_MARGIN - dropdownWidth);
+
+  let left = anchorRect.right - dropdownWidth;
+  left = Math.min(Math.max(SETTINGS_VIEWPORT_MARGIN, left), maxLeft);
+
+  let top = anchorRect.bottom + SETTINGS_DROPDOWN_GAP;
+  if (dropdownHeight > 0 && top + dropdownHeight > window.innerHeight - SETTINGS_VIEWPORT_MARGIN) {
+    const aboveTop = anchorRect.top - SETTINGS_DROPDOWN_GAP - dropdownHeight;
+    top = aboveTop >= SETTINGS_VIEWPORT_MARGIN
+      ? aboveTop
+      : Math.max(SETTINGS_VIEWPORT_MARGIN, window.innerHeight - SETTINGS_VIEWPORT_MARGIN - dropdownHeight);
+  }
+
+  settingsDropdownStyle = `top: ${Math.round(top)}px; left: ${Math.round(left)}px; visibility: visible;`;
+}
+
+$effect(() => {
+  if (!showSettings) {
+    return;
+  }
+
+  const updatePosition = () => {
+    updateSettingsDropdownPosition();
+  };
+
+  const handlePointerDown = (event: MouseEvent) => {
+    const target = event.target;
+    if (!(target instanceof Node)) {
+      return;
+    }
+
+    if (settingsDropdownEl?.contains(target) || settingsButtonEl?.contains(target)) {
+      return;
+    }
+
+    showSettings = false;
+  };
+
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      showSettings = false;
+    }
+  };
+
+  const resizeObserver = typeof ResizeObserver !== 'undefined'
+    ? new ResizeObserver(() => updatePosition())
+    : null;
+
+  if (settingsButtonEl) {
+    resizeObserver?.observe(settingsButtonEl);
+  }
+  if (settingsDropdownEl) {
+    resizeObserver?.observe(settingsDropdownEl);
+  }
+
+  window.addEventListener('resize', updatePosition);
+  window.addEventListener('scroll', updatePosition, true);
+  document.addEventListener('mousedown', handlePointerDown, true);
+  document.addEventListener('keydown', handleKeyDown);
+
+  void tick().then(() => {
+    updateSettingsDropdownPosition();
+  });
+
+  return () => {
+    window.removeEventListener('resize', updatePosition);
+    window.removeEventListener('scroll', updatePosition, true);
+    document.removeEventListener('mousedown', handlePointerDown, true);
+    document.removeEventListener('keydown', handleKeyDown);
+    resizeObserver?.disconnect();
+  };
+});
 </script>
 
 <div class="image-mask-modal">
@@ -242,16 +346,26 @@ onMount(() => {
       <!-- 设置按钮 -->
       <div class="settings-container">
         <button 
+          bind:this={settingsButtonEl}
           class="settings-text-btn"
-          onclick={() => showSettings = !showSettings}
+          onclick={toggleSettingsDropdown}
           title="编辑器设置"
+          aria-haspopup="dialog"
+          aria-expanded={showSettings}
           class:active={showSettings}
         >
           设置
         </button>
         
         {#if showSettings}
-          <div class="settings-dropdown">
+          <div
+            bind:this={settingsDropdownEl}
+            class="settings-dropdown"
+            role="dialog"
+            aria-label="编辑器设置"
+            use:portalToBody
+            style={settingsDropdownStyle}
+          >
             <div class="settings-header">
               <span>编辑器设置</span>
               <button 
@@ -413,6 +527,8 @@ onMount(() => {
   width: 100%;
   height: 100%;
   min-height: 600px;
+  position: relative;
+  overflow: visible;
 }
 
 /* 头部样式 */
@@ -423,6 +539,9 @@ onMount(() => {
   padding: 16px 24px;
   border-bottom: 1px solid var(--background-modifier-border);
   background: var(--background-primary);
+  position: relative;
+  z-index: calc(var(--weave-z-overlay) + 2);
+  overflow: visible;
 }
 
 .header-left {
@@ -453,6 +572,7 @@ onMount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+  position: relative;
 }
 
 /* 设置文本按钮 */
@@ -487,6 +607,8 @@ onMount(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative;
+  z-index: 1;
 }
 
 .modal-footer {
@@ -740,21 +862,23 @@ onMount(() => {
 
 /* 设置容器 */
 .settings-container {
-  position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .settings-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 360px;
+  position: fixed;
+  width: min(calc(100vw - 24px), 360px);
+  max-width: calc(100vw - 24px);
+  max-height: min(450px, calc(100vh - 24px));
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 10px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1);
-  z-index: var(--weave-z-overlay);
+  z-index: var(--weave-z-popup, 2000);
   animation: slideDown 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
+  pointer-events: auto;
 }
 
 @keyframes slideDown {

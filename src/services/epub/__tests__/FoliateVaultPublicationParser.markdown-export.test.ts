@@ -5,6 +5,10 @@ import { FoliateVaultPublicationParser } from "../FoliateVaultPublicationParser"
 const SAMPLE_PNG_BASE64 =
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wn0K2sAAAAASUVORK5CYII=";
 
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
+
 async function createMarkdownExportEpubBuffer(): Promise<ArrayBuffer> {
 	const zip = new JSZip();
 	zip.file("mimetype", "application/epub+zip");
@@ -120,5 +124,38 @@ describe("FoliateVaultPublicationParser markdown export", () => {
 		} finally {
 			parser.dispose();
 		}
+	});
+
+	it("assetizes runtime blob image URLs during markdown export for generic loader content", async () => {
+		const parser = new FoliateVaultPublicationParser({} as any);
+		const fetchMock = vi.fn(async (input: string | URL | Request) => {
+			const href = String(input);
+			if (href === "blob:chapter-image") {
+				return new Response(new Blob([Buffer.from(SAMPLE_PNG_BASE64, "base64")], { type: "image/png" }), {
+					status: 200,
+					headers: {
+						"content-type": "image/png",
+					},
+				});
+			}
+			throw new Error(`Unexpected fetch for ${href}`);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const doc = new DOMParser().parseFromString(
+			`<html><body><p>Lead text</p><figure><img src="blob:chapter-image" alt="Blob figure" /><figcaption>Blob caption</figcaption></figure></body></html>`,
+			"text/html"
+		);
+
+		const result = await (parser as any).buildSectionMarkdownExport(doc.body, "chapter.xhtml", "Blob Chapter");
+
+		expect(result.markdown).toContain("Lead text");
+		expect(result.markdown).toContain("{{WEAVE_EPUB_ASSET_0}}");
+		expect(result.markdown).toContain("*Blob caption*");
+		expect(result.markdown).not.toContain("blob:chapter-image");
+		expect(result.assets).toHaveLength(1);
+		expect(result.assets[0]?.mimeType).toBe("image/png");
+		expect(result.assets[0]?.suggestedName).toMatch(/\.png$/);
+		expect(result.assets[0]?.data.length).toBeGreaterThan(0);
 	});
 });

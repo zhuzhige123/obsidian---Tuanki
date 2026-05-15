@@ -29,14 +29,20 @@ const pdfSpies = {
 	initialize: vi.fn(),
 	createTask: vi.fn(),
 	deleteTask: vi.fn(),
+	deleteTasksByDeckIdentifiers: vi.fn(),
+	deleteTasksByPdfPaths: vi.fn(),
 	updateTask: vi.fn(),
 };
 
-const epubSpies = {
+	const epubSpies = {
 	initialize: vi.fn(),
 	createTask: vi.fn(),
 	batchCreateTasks: vi.fn(),
 	deleteTask: vi.fn(),
+	deleteTasksByDeckIdentifiers: vi.fn(),
+	deleteTasksByEpubPaths: vi.fn(),
+	getTask: vi.fn(),
+	setResumePoint: vi.fn(),
 	updateTask: vi.fn(),
 };
 
@@ -72,6 +78,8 @@ vi.mock("../IRPdfBookmarkTaskService", () => ({
 		initialize = pdfSpies.initialize;
 		createTask = pdfSpies.createTask;
 		deleteTask = pdfSpies.deleteTask;
+		deleteTasksByDeckIdentifiers = pdfSpies.deleteTasksByDeckIdentifiers;
+		deleteTasksByPdfPaths = pdfSpies.deleteTasksByPdfPaths;
 		updateTask = pdfSpies.updateTask;
 	},
 	isPdfBookmarkTaskId: (id: string) => id.startsWith("pdf-task:"),
@@ -83,6 +91,10 @@ vi.mock("../IREpubBookmarkTaskService", () => ({
 		createTask = epubSpies.createTask;
 		batchCreateTasks = epubSpies.batchCreateTasks;
 		deleteTask = epubSpies.deleteTask;
+		deleteTasksByDeckIdentifiers = epubSpies.deleteTasksByDeckIdentifiers;
+		deleteTasksByEpubPaths = epubSpies.deleteTasksByEpubPaths;
+		getTask = epubSpies.getTask;
+		setResumePoint = epubSpies.setResumePoint;
 		updateTask = epubSpies.updateTask;
 	},
 	isEpubBookmarkTaskId: (id: string) => id.startsWith("epub-task:"),
@@ -113,12 +125,18 @@ describe("IRPointWriteService", () => {
 		pdfSpies.initialize.mockResolvedValue(undefined);
 		pdfSpies.createTask.mockResolvedValue(null);
 		pdfSpies.deleteTask.mockResolvedValue(true);
+		pdfSpies.deleteTasksByDeckIdentifiers.mockResolvedValue(0);
+		pdfSpies.deleteTasksByPdfPaths.mockResolvedValue(0);
 		pdfSpies.updateTask.mockResolvedValue(null);
 
 		epubSpies.initialize.mockResolvedValue(undefined);
 		epubSpies.createTask.mockResolvedValue(null);
 		epubSpies.batchCreateTasks.mockResolvedValue([]);
 		epubSpies.deleteTask.mockResolvedValue(true);
+		epubSpies.deleteTasksByDeckIdentifiers.mockResolvedValue(0);
+		epubSpies.deleteTasksByEpubPaths.mockResolvedValue(0);
+		epubSpies.getTask.mockResolvedValue(null);
+		epubSpies.setResumePoint.mockResolvedValue(undefined);
 		epubSpies.updateTask.mockResolvedValue(null);
 	});
 
@@ -137,6 +155,28 @@ describe("IRPointWriteService", () => {
 		expect(result).toEqual({
 			kind: "pdf",
 			sourceDocumentPath: "Books/Demo.pdf",
+		});
+	});
+
+	it("target 形式的标签更新会复用统一写入口卡片适配", async () => {
+		pointTagSpies.saveChunkTags.mockResolvedValue({
+			filePath: "Inbox\\Chunk.md",
+		});
+		const service = new IRPointWriteService({} as any);
+
+		const result = await service.updatePointTags(
+			{
+				id: "chunk-1",
+				kind: "chunk",
+				sourceDocumentPath: "Inbox\\Chunk.md",
+			},
+			["Gamma", "gamma"]
+		);
+
+		expect(pointTagSpies.saveChunkTags).toHaveBeenCalledWith("chunk-1", ["gamma"]);
+		expect(result).toEqual({
+			kind: "chunk",
+			sourceDocumentPath: "Inbox/Chunk.md",
 		});
 	});
 
@@ -200,7 +240,7 @@ describe("IRPointWriteService", () => {
 		});
 	});
 
-	it("chunk 专题更新会复用旧存储并去重专题列表", async () => {
+	it("chunk 专题更新只保留首个专题", async () => {
 		storageSpies.getChunkData.mockResolvedValue({
 			id: "chunk-1",
 			filePath: "Inbox\\chunk.md",
@@ -216,7 +256,7 @@ describe("IRPointWriteService", () => {
 			["deck-a", "deck-a", "deck-b"]
 		);
 
-		expect(storageSpies.updateChunkDecks).toHaveBeenCalledWith("chunk-1", ["deck-a", "deck-b"]);
+		expect(storageSpies.updateChunkDecks).toHaveBeenCalledWith("chunk-1", ["deck-a"]);
 		expect(result).toEqual({
 			kind: "chunk",
 			sourceDocumentPath: "Inbox/chunk.md",
@@ -244,6 +284,37 @@ describe("IRPointWriteService", () => {
 			link: "Books/Created.pdf#page=1",
 		});
 		expect(result).toBe(createdTask);
+	});
+
+	it("PDF 创建会透传首次导入顺序元数据", async () => {
+		const createdTask = {
+			id: "pdf-task:sequence",
+			pdfPath: "Books\\Ordered.pdf",
+		};
+		pdfSpies.createTask.mockResolvedValue(createdTask);
+		const service = new IRPointWriteService({} as any);
+
+		await service.createPdfPoint({
+			deckId: "deck-a",
+			pdfPath: "Books\\Ordered.pdf",
+			title: "Ordered",
+			link: "Books/Ordered.pdf#page=3",
+			sourceSequenceGroup: "pdf:Books/Ordered.pdf",
+			sourceSequenceOrder: 3,
+			sourceSequenceLocked: true,
+			sourceSequenceAnchorDateKey: "2026-04-24",
+		});
+
+		expect(pdfSpies.createTask).toHaveBeenCalledWith({
+			deckId: "deck-a",
+			pdfPath: "Books\\Ordered.pdf",
+			title: "Ordered",
+			link: "Books/Ordered.pdf#page=3",
+			sourceSequenceGroup: "pdf:Books/Ordered.pdf",
+			sourceSequenceOrder: 3,
+			sourceSequenceLocked: true,
+			sourceSequenceAnchorDateKey: "2026-04-24",
+		});
 	});
 
 	it("EPUB 批量创建走统一写入口", async () => {
@@ -275,6 +346,42 @@ describe("IRPointWriteService", () => {
 		expect(result).toBe(createdTasks);
 	});
 
+	it("EPUB 批量创建会透传首次导入顺序元数据", async () => {
+		const createdTasks = [{ id: "epub-task:ordered" }];
+		epubSpies.batchCreateTasks.mockResolvedValue(createdTasks);
+		const service = new IRPointWriteService({} as any);
+
+		await service.batchCreateEpubPoints([
+			{
+				deckId: "deck-a",
+				epubFilePath: "Books\\Novel.epub",
+				title: "Chapter 3",
+				tocHref: "chapter-3.xhtml",
+				tocLevel: 1,
+				nextRepDate: 456,
+				sourceSequenceGroup: "epub:source-1",
+				sourceSequenceOrder: 3,
+				sourceSequenceLocked: true,
+				sourceSequenceAnchorDateKey: "2026-04-25",
+			},
+		]);
+
+		expect(epubSpies.batchCreateTasks).toHaveBeenCalledWith([
+			{
+				deckId: "deck-a",
+				epubFilePath: "Books\\Novel.epub",
+				title: "Chapter 3",
+				tocHref: "chapter-3.xhtml",
+				tocLevel: 1,
+				nextRepDate: 456,
+				sourceSequenceGroup: "epub:source-1",
+				sourceSequenceOrder: 3,
+				sourceSequenceLocked: true,
+				sourceSequenceAnchorDateKey: "2026-04-25",
+			},
+		]);
+	});
+
 	it("删除 PDF 点会走到底层 PDF 删除链路", async () => {
 		const service = new IRPointWriteService({} as any);
 
@@ -284,6 +391,55 @@ describe("IRPointWriteService", () => {
 
 		expect(pdfSpies.deleteTask).toHaveBeenCalledWith("pdf-task:delete-1");
 		expect(result).toBe(true);
+	});
+
+	it("按专题批量删除会同时复用 PDF 和 EPUB 删除链路", async () => {
+		pdfSpies.deleteTasksByDeckIdentifiers.mockResolvedValue(2);
+		epubSpies.deleteTasksByDeckIdentifiers.mockResolvedValue(3);
+		const service = new IRPointWriteService({} as any);
+
+		const result = await service.deletePointsByDeckIdentifiers(["deck-a", "deck-a", "deck-b"]);
+
+		expect(pdfSpies.deleteTasksByDeckIdentifiers).toHaveBeenCalledWith(["deck-a", "deck-b"]);
+		expect(epubSpies.deleteTasksByDeckIdentifiers).toHaveBeenCalledWith(["deck-a", "deck-b"]);
+		expect(result).toBe(5);
+	});
+
+	it("按 PDF 路径批量删除会先规范化后走统一写入口", async () => {
+		pdfSpies.deleteTasksByPdfPaths.mockResolvedValue(2);
+		const service = new IRPointWriteService({} as any);
+
+		const result = await service.deletePdfPointsByPaths(["Books\\A.pdf", "Books/A.pdf", ""]);
+
+		expect(pdfSpies.deleteTasksByPdfPaths).toHaveBeenCalledWith(["Books/A.pdf"]);
+		expect(result).toBe(2);
+	});
+
+	it("按 EPUB 路径批量删除会先规范化后走统一写入口", async () => {
+		epubSpies.deleteTasksByEpubPaths.mockResolvedValue(3);
+		const service = new IRPointWriteService({} as any);
+
+		const result = await service.deleteEpubPointsByPaths(["Books\\Novel.epub", "Books/Novel.epub", ""]);
+
+		expect(epubSpies.deleteTasksByEpubPaths).toHaveBeenCalledWith(["Books/Novel.epub"]);
+		expect(result).toBe(3);
+	});
+
+	it("EPUB 续读点更新会走统一写入口并保留源文档路径", async () => {
+		epubSpies.getTask.mockResolvedValue({
+			id: "epub-task:1",
+			epubFilePath: "Books\\Novel.epub",
+		});
+		const service = new IRPointWriteService({} as any);
+
+		const result = await service.updateEpubResumePoint("epub-task:1", "epubcfi(/6/4)");
+
+		expect(epubSpies.getTask).toHaveBeenCalledWith("epub-task:1");
+		expect(epubSpies.setResumePoint).toHaveBeenCalledWith("epub-task:1", "epubcfi(/6/4)");
+		expect(result).toEqual({
+			kind: "epub",
+			sourceDocumentPath: "Books/Novel.epub",
+		});
 	});
 
 	it("删除 chunk 点会走旧存储删除并支持自动识别", async () => {

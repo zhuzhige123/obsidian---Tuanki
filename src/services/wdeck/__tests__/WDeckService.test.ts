@@ -13,6 +13,7 @@ vi.mock("obsidian", () => ({
 			this.stat = { mtime };
 		}
 	},
+	normalizePath: (path: string) => String(path || "").replace(/\\/g, "/").replace(/\/+/g, "/"),
 }));
 
 import { TFile } from "obsidian";
@@ -64,7 +65,9 @@ function createWDeckFile(logicalDeckId: string, logicalDeckName: string, cards: 
 
 function createPlugin(initialFiles: Record<string, string>, persistedDecks: Record<string, any> = {}) {
 	const files = new Map<string, string>();
+	const fileMtimes = new Map<string, number>();
 	const folders = new Set<string>(["", ".obsidian", ".obsidian/plugins", ".obsidian/plugins/weave"]);
+	let currentMtime = 1;
 
 	const ensureDir = (dir: string) => {
 		const normalized = normalizeTestPath(dir);
@@ -81,6 +84,8 @@ function createPlugin(initialFiles: Record<string, string>, persistedDecks: Reco
 		const normalized = normalizeTestPath(path);
 		ensureDir(parentPath(normalized));
 		files.set(normalized, content);
+		fileMtimes.set(normalized, currentMtime);
+		currentMtime += 1;
 	};
 
 	for (const [path, content] of Object.entries(initialFiles)) {
@@ -133,7 +138,9 @@ function createPlugin(initialFiles: Record<string, string>, persistedDecks: Reco
 			writeText(path, content);
 		},
 		remove: async (path: string) => {
-			files.delete(normalizeTestPath(path));
+			const normalized = normalizeTestPath(path);
+			files.delete(normalized);
+			fileMtimes.delete(normalized);
 		},
 	};
 
@@ -144,10 +151,12 @@ function createPlugin(initialFiles: Record<string, string>, persistedDecks: Reco
 			Array.from(files.keys())
 				.filter((path) => path.toLowerCase().endsWith(".wdeck"))
 				.sort()
-				.map((path) => createMockTFile(path)),
+				.map((path) => createMockTFile(path, fileMtimes.get(path) || 0)),
 		getAbstractFileByPath: (path: string) => {
 			const normalized = normalizeTestPath(path);
-			return files.has(normalized) ? createMockTFile(normalized) : null;
+			return files.has(normalized)
+				? createMockTFile(normalized, fileMtimes.get(normalized) || 0)
+				: null;
 		},
 		cachedRead: async (file: TFile) => {
 			const value = files.get(normalizeTestPath(file.path));
@@ -248,6 +257,268 @@ describe("WDeckService", () => {
 		const ungroupedData = JSON.parse(files.get(ungroupedPath) || "{}");
 		expect(targetData.cards.map((item: any) => item.uuid)).toEqual(["card-1"]);
 		expect(ungroupedData.cards).toEqual([]);
+	});
+
+	it("updates a warmed cache incrementally for single-card saves without calling rebuildCache", async () => {
+		const targetPath = "weave/memory/deck-files/目标牌组_01.wdeck";
+		const { files, plugin } = createPlugin({
+			[targetPath]: createWDeckFile("deck-target", "目标牌组", [
+				{
+					uuid: "card-1",
+					content: "old-content",
+				},
+			]),
+		});
+		const service = new WDeckService(plugin);
+
+		await service.rebuildCache();
+		const rebuildSpy = vi.spyOn(service, "rebuildCache");
+
+		const existingCard = await service.getCardByUUID("card-1");
+		expect(existingCard).not.toBeNull();
+
+		await service.saveCard({
+			...(existingCard as any),
+			content: "new-content",
+		});
+
+		expect(rebuildSpy).not.toHaveBeenCalled();
+		const aggregate = await service.getDeckAggregateByDeckId("wdeck:deck-target");
+		expect(aggregate?.cards.map((card) => card.content)).toContain("new-content");
+		const persisted = JSON.parse(files.get(targetPath) || "{}");
+		expect(persisted.cards[0]?.content).toBe("new-content");
+	});
+
+	it("updates a warmed cache incrementally for duplicate cleanup across touched files", async () => {
+		const targetPath = "weave/memory/deck-files/目标牌组_01.wdeck";
+		const ungroupedPath = `weave/memory/deck-files/${WDECK_UNGROUPED_DECK_NAME}_01.wdeck`;
+		const duplicateCard = {
+			uuid: "card-1",
+			content: "same-card",
+		};
+		const { files, plugin } = createPlugin({
+			[targetPath]: createWDeckFile("deck-target", "目标牌组", [duplicateCard]),
+			[ungroupedPath]: createWDeckFile(WDECK_UNGROUPED_DECK_NAME, WDECK_UNGROUPED_DECK_NAME, [
+				duplicateCard,
+			]),
+		});
+		const service = new WDeckService(plugin);
+
+		await service.rebuildCache();
+		const rebuildSpy = vi.spyOn(service, "rebuildCache");
+
+		await service.saveCardsToDeck(
+			{
+				id: "deck-target",
+				name: "目标牌组",
+			},
+			[{ ...duplicateCard } as any]
+		);
+
+		expect(rebuildSpy).not.toHaveBeenCalled();
+		const targetAggregate = await service.getDeckAggregateByDeckId("wdeck:deck-target");
+		const ungroupedAggregate = await service.getDeckAggregateByDeckId(
+			`wdeck:${WDECK_UNGROUPED_DECK_NAME}`
+		);
+		expect(targetAggregate?.cards.map((card) => card.uuid)).toEqual(["card-1"]);
+		expect(ungroupedAggregate?.cards || []).toEqual([]);
+		const ungroupedData = JSON.parse(files.get(ungroupedPath) || "{}");
+		expect(ungroupedData.cards).toEqual([]);
+	});
+
+	it("automatically shards large deck writes and keeps card locator pointing to the right segment", async () => {
+		const cards = Array.from({ length: 501 }, (_, index) => ({
+			uuid: `card-${index + 1}`,
+			content: `content-${index + 1}`,
+		}));
+		const { files, plugin } = createPlugin({});
+		const service = new WDeckService(plugin);
+
+		await service.saveCardsToDeck(
+			{
+				id: "deck-target",
+				name: "目标牌组",
+			},
+			cards as any[]
+		);
+
+		const shardPaths = Array.from(files.keys())
+			.filter(
+				(path) =>
+					path.startsWith("weave/memory/deck-files/") &&
+					path.includes("目标牌组_") &&
+					path.endsWith(".wdeck")
+			)
+			.sort();
+		expect(shardPaths).toEqual([
+			"weave/memory/deck-files/目标牌组_01.wdeck",
+			"weave/memory/deck-files/目标牌组_02.wdeck",
+		]);
+
+		const shard1 = JSON.parse(files.get(shardPaths[0]) || "{}");
+		const shard2 = JSON.parse(files.get(shardPaths[1]) || "{}");
+		expect(shard1.cards).toHaveLength(500);
+		expect(shard2.cards).toHaveLength(1);
+		expect(shard2.cards[0]?.uuid).toBe("card-501");
+
+		const cacheIndexPath = ".obsidian/plugins/weave/cache/wdeck-index.json";
+		const cacheIndex = JSON.parse(files.get(cacheIndexPath) || "{}");
+		expect(cacheIndex.cardLocator?.["card-501"]).toBe("weave/memory/deck-files/目标牌组_02.wdeck");
+
+		const locatedCard = await service.getCardByUUID("card-501");
+		expect(locatedCard?.deckId).toBe("wdeck:deck-target");
+		expect((locatedCard?.customFields as any)?.wdeck?.sourcePath).toBe(
+			"weave/memory/deck-files/目标牌组_02.wdeck"
+		);
+	});
+
+	it("rewrites and shrinks multi-segment decks during replaceDeckCardsForDeck", async () => {
+		const shard1Path = "weave/memory/deck-files/目标牌组_01.wdeck";
+		const shard2Path = "weave/memory/deck-files/目标牌组_02.wdeck";
+		const { files, plugin } = createPlugin({
+			[shard1Path]: JSON.stringify({
+				schemaVersion: 1,
+				fileType: "wdeck",
+				logicalDeckId: "deck-target",
+				logicalDeckName: "目标牌组",
+				segmentId: "目标牌组_01",
+				segmentIndex: 1,
+				segmentLabel: "01",
+				deck: {
+					id: "deck-target",
+					name: "目标牌组",
+					purpose: "memory",
+				},
+				cards: [{ uuid: "card-1", content: "one" }],
+			}),
+			[shard2Path]: JSON.stringify({
+				schemaVersion: 1,
+				fileType: "wdeck",
+				logicalDeckId: "deck-target",
+				logicalDeckName: "目标牌组",
+				segmentId: "目标牌组_02",
+				segmentIndex: 2,
+				segmentLabel: "02",
+				deck: {
+					id: "deck-target",
+					name: "目标牌组",
+					purpose: "memory",
+				},
+				cards: [{ uuid: "card-2", content: "two" }],
+			}),
+		});
+		const service = new WDeckService(plugin);
+
+		const result = await service.replaceDeckCardsForDeck(
+			{
+				id: "deck-target",
+				name: "目标牌组",
+			},
+			[{ uuid: "card-3", content: "three" } as any]
+		);
+
+		expect(result.map((card) => card.uuid)).toEqual(["card-3"]);
+		expect(files.has(shard1Path)).toBe(true);
+		expect(files.has(shard2Path)).toBe(false);
+		const rewrittenShard = JSON.parse(files.get(shard1Path) || "{}");
+		expect(rewrittenShard.cards.map((card: any) => card.uuid)).toEqual(["card-3"]);
+
+		const aggregate = await service.getDeckAggregateByDeckId("wdeck:deck-target");
+		expect(aggregate?.segmentIndices).toEqual([1]);
+		expect(aggregate?.cards.map((card) => card.uuid)).toEqual(["card-3"]);
+	});
+
+	it("returns cards by UUIDs via locator across multiple segments in input order", async () => {
+		const shard1Path = "weave/memory/deck-files/目标牌组_01.wdeck";
+		const shard2Path = "weave/memory/deck-files/目标牌组_02.wdeck";
+		const { plugin } = createPlugin({
+			[shard1Path]: JSON.stringify({
+				schemaVersion: 1,
+				fileType: "wdeck",
+				logicalDeckId: "deck-target",
+				logicalDeckName: "目标牌组",
+				segmentId: "目标牌组_01",
+				segmentIndex: 1,
+				segmentLabel: "01",
+				deck: { id: "deck-target", name: "目标牌组", purpose: "memory" },
+				cards: [{ uuid: "card-1", content: "one" }],
+			}),
+			[shard2Path]: JSON.stringify({
+				schemaVersion: 1,
+				fileType: "wdeck",
+				logicalDeckId: "deck-target",
+				logicalDeckName: "目标牌组",
+				segmentId: "目标牌组_02",
+				segmentIndex: 2,
+				segmentLabel: "02",
+				deck: { id: "deck-target", name: "目标牌组", purpose: "memory" },
+				cards: [{ uuid: "card-2", content: "two" }],
+			}),
+		});
+		const service = new WDeckService(plugin);
+
+		await service.rebuildCache();
+		const cards = await service.getCardsByUUIDs(["card-2", "card-1", "missing-card"]);
+
+		expect(cards.map((card) => card.uuid)).toEqual(["card-2", "card-1"]);
+		expect((cards[0]?.customFields as any)?.wdeck?.sourcePath).toBe(shard2Path);
+		expect((cards[1]?.customFields as any)?.wdeck?.sourcePath).toBe(shard1Path);
+	});
+
+	it("deletes cards by UUIDs via locator and refreshes cache incrementally", async () => {
+		const shard1Path = "weave/memory/deck-files/目标牌组_01.wdeck";
+		const shard2Path = "weave/memory/deck-files/目标牌组_02.wdeck";
+		const { files, plugin } = createPlugin({
+			[shard1Path]: JSON.stringify({
+				schemaVersion: 1,
+				fileType: "wdeck",
+				logicalDeckId: "deck-target",
+				logicalDeckName: "目标牌组",
+				segmentId: "目标牌组_01",
+				segmentIndex: 1,
+				segmentLabel: "01",
+				deck: { id: "deck-target", name: "目标牌组", purpose: "memory" },
+				cards: [
+					{ uuid: "card-1", content: "one" },
+					{ uuid: "card-2", content: "two" },
+				],
+			}),
+			[shard2Path]: JSON.stringify({
+				schemaVersion: 1,
+				fileType: "wdeck",
+				logicalDeckId: "deck-target",
+				logicalDeckName: "目标牌组",
+				segmentId: "目标牌组_02",
+				segmentIndex: 2,
+				segmentLabel: "02",
+				deck: { id: "deck-target", name: "目标牌组", purpose: "memory" },
+				cards: [{ uuid: "card-3", content: "three" }],
+			}),
+		});
+		const service = new WDeckService(plugin);
+
+		await service.rebuildCache();
+		const rebuildSpy = vi.spyOn(service, "rebuildCache");
+
+		const deleted = await service.deleteCardsByUUIDs(["card-1", "card-3"]);
+
+		expect(deleted.sort()).toEqual(["card-1", "card-3"]);
+		expect(rebuildSpy).not.toHaveBeenCalled();
+
+		const shard1 = JSON.parse(files.get(shard1Path) || "{}");
+		const shard2 = JSON.parse(files.get(shard2Path) || "{}");
+		expect(shard1.cards.map((card: any) => card.uuid)).toEqual(["card-2"]);
+		expect(shard2.cards).toEqual([]);
+
+		const deletedCard = await service.getCardByUUID("card-3");
+		const remainingCard = await service.getCardByUUID("card-2");
+		expect(deletedCard).toBeNull();
+		expect(remainingCard?.uuid).toBe("card-2");
+
+		const cacheIndex = JSON.parse(files.get(".obsidian/plugins/weave/cache/wdeck-index.json") || "{}");
+		expect(cacheIndex.cardLocator?.["card-1"]).toBeUndefined();
+		expect(cacheIndex.cardLocator?.["card-3"]).toBeUndefined();
+		expect(cacheIndex.cardLocator?.["card-2"]).toBe(shard1Path);
 	});
 
 	it("warns only once for the same invalid .wdeck file across repeated cache rebuilds", async () => {

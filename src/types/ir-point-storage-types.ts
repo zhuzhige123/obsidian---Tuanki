@@ -1,5 +1,7 @@
 export const IR_POINT_STORAGE_VERSION = 1;
 
+import type { IRDeckSettings, IRTagGroup, IRTagGroupProfile } from "./ir-types";
+
 export type IRTraceState = "verified" | "degraded" | "broken";
 
 export type IRPointClassificationSource =
@@ -27,6 +29,16 @@ export interface IRParameterContext {
 	scheduleProfileRef: string;
 	classificationSource: IRPointClassificationSource;
 	isOverride: boolean;
+}
+
+export interface IRPointSourceRecord {
+	id: string;
+	type: "markdown" | "epub" | "pdf";
+	path: string;
+	title: string;
+	hash?: string;
+	author?: string;
+	language?: string;
 }
 
 export interface IRPointTimestamps {
@@ -81,6 +93,7 @@ export interface IRPoint {
 	id: string;
 	pointType: string;
 	materialId: string;
+	source: IRPointSourceRecord;
 	timestamps: IRPointTimestamps;
 	trace: IRTraceRecord;
 	parameterContext: IRParameterContext;
@@ -92,11 +105,25 @@ export interface IRPoint {
 	metadata?: Record<string, unknown>;
 }
 
+export interface IRPointDeckRecord {
+	description: string;
+	icon: string;
+	color: string;
+	settings: IRDeckSettings;
+	tags?: string[];
+	createdAt: string;
+	updatedAt: string;
+	archivedAt: string | null;
+}
+
 export interface IRPointFileData {
 	schemaVersion: number;
 	topicId: string;
 	topicName: string;
 	updatedAt: string;
+	deck: IRPointDeckRecord;
+	tagGroups: Record<string, IRTagGroup>;
+	tagGroupProfiles: Record<string, IRTagGroupProfile>;
 	points: IRPoint[];
 }
 
@@ -112,6 +139,21 @@ export interface IRPointFileIndex {
 	schemaVersion: number;
 	updatedAt: string;
 	files: IRPointFileIndexEntry[];
+}
+
+export interface IRPointFileCatalogEntry {
+	topicId: string;
+	topicName: string;
+	relativePath: string;
+	absolutePath: string;
+	fileData: IRPointFileData;
+}
+
+export interface IRPointSnapshot {
+	point: IRPoint;
+	material: IRMaterialRecord | null;
+	topicId: string;
+	topicName: string;
 }
 
 export interface IRMaterialSourceRecord {
@@ -198,6 +240,15 @@ export interface IRPointStorageMigrationSummary {
 	migratedMaterials: number;
 	migratedPoints: number;
 	migratedReaderStateFiles: number;
+	removedLegacyReaderStateFiles: number;
+	removedLegacyBookmarkTaskFiles: number;
+	removedLegacyChunkStorageFiles: number;
+	removedLegacyMaterialRecordFiles: number;
+	removedLegacyMaterialsIndexCount: number;
+	removedLegacyMaterialsFileCount: number;
+	removedEmptyLegacyMaterialDirs: number;
+	removedLegacyRegistryFiles: number;
+	removedLegacyTopicStoreFiles: number;
 	failures: IRLegacyMigrationIssue[];
 	completedAt: string;
 }
@@ -210,7 +261,10 @@ export interface IRPointStorageMigrationReport {
 export interface IRLegacyPointInput {
 	id: string;
 	topicId?: string;
+	topicIds?: string[];
+	topicName?: string;
 	title: string;
+	materialTitle?: string;
 	tags?: string[];
 	status: string;
 	priorityUi?: number;
@@ -220,11 +274,25 @@ export interface IRLegacyPointInput {
 	createdAt?: number;
 	updatedAt?: number;
 	lastInteractionAt?: number;
-	sourceType: "pdf-bookmark" | "epub-bookmark";
+	sourceType: "pdf-bookmark" | "epub-bookmark" | "ir-chunk" | "legacy-block";
 	materialId?: string;
 	sourcePath: string;
+	pointType?: string;
 	locatorType: string;
 	locator: Record<string, unknown>;
 	note?: string;
 	isStarred?: boolean;
+	linkedNotePaths?: string[];
+	explicitTagGroupId?: string;
+	stats?: {
+		impressions?: number;
+		reviewCount?: number;
+		extracts?: number;
+		cardsCreated?: number;
+		notesWritten?: number;
+		totalReadingTimeSec?: number;
+		totalReadingTimeMs?: number;
+		lastInteractionAt?: number;
+	};
+	metadata?: Record<string, unknown>;
 }

@@ -104,8 +104,8 @@ export function diagnoseFilename(name: string, isFile = false, fullPathLength = 
 		issues.push("leading_dot");
 	}
 
-	// Windows/WebDAV 不安全字符（不含 / \ 因为这里只检测单个名称段）
-	if (/[<>:"|?*]/.test(name)) {
+	// Windows/WebDAV 不安全字符，以及误混入名称段的路径分隔符
+	if (/[<>:"|?*\\/]/.test(name)) {
 		issues.push("unsafe_chars");
 	}
 
@@ -126,7 +126,7 @@ export function diagnoseFilename(name: string, isFile = false, fullPathLength = 
  * - Emoji → 移除
  * - 全角标点 → 半角等价或 _
  * - 方括号 [] → ()
- * - Windows 不安全字符 → _
+ * - Windows 不安全字符、路径分隔符 → _
  * - 开头的 . → 移除
  * - 连续 _ 合并
  * - 截断超长名称（保留扩展名）
@@ -147,8 +147,8 @@ export function sanitizeForSync(name: string, maxLength = 100): string {
 	// 3. 方括号 → 圆括号
 	result = result.replace(/\[/g, "(").replace(/\]/g, ")");
 
-	// 4. Windows/WebDAV 不安全字符
-	result = result.replace(/[<>:"|?*]/g, "_");
+	// 4. Windows/WebDAV 不安全字符，以及误混入名称段的路径分隔符
+	result = result.replace(/[<>:"|?*\\/]/g, "_");
 
 	// 5. 移除开头的 .
 	result = result.replace(/^\.+/, "");

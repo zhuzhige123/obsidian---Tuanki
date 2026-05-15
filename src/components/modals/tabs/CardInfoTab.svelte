@@ -1,7 +1,7 @@
 <script lang="ts">
   import { logger } from '../../../utils/logger';
   // 静态导入 parseSourceInfo，确保响应式追踪正常
-  import { parseSourceInfo, getCardProperty } from '../../../utils/yaml-utils';
+  import { parseEpubSourceInfo, parseSourceInfo, getCardProperty } from '../../../utils/yaml-utils';
   import { detectCardTypeFromContent } from '../../../utils/card-markdown-serializer';
 
   import { onMount } from 'svelte';
@@ -81,12 +81,40 @@
     if (!content) return { sourceFile: card?.sourceFile, sourceBlock: card?.sourceBlock };
     
     const parsed = parseSourceInfo(content);
+    const epubSource = parseEpubSourceInfo(content);
     return {
-      sourceFile: parsed.sourceFile || card?.sourceFile,
+      sourceFile: epubSource.sourceFile || parsed.sourceFile || card?.sourceFile,
       sourceBlock: parsed.sourceBlock || card?.sourceBlock,
-      refs: parsed.refs
+      refs: parsed.refs,
+      epubCfi: epubSource.cfi,
+      epubText: epubSource.text,
+      epubChapter: epubSource.chapter,
     };
   });
+
+  let sourceDocumentStatus = $derived.by(() => {
+    const sourcePath = sourceInfo.sourceFile || card?.sourceFile || '';
+    if (!sourcePath) {
+      return { known: false, exists: false };
+    }
+
+    const abstractFile = plugin.app.vault.getAbstractFileByPath(sourcePath);
+    return {
+      known: true,
+      exists: !!abstractFile,
+    };
+  });
+
+  function formatEpubLocationSummary(text: string | undefined, chapter: number | undefined): string | null {
+    const trimmedText = String(text || '').trim().replace(/\s+/g, ' ');
+    if (trimmedText) {
+      return trimmedText.length > 72 ? `${trimmedText.slice(0, 72)}…` : trimmedText;
+    }
+    if (chapter !== undefined) {
+      return `章节 ${chapter}`;
+    }
+    return null;
+  }
 
   // 复制UUID
   function copyUUID() {
@@ -112,6 +140,20 @@
       
       if (!filePath) {
         new Notice(t('modals.cardInfoTab.noSource'));
+        return;
+      }
+
+      if (filePath.toLowerCase().endsWith('.epub')) {
+        const file = plugin.app.vault.getAbstractFileByPath(filePath);
+        if (!file) {
+          new Notice(t('modals.cardInfoTab.sourceDeleted'));
+          return;
+        }
+
+        const { EpubLinkService } = await import('../../../services/epub/EpubLinkService');
+        const linkService = new EpubLinkService(plugin.app);
+        await linkService.navigateToEpubLocation(filePath, sourceInfo.epubCfi || '', sourceInfo.epubText || '');
+        new Notice('已跳转到 EPUB 来源位置');
         return;
       }
       
@@ -385,7 +427,7 @@
               {#if card.relationMetadata?.derivationMetadata?.method}
                 {#if card.relationMetadata.derivationMetadata.method === 'ai-split'}
                   <span class="relation-badge method-badge ai-method">
-                    <EnhancedIcon name="robot" size={12} /> AI拆分
+                    <EnhancedIcon name="git-branch" size={12} /> AI拆分
                   </span>
                 {:else if card.relationMetadata.derivationMetadata.method === 'cloze-progressive'}
                   <span class="relation-badge method-badge cloze-method">
@@ -498,6 +540,21 @@
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
+	        <span class="info-label">定位信息</span>
+	        <span class="info-value">
+	          {#if sourceInfo.epubCfi}
+	            <span class="mono" title={sourceInfo.epubCfi}>
+	              {formatEpubLocationSummary(sourceInfo.epubText, sourceInfo.epubChapter) || sourceInfo.epubCfi}
+	            </span>
+	          {:else if sourceInfo.sourceBlock}
+	            <span class="mono">{truncateText(sourceInfo.sourceBlock || '', 30)}</span>
+	          {:else}
+	            <span class="text-muted">无具体定位</span>
+	          {/if}
+	        </span>
+	      </div>
+
+      <div class="info-row" class:mobile={isMobile}>
         <span class="info-label">块引用</span>
         <span class="info-value">
           {#if sourceInfo.sourceBlock}
@@ -511,8 +568,8 @@
       <div class="info-row" class:mobile={isMobile}>
         <span class="info-label">文档状态</span>
         <span class="info-value">
-          {#if card.sourceExists !== undefined}
-            {#if card.sourceExists}
+          {#if sourceDocumentStatus.known}
+            {#if sourceDocumentStatus.exists}
               <span class="status-indicator status-exists">✓ 存在</span>
             {:else}
               <span class="status-indicator status-missing">✗ 已删除</span>

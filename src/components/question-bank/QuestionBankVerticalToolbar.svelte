@@ -6,8 +6,10 @@
   import EnhancedIcon from "../ui/EnhancedIcon.svelte";
   import FloatingMenu from "../ui/FloatingMenu.svelte";
   import ObsidianDropdown from "../ui/ObsidianDropdown.svelte";
+  import ObsidianIcon from "../ui/ObsidianIcon.svelte";
   import type { Card } from "../../data/types";
   import type { WeavePlugin } from "../../main";
+  import type { ChoiceOptionOrder } from '../../utils/study/choiceOptionOrder';
   import { tr } from '../../utils/i18n';
   import { Notice } from "obsidian";
   import { untrack } from 'svelte';
@@ -32,11 +34,12 @@
     onPriorityAnchorChange?: (element: HTMLElement | null) => void;
     onOpenPlainEditor?: () => void;
     onOpenDetailedView?: () => void;
-    onOpenCardDebug?: () => void;
     enableDirectDelete?: boolean;
     onDirectDeleteToggle?: (enabled: boolean) => void;
     questionOrder?: 'sequential' | 'random';
     onQuestionOrderChange?: (order: 'sequential' | 'random') => void;
+    choiceOptionOrder?: ChoiceOptionOrder;
+    onChoiceOptionOrderChange?: (order: ChoiceOptionOrder) => void;
     navColumnMode?: 1 | 3;
     onNavColumnModeChange?: (mode: 1 | 3) => void;
   }
@@ -58,11 +61,12 @@
     onPriorityAnchorChange,
     onOpenPlainEditor,
     onOpenDetailedView,
-    onOpenCardDebug,
     enableDirectDelete = false,
     onDirectDeleteToggle,
     questionOrder = 'sequential',
     onQuestionOrderChange,
+    choiceOptionOrder = 'sequential',
+    onChoiceOptionOrderChange,
     navColumnMode = 3,
     onNavColumnModeChange
   }: Props = $props();
@@ -212,15 +216,9 @@
   let showMoreSettingsMenu = $state(false);
   let moreSettingsButtonElement: HTMLElement | null = $state(null);
 
-  // 使用教程菜单
-  let showTutorialMenu = $state(false);
-  let tutorialButtonElement: HTMLElement | null = $state(null);
-  let activeTutorialTab = $state<'tutorial' | 'algorithm'>('tutorial');
-
   function closeAllPanels() {
     showMultiInfoMenu = false;
     showMoreSettingsMenu = false;
-    showTutorialMenu = false;
   }
 
   function toggleMultiInfoMenu() {
@@ -233,16 +231,6 @@
     const next = !showMoreSettingsMenu;
     closeAllPanels();
     showMoreSettingsMenu = next;
-  }
-
-  function toggleTutorialMenu() {
-    const next = !showTutorialMenu;
-    closeAllPanels();
-    showTutorialMenu = next;
-  }
-
-  function switchTutorialTab(tab: 'tutorial' | 'algorithm') {
-    activeTutorialTab = tab;
   }
 
   // 获取来源信息
@@ -638,38 +626,26 @@
               {/if}
             </div>
 
-            <!-- 查看详细信息按钮 -->
             {#if onOpenDetailedView}
-              <div class="info-section detailed-view-section">
-                <button 
-                  class="detailed-view-btn"
-                  onclick={() => {
-                    showMultiInfoMenu = false;
-                    onOpenDetailedView?.();
-                  }}
-                  type="button"
-                >
-                  <EnhancedIcon name="maximize-2" size="14" />
-                  <span>查看详细信息</span>
-                </button>
-              </div>
-            {/if}
-
-            <!-- 查看题目数据结构（调试） -->
-            {#if onOpenCardDebug}
-              <div class="info-section card-debug-section">
-                <button 
-                  class="card-debug-btn"
-                  onclick={() => {
-                    showMultiInfoMenu = false;
-                    onOpenCardDebug?.();
-                  }}
-                  type="button"
-                  title="查看完整的题目数据结构（JSON格式）"
-                >
-                  <EnhancedIcon name="code" size="14" />
-                  <span>查看数据结构</span>
-                </button>
+              <div class="info-section card-action-section">
+                <div class="card-action-list">
+                  <button
+                    class="card-action-item"
+                    onclick={() => {
+                      showMultiInfoMenu = false;
+                      onOpenDetailedView?.();
+                    }}
+                    type="button"
+                  >
+                    <span class="card-action-main">
+                      <ObsidianIcon name="maximize-2" size={15} />
+                      <span>查看详情</span>
+                    </span>
+                    <span class="card-action-arrow">
+                      <ObsidianIcon name="chevron-right" size={14} />
+                    </span>
+                  </button>
+                </div>
               </div>
             {/if}
           </div>
@@ -741,6 +717,21 @@
               </div>
             </div>
 
+            <div class="setting-section">
+              <div class="setting-item">
+                <div class="setting-label">选项顺序</div>
+                <ObsidianDropdown
+                  className="setting-select"
+                  options={[
+                    { id: 'sequential', label: '正序' },
+                    { id: 'random', label: '乱序' }
+                  ]}
+                  value={choiceOptionOrder}
+                  onchange={(value) => onChoiceOptionOrderChange?.(value as ChoiceOptionOrder)}
+                />
+              </div>
+            </div>
+
             <!-- 删除设置 -->
             <div class="setting-section">
               <div class="setting-item toggle-item">
@@ -762,454 +753,6 @@
       </FloatingMenu>
     </div>
 
-    <!-- 使用教程按钮 -->
-    <div class="tutorial-container">
-      <button
-        bind:this={tutorialButtonElement}
-        class="toolbar-btn tutorial-btn"
-        class:active={showTutorialMenu}
-        onclick={toggleTutorialMenu}
-        onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
-        onmouseup={handleButtonDragEnd}
-        ontouchstart={(e) => handleButtonLongPressStart(e, e.currentTarget)}
-        title="查看使用教程"
-      >
-        <EnhancedIcon name="book-open" size="18" />
-        <span class="btn-label">教程</span>
-      </button>
-
-      <FloatingMenu
-        bind:show={showTutorialMenu}
-        anchor={tutorialButtonElement}
-        placement="left-start"
-        onClose={() => showTutorialMenu = false}
-        class="question-bank-tutorial-menu-container"
-      >
-        {#snippet children()}
-          <!-- 三层分离架构 -->
-          <div class="question-bank-tutorial-wrapper">
-            <!-- 层级1: 固定头部 -->
-            <div class="question-bank-tutorial-header">
-              <span>使用教程</span>
-              <button class="close-btn" onclick={() => showTutorialMenu = false}>
-                <EnhancedIcon name="times" size="12" />
-              </button>
-            </div>
-
-            <!-- 层级2: 标签页导航 -->
-            <div class="question-bank-tutorial-tabs">
-              <button 
-                class:active={activeTutorialTab === 'tutorial'}
-                onclick={() => switchTutorialTab('tutorial')}
-              >
-                使用教程
-              </button>
-              <button 
-                class:active={activeTutorialTab === 'algorithm'}
-                onclick={() => switchTutorialTab('algorithm')}
-              >
-                算法原理
-              </button>
-            </div>
-
-            <!-- 层级3: 滚动容器 -->
-            <div class="question-bank-tutorial-scroll-container">
-              <div class="question-bank-tutorial-content">
-                
-                {#if activeTutorialTab === 'tutorial'}
-                  <!-- ========== 标签页1: 使用教程 ========== -->
-            <!-- 选择题判断规则 -->
-            <div class="tutorial-section">
-              <div class="tutorial-section-title">
-                <EnhancedIcon name="check-circle" size="14" />
-                <span>选择题正确答案识别</span>
-              </div>
-              
-              <div class="tutorial-text">
-                <h4>使用 &#123;✓&#125; 标记正确选项</h4>
-                <p>在选项行内添加 <code>&#123;✓&#125;</code> 标记：</p>
-                <pre>A. 错误选项
-B) 正确选项 &#123;✓&#125;
-C、另一个错误选项</pre>
-
-                <p class="tutorial-note"><strong>重要：</strong>只有 <code>&#123;✓&#125;</code> 标记会被识别，且必须在选项区域（<code>---div---</code> 之前）</p>
-                
-                <h4>多选题示例</h4>
-                <pre>A. 选项1 &#123;✓&#125;
-B) 选项2
-C、选项3 &#123;✓&#125;
-D. 选项4</pre>
-              </div>
-            </div>
-
-            <!-- Markdown编辑优势 -->
-            <div class="tutorial-section">
-              <div class="tutorial-section-title">
-                <EnhancedIcon name="file-text" size="14" />
-                <span>Markdown编辑优势</span>
-              </div>
-              
-              <div class="tutorial-text">
-                <h4>为什么选择Markdown？</h4>
-                <ul>
-                  <li><strong>内容为王</strong>：笔记即卡片，无需重复录入</li>
-                  <li><strong>动态解析</strong>：自动识别题型，无需手动选择</li>
-                  <li><strong>完整表达</strong>：支持代码块、表格、图片等所有Markdown元素</li>
-                </ul>
-              </div>
-            </div>
-
-            <!-- 题型识别规则 -->
-            <div class="tutorial-section">
-              <div class="tutorial-section-title">
-                <EnhancedIcon name="layers" size="14" />
-                <span>题型自动识别</span>
-              </div>
-              
-              <div class="tutorial-text">
-                <!-- svelte-ignore component_name_lowercase -->
-                <table class="tutorial-table">
-                  <thead>
-                    <tr>
-                      <th>内容特征</th>
-                      <th>识别为</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>包含 <code>==文本==</code></td>
-                      <td>挖空题</td>
-                    </tr>
-                    <tr>
-                      <td>包含 <code>A./B.</code> 等选项格式</td>
-                      <td>选择题</td>
-                    </tr>
-                    <tr>
-                      <td>包含 <code>---div---</code></td>
-                      <td>问答题</td>
-                    </tr>
-                    <tr>
-                      <td>无特殊标记</td>
-                      <td>单面卡片</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- 标准示例 -->
-            <div class="tutorial-section">
-              <div class="tutorial-section-title">
-                <EnhancedIcon name="code" size="14" />
-                <span>标准示例</span>
-              </div>
-              
-              <div class="tutorial-text">
-                <h4>单选题示例</h4>
-                <pre>Q: 以下哪个是TypeScript相比JavaScript的核心特性？ #TypeScript
-
-A) 支持异步编程
-B) 静态类型检查 &#123;✓&#125;
-C) 支持面向对象编程
-D) 支持函数式编程
-
----div---
-
-正确答案是B。静态类型检查是TypeScript的核心特性，
-它在编译时进行类型检查，帮助开发者提前发现错误。
-而异步编程、面向对象和函数式编程JavaScript也支持。</pre>
-
-                <h4>多选题示例</h4>
-                <pre>Q: 以下哪些方法可以提高代码可读性？ #编程规范
-
-A) 使用有意义的变量名 &#123;✓&#125;
-B) 添加适当的代码注释 &#123;✓&#125;
-C) 保持函数简短专注 &#123;✓&#125;
-D) 使用单字母变量名
-E) 定期重构代码 &#123;✓&#125;
-
----div---
-
-正确答案是A、B、C、E。使用有意义的变量名(A)、
-添加适当注释(B)、保持函数简短(C)和定期重构(E)
-都能提高代码可读性。使用单字母变量名(D)会降低
-代码可读性，应该避免。</pre>
-
-                <h4>挖空题示例</h4>
-                <pre>JavaScript中 ==var== 和 ==let== 的主要区别是 ==作用域== 。</pre>
-
-                <h4>问答题示例</h4>
-                <pre>Q: 什么是闭包？ #JavaScript #进阶
-
----div---
-
-闭包是函数和其词法环境的组合。闭包使得函数可以
-访问其外部作用域的变量，即使外部函数已经返回。
-
-**应用场景**：
-- 数据封装和私有变量
-- 创建工厂函数
-- 实现函数柯里化</pre>
-              </div>
-            </div>
-
-            <!-- 使用技巧 -->
-            <div class="tutorial-section">
-              <div class="tutorial-section-title">
-                <EnhancedIcon name="lightbulb" size="14" />
-                <span>使用技巧</span>
-              </div>
-              
-              <div class="tutorial-text">
-                <h4>快捷键</h4>
-                <ul class="shortcut-list">
-                  <li><kbd>Space/Enter</kbd> - 显示答案</li>
-                  <li><kbd>← →</kbd> - 上/下一题</li>
-                  <li><kbd>F</kbd> - 收藏当前题目</li>
-                </ul>
-
-                <h4>学习模式</h4>
-                <ul>
-                  <li><strong>正序学习</strong>：按题目顺序</li>
-                  <li><strong>乱序学习</strong>：随机打乱顺序</li>
-                </ul>
-              </div>
-            </div>
-
-                {:else if activeTutorialTab === 'algorithm'}
-                  <!-- ========== 标签页2: 算法原理 ========== -->
-                  
-                  <!-- Section 1: EWMA算法介绍 -->
-                  <div class="tutorial-section">
-                    <div class="tutorial-section-title">
-                      <EnhancedIcon name="trending-up" size="14" />
-                      <span>EWMA算法：科学评估掌握度</span>
-                    </div>
-                    
-                    <div class="tutorial-text">
-                      <h4>什么是EWMA？</h4>
-                      <p><strong>EWMA</strong> = Exponentially Weighted Moving Average（指数加权移动平均）</p>
-                      
-                      <div class="highlight-box">
-                        <p><strong>核心思想</strong>：近期的测试表现比早期更能反映你的当前掌握水平</p>
-                      </div>
-                      
-                      <h4>与记忆牌组的关系</h4>
-                      <p>就像记忆牌组使用 <strong>FSRS6算法</strong> 预测遗忘时间一样，考试题组使用 <strong>EWMA算法</strong> 评估掌握程度。两者都是科学严谨的算法，只是应用场景不同。</p>
-                    </div>
-                  </div>
-
-                  <!-- Section 2: 核心公式 -->
-                  <div class="tutorial-section">
-                    <div class="tutorial-section-title">
-                      <EnhancedIcon name="function" size="14" />
-                      <span>核心公式</span>
-                    </div>
-                    
-                    <div class="tutorial-text">
-                      <pre class="algorithm-formula">R_t = α × result_t + (1-α) × R_{'{'}t-1{'}'}{'\n'}
-{'\n'}其中：
-  R_t         当前掌握度
-  result_t    最新测试结果（正确=1，错误=0）
-  α           衰减因子（0.2，即近期占20%权重）
-  R_{'{'}t-1{'}'}     之前的掌握度</pre>
-
-                      <h4>权重衰减示例</h4>
-                      <p>假设你做了10次测试：</p>
-                      <ul>
-                        <li><strong>第10次（最近）</strong>：权重 20%</li>
-                        <li><strong>第9次</strong>：权重 16%</li>
-                        <li><strong>第8次</strong>：权重 12.8%</li>
-                        <li>...</li>
-                        <li><strong>第1次（最早）</strong>：权重 &lt; 3%</li>
-                      </ul>
-                      
-                      <div class="info-box">
-                        <p>早期的错误会随着时间自动"遗忘"，不会永久影响你的掌握度评分！</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Section 3: 科学依据 -->
-                  <div class="tutorial-section">
-                    <div class="tutorial-section-title">
-                      <EnhancedIcon name="award" size="14" />
-                      <span>科学依据</span>
-                    </div>
-                    
-                    <div class="tutorial-text">
-                      <h4>学习曲线理论</h4>
-                      <p>随着练习次数增加，你的能力在不断提升。正确率应该反映"当前位置"，而非整条曲线的平均值。</p>
-                      
-                      <h4>近因效应（Recency Effect）</h4>
-                      <p>心理学研究证明：人们对近期发生的事件记忆更深刻。同样，近期的测试结果更能预测未来的表现。</p>
-                      
-                      <h4>形成性评估理论</h4>
-                      <p>形成性评估关注"你现在是否已经掌握？"而非"你历史平均掌握多少？"EWMA算法完美体现这一理念。</p>
-                    </div>
-                  </div>
-
-                  <!-- Section 4: 对比表格 -->
-                  <div class="tutorial-section">
-                    <div class="tutorial-section-title">
-                      <EnhancedIcon name="bar-chart" size="14" />
-                      <span>EWMA vs 简单平均</span>
-                    </div>
-                    
-                    <div class="tutorial-text">
-                      <!-- svelte-ignore component_name_lowercase -->
-                      <table class="tutorial-table comparison-table">
-                        <thead>
-                          <tr>
-                            <th>学习历史</th>
-                            <th>简单平均</th>
-                            <th>EWMA算法</th>
-                            <th>评价</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td>前10次全错，后10次全对</td>
-                            <td>50%</td>
-                            <td class="highlight-value">96.8%</td>
-                            <td class="status-good">准确</td>
-                          </tr>
-                          <tr>
-                            <td>前10次全对，后10次全错</td>
-                            <td>50%</td>
-                            <td class="highlight-value">3.2%</td>
-                            <td class="status-good">准确</td>
-                          </tr>
-                          <tr>
-                            <td>稳定80%正确率</td>
-                            <td>80%</td>
-                            <td>80%</td>
-                            <td class="status-good">一致</td>
-                          </tr>
-                          <tr>
-                            <td>连续20次全对</td>
-                            <td>100%</td>
-                            <td>100%</td>
-                            <td class="status-good">一致</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                      
-                      <div class="highlight-box">
-                        <p><strong>结论</strong>：EWMA能准确反映学习进度，而简单平均会被早期错误永久拖累！</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Section 5: 掌握状态 -->
-                  <div class="tutorial-section">
-                    <div class="tutorial-section-title">
-                      <EnhancedIcon name="layers" size="14" />
-                      <span>掌握状态评估</span>
-                    </div>
-                    
-                    <div class="tutorial-text">
-                      <h4>6个掌握级别</h4>
-                      <div class="mastery-levels">
-                        <div class="mastery-level level-mastered">
-                          <div class="level-badge">已精通</div>
-                          <div class="level-desc">正确率 ≥ 90% + 连续3次正确</div>
-                        </div>
-                        
-                        <div class="mastery-level level-proficient">
-                          <div class="level-badge">熟练</div>
-                          <div class="level-desc">正确率 ≥ 75%</div>
-                        </div>
-                        
-                        <div class="mastery-level level-learning">
-                          <div class="level-badge">学习中</div>
-                          <div class="level-desc">正确率 ≥ 60%</div>
-                        </div>
-                        
-                        <div class="mastery-level level-struggling">
-                          <div class="level-badge">有困难</div>
-                          <div class="level-desc">正确率 ≥ 40%</div>
-                        </div>
-                        
-                        <div class="mastery-level level-review">
-                          <div class="level-badge">需复习</div>
-                          <div class="level-desc">正确率 &lt; 40%</div>
-                        </div>
-                        
-                        <div class="mastery-level level-insufficient">
-                          <div class="level-badge">数据不足</div>
-                          <div class="level-desc">测试次数太少（置信度 &lt; 50%）</div>
-                        </div>
-                      </div>
-                      
-                      <h4>置信度机制</h4>
-                      <p>系统会根据测试次数计算置信度：</p>
-                      <ul>
-                        <li><strong>5次测试</strong>：置信度 22%（低）</li>
-                        <li><strong>10次测试</strong>：置信度 39%（低）</li>
-                        <li><strong>20次测试</strong>：置信度 63%（中）</li>
-                        <li><strong>50次测试</strong>：置信度 92%（高）</li>
-                      </ul>
-                      
-                      <div class="info-box">
-                        <p>测试次数越多，掌握度评估越准确！</p>
-                      </div>
-                      
-                      <h4>趋势分析</h4>
-                      <p>系统自动分析你的学习趋势：</p>
-                      <ul>
-                        <li><strong>进步中</strong>：近期表现比早期好</li>
-                        <li><strong>稳定</strong>：保持稳定的正确率</li>
-                        <li><strong>退步中</strong>：需要加强复习</li>
-                      </ul>
-                    </div>
-                  </div>
-
-                  <!-- Section 6: 实际应用 -->
-                  <div class="tutorial-section">
-                    <div class="tutorial-section-title">
-                      <EnhancedIcon name="lightbulb" size="14" />
-                      <span>如何使用掌握度</span>
-                    </div>
-                    
-                    <div class="tutorial-text">
-                      <h4>在哪里查看？</h4>
-                      <p>掌握度指标会显示在：</p>
-                      <ul>
-                        <li>题库列表 - 每道题的统计卡片</li>
-                        <li>测试结果页 - 详细分析报告</li>
-                        <li>题目详情 - 完整的掌握度历史</li>
-                      </ul>
-                      
-                      <h4>如何理解？</h4>
-                      <div class="example-box">
-                        <p><strong>示例显示</strong>：熟练 (78.5%) - 进步中 +12%</p>
-                        <p><strong>解读</strong>：</p>
-                        <ul>
-                          <li>当前掌握度：78.5%（熟练级别）</li>
-                          <li>学习趋势：进步中</li>
-                          <li>进步幅度：+12%（相比早期提升了12%）</li>
-                        </ul>
-                      </div>
-
-                      <h4>学习建议</h4>
-                      <ul>
-                        <li><strong>已精通</strong>：可以降低练习频率，定期复习即可</li>
-                        <li><strong>熟练/学习中</strong>：继续保持练习，巩固知识</li>
-                        <li><strong>有困难/需复习</strong>：增加练习次数，重点关注</li>
-                        <li><strong>数据不足</strong>：多做几次测试，建立可靠的评估</li>
-                      </ul>
-                    </div>
-                  </div>
-
-                {/if}
-
-              </div><!-- .question-bank-tutorial-content -->
-            </div><!-- .question-bank-tutorial-scroll-container -->
-          </div><!-- .question-bank-tutorial-wrapper -->
-        {/snippet}
-      </FloatingMenu>
-    </div>
   </div>
 </div>
 
@@ -1469,78 +1012,63 @@ E) 定期重构代码 &#123;✓&#125;
     font-size: 0.75rem;
   }
 
-  /* 查看详细信息按钮 - 优化为更优雅的设计 */
-  .detailed-view-section {
+  .card-action-section {
     margin-top: 12px;
-    padding: 0;
-    background: transparent;
-    border: none;
+    padding-top: 10px;
+    border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
   }
 
-  .detailed-view-btn {
-    width: 100%;
-    padding: 11px 14px;
-    background: var(--interactive-accent);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  .card-action-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .card-action-item {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 7px;
-    box-shadow: 0 2px 6px color-mix(in srgb, var(--interactive-accent) 25%, transparent);
-    letter-spacing: 0.3px;
-  }
-
-  .detailed-view-btn:hover {
-    background: var(--interactive-accent-hover);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px color-mix(in srgb, var(--interactive-accent) 35%, transparent);
-  }
-
-  .detailed-view-btn:active {
-    transform: translateY(-1px);
-    box-shadow: 0 2px 6px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
-  }
-
-  /* 查看数据结构按钮（调试） */
-  .card-debug-section {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--background-modifier-border);
-    border-bottom: none;
-  }
-
-  .card-debug-btn {
+    justify-content: space-between;
+    gap: 12px;
     width: 100%;
     padding: 10px 12px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.8rem;
-    font-weight: 600;
+    background: var(--background-secondary);
+    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 82%, transparent);
+    border-radius: 8px;
+    color: var(--text-normal);
     cursor: pointer;
-    transition: all 0.2s ease;
-    display: flex;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .card-action-item:hover {
+    background: var(--background-modifier-hover);
+    border-color: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
+    color: var(--text-normal);
+  }
+
+  .card-action-item:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 2px;
+  }
+
+  .card-action-item:active {
+    background: color-mix(in srgb, var(--background-modifier-hover) 65%, var(--background-secondary));
+  }
+
+  .card-action-main {
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    gap: 6px;
-    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+    gap: 10px;
+    min-width: 0;
+    font-size: 0.84rem;
+    font-weight: 600;
   }
 
-  .card-debug-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+  .card-action-main :global(.obsidian-icon) {
+    color: var(--icon-color);
   }
 
-  .card-debug-btn:active {
-    transform: translateY(0);
-    box-shadow: 0 1px 2px rgba(102, 126, 234, 0.2);
+  .card-action-arrow {
+    color: var(--text-faint);
   }
 
   /* 设置分组样式 */
@@ -1659,465 +1187,4 @@ E) 定期重构代码 &#123;✓&#125;
     transform: translateX(20px);
   }
 
-  /* ==================== 教程菜单样式 ==================== */
-  .tutorial-container {
-    position: relative;
-  }
-
-  .toolbar-btn.tutorial-btn:hover {
-    background: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
-    border-color: var(--interactive-accent);
-  }
-
-  /* ====================  全新架构：三层分离设计 ==================== */
-  
-  /* 覆盖FloatingMenu的max-width限制 */
-  :global(.question-bank-tutorial-menu-container.floating-menu) {
-    max-width: 520px !important;
-    width: max-content;
-  }
-
-  /* 第一层：Wrapper - 控制整体尺寸和padding */
-  .question-bank-tutorial-wrapper {
-    width: 100%;
-    max-width: 500px;
-    max-height: 75vh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* 第二层：Header - 固定头部 */
-  .question-bank-tutorial-header {
-    flex-shrink: 0; /* 头部不收缩 */
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 18px 14px; /* 与content保持一致 */
-    border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 30%, transparent);
-    background: var(--background-primary);
-  }
-
-  .question-bank-tutorial-header span {
-    font-size: 0.92rem;
-    font-weight: 600;
-    color: var(--text-normal);
-    letter-spacing: 0.3px;
-  }
-
-  .question-bank-tutorial-header .close-btn {
-    padding: 6px;
-    border-radius: 6px;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: var(--text-muted);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .question-bank-tutorial-header .close-btn:hover {
-    background: color-mix(in srgb, var(--text-error) 10%, var(--background-primary));
-    color: var(--text-error);
-    transform: rotate(90deg);
-  }
-
-  /* 标签页导航 */
-  .question-bank-tutorial-tabs {
-    flex-shrink: 0;
-    display: flex;
-    gap: 0;
-    padding: 0 18px;
-    border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 30%, transparent);
-    background: var(--background-primary);
-  }
-
-  .question-bank-tutorial-tabs button {
-    flex: 1;
-    padding: 10px 16px;
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-muted);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    position: relative;
-  }
-
-  .question-bank-tutorial-tabs button:hover {
-    color: var(--text-normal);
-    background: color-mix(in srgb, var(--background-modifier-hover) 40%, transparent);
-  }
-
-  .question-bank-tutorial-tabs button.active {
-    color: var(--interactive-accent);
-    border-bottom-color: var(--interactive-accent);
-    font-weight: 600;
-  }
-
-  /* 第三层：Scroll Container - 可滚动区域（无padding） */
-  .question-bank-tutorial-scroll-container {
-    flex: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
-    min-height: 0; /* 关键：允许flex子元素正确滚动 */
-  }
-
-  /* 滚动条样式 */
-  .question-bank-tutorial-scroll-container::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  .question-bank-tutorial-scroll-container::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .question-bank-tutorial-scroll-container::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
-    border-radius: 4px;
-    border: 2px solid transparent;
-    background-clip: padding-box;
-  }
-
-  .question-bank-tutorial-scroll-container::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in srgb, var(--background-modifier-border) 80%, transparent);
-    background-clip: padding-box;
-  }
-
-  /* 第四层：Content - 实际内容区（有padding） */
-  .question-bank-tutorial-content {
-    padding: 16px 18px 20px; /* 统一的内边距：上16px 左右18px 下20px */
-    min-width: 0; /* 允许子元素缩小 */
-  }
-
-  /* 教程分组 */
-  .tutorial-section {
-    margin-bottom: 18px;
-    border-radius: 8px;
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 25%, transparent);
-    background: var(--background-primary);
-    overflow: hidden;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-    max-width: 100%; /* 确保不超出父容器 */
-    box-sizing: border-box;
-  }
-
-  .tutorial-section:last-child {
-    margin-bottom: 0;
-  }
-
-  .tutorial-section-title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 16px;
-    background: color-mix(in srgb, var(--background-secondary) 15%, transparent);
-    border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 20%, transparent);
-  }
-
-  .tutorial-section-title span {
-    font-size: 0.88rem;
-    font-weight: 600;
-    color: var(--text-normal);
-    letter-spacing: 0.2px;
-  }
-
-  .tutorial-text {
-    padding: 14px 16px 16px;
-    font-size: 0.86rem;
-    line-height: 1.65;
-    color: var(--text-normal);
-  }
-
-  /* 教程文本元素 */
-  .tutorial-text h4 {
-    font-size: 0.84rem;
-    font-weight: 600;
-    color: var(--text-accent);
-    margin: 18px 0 10px;
-    letter-spacing: 0.2px;
-  }
-
-  .tutorial-text h4:first-child {
-    margin-top: 0;
-  }
-
-  .tutorial-text p {
-    margin: 8px 0;
-    color: var(--text-normal);
-  }
-
-  .tutorial-text ul {
-    margin: 10px 0;
-    padding-left: 24px;
-  }
-
-  .tutorial-text li {
-    margin-bottom: 8px;
-    line-height: 1.6;
-  }
-
-  .tutorial-text strong {
-    font-weight: 600;
-    color: var(--text-accent);
-  }
-
-  .tutorial-text code {
-    background: color-mix(in srgb, var(--background-secondary) 60%, transparent);
-    padding: 3px 7px;
-    border-radius: 4px;
-    font-family: var(--font-monospace);
-    font-size: 0.82rem;
-    color: var(--code-normal);
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 30%, transparent);
-  }
-
-  .tutorial-text pre {
-    background: color-mix(in srgb, var(--background-secondary) 35%, transparent);
-    padding: 12px 15px;
-    border-radius: 6px;
-    overflow-x: auto;
-    margin: 10px 0;
-    font-size: 0.82rem;
-    line-height: 1.55;
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 30%, transparent);
-    color: var(--text-normal);
-    font-family: var(--font-monospace);
-    word-wrap: break-word;
-    overflow-wrap: break-word;
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-
-  .tutorial-note {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    font-style: italic;
-    margin-top: 8px;
-  }
-
-  /* 表格样式 */
-  .tutorial-table {
-    width: 100%;
-    max-width: 100%; /* 确保不超出 */
-    border-collapse: collapse;
-    margin: 14px 0;
-    font-size: 0.82rem;
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 30%, transparent);
-    border-radius: 6px;
-    overflow: hidden;
-    table-layout: fixed; /* 固定表格布局，防止内容撑开 */
-  }
-
-  .tutorial-table th,
-  .tutorial-table td {
-    padding: 9px 11px;
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 25%, transparent);
-    text-align: left;
-    word-wrap: break-word;
-  }
-
-  .tutorial-table th {
-    background: color-mix(in srgb, var(--background-secondary) 35%, transparent);
-    font-weight: 600;
-    color: var(--text-normal);
-    letter-spacing: 0.2px;
-  }
-
-  .tutorial-table td {
-    background: var(--background-primary);
-  }
-
-  .tutorial-table tr:hover td {
-    background: color-mix(in srgb, var(--background-modifier-hover) 30%, transparent);
-  }
-
-  .tutorial-table code {
-    font-size: 0.78rem;
-  }
-
-  /* 快捷键列表样式 */
-  .shortcut-list {
-    list-style: none;
-    padding: 0;
-  }
-
-  .shortcut-list li {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 0;
-  }
-
-  .shortcut-list kbd {
-    background: color-mix(in srgb, var(--background-secondary) 50%, transparent);
-    padding: 4px 10px;
-    border-radius: 5px;
-    font-family: var(--font-monospace);
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--text-normal);
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-    min-width: 90px;
-    text-align: center;
-  }
-
-  /* ==================== 算法原理标签页专用样式 ==================== */
-  
-  /* 高亮框 */
-  .highlight-box {
-    background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
-    border-left: 3px solid var(--interactive-accent);
-    padding: 12px 14px;
-    margin: 12px 0;
-    border-radius: 4px;
-  }
-
-  .highlight-box p {
-    margin: 0;
-    color: var(--text-normal);
-  }
-
-  /* 信息框 */
-  .info-box {
-    background: color-mix(in srgb, var(--background-secondary) 40%, transparent);
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
-    padding: 12px 14px;
-    margin: 12px 0;
-    border-radius: 6px;
-  }
-
-  .info-box p {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: 0.88rem;
-  }
-
-  /* 示例框 */
-  .example-box {
-    background: color-mix(in srgb, var(--background-secondary) 30%, transparent);
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 35%, transparent);
-    padding: 14px 16px;
-    margin: 14px 0;
-    border-radius: 6px;
-  }
-
-  .example-box p {
-    margin: 8px 0;
-  }
-
-  .example-box ul {
-    margin: 8px 0;
-    padding-left: 20px;
-  }
-
-  .example-box li {
-    margin: 6px 0;
-    color: var(--text-muted);
-    font-size: 0.88rem;
-  }
-
-  /* 算法公式 */
-  .algorithm-formula {
-    background: color-mix(in srgb, var(--background-secondary) 45%, transparent);
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
-    padding: 16px 18px;
-    border-radius: 6px;
-    font-family: var(--font-monospace);
-    font-size: 0.86rem;
-    line-height: 1.8;
-    color: var(--text-normal);
-    overflow-x: auto;
-    white-space: pre;
-  }
-
-  /* 对比表格增强 */
-  .comparison-table .highlight-value {
-    color: var(--interactive-accent);
-    font-weight: 600;
-    font-size: 0.92rem;
-  }
-
-  .comparison-table .status-good {
-    color: var(--text-success);
-    font-weight: 500;
-  }
-
-  /* 掌握级别列表 */
-  .mastery-levels {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin: 14px 0;
-  }
-
-  .mastery-level {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 11px 14px;
-    border-radius: 6px;
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 35%, transparent);
-    transition: all 0.2s ease;
-  }
-
-  .mastery-level:hover {
-    background: color-mix(in srgb, var(--background-modifier-hover) 30%, transparent);
-    transform: translateX(2px);
-  }
-
-  .level-badge {
-    flex-shrink: 0;
-    padding: 5px 11px;
-    border-radius: 4px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-
-  .level-desc {
-    color: var(--text-muted);
-    font-size: 0.85rem;
-  }
-
-  /* 各级别颜色 */
-  .level-mastered .level-badge {
-    background: color-mix(in srgb, var(--text-success) 15%, transparent);
-    color: var(--text-success);
-    border: 1px solid color-mix(in srgb, var(--text-success) 25%, transparent);
-  }
-
-  .level-proficient .level-badge {
-    background: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
-    color: var(--interactive-accent);
-    border: 1px solid color-mix(in srgb, var(--interactive-accent) 25%, transparent);
-  }
-
-  .level-learning .level-badge {
-    background: color-mix(in srgb, #3b82f6 15%, transparent);
-    color: #3b82f6;
-    border: 1px solid color-mix(in srgb, #3b82f6 25%, transparent);
-  }
-
-  .level-struggling .level-badge {
-    background: color-mix(in srgb, #f59e0b 15%, transparent);
-    color: #f59e0b;
-    border: 1px solid color-mix(in srgb, #f59e0b 25%, transparent);
-  }
-
-  .level-review .level-badge {
-    background: color-mix(in srgb, var(--text-error) 15%, transparent);
-    color: var(--text-error);
-    border: 1px solid color-mix(in srgb, var(--text-error) 25%, transparent);
-  }
-
-  .level-insufficient .level-badge {
-    background: color-mix(in srgb, var(--text-muted) 15%, transparent);
-    color: var(--text-muted);
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
-  }
 </style>

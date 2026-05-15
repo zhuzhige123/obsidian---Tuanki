@@ -63,7 +63,7 @@
 
   let progressModal = $state({
     open: false,
-    operation: 'sync_to_anki' as 'fetch_models' | 'sync_to_anki' | 'sync_from_anki' | 'batch_sync',
+    operation: 'sync_to_anki' as 'fetch_models' | 'sync_to_anki' | 'batch_sync',
     title: '',
     current: 0,
     total: 0,
@@ -569,163 +569,13 @@
     }
   }
 
-  async function handleImportDeck(ankiDeckName: string, weaveDeckId: string) {
+  async function performSync() {
     if (!ankiService) {
       new Notice(t('ankiConnect.notices.pleaseInitFirst'));
       return;
     }
 
-    try {
-      progressModal = {
-        open: true,
-        operation: 'sync_from_anki',
-        title: t('ankiConnect.notices.importFromAnkiTitle'),
-        current: 0,
-        total: 0,
-        status: t('ankiConnect.notices.preparing'),
-        currentItem: ankiDeckName,
-        deckIndex: 1,
-        totalDecks: 1
-      };
-
-      const contentConversion = settings.deckMappings?.[ankiDeckName]?.contentConversion;
-      const result = await ankiService.importDeckWithTemplates(
-        ankiDeckName,
-        weaveDeckId,
-        contentConversion,
-        (current, total, status) => {
-          progressModal.current = current;
-          progressModal.total = total;
-          progressModal.status = status || t('ankiConnect.notices.importingCards');
-        }
-      );
-
-      progressModal.open = false;
-
-      if (!result.success) {
-        throw new Error(t('ankiConnect.notices.importFailedError'));
-      }
-
-      const mappingId = Object.keys(settings.deckMappings).find((key) => {
-        const mapping = settings.deckMappings[key];
-        return mapping.ankiDeckName === ankiDeckName && mapping.weaveDeckId === weaveDeckId;
-      });
-
-      if (mappingId) {
-        updateDeckMapping(mappingId, { lastSyncTime: new Date().toISOString() });
-      }
-
-      new Notice(
-        t('ankiConnect.notices.importComplete', {
-          cards: result.importedCards,
-          templates: result.importedTemplates,
-          skipped: result.skippedCards
-        }),
-        8000
-      );
-
-      if (result.errors.length > 0) {
-        logger.warn('导入过程中出现错误:', result.errors);
-        new Notice(t('ankiConnect.notices.importWarnings', { count: result.errors.length }), 5000);
-      }
-    } catch (error: any) {
-      progressModal.open = false;
-      logger.error('导入牌组失败:', error);
-      new Notice(t('ankiConnect.notices.importFailed') + error.message, 8000);
-    }
-  }
-
-  async function handleBidirectionalSync(deckId: string) {
-    if (!ankiService) {
-      new Notice(t('ankiConnect.notices.pleaseInitFirst'));
-      return;
-    }
-
-    const mapping = settings.deckMappings[deckId];
-    if (!mapping) {
-      new Notice(t('ankiConnect.notices.mappingNotFound'));
-      return;
-    }
-
-    try {
-      progressModal = {
-        open: true,
-        operation: 'batch_sync',
-        title: '双向同步',
-        current: 0,
-        total: 0,
-        status: t('ankiConnect.notices.preparing'),
-        currentItem: mapping.weaveDeckName,
-        deckIndex: 1,
-        totalDecks: 1
-      };
-
-      const importResult = await ankiService.importDeckWithTemplates(
-        mapping.ankiDeckName,
-        mapping.weaveDeckId,
-        mapping.contentConversion,
-        (current, total, status) => {
-          progressModal.current = current;
-          progressModal.total = total;
-          progressModal.status = `导入: ${status || t('ankiConnect.notices.importingCards')}`;
-        }
-      );
-
-      if (!importResult.success) {
-        throw new Error('双向同步导入阶段失败');
-      }
-
-      const exportResult = await ankiService.exportDeckToAnki(
-        mapping.weaveDeckId,
-        mapping.ankiDeckName,
-        (current, total, status) => {
-          progressModal.current = current;
-          progressModal.total = total;
-          progressModal.status = `导出: ${status || t('ankiConnect.notices.syncingCards')}`;
-        }
-      );
-
-      progressModal.open = false;
-
-      if (!exportResult.success) {
-        throw new Error('双向同步导出阶段失败');
-      }
-
-      mapping.lastSyncTime = new Date().toISOString();
-      await saveSettings(false);
-
-      new Notice(
-        `${mapping.weaveDeckName} 双向同步完成：导入 ${importResult.importedCards}，导出 ${exportResult.exportedCards}，跳过 ${importResult.skippedCards + exportResult.skippedCards}`,
-        6000
-      );
-    } catch (error: any) {
-      progressModal.open = false;
-      logger.error('双向同步失败:', error);
-      new Notice(error.message || '双向同步失败', 5000);
-    }
-  }
-
-  async function performSync(mode: 'to_anki' | 'from_anki' | 'bidirectional') {
-    if (!ankiService) {
-      new Notice(t('ankiConnect.notices.pleaseInitFirst'));
-      return;
-    }
-
-    const enabledMappings = Object.values(settings.deckMappings).filter((mapping) => {
-      if (!mapping.enabled) {
-        return false;
-      }
-
-      if (mode === 'to_anki') {
-        return mapping.syncDirection === 'to_anki' || mapping.syncDirection === 'bidirectional';
-      }
-
-      if (mode === 'from_anki') {
-        return mapping.syncDirection === 'from_anki' || mapping.syncDirection === 'bidirectional';
-      }
-
-      return mapping.syncDirection === 'bidirectional';
-    });
+    const enabledMappings = Object.values(settings.deckMappings).filter((mapping) => mapping.enabled);
 
     if (enabledMappings.length === 0) {
       new Notice(t('ankiConnect.notices.noEnabledMappings'));
@@ -745,18 +595,8 @@
     try {
       progressModal = {
         open: true,
-        operation:
-          mode === 'to_anki'
-            ? 'sync_to_anki'
-            : mode === 'from_anki'
-              ? 'sync_from_anki'
-              : 'batch_sync',
-        title:
-          mode === 'to_anki'
-            ? t('ankiConnect.notices.batchExportTitle')
-            : mode === 'from_anki'
-              ? t('ankiConnect.notices.batchImportTitle')
-              : '批量双向同步',
+        operation: 'batch_sync',
+        title: t('ankiConnect.notices.batchExportTitle'),
         current: 0,
         total: 0,
         status: t('ankiConnect.notices.preparing'),
@@ -775,78 +615,24 @@
         progressModal.status = t('ankiConnect.notices.processing');
 
         try {
-          if (mode === 'to_anki') {
-            const result = await ankiService.exportDeckToAnki(
-              mapping.weaveDeckId,
-              mapping.ankiDeckName,
-              (current, total, status) => {
-                progressModal.current = current;
-                progressModal.total = total;
-                progressModal.status = status || t('ankiConnect.notices.syncingCards');
-              }
-            );
-
-            if (!result.success) {
-              throw new Error(t('ankiConnect.notices.exportFailed'));
+          const result = await ankiService.exportDeckToAnki(
+            mapping.weaveDeckId,
+            mapping.ankiDeckName,
+            (current, total, status) => {
+              progressModal.current = current;
+              progressModal.total = total;
+              progressModal.status = status || t('ankiConnect.notices.syncingCards');
             }
+          );
 
-            results.successDecks++;
-            results.successCards += result.exportedCards;
-            results.skippedCards += result.skippedCards;
-            exportResults.push(result);
-          } else if (mode === 'from_anki') {
-            const result = await ankiService.importDeckWithTemplates(
-              mapping.ankiDeckName,
-              mapping.weaveDeckId,
-              mapping.contentConversion,
-              (current, total, status) => {
-                progressModal.current = current;
-                progressModal.total = total;
-                progressModal.status = status || t('ankiConnect.notices.importingCards');
-              }
-            );
-
-            if (!result.success) {
-              throw new Error(t('ankiConnect.notices.importFailedError'));
-            }
-
-            results.successDecks++;
-            results.successCards += result.importedCards;
-            results.skippedCards += result.skippedCards;
-          } else {
-            const importResult = await ankiService.importDeckWithTemplates(
-              mapping.ankiDeckName,
-              mapping.weaveDeckId,
-              mapping.contentConversion,
-              (current, total, status) => {
-                progressModal.current = current;
-                progressModal.total = total;
-                progressModal.status = `导入: ${status || t('ankiConnect.notices.importingCards')}`;
-              }
-            );
-
-            if (!importResult.success) {
-              throw new Error('双向同步导入阶段失败');
-            }
-
-            const exportResult = await ankiService.exportDeckToAnki(
-              mapping.weaveDeckId,
-              mapping.ankiDeckName,
-              (current, total, status) => {
-                progressModal.current = current;
-                progressModal.total = total;
-                progressModal.status = `导出: ${status || t('ankiConnect.notices.syncingCards')}`;
-              }
-            );
-
-            if (!exportResult.success) {
-              throw new Error('双向同步导出阶段失败');
-            }
-
-            results.successDecks++;
-            results.successCards += importResult.importedCards + exportResult.exportedCards;
-            results.skippedCards += importResult.skippedCards + exportResult.skippedCards;
+          if (!result.success) {
+            throw new Error(t('ankiConnect.notices.exportFailed'));
           }
+
+          results.successDecks++;
+          results.successCards += result.exportedCards;
+          results.skippedCards += result.skippedCards;
+          exportResults.push(result);
 
           mapping.lastSyncTime = new Date().toISOString();
         } catch (error: any) {
@@ -859,10 +645,9 @@
       progressModal.open = false;
       await saveSettings(false);
 
-      const mergedExportResult =
-        mode === 'to_anki' && exportResults.length > 0 ? mergeExportResults(exportResults) : null;
+      const mergedExportResult = exportResults.length > 0 ? mergeExportResults(exportResults) : null;
 
-      if (mode === 'to_anki' && mergedExportResult) {
+      if (mergedExportResult) {
         new Notice(
           `批量同步完成：成功牌组 ${results.successDecks}/${results.totalDecks}，${buildExportNotice(mergedExportResult)}`,
           results.failedDecks === 0 ? 6000 : 8000
@@ -875,11 +660,6 @@
             total: results.totalDecks,
             cards: results.successCards
           }),
-          6000
-        );
-      } else if (mode === 'bidirectional' && results.failedDecks === 0) {
-        new Notice(
-          `批量双向同步完成：成功牌组 ${results.successDecks}/${results.totalDecks}，处理卡片 ${results.successCards}`,
           6000
         );
       } else {
@@ -1010,9 +790,6 @@
       onUpdateMapping={updateDeckMapping}
       onRemoveMapping={removeDeckMapping}
       onSync={quickSyncToAnki}
-      onImport={handleImportDeck}
-      settings={settings}
-      onBidirectionalSync={handleBidirectionalSync}
       onBatchSync={performSync}
     />
   {/if}
@@ -1115,7 +892,7 @@
   .sync-overview-group {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 0.75rem;
   }
 
   .section-header-inline {
@@ -1123,6 +900,7 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 16px;
+    margin-bottom: 0;
   }
 
   .section-description {
@@ -1138,19 +916,12 @@
 
   .primary-toggle-item {
     margin: 0;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 14px;
-    background: color-mix(in srgb, var(--background-secondary) 92%, transparent);
-  }
-
-  .primary-toggle-item {
-    padding-block: 14px;
   }
 
   .config-shell {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 1rem;
   }
 
   .config-shell :global(.connection-manager),
@@ -1164,7 +935,7 @@
   .secondary-action-btn,
   .primary-action-btn,
   .floating-panel-close {
-    border-radius: 10px;
+    border-radius: 14px;
     border: 1px solid var(--background-modifier-border);
     cursor: pointer;
     transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;

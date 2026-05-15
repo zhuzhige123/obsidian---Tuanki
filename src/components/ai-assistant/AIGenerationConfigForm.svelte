@@ -22,7 +22,6 @@
       ...value,
       cardCount: count,
       maxGenerationLimit: count,
-      autoTags: [...(value.autoTags ?? [])],
       typeDistribution: { ...(value.typeDistribution ?? { qa: 50, cloze: 30, choice: 20 }) }
     };
   }
@@ -38,7 +37,6 @@
     temperature: 0.7,
     maxTokens: 2000,
     templates: { qa: 'official-qa', choice: 'official-choice', cloze: 'official-cloze' },
-    autoTags: [],
     enableHints: true,
     maxGenerationLimit: 20,
     prioritizePromptRequirements: true
@@ -103,7 +101,7 @@
       maxGenerationLimit: 10,
       difficulty: 'medium',
       typeDistribution: { qa: 50, cloze: 30, choice: 20 },
-      autoTags: [],
+      maxTokens: 2000,
       enableHints: true
     };
     validationErrors = [];
@@ -121,6 +119,10 @@
       errors.push(`题型分布总和必须为 100%（当前: ${total}%）`);
     }
 
+    if (!Number.isFinite(localConfig.maxTokens) || localConfig.maxTokens < 1 || localConfig.maxTokens > 64000) {
+      errors.push('Token 限制必须在 1-64000 之间');
+    }
+
     validationErrors = errors;
     return errors.length === 0;
   }
@@ -130,9 +132,9 @@
 
     onSave({
       ...localConfig,
-      autoTags: [...(localConfig.autoTags ?? [])],
       typeDistribution: { ...localConfig.typeDistribution },
       cardCount: localConfig.cardCount,
+      maxTokens: Math.max(1, Math.floor(localConfig.maxTokens || 0)),
       maxGenerationLimit: localConfig.cardCount
     });
   }
@@ -300,19 +302,22 @@
       </div>
 
       <div class="config-item">
-        <label class="config-label" for="auto-tags-input">自动添加标签</label>
+        <label class="config-label" for="max-tokens-input">Token 限制</label>
         <input
-          id="auto-tags-input"
-          type="text"
-          value={localConfig.autoTags?.join(', ') ?? ''}
+          id="max-tokens-input"
+          type="number"
+          min="1"
+          max="64000"
+          step="100"
+          value={localConfig.maxTokens}
           oninput={(event) => {
-            const value = (event.currentTarget as HTMLInputElement).value;
+            const value = parseInt((event.currentTarget as HTMLInputElement).value, 10);
             localConfig = {
               ...localConfig,
-              autoTags: value.split(',').map((item) => item.trim()).filter(Boolean)
+              maxTokens: Number.isFinite(value) ? value : 2000
             };
           }}
-          placeholder="标签1, 标签2, ..."
+          placeholder="2000"
           class="config-input"
         />
       </div>

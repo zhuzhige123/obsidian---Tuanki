@@ -11,8 +11,7 @@ import { ChoiceCardParser } from "../../parsers/card-type-parsers/ChoiceCardPars
 import { ClozeCardParser } from "../../parsers/card-type-parsers/ClozeCardParser";
 import { QACardParser } from "../../parsers/card-type-parsers/QACardParser";
 import type { CardConversionResult, GeneratedCard, GenerationConfig } from "../../types/ai-types";
-// 导入 YAML 工具函数
-import { createContentWithMetadata } from "../../utils/yaml-utils";
+import { setCardProperties } from "../../utils/yaml-utils";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
 
 export class CardConverter {
@@ -30,22 +29,26 @@ export class CardConverter {
 		try {
 			const now = new Date().toISOString();
 			const uuid = generateCardUUID();
+			const normalizedTags = Array.from(
+				new Set((generatedCard.tags || []).map((tag) => String(tag || "").trim().replace(/^#+/, "")).filter(Boolean))
+			);
 
 			let content = generatedCard.content || "";
 
-			// 在 content 中写入 YAML 元数据（we_source / we_decks）
-			if (content) {
-				const yamlMeta: Parameters<typeof createContentWithMetadata>[0] = {};
-				if (sourceFile) {
-					const name = sourceFile.replace(/\.md$/, "");
-					yamlMeta.we_source = `![[${name}]]`;
-				}
-				if (deckName) {
-					yamlMeta.we_decks = [deckName];
-				}
-				if (Object.keys(yamlMeta).length > 0) {
-					content = createContentWithMetadata(yamlMeta, content);
-				}
+			// 在 content 中写入 YAML 元数据（we_source / we_decks / tags）
+			const yamlMeta: Parameters<typeof setCardProperties>[1] = {};
+			if (sourceFile) {
+				const name = sourceFile.replace(/\.md$/, "");
+				yamlMeta.we_source = `![[${name}]]`;
+			}
+			if (deckName) {
+				yamlMeta.we_decks = [deckName];
+			}
+			if (normalizedTags.length > 0) {
+				yamlMeta.tags = normalizedTags;
+			}
+			if (Object.keys(yamlMeta).length > 0) {
+				content = setCardProperties(content, yamlMeta);
 			}
 
 			// 根据题型确定使用的模板ID（统一使用基础模板）
@@ -118,7 +121,7 @@ export class CardConverter {
 				modified: now,
 
 				// 标签
-				tags: generatedCard.tags || [],
+				tags: normalizedTags,
 
 				// 优先级
 				priority: 0,

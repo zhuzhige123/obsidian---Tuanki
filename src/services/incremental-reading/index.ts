@@ -8,6 +8,17 @@
 // 存储服务
 export { ReadingMaterialStorage, createReadingMaterialStorage } from "./ReadingMaterialStorage";
 export { IRStorageService } from "./IRStorageService";
+export { IRPointDataReadService, createIRPointDataReadService } from "./IRPointDataReadService";
+export { IRScheduleReadService, createIRScheduleReadService } from "./IRScheduleReadService";
+export { IRPointReadService, createIRPointReadService } from "./IRPointReadService";
+export { IRHostSharedService } from "./IRHostSharedService";
+export type {
+	IREnsureExternalDocumentChunkScheduledOptions,
+	IREpubResumePointOptions,
+	IREpubScheduleChapterOptions,
+	IRSelectionQuickCreatePreferencesLike,
+	IRTopicRef,
+} from "./IRHostSharedService";
 
 // v3.0 新调度系统
 export {
@@ -154,8 +165,29 @@ export {
 } from "./IRPlanGeneratorService";
 export {
 	IR_DATA_UPDATED_EVENT,
+	broadcastIRDataUpdated,
 	recomputeAndBroadcastIRData,
 } from "./IRScheduleRefreshService";
+export {
+	IRCalendarQueryService,
+	getSharedIRCalendarQueryService,
+} from "./IRCalendarQueryService";
+export type {
+	IRCalendarQueryOptions,
+	IRCalendarQueryScope,
+	IRCalendarQueryResult,
+} from "./IRCalendarQueryService";
+export {
+	buildScheduleItemFromChunkData,
+	buildScheduleItemFromEpubTask,
+	buildScheduleItemFromLegacyBlock,
+	buildScheduleItemFromPdfTask,
+	buildScheduleItemFromProjectedItem,
+} from "./IRCalendarScheduleItem";
+export type {
+	ScheduleItem,
+	ScheduleItemSourceType,
+} from "./IRCalendarScheduleItem";
 
 // 类型重导出
 export type {

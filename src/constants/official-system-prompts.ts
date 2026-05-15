@@ -35,8 +35,8 @@ export const OFFICIAL_SYSTEM_PROMPTS: CustomSystemPrompt[] = [
 *   **Type 2: 挖空型 (Cloze)**
     *   *适用场景*：公式、代码片段、具有强上下文关联的连续步骤（对应原完形填空类）。
     *   *核心规则*：
-      - 结构：包含 ==挖空内容== 标记的完整语句 \\n\\n---div---\\n\\n 补充解析（可选）
-      - 必须使用 ==文本== 格式标记挖空（Obsidian高亮语法），严禁使用 {{c1::答案::提示}} 格式
+      - 结构：包含 {clozeWrappedContentExample} 标记的完整语句 \\n\\n---div---\\n\\n 补充解析（可选）
+      - 必须使用 {clozeSyntaxExample} 格式标记挖空，严禁使用 {{c1::答案::提示}} 格式
       - 每张卡片挖1-3个核心关键词/短语，挖空后语句需通顺
       - 统一使用 **content** 字段存储 Markdown 卡片内容，便于在 Obsidian 中直接预览和编辑
 *   **Type 3: 选择题型 (Choice)**
@@ -85,7 +85,7 @@ export const OFFICIAL_SYSTEM_PROMPTS: CustomSystemPrompt[] = [
     },
     {
       "type": "cloze",
-      "content": "==TCP== 协议通过三次握手建立连接，保证数据传输的 ==可靠性==。\\n\\n---div---\\n\\n三次握手是TCP建立连接的核心机制，可靠性是TCP区别于UDP的关键特征。"
+      "content": "{clozeTcpExample} 协议通过三次握手建立连接，保证数据传输的 {clozeReliabilityExample}。\\n\\n---div---\\n\\n三次握手是TCP建立连接的核心机制，可靠性是TCP区别于UDP的关键特征。"
     }
   ]
 }`,

@@ -179,7 +179,7 @@ export interface SyncProgress {
 /**
  * 同步方向
  */
-export type SyncDirection = "to_anki" | "from_anki";
+export type SyncDirection = "to_anki";
 
 /**
  * AnkiConnect 错误类

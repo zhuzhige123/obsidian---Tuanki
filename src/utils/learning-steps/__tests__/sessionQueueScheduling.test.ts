@@ -67,4 +67,23 @@ describe('sessionQueueScheduling', () => {
     });
     expect(queue.map(card => card.uuid)).toEqual(['current', 'future', 'later']);
   });
+
+  it('continues within the current fixed queue when only pending cards remain', () => {
+    const nowMs = Date.parse('2026-03-31T12:00:00.000Z');
+    const queue = [
+      createReviewCard('current', '2026-03-31T11:00:00.000Z'),
+      createReviewCard('future', '2026-03-31T21:00:00.000Z')
+    ];
+
+    const result = requeueFutureDueCards(queue, 0, nowMs, {
+      continueWithPendingCards: true
+    });
+
+    expect(result).toEqual({
+      nextIndex: 1,
+      movedCount: 1,
+      nextPendingDueAt: '2026-03-31T21:00:00.000Z'
+    });
+    expect(queue.map(card => card.uuid)).toEqual(['current', 'future']);
+  });
 });

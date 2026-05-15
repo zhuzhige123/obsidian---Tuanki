@@ -8,7 +8,12 @@
   import type { Card } from '../../data/types';
 
   import { parseCardContent } from '../../parsing/card-content-parser';
+  import type { ChoiceQuestion } from '../../parsing/choice-question-parser';
   import { stripHintBlock } from '../../utils/hint-block-utils';
+  import {
+    applyChoiceQuestionOptionOrder,
+    type ChoiceOptionOrder,
+  } from '../../utils/study/choiceOptionOrder';
 
   interface Props {
     content: string;
@@ -28,6 +33,7 @@
     hasSubmitted?: boolean;
     onSingleSelect?: (label: string) => void;
     onMultipleToggle?: (label: string) => void;
+    choiceOptionOrder?: ChoiceOptionOrder;
   }
 
   let {
@@ -47,19 +53,32 @@
     userAnswer = null,
     hasSubmitted = false,
     onSingleSelect,
-    onMultipleToggle
+    onMultipleToggle,
+    choiceOptionOrder = 'sequential'
   }: Props = $props();
 
   const sanitizedContent = $derived(stripHintBlock(content || ''));
   const parsed = $derived(parseCardContent(sanitizedContent));
   const clozeMode = $derived.by(() => resolveClozeModeForRender(card?.content, content));
+  const orderedChoiceQuestion = $derived.by<ChoiceQuestion | null>(() => {
+    if (parsed.kind !== 'choice') {
+      return null;
+    }
+
+    const seedSource = `${card?.uuid || sourcePath || sanitizedContent}::${parsed.choice.question}`;
+    return applyChoiceQuestionOptionOrder(
+      parsed.choice,
+      choiceOptionOrder,
+      seedSource
+    ).question;
+  });
 </script>
 
 {#if parsed.kind === 'choice'}
   {#if section === 'stem'}
     <ObsidianRenderer
       {plugin}
-      content={parsed.choice.question}
+      content={orderedChoiceQuestion?.question ?? parsed.choice.question}
       sourcePath={sourcePath}
       enableClozeProcessing={true}
       showClozeAnswers={showAnswer}
@@ -77,9 +96,10 @@
       />
     {/if}
   {:else if section === 'options'}
-    {@const hasAnswerKey = Array.isArray(parsed.choice.correctAnswers) && parsed.choice.correctAnswers.length > 0}
-    {#each parsed.choice.options as option}
-      {@const isMultiple = parsed.choice.isMultipleChoice}
+    {@const renderedChoice = orderedChoiceQuestion ?? parsed.choice}
+    {@const hasAnswerKey = Array.isArray(renderedChoice.correctAnswers) && renderedChoice.correctAnswers.length > 0}
+    {#each renderedChoice.options as option}
+      {@const isMultiple = renderedChoice.isMultipleChoice}
       {@const isSelected = isMultiple
         ? Array.isArray(userAnswer) && userAnswer.includes(option.label)
         : userAnswer === option.label}
@@ -119,7 +139,7 @@
     {/each}
   {:else}
     <ChoiceQuestionPreview
-      question={parsed.choice}
+      question={orderedChoiceQuestion ?? parsed.choice}
       {plugin}
       {showAnswer}
       {selectedOptions}

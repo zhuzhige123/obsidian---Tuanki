@@ -25,13 +25,15 @@ import type {
 	TemplateScenario,
 	TemplateValidationResult,
 } from "../../types/newCardParsingTypes";
+import { getOfficialTemplateById } from "../../constants/official-templates";
 import { LRUCache } from "../cache/LRUCache";
 import { generateBlockId } from "../helpers";
 import {
 	MultilingualPatternRecognizer,
 	createMultilingualRecognizer,
 } from "../multilingual-parser-support";
-import { globalPerformanceMonitor } from "../parsing-performance-monitor";
+import { getAnkiClozeMatches, getConfiguredClozeMatches, hasAnyClozeSyntax } from "../cloze-syntax";
+import { getGlobalPerformanceMonitor } from "../parsing-performance-monitor";
 import { TagExtractor } from "../tag-extractor";
 import { CardPositionTracker, CardWithPosition } from "./CardPositionTracker";
 import { EnhancedDelimiterDetector } from "./EnhancedDelimiterDetector";
@@ -46,6 +48,7 @@ export class SimplifiedCardParser implements ICardParser {
 	private lastCardsPosition?: CardWithPosition[]; // 存储最近一次解析的卡片位置信息
 	private readonly MAX_CACHE_SIZE = 1000;
 	private readonly CACHE_TTL = 5 * 60 * 1000; // 5分钟
+	private cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor(settings: SimplifiedParsingSettings, app?: any) {
 		this.settings = settings;
@@ -80,7 +83,7 @@ export class SimplifiedCardParser implements ICardParser {
 		});
 
 		// 定期清理过期缓存
-		setInterval(() => {
+		this.cacheCleanupInterval = setInterval(() => {
 			this.parseCache.cleanup();
 			this.templateCache.cleanup();
 		}, this.CACHE_TTL);
@@ -134,6 +137,15 @@ export class SimplifiedCardParser implements ICardParser {
 	clearCache(): void {
 		this.parseCache.clear();
 		this.templateCache.clear();
+	}
+
+	destroy(): void {
+		if (this.cacheCleanupInterval) {
+			clearInterval(this.cacheCleanupInterval);
+			this.cacheCleanupInterval = null;
+		}
+		this.clearCache();
+		this.lastCardsPosition = undefined;
 	}
 
 	/**
@@ -205,7 +217,7 @@ export class SimplifiedCardParser implements ICardParser {
 		const cached = this.parseCache.get(cacheKey);
 		if (cached) {
 			const duration = Date.now() - startTime;
-			globalPerformanceMonitor.recordOperation(
+			getGlobalPerformanceMonitor().recordOperation(
 				"parseSingleCard",
 				duration,
 				true,
@@ -260,7 +272,7 @@ export class SimplifiedCardParser implements ICardParser {
 			const duration = Date.now() - startTime;
 			const success = result !== null;
 			const confidence = result?.metadata?.confidence;
-			globalPerformanceMonitor.recordOperation(
+			getGlobalPerformanceMonitor().recordOperation(
 				"parseSingleCard",
 				duration,
 				success,
@@ -274,7 +286,7 @@ export class SimplifiedCardParser implements ICardParser {
 
 			// 记录错误性能数据
 			const duration = Date.now() - startTime;
-			globalPerformanceMonitor.recordOperation("parseSingleCard", duration, false, 0, false);
+			getGlobalPerformanceMonitor().recordOperation("parseSingleCard", duration, false, 0, false);
 
 			return null;
 		}
@@ -437,15 +449,7 @@ export class SimplifiedCardParser implements ICardParser {
 	 * 渐进式挖空的检测和转换由 ProgressiveClozeGateway 统一处理
 	 */
 	private detectCardType(content: string): CardType {
-		// 检测挖空题 - 支持 Obsidian 高亮和 Anki 语法
-		const clozePattern = new RegExp(
-			`${this.escapeRegex(this.settings.symbols.clozeMarker)}[^${this.escapeRegex(
-				this.settings.symbols.clozeMarker
-			)}]+${this.escapeRegex(this.settings.symbols.clozeMarker)}`,
-			"g"
-		);
-		const ankiClozePattern = /\{\{c\d+::.+?\}\}/g;
-		if (clozePattern.test(content) || ankiClozePattern.test(content)) {
+		if (hasAnyClozeSyntax(content)) {
 			return CardType.Cloze;
 		}
 
@@ -491,6 +495,26 @@ export class SimplifiedCardParser implements ICardParser {
 
 			for (const field of template.fields) {
 				try {
+					if (template.id === "official-cloze") {
+						if (field.name === "Cloze") {
+							const clozes = getConfiguredClozeMatches(content).map((match) => match.text);
+							if (clozes.length > 0) {
+								fields[field.name] = clozes.join("\n");
+							} else if (field.required) {
+								logger.warn(`必需字段 ${field.name} 未找到匹配`);
+							}
+							continue;
+						}
+
+						if (field.name === "ClozeAnki") {
+							const ankiClozes = getAnkiClozeMatches(content).map((match) => match.text);
+							if (ankiClozes.length > 0) {
+								fields[field.name] = ankiClozes.join("\n");
+							}
+							continue;
+						}
+					}
+
 					// 使用 field.pattern 而非 field.regex，尊重 isRegex 标志
 					const pattern = field.isRegex ? field.pattern : this.escapeRegex(field.pattern);
 					const regex = new RegExp(pattern, field.flags || "");
@@ -653,9 +677,12 @@ export class SimplifiedCardParser implements ICardParser {
 		}
 
 		// 查找模板
+		const officialTemplate = getOfficialTemplateById(templateId);
 		const template =
 			this.settings.templates.find((t) => t.id === templateId && t.scenarios.includes(scenario)) ||
-			null;
+			(officialTemplate && officialTemplate.scenarios.includes(scenario)
+				? officialTemplate
+				: null);
 
 		// 缓存找到的模板
 		if (template) {

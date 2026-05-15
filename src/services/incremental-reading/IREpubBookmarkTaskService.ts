@@ -1,39 +1,28 @@
 import type { App } from "obsidian";
 import { normalizePath } from "obsidian";
-import { getV2PathsFromApp } from "../../config/paths";
-import { EpubStorageService, type EpubSourceRegistryEntry } from "../epub/EpubStorageService";
+import { EpubStorageService } from "../epub/EpubStorageService";
 import type { IRBlockMeta, IRBlockStats, IRBlockStatus, IRBlockV4 } from "../../types/ir-types";
 import { DEFAULT_IR_BLOCK_META, DEFAULT_IR_BLOCK_STATS } from "../../types/ir-types";
-import {
-	getTaskTopicId,
-	normalizeBookmarkTaskForRuntime,
-	serializeBookmarkTaskForStorage,
-} from "../../utils/ir-topic-compat";
+import { getTaskTopicId } from "../../utils/ir-topic-compat";
 import { logger } from "../../utils/logger";
+import {
+	buildLegacyEpubTaskFromPointSnapshot,
+	getLegacyBookmarkTaskKind,
+} from "./IRLegacyTaskCompatAdapter";
+import { resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 import { IRPointStorageService } from "./IRPointStorageService";
 
-/**
- * EPUB 书签 IR 任务
- * 每个任务对应 EPUB 目录中的一个条目（章节/节），参与 IR 调度队列
- */
 export interface IREpubBookmarkTask {
 	id: string;
 	topicId?: string;
 	deckId: string;
 	sourceId?: string;
-	/** EPUB 文件在 Vault 中的路径 */
 	epubFilePath: string;
-	/** TOC 条目标题 */
 	title: string;
-	/** TOC 条目的 href（用于导航跳转） */
 	tocHref: string;
-	/** TOC 层级深度（0=顶层章节，1=节，2=小节...） */
 	tocLevel: number;
-	/** 续读点 CFI（用户手动标记的阅读位置） */
 	resumeCfi?: string;
-	/** 续读点更新时间 */
 	resumeUpdatedAt?: number;
-
 	status: IRBlockStatus;
 	priorityUi: number;
 	priorityEff: number;
@@ -45,16 +34,6 @@ export interface IREpubBookmarkTask {
 	createdAt: number;
 	updatedAt: number;
 }
-
-interface IREpubBookmarkTaskStore {
-	version: number;
-	tasks: Record<string, IREpubBookmarkTask>;
-}
-
-const DEFAULT_STORE: IREpubBookmarkTaskStore = {
-	version: 1,
-	tasks: {},
-};
 
 export function isEpubBookmarkTaskId(id: string): boolean {
 	return typeof id === "string" && id.startsWith("epubbm-");
@@ -92,18 +71,26 @@ function mergeTaskStats(existing: IRBlockStats, updates?: Partial<IRBlockStats>)
 	};
 }
 
-export class IREpubBookmarkTaskService {
-	private app: App;
-	private initialized = false;
-	private filePath: string;
-	private epubStorageService: EpubStorageService;
-	private pointStorageService: IRPointStorageService | null = null;
+function normalizeTaskTopic(task: Pick<IREpubBookmarkTask, "topicId" | "deckId">): string {
+	const topicId = String(getTaskTopicId(task) || "").trim();
+	if (!topicId) {
+		throw new Error("EPUB 书签任务缺少专题 ID");
+	}
+	return topicId;
+}
 
-	constructor(app: App) {
-		this.app = app;
+function normalizeTocLevel(level: number | undefined): number {
+	const numericLevel = Number(level);
+	return Number.isFinite(numericLevel) ? Math.max(1, numericLevel) : 1;
+}
+
+export class IREpubBookmarkTaskService {
+	private readonly epubStorageService: EpubStorageService;
+	private pointStorageService: IRPointStorageService | null = null;
+	private initialized = false;
+
+	constructor(private readonly app: App) {
 		this.epubStorageService = new EpubStorageService(app);
-		const storageDir = getV2PathsFromApp(app as any).ir.root;
-		this.filePath = normalizePath(`${storageDir}/epub-bookmark-tasks.json`);
 	}
 
 	private getPointStorageService(): IRPointStorageService {
@@ -113,212 +100,138 @@ export class IREpubBookmarkTaskService {
 		return this.pointStorageService;
 	}
 
-	private async syncTaskToPointStorage(task: IREpubBookmarkTask): Promise<void> {
-		await this.getPointStorageService().syncLegacyPoint({
-			id: task.id,
-			topicId: getTaskTopicId(task),
-			title: task.title,
-			tags: task.tags,
-			status: task.status,
-			priorityUi: task.priorityUi,
-			priorityEff: task.priorityEff,
-			intervalDays: task.intervalDays,
-			nextRepDate: task.nextRepDate,
-			createdAt: task.createdAt,
-			updatedAt: task.updatedAt,
-			lastInteractionAt: task.resumeUpdatedAt,
-			sourceType: "epub-bookmark",
-			materialId: task.sourceId,
-			sourcePath: task.epubFilePath,
-			locatorType: "epub-chapter",
-			locator: {
-				tocHref: task.tocHref,
-				tocLevel: task.tocLevel,
-				resumeCfi: task.resumeCfi,
-			},
-		});
-	}
-
-	private async deletePointFromPointStorage(pointId: string): Promise<void> {
-		await this.getPointStorageService().deletePointByLegacyId(pointId);
-	}
-
 	async initialize(): Promise<void> {
-		if (this.initialized) return;
-		const adapter = this.app.vault.adapter;
-
-		logger.info("[IREpubBookmarkTaskService] init:", { filePath: this.filePath });
-
-		const ensureDir = async (dirPath: string): Promise<void> => {
-			const normalized = normalizePath(dirPath);
-			const parts = normalized.split("/").filter(Boolean);
-			let current = "";
-			for (const part of parts) {
-				current = current ? `${current}/${part}` : part;
-				try {
-					if (!(await adapter.exists(current))) {
-						await adapter.mkdir(current);
-					}
-				} catch {
-					// ignore
-				}
-			}
-		};
-
-		const parts = this.filePath.split("/");
-		parts.pop();
-		const dir = parts.join("/");
-		try {
-			await ensureDir(dir);
-		} catch {}
+		if (this.initialized) {
+			return;
+		}
 
 		try {
-			if (!(await adapter.exists(this.filePath))) {
-				await adapter.write(this.filePath, JSON.stringify(DEFAULT_STORE));
-				logger.info("[IREpubBookmarkTaskService] storage file created:", {
-					filePath: this.filePath,
-				});
-			}
-		} catch (e) {
-			logger.warn("[IREpubBookmarkTaskService] init failed:", e);
+			await this.getPointStorageService().ensureRuntimeBaseline();
+		} catch (error) {
+			logger.warn("[IREpubBookmarkTaskService] 自动迁移旧 EPUB 书签失败，继续使用已存在的新 points", error);
+			await this.getPointStorageService().initialize();
 		}
 
 		this.initialized = true;
 	}
 
-	private async readStore(): Promise<IREpubBookmarkTaskStore> {
+	private async getTaskFromPointStorage(taskId: string): Promise<IREpubBookmarkTask | null> {
 		await this.initialize();
-		const adapter = this.app.vault.adapter;
-
-		try {
-			if (!(await adapter.exists(this.filePath))) {
-				return { ...DEFAULT_STORE };
-			}
-			const content = await adapter.read(this.filePath);
-			const parsed = JSON.parse(content) as IREpubBookmarkTaskStore;
-			if (!parsed || typeof parsed !== "object") return { ...DEFAULT_STORE };
-			const tasks = (parsed as any).tasks;
-			if (!tasks || typeof tasks !== "object") return { version: 1, tasks: {} };
-			const store = {
-				version: typeof (parsed as any).version === "number" ? (parsed as any).version : 1,
-				tasks: Object.fromEntries(
-					Object.entries(tasks as Record<string, IREpubBookmarkTask>).map(([id, task]) => [
-						id,
-						normalizeBookmarkTaskForRuntime(task),
-					])
-				),
-			};
-			await this.reconcileTaskSourceIdentities(store);
-			return store;
-		} catch (e) {
-			logger.warn("[IREpubBookmarkTaskService] read failed:", e);
-			return { ...DEFAULT_STORE };
+		const snapshot = await this.getPointStorageService().getPointSnapshotById(taskId);
+		if (!snapshot || getLegacyBookmarkTaskKind(snapshot) !== "epub") {
+			return null;
 		}
+		return buildLegacyEpubTaskFromPointSnapshot(snapshot);
 	}
 
-	private async writeStore(store: IREpubBookmarkTaskStore): Promise<void> {
+	private async getPointTasks(): Promise<IREpubBookmarkTask[]> {
 		await this.initialize();
-		const adapter = this.app.vault.adapter;
-		const plugin: any = (this.app as any)?.plugins?.getPlugin?.("weave");
-		plugin?.externalSyncWatcher?.markInternalWrite?.();
-		const serializedStore: IREpubBookmarkTaskStore = {
-			version: store.version,
-			tasks: Object.fromEntries(
-				Object.entries(store.tasks || {}).map(([id, task]) => [
-					id,
-					serializeBookmarkTaskForStorage(task),
-				])
-			),
-		};
-		await adapter.write(this.filePath, JSON.stringify(serializedStore));
-		logger.debug("[IREpubBookmarkTaskService] written:", {
-			filePath: this.filePath,
-			count: Object.keys(store.tasks || {}).length,
+		const snapshots = await this.getPointStorageService().listPointSnapshots();
+		return snapshots
+			.filter((snapshot) => getLegacyBookmarkTaskKind(snapshot) === "epub")
+			.map((snapshot) => buildLegacyEpubTaskFromPointSnapshot(snapshot));
+	}
+
+	private async resolveTaskSourceIdentity(task: IREpubBookmarkTask): Promise<IREpubBookmarkTask> {
+		const normalizedPath = normalizePath(String(task.epubFilePath || "").trim());
+		if (!normalizedPath) {
+			return task;
+		}
+
+		const sourceEntry = await this.epubStorageService.ensureSourceIdentity(normalizedPath, {
+			preferredSourceId: task.sourceId,
 		});
+
+		return {
+			...task,
+			sourceId: sourceEntry?.sourceId || task.sourceId,
+			epubFilePath: sourceEntry?.filePath || normalizedPath,
+		};
 	}
 
-	private async reconcileTaskSourceIdentities(store: IREpubBookmarkTaskStore): Promise<void> {
-		let changed = false;
-		const sourceEntryCache = new Map<string, Promise<EpubSourceRegistryEntry | null>>();
-		const resolvedPathCache = new Map<string, Promise<string | null>>();
-		for (const task of Object.values(store.tasks)) {
-			const taskChanged = await this.reconcileTaskSourceIdentity(
-				task,
-				sourceEntryCache,
-				resolvedPathCache
-			);
-			if (taskChanged) {
-				changed = true;
-			}
+	private async persistTask(task: IREpubBookmarkTask): Promise<IREpubBookmarkTask> {
+		const normalizedTask = await this.resolveTaskSourceIdentity(task);
+		const linkedNotePaths = resolveAssociatedNotePaths({
+			associatedNotePath:
+				normalizedTask.meta?.primaryAssociatedNotePath || normalizedTask.meta?.associatedNotePath,
+			associatedNotePaths: normalizedTask.meta?.associatedNotePaths,
+		});
+		const taskMeta = (normalizedTask.meta || {}) as unknown as Record<string, unknown>;
+		const sourceSequenceMetadata: Record<string, unknown> = {};
+		if (typeof taskMeta.sourceSequenceGroup === "string" && taskMeta.sourceSequenceGroup.trim()) {
+			sourceSequenceMetadata.sourceSequenceGroup = taskMeta.sourceSequenceGroup.trim();
 		}
-
-		if (changed) {
-			await this.writeStore(store);
+		if (typeof taskMeta.sourceSequenceOrder === "number" && Number.isFinite(taskMeta.sourceSequenceOrder)) {
+			sourceSequenceMetadata.sourceSequenceOrder = taskMeta.sourceSequenceOrder;
 		}
-	}
-
-	private async reconcileTaskSourceIdentity(
-		task: IREpubBookmarkTask,
-		sourceEntryCache: Map<string, Promise<EpubSourceRegistryEntry | null>>,
-		resolvedPathCache: Map<string, Promise<string | null>>
-	): Promise<boolean> {
-		let changed = false;
-		const normalizedPath = normalizePath(task.epubFilePath || "");
-
-		if (normalizedPath) {
-			const sourceCacheKey = `${String(task.sourceId || "").trim()}::${normalizedPath}`;
-			let sourceEntryPromise = sourceEntryCache.get(sourceCacheKey);
-			if (!sourceEntryPromise) {
-				sourceEntryPromise = this.epubStorageService.ensureSourceIdentity(normalizedPath, {
-					preferredSourceId: task.sourceId,
-				});
-				sourceEntryCache.set(sourceCacheKey, sourceEntryPromise);
-			}
-			const sourceEntry = await sourceEntryPromise;
-			if (sourceEntry) {
-				if (task.epubFilePath !== sourceEntry.filePath) {
-					task.epubFilePath = sourceEntry.filePath;
-					changed = true;
-				}
-				if (task.sourceId !== sourceEntry.sourceId) {
-					task.sourceId = sourceEntry.sourceId;
-					changed = true;
-				}
-			}
+		if (typeof taskMeta.sourceSequenceLocked === "boolean") {
+			sourceSequenceMetadata.sourceSequenceLocked = taskMeta.sourceSequenceLocked;
 		}
-
-		if (task.sourceId) {
-			const resolveCacheKey = `${task.sourceId}::${String(task.epubFilePath || "").trim()}`;
-			let resolvedPathPromise = resolvedPathCache.get(resolveCacheKey);
-			if (!resolvedPathPromise) {
-				resolvedPathPromise = this.epubStorageService.resolveSourceFilePath(
-					task.sourceId,
-					task.epubFilePath
-				);
-				resolvedPathCache.set(resolveCacheKey, resolvedPathPromise);
-			}
-			const resolvedPath = await resolvedPathPromise;
-			if (resolvedPath && resolvedPath !== task.epubFilePath) {
-				task.epubFilePath = resolvedPath;
-				changed = true;
-			}
+		if (
+			typeof taskMeta.sourceSequenceAnchorDateKey === "string" &&
+			taskMeta.sourceSequenceAnchorDateKey.trim()
+		) {
+			sourceSequenceMetadata.sourceSequenceAnchorDateKey = taskMeta.sourceSequenceAnchorDateKey.trim();
 		}
+		const lastInteractionAt =
+			typeof normalizedTask.resumeUpdatedAt === "number"
+				? normalizedTask.resumeUpdatedAt
+				: typeof normalizedTask.stats?.lastInteraction === "number"
+					? normalizedTask.stats.lastInteraction
+					: undefined;
 
-		return changed;
+		await this.getPointStorageService().syncLegacyPoint({
+			id: normalizedTask.id,
+			topicId: normalizeTaskTopic(normalizedTask),
+			title: normalizedTask.title,
+			tags: normalizedTask.tags,
+			status: normalizedTask.status,
+			priorityUi: normalizedTask.priorityUi,
+			priorityEff: normalizedTask.priorityEff,
+			intervalDays: normalizedTask.intervalDays,
+			nextRepDate: normalizedTask.nextRepDate,
+			createdAt: normalizedTask.createdAt,
+			updatedAt: normalizedTask.updatedAt,
+			lastInteractionAt,
+			sourceType: "epub-bookmark",
+			materialId: normalizedTask.sourceId,
+			sourcePath: normalizedTask.epubFilePath,
+			locatorType: "epub-chapter",
+			locator: {
+				tocHref: normalizedTask.tocHref,
+				tocLevel: normalizedTask.tocLevel,
+				resumeCfi: normalizedTask.resumeCfi,
+			},
+			linkedNotePaths,
+			explicitTagGroupId:
+				normalizedTask.meta?.tagGroup && normalizedTask.meta.tagGroup !== DEFAULT_IR_BLOCK_META.tagGroup
+					? normalizedTask.meta.tagGroup
+					: undefined,
+			stats: {
+				impressions: normalizedTask.stats?.impressions,
+				extracts: normalizedTask.stats?.extracts,
+				cardsCreated: normalizedTask.stats?.cardsCreated,
+				notesWritten: normalizedTask.stats?.notesWritten,
+				totalReadingTimeSec: normalizedTask.stats?.totalReadingTimeSec,
+				lastInteractionAt,
+			},
+			metadata: Object.keys(sourceSequenceMetadata).length > 0 ? sourceSequenceMetadata : undefined,
+		});
+
+		return (await this.getTask(normalizedTask.id)) || normalizedTask;
 	}
 
 	async getTask(id: string): Promise<IREpubBookmarkTask | null> {
-		const store = await this.readStore();
-		return store.tasks[id] || null;
+		return await this.getTaskFromPointStorage(id);
 	}
 
 	async getAllTasks(): Promise<IREpubBookmarkTask[]> {
-		const store = await this.readStore();
-		return Object.values(store.tasks);
+		const tasks = await this.getPointTasks();
+		return tasks.sort((left, right) => left.id.localeCompare(right.id));
 	}
 
 	async getTasksByDeck(deckId: string): Promise<IREpubBookmarkTask[]> {
-		return this.getTasksByDeckIdentifiers([deckId]);
+		return await this.getTasksByDeckIdentifiers([deckId]);
 	}
 
 	async getTasksByDeckIdentifiers(deckIds: string[]): Promise<IREpubBookmarkTask[]> {
@@ -327,20 +240,18 @@ export class IREpubBookmarkTaskService {
 			return [];
 		}
 
-		const store = await this.readStore();
-		return Object.values(store.tasks).filter((task) =>
-			identifiers.has(String(getTaskTopicId(task) || "").trim())
-		);
+		const tasks = await this.getAllTasks();
+		return tasks.filter((task) => identifiers.has(String(getTaskTopicId(task) || "").trim()));
 	}
 
 	async getTasksByEpub(epubFilePath: string): Promise<IREpubBookmarkTask[]> {
-		const normalizedPath = normalizePath(epubFilePath || "");
+		const normalizedPath = normalizePath(String(epubFilePath || "").trim());
 		const sourceEntry = normalizedPath
 			? await this.epubStorageService.ensureSourceIdentity(normalizedPath)
 			: null;
-		const store = await this.readStore();
-		return Object.values(store.tasks).filter((task) => {
-			if (normalizePath(task.epubFilePath || "") === normalizedPath) {
+		const tasks = await this.getAllTasks();
+		return tasks.filter((task) => {
+			if (normalizePath(String(task.epubFilePath || "").trim()) === normalizedPath) {
 				return true;
 			}
 			return Boolean(sourceEntry?.sourceId && task.sourceId === sourceEntry.sourceId);
@@ -348,39 +259,29 @@ export class IREpubBookmarkTaskService {
 	}
 
 	async updateEpubFileReferences(oldPath: string, newPath: string): Promise<number> {
-		const normalizedOldPath = normalizePath(oldPath || "");
-		const normalizedNewPath = normalizePath(newPath || "");
+		const normalizedOldPath = normalizePath(String(oldPath || "").trim());
+		const normalizedNewPath = normalizePath(String(newPath || "").trim());
 		if (!normalizedOldPath || !normalizedNewPath || normalizedOldPath === normalizedNewPath) {
 			return 0;
 		}
 
-		const store = await this.readStore();
-		let updated = 0;
-		let changed = false;
-
-		for (const task of Object.values(store.tasks)) {
+		const tasks = await this.getAllTasks();
+		let updatedCount = 0;
+		for (const task of tasks) {
 			const remapped = this.remapPath(task.epubFilePath, normalizedOldPath, normalizedNewPath);
 			if (!remapped || remapped === task.epubFilePath) {
 				continue;
 			}
 
-			task.epubFilePath = remapped;
-			if (!task.sourceId) {
-				const sourceEntry = await this.epubStorageService.ensureSourceIdentity(remapped);
-				if (sourceEntry?.sourceId) {
-					task.sourceId = sourceEntry.sourceId;
-				}
-			}
-			task.updatedAt = Date.now();
-			updated += 1;
-			changed = true;
+			await this.persistTask({
+				...task,
+				epubFilePath: remapped,
+				updatedAt: Date.now(),
+			});
+			updatedCount += 1;
 		}
 
-		if (changed) {
-			await this.writeStore(store);
-		}
-
-		return updated;
+		return updatedCount;
 	}
 
 	async createTask(input: {
@@ -392,53 +293,58 @@ export class IREpubBookmarkTaskService {
 		tocHref: string;
 		tocLevel: number;
 		priorityUi?: number;
+		sourceSequenceGroup?: string;
+		sourceSequenceOrder?: number;
+		sourceSequenceLocked?: boolean;
+		sourceSequenceAnchorDateKey?: string;
 	}): Promise<IREpubBookmarkTask> {
-		const store = await this.readStore();
+		await this.initialize();
 
 		const now = Date.now();
-		const id = generateEpubBookmarkTaskId();
 		const priorityUi = typeof input.priorityUi === "number" ? input.priorityUi : 5;
-		const sourceEntry = await this.epubStorageService.ensureSourceIdentity(input.epubFilePath, {
-			preferredSourceId: input.sourceId,
-		});
+		const topicId = normalizeTaskTopic({
+			topicId: input.topicId,
+			deckId: input.deckId,
+		} as IREpubBookmarkTask);
+		const tocLevel = normalizeTocLevel(input.tocLevel);
 
-		const topicId = getTaskTopicId(input);
-		if (!topicId) {
-			throw new Error("EPUB 书签任务缺少专题 ID");
-		}
-
-		const task: IREpubBookmarkTask = {
-			id,
+		return await this.persistTask({
+			id: generateEpubBookmarkTaskId(),
 			topicId,
 			deckId: topicId,
-			sourceId: sourceEntry?.sourceId || input.sourceId,
-			epubFilePath: sourceEntry?.filePath || input.epubFilePath,
+			sourceId: input.sourceId,
+			epubFilePath: normalizePath(input.epubFilePath),
 			title: input.title,
 			tocHref: input.tocHref,
-			tocLevel: input.tocLevel,
+			tocLevel,
 			status: "new",
 			priorityUi,
 			priorityEff: priorityUi,
 			intervalDays: 0,
 			nextRepDate: 0,
 			stats: { ...DEFAULT_IR_BLOCK_STATS },
-			meta: { ...DEFAULT_IR_BLOCK_META, siblings: { prev: null, next: null } },
+			meta: {
+				...DEFAULT_IR_BLOCK_META,
+				siblings: { prev: null, next: null },
+				...(typeof input.sourceSequenceGroup === "string" && input.sourceSequenceGroup.trim()
+					? { sourceSequenceGroup: input.sourceSequenceGroup.trim() }
+					: {}),
+				...(typeof input.sourceSequenceOrder === "number" && Number.isFinite(input.sourceSequenceOrder)
+					? { sourceSequenceOrder: input.sourceSequenceOrder }
+					: {}),
+				...(typeof input.sourceSequenceLocked === "boolean"
+					? { sourceSequenceLocked: input.sourceSequenceLocked }
+					: {}),
+				...(typeof input.sourceSequenceAnchorDateKey === "string" && input.sourceSequenceAnchorDateKey.trim()
+					? { sourceSequenceAnchorDateKey: input.sourceSequenceAnchorDateKey.trim() }
+					: {}),
+			} as IREpubBookmarkTask["meta"],
 			tags: [],
 			createdAt: now,
 			updatedAt: now,
-		};
-
-		store.tasks[id] = task;
-		await this.writeStore(store);
-		await this.syncTaskToPointStorage(task);
-
-		return task;
+		});
 	}
 
-	/**
-	 * Batch create tasks from EPUB TOC items.
-	 * Sets up sibling chain (prev/next) for navigation context.
-	 */
 	async batchCreateTasks(
 		inputs: Array<{
 			topicId?: string;
@@ -450,106 +356,128 @@ export class IREpubBookmarkTaskService {
 			tocLevel: number;
 			priorityUi?: number;
 			nextRepDate?: number;
+			sourceSequenceGroup?: string;
+			sourceSequenceOrder?: number;
+			sourceSequenceLocked?: boolean;
+			sourceSequenceAnchorDateKey?: string;
 		}>
 	): Promise<IREpubBookmarkTask[]> {
-		if (inputs.length === 0) return [];
+		await this.initialize();
+		if (inputs.length === 0) {
+			return [];
+		}
 
-		const store = await this.readStore();
 		const now = Date.now();
-		const created: IREpubBookmarkTask[] = [];
-
-		for (const input of inputs) {
-			const id = generateEpubBookmarkTaskId();
+		const created: IREpubBookmarkTask[] = inputs.map((input) => {
 			const priorityUi = typeof input.priorityUi === "number" ? input.priorityUi : 5;
-			const sourceEntry = await this.epubStorageService.ensureSourceIdentity(input.epubFilePath, {
-				preferredSourceId: input.sourceId,
-			});
+			const topicId = normalizeTaskTopic({
+				topicId: input.topicId,
+				deckId: input.deckId,
+			} as IREpubBookmarkTask);
+			const tocLevel = normalizeTocLevel(input.tocLevel);
 
-			const topicId = getTaskTopicId(input);
-			if (!topicId) {
-				throw new Error("EPUB 书签任务缺少专题 ID");
-			}
-
-			const task: IREpubBookmarkTask = {
-				id,
+			return {
+				id: generateEpubBookmarkTaskId(),
 				topicId,
 				deckId: topicId,
-				sourceId: sourceEntry?.sourceId || input.sourceId,
-				epubFilePath: sourceEntry?.filePath || input.epubFilePath,
+				sourceId: input.sourceId,
+				epubFilePath: normalizePath(input.epubFilePath),
 				title: input.title,
 				tocHref: input.tocHref,
-				tocLevel: input.tocLevel,
+				tocLevel,
 				status: input.nextRepDate ? "queued" : "new",
 				priorityUi,
 				priorityEff: priorityUi,
 				intervalDays: input.nextRepDate ? 1 : 0,
 				nextRepDate: input.nextRepDate || 0,
 				stats: { ...DEFAULT_IR_BLOCK_STATS },
-				meta: { ...DEFAULT_IR_BLOCK_META, siblings: { prev: null, next: null } },
+				meta: {
+					...DEFAULT_IR_BLOCK_META,
+					siblings: { prev: null, next: null },
+					...(typeof input.sourceSequenceGroup === "string" && input.sourceSequenceGroup.trim()
+						? { sourceSequenceGroup: input.sourceSequenceGroup.trim() }
+						: {}),
+					...(typeof input.sourceSequenceOrder === "number" && Number.isFinite(input.sourceSequenceOrder)
+						? { sourceSequenceOrder: input.sourceSequenceOrder }
+						: {}),
+					...(typeof input.sourceSequenceLocked === "boolean"
+						? { sourceSequenceLocked: input.sourceSequenceLocked }
+						: {}),
+					...(typeof input.sourceSequenceAnchorDateKey === "string" && input.sourceSequenceAnchorDateKey.trim()
+						? { sourceSequenceAnchorDateKey: input.sourceSequenceAnchorDateKey.trim() }
+						: {}),
+				} as IREpubBookmarkTask["meta"],
 				tags: [],
 				createdAt: now,
 				updatedAt: now,
 			};
-
-			store.tasks[id] = task;
-			created.push(task);
-		}
-
-		// Set up sibling chain
-		for (let i = 0; i < created.length; i++) {
-			const task = created[i];
-			task.meta.siblings = {
-				prev: i > 0 ? created[i - 1].id : null,
-				next: i < created.length - 1 ? created[i + 1].id : null,
-			};
-			store.tasks[task.id] = task;
-		}
-
-		await this.writeStore(store);
-		logger.info("[IREpubBookmarkTaskService] batch created:", {
-			count: created.length,
-			topicId: getTaskTopicId(inputs[0]),
 		});
 
-		return created;
+		for (let index = 0; index < created.length; index += 1) {
+			created[index].meta.siblings = {
+				prev: index > 0 ? created[index - 1].id : null,
+				next: index < created.length - 1 ? created[index + 1].id : null,
+			};
+		}
+
+		const persisted: IREpubBookmarkTask[] = [];
+		for (const task of created) {
+			persisted.push(await this.persistTask(task));
+		}
+
+		logger.info("[IREpubBookmarkTaskService] 批量创建任务", {
+			count: persisted.length,
+			topicId: persisted[0]?.topicId,
+		});
+		return persisted;
 	}
 
 	async updateTask(
 		id: string,
 		updates: Partial<Omit<IREpubBookmarkTask, "id" | "createdAt">>
 	): Promise<IREpubBookmarkTask | null> {
-		const store = await this.readStore();
-		const existing = store.tasks[id];
-		if (!existing) return null;
+		const existing = await this.getTask(id);
+		if (!existing) {
+			return null;
+		}
 
+		const topicId = normalizeTaskTopic({
+			topicId: updates.topicId ?? existing.topicId,
+			deckId: updates.deckId ?? existing.deckId,
+		} as IREpubBookmarkTask);
 		const updated: IREpubBookmarkTask = {
 			...existing,
 			...updates,
+			topicId,
+			deckId: topicId,
+			tocLevel:
+				typeof updates.tocLevel === "number"
+					? normalizeTocLevel(updates.tocLevel)
+					: existing.tocLevel,
+			epubFilePath: updates.epubFilePath
+				? normalizePath(updates.epubFilePath)
+				: existing.epubFilePath,
 			meta: mergeTaskMeta(existing.meta, updates.meta),
 			stats: mergeTaskStats(existing.stats, updates.stats),
 			updatedAt: Date.now(),
 		};
 
-		store.tasks[id] = updated;
-		await this.writeStore(store);
-		await this.syncTaskToPointStorage(updated);
-
-		return updated;
+		return await this.persistTask(updated);
 	}
 
-	/**
-	 * Update task scheduling data from IRBlockV4 (after IR session completion)
-	 */
 	async updateTaskFromBlock(
 		block: IRBlockV4 & { epubBookmarkHref?: string; epubBookmarkTitle?: string }
 	): Promise<void> {
-		if (!isEpubBookmarkTaskId(block.id)) return;
+		if (!isEpubBookmarkTaskId(block.id)) {
+			return;
+		}
 
-		const store = await this.readStore();
-		const existing = store.tasks[block.id];
-		if (!existing) return;
+		const existing = await this.getTask(block.id);
+		if (!existing) {
+			return;
+		}
 
-		store.tasks[block.id] = {
+		await this.persistTask({
 			...existing,
 			status: block.status,
 			priorityUi: block.priorityUi,
@@ -560,44 +488,36 @@ export class IREpubBookmarkTaskService {
 			meta: block.meta,
 			tags: Array.isArray(block.tags) ? block.tags : existing.tags || [],
 			updatedAt: Date.now(),
-		};
-
-		await this.writeStore(store);
-		await this.syncTaskToPointStorage(store.tasks[block.id]);
+		});
 	}
 
-	/**
-	 * Set or update the resume point (CFI) for a task
-	 */
 	async setResumePoint(taskId: string, cfi: string): Promise<void> {
-		const store = await this.readStore();
-		const existing = store.tasks[taskId];
-		if (!existing) return;
+		const existing = await this.getTask(taskId);
+		if (!existing) {
+			return;
+		}
 
-		existing.resumeCfi = cfi;
-		existing.resumeUpdatedAt = Date.now();
-		existing.updatedAt = Date.now();
-		store.tasks[taskId] = existing;
-
-		await this.writeStore(store);
-		await this.syncTaskToPointStorage(existing);
-		logger.debug("[IREpubBookmarkTaskService] resume point set:", { taskId, cfi });
+		await this.persistTask({
+			...existing,
+			resumeCfi: cfi,
+			resumeUpdatedAt: Date.now(),
+			updatedAt: Date.now(),
+		});
+		logger.debug("[IREpubBookmarkTaskService] 已设置续读点", { taskId, cfi });
 	}
 
-	/**
-	 * Clear the resume point for a task
-	 */
 	async clearResumePoint(taskId: string): Promise<void> {
-		const store = await this.readStore();
-		const existing = store.tasks[taskId];
-		if (!existing) return;
+		const existing = await this.getTask(taskId);
+		if (!existing) {
+			return;
+		}
 
-		existing.resumeCfi = undefined;
-		existing.resumeUpdatedAt = undefined;
-		existing.updatedAt = Date.now();
-		store.tasks[taskId] = existing;
-
-		await this.writeStore(store);
+		await this.persistTask({
+			...existing,
+			resumeCfi: undefined,
+			resumeUpdatedAt: undefined,
+			updatedAt: Date.now(),
+		});
 	}
 
 	async recordTaskInteraction(
@@ -605,12 +525,15 @@ export class IREpubBookmarkTaskService {
 		readingTimeSec: number,
 		actions: { extracts?: number; cardsCreated?: number; notesWritten?: number } = {}
 	): Promise<void> {
-		const store = await this.readStore();
-		const existing = store.tasks[taskId];
-		if (!existing) return;
+		const existing = await this.getTask(taskId);
+		if (!existing) {
+			return;
+		}
 
-		const stats = existing.stats;
-		stats.impressions++;
+		const stats = {
+			...existing.stats,
+		};
+		stats.impressions += 1;
 		stats.totalReadingTimeSec += readingTimeSec;
 		stats.effectiveReadingTimeSec += Math.min(readingTimeSec, 600);
 		stats.extracts += actions.extracts || 0;
@@ -627,34 +550,31 @@ export class IREpubBookmarkTaskService {
 			stats.todayShownCount = 1;
 		}
 
-		store.tasks[taskId] = {
+		await this.persistTask({
 			...existing,
 			stats,
 			updatedAt: Date.now(),
-		};
-
-		await this.writeStore(store);
+		});
 	}
 
 	async deleteTask(id: string): Promise<boolean> {
-		const store = await this.readStore();
-		if (!store.tasks[id]) return false;
-		delete store.tasks[id];
-		await this.writeStore(store);
-		await this.deletePointFromPointStorage(id);
-		logger.info("[IREpubBookmarkTaskService] task deleted:", id);
-		return true;
+		await this.initialize();
+		const deleted = await this.getPointStorageService().deletePointByLegacyId(id);
+		if (deleted) {
+			logger.info("[IREpubBookmarkTaskService] 已删除任务", id);
+		}
+		return deleted;
 	}
 
 	async deleteTasksByDeck(deckId: string): Promise<number> {
-		return this.deleteTasksByDeckIdentifiers([deckId]);
+		return await this.deleteTasksByDeckIdentifiers([deckId]);
 	}
 
 	async deleteTasksByDeckIdentifiers(deckIds: string[]): Promise<number> {
 		const identifiers = this.toNormalizedSet(deckIds);
-		return this.deleteTasksByPredicate(
+		return await this.deleteTasksByPredicate(
 			(task) => identifiers.has(String(getTaskTopicId(task) || "").trim()),
-			"[IREpubBookmarkTaskService] tasks deleted by deck identifiers:",
+			"[IREpubBookmarkTaskService] 已按专题标识删除任务",
 			{ deckIds: Array.from(identifiers) }
 		);
 	}
@@ -668,11 +588,12 @@ export class IREpubBookmarkTaskService {
 				sourceIds.add(sourceEntry.sourceId);
 			}
 		}
-		return this.deleteTasksByPredicate(
+
+		return await this.deleteTasksByPredicate(
 			(task) =>
 				paths.has(String(task?.epubFilePath || "").trim()) ||
 				Boolean(task?.sourceId && sourceIds.has(String(task.sourceId).trim())),
-			"[IREpubBookmarkTaskService] tasks deleted by epub paths:",
+			"[IREpubBookmarkTaskService] 已按 EPUB 路径删除任务",
 			{ epubFilePaths: Array.from(paths) }
 		);
 	}
@@ -707,34 +628,25 @@ export class IREpubBookmarkTaskService {
 		logMessage: string,
 		logMeta: Record<string, unknown>
 	): Promise<number> {
-		const store = await this.readStore();
-		const toDelete = Object.entries(store.tasks)
-			.filter(([, task]) => predicate(task))
-			.map(([id]) => id);
-
+		const toDelete = (await this.getAllTasks()).filter(predicate).map((task) => task.id);
 		if (toDelete.length === 0) {
 			return 0;
 		}
 
+		let deletedCount = 0;
 		for (const id of toDelete) {
-			delete store.tasks[id];
+			if (await this.deleteTask(id)) {
+				deletedCount += 1;
+			}
 		}
 
-		await this.writeStore(store);
-		for (const id of toDelete) {
-			await this.deletePointFromPointStorage(id);
-		}
 		logger.info(logMessage, {
 			...logMeta,
-			count: toDelete.length,
+			count: deletedCount,
 		});
-
-		return toDelete.length;
+		return deletedCount;
 	}
 
-	/**
-	 * Convert task to IRBlockV4 for IR scheduling integration
-	 */
 	toBlockV4(task: IREpubBookmarkTask): IRBlockV4 {
 		const block: IRBlockV4 = {
 			id: task.id,

@@ -65,14 +65,12 @@ type ChunkScheduleUpdates = Partial<
 const TERMINAL_CHUNK_STATUSES = new Set<ChunkFileStatus>(["done", "archived", "removed"]);
 
 export class IRChunkScheduleAdapter {
-	private app: App;
 	private storage: IRStorageService;
 	private chunkFileService: IRChunkFileService;
 
-	constructor(app: App, storage: IRStorageService, chunkRoot?: string) {
-		this.app = app;
+	constructor(app: App, storage: IRStorageService) {
 		this.storage = storage;
-		this.chunkFileService = new IRChunkFileService(app, chunkRoot);
+		this.chunkFileService = new IRChunkFileService(app);
 	}
 
 	/** 返回可进入调度的块，并同步最新 YAML 状态。 */

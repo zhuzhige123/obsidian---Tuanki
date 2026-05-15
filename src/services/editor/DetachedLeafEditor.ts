@@ -7,6 +7,7 @@ import {
 	isDetachedEditorTempFilePath,
 	resolveDetachedEditorTempFolder,
 } from "./editor-temp-file-policy";
+import { applyStyleProps } from "../../utils/style-props";
 
 export interface DetachedEditorOptions {
 	value?: string;
@@ -336,7 +337,7 @@ export class DetachedLeafEditor extends Component {
 
 			// 关键：不要使用 display:none，否则 Obsidian 无法正确路由快捷键到 activeLeaf
 			// 改为移动到屏幕外，但保持在 DOM 中（参考 ModalEditorManager 的方案）
-			leafEl.setCssProps({
+			applyStyleProps(leafEl, {
 				position: "absolute",
 				left: "-9999px",
 				top: "-9999px",
@@ -390,7 +391,7 @@ export class DetachedLeafEditor extends Component {
 		this.containerEl.appendChild(contentEl);
 
 		// 调整样式以适应嵌入
-		contentEl.setCssProps({
+		applyStyleProps(contentEl, {
 			display: "block",
 			position: "relative",
 			width: "100%",
@@ -405,7 +406,7 @@ export class DetachedLeafEditor extends Component {
 				el.remove();
 			} catch {
 				try {
-					el.setCssProps({
+					applyStyleProps(el, {
 						display: "none",
 						height: "0",
 						"min-height": "0",
@@ -422,7 +423,7 @@ export class DetachedLeafEditor extends Component {
 			if (!el) return;
 			try {
 				if (hide) {
-					el.setCssProps({
+					applyStyleProps(el, {
 						display: "none",
 						height: "0",
 						"min-height": "0",
@@ -432,7 +433,7 @@ export class DetachedLeafEditor extends Component {
 						border: "0",
 					});
 				} else {
-					el.setCssProps({
+					applyStyleProps(el, {
 						display: "",
 						height: "",
 						"min-height": "",

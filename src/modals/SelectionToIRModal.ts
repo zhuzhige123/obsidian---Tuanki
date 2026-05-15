@@ -51,33 +51,17 @@ export class SelectionToIRModal extends Modal {
 
 	onOpen(): void {
 		this.titleEl.setText("从选区创建增量阅读点");
-		this.modalEl.setCssProps({ width: "min(720px, 92vw)" });
+		this.modalEl.addClass("weave-selection-to-ir-modal");
 
 		const { contentEl } = this;
 		contentEl.empty();
+		contentEl.addClass("weave-selection-to-ir-modal-content");
 
-		const headerPanelEl = contentEl.createDiv();
-		headerPanelEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			gap: "12px",
-			padding: "16px",
-			"margin-bottom": "16px",
-			"border-radius": "12px",
-			border: "1px solid var(--background-modifier-border)",
-			"background-color": "var(--background-secondary)",
-		});
+		const headerPanelEl = contentEl.createDiv({ cls: "weave-selection-to-ir-panel" });
 
-		const deckToolbarEl = headerPanelEl.createDiv();
-		deckToolbarEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			"align-items": "stretch",
-			gap: "8px",
-		});
+		const deckToolbarEl = headerPanelEl.createDiv({ cls: "weave-selection-to-ir-toolbar" });
 
-		const deckInfoEl = deckToolbarEl.createDiv();
-		deckInfoEl.setCssProps({ flex: "1" });
+		const deckInfoEl = deckToolbarEl.createDiv({ cls: "weave-selection-to-ir-toolbar-info" });
 		deckInfoEl.createDiv({
 			text: "所属专题",
 			cls: "setting-item-name",
@@ -95,22 +79,15 @@ export class SelectionToIRModal extends Modal {
 			this.showDeckMenu(evt as MouseEvent);
 		});
 
-		const folderToolbarEl = headerPanelEl.createDiv();
-		folderToolbarEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			"align-items": "stretch",
-			gap: "8px",
-		});
+		const folderToolbarEl = headerPanelEl.createDiv({ cls: "weave-selection-to-ir-toolbar" });
 
-		const folderInfoEl = folderToolbarEl.createDiv();
-		folderInfoEl.setCssProps({ flex: "1" });
+		const folderInfoEl = folderToolbarEl.createDiv({ cls: "weave-selection-to-ir-toolbar-info" });
 		folderInfoEl.createDiv({
 			text: "保存路径",
 			cls: "setting-item-name",
 		});
 		folderInfoEl.createDiv({
-			text: "默认保存在 Obsidian 库根目录，也可以切换到其他文件夹。",
+			text: "默认遵循上次选择或 Obsidian 的新建笔记位置，也可以切换到其他文件夹。",
 			cls: "setting-item-description",
 		});
 
@@ -132,7 +109,7 @@ export class SelectionToIRModal extends Modal {
 			.addText((text) => {
 				text.setValue(this.draftTitle);
 				text.setPlaceholder("输入阅读点标题");
-				text.inputEl.setCssProps({ width: "100%" });
+				text.inputEl.addClass("weave-selection-to-ir-title-input");
 				this.titleInputEl = text.inputEl;
 				text.onChange((value) => {
 					this.draftTitle = value;
@@ -140,13 +117,7 @@ export class SelectionToIRModal extends Modal {
 				});
 			});
 
-		const footerEl = contentEl.createDiv();
-		footerEl.setCssProps({
-			display: "flex",
-			"justify-content": "flex-end",
-			gap: "8px",
-			"margin-top": "16px",
-		});
+		const footerEl = contentEl.createDiv({ cls: "weave-selection-to-ir-footer" });
 
 		const cancelButton = footerEl.createEl("button", { text: "取消" });
 		cancelButton.addEventListener("click", () => this.close());
@@ -195,21 +166,7 @@ export class SelectionToIRModal extends Modal {
 	}
 
 	private applyPickerButtonStyle(buttonEl: HTMLButtonElement): void {
-		buttonEl.setCssProps({
-			display: "inline-flex",
-			"align-items": "center",
-			"justify-content": "space-between",
-			gap: "8px",
-			width: "100%",
-			padding: "8px 12px",
-			"border-radius": "8px",
-			border: "1px solid var(--background-modifier-border)",
-			"background-color": "var(--background-primary)",
-			"white-space": "nowrap",
-			overflow: "hidden",
-			"text-overflow": "ellipsis",
-			"box-shadow": "none",
-		});
+		buttonEl.addClass("weave-selection-to-ir-picker-button");
 	}
 
 	private showDeckMenu(evt: MouseEvent): void {

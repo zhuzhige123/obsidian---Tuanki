@@ -4,6 +4,7 @@ import type {
 	EpubBookshelfMembershipEntry,
 	EpubScanIndexEntry,
 } from "../../services/epub/EpubStorageService";
+import { getBookFormatDisplayLabel } from "../../services/epub/book-format";
 
 interface EpubBookshelfImportModalOptions {
 	entries: EpubScanIndexEntry[];
@@ -123,7 +124,7 @@ export class EpubBookshelfImportModal extends Modal {
 		if (visibleEntries.length === 0) {
 			this.listContainer.createDiv({
 				cls: "weave-epub-import-empty",
-				text: this.query ? "没有匹配的 EPUB" : "没有可显示的 EPUB",
+				text: this.query ? "没有匹配的书籍或漫画" : "没有可显示的书籍或漫画",
 			});
 			return;
 		}
@@ -166,6 +167,11 @@ export class EpubBookshelfImportModal extends Modal {
 			header.createDiv({
 				cls: `weave-epub-import-status ${alreadyAdded ? "is-added" : "is-pending"}`,
 				text: alreadyAdded ? "已在书架" : "可加入",
+			});
+
+			body.createDiv({
+				cls: "weave-epub-import-format",
+				text: getBookFormatDisplayLabel(entry.path),
 			});
 
 			body.createDiv({

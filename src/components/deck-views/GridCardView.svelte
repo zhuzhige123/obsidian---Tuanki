@@ -7,11 +7,12 @@
   import type { Deck, DeckStats } from '../../data/types';
   import type { DeckTreeNode } from '../../services/deck/DeckHierarchyService';
   import type { StudySession } from '../../data/study-types';
+  import type { MemoryDeckLevelProgress } from '../../services/deck/MemoryDeckLevelService';
   import type { WeavePlugin } from '../../main';
   import type { EmergentDeckCandidate, FormalDeckBindingSummary, MemoryDeckView } from '../../types/emergent-deck-types';
   import DeckGridCard from './DeckGridCard.svelte';
   import ChineseElegantDeckCard from './ChineseElegantDeckCard.svelte';
-  import CategoryFilter, { type DeckFilter } from './CategoryFilter.svelte';
+  import type { DeckFilter } from './CategoryFilter.svelte';
   import { getColorSchemeForDeck } from '../../config/card-color-schemes';
   import { MEMORY_DECK_UI_TEXT } from '../../constants/memory-deck-ui-text';
 // 导入题库组件
@@ -21,17 +22,19 @@
 // 牌组卡片设计类型
   import type { DeckCardStyle } from '../../types/plugin-settings.d';
   // 高级功能限制
-  import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
+  import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from '../../services/premium/PremiumFeatureGuard';
   import ActivationPrompt from '../premium/ActivationPrompt.svelte';
 // 组件属性
   interface Props {
     deckTree: DeckTreeNode[];
     deckStats: Record<string, DeckStats>;
     studySessions: StudySession[];
+    memoryDeckLevels?: Record<string, MemoryDeckLevelProgress>;
     emergentCandidates?: EmergentDeckCandidate[];
     emergentDeckViews?: MemoryDeckView[];
     emergentDeckStats?: Record<string, DeckStats>;
     formalDeckBindingSummary?: Record<string, FormalDeckBindingSummary>;
+    memoryDeckDisplayMode?: MemoryDeckDisplayMode;
     plugin: WeavePlugin;
     selectedFilter?: DeckFilter;
     onFilterSelect?: (filter: DeckFilter) => void;
@@ -45,30 +48,41 @@
     onDeleteDeck?: (deckId: string) => void;
     onRefreshData?: () => Promise<void>;
     onOpenKnowledgeGraph?: (deckId: string) => void;
-    onAssociateQuestionBank?: (deckId: string) => void | Promise<void>;
+    onAssociateQuestionBank?: (deckId: string, bankId?: string) => void | Promise<void>;
+    getQuestionBankSubmenuData?: (deckId: string) => Promise<{
+      banks: Array<{ id: string; name: string; isCurrent: boolean }>;
+    } | null>;
+    onBeforeOpenDeckMenu?: () => void;
     onDissolveDeck?: (deckId: string) => void;
     onPromoteEmergentDeck?: (candidate: EmergentDeckCandidate, event: MouseEvent) => void | Promise<void>;
     onStartEmergentStudy?: (deckId: string, deckName: string) => void | Promise<void>;
   }
 
-  type GridActiveFilter = 'memory' | 'question-bank' | 'incremental-reading';
+  type GridActiveFilter = 'memory' | 'question-bank';
+  type MemoryDeckDisplayMode = 'formal' | 'emergent';
 
   function normalizeGridFilter(filter: DeckFilter | undefined): GridActiveFilter {
-    if (filter === 'question-bank' || filter === 'incremental-reading') {
+    if (filter === 'question-bank') {
       return filter;
     }
 
     return 'memory';
   }
 
+  function normalizeMemoryDeckDisplayMode(mode: MemoryDeckDisplayMode | undefined): MemoryDeckDisplayMode {
+    return mode === 'emergent' ? 'emergent' : 'formal';
+  }
+
   let {
     deckTree,
     deckStats,
     studySessions,
+    memoryDeckLevels = {},
     emergentCandidates = [],
     emergentDeckViews = [],
     emergentDeckStats = {},
     formalDeckBindingSummary = {},
+    memoryDeckDisplayMode = 'formal',
     plugin,
 // 筛选器状态（由父组件管理，支持双向绑定）
     selectedFilter: externalFilter = undefined,
@@ -83,6 +97,8 @@
     onRefreshData,
     onOpenKnowledgeGraph,
     onAssociateQuestionBank,
+    getQuestionBankSubmenuData,
+    onBeforeOpenDeckMenu,
     onDissolveDeck,
     onPromoteEmergentDeck,
     onStartEmergentStudy
@@ -92,10 +108,17 @@
 
   // 高级功能守卫
   const premiumGuard = PremiumFeatureGuard.getInstance();
+  const deckStudyFeatureContext: PremiumFeatureAccessContext = { page: 'deck-study' };
+  const deckAnalyticsEntryFeatures = [
+    PREMIUM_FEATURES.DECK_ANALYTICS,
+    PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION,
+    PREMIUM_FEATURES.DECK_ANALYTICS_TIMING,
+  ] as const;
   let isPremium = $state(get(premiumGuard.isPremiumActive));
   let showPremiumFeaturesPreview = $state(get(premiumGuard.premiumFeaturesPreviewEnabled));
   let showActivationPrompt = $state(false);
   let promptFeatureId = $state('');
+  let activeGridMenu: Menu | null = null;
 
   $effect(() => {
     const unsubscribePremium = premiumGuard.isPremiumActive.subscribe(value => {
@@ -108,6 +131,11 @@
     return () => {
       unsubscribePremium();
       unsubscribePreview();
+      if (activeGridMenu) {
+        const menu = activeGridMenu;
+        activeGridMenu = null;
+        menu.hide();
+      }
     };
   });
 
@@ -153,34 +181,34 @@
 
 // 根据模式筛选牌组（与 DeckStudyPage 保持一致）
   const filteredDecks = $derived(currentFilter === 'memory' ? allDecks : []);
+  const currentMemoryDeckDisplayMode = $derived(normalizeMemoryDeckDisplayMode(memoryDeckDisplayMode));
+  const shouldShowFormalDecks = $derived(currentFilter === 'memory' && currentMemoryDeckDisplayMode === 'formal');
+  const shouldShowEmergentDecks = $derived(currentFilter === 'memory' && currentMemoryDeckDisplayMode === 'emergent');
+  const hasVisibleMemoryDecks = $derived(
+    shouldShowFormalDecks ? filteredDecks.length > 0 : emergentDeckViews.length > 0
+  );
 
-  // 显示牌组菜单（完整版，与DeckStudyPage保持一致）
-  function showDeckMenu(event: MouseEvent, deckId: string) {
-    const menu = new Menu();
+  function addSharedDeckStudyMenuItems(menu: Menu, deckId: string): boolean {
+    let hasItems = false;
 
-    const deck = allDecks.find(d => d.id === deckId);
-    const isSubdeck = deck?.parentId != null;
+    if (onAdvanceStudy) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t('decks.menu.advanceStudy'))
+          .setIcon("fast-forward")
+          .onClick(async () => await onAdvanceStudy(deckId))
+      );
+      hasItems = true;
+    }
 
-// 提前学习功能
-    menu.addItem((item) =>
-      item
-        .setTitle(t('decks.menu.advanceStudy'))
-        .setIcon("fast-forward")
-        .onClick(async () => await onAdvanceStudy?.(deckId))
-    );
-
-    //  牌组分析（包含负荷预测）- 高级功能
-    if (premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.DECK_ANALYTICS, {
-      isPremium,
-      showPremiumPreview: showPremiumFeaturesPreview
-    })) {
+    if (shouldShowDeckAnalyticsEntry()) {
       menu.addItem((item) => {
-        const title = isPremium ? t('decks.menu.deckAnalytics') : t('decks.menu.deckAnalytics') + ' 🔒';
+        const title = getDeckAnalyticsEntryTitle();
         item
           .setTitle(title)
           .setIcon("bar-chart-2")
           .onClick(() => {
-            if (!isPremium) {
+            if (!canUseDeckAnalyticsEntry()) {
               promptFeatureId = PREMIUM_FEATURES.DECK_ANALYTICS;
               showActivationPrompt = true;
               return;
@@ -188,24 +216,140 @@
             onOpenDeckAnalytics?.(deckId);
           });
       });
+      hasItems = true;
     }
 
-    menu.addSeparator();
+    if (onOpenKnowledgeGraph) {
+      if (hasItems) {
+        menu.addSeparator();
+      }
 
-    menu.addItem((item) =>
-      item
-        .setTitle(t('decks.menu.knowledgeGraph'))
-        .setIcon("git-fork")
-        .onClick(() => onOpenKnowledgeGraph?.(deckId))
-    );
-
-    if (onAssociateQuestionBank) {
       menu.addItem((item) =>
         item
-          .setTitle(t('decks.menu.linkQuestionBank'))
-          .setIcon('link-2')
-          .onClick(async () => await onAssociateQuestionBank?.(deckId))
+          .setTitle(t('decks.menu.knowledgeGraph'))
+          .setIcon("git-fork")
+          .onClick(() => onOpenKnowledgeGraph(deckId))
       );
+      hasItems = true;
+    }
+
+    return hasItems;
+  }
+
+  function shouldShowDeckAnalyticsEntry(): boolean {
+    return premiumGuard.shouldShowAnyFeatureEntry(
+      [...deckAnalyticsEntryFeatures],
+      {
+        isPremium,
+        showPremiumPreview: showPremiumFeaturesPreview
+      },
+      deckStudyFeatureContext
+    );
+  }
+
+  function canUseDeckAnalyticsEntry(): boolean {
+    return premiumGuard.canUseAnyFeature([...deckAnalyticsEntryFeatures], deckStudyFeatureContext);
+  }
+
+  function getDeckAnalyticsEntryTitle(): string {
+    return premiumGuard.getAnyFeatureEntryTitle(
+      t('decks.menu.deckAnalytics'),
+      [...deckAnalyticsEntryFeatures],
+      deckStudyFeatureContext
+    );
+  }
+
+  function withSubmenu(item: unknown, builder: (submenu: Menu) => void): boolean {
+    const submenuFactory = (item as { setSubmenu?: () => Menu }).setSubmenu;
+    if (typeof submenuFactory !== 'function') {
+      return false;
+    }
+
+    const submenu = submenuFactory.call(item as { setSubmenu: () => Menu });
+    submenu.setUseNativeMenu(false);
+    builder(submenu);
+    return true;
+  }
+
+  function closeActiveGridMenu() {
+    if (!activeGridMenu) {
+      return;
+    }
+
+    const menu = activeGridMenu;
+    activeGridMenu = null;
+    menu.hide();
+  }
+
+  function registerGridMenu(menu: Menu) {
+    closeActiveGridMenu();
+    menu.setUseNativeMenu(false);
+    activeGridMenu = menu;
+    menu.onHide(() => {
+      if (activeGridMenu === menu) {
+        activeGridMenu = null;
+      }
+    });
+    return menu;
+  }
+
+  // 显示牌组菜单（完整版，与DeckStudyPage保持一致）
+  async function showDeckMenu(event: MouseEvent, deckId: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    onBeforeOpenDeckMenu?.();
+    const menu = registerGridMenu(new Menu());
+
+    const deck = allDecks.find(d => d.id === deckId);
+    const isSubdeck = deck?.parentId != null;
+
+    addSharedDeckStudyMenuItems(menu, deckId);
+
+    if (onAssociateQuestionBank) {
+      const canUseQuestionBank = premiumGuard.canUseFeature(PREMIUM_FEATURES.QUESTION_BANK);
+
+      if (!canUseQuestionBank) {
+        menu.addItem((item) =>
+          item
+            .setTitle(`${t('decks.menu.linkQuestionBank')} (高级)`)
+            .setIcon('link-2')
+            .onClick(async () => await onAssociateQuestionBank?.(deckId))
+        );
+      } else {
+        const submenuData = getQuestionBankSubmenuData
+          ? await getQuestionBankSubmenuData(deckId)
+          : null;
+
+        if (submenuData && submenuData.banks.length > 0) {
+          menu.addItem((item) => {
+            item
+              .setTitle(t('decks.menu.linkQuestionBank'))
+              .setIcon('link-2');
+
+            const hasSubmenu = withSubmenu(item, (submenu) => {
+              submenuData.banks.forEach((bank) => {
+                submenu.addItem((subItem) => {
+                  subItem
+                    .setTitle(bank.name)
+                    .setIcon(bank.isCurrent ? 'check' : 'gallery-vertical')
+                    .onClick(async () => await onAssociateQuestionBank?.(deckId, bank.id));
+                });
+              });
+            });
+
+            if (!hasSubmenu) {
+              item.onClick(async () => await onAssociateQuestionBank?.(deckId));
+            }
+          });
+        } else {
+          menu.addItem((item) =>
+            item
+              .setTitle(t('decks.menu.linkQuestionBank'))
+              .setIcon('link-2')
+              .onClick(async () => await onAssociateQuestionBank?.(deckId))
+          );
+        }
+      }
     }
 
     // 创建子牌组和移动牌组功能已移除，不再支持父子牌组层级结构
@@ -275,9 +419,18 @@
   }
 
   function showEmergentDeckMenu(event: MouseEvent, view: MemoryDeckView) {
-    const menu = new Menu();
+    event.preventDefault();
+    event.stopPropagation();
+    onBeforeOpenDeckMenu?.();
+    const menu = registerGridMenu(new Menu());
     const candidate = emergentCandidates.find(item => item.id === view.id);
+    const hasSharedItems = addSharedDeckStudyMenuItems(menu, view.id);
+
     if (candidate && onPromoteEmergentDeck) {
+      if (hasSharedItems) {
+        menu.addSeparator();
+      }
+
       menu.addItem((item) =>
         item
           .setTitle('转为正式牌组')
@@ -297,87 +450,89 @@
 <!-- 根据模式显示不同内容 -->
   {#if currentFilter === 'memory'}
     <!-- 记忆牌组模式 -->
-    {#if filteredDecks.length > 0}
+    {#if hasVisibleMemoryDecks}
       <div class="cards-grid">
-        {#each filteredDecks as deck, index (deck.id)}
-          {@const stats = deckStats[deck.id] || {
-            newCards: 0,
-            learningCards: 0,
-            reviewCards: 0,
-            memoryRate: 0,
-            totalCards: 0,
-            todayNew: 0,
-            todayReview: 0,
-            todayTime: 0,
-            totalReviews: 0,
-            totalTime: 0,
-            averageEase: 0,
-            forecastDays: {}
-          }}
-          {@const colorScheme = getColorSchemeForDeck(deck.id)}
-          {@const colorVariant = ((index % 4) + 1) as 1 | 2 | 3 | 4}
-          {@const bindingSummary = formalDeckBindingSummary[deck.id]}
-          {@const formalStatusBadge = bindingSummary ? `${MEMORY_DECK_UI_TEXT.autoTopicPrefix} ${bindingSummary.bindingCount}` : undefined}
-          <div class="deck-card-shell">
-            {#if deckCardStyle === 'chinese-elegant'}
-              <ChineseElegantDeckCard
-                {deck}
-                {stats}
-                {colorVariant}
-                statusBadge={formalStatusBadge}
-                statusKind="formal"
-                onStudy={() => onStartStudy(deck.id)}
-                onMenu={(e) => showDeckMenu(e, deck.id)}
-              />
-            {:else}
-              <DeckGridCard
-                {deck}
-                {stats}
-                {colorScheme}
-                statusBadge={formalStatusBadge}
-                statusKind="formal"
-                onStudy={() => onStartStudy(deck.id)}
-                onMenu={(e) => showDeckMenu(e, deck.id)}
-              />
-            {/if}
-          </div>
-        {/each}
+        {#if shouldShowFormalDecks}
+          {#each filteredDecks as deck, index (deck.id)}
+            {@const stats = deckStats[deck.id] || {
+              newCards: 0,
+              learningCards: 0,
+              reviewCards: 0,
+              memoryRate: 0,
+              totalCards: 0,
+              todayNew: 0,
+              todayReview: 0,
+              todayTime: 0,
+              totalReviews: 0,
+              totalTime: 0,
+              averageEase: 0,
+              forecastDays: {}
+            }}
+            {@const colorScheme = getColorSchemeForDeck(deck.id)}
+            {@const colorVariant = ((index % 4) + 1) as 1 | 2 | 3 | 4}
+            {@const bindingSummary = formalDeckBindingSummary[deck.id]}
+            {@const formalStatusBadge = bindingSummary ? `${MEMORY_DECK_UI_TEXT.autoTopicPrefix} ${bindingSummary.bindingCount}` : undefined}
+            {@const levelProgress = memoryDeckLevels[deck.id]}
+            <div class="deck-card-shell">
+              {#if deckCardStyle === 'chinese-elegant'}
+                <ChineseElegantDeckCard
+                  {deck}
+                  {stats}
+                  {levelProgress}
+                  {colorVariant}
+                  statusBadge={formalStatusBadge}
+                  statusKind="formal"
+                  onStudy={() => onStartStudy(deck.id)}
+                  onMenu={(e) => {
+                    void showDeckMenu(e, deck.id);
+                  }}
+                />
+              {:else}
+                <DeckGridCard
+                  {deck}
+                  {stats}
+                  {colorScheme}
+                  {levelProgress}
+                  statusBadge={formalStatusBadge}
+                  statusKind="formal"
+                  onStudy={() => onStartStudy(deck.id)}
+                  onMenu={(e) => {
+                    void showDeckMenu(e, deck.id);
+                  }}
+                />
+              {/if}
+            </div>
+          {/each}
+        {:else if shouldShowEmergentDecks}
+          {#each emergentDeckViews as view (view.id)}
+            {@const deck = createVirtualDeck(view)}
+            {@const stats = emergentDeckStats[view.id] || deck.stats}
+            {@const colorScheme = getColorSchemeForDeck(view.id)}
+            {@const colorVariant = (((view.name.length || 1) % 4) + 1) as 1 | 2 | 3 | 4}
+            <div class="deck-card-shell">
+              {#if deckCardStyle === 'chinese-elegant'}
+                <ChineseElegantDeckCard
+                  {deck}
+                  {stats}
+                  {colorVariant}
+                  statusKind="emergent"
+                  onStudy={() => onStartEmergentStudy?.(view.id, view.name)}
+                  onMenu={(e) => showEmergentDeckMenu(e, view)}
+                />
+              {:else}
+                <DeckGridCard
+                  {deck}
+                  {stats}
+                  {colorScheme}
+                  statusKind="emergent"
+                  onStudy={() => onStartEmergentStudy?.(view.id, view.name)}
+                  onMenu={(e) => showEmergentDeckMenu(e, view)}
+                />
+              {/if}
+            </div>
+          {/each}
+        {/if}
       </div>
-      {#if emergentDeckViews.length > 0}
-        <div class="emergent-section">
-          <div class="emergent-grid">
-            {#each emergentDeckViews as view (view.id)}
-              {@const deck = createVirtualDeck(view)}
-              {@const stats = emergentDeckStats[view.id] || deck.stats}
-              {@const colorScheme = getColorSchemeForDeck(view.id)}
-              {@const colorVariant = (((view.name.length || 1) % 4) + 1) as 1 | 2 | 3 | 4}
-              <div class="deck-card-shell">
-                {#if deckCardStyle === 'chinese-elegant'}
-                  <ChineseElegantDeckCard
-                    {deck}
-                    {stats}
-                    {colorVariant}
-                    statusBadge={view.statusBadge}
-                    statusKind="emergent"
-                    onStudy={() => onStartEmergentStudy?.(view.id, view.name)}
-                    onMenu={(e) => showEmergentDeckMenu(e, view)}
-                  />
-                {:else}
-                  <DeckGridCard
-                    {deck}
-                    {stats}
-                    {colorScheme}
-                    statusBadge={view.statusBadge}
-                    statusKind="emergent"
-                    onStudy={() => onStartEmergentStudy?.(view.id, view.name)}
-                    onMenu={(e) => showEmergentDeckMenu(e, view)}
-                  />
-                {/if}
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
     {:else}
       <!-- 空状态占位符 -->
       <div class="mode-placeholder">
@@ -433,19 +588,6 @@
     min-width: 0;
     container-type: inline-size;
     container-name: deck-card;
-  }
-
-  .emergent-section {
-    margin-top: 28px;
-    padding-top: 24px;
-    border-top: 1px solid var(--background-modifier-border);
-    box-shadow: none;
-  }
-
-  .emergent-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--weave-deck-card-min-width)), 1fr));
-    gap: var(--weave-deck-grid-gap);
   }
 
 /* 妯″紡鍗犱綅绗︽牱寮?*/

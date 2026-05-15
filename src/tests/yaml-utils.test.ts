@@ -49,4 +49,14 @@ tags: 单个标签
 
     expect(extractAllTags(content)).toEqual(['仅正文标签']);
   });
+
+  test('should ignore hashtags inside html attributes while keeping real body tags', () => {
+    const content = `---
+tags:
+  - 手工标签
+---
+<mark style="background: #FFF3A3A6;">高亮内容</mark> 和正文标签 #真实标签`;
+
+    expect(extractAllTags(content)).toEqual(['手工标签', '真实标签']);
+  });
 });

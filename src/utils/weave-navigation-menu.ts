@@ -1,4 +1,5 @@
 import type { Menu } from "obsidian";
+import { i18n } from "./i18n";
 
 export type WeavePageId = "deck-study" | "weave-card-management" | "ai-assistant";
 
@@ -7,27 +8,35 @@ export function addWeaveNavigationItems(
 	currentPage: string,
 	onNavigate: (pageId: WeavePageId) => void
 ): void {
+	const navigateIfNeeded = (pageId: WeavePageId) => {
+		if (currentPage === pageId) {
+			return;
+		}
+
+		onNavigate(pageId);
+	};
+
 	menu.addItem((item) => {
 		item
-			.setTitle("牌组学习")
+			.setTitle(i18n.t("navigation.deckStudy"))
 			.setIcon("graduation-cap")
 			.setChecked(currentPage === "deck-study")
-			.onClick(() => onNavigate("deck-study"));
+			.onClick(() => navigateIfNeeded("deck-study"));
 	});
 
 	menu.addItem((item) => {
 		item
-			.setTitle("卡片管理")
+			.setTitle(i18n.t("navigation.cardManagement"))
 			.setIcon("list")
 			.setChecked(currentPage === "weave-card-management")
-			.onClick(() => onNavigate("weave-card-management"));
+			.onClick(() => navigateIfNeeded("weave-card-management"));
 	});
 
 	menu.addItem((item) => {
 		item
-			.setTitle("AI助手")
+			.setTitle(i18n.t("navigation.aiAssistant"))
 			.setIcon("bot")
 			.setChecked(currentPage === "ai-assistant")
-			.onClick(() => onNavigate("ai-assistant"));
+			.onClick(() => navigateIfNeeded("ai-assistant"));
 	});
 }

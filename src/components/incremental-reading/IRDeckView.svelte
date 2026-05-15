@@ -4,7 +4,6 @@
    */
   import { IRStorageService } from '../../services/incremental-reading/IRStorageService';
   import { IRDeckManager } from '../../services/incremental-reading/IRDeckManager';
-  import { IRChunkFileService } from '../../services/incremental-reading/IRChunkFileService';
   import type { App } from 'obsidian';
 
   let _storageService: IRStorageService | null = null;
@@ -50,7 +49,7 @@
    * @version 2.0.0
    */
   import { onMount, onDestroy } from 'svelte';
-  import { Notice, Menu, Modal, Setting } from 'obsidian';
+  import { Notice, Menu } from 'obsidian';
   import { MaterialImportModalObsidian } from './MaterialImportModalObsidian';
   import IRLoadForecastModal from '../modals/IRLoadForecastModal.svelte';
   import type { BatchImportResult } from '../../services/incremental-reading/ReadingMaterialManager';
@@ -68,6 +67,7 @@
   import { recomputeAndBroadcastIRData } from '../../services/incremental-reading/IRScheduleRefreshService';
   import { toDeckStats as mapIRDeckStatsToDeckStats } from '../../services/incremental-reading/IRDeckStatsMapper';
   import { getSharedIRWorkspaceSnapshotService } from '../../services/incremental-reading/IRWorkspaceSnapshotService';
+  import { openObsidianDeckEditModal } from '../../utils/obsidian-deck-edit-modal';
 
   interface Props {
     plugin: WeavePlugin;
@@ -179,7 +179,7 @@
     const deckId = irDeck.id || irDeck.path || '';
     return {
       id: deckId,
-      name: irDeck.name || '未命名牌组',
+      name: irDeck.name || '未命名专题',
       icon: 'book-open',
       description: `${getStats(deckId).fileCount} 个文件`,
       created: irDeck.createdAt || now,
@@ -209,28 +209,10 @@
     const menu = new Menu();
     const deckId = deck.id || deck.path || '';
     
-    // 开始阅读（学习队列）
-    menu.addItem((item) =>
-      item
-        .setTitle('开始阅读')
-        .setIcon('play')
-        .onClick(() => handleStartReading(deckId))
-    );
-    
-    // 提前阅读所有内容块
-    menu.addItem((item) =>
-      item
-        .setTitle('提前阅读')
-        .setIcon('fast-forward')
-        .onClick(() => handleAdvanceReading(deckId))
-    );
-    
-    menu.addSeparator();
-    
     // 牌组编辑
     menu.addItem((item) =>
       item
-        .setTitle('牌组编辑')
+        .setTitle('专题编辑')
         .setIcon('edit-3')
         .onClick(() => handleEditDeck(deckId))
     );
@@ -238,7 +220,7 @@
     // 牌组分析（负载预测）
     menu.addItem((item) =>
       item
-        .setTitle('牌组分析')
+        .setTitle('专题分析')
         .setIcon('bar-chart-2')
         .onClick(() => {
           loadForecastDeckId = deckId;
@@ -248,47 +230,25 @@
     
     menu.addSeparator();
     
-    // 解散牌组（保留内容块数据）
+    // 删除专题
     menu.addItem((item) =>
       item
-        .setTitle('解散牌组')
-        .setIcon('unlink')
-        .onClick(async () => {
-          const confirmed = await confirmAction(
-            '解散牌组',
-            '解散后牌组将被删除，但内容块数据会保留。确定继续？'
-          );
-          if (confirmed) {
-            const storageService = new IRStorageService(plugin.app);
-            await storageService.initialize();
-            const deckManager = new IRDeckManager(plugin.app, storageService, plugin.settings?.incrementalReading?.importFolder);
-            logger.debug(`[IRDeckView] 解散牌组: ${deckId}`);
-            await deckManager.disbandDeck(deckId);
-            await recomputeAndBroadcastIRData(plugin.app, 'remove_block');
-            new Notice('牌组已解散（内容块数据已保留）');
-          }
-        })
-    );
-    
-    // 删除牌组（同时删除内容块数据）
-    menu.addItem((item) =>
-      item
-        .setTitle('删除牌组')
+        .setTitle('删除专题')
         .setIcon('trash-2')
         .setWarning(true)
         .onClick(async () => {
           const confirmed = await confirmAction(
-            '删除牌组',
-            '此操作将删除牌组及其所有内容块数据，不可恢复。确定继续？'
+            '删除专题',
+            '此操作将删除专题及其增量阅读调度数据，并清理源文档中的增量阅读信息，同时添加“we_已删除”标签；不会删除源文档。确定继续？'
           );
           if (confirmed) {
             const storageService = new IRStorageService(plugin.app);
             await storageService.initialize();
             const deckManager = new IRDeckManager(plugin.app, storageService, plugin.settings?.incrementalReading?.importFolder);
-            logger.debug(`[IRDeckView] 删除牌组: ${deckId}`);
+            logger.debug(`[IRDeckView] 删除专题: ${deckId}`);
             await deckManager.deleteDeck(deckId);
             await recomputeAndBroadcastIRData(plugin.app, 'remove_block');
-            new Notice('牌组及内容块数据已删除');
+            new Notice('专题已删除，源文档已保留，并已清理增量阅读信息');
           }
         })
     );
@@ -310,98 +270,40 @@
     const deck = await storageService.getDeckById(deckId);
     if (!deck) return;
 
-    const modal = new Modal(plugin.app);
-    modal.titleEl.setText('编辑牌组');
-    
-    let newName = deck.name;
-    let newTag = (deck.tags && deck.tags.length > 0) ? deck.tags[0] : '';
-    
-    // 名称
-    new Setting(modal.contentEl)
-      .setName('名称')
-      .addText((text: any) => {
-        text.setValue(newName).onChange((v: string) => { newName = v; });
-        text.inputEl.style.width = '100%';
-      });
-    
-    // 牌组标签（单选）
-    const tagSetting = new Setting(modal.contentEl)
-      .setName('牌组标签(单选)')
-      .setDesc('标签用于牌组分类，仅可选择一个标签');
-    
-    const tagInputContainer = modal.contentEl.createDiv({ cls: 'weave-tag-input-container' });
-    const tagDisplay = tagInputContainer.createDiv({ cls: 'weave-tag-display' });
-    
-    function renderTag() {
-      tagDisplay.empty();
-      if (newTag) {
-        const chip = tagDisplay.createSpan({ cls: 'weave-tag-chip', text: newTag });
-        const removeBtn = chip.createSpan({ cls: 'weave-tag-remove', text: '\u00d7' });
-        removeBtn.onclick = () => { newTag = ''; renderTag(); };
-      }
-    }
-    renderTag();
-    
-    const tagInput = tagInputContainer.createEl('input', { 
-      type: 'text', 
-      placeholder: '输入标签后按回车添加' 
-    });
-    tagInput.style.width = '100%';
-    tagInput.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && tagInput.value.trim()) {
-        e.preventDefault();
-        newTag = tagInput.value.trim();
-        tagInput.value = '';
-        renderTag();
-      }
-    });
-    
-    // 按钮
-    const btnContainer = modal.contentEl.createDiv({ cls: 'modal-button-container' });
-    btnContainer.style.display = 'flex';
-    btnContainer.style.justifyContent = 'flex-end';
-    btnContainer.style.gap = '8px';
-    btnContainer.style.marginTop = '16px';
-    
-    const cancelBtn = btnContainer.createEl('button', { text: '取消' });
-    cancelBtn.onclick = () => modal.close();
-    
-    const saveBtn = btnContainer.createEl('button', { text: '保存', cls: 'mod-cta' });
-    saveBtn.onclick = async () => {
-      if (!newName.trim()) return;
-      try {
-        const oldName = deck.name;
-        deck.name = newName.trim();
-        deck.tags = newTag ? [newTag] : [];
-        deck.updatedAt = new Date().toISOString();
-        await storageService.saveDeck(deck);
+    const allDecks = Object.values(await storageService.getAllDecks());
+    const availableTags = Array.from(
+      new Set(allDecks.flatMap((item) => Array.isArray(item.tags) ? item.tags : []).filter(Boolean))
+    ).sort((left, right) => left.localeCompare(right, 'zh-CN'));
 
-        if (oldName !== deck.name) {
-          try {
-            await storageService.migrateChunkDeckNameInYAML(oldName, deck.name);
-          } catch (e) {
-            logger.warn('[IRDeckView] YAML 迁移失败:', e);
-          }
-          try {
-            const outputRoot = plugin.settings?.incrementalReading?.importFolder;
-            const chunkFileService = new IRChunkFileService(plugin.app, outputRoot);
-            await chunkFileService.renameDeckIndexCard(oldName, deck.name);
-          } catch (e) {
-            logger.warn('[IRDeckView] 索引卡片重命名失败:', e);
-          }
+    openObsidianDeckEditModal({
+      app: plugin.app,
+      title: '编辑专题',
+      nameLabel: '名称',
+      tagLabel: '标签',
+      tagPlaceholder: '输入标签后按回车',
+      tagHint: '可为专题设置一个标签，用于分组和筛选。',
+      confirmText: '保存',
+      cancelText: '取消',
+      initialName: deck.name,
+      initialTag: (deck.tags && deck.tags.length > 0) ? deck.tags[0] : '',
+      availableTags,
+      onSubmit: async ({ name, tag }) => {
+        try {
+          deck.name = name;
+          deck.tags = tag ? [tag] : [];
+          deck.updatedAt = new Date().toISOString();
+          await storageService.saveDeck(deck);
+
+          await recomputeAndBroadcastIRData(plugin.app, 'tag_group_changed');
+          plugin.app.workspace.trigger('Weave:data-changed');
+          new Notice('专题已更新');
+        } catch (error) {
+          logger.error('[IRDeckView] 编辑失败:', error);
+          new Notice('编辑专题失败');
+          throw error;
         }
-
-        await recomputeAndBroadcastIRData(plugin.app, 'tag_group_changed');
-        plugin.app.workspace.trigger('Weave:data-changed');
-        new Notice('牌组已更新');
-        modal.close();
-      } catch (error) {
-        logger.error('[IRDeckView] 编辑失败:', error);
-        new Notice('编辑失败');
       }
-    };
-    
-    modal.open();
+    });
   }
 
   // 处理开始阅读：统一跳转到现役侧边栏阅读流程
@@ -417,22 +319,6 @@
     } catch (error) {
       logger.error('[IRDeckView] 开始阅读失败:', error);
       new Notice('开始阅读失败');
-    }
-  }
-  
-  // 提前阅读入口也统一跳转到现役侧边栏阅读流程
-  async function handleAdvanceReading(deckPath: string) {
-    try {
-      const redirectDeck = decks.find(d => d.id === deckPath || d.path === deckPath);
-      const redirectDeckName = redirectDeck?.name || deckPath.split('/').pop() || '增量阅读';
-      await plugin.redirectIncrementalReadingToSidebar({
-        deckPath,
-        deckName: redirectDeckName,
-        closeLegacyFocusLeaves: true
-      });
-    } catch (error) {
-      logger.error('[IRDeckView] 提前阅读V4失败:', error);
-      new Notice('提前阅读失败');
     }
   }
 
@@ -451,15 +337,20 @@
   // 监听数据更新事件（学习结束、删除牌组等操作后刷新统计）
   $effect(() => {
     const handleDataUpdate = () => {
+      getWorkspaceSnapshotService().invalidate();
+      void loadDecks();
+    };
+
+    const handleTimerUpdate = () => {
       void loadDecks();
     };
     
     window.addEventListener('Weave:ir-data-updated', handleDataUpdate);
-    window.addEventListener('Weave:ir-timer-updated', handleDataUpdate);
+    window.addEventListener('Weave:ir-timer-updated', handleTimerUpdate);
     
     return () => {
       window.removeEventListener('Weave:ir-data-updated', handleDataUpdate);
-      window.removeEventListener('Weave:ir-timer-updated', handleDataUpdate);
+      window.removeEventListener('Weave:ir-timer-updated', handleTimerUpdate);
     };
   });
 
@@ -485,7 +376,7 @@
     <div class="mode-placeholder">
       <div class="placeholder-icon">--</div>
       <h2 class="placeholder-title">暂无增量阅读专题</h2>
-      <p class="placeholder-desc">点击左上角菜单导入文件夹开始增量阅读</p>
+      <p class="placeholder-desc">点击左上角菜单导入材料，或创建正文阅读点开始增量阅读</p>
     </div>
   {:else}
     <!-- 牌组网格（复用记忆牌组的卡片设计） -->

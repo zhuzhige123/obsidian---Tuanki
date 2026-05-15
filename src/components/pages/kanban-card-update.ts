@@ -42,8 +42,8 @@ export function applyDeckDragToCard(
 	card: Card,
 	decks: Deck[],
 	targetDeckId: string,
-	mode: KanbanDeckDragMode,
-	sourceDeckId?: string,
+	_mode: KanbanDeckDragMode,
+	_sourceDeckId?: string,
 	modified?: string
 ): Card {
 	const targetDeck = decks.find((deck) => deck.id === targetDeckId);
@@ -51,27 +51,15 @@ export function applyDeckDragToCard(
 		return card;
 	}
 
-	const sourceDeck = sourceDeckId ? decks.find((deck) => deck.id === sourceDeckId) : undefined;
-	const deckById = new Map(decks.map((deck) => [deck.id, deck] as const));
-	const currentDeckIds = getCardDeckIds(card, decks, { preserveAllDeckIds: true }).deckIds;
-	const nextDeckIds = Array.from(
-		new Set([
-			...currentDeckIds.filter(
-				(deckId) => mode !== "replace-source" || !sourceDeck || deckId !== sourceDeck.id
-			),
-			targetDeck.id,
-		])
-	);
-	const nextDeckNames = nextDeckIds.map((deckId) => deckById.get(deckId)?.name || deckId);
 	const content = setCardProperties(card.content || "", {
-		we_decks: nextDeckNames.length > 0 ? nextDeckNames : undefined,
+		we_decks: [targetDeck.name],
 	});
 
 	const updatedCard: Card = {
 		...card,
 		content,
-		deckId: nextDeckIds[0],
-		referencedByDecks: nextDeckIds,
+		deckId: targetDeck.id,
+		referencedByDecks: [targetDeck.id],
 	};
 
 	if (modified) {

@@ -34,13 +34,6 @@ export const MAIN_NAVIGATION_ITEMS: readonly NavigationItem[] = [
 		hidden: false,
 	},
 	{
-		id: "incremental-reading",
-		label: "navigation.incrementalReading",
-		icon: ICON_NAMES.BOOK_OPEN,
-		description: "navigation.incrementalReadingDesc",
-		hidden: true, //  增量阅读日历视图已整合到牌组学习界面的标签页中
-	},
-	{
 		id: "ai-assistant",
 		label: "navigation.aiAssistant",
 		icon: ICON_NAMES.AI_ASSISTANT,
@@ -119,6 +112,14 @@ export function getVisibleNavigationItems(
 	navigationVisibility?: Record<string, boolean>
 ): NavigationItem[] {
 	return MAIN_NAVIGATION_ITEMS.filter((_item) => {
+		if (
+			_item.id === "deck-study"
+			|| _item.id === "weave-card-management"
+			|| _item.id === "ai-assistant"
+		) {
+			return !_item.hidden && !_item.disabled;
+		}
+
 		// 首先检查基本的 hidden 和 disabled 状态
 		if (_item.hidden || _item.disabled) {
 			return false;
@@ -147,7 +148,6 @@ function getNavigationVisibilityKey(itemId: string): string | null {
 	const mapping: Record<string, string> = {
 		"deck-study": "deckStudy",
 		"weave-card-management": "cardManagement",
-		"incremental-reading": "incrementalReading",
 		"ai-assistant": "aiAssistant",
 	};
 

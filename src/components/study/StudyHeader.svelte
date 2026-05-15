@@ -13,6 +13,7 @@
     cardsLength: number;
     statsCollapsed: boolean;
     sourceInfoCollapsed?: boolean;
+    showSourceInfoToggle?: boolean;
     showSidebar: boolean;
     session: StudySession;
     dataStorage: WeaveDataStorage;
@@ -32,6 +33,7 @@
     cardsLength,
     statsCollapsed,
     sourceInfoCollapsed = false,
+    showSourceInfoToggle = false,
     showSidebar,
     session,
     dataStorage,
@@ -80,26 +82,19 @@
     </div>
   </div>
 
-  <!-- 中间：多彩彩色圆点（复用主界面设计） -->
-  <div class="header-center">
-    <div class="header-dots-container">
-      <span class="header-dot" style="background: linear-gradient(135deg, #ef4444, #dc2626)" title={t('study.header.dotReading')}></span>
-      <span class="header-dot" style="background: linear-gradient(135deg, #3b82f6, #2563eb)" title={t('study.header.dotMemory')}></span>
-      <span class="header-dot" style="background: linear-gradient(135deg, #10b981, #059669)" title={t('study.header.dotExam')}></span>
-    </div>
-  </div>
-
   <div class="header-right">
     <!-- 来源信息栏展开/收起按钮 -->
-    <button
-      type="button"
-      onclick={onToggleSourceInfo}
-      aria-label={sourceInfoCollapsed ? t('study.header.expandSourceInfo') : t('study.header.collapseSourceInfo')}
-      title={sourceInfoCollapsed ? t('study.header.expandSourceInfo') : t('study.header.collapseSourceInfo')}
-      class="clickable-icon study-header-icon-btn source-info-toggle-btn"
-    >
-      <ObsidianIcon name="book-open" size={16} />
-    </button>
+    {#if showSourceInfoToggle}
+      <button
+        type="button"
+        onclick={onToggleSourceInfo}
+        aria-label={sourceInfoCollapsed ? t('study.header.expandSourceInfo') : t('study.header.collapseSourceInfo')}
+        title={sourceInfoCollapsed ? t('study.header.expandSourceInfo') : t('study.header.collapseSourceInfo')}
+        class="clickable-icon study-header-icon-btn source-info-toggle-btn"
+      >
+        <ObsidianIcon name="book-open" size={16} />
+      </button>
+    {/if}
 
     <!-- 统计展开/收起按钮 -->
     <button
@@ -221,37 +216,6 @@
 
   .progress-total {
     color: var(--text-muted);
-  }
-
-  .header-center {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    pointer-events: auto;
-  }
-
-  .header-dots-container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .header-dot {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .header-dot:hover {
-    transform: scale(1.25);
-    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
   }
 
   .header-right {

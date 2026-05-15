@@ -68,7 +68,6 @@ export interface GenerationConfig {
 
 	// 高级选项
 	targetDeck?: string;
-	autoTags?: string[];
 	enableHints?: boolean;
 }
 
@@ -359,6 +358,20 @@ export interface ImportResult {
 	importedCount: number;
 	failedCount: number;
 	errors: string[];
+}
+
+export interface AIPreviewImportOptions {
+	targetDeckId: string;
+	autoTags: string[];
+}
+
+export interface AIPreviewImportResult {
+	importedCount: number;
+	failedCount: number;
+	selectedCount: number;
+	targetDeckId: string;
+	targetDeckName?: string;
+	importedItemIds?: string[];
 }
 
 // ===== 历史记录 =====

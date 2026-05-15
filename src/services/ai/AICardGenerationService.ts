@@ -11,6 +11,7 @@ import type {
 	PromptTemplate,
 } from "../../types/ai-types";
 import { validateContentLength } from "../../utils/file-utils";
+import { hasAnyClozeSyntax } from "../../utils/cloze-syntax";
 import { logger } from "../../utils/logger";
 import {
 	buildVariablesFromConfig,
@@ -337,9 +338,9 @@ export class AICardGenerationService {
 		return String(value).trim();
 	}
 
-	private normalizeTags(value: unknown, fallbackTags: string[]): string[] {
+	private normalizeTags(value: unknown): string[] {
 		if (!Array.isArray(value)) {
-			return [...fallbackTags];
+			return [];
 		}
 
 		return value
@@ -348,7 +349,7 @@ export class AICardGenerationService {
 	}
 
 	private containsCloze(text: string): boolean {
-		return /==[^=]+==/.test(text) || /\{\{c\d+::.+?\}\}/i.test(text);
+		return hasAnyClozeSyntax(text);
 	}
 
 	private splitContent(content: string): { front: string; back: string } {
@@ -541,7 +542,6 @@ export class AICardGenerationService {
 		config: GenerationConfig,
 		index: number
 	): AICardPreviewItem {
-		const fallbackTags = [...(config.autoTags || [])];
 		const type = this.inferDraftType(raw);
 		let draft: GeneratedCardDraft;
 		let issues: AICardIssue[] = [];
@@ -564,7 +564,7 @@ export class AICardGenerationService {
 					type: "qa",
 					front,
 					back,
-					tags: this.normalizeTags(raw.tags, fallbackTags),
+					tags: this.normalizeTags(raw.tags),
 				};
 				break;
 			}
@@ -583,7 +583,7 @@ export class AICardGenerationService {
 					type: "cloze",
 					text,
 					back,
-					tags: this.normalizeTags(raw.tags, fallbackTags),
+					tags: this.normalizeTags(raw.tags),
 				};
 				break;
 			}
@@ -620,7 +620,7 @@ export class AICardGenerationService {
 					options: normalizedOptions.options,
 					answers: normalizedAnswers.answers,
 					back,
-					tags: this.normalizeTags(raw.tags, fallbackTags),
+					tags: this.normalizeTags(raw.tags),
 				};
 				break;
 			}

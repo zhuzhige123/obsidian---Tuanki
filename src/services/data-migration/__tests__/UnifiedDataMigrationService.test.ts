@@ -2,7 +2,9 @@ import {
   discoverLegacyDataRoots,
   resolveCurrentDataLayout,
   UnifiedDataMigrationService,
+  verifyDataMigration,
 } from '../UnifiedDataMigrationService';
+import { getV2Paths } from '../../../config/paths';
 
 function createMockApp(existingPaths: string[] = []) {
   const existing = new Set(existingPaths);
@@ -488,6 +490,33 @@ describe('UnifiedDataMigrationService', () => {
     expect(latestReport?.verification?.ok).toBe(false);
     expect(settings.weaveParentFolder).toBe('');
     expect(files.has('Archive/weave/memory/decks.json')).toBe(false);
+  });
+
+  it('does not require the deprecated memory/cards directory during migration verification', async () => {
+    const v2Paths = getV2Paths('');
+    const { app } = createMemoryApp();
+
+    await app.vault.adapter.mkdir(v2Paths.memory.root);
+    await app.vault.adapter.mkdir(v2Paths.memory.learning.root);
+    await app.vault.adapter.mkdir(v2Paths.ir.root);
+    await app.vault.adapter.mkdir(v2Paths.questionBank.root);
+
+    const verification = await verifyDataMigration(
+      {
+        plan: {
+          layout: { v2Paths },
+          activeSourceRoots: [],
+          conflictsRoot: `${v2Paths.root}/_migration_conflicts`,
+        },
+        conflictFiles: [],
+      } as any,
+      app,
+    );
+
+    expect(verification).toMatchObject({
+      ok: true,
+      missingDirectories: [],
+    });
   });
 
   it('archives multiple conflicting files without overwriting earlier conflict snapshots', async () => {

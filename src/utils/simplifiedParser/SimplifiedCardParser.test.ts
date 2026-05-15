@@ -21,6 +21,11 @@ describe('SimplifiedCardParser', () => {
     };
   });
 
+  afterEach(() => {
+    parser.destroy();
+    vi.restoreAllMocks();
+  });
+
   describe('标签触发检查', () => {
     test('应该检测到触发标签', async () => {
       const content = '这是一个测试内容 #weave';
@@ -274,6 +279,22 @@ B) 错误答案
       expect(result.stats.cardTypes[CardType.Cloze]).toBe(1);
       expect(result.stats.cardTypes[CardType.Multiple]).toBe(1);
       expect(result.stats.processingTime).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('生命周期清理', () => {
+    test('destroy 应该清理缓存定时器并重置内部状态', () => {
+      const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+
+      expect((parser as any).cacheCleanupInterval).not.toBeNull();
+
+      parser.clearCache = vi.fn(parser.clearCache.bind(parser));
+      parser.destroy();
+
+      expect(clearIntervalSpy).toHaveBeenCalled();
+      expect(parser.clearCache).toHaveBeenCalledTimes(1);
+      expect((parser as any).cacheCleanupInterval).toBeNull();
+      expect((parser as any).lastCardsPosition).toBeUndefined();
     });
   });
 });

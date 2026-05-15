@@ -9,7 +9,6 @@
  */
 
 import { App, Notice, TFile } from "obsidian";
-import { resolveIRImportFolder } from "../../config/paths";
 import { getPluginPaths } from "../../config/paths";
 import type {
 	IRAdvancedScheduleSettings,
@@ -34,6 +33,7 @@ import { IREpubBookmarkTaskService, isEpubBookmarkTaskId } from "./IREpubBookmar
 import { IRPdfBookmarkTaskService, isPdfBookmarkTaskId } from "./IRPdfBookmarkTaskService";
 import { IRPlanGeneratorService } from "./IRPlanGeneratorService";
 import { IRQueueGeneratorV4 } from "./IRQueueGeneratorV4";
+import { IRPointWriteService } from "./IRPointWriteService";
 import { getSharedIRScheduleKernel } from "./IRScheduleKernel";
 import type {
 	IRPlannedDay,
@@ -44,7 +44,7 @@ import { calculateLoadSignal } from "./IRSchedulerV3";
 import { IRStateMachineV4 } from "./IRStateMachineV4";
 import { IRStorageAdapterV4 } from "./IRStorageAdapterV4";
 import { IRStorageService } from "./IRStorageService";
-import { IRTagGroupService } from "./IRTagGroupService";
+import { computeTagGroupPriorityBias, IRTagGroupService } from "./IRTagGroupService";
 
 /**
  * 阅读完成数据
@@ -127,17 +127,11 @@ export class IRV4SchedulerService {
 	private _epubBookmarkTaskService: IREpubBookmarkTaskService;
 	private initialized = false;
 
-	constructor(app: App, chunkRoot?: string) {
+	constructor(app: App) {
 		this.app = app;
 		this.stateMachine = new IRStateMachineV4();
 		this.storageService = new IRStorageService(app);
-		const plugin: any = (app as any)?.plugins?.getPlugin?.("weave");
-		const parentFolder = plugin?.settings?.weaveParentFolder;
-		this.chunkAdapter = new IRChunkScheduleAdapter(
-			app,
-			this.storageService,
-			resolveIRImportFolder(chunkRoot, parentFolder)
-		);
+		this.chunkAdapter = new IRChunkScheduleAdapter(app, this.storageService);
 		this.tagGroupService = new IRTagGroupService(app);
 		this.storageAdapterV4 = new IRStorageAdapterV4(app);
 		this.queueGenerator = new IRQueueGeneratorV4();
@@ -447,22 +441,10 @@ export class IRV4SchedulerService {
 			epubTaskBlocks = bookmarkBlocks.epubTaskBlocks;
 		} catch (error) {
 			logger.warn(
-				"[IRV4SchedulerService] 读取 PDF/EPUB 书签任务失败（将继续仅使用 chunk 队列）",
+				"[IRV4SchedulerService] 读取 PDF/EPUB 阅读点兼容视图失败（将继续仅使用 chunk 阅读点队列）",
 				error
 			);
 		}
-		/*
-				"[IRV4SchedulerService] 读取 PDF 书签任务失败（将继续仅使用 chunk 队列）:",
-			);
-		}
-
-		} catch (error) {
-				"[IRV4SchedulerService] 读取 EPUB 书签任务失败（将继续仅使用 chunk 队列）:",
-				error
-			);
-		}
-
-		*/
 		const allBlocks: IRBlockV4[] = [...chunkBlocks, ...pdfTaskBlocks, ...epubTaskBlocks];
 
 		// maxAppearancesPerDay 过滤：跳过今日已达上限的块
@@ -619,7 +601,7 @@ export class IRV4SchedulerService {
 			}
 		}
 
-		const generatedQueue = this.generateUnifiedQueue(
+		const generatedQueue = await this.generateUnifiedQueue(
 			candidates,
 			timeBudgetMinutes,
 			currentSourcePath
@@ -671,11 +653,11 @@ export class IRV4SchedulerService {
 		};
 	}
 
-	private generateUnifiedQueue(
+	private async generateUnifiedQueue(
 		candidates: IRBlockV4[],
 		timeBudgetMinutes: number,
 		currentSourcePath: string | null
-	): {
+	): Promise<{
 		queue: IRBlockV4[];
 		totalEstimatedMinutes: number;
 		stats: {
@@ -685,9 +667,10 @@ export class IRV4SchedulerService {
 			overBudget: boolean;
 			overBudgetRatio: number;
 		};
-	} {
+	}> {
 		const plannedItems = candidates.map((block) => this.toPlannedItem(block, currentSourcePath));
 		const advSettings = this.getAdvancedSettingsSnapshot();
+		await this.applyTagGroupPriorityBiases(plannedItems, advSettings);
 		const plan = this.planGenerator.generatePlan(plannedItems, {
 			horizonDays: 7,
 			dailyBudgetMinutes: timeBudgetMinutes,
@@ -749,6 +732,53 @@ export class IRV4SchedulerService {
 		return `source:${block.sourcePath}`;
 	}
 
+	private async applyTagGroupPriorityBiases(
+		items: IRPlannedScheduleItem[],
+		advSettings: ReturnType<IRV4SchedulerService["getAdvancedSettingsSnapshot"]>
+	): Promise<void> {
+		if (advSettings.enableTagGroupPrior === false || items.length === 0) {
+			for (const item of items) {
+				item.tagGroupPriorityBias = 0;
+			}
+			return;
+		}
+
+		const uniqueGroupIds = Array.from(
+			new Set(
+				items
+					.map((item) => String(item.tagGroupId || "default").trim())
+					.filter((groupId) => groupId && groupId !== "default")
+			)
+		);
+		const biasByGroup = new Map<string, number>();
+		await Promise.all(
+			uniqueGroupIds.map(async (groupId) => {
+				const profile = await this.tagGroupService.getProfile(groupId);
+				biasByGroup.set(
+					groupId,
+					computeTagGroupPriorityBias(profile, {
+						groupId,
+						defaultIntervalFactor: advSettings.defaultIntervalFactor,
+					})
+				);
+			})
+		);
+
+		for (const item of items) {
+			const groupId = String(item.tagGroupId || "default").trim() || "default";
+			const bias = biasByGroup.get(groupId) ?? 0;
+			item.tagGroupPriorityBias = bias;
+			item.explanation.secondaryReasons = item.explanation.secondaryReasons.filter(
+				(reason) => !reason.startsWith("标签组倾向 ")
+			);
+			if (Math.abs(bias) >= 0.05) {
+				item.explanation.secondaryReasons.push(
+					`标签组倾向 ${bias > 0 ? "+" : ""}${bias.toFixed(2)}`
+				);
+			}
+		}
+	}
+
 	private toPlannedItem(block: IRBlockV4, currentSourcePath: string | null): IRPlannedScheduleItem {
 		const estimatedMinutes =
 			block.stats.impressions > 0 && block.stats.effectiveReadingTimeSec > 0
@@ -766,6 +796,7 @@ export class IRV4SchedulerService {
 			title: block.blockId || block.id,
 			sourceFile: block.sourcePath,
 			topicKey: this.resolveTopicKey(block),
+			tagGroupId: String(block.meta?.tagGroup || "default").trim() || "default",
 			priority: block.priorityUi ?? block.priorityEff ?? 5,
 			intervalDays: block.intervalDays ?? 1,
 			scheduleStatus: block.status,
@@ -1637,11 +1668,11 @@ export class IRV4SchedulerService {
 		await this.initialize();
 
 		if (isPdfBookmarkTaskId(blockV4.id)) {
-			await this._pdfBookmarkTaskService.deleteTask(blockV4.id);
+			await new IRPointWriteService(this.app).deletePoint({ id: blockV4.id });
 		} else if (isEpubBookmarkTaskId(blockV4.id)) {
-			await this._epubBookmarkTaskService.deleteTask(blockV4.id);
+			await new IRPointWriteService(this.app).deletePoint({ id: blockV4.id });
 		} else {
-			// 1. 删除 chunks.json 中的调度记录
+			// 1. 删除 chunk 阅读点调度记录（旧 chunks 文件存在时会同步维护兼容层）
 			await this.storageService.deleteChunkData(blockV4.id);
 
 			// 2. 可选删除 chunk 文件（IR 导入时创建的拆分文件）
@@ -1657,7 +1688,7 @@ export class IRV4SchedulerService {
 				}
 			}
 
-			// 3. 更新 sources.json 中的 chunkIds 引用
+			// 3. 同步维护 source 的 chunkIds 兼容投影视图
 			try {
 				const sources = await this.storageService.getAllSources();
 				for (const source of Object.values(sources)) {

@@ -6,6 +6,7 @@
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import { AI_PROVIDER_LABELS, AI_MODEL_OPTIONS } from '../settings/constants/settings-constants';
   import { addWeaveNavigationItems, type WeavePageId } from '../../utils/weave-navigation-menu';
+  import { applyStyleProps } from '../../utils/style-props';
 
   type PromptSuggestionItem = PromptTemplate & {
     category: 'official' | 'custom';
@@ -332,10 +333,12 @@
         Math.max(Math.round(inputRect.width), 320),
         Math.max(280, window.innerWidth - 24)
       );
-      activePopover.style.width = `${width}px`;
-      activePopover.style.maxWidth = `${width}px`;
-      activePopover.style.minWidth = `${width}px`;
-      activePopover.style.zIndex = '40';
+      applyStyleProps(activePopover, {
+        width: `${width}px`,
+        maxWidth: `${width}px`,
+        minWidth: `${width}px`,
+        zIndex: 40
+      });
     });
   }
 
@@ -351,11 +354,11 @@
     if (!textareaElement) return;
     
     // 重置高度以获取正确的 scrollHeight
-    textareaElement.style.height = '36px';
+    applyStyleProps(textareaElement, { height: '36px' });
     
     // 计算新高度（最小 36px，最大 120px）
     const newHeight = Math.min(Math.max(textareaElement.scrollHeight, 36), 120);
-    textareaElement.style.height = `${newHeight}px`;
+    applyStyleProps(textareaElement, { height: `${newHeight}px` });
   }
 
   // 处理键盘事件

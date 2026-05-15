@@ -140,6 +140,27 @@ describe("EmergentDeckService", () => {
 		expect(service.getResolvedDeckIdsForCard(card, decks, runtime)).toEqual(["deck-legacy"]);
 	});
 
+	it("不会把仅存在 referencedByDecks 的旧引用式归属解析为正式牌组", () => {
+		const service = createService();
+		const decks = [createDeck("deck-formal", "呼吸系统"), createDeck("deck-legacy", "旧牌组")];
+		const legacyReferencedCard = {
+			...createCard("card-1", ["呼吸"]),
+			referencedByDecks: ["deck-legacy"],
+		} as Card;
+		const runtime = service.buildRuntimeFromBindings(
+			[legacyReferencedCard, createCard("card-2", ["呼吸"])],
+			decks,
+			[]
+		);
+
+		expect(runtime.formalDeckIdsByCardUUID["card-1"]).toEqual([]);
+		expect(service.getPrimaryDeckIdForCard(legacyReferencedCard, decks, runtime)).toBeUndefined();
+		expect(service.getResolvedDeckIdsForCard(legacyReferencedCard, decks, runtime)).toEqual(["tag:呼吸"]);
+		expect(runtime.resolvedDeckRefsByCardUUID["card-1"]).toEqual([
+			{ id: "tag:呼吸", name: "呼吸", kind: "emergent", isPrimary: false },
+		]);
+	});
+
 	it("会输出一张卡的显式正式归属与全部涌现引用", () => {
 		const service = createService();
 		const decks = [createDeck("deck-formal", "呼吸系统"), createDeck("deck-legacy", "旧牌组")];

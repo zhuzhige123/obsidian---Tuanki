@@ -4,7 +4,7 @@ import { logger } from "../utils/logger";
  * 提供统一的目录操作接口，支持隐藏文件夹
  */
 
-import type { DataAdapter } from "obsidian";
+import { normalizePath, type DataAdapter } from "obsidian";
 
 export class DirectoryUtils {
 	/**
@@ -123,5 +123,96 @@ export class DirectoryUtils {
 
 		const dirPath = normalizedPath.substring(0, lastSlash);
 		await this.ensureDirRecursive(adapter, dirPath);
+	}
+
+	/**
+	 * 递归清理指定根目录下的空目录，仅删除空目录，不删除任何文件。
+	 * 默认保留根目录本身。
+	 */
+	static async pruneEmptyDirsUnder(
+		adapter: DataAdapter,
+		rootPath: string,
+		options: { preserveRoot?: boolean } = {}
+	): Promise<number> {
+		const normalizedRoot = normalizePath(String(rootPath || "").trim());
+		if (!normalizedRoot) {
+			return 0;
+		}
+
+		const adapterWithDirOps = adapter as DataAdapter & {
+			list?: (path: string) => Promise<{ files?: string[]; folders?: string[] }>;
+			rmdir?: (path: string, recursive?: boolean) => Promise<void>;
+			remove?: (path: string) => Promise<void>;
+		};
+
+		if (typeof adapterWithDirOps.list !== "function") {
+			return 0;
+		}
+
+		const preserveRoot = options.preserveRoot !== false;
+		let removedCount = 0;
+
+		const tryRemoveDir = async (dir: string): Promise<boolean> => {
+			try {
+				if (typeof adapterWithDirOps.rmdir === "function") {
+					await adapterWithDirOps.rmdir(dir, false);
+				} else if (typeof adapterWithDirOps.remove === "function") {
+					await adapterWithDirOps.remove(dir);
+				} else {
+					return false;
+				}
+				return true;
+			} catch {
+				try {
+					if (typeof adapterWithDirOps.remove === "function") {
+						await adapterWithDirOps.remove(dir);
+						return true;
+					}
+				} catch {
+					// noop
+				}
+				return false;
+			}
+		};
+
+		const visit = async (dir: string): Promise<void> => {
+			if (!(await adapter.exists(dir))) {
+				return;
+			}
+
+			let listing: { files?: string[]; folders?: string[] };
+			try {
+				listing = await adapterWithDirOps.list!(dir);
+			} catch {
+				return;
+			}
+
+			for (const childDir of Array.isArray(listing.folders) ? listing.folders : []) {
+				await visit(normalizePath(childDir));
+			}
+
+			try {
+				listing = await adapterWithDirOps.list!(dir);
+			} catch {
+				return;
+			}
+
+			const files = Array.isArray(listing.files) ? listing.files : [];
+			const folders = Array.isArray(listing.folders) ? listing.folders : [];
+			if (files.length > 0 || folders.length > 0) {
+				return;
+			}
+
+			if (preserveRoot && dir === normalizedRoot) {
+				return;
+			}
+
+			if (await tryRemoveDir(dir)) {
+				removedCount += 1;
+			}
+		};
+
+		await visit(normalizedRoot);
+		return removedCount;
 	}
 }

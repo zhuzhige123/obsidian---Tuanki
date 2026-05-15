@@ -203,9 +203,13 @@ describe('WeaveCardTable', () => {
     input.value = '新标签1';
     await fireEvent.input(input);
     await fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByText('新标签1')).toBeInTheDocument();
+
     input.value = '新标签2';
     await fireEvent.input(input);
     await fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByText('新标签2')).toBeInTheDocument();
+
     await fireEvent.keyDown(input, { key: 'Enter' });
     
     expect(defaultProps.onTagsUpdate).toHaveBeenCalledWith('card-1', ['标签1', '标签2', '新标签1', '新标签2']);

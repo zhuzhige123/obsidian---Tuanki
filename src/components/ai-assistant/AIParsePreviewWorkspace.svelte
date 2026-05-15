@@ -1,6 +1,13 @@
 <script lang="ts">
   import type { WeavePlugin } from '../../main';
-  import type { AICardPreviewItem, AIParsePreviewItem, GeneratedCard, GenerationConfig } from '../../types/ai-types';
+  import type {
+    AICardPreviewItem,
+    AIPreviewImportOptions,
+    AIPreviewImportResult,
+    AIParsePreviewItem,
+    GeneratedCard,
+    GenerationConfig
+  } from '../../types/ai-types';
   import { detectCardTypeFromContent } from '../../utils/card-markdown-serializer';
   import AICardPreviewWorkspace from './AICardPreviewWorkspace.svelte';
 
@@ -13,7 +20,7 @@
     isParsing?: boolean;
     sourceFileName?: string;
     templateName?: string;
-    onImport: (selectedItems: AIParsePreviewItem[], targetDeckId: string) => Promise<void>;
+    onImport: (selectedItems: AIParsePreviewItem[], options: AIPreviewImportOptions) => Promise<AIPreviewImportResult>;
   }
 
   let {
@@ -99,11 +106,14 @@
     `${sourceFileName || '未选择源文件'}${templateName ? ` · ${templateName}` : ''}`
   );
 
-  async function handleImport(selectedItems: AICardPreviewItem[], targetDeckId: string): Promise<void> {
+  async function handleImport(
+    selectedItems: AICardPreviewItem[],
+    options: AIPreviewImportOptions
+  ): Promise<AIPreviewImportResult> {
     const selectedIds = new Set(selectedItems.map((item) => item.id));
-    await onImport(
+    return await onImport(
       items.filter((item) => selectedIds.has(item.id)),
-      targetDeckId
+      options
     );
   }
 </script>
@@ -117,7 +127,6 @@
   previewTitle="解析预览"
   previewSubtitle={previewSubtitle}
   showCurrentIndexLabel={previewItems.length > 0}
-  showRegenerateAction={false}
   showImportControls={true}
   enableSelection={true}
   onImport={handleImport}

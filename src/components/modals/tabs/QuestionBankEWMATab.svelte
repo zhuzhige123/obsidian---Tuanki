@@ -1,58 +1,35 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { Platform } from 'obsidian';
-  import type { Deck } from '../../../data/types';
-  import type WeavePlugin from '../../../main';
-  import type { TestAttempt } from '../../../types/question-bank-types';
-  import echarts, { type EChartsType } from '../../../utils/echarts-loader';
-  import { getThemeColors, createGradient } from '../../../utils/echarts-theme';
-  import { logger } from '../../../utils/logger';
-  import { buildQuestionBankEwmaSeries, loadQuestionBankAttempts } from '../../../utils/question-bank-analytics';
+  import type { QuestionBankAnalyticsSnapshot } from '../../../utils/question-bank-analytics';
+  import { createGradient } from '../../../utils/echarts-theme';
+  import { createManagedChartRuntime } from '../../../utils/chart-runtime';
+  import type { EChartsOption } from '../../../utils/echarts-loader';
 
   interface Props {
-    questionBank: Deck;
-    plugin: WeavePlugin;
+    snapshot: QuestionBankAnalyticsSnapshot | null;
+    isLoading: boolean;
   }
 
-  let { questionBank, plugin }: Props = $props();
+  type ChartPayload = {
+    snapshot: QuestionBankAnalyticsSnapshot;
+  };
 
-  let chartContainer: HTMLElement | null = $state(null);
-  let chart: EChartsType | null = null;
-  let attempts = $state<TestAttempt[]>([]);
-  let isLoading = $state(true);
   const isMobile = Platform.isMobile;
 
-  function initializeChart() {
-    if (!chartContainer || attempts.length === 0) {
-      return;
-    }
+  let { snapshot, isLoading }: Props = $props();
+  let chartContainer = $state<HTMLDivElement | null>(null);
 
-    try {
-      const colors = getThemeColors();
-      const safeColors = {
-        accent: colors.accent || '#4f94f4',
-        success: colors.success || '#22c55e',
-        warning: colors.warning || '#f59e0b',
-        textMuted: colors.textMuted || '#94a3b8',
-        backgroundSecondary: colors.backgroundSecondary || '#1f2937',
-        border: colors.border || '#334155',
-        text: colors.text || '#e5e7eb'
-      };
-
-      if (chart) {
-        chart.dispose();
-      }
-
-      chart = echarts.init(chartContainer);
-      const { dates, ewmaData, historicalData, confidenceData } = buildQuestionBankEwmaSeries(attempts);
-
-      chart.setOption({
+  const chartRuntime = createManagedChartRuntime<ChartPayload>({
+    buildOption(payload, theme): EChartsOption {
+      const { dates, ewmaData, historicalData, confidenceData } = payload.snapshot.ewmaSeries;
+      return {
         backgroundColor: 'transparent',
         tooltip: {
           trigger: 'axis',
-          backgroundColor: safeColors.backgroundSecondary,
-          borderColor: safeColors.border,
-          textStyle: { color: safeColors.text },
+          backgroundColor: theme.tooltipBg,
+          borderColor: theme.tooltipBorder,
+          textStyle: { color: theme.textColor },
           formatter(params: Array<{ axisValue: string; color: string; seriesName: string; value: number }>) {
             let result = `<div style="font-weight:600;margin-bottom:4px;">${params[0]?.axisValue ?? ''}</div>`;
             for (const param of params) {
@@ -74,16 +51,12 @@
           left: isMobile ? 8 : 'center',
           right: isMobile ? 8 : undefined,
           textStyle: {
-            color: safeColors.text,
+            color: theme.textColor,
             fontSize: isMobile ? 11 : 12
           },
           itemGap: isMobile ? 10 : 20,
           itemWidth: isMobile ? 14 : 18,
-          itemHeight: isMobile ? 8 : 10,
-          pageTextStyle: {
-            color: safeColors.textMuted,
-            fontSize: isMobile ? 10 : 11
-          }
+          itemHeight: isMobile ? 8 : 10
         },
         grid: {
           left: isMobile ? '6%' : '2%',
@@ -97,10 +70,10 @@
           data: dates,
           axisLine: {
             show: true,
-            lineStyle: { color: safeColors.border }
+            lineStyle: { color: theme.axisLineColor }
           },
           axisLabel: {
-            color: safeColors.textMuted,
+            color: theme.textMuted,
             fontSize: 11,
             rotate: 45
           },
@@ -110,34 +83,34 @@
           {
             type: 'value',
             name: isMobile ? '' : '正确率 (%)',
-            nameTextStyle: { color: safeColors.textMuted, fontSize: 12 },
+            nameTextStyle: { color: theme.textMuted, fontSize: 12 },
             min: 0,
             max: 100,
             axisLine: {
               show: true,
-              lineStyle: { color: safeColors.border }
+              lineStyle: { color: theme.axisLineColor }
             },
             axisLabel: {
-              color: safeColors.textMuted,
+              color: theme.textMuted,
               fontSize: 11,
               formatter: '{value}%'
             },
             splitLine: {
-              lineStyle: { color: safeColors.border, type: 'dashed', opacity: 0.6 }
+              lineStyle: { color: theme.splitLineColor, type: 'dashed', opacity: 0.6 }
             }
           },
           {
             type: 'value',
             name: isMobile ? '' : '置信度',
-            nameTextStyle: { color: safeColors.textMuted, fontSize: 12 },
+            nameTextStyle: { color: theme.textMuted, fontSize: 12 },
             min: 0,
             max: 1,
             axisLine: {
               show: true,
-              lineStyle: { color: safeColors.border }
+              lineStyle: { color: theme.axisLineColor }
             },
             axisLabel: {
-              color: safeColors.textMuted,
+              color: theme.textMuted,
               fontSize: 11
             },
             splitLine: { show: false }
@@ -149,11 +122,11 @@
             type: 'line',
             data: ewmaData,
             smooth: true,
-            lineStyle: { color: safeColors.accent, width: 3 },
-            itemStyle: { color: safeColors.accent, borderWidth: 2 },
+            lineStyle: { color: theme.accentColor, width: 3 },
+            itemStyle: { color: theme.accentColor, borderWidth: 2 },
             symbolSize: 6,
             areaStyle: {
-              color: createGradient(safeColors.accent, 0.15, 0.03)
+              color: createGradient(theme.accentColor, 0.15, 0.03)
             }
           },
           {
@@ -161,16 +134,16 @@
             type: 'line',
             data: historicalData,
             smooth: true,
-            lineStyle: { color: safeColors.textMuted, width: 2, type: 'dashed' },
-            itemStyle: { color: safeColors.textMuted },
+            lineStyle: { color: theme.textMuted, width: 2, type: 'dashed' },
+            itemStyle: { color: theme.textMuted },
             symbolSize: 4
           },
           {
             name: '目标线',
             type: 'line',
             data: dates.map(() => 80),
-            lineStyle: { color: safeColors.success, width: 2, type: 'solid' },
-            itemStyle: { color: safeColors.success },
+            lineStyle: { color: theme.success, width: 2, type: 'solid' },
+            itemStyle: { color: theme.success },
             symbol: 'none'
           },
           {
@@ -179,56 +152,34 @@
             yAxisIndex: 1,
             data: confidenceData,
             smooth: true,
-            lineStyle: { color: safeColors.warning, width: 2 },
-            itemStyle: { color: safeColors.warning },
+            lineStyle: { color: theme.warning, width: 2 },
+            itemStyle: { color: theme.warning },
             symbolSize: 4
           }
         ]
-      });
-    } catch (error) {
-      logger.error('[QuestionBankEWMATab] 初始化图表失败:', error);
-      if (chart) {
-        chart.dispose();
-        chart = null;
-      }
+      };
     }
-  }
+  });
 
-  onMount(() => {
-    let resizeObserver: ResizeObserver | null = null;
+  $effect(() => {
+    chartRuntime.setContainer(chartContainer);
+  });
 
-    const loadData = async () => {
-      isLoading = true;
-      attempts = await loadQuestionBankAttempts(plugin, questionBank.id);
-      isLoading = false;
-      await tick();
-      initializeChart();
-
-      if (chartContainer) {
-        resizeObserver = new ResizeObserver(() => {
-          chart?.resize();
-        });
-        resizeObserver.observe(chartContainer);
-      }
-    };
-
-    void loadData();
-
-    return () => {
-      resizeObserver?.disconnect();
-    };
+  $effect(() => {
+    if (snapshot) {
+      chartRuntime.render({ snapshot });
+    }
   });
 
   onDestroy(() => {
-    chart?.dispose();
-    chart = null;
+    chartRuntime.dispose();
   });
 </script>
 
 <div class="ewma-tab">
   {#if isLoading}
     <div class="empty-state">正在加载题库分析数据...</div>
-  {:else if attempts.length === 0}
+  {:else if !snapshot || snapshot.ewmaSeries.dates.length === 0}
     <div class="empty-state">暂无可用的真实答题数据</div>
   {:else}
     <div class="chart-container">

@@ -250,6 +250,71 @@ export class Component {
   registerInterval = vi.fn();
 }
 
+export class ItemView extends Component {
+  leaf: WorkspaceLeaf;
+  app: App;
+  containerEl: HTMLElement;
+  contentEl: HTMLElement;
+
+  constructor(leaf: WorkspaceLeaf) {
+    super();
+    this.leaf = leaf;
+    this.app = new App();
+    this.containerEl = document.createElement('div');
+    this.contentEl = document.createElement('div');
+    this.containerEl.appendChild(this.contentEl);
+  }
+
+  getViewType(): string {
+    return 'mock-item-view';
+  }
+
+  getDisplayText(): string {
+    return 'Mock Item View';
+  }
+
+  getIcon(): string {
+    return 'file';
+  }
+
+  onPaneMenu = vi.fn();
+  setState = vi.fn(async () => undefined);
+  getState = vi.fn(() => ({}));
+  allowNoFile = vi.fn(() => false);
+  addAction = vi.fn((_icon: string, _label: string, _callback: (...args: any[]) => void) => {
+    const button = document.createElement('button') as HTMLButtonElement & {
+      setCssProps?: (styles: Record<string, string>) => void;
+      toggleClass?: (className: string, force?: boolean) => void;
+    };
+    button.setCssProps = (styles: Record<string, string>) => {
+      for (const [key, value] of Object.entries(styles)) {
+        button.style.setProperty(key, value);
+      }
+    };
+    button.toggleClass = (className: string, force?: boolean) => {
+      if (typeof force === 'boolean') {
+        button.classList.toggle(className, force);
+        return;
+      }
+      button.classList.toggle(className);
+    };
+    return button;
+  });
+}
+
+export class MarkdownView extends ItemView {
+  editor: Record<string, unknown>;
+
+  constructor(leaf: WorkspaceLeaf) {
+    super(leaf);
+    this.editor = {};
+  }
+
+  getViewType(): string {
+    return 'markdown';
+  }
+}
+
 export const abstractInputSuggestInstances: AbstractInputSuggest<any>[] = [];
 
 export class AbstractInputSuggest<T> {
@@ -491,6 +556,8 @@ export default {
   Plugin,
   Notice,
   Modal,
+  ItemView,
+  MarkdownView,
   Setting,
   PluginSettingTab,
   FileSystemAdapter,

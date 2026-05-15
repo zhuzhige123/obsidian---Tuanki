@@ -9,7 +9,13 @@
 	import ScreenshotOverlay from './ScreenshotOverlay.svelte';
 	import EpubTutorial from './EpubTutorial.svelte';
 	import EpubHighlightToolbar from './EpubHighlightToolbar.svelte';
-	import { createEpubReaderEngine, EpubStorageService, EpubAnnotationService, EpubLinkService, EpubLocationMigrationService } from '../../services/epub';
+	import { createEpubReaderEngine } from '../../services/epub/reader-engine-factory';
+	import { EpubStorageService } from '../../services/epub/EpubStorageService';
+	import { EpubAnnotationService } from '../../services/epub/EpubAnnotationService';
+	import { EpubLinkService } from '../../services/epub/EpubLinkService';
+	import { EpubLocationMigrationService } from '../../services/epub/EpubLocationMigrationService';
+	import { resolveEpubHost } from '../../services/epub/epub-host';
+	import { EpubBookmarkService } from '../../services/epub/EpubBookmarkService';
 	import type { EpubExcerptSettings } from '../../services/epub/EpubStorageService';
 	import { EpubBacklinkHighlightService } from '../../services/epub/EpubBacklinkHighlightService';
 	import type { BacklinkSourceMatch } from '../../services/epub/EpubBacklinkHighlightService';
@@ -17,7 +23,8 @@
 	import { EpubScreenshotService } from '../../services/epub/EpubScreenshotService';
 	import { EpubCanvasService } from '../../services/epub/EpubCanvasService';
 	import type { EpubVisibleFrameLike, ScreenshotRect } from '../../services/epub/EpubScreenshotService';
-	import type { EpubBook, EpubFlowMode, EpubLastOpenBookmark, EpubLayoutMode, EpubReaderEngine, EpubReaderSettings, EpubTheme, FlashStyle, HighlightClickInfo, PaginationInfo, ReaderHighlight, TocItem } from '../../services/epub';
+	import type { EpubBook, EpubFlowMode, EpubLastOpenBookmark, EpubLayoutMode, EpubReaderSettings, EpubTheme, PaginationInfo, TocItem } from '../../services/epub/types';
+	import type { EpubReaderEngine, FlashStyle, HighlightClickInfo, ReaderHighlight } from '../../services/epub/reader-engine-types';
 	import { epubActiveDocumentStore } from '../../stores/epub-active-document-store';
 	import { logger } from '../../utils/logger';
 	import { openFileWithExistingLeaf } from '../../utils/workspace-navigation';
@@ -34,19 +41,20 @@
 		getLastActiveMarkdownLeaf?: () => WorkspaceLeaf | null;
 		onTitleChange?: (title: string) => void;
 		onReaderSettingsLoaded?: (settings: EpubReaderSettings) => void;
-	onActionsReady?: (actions: {
-		setAutoInsert: (enabled: boolean) => void;
-		setScreenshotMode: (active: boolean) => void;
-		setLayoutMode: (mode: EpubLayoutMode) => void;
-		setFlowMode: (mode: EpubFlowMode) => void;
-		setScreenshotSaveMode: (saveAsImage: boolean) => void;
-		navigateToCfi: (cfi: string, text: string) => void;
-		toggleTutorial: () => void;
-		addBookmark: () => Promise<void>;
-		saveLastOpenBookmark: () => Promise<void>;
-		bindCanvasPath: (canvasPath: string) => void;
+		onActionsReady?: (actions: {
+			setAutoInsert: (enabled: boolean) => void;
+			setScreenshotMode: (active: boolean) => void;
+			setLayoutMode: (mode: EpubLayoutMode) => void;
+			setFlowMode: (mode: EpubFlowMode) => void;
+			setScreenshotSaveMode: (saveAsImage: boolean) => void;
+			navigateToCfi: (cfi: string, text: string) => void;
+			toggleTutorial: () => void;
+			addBookmark: () => Promise<void>;
+			saveLastOpenBookmark: () => Promise<void>;
+			bindCanvasPath: (canvasPath: string) => void;
 			unbindCanvas: () => void;
 			getCanvasService: () => EpubCanvasService;
+			canMarkIRResumePoint: () => boolean;
 			markIRResumePoint: () => Promise<void>;
 			exportCurrentChapterToMarkdown: () => Promise<void>;
 		}) => void;
@@ -78,9 +86,11 @@
 
 	let readerService: EpubReaderEngine = untrack(() => createEpubReaderEngine(app));
 	let storageService = untrack(() => new EpubStorageService(app));
+	let bookmarkService = untrack(() => new EpubBookmarkService(app));
 	let annotationService = untrack(() => new EpubAnnotationService(storageService));
 	let locationMigrationService = untrack(() => new EpubLocationMigrationService(app, storageService, readerService));
 	let linkService = untrack(() => new EpubLinkService(app));
+	let irBookmarkTaskService = untrack(() => new IREpubBookmarkTaskService(app));
 	let screenshotService = untrack(() => new EpubScreenshotService(app));
 	let canvasService = untrack(() => new EpubCanvasService(app));
 	let backlinkService = untrack(() => new EpubBacklinkHighlightService(app));
@@ -107,12 +117,17 @@
 	const EPUB_LOCATE_TIME_PREFIX = '__weave_epub_time__=';
 	const SCROLLED_NAV_FRAME_INSET_VAR = '--epub-scrolled-side-nav-frame-inset-end';
 	const SCROLLED_NAV_SCROLLBAR_VAR = '--epub-scrolled-side-nav-scrollbar-width';
-	let excerptSettings = $state<EpubExcerptSettings>({ addCreationTime: false });
+	let excerptSettings = $state<EpubExcerptSettings>({
+		addCreationTime: false,
+		strikethroughDisplayMode: 'conceal',
+		showStrikethroughInSidebar: false,
+	});
 	let trackedHighlightSourceFiles = new Set<string>();
 	let vaultEventRefs: EventRef[] = [];
 	let pendingLoadedHighlights: ReaderHighlight[] | null = null;
 	let highlightReloadToken = 0;
 	let annotationRevision = $state(0);
+	let bookmarkRevision = $state(0);
 	let migratedLocationBookIds = new Set<string>();
 	let migratingLocationBookId: string | null = null;
 	const sourceLocateOverlay = getSourceLocateOverlayService();
@@ -147,6 +162,9 @@
 
 	let settings = $state<EpubReaderSettings>({
 		lineHeight: getDefaultReaderLineHeight(),
+		letterSpacing: 0,
+		pageMargin: Platform.isMobile ? 24 : 48,
+		viewportSidePadding: Platform.isMobile ? 18 : 24,
 		theme: 'default',
 		widthMode: getDefaultReaderWidthMode(),
 		layoutMode: 'paginated',
@@ -487,6 +505,7 @@ function getWeavePlugin(): any {
 			}
 
 			book = loadedBook;
+			bookmarkRevision = 0;
 			await storageService.saveBook(loadedBook);
 			if (isStaleBookLoad(loadToken)) {
 				return;
@@ -522,10 +541,9 @@ function getWeavePlugin(): any {
 			new Notice('未加载书籍');
 			return;
 		}
-		const bookId = book.id;
 		try {
 			const pos = readerService.getCurrentPosition();
-			const currentCfi = EpubLinkService.normalizeCfi(
+			let currentCfi = EpubLinkService.normalizeCfi(
 				pos.cfi || readerService.getCurrentCFI() || book.currentPosition?.cfi || ''
 			);
 			if (!currentCfi) {
@@ -533,41 +551,33 @@ function getWeavePlugin(): any {
 				return;
 			}
 
-			const existingBookmarks = await annotationService.getBookmarks(bookId);
-			const matchedBookmarks = existingBookmarks.filter((bookmark) =>
-				EpubLinkService.normalizeCfi(bookmark.cfi) === currentCfi
-			);
-
-			if (matchedBookmarks.length > 0) {
-				await Promise.all(
-					matchedBookmarks.map((bookmark) => annotationService.deleteBookmark(bookId, bookmark.id))
-				);
-				annotationRevision += 1;
-				epubActiveDocumentStore.setSharedState({ annotationRevision });
-				if (matchedBookmarks.length > 1) {
-					new Notice('已移除 ' + matchedBookmarks.length + ' 个重复书签');
-				} else {
-					new Notice('书签已移除');
+			if (typeof readerService.canonicalizeLocation === 'function') {
+				const canonicalCfi = await readerService.canonicalizeLocation(currentCfi);
+				if (canonicalCfi) {
+					currentCfi = canonicalCfi;
 				}
-				return;
 			}
 
 			const chapterTitle = readerService.getCurrentChapterTitle() || ('阅读位置 ' + Math.round(pos.percent) + '%');
-			const preview = chapterTitle;
-			await annotationService.createBookmark(
-				bookId,
+			const result = await bookmarkService.addBookmark(book, {
+				cfi: currentCfi,
+				chapterIndex: pos.chapterIndex,
+				percent: pos.percent,
 				chapterTitle,
-				pos.chapterIndex,
-				currentCfi,
-				preview,
-				settings.flowMode !== 'scrolled' && paginationInfo.currentPage > 0
+				pageNumber: settings.flowMode !== 'scrolled' && paginationInfo.currentPage > 0
 					? paginationInfo.currentPage
-					: undefined
-			);
-			annotationRevision += 1;
-			epubActiveDocumentStore.setSharedState({ annotationRevision });
-			new Notice('书签已添加');
-		} catch (_e) {
+					: undefined,
+				totalPages: settings.flowMode !== 'scrolled' && paginationInfo.totalPages > 0
+					? paginationInfo.totalPages
+					: undefined,
+				createdAt: Date.now(),
+				preview: chapterTitle,
+			});
+			bookmarkRevision += 1;
+			epubActiveDocumentStore.setSharedState({ bookmarkRevision });
+			new Notice(result.created ? '书签已添加' : '当前页已有书签');
+		} catch (error) {
+			logger.error('[EpubReaderApp] Failed to add bookmark:', error);
 			new Notice('书签操作失败');
 		}
 	}
@@ -993,11 +1003,45 @@ function showSettingsMenu(evt: MouseEvent) {
 		);
 	}
 
+	function showSelectedTextAIMenu(event: MouseEvent, text: string, cfiRange: string) {
+		const host = resolveEpubHost(app) as {
+			openSelectedTextAISplitMenu?: (options: {
+				event: MouseEvent | KeyboardEvent;
+				selectedText: string;
+				onSelectAction: (actionId: string) => void;
+			}) => void;
+			openSelectedTextAIPanelFromEpub?: (options: {
+				filePath: string;
+				selectedText: string;
+				actionId: string;
+				sourceLink?: string;
+			}) => Promise<void>;
+		} | null;
+
+		if (!host?.openSelectedTextAISplitMenu || !host.openSelectedTextAIPanelFromEpub) {
+			new Notice('AI 制卡功能当前不可用');
+			return;
+		}
+
+		host.openSelectedTextAISplitMenu({
+			event,
+			selectedText: text,
+			onSelectAction: (actionId: string) => {
+				void host.openSelectedTextAIPanelFromEpub?.({
+					filePath,
+					selectedText: text,
+					actionId,
+					sourceLink: buildReadingPointSourceLink(text, cfiRange),
+				});
+			},
+		});
+	}
+
 	async function handleCreateReadingPoint(text: string, cfiRange: string) {
 		try {
 			const plugin = getReadingPointPlugin();
 			if (!plugin?.openIRReadingPointFromExternalSelection) {
-				new Notice('创建增量阅读点功能暂不可用');
+				new Notice('加入增量阅读功能暂不可用');
 				return;
 			}
 
@@ -1324,8 +1368,6 @@ function showSettingsMenu(evt: MouseEvent) {
 			epubActiveDocumentStore.setSharedState({
 				filePath: null,
 				onSettingsClick: showSettingsMenu,
-				onSwitchBook,
-				onCreateChapterReadingPoint: null
 			});
 			return;
 		}
@@ -1338,7 +1380,9 @@ function showSettingsMenu(evt: MouseEvent) {
 			backlinkService,
 			book,
 			annotationRevision,
+			bookmarkRevision,
 			progress: readingProgress,
+			onNavigate: requestIRNavigation,
 			onSettingsClick: showSettingsMenu,
 			onSwitchBook,
 			onCreateChapterReadingPoint: handleCreateChapterReadingPoint
@@ -1596,8 +1640,7 @@ function showSettingsMenu(evt: MouseEvent) {
 			}
 
 			if (typeof plugin.activateView === 'function') {
-				const { VIEW_TYPE_WEAVE } = await import('../../views/WeaveView');
-				await plugin.activateView(VIEW_TYPE_WEAVE);
+				await plugin.activateView('weave-view');
 			}
 
 			window.dispatchEvent(new CustomEvent('Weave:navigate', {
@@ -1670,16 +1713,10 @@ function showSettingsMenu(evt: MouseEvent) {
 		try {
 			const summary = await locationMigrationService.migrateBookData(targetBook.id, filePath);
 			migratedLocationBookIds.add(targetBook.id);
-			if (summary.progressMigrated) {
-				const latestProgress = await storageService.loadProgress(targetBook.id);
-				if (latestProgress) {
-					targetBook.currentPosition = latestProgress;
-				}
-			}
+			migratingLocationBookId = null;
+
 			if (
 				summary.progressMigrated
-				|| summary.bookmarksMigrated > 0
-				|| summary.notesMigrated > 0
 				|| summary.resumePointsMigrated > 0
 			) {
 				if (readerReady) {
@@ -1809,6 +1846,7 @@ function showSettingsMenu(evt: MouseEvent) {
 			bindCanvasPath: (canvasPath: string) => { bindCanvas(canvasPath); },
 			unbindCanvas: () => { unbindCanvas(); },
 			getCanvasService: () => canvasService,
+			canMarkIRResumePoint: () => true,
 			markIRResumePoint,
 			exportCurrentChapterToMarkdown
 		});
@@ -1902,6 +1940,7 @@ function showSettingsMenu(evt: MouseEvent) {
 						{annotationService}
 						{backlinkService}
 						{settings}
+						{excerptSettings}
 						hasPendingNavigation={Boolean(pendingIRNav)}
 						onProgressChange={(p) => {
 							readingProgress = p;
@@ -1951,6 +1990,7 @@ function showSettingsMenu(evt: MouseEvent) {
                                 onDelete={handleHighlightDelete}
                                 onTemporarilyReveal={handleTemporarilyRevealConcealed}
                                 onChangeColor={handleHighlightChangeColor}
+				onChangeStyle={() => {}}
                                 onBacklink={handleHighlightBacklink}
 				onExtractToCard={handleHighlightExtractToCard}
 				onCopyText={handleHighlightCopyText}
@@ -1968,7 +2008,7 @@ function showSettingsMenu(evt: MouseEvent) {
 				onExtractToCard={handleExtractToCard}
 				onCreateReadingPoint={handleCreateReadingPoint}
 				onAutoInsert={handleAutoInsertSelection}
-				onConcealText={handleConcealSelection}
+				onOpenAIMenu={showSelectedTextAIMenu}
 			/>
 
 			<EpubTutorial

@@ -129,7 +129,7 @@ afterEach(() => {
 });
 
 describe('DetachedLeafEditor temp file placement', () => {
-  it('uses weave/temp when no sourcePath is provided', async () => {
+  it('uses weave/editor when no sourcePath is provided', async () => {
     const { app, files } = createMemoryApp();
     const editor = new DetachedLeafEditor(app, document.createElement('div'), {
       sessionId: 'session-1',
@@ -138,7 +138,7 @@ describe('DetachedLeafEditor temp file placement', () => {
 
     await (editor as any).prepareTempFile();
 
-    const expectedPath = 'weave/temp/weave-editor-session-1.md';
+    const expectedPath = 'weave/editor/weave-editor-session-1.md';
     expect(files.get(normalizeTestPath(expectedPath))).toBe('cache');
     expect((editor as any).tempFile?.path).toBe(normalizeTestPath(expectedPath));
   });

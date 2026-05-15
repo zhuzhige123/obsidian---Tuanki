@@ -7,7 +7,7 @@
   import { logger } from '../../../utils/logger';
 
   import { onMount, onDestroy } from 'svelte';
-  import { Notice, TFolder, normalizePath } from 'obsidian';
+  import { Notice, TFolder } from 'obsidian';
   import { OperationType } from '../../../types/data-management-types';
   import type {
     DataOverview,
@@ -31,7 +31,7 @@
   
   //  导入国际化
   import { tr } from '../../../utils/i18n';
-  import { getReadableWeaveRoot, getV2Paths, normalizeWeaveParentFolder } from '../../../config/paths';
+  import { getReadableWeaveRoot, normalizeWeaveParentFolder } from '../../../config/paths';
   import FolderSuggestModal from '../../ui/FolderSuggestModal.svelte';
   import { DirectoryUtils } from '../../../utils/directory-utils';
   import { DataManagementService } from '../../../services/data-management-service';
@@ -113,108 +113,6 @@
       await mergeFolderContents(folderPath, targetPath);
       await tryRemoveEmptyFolder(folderPath);
     }
-  }
-
-  async function rewriteIRStorageFilePaths(fromRoots: Iterable<string>, toRoot: string): Promise<void> {
-    const vault = plugin.app.vault;
-    const adapter = vault.adapter;
-
-    const normalizedToRoot = normalizePath(toRoot);
-    const roots = Array.from(new Set(Array.from(fromRoots)
-      .filter((r): r is string => typeof r === 'string' && r.trim().length > 0)
-      .map(r => normalizePath(r))
-      .filter(r => r !== normalizedToRoot)
-    ));
-
-    if (roots.length === 0) return;
-
-    const rewritePath = (p: unknown): string | null => {
-      if (typeof p !== 'string' || !p.trim()) return null;
-      const normalized = normalizePath(p);
-      for (const root of roots) {
-        if (normalized === root) {
-          return normalizedToRoot;
-        }
-        if (normalized.startsWith(`${root}/`)) {
-          return normalizePath(`${normalizedToRoot}/${normalized.slice(root.length + 1)}`);
-        }
-      }
-      return normalized;
-    };
-
-    const updateJson = async (
-      filePath: string,
-      updater: (data: any) => { changed: boolean; data: any }
-    ): Promise<void> => {
-      let raw = '';
-      try {
-        if (!(await adapter.exists(filePath))) return;
-        raw = await adapter.read(filePath);
-      } catch {
-        return;
-      }
-
-      if (!raw) return;
-      let parsed: any;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        return;
-      }
-
-      const { changed, data } = updater(parsed);
-      if (!changed) return;
-
-      try {
-        await adapter.write(filePath, JSON.stringify(data, null, 2));
-      } catch {
-      }
-    };
-
-    const v2Paths = getV2Paths(plugin?.settings?.weaveParentFolder);
-
-    await updateJson(`${v2Paths.ir.root}/chunks.json`, (store) => {
-      const chunks = store?.chunks;
-      if (!chunks || typeof chunks !== 'object') return { changed: false, data: store };
-
-      let changed = false;
-      for (const chunk of Object.values(chunks)) {
-        if (!chunk || typeof chunk !== 'object') continue;
-        const current = (chunk as any).filePath;
-        const rewritten = rewritePath(current);
-        if (rewritten && rewritten !== current) {
-          (chunk as any).filePath = rewritten;
-          changed = true;
-        }
-      }
-
-      return { changed, data: store };
-    });
-
-    await updateJson(`${v2Paths.ir.root}/sources.json`, (store) => {
-      const sources = store?.sources;
-      if (!sources || typeof sources !== 'object') return { changed: false, data: store };
-
-      let changed = false;
-      for (const src of Object.values(sources)) {
-        if (!src || typeof src !== 'object') continue;
-        const indexFilePath = (src as any).indexFilePath;
-        const rewrittenIndex = rewritePath(indexFilePath);
-        if (rewrittenIndex && rewrittenIndex !== indexFilePath) {
-          (src as any).indexFilePath = rewrittenIndex;
-          changed = true;
-        }
-
-        const rawFilePath = (src as any).rawFilePath;
-        const rewrittenRaw = rewritePath(rawFilePath);
-        if (rewrittenRaw && rewrittenRaw !== rawFilePath) {
-          (src as any).rawFilePath = rewrittenRaw;
-          changed = true;
-        }
-      }
-
-      return { changed, data: store };
-    });
   }
 
   let { plugin }: Props = $props();
@@ -894,7 +792,7 @@
 </script>
 
 <!-- 数据管理主面板 -->
-<div class="weave-settings data-management-panel">
+<div class="weave-settings settings-section data-management-panel">
   <!-- 错误提示 -->
   {#if lastError}
     <div class="error-banner">
@@ -1074,10 +972,10 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 1rem;
-    background: color-mix(in oklab, var(--text-error), transparent 90%);
-    border: 1px solid var(--text-error);
-    border-radius: 6px;
+    padding: 1rem 1.1rem;
+    background: color-mix(in oklab, var(--text-error), var(--background-primary) 92%);
+    border: 1px solid color-mix(in oklab, var(--text-error), transparent 35%);
+    border-radius: 14px;
     color: var(--text-error);
   }
 
@@ -1114,10 +1012,10 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 1rem;
-    background: color-mix(in oklab, var(--color-blue), transparent 90%);
-    border: 1px solid var(--color-blue);
-    border-radius: 6px;
+    padding: 1rem 1.1rem;
+    background: color-mix(in oklab, var(--color-blue), var(--background-primary) 92%);
+    border: 1px solid color-mix(in oklab, var(--color-blue), transparent 35%);
+    border-radius: 14px;
   }
 
   .repair-icon {

@@ -11,6 +11,7 @@ import {
 	type IRPlannedScheduleItem,
 	type ScheduleRecomputeReason,
 } from "./IRScheduleKernel";
+import { resolveAssociatedNotePath, resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 import { IRStorageService } from "./IRStorageService";
 
 type SessionLike = { blockId?: string; duration?: number };
@@ -273,13 +274,16 @@ function mapLegacyBlockToProjectedItem(
 	const migrated = migrateToIRBlockV4(block);
 	const nextRepDate = Number(migrated.nextRepDate || 0);
 	const title = getLegacyBlockTitle(block);
-	const associatedNotePath =
-		String(
-			(block as any).primaryAssociatedNotePath ||
-				(block as any).associatedNotePath ||
-				(block as any).meta?.associatedNotePath ||
-				""
-		).trim() || undefined;
+	const associatedNotePath = resolveAssociatedNotePaths({
+		associatedNotePath:
+			resolveAssociatedNotePath(block as any) ||
+			resolveAssociatedNotePath((((block as any).meta || null) as any) || null),
+		associatedNotePaths: Array.isArray((block as any).associatedNotePaths)
+			? (block as any).associatedNotePaths
+			: Array.isArray((block as any).meta?.associatedNotePaths)
+				? (block as any).meta.associatedNotePaths
+				: undefined,
+	})[0];
 	let scheduleStatus: string = migrated.status;
 	if (scheduleStatus !== "new" && nextRepDate > 0 && nextRepDate <= todayEndMs) {
 		scheduleStatus = "scheduled";

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount, untrack } from 'svelte';
-  import { isDarkMode as detectDarkMode, createThemeListener } from '../../utils/theme-detection';
+  import { UnifiedThemeManager } from '../../utils/theme-detection';
   import { fly, fade, scale } from 'svelte/transition';
   import { quintOut, elasticOut } from 'svelte/easing';
   
@@ -100,11 +100,12 @@
   }
 
   // Reactive theme detection
-  let isDarkMode = $state(detectDarkMode());
+  let isDarkMode = $state(UnifiedThemeManager.getInstance().isDarkMode());
 
   onMount(() => {
-    const cleanup = createThemeListener((isDark) => {
-      isDarkMode = isDark;
+    const themeManager = UnifiedThemeManager.getInstance();
+    const cleanup = themeManager.addListener((result) => {
+      isDarkMode = result.isDark;
     });
 
     return cleanup;

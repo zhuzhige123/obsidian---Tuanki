@@ -4,8 +4,18 @@ import {
 	isInputClozeQuestionContent,
 	normalizeInputClozeAnswer,
 } from "../input-cloze-utils";
+import { setGlobalClozeDelimiterSettings } from "../../cloze-syntax";
 
 describe("input-cloze-utils", () => {
+	afterEach(() => {
+		setGlobalClozeDelimiterSettings({
+			enabled: true,
+			openDelimiter: "==",
+			closeDelimiter: "==",
+			placeholder: "[...]",
+		});
+	});
+
 	it("recognizes #input cloze cards for question bank mode", () => {
 		const content = [
 			"---",
@@ -23,6 +33,19 @@ describe("input-cloze-utils", () => {
 		const content = "法国首都是 ==Paris==，流经市区的是 {{c1::Seine::河流}}。";
 
 		expect(extractInputClozeAnswers(content)).toEqual(["Paris", "Seine"]);
+	});
+
+	it("extracts answers using the active custom delimiter pair only", () => {
+		setGlobalClozeDelimiterSettings({
+			enabled: true,
+			openDelimiter: "[[",
+			closeDelimiter: "]]",
+			placeholder: "[...]",
+		});
+
+		const content = "法国首都是 [[Paris]]，旧写法 ==Legacy== 不应再被提取。";
+
+		expect(extractInputClozeAnswers(content)).toEqual(["Paris"]);
 	});
 
 	it("normalizes width, spacing, and case when checking answers", () => {

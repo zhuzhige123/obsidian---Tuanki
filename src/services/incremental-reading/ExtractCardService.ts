@@ -24,7 +24,7 @@ export interface ExtractCardOptions {
 	selectedText: string;
 	/** 源文件 */
 	file: TFile;
-	/** 自定义导入文件夹路径（可选） */
+	/** 旧导入/复制兼容目录（可选） */
 	importFolder?: string;
 	/** 编辑器实例（用于获取光标位置） */
 	editor?: Editor;

@@ -1,4 +1,4 @@
-import { OFFICIAL_TEMPLATES } from "../../constants/official-templates";
+import { getOfficialTemplateById } from "../../constants/official-templates";
 import type {
 	AIServiceResponse,
 	GeneratedCard,
@@ -158,9 +158,9 @@ export abstract class AIService implements IAIService {
 		}
 
 		return {
-			qa: OFFICIAL_TEMPLATES.find((template) => template.id === templates.qa),
-			choice: OFFICIAL_TEMPLATES.find((template) => template.id === templates.choice),
-			cloze: OFFICIAL_TEMPLATES.find((template) => template.id === templates.cloze),
+			qa: getOfficialTemplateById(templates.qa) ?? undefined,
+			choice: getOfficialTemplateById(templates.choice) ?? undefined,
+			cloze: getOfficialTemplateById(templates.cloze) ?? undefined,
 		};
 	}
 

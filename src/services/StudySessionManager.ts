@@ -10,7 +10,12 @@
 
 import type { Card } from "../data/types";
 import { CardState } from "../data/types";
-import type { PersistedStudySession, PersistedStudySessionStore } from "../types/study-types";
+import type {
+	PersistedStudySession,
+	PersistedStudySessionStore,
+	StudySessionSnapshot,
+	StudySessionType,
+} from "../types/study-types";
 import { StepIndexCalculator } from "../utils/learning-steps/StepIndexCalculator";
 import { logger } from "../utils/logger";
 
@@ -39,7 +44,7 @@ export interface FSRSUpdateData {
  * 学习会话管理器类
  */
 export class StudySessionManager {
-	private static instance: StudySessionManager;
+	private static instance: StudySessionManager | null = null;
 	private sessions: Map<string, StudySessionState> = new Map();
 
 	// 会话过期时间（2小时）
@@ -71,6 +76,15 @@ export class StudySessionManager {
 			StudySessionManager.instance = new StudySessionManager();
 		}
 		return StudySessionManager.instance;
+	}
+
+	public static destroyInstance(): void {
+		if (!StudySessionManager.instance) {
+			return;
+		}
+
+		StudySessionManager.instance.destroy();
+		StudySessionManager.instance = null;
 	}
 
 	/**
@@ -261,6 +275,12 @@ export class StudySessionManager {
 		}
 	}
 
+	public destroy(): void {
+		this.stopAutoCleanup();
+		this.clearAll();
+		this.clearPersistedSession();
+	}
+
 	/**
 	 * 获取当前活跃会话数量
 	 */
@@ -290,13 +310,9 @@ export class StudySessionManager {
 	 */
 	public persistSession(
 		sessionId: string,
-		additionalData: {
-			deckId: string;
-			currentCardIndex: number;
+		additionalData: StudySessionSnapshot & {
 			currentCardId: string;
-			remainingCardIds: string[];
-			stats: { completed: number; correct: number; incorrect: number };
-			sessionType: "review" | "new" | "learning" | "mixed";
+			sessionType: StudySessionType;
 		}
 	): PersistedStudySession {
 		const session = this.sessions.get(sessionId);

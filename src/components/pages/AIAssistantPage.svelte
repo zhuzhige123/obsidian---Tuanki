@@ -7,6 +7,8 @@
   import type { AIAssistantSubView } from '../../services/plugin-state/PluginLocalStateService';
   import type {
     AICardPreviewItem,
+    AIPreviewImportOptions,
+    AIPreviewImportResult,
     AIParsePreviewItem,
     AIProvider,
     GeneratedCard,
@@ -19,20 +21,17 @@
   import { fileToInfo, sortFilesByModified } from '../../utils/file-utils';
   import { AICardGenerationService } from '../../services/ai/AICardGenerationService';
   import {
-    getUserPromptRelativePath,
     listUserPromptFiles,
     resolveUserPromptFile
   } from '../../services/ai/UserPromptFileService';
   import { RegexCardParser } from '../../services/batch-parsing/RegexCardParser';
-  import { buildAIAssistantSourceFileMenu } from '../../services/menu/AIAssistantSourceFileMenu';
-  import { AI_MODEL_OPTIONS, AI_PROVIDER_LABELS } from '../settings/constants/settings-constants';
+  import { MarkdownFileSuggestModal } from '../../modals/MarkdownFileSuggestModal';
+  import { AI_MODEL_OPTIONS, AI_PROVIDER_LABELS, getDefaultAIModel } from '../settings/constants/settings-constants';
+  import { weaveMainInterfaceStore } from '../../stores/weave-main-interface-store';
   import AICardPreviewWorkspace from '../ai-assistant/AICardPreviewWorkspace.svelte';
   import AIParsePreviewWorkspace from '../ai-assistant/AIParsePreviewWorkspace.svelte';
   import AIGenerationConfigPopover from '../ai-assistant/AIGenerationConfigPopover.svelte';
   import { AIConfigModalObsidian } from '../ai-assistant/AIConfigModalObsidian';
-
-  const AI_SOURCE_FILE_MENU_CLASS = 'weave-ai-source-file-menu';
-  const AI_USER_PROMPT_FILE_MENU_CLASS = 'weave-ai-user-prompt-file-menu';
 
   interface Props {
     plugin: WeavePlugin;
@@ -62,6 +61,23 @@
     customPrompt: string;
   }
 
+  interface AIToolbarStateDetail {
+    subView: AIAssistantSubView;
+    selectedFileName: string;
+    selectedFilePath: string;
+    promptFileName: string;
+    promptFilePath: string;
+    modelLabel: string;
+    modelTitle: string;
+    parsePresetName: string;
+    parsePresetId: string;
+    historyCount: number;
+    canGenerate: boolean;
+    canParse: boolean;
+    isGenerating: boolean;
+    isParsing: boolean;
+  }
+
   let { plugin, dataStorage, fsrs }: Props = $props();
 
   let pageEl = $state<HTMLDivElement | null>(null);
@@ -85,50 +101,80 @@
   let configOpen = $state(false);
   let configAnchor = $state<AnchorRect | null>(null);
   let systemPromptModal: AIConfigModalObsidian | null = null;
+  let lastToolbarStateSignature = '';
+  let lastGenerationHistorySignature = '';
+
+  function isValidProvider(value: string | null | undefined): value is AIProvider {
+    if (!value) return false;
+    return Object.prototype.hasOwnProperty.call(AI_MODEL_OPTIONS, value);
+  }
+
+  function resolveProvider(value: string | null | undefined): AIProvider {
+    if (isValidProvider(value)) return value;
+
+    const defaultProvider = plugin.settings.aiConfig?.defaultProvider;
+    if (isValidProvider(defaultProvider)) {
+      return defaultProvider;
+    }
+
+    return 'openai';
+  }
 
   function getDefaultModelForProvider(provider: AIProvider): string {
     const configuredModel = (plugin.settings.aiConfig?.apiKeys as Record<string, { model?: string } | undefined> | undefined)?.[provider]?.model?.trim();
     if (configuredModel) return configuredModel;
-    return AI_MODEL_OPTIONS[provider]?.[0]?.id || '';
+    return getDefaultAIModel(provider);
+  }
+
+  function normalizeGenerationConfig(config: GenerationConfig): GenerationConfig {
+    const provider = resolveProvider(config.provider);
+    const fallbackModel = getDefaultModelForProvider(provider).trim();
+    const model = config.model?.trim() || fallbackModel;
+
+    return {
+      ...config,
+      provider,
+      model
+    };
   }
 
   function getModelDisplayLabel(): string {
     return generationConfig.model?.trim() || getDefaultModelForProvider(generationConfig.provider) || '\u672a\u9009\u62e9\u6a21\u578b';
   }
 
+  function normalizeTagList(tags: string[] | undefined): string[] {
+    return Array.from(new Set((tags ?? []).map((tag) => String(tag || '').trim().replace(/^#+/, '')).filter(Boolean)));
+  }
+
+  function mergeTagLists(baseTags: string[] | undefined, importTags: string[] | undefined): string[] {
+    return normalizeTagList([...(baseTags ?? []), ...(importTags ?? [])]);
+  }
+
   function createInitialGenerationConfig(): GenerationConfig {
     const preferences = plugin.getAIAssistantPreferences();
     const saved = preferences.savedGenerationConfig;
     const limit = saved?.maxGenerationLimit ?? saved?.cardCount ?? 20;
+    const provider = resolveProvider(preferences.lastUsedProvider || plugin.settings.aiConfig?.defaultProvider);
+    const defaultMaxTokens = saved?.maxTokens ?? plugin.settings.aiConfig?.globalParams?.maxTokens ?? 2000;
 
-    return {
+    return normalizeGenerationConfig({
       templateId: '',
       promptTemplate: '',
       cardCount: limit,
       difficulty: saved?.difficulty ?? 'medium',
       typeDistribution: { ...(saved?.typeDistribution ?? { qa: 50, cloze: 30, choice: 20 }) },
-      provider: (preferences.lastUsedProvider || plugin.settings.aiConfig?.defaultProvider || 'openai') as AIProvider,
+      provider,
       model: '',
       temperature: saved?.temperature ?? 0.7,
-      maxTokens: saved?.maxTokens ?? 2000,
+      maxTokens: defaultMaxTokens,
       templates: { qa: 'official-qa', choice: 'official-choice', cloze: 'official-cloze' },
-      autoTags: [...(saved?.autoTags ?? [])],
       enableHints: saved?.enableHints ?? true,
       maxGenerationLimit: limit,
       prioritizePromptRequirements: saved?.prioritizePromptRequirements ?? true
-    };
+    });
   }
 
   let generationConfig = $state<GenerationConfig>(createInitialGenerationConfig());
-
-  $effect(() => {
-    if (!generationConfig.model?.trim()) {
-      generationConfig = {
-        ...generationConfig,
-        model: getDefaultModelForProvider(generationConfig.provider)
-      };
-    }
-  });
 
   const historyStyle = $derived.by(() => panelStyle(historyAnchor, 340, 360));
   const configStyle = $derived.by(() => panelStyle(configAnchor, 520, 760, true));
@@ -182,30 +228,22 @@
     menu.showAtPosition(anchor ? { x: Math.round(anchor.left), y: Math.round(anchor.bottom + 6) } : fallback);
   }
 
-  function attachMenuClass(menu: Menu, className: string) {
-    const extendedMenu = menu as unknown as { dom?: HTMLElement };
-    const applyClass = () => {
-      extendedMenu.dom?.classList.add(className);
-    };
-    applyClass();
-    requestAnimationFrame(applyClass);
-    setTimeout(applyClass, 0);
-  }
-
   async function openSourceFileMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
-    const menu = new Menu();
     const allFiles = sortFilesByModified(plugin.app.vault.getMarkdownFiles());
-
-    buildAIAssistantSourceFileMenu(menu, {
+    const selected = await new MarkdownFileSuggestModal(plugin.app, {
       files: allFiles,
-      currentFilePath: selectedFile?.path ?? null,
-      onSelect: async (file) => {
-        await selectSourceFile(fileToInfo(file));
-      },
-    });
+      placeholder: '搜索并选择源 Markdown 文件...',
+      anchorRect: normalizeAnchor(detail) ?? undefined,
+      preferredWidth: 560,
+      showPath: false,
+      showIcon: false,
+    }).openAndSelect();
 
-    showMenuAtAnchor(menu, detail, { x: 120, y: 80 });
-    attachMenuClass(menu, AI_SOURCE_FILE_MENU_CLASS);
+    if (!selected) {
+      return;
+    }
+
+    await selectSourceFile(fileToInfo(selected));
   }
 
   function splitContent(value: string): { front: string; back: string } {
@@ -242,75 +280,90 @@
   }
 
   async function persistPreferences() {
+    const normalizedConfig = normalizeGenerationConfig(generationConfig);
+
     await plugin.saveAIAssistantPreferences({
       ...plugin.getAIAssistantPreferences(),
-      lastUsedProvider: generationConfig.provider,
-      lastUsedModel: generationConfig.model,
+      lastUsedProvider: normalizedConfig.provider,
+      lastUsedModel: normalizedConfig.model,
       subView,
       lastSelectedSourceFilePath: selectedFile?.path,
       lastSelectedPromptFilePath: selectedPromptFile?.path,
       lastSelectedParsePresetId: selectedParsePreset?.id || selectedParsePreset?.name,
       savedGenerationConfig: {
-        cardCount: generationConfig.cardCount,
-        difficulty: generationConfig.difficulty,
-        typeDistribution: { ...generationConfig.typeDistribution },
-        autoTags: generationConfig.autoTags ? [...generationConfig.autoTags] : [],
-        enableHints: generationConfig.enableHints,
-        temperature: generationConfig.temperature,
-        maxTokens: generationConfig.maxTokens,
-        maxGenerationLimit: generationConfig.maxGenerationLimit ?? generationConfig.cardCount,
-        prioritizePromptRequirements: generationConfig.prioritizePromptRequirements ?? true
+        cardCount: normalizedConfig.cardCount,
+        difficulty: normalizedConfig.difficulty,
+        typeDistribution: { ...normalizedConfig.typeDistribution },
+        enableHints: normalizedConfig.enableHints,
+        temperature: normalizedConfig.temperature,
+        maxTokens: normalizedConfig.maxTokens,
+        maxGenerationLimit: normalizedConfig.maxGenerationLimit ?? normalizedConfig.cardCount,
+        prioritizePromptRequirements: normalizedConfig.prioritizePromptRequirements ?? true
       }
     });
+  }
+
+  function syncToolbarState(force = false) {
+    const detail = createAIToolbarStateDetail();
+    const signature = JSON.stringify(detail);
+
+    if (!force && signature === lastToolbarStateSignature) {
+      return;
+    }
+
+    lastToolbarStateSignature = signature;
+    weaveMainInterfaceStore.setAIToolbarState(detail);
+  }
+
+  async function persistGenerationHistoryIfNeeded() {
+    const signature = JSON.stringify(generationHistory);
+    if (signature === lastGenerationHistorySignature) {
+      return;
+    }
+
+    lastGenerationHistorySignature = signature;
+    await plugin.saveAIGenerationHistory(generationHistory);
   }
 
   async function selectSourceFile(file: ObsidianFileInfo) {
     selectedFile = file;
     content = await plugin.app.vault.read(file.file);
     await persistPreferences();
+    syncToolbarState();
   }
 
   async function selectPromptFile(file: ObsidianFileInfo | null) {
     selectedPromptFile = file;
     promptContent = file ? await plugin.app.vault.read(file.file) : '';
     await persistPreferences();
+    syncToolbarState();
   }
 
   async function openPromptFileMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
     try {
-      const menu = new Menu();
       const promptFiles = await listUserPromptFiles(plugin.app);
+      const selected = await new MarkdownFileSuggestModal(plugin.app, {
+        files: promptFiles,
+        placeholder: '搜索并选择提示词文件...',
+        anchorRect: normalizeAnchor(detail) ?? undefined,
+        preferredWidth: 560,
+        allowEmptySelection: true,
+        emptySelectionLabel: '不使用提示词文件',
+        emptySelectionDescription: undefined,
+        showPath: false,
+        showIcon: false,
+      }).openAndSelectItem();
 
-      menu.addItem((item) => {
-        item
-          .setTitle('\u4e0d\u4f7f\u7528\u63d0\u793a\u8bcd\u6587\u4ef6')
-          .setChecked(!selectedPromptFile)
-          .onClick(() => {
-            void selectPromptFile(null);
-          });
-      });
-
-      menu.addSeparator();
-
-      if (promptFiles.length === 0) {
-        menu.addItem((item) => item.setTitle('\u56fa\u5b9a\u76ee\u5f55\u4e2d\u6682\u65e0\u7528\u6237\u63d0\u793a\u8bcd\u6587\u4ef6').setDisabled(true));
-      } else {
-        promptFiles.forEach((file) => {
-          const label = getUserPromptRelativePath(plugin.app, file.path);
-          menu.addItem((item) => {
-            item
-              .setTitle(label)
-              .setIcon(selectedPromptFile?.path === file.path ? 'check' : 'file-text')
-              .setChecked(selectedPromptFile?.path === file.path)
-              .onClick(() => {
-                void selectPromptFile(fileToInfo(file));
-              });
-          });
-        });
+      if (!selected) {
+        return;
       }
 
-      showMenuAtAnchor(menu, detail, { x: 220, y: 80 });
-      attachMenuClass(menu, AI_USER_PROMPT_FILE_MENU_CLASS);
+      if (selected.kind === 'empty') {
+        await selectPromptFile(null);
+        return;
+      }
+
+      await selectPromptFile(fileToInfo(selected.file));
     } catch (error) {
       logger.error('Failed to open user prompt file menu:', error);
       new Notice('\u63d0\u793a\u8bcd\u6587\u4ef6\u5217\u8868\u52a0\u8f7d\u5931\u8d25');
@@ -347,8 +400,9 @@
       plugin,
       config: generationConfig,
       onSave: async (nextConfig) => {
-        generationConfig = { ...nextConfig };
+        generationConfig = normalizeGenerationConfig({ ...nextConfig });
         await persistPreferences();
+        syncToolbarState();
       },
       onClose: () => {
         systemPromptModal = null;
@@ -378,8 +432,9 @@
               .setTitle(configuredModel)
               .setIcon(generationConfig.provider === provider && generationConfig.model === configuredModel ? 'check' : '')
               .onClick(() => {
-                generationConfig = { ...generationConfig, provider, model: configuredModel };
+                generationConfig = normalizeGenerationConfig({ ...generationConfig, provider, model: configuredModel });
                 void persistPreferences();
+                syncToolbarState();
               });
           });
           submenu.addSeparator();
@@ -391,8 +446,9 @@
               .setTitle(model.label)
               .setIcon(generationConfig.provider === provider && generationConfig.model === model.id ? 'check' : '')
               .onClick(() => {
-                generationConfig = { ...generationConfig, provider, model: model.id };
+                generationConfig = normalizeGenerationConfig({ ...generationConfig, provider, model: model.id });
                 void persistPreferences();
+                syncToolbarState();
               });
           });
         });
@@ -418,6 +474,7 @@
             .onClick(() => {
               selectedParsePreset = preset;
               void persistPreferences();
+              syncToolbarState();
             })
         );
       });
@@ -434,6 +491,7 @@
 
     try {
       isGenerating = true;
+      syncToolbarState();
       generationProgress = { status: 'preparing', progress: 0, message: '\u6b63\u5728\u51c6\u5907\u751f\u6210\u5361\u7247' };
 
       const config = {
@@ -459,6 +517,8 @@
         selectedPrompt: null,
         customPrompt: promptContent
       }, ...generationHistory].slice(0, 5);
+      syncToolbarState();
+      await persistGenerationHistoryIfNeeded();
 
       generationProgress = { status: 'completed', progress: 100, message: '\u5df2\u751f\u6210 ' + result.length + ' \u5f20\u5361\u7247' };
     } catch (error) {
@@ -467,6 +527,7 @@
       generationProgress = { status: 'failed', progress: 0, message: 'AI \u751f\u6210\u5931\u8d25' };
     } finally {
       isGenerating = false;
+      syncToolbarState();
     }
   }
 
@@ -483,6 +544,7 @@
 
     try {
       isParsing = true;
+      syncToolbarState();
       const preset = selectedParsePreset;
       const result = await createRegexParser().parseFile(selectedFile.file, preset, 'preview');
       if (!result.success) throw new Error(result.errors[0] || '\u89e3\u6790\u5931\u8d25');
@@ -507,12 +569,14 @@
 
       subView = 'parse-preview';
       await persistPreferences();
+      syncToolbarState();
     } catch (error) {
       logger.error('Parse preview failed:', error);
       new Notice(error instanceof Error ? error.message : '\u89e3\u6790\u9884\u89c8\u5931\u8d25');
       parseItems = [];
     } finally {
       isParsing = false;
+      syncToolbarState();
     }
   }
 
@@ -521,32 +585,69 @@
     selectedPromptFile = findUserPromptFile(entry.promptFile?.path);
     content = entry.sourceContent;
     promptContent = entry.customPrompt;
-    generationConfig = { ...entry.config };
+    generationConfig = normalizeGenerationConfig({ ...entry.config });
     generatedItems = entry.cards.map(toPreviewItem);
     subView = 'generate';
     historyOpen = false;
     await persistPreferences();
+    syncToolbarState();
   }
 
-  async function importCards(selectedItems: AICardPreviewItem[], targetDeckId: string) {
+  async function importCards(
+    selectedItems: AICardPreviewItem[],
+    importOptions: AIPreviewImportOptions
+  ): Promise<AIPreviewImportResult> {
     const { CardConverter } = await import('../../services/ai/CardConverter');
+    const { targetDeckId, autoTags } = importOptions;
+    const targetDeck = await dataStorage.getDeck(targetDeckId);
+    if (!targetDeck) {
+      throw new Error('目标牌组不存在，请重新选择');
+    }
+
     const converted = CardConverter.convertBatch(
-      selectedItems.map((item) => item.generatedCard),
+      selectedItems.map((item) => ({
+        ...item.generatedCard,
+        tags: mergeTagLists(item.generatedCard.tags, autoTags),
+        metadata: { ...item.generatedCard.metadata }
+      })),
       targetDeckId,
       selectedFile?.path,
       generationConfig.templates,
-      fsrs
+      fsrs,
+      targetDeck.name
     );
 
+    let importedCount = 0;
     for (const card of converted.cards) {
       await dataStorage.saveCard(card);
+      importedCount += 1;
     }
+
+    return {
+      importedCount,
+      failedCount: converted.errors.length,
+      selectedCount: selectedItems.length,
+      targetDeckId,
+      targetDeckName: targetDeck.name,
+      importedItemIds: importedCount === selectedItems.length && converted.errors.length === 0
+        ? selectedItems.map((item) => item.id)
+        : undefined
+    };
   }
 
-  async function importParsedCards(selectedItems: AIParsePreviewItem[], targetDeckId: string) {
+  async function importParsedCards(
+    selectedItems: AIParsePreviewItem[],
+    importOptions: AIPreviewImportOptions
+  ): Promise<AIPreviewImportResult> {
+    const { targetDeckId, autoTags } = importOptions;
+    const targetDeck = await dataStorage.getDeck(targetDeckId);
+    if (!targetDeck) {
+      throw new Error('目标牌组不存在，请重新选择');
+    }
+
     const parsedCards: ParsedCard[] = selectedItems.map((item) => ({
       ...item.parsedCard,
-      tags: [...(item.parsedCard.tags || [])],
+      tags: mergeTagLists(item.parsedCard.tags || [], autoTags),
       metadata: {
         ...(item.parsedCard.metadata || {}),
         targetDeckId,
@@ -555,34 +656,52 @@
     }));
 
     await plugin.addCardsToDB(parsedCards);
+
+    return {
+      importedCount: parsedCards.length,
+      failedCount: 0,
+      selectedCount: selectedItems.length,
+      targetDeckId,
+      targetDeckName: targetDeck.name,
+      importedItemIds: selectedItems.map((item) => item.id)
+    };
+  }
+
+  function createAIToolbarStateDetail(): AIToolbarStateDetail {
+    const modelLabel = getModelDisplayLabel();
+
+    return {
+      subView,
+      selectedFileName: selectedFile?.name ?? '',
+      selectedFilePath: selectedFile?.path ?? '',
+      promptFileName: selectedPromptFile?.name ?? '',
+      promptFilePath: selectedPromptFile?.path ?? '',
+      modelLabel,
+      modelTitle: modelLabel,
+      parsePresetName: selectedParsePreset?.name ?? '',
+      parsePresetId: selectedParsePreset?.id || selectedParsePreset?.name || '',
+      historyCount: generationHistory.length,
+      canGenerate: !!content.trim() && !isGenerating,
+      canParse: !!selectedFile && !!selectedParsePreset && !isParsing,
+      isGenerating,
+      isParsing
+    };
   }
 
   $effect(() => {
-    window.dispatchEvent(new CustomEvent('Weave:ai-toolbar-state-change', {
-      detail: {
-        subView,
-        selectedFileName: selectedFile?.name ?? '',
-        selectedFilePath: selectedFile?.path ?? '',
-        promptFileName: selectedPromptFile?.name ?? '',
-        promptFilePath: selectedPromptFile?.path ?? '',
-        modelLabel: getModelDisplayLabel(),
-        modelTitle: getModelDisplayLabel(),
-        parsePresetName: selectedParsePreset?.name ?? '',
-        parsePresetId: selectedParsePreset?.id || selectedParsePreset?.name || '',
-        historyCount: generationHistory.length,
-        canGenerate: !!content.trim() && !isGenerating,
-        canParse: !!selectedFile && !!selectedParsePreset && !isParsing,
-        isGenerating,
-        isParsing
-      }
-    }));
+    if (!historyOpen) return;
+
+    const handleDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && historyEl?.contains(target)) return;
+      historyOpen = false;
+    };
+
+    document.addEventListener('pointerdown', handleDown, true);
+    return () => document.removeEventListener('pointerdown', handleDown, true);
   });
 
-  $effect(() => {
-    void plugin.saveAIGenerationHistory(generationHistory);
-  });
-
-  $effect(() => {
+  onMount(() => {
     const handleToolbarAction = (event: Event) => {
       const detail = (event as CustomEvent<{ action: string; value?: AIAssistantSubView; x?: number; y?: number; rect?: AnchorRect }>).detail;
       if (!detail) return;
@@ -597,16 +716,15 @@
       if (detail.action === 'generate' && !isGenerating) void handleGenerate();
       if (detail.action === 'parse' && !isParsing) void handleParse();
       if (detail.action === 'sub-view') {
-        subView = detail.value === 'parse-preview' ? 'parse-preview' : 'generate';
-        void persistPreferences();
+        const nextSubView = detail.value === 'parse-preview' ? 'parse-preview' : 'generate';
+        if (subView !== nextSubView) {
+          subView = nextSubView;
+          void persistPreferences();
+          syncToolbarState();
+        }
       }
     };
 
-    window.addEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
-    return () => window.removeEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
-  });
-
-  $effect(() => {
     const handleUserPromptFilesChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ path?: string | null }>).detail;
       const changedPath = detail?.path;
@@ -624,60 +742,57 @@
         selectedPromptFile = null;
         promptContent = '';
         void persistPreferences();
+        syncToolbarState();
         return;
       }
 
       selectedPromptFile = fileToInfo(latestFile);
       void plugin.app.vault.read(latestFile).then((text) => {
         promptContent = text;
+        syncToolbarState();
       });
     };
 
+    window.addEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
     window.addEventListener('Weave:ai-user-prompt-files-changed', handleUserPromptFilesChanged as EventListener);
-    return () => window.removeEventListener('Weave:ai-user-prompt-files-changed', handleUserPromptFilesChanged as EventListener);
-  });
 
-  $effect(() => {
-    if (!historyOpen) return;
+    void (async () => {
+      generationHistory = plugin.getAIGenerationHistory().slice(0, 5) as HistoryEntry[];
+      lastGenerationHistorySignature = JSON.stringify(generationHistory);
+      const preferences = plugin.getAIAssistantPreferences();
+      subView = preferences.subView ?? 'generate';
+      selectedFile = await findFile(preferences.lastSelectedSourceFilePath);
+      selectedPromptFile = findUserPromptFile(preferences.lastSelectedPromptFilePath);
 
-    const handleDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && historyEl?.contains(target)) return;
-      historyOpen = false;
+      if (preferences.lastSelectedSourceFilePath && !selectedFile) {
+        new Notice('\u6700\u8fd1\u9009\u62e9\u7684\u6e90\u6587\u4ef6\u4e0d\u5b58\u5728\uff0c\u5df2\u6e05\u7a7a');
+      }
+
+      if (preferences.lastSelectedPromptFilePath && !selectedPromptFile) {
+        new Notice('\u6700\u8fd1\u9009\u62e9\u7684\u63d0\u793a\u8bcd\u6587\u4ef6\u4e0d\u5b58\u5728\uff0c\u5df2\u6e05\u7a7a');
+      }
+
+      if (selectedFile) {
+        content = await plugin.app.vault.read(selectedFile.file);
+      }
+
+      if (selectedPromptFile) {
+        promptContent = await plugin.app.vault.read(selectedPromptFile.file);
+      }
+
+      const presetId = preferences.lastSelectedParsePresetId?.trim();
+      if (presetId) {
+        selectedParsePreset =
+          (plugin.settings.simplifiedParsing?.regexPresets ?? []).find((preset) => (preset.id || preset.name) === presetId) ?? null;
+      }
+
+      syncToolbarState(true);
+    })();
+
+    return () => {
+      window.removeEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
+      window.removeEventListener('Weave:ai-user-prompt-files-changed', handleUserPromptFilesChanged as EventListener);
     };
-
-    document.addEventListener('pointerdown', handleDown, true);
-    return () => document.removeEventListener('pointerdown', handleDown, true);
-  });
-
-  onMount(async () => {
-    generationHistory = plugin.getAIGenerationHistory().slice(0, 5) as HistoryEntry[];
-    const preferences = plugin.getAIAssistantPreferences();
-    subView = preferences.subView ?? 'generate';
-    selectedFile = await findFile(preferences.lastSelectedSourceFilePath);
-    selectedPromptFile = findUserPromptFile(preferences.lastSelectedPromptFilePath);
-
-    if (preferences.lastSelectedSourceFilePath && !selectedFile) {
-      new Notice('\u6700\u8fd1\u9009\u62e9\u7684\u6e90\u6587\u4ef6\u4e0d\u5b58\u5728\uff0c\u5df2\u6e05\u7a7a');
-    }
-
-    if (preferences.lastSelectedPromptFilePath && !selectedPromptFile) {
-      new Notice('\u6700\u8fd1\u9009\u62e9\u7684\u63d0\u793a\u8bcd\u6587\u4ef6\u4e0d\u5b58\u5728\uff0c\u5df2\u6e05\u7a7a');
-    }
-
-    if (selectedFile) {
-      content = await plugin.app.vault.read(selectedFile.file);
-    }
-
-    if (selectedPromptFile) {
-      promptContent = await plugin.app.vault.read(selectedPromptFile.file);
-    }
-
-    const presetId = preferences.lastSelectedParsePresetId?.trim();
-    if (presetId) {
-      selectedParsePreset =
-        (plugin.settings.simplifiedParsing?.regexPresets ?? []).find((preset) => (preset.id || preset.name) === presetId) ?? null;
-    }
   });
 </script>
 
@@ -688,8 +803,11 @@
       <div class="panel-list">
         {#each generationHistory as entry}
           <button class="list-item" onclick={() => restoreHistory(entry)}>
-            <span>{(entry.sourceFile?.name || '\u672a\u547d\u540d\u5185\u5bb9') + ' \u00b7 ' + entry.cards.length + ' \u5f20'}</span>
-            <small>{entry.promptFile?.name || '\u65e0\u63d0\u793a\u8bcd\u6587\u4ef6'}</small>
+            <span class="list-item-main">
+              <span class="list-item-title" title={entry.sourceFile?.name || '\u672a\u547d\u540d\u5185\u5bb9'}>{entry.sourceFile?.name || '\u672a\u547d\u540d\u5185\u5bb9'}</span>
+              <span class="list-item-count">{entry.cards.length} 张</span>
+            </span>
+            <small class="list-item-subtitle" title={entry.promptFile?.name || '\u65e0\u63d0\u793a\u8bcd\u6587\u4ef6'}>{entry.promptFile?.name || '\u65e0\u63d0\u793a\u8bcd\u6587\u4ef6'}</small>
           </button>
         {/each}
       </div>
@@ -705,6 +823,7 @@
       generationConfig = config;
       configOpen = false;
       await persistPreferences();
+      syncToolbarState();
     }}
   />
 
@@ -773,8 +892,8 @@
     overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 10px;
+    gap: 0;
+    padding: 6px 0;
   }
 
   .list-item {
@@ -782,25 +901,56 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 10px 12px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 10px;
-    background: var(--background-secondary);
+    align-items: flex-start;
+    min-width: 0;
+    width: 100%;
+    padding: 10px 14px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    appearance: none;
     cursor: pointer;
+    transition: background-color 120ms ease;
   }
 
-  .list-item small {
-    color: var(--text-muted);
+  .list-item:hover,
+  .list-item:focus-visible {
+    background: color-mix(in srgb, var(--background-modifier-hover) 70%, transparent);
+    outline: none;
+  }
+
+  .list-item-main {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .list-item-title {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: calc(100% - 48px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  :global(.menu.weave-ai-source-file-menu),
-  :global(.menu.weave-ai-user-prompt-file-menu) {
-    max-height: min(70vh, 720px);
-    overflow-y: auto;
-    overflow-x: hidden;
-    scrollbar-gutter: stable;
+  .list-item-count {
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .list-item-subtitle {
+    display: block;
+    width: 100%;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

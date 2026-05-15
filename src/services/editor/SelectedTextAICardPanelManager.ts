@@ -1,4 +1,4 @@
-import type { Editor, MarkdownView } from "obsidian";
+import type { MarkdownView } from "obsidian";
 import { mount, unmount } from "svelte";
 import SelectedTextAICardPanel from "../../components/ai-assistant/SelectedTextAICardPanel.svelte";
 import type { WeavePlugin } from "../../main";
@@ -15,7 +15,6 @@ export class SelectedTextAICardPanelManager {
 
 	openPanel(params: {
 		view: MarkdownView;
-		editor: Editor;
 		selectedText: string;
 		actionId: string;
 	}): void {
@@ -31,7 +30,7 @@ export class SelectedTextAICardPanelManager {
 		const instance = mount(SelectedTextAICardPanel, {
 			target: container,
 			props: {
-				plugin: this.plugin,
+				host: this.plugin,
 				selectedText,
 				actionId,
 				sourceFilePath: view.file?.path || "",

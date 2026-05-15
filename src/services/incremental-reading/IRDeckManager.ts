@@ -13,7 +13,6 @@
 
 import { App, TFile, TFolder, normalizePath } from "obsidian";
 import { resolveIRImportFolder } from "../../config/paths";
-import type { ReadingMaterial } from "../../types/incremental-reading-types";
 import type { IRDeck, IRDeckSettings, IRDeckStats } from "../../types/ir-types";
 import {
 	DEFAULT_IR_DECK_SETTINGS,
@@ -21,12 +20,8 @@ import {
 	generateIRDeckId,
 } from "../../types/ir-types";
 import { logger } from "../../utils/logger";
-import { createYAMLFrontmatterManager } from "../../utils/yaml-frontmatter-utils";
-import { IREpubBookmarkTaskService } from "./IREpubBookmarkTaskService";
-import { IRPdfBookmarkTaskService } from "./IRPdfBookmarkTaskService";
 import { IRStorageService } from "./IRStorageService";
 import { getSharedIRWorkspaceSnapshotService } from "./IRWorkspaceSnapshotService";
-import { createReadingMaterialStorage } from "./ReadingMaterialStorage";
 
 export class IRDeckManager {
 	private app: App;
@@ -175,7 +170,7 @@ export class IRDeckManager {
 	}
 
 	/**
-	 * 导入文件夹作为牌组
+	 * 导入材料文件夹作为牌组
 	 */
 	async importFolder(folderPath: string, settings?: Partial<IRDeckSettings>): Promise<IRDeck> {
 		// 验证文件夹存在
@@ -209,219 +204,12 @@ export class IRDeckManager {
 		return deck;
 	}
 
-	private collectReadingMaterialsForDeck(
-		materials: ReadingMaterial[],
-		deckIdentifiers: Set<string>
-	): ReadingMaterial[] {
-		const selected = new Map<string, ReadingMaterial>();
-
-		for (const material of materials) {
-			const readingDeckId = String(material.readingDeckId || "").trim();
-			if (readingDeckId && deckIdentifiers.has(readingDeckId)) {
-				selected.set(material.uuid, material);
-			}
-		}
-
-		let changed = true;
-		while (changed) {
-			changed = false;
-			for (const material of materials) {
-				if (selected.has(material.uuid)) {
-					continue;
-				}
-				const parentId = String(material.parentMaterialId || "").trim();
-				if (parentId && selected.has(parentId)) {
-					selected.set(material.uuid, material);
-					changed = true;
-				}
-			}
-		}
-
-		return Array.from(selected.values());
-	}
-
-	private async cleanupReadingArtifactsForDeck(deckId: string, deckName?: string): Promise<void> {
-		const deckIdentifiers = new Set(
-			[deckId, deckName].map((value) => String(value || "").trim()).filter(Boolean)
-		);
-
-		if (deckIdentifiers.size === 0) {
-			return;
-		}
-
-		const readingStorage = createReadingMaterialStorage(this.app);
-		await readingStorage.initialize();
-
-		const yamlManager = createYAMLFrontmatterManager(this.app);
-		const allMaterials = readingStorage.getAllMaterials();
-		const materialsToDelete = this.collectReadingMaterialsForDeck(allMaterials, deckIdentifiers);
-
-		for (const material of materialsToDelete) {
-			if (!material.parentMaterialId && material.filePath?.toLowerCase().endsWith(".md")) {
-				const file = this.app.vault.getAbstractFileByPath(material.filePath);
-				if (file instanceof TFile) {
-					try {
-						await yamlManager.removeReadingFields(file);
-					} catch (error) {
-						logger.warn(
-							`[IRDeckManager] 清理 Markdown 增量阅读 YAML 失败: ${material.filePath}`,
-							error
-						);
-					}
-				}
-			}
-
-			try {
-				await readingStorage.deleteMaterial(material.uuid);
-			} catch (error) {
-				logger.warn(`[IRDeckManager] 删除阅读材料失败: ${material.uuid}`, error);
-			}
-		}
-
-		const pdfTaskService = new IRPdfBookmarkTaskService(this.app);
-		const epubTaskService = new IREpubBookmarkTaskService(this.app);
-
-		try {
-			await pdfTaskService.deleteTasksByDeckIdentifiers(Array.from(deckIdentifiers));
-		} catch (error) {
-			logger.warn(`[IRDeckManager] 清理 PDF 增量阅读书签失败: ${deckId}`, error);
-		}
-
-		try {
-			await epubTaskService.deleteTasksByDeckIdentifiers(Array.from(deckIdentifiers));
-		} catch (error) {
-			logger.warn(`[IRDeckManager] 清理 EPUB 增量阅读书签失败: ${deckId}`, error);
-		}
-
-		logger.info(`[IRDeckManager] 已清理牌组关联的阅读材料与书签数据: ${deckId}`, {
-			deckIdentifiers: Array.from(deckIdentifiers),
-			materialCount: materialsToDelete.length,
-		});
-	}
-
 	/**
-	 * 删除牌组（同时删除所有关联的内容块数据）
+	 * 删除牌组（仅删除专题及其调度数据，不删除源文档）
 	 */
 	async deleteDeck(deckId: string): Promise<void> {
-		const deck = await this.storage.getDeckById(deckId);
-
-		const adapter = this.app.vault.adapter as any;
-
-		const blocks = await this.storage.getBlocksByDeck(deckId);
-		for (const block of blocks) {
-			await this.storage.deleteBlock(block.id);
-		}
-
-		const allChunks = await this.storage.getAllChunkData();
-		const deckTag = deck?.name ? `#IR_deck_${deck.name}` : undefined;
-		const chunksToDelete = Object.values(allChunks).filter(
-			(c) =>
-				(Array.isArray(c.deckIds) && c.deckIds.includes(deckId)) ||
-				(!!deckTag && c.deckTag === deckTag)
-		);
-
-		const affectedSourceIds = new Set<string>();
-
-		// 收集所有需要检查的父文件夹路径
-		const foldersToCheck = new Set<string>();
-
-		for (const chunk of chunksToDelete) {
-			try {
-				affectedSourceIds.add(chunk.sourceId);
-				const filePath = normalizePath(chunk.filePath);
-				const file = this.app.vault.getAbstractFileByPath(filePath);
-				if (file instanceof TFile) {
-					await this.app.fileManager.trashFile(file);
-				} else if (adapter?.exists && (await adapter.exists(filePath))) {
-					await adapter.remove(filePath);
-				}
-				foldersToCheck.add(filePath);
-			} catch (error) {
-				logger.warn(`[IRDeckManager] 删除块文件失败: ${chunk.filePath}`, error);
-			}
-
-			try {
-				await this.storage.deleteChunkData(chunk.chunkId);
-			} catch (error) {
-				logger.warn(`[IRDeckManager] 删除块调度数据失败: ${chunk.chunkId}`, error);
-			}
-		}
-
-		if (affectedSourceIds.size > 0) {
-			const sources = await this.storage.getAllSources();
-			for (const sourceId of affectedSourceIds) {
-				const source = sources[sourceId];
-				if (!source) continue;
-
-				const remainingChunkIds = (source.chunkIds || []).filter(
-					(id) => !chunksToDelete.some((c) => c.chunkId === id)
-				);
-				if (remainingChunkIds.length === 0) {
-					try {
-						if (source.indexFilePath) {
-							const indexFilePath = normalizePath(source.indexFilePath);
-							const indexFile = this.app.vault.getAbstractFileByPath(indexFilePath);
-							if (indexFile instanceof TFile) {
-								await this.app.fileManager.trashFile(indexFile);
-							} else if (adapter?.exists && (await adapter.exists(indexFilePath))) {
-								await adapter.remove(indexFilePath);
-							}
-							foldersToCheck.add(indexFilePath);
-						}
-					} catch (error) {
-						logger.warn(`[IRDeckManager] 删除源索引文件失败: ${source.indexFilePath}`, error);
-					}
-
-					try {
-						await this.storage.deleteSource(sourceId);
-					} catch (error) {
-						logger.warn(`[IRDeckManager] 删除源材料元数据失败: ${sourceId}`, error);
-					}
-				} else if (remainingChunkIds.length !== (source.chunkIds || []).length) {
-					try {
-						source.chunkIds = remainingChunkIds;
-						source.updatedAt = Date.now();
-						await this.storage.saveSource(source);
-					} catch (error) {
-						logger.warn(`[IRDeckManager] 更新源材料元数据失败: ${sourceId}`, error);
-					}
-				}
-			}
-		}
-
-		// 清理所有空文件夹
-		for (const folderPath of foldersToCheck) {
-			await this.cleanEmptyParentFolders(folderPath);
-		}
-
-		await this.cleanAllEmptyFoldersUnderChunks();
-
-		await this.cleanupReadingArtifactsForDeck(deckId, deck?.name);
-
 		await this.storage.deleteDeck(deckId);
-		logger.info(
-			`[IRDeckManager] 删除牌组及 ${blocks.length + chunksToDelete.length} 个内容块: ${deckId}`
-		);
-	}
-
-	/**
-	 * 解散牌组，仅删除牌组并保留块数据
-	 */
-	async disbandDeck(deckId: string): Promise<void> {
-		const allChunks = await this.storage.getAllChunkData();
-		const chunksToUpdate = Object.values(allChunks).filter(
-			(c) => Array.isArray(c.deckIds) && c.deckIds.includes(deckId)
-		);
-		for (const chunk of chunksToUpdate) {
-			try {
-				await this.storage.removeDeckFromChunk(chunk.chunkId, deckId);
-			} catch (error) {
-				logger.warn(`[IRDeckManager] 解散牌组时移除块牌组失败: ${chunk.chunkId}`, error);
-			}
-		}
-
-		await this.storage.deleteDeck(deckId);
-		logger.info(`[IRDeckManager] 解散牌组 (保留块数据): ${deckId}`);
+		logger.info(`[IRDeckManager] 已按安全语义删除专题并保留源文档: ${deckId}`);
 	}
 
 	/**

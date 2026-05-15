@@ -14,6 +14,44 @@ export interface ThemeColors {
 	success: string;
 	warning: string;
 	error: string;
+	textColor: string;
+	subTextColor: string;
+	axisLineColor: string;
+	splitLineColor: string;
+	tooltipBg: string;
+	tooltipBorder: string;
+	bgColor: string;
+	borderColor: string;
+	accentColor: string;
+	seriesPalette: string[];
+	loadStatusColors: {
+		low: string;
+		normal: string;
+		high: string;
+		overload: string;
+	};
+	heatmapLevels: string[];
+	heatmapEmpty: string;
+}
+
+const FALLBACK_ACCENT = "#7c3aed";
+const FALLBACK_SERIES_PALETTE = [
+	"#3b82f6",
+	"#10b981",
+	"#f59e0b",
+	"#ef4444",
+	"#8b5cf6",
+	"#14b8a6",
+];
+const DEFAULT_GRADIENT_COLOR = { r: 124, g: 58, b: 237 };
+const parsedColorCache = new Map<string, { r: number; g: number; b: number }>();
+
+function resolveCssVar(style: CSSStyleDeclaration, name: string, fallback: string): string {
+	return style.getPropertyValue(name).trim() || fallback;
+}
+
+function detectDarkTheme(): boolean {
+	return document.body.classList.contains("theme-dark");
 }
 
 /**
@@ -21,17 +59,65 @@ export interface ThemeColors {
  */
 export function getThemeColors(): ThemeColors {
 	const style = getComputedStyle(document.body);
+	const isDark = detectDarkTheme();
+	const text = resolveCssVar(style, "--text-normal", isDark ? "#e5e7eb" : "#1f2937");
+	const textMuted = resolveCssVar(style, "--text-muted", isDark ? "#9ca3af" : "#6b7280");
+	const accent = resolveCssVar(style, "--interactive-accent", FALLBACK_ACCENT);
+	const background = resolveCssVar(
+		style,
+		"--background-primary",
+		isDark ? "#111827" : "#ffffff"
+	);
+	const backgroundSecondary = resolveCssVar(
+		style,
+		"--background-secondary",
+		isDark ? "#1f2937" : "#f8fafc"
+	);
+	const border = resolveCssVar(
+		style,
+		"--background-modifier-border",
+		isDark ? "rgba(255,255,255,0.16)" : "rgba(15,23,42,0.12)"
+	);
+	const success = resolveCssVar(style, "--text-success", "#22c55e");
+	const warning = resolveCssVar(style, "--text-warning", "#f59e0b");
+	const error = resolveCssVar(style, "--text-error", "#ef4444");
+	const axisLineColor = resolveCssVar(
+		style,
+		"--background-modifier-border",
+		isDark ? "rgba(255,255,255,0.16)" : "rgba(15,23,42,0.12)"
+	);
+	const splitLineColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.08)";
 
 	return {
-		text: style.getPropertyValue("--text-normal").trim() || "#000",
-		textMuted: style.getPropertyValue("--text-muted").trim() || "#666",
-		accent: style.getPropertyValue("--interactive-accent").trim() || "#7c3aed",
-		background: style.getPropertyValue("--background-primary").trim() || "#fff",
-		backgroundSecondary: style.getPropertyValue("--background-secondary").trim() || "#f5f5f5",
-		border: style.getPropertyValue("--background-modifier-border").trim() || "#ddd",
-		success: style.getPropertyValue("--text-success").trim() || "#10b981",
-		warning: style.getPropertyValue("--text-warning").trim() || "#f59e0b",
-		error: style.getPropertyValue("--text-error").trim() || "#ef4444",
+		text,
+		textMuted,
+		accent,
+		background,
+		backgroundSecondary,
+		border,
+		success,
+		warning,
+		error,
+		textColor: text,
+		subTextColor: textMuted,
+		axisLineColor,
+		splitLineColor,
+		tooltipBg: background,
+		tooltipBorder: border,
+		bgColor: background,
+		borderColor: border,
+		accentColor: accent,
+		seriesPalette: [...FALLBACK_SERIES_PALETTE],
+		loadStatusColors: {
+			low: success,
+			normal: "#4dabf7",
+			high: warning,
+			overload: error,
+		},
+		heatmapLevels: isDark
+			? ["#0e4429", "#006d32", "#26a641", "#39d353"]
+			: ["#9be9a8", "#40c463", "#30a14e", "#216e39"],
+		heatmapEmpty: border,
 	};
 }
 
@@ -101,45 +187,8 @@ export function getBaseChartOption(colors: ThemeColors): any {
  * 生成渐变色配置（支持多种颜色格式）
  */
 export function createGradient(color: string, opacity1 = 0.25, opacity2 = 0.05): any {
-	// 安全的颜色解析函数
-	function parseColor(colorStr: string): { r: number; g: number; b: number } {
-		// 默认颜色（防止解析失败）
-		const defaultColor = { r: 124, g: 58, b: 237 };
-
-		try {
-			// 处理十六进制颜色 #ff0000 或 ff0000
-			if (colorStr.match(/^#?[0-9a-fA-F]{6}$/)) {
-				const hex = colorStr.replace("#", "");
-				const r = parseInt(hex.substring(0, 2), 16);
-				const g = parseInt(hex.substring(2, 4), 16);
-				const b = parseInt(hex.substring(4, 6), 16);
-
-				// 验证解析结果
-				if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
-					return { r, g, b };
-				}
-			}
-
-			// 处理RGB格式 rgb(255, 0, 0)
-			const rgbMatch = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-			if (rgbMatch) {
-				return {
-					r: parseInt(rgbMatch[1]),
-					g: parseInt(rgbMatch[2]),
-					b: parseInt(rgbMatch[3]),
-				};
-			}
-
-			// 处理CSS变量和其他格式，返回默认颜色
-			logger.warn(`[createGradient] 无法解析颜色: ${colorStr}, 使用默认颜色`);
-			return defaultColor;
-		} catch (error) {
-			logger.error(`[createGradient] 颜色解析错误: ${colorStr}`, error);
-			return defaultColor;
-		}
-	}
-
-	const { r, g, b } = parseColor(color);
+	const safeOpacity1 = Math.max(0, Math.min(1, opacity1));
+	const safeOpacity2 = Math.max(0, Math.min(1, opacity2));
 
 	return {
 		type: "linear",
@@ -150,14 +199,114 @@ export function createGradient(color: string, opacity1 = 0.25, opacity2 = 0.05):
 		colorStops: [
 			{
 				offset: 0,
-				color: `rgba(${r}, ${g}, ${b}, ${opacity1})`,
+				color: applyAlphaToColor(color, safeOpacity1),
 			},
 			{
 				offset: 1,
-				color: `rgba(${r}, ${g}, ${b}, ${opacity2})`,
+				color: applyAlphaToColor(color, safeOpacity2),
 			},
 		],
 	};
+}
+
+function parseHexColor(colorStr: string): { r: number; g: number; b: number } | null {
+	const normalized = colorStr.trim().replace(/^#/, "");
+	if (!/^[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(normalized)) {
+		return null;
+	}
+
+	const hex =
+		normalized.length === 3
+			? normalized
+					.split("")
+					.map((part) => `${part}${part}`)
+					.join("")
+			: normalized;
+
+	const r = parseInt(hex.slice(0, 2), 16);
+	const g = parseInt(hex.slice(2, 4), 16);
+	const b = parseInt(hex.slice(4, 6), 16);
+	if ([r, g, b].some((value) => Number.isNaN(value))) {
+		return null;
+	}
+
+	return { r, g, b };
+}
+
+function parseRgbColor(colorStr: string): { r: number; g: number; b: number } | null {
+	const normalized = colorStr.trim();
+	if (!/^rgba?\(/i.test(normalized)) {
+		return null;
+	}
+
+	const channelValues = normalized.match(/[\d.]+/g);
+	if (!channelValues || channelValues.length < 3) {
+		return null;
+	}
+
+	const [r, g, b] = channelValues.slice(0, 3).map((value) => Math.round(Number(value)));
+	if ([r, g, b].some((value) => Number.isNaN(value))) {
+		return null;
+	}
+
+	return { r, g, b };
+}
+
+function resolveColorWithDom(colorStr: string): { r: number; g: number; b: number } | null {
+	if (typeof document === "undefined" || !document.body) {
+		return null;
+	}
+
+	const probe = document.createElement("span");
+	const sentinelColor = "rgb(1, 2, 3)";
+	probe.hidden = true;
+	probe.setAttribute("style", `color: ${sentinelColor}; color: ${colorStr};`);
+	document.body.appendChild(probe);
+
+	try {
+		const resolvedColor = getComputedStyle(probe).color.trim();
+		if (!resolvedColor || resolvedColor === sentinelColor) {
+			return null;
+		}
+		return parseRgbColor(resolvedColor);
+	} finally {
+		probe.remove();
+	}
+}
+
+function resolveGradientColor(colorStr: string): { r: number; g: number; b: number } {
+	const normalized = String(colorStr || "").trim();
+	if (!normalized) {
+		return DEFAULT_GRADIENT_COLOR;
+	}
+
+	const cached = parsedColorCache.get(normalized);
+	if (cached) {
+		return cached;
+	}
+
+	try {
+		const parsed =
+			parseHexColor(normalized) ||
+			parseRgbColor(normalized) ||
+			resolveColorWithDom(normalized) ||
+			DEFAULT_GRADIENT_COLOR;
+
+		parsedColorCache.set(normalized, parsed);
+		if (parsed === DEFAULT_GRADIENT_COLOR) {
+			logger.warn(`[createGradient] 无法解析颜色: ${colorStr}, 使用默认颜色`);
+		}
+		return parsed;
+	} catch (error) {
+		logger.error(`[createGradient] 颜色解析错误: ${colorStr}`, error);
+		return DEFAULT_GRADIENT_COLOR;
+	}
+}
+
+export function applyAlphaToColor(color: string, opacity = 1): string {
+	const safeOpacity = Math.max(0, Math.min(1, opacity));
+	const { r, g, b } = resolveGradientColor(color);
+	return `rgba(${r}, ${g}, ${b}, ${safeOpacity})`;
 }
 
 /**

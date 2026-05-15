@@ -20,6 +20,7 @@ import type { WeavePlugin } from "../../main";
 import type { EditorOptions, EditorResult } from "../../types/editor-types";
 import { EditorLayoutManager } from "./editor-layout-manager";
 import { KeyboardEventHandler } from "./keyboard-event-handler";
+import { applyStyleProps } from "../../utils/style-props";
 
 export class EmbeddedEditorManager {
 	private plugin: WeavePlugin;
@@ -210,7 +211,7 @@ export class EmbeddedEditorManager {
 		if (leafEl) {
 			// 不设置 display:none 和 visibility:hidden
 			// 这样 Obsidian 才能认为这是一个“活跃”的编辑器
-			leafEl.setCssProps({
+			applyStyleProps(leafEl, {
 				display: "block", // 保持可见
 				visibility: "visible", // 保持可见
 				position: "absolute",
@@ -229,7 +230,7 @@ export class EmbeddedEditorManager {
 		// 隐藏标签页标题
 		const tabHeaderEl = (leaf as any).tabHeaderEl as HTMLElement;
 		if (tabHeaderEl) {
-			tabHeaderEl.setCssProps({ display: "none" });
+			applyStyleProps(tabHeaderEl, { display: "none" });
 			this.log("Tab header hidden");
 		}
 
@@ -261,7 +262,7 @@ export class EmbeddedEditorManager {
 		selectors.forEach((_selector) => {
 			const element = view.containerEl.querySelector(_selector);
 			if (element) {
-				(element as HTMLElement).setCssProps({
+				applyStyleProps((element as HTMLElement), {
 					display: "none",
 					height: "0",
 					margin: "0",
@@ -480,7 +481,7 @@ export class EmbeddedEditorManager {
 	 */
 	private setupEditorStyles(editorEl: HTMLElement): void {
 		// 设置主题适配
-		editorEl.setCssProps({
+		applyStyleProps(editorEl, {
 			background: "var(--background-primary)",
 			color: "var(--text-normal)",
 		});
@@ -488,7 +489,7 @@ export class EmbeddedEditorManager {
 		// 查找并设置CodeMirror样式
 		const cmEditor = editorEl.querySelector(".cm-editor") as HTMLElement;
 		if (cmEditor) {
-			cmEditor.setCssProps({
+			applyStyleProps(cmEditor, {
 				height: "100%",
 				"font-size": "var(--font-text-size)",
 				"font-family": "var(--font-text)",
@@ -499,7 +500,7 @@ export class EmbeddedEditorManager {
 
 		const cmScroller = editorEl.querySelector(".cm-scroller") as HTMLElement;
 		if (cmScroller) {
-			cmScroller.setCssProps({
+			applyStyleProps(cmScroller, {
 				"font-family": "var(--font-text)",
 				height: "100%",
 				overflow: "auto",
@@ -508,7 +509,7 @@ export class EmbeddedEditorManager {
 
 		const cmContent = editorEl.querySelector(".cm-content") as HTMLElement;
 		if (cmContent) {
-			cmContent.setCssProps({
+			applyStyleProps(cmContent, {
 				padding: "20px 24px", //  UX最佳实践：上下20px，左右24px
 				"min-height": "unset",
 				height: "auto",
@@ -588,7 +589,7 @@ export class EmbeddedEditorManager {
 			elements.forEach((_el) => {
 				// 对齐 Obsidian 层级变量（menu 高于 modal）
 				// 使用 CSS 变量避免硬编码超大值造成的层级污染
-				(_el as HTMLElement).setCssProps({ "z-index": "var(--layer-menu, 65)" });
+				applyStyleProps((_el as HTMLElement), { "z-index": "var(--layer-menu, 65)" });
 			});
 
 			if (elements.length > 0) {
@@ -911,7 +912,7 @@ export class EmbeddedEditorManager {
 			if (this.leaf) {
 				const leafEl = (this.leaf as any).containerEl as HTMLElement;
 				if (leafEl) {
-					leafEl.setCssProps({
+					applyStyleProps(leafEl, {
 						display: "",
 						visibility: "",
 						position: "",

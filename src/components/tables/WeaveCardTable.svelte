@@ -7,7 +7,7 @@
   import { onMount } from "svelte";
   import TableHeader from "./components/TableHeader.svelte";
   import TableRow from './components/TableRow.svelte';
-  import type { ColumnVisibility, ColumnWidths, ColumnOrder, TableRowCallbacks, TableViewMode, ColumnKey } from "./types/table-types";
+  import type { ColumnVisibility, ColumnWidths, ColumnOrder, TableRowCallbacks, TableViewMode, ColumnKey, TableTagOption } from "./types/table-types";
   import { validateTableIcons } from "../../utils/icon-validator";
 
   interface Props {
@@ -31,7 +31,7 @@
     onTempFileEdit?: (cardId: string) => void;
     decks?: Array<{id: string; name: string}>;
     onView?: (cardId: string) => void;
-    availableTags?: string[];
+    availableTags?: TableTagOption[];
     onJumpToSource?: (card: Card) => void;
     onIRAssociatedNotesManage?: (event: MouseEvent, card: Card) => void;
     isVisible?: boolean; // 🔧 性能优化：组件可见性
@@ -72,10 +72,24 @@
       : []
   );
 
+  let selectionOrderByCardId = $derived.by(() => {
+    const orderMap = new Map<string, number>();
+    let order = 1;
+
+    for (const card of validCards) {
+      if (selectedCards.has(card.uuid)) {
+        orderMap.set(card.uuid, order);
+        order += 1;
+      }
+    }
+
+    return orderMap;
+  });
+
   // 列宽管理
   const COLUMN_WIDTHS_KEY = 'weave-table-column-widths';
   const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
-    checkbox: 48,
+    checkbox: 72,
     front: 250,
     back: 230,
     status: 126,
@@ -582,6 +596,7 @@
               <TableRow
                 {card}
                 selected={selectedCards.has(card.uuid)}
+                selectionOrder={selectionOrderByCardId.get(card.uuid) ?? null}
                 {columnVisibility}
                 columnOrder={effectiveColumns}
                 tableViewMode={tableViewMode}

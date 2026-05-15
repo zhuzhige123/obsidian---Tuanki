@@ -27,6 +27,36 @@ function getKernel(app: App): IRScheduleKernel {
 	return kernel;
 }
 
+function dispatchIRDataUpdatedEvent(detail: UpdatedEventDetail): UpdatedEventDetail {
+	window.dispatchEvent(
+		new CustomEvent<UpdatedEventDetail>(IR_DATA_UPDATED_EVENT, {
+			detail,
+		})
+	);
+	return detail;
+}
+
+export function broadcastIRDataUpdated(
+	app: App,
+	options?: {
+		reason?: ScheduleRecomputeReason;
+		generatedAt?: number;
+		deckIds?: string[];
+		invalidateScheduleCache?: boolean;
+	}
+): UpdatedEventDetail {
+	getSharedIRWorkspaceSnapshotService(app).invalidate();
+	if (options?.invalidateScheduleCache !== false) {
+		getKernel(app).invalidateScheduleCache();
+	}
+
+	return dispatchIRDataUpdatedEvent({
+		reason: options?.reason ?? "ui_refresh",
+		generatedAt: options?.generatedAt ?? Date.now(),
+		deckIds: options?.deckIds,
+	});
+}
+
 export async function recomputeAndBroadcastIRData(
 	app: App,
 	reason: ScheduleRecomputeReason,
@@ -35,18 +65,14 @@ export async function recomputeAndBroadcastIRData(
 	try {
 		getSharedIRWorkspaceSnapshotService(app).invalidate();
 		const kernel = getKernel(app);
+		kernel.invalidateScheduleCache();
 		const schedule = await kernel.recomputeScheduleForDeck(reason, options);
 		const detail: UpdatedEventDetail = {
 			reason,
 			generatedAt: schedule.generatedAt,
 			deckIds: schedule.deckIds,
 		};
-		window.dispatchEvent(
-			new CustomEvent<UpdatedEventDetail>(IR_DATA_UPDATED_EVENT, {
-				detail,
-			})
-		);
-		return detail;
+		return dispatchIRDataUpdatedEvent(detail);
 	} catch (error) {
 		getSharedIRWorkspaceSnapshotService(app).invalidate();
 		logger.error("[IRScheduleRefreshService] 重排并广播失败:", { reason, options, error });
@@ -55,11 +81,6 @@ export async function recomputeAndBroadcastIRData(
 			generatedAt: Date.now(),
 			deckIds: options?.deckIds,
 		};
-		window.dispatchEvent(
-			new CustomEvent<UpdatedEventDetail>(IR_DATA_UPDATED_EVENT, {
-				detail,
-			})
-		);
-		return detail;
+		return dispatchIRDataUpdatedEvent(detail);
 	}
 }

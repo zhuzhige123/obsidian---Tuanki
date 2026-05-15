@@ -6,12 +6,29 @@
   import type { FSRS } from "../../algorithms/fsrs";
   import { UnifiedCardType } from "../../types/unified-card-types";
   import { StepIndexCalculator } from "../../utils/learning-steps/StepIndexCalculator";
-  import { applyLearningStepScheduling } from "../../utils/learning-steps/learningStepScheduling";
   import { createDefaultMemorySchedulingSettings } from "../../utils/learning-steps/memorySchedulingConfig";
   import { detectClozeModeFromContent } from "../../utils/cloze-mode";
+  import { predictRatingScheduledDays } from "../../utils/study/predictRatingInterval";
+  import { getRatingLabels, isMoodGraphicStyle, isMoodTimeStyle, type RatingLabelStyle } from "./rating-label-style";
   
   //  导入国际化
   import { tr } from "../../utils/i18n";
+
+  interface MoodFaceConfig {
+    leftEyePath: string;
+    rightEyePath: string;
+    mouthPath: string;
+    blushOpacity: number;
+  }
+
+  interface RatingConfigItem {
+    rating: Rating;
+    label: string;
+    color: string;
+    textColor: string;
+    key: string;
+    moodFace: MoodFaceConfig;
+  }
 
   interface Props {
     card: Card;
@@ -27,12 +44,28 @@
       easyInterval: number;
     };
     learningStepIndex?: number;
+    ratingLabelStyle?: RatingLabelStyle;
+    showRatingIntervalOnButtons?: boolean;
   }
 
-  let { card, fsrs, onRate, showAnswer, onShowAnswer, cardType, learningConfig, learningStepIndex }: Props = $props();
+  let {
+    card,
+    fsrs,
+    onRate,
+    showAnswer,
+    onShowAnswer,
+    cardType,
+    learningConfig,
+    learningStepIndex,
+    ratingLabelStyle = 'classic',
+    showRatingIntervalOnButtons = false
+  }: Props = $props();
   
   //  响应式翻译函数
   let t = $derived($tr);
+  let ratingLabels = $derived(getRatingLabels(ratingLabelStyle, t));
+  let useMoodGraphicStyle = $derived(isMoodGraphicStyle(ratingLabelStyle));
+  let useMoodTimeStyle = $derived(isMoodTimeStyle(ratingLabelStyle));
   
   // 根据题型动态计算按钮文案
   let showAnswerButtonText = $derived(() => {
@@ -108,58 +141,18 @@
   function getPredictedInterval(rating: Rating): string {
     if (!card || !card.fsrs) return t('studyInterface.intervals.unknown');
     try {
-      // 手动创建一个干净的 FSRSCard 对象，避免 structuredClone 失败
-      const cloned: FSRSCard = {
-        due: card.fsrs.due,
-        stability: card.fsrs.stability,
-        difficulty: card.fsrs.difficulty,
-        elapsedDays: card.fsrs.elapsedDays,
-        scheduledDays: card.fsrs.scheduledDays,
-        reps: card.fsrs.reps,
-        lapses: card.fsrs.lapses,
-        state: card.fsrs.state,
-        lastReview: card.fsrs.lastReview,
-        retrievability: card.fsrs.retrievability
-      };
-      
-      // 增强对新卡片或不完整数据的处理
-      if (!cloned.lastReview) {
-        cloned.lastReview = new Date().toISOString();
-        cloned.elapsedDays = 0;
-        cloned.state = 0; // CardState.New
-      }
-      if (typeof cloned.elapsedDays !== 'number' || isNaN(cloned.elapsedDays)) {
-        cloned.elapsedDays = 0;
-      }
-
-      const prevState = cloned.state;
-      const { card: updatedCard } = fsrs.review(cloned, rating);
-
-      // 若配置了学习步骤，则使用与实际调度一致的覆盖逻辑，避免按钮显示与实际结果不一致
-      try {
-        const cfg = learningConfig || createDefaultMemorySchedulingSettings();
-        const currentStepIndex =
-          typeof learningStepIndex === 'number'
-            ? learningStepIndex
-            : StepIndexCalculator.calculate(
-                card,
-                cfg.learningSteps,
-                cfg.relearningSteps
-              );
-
-        applyLearningStepScheduling({
-          prevState,
+      const cfg = learningConfig || createDefaultMemorySchedulingSettings();
+      const days =
+        predictRatingScheduledDays({
+          card,
+          fsrs,
           rating,
-          updatedCard,
-          config: cfg,
-          currentStepIndex
-        });
-      } catch (e) {
-        logger.error("Error applying learning steps in prediction:", e);
-      }
-
-      // 使用精细时间粒度格式化函数
-      const days = updatedCard.scheduledDays || 0;
+          learningConfig: cfg,
+          learningStepIndex:
+            typeof learningStepIndex === 'number'
+              ? learningStepIndex
+              : StepIndexCalculator.calculate(card, cfg.learningSteps, cfg.relearningSteps)
+        }) ?? 0;
       return formatPredictedInterval(days);
     } catch (e) { 
       logger.error("Failed to predict interval for rating", rating, e);
@@ -167,13 +160,53 @@
     }
   }
 
+  function buildMoodFaceConfig(rating: Rating): MoodFaceConfig {
+    switch (rating) {
+      case 1:
+        return {
+          leftEyePath: "M7.8 9.7h1.4",
+          rightEyePath: "M14.8 9.7h1.4",
+          mouthPath: "M8.1 16.1c1.1-1.9 2.4-2.7 3.9-2.7s2.8.8 3.9 2.7",
+          blushOpacity: 0.05,
+        };
+      case 2:
+        return {
+          leftEyePath: "M7.9 9.7h1.35",
+          rightEyePath: "M14.75 9.7h1.35",
+          mouthPath: "M8.25 15.2c1.15-.65 2.4-.95 3.75-.95 1.4 0 2.7.34 3.9 1.02",
+          blushOpacity: 0.12,
+        };
+      case 3:
+        return {
+          leftEyePath: "M7.75 9.35h1.45",
+          rightEyePath: "M14.8 9.35h1.45",
+          mouthPath: "M8 14.2c1.12 1.38 2.47 2.02 4 2.02 1.56 0 2.92-.67 4.05-2.02",
+          blushOpacity: 0.22,
+        };
+      default:
+        return {
+          leftEyePath: "M7.7 9.1h1.5",
+          rightEyePath: "M14.8 9.1h1.5",
+          mouthPath: "M7.75 13.55c1.2 1.85 2.63 2.72 4.25 2.72 1.65 0 3.08-.9 4.28-2.72",
+          blushOpacity: 0.3,
+        };
+    }
+  }
+
   // 获取评分配置
   const ratingConfig = $derived([
-    { rating: 1 as Rating, label: t('studyInterface.ratings.again'), color: "#ef4444", key: "1" },
-    { rating: 2 as Rating, label: t('studyInterface.ratings.hard'), color: "#f59e0b", key: "2" },
-    { rating: 3 as Rating, label: t('studyInterface.ratings.good'), color: "#10b981", key: "3" },
-    { rating: 4 as Rating, label: t('studyInterface.ratings.easy'), color: "#3b82f6", key: "4" },
-  ]);
+    { rating: 1 as Rating, label: ratingLabels.again, color: "#ff4f88", textColor: "#ffffff", key: "1", moodFace: buildMoodFaceConfig(1 as Rating) },
+    { rating: 2 as Rating, label: ratingLabels.hard, color: "#ffc739", textColor: "#2f3a4d", key: "2", moodFace: buildMoodFaceConfig(2 as Rating) },
+    { rating: 3 as Rating, label: ratingLabels.good, color: "#55c987", textColor: "#ffffff", key: "3", moodFace: buildMoodFaceConfig(3 as Rating) },
+    { rating: 4 as Rating, label: ratingLabels.easy, color: "#8dbdff", textColor: "#1f3f6b", key: "4", moodFace: buildMoodFaceConfig(4 as Rating) },
+  ] satisfies RatingConfigItem[]);
+
+  const ratingCards = $derived(
+    ratingConfig.map((cfg) => ({
+      ...cfg,
+      predictedInterval: getPredictedInterval(cfg.rating)
+    }))
+  );
 </script>
 
 <div class="rating-section">
@@ -189,20 +222,55 @@
   <!-- 评分区域（Cursor风格卡片按钮） -->
   <div class="rating-modern">
     <div class="rate-grid">
-      {#each ratingConfig as cfg}
+      {#each ratingCards as cfg}
         <button
           class="rate-card"
-          style="--accent: {cfg.color}"
-          aria-label={`评分：${cfg.label}（下一次：${getPredictedInterval(cfg.rating)}）`}
+          class:mood-graphic={useMoodGraphicStyle}
+          class:mood-time-layout={useMoodTimeStyle}
+          style="--accent: {cfg.color}; --text-color: {cfg.textColor};"
+          aria-label={`评分：${cfg.label}（下一次：${cfg.predictedInterval}）`}
+          title={showRatingIntervalOnButtons ? undefined : cfg.predictedInterval}
           aria-keyshortcuts={cfg.key}
           onclick={() => {
             if (showAnswer) {onRate(cfg.rating);}
           }}
         >
           <div class="rate-content">
-            <span class="rate-label">{cfg.label}</span>
-            <span class="rate-next">{getPredictedInterval(cfg.rating)}</span>
+            {#if useMoodGraphicStyle}
+              <div class="rate-primary">
+                <div
+                  class="rate-face"
+                  aria-hidden="true"
+                  style={`--blush-opacity:${cfg.moodFace.blushOpacity};`}
+                >
+                  <svg class="rate-face-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <circle class="face-outline" cx="12" cy="12" r="8.75"></circle>
+                    <circle class="face-blush-svg" cx="8.15" cy="13.2" r="1.55"></circle>
+                    <circle class="face-blush-svg" cx="15.85" cy="13.2" r="1.55"></circle>
+                    <path class="face-eye-svg" d={cfg.moodFace.leftEyePath}></path>
+                    <path class="face-eye-svg" d={cfg.moodFace.rightEyePath}></path>
+                    <path class="face-mouth-svg" d={cfg.moodFace.mouthPath}></path>
+                  </svg>
+                </div>
+                <div class="rate-copy">
+                  <span class="rate-label">{useMoodTimeStyle ? cfg.predictedInterval : cfg.label}</span>
+                  {#if showRatingIntervalOnButtons && !useMoodTimeStyle}
+                    <span class="rate-next rate-next-badge">{cfg.predictedInterval}</span>
+                  {/if}
+                </div>
+              </div>
+            {:else}
+              <div class="rate-primary">
+                <span class="rate-label">{cfg.label}</span>
+              </div>
+            {/if}
+            {#if !useMoodGraphicStyle && showRatingIntervalOnButtons}
+              <span class="rate-next">{cfg.predictedInterval}</span>
+            {/if}
           </div>
+          {#if !showRatingIntervalOnButtons}
+            <span class="rate-tooltip" aria-hidden="true">{cfg.predictedInterval}</span>
+          {/if}
           <div class="rate-accent" aria-hidden="true"></div>
         </button>
       {/each}
@@ -259,10 +327,18 @@
 
   /* 评分区域（现代卡片按钮 - 优化版） */
   .rating-modern { 
+    --rating-mood-pill-min-height: clamp(3.45rem, 3.18rem + 0.42vw, 3.7rem);
+    --rating-mood-pill-padding-block: clamp(0.58rem, 0.54rem + 0.08vw, 0.64rem);
+    --rating-mood-pill-padding-inline: clamp(0.95rem, 0.88rem + 0.22vw, 1.08rem);
+    --rating-mood-pill-radius: clamp(1.08rem, 1rem + 0.18vw, 1.18rem);
+    --rating-mood-gap: clamp(0.48rem, 0.42rem + 0.12vw, 0.58rem);
+    --rating-mood-face-size: clamp(1.14rem, 1.08rem + 0.16vw, 1.24rem);
+    --rating-mood-label-size: clamp(0.9rem, 0.86rem + 0.09vw, 0.96rem);
+    --rating-mood-badge-size: clamp(0.61rem, 0.58rem + 0.05vw, 0.64rem);
     display: flex; 
     flex-direction: column; 
     gap: 0.75rem; /* 减小间距 */
-    max-width: 700px; 
+    max-width: min(100%, 820px); 
     margin: 0 auto;
     position: relative;
   }
@@ -271,8 +347,8 @@
   
   .rate-grid { 
     display: grid; 
-    grid-template-columns: repeat(4, 1fr); 
-    gap: 0.75rem; /* 减小间距以更紧凑 */
+    grid-template-columns: repeat(auto-fit, minmax(min(9.35rem, 100%), 1fr)); 
+    gap: clamp(0.62rem, 0.58rem + 0.12vw, 0.7rem);
   }
   
   .rate-card {
@@ -289,6 +365,7 @@
     overflow: hidden;
     isolation: isolate;
     min-height: 56px;
+    min-width: 0;
     box-shadow: none;
   }
   
@@ -324,9 +401,19 @@
   .rate-content {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
     width: 100%;
-    gap: 0.75rem;
+    gap: 0.9rem;
+    min-width: 0;
+  }
+
+  .rate-primary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.72rem;
+    min-width: 0;
+    flex: 1 1 auto;
   }
   
   .rate-label { 
@@ -334,7 +421,19 @@
     letter-spacing: 0.025em; 
     font-size: 0.9rem;
     color: var(--text-normal);
-    flex-shrink: 0;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .rate-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0.22rem;
+    min-width: 0;
   }
   
   .rate-next { 
@@ -343,6 +442,214 @@
     font-size: 0.875rem;
     flex-shrink: 0;
     text-align: right;
+  }
+
+  .rate-tooltip {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%) translateY(6px);
+    padding: 0.28rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--text-normal) 10%, transparent);
+    background: color-mix(in srgb, var(--background-primary) 68%, transparent);
+    color: var(--text-normal);
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+    backdrop-filter: blur(12px) saturate(135%);
+    -webkit-backdrop-filter: blur(12px) saturate(135%);
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 0.18s ease,
+      transform 0.18s ease,
+      visibility 0.18s ease;
+    z-index: 3;
+  }
+
+  .rate-card:hover .rate-tooltip,
+  .rate-card:focus-visible .rate-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  .rate-face {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    aspect-ratio: 1 / 1;
+    flex-shrink: 0;
+    flex-grow: 0;
+    color: var(--face-color, var(--text-color, var(--text-normal)));
+  }
+
+  .rate-face-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .face-outline,
+  .face-eye-svg,
+  .face-mouth-svg {
+    fill: none;
+    stroke: currentColor;
+    vector-effect: non-scaling-stroke;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .face-outline {
+    stroke-width: 1.75;
+  }
+
+  .face-eye-svg {
+    stroke-width: 2.2;
+  }
+
+  .face-mouth-svg {
+    stroke-width: 1.9;
+  }
+
+  .face-blush-svg {
+    fill: rgba(255, 255, 255, calc(var(--blush-opacity) * 0.72));
+  }
+
+  .rate-card.mood-graphic {
+    min-height: var(--rating-mood-pill-min-height);
+    padding: var(--rating-mood-pill-padding-block) var(--rating-mood-pill-padding-inline);
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, rgba(255, 255, 255, 0.22));
+    border-radius: var(--rating-mood-pill-radius);
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--accent) 94%, #ffffff 6%) 0%, color-mix(in srgb, var(--accent) 78%, #ffffff 22%) 100%);
+    backdrop-filter: blur(16px) saturate(138%);
+    -webkit-backdrop-filter: blur(16px) saturate(138%);
+    box-shadow:
+      0 10px 18px color-mix(in srgb, var(--accent) 18%, transparent),
+      0 2px 8px rgba(0, 0, 0, 0.08),
+      inset 0 1px 0 rgba(255,255,255,0.38),
+      inset 0 -8px 14px rgba(255,255,255,0.06);
+  }
+
+  .rate-card.mood-graphic::before,
+  .rate-card.mood-graphic::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+  }
+
+  .rate-card.mood-graphic::before {
+    inset: 1px;
+    border-radius: calc(var(--rating-mood-pill-radius) - 1px);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.08) 28%, rgba(255,255,255,0) 68%),
+      radial-gradient(circle at 18% 20%, rgba(255,255,255,0.24), rgba(255,255,255,0) 36%);
+    opacity: 0.92;
+  }
+
+  .rate-card.mood-graphic::after {
+    top: -145%;
+    left: -36%;
+    width: 52%;
+    height: 320%;
+    background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.34), rgba(255,255,255,0));
+    transform: rotate(18deg) translateX(-135%);
+    opacity: 0.62;
+    transition: transform 0.55s ease, opacity 0.28s ease;
+  }
+
+  .rate-card.mood-graphic .rate-content {
+    justify-content: center;
+    align-items: center;
+    gap: 0.2rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .rate-card.mood-graphic .rate-next-badge {
+    min-width: 0;
+    text-align: left;
+    white-space: nowrap;
+    line-height: 1;
+    color: var(--text-color);
+    font-size: var(--rating-mood-badge-size);
+    font-weight: 700;
+    opacity: 0.92;
+    padding: 0.14rem 0.34rem;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.16);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+    backdrop-filter: blur(7px);
+  }
+
+  .rate-card.mood-graphic .rate-label {
+    display: block;
+    color: var(--text-color);
+    font-size: var(--rating-mood-label-size);
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+
+  .rate-card.mood-graphic .rate-face {
+    --face-color: var(--text-color);
+    width: var(--rating-mood-face-size);
+    height: var(--rating-mood-face-size);
+    min-width: var(--rating-mood-face-size);
+    min-height: var(--rating-mood-face-size);
+  }
+
+  .rate-card.mood-graphic:hover {
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, #ffffff 12%) 0%, color-mix(in srgb, var(--accent) 70%, #ffffff 30%) 100%);
+    box-shadow:
+      0 14px 24px color-mix(in srgb, var(--accent) 20%, transparent),
+      0 0 0 1px rgba(255,255,255,0.18),
+      inset 0 1px 0 rgba(255,255,255,0.42),
+      inset 0 -10px 14px rgba(255,255,255,0.07);
+    transform: translateY(-1px) scale(1.006);
+  }
+
+  .rate-card.mood-graphic:hover::after {
+    transform: rotate(18deg) translateX(230%);
+    opacity: 0.88;
+  }
+
+  .rate-card.mood-graphic .rate-accent {
+    display: block;
+    position: absolute;
+    inset: 0;
+    width: auto;
+    height: auto;
+    z-index: 0;
+    background:
+      linear-gradient(120deg, rgba(255,255,255,0.28) 10%, rgba(255,255,255,0.08) 26%, rgba(255,255,255,0) 44%),
+      radial-gradient(circle at 22% 18%, rgba(255,255,255,0.34), rgba(255,255,255,0) 34%),
+      radial-gradient(circle at 78% 78%, rgba(255,255,255,0.14), rgba(255,255,255,0) 30%);
+    opacity: 0.72;
+    transition: transform 0.35s ease, opacity 0.35s ease;
+    pointer-events: none;
+  }
+
+  .rate-card.mood-graphic:hover .rate-accent {
+    opacity: 0.9;
+    transform: translateX(6px) translateY(-2px);
+  }
+
+  .rate-card.mood-graphic .rate-primary {
+    position: relative;
+    z-index: 1;
+    gap: var(--rating-mood-gap);
+    flex: 0 1 auto;
   }
 
 /* styles aligned to current design */
@@ -389,6 +696,12 @@
     padding: 0.5rem 0.375rem;
     border-radius: 0.625rem;
   }
+
+  :global(body.is-phone) .rate-card.mood-graphic {
+    min-height: clamp(3.12rem, 3rem + 0.25vw, 3.28rem);
+    padding: 0.46rem 0.46rem;
+    border-radius: 0.92rem;
+  }
   
   :global(body.is-phone) .rate-content {
     flex-direction: column;
@@ -406,6 +719,57 @@
   :global(body.is-phone) .rate-next {
     font-size: 0.6875rem;
     text-align: center;
+  }
+
+  :global(body.is-phone) .rate-tooltip {
+    display: none;
+  }
+
+  :global(body.is-phone) .rate-face {
+    width: 1.85rem;
+    height: 1.85rem;
+  }
+
+  :global(body.is-phone) .rate-card.mood-graphic .rate-content {
+    gap: 0;
+  }
+
+  :global(body.is-phone) .rate-card.mood-graphic .rate-next-badge {
+    font-size: 0.47rem;
+    padding: 0.1rem 0.26rem;
+  }
+
+  :global(body.is-phone) .rate-card.mood-graphic .rate-label {
+    font-size: 0.74rem;
+  }
+
+  :global(body.is-phone) .rate-card.mood-graphic .rate-face {
+    width: 1.04rem;
+    height: 1.04rem;
+    min-width: 1.04rem;
+    min-height: 1.04rem;
+  }
+
+  :global(body.is-phone) .rate-card.mood-graphic .rate-primary {
+    gap: 0.28rem;
+  }
+
+  :global(body.is-phone) .rate-card.mood-graphic.mood-time-layout .rate-copy,
+  .rate-card.mood-graphic.mood-time-layout .rate-copy {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+  }
+
+  :global(body.is-phone) .rate-card.mood-graphic.mood-time-layout .rate-content,
+  .rate-card.mood-graphic.mood-time-layout .rate-content {
+    gap: 0;
+  }
+
+  :global(body.is-phone) .rate-card.mood-graphic.mood-time-layout .rate-label,
+  .rate-card.mood-graphic.mood-time-layout .rate-label {
+    text-align: left;
   }
 
   :global(body.is-phone) .show-answer-btn {

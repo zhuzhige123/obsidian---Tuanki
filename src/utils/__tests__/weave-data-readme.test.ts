@@ -106,8 +106,18 @@ describe("weave-data-readme", () => {
 		expect(descriptor?.content).toContain("```text");
 		expect(descriptor?.content).toContain("| 路径 | 作用 | 是否随 vault 同步 | 备注 |");
 		expect(descriptor?.content).toContain("ai-assistant/");
+		expect(descriptor?.content).toContain("editor/");
 		expect(descriptor?.content).toContain("user-prompts/");
+		expect(descriptor?.content).toContain("topics/");
+		expect(descriptor?.content).toContain("profiles/");
+		expect(descriptor?.content).toContain("relations/");
 		expect(descriptor?.content).toContain("study-session.json");
 		expect(descriptor?.content).toContain("不在 `weave/` 内");
+		expect(descriptor?.content).toContain("Obsidian 默认新建笔记位置");
+		expect(descriptor?.content).toContain("只展示推荐正常结构");
+		expect(descriptor?.content).not.toContain("| `temp/` |");
+		expect(descriptor?.content).not.toContain("_migration_conflicts/");
+		expect(descriptor?.content).not.toContain("旧版牌组目录");
+		expect(descriptor?.content).not.toContain("incremental-reading/IR/");
 	});
 });

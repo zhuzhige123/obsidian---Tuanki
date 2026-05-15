@@ -237,6 +237,20 @@
   background-color: var(--weave-accent-bg-medium, rgba(139, 92, 246, 0.2));
 }
 
+.weave-app .cm-weave-card-reference-alias {
+  color: var(--text-accent);
+  background-color: color-mix(in srgb, var(--background-modifier-hover) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+  border-radius: 999px;
+  padding: 1px 6px;
+  line-height: 1.35;
+}
+
+.weave-app .cm-weave-card-reference-alias:hover {
+  background-color: color-mix(in srgb, var(--background-modifier-hover) 96%, transparent);
+  border-color: color-mix(in srgb, var(--text-accent) 28%, var(--background-modifier-border));
+}
+
 /* 标签 */
 .weave-app .cm-hashtag {
   color: var(--cm-syntax-tag);

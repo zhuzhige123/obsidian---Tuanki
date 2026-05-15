@@ -16,15 +16,29 @@
     dataStorage: WeaveDataStorage;
     onClose: () => void;
     onCreated?: (deck: Deck) => void;
+    onDeckCreated?: (deck: Deck) => void | Promise<void>;
     // 扩展：编辑模式
     mode?: 'create' | 'edit';
     initialDeck?: Deck | null;
     onUpdated?: (deck: Deck) => void;
+    onDeckUpdated?: (deck: Deck) => void | Promise<void>;
     useObsidianModal?: boolean;
     // 父牌组功能已移除 - 不再支持父子牌组层级结构
   }
 
-  let { open, plugin, dataStorage, onClose, onCreated, mode = 'create', initialDeck = null, onUpdated, useObsidianModal = false }: Props = $props();
+  let {
+    open,
+    plugin,
+    dataStorage,
+    onClose,
+    onCreated: legacyOnCreated,
+    onDeckCreated = legacyOnCreated,
+    mode = 'create',
+    initialDeck = null,
+    onUpdated: legacyOnUpdated,
+    onDeckUpdated = legacyOnUpdated,
+    useObsidianModal = false
+  }: Props = $props();
 
   //  响应式翻译函数
   let t = $derived($tr);
@@ -132,6 +146,18 @@
     selectedTag = '';
   }
 
+  async function notifyDeckCreated(deck: Deck) {
+    if (typeof onDeckCreated === 'function') {
+      await onDeckCreated(deck);
+    }
+  }
+
+  async function notifyDeckUpdated(deck: Deck) {
+    if (typeof onDeckUpdated === 'function') {
+      await onDeckUpdated(deck);
+    }
+  }
+
   async function handleSubmit() {
     if (!name.trim() || isSaving) return;
     isSaving = true;
@@ -177,7 +203,7 @@
           }
         }
         
-        onUpdated?.(savedDeck);
+        await notifyDeckUpdated(savedDeck);
         closeModal();
         return;
       }
@@ -212,7 +238,7 @@
       const res = await dataStorage.saveDeck(newDeck);
       if (!res.success) throw new Error(res.error || 'saveDeck failed');
       
-      onCreated?.(res.data || newDeck);
+      await notifyDeckCreated(res.data || newDeck);
       closeModal();
     } catch (error) {
       logger.error('Failed to create deck:', error);
@@ -253,38 +279,38 @@
 </script>
 
 {#snippet modalContent()}
-  <div class="modal-header">
-    <h3>{mode === 'edit' ? t('modals.createDeck.titleEdit') : t('modals.createDeck.titleCreate')}</h3>
-    {#if !useObsidianModal}
+  {#if !useObsidianModal}
+    <div class="modal-header">
+      <h3>{mode === 'edit' ? t('modals.createDeck.titleEdit') : t('modals.createDeck.titleCreate')}</h3>
       <button class="icon-btn" aria-label={t('modals.createDeck.close')} onclick={closeModal}>×</button>
-    {/if}
-  </div>
+    </div>
+  {/if}
 
-  <div class="modal-body">
+  <div class="weave-deck-edit-form">
     <!-- 父牌组选择器已移除 - 不再支持父子牌组层级结构 -->
 
-    <label>
-      <span>{t('modals.createDeck.name')}</span>
+    <label class="weave-deck-edit-field">
+      <span class="weave-deck-edit-field-label">{t('modals.createDeck.name')}</span>
       <input 
-        class="text-input" 
+        class="weave-deck-edit-input" 
         placeholder={t('modals.createDeck.namePlaceholder')} 
         bind:value={name} 
         bind:this={nameInputRef}
       />
     </label>
 
-    <label>
-      <span>{t('modals.createDeck.tagLabel')}</span>
+    <label class="weave-deck-edit-field">
+      <span class="weave-deck-edit-field-label">{t('modals.createDeck.tagLabel')}</span>
       
       <!-- 标签输入框（内含已选标签） -->
-      <div class="tag-input-wrapper">
+      <div class="weave-deck-edit-tag-input-wrapper">
         {#if selectedTag}
-          <div class="selected-tags">
-            <span class="tag-chip">
-              <span class="tag-text">{selectedTag}</span>
+          <div class="weave-deck-edit-selected-tags">
+            <span class="weave-deck-edit-tag-chip">
+              <span>{selectedTag}</span>
               <button 
                 type="button"
-                class="tag-chip-remove" 
+                class="weave-deck-edit-tag-chip-remove" 
                 onclick={clearTag}
                 aria-label={t('modals.createDeck.removeTag')}
               >
@@ -294,7 +320,7 @@
           </div>
         {/if}
         <input 
-          class="tag-input" 
+          class="weave-deck-edit-tag-input" 
           placeholder={selectedTag ? "" : t('modals.createDeck.tagPlaceholder')} 
           bind:value={tagInput}
           onkeydown={handleTagInput}
@@ -303,13 +329,13 @@
       
       <!-- 可选标签列表 -->
       {#if availableTags.length > 0}
-        <div class="available-tags">
-          <div class="available-tags-title">{t('modals.createDeck.availableTags')}</div>
-          <div class="available-tags-list">
+        <div class="weave-deck-edit-available-tags">
+          <div class="weave-deck-edit-available-tags-title">{t('modals.createDeck.availableTags')}</div>
+          <div class="weave-deck-edit-available-tags-list">
             {#each availableTags as tag}
               <button 
                 type="button"
-                class="available-tag-item {selectedTag === tag ? 'selected' : ''}"
+                class="weave-deck-edit-available-tag-item {selectedTag === tag ? 'selected' : ''}"
                 onclick={() => selectTag(tag)}
               >
                 {tag}
@@ -319,13 +345,13 @@
         </div>
       {/if}
       
-      <span class="hint">{t('modals.createDeck.tagHint')}</span>
+      <span class="weave-deck-edit-hint">{t('modals.createDeck.tagHint')}</span>
     </label>
   </div>
 
-  <div class="modal-footer">
-    <button class="btn" onclick={closeModal}>{t('modals.createDeck.cancel')}</button>
-    <button class="btn primary" disabled={!name.trim() || isSaving} onclick={handleSubmit}>{mode === 'edit' ? t('modals.createDeck.save') : t('modals.createDeck.create')}</button>
+  <div class="weave-deck-edit-footer">
+    <button class="weave-deck-edit-btn" onclick={closeModal}>{t('modals.createDeck.cancel')}</button>
+    <button class="weave-deck-edit-btn weave-deck-edit-btn-primary" disabled={!name.trim() || isSaving} onclick={handleSubmit}>{mode === 'edit' ? t('modals.createDeck.save') : t('modals.createDeck.create')}</button>
   </div>
 {/snippet}
 
@@ -398,236 +424,5 @@
   
   .icon-btn:hover { 
     color: var(--text-normal); 
-  }
-  
-  .modal-body { 
-    display: flex; 
-    flex-direction: column; 
-    gap: 0.75rem; 
-    padding: 0.5rem 1rem 1rem; 
-  }
-  
-  label { 
-    display: flex; 
-    flex-direction: column; 
-    gap: 0.375rem; 
-  }
-  
-  label span { 
-    font-size: 0.875rem; 
-    color: var(--text-muted); 
-  }
-  
-  .text-input {
-    padding: 0.625rem 0.75rem; 
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 0.5rem; 
-    background: var(--background-secondary); 
-    color: var(--text-normal);
-    font-size: 0.9rem;
-  }
-  
-  .text-input:focus { 
-    outline: none; 
-    border-color: var(--interactive-accent); 
-  }
-  
-  .hint {
-    font-size: 0.8rem;
-    color: var(--text-accent);
-    font-style: italic;
-    margin-top: 4px;
-  }
-  
-  /* 标签相关样式 */
-  
-  /* 标签输入框容器 */
-  .tag-input-wrapper {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
-    padding: 6px 8px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 0.5rem;
-    background: var(--background-secondary);
-    min-height: 38px;
-    transition: all 0.2s ease;
-  }
-  
-  .tag-input-wrapper:focus-within {
-    border-color: var(--interactive-accent);
-    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.1);
-  }
-  
-  /* 输入框内的已选标签容器 */
-  .selected-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-  
-  /* 输入框内的标签胶囊 */
-  .tag-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 6px;
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    border-radius: 10px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    transition: all 0.15s ease;
-  }
-  
-  .tag-chip:hover {
-    background: color-mix(in srgb, var(--interactive-accent) 85%, black);
-  }
-  
-  .tag-chip .tag-text {
-    line-height: 1.2;
-  }
-  
-  .tag-chip-remove {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    padding: 0;
-    background: rgba(255, 255, 255, 0.2);
-    border: none;
-    border-radius: 50%;
-    color: var(--text-on-accent);
-    font-size: 12px;
-    line-height: 1;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  
-  .tag-chip-remove:hover {
-    background: rgba(255, 255, 255, 0.35);
-    transform: scale(1.15);
-  }
-  
-  /* 实际的输入框 */
-  .tag-input {
-    flex: 1;
-    min-width: 120px;
-    padding: 4px;
-    border: none;
-    background: transparent;
-    color: var(--text-normal);
-    font-size: 0.9rem;
-    outline: none;
-  }
-  
-  .tag-input::placeholder {
-    color: var(--text-faint);
-  }
-  
-  /* 可选标签区域 */
-  .available-tags {
-    margin-top: 8px;
-    padding: 8px;
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
-  }
-  
-  .available-tags-title {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    margin-bottom: 6px;
-    font-weight: 500;
-  }
-  
-  .available-tags-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  
-  .available-tag-item {
-    padding: 4px 10px;
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 12px;
-    color: var(--text-normal);
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-  
-  .available-tag-item:hover {
-    background: var(--background-modifier-hover);
-    border-color: var(--interactive-accent);
-    transform: translateY(-1px);
-  }
-  
-  .available-tag-item.selected {
-    background: color-mix(in srgb, var(--interactive-accent) 15%, var(--background-secondary));
-    border-color: var(--interactive-accent);
-    color: var(--interactive-accent);
-    font-weight: 600;
-  }
-  
-  .available-tag-item.selected:hover {
-    background: color-mix(in srgb, var(--interactive-accent) 20%, var(--background-secondary));
-  }
-  
-  .modal-footer { 
-    display: flex; 
-    justify-content: flex-end; 
-    gap: 0.5rem; 
-    padding: 0 1rem 1rem; 
-  }
-  
-  .btn { 
-    padding: 0.5rem 0.9rem; 
-    border-radius: 0.5rem; 
-    border: 1px solid var(--background-modifier-border); 
-    background: var(--background-secondary); 
-    color: var(--text-normal); 
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-  
-  .btn:hover {
-    background: var(--background-modifier-hover);
-  }
-  
-  /* 浅色/深色模式自适应的主按钮 */
-  .btn.primary { 
-    background: var(--interactive-accent);
-    color: var(--text-on-accent); 
-    border: none;
-    font-weight: 600;
-  }
-  
-  /* 浅色模式优化 */
-  :global(body:not(.theme-dark)) .btn.primary {
-    background: var(--interactive-accent);
-    box-shadow: 0 2px 8px color-mix(in srgb, var(--interactive-accent) 25%, transparent);
-  }
-  
-  :global(body:not(.theme-dark)) .btn.primary:hover {
-    background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
-    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.35);
-  }
-  
-  /* 深色模式 */
-  :global(body.theme-dark) .btn.primary {
-    background: var(--interactive-accent);
-  }
-  
-  :global(body.theme-dark) .btn.primary:hover {
-    background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
-  }
-  
-  .btn:disabled { 
-    opacity: 0.6; 
-    cursor: not-allowed; 
   }
 </style>

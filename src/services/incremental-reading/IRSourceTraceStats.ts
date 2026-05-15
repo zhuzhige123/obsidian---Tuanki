@@ -3,7 +3,7 @@ import type { Card } from "../../data/types";
 import { extractAllSourcePaths, normalizePathForComparison } from "../../utils/source-path-matcher";
 import { parseObsidianLink, parseYAMLFromContent } from "../../utils/yaml-utils";
 import { EpubLinkService } from "../epub/EpubLinkService";
-import { resolveAssociatedNotePath } from "./IRAssociatedNoteSignals";
+import { resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 
 export type IRTraceSourceKind = "markdown" | "pdf" | "epub" | "unknown";
 
@@ -287,6 +287,14 @@ function cardMatchesAnyTraceUnit(card: Card, selectorMap: Map<string, Set<string
 	return false;
 }
 
+export interface IRTraceSourceUnit {
+	sourceKind: IRTraceSourceKind;
+	sourceDocumentKey: string;
+	sourceSubunitKey?: string;
+	associatedNotePath?: string;
+	associatedNotePaths?: string[];
+}
+
 export function buildIRTraceOverviewStats(options: {
 	units: IRTraceSourceUnit[];
 	cards: Card[];
@@ -297,8 +305,11 @@ export function buildIRTraceOverviewStats(options: {
 	const noteKeys = new Set<string>();
 
 	for (const unit of options.units) {
-		const notePath = resolveAssociatedNotePath({ associatedNotePath: unit.associatedNotePath });
-		if (notePath) {
+		const notePaths = resolveAssociatedNotePaths({
+			associatedNotePath: unit.associatedNotePath,
+			associatedNotePaths: unit.associatedNotePaths,
+		});
+		for (const notePath of notePaths) {
 			noteKeys.add(notePath);
 		}
 	}

@@ -454,8 +454,8 @@ export class IRSchedulerV3 {
 
 		await this.storage.saveBlock(updatedBlock);
 
-		// 8. 同步更新 chunks.json（V4 新架构）
-		// 修复：确保状态和复习记录同时更新到 chunks.json
+		// 8. 同步更新阅读点调度投影视图
+		// 修复：确保状态和复习记录同时更新到 point-backed chunk 投影
 		try {
 			const chunkData = await this.storage.getChunkData(block.id);
 			if (chunkData) {
@@ -494,11 +494,11 @@ export class IRSchedulerV3 {
 				chunkData.stats.lastShownAt = Date.now();
 
 				await this.storage.saveChunkData(chunkData);
-				logger.debug(`[IRSchedulerV3] 同步更新 chunks.json: ${block.id}, status=${newStatus}`);
+				logger.debug(`[IRSchedulerV3] 同步更新 chunk 投影视图: ${block.id}, status=${newStatus}`);
 			}
 		} catch (chunkError) {
 			// chunk 更新失败不影响主流程
-			logger.warn("[IRSchedulerV3] chunks.json 更新失败:", chunkError);
+			logger.warn("[IRSchedulerV3] chunk 投影视图更新失败:", chunkError);
 		}
 
 		// 9. 记录会话
@@ -536,17 +536,17 @@ export class IRSchedulerV3 {
 
 		await this.storage.saveBlock(updatedBlock);
 
-		// 同步更新 chunks.json
+		// 同步更新阅读点调度投影视图
 		try {
 			const chunkData = await this.storage.getChunkData(block.id);
 			if (chunkData) {
 				chunkData.scheduleStatus = "suspended";
 				chunkData.updatedAt = Date.now();
 				await this.storage.saveChunkData(chunkData);
-				logger.debug(`[IRSchedulerV3] 同步暂停到 chunks.json: ${block.id}`);
+				logger.debug(`[IRSchedulerV3] 同步暂停到 chunk 投影视图: ${block.id}`);
 			}
 		} catch (chunkError) {
-			logger.warn("[IRSchedulerV3] chunks.json 暂停更新失败:", chunkError);
+			logger.warn("[IRSchedulerV3] chunk 投影视图暂停更新失败:", chunkError);
 		}
 
 		const session: IRSession = {
@@ -581,7 +581,7 @@ export class IRSchedulerV3 {
 
 		await this.storage.saveBlock(updatedBlock);
 
-		// 同步更新 chunks.json
+		// 同步更新阅读点调度投影视图
 		try {
 			const chunkData = await this.storage.getChunkData(block.id);
 			if (chunkData) {
@@ -595,10 +595,10 @@ export class IRSchedulerV3 {
 				chunkData.scheduleStatus = statusMap[newState] || "new";
 				chunkData.updatedAt = Date.now();
 				await this.storage.saveChunkData(chunkData);
-				logger.debug(`[IRSchedulerV3] 同步恢复到 chunks.json: ${block.id}`);
+				logger.debug(`[IRSchedulerV3] 同步恢复到 chunk 投影视图: ${block.id}`);
 			}
 		} catch (chunkError) {
-			logger.warn("[IRSchedulerV3] chunks.json 恢复更新失败:", chunkError);
+			logger.warn("[IRSchedulerV3] chunk 投影视图恢复更新失败:", chunkError);
 		}
 
 		logger.debug(`[IRSchedulerV3] 恢复内容块: ${block.id}`);

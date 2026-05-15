@@ -3,6 +3,7 @@
  * WeaveCardTable 组件拆分 - 类型系统
  */
 
+import type { App } from "obsidian";
 import type { Card, Deck } from "../../../data/types";
 import type WeavePlugin from "../../../main";
 
@@ -218,12 +219,15 @@ export interface BaseCellProps {
 	card: Card;
 }
 
+export type TableTagOption = string | { name: string; count: number };
+
 /**
  * 标签单元格 Props
  */
 export interface TagsCellProps extends BaseCellProps {
+	app?: App;
 	onTagsUpdate?: (cardId: string, tags: string[]) => void;
-	availableTags?: string[];
+	availableTags?: TableTagOption[];
 }
 
 /**
@@ -286,6 +290,7 @@ export interface TableHeaderProps {
 export interface TableRowProps {
 	card: Card;
 	selected: boolean;
+	selectionOrder?: number | null;
 	columnVisibility: ColumnVisibility;
 	columnOrder: ColumnOrder;
 	tableViewMode?: TableViewMode;
@@ -293,7 +298,7 @@ export interface TableRowProps {
 	plugin?: WeavePlugin;
 	decks?: Array<{ id: string; name: string }> | Deck[];
 	fieldTemplates?: FieldTemplateInfo[];
-	availableTags?: string[];
+	availableTags?: TableTagOption[];
 	onSelect: (cardId: string, selected: boolean) => void;
 	// 拖拽批量选择支持
 	// 注：这些Props由TableRow传递给DraggableCheckboxWrapper

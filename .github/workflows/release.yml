@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  attestations: write
+  id-token: write
 
 jobs:
   release:
@@ -61,8 +63,21 @@ jobs:
           test -f dist/main.js
           test -f dist/manifest.json
           test -f dist/styles.css
-          test -f dist/versions.json
-          test -f dist/sql-wasm.wasm
+
+      - name: Attest main.js
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/main.js
+
+      - name: Attest manifest.json
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/manifest.json
+
+      - name: Attest styles.css
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/styles.css
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -71,9 +86,8 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           draft: false
           prerelease: false
+          generate_release_notes: true
           files: |
             dist/main.js
             dist/manifest.json
             dist/styles.css
-            dist/versions.json
-            dist/sql-wasm.wasm

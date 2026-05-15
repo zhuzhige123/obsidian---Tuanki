@@ -11,6 +11,7 @@
 import { EpubLinkService } from "../services/epub/EpubLinkService";
 import { logger } from "./logger";
 import { getNormalizedDeckEntries, getSingleMemoryFormalDeckIds } from "./memory-deck-membership";
+import { TagExtractor } from "./tag-extractor";
 
 // ===== 类型定义 =====
 
@@ -548,33 +549,9 @@ export function extractAllTags(content: string): string[] {
 		}
 	}
 
-	// 2. 从正文提取 #标签
-	let body = extractBodyContent(content);
-	// 移除 wikilink（[[...]]），避免 [[note#section]] 中的 # 被误识别为标签
-	body = body.replace(/\[\[[^\]]*\]\]/g, "");
-	// 移除 markdown 链接中的 URL（[text](url#fragment)）
-	body = body.replace(/\]\([^)]*\)/g, "](removed)");
-	const hashTagRegex = /#([^\s#\[\]{}()|\\]+)/g;
-	let match = hashTagRegex.exec(body);
-	while (match !== null) {
-		const tag = match[1];
-		// 过滤掉纯数字标签（如 #1, #123）
-		if (/^\d+$/.test(tag)) {
-			match = hashTagRegex.exec(body);
-			continue;
-		}
-		// 过滤掉 block 引用（^blockId）
-		if (tag.startsWith("^")) {
-			match = hashTagRegex.exec(body);
-			continue;
-		}
-		// 过滤掉 URL 编码片段（含 %20 等）
-		if (tag.includes("%")) {
-			match = hashTagRegex.exec(body);
-			continue;
-		}
+	// 2. 从正文提取 #标签（忽略 frontmatter、代码、链接目标与 HTML 属性）
+	for (const tag of TagExtractor.extractTagsExcludingCode(content)) {
 		tags.add(tag);
-		match = hashTagRegex.exec(body);
 	}
 
 	return Array.from(tags);
@@ -1049,13 +1026,37 @@ function normalizeDeckIdentifiers(
  * @returns CardDeckInfo 对象
  */
 export function getCardDeckIds(
-	card: { content?: string; deckId?: string; referencedByDecks?: string[] },
+	card: { content?: string; deckId?: string; referencedByDecks?: string[]; cardPurpose?: string },
 	decks?: Array<{ id: string; name: string; purpose?: "memory" | "test" }>,
 	options: GetCardDeckIdsOptions = {}
 ): CardDeckInfo {
 	const result: CardDeckInfo = { deckIds: [] };
 	const fallbackToReferences = options.fallbackToReferences ?? true;
 	const preserveAllDeckIds = options.preserveAllDeckIds ?? false;
+	const runtimeDeckIds = card.deckId
+		? normalizeDeckIdentifiers([card.deckId], decks, preserveAllDeckIds)
+		: [];
+	const isTestCard = card.cardPurpose === "test";
+
+	if (!isTestCard && runtimeDeckIds.length > 0) {
+		let nextDeckIds = [...runtimeDeckIds];
+		if (fallbackToReferences && Array.isArray(card.referencedByDecks) && decks) {
+			const referencedDeckIds = normalizeDeckIdentifiers(
+				card.referencedByDecks,
+				decks,
+				preserveAllDeckIds
+			);
+			const testDeckIds = referencedDeckIds.filter((deckId) => {
+				const matchedDeck = decks.find((deck) => deck.id === deckId);
+				return matchedDeck?.purpose === "test";
+			});
+			nextDeckIds = Array.from(new Set([...runtimeDeckIds, ...testDeckIds]));
+		}
+
+		result.deckIds = nextDeckIds;
+		result.primaryDeckId = nextDeckIds[0];
+		return result;
+	}
 
 	// 1. 先从 content YAML 读取 we_decks。
 	if (card.content) {
@@ -1097,16 +1098,9 @@ export function getCardDeckIds(
 	}
 
 	// 3. 最后回退：使用 card.deckId。
-	if (card.deckId) {
-		const fallbackDeckIds = normalizeDeckIdentifiers(
-			[card.deckId],
-			decks,
-			preserveAllDeckIds
-		);
-		if (fallbackDeckIds.length > 0) {
-			result.deckIds = fallbackDeckIds;
-			result.primaryDeckId = fallbackDeckIds[0];
-		}
+	if (runtimeDeckIds.length > 0) {
+		result.deckIds = runtimeDeckIds;
+		result.primaryDeckId = runtimeDeckIds[0];
 	}
 
 	return result;

@@ -6,7 +6,7 @@ import { logger } from "../../utils/logger";
 
 import type { DeckSyncMapping } from "../../components/settings/types/settings-types";
 import { MAIN_SEPARATOR } from "../../constants/markdown-delimiters";
-import { OFFICIAL_TEMPLATES } from "../../constants/official-templates";
+import { getOfficialTemplateById, getOfficialTemplates } from "../../constants/official-templates";
 import type { Card } from "../../data/types";
 import type { WeavePlugin } from "../../main";
 import { ClozeCardParser } from "../../parsers/card-type-parsers/ClozeCardParser";
@@ -1704,12 +1704,12 @@ export class CardExporter {
 		// 参数验证：如果模板ID为空，使用默认问答题模板
 		if (!templateId || templateId.trim() === "") {
 			logger.warn("⚠️ 模板ID为空，降级使用官方问答题模板");
-			const defaultTemplate = OFFICIAL_TEMPLATES.find((t) => t.id === "official-qa");
+			const defaultTemplate = getOfficialTemplateById("official-qa");
 			return defaultTemplate ? { ...defaultTemplate } : null;
 		}
 
 		// 1. 先在官方模板中查找
-		const officialTemplate = OFFICIAL_TEMPLATES.find((t) => t.id === templateId);
+		const officialTemplate = getOfficialTemplateById(templateId);
 		if (officialTemplate) {
 			logger.debug("✓ 找到官方模板:", officialTemplate.name, `(${officialTemplate.id})`);
 			// 返回深拷贝，避免修改原始定义
@@ -1727,7 +1727,7 @@ export class CardExporter {
 		}
 
 		// 3. 降级机制：找不到时使用官方问答题模板
-		const availableOfficial = OFFICIAL_TEMPLATES.map((t) => t.id);
+		const availableOfficial = getOfficialTemplates().map((t) => t.id);
 		const availableUser = settings?.templates.map((t) => t.id) || [];
 
 		logger.warn("⚠️ 模板不存在:", templateId);
@@ -1738,7 +1738,7 @@ export class CardExporter {
 		logger.warn("   降级使用官方问答题模板 (official-qa)");
 
 		// 返回默认问答题模板
-		const defaultTemplate = OFFICIAL_TEMPLATES.find((t) => t.id === "official-qa");
+		const defaultTemplate = getOfficialTemplateById("official-qa");
 		return defaultTemplate ? { ...defaultTemplate } : null;
 	}
 }

@@ -1,14 +1,14 @@
 import type { App } from "obsidian";
 import { normalizePath } from "obsidian";
-import { getV2PathsFromApp } from "../../config/paths";
 import type { IRBlockMeta, IRBlockStats, IRBlockStatus, IRBlockV4 } from "../../types/ir-types";
 import { DEFAULT_IR_BLOCK_META, DEFAULT_IR_BLOCK_STATS } from "../../types/ir-types";
-import {
-	getTaskTopicId,
-	normalizeBookmarkTaskForRuntime,
-	serializeBookmarkTaskForStorage,
-} from "../../utils/ir-topic-compat";
+import { getTaskTopicId } from "../../utils/ir-topic-compat";
 import { logger } from "../../utils/logger";
+import {
+	buildLegacyPdfTaskFromPointSnapshot,
+	getLegacyBookmarkTaskKind,
+} from "./IRLegacyTaskCompatAdapter";
+import { resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 import { IRPointStorageService } from "./IRPointStorageService";
 
 export interface IRPdfBookmarkTask {
@@ -28,21 +28,10 @@ export interface IRPdfBookmarkTask {
 	stats: IRBlockStats;
 	meta: IRBlockMeta;
 	tags: string[];
-	/** 收藏 */
 	favorite?: boolean;
 	createdAt: number;
 	updatedAt: number;
 }
-
-interface IRPdfBookmarkTaskStore {
-	version: number;
-	tasks: Record<string, IRPdfBookmarkTask>;
-}
-
-const DEFAULT_STORE: IRPdfBookmarkTaskStore = {
-	version: 1,
-	tasks: {},
-};
 
 export function isPdfBookmarkTaskId(id: string): boolean {
 	return typeof id === "string" && id.startsWith("pdfbm-");
@@ -80,17 +69,19 @@ function mergeTaskStats(existing: IRBlockStats, updates?: Partial<IRBlockStats>)
 	};
 }
 
-export class IRPdfBookmarkTaskService {
-	private app: App;
-	private initialized = false;
-	private filePath: string;
-	private pointStorageService: IRPointStorageService | null = null;
-
-	constructor(app: App) {
-		this.app = app;
-		const storageDir = getV2PathsFromApp(app as any).ir.root;
-		this.filePath = normalizePath(`${storageDir}/pdf-bookmark-tasks.json`);
+function normalizeTaskTopic(task: Pick<IRPdfBookmarkTask, "topicId" | "deckId">): string {
+	const topicId = String(getTaskTopicId(task) || "").trim();
+	if (!topicId) {
+		throw new Error("PDF 书签任务缺少专题 ID");
 	}
+	return topicId;
+}
+
+export class IRPdfBookmarkTaskService {
+	private pointStorageService: IRPointStorageService | null = null;
+	private initialized = false;
+
+	constructor(private readonly app: App) {}
 
 	private getPointStorageService(): IRPointStorageService {
 		if (!this.pointStorageService) {
@@ -99,10 +90,66 @@ export class IRPdfBookmarkTaskService {
 		return this.pointStorageService;
 	}
 
-	private async syncTaskToPointStorage(task: IRPdfBookmarkTask): Promise<void> {
+	async initialize(): Promise<void> {
+		if (this.initialized) {
+			return;
+		}
+
+		try {
+			await this.getPointStorageService().ensureRuntimeBaseline();
+		} catch (error) {
+			logger.warn("[IRPdfBookmarkTaskService] 自动迁移旧 PDF 书签失败，继续使用已存在的新 points", error);
+			await this.getPointStorageService().initialize();
+		}
+
+		this.initialized = true;
+	}
+
+	private async getTaskFromPointStorage(taskId: string): Promise<IRPdfBookmarkTask | null> {
+		await this.initialize();
+		const snapshot = await this.getPointStorageService().getPointSnapshotById(taskId);
+		if (!snapshot || getLegacyBookmarkTaskKind(snapshot) !== "pdf") {
+			return null;
+		}
+		return buildLegacyPdfTaskFromPointSnapshot(snapshot);
+	}
+
+	private async getPointTasks(): Promise<IRPdfBookmarkTask[]> {
+		await this.initialize();
+		const snapshots = await this.getPointStorageService().listPointSnapshots();
+		return snapshots
+			.filter((snapshot) => getLegacyBookmarkTaskKind(snapshot) === "pdf")
+			.map((snapshot) => buildLegacyPdfTaskFromPointSnapshot(snapshot));
+	}
+
+	private async persistTask(task: IRPdfBookmarkTask): Promise<IRPdfBookmarkTask> {
+		const linkedNotePaths = resolveAssociatedNotePaths({
+			associatedNotePath: task.meta?.primaryAssociatedNotePath || task.meta?.associatedNotePath,
+			associatedNotePaths: task.meta?.associatedNotePaths,
+		});
+		const taskMeta = (task.meta || {}) as unknown as Record<string, unknown>;
+		const sourceSequenceMetadata: Record<string, unknown> = {};
+		if (typeof taskMeta.sourceSequenceGroup === "string" && taskMeta.sourceSequenceGroup.trim()) {
+			sourceSequenceMetadata.sourceSequenceGroup = taskMeta.sourceSequenceGroup.trim();
+		}
+		if (typeof taskMeta.sourceSequenceOrder === "number" && Number.isFinite(taskMeta.sourceSequenceOrder)) {
+			sourceSequenceMetadata.sourceSequenceOrder = taskMeta.sourceSequenceOrder;
+		}
+		if (typeof taskMeta.sourceSequenceLocked === "boolean") {
+			sourceSequenceMetadata.sourceSequenceLocked = taskMeta.sourceSequenceLocked;
+		}
+		if (
+			typeof taskMeta.sourceSequenceAnchorDateKey === "string" &&
+			taskMeta.sourceSequenceAnchorDateKey.trim()
+		) {
+			sourceSequenceMetadata.sourceSequenceAnchorDateKey = taskMeta.sourceSequenceAnchorDateKey.trim();
+		}
+		const lastInteractionAt =
+			typeof task.stats?.lastInteraction === "number" ? task.stats.lastInteraction : undefined;
+
 		await this.getPointStorageService().syncLegacyPoint({
 			id: task.id,
-			topicId: getTaskTopicId(task),
+			topicId: normalizeTaskTopic(task),
 			title: task.title,
 			tags: task.tags,
 			status: task.status,
@@ -112,6 +159,7 @@ export class IRPdfBookmarkTaskService {
 			nextRepDate: task.nextRepDate,
 			createdAt: task.createdAt,
 			updatedAt: task.updatedAt,
+			lastInteractionAt,
 			sourceType: "pdf-bookmark",
 			materialId: task.materialId,
 			sourcePath: task.pdfPath,
@@ -122,115 +170,36 @@ export class IRPdfBookmarkTaskService {
 				pdfPath: task.pdfPath,
 			},
 			isStarred: Boolean(task.favorite),
+			linkedNotePaths,
+			explicitTagGroupId:
+				task.meta?.tagGroup && task.meta.tagGroup !== DEFAULT_IR_BLOCK_META.tagGroup
+					? task.meta.tagGroup
+					: undefined,
+			stats: {
+				impressions: task.stats?.impressions,
+				extracts: task.stats?.extracts,
+				cardsCreated: task.stats?.cardsCreated,
+				notesWritten: task.stats?.notesWritten,
+				totalReadingTimeSec: task.stats?.totalReadingTimeSec,
+				lastInteractionAt,
+			},
+			metadata: Object.keys(sourceSequenceMetadata).length > 0 ? sourceSequenceMetadata : undefined,
 		});
-	}
 
-	private async deletePointFromPointStorage(pointId: string): Promise<void> {
-		await this.getPointStorageService().deletePointByLegacyId(pointId);
-	}
-
-	async initialize(): Promise<void> {
-		if (this.initialized) return;
-		const adapter = this.app.vault.adapter;
-
-		logger.info("[IRPdfBookmarkTaskService] 初始化:", { filePath: this.filePath });
-
-		const ensureDir = async (dirPath: string): Promise<void> => {
-			const normalized = normalizePath(dirPath);
-			const parts = normalized.split("/").filter(Boolean);
-			let current = "";
-			for (const part of parts) {
-				current = current ? `${current}/${part}` : part;
-				try {
-					if (!(await adapter.exists(current))) {
-						await adapter.mkdir(current);
-					}
-				} catch {
-					// ignore
-				}
-			}
-		};
-
-		const parts = this.filePath.split("/");
-		parts.pop();
-		const dir = parts.join("/");
-		try {
-			await ensureDir(dir);
-		} catch {}
-
-		try {
-			if (!(await adapter.exists(this.filePath))) {
-				await adapter.write(this.filePath, JSON.stringify(DEFAULT_STORE));
-				logger.info("[IRPdfBookmarkTaskService] 已创建存储文件:", { filePath: this.filePath });
-			}
-		} catch (e) {
-			logger.warn("[IRPdfBookmarkTaskService] 初始化失败:", e);
-		}
-
-		this.initialized = true;
-	}
-
-	private async readStore(): Promise<IRPdfBookmarkTaskStore> {
-		await this.initialize();
-		const adapter = this.app.vault.adapter;
-
-		try {
-			if (!(await adapter.exists(this.filePath))) {
-				return { ...DEFAULT_STORE };
-			}
-			const content = await adapter.read(this.filePath);
-			const parsed = JSON.parse(content) as IRPdfBookmarkTaskStore;
-			if (!parsed || typeof parsed !== "object") return { ...DEFAULT_STORE };
-			const tasks = (parsed as any).tasks;
-			if (!tasks || typeof tasks !== "object") return { version: 1, tasks: {} };
-			return {
-				version: typeof (parsed as any).version === "number" ? (parsed as any).version : 1,
-				tasks: Object.fromEntries(
-					Object.entries(tasks as Record<string, IRPdfBookmarkTask>).map(([id, task]) => [
-						id,
-						normalizeBookmarkTaskForRuntime(task),
-					])
-				),
-			};
-		} catch (e) {
-			logger.warn("[IRPdfBookmarkTaskService] 读取失败:", e);
-			return { ...DEFAULT_STORE };
-		}
-	}
-
-	private async writeStore(store: IRPdfBookmarkTaskStore): Promise<void> {
-		await this.initialize();
-		const adapter = this.app.vault.adapter;
-		const plugin: any = (this.app as any)?.plugins?.getPlugin?.("weave");
-		plugin?.externalSyncWatcher?.markInternalWrite?.();
-		const serializedStore: IRPdfBookmarkTaskStore = {
-			version: store.version,
-			tasks: Object.fromEntries(
-				Object.entries(store.tasks || {}).map(([id, task]) => [
-					id,
-					serializeBookmarkTaskForStorage(task),
-				])
-			),
-		};
-		await adapter.write(this.filePath, JSON.stringify(serializedStore));
-		logger.debug("[IRPdfBookmarkTaskService] 已写入:", {
-			filePath: this.filePath,
-			count: Object.keys(store.tasks || {}).length,
-		});
+		return (await this.getTask(task.id)) || task;
 	}
 
 	async getTask(id: string): Promise<IRPdfBookmarkTask | null> {
-		const store = await this.readStore();
-		return store.tasks[id] || null;
+		return await this.getTaskFromPointStorage(id);
 	}
 
 	async getAllTasks(): Promise<IRPdfBookmarkTask[]> {
-		const store = await this.readStore();
-		return Object.values(store.tasks);
+		const tasks = await this.getPointTasks();
+		return tasks.sort((left, right) => left.id.localeCompare(right.id));
 	}
 
 	async getTasksByDeck(deckId: string): Promise<IRPdfBookmarkTask[]> {
-		return this.getTasksByDeckIdentifiers([deckId]);
+		return await this.getTasksByDeckIdentifiers([deckId]);
 	}
 
 	async getTasksByDeckIdentifiers(deckIds: string[]): Promise<IRPdfBookmarkTask[]> {
@@ -239,10 +208,8 @@ export class IRPdfBookmarkTaskService {
 			return [];
 		}
 
-		const store = await this.readStore();
-		return Object.values(store.tasks).filter((task) =>
-			identifiers.has(String(getTaskTopicId(task) || "").trim())
-		);
+		const tasks = await this.getAllTasks();
+		return tasks.filter((task) => identifiers.has(String(getTaskTopicId(task) || "").trim()));
 	}
 
 	async createTask(input: {
@@ -254,24 +221,26 @@ export class IRPdfBookmarkTaskService {
 		link: string;
 		annotationId?: string;
 		priorityUi?: number;
+		sourceSequenceGroup?: string;
+		sourceSequenceOrder?: number;
+		sourceSequenceLocked?: boolean;
+		sourceSequenceAnchorDateKey?: string;
 	}): Promise<IRPdfBookmarkTask> {
-		const store = await this.readStore();
+		await this.initialize();
 
 		const now = Date.now();
-		const id = generatePdfBookmarkTaskId();
 		const priorityUi = typeof input.priorityUi === "number" ? input.priorityUi : 5;
+		const topicId = normalizeTaskTopic({
+			topicId: input.topicId,
+			deckId: input.deckId,
+		} as IRPdfBookmarkTask);
 
-		const topicId = getTaskTopicId(input);
-		if (!topicId) {
-			throw new Error("PDF 书签任务缺少专题 ID");
-		}
-
-		const task: IRPdfBookmarkTask = {
-			id,
+		return await this.persistTask({
+			id: generatePdfBookmarkTaskId(),
 			topicId,
 			deckId: topicId,
 			materialId: input.materialId,
-			pdfPath: input.pdfPath,
+			pdfPath: normalizePath(input.pdfPath),
 			title: input.title,
 			link: input.link,
 			annotationId: input.annotationId,
@@ -281,52 +250,69 @@ export class IRPdfBookmarkTaskService {
 			intervalDays: 0,
 			nextRepDate: 0,
 			stats: { ...DEFAULT_IR_BLOCK_STATS },
-			meta: { ...DEFAULT_IR_BLOCK_META, siblings: { prev: null, next: null } },
+			meta: {
+				...DEFAULT_IR_BLOCK_META,
+				siblings: { prev: null, next: null },
+				...(typeof input.sourceSequenceGroup === "string" && input.sourceSequenceGroup.trim()
+					? { sourceSequenceGroup: input.sourceSequenceGroup.trim() }
+					: {}),
+				...(typeof input.sourceSequenceOrder === "number" && Number.isFinite(input.sourceSequenceOrder)
+					? { sourceSequenceOrder: input.sourceSequenceOrder }
+					: {}),
+				...(typeof input.sourceSequenceLocked === "boolean"
+					? { sourceSequenceLocked: input.sourceSequenceLocked }
+					: {}),
+				...(typeof input.sourceSequenceAnchorDateKey === "string" && input.sourceSequenceAnchorDateKey.trim()
+					? { sourceSequenceAnchorDateKey: input.sourceSequenceAnchorDateKey.trim() }
+					: {}),
+			} as IRPdfBookmarkTask["meta"],
 			tags: [],
+			favorite: false,
 			createdAt: now,
 			updatedAt: now,
-		};
-
-		store.tasks[id] = task;
-		await this.writeStore(store);
-		await this.syncTaskToPointStorage(task);
-
-		return task;
+		});
 	}
 
 	async updateTask(
 		id: string,
 		updates: Partial<Omit<IRPdfBookmarkTask, "id" | "createdAt">>
 	): Promise<IRPdfBookmarkTask | null> {
-		const store = await this.readStore();
-		const existing = store.tasks[id];
-		if (!existing) return null;
+		const existing = await this.getTask(id);
+		if (!existing) {
+			return null;
+		}
 
+		const topicId = normalizeTaskTopic({
+			topicId: updates.topicId ?? existing.topicId,
+			deckId: updates.deckId ?? existing.deckId,
+		} as IRPdfBookmarkTask);
 		const updated: IRPdfBookmarkTask = {
 			...existing,
 			...updates,
+			topicId,
+			deckId: topicId,
+			pdfPath: updates.pdfPath ? normalizePath(updates.pdfPath) : existing.pdfPath,
 			meta: mergeTaskMeta(existing.meta, updates.meta),
 			stats: mergeTaskStats(existing.stats, updates.stats),
 			updatedAt: Date.now(),
 		};
 
-		store.tasks[id] = updated;
-		await this.writeStore(store);
-		await this.syncTaskToPointStorage(updated);
-
-		return updated;
+		return await this.persistTask(updated);
 	}
 
 	async updateTaskFromBlock(
 		block: IRBlockV4 & { pdfBookmarkLink?: string; pdfBookmarkTitle?: string }
 	): Promise<void> {
-		if (!isPdfBookmarkTaskId(block.id)) return;
+		if (!isPdfBookmarkTaskId(block.id)) {
+			return;
+		}
 
-		const store = await this.readStore();
-		const existing = store.tasks[block.id];
-		if (!existing) return;
+		const existing = await this.getTask(block.id);
+		if (!existing) {
+			return;
+		}
 
-		store.tasks[block.id] = {
+		await this.persistTask({
 			...existing,
 			status: block.status,
 			priorityUi: block.priorityUi,
@@ -337,10 +323,7 @@ export class IRPdfBookmarkTaskService {
 			meta: block.meta,
 			tags: Array.isArray(block.tags) ? block.tags : existing.tags || [],
 			updatedAt: Date.now(),
-		};
-
-		await this.writeStore(store);
-		await this.syncTaskToPointStorage(store.tasks[block.id]);
+		});
 	}
 
 	async recordTaskInteraction(
@@ -348,12 +331,15 @@ export class IRPdfBookmarkTaskService {
 		readingTimeSec: number,
 		actions: { extracts?: number; cardsCreated?: number; notesWritten?: number } = {}
 	): Promise<void> {
-		const store = await this.readStore();
-		const existing = store.tasks[taskId];
-		if (!existing) return;
+		const existing = await this.getTask(taskId);
+		if (!existing) {
+			return;
+		}
 
-		const stats = existing.stats;
-		stats.impressions++;
+		const stats = {
+			...existing.stats,
+		};
+		stats.impressions += 1;
 		stats.totalReadingTimeSec += readingTimeSec;
 		stats.effectiveReadingTimeSec += Math.min(readingTimeSec, 600);
 		stats.extracts += actions.extracts || 0;
@@ -362,7 +348,6 @@ export class IRPdfBookmarkTaskService {
 		stats.lastInteraction = Date.now();
 		stats.lastShownAt = Date.now();
 
-		// 每日展示计数器（跨天自动重置）
 		const todayStr = new Date().toISOString().slice(0, 10);
 		if (stats.todayShownDate === todayStr) {
 			stats.todayShownCount = (stats.todayShownCount || 0) + 1;
@@ -371,43 +356,42 @@ export class IRPdfBookmarkTaskService {
 			stats.todayShownCount = 1;
 		}
 
-		store.tasks[taskId] = {
+		await this.persistTask({
 			...existing,
 			stats,
 			updatedAt: Date.now(),
-		};
-
-		await this.writeStore(store);
+		});
 	}
 
 	async deleteTask(id: string): Promise<boolean> {
-		const store = await this.readStore();
-		if (!store.tasks[id]) return false;
-		delete store.tasks[id];
-		await this.writeStore(store);
-		await this.deletePointFromPointStorage(id);
-		logger.info("[IRPdfBookmarkTaskService] 已删除任务:", id);
-		return true;
+		await this.initialize();
+		const deleted = await this.getPointStorageService().deletePointByLegacyId(id);
+		if (deleted) {
+			logger.info("[IRPdfBookmarkTaskService] 已删除任务", id);
+		}
+		return deleted;
 	}
 
 	async deleteTasksByDeck(deckId: string): Promise<number> {
-		return this.deleteTasksByDeckIdentifiers([deckId]);
+		return await this.deleteTasksByDeckIdentifiers([deckId]);
 	}
 
 	async deleteTasksByDeckIdentifiers(deckIds: string[]): Promise<number> {
 		const identifiers = this.toNormalizedSet(deckIds);
-		return this.deleteTasksByPredicate(
+		return await this.deleteTasksByPredicate(
 			(task) => identifiers.has(String(getTaskTopicId(task) || "").trim()),
-			"[IRPdfBookmarkTaskService] 已按牌组标识删除任务:",
+			"[IRPdfBookmarkTaskService] 已按专题标识删除任务",
 			{ deckIds: Array.from(identifiers) }
 		);
 	}
 
 	async deleteTasksByPdfPaths(pdfPaths: string[]): Promise<number> {
-		const paths = this.toNormalizedSet(pdfPaths);
-		return this.deleteTasksByPredicate(
-			(task) => paths.has(String(task?.pdfPath || "").trim()),
-			"[IRPdfBookmarkTaskService] 已按 PDF 路径删除任务:",
+		const paths = new Set(
+			Array.from(this.toNormalizedSet(pdfPaths)).map((path) => normalizePath(path))
+		);
+		return await this.deleteTasksByPredicate(
+			(task) => paths.has(normalizePath(String(task?.pdfPath || "").trim())),
+			"[IRPdfBookmarkTaskService] 已按 PDF 路径删除任务",
 			{ pdfPaths: Array.from(paths) }
 		);
 	}
@@ -425,29 +409,23 @@ export class IRPdfBookmarkTaskService {
 		logMessage: string,
 		logMeta: Record<string, unknown>
 	): Promise<number> {
-		const store = await this.readStore();
-		const toDelete = Object.entries(store.tasks)
-			.filter(([, task]) => predicate(task))
-			.map(([id]) => id);
-
+		const toDelete = (await this.getAllTasks()).filter(predicate).map((task) => task.id);
 		if (toDelete.length === 0) {
 			return 0;
 		}
 
+		let deletedCount = 0;
 		for (const id of toDelete) {
-			delete store.tasks[id];
+			if (await this.deleteTask(id)) {
+				deletedCount += 1;
+			}
 		}
 
-		await this.writeStore(store);
-		for (const id of toDelete) {
-			await this.deletePointFromPointStorage(id);
-		}
 		logger.info(logMessage, {
 			...logMeta,
-			count: toDelete.length,
+			count: deletedCount,
 		});
-
-		return toDelete.length;
+		return deletedCount;
 	}
 
 	toBlockV4(task: IRPdfBookmarkTask): IRBlockV4 {

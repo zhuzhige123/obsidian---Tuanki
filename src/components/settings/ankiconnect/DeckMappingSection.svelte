@@ -3,16 +3,12 @@
   import type { AnkiDeckInfo, AnkiModelInfo } from '../../../types/ankiconnect-types';
   import type { Deck } from '../../../data/types';
   import type { DeckSyncMapping } from '../../settings/types/settings-types';
-  import type { AnkiConnectSettings } from '../../settings/types/settings-types';
   import { tr, trArray } from '../../../utils/i18n';
   import ObsidianDropdown from '../../ui/ObsidianDropdown.svelte';
   import { CardTypeMappingModalObsidian } from './CardTypeMappingModalObsidian';
   import SettingsHelpModal from '../components/SettingsHelpModal.svelte';
   import SettingsHelpTriggerButton from '../components/SettingsHelpTriggerButton.svelte';
-  
-  //  高级功能限制
-  import { PremiumFeatureGuard } from '../../../services/premium/PremiumFeatureGuard';
-  
+
   // 子组件
   import AddMappingForm from './deck-mapping/components/AddMappingForm.svelte';
   import ToolbarActions from './deck-mapping/components/ToolbarActions.svelte';
@@ -36,15 +32,12 @@
     isFetchingModels = false,
     isConnected = false,
     mappings = {},
-    settings,
     onFetchDecks,
     onFetchModels,
     onAddMapping,
     onUpdateMapping,
     onRemoveMapping,
     onSync,
-    onImport,
-    onBidirectionalSync,
     onBatchSync
   }: {
     app: App;
@@ -55,35 +48,18 @@
     isFetchingModels?: boolean;
     isConnected?: boolean;
     mappings: Record<string, DeckSyncMapping>;
-    settings: AnkiConnectSettings;
     onFetchDecks: () => Promise<void>;
     onFetchModels: () => Promise<void>;
     onAddMapping: (mapping: DeckSyncMapping) => void;
     onUpdateMapping: (id: string, updates: Partial<DeckSyncMapping>) => void;
     onRemoveMapping: (id: string) => void;
     onSync: (deckId: string) => Promise<void>;
-    onImport: (ankiDeckName: string, weaveDeckId: string) => Promise<void>;
-    onBidirectionalSync: (deckId: string) => Promise<void>;
-    onBatchSync: (mode: 'to_anki' | 'from_anki' | 'bidirectional') => Promise<void>;
+    onBatchSync: () => Promise<void>;
   } = $props();
 
   let showAddModal = $state(false);
   let syncingDeckId = $state<string | null>(null);
-  let showHelpModal = $state(false); // 🆕 帮助提示弹窗
-
-  //  高级功能守卫
-  const premiumGuard = PremiumFeatureGuard.getInstance();
-  let isPremium = $state(false);
-
-  // 订阅高级版状态
-  $effect(() => {
-    const unsubscribe = premiumGuard.isPremiumActive.subscribe(value => {
-      isPremium = value;
-    });
-    return unsubscribe;
-  });
-
-  const bidirectionalSyncEnabled = $derived(Boolean(settings.bidirectionalSync?.enabled));
+  let showHelpModal = $state(false);
 
   // 将 mappings 转换为数组，保留 key 信息
   let mappingList = $derived.by(() => {
@@ -109,33 +85,6 @@
       await onSync(deckId);
     } finally {
       syncingDeckId = null;
-    }
-  }
-
-  async function handleImport(ankiDeckName: string, weaveDeckId: string) {
-    syncingDeckId = ankiDeckName; // 使用 ankiDeckName 作为同步状态标识
-    try {
-      await onImport(ankiDeckName, weaveDeckId);
-    } finally {
-      syncingDeckId = null;
-    }
-  }
-
-  async function handleBidirectionalSync(deckId: string) {
-    syncingDeckId = deckId;
-    try {
-      await onBidirectionalSync(deckId);
-    } finally {
-      syncingDeckId = null;
-    }
-  }
-
-  function getSyncDirectionClass(direction: string): string {
-    switch (direction) {
-      case 'to_anki': return 'to-anki';
-      case 'from_anki': return 'from-anki';
-      case 'bidirectional': return 'bidirectional';
-      default: return 'to-anki';
     }
   }
 
@@ -178,38 +127,15 @@
    */
   function showMappingActionsMenu(mapping: DeckMappingRow, event: MouseEvent) {
     const menu = new Menu();
-    const isSyncing = syncingDeckId === mapping._id || syncingDeckId === mapping.ankiDeckName;
-    
-    // 根据同步方向添加相关操作
-    if (mapping.syncDirection === 'from_anki' || mapping.syncDirection === 'bidirectional') {
-      menu.addItem((item) => {
-        item
-          .setTitle(t('ankiConnect.deckMapping.importFromAnki'))
-          .setIcon('download')
-          .setDisabled(!mapping.enabled || isSyncing)
-          .onClick(() => handleImport(mapping.ankiDeckName, mapping.weaveDeckId));
-      });
-    }
-    
-    if (mapping.syncDirection === 'to_anki' || mapping.syncDirection === 'bidirectional') {
-      menu.addItem((item) => {
-        item
-          .setTitle(t('ankiConnect.deckMapping.exportToAnki'))
-          .setIcon('upload')
-          .setDisabled(!mapping.enabled || isSyncing)
-          .onClick(() => handleSync(mapping._id));
-      });
-    }
-    
-    if (mapping.syncDirection === 'bidirectional') {
-      menu.addItem((item) => {
-        item
-          .setTitle(t('ankiConnect.deckMapping.bidirectionalSync'))
-          .setIcon('repeat')
-          .setDisabled(!mapping.enabled || isSyncing)
-          .onClick(() => handleBidirectionalSync(mapping._id));
-      });
-    }
+    const isSyncing = syncingDeckId === mapping._id;
+
+    menu.addItem((item) => {
+      item
+        .setTitle(t('ankiConnect.deckMapping.exportToAnki'))
+        .setIcon('upload')
+        .setDisabled(!mapping.enabled || isSyncing)
+        .onClick(() => handleSync(mapping._id));
+    });
 
     menu.addItem((item) => {
       item
@@ -236,13 +162,10 @@
    */
   function showBatchActionsMenu(event: MouseEvent) {
     const menu = new Menu();
-    
-    // 计算启用的映射数量
+
     const enabledMappings = Object.values(mappings).filter(m => m.enabled);
     const enabledCount = enabledMappings.length;
-    const totalCount = Object.keys(mappings).length;
-    
-    // 批量导出到 Anki
+
     menu.addItem((item) => {
       item
         .setTitle(t('ankiConnect.deckMapping.batchExportToAnki'))
@@ -253,57 +176,14 @@
             new Notice(t('ankiConnect.deckMapping.noEnabledMappings'));
             return;
           }
-          await onBatchSync('to_anki');
+          await onBatchSync();
         });
-      
-      // 添加副标题显示数量
+
       if (enabledCount > 0) {
         (item as any).setSection?.(t('ankiConnect.deckMapping.enabledCount', { count: enabledCount }));
       }
     });
-    
-    // 批量从 Anki 导入
-    menu.addItem((item) => {
-      item
-        .setTitle(t('ankiConnect.deckMapping.batchImportFromAnki'))
-        .setIcon("arrow-left")
-        .setDisabled(enabledCount === 0)
-        .onClick(async () => {
-          if (enabledCount === 0) {
-            new Notice(t('ankiConnect.deckMapping.noEnabledMappings'));
-            return;
-          }
-          await onBatchSync('from_anki');
-        });
-      
-      if (enabledCount > 0) {
-        (item as any).setSection?.(t('ankiConnect.deckMapping.enabledCount', { count: enabledCount }));
-      }
-    });
-    
-    // 批量双向同步
-    menu.addItem((item) => {
-      item
-        .setTitle(t('ankiConnect.deckMapping.batchBidirectionalSync'))
-        .setIcon("repeat")
-        .setDisabled(enabledCount === 0 || !bidirectionalSyncEnabled)
-        .onClick(async () => {
-          if (enabledCount === 0) {
-            new Notice(t('ankiConnect.deckMapping.noEnabledMappings'));
-            return;
-          }
-          if (!bidirectionalSyncEnabled) {
-            new Notice(t('ankiConnect.deckMapping.bidirectionalDisabled'));
-            return;
-          }
-          await onBatchSync('bidirectional');
-        });
-      
-      if (enabledCount > 0 && bidirectionalSyncEnabled) {
-        (item as any).setSection?.(t('ankiConnect.deckMapping.enabledCount', { count: enabledCount }));
-      }
-    });
-    
+
     menu.showAtMouseEvent(event);
   }
 </script>
@@ -315,14 +195,12 @@
       <p>{t('ankiConnect.deckSync.description')}</p>
     </div>
     <div class="header-actions">
-      <!-- 🆕 帮助按钮 -->
       {#if mappingList.length > 0}
         <SettingsHelpTriggerButton
           label={t('common.help')}
           onClick={() => showHelpModal = true}
         />
       {/if}
-      <!-- 批量操作按钮 -->
       <button 
         class="header-action-btn"
         aria-label={t('common.batchOperations')}
@@ -367,21 +245,10 @@
     isVisible={showAddModal}
     {ankiDecks}
     {weaveDecks}
-    {isPremium}
     onAdd={handleAddMapping}
   />
 
-  {#if mappingList.length === 0}
-    <!--  已移除：空状态提示可能遮挡下方按钮
-    <div class="empty-state">
-      <div class="empty-state-icon">📦</div>
-      <div class="empty-state-text">
-        还没有配置牌组映射<br />
-        点击"添加映射"开始配置
-      </div>
-    </div>
-    -->
-  {:else}
+  {#if mappingList.length > 0}
     <div class="mapping-table-container">
       <table class="anki-table">
         <thead>
@@ -389,7 +256,6 @@
           <tr>
             <th>{t('ankiConnect.deckMapping.tableHeaders.weaveDeck')}</th>
             <th>{t('ankiConnect.deckMapping.tableHeaders.ankiDeck')}</th>
-            <th>{t('ankiConnect.deckMapping.tableHeaders.syncDirection')}</th>
             <th>{t('ankiConnect.deckMapping.tableHeaders.contentConversion')}</th>
             <th>{t('ankiConnect.deckMapping.tableHeaders.status')}</th>
             <th>{t('ankiConnect.deckMapping.tableHeaders.lastSync')}</th>
@@ -405,15 +271,6 @@
               </td>
               <td class="truncate" title={mapping.ankiDeckName}>
                 {mapping.ankiDeckName}
-              </td>
-              <td>
-                <span class="sync-direction {getSyncDirectionClass(mapping.syncDirection)}">
-                  {mapping.syncDirection === 'to_anki'
-                    ? t('ankiConnect.deckMapping.directions.toAnki')
-                    : mapping.syncDirection === 'from_anki'
-                    ? t('ankiConnect.deckMapping.directions.fromAnki')
-                    : t('ankiConnect.deckMapping.directions.bidirectional')}
-                </span>
               </td>
               <td>
                 <ObsidianDropdown
@@ -468,7 +325,7 @@
 </div>
 
 
-<!-- 🆕 帮助提示弹窗 -->
+<!-- 帮助提示弹窗 -->
 <SettingsHelpModal
   open={showHelpModal}
   title={t('ankiConnect.deckMapping.help.title')}
@@ -489,15 +346,6 @@
       {/each}
     </ul>
   </div>
-
-  <div class="help-item">
-    <div class="help-item-title">{t('ankiConnect.deckMapping.help.syncDirections')}</div>
-    <ul class="help-list">
-      {#each tList('ankiConnect.deckMapping.help.syncDirectionItems') as item}
-        <li>{item}</li>
-      {/each}
-    </ul>
-  </div>
 </SettingsHelpModal>
 
 <style>
@@ -509,7 +357,8 @@
     justify-content: space-between;
     align-items: flex-start;
     gap: 16px;
-    margin-bottom: 16px;
+    margin-bottom: 0;
+    padding-bottom: 0.4rem;
   }
 
   .header-content {
@@ -517,31 +366,6 @@
   }
 
   /* 多彩侧边颜色条标题样式 */
-  .section-title.with-accent-bar {
-    position: relative;
-    padding-left: 16px;
-    margin: 0;
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-normal);
-  }
-
-  .section-title.with-accent-bar::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 4px;
-    height: 20px;
-    border-radius: 2px;
-  }
-
-  /* 紫色主题（牌组同步配置） */
-  .section-title.accent-purple::before {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  }
-
   /* 批量操作菜单按钮 - Cursor 风格 */
   .header-action-btn {
     flex-shrink: 0;
@@ -549,7 +373,7 @@
     height: 32px;
     padding: 0;
     border: none;
-    border-radius: 50%;
+    border-radius: 10px;
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -583,7 +407,7 @@
     height: 28px;
     padding: 0;
     border: none;
-    border-radius: 50%;
+    border-radius: 10px;
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -625,50 +449,37 @@
   /* 为每列设置固定宽度百分比 */
   .anki-table th:nth-child(1),
   .anki-table td:nth-child(1) {
-    width: 20%; /* Weave 牌组 */
+    width: 22%; /* Weave 牌组 */
   }
 
   .anki-table th:nth-child(2),
   .anki-table td:nth-child(2) {
-    width: 25%; /* Anki 牌组 */
+    width: 28%; /* Anki 牌组 */
   }
 
   .anki-table th:nth-child(3),
   .anki-table td:nth-child(3) {
-    width: 12%; /* 同步方向 */
+    width: 18%; /* 内容转换 */
   }
 
   .anki-table th:nth-child(4),
   .anki-table td:nth-child(4) {
-    width: 15%; /* 内容转换 */
+    width: 10%; /* 状态 */
   }
 
   .anki-table th:nth-child(5),
   .anki-table td:nth-child(5) {
-    width: 10%; /* 状态 */
+    width: 14%; /* 上次同步 */
   }
 
   .anki-table th:nth-child(6),
   .anki-table td:nth-child(6) {
-    width: 13%; /* 上次同步 */
-  }
-
-  .anki-table th:nth-child(7),
-  .anki-table td:nth-child(7) {
     width: 60px; /* 操作 - 固定宽度，只需容纳图标按钮 */
     text-align: center;
   }
 
   /* 文本省略样式 */
   .anki-table td.truncate {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .sync-direction {
-    display: inline-block;
-    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -685,39 +496,21 @@
     vertical-align: middle;
   }
 
-  /* 空状态样式 */
-  .empty-state {
-    text-align: center;
-    padding: 40px 20px;
-    color: var(--text-muted);
-  }
-
-  .empty-state-icon {
-    font-size: 48px;
-    opacity: 0.3;
-    margin-bottom: 12px;
-  }
-
-  .empty-state-text {
-    font-size: 14px;
-    line-height: 1.6;
-  }
-
   /* 信息横幅 */
   .info-banner {
     display: flex;
     gap: 12px;
     align-items: flex-start;
-    padding: 12px;
-    margin-bottom: 16px;
-    background: rgba(59, 130, 246, 0.05);
-    border-left: 4px solid var(--weave-info);
-    border-radius: var(--weave-radius-md);
+    padding: 1rem 1.1rem;
+    margin-bottom: 0;
+    background: color-mix(in oklab, var(--weave-info), var(--background-primary) 92%);
+    border: 1px solid color-mix(in oklab, var(--weave-info), transparent 35%);
+    border-radius: 14px;
   }
 
   .info-banner.warning {
-    background: rgba(245, 158, 11, 0.05);
-    border-left-color: var(--weave-warning);
+    background: color-mix(in oklab, var(--weave-warning), var(--background-primary) 92%);
+    border-color: color-mix(in oklab, var(--weave-warning), transparent 35%);
   }
 
   .banner-icon {
@@ -734,17 +527,6 @@
   .banner-text strong {
     display: block;
     margin-bottom: 4px;
-  }
-
-  /* 移除未使用的样式 */
-
-  /* 禁用状态提示 */
-  .disabled-hint {
-    display: block;
-    font-size: 10px;
-    color: var(--text-muted);
-    margin-top: 4px;
-    font-style: italic;
   }
 
   /* 平板设备适配 */
@@ -797,7 +579,7 @@
     }
   }
 
-  /* 🆕 帮助按钮样式增强 - 浅色模式对比度优化 */
+  /* 帮助按钮样式增强 - 浅色模式对比度优化 */
   .header-actions {
     display: flex;
     gap: 8px;

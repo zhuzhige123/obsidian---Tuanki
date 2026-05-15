@@ -11,7 +11,7 @@ import {
 	DEFAULT_SIMPLIFIED_PARSING_SETTINGS,
 	type SimplifiedParsingSettings,
 } from "../types/newCardParsingTypes";
-import { globalPerformanceMonitor } from "../utils/parsing-performance-monitor";
+import { getGlobalPerformanceMonitor } from "../utils/parsing-performance-monitor";
 
 // 应用状态接口
 export interface AppState {
@@ -116,6 +116,8 @@ export type StateAction =
 type WindowWithGlobalStateManager = Window & {
 	__weaveGlobalStateManager?: UnifiedStateManager | null;
 	__weaveGlobalStateManagerCleanup?: (() => void) | null;
+	__weaveGlobalPersistenceManager?: StatePersistenceManager | null;
+	__weaveGlobalPersistenceManagerCleanup?: (() => void) | null;
 };
 
 /**
@@ -448,7 +450,7 @@ export class UnifiedStateManager {
 	private setupPerformanceMonitoring(): void {
 		if (this.performanceMonitorInterval) return;
 		this.performanceMonitorInterval = setInterval(() => {
-			const metrics = globalPerformanceMonitor.getMetrics();
+			const metrics = getGlobalPerformanceMonitor().getMetrics();
 			this.updatePerformance({
 				memoryUsage: metrics.memoryUsage,
 				renderTime: metrics.parseTime,
@@ -507,6 +509,10 @@ function getOrCreateGlobalStateManager(): UnifiedStateManager {
 	const instance = new UnifiedStateManager();
 	w.__weaveGlobalStateManager = instance;
 	w.__weaveGlobalStateManagerCleanup = () => {
+		try {
+			w.__weaveGlobalPersistenceManagerCleanup?.();
+		} catch {}
+
 		try {
 			(w.__weaveGlobalStateManager as UnifiedStateManager | undefined)?.destroy();
 		} catch {}
@@ -633,5 +639,36 @@ export class StatePersistenceManager {
 	}
 }
 
+function getOrCreateGlobalPersistenceManager(
+	stateManager: UnifiedStateManager
+): StatePersistenceManager {
+	if (typeof window === "undefined") {
+		return new StatePersistenceManager(stateManager);
+	}
+
+	const w = window as WindowWithGlobalStateManager;
+	if (w.__weaveGlobalPersistenceManager) {
+		return w.__weaveGlobalPersistenceManager as StatePersistenceManager;
+	}
+
+	const instance = new StatePersistenceManager(stateManager);
+	w.__weaveGlobalPersistenceManager = instance;
+	w.__weaveGlobalPersistenceManagerCleanup = () => {
+		try {
+			(w.__weaveGlobalPersistenceManager as StatePersistenceManager | undefined)?.destroy();
+		} catch {}
+
+		try {
+			w.__weaveGlobalPersistenceManager = undefined;
+			w.__weaveGlobalPersistenceManagerCleanup = undefined;
+		} catch {
+			w.__weaveGlobalPersistenceManager = null;
+			w.__weaveGlobalPersistenceManagerCleanup = null;
+		}
+	};
+
+	return instance;
+}
+
 // 全局持久化管理器
-export const globalPersistenceManager = new StatePersistenceManager(globalStateManager);
+export const globalPersistenceManager = getOrCreateGlobalPersistenceManager(globalStateManager);

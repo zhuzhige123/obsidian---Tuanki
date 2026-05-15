@@ -1,11 +1,24 @@
 import type { App } from "obsidian";
 import { MarkdownPostProcessorContext, TFile, setIcon } from "obsidian";
 import { EpubLinkService } from "./EpubLinkService";
+import { isSupportedEpubProtocolName } from "./epub-runtime";
 
 type BoundEpubLinkElement = HTMLAnchorElement & {
 	__weaveEpubClickHandler?: (event: MouseEvent) => void;
 	__weaveEpubBoundHref?: string;
 };
+
+function extractEpubProtocolName(href: string): string {
+	const normalizedHref = String(href || "").trim();
+	if (!normalizedHref) {
+		return "";
+	}
+
+	const withoutScheme = normalizedHref.startsWith("obsidian://")
+		? normalizedHref.slice("obsidian://".length)
+		: normalizedHref;
+	return withoutScheme.split("?")[0]?.trim() || "";
+}
 
 function clearBoundEpubHandler(linkEl: BoundEpubLinkElement): void {
 	if (linkEl.__weaveEpubClickHandler) {
@@ -29,7 +42,10 @@ export function createEpubLinkPostProcessor(app: App) {
 					}
 					const originalContent = await app.vault.cachedRead(sourceFile);
 					const linkService = new EpubLinkService(app);
-					const migration = await linkService.enrichEpubLinksWithSourceIdsInContent(originalContent);
+					const migration = await linkService.enrichEpubLinksWithSourceIdsInContent(
+						originalContent,
+						sourcePath
+					);
 					if (!migration.changed || migration.content === originalContent) {
 						return;
 					}
@@ -106,8 +122,8 @@ export function createEpubLinkPostProcessor(app: App) {
 
 			clearBoundEpubHandler(boundLinkEl);
 
-			// Legacy protocol format: obsidian://weave-epub?...
-			if (!href.includes("weave-epub")) return;
+			const protocolName = extractEpubProtocolName(href);
+			if (!isSupportedEpubProtocolName(protocolName)) return;
 
 			try {
 				const url = new URL(href.startsWith("obsidian://") ? href : `obsidian://${href}`);

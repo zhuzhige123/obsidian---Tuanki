@@ -3,6 +3,17 @@ import type { QuestionTestStats, TestAttempt } from "../types/question-bank-type
 
 const BASE_ALPHA = 0.2;
 
+export interface QuestionBankEwmaSeries {
+	dates: string[];
+	ewmaData: number[];
+	historicalData: number[];
+	confidenceData: number[];
+}
+
+export interface QuestionBankAnalyticsSnapshot {
+	ewmaSeries: QuestionBankEwmaSeries;
+}
+
 function normalizeAttempt(attempt: Partial<TestAttempt> | null | undefined): TestAttempt | null {
 	if (!attempt?.timestamp) {
 		return null;
@@ -68,24 +79,13 @@ export async function loadQuestionBankAttempts(
 	);
 }
 
-export function groupAttemptsByDate(attempts: TestAttempt[]): Record<string, TestAttempt[]> {
-	return attempts.reduce<Record<string, TestAttempt[]>>((acc, attempt) => {
-		const date = new Date(attempt.timestamp).toISOString().split("T")[0];
-		if (!acc[date]) {
-			acc[date] = [];
-		}
-		acc[date].push(attempt);
-		return acc;
-	}, {});
-}
-
-export function buildQuestionBankEwmaSeries(attempts: TestAttempt[]) {
+export function buildQuestionBankEwmaSeries(attempts: TestAttempt[]): QuestionBankEwmaSeries {
 	if (attempts.length === 0) {
 		return {
-			dates: [] as string[],
-			ewmaData: [] as number[],
-			historicalData: [] as number[],
-			confidenceData: [] as number[],
+			dates: [],
+			ewmaData: [],
+			historicalData: [],
+			confidenceData: [],
 		};
 	}
 
@@ -112,4 +112,14 @@ export function buildQuestionBankEwmaSeries(attempts: TestAttempt[]) {
 	});
 
 	return { dates, ewmaData, historicalData, confidenceData };
+}
+
+export async function getQuestionBankAnalyticsSnapshot(
+	plugin: WeavePlugin,
+	bankId: string
+): Promise<QuestionBankAnalyticsSnapshot> {
+	const attempts = await loadQuestionBankAttempts(plugin, bankId);
+	return {
+		ewmaSeries: buildQuestionBankEwmaSeries(attempts),
+	};
 }

@@ -1,5 +1,6 @@
 import { App, FuzzySuggestModal, TFile, setIcon, type FuzzyMatch } from "obsidian";
 import { ensureWeaveSuggestModalTheme, markLatestSuggestionContainer } from "./weaveSuggestModalTheme";
+import { applyStyleProps } from "../utils/style-props";
 
 interface AnchorRect {
 	left: number;
@@ -17,12 +18,14 @@ interface MarkdownFileSuggestModalOptions {
 	filter?: (file: TFile) => boolean;
 	allowEmptySelection?: boolean;
 	emptySelectionLabel?: string;
-	emptySelectionDescription?: string;
+	emptySelectionDescription?: string | null;
 	anchorRect?: AnchorRect;
 	preferredWidth?: number;
+	showPath?: boolean;
+	showIcon?: boolean;
 }
 
-type MarkdownFileSuggestItem =
+export type MarkdownFileSuggestItem =
 	| {
 			kind: "file";
 			file: TFile;
@@ -37,8 +40,10 @@ export class MarkdownFileSuggestModal extends FuzzySuggestModal<MarkdownFileSugg
 	private readonly items: MarkdownFileSuggestItem[];
 	private readonly anchorRect: AnchorRect | null;
 	private readonly preferredWidth: number | null;
-	private resolver: ((file: TFile | null) => void) | null = null;
-	private selectedFile: TFile | null = null;
+	private readonly showPath: boolean;
+	private readonly showIcon: boolean;
+	private resolver: ((item: MarkdownFileSuggestItem | null) => void) | null = null;
+	private selectedItem: MarkdownFileSuggestItem | null = null;
 	private settled = false;
 	private closeTimer: number | null = null;
 
@@ -46,6 +51,8 @@ export class MarkdownFileSuggestModal extends FuzzySuggestModal<MarkdownFileSugg
 		super(app);
 		this.anchorRect = options.anchorRect ?? null;
 		this.preferredWidth = options.preferredWidth ?? null;
+		this.showPath = options.showPath ?? true;
+		this.showIcon = options.showIcon ?? true;
 
 		const files = (options.files ?? app.vault.getMarkdownFiles())
 			.filter((file) => !options.excludePath || file.path !== options.excludePath)
@@ -57,7 +64,10 @@ export class MarkdownFileSuggestModal extends FuzzySuggestModal<MarkdownFileSugg
 						{
 							kind: "empty" as const,
 							label: options.emptySelectionLabel ?? "不使用 Markdown 文件",
-							description: options.emptySelectionDescription ?? "清空当前选择",
+							description:
+								options.emptySelectionDescription === undefined
+									? "清空当前选择"
+									: options.emptySelectionDescription ?? undefined,
 						},
 				  ]
 				: []),
@@ -103,8 +113,20 @@ export class MarkdownFileSuggestModal extends FuzzySuggestModal<MarkdownFileSugg
 		}
 
 		const wrapper = el.createDiv({ cls: "weave-markdown-file-suggestion" });
-		const iconEl = wrapper.createSpan({ cls: "weave-markdown-file-suggestion__icon" });
-		setIcon(iconEl, "file-text");
+		if (this.showIcon) {
+			const iconEl = wrapper.createSpan({ cls: "weave-markdown-file-suggestion__icon" });
+			setIcon(iconEl, "file-text");
+		} else {
+			wrapper.addClass("weave-markdown-file-suggestion--no-icon");
+		}
+
+		if (!this.showPath) {
+			wrapper.createDiv({
+				text: this.getDisplayName(item.file),
+				cls: "weave-markdown-file-suggestion__title",
+			});
+			return;
+		}
 
 		const content = wrapper.createDiv({ cls: "weave-markdown-file-suggestion__content" });
 		content.createDiv({
@@ -117,7 +139,7 @@ export class MarkdownFileSuggestModal extends FuzzySuggestModal<MarkdownFileSugg
 		});
 	}
 
-	private settle(file: TFile | null): void {
+	private settle(item: MarkdownFileSuggestItem | null): void {
 		if (this.settled) {
 			return;
 		}
@@ -130,19 +152,18 @@ export class MarkdownFileSuggestModal extends FuzzySuggestModal<MarkdownFileSugg
 
 		const resolver = this.resolver;
 		this.resolver = null;
-		resolver?.(file);
+		resolver?.(item);
 	}
 
 	onChooseItem(item: MarkdownFileSuggestItem): void {
-		const selectedFile = item.kind === "file" ? item.file : null;
-		this.selectedFile = selectedFile;
-		this.settle(selectedFile);
+		this.selectedItem = item;
+		this.settle(item);
 	}
 
 	onClose(): void {
 		super.onClose();
 		if (this.settled) {
-			this.selectedFile = null;
+			this.selectedItem = null;
 			return;
 		}
 
@@ -152,23 +173,27 @@ export class MarkdownFileSuggestModal extends FuzzySuggestModal<MarkdownFileSugg
 
 		this.closeTimer = window.setTimeout(() => {
 			this.closeTimer = null;
-			const selectedFile = this.selectedFile;
-			this.selectedFile = null;
-			this.settle(selectedFile);
+			const selectedItem = this.selectedItem;
+			this.selectedItem = null;
+			this.settle(selectedItem);
 		}, 0);
 	}
 
-	openAndSelect(): Promise<TFile | null> {
+	openAndSelectItem(): Promise<MarkdownFileSuggestItem | null> {
 		return new Promise((resolve) => {
 			if (this.closeTimer !== null) {
 				window.clearTimeout(this.closeTimer);
 				this.closeTimer = null;
 			}
 			this.resolver = resolve;
-			this.selectedFile = null;
+			this.selectedItem = null;
 			this.settled = false;
 			this.open();
 		});
+	}
+
+	openAndSelect(): Promise<TFile | null> {
+		return this.openAndSelectItem().then((item) => (item?.kind === "file" ? item.file : null));
 	}
 
 	private getDisplayName(file: TFile): string {
@@ -196,11 +221,11 @@ export class MarkdownFileSuggestModal extends FuzzySuggestModal<MarkdownFileSugg
 
 			containerEl.classList.add("weave-suggest-modal-container--anchored");
 			modalEl.classList.add("weave-suggest-modal--anchored");
-			containerEl.setCssProps({
+			applyStyleProps(containerEl, {
 				"--weave-suggest-popover-z": "calc(var(--z-index-modal, 400) + 10)",
 				"--weave-suggest-popover-max-height": `${Math.round(maxHeight)}px`,
 			});
-			modalEl.setCssProps({
+			applyStyleProps(modalEl, {
 				"--weave-suggest-popover-width": `${preferredWidth}px`,
 				"--weave-suggest-popover-z": "calc(var(--z-index-modal, 400) + 10)",
 				"--weave-suggest-popover-max-height": `${Math.round(maxHeight)}px`,
@@ -210,7 +235,7 @@ export class MarkdownFileSuggestModal extends FuzzySuggestModal<MarkdownFileSugg
 			const left = Math.max(12, Math.min(anchorRect.left, viewportWidth - modalRect.width - 12));
 			const top = Math.min(anchorRect.bottom + spacing, viewportHeight - 12);
 
-			modalEl.setCssProps({
+			applyStyleProps(modalEl, {
 				"--weave-suggest-popover-left": `${Math.round(left)}px`,
 				"--weave-suggest-popover-top": `${Math.round(top)}px`,
 			});

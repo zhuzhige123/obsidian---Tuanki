@@ -9,6 +9,7 @@
   import { getV2PathsFromApp } from '../../config/paths';
   import type { WeavePlugin } from '../../main';
   import type { Deck } from '../../data/types';
+  import { extractAllTags as extractTagsFromCardContent } from '../../utils/yaml-utils';
 
   interface Props {
     open: boolean;
@@ -225,52 +226,23 @@
   function extractAllTags(card: any): string[] {
     const tagSet = new Set<string>();
 
-    // 1. card.tags 数组（YAML frontmatter hydrate 的结果）
+    // 1. card.tags 数组（运行时 hydrate 的结果）
     if (Array.isArray(card.tags)) {
       for (const t of card.tags) {
         if (typeof t === 'string') tagSet.add(t.replace(/^#/, ''));
       }
     }
 
-    // 2. content 中的内联标签 #标签名（Obsidian 格式）
+    // 2. content 中的 YAML tags + 正文内联标签（统一复用共享提取器）
     if (typeof card.content === 'string') {
-      // 排除 YAML frontmatter 区域，只解析 body
-      let body = card.content;
-      const yamlMatch = body.match(/^---\n[\s\S]*?\n---\n?/);
-      if (yamlMatch) {
-        body = body.substring(yamlMatch[0].length);
-      }
-      // 移除 wikilink 和 markdown URL，避免链接片段被误识别为标签
-      body = body.replace(/\[\[[^\]]*\]\]/g, '').replace(/\]\([^)]*\)/g, '](removed)');
-      // 匹配 #标签名（支持中英文、数字、下划线、连字符）
-      const inlineTagRegex = /(?:^|\s)#([^\s#,;:!?()[\]{}]+)/g;
-      let match;
-      while ((match = inlineTagRegex.exec(body)) !== null) {
-        const tag = match[1];
-        if (tag.startsWith('^') || tag.includes('%')) continue;
-        tagSet.add(tag);
-      }
-    }
-
-    // 3. YAML frontmatter 中的 tags 字段（直接解析，防止 hydrate 未填充）
-    if (typeof card.content === 'string') {
-      const yamlMatch = card.content.match(/^---\n([\s\S]*?)\n---/);
-      if (yamlMatch) {
-        const yamlBlock = yamlMatch[1];
-        const tagsMatch = yamlBlock.match(/^tags:\s*\n((?:\s+-\s+.+\n?)*)/m);
-        if (tagsMatch) {
-          const lines = tagsMatch[1].split('\n');
-          for (const line of lines) {
-            const itemMatch = line.match(/^\s+-\s+(.+)/);
-            if (itemMatch) {
-              tagSet.add(itemMatch[1].trim().replace(/^#/, ''));
-            }
-          }
+      for (const tag of extractTagsFromCardContent(card.content)) {
+        if (typeof tag === 'string') {
+          tagSet.add(tag.replace(/^#/, ''));
         }
       }
     }
 
-    return Array.from(tagSet);
+    return Array.from(tagSet).filter(Boolean);
   }
 
   // ===== 从卡片中提取来源文件路径 =====

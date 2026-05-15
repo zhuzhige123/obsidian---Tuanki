@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { getIcon, type IconName } from "../../icons/index.js";
+  import { onMount } from "svelte";
+  import { setIcon } from "obsidian";
+  import { resolveObsidianIconName } from "../../icons/obsidian-icon-resolver";
+
+  type IconName = string;
 
   interface Props {
     /** 图标名称 - 支持 Font Awesome v5 图标名称或语义化别名 */
@@ -82,8 +86,7 @@
     ...restProps
   }: Props = $props();
 
-  // 图标 HTML 内容
-  let iconHtml = $derived(getIcon(name) || getIcon("question-circle"));
+  let iconElement: HTMLSpanElement;
   
   // 计算图标尺寸
   let iconSize = $derived.by(() => {
@@ -101,6 +104,39 @@
     };
     
     return sizeMap[size as keyof typeof sizeMap] || '16px';
+  });
+
+  let iconPixelSize = $derived.by(() => {
+    if (typeof size === 'number' && Number.isFinite(size)) return size;
+    if (typeof size === 'string' && size.includes('px')) {
+      const parsed = Number.parseInt(size, 10);
+      return Number.isFinite(parsed) ? parsed : 16;
+    }
+    const sizeMap = {
+      xs: 12,
+      sm: 14,
+      md: 16,
+      lg: 20,
+      xl: 24,
+      '2xl': 32
+    };
+    return sizeMap[size as keyof typeof sizeMap] || 16;
+  });
+
+  function renderIcon() {
+    if (!iconElement) return;
+    setIcon(iconElement, resolveObsidianIconName(name));
+    const svg = iconElement.querySelector('svg');
+    if (svg) {
+      svg.setAttribute('width', String(iconPixelSize));
+      svg.setAttribute('height', String(iconPixelSize));
+      svg.style.width = `${iconPixelSize}px`;
+      svg.style.height = `${iconPixelSize}px`;
+    }
+  }
+
+  onMount(() => {
+    renderIcon();
   });
   
   // 计算变换样式
@@ -153,15 +189,15 @@
   // 计算 CSS 类
   let iconClasses = $derived.by(() => {
     const classes = [
-      'weave-icon',
-      `weave-icon--${variant}`,
-      `weave-icon--${size}`
+      'weave-native-icon',
+      `weave-native-icon--${variant}`,
+      `weave-native-icon--${size}`
     ];
     
-    if (animation) classes.push(`weave-icon--${animation}`);
-    if (disabled) classes.push('weave-icon--disabled');
-    if (clickable || onclick) classes.push('weave-icon--clickable');
-    if (badge) classes.push('weave-icon--with-badge');
+    if (animation) classes.push(`weave-native-icon--${animation}`);
+    if (disabled) classes.push('weave-native-icon--disabled');
+    if (clickable || onclick) classes.push('weave-native-icon--clickable');
+    if (badge) classes.push('weave-native-icon--with-badge');
     if (className) classes.push(className);
     
     return classes.join(' ');
@@ -170,9 +206,9 @@
   // 计算徽章类
   let badgeClasses = $derived.by(() => {
     return [
-      'weave-icon__badge',
-      `weave-icon__badge--${badgeVariant}`,
-      `weave-icon__badge--${badgePosition}`
+      'weave-native-icon__badge',
+      `weave-native-icon__badge--${badgeVariant}`,
+      `weave-native-icon__badge--${badgePosition}`
     ].join(' ');
   });
   
@@ -203,6 +239,12 @@
     tabindex: clickable ? 0 : undefined,
     ...restProps,
   });
+
+  $effect(() => {
+    name;
+    iconPixelSize;
+    renderIcon();
+  });
 </script>
 
 <!-- 图标容器 -->
@@ -219,9 +261,7 @@
   }}
 >
   <!-- 图标内容 -->
-  <span class="weave-icon__content">
-    <!-- /skip {@html} renders trusted internal SVG icon HTML -->{@html iconHtml}
-  </span>
+  <span class="weave-native-icon__content" bind:this={iconElement}></span>
   
   <!-- 徽章 -->
   {#if badge}
@@ -233,7 +273,7 @@
 
 <style>
   /* 基础图标样式 */
-  .weave-icon {
+  .weave-native-icon {
     position: relative;
     line-height: 1;
     transition: all 0.2s ease;
@@ -244,7 +284,7 @@
     font: inherit;
   }
 
-  .weave-icon__content {
+  .weave-native-icon__content {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -252,120 +292,122 @@
     height: 100%;
   }
 
-  .weave-icon__content :global(svg) {
+  .weave-native-icon__content :global(svg) {
     width: 100%;
     height: 100%;
     display: block;
-    fill: currentColor;
+    fill: none;
     stroke: currentColor;
-    stroke-width: 0;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
     transition: inherit;
   }
 
   /* 颜色变体 */
-  .weave-icon--default {
+  .weave-native-icon--default {
     color: var(--weave-text-primary);
   }
 
-  .weave-icon--primary {
+  .weave-native-icon--primary {
     color: var(--weave-accent-color);
   }
 
-  .weave-icon--secondary {
+  .weave-native-icon--secondary {
     color: var(--weave-text-secondary);
   }
 
-  .weave-icon--success {
+  .weave-native-icon--success {
     color: var(--weave-success);
   }
 
-  .weave-icon--warning {
+  .weave-native-icon--warning {
     color: var(--weave-warning);
   }
 
-  .weave-icon--error {
+  .weave-native-icon--error {
     color: var(--weave-error);
   }
 
-  .weave-icon--info {
+  .weave-native-icon--info {
     color: var(--weave-info);
   }
 
-  .weave-icon--muted {
+  .weave-native-icon--muted {
     color: var(--weave-text-faint);
   }
 
   /* 可点击状态 */
-  .weave-icon--clickable {
+  .weave-native-icon--clickable {
     cursor: pointer;
     border-radius: var(--weave-radius-sm);
     padding: var(--weave-space-xs);
   }
 
-  .weave-icon--clickable:hover:not(.weave-icon--disabled) {
+  .weave-native-icon--clickable:hover:not(.weave-native-icon--disabled) {
     background-color: var(--weave-hover);
     transform: scale(1.05);
   }
 
-  .weave-icon--clickable:active:not(.weave-icon--disabled) {
+  .weave-native-icon--clickable:active:not(.weave-native-icon--disabled) {
     background-color: var(--weave-active);
     transform: scale(0.95);
   }
 
-  .weave-icon--clickable:focus:not(.weave-icon--disabled) {
+  .weave-native-icon--clickable:focus:not(.weave-native-icon--disabled) {
     outline: 2px solid var(--weave-accent-color);
     outline-offset: 2px;
   }
 
   /* 禁用状态 */
-  .weave-icon--disabled {
+  .weave-native-icon--disabled {
     cursor: not-allowed;
     pointer-events: none;
   }
 
   /* 动画效果 */
-  .weave-icon--spin {
-    animation: weave-icon-spin 1s linear infinite;
+  .weave-native-icon--spin {
+    animation: weave-native-icon-spin 1s linear infinite;
   }
 
-  .weave-icon--pulse {
-    animation: weave-icon-pulse 2s ease-in-out infinite;
+  .weave-native-icon--pulse {
+    animation: weave-native-icon-pulse 2s ease-in-out infinite;
   }
 
-  .weave-icon--bounce {
-    animation: weave-icon-bounce 1s ease-in-out infinite;
+  .weave-native-icon--bounce {
+    animation: weave-native-icon-bounce 1s ease-in-out infinite;
   }
 
-  .weave-icon--shake {
-    animation: weave-icon-shake 0.5s ease-in-out infinite;
+  .weave-native-icon--shake {
+    animation: weave-native-icon-shake 0.5s ease-in-out infinite;
   }
 
   /* 动画关键帧 */
-  @keyframes weave-icon-spin {
+  @keyframes weave-native-icon-spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
   }
 
-  @keyframes weave-icon-pulse {
+  @keyframes weave-native-icon-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
   }
 
-  @keyframes weave-icon-bounce {
+  @keyframes weave-native-icon-bounce {
     0%, 20%, 53%, 80%, 100% { transform: translateY(0); }
     40%, 43% { transform: translateY(-8px); }
     70% { transform: translateY(-4px); }
     90% { transform: translateY(-2px); }
   }
 
-  @keyframes weave-icon-shake {
+  @keyframes weave-native-icon-shake {
     0%, 100% { transform: translateX(0); }
     10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
     20%, 40%, 60%, 80% { transform: translateX(2px); }
   }
 
   /* 徽章样式 */
-  .weave-icon__badge {
+  .weave-native-icon__badge {
     position: absolute;
     display: flex;
     align-items: center;
@@ -382,79 +424,79 @@
   }
 
   /* 徽章位置 */
-  .weave-icon__badge--top-right {
+  .weave-native-icon__badge--top-right {
     top: -0.25rem;
     right: -0.25rem;
   }
 
-  .weave-icon__badge--top-left {
+  .weave-native-icon__badge--top-left {
     top: -0.25rem;
     left: -0.25rem;
   }
 
-  .weave-icon__badge--bottom-right {
+  .weave-native-icon__badge--bottom-right {
     bottom: -0.25rem;
     right: -0.25rem;
   }
 
-  .weave-icon__badge--bottom-left {
+  .weave-native-icon__badge--bottom-left {
     bottom: -0.25rem;
     left: -0.25rem;
   }
 
   /* 徽章颜色变体 */
-  .weave-icon__badge--default {
+  .weave-native-icon__badge--default {
     background: var(--weave-text-secondary);
     color: var(--weave-text-on-accent);
   }
 
-  .weave-icon__badge--primary {
+  .weave-native-icon__badge--primary {
     background: var(--weave-accent-color);
     color: var(--weave-text-on-accent);
   }
 
-  .weave-icon__badge--success {
+  .weave-native-icon__badge--success {
     background: var(--weave-success);
     color: var(--weave-text-on-accent);
   }
 
-  .weave-icon__badge--warning {
+  .weave-native-icon__badge--warning {
     background: var(--weave-warning);
     color: var(--weave-text-on-accent);
   }
 
-  .weave-icon__badge--error {
+  .weave-native-icon__badge--error {
     background: var(--weave-error);
     color: var(--weave-text-on-accent);
   }
 
-  .weave-icon__badge--info {
+  .weave-native-icon__badge--info {
     background: var(--weave-info);
     color: var(--weave-text-on-accent);
   }
 
   /* 响应式适配 */
   @media (prefers-reduced-motion: reduce) {
-    .weave-icon, .weave-icon__content :global(svg) {
+    .weave-native-icon, .weave-native-icon__content :global(svg) {
       transition: none;
     }
 
-    .weave-icon--spin,
-    .weave-icon--pulse,
-    .weave-icon--bounce,
-    .weave-icon--shake {
+    .weave-native-icon--spin,
+    .weave-native-icon--pulse,
+    .weave-native-icon--bounce,
+    .weave-native-icon--shake {
       animation: none;
     }
   }
 
   /* 高对比度模式支持 */
   @media (prefers-contrast: high) {
-    .weave-icon--clickable:focus:not(.weave-icon--disabled) {
+    .weave-native-icon--clickable:focus:not(.weave-native-icon--disabled) {
       outline: 3px solid;
       outline-offset: 3px;
     }
 
-    .weave-icon__badge {
+    .weave-native-icon__badge {
       border-width: 3px;
     }
   }

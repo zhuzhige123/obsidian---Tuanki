@@ -18,7 +18,7 @@ vi.mock("../../../config/paths", () => ({
 			registry: "weave/incremental-reading/registry",
 			pointsDir: "weave/incremental-reading/points",
 			materialRecordsDir: "weave/incremental-reading/materials",
-			topics: "weave/incremental-reading/topics.json",
+			legacyTopics: "weave/incremental-reading/topics.json",
 			pdfBookmarkTasks: "weave/incremental-reading/pdf-bookmark-tasks.json",
 			epubBookmarkTasks: "weave/incremental-reading/epub-bookmark-tasks.json",
 			materialsIndex: "weave/incremental-reading/registry/materials-index.json",
@@ -37,7 +37,7 @@ vi.mock("../../../config/paths", () => ({
 			registry: "weave/incremental-reading/registry",
 			pointsDir: "weave/incremental-reading/points",
 			materialRecordsDir: "weave/incremental-reading/materials",
-			topics: "weave/incremental-reading/topics.json",
+			legacyTopics: "weave/incremental-reading/topics.json",
 			pdfBookmarkTasks: "weave/incremental-reading/pdf-bookmark-tasks.json",
 			epubBookmarkTasks: "weave/incremental-reading/epub-bookmark-tasks.json",
 			materialsIndex: "weave/incremental-reading/registry/materials-index.json",
@@ -51,18 +51,38 @@ vi.mock("../../../config/paths", () => ({
 	getPluginPaths: () => ({
 		state: {
 			incrementalReading: {
-				readerState: ".obsidian/plugins/weave/state/incremental-reading/reader-state",
+				root: ".obsidian/plugins/weave/data/state/incremental-reading",
+				readingMaterialsRuntime:
+					".obsidian/plugins/weave/data/state/incremental-reading/reading-materials-runtime.json",
+				epubReaderData:
+					".obsidian/plugins/weave/data/state/incremental-reading/epub-reader-data.json",
+				monitoring:
+					".obsidian/plugins/weave/data/state/incremental-reading/monitoring.json",
+				history: ".obsidian/plugins/weave/data/state/incremental-reading/history.json",
+				studySessions:
+					".obsidian/plugins/weave/data/state/incremental-reading/study-sessions.json",
+				calendarProgress:
+					".obsidian/plugins/weave/data/state/incremental-reading/calendar-progress.json",
+				readerState: ".obsidian/plugins/weave/data/state/incremental-reading/reader-state",
 			},
 		},
 		cache: {
 			incrementalReading: {
-				readerArtifacts: ".obsidian/plugins/weave/cache/incremental-reading/reader-artifacts",
+				root: ".obsidian/plugins/weave/data/cache/incremental-reading",
+				documentGroupMap:
+					".obsidian/plugins/weave/data/cache/incremental-reading/document-group-map.json",
+				pointFilesIndex:
+					".obsidian/plugins/weave/data/cache/incremental-reading/point-files-index.json",
+				syncState:
+					".obsidian/plugins/weave/data/cache/incremental-reading/sync-state.json",
+				readerArtifacts:
+					".obsidian/plugins/weave/data/cache/incremental-reading/reader-artifacts",
 			},
 		},
 		migration: {
-			root: ".obsidian/plugins/weave/cache/migration",
+			root: ".obsidian/plugins/weave/data/cache/migration",
 		},
-		backups: ".obsidian/plugins/weave/backups",
+		backups: ".obsidian/plugins/weave/data/backups",
 	}),
 }));
 
@@ -193,7 +213,7 @@ describe("bookmark task update merging", () => {
 			epubFilePath: "Books/Test.epub",
 			title: "Chapter 1",
 			tocHref: "chapter-1.xhtml",
-			tocLevel: 0,
+			tocLevel: 1,
 		});
 
 		const updated = await service.updateTask(task.id, {
@@ -211,6 +231,22 @@ describe("bookmark task update merging", () => {
 		expect(updated?.meta.priorityLog).toEqual(task.meta.priorityLog);
 		expect(updated?.stats.notesWritten).toBe(5);
 		expect(updated?.stats.impressions).toBe(task.stats.impressions);
+		expect(updated?.tocLevel).toBe(1);
+	});
+
+	it("epub bookmark creation normalizes legacy 0-based toc levels to 1-based storage", async () => {
+		const adapter = createMemoryAdapter();
+		const service = new IREpubBookmarkTaskService(createApp(adapter));
+
+		const task = await service.createTask({
+			topicId: "deck-1",
+			epubFilePath: "Books/Test.epub",
+			title: "Legacy Level Input",
+			tocHref: "chapter-legacy.xhtml",
+			tocLevel: 0,
+		});
+
+		expect(task.tocLevel).toBe(1);
 	});
 
 	it("pdf bookmark tasks support mixed deck identifiers", async () => {
@@ -248,14 +284,14 @@ describe("bookmark task update merging", () => {
 			epubFilePath: "Books/Test.epub",
 			title: "Chapter 1",
 			tocHref: "chapter-1.xhtml",
-			tocLevel: 0,
+			tocLevel: 1,
 		});
 		const legacy = await service.createTask({
 			deckId: "Books/Test.epub::deck",
 			epubFilePath: "Books/Test.epub",
 			title: "Chapter 2",
 			tocHref: "chapter-2.xhtml",
-			tocLevel: 0,
+			tocLevel: 1,
 		});
 
 		const tasks = await service.getTasksByDeckIdentifiers([
@@ -279,7 +315,7 @@ describe("bookmark task update merging", () => {
 			epubFilePath: "Books/Test.epub",
 			title: "Chapter 1",
 			tocHref: "chapter-1.xhtml",
-			tocLevel: 0,
+			tocLevel: 1,
 		});
 
 		expect(original.sourceId).toBeTruthy();
@@ -289,7 +325,7 @@ describe("bookmark task update merging", () => {
 			epubFilePath: "Library/Test Renamed.epub",
 			title: "Chapter 2",
 			tocHref: "chapter-2.xhtml",
-			tocLevel: 0,
+			tocLevel: 1,
 		});
 
 		expect(renamed.sourceId).toBe(original.sourceId);

@@ -31,11 +31,6 @@
   // 当前选中的时间范围
   let selectedRange = $state<TimeRange>('30d');
   
-  // 自定义日期范围
-  let customDateStart = $state<string>('');
-  let customDateEnd = $state<string>('');
-  let showCustomDate = $state(false);
-
   // 生成曲线数据
   const curveData = $derived(generateMemoryCurveData(card, selectedRange));
 
@@ -52,35 +47,12 @@
         {#each timeRanges as range}
           <button
             class="range-button"
-            class:active={selectedRange === range.value && !showCustomDate}
-            onclick={() => { selectedRange = range.value; showCustomDate = false; }}
+            class:active={selectedRange === range.value}
+            onclick={() => { selectedRange = range.value; }}
           >
             {isMobile ? range.label.replace('最近', '') : range.label}
           </button>
         {/each}
-      </div>
-    </div>
-    
-    <!-- 自定义日期范围 -->
-    <div class="custom-date-selector" class:mobile={isMobile}>
-      <span class="range-label">自定义范围：</span>
-      <div class="date-inputs" class:mobile={isMobile}>
-        <input 
-          type="date" 
-          class="date-input"
-          bind:value={customDateStart}
-          onfocus={() => showCustomDate = true}
-        />
-        <span class="date-separator">至</span>
-        <input 
-          type="date" 
-          class="date-input"
-          bind:value={customDateEnd}
-          onfocus={() => showCustomDate = true}
-        />
-        {#if !isMobile}
-          <span class="date-hint">(30天)</span>
-        {/if}
       </div>
     </div>
     
@@ -103,7 +75,7 @@
         <p class="empty-hint">{t('modals.memoryCurveTab.emptyState.reviewCount').replace('{count}', String((card.reviewHistory || []).length))}</p>
       </div>
     {:else}
-      <MemoryCurveChart data={curveData} timeRange={selectedRange} height={450} />
+      <MemoryCurveChart data={curveData} height={450} />
     {/if}
   </section>
 
@@ -199,58 +171,6 @@
     color: var(--text-on-accent, white);
     box-shadow: 0 4px 10px rgba(var(--interactive-accent-rgb), 0.22);
   }
-
-  /* 自定义日期选择器 */
-  .custom-date-selector {
-    display: flex;
-    align-items: center;
-    gap: var(--size-4-3);
-    flex-wrap: wrap;
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px solid var(--background-modifier-border);
-  }
-
-  .date-inputs {
-    display: flex;
-    align-items: center;
-    gap: var(--size-4-2);
-    flex-wrap: wrap;
-  }
-
-  .date-input {
-    padding: 7px 10px;
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 8px;
-    color: var(--text-normal);
-    font-size: 12.5px;
-    cursor: pointer;
-    transition: border-color 0.16s ease, box-shadow 0.16s ease;
-  }
-
-  .date-input:hover {
-    background: var(--background-modifier-hover);
-    border-color: var(--interactive-accent);
-  }
-
-  .date-input:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
-  }
-
-  .date-separator {
-    font-size: var(--font-ui-small);
-    color: var(--text-muted);
-  }
-
-  .date-hint {
-    font-size: var(--font-ui-smaller);
-    color: var(--text-faint);
-    font-style: italic;
-  }
-
   /* 提示文本 */
   .hint-text {
     display: flex;
@@ -402,34 +322,6 @@
     flex: 0 0 auto;
   }
 
-  /* 移动端自定义日期选择器 - 单行布局 */
-  .custom-date-selector.mobile {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-    margin-top: 8px;
-    padding-top: 8px;
-  }
-
-  .date-inputs.mobile {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-  }
-
-  .date-inputs.mobile .date-input {
-    flex: 1;
-    min-width: 0;
-    padding: 8px 10px;
-    font-size: 13px;
-  }
-
-  .date-inputs.mobile .date-separator {
-    flex-shrink: 0;
-  }
-
   /* 移动端统计摘要 - 2x2 网格 */
   .curve-summary.mobile {
     grid-template-columns: repeat(2, 1fr);
@@ -449,4 +341,3 @@
     font-size: 14px;
   }
 </style>
-

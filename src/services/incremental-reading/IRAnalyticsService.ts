@@ -7,21 +7,22 @@ import type {
 	IRChunkFileData,
 	IRDeck,
 	IRSession,
+	IRStudySession,
 	IRSourceFileMeta,
 } from "../../types/ir-types";
 import { migrateToIRBlockV4 } from "../../types/ir-types";
 import type { ReadingMaterial } from "../../types/incremental-reading-types";
 import { type IREpubBookmarkTask, IREpubBookmarkTaskService } from "./IREpubBookmarkTaskService";
-import { resolveAssociatedNotePath } from "./IRAssociatedNoteSignals";
+import { resolveAssociatedNotePath, resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 import { getIRPriorityValue } from "./IRCardManagementAdapter";
 import { IRMonitoringService } from "./IRMonitoringService";
 import { type IRPdfBookmarkTask, IRPdfBookmarkTaskService } from "./IRPdfBookmarkTaskService";
+import { IRStorageService } from "./IRStorageService";
 import {
 	buildProjectedDayLoadMap,
 	getProjectedScheduleSummary,
 	type IRProjectedScheduleSummary,
 } from "./IRProjectedScheduleSummary";
-import { IRStorageService } from "./IRStorageService";
 import {
 	buildIRTraceOverviewStats,
 	collectTraceCardMatches,
@@ -78,7 +79,20 @@ export interface IRAnalyticsQuantityPoint {
 	closedCount: number;
 }
 
+export type IRAnalyticsTimingBucketKey =
+	| "overdue_7_plus"
+	| "overdue_2_7"
+	| "overdue_lt_2"
+	| "due_today"
+	| "next_1_3"
+	| "next_4_7"
+	| "next_8_14"
+	| "next_15_30"
+	| "next_30_plus"
+	| "unscheduled";
+
 export interface IRAnalyticsTimingBucket {
+	key: IRAnalyticsTimingBucketKey;
 	label: string;
 	count: number;
 }
@@ -103,6 +117,72 @@ export interface IRAnalyticsForecastPoint {
 	itemCount: number;
 	totalEstimatedMinutes: number;
 	overloadLevel: "normal" | "warning" | "overloaded";
+}
+
+export interface IRLoadForecastSnapshot {
+	days: number;
+	dailyBudgetMinutes: number;
+	forecast: IRAnalyticsForecastPoint[];
+}
+
+export interface IRStudySessionScatterPoint {
+	value: [number, number, number];
+	session: IRStudySession;
+}
+
+export interface IRStudySessionScatterSummary {
+	totalSessions: number;
+	totalHours: number;
+	averageMinutes: number;
+}
+
+export interface IRStudySessionScatterSnapshot {
+	minDurationSeconds: number;
+	dateAxis: string[];
+	weekdayAxis: string[];
+	dateViewData: IRStudySessionScatterPoint[];
+	weekdayViewData: IRStudySessionScatterPoint[];
+	maxDurationMinutes: number;
+	summary: IRStudySessionScatterSummary;
+}
+
+export interface IRActivityHeatmapDay {
+	date: string;
+	blocks: number;
+	duration: number;
+	level: number;
+	isPlaceholder?: boolean;
+}
+
+export interface IRActivityHeatmapWeek {
+	days: IRActivityHeatmapDay[];
+}
+
+export interface IRActivityHeatmapMonthLabel {
+	name: string;
+	position: number;
+}
+
+export interface IRActivityHeatmapSummary {
+	totalBlocks: number;
+	totalMinutes: number;
+	totalDays: number;
+	avgBlocksPerDay: number;
+	currentStreak: number;
+	maxStreak: number;
+}
+
+export interface IRActivityHeatmapSnapshot {
+	weeks: IRActivityHeatmapWeek[];
+	monthLabels: IRActivityHeatmapMonthLabel[];
+	maxMinutes: number;
+	summary: IRActivityHeatmapSummary;
+}
+
+export interface IRStudySessionSnapshot {
+	sessions: IRStudySession[];
+	scatter: IRStudySessionScatterSnapshot;
+	heatmap: IRActivityHeatmapSnapshot;
 }
 
 export interface IRAnalyticsMonitoringSummary {
@@ -171,6 +251,7 @@ interface IRAnalyticsUnit {
 	sourceDocumentKey: string;
 	sourceSubunitKey?: string;
 	associatedNotePath?: string;
+	associatedNotePaths?: string[];
 }
 
 export interface IRAnalyticsSelectionUnit {
@@ -193,24 +274,45 @@ interface AnalyticsDatePoint {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CLOSED_STATUSES = new Set(["done", "suspended", "removed"]);
-const TIMING_BUCKET_LABELS = [
-	"Overdue 7d+",
-	"Overdue 2-7d",
-	"Overdue <2d",
-	"Due today",
-	"1-3d",
-	"4-7d",
-	"8-14d",
-	"15-30d",
-	"30d+",
-	"Unscheduled",
-] as const;
+const STUDY_SESSION_MIN_DURATION_SECONDS = 60;
+const HEATMAP_LOOKBACK_DAYS = 365;
+const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"] as const;
+
+export const IR_TIMING_BUCKET_LABELS: Record<IRAnalyticsTimingBucketKey, string> = {
+	overdue_7_plus: "逾期 7 天以上",
+	overdue_2_7: "逾期 2-7 天",
+	overdue_lt_2: "逾期 2 天内",
+	due_today: "今日到期",
+	next_1_3: "1-3 天内",
+	next_4_7: "4-7 天内",
+	next_8_14: "8-14 天",
+	next_15_30: "15-30 天",
+	next_30_plus: "30 天以上",
+	unscheduled: "未安排",
+};
+
+const TIMING_BUCKET_KEYS = [
+	"overdue_7_plus",
+	"overdue_2_7",
+	"overdue_lt_2",
+	"due_today",
+	"next_1_3",
+	"next_4_7",
+	"next_8_14",
+	"next_15_30",
+	"next_30_plus",
+	"unscheduled",
+] as const satisfies readonly IRAnalyticsTimingBucketKey[];
 
 function formatDateKeyFromMs(ms: number): string {
 	const date = new Date(ms);
 	return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
 		date.getDate()
 	).padStart(2, "0")}`;
+}
+
+function formatDateKeyFromDate(date: Date): string {
+	return formatDateKeyFromMs(date.getTime());
 }
 
 function buildRecentDatePoints(days: number): AnalyticsDatePoint[] {
@@ -228,6 +330,27 @@ function buildRecentDatePoints(days: number): AnalyticsDatePoint[] {
 			label: `${date.getMonth() + 1}/${date.getDate()}`,
 			startMs: start,
 			endMs: end,
+		});
+	}
+
+	return points;
+}
+
+function buildUpcomingForecastPoints(days: number): IRAnalyticsForecastPoint[] {
+	const safeDays = Math.max(1, days);
+	const start = new Date();
+	start.setHours(0, 0, 0, 0);
+	const points: IRAnalyticsForecastPoint[] = [];
+
+	for (let i = 0; i < safeDays; i++) {
+		const current = new Date(start.getTime() + i * DAY_MS);
+		const dateKey = formatDateKeyFromDate(current);
+		points.push({
+			dateKey,
+			label: toShortDateLabel(dateKey),
+			itemCount: 0,
+			totalEstimatedMinutes: 0,
+			overloadLevel: "normal",
 		});
 	}
 
@@ -326,6 +449,22 @@ function calculateActionScore(unit: IRAnalyticsUnit, readingHours: number, nowMs
 
 function normalizeSelectionKey(value: string): string {
 	return String(value || "").trim().toLowerCase();
+}
+
+function normalizeIdentifiers(values: Array<string | null | undefined>): string[] {
+	return Array.from(
+		new Set(values.map((value) => normalizeSelectionKey(String(value || ""))).filter(Boolean))
+	);
+}
+
+function getStudySessionDeckIdentifiers(session: Partial<IRStudySession> | null | undefined): string[] {
+	return Array.from(
+		new Set(
+			[session?.topicId, session?.deckId]
+				.map((value) => normalizeSelectionKey(String(value || "")))
+				.filter(Boolean)
+		)
+	);
 }
 
 function isSystemAnalyticsTag(tagKey: string): boolean {
@@ -478,6 +617,65 @@ export class IRAnalyticsService {
 		await this.monitoringService.load();
 	}
 
+	async getAvailableDecks(): Promise<IRDeck[]> {
+		await this.initialize();
+		return Object.values(await this.storage.getAllDecks());
+	}
+
+	async getLoadForecastSnapshot(options?: {
+		deckIds?: string[];
+		days?: number;
+	}): Promise<IRLoadForecastSnapshot> {
+		await this.initialize();
+
+		const days = Math.max(1, Math.round(options?.days ?? 30));
+		const dailyBudgetMinutes = this.getDailyReadingBudgetMinutes();
+		const hasExplicitDeckFilter = Array.isArray(options?.deckIds);
+		const normalizedDeckIds = normalizeIdentifiers(options?.deckIds || []);
+
+		if (hasExplicitDeckFilter && normalizedDeckIds.length === 0) {
+			return {
+				days,
+				dailyBudgetMinutes,
+				forecast: buildUpcomingForecastPoints(days),
+			};
+		}
+
+		const [decks, blocksMap, history] = await Promise.all([
+			this.storage.getAllDecks(),
+			this.storage.getAllBlocks(),
+			this.storage.getHistory(),
+		]);
+		const projectedSummary = await getProjectedScheduleSummary(this.app, {
+			deckIds: normalizedDeckIds.length > 0 ? normalizedDeckIds : undefined,
+			horizonDays: days,
+			seedData: {
+				decksRecord: decks,
+				blocksRecord: blocksMap,
+				history,
+			},
+		});
+
+		return {
+			days,
+			dailyBudgetMinutes,
+			forecast: buildAnalyticsForecastFromProjectedSummary(projectedSummary, new Set()),
+		};
+	}
+
+	async getStudySessionSnapshot(options?: {
+		deckIds?: string[];
+	}): Promise<IRStudySessionSnapshot> {
+		await this.initialize();
+
+		const sessions = await this.getFilteredStudySessions(options?.deckIds);
+		return {
+			sessions,
+			scatter: this.buildStudySessionScatterSnapshot(sessions),
+			heatmap: this.buildActivityHeatmapSnapshot(sessions),
+		};
+	}
+
 	async getSnapshot(options?: {
 		mode?: IRAnalyticsMode;
 		selectionKey?: string;
@@ -610,6 +808,20 @@ export class IRAnalyticsService {
 			const sourceTitle = stripExtension(getPathBaseName(sourcePath));
 			const normalizedTags = normalizeAnalyticsTags(block.tags || []);
 			const migrated = migrateToIRBlockV4(block);
+			const legacyBlock = block as IRBlock & {
+				meta?: { associatedNotePaths?: string[] };
+				associatedNotePaths?: string[];
+			};
+			const associatedNotePaths = resolveAssociatedNotePaths({
+				associatedNotePath:
+					resolveAssociatedNotePath(legacyBlock as any) ||
+					resolveAssociatedNotePath((legacyBlock.meta || null) as any) ||
+					resolveAssociatedNotePath(material as any),
+				associatedNotePaths:
+					legacyBlock.associatedNotePaths ||
+					legacyBlock.meta?.associatedNotePaths ||
+					material?.associatedNotePaths,
+			});
 			units.push({
 				id: block.id,
 				title: sourceTitle,
@@ -628,7 +840,8 @@ export class IRAnalyticsService {
 				tagLabels: normalizedTags.map((tag) => tag.label),
 				sourceKind,
 				sourceDocumentKey,
-				associatedNotePath: resolveAssociatedNotePath(block as any) || material?.associatedNotePath,
+				associatedNotePath: associatedNotePaths[0],
+				associatedNotePaths,
 			});
 		}
 
@@ -644,6 +857,11 @@ export class IRAnalyticsService {
 			const sourceTitle = sourceMeta?.title || stripExtension(getPathBaseName(sourcePath));
 			const topicKeys = this.extractChunkTopicKeys(chunk);
 			const normalizedTags = normalizeAnalyticsTags((chunk as { tags?: string[] }).tags || []);
+			const associatedNotePaths = resolveAssociatedNotePaths({
+				associatedNotePath:
+					resolveAssociatedNotePath((chunk.meta || null) as any) || resolveAssociatedNotePath(material as any),
+				associatedNotePaths: (chunk.meta as { associatedNotePaths?: string[] } | null)?.associatedNotePaths || material?.associatedNotePaths,
+			});
 			units.push({
 				id: chunk.chunkId,
 				title: sourceTitle,
@@ -662,7 +880,8 @@ export class IRAnalyticsService {
 				tagLabels: normalizedTags.map((tag) => tag.label),
 				sourceKind,
 				sourceDocumentKey,
-				associatedNotePath: material?.associatedNotePath,
+				associatedNotePath: associatedNotePaths[0],
+				associatedNotePaths,
 			});
 		}
 
@@ -673,6 +892,10 @@ export class IRAnalyticsService {
 			if (!sourceDocumentKey) {
 				continue;
 			}
+			const associatedNotePaths = resolveAssociatedNotePaths({
+				associatedNotePath: resolveAssociatedNotePath((task.meta || null) as any),
+				associatedNotePaths: task.meta?.associatedNotePaths,
+			});
 			units.push({
 				id: task.id,
 				title: task.title || stripExtension(getPathBaseName(task.pdfPath)),
@@ -692,7 +915,8 @@ export class IRAnalyticsService {
 				sourceKind,
 				sourceDocumentKey,
 				sourceSubunitKey: normalizeTraceSubunitKey(task.link) || undefined,
-				associatedNotePath: task.meta?.associatedNotePath,
+				associatedNotePath: associatedNotePaths[0],
+				associatedNotePaths,
 			});
 		}
 
@@ -703,6 +927,10 @@ export class IRAnalyticsService {
 			if (!sourceDocumentKey) {
 				continue;
 			}
+			const associatedNotePaths = resolveAssociatedNotePaths({
+				associatedNotePath: resolveAssociatedNotePath((task.meta || null) as any),
+				associatedNotePaths: task.meta?.associatedNotePaths,
+			});
 			units.push({
 				id: task.id,
 				title: task.title || stripExtension(getPathBaseName(task.epubFilePath)),
@@ -722,7 +950,8 @@ export class IRAnalyticsService {
 				sourceKind,
 				sourceDocumentKey,
 				sourceSubunitKey: normalizeTraceSubunitKey(task.tocHref || task.id) || undefined,
-				associatedNotePath: task.meta?.associatedNotePath,
+				associatedNotePath: associatedNotePaths[0],
+				associatedNotePaths,
 			});
 		}
 
@@ -759,9 +988,7 @@ export class IRAnalyticsService {
 		}
 
 		for (const deck of Object.values(decksRecord || {})) {
-			const identifiers = [deck?.id, deck?.path]
-				.map((value) => normalizeSelectionKey(String(value || "")))
-				.filter(Boolean);
+			const identifiers = [deck?.id, deck?.path].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
 			const matchesBlockId = Array.isArray(deck?.blockIds) && deck.blockIds.includes(block.id);
 			const matchesDeckPath = normalizedDeckPath !== "" && identifiers.includes(normalizedDeckPath);
 			if (!matchesBlockId && !matchesDeckPath) {
@@ -814,6 +1041,7 @@ export class IRAnalyticsService {
 				sourceDocumentKey: unit.sourceDocumentKey,
 				sourceSubunitKey: unit.sourceSubunitKey,
 				associatedNotePath: unit.associatedNotePath,
+				associatedNotePaths: unit.associatedNotePaths,
 			})),
 			cards,
 			extractCardIds,
@@ -868,9 +1096,12 @@ export class IRAnalyticsService {
 				const documentMatches = matchesByDocument.get(documentKey) || [];
 				const docStats = this.summarizeCardMatches(documentMatches);
 				const notesWritten = new Set(
-					documentUnits
-						.map((unit) => unit.associatedNotePath?.trim())
-						.filter((value): value is string => !!value)
+					documentUnits.flatMap((unit) =>
+						resolveAssociatedNotePaths({
+							associatedNotePath: unit.associatedNotePath,
+							associatedNotePaths: unit.associatedNotePaths,
+						})
+					)
 				).size;
 				const itemCount = documentUnits.length;
 				const activeCount = documentUnits.filter((unit) => !isClosedStatus(unit.status)).length;
@@ -926,6 +1157,14 @@ export class IRAnalyticsService {
 				const childStats = this.summarizeCardMatches(childMatches);
 				mappedExtracts += childStats.extracts;
 				mappedCards += childStats.cardsCreated;
+				const notesWritten = new Set(
+					childUnits.flatMap((unit) =>
+						resolveAssociatedNotePaths({
+							associatedNotePath: unit.associatedNotePath,
+							associatedNotePaths: unit.associatedNotePaths,
+						})
+					)
+				).size;
 				return {
 					key: childKey,
 					label: childUnits[0]?.title || "未命名书签",
@@ -933,7 +1172,7 @@ export class IRAnalyticsService {
 					activeCount: childUnits.filter((unit) => !isClosedStatus(unit.status)).length,
 					extracts: childStats.extracts,
 					cardsCreated: childStats.cardsCreated,
-					notesWritten: 0,
+					notesWritten,
 				} satisfies IRAnalyticsSourceBreakdownChild;
 			})
 			.sort((a, b) => {
@@ -1038,6 +1277,243 @@ export class IRAnalyticsService {
 		}
 	}
 
+	private getPluginInstance(): any {
+		return (this.app as any)?.plugins?.getPlugin?.("weave");
+	}
+
+	private getDailyReadingBudgetMinutes(): number {
+		const plugin = this.getPluginInstance();
+		const configured = Number(plugin?.settings?.incrementalReading?.dailyTimeBudgetMinutes ?? 30);
+		return Number.isFinite(configured) && configured > 0 ? configured : 30;
+	}
+
+	private async getFilteredStudySessions(deckIds?: string[]): Promise<IRStudySession[]> {
+		const sessions = await this.storage.getStudySessions();
+		if (!Array.isArray(deckIds)) {
+			return sessions;
+		}
+
+		const requestedDeckIds = normalizeIdentifiers(deckIds);
+		if (requestedDeckIds.length === 0) {
+			return [];
+		}
+
+		const decks = Object.values(await this.storage.getAllDecks());
+		const allowedIdentifiers = new Set(requestedDeckIds);
+		for (const deck of decks) {
+			const identifiers = normalizeIdentifiers([deck.id, deck.path]);
+			if (!identifiers.some((identifier) => allowedIdentifiers.has(identifier))) {
+				continue;
+			}
+			for (const identifier of identifiers) {
+				allowedIdentifiers.add(identifier);
+			}
+		}
+
+		return sessions.filter((session) =>
+			getStudySessionDeckIdentifiers(session).some((identifier) =>
+				allowedIdentifiers.has(identifier)
+			)
+		);
+	}
+
+	private buildStudySessionScatterSnapshot(
+		sessions: IRStudySession[]
+	): IRStudySessionScatterSnapshot {
+		const validSessions = sessions.filter(
+			(session) => Number(session.confirmedDuration || 0) >= STUDY_SESSION_MIN_DURATION_SECONDS
+		);
+		const dateAxis = Array.from(
+			new Set(validSessions.map((session) => String(session.startTime || "").split("T")[0]))
+		).sort();
+		const dateViewData = validSessions.map((session) => {
+			const startDate = new Date(session.startTime);
+			const dateKey = String(session.startTime || "").split("T")[0];
+			const timeOfDay = startDate.getHours() + startDate.getMinutes() / 60;
+			return {
+				value: [
+					timeOfDay,
+					Math.max(0, dateAxis.indexOf(dateKey)),
+					Math.round(Number(session.confirmedDuration || 0) / 60),
+				],
+				session,
+			} satisfies IRStudySessionScatterPoint;
+		});
+		const weekdayViewData = validSessions.map((session) => {
+			const startDate = new Date(session.startTime);
+			const timeOfDay = startDate.getHours() + startDate.getMinutes() / 60;
+			return {
+				value: [
+					timeOfDay,
+					startDate.getDay(),
+					Math.round(Number(session.confirmedDuration || 0) / 60),
+				],
+				session,
+			} satisfies IRStudySessionScatterPoint;
+		});
+		const totalSeconds = validSessions.reduce(
+			(sum, session) => sum + Number(session.confirmedDuration || 0),
+			0
+		);
+
+		return {
+			minDurationSeconds: STUDY_SESSION_MIN_DURATION_SECONDS,
+			dateAxis,
+			weekdayAxis: [...WEEKDAY_LABELS],
+			dateViewData,
+			weekdayViewData,
+			maxDurationMinutes: Math.max(...dateViewData.map((point) => point.value[2]), 60),
+			summary: {
+				totalSessions: validSessions.length,
+				totalHours: round(totalSeconds / 3600, 1),
+				averageMinutes:
+					validSessions.length > 0
+						? Math.round(totalSeconds / validSessions.length / 60)
+						: 0,
+			},
+		};
+	}
+
+	private buildActivityHeatmapSnapshot(sessions: IRStudySession[]): IRActivityHeatmapSnapshot {
+		const dailyData = new Map<string, { blocks: number; duration: number }>();
+		for (const session of sessions) {
+			const dateKey = String(session.startTime || "").split("T")[0];
+			if (!dateKey) continue;
+			const current = dailyData.get(dateKey) || { blocks: 0, duration: 0 };
+			current.blocks += Number(session.blocksCompleted || 0);
+			current.duration += Number(session.confirmedDuration || 0);
+			dailyData.set(dateKey, current);
+		}
+
+		const allMinutes = Array.from(dailyData.values()).map((item) =>
+			Math.round(item.duration / 60)
+		);
+		const maxMinutes = Math.max(...allMinutes, 30);
+		const endDate = new Date();
+		endDate.setHours(0, 0, 0, 0);
+		const startDate = new Date(endDate);
+		startDate.setDate(startDate.getDate() - HEATMAP_LOOKBACK_DAYS);
+		startDate.setHours(0, 0, 0, 0);
+		startDate.setDate(startDate.getDate() - startDate.getDay());
+
+		const weeks: IRActivityHeatmapWeek[] = [];
+		const monthLabels: IRActivityHeatmapMonthLabel[] = [];
+		let currentWeek: IRActivityHeatmapDay[] = [];
+		let weekIndex = 0;
+		const cursor = new Date(startDate);
+
+		while (cursor <= endDate) {
+			if (cursor.getDay() === 0 && currentWeek.length > 0) {
+				weeks.push({ days: currentWeek });
+				currentWeek = [];
+				weekIndex++;
+			}
+
+			if (cursor.getDay() === 0 && cursor.getDate() <= 7) {
+				const monthName = cursor.toLocaleString("zh-CN", { month: "short" });
+				if (
+					!monthLabels.some(
+						(label) => label.name === monthName && Math.abs(label.position - weekIndex) < 4
+					)
+				) {
+					monthLabels.push({ name: monthName, position: weekIndex });
+				}
+			}
+
+			const dateKey = formatDateKeyFromDate(cursor);
+			const data = dailyData.get(dateKey) || { blocks: 0, duration: 0 };
+			const minutes = Math.round(data.duration / 60);
+			currentWeek.push({
+				date: dateKey,
+				blocks: data.blocks,
+				duration: minutes,
+				level: this.getHeatmapLevel(minutes, maxMinutes),
+			});
+			cursor.setDate(cursor.getDate() + 1);
+		}
+
+		if (currentWeek.length > 0) {
+			while (currentWeek.length < 7) {
+				currentWeek.push({
+					date: "",
+					blocks: 0,
+					duration: 0,
+					level: 0,
+					isPlaceholder: true,
+				});
+			}
+			weeks.push({ days: currentWeek });
+		}
+
+		const activeDates = Array.from(dailyData.keys()).sort();
+		const totalBlocks = sessions.reduce(
+			(sum, session) => sum + Number(session.blocksCompleted || 0),
+			0
+		);
+		const totalMinutes = Math.round(
+			sessions.reduce((sum, session) => sum + Number(session.confirmedDuration || 0), 0) / 60
+		);
+		const totalDays = activeDates.length;
+
+		return {
+			weeks,
+			monthLabels,
+			maxMinutes,
+			summary: {
+				totalBlocks,
+				totalMinutes,
+				totalDays,
+				avgBlocksPerDay: totalDays > 0 ? round(totalBlocks / totalDays, 1) : 0,
+				currentStreak: this.getCurrentSessionStreak(new Set(activeDates)),
+				maxStreak: this.getMaxSessionStreak(activeDates),
+			},
+		};
+	}
+
+	private getHeatmapLevel(minutes: number, maxMinutes: number): number {
+		if (minutes <= 0 || maxMinutes <= 0) return 0;
+		const quart = maxMinutes / 4;
+		if (minutes <= quart) return 1;
+		if (minutes <= quart * 2) return 2;
+		if (minutes <= quart * 3) return 3;
+		return 4;
+	}
+
+	private getCurrentSessionStreak(activeDates: Set<string>): number {
+		let streak = 0;
+		const cursor = new Date();
+		cursor.setHours(0, 0, 0, 0);
+
+		while (activeDates.has(formatDateKeyFromDate(cursor))) {
+			streak += 1;
+			cursor.setDate(cursor.getDate() - 1);
+		}
+
+		return streak;
+	}
+
+	private getMaxSessionStreak(activeDates: string[]): number {
+		if (!activeDates.length) {
+			return 0;
+		}
+
+		let maxStreak = 1;
+		let currentStreak = 1;
+		for (let index = 1; index < activeDates.length; index++) {
+			const previous = new Date(activeDates[index - 1]);
+			const current = new Date(activeDates[index]);
+			const diffDays = Math.round((current.getTime() - previous.getTime()) / DAY_MS);
+			if (diffDays === 1) {
+				currentStreak += 1;
+			} else {
+				currentStreak = 1;
+			}
+			maxStreak = Math.max(maxStreak, currentStreak);
+		}
+
+		return maxStreak;
+	}
+
 	private buildActivityTrend(units: IRAnalyticsUnit[], days: number): IRAnalyticsActivityPoint[] {
 		const datePoints = buildRecentDatePoints(days);
 		return datePoints.map((point) => ({
@@ -1075,7 +1551,11 @@ export class IRAnalyticsService {
 		const now = new Date();
 		now.setHours(0, 0, 0, 0);
 		const todayStart = now.getTime();
-		const buckets = TIMING_BUCKET_LABELS.map((label) => ({ label, count: 0 }));
+		const buckets = TIMING_BUCKET_KEYS.map((key) => ({
+			key,
+			label: IR_TIMING_BUCKET_LABELS[key],
+			count: 0,
+		}));
 
 		for (const unit of activeUnits) {
 			if (unit.nextRepDate <= 0) {

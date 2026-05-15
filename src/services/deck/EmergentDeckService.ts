@@ -244,7 +244,9 @@ export class EmergentDeckService {
 
 		for (const card of cards) {
 			const cardTags = new Set(allTagsByCardUUID.get(card.uuid) || []);
-			const explicitFormalDeckIds = getCardDeckIds(card, deckLookups).deckIds;
+			const explicitFormalDeckIds = getCardDeckIds(card, deckLookups, {
+				fallbackToReferences: false,
+			}).deckIds;
 			const matchedEmergentDeckIds: string[] = [];
 			formalDeckIdsByCardUUID[card.uuid] = explicitFormalDeckIds;
 
@@ -326,7 +328,8 @@ export class EmergentDeckService {
 	): string[] {
 		const legacy = getCardDeckIds(
 			card,
-			decks.map((deck) => ({ id: deck.id, name: deck.name, purpose: deck.purpose }))
+			decks.map((deck) => ({ id: deck.id, name: deck.name, purpose: deck.purpose })),
+			{ fallbackToReferences: false }
 		);
 		const formalDeckIds = runtime?.formalDeckIdsByCardUUID[card.uuid] || [];
 		const emergentDeckIds = runtime?.emergentDeckIdsByCardUUID[card.uuid] || [];
@@ -347,7 +350,8 @@ export class EmergentDeckService {
 
 		return getCardDeckIds(
 			card,
-			decks.map((deck) => ({ id: deck.id, name: deck.name, purpose: deck.purpose }))
+			decks.map((deck) => ({ id: deck.id, name: deck.name, purpose: deck.purpose })),
+			{ fallbackToReferences: false }
 		).primaryDeckId;
 	}
 

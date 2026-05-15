@@ -1,6 +1,6 @@
 <script lang="ts">
   /** IR calendar sidebar state and interactions. */
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { Menu, Notice, Platform, TFile, normalizePath } from 'obsidian';
   import { mount, unmount } from 'svelte';
   import type AnkiObsidianPlugin from '../../main';
@@ -12,15 +12,18 @@
   import { IRPdfBookmarkTaskService, isPdfBookmarkTaskId } from '../../services/incremental-reading/IRPdfBookmarkTaskService';
   import { IREpubBookmarkTaskService, isEpubBookmarkTaskId } from '../../services/incremental-reading/IREpubBookmarkTaskService';
   import { EpubStorageService } from '../../services/epub/EpubStorageService';
-  import { IRPointWriteService } from '../../services/incremental-reading/IRPointWriteService';
+  import { EPUB_RUNTIME } from '../../services/epub';
+  import { IRPointWriteService, type IRPointWriteTarget } from '../../services/incremental-reading/IRPointWriteService';
   import { IRPointTagService, normalizeReadingPointTags } from '../../services/incremental-reading/IRPointTagService';
   import { IRV4SchedulerService } from '../../services/incremental-reading/IRV4SchedulerService';
-  import { IRScheduleKernel, getSharedIRScheduleKernel, type IRScheduleExplanation } from '../../services/incremental-reading/IRScheduleKernel';
+  import { getSharedIRCalendarQueryService } from '../../services/incremental-reading/IRCalendarQueryService';
   import {
-    buildProjectedDayLoadMap,
-    getProjectedScheduleSummary,
-    type IRProjectedScheduleItem
-  } from '../../services/incremental-reading/IRProjectedScheduleSummary';
+    buildScheduleItemFromChunkData,
+    buildScheduleItemFromEpubTask,
+    buildScheduleItemFromLegacyBlock,
+    buildScheduleItemFromPdfTask,
+    type ScheduleItem
+  } from '../../services/incremental-reading/IRCalendarScheduleItem';
   import {
     recomputeAndBroadcastIRData,
     type UpdatedEventDetail
@@ -34,9 +37,15 @@
   import { MaterialImportModalObsidian } from './MaterialImportModalObsidian';
   import AddReadingPointModal from './AddReadingPointModal.svelte';
   import { IRAnalyticsModalObsidian } from './IRAnalyticsModalObsidian';
+  import {
+    IRContinueReadingSuggestionsModalObsidian,
+    type IRContinueReadingSuggestionModalItem,
+    type IRContinueReadingSuggestionsModalObsidianOptions
+  } from './IRContinueReadingSuggestionsModalObsidian';
   import IRBlockInfoModal from './IRBlockInfoModal.svelte';
   import IRReviewReminderModal from './IRReviewReminderModal.svelte';
   import { MarkdownFileSuggestModal } from '../../modals/MarkdownFileSuggestModal';
+  import { VaultFileSuggestModal } from '../../modals/VaultFileSuggestModal';
   import {
     createAssociatedMarkdownNote,
     getAssociatedMarkdownLabel,
@@ -52,21 +61,37 @@
     hasVisibleAssociatedNote
   } from '../../services/incremental-reading/IRAssociatedNoteVisibility';
   import type { BatchImportResult } from '../../services/incremental-reading/ReadingMaterialManager';
-  import { getChunkTopicIds, getTaskTopicId } from '../../utils/ir-topic-compat';
+  import { findOpenEpubLeaf } from '../../utils/epub-leaf-utils';
   import { logger } from '../../utils/logger';
-  import { tr } from '../../utils/i18n';
-  import { showDeleteConfirm, showObsidianInput } from '../../utils/obsidian-confirm';
-  import { VIEW_TYPE_EPUB } from '../../views/EpubView';
+  import { currentLanguage, tr } from '../../utils/i18n';
+  import { getChunkTopicIds, getTaskTopicId } from '../../utils/ir-topic-compat';
+  import { showObsidianConfirm, showObsidianInput } from '../../utils/obsidian-confirm';
+  import { showMissingSourceDocumentModal } from './MissingSourceDocumentModal';
   import { IRMonitoringService } from '../../services/incremental-reading/IRMonitoringService';
+  import { SourceNavigationService } from '../../services/ui/SourceNavigationService';
+  import {
+    getCanvasNodeIdFromSourceLink,
+    getCanvasSourceNodeRectFromSourceLink
+  } from '../../services/ui/canvas-source-locate';
   import type { IRCalendarSidebarSettings } from '../../types/plugin-settings.d';
+  import type { Deck } from '../../data/types';
+  import type { IRCalendarMaterialListProps } from './ir-calendar-sidebar-types';
   import {
     getIRCalendarTimerRuntimeState,
     setIRCalendarTimerRuntimeState,
     type IRCalendarActiveReadingTimerState
   } from '../../stores/ir-calendar-timer-store';
+  import CardSearchInput from '../search/CardSearchInput.svelte';
+  import { parseSearchQuery, type SearchQuery } from '../../utils/search-parser';
+  import { buildMonthCalendarDays, IR_CALENDAR_WEEKDAY_KEYS } from './ir-calendar-date';
+  import IRCalendarMaterialList from './IRCalendarMaterialList.svelte';
+  import { populateCalendarBackgroundWallMenu } from './ir-calendar-tools-menu';
 
   interface Props {
     plugin: AnkiObsidianPlugin;
+    initialDeckId?: string;
+    initialDeckName?: string;
+    sourceFilePath?: string;
   }
 
   interface IRMaterialFinishedEventDetail {
@@ -77,12 +102,29 @@
     autoStartNextTimer?: boolean;
   }
 
+  const DEFAULT_CALENDAR_BACKGROUND_WALL_FADE_PERCENT = 72;
+
   const DEFAULT_CALENDAR_SIDEBAR_SETTINGS: Required<IRCalendarSidebarSettings> = {
     continuousReadingEnabled: false,
     autoStartNextTimerEnabled: false,
     showSchedulingPreview: false,
-    showMaterialTimers: true
+    calendarViewMode: 'full',
+    showMaterialTimers: true,
+    backgroundWall: {
+      imagePath: '',
+      fadePercent: DEFAULT_CALENDAR_BACKGROUND_WALL_FADE_PERCENT
+    }
   };
+  const CALENDAR_BACKGROUND_WALL_IMAGE_EXTENSIONS = new Set([
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+    'gif',
+    'svg',
+    'bmp',
+    'avif'
+  ]);
 
   function closeBlockInfoModal() {
     try {
@@ -116,14 +158,37 @@
     reminderModalContainer = null;
   }
 
-  let { plugin }: Props = $props();
+  let {
+    plugin,
+    initialDeckId = '',
+    initialDeckName = '',
+    sourceFilePath = ''
+  }: Props = $props();
   let t = $derived($tr);
+  const isChineseUi = $derived($currentLanguage === 'zh-CN');
+
+  function uiText(zh: string, en: string): string {
+    return isChineseUi ? zh : en;
+  }
 
 
   let currentDate = $state(new Date());
   let selectedDate = $state(new Date());
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const DAY_IN_MS = 24 * 60 * 60 * 1000;
+  const SUSPENDED_READING_POINT_TAG_KEYS = new Set([
+    '搁置',
+    '已搁置',
+    '暂停',
+    '已暂停',
+    '挂起',
+    '已挂起',
+    'suspend',
+    'suspended',
+    'archive',
+    'archived'
+  ]);
 
 
   let irDecks = $state<IRDeck[]>([]);
@@ -135,6 +200,7 @@
 
   let materialsByDate = $state<Map<string, ScheduleItem[]>>(new Map());
   let pinnedByDate = $state<Map<string, ScheduleItem[]>>(new Map());
+  let continueReadingSuspendedItemsPool = $state<ScheduleItem[]>([]);
   let processedChunkIds = $state(new Set<string>());
   let calendarProgressByDate = $state<Record<string, string[]>>({});
   let irStorage = $state<IRStorageService | null>(null);
@@ -143,9 +209,17 @@
   let epubBookmarkTaskService = $state<IREpubBookmarkTaskService | null>(null);
   let epubStorageService = $state<EpubStorageService | null>(null);
   let pointTagService = $state<IRPointTagService | null>(null);
+  let pointWriteService = $state<IRPointWriteService | null>(null);
   let readingPointTagsById = $state<Record<string, string[]>>({});
   let activeReadingTagFilter = $state('');
-  let scheduleKernel = $state<IRScheduleKernel | null>(null);
+  let showSearchPanel = $state(false);
+  let calendarBackgroundWallImagePath = $state('');
+  let calendarBackgroundWallImageUrl = $state('');
+  let calendarBackgroundWallFadePercent = $state<number>(DEFAULT_CALENDAR_BACKGROUND_WALL_FADE_PERCENT);
+  let searchQuery = $state('');
+  let parsedSearchQuery = $state<SearchQuery | null>(null);
+  let continueReadingActionIds = $state(new Set<string>());
+  let continueReadingResolvedTitleById = $state<Record<string, string>>({});
   let monitoringService = $state<IRMonitoringService | null>(null);
   let v4SchedulerService = $state<IRV4SchedulerService | null>(null);
 
@@ -185,6 +259,13 @@
 
   let importModalInstance: MaterialImportModalObsidian | null = null;
   let analyticsModalInstance: IRAnalyticsModalObsidian | null = null;
+  let continueReadingSuggestionsModalInstance: IRContinueReadingSuggestionsModalObsidian | null = null;
+  let continueReadingSuggestionsModalOpenSignature = $state('');
+  let continueReadingSuggestionsModalDismissedSignature = $state('');
+  let continueReadingSuggestionsModalCloseReason = $state<'dismiss' | 'action' | 'refresh'>('dismiss');
+  let calendarSidebarEl = $state<HTMLDivElement | null>(null);
+  let continueReadingTriggerEl = $state<HTMLButtonElement | null>(null);
+  let calendarToolsTriggerEl = $state<HTMLButtonElement | null>(null);
 
 
   let showAddReadingPointModal = $state(false);
@@ -192,12 +273,10 @@
   let arpPdfPath = $state('');
   let arpParentTitle = $state('');
 
-
   let continuousReadingEnabled = $state(false);
 
-  let autoStartNextTimerEnabled = $state(false);
-
   let showSchedulingPreview = $state(false);
+  let calendarViewMode = $state<'full' | 'two-row'>('full');
   let expandedMaterialIds = $state(new Set<string>());
   let siblingCache = $state(new Map<string, ScheduleItem[]>());
   let loadingSiblings = $state(new Set<string>());
@@ -208,7 +287,6 @@
   let timerNowMs = $state(Date.now());
   let timerTickIntervalId = $state<number | null>(null);
   let timerBusyBlockId = $state<string | null>(null);
-  let autoTimerChainBlockId = $state<string | null>(null);
   let loadDataRequestId = 0;
   let loadDataInFlight: Promise<void> | null = null;
   let loadDataQueued = false;
@@ -220,6 +298,10 @@
 
   function getWorkspaceSnapshotService() {
     return getSharedIRWorkspaceSnapshotService(plugin.app);
+  }
+
+  function getCalendarQueryService() {
+    return getSharedIRCalendarQueryService(plugin.app);
   }
 
   async function getWorkspaceChunkById(chunkId: string): Promise<any | null> {
@@ -279,8 +361,7 @@
 
   function syncTimerRuntimeState(): void {
     setIRCalendarTimerRuntimeState({
-      activeReadingTimer: activeReadingTimer ? { ...activeReadingTimer } : null,
-      autoTimerChainBlockId
+      activeReadingTimer: activeReadingTimer ? { ...activeReadingTimer } : null
     });
   }
 
@@ -289,7 +370,6 @@
     activeReadingTimer = runtimeState.activeReadingTimer
       ? { ...runtimeState.activeReadingTimer }
       : null;
-    autoTimerChainBlockId = runtimeState.autoTimerChainBlockId;
     timerNowMs = Date.now();
 
     if (activeReadingTimer) {
@@ -299,81 +379,63 @@
     }
   }
 
-  function clearAutoTimerChain(): void {
-    autoTimerChainBlockId = null;
-    syncTimerRuntimeState();
-  }
-
-  function armAutoTimerChain(blockId: string): void {
-    autoTimerChainBlockId = blockId;
-    syncTimerRuntimeState();
-  }
-
-  function shouldContinueAutoTimerChainForBlock(blockId: string): boolean {
-    return autoTimerChainBlockId === blockId || activeReadingTimer?.blockId === blockId;
-  }
-
-  function shouldAutoStartNextTimerAfterScheduling(blockId: string): boolean {
-    if (!autoStartNextTimerEnabled) return false;
-
-
-    if (!activeReadingTimer) return true;
-    return activeReadingTimer.blockId === blockId;
-  }
-
-  function waitForMs(ms: number): Promise<void> {
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
-  }
-
-  async function startReadingTimerWithRetry(
-    material: ScheduleItem,
-    options: { announceStart?: boolean; retries?: number } = {}
-  ): Promise<boolean> {
-    const retries = options.retries ?? 3;
-    const delays = [0, 120, 280, 500];
-
-    for (let attempt = 0; attempt < retries; attempt++) {
-      const delay = delays[Math.min(attempt, delays.length - 1)] ?? 0;
-      if (delay > 0) {
-        await waitForMs(delay);
-      }
-
-      if (activeReadingTimer?.blockId === material.id) {
-        return true;
-      }
-
-      if (timerBusyBlockId) {
-        continue;
-      }
-
-      await toggleReadingTimer(material, { announceStart: options.announceStart });
-
-      if (activeReadingTimer?.blockId === material.id) {
-        return true;
-      }
+  async function removeLocalMaterialReferences(materialId: string): Promise<void> {
+    const normalizedId = String(materialId || '').trim();
+    if (!normalizedId) {
+      return;
     }
 
-    logger.warn('[IRCalendarSidebar] Failed to start reading timer after retries', {
-      blockId: material.id,
-      autoTimerChainBlockId,
-      activeReadingTimerBlockId: activeReadingTimer?.blockId ?? null
-    });
-    return activeReadingTimer?.blockId === material.id;
+    const filterMapItems = (input: Map<string, ScheduleItem[]>): Map<string, ScheduleItem[]> => {
+      const next = new Map<string, ScheduleItem[]>();
+      for (const [dateKey, items] of input.entries()) {
+        const filtered = items.filter((item) => item.id !== normalizedId);
+        if (filtered.length > 0) {
+          next.set(dateKey, filtered);
+        }
+      }
+      return next;
+    };
+
+    materialsByDate = filterMapItems(materialsByDate);
+    pinnedByDate = filterMapItems(pinnedByDate);
+    siblingCache = filterMapItems(siblingCache);
+
+    processedChunkIds = new Set(Array.from(processedChunkIds).filter((id) => id !== normalizedId));
+
+    const nextCalendarProgress: Record<string, string[]> = {};
+    for (const [dateKey, ids] of Object.entries(calendarProgressByDate)) {
+      const filtered = ids.filter((id) => id !== normalizedId);
+      if (filtered.length > 0) {
+        nextCalendarProgress[dateKey] = filtered;
+      }
+    }
+    calendarProgressByDate = nextCalendarProgress;
+
+    const storage = await getStorage();
+    await storage.removeCalendarCompletion(normalizedId);
   }
 
   function getCalendarSidebarSettings(): Required<IRCalendarSidebarSettings> {
-    const raw = plugin.settings?.incrementalReading?.calendarSidebar;
+    const raw = typeof plugin.getIRCalendarSidebarSettings === 'function'
+      ? plugin.getIRCalendarSidebarSettings()
+      : plugin.settings?.incrementalReading?.calendarSidebar;
     return {
       ...DEFAULT_CALENDAR_SIDEBAR_SETTINGS,
-      ...(raw || {})
+      ...(raw || {}),
+      backgroundWall: {
+        ...DEFAULT_CALENDAR_SIDEBAR_SETTINGS.backgroundWall,
+        ...(raw?.backgroundWall || {})
+      }
     };
   }
 
   function applyCalendarSidebarSettingsFromPlugin(): void {
     const settings = getCalendarSidebarSettings();
     continuousReadingEnabled = settings.continuousReadingEnabled;
-    autoStartNextTimerEnabled = settings.autoStartNextTimerEnabled;
     showSchedulingPreview = settings.showSchedulingPreview;
+    calendarViewMode = settings.calendarViewMode;
+    updateCalendarBackgroundWallState(settings.backgroundWall?.imagePath || '');
+    calendarBackgroundWallFadePercent = normalizeCalendarBackgroundWallFadePercent(settings.backgroundWall?.fadePercent);
 
     if (!continuousReadingEnabled) {
       expandedMaterialIds = new Set();
@@ -381,15 +443,27 @@
   }
 
   async function saveCalendarSidebarSettings(patch: Partial<IRCalendarSidebarSettings>): Promise<void> {
+    const currentSettings = getCalendarSidebarSettings();
+
+    const nextSettings: IRCalendarSidebarSettings = {
+      ...currentSettings,
+      ...patch,
+      backgroundWall: {
+        ...(currentSettings.backgroundWall || {}),
+        ...(patch.backgroundWall || {})
+      }
+    };
+
+    if (typeof plugin.saveIRCalendarSidebarSettings === 'function') {
+      await plugin.saveIRCalendarSidebarSettings(nextSettings);
+      return;
+    }
+
     if (!plugin.settings.incrementalReading) {
       plugin.settings.incrementalReading = {};
     }
 
-    plugin.settings.incrementalReading.calendarSidebar = {
-      ...getCalendarSidebarSettings(),
-      ...patch
-    };
-
+    plugin.settings.incrementalReading.calendarSidebar = nextSettings;
     await plugin.saveSettings();
   }
 
@@ -403,18 +477,68 @@
       await saveCalendarSidebarSettings({ continuousReadingEnabled: enabled });
     } catch (error) {
       logger.warn('[IRCalendarSidebar] Failed to save sidebar settings:', error);
-      new Notice('Failed to save sidebar settings');
+      new Notice(t('irSidebar.notices.settingsSaveFailed'));
     }
   }
 
-  async function setAutoStartNextTimerEnabled(enabled: boolean): Promise<void> {
-    autoStartNextTimerEnabled = enabled;
+  async function setCalendarBackgroundWallFadePercent(fadePercent: number): Promise<void> {
+    const nextFadePercent = normalizeCalendarBackgroundWallFadePercent(fadePercent);
+    const previousFadePercent = calendarBackgroundWallFadePercent;
+    calendarBackgroundWallFadePercent = nextFadePercent;
 
     try {
-      await saveCalendarSidebarSettings({ autoStartNextTimerEnabled: enabled });
+      await saveCalendarSidebarSettings({
+        backgroundWall: {
+          fadePercent: nextFadePercent
+        }
+      });
+      new Notice(t('irSidebar.notices.backgroundWallFadeSet'));
     } catch (error) {
-      logger.warn('[IRCalendarSidebar] Failed to save auto-start setting:', error);
-      new Notice('Failed to save auto-start setting');
+      logger.warn('[IRCalendarSidebar] Failed to save calendar background wall fade percent:', error);
+      calendarBackgroundWallFadePercent = previousFadePercent;
+      new Notice(t('irSidebar.notices.settingsSaveFailed'));
+    }
+  }
+
+  async function promptCalendarBackgroundWallFadePercent(): Promise<void> {
+    const input = await showObsidianInput(
+      plugin.app,
+      t('irSidebar.header.backgroundWallFadePrompt'),
+      String(calendarBackgroundWallFadePercent),
+      {
+        title: t('irSidebar.header.backgroundWallFadeTitle'),
+        placeholder: t('irSidebar.header.backgroundWallFadePlaceholder'),
+        confirmText: t('irSidebar.header.backgroundWallFadeSet', { value: Number(calendarBackgroundWallFadePercent) })
+      }
+    );
+
+    if (input === null) {
+      return;
+    }
+
+    const trimmed = String(input || '').trim();
+    if (!/^\d+$/.test(trimmed)) {
+      new Notice(t('irSidebar.notices.backgroundWallFadeInvalid'));
+      return;
+    }
+
+    const value = Number(trimmed);
+    if (!Number.isInteger(value) || value < 0 || value > 100) {
+      new Notice(t('irSidebar.notices.backgroundWallFadeInvalid'));
+      return;
+    }
+
+    await setCalendarBackgroundWallFadePercent(value);
+  }
+
+  async function setCalendarViewMode(nextMode: 'full' | 'two-row'): Promise<void> {
+    calendarViewMode = nextMode;
+
+    try {
+      await saveCalendarSidebarSettings({ calendarViewMode: nextMode });
+    } catch (error) {
+      logger.warn('[IRCalendarSidebar] Failed to save calendar view mode:', error);
+      new Notice(t('irSidebar.notices.settingsSaveFailed'));
     }
   }
 
@@ -425,17 +549,667 @@
       await saveCalendarSidebarSettings({ showSchedulingPreview: enabled });
     } catch (error) {
       logger.warn('[IRCalendarSidebar] Failed to save preview setting:', error);
-      new Notice('Failed to save preview setting');
+      new Notice(t('irSidebar.notices.settingsSaveFailed'));
     }
   }
 
+  function isCalendarBackgroundWallImageFile(file: TFile | null | undefined): file is TFile {
+    if (!(file instanceof TFile)) {
+      return false;
+    }
+    return CALENDAR_BACKGROUND_WALL_IMAGE_EXTENSIONS.has(String(file.extension || '').toLowerCase());
+  }
+
+  function normalizeCalendarBackgroundWallFadePercent(value: unknown): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return DEFAULT_CALENDAR_BACKGROUND_WALL_FADE_PERCENT;
+    }
+    return Math.max(0, Math.min(100, Math.round(parsed)));
+  }
+
+  function getCalendarBackgroundWallImageFiles(): TFile[] {
+    return plugin.app.vault
+      .getFiles()
+      .filter((file) => isCalendarBackgroundWallImageFile(file))
+      .sort((left, right) => {
+        const timeDelta = Number(right.stat?.mtime || 0) - Number(left.stat?.mtime || 0);
+        if (timeDelta !== 0) {
+          return timeDelta;
+        }
+        return left.path.localeCompare(right.path, 'zh-CN');
+      });
+  }
+
+  function resolveCalendarBackgroundWallImageUrl(imagePath: string): string {
+    const normalizedPath = normalizePath(String(imagePath || '').trim());
+    if (!normalizedPath) {
+      return '';
+    }
+
+    const abstractFile = plugin.app.vault.getAbstractFileByPath(normalizedPath);
+    const file = abstractFile instanceof TFile ? abstractFile : null;
+    if (!isCalendarBackgroundWallImageFile(file)) {
+      return '';
+    }
+
+    try {
+      return plugin.app.vault.getResourcePath(file);
+    } catch (error) {
+      logger.warn('[IRCalendarSidebar] Failed to resolve calendar background wall image URL:', error);
+      return '';
+    }
+  }
+
+  function updateCalendarBackgroundWallState(imagePath: string): void {
+    calendarBackgroundWallImagePath = normalizePath(String(imagePath || '').trim());
+    calendarBackgroundWallImageUrl = resolveCalendarBackgroundWallImageUrl(calendarBackgroundWallImagePath);
+  }
+
+  async function chooseCalendarBackgroundWallImage(): Promise<void> {
+    const picker = new VaultFileSuggestModal(plugin.app, {
+      placeholder: t('irSidebar.header.backgroundWallPickerPlaceholder'),
+      files: getCalendarBackgroundWallImageFiles(),
+      icon: 'image',
+      showFileIcon: false,
+      showFilePath: false,
+      anchorRect: calendarToolsTriggerEl?.getBoundingClientRect() ?? undefined,
+      preferredWidth: 540
+    });
+
+    const file = await picker.openAndSelect();
+    if (!file) {
+      return;
+    }
+
+    const nextPath = normalizePath(file.path);
+    updateCalendarBackgroundWallState(nextPath);
+
+    try {
+      await saveCalendarSidebarSettings({
+        backgroundWall: {
+          imagePath: nextPath
+        }
+      });
+      new Notice(t('irSidebar.notices.backgroundWallSet'));
+    } catch (error) {
+      logger.warn('[IRCalendarSidebar] Failed to save calendar background wall image:', error);
+      updateCalendarBackgroundWallState(getCalendarSidebarSettings().backgroundWall?.imagePath || '');
+      new Notice(t('irSidebar.notices.settingsSaveFailed'));
+    }
+  }
+
+  async function clearCalendarBackgroundWallImage(): Promise<void> {
+    updateCalendarBackgroundWallState('');
+
+    try {
+      await saveCalendarSidebarSettings({
+        backgroundWall: {
+          imagePath: ''
+        }
+      });
+      new Notice(t('irSidebar.notices.backgroundWallCleared'));
+    } catch (error) {
+      logger.warn('[IRCalendarSidebar] Failed to clear calendar background wall image:', error);
+      updateCalendarBackgroundWallState(getCalendarSidebarSettings().backgroundWall?.imagePath || '');
+      new Notice(t('irSidebar.notices.settingsSaveFailed'));
+    }
+  }
 
   function formatDateKey(date: Date): string {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
 
+  function parseDateKey(dateKey: string): Date | null {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateKey || '').trim());
+    if (!match) return null;
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+
+  function handleSearch(query: string): void {
+    searchQuery = query;
+    parsedSearchQuery = query.trim() ? parseSearchQuery(query) : null;
+  }
+
+  function clearSearch(): void {
+    searchQuery = '';
+    parsedSearchQuery = null;
+  }
+
+  function toggleSearchPanel(): void {
+    if (showSearchPanel) {
+      showSearchPanel = false;
+      clearSearch();
+      return;
+    }
+
+    showSearchPanel = true;
+  }
+
+  function getRequestedDeckFilterId(): string {
+    return String(initialDeckId || '').trim();
+  }
+
+  function getActiveDeckFilterId(): string {
+    const requestedId = getRequestedDeckFilterId();
+    return requestedId ? resolveCanonicalDeckId(requestedId) : '';
+  }
+
+  function getActiveDeckFilterName(): string {
+    const activeDeckId = getActiveDeckFilterId();
+    if (!activeDeckId) return '';
+    const matchedDeck = irDecks.find((deck) => resolveCanonicalDeckId(deck.id) === activeDeckId);
+    return matchedDeck?.name || String(initialDeckName || '').trim() || activeDeckId;
+  }
+
+  function matchesActiveDeckFilter(item: ScheduleItem): boolean {
+    const activeDeckId = getActiveDeckFilterId();
+    if (!activeDeckId) return true;
+    return resolveCanonicalDeckId(item.deckId || '') === activeDeckId;
+  }
+
+  function getVisibleMaterialsForDate(dateKey: string): ScheduleItem[] {
+    return (materialsByDate.get(dateKey) || []).filter(matchesActiveDeckFilter);
+  }
+
+  function getVisiblePinnedForDate(dateKey: string): ScheduleItem[] {
+    return (pinnedByDate.get(dateKey) || []).filter(matchesActiveDeckFilter);
+  }
+
+  function matchesActiveTagFilter(material: ScheduleItem): boolean {
+    const normalizedFilter = activeReadingTagFilter.trim().toLowerCase();
+    if (!normalizedFilter) {
+      return true;
+    }
+
+    return getMaterialTagLabels(material.id).some((tag) => tag.toLowerCase() === normalizedFilter);
+  }
+
+  function getScheduleItemDeckName(material: ScheduleItem): string {
+    const deckId = resolveCanonicalDeckId(material.deckId || '');
+    if (!deckId) {
+      return '';
+    }
+
+    const matchedDeck = irDecks.find((deck) => resolveCanonicalDeckId(deck.id) === deckId);
+    return String(matchedDeck?.name || '').trim();
+  }
+
+  function getScheduleItemSourceTFile(material: ScheduleItem): TFile | null {
+    const abstractFile = plugin.app.vault.getAbstractFileByPath(String(material.sourceFile || '').trim());
+    return abstractFile instanceof TFile ? abstractFile : null;
+  }
+
+  function getScheduleItemFrontmatter(material: ScheduleItem): Record<string, unknown> {
+    const file = getScheduleItemSourceTFile(material);
+    if (!file || file.extension !== 'md') {
+      return {};
+    }
+
+    return (plugin.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined) || {};
+  }
+
+  function getReadingMaterialByPath(filePath: string): ReadingMaterial | undefined {
+    const normalizedPath = normalizePath(String(filePath || '').trim());
+    if (!normalizedPath) {
+      return undefined;
+    }
+
+    return readingMaterials.find((material) => normalizePath(String(material.filePath || '').trim()) === normalizedPath);
+  }
+
+  function getScheduleItemCreatedDate(material: ScheduleItem): string {
+    const readingMaterial = getReadingMaterialByPath(material.sourceFile);
+    if (readingMaterial?.created) {
+      return String(readingMaterial.created).slice(0, 10);
+    }
+
+    const file = getScheduleItemSourceTFile(material);
+    return file ? new Date(file.stat.ctime).toISOString().slice(0, 10) : '';
+  }
+
+  function getScheduleItemModifiedDate(material: ScheduleItem): string {
+    const readingMaterial = getReadingMaterialByPath(material.sourceFile);
+    if (readingMaterial?.modified) {
+      return String(readingMaterial.modified).slice(0, 10);
+    }
+
+    const file = getScheduleItemSourceTFile(material);
+    return file ? new Date(file.stat.mtime).toISOString().slice(0, 10) : '';
+  }
+
+  function getScheduleItemDueDate(material: ScheduleItem): string {
+    if (material.nextReviewDate instanceof Date && !Number.isNaN(material.nextReviewDate.getTime())) {
+      return material.nextReviewDate.toISOString().slice(0, 10);
+    }
+
+    if (material.nextRepDate > 0) {
+      return new Date(material.nextRepDate).toISOString().slice(0, 10);
+    }
+
+    return '';
+  }
+
+  function matchesDateRanges(
+    dateValue: string,
+    ranges: Array<{ from?: string; to?: string }>
+  ): boolean {
+    if (ranges.length === 0) {
+      return true;
+    }
+
+    if (!dateValue) {
+      return false;
+    }
+
+    return ranges.every((range) => {
+      if (range.from && dateValue < range.from) return false;
+      if (range.to && dateValue > range.to) return false;
+      return true;
+    });
+  }
+
+  function matchesAnyTokens(value: string, tokens: string[]): boolean {
+    if (tokens.length === 0) {
+      return true;
+    }
+
+    const normalizedValue = value.toLowerCase();
+    return tokens.some((token) => normalizedValue.includes(token.toLowerCase()));
+  }
+
+  function excludesAllTokens(value: string, tokens: string[]): boolean {
+    if (tokens.length === 0) {
+      return true;
+    }
+
+    const normalizedValue = value.toLowerCase();
+    return tokens.every((token) => !normalizedValue.includes(token.toLowerCase()));
+  }
+
+  function getScheduleItemSearchText(material: ScheduleItem): string {
+    return [
+      material.displayName,
+      material.title,
+      material.sourceFile,
+      getVisibleAssociatedNotePath(material),
+      getScheduleItemDeckName(material),
+      ...getMaterialTagLabels(material.id)
+    ]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .join(' ')
+      .toLowerCase();
+  }
+
+  function matchesSearchQueryForMaterial(material: ScheduleItem, query: SearchQuery): boolean {
+    if (!query.raw.trim()) {
+      return true;
+    }
+
+    const deckName = getScheduleItemDeckName(material);
+    const sourceFile = String(material.sourceFile || '');
+    const tags = getMaterialTagLabels(material.id);
+    const tagText = tags.join(' ').toLowerCase();
+    const stateText = String(material.scheduleStatus || '').toLowerCase();
+    const searchText = getScheduleItemSearchText(material);
+
+    if (query.decks.length > 0 && !matchesAnyTokens(deckName, query.decks)) {
+      return false;
+    }
+
+    if (query.tags.length > 0 && !query.tags.some((tag) => tagText.includes(tag.toLowerCase()))) {
+      return false;
+    }
+
+    if (query.priorities.length > 0 && !query.priorities.includes(Number(material.priority || 0))) {
+      return false;
+    }
+
+    if (query.sources.length > 0 && !matchesAnyTokens(sourceFile, query.sources)) {
+      return false;
+    }
+
+    if (query.statuses.length > 0 && !query.statuses.some((status) => stateText.includes(status.toLowerCase()))) {
+      return false;
+    }
+
+    if (query.states.length > 0 && !query.states.some((state) => stateText.includes(state.toLowerCase()))) {
+      return false;
+    }
+
+    if (!matchesDateRanges(getScheduleItemCreatedDate(material), query.dateRanges)) {
+      return false;
+    }
+
+    if (!matchesDateRanges(getScheduleItemModifiedDate(material), query.modifiedRanges)) {
+      return false;
+    }
+
+    if (!matchesDateRanges(getScheduleItemDueDate(material), query.dueRanges)) {
+      return false;
+    }
+
+    if (query.yamlFilters.length > 0) {
+      const frontmatter = getScheduleItemFrontmatter(material);
+      const matchesYaml = query.yamlFilters.every((filter) => {
+        const rawValue = frontmatter[filter.key];
+        if (rawValue === undefined || rawValue === null) {
+          return false;
+        }
+
+        const valueText = Array.isArray(rawValue) ? rawValue.join(' ') : String(rawValue);
+        return valueText.toLowerCase().includes(filter.value.toLowerCase());
+      });
+      if (!matchesYaml) {
+        return false;
+      }
+    }
+
+    if (!excludesAllTokens(deckName, query.excludeDecks)) {
+      return false;
+    }
+
+    if (query.excludeTags.length > 0 && query.excludeTags.some((tag) => tagText.includes(tag.toLowerCase()))) {
+      return false;
+    }
+
+    if (!excludesAllTokens(sourceFile, query.excludeSources)) {
+      return false;
+    }
+
+    if (query.excludeStatuses.length > 0 && query.excludeStatuses.some((status) => stateText.includes(status.toLowerCase()))) {
+      return false;
+    }
+
+    if (query.text.length > 0 && !query.text.every((text) => searchText.includes(text.toLowerCase()))) {
+      return false;
+    }
+
+    if (query.excludeText.length > 0 && query.excludeText.some((text) => searchText.includes(text.toLowerCase()))) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function formatSearchResultDateLabel(dateKey: string): string {
+    const parsed = parseDateKey(dateKey);
+    if (!parsed) {
+      return dateKey;
+    }
+
+    if (isSameDay(parsed, today)) {
+      return uiText('今天', 'Today');
+    }
+
+    if (parsed.getFullYear() === today.getFullYear()) {
+      return uiText(
+        `${parsed.getMonth() + 1}月${parsed.getDate()}日`,
+        `${parsed.getMonth() + 1}/${parsed.getDate()}`
+      );
+    }
+
+    return uiText(
+      `${parsed.getFullYear()}年${parsed.getMonth() + 1}月${parsed.getDate()}日`,
+      `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`
+    );
+  }
+
+  function getSearchableScheduleEntries(): SearchResultEntry[] {
+    const merged = new Map<string, SearchResultEntry>();
+    const appendEntries = (input: Map<string, ScheduleItem[]>) => {
+      for (const [dateKey, items] of input.entries()) {
+        for (const item of items) {
+          if (!matchesActiveDeckFilter(item) || merged.has(item.id)) {
+            continue;
+          }
+
+          merged.set(item.id, { item, dateKey });
+        }
+      }
+    };
+
+    appendEntries(materialsByDate);
+    appendEntries(pinnedByDate);
+
+    return Array.from(merged.values()).sort((left, right) => {
+      const dateCompare = left.dateKey.localeCompare(right.dateKey);
+      if (dateCompare !== 0) {
+        return dateCompare;
+      }
+
+      const sequenceCompare = compareScheduleItemsWithinDay(left.item, right.item, left.dateKey);
+      if (sequenceCompare !== 0) {
+        return sequenceCompare;
+      }
+
+      return compareScheduleItemsDefault(left.item, right.item);
+    });
+  }
+
+  function getMatchedSearchEntries(): SearchResultEntry[] {
+    const query = parsedSearchQuery;
+    if (!query?.raw.trim()) {
+      return [];
+    }
+
+    return getSearchableScheduleEntries().filter(
+      (entry) => matchesActiveTagFilter(entry.item) && matchesSearchQueryForMaterial(entry.item, query)
+    );
+  }
+
+  function getDisplayedMaterialDateLabel(materialId: string, dateKeys: Map<string, string>): string {
+    const dateKey = dateKeys.get(materialId);
+    return dateKey ? formatSearchResultDateLabel(dateKey) : '';
+  }
+
+  function getSearchResultIdentityKey(material: ScheduleItem): string {
+    const normalizedSource = normalizeSourcePathKey(material.sourceFile);
+    if (normalizedSource) {
+      return `${material.id}::${normalizedSource}`;
+    }
+
+    const title = String(material.title || '').trim();
+    if (title) {
+      return title;
+    }
+
+    return material.id;
+  }
+
   function getScheduleItemLabel(material: ScheduleItem): string {
-    return material.displayName || material.title || 'Untitled';
+    const displayName = String(material.displayName || '').trim();
+    if (displayName) {
+      return displayName;
+    }
+
+    const title = String(material.title || '').trim();
+    if (title) {
+      return title;
+    }
+
+    const cachedResolvedTitle = String(continueReadingResolvedTitleById[material.id] || '').trim();
+    if (cachedResolvedTitle) {
+      return cachedResolvedTitle;
+    }
+
+    const sourceLabel = getSourceDisplayLabel(material.sourceFile);
+    return sourceLabel || uiText('未命名阅读点', 'Untitled');
+  }
+
+  function getScheduleItemSourceLabel(material: ScheduleItem): string {
+    if (isEpubBookmarkTaskId(material.id)) {
+      return uiText('EPUB 源文件', 'EPUB source file');
+    }
+
+    if (isPdfBookmarkTaskId(material.id)) {
+      return uiText('PDF 源文件', 'PDF source file');
+    }
+
+    return uiText('源文档', 'Source document');
+  }
+
+  async function showMissingSourceDocumentDialog(
+    material: ScheduleItem,
+    sourcePath?: string
+  ): Promise<void> {
+    const itemLabel = getScheduleItemLabel(material);
+    const sourceLabel = getScheduleItemSourceLabel(material);
+    const normalizedPath = String(sourcePath || material.sourceFile || '').trim();
+    const messageLines = [
+      uiText(
+        `未找到阅读点「${itemLabel}」对应的${sourceLabel}。`,
+        `The ${sourceLabel} for reading point "${itemLabel}" could not be found.`
+      ),
+      normalizedPath
+        ? uiText(`记录路径：${normalizedPath}`, `Recorded path: ${normalizedPath}`)
+        : uiText('当前阅读点没有可用的源文档路径记录。', 'This reading point has no usable source path recorded.'),
+      uiText(
+        '请检查源文档是否已被移动或删除；如果该阅读点已经失效，也可以清理它的相关增量阅读调度数据。',
+        'Check whether the source file was moved or deleted. If this reading point is no longer valid, you can also clean up its incremental reading scheduling data.'
+      )
+    ];
+
+    const action = await showMissingSourceDocumentModal(plugin.app, {
+      title: uiText('源文档未找到', 'Source document not found'),
+      message: messageLines,
+      acknowledgeText: uiText('知道了', 'Got it'),
+      removeButtonText: uiText('移除该阅读点', 'Remove this reading point'),
+      removeDescription: uiText(
+        '如果源文档已经不存在，可继续移除该阅读点并清理相关增量阅读调度数据。',
+        'If the source file no longer exists, remove this reading point and clean up its incremental reading scheduling data.'
+      ),
+      onRemove: async () => {
+        await removeMaterial(material, { sourceMissing: true });
+      }
+    });
+
+    if (action === 'remove') {
+      return;
+    }
+  }
+
+  function isWeakContinueReadingLabel(label: string, material: ScheduleItem): boolean {
+    const normalized = String(label || '').trim();
+    if (!normalized) {
+      return true;
+    }
+
+    if (/^untitled$/i.test(normalized)) {
+      return true;
+    }
+
+    if (material.sourceType === 'chunk') {
+      if (/^\d+_?$/.test(normalized)) {
+        return true;
+      }
+      if (/^chunk-[a-z0-9-]+$/i.test(normalized)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function sanitizeContinueReadingPreviewText(rawText: string): string {
+    const cleaned = String(rawText || '')
+      .replace(/^#+\s*/, '')
+      .replace(/^>\s*/, '')
+      .replace(/^\s*[-*+]\s+/, '')
+      .replace(/^\s*\d+\.\s+/, '')
+      .replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, '$1')
+      .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return cleaned.length > 60 ? `${cleaned.slice(0, 60).trim()}...` : cleaned;
+  }
+
+  async function deriveContinueReadingTitleFromChunkFile(material: ScheduleItem): Promise<string> {
+    const normalizedPath = normalizePath(String(material.sourceFile || '').trim());
+    if (!normalizedPath) {
+      return '';
+    }
+
+    const file = plugin.app.vault.getAbstractFileByPath(normalizedPath);
+    if (!(file instanceof TFile)) {
+      return '';
+    }
+
+    try {
+      const content = await plugin.app.vault.read(file);
+      const withoutFrontmatter = content.replace(/^---\n[\s\S]*?\n---\n?/, '');
+      const lines = withoutFrontmatter.split(/\r?\n/);
+
+      for (const rawLine of lines) {
+        const headingMatch = String(rawLine || '').match(/^\s*#{1,6}\s+(.+)$/);
+        if (!headingMatch?.[1]) {
+          continue;
+        }
+
+        const cleanedHeading = sanitizeContinueReadingPreviewText(headingMatch[1]);
+        if (cleanedHeading) {
+          return cleanedHeading;
+        }
+      }
+
+      for (const rawLine of lines) {
+        const cleaned = sanitizeContinueReadingPreviewText(rawLine);
+        if (cleaned) {
+          return cleaned;
+        }
+      }
+    } catch (error) {
+      logger.warn('[IRCalendarSidebar] Failed to derive continue-reading title from chunk file', {
+        path: normalizedPath,
+        error
+      });
+    }
+
+    return '';
+  }
+
+  async function resolveContinueReadingSuggestionTitle(material: ScheduleItem): Promise<string> {
+    const cached = String(continueReadingResolvedTitleById[material.id] || '').trim();
+    if (cached) {
+      return cached;
+    }
+
+    const directLabel = getScheduleItemLabel(material);
+    if (!isWeakContinueReadingLabel(directLabel, material)) {
+      return directLabel;
+    }
+
+    let resolved = '';
+    if (material.sourceType === 'chunk') {
+      resolved = await deriveContinueReadingTitleFromChunkFile(material);
+    }
+
+    if (!resolved) {
+      const fallbackTitle = String(material.title || '').trim();
+      if (fallbackTitle && !isWeakContinueReadingLabel(fallbackTitle, material)) {
+        resolved = fallbackTitle;
+      }
+    }
+
+    if (!resolved) {
+      const sourceLabel = getSourceDisplayLabel(material.sourceFile);
+      if (sourceLabel && !isWeakContinueReadingLabel(sourceLabel, material)) {
+        resolved = sourceLabel;
+      }
+    }
+
+    if (!resolved) {
+      resolved = uiText('未命名阅读点', 'Untitled');
+    }
+
+    continueReadingResolvedTitleById = {
+      ...continueReadingResolvedTitleById,
+      [material.id]: resolved
+    };
+
+    return resolved;
   }
 
   function findScheduleItemById(blockId: string): ScheduleItem | null {
@@ -462,7 +1236,7 @@
   }
 
   function getActiveReadingTimerLabel(): string {
-    if (!activeReadingTimer) return 'Untitled';
+	if (!activeReadingTimer) return t('irSidebar.controls.untitled');
     const currentItem = findScheduleItemById(activeReadingTimer.blockId);
     return currentItem ? getScheduleItemLabel(currentItem) : activeReadingTimer.title;
   }
@@ -488,7 +1262,7 @@
 
     const hours = Math.floor(safeSeconds / 3600);
     const minutes = Math.floor((safeSeconds % 3600) / 60);
-    return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+    return `${hours}${t('irSidebar.controls.timerHoursShort')} ${String(minutes).padStart(2, '0')}${t('irSidebar.controls.timerMinutesShort')}`;
   }
 
   function ensureTimerTicker(): void {
@@ -518,12 +1292,12 @@
   function getReadingTimerButtonTitle(blockId: string): string {
     const timerText = formatTimerDuration(getDisplayedTimerSeconds(blockId));
     if (isTimerRunningForBlock(blockId)) {
-      return `Pause timer (${timerText})`;
+	  return t('irSidebar.controls.pauseReadingTimer') + ` (${timerText})`;
     }
     if (getDisplayedTimerSeconds(blockId) > 0) {
-      return `Resume timer (${timerText})`;
+	  return t('irSidebar.controls.resumeTimer', { duration: timerText });
     }
-    return 'Start timer';
+	return t('irSidebar.controls.startTimer');
   }
 
   async function loadTimerTotalsFromHistory(): Promise<void> {
@@ -610,6 +1384,7 @@
       [snapshot.blockId]: totalSeconds
     };
     getWorkspaceSnapshotService().invalidate();
+    getCalendarQueryService().invalidate();
     window.dispatchEvent(new CustomEvent('Weave:ir-timer-updated', {
       detail: {
         blockId: snapshot.blockId,
@@ -619,13 +1394,10 @@
     }));
     activeReadingTimer = null;
     clearTimerTicker();
-    if (reason === 'manual') {
-      autoTimerChainBlockId = null;
-    }
     syncTimerRuntimeState();
 
     if (reason === 'manual') {
-      new Notice(snapshot.title ? 'Paused reading timer for ' + snapshot.title : 'Paused reading timer');
+      new Notice(t('irSidebar.notices.timerPaused', { title: snapshot.title || t('irSidebar.controls.untitled') }));
     }
 
     return true;
@@ -661,16 +1433,15 @@
         startedAtMs: Date.now(),
         baseSeconds
       };
-      autoTimerChainBlockId = material.id;
       timerNowMs = Date.now();
       ensureTimerTicker();
       syncTimerRuntimeState();
       if (announceStart) {
-        new Notice('Started reading timer for ' + getScheduleItemLabel(currentItem));
+        new Notice(t('irSidebar.notices.timerStarted', { title: getScheduleItemLabel(currentItem) }));
       }
     } catch (error) {
       logger.error('[IRCalendarSidebar] Failed to toggle reading timer', error);
-      new Notice('Failed to toggle reading timer');
+      new Notice(t('irSidebar.notices.timerStartFailed'));
     } finally {
       timerBusyBlockId = null;
     }
@@ -679,7 +1450,15 @@
   async function ensureDoneItemsVisibleForDate(dateKey: string): Promise<void> {
     try {
       const doneIds = calendarProgressByDate[dateKey] || [];
-      if (!doneIds.length) return;
+      const currentPinned = pinnedByDate.get(dateKey) || [];
+      if (!doneIds.length) {
+        if (currentPinned.length > 0) {
+          const nextPinnedByDate = new Map(pinnedByDate);
+          nextPinnedByDate.delete(dateKey);
+          pinnedByDate = nextPinnedByDate;
+        }
+        return;
+      }
 
       const workspaceData = await getWorkspaceSnapshotService().getWorkspaceData();
       const allChunks = workspaceData.chunksRecord;
@@ -713,32 +1492,10 @@
 
       if (unresolvedPdfIds.length > 0) {
         try {
-          const pdfService = await getPdfBookmarkTaskService();
           for (const pid of unresolvedPdfIds) {
             const task = await getWorkspacePdfTaskById(pid);
             if (!task) continue;
-            const fullTitle = String(task.title || '').trim() || 'PDF';
-            doneItems.push({
-              id: pid,
-              title: fullTitle,
-              displayName: extractPdfHeading(fullTitle),
-              sourceFile: task.pdfPath,
-              primaryAssociatedNotePath: task.meta?.primaryAssociatedNotePath || task.meta?.associatedNotePath,
-              associatedNotePath: task.meta?.associatedNotePath || task.meta?.primaryAssociatedNotePath,
-              associatedNotePaths: resolveAssociatedNotePaths({
-                associatedNotePath: task.meta?.primaryAssociatedNotePath || task.meta?.associatedNotePath,
-                associatedNotePaths: task.meta?.associatedNotePaths
-              }),
-              associatedNoteScope:
-                task.meta?.associatedNotePath || task.meta?.primaryAssociatedNotePath ? 'point' : undefined,
-              resumeLink: task.link,
-              priority: Number(task.priorityUi ?? task.priorityEff ?? 5),
-              intervalDays: Number(task.intervalDays ?? 1),
-              scheduleStatus: String(task.status || 'new'),
-              nextRepDate: Number(task.nextRepDate || 0),
-              nextReviewDate: task.nextRepDate ? new Date(task.nextRepDate) : null,
-              sourceType: 'pdf',
-            });
+            doneItems.push(buildScheduleItemFromPdfTask(task));
           }
         } catch (e) {
           logger.warn('[IRCalendarSidebar] Failed to load PDF reading materials', e);
@@ -750,37 +1507,23 @@
           for (const eid of unresolvedEpubIds) {
             const task = await getWorkspaceEpubTaskById(eid);
             if (!task) continue;
-            const resolvedFilePath = await resolveEpubTaskFilePath(task);
-            doneItems.push({
-              id: eid,
-              title: String(task.title || '').trim() || 'EPUB',
-              sourceFile: resolvedFilePath,
-              primaryAssociatedNotePath: task.meta?.primaryAssociatedNotePath || task.meta?.associatedNotePath,
-              associatedNotePath: task.meta?.associatedNotePath || task.meta?.primaryAssociatedNotePath,
-              associatedNotePaths: resolveAssociatedNotePaths({
-                associatedNotePath: task.meta?.primaryAssociatedNotePath || task.meta?.associatedNotePath,
-                associatedNotePaths: task.meta?.associatedNotePaths
-              }),
-              associatedNoteScope:
-                task.meta?.associatedNotePath || task.meta?.primaryAssociatedNotePath ? 'point' : undefined,
-              priority: Number(task.priorityUi ?? task.priorityEff ?? 5),
-              intervalDays: Number(task.intervalDays ?? 1),
-              scheduleStatus: String(task.status || 'new'),
-              nextRepDate: Number(task.nextRepDate || 0),
-              nextReviewDate: task.nextRepDate ? new Date(task.nextRepDate) : null,
-              sourceType: 'epub',
-            });
+            doneItems.push(await buildScheduleItemFromEpubTask(task, { resolveFilePath: resolveEpubTaskFilePath }));
           }
         } catch (e) {
           logger.warn('[IRCalendarSidebar] Failed to load EPUB reading materials', e);
         }
       }
 
-      if (!doneItems.length) return;
+      if (!doneItems.length) {
+        if (currentPinned.length > 0) {
+          const nextPinnedByDate = new Map(pinnedByDate);
+          nextPinnedByDate.delete(dateKey);
+          pinnedByDate = nextPinnedByDate;
+        }
+        return;
+      }
 
-      const currentPinned = pinnedByDate.get(dateKey) || [];
       const merged = new Map<string, ScheduleItem>();
-      for (const item of currentPinned) merged.set(item.id, item);
       for (const item of doneItems) merged.set(item.id, item);
 
       const nextPinnedByDate = new Map(pinnedByDate);
@@ -792,33 +1535,13 @@
   }
 
   function getMonthDays(year: number, month: number): Array<{ date: Date; otherMonth: boolean }> {
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const days: Array<{ date: Date; otherMonth: boolean }> = [];
-
-    const startDay = (firstDay.getDay() + 6) % 7;
-    for (let i = startDay - 1; i >= 0; i--) {
-      days.push({ date: new Date(year, month, -i), otherMonth: true });
-    }
-
-    // Current month days
-    for (let i = 1; i <= lastDay.getDate(); i++) {
-      days.push({ date: new Date(year, month, i), otherMonth: false });
-    }
-
-
-    const remaining = 42 - days.length;
-    for (let i = 1; i <= remaining; i++) {
-      days.push({ date: new Date(year, month + 1, i), otherMonth: true });
-    }
-
-    return days;
+    return buildMonthCalendarDays(year, month);
   }
 
 
   function getHeatLevel(date: Date): number {
     const key = formatDateKey(date);
-    const materials = materialsByDate.get(key) || [];
+    const materials = getVisibleMaterialsForDate(key);
     const count = materials.length;
     
     if (count === 0) return 0;
@@ -849,7 +1572,7 @@
 
   function getCalendarDayVisualState(date: Date): CalendarDayVisualState {
     const key = formatDateKey(date);
-    const scheduledItems = materialsByDate.get(key) || [];
+    const scheduledItems = getVisibleMaterialsForDate(key);
     const scheduledIds = new Set(scheduledItems.map((item) => item.id));
     const completedIds = Array.isArray(calendarProgressByDate[key])
       ? calendarProgressByDate[key].filter((id, index, source) => source.indexOf(id) === index)
@@ -894,17 +1617,17 @@
   // ?????????
   function getSelectedMaterialsBase(): ScheduleItem[] {
     const key = formatDateKey(selectedDate);
-    const materials = materialsByDate.get(key) || [];
-    const pinned = pinnedByDate.get(key) || [];
+    const materials = getVisibleMaterialsForDate(key);
+    const pinned = getVisiblePinnedForDate(key);
     const merged = new Map<string, ScheduleItem>();
     for (const m of materials) merged.set(m.id, m);
     for (const p of pinned) {
       if (!merged.has(p.id)) merged.set(p.id, p);
     }
     return [...merged.values()].sort((a, b) => {
-      const scoreDiff = (b.explanation?.compositeScore ?? 0) - (a.explanation?.compositeScore ?? 0);
-      if (scoreDiff !== 0) return scoreDiff;
-      return (b.priority || 0) - (a.priority || 0);
+      const sequenceCompare = compareScheduleItemsWithinDay(a, b, key);
+      if (sequenceCompare !== 0) return sequenceCompare;
+      return compareScheduleItemsDefault(a, b);
     });
   }
 
@@ -929,11 +1652,523 @@
 
   function getSelectedMaterials(): ScheduleItem[] {
     const materials = getSelectedMaterialsBase();
-    const normalizedFilter = activeReadingTagFilter.trim().toLowerCase();
-    if (!normalizedFilter) return materials;
-    return materials.filter((material) =>
-      getMaterialTagLabels(material.id).some((tag) => tag.toLowerCase() === normalizedFilter)
+    return materials.filter(matchesActiveTagFilter);
+  }
+
+  function getDateKeyDayOffsetFromToday(dateKey: string): number | null {
+    const parsed = parseDateKey(dateKey);
+    if (!parsed) return null;
+    parsed.setHours(0, 0, 0, 0);
+    return Math.round((parsed.getTime() - today.getTime()) / DAY_IN_MS);
+  }
+
+  function normalizeSourcePathKey(path?: string): string {
+    const normalized = normalizePath(String(path || '').trim());
+    return normalized ? normalized.toLowerCase() : '';
+  }
+
+  function getSourceDisplayLabel(path?: string): string {
+    const normalized = normalizePath(String(path || '').trim());
+    if (!normalized) {
+      return '';
+    }
+
+    const baseName = normalized.split('/').pop() || normalized;
+    return baseName.replace(/\.md$/i, '');
+  }
+
+  function getContinueReadingSourceHints(): Set<string> {
+    const hints = new Set<string>();
+    const focusedSource = normalizeSourcePathKey(sourceFilePath);
+    if (focusedSource) {
+      hints.add(focusedSource);
+    }
+
+    for (const material of getSelectedMaterialsBase()) {
+      const sourceKey = normalizeSourcePathKey(material.sourceFile);
+      if (sourceKey) {
+        hints.add(sourceKey);
+      }
+    }
+
+    return hints;
+  }
+
+  function hasActiveContinueReadingStatus(item: ScheduleItem): boolean {
+    const normalizedStatus = String(item.scheduleStatus || '').trim().toLowerCase();
+    return !['archived', 'removed', 'suspended', 'done', 'completed'].includes(normalizedStatus);
+  }
+
+  function hasSuspendedContinueReadingStatus(item: ScheduleItem): boolean {
+    return isSuspendedContinueReadingStatus(item.scheduleStatus);
+  }
+
+  function getContinueReadingDueLabel(dayOffset: number | null): string {
+    if (dayOffset === null || dayOffset <= 0) {
+      return uiText('后续安排', 'Upcoming');
+    }
+    if (dayOffset === 1) {
+      return uiText('明天', 'Tomorrow');
+    }
+    return isChineseUi ? `${dayOffset} 天后` : `In ${dayOffset} days`;
+  }
+
+  function getContinueReadingSuggestionMetaText(
+    _item: ScheduleItem,
+    dayOffset: number | null,
+    _sourceHints: Set<string>
+  ): string {
+    return getContinueReadingDueLabel(dayOffset);
+  }
+
+  function getContinueReadingSuggestionScore(
+    item: ScheduleItem,
+    dayOffset: number | null,
+    sourceHints: Set<string>
+  ): number {
+    const safeOffset = dayOffset ?? 99;
+    const sourceMatched = sourceHints.has(normalizeSourcePathKey(item.sourceFile)) ? 1 : 0;
+    return (
+      sourceMatched * 180 +
+      Number(item.priority || 0) * 12 +
+      Math.round(Number(item.explanation?.compositeScore ?? 0)) -
+      safeOffset * 1000
     );
+  }
+
+  function getSuspendedContinueReadingMetaText(
+    _item: ScheduleItem,
+    _sourceHints: Set<string>
+  ): string {
+    return uiText('已搁置', 'Suspended');
+  }
+
+  function getSuspendedContinueReadingScore(
+    item: ScheduleItem,
+    sourceHints: Set<string>
+  ): number {
+    const sourceMatched = sourceHints.has(normalizeSourcePathKey(item.sourceFile)) ? 1 : 0;
+    return sourceMatched * 180 + Number(item.priority || 0) * 12 - Number(item.intervalDays || 0);
+  }
+
+  function getContinueReadingSuggestions(limit = 5): ContinueReadingSuggestion[] {
+    const todayKey = formatDateKey(today);
+    const sourceHints = getContinueReadingSourceHints();
+    const suggestions: ContinueReadingSuggestion[] = [];
+    const seenIds = new Set<string>();
+
+    const futureDateKeys = Array.from(materialsByDate.keys())
+      .filter((dateKey) => dateKey > todayKey)
+      .sort((left, right) => left.localeCompare(right, 'zh-CN'));
+
+    for (const dateKey of futureDateKeys) {
+      const dayOffset = getDateKeyDayOffsetFromToday(dateKey);
+      if (dayOffset === null || dayOffset <= 0) {
+        continue;
+      }
+
+      for (const item of getVisibleMaterialsForDate(dateKey)) {
+        if (seenIds.has(item.id) || !hasActiveContinueReadingStatus(item)) {
+          continue;
+        }
+
+        seenIds.add(item.id);
+        suggestions.push({
+          item,
+          dateKey,
+          dayOffset,
+          metaText: getContinueReadingSuggestionMetaText(item, dayOffset, sourceHints),
+          score: getContinueReadingSuggestionScore(item, dayOffset, sourceHints),
+        });
+      }
+    }
+
+    return suggestions
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score;
+        }
+        if (left.dayOffset !== right.dayOffset) {
+          return left.dayOffset - right.dayOffset;
+        }
+        return (right.item.priority || 0) - (left.item.priority || 0);
+      })
+      .slice(0, limit);
+  }
+
+  function getSuspendedContinueReadingSuggestions(limit = 5): SuspendedContinueReadingSuggestion[] {
+    const sourceHints = getContinueReadingSourceHints();
+    const suggestions: SuspendedContinueReadingSuggestion[] = [];
+    const seenIds = new Set<string>();
+
+    for (const item of continueReadingSuspendedItemsPool) {
+      if (seenIds.has(item.id) || !matchesActiveDeckFilter(item) || !hasSuspendedContinueReadingStatus(item)) {
+        continue;
+      }
+
+      seenIds.add(item.id);
+      suggestions.push({
+        item,
+        metaText: getSuspendedContinueReadingMetaText(item, sourceHints),
+        score: getSuspendedContinueReadingScore(item, sourceHints)
+      });
+    }
+
+    return suggestions
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score;
+        }
+        return (right.item.priority || 0) - (left.item.priority || 0);
+      })
+      .slice(0, limit);
+  }
+
+  function hasContinueReadingCandidatesAvailable(): boolean {
+    if (isLoading || !isSameDay(selectedDate, today)) {
+      return false;
+    }
+
+    return getContinueReadingSuggestions().length > 0 || getSuspendedContinueReadingSuggestions().length > 0;
+  }
+
+  function hasReadableReadingPointsForDate(date: Date): boolean {
+    const dateKey = formatDateKey(date);
+    const doneIds = new Set(calendarProgressByDate[dateKey] || []);
+    const merged = new Map<string, ScheduleItem>();
+
+    for (const item of getVisibleMaterialsForDate(dateKey)) {
+      merged.set(item.id, item);
+    }
+
+    for (const item of getVisiblePinnedForDate(dateKey)) {
+      if (!merged.has(item.id)) {
+        merged.set(item.id, item);
+      }
+    }
+
+    return Array.from(merged.values()).some((item) => hasActiveContinueReadingStatus(item) && !doneIds.has(item.id));
+  }
+
+  function shouldOfferContinueReadingSuggestions(): boolean {
+    if (!hasContinueReadingCandidatesAvailable()) {
+      return false;
+    }
+
+    return !hasReadableReadingPointsForDate(today);
+  }
+
+  function getContinueReadingSuggestionsSignature(
+    suggestions: ContinueReadingSuggestion[] = getContinueReadingSuggestions(),
+    suspendedSuggestions: SuspendedContinueReadingSuggestion[] = getSuspendedContinueReadingSuggestions()
+  ): string {
+    const todayKey = formatDateKey(today);
+    const scheduledSignature = suggestions.map((suggestion) => `${suggestion.item.id}@${suggestion.dateKey}`).join('|');
+    const suspendedSignature = suspendedSuggestions.map((suggestion) => suggestion.item.id).join('|');
+    const signatureBody = [scheduledSignature ? `scheduled:${scheduledSignature}` : '', suspendedSignature ? `suspended:${suspendedSignature}` : '']
+      .filter(Boolean)
+      .join('::');
+    return signatureBody ? `${todayKey}::${signatureBody}` : '';
+  }
+
+  async function buildContinueReadingSuggestionModalItems(
+    suggestions: ContinueReadingSuggestion[] = getContinueReadingSuggestions()
+  ): Promise<IRContinueReadingSuggestionModalItem[]> {
+    return await Promise.all(
+      suggestions.map(async (suggestion) => ({
+        id: suggestion.item.id,
+        title: await resolveContinueReadingSuggestionTitle(suggestion.item),
+        metaText: suggestion.metaText,
+        contextLabel: getContinueReadingDueLabel(suggestion.dayOffset),
+        priorityLabel: `P${suggestion.item.priority || 0}`,
+        kind: 'scheduled' as const
+      }))
+    );
+  }
+
+  async function buildSuspendedContinueReadingModalItems(
+    suggestions: SuspendedContinueReadingSuggestion[] = getSuspendedContinueReadingSuggestions()
+  ): Promise<IRContinueReadingSuggestionModalItem[]> {
+    return await Promise.all(
+      suggestions.map(async (suggestion) => ({
+        id: suggestion.item.id,
+        title: await resolveContinueReadingSuggestionTitle(suggestion.item),
+        metaText: suggestion.metaText,
+        contextLabel: uiText('已搁置', 'Suspended'),
+        priorityLabel: `P${suggestion.item.priority || 0}`,
+        kind: 'suspended' as const
+      }))
+    );
+  }
+
+  function getCalendarDisplayDays(
+    days: Array<{ date: Date; otherMonth: boolean }>
+  ): Array<{ date: Date; otherMonth: boolean }> {
+    if (calendarViewMode !== 'two-row') {
+      return days;
+    }
+
+    const isCurrentDisplayedMonth =
+      currentDate.getFullYear() === today.getFullYear() &&
+      currentDate.getMonth() === today.getMonth();
+    const isSelectedInDisplayedMonth =
+      selectedDate.getFullYear() === currentDate.getFullYear() &&
+      selectedDate.getMonth() === currentDate.getMonth();
+    const anchorDate = isCurrentDisplayedMonth
+      ? today
+      : isSelectedInDisplayedMonth
+        ? selectedDate
+        : new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const anchorIndex = days.findIndex(({ date }) => isSameDay(date, anchorDate));
+
+    if (anchorIndex < 0) {
+      return days.slice(0, 14);
+    }
+
+    const rowStart = Math.floor(anchorIndex / 7) * 7;
+    const visibleDays = days.slice(rowStart, Math.min(rowStart + 14, days.length));
+
+    if (visibleDays.length === 14) {
+      return visibleDays;
+    }
+
+    const lastVisibleDate = visibleDays.length > 0
+      ? visibleDays[visibleDays.length - 1].date
+      : anchorDate;
+    const paddedDays = [...visibleDays];
+    for (let offset = 1; paddedDays.length < 14; offset += 1) {
+      paddedDays.push({
+        date: new Date(
+          lastVisibleDate.getFullYear(),
+          lastVisibleDate.getMonth(),
+          lastVisibleDate.getDate() + offset
+        ),
+        otherMonth: true
+      });
+    }
+
+    return paddedDays;
+  }
+
+  function showMonthCalendarToolsMenu(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const menu = new Menu();
+    menu.addItem((item) => {
+      item
+        .setTitle(t('irSidebar.header.analyticsTitle'))
+        .setIcon('bar-chart-2')
+        .onClick(() => {
+          openAnalyticsModal();
+        });
+    });
+
+    menu.addItem((item) => {
+      item
+        .setTitle(t('irSidebar.header.importTitle'))
+        .setIcon('folder-input')
+        .onClick(() => {
+          openImportModal();
+        });
+    });
+
+    menu.addSeparator();
+
+    populateCalendarBackgroundWallMenu(menu, {
+      backgroundWallTitle: t('irSidebar.header.backgroundWallTitle'),
+      chooseTitle: t('irSidebar.header.backgroundWallChoose'),
+      clearTitle: t('irSidebar.header.backgroundWallClear'),
+      fadeTitle: t('irSidebar.header.backgroundWallFadeSet', { value: Number(calendarBackgroundWallFadePercent) }),
+      hasImage: Boolean(calendarBackgroundWallImagePath),
+      onChoose: () => {
+        void chooseCalendarBackgroundWallImage();
+      },
+      onClear: () => {
+        void clearCalendarBackgroundWallImage();
+      },
+      onSetFade: () => {
+        void promptCalendarBackgroundWallFadePercent();
+      }
+    });
+
+    menu.addSeparator();
+
+    menu.addItem((item) => {
+      item
+        .setTitle(
+          calendarViewMode === 'two-row'
+            ? uiText('切换为完整月历视图', 'Switch to full month view')
+            : uiText('切换为双行月历视图', 'Switch to two-row month view')
+        )
+        .setIcon('calendar')
+        .onClick(() => {
+          void setCalendarViewMode(calendarViewMode === 'two-row' ? 'full' : 'two-row');
+        });
+    });
+
+    const triggerRect = calendarToolsTriggerEl?.getBoundingClientRect();
+    menu.showAtPosition(
+      triggerRect
+        ? { x: triggerRect.right - 8, y: triggerRect.bottom + 6 }
+        : { x: event.clientX, y: event.clientY }
+    );
+  }
+
+  function getContinueReadingSuggestionById(
+    suggestionId: string,
+    suggestions: ContinueReadingSuggestion[] = getContinueReadingSuggestions()
+  ): ContinueReadingSuggestion | null {
+    return suggestions.find((suggestion) => suggestion.item.id === suggestionId) || null;
+  }
+
+  function getSuspendedContinueReadingSuggestionById(
+    suggestionId: string,
+    suggestions: SuspendedContinueReadingSuggestion[] = getSuspendedContinueReadingSuggestions()
+  ): SuspendedContinueReadingSuggestion | null {
+    return suggestions.find((suggestion) => suggestion.item.id === suggestionId) || null;
+  }
+
+  function buildContinueReadingPanelState(): ContinueReadingPanelState {
+    const suggestions = getContinueReadingSuggestions();
+    const suspended = getSuspendedContinueReadingSuggestions();
+    return {
+      suggestions,
+      suspended,
+      signature: getContinueReadingSuggestionsSignature(suggestions, suspended)
+    };
+  }
+
+  async function buildContinueReadingSuggestionsModalOptions(
+    panelState: ContinueReadingPanelState
+  ): Promise<IRContinueReadingSuggestionsModalObsidianOptions> {
+    const [suggestionItems, suspendedItems] = await Promise.all([
+      buildContinueReadingSuggestionModalItems(panelState.suggestions),
+      buildSuspendedContinueReadingModalItems(panelState.suspended)
+    ]);
+
+    return {
+      suggestions: suggestionItems,
+      suspendedItems,
+      isChineseUi,
+      anchorElement: continueReadingTriggerEl || calendarSidebarEl,
+      onOpenSuggestion: async (suggestionId: string) => {
+        const scheduledTarget = getContinueReadingSuggestionById(suggestionId, panelState.suggestions);
+        const suspendedTarget = getSuspendedContinueReadingSuggestionById(suggestionId, panelState.suspended);
+        const target = scheduledTarget?.item || suspendedTarget?.item;
+        if (!target) {
+          return;
+        }
+
+        closeContinueReadingSuggestionsModal('action');
+        await openMaterial(target);
+      },
+      onAddSuggestion: async (suggestionId: string) => {
+        const scheduledTarget = getContinueReadingSuggestionById(suggestionId, panelState.suggestions);
+        if (scheduledTarget) {
+          await addSuggestedMaterialToToday(scheduledTarget.item);
+          return;
+        }
+
+        const suspendedTarget = getSuspendedContinueReadingSuggestionById(suggestionId, panelState.suspended);
+        if (!suspendedTarget) {
+          return;
+        }
+
+        await restoreSuspendedMaterialToToday(suspendedTarget.item);
+      },
+      onClose: () => {
+        const closedSignature = continueReadingSuggestionsModalOpenSignature;
+        const closeReason = continueReadingSuggestionsModalCloseReason;
+        continueReadingSuggestionsModalInstance = null;
+        continueReadingSuggestionsModalOpenSignature = '';
+        continueReadingSuggestionsModalCloseReason = 'dismiss';
+        if (closeReason === 'dismiss' && closedSignature) {
+          continueReadingSuggestionsModalDismissedSignature = closedSignature;
+        }
+      }
+    };
+  }
+
+  function closeContinueReadingSuggestionsModal(reason: 'dismiss' | 'action' | 'refresh' = 'dismiss'): void {
+    if (!continueReadingSuggestionsModalInstance) {
+      return;
+    }
+
+    continueReadingSuggestionsModalCloseReason = reason;
+    continueReadingSuggestionsModalInstance.close();
+  }
+
+  async function openContinueReadingSuggestionsModal(force = false): Promise<void> {
+    if (!shouldOfferContinueReadingSuggestions()) {
+      if (continueReadingSuggestionsModalInstance) {
+        closeContinueReadingSuggestionsModal('refresh');
+      }
+      return;
+    }
+
+    const panelState = buildContinueReadingPanelState();
+    const signature = panelState.signature;
+    if (!signature) {
+      if (continueReadingSuggestionsModalInstance) {
+        closeContinueReadingSuggestionsModal('refresh');
+      }
+      return;
+    }
+
+    if (
+      !force &&
+      continueReadingSuggestionsModalDismissedSignature &&
+      continueReadingSuggestionsModalDismissedSignature === signature
+    ) {
+      return;
+    }
+
+    if (continueReadingSuggestionsModalInstance && continueReadingSuggestionsModalOpenSignature === signature) {
+      return;
+    }
+
+    await tick();
+
+    if (continueReadingSuggestionsModalInstance) {
+      continueReadingSuggestionsModalOpenSignature = signature;
+      continueReadingSuggestionsModalInstance.refresh(
+        await buildContinueReadingSuggestionsModalOptions(panelState)
+      );
+      return;
+    }
+
+    continueReadingSuggestionsModalOpenSignature = signature;
+    continueReadingSuggestionsModalInstance = new IRContinueReadingSuggestionsModalObsidian(
+      plugin.app,
+      await buildContinueReadingSuggestionsModalOptions(panelState)
+    );
+    continueReadingSuggestionsModalInstance.open();
+  }
+
+  function syncContinueReadingSuggestionsModalVisibility(): void {
+    const panelState = buildContinueReadingPanelState();
+    if (!panelState.signature || !shouldOfferContinueReadingSuggestions()) {
+      if (continueReadingSuggestionsModalInstance) closeContinueReadingSuggestionsModal('refresh');
+      return;
+    }
+
+    if (continueReadingSuggestionsModalInstance) {
+      if (panelState.signature !== continueReadingSuggestionsModalOpenSignature) {
+        const nextSignature = panelState.signature;
+        continueReadingSuggestionsModalOpenSignature = nextSignature;
+        void tick().then(() => {
+          void buildContinueReadingSuggestionsModalOptions(panelState).then((options) => {
+            if (
+              continueReadingSuggestionsModalInstance &&
+              continueReadingSuggestionsModalOpenSignature === nextSignature
+            ) {
+              continueReadingSuggestionsModalInstance.refresh(options);
+            }
+          });
+        });
+      }
+    }
   }
 
 
@@ -955,6 +2190,7 @@
     const done = calendarProgressByDate[key] || [];
     processedChunkIds = new Set(done);
     void ensureDoneItemsVisibleForDate(key);
+    syncContinueReadingSuggestionsModalVisibility();
   }
 
 
@@ -965,6 +2201,49 @@
     const done = calendarProgressByDate[key] || [];
     processedChunkIds = new Set(done);
     void ensureDoneItemsVisibleForDate(key);
+    syncContinueReadingSuggestionsModalVisibility();
+  }
+
+  function syncSelectionToFocusedDeck(): void {
+    const activeDeckId = getActiveDeckFilterId();
+    if (!activeDeckId) {
+      return;
+    }
+
+    const currentKey = formatDateKey(selectedDate);
+    if (getVisibleMaterialsForDate(currentKey).length > 0 || getVisiblePinnedForDate(currentKey).length > 0) {
+      return;
+    }
+
+    const candidateKeys = Array.from(new Set([
+      ...Array.from(materialsByDate.keys()),
+      ...Array.from(pinnedByDate.keys())
+    ]))
+      .filter((dateKey) => {
+        return getVisibleMaterialsForDate(dateKey).length > 0 || getVisiblePinnedForDate(dateKey).length > 0;
+      })
+      .sort((left, right) => left.localeCompare(right, 'zh-CN'));
+
+    if (candidateKeys.length === 0) {
+      return;
+    }
+
+    const todayKey = formatDateKey(today);
+    let targetKey = candidateKeys.find((dateKey) => dateKey >= todayKey) || candidateKeys[0];
+    if (getVisibleMaterialsForDate(todayKey).length > 0 || getVisiblePinnedForDate(todayKey).length > 0) {
+      targetKey = todayKey;
+    }
+
+    const targetDate = parseDateKey(targetKey);
+    if (!targetDate) {
+      return;
+    }
+
+    currentDate = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+    selectedDate = targetDate;
+    const done = calendarProgressByDate[targetKey] || [];
+    processedChunkIds = new Set(done);
+    void ensureDoneItemsVisibleForDate(targetKey);
   }
 
 
@@ -1001,7 +2280,7 @@
       new Notice(`Import finished: ${result.success} created.`);
     }
 
-    void refreshSidebarData({ includeProgress: false });
+    void refreshSidebarAfterDataUpdate({ includeProgress: false });
   }
 
   async function getStorage(): Promise<IRStorageService> {
@@ -1021,6 +2300,7 @@
       const done = calendarProgressByDate[key] || [];
       processedChunkIds = new Set(done);
       await ensureDoneItemsVisibleForDate(key);
+      syncContinueReadingSuggestionsModalVisibility();
     } catch (error) {
       logger.error('[IRCalendarSidebar] Recovered error message.', error);
     }
@@ -1033,6 +2313,37 @@
     }
   }
 
+  async function restoreExpandedMaterialSiblings(previouslyExpanded: Set<string>): Promise<void> {
+    if (previouslyExpanded.size === 0) {
+      return;
+    }
+
+    const todayKey = formatDateKey(selectedDate);
+    const todayItems = materialsByDate.get(todayKey) || [];
+    for (const item of todayItems) {
+      if (!previouslyExpanded.has(item.id)) {
+        continue;
+      }
+
+      const siblings = await getSiblingMaterials(item);
+      const next = new Map(siblingCache);
+      next.set(item.id, siblings);
+      siblingCache = next;
+    }
+  }
+
+  async function refreshSidebarAfterDataUpdate(
+    options: { forceRecompute?: boolean; includeProgress?: boolean } = {}
+  ): Promise<void> {
+    const previouslyExpanded = new Set(expandedMaterialIds);
+    siblingCache = new Map();
+    getWorkspaceSnapshotService().invalidate();
+    getCalendarQueryService().invalidate();
+    await refreshSidebarData(options);
+    await restoreExpandedMaterialSiblings(previouslyExpanded);
+    syncContinueReadingSuggestionsModalVisibility();
+  }
+
   async function recomputeAndRefreshSidebar(
     reason: UpdatedEventDetail['reason'],
     options?: { deckIds?: string[] }
@@ -1040,6 +2351,7 @@
     const detail = await recomputeAndBroadcastIRData(plugin.app, reason, options);
     pendingLocalRefreshGeneratedAt = detail.generatedAt;
     try {
+      await refreshSidebarAfterDataUpdate();
       lastLocallyHandledBroadcastGeneratedAt = Math.max(
         lastLocallyHandledBroadcastGeneratedAt,
         detail.generatedAt
@@ -1120,12 +2432,7 @@
   async function getChunkScheduleAdapter(): Promise<IRChunkScheduleAdapter> {
     const storage = await getStorage();
     if (!chunkScheduleAdapter) {
-      const { resolveIRImportFolder } = await import('../../config/paths');
-      const chunkRoot = resolveIRImportFolder(
-        plugin.settings?.incrementalReading?.importFolder,
-        plugin.settings?.weaveParentFolder
-      );
-      chunkScheduleAdapter = new IRChunkScheduleAdapter(plugin.app, storage, chunkRoot);
+      chunkScheduleAdapter = new IRChunkScheduleAdapter(plugin.app, storage);
     }
     return chunkScheduleAdapter;
   }
@@ -1183,11 +2490,19 @@
     return pointTagService;
   }
 
-  async function getScheduleKernel(): Promise<IRScheduleKernel> {
-    if (!scheduleKernel) {
-      scheduleKernel = getSharedIRScheduleKernel(plugin.app);
+  async function getPointWriteService(): Promise<IRPointWriteService> {
+    if (!pointWriteService) {
+      pointWriteService = new IRPointWriteService(plugin.app);
     }
-    return scheduleKernel;
+    return pointWriteService;
+  }
+
+  function getPointWriteTarget(material: ScheduleItem): IRPointWriteTarget {
+    return {
+      id: material.id,
+      kind: material.sourceType === 'legacy-block' ? 'block' : material.sourceType === 'chunk' ? 'chunk' : undefined,
+      sourceDocumentPath: material.sourceFile || undefined
+    };
   }
 
   async function getMonitoringService(): Promise<IRMonitoringService> {
@@ -1385,18 +2700,8 @@
           return;
         }
 
-        logger.warn('[IRCalendarSidebar] Failed to open associated note.', material);
-        new Notice('Failed to open associated note');
-        return;
-      }
-      
-      if (!filePath) {
         logger.warn('[IRCalendarSidebar] Recovered warning message.', material);
-
-        const event = new CustomEvent('Weave:ir-open-block', { 
-          detail: { blockId: material.id } 
-        });
-        window.dispatchEvent(event);
+        await showMissingSourceDocumentDialog(material);
         return;
       }
 
@@ -1404,38 +2709,44 @@
       if (isEpubBookmarkTaskId(material.id)) {
         try {
           const task = await getWorkspaceEpubTaskById(material.id);
-          if (task) {
-            const resolvedFilePath = await resolveEpubTaskFilePath(task);
-            const navDetail: any = { filePath: resolvedFilePath };
-            if (task.resumeCfi) {
-              navDetail.cfi = task.resumeCfi;
-            } else if (task.tocHref) {
-              navDetail.href = task.tocHref;
-            }
+          if (!task) {
+            logger.warn('[IRCalendarSidebar] Recovered warning message.', { materialId: material.id, reason: 'epub_task_missing' });
+            await showMissingSourceDocumentDialog(material, filePath);
+            return;
+          }
 
-            const existingLeaf = plugin.app.workspace.getLeavesOfType(VIEW_TYPE_EPUB)
-              .find(leaf => {
-                try {
-                  const state = (leaf.view as any)?.getState?.();
-                  return state?.filePath === resolvedFilePath || state?.file === resolvedFilePath;
-                } catch { return false; }
-              });
+          const resolvedFilePath = await resolveEpubTaskFilePath(task);
+          const epubFile = plugin.app.vault.getAbstractFileByPath(resolvedFilePath);
+          if (!(epubFile instanceof TFile)) {
+            logger.warn('[IRCalendarSidebar] Recovered warning message.', { materialId: material.id, resolvedFilePath, reason: 'epub_source_missing' });
+            await showMissingSourceDocumentDialog(material, resolvedFilePath || filePath);
+            return;
+          }
 
-            if (existingLeaf) {
-              plugin.app.workspace.setActiveLeaf(existingLeaf, { focus: true });
-              window.dispatchEvent(new CustomEvent('Weave:epub-navigate', { detail: navDetail }));
+          const navDetail: any = { filePath: resolvedFilePath };
+          if (task.resumeCfi) {
+            navDetail.cfi = task.resumeCfi;
+          } else if (task.tocHref) {
+            navDetail.href = task.tocHref;
+          }
+
+          const existingLeaf = findOpenEpubLeaf(plugin.app, resolvedFilePath);
+
+          if (existingLeaf) {
+            plugin.app.workspace.setActiveLeaf(existingLeaf, { focus: true });
+            window.dispatchEvent(new CustomEvent(EPUB_RUNTIME.events.navigate, { detail: navDetail }));
+          } else {
+            (window as any)[EPUB_RUNTIME.globals.pendingNavigationKey] = navDetail;
+            if (typeof plugin.openEpubReader === 'function') {
+              await plugin.openEpubReader(resolvedFilePath);
             } else {
-              (window as any).__weaveEpubPendingNav = navDetail;
-              if (typeof plugin.openEpubReader === 'function') {
-                await plugin.openEpubReader(resolvedFilePath);
-              } else {
-                const ctxPath = plugin.app.workspace.getActiveFile()?.path ?? '';
-                await plugin.app.workspace.openLinkText(resolvedFilePath, ctxPath, false);
-              }
+              const ctxPath = plugin.app.workspace.getActiveFile()?.path ?? '';
+              await plugin.app.workspace.openLinkText(resolvedFilePath, ctxPath, false);
             }
           }
         } catch (e) {
           logger.warn('[IRCalendarSidebar] Recovered warning message.', e);
+          await showMissingSourceDocumentDialog(material, filePath);
         }
         return;
       }
@@ -1452,106 +2763,153 @@
           return;
         }
 
-        new Notice('Failed to open related file');
+        await showMissingSourceDocumentDialog(material, filePath);
         return;
       }
-      if (file instanceof TFile) {
-        const contextPath = plugin.app.workspace.getActiveFile()?.path ?? '';
-        const rm = readingMaterials.find(m => m.filePath === filePath);
-        let rawLink = (material.resumeLink && material.resumeLink.trim().length > 0)
-          ? material.resumeLink
-          : ((rm?.resumeLink && rm.resumeLink.trim().length > 0) ? rm.resumeLink : filePath);
 
-        const linkToOpen = rawLink.trim().replace(/^!?\[\[/, '').replace(/\]\]$/, '').split('|')[0];
-        await plugin.app.workspace.openLinkText(linkToOpen, contextPath, false);
-        logger.debug('[IRCalendarSidebar] Recovered debug message.', linkToOpen);
-      } else {
-        logger.warn('[IRCalendarSidebar] Recovered warning message.', filePath);
+      const normalizedFilePath = normalizePath(filePath).toLowerCase();
 
-
-        try {
-          const candidates = plugin.app.vault.getMarkdownFiles();
-          const matched = candidates.find(f => {
-            const cache = plugin.app.metadataCache.getFileCache(f);
-            const fm = cache?.frontmatter as any;
-            if (!fm) return false;
-            const chunkId = String(fm.chunk_id || '').trim();
-            if (!chunkId) return false;
-            return chunkId === material.id;
-          });
-
-          if (matched) {
-            const contextPath = plugin.app.workspace.getActiveFile()?.path ?? '';
-            await plugin.app.workspace.openLinkText(matched.path, contextPath, false);
-
-            const storage = await getStorage();
-            const chunk = await getWorkspaceChunkById(material.id);
-            if (chunk && (chunk as any).filePath !== matched.path) {
-              (chunk as any).filePath = matched.path;
-              (chunk as any).updatedAt = Date.now();
-              await storage.saveChunkData(chunk);
-              applyLocalMaterialSourcePathUpdate(material.id, matched.path, {
-                previousPath: filePath,
-                nextTitle: matched.basename
-              });
-              await recomputeAndAcknowledgeSidebarBroadcast('ui_refresh');
-            }
-
-            return;
+      if (material.sourceType === 'chunk' && normalizedFilePath.endsWith('.canvas')) {
+        const rm = readingMaterials.find(m => normalizePath(String(m.filePath || '').trim()) === normalizePath(filePath));
+        const chunk = await getWorkspaceChunkById(material.id);
+        const chunkMeta = ((chunk as any)?.meta || {}) as Record<string, unknown>;
+        const rawLink = (material.resumeLink && material.resumeLink.trim().length > 0)
+          ? material.resumeLink.trim()
+          : (typeof chunkMeta.resumeLink === 'string' && chunkMeta.resumeLink.trim().length > 0)
+            ? chunkMeta.resumeLink.trim()
+            : ((rm?.resumeLink && rm.resumeLink.trim().length > 0) ? rm.resumeLink.trim() : `[[${filePath}]]`);
+        const nodeId =
+          (typeof chunkMeta.canvasNodeId === 'string' && chunkMeta.canvasNodeId.trim().length > 0)
+            ? chunkMeta.canvasNodeId.trim()
+            : getCanvasNodeIdFromSourceLink(rawLink);
+        const textCandidates = Array.isArray(chunkMeta.canvasTextCandidates)
+          ? chunkMeta.canvasTextCandidates
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+          : [];
+        const sourceNavigationService = new SourceNavigationService(plugin.app);
+        await sourceNavigationService.openCanvasAndLocate(
+          filePath,
+          textCandidates,
+          nodeId,
+          {
+            focus: true,
+            nodeRect: getCanvasSourceNodeRectFromSourceLink(rawLink)
           }
-        } catch (e) {
-          logger.warn('[IRCalendarSidebar] Recovered warning message.', e);
-        }
-
-
-        const event = new CustomEvent('Weave:ir-open-block', { 
-          detail: { blockId: material.id } 
-        });
-        window.dispatchEvent(event);
+        );
+        return;
       }
+
+      const contextPath = plugin.app.workspace.getActiveFile()?.path ?? '';
+      const rm = readingMaterials.find(m => m.filePath === filePath);
+      let rawLink = (material.resumeLink && material.resumeLink.trim().length > 0)
+        ? material.resumeLink
+        : ((rm?.resumeLink && rm.resumeLink.trim().length > 0) ? rm.resumeLink : filePath);
+
+      const linkToOpen = rawLink.trim().replace(/^!?\[\[/, '').replace(/\]\]$/, '').split('|')[0];
+      await plugin.app.workspace.openLinkText(linkToOpen, contextPath, false);
+      logger.debug('[IRCalendarSidebar] Recovered debug message.', linkToOpen);
     } catch (error) {
       logger.error('[IRCalendarSidebar] Failed to open block.', error);
-      new Notice('Failed to open block');
-      return;
-
-      const event = new CustomEvent('Weave:ir-open-block', { 
-        detail: { blockId: material.id } 
-      });
-      window.dispatchEvent(event);
+      new Notice(uiText('打开阅读点失败', 'Failed to open reading point'));
     }
   }
 
 
-  function extractPdfHeading(fullTitle: string): string {
-    const sep = ' / ';
-    const idx = fullTitle.lastIndexOf(sep);
-    if (idx >= 0) {
-      return fullTitle.substring(idx + sep.length);
-    }
-    return fullTitle;
+  interface SearchResultEntry {
+    item: ScheduleItem;
+    dateKey: string;
   }
 
+  interface ContinueReadingSuggestion {
+    item: ScheduleItem;
+    dateKey: string;
+    dayOffset: number;
+    metaText: string;
+    score: number;
+  }
 
-  type ScheduleItemSourceType = IRProjectedScheduleItem['sourceType'];
+  interface SuspendedContinueReadingSuggestion {
+    item: ScheduleItem;
+    metaText: string;
+    score: number;
+  }
 
-  interface ScheduleItem {
-    id: string;
-    title: string;
-    displayName?: string;
-    sourceFile: string;
-    primaryAssociatedNotePath?: string;
-    associatedNotePath?: string;
-    associatedNotePaths?: string[];
-    associatedNoteScope?: 'point' | 'material';
-    deckId?: string;
-    priority: number;
-    intervalDays: number;
-    scheduleStatus: string;
-    nextRepDate: number;
-    nextReviewDate: Date | null;
-    resumeLink?: string;
-    sourceType?: ScheduleItemSourceType;
-    explanation?: IRScheduleExplanation;
+  interface ContinueReadingPanelState {
+    suggestions: ContinueReadingSuggestion[];
+    suspended: SuspendedContinueReadingSuggestion[];
+    signature: string;
+  }
+
+  function getScheduleItemDayKey(item: ScheduleItem): string {
+    const anchorDayKey = String(item.sourceSequenceAnchorDateKey || '').trim();
+    if (anchorDayKey) {
+      return anchorDayKey;
+    }
+    if (item.nextReviewDate) {
+      return formatDateKey(item.nextReviewDate);
+    }
+    if (item.nextRepDate > 0) {
+      return formatDateKey(new Date(item.nextRepDate));
+    }
+    return '';
+  }
+
+  function isScheduleItemInitialSequenceLockedForDay(item: ScheduleItem, dayKey: string): boolean {
+    return Boolean(
+      item.sourceSequenceLocked &&
+        item.sourceSequenceGroup &&
+        typeof item.sourceSequenceOrder === 'number' &&
+        item.sourceSequenceAnchorDateKey &&
+        item.sourceSequenceAnchorDateKey === dayKey
+    );
+  }
+
+  function compareScheduleItemsWithinDay(left: ScheduleItem, right: ScheduleItem, dayKey: string): number {
+    if (!isScheduleItemInitialSequenceLockedForDay(left, dayKey) || !isScheduleItemInitialSequenceLockedForDay(right, dayKey)) {
+      return 0;
+    }
+    if (left.sourceSequenceGroup !== right.sourceSequenceGroup) {
+      return 0;
+    }
+    return Number(left.sourceSequenceOrder || 0) - Number(right.sourceSequenceOrder || 0);
+  }
+
+  function compareScheduleItemsDefault(left: ScheduleItem, right: ScheduleItem): number {
+    const scoreDiff = (right.explanation?.compositeScore ?? 0) - (left.explanation?.compositeScore ?? 0);
+    if (scoreDiff !== 0) {
+      return scoreDiff;
+    }
+
+    const priorityDiff = (right.priority || 0) - (left.priority || 0);
+    if (priorityDiff !== 0) {
+      return priorityDiff;
+    }
+
+    const nextRepDateDiff = (left.nextRepDate || 0) - (right.nextRepDate || 0);
+    if (nextRepDateDiff !== 0) {
+      return nextRepDateDiff;
+    }
+
+    return String(left.id || '').localeCompare(String(right.id || ''), 'zh-CN');
+  }
+
+  function compareScheduleItemsByScheduledDay(left: ScheduleItem, right: ScheduleItem): number {
+    const leftDayKey = getScheduleItemDayKey(left);
+    const rightDayKey = getScheduleItemDayKey(right);
+    const dayCompare = leftDayKey.localeCompare(rightDayKey, 'zh-CN');
+    if (dayCompare !== 0) {
+      return dayCompare;
+    }
+
+    if (leftDayKey) {
+      const sequenceCompare = compareScheduleItemsWithinDay(left, right, leftDayKey);
+      if (sequenceCompare !== 0) {
+        return sequenceCompare;
+      }
+    }
+
+    return compareScheduleItemsDefault(left, right);
   }
 
   function getLegacyBlockDisplayName(block: IRBlock): string | undefined {
@@ -1561,79 +2919,9 @@
     return displayName || undefined;
   }
 
-  function getLegacyBlockAssociatedNoteFields(block: IRBlock): Pick<
-    ScheduleItem,
-    'primaryAssociatedNotePath' | 'associatedNotePath' | 'associatedNotePaths' | 'associatedNoteScope'
-  > {
-    const associatedNotePaths = resolveAssociatedNotePaths({
-      associatedNotePath:
-        (block as any).primaryAssociatedNotePath ||
-        (block as any).associatedNotePath ||
-        (block as any).meta?.associatedNotePath,
-      associatedNotePaths:
-        (block as any).associatedNotePaths ||
-        (block as any).meta?.associatedNotePaths
-    });
-    const primaryAssociatedNotePath = associatedNotePaths[0] || undefined;
-    return {
-      primaryAssociatedNotePath,
-      associatedNotePath: primaryAssociatedNotePath,
-      associatedNotePaths,
-      associatedNoteScope: primaryAssociatedNotePath ? 'point' : undefined
-    };
-  }
-
-  function buildScheduleItemFromLegacyBlock(block: IRBlock): ScheduleItem {
-    const migrated = migrateToIRBlockV4(block);
-    const displayName = getLegacyBlockDisplayName(block);
-    const title =
-      displayName ||
-      String((block as any).headingText || '').trim() ||
-      String(block.contentPreview || '').trim().replace(/\s+/g, ' ').slice(0, 60) ||
-      String(block.id || '').trim() ||
-      'Untitled';
-
-    return {
-      id: block.id,
-      title,
-      displayName,
-      sourceFile: String(block.filePath || '').trim(),
-      ...getLegacyBlockAssociatedNoteFields(block),
-      priority: Number((block as any).priorityUi ?? (block as any).priorityEff ?? 5),
-      intervalDays: Number(block.interval || migrated.intervalDays || 1),
-      scheduleStatus: String(block.state || migrated.status || 'new'),
-      nextRepDate: Number(migrated.nextRepDate || 0),
-      nextReviewDate: migrated.nextRepDate ? new Date(migrated.nextRepDate) : null,
-      sourceType: 'legacy-block'
-    };
-  }
-
-  function buildScheduleItemFromChunkData(chunk: any, fallbackId?: string): ScheduleItem {
-    const filePath = String(chunk?.filePath || '').trim();
-    const base = filePath?.split('/').pop() || fallbackId || String(chunk?.chunkId || '').trim();
-    const title = base.replace(/\.md$/i, '').replace(/^\d+_/, '');
-    const associatedNotePaths = resolveAssociatedNotePaths({
-      associatedNotePath: chunk?.meta?.primaryAssociatedNotePath || chunk?.meta?.associatedNotePath,
-      associatedNotePaths: chunk?.meta?.associatedNotePaths
-    });
-    const primaryAssociatedNotePath = associatedNotePaths[0] || undefined;
-    const nextRepDate = Number(chunk?.nextRepDate || 0);
-
-    return {
-      id: String(chunk?.chunkId || fallbackId || '').trim(),
-      title,
-      sourceFile: filePath,
-      primaryAssociatedNotePath,
-      associatedNotePath: primaryAssociatedNotePath,
-      associatedNotePaths,
-      associatedNoteScope: primaryAssociatedNotePath ? 'point' : undefined,
-      priority: Number(chunk?.priorityUi ?? chunk?.priorityEff ?? 5),
-      intervalDays: Number(chunk?.intervalDays ?? 1),
-      scheduleStatus: String(chunk?.scheduleStatus || 'new'),
-      nextRepDate,
-      nextReviewDate: nextRepDate > 0 ? new Date(nextRepDate) : null,
-      sourceType: 'chunk'
-    };
+  function isSuspendedContinueReadingStatus(status: string | undefined | null): boolean {
+    const normalizedStatus = String(status || '').trim().toLowerCase();
+    return normalizedStatus === 'suspended' || normalizedStatus === 'archived';
   }
 
 
@@ -1741,76 +3029,12 @@
     const normalizedNotePaths = resolveAssociatedNotePaths({
       associatedNotePaths: notePaths
     });
-    const normalizedNotePath = normalizedNotePaths[0] || undefined;
-
-    if (isPdfBookmarkTaskId(material.id)) {
-      const pdfService = await getPdfBookmarkTaskService();
-      const task = await getWorkspacePdfTaskById(material.id);
-      if (!task) return false;
-      await pdfService.updateTask(material.id, {
-        meta: {
-          ...task.meta,
-          siblings: { ...(task.meta?.siblings || { prev: null, next: null }) },
-          primaryAssociatedNotePath: normalizedNotePath,
-          associatedNotePath: normalizedNotePath,
-          associatedNotePaths: normalizedNotePaths
-        }
-      });
-      return true;
-    }
-
-    if (isEpubBookmarkTaskId(material.id)) {
-      const epubService = await getEpubBookmarkTaskService();
-      const task = await getWorkspaceEpubTaskById(material.id);
-      if (!task) return false;
-      await epubService.updateTask(material.id, {
-        meta: {
-          ...task.meta,
-          siblings: { ...(task.meta?.siblings || { prev: null, next: null }) },
-          primaryAssociatedNotePath: normalizedNotePath,
-          associatedNotePath: normalizedNotePath,
-          associatedNotePaths: normalizedNotePaths
-        }
-      });
-      return true;
-    }
-
-    const storage = await getStorage();
-    const chunk = await getWorkspaceChunkById(material.id);
-    if (chunk) {
-      await storage.saveChunkData({
-        ...chunk,
-        meta: {
-          ...chunk.meta,
-          siblings: { ...(chunk.meta?.siblings || { prev: null, next: null }) },
-          primaryAssociatedNotePath: normalizedNotePath,
-          associatedNotePath: normalizedNotePath,
-          associatedNotePaths: normalizedNotePaths
-        }
-      });
-      return true;
-    }
-
-    const legacyBlock = await getWorkspaceLegacyBlockById(material.id);
-    if (!legacyBlock) return false;
-
-    const updatedLegacyBlock: IRBlock = {
-      ...legacyBlock,
-      updatedAt: new Date().toISOString()
-    };
-    (updatedLegacyBlock as any).primaryAssociatedNotePath = normalizedNotePath;
-    (updatedLegacyBlock as any).associatedNotePath = normalizedNotePath;
-    (updatedLegacyBlock as any).associatedNotePaths = normalizedNotePaths;
-    if ((updatedLegacyBlock as any).meta && typeof (updatedLegacyBlock as any).meta === 'object') {
-      (updatedLegacyBlock as any).meta = {
-        ...(updatedLegacyBlock as any).meta,
-        primaryAssociatedNotePath: normalizedNotePath,
-        associatedNotePath: normalizedNotePath,
-        associatedNotePaths: normalizedNotePaths
-      };
-    }
-    await storage.saveBlock(updatedLegacyBlock);
-    return true;
+    const pointWriteService = await getPointWriteService();
+    const result = await pointWriteService.updatePointAssociatedNotes(
+      getPointWriteTarget(material),
+      normalizedNotePaths
+    );
+    return !!result;
   }
 
   async function setAssociatedNotePathForMaterial(material: ScheduleItem, notePath: string | null): Promise<void> {
@@ -1870,7 +3094,7 @@
   async function addAssociatedNoteForMaterial(material: ScheduleItem): Promise<void> {
     const existingPaths = new Set(getAssociatedNotePathsForMaterial(material));
     const picker = new MarkdownFileSuggestModal(plugin.app, {
-      placeholder: 'Select a Markdown note'
+      placeholder: t('irSidebar.associatedNote.pickerPlaceholder')
     });
 
     const file = await picker.openAndSelect();
@@ -1929,7 +3153,7 @@
       notePaths: existingPaths,
       fallbackFilePath: material.sourceFile
     });
-    const baseName = material.displayName || material.title || 'Untitled';
+    const baseName = material.displayName || material.title || t('irSidebar.controls.untitled');
     const createdFile = await createAssociatedMarkdownNote(plugin.app, {
       baseName,
       preferredFolderPath
@@ -1956,12 +3180,12 @@
   }
 
 
-  const schedulingConfig = [
-    { action: 'intensive' as const, label: 'Intensive', color: 'var(--weave-error, #ef4444)', intervalMultiplier: 0.5 },
-    { action: 'normal' as const, label: 'Normal', color: 'var(--weave-success, #10b981)', intervalMultiplier: 1.0 },
-    { action: 'slow' as const, label: 'Slow', color: 'var(--weave-warning, #f59e0b)', intervalMultiplier: 1.8 },
-    { action: 'postpone' as const, label: 'Postpone', color: 'var(--text-muted, #6b7280)', intervalMultiplier: 0, isPostpone: true },
-  ];
+  let schedulingConfig = $derived([
+    { action: 'intensive' as const, label: t('irSidebar.scheduling.intensive'), color: 'var(--weave-error, #ef4444)', intervalMultiplier: 0.5 },
+    { action: 'normal' as const, label: t('irSidebar.scheduling.normal'), color: 'var(--weave-success, #10b981)', intervalMultiplier: 1.0 },
+    { action: 'slow' as const, label: t('irSidebar.scheduling.slow'), color: 'var(--weave-warning, #f59e0b)', intervalMultiplier: 1.8 },
+    { action: 'postpone' as const, label: t('irSidebar.scheduling.postpone'), color: 'var(--text-muted, #6b7280)', intervalMultiplier: 0, isPostpone: true },
+  ]);
 
   type SchedulingAction = typeof schedulingConfig[number]['action'];
 
@@ -2184,39 +3408,45 @@
     }
   }
 
-  async function removeMaterial(material: ScheduleItem) {
+  async function removeMaterial(
+    material: ScheduleItem,
+    options: { sourceMissing?: boolean } = {}
+  ) {
     try {
-      const scheduler = await getV4SchedulerService();
-      const block = await resolveScheduleItemToBlockV4(material);
-      const deckId = await resolveDeckIdForScheduleItem(material);
-      await scheduler.removeBlockWithPreviewV4(block, deckId);
+      const confirmedMessage = options.sourceMissing
+        ? `确定要将「${getScheduleItemLabel(material)}」从增量阅读调度中移除吗？\n\n这只会清理该阅读点的增量阅读调度数据。由于源文档已缺失，不会再清理源文档中的阅读记录，也不会写入已删除标记。`
+        : `确定要将「${getScheduleItemLabel(material)}」从增量阅读调度中移除吗？\n\n这会清理该文档中的增量阅读记录，并添加 we_已删除 标签，但会保留源文档。`;
+      const confirmed = await showObsidianConfirm(
+        plugin.app,
+        confirmedMessage,
+        {
+          title: '移除阅读点',
+          confirmText: '移除',
+          confirmClass: 'mod-warning'
+        }
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      const pointWriteService = await getPointWriteService();
+      const target = getPointWriteTarget(material);
+      const removed = await pointWriteService.deletePoint({
+        id: target.id,
+        kind: target.kind
+      });
+      if (!removed) {
+        throw new Error(`Failed to remove reading point: ${material.id}`);
+      }
+
+      await removeLocalMaterialReferences(material.id);
       new Notice(t('irSidebar.notices.removed'));
       closePriorityMenu();
       closeSchedulingMenu();
-      await recomputeAndRefreshSidebar('remove_block');
+      await recomputeAndRefreshSidebar('ui_refresh');
     } catch (error) {
       logger.error('[IRCalendarSidebar] Recovered error message.', error);
       new Notice(t('irSidebar.notices.removeFailed'));
-    }
-  }
-
-  async function deleteMaterial(material: ScheduleItem) {
-    try {
-      const pointWriteService = new IRPointWriteService(plugin.app);
-      const deleted = await pointWriteService.deletePoint({
-        id: material.id,
-        kind: material.sourceType === 'legacy-block' ? 'block' : material.sourceType === 'chunk' ? 'chunk' : undefined
-      });
-      if (!deleted) {
-        throw new Error(`Failed to delete reading point: ${material.id}`);
-      }
-      new Notice(t('irSidebar.notices.deleted'));
-      closePriorityMenu();
-      closeSchedulingMenu();
-      await recomputeAndRefreshSidebar('remove_block');
-    } catch (error) {
-      logger.error('[IRCalendarSidebar] Recovered error message.', error);
-      new Notice(t('irSidebar.notices.deleteFailed'));
     }
   }
 
@@ -2229,38 +3459,42 @@
       ]);
       const currentGroupId = await tagService.matchGroupForTags(currentTags);
       const currentGroup = allGroups.find((group) => group.id === currentGroupId);
-      const visibleGroups = [...allGroups]
-        .filter((group) => group.id !== 'default')
-        .sort((a, b) => (a.matchPriority ?? 0) - (b.matchPriority ?? 0));
+      const currentGroupName = currentGroup?.name || uiText('\u9ed8\u8ba4', 'Default');
 
       sub.addItem((item) => {
         item
-          .setTitle(`?????${currentGroup?.name || '?????'}`)
+          .setTitle(uiText(`\u5f53\u524d\u6807\u7b7e\u7ec4\uff1a${currentGroupName}`, `Current tag group: ${currentGroupName}`))
           .setIcon('check-circle')
           .setDisabled(true);
       });
 
       sub.addItem((item) => {
         item
-          .setTitle(currentTags.length > 0 ? `?????${currentTags.join(' / ')}` : '??????')
+          .setTitle(
+            currentTags.length > 0
+              ? uiText(`\u5f53\u524d\u6807\u7b7e\uff1a${currentTags.join(' / ')}`, `Current tags: ${currentTags.join(' / ')}`)
+              : uiText('\u6682\u65e0\u6807\u7b7e', 'No tags')
+          )
           .setIcon('hash')
           .setDisabled(true);
       });
 
       sub.addSeparator();
 
-      if (visibleGroups.length === 0) {
+      if (allGroups.length === 0) {
         sub.addItem((item) => {
-          item.setTitle('???????').setIcon('inbox').setDisabled(true);
+          item.setTitle(uiText('\u6682\u65e0\u53ef\u7528\u6807\u7b7e\u7ec4', 'No tag groups available')).setIcon('inbox').setDisabled(true);
         });
       } else {
-        for (const group of visibleGroups) {
+        for (const group of allGroups) {
           const matchedTags = normalizeReadingPointTags(group.matchAnyTags || []).filter((candidate) =>
             currentTags.some((tag) => tag.toLowerCase() === candidate.toLowerCase())
           );
           sub.addItem((item) => {
-            const suffix = group.id === currentGroupId ? '??????' : '';
-            const matchHint = matchedTags.length > 0 ? ` ? ???${matchedTags.join(', ')}` : '';
+            const suffix = group.id === currentGroupId ? uiText('\uff08\u5f53\u524d\uff09', ' (current)') : '';
+            const matchHint = matchedTags.length > 0
+              ? uiText(` - \u5339\u914d\uff1a${matchedTags.join(', ')}`, ` - Match: ${matchedTags.join(', ')}`)
+              : '';
             item
               .setTitle(`${group.name}${suffix}${matchHint}`)
               .setIcon(group.id === currentGroupId ? 'check' : 'tags')
@@ -2272,14 +3506,14 @@
       sub.addSeparator();
       sub.addItem((item) => {
         item
-          .setTitle('?????????????')
+          .setTitle(uiText('\u6807\u7b7e\u7ec4\u4f1a\u6839\u636e\u9605\u8bfb\u6807\u7b7e\u81ea\u52a8\u5339\u914d\uff0c\u4ec5\u4f9b\u67e5\u770b', 'Tag groups are matched from reading tags and shown here for reference'))
           .setIcon('info')
           .setDisabled(true);
       });
     } catch (error) {
-      logger.error('[IRCalendarSidebar] ?????????:', error);
+      logger.error('[IRCalendarSidebar] Failed to load tag-group submenu:', error);
       sub.addItem((item) => {
-        item.setTitle('?????????').setIcon('alert-triangle').setDisabled(true);
+        item.setTitle(uiText('\u52a0\u8f7d\u6807\u7b7e\u7ec4\u5931\u8d25', 'Failed to load tag groups')).setIcon('alert-triangle').setDisabled(true);
       });
     }
   }
@@ -2435,6 +3669,66 @@
     }
   }
 
+  async function addSuggestedMaterialToToday(material: ScheduleItem): Promise<void> {
+    if (continueReadingActionIds.has(material.id)) {
+      return;
+    }
+
+    continueReadingActionIds = new Set([...continueReadingActionIds, material.id]);
+    try {
+      const scheduler = await getV4SchedulerService();
+      const block = await resolveScheduleItemToBlockV4(material);
+      const deckId = await resolveDeckIdForScheduleItem(material);
+      const now = new Date();
+      now.setSeconds(0, 0);
+
+      await scheduler.manualRescheduleBlockWithPreviewV4(
+        block,
+        {
+          nextRepDate: now.getTime(),
+          scheduleStatus: 'queued'
+        },
+        deckId
+      );
+
+      new Notice(uiText('已加入今天的阅读列表', 'Added to today'));
+      await recomputeAndRefreshSidebar('manual_reschedule');
+    } catch (error) {
+      logger.error('[IRCalendarSidebar] Failed to add suggested material to today', error);
+      new Notice(uiText('加入今天失败', 'Failed to add to today'));
+    } finally {
+      const nextIds = new Set(continueReadingActionIds);
+      nextIds.delete(material.id);
+      continueReadingActionIds = nextIds;
+    }
+  }
+
+  async function restoreSuspendedMaterialToToday(material: ScheduleItem): Promise<void> {
+    if (continueReadingActionIds.has(material.id)) {
+      return;
+    }
+
+    continueReadingActionIds = new Set([...continueReadingActionIds, material.id]);
+    try {
+      const scheduler = await getV4SchedulerService();
+      const block = await resolveScheduleItemToBlockV4(material);
+      const deckId = await resolveDeckIdForScheduleItem(material);
+
+      await scheduler.resumeBlockWithPreviewV4(block, deckId);
+      await clearSuspendedMarkersForMaterial(material);
+
+      new Notice(uiText('已恢复到今天的阅读列表', 'Restored to today'));
+      await recomputeAndRefreshSidebar('manual_reschedule');
+    } catch (error) {
+      logger.error('[IRCalendarSidebar] Failed to restore suspended material to today', error);
+      new Notice(uiText('恢复搁置阅读点失败', 'Failed to restore suspended reading point'));
+    } finally {
+      const nextIds = new Set(continueReadingActionIds);
+      nextIds.delete(material.id);
+      continueReadingActionIds = nextIds;
+    }
+  }
+
   function openReminderModal(material: ScheduleItem, position?: { x: number; y: number }) {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -2464,6 +3758,7 @@
     clearTimerTicker();
     closeBlockInfoModal();
     closeReminderModal();
+    closeContinueReadingSuggestionsModal('refresh');
     importModalInstance?.close();
     importModalInstance = null;
     analyticsModalInstance?.close();
@@ -2496,6 +3791,7 @@
       for (const item of items) {
         if (collectedIds.has(item.id)) continue;
         if (item.sourceFile !== sourceFile) continue;
+        if (!matchesActiveDeckFilter(item)) continue;
         collectedIds.add(item.id);
         siblings.push(item);
       }
@@ -2510,21 +3806,10 @@
           if (task.pdfPath !== sourceFile) continue;
           const status = String(task.status || 'new');
           if (status === 'done' || status === 'removed') continue;
+          const siblingItem = buildScheduleItemFromPdfTask(task);
+          if (!matchesActiveDeckFilter(siblingItem)) continue;
           collectedIds.add(task.id);
-          siblings.push({
-            id: task.id,
-            title: String(task.title || '').trim() || 'PDF',
-            displayName: extractPdfHeading(String(task.title || '')),
-            sourceFile: task.pdfPath,
-            associatedNotePath: task.meta?.associatedNotePath,
-            associatedNoteScope: task.meta?.associatedNotePath ? 'point' : undefined,
-            resumeLink: task.link,
-            priority: Number(task.priorityUi ?? task.priorityEff ?? 5),
-            intervalDays: Number(task.intervalDays ?? 1),
-            scheduleStatus: status,
-            nextRepDate: Number(task.nextRepDate || 0),
-            nextReviewDate: task.nextRepDate ? new Date(task.nextRepDate) : null,
-          });
+          siblings.push(siblingItem);
         }
       } catch (e) {
         logger.warn('[IRCalendarSidebar] Failed to load PDF sibling materials', e);
@@ -2546,19 +3831,10 @@
           });
           if (identityKey && taskIdentityKey && identityKey !== taskIdentityKey) continue;
           const resolvedFilePath = await resolveEpubTaskFilePath(task);
+          const siblingItem = await buildScheduleItemFromEpubTask(task, { resolvedFilePath });
+          if (!matchesActiveDeckFilter(siblingItem)) continue;
           collectedIds.add(task.id);
-          siblings.push({
-            id: task.id,
-            title: String(task.title || '').trim() || 'EPUB',
-            sourceFile: resolvedFilePath,
-            associatedNotePath: task.meta?.associatedNotePath,
-            associatedNoteScope: task.meta?.associatedNotePath ? 'point' : undefined,
-            priority: Number(task.priorityUi ?? task.priorityEff ?? 5),
-            intervalDays: Number(task.intervalDays ?? 1),
-            scheduleStatus: status,
-            nextRepDate: Number(task.nextRepDate || 0),
-            nextReviewDate: task.nextRepDate ? new Date(task.nextRepDate) : null,
-          });
+          siblings.push(siblingItem);
         }
       } catch (e) {
         logger.warn('[IRCalendarSidebar] Failed to load EPUB sibling materials', e);
@@ -2566,7 +3842,7 @@
     }
 
 
-    siblings.sort((a, b) => (a.nextRepDate || 0) - (b.nextRepDate || 0));
+    siblings.sort(compareScheduleItemsByScheduledDay);
     return siblings;
   }
 
@@ -2660,20 +3936,9 @@
   }
 
   async function saveMaterialReadingPointTags(material: ScheduleItem, tags: string[]): Promise<boolean> {
-    const tagService = await getPointTagService();
     const normalizedTags = normalizeReadingPointTags(tags);
-    let saved = false;
-
-    if (isPdfBookmarkTaskId(material.id)) {
-      saved = !!(await tagService.savePdfTaskTags(material.id, normalizedTags));
-    } else if (isEpubBookmarkTaskId(material.id)) {
-      saved = !!(await tagService.saveEpubTaskTags(material.id, normalizedTags));
-    } else {
-      if (material.sourceType === 'legacy-block') {
-        return false;
-      }
-      saved = !!(await tagService.saveChunkTags(material.id, normalizedTags));
-    }
+    const pointWriteService = await getPointWriteService();
+    const saved = !!(await pointWriteService.updatePointTags(getPointWriteTarget(material), normalizedTags));
 
     if (saved) {
       readingPointTagsById = {
@@ -2683,6 +3948,31 @@
     }
 
     return saved;
+  }
+
+  function stripSuspendedReadingPointTags(tags: string[]): string[] {
+    return normalizeReadingPointTags(tags).filter((tag) => {
+      const normalized = String(tag || '').trim().replace(/^#/, '').toLowerCase();
+      return normalized ? !SUSPENDED_READING_POINT_TAG_KEYS.has(normalized) : false;
+    });
+  }
+
+  async function clearSuspendedMarkersForMaterial(material: ScheduleItem): Promise<void> {
+    if (material.sourceType === 'legacy-block') {
+      return;
+    }
+
+    const currentTags = await getMaterialReadingPointTags(material);
+    const nextTags = stripSuspendedReadingPointTags(currentTags);
+    const changed =
+      nextTags.length !== currentTags.length ||
+      nextTags.some((tag, index) => tag !== currentTags[index]);
+
+    if (!changed) {
+      return;
+    }
+
+    await saveMaterialReadingPointTags(material, nextTags);
   }
 
   function buildGroupedTagSections(tags: string[], groups: IRTagGroup[]): Array<{ key: string; label: string; icon: string; tags: string[] }> {
@@ -2726,7 +4016,7 @@
     if (ungrouped.length > 0) {
       sections.push({
         key: '__ungrouped__',
-        label: 'Ungrouped',
+        label: uiText('\u672a\u5206\u7ec4', 'Ungrouped'),
         icon: 'tag',
         tags: [...new Set(ungrouped)].sort((a, b) => a.localeCompare(b, 'zh-CN')),
       });
@@ -2746,10 +4036,11 @@
       const currentTagSet = new Set(currentTags.map((tag) => tag.toLowerCase()));
       const currentGroupId = await tagService.matchGroupForTags(currentTags);
       const currentGroup = groups.find((group) => group.id === currentGroupId);
+      const currentGroupName = currentGroup?.name || uiText('\u9ed8\u8ba4', 'Default');
 
       sub.addItem((item) => {
         item
-          .setTitle(`Current tag group: ${currentGroup?.name || 'None'}`)
+          .setTitle(uiText(`\u5f53\u524d\u6807\u7b7e\u7ec4\uff1a${currentGroupName}`, `Current tag group: ${currentGroupName}`))
           .setIcon('layers')
           .setDisabled(true);
       });
@@ -2758,45 +4049,45 @@
 
       sub.addItem((item) => {
         item
-          .setTitle('Create new tag')
+          .setTitle(uiText('\u65b0\u5efa\u6807\u7b7e', 'Create new tag'))
           .setIcon('plus')
           .onClick(async () => {
-            const input = await showObsidianInput(plugin.app, 'Enter a new tag name', '', {
-              title: 'Create tag',
-              placeholder: 'e.g. concept / quote / problem',
-              confirmText: 'Create'
+            const input = await showObsidianInput(plugin.app, uiText('\u8f93\u5165\u65b0\u7684\u6807\u7b7e\u540d', 'Enter a new tag name'), '', {
+              title: uiText('\u65b0\u5efa\u6807\u7b7e', 'Create tag'),
+              placeholder: uiText('\u4f8b\u5982\uff1a\u6982\u5ff5 / \u5f15\u6587 / \u95ee\u9898', 'e.g. concept / quote / problem'),
+              confirmText: uiText('\u521b\u5efa', 'Create')
             });
             if (input === null) return;
 
             const [nextTag] = normalizeReadingPointTags([input]);
             if (!nextTag) {
-              new Notice('Tag name cannot be empty');
+              new Notice(uiText('\u6807\u7b7e\u540d\u4e0d\u80fd\u4e3a\u7a7a', 'Tag name cannot be empty'));
               return;
             }
             if (currentTagSet.has(nextTag.toLowerCase())) {
-              new Notice(`Tag already exists: ${nextTag}`);
+              new Notice(uiText(`\u6807\u7b7e\u5df2\u5b58\u5728\uff1a${nextTag}`, `Tag already exists: ${nextTag}`));
               return;
             }
 
             const saved = await saveMaterialReadingPointTags(material, [...currentTags, nextTag]);
             if (!saved) {
-              new Notice('Failed to save tag');
+              new Notice(uiText('\u4fdd\u5b58\u6807\u7b7e\u5931\u8d25', 'Failed to save tag'));
               return;
             }
 
-            new Notice(`Added tag: ${nextTag}`);
+            new Notice(uiText(`\u5df2\u6dfb\u52a0\u6807\u7b7e\uff1a${nextTag}`, `Added tag: ${nextTag}`));
             await recomputeAndRefreshSidebar('reading_point_tags_changed');
           });
       });
 
       sub.addItem((item) => {
-        item.setTitle('Add existing tag').setIcon('tags');
+        item.setTitle(uiText('\u6dfb\u52a0\u5df2\u6709\u6807\u7b7e', 'Add existing tag')).setIcon('tags');
         const selectSub = (item as any).setSubmenu();
         const sections = buildGroupedTagSections(knownTags, groups);
 
         if (sections.length === 0) {
           selectSub.addItem((subItem: any) => {
-            subItem.setTitle('No available tags').setIcon('inbox').setDisabled(true);
+            subItem.setTitle(uiText('\u6682\u65e0\u53ef\u6dfb\u52a0\u6807\u7b7e', 'No available tags')).setIcon('inbox').setDisabled(true);
           });
           return;
         }
@@ -2817,11 +4108,11 @@
                   .onClick(async () => {
                     const saved = await saveMaterialReadingPointTags(material, [...currentTags, tag]);
                     if (!saved) {
-                      new Notice('Failed to save tag');
+                      new Notice(uiText('\u4fdd\u5b58\u6807\u7b7e\u5931\u8d25', 'Failed to save tag'));
                       return;
                     }
 
-                    new Notice(`Added tag: ${tag}`);
+                    new Notice(uiText(`\u5df2\u6dfb\u52a0\u6807\u7b7e\uff1a${tag}`, `Added tag: ${tag}`));
                     await recomputeAndRefreshSidebar('reading_point_tags_changed');
                   });
               });
@@ -2831,12 +4122,12 @@
       });
 
       sub.addItem((item) => {
-        item.setTitle('Remove tag').setIcon('minus-circle');
+        item.setTitle(uiText('\u79fb\u9664\u6807\u7b7e', 'Remove tag')).setIcon('minus-circle');
         const removeSub = (item as any).setSubmenu();
 
         if (currentTags.length === 0) {
           removeSub.addItem((subItem: any) => {
-            subItem.setTitle('No tags to remove').setIcon('inbox').setDisabled(true);
+            subItem.setTitle(uiText('\u6682\u65e0\u53ef\u79fb\u9664\u6807\u7b7e', 'No tags to remove')).setIcon('inbox').setDisabled(true);
           });
           return;
         }
@@ -2852,11 +4143,11 @@
                   currentTags.filter((currentTag) => currentTag.toLowerCase() !== tag.toLowerCase())
                 );
                 if (!saved) {
-                  new Notice('Failed to save tag');
+                  new Notice(uiText('\u4fdd\u5b58\u6807\u7b7e\u5931\u8d25', 'Failed to save tag'));
                   return;
                 }
 
-                new Notice(`Removed tag: ${tag}`);
+                new Notice(uiText(`\u5df2\u79fb\u9664\u6807\u7b7e\uff1a${tag}`, `Removed tag: ${tag}`));
                 await recomputeAndRefreshSidebar('reading_point_tags_changed');
               });
           });
@@ -2865,7 +4156,7 @@
     } catch (error) {
       logger.error('[IRCalendarSidebar] Failed to load reading tag submenu.', error);
       sub.addItem((item) => {
-        item.setTitle('Failed to load tags').setIcon('alert-triangle').setDisabled(true);
+        item.setTitle(uiText('\u52a0\u8f7d\u6807\u7b7e\u5931\u8d25', 'Failed to load tags')).setIcon('alert-triangle').setDisabled(true);
       });
     }
   }
@@ -2910,7 +4201,7 @@
 
       menu.addItem((item) => {
         item
-          .setTitle('Reading tags')
+          .setTitle(uiText('\u9605\u8bfb\u6807\u7b7e', 'Reading tags'))
           .setIcon('hash');
         const sub = (item as any).setSubmenu();
         void loadReadingTagSubmenu(sub, material);
@@ -2918,7 +4209,7 @@
 
       menu.addItem((item) => {
         item
-          .setTitle('Tag group')
+          .setTitle(uiText('\u6807\u7b7e\u7ec4', 'Tag group'))
           .setIcon('tags');
         const sub = (item as any).setSubmenu();
         void loadTagGroupSubmenu(sub, material);
@@ -2926,7 +4217,7 @@
 
       menu.addItem((item) => {
         item
-          .setTitle('Associated note')
+          .setTitle(uiText('\u5173\u8054\u7b14\u8bb0', 'Associated note'))
           .setIcon('link');
         const sub = (item as any).setSubmenu();
         buildAssociatedNoteSubmenu(sub, material);
@@ -2958,22 +4249,6 @@
           .setIcon('x-circle')
           .onClick(() => {
             void removeMaterial(material);
-          });
-      });
-
-      menu.addItem((item) => {
-        item
-          .setTitle(t('irSidebar.menu.delete'))
-          .setIcon('trash-2')
-          .onClick(async () => {
-            const confirmed = await showDeleteConfirm(
-              plugin.app,
-              material.title || material.id,
-              'Delete this reading material and its related incremental reading data? This action cannot be undone.'
-            );
-            if (confirmed) {
-              void deleteMaterial(material);
-            }
           });
       });
 
@@ -3010,15 +4285,6 @@
 
         sub.addItem((subItem: any) => {
           subItem
-            .setTitle(t('irSidebar.menu.autoTimer'))
-            .setChecked(autoStartNextTimerEnabled)
-            .onClick(() => {
-              void setAutoStartNextTimerEnabled(!autoStartNextTimerEnabled);
-            });
-        });
-
-        sub.addItem((subItem: any) => {
-          subItem
             .setTitle(t('irSidebar.menu.showRealtimePreview'))
             .setChecked(showSchedulingPreview)
             .onClick(() => {
@@ -3041,10 +4307,10 @@
     const diffMs = due.getTime() - now.getTime();
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    if (diffDays < 0) return `${Math.abs(diffDays)} day(s) overdue`;
-    if (diffDays === 0) return 'Due today';
-    if (diffDays === 1) return 'Due tomorrow';
-    return `Due in ${diffDays} day(s)`;
+    if (diffDays < 0) return t('irSidebar.controls.overdueDays', { count: Math.abs(diffDays) });
+    if (diffDays === 0) return t('irSidebar.controls.dueToday');
+    if (diffDays === 1) return t('irSidebar.controls.dueTomorrow');
+    return t('irSidebar.controls.dueInDays', { count: diffDays });
   }
 
   async function openAddReadingPointModal(material: ScheduleItem): Promise<void> {
@@ -3161,9 +4427,6 @@
       const cfg = schedulingConfig.find(c => c.action === action);
       if (!cfg) return;
       const isPostpone = Boolean((cfg as any).isPostpone);
-      const shouldAutoStartNextTimer =
-        !isPostpone &&
-        shouldAutoStartNextTimerAfterScheduling(target.id);
       const shouldPauseTargetTimer = activeReadingTimer?.blockId === target.id;
 
       const scheduler = await getV4SchedulerService();
@@ -3180,11 +4443,16 @@
       const scheduleStatus = updatedBlock.status;
 
       if (isPostpone) {
-        new Notice(`Postponed to ${new Date(nextRepDate).toLocaleDateString()}.`);
+        new Notice(t('irSidebar.scheduling.postponed', { date: new Date(nextRepDate).toLocaleDateString() }));
       } else {
-        const actionLabelMap: Record<string, string> = { intensive: 'Intensive review', normal: 'Normal review', slow: 'Slow review', postpone: 'Postpone' };
+        const actionLabelMap: Record<string, string> = {
+          intensive: t('irSidebar.scheduling.intensive'),
+          normal: t('irSidebar.scheduling.normal'),
+          slow: t('irSidebar.scheduling.slow'),
+          postpone: t('irSidebar.scheduling.postpone')
+        };
         const actionLabel = actionLabelMap[action] || action;
-        new Notice(`${actionLabel}: next review in ${intervalDays} day(s).`);
+        new Notice(t('irSidebar.scheduling.modeApplied', { mode: actionLabel, days: intervalDays }));
       }
 
       processedChunkIds = new Set([...processedChunkIds, target.id]);
@@ -3247,20 +4515,9 @@
           });
         }
       }
-      if (!shouldAutoStartNextTimer || !nextMaterial) {
-        clearAutoTimerChain();
-      }
       if (nextMaterial) {
         const refreshedNextMaterial = findScheduleItemById(nextMaterial.id) ?? nextMaterial;
         await openMaterial(refreshedNextMaterial);
-        if (shouldAutoStartNextTimer) {
-          const started = await startReadingTimerWithRetry(refreshedNextMaterial, { announceStart: false, retries: 4 });
-          if (!started) {
-            clearAutoTimerChain();
-          } else {
-            armAutoTimerChain(refreshedNextMaterial.id);
-          }
-        }
       }
     } catch (error) {
       logger.error('[IRCalendarSidebar] Recovered error message.', error);
@@ -3280,56 +4537,16 @@
     loadDataInFlight = (async () => {
       isLoading = true;
       try {
-        const workspaceData = await getWorkspaceSnapshotService().getWorkspaceData();
-        const { decksRecord, blocksRecord } = workspaceData;
-
-        let nextReadingMaterials: ReadingMaterial[] = [];
-        try {
-          if (plugin.readingMaterialManager) {
-            nextReadingMaterials = await plugin.readingMaterialManager.getAllMaterials();
-          }
-        } catch {
-          nextReadingMaterials = [];
-        }
-
-        const kernel = await getScheduleKernel();
-        const schedule =
-          !options.forceRecompute
-            ? kernel.getCachedSchedule() ?? await kernel.recomputeScheduleForDeck('ui_refresh')
-            : await kernel.recomputeScheduleForDeck('ui_refresh');
-        const projectedSummary = await getProjectedScheduleSummary(plugin.app, {
-          schedule,
-          seedData: {
-            decksRecord,
-            blocksRecord,
-            history: workspaceData.history
-          }
+        const requestedDeckId = getRequestedDeckFilterId();
+        const queryResult = await getCalendarQueryService().getCalendarQueryResult({
+          deckIds: requestedDeckId ? [requestedDeckId] : undefined,
+          forceRecompute: options.forceRecompute,
+          reason: 'ui_refresh'
         });
-        const projectedDayLoadMap = buildProjectedDayLoadMap(projectedSummary);
-
-        const byDate = new Map<string, ScheduleItem[]>();
-        for (const [dateKey, dayLoad] of projectedDayLoadMap.entries()) {
-          byDate.set(
-            dateKey,
-            dayLoad.items.map((item) => ({
-              id: item.id,
-              title: item.title,
-              displayName: item.displayName,
-              sourceFile: item.sourceFile,
-              associatedNotePath: item.associatedNotePath,
-              associatedNoteScope: item.associatedNoteScope,
-              deckId: item.deckId,
-              priority: item.priority,
-              intervalDays: item.intervalDays,
-              scheduleStatus: item.scheduleStatus,
-              nextRepDate: item.nextRepDate,
-              nextReviewDate: item.nextReviewDate,
-              resumeLink: item.resumeLink,
-              sourceType: item.sourceType,
-              explanation: item.explanation
-            }))
-          );
-        }
+        const { workspaceData } = queryResult;
+        const { decksRecord, blocksRecord } = workspaceData;
+        const byDate = queryResult.materialsByDate;
+        const suspendedPool = queryResult.continueReadingSuspendedItemsPool;
 
         await Promise.all([
           refreshReadingPointTagMap(byDate),
@@ -3342,16 +4559,18 @@
 
         irDecks = Object.values(decksRecord);
         allBlocks = Object.values(blocksRecord);
-        readingMaterials = nextReadingMaterials;
+        readingMaterials = queryResult.readingMaterials;
         materialsByDate = byDate;
-        lastAppliedScheduleGeneratedAt = projectedSummary.schedule.generatedAt;
+        continueReadingSuspendedItemsPool = suspendedPool;
+        lastAppliedScheduleGeneratedAt = queryResult.schedule.generatedAt;
+        syncSelectionToFocusedDeck();
 
         logger.debug('[IRCalendarSidebar] Recovered debug message.', {
           decks: irDecks.length,
           blocks: allBlocks.length,
           dates: byDate.size,
-          generatedAt: projectedSummary.schedule.generatedAt,
-          triggerReason: projectedSummary.schedule.triggerReason
+          generatedAt: queryResult.schedule.generatedAt,
+          triggerReason: queryResult.schedule.triggerReason
         });
       } catch (error) {
         logger.error('[IRCalendarSidebar] Recovered error message.', error);
@@ -3374,170 +4593,6 @@
       }
     }
     return;
-    /*
-    
-
-      
-
-        materialsByDate = byDate;
-
-        logger.debug('[IRCalendarSidebar] Recovered debug message.', {
-          decks: irDecks.length,
-          dates: materialsByDate.size,
-          generatedAt: schedule.generatedAt
-        });
-        return;
-      }
-
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-
-
-      const byDate = new Map<string, ScheduleItem[]>();
-      
-      for (const chunk of chunks) {
-        const scheduleStatus = (chunk as any).scheduleStatus as string || 'new';
-        if (scheduleStatus === 'done' || scheduleStatus === 'suspended' || scheduleStatus === 'removed') continue;
-
-        const nextRepDate = (chunk as any).nextRepDate as number || 0;
-        const intervalDays = (chunk as any).intervalDays as number || 1;
-        const priority = (chunk as any).priorityUi as number ?? (chunk as any).priorityEff as number ?? 5;
-        const filePath = (chunk as any).filePath as string || '';
-        const chunkId = (chunk as any).chunkId as string || '';
-
-
-        const base = filePath?.split('/').pop() || chunkId;
-        const title = base.replace(/\.md$/i, '').replace(/^\d+_/, '');
-
-        let nextReviewDate: Date | null = null;
-        let dateKey: string;
-
-        if (nextRepDate > 0) {
-          nextReviewDate = new Date(nextRepDate);
-          dateKey = formatDateKey(nextReviewDate!);
-        } else {
-
-          dateKey = formatDateKey(now);
-        }
-
-        const rm = readingMaterials.find(m => m.filePath === filePath);
-
-        const item: ScheduleItem = {
-          id: chunkId,
-          title,
-          sourceFile: filePath,
-          associatedNotePath: (chunk as any).meta?.associatedNotePath,
-          associatedNoteScope: (chunk as any).meta?.associatedNotePath ? 'point' : undefined,
-          resumeLink: rm?.resumeLink,
-          priority,
-          intervalDays,
-          scheduleStatus,
-          nextRepDate,
-          nextReviewDate
-        };
-
-        if (!byDate.has(dateKey)) {
-          byDate.set(dateKey, []);
-        }
-        byDate.get(dateKey)!.push(item);
-      }
-
-      try {
-        const pdfService = await getPdfBookmarkTaskService();
-        const tasks = await pdfService.getAllTasks();
-        for (const task of tasks) {
-          const status = String(task.status || 'new');
-          if (status === 'done' || status === 'suspended' || status === 'removed') continue;
-
-          let dateKey: string;
-          let nextReviewDate: Date | null = null;
-          const nextRepDate = Number(task.nextRepDate || 0);
-          if (nextRepDate > 0) {
-            nextReviewDate = new Date(nextRepDate);
-            dateKey = formatDateKey(nextReviewDate!);
-          } else {
-            dateKey = formatDateKey(now);
-          }
-
-          const pdfFullTitle = String(task.title || '').trim() || 'PDF';
-          const item: ScheduleItem = {
-            id: task.id,
-            title: pdfFullTitle,
-            displayName: extractPdfHeading(pdfFullTitle),
-            sourceFile: task.pdfPath,
-            associatedNotePath: task.meta?.associatedNotePath,
-            associatedNoteScope: task.meta?.associatedNotePath ? 'point' : undefined,
-            resumeLink: task.link,
-            priority: Number(task.priorityUi ?? task.priorityEff ?? 5),
-            intervalDays: Number(task.intervalDays ?? 1),
-            scheduleStatus: status,
-            nextRepDate,
-            nextReviewDate
-          };
-
-          if (!byDate.has(dateKey)) {
-            byDate.set(dateKey, []);
-          }
-          byDate.get(dateKey)!.push(item);
-        }
-      } catch (e) {
-        logger.warn('[IRCalendarSidebar] Failed to build PDF reading calendar data', e);
-      }
-
-      try {
-        const epubService = await getEpubBookmarkTaskService();
-        const epubTasks = await epubService.getAllTasks();
-        for (const task of epubTasks) {
-          const status = String(task.status || 'new');
-          if (status === 'done' || status === 'suspended' || status === 'removed') continue;
-
-          let dateKey: string;
-          let nextReviewDate: Date | null = null;
-          const nextRepDate = Number(task.nextRepDate || 0);
-          if (nextRepDate > 0) {
-            nextReviewDate = new Date(nextRepDate);
-            dateKey = formatDateKey(nextReviewDate!);
-          } else {
-            dateKey = formatDateKey(now);
-          }
-
-          const resolvedFilePath = await resolveEpubTaskFilePath(task);
-          const item: ScheduleItem = {
-            id: task.id,
-            title: String(task.title || '').trim() || 'EPUB',
-            sourceFile: resolvedFilePath,
-            associatedNotePath: task.meta?.associatedNotePath,
-            associatedNoteScope: task.meta?.associatedNotePath ? 'point' : undefined,
-            priority: Number(task.priorityUi ?? task.priorityEff ?? 5),
-            intervalDays: Number(task.intervalDays ?? 1),
-            scheduleStatus: status,
-            nextRepDate,
-            nextReviewDate
-          };
-
-          if (!byDate.has(dateKey)) {
-            byDate.set(dateKey, []);
-          }
-          byDate.get(dateKey)!.push(item);
-        }
-      } catch (e) {
-        logger.warn('[IRCalendarSidebar] Failed to build EPUB reading calendar data', e);
-      }
-
-      materialsByDate = byDate;
-      await refreshReadingPointTagMap(byDate);
-      await loadTimerTotalsFromHistory();
-
-      logger.debug('[IRCalendarSidebar] Recovered debug message.', {
-        chunks: chunks.length,
-        dates: materialsByDate.size
-      });
-    } catch (error) {
-      logger.error('[IRCalendarSidebar] Recovered error message.', error);
-    } finally {
-      isLoading = false;
-    }
-    */
   }
 
   onMount(() => {
@@ -3567,23 +4622,7 @@
           return;
         }
 
-        const previouslyExpanded = new Set(expandedMaterialIds);
-        siblingCache = new Map();
-        await refreshSidebarData();
-
-
-        if (previouslyExpanded.size > 0) {
-          const todayKey = formatDateKey(selectedDate);
-          const todayItems = materialsByDate.get(todayKey) || [];
-          for (const item of todayItems) {
-            if (previouslyExpanded.has(item.id)) {
-              const siblings = await getSiblingMaterials(item);
-              const next = new Map(siblingCache);
-              next.set(item.id, siblings);
-              siblingCache = next;
-            }
-          }
-        }
+        await refreshSidebarAfterDataUpdate();
       }, 100);
     };
     window.addEventListener('Weave:ir-data-updated', handleDataUpdate);
@@ -3593,29 +4632,8 @@
       const currentBlockId = detail.blockId;
 
       void (async () => {
-        const shouldAutoStartNextTimer =
-          autoStartNextTimerEnabled &&
-          detail.autoStartNextTimer === true &&
-          shouldContinueAutoTimerChainForBlock(currentBlockId);
-        await pauseActiveReadingTimer(detail.reason === 'skipped' ? 'skipped' : 'completed', currentBlockId);
-
-        if (!shouldAutoStartNextTimer || !detail.nextBlockId) {
-          clearAutoTimerChain();
-          return;
-        }
-
-        const nextMaterial = detail.nextMaterial ?? findScheduleItemById(detail.nextBlockId);
-        if (!nextMaterial) {
-          logger.warn('[IRCalendarSidebar] No next material available for continuous reading', detail);
-          clearAutoTimerChain();
-          return;
-        }
-
-        const started = await startReadingTimerWithRetry(nextMaterial, { announceStart: false, retries: 4 });
-        if (!started) {
-          clearAutoTimerChain();
-        } else {
-          armAutoTimerChain(nextMaterial.id);
+        if (activeReadingTimer?.blockId === currentBlockId) {
+          await pauseActiveReadingTimer(detail.reason === 'skipped' ? 'skipped' : 'completed', currentBlockId);
         }
       })();
     };
@@ -3629,15 +4647,176 @@
   });
 
 
-  let monthDays = $derived(getMonthDays(currentDate.getFullYear(), currentDate.getMonth()));
+  let monthDays = $derived(getCalendarDisplayDays(getMonthDays(currentDate.getFullYear(), currentDate.getMonth())));
+  let weekdayLabels = $derived(IR_CALENDAR_WEEKDAY_KEYS.map((key) => ({
+    key,
+    label: t(`irSidebar.controls.${key}`),
+    isWeekend: key === 'weekdaySat' || key === 'weekdaySun'
+  })));
   let unfilteredSelectedMaterials = $derived(getSelectedMaterialsBase());
   let selectedMaterials = $derived(getSelectedMaterials());
+  let searchableScheduleEntries = $derived(getSearchableScheduleEntries());
+  let hasActiveSearch = $derived(Boolean(parsedSearchQuery?.raw.trim()));
+  let searchMatchedEntries = $derived(getMatchedSearchEntries());
+  let displayedMaterials = $derived.by(() =>
+    hasActiveSearch ? searchMatchedEntries.map((entry) => entry.item) : selectedMaterials
+  );
+  let displayedMaterialDateKeys = $derived.by(() => {
+    const dateKeys = new Map<string, string>();
+    if (hasActiveSearch) {
+      for (const entry of searchMatchedEntries) {
+        dateKeys.set(entry.item.id, entry.dateKey);
+      }
+      return dateKeys;
+    }
+
+    const currentDateKey = formatDateKey(selectedDate);
+    for (const item of selectedMaterials) {
+      dateKeys.set(item.id, currentDateKey);
+    }
+    return dateKeys;
+  });
+  let searchAvailableDecks = $derived.by(() =>
+    irDecks.map((deck) => ({
+      id: String(deck.id || '').trim(),
+      name: String(deck.name || '').trim(),
+      description: '',
+      category: '',
+      path: String((deck as any).path || deck.id || '').trim(),
+      level: 0,
+      order: 0,
+      inheritSettings: false,
+      settings: {
+        newCardsPerDay: 0,
+        maxReviewsPerDay: 0,
+        showAnswerTimer: false,
+        answerTimerSeconds: 0,
+        randomMode: false,
+        useFSRS: false,
+        easyInterval: 0,
+      },
+      stats: {
+        totalCards: 0,
+        newCards: 0,
+        learningCards: 0,
+        reviewCards: 0,
+        suspendedCards: 0,
+        averageEase: 0,
+        retentionRate: 0,
+        studyStreak: 0,
+        totalReviews: 0,
+        averageReviewTime: 0,
+      },
+      includeSubdecks: false,
+      created: '',
+      modified: '',
+      tags: [],
+      metadata: {},
+    } as unknown as Deck))
+  );
+  let searchAvailableTags = $derived.by(() =>
+    Array.from(
+      new Set(
+        Object.values(readingPointTagsById)
+          .flatMap((tags) => tags || [])
+          .map((tag) => String(tag || '').trim())
+          .filter(Boolean)
+      )
+    ).sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  );
+  let searchAvailablePriorities = $derived.by(() =>
+    Array.from(new Set(searchableScheduleEntries.map((entry) => Number(entry.item.priority || 0)))).sort((a, b) => a - b)
+  );
+  let searchAvailableSources = $derived.by(() =>
+    Array.from(
+      new Set(
+        searchableScheduleEntries
+          .map((entry) => String(entry.item.sourceFile || '').trim())
+          .filter(Boolean)
+      )
+    ).sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  );
+  let searchAvailableStates = $derived.by(() =>
+    Array.from(
+      new Set(
+        searchableScheduleEntries
+          .map((entry) => String(entry.item.scheduleStatus || '').trim())
+          .filter(Boolean)
+      )
+    ).sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  );
+  let searchAvailableYamlKeys = $derived.by(() => {
+    const keys = new Set<string>();
+    for (const entry of searchableScheduleEntries) {
+      for (const key of Object.keys(getScheduleItemFrontmatter(entry.item))) {
+        if (key) {
+          keys.add(key);
+        }
+      }
+    }
+    return Array.from(keys).sort((left, right) => left.localeCompare(right, 'zh-CN'));
+  });
+  let hasContinueReadingSuggestionOffer = $derived(shouldOfferContinueReadingSuggestions());
+  let shouldShowTodayCompletedEmptyState = $derived(
+    !isLoading &&
+    !hasActiveSearch &&
+    isSameDay(selectedDate, today) &&
+    selectedMaterials.length === 0 &&
+    unfilteredSelectedMaterials.length === 0 &&
+    !activeReadingTagFilter
+  );
   let selectedDateTagOptions = $derived(getSelectedDateTagOptions());
+  let materialListProps = $derived({
+    displayedMaterials,
+    hasActiveSearch,
+    displayedMaterialDateKeys,
+    continuousReadingEnabled,
+    expandedMaterialIds,
+    loadingSiblings,
+    siblingCache,
+    processedChunkIds,
+    timerBusyBlockId,
+    t,
+    getDisplayedMaterialDateLabel,
+    getScheduleItemDeckName,
+    getMaterialExpandButtonLabel,
+    handleMaterialClick,
+    openMaterial,
+    toggleMaterialExpand,
+    handleMaterialContextMenu,
+    handleLongPressStart,
+    handleLongPressMove,
+    handleLongPressEnd,
+    openSchedulingMenu,
+    hasVisibleAssociatedNote,
+    getAssociatedNoteActionLabel,
+    getAssociatedNoteActionTooltip,
+    handleAssociatedNoteClick,
+    isTimerRunningForBlock,
+    getDisplayedTimerSeconds,
+    getReadingTimerButtonTitle,
+    toggleReadingTimer,
+    formatCompactTimerDuration,
+    formatTimerDuration,
+    formatSiblingDueDate,
+  } satisfies IRCalendarMaterialListProps);
   let monthNumber = $derived(currentDate.getMonth() + 1);
   let monthYear = $derived(currentDate.getFullYear());
 </script>
 
-<div class="ir-calendar-sidebar">
+<div
+  class="ir-calendar-sidebar"
+  class:has-background-wall={Boolean(calendarBackgroundWallImageUrl)}
+  style={`--calendar-background-wall-fade-ratio: ${Number(calendarBackgroundWallFadePercent) / 100};`}
+  bind:this={calendarSidebarEl}
+>
+  <div class="calendar-background-wall" aria-hidden="true">
+    {#if calendarBackgroundWallImageUrl}
+      <div class="calendar-background-wall__image" style={`background-image: url('${calendarBackgroundWallImageUrl}');`}></div>
+      <div class="calendar-background-wall__veil"></div>
+      <div class="calendar-background-wall__mist"></div>
+    {/if}
+  </div>
   <!-- Incremental reading calendar sidebar -->
   <div class="calendar-header">
     <div class="calendar-title-group">
@@ -3645,60 +4824,96 @@
         <span class="month-title__month">{monthNumber}</span>
         <span class="month-title__year">{monthYear}</span>
       </span>
+      {#if getActiveDeckFilterName()}
+        <span class="month-focus-topic" title={sourceFilePath || getActiveDeckFilterName()}>
+          {t('irSidebar.header.topicPrefix')}：{getActiveDeckFilterName()}
+        </span>
+      {/if}
     </div>
-    <div class="month-nav" aria-label="Month navigation">
+    <div class="month-nav" aria-label={t('irSidebar.title')}>
       <button
         class="calendar-tool-btn clickable-icon nav-btn"
         type="button"
         onclick={prevMonth}
-        aria-label="Previous month"
-        title="Previous month"
+        aria-label={t('irSidebar.header.prevMonth')}
+        title={t('irSidebar.header.prevMonth')}
       >
         <ObsidianIcon name="chevron-left" size={14} />
       </button>
-      <button class="today-btn clickable-icon" type="button" onclick={goToToday} title="Today">Today</button>
+      <button class="today-btn clickable-icon" type="button" onclick={goToToday} title={t('irSidebar.header.today')}>{t('irSidebar.header.today')}</button>
       <button
         class="calendar-tool-btn clickable-icon nav-btn"
         type="button"
         onclick={nextMonth}
-        aria-label="Next month"
-        title="Next month"
+        aria-label={t('irSidebar.header.nextMonth')}
+        title={t('irSidebar.header.nextMonth')}
       >
         <ObsidianIcon name="chevron-right" size={14} />
       </button>
     </div>
     <div class="calendar-tools">
+      {#if hasContinueReadingSuggestionOffer}
+        <button
+          class="today-btn continue-reading-trigger-btn"
+          type="button"
+          bind:this={continueReadingTriggerEl}
+          onclick={() => { void openContinueReadingSuggestionsModal(true); }}
+          title={uiText('打开继续阅读建议', 'Open continue reading suggestions')}
+          aria-label={uiText('打开继续阅读建议', 'Open continue reading suggestions')}
+        >
+          {uiText('建议', 'More')}
+        </button>
+      {/if}
       <button
         class="calendar-tool-btn clickable-icon"
+        class:active={showSearchPanel}
         type="button"
-        onclick={openAnalyticsModal}
-        title="Open analytics"
-        aria-label="Open analytics"
+        onclick={toggleSearchPanel}
+        title={uiText('搜索增量阅读材料', 'Search incremental reading materials')}
+        aria-label={uiText('搜索增量阅读材料', 'Search incremental reading materials')}
       >
-        <ObsidianIcon name="bar-chart-2" size={16} />
+        <ObsidianIcon name="search" size={15} />
       </button>
       <button
         class="calendar-tool-btn clickable-icon"
         type="button"
-        onclick={openImportModal}
-        title="Import materials"
-        aria-label="Import materials"
+        bind:this={calendarToolsTriggerEl}
+        onclick={showMonthCalendarToolsMenu}
+        title={uiText('更多月历功能', 'More calendar actions')}
+        aria-label={uiText('更多月历功能', 'More calendar actions')}
       >
-        <ObsidianIcon name="folder-input" size={16} />
+        <ObsidianIcon name="more-vertical" size={16} />
       </button>
     </div>
   </div>
 
+  {#if showSearchPanel}
+    <div class="calendar-search-panel">
+      <CardSearchInput
+        app={plugin.app}
+        bind:value={searchQuery}
+        dataSource="incremental-reading"
+        availableDecks={searchAvailableDecks}
+        availableTags={searchAvailableTags}
+        availablePriorities={searchAvailablePriorities}
+        availableSources={searchAvailableSources}
+        availableStates={searchAvailableStates}
+        availableYamlKeys={searchAvailableYamlKeys}
+        matchCount={hasActiveSearch ? searchMatchedEntries.length : -1}
+        totalCount={searchableScheduleEntries.length}
+        onSearch={handleSearch}
+        onClear={clearSearch}
+        placeholder={uiText('搜索阅读点、专题、来源、状态', 'Search points, decks, sources, states')}
+      />
+    </div>
+  {/if}
+
 
   <div class="calendar-grid-container">
     <div class="weekdays">
-      <span class="weekday weekend">Sun</span>
-      <span class="weekday">Mon</span>
-      <span class="weekday">Tue</span>
-      <span class="weekday">Wed</span>
-      <span class="weekday">Thu</span>
-      <span class="weekday">Fri</span>
-      <span class="weekday weekend">Sat</span>
+      {#each weekdayLabels as weekday}
+        <span class="weekday" class:weekend={weekday.isWeekend}>{weekday.label}</span>
+      {/each}
     </div>
     <div class="calendar-grid">
       {#each monthDays as { date, otherMonth }}
@@ -3757,176 +4972,25 @@
     {#if isLoading}
       <div class="loading-state">
         <ObsidianIcon name="loader" size={20} />
-        <span>Loading reading materials...</span>
+        <span>{t('irSidebar.loadingCalendar')}</span>
       </div>
-    {:else if selectedMaterials.length > 0}
-      {#each selectedMaterials as material, index}
-        {@const priority = material.priority || 0}
-        {@const priorityClass = priority >= 8 ? 'high' : priority >= 4 ? 'medium' : 'low'}
-        {@const isExpanded = expandedMaterialIds.has(material.id)}
-        {@const isLoadingSibling = loadingSiblings.has(material.id)}
-        {@const siblings = siblingCache.get(material.id) || []}
-        <div class="reading-item-wrapper">
-          <div class="reading-item">
-            {#if continuousReadingEnabled}
-              <button
-                class="expand-btn"
-                class:expanded={isExpanded}
-                class:loading={isLoadingSibling}
-                aria-label={getMaterialExpandButtonLabel(isExpanded)}
-                onclick={() => toggleMaterialExpand(material)}
-              >
-                {#if isLoadingSibling}
-                  <ObsidianIcon name="loader" size={12} />
-                {:else}
-                  <ObsidianIcon name="chevron-right" size={12} />
-                {/if}
-              </button>
-            {/if}
-            <div class="reading-item-content">
-              <button
-                class="reading-item-main"
-                onclick={() => handleMaterialClick(material)}
-                oncontextmenu={(e) => handleMaterialContextMenu(e, e.currentTarget as unknown as HTMLElement, material)}
-                onpointerdown={(e) => handleLongPressStart(e, e.currentTarget as unknown as HTMLElement, material)}
-                onpointermove={handleLongPressMove}
-                onpointerup={handleLongPressEnd}
-                onpointercancel={handleLongPressEnd}
-              >
-                <span class="item-rank" class:top={index < 3}>{index + 1}</span>
-                <span class="item-text">
-                  <span class="item-title" class:processed={processedChunkIds.has(material.id)}>{material.displayName || material.title || 'Untitled'}</span>
-                </span>
-              </button>
-            </div>
-            <div class="reading-item-controls">
-              <button
-                class="schedule-checkbox"
-                aria-label="Adjust schedule"
-                onclick={(e) => openSchedulingMenu(e, material)}
-              >
-                <span class="checkbox-box" class:checked={processedChunkIds.has(material.id)} aria-hidden="true"></span>
-              </button>
-              {#if hasVisibleAssociatedNote(material)}
-                <button
-                  type="button"
-                  class="associated-note-link"
-                  aria-label={getAssociatedNoteActionLabel(material)}
-                  title={getAssociatedNoteActionTooltip(material)}
-                  oncontextmenu={(event) => handleMaterialContextMenu(event, event.currentTarget as HTMLElement, material)}
-                  onclick={(event) => handleAssociatedNoteClick(event, material)}
-                >
-                  <span>Note</span>
-                </button>
-              {/if}
-              <button
-                class="reading-timer-btn"
-                class:active={isTimerRunningForBlock(material.id)}
-                class:tracked={!isTimerRunningForBlock(material.id) && getDisplayedTimerSeconds(material.id) > 0}
-                aria-label={isTimerRunningForBlock(material.id) ? 'Pause timer' : 'Start timer'}
-                title={getReadingTimerButtonTitle(material.id)}
-                disabled={timerBusyBlockId === material.id}
-                onclick={(event) => {
-                  void toggleReadingTimer(material);
-                }}
-              >
-                <ObsidianIcon name={isTimerRunningForBlock(material.id) ? 'pause' : 'timer'} size={12} />
-              </button>
-              {#if getDisplayedTimerSeconds(material.id) > 0}
-                <span
-                  class="reading-timer-chip"
-                  class:active={isTimerRunningForBlock(material.id)}
-                  class:tracked={!isTimerRunningForBlock(material.id)}
-                  title={'Tracked reading time: ' + formatTimerDuration(getDisplayedTimerSeconds(material.id))}
-                >
-                  {formatCompactTimerDuration(getDisplayedTimerSeconds(material.id))}
-                </span>
-              {/if}
-              <span class="priority-badge {priorityClass}">P{priority}</span>
-            </div>
-          </div>
-          {#if continuousReadingEnabled && isExpanded && siblings.length > 0}
-            <div class="sibling-list">
-              {#each siblings as sibling}
-                {@const sPriority = sibling.priority || 0}
-                {@const sPriorityClass = sPriority >= 8 ? 'high' : sPriority >= 4 ? 'medium' : 'low'}
-                {@const dueText = sibling.nextRepDate > 0 ? formatSiblingDueDate(sibling.nextRepDate) : 'No due date'}
-                <div class="sibling-item">
-                  <div class="sibling-item-content">
-                    <button
-                      class="sibling-item-main"
-                      onclick={() => void openMaterial(sibling)}
-                      oncontextmenu={(e) => handleMaterialContextMenu(e, e.currentTarget as unknown as HTMLElement, sibling)}
-                      onpointerdown={(e) => handleLongPressStart(e, e.currentTarget as unknown as HTMLElement, sibling)}
-                      onpointermove={handleLongPressMove}
-                      onpointerup={handleLongPressEnd}
-                      onpointercancel={handleLongPressEnd}
-                      title={sibling.title || sibling.id}
-                    >
-                      <span class="sibling-title">{sibling.displayName || sibling.title || sibling.id}</span>
-                      <span class="sibling-due">{dueText}</span>
-                    </button>
-                  </div>
-                  <div class="reading-item-controls">
-                    <button
-                      class="schedule-checkbox"
-                      aria-label="Adjust schedule"
-                      onclick={(e) => openSchedulingMenu(e, sibling)}
-                    >
-                      <span class="checkbox-box" class:checked={processedChunkIds.has(sibling.id)} aria-hidden="true"></span>
-                    </button>
-                    {#if hasVisibleAssociatedNote(sibling)}
-                      <button
-                        type="button"
-                        class="associated-note-link sibling-associated-note-link"
-                        aria-label={getAssociatedNoteActionLabel(sibling)}
-                        title={getAssociatedNoteActionTooltip(sibling)}
-                        oncontextmenu={(event) => handleMaterialContextMenu(event, event.currentTarget as HTMLElement, sibling)}
-                        onclick={(event) => handleAssociatedNoteClick(event, sibling)}
-                      >
-                        <span>Note</span>
-                      </button>
-                    {/if}
-                    <button
-                      class="reading-timer-btn"
-                      class:active={isTimerRunningForBlock(sibling.id)}
-                      class:tracked={!isTimerRunningForBlock(sibling.id) && getDisplayedTimerSeconds(sibling.id) > 0}
-                      aria-label={isTimerRunningForBlock(sibling.id) ? 'Pause timer' : 'Start timer'}
-                      title={getReadingTimerButtonTitle(sibling.id)}
-                      disabled={timerBusyBlockId === sibling.id}
-                      onclick={(event) => {
-                        void toggleReadingTimer(sibling);
-                      }}
-                    >
-                      <ObsidianIcon name={isTimerRunningForBlock(sibling.id) ? 'pause' : 'timer'} size={12} />
-                    </button>
-                    {#if getDisplayedTimerSeconds(sibling.id) > 0}
-                      <span
-                        class="reading-timer-chip"
-                        class:active={isTimerRunningForBlock(sibling.id)}
-                        class:tracked={!isTimerRunningForBlock(sibling.id)}
-                        title={'Tracked reading time: ' + formatTimerDuration(getDisplayedTimerSeconds(sibling.id))}
-                      >
-                        {formatCompactTimerDuration(getDisplayedTimerSeconds(sibling.id))}
-                      </span>
-                    {/if}
-                    <span class="priority-badge {sPriorityClass}">P{sPriority}</span>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {:else if continuousReadingEnabled && isExpanded && siblings.length === 0}
-            <div class="sibling-list">
-              <div class="sibling-empty">No related materials</div>
-            </div>
-          {/if}
-        </div>
-      {/each}
+    {:else if displayedMaterials.length > 0}
+      <IRCalendarMaterialList {...materialListProps} />
+    {:else if hasActiveSearch}
+      <div class="loading-state search-empty-state">
+        <ObsidianIcon name="search" size={20} />
+        <span>{uiText('未找到符合搜索条件的增量阅读材料', 'No incremental reading materials matched your search')}</span>
+        <button type="button" class="clear-tag-filter-btn" onclick={clearSearch}>{uiText('清空搜索', 'Clear search')}</button>
+      </div>
     {:else if unfilteredSelectedMaterials.length > 0 && activeReadingTagFilter}
       <div class="loading-state">
         <ObsidianIcon name="tag" size={20} />
         <span>??????? #{activeReadingTagFilter} ????</span>
         <button type="button" class="clear-tag-filter-btn" onclick={() => { activeReadingTagFilter = ''; }}>??????</button>
+      </div>
+    {:else if shouldShowTodayCompletedEmptyState}
+      <div class="reading-empty-state" aria-live="polite">
+        <div class="reading-empty-state__title">当天所有阅读点都已阅读完毕！</div>
       </div>
     {/if}
   </div>
@@ -4028,6 +5092,7 @@
 
     --weave-ir-sidebar-surface-background: var(--weave-surface-background, var(--background-primary));
     --weave-ir-sidebar-elevated-background: var(--weave-surface-background, var(--background-primary));
+    --calendar-background-wall-fade-ratio: 0.72;
     display: flex;
     flex-direction: column;
     width: 100%;
@@ -4039,6 +5104,65 @@
     box-sizing: border-box;
     container-type: inline-size;
     overflow: hidden;
+    position: relative;
+    isolation: isolate;
+  }
+
+  .ir-calendar-sidebar > :not(.calendar-background-wall) {
+    position: relative;
+    z-index: 1;
+  }
+
+  .calendar-background-wall {
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: min(58%, 420px);
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+  }
+
+  .calendar-background-wall__image,
+  .calendar-background-wall__veil,
+  .calendar-background-wall__mist {
+    position: absolute;
+    inset: 0;
+  }
+
+  .calendar-background-wall__image {
+    background-position: center top;
+    background-repeat: no-repeat;
+    background-size: cover;
+    opacity: calc(1 - (var(--calendar-background-wall-fade-ratio) * 0.78));
+    transform: scale(calc(1 + (var(--calendar-background-wall-fade-ratio) * 0.04)));
+    filter:
+      saturate(calc(1 - (var(--calendar-background-wall-fade-ratio) * 0.1)))
+      contrast(calc(1 - (var(--calendar-background-wall-fade-ratio) * 0.04)));
+    mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.96) 0%, rgba(0, 0, 0, 0.78) 54%, transparent 100%);
+    -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.96) 0%, rgba(0, 0, 0, 0.78) 54%, transparent 100%);
+  }
+
+  .calendar-background-wall__veil {
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--weave-ir-sidebar-surface-background) calc(var(--calendar-background-wall-fade-ratio) * 18%), transparent) 0%,
+        color-mix(in srgb, var(--weave-ir-sidebar-surface-background) calc(var(--calendar-background-wall-fade-ratio) * 34%), transparent) 22%,
+        color-mix(in srgb, var(--weave-ir-sidebar-surface-background) calc(var(--calendar-background-wall-fade-ratio) * 62%), transparent) 58%,
+        var(--weave-ir-sidebar-surface-background) 100%
+      );
+  }
+
+  .calendar-background-wall__mist {
+    background:
+      radial-gradient(circle at 14% 14%, color-mix(in srgb, white calc(var(--calendar-background-wall-fade-ratio) * 12%), transparent) 0%, transparent 48%),
+      radial-gradient(circle at 86% 22%, color-mix(in srgb, white calc(var(--calendar-background-wall-fade-ratio) * 10%), transparent) 0%, transparent 42%),
+      linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--weave-ir-sidebar-surface-background) calc(var(--calendar-background-wall-fade-ratio) * 12%), transparent) 72%, transparent 100%);
+    opacity: calc(var(--calendar-background-wall-fade-ratio) * 0.78);
+  }
+
+  .ir-calendar-sidebar.has-background-wall .calendar-grid-container {
+    position: relative;
   }
 
 
@@ -4049,6 +5173,21 @@
     gap: 14px;
     margin-bottom: 18px;
     min-width: 0;
+  }
+
+  .month-focus-topic {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--background-modifier-border) 30%, transparent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .calendar-title-group {
@@ -4105,6 +5244,11 @@
     background: color-mix(in srgb, var(--background-modifier-hover) 78%, transparent);
   }
 
+  .calendar-tool-btn.active {
+    color: var(--interactive-accent);
+    background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-secondary));
+  }
+
   .calendar-tool-btn:focus-visible {
     outline: 2px solid var(--background-modifier-border-focus, rgba(var(--interactive-accent-rgb), 0.22));
     outline-offset: 1px;
@@ -4115,8 +5259,11 @@
     align-items: center;
     justify-content: flex-end;
     gap: 2px;
-    flex: 1 1 auto;
     min-width: 0;
+  }
+
+  .calendar-search-panel {
+    margin: 0 0 10px;
   }
 
   .month-nav {
@@ -4167,6 +5314,18 @@
     outline-offset: 1px;
   }
 
+  .continue-reading-trigger-btn {
+    color: var(--interactive-accent);
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 32%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+  }
+
+  .continue-reading-trigger-btn:hover {
+    color: var(--interactive-accent);
+    border-color: var(--interactive-accent);
+    background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  }
+
 
   .calendar-grid-container {
     background: transparent;
@@ -4198,6 +5357,17 @@
 
   .weekday.weekend {
     color: color-mix(in srgb, var(--color-orange) 26%, var(--text-muted));
+  }
+
+  .ir-calendar-sidebar.has-background-wall .weekday {
+    color: color-mix(in srgb, var(--text-normal) 84%, var(--weave-ir-sidebar-surface-background));
+    text-shadow:
+      0 1px 2px color-mix(in srgb, var(--weave-ir-sidebar-surface-background) 74%, transparent),
+      0 0 1px color-mix(in srgb, var(--weave-ir-sidebar-surface-background) 68%, transparent);
+  }
+
+  .ir-calendar-sidebar.has-background-wall .weekday.weekend {
+    color: color-mix(in srgb, var(--color-orange) 42%, var(--text-normal));
   }
 
   .calendar-grid {
@@ -4261,7 +5431,17 @@
   }
 
   .day-cell.other-month {
-    opacity: 0.28;
+    opacity: 1;
+  }
+
+  .day-cell.other-month .day-number {
+    color: color-mix(in srgb, var(--text-muted) 86%, var(--weave-ir-sidebar-surface-background));
+    opacity: 0.72;
+  }
+
+  .day-cell.other-month .day-status-chip,
+  .day-cell.other-month .heat-dot-row {
+    opacity: 0.52;
   }
 
   .day-cell.selected {
@@ -4324,6 +5504,18 @@
     color: color-mix(in srgb, var(--text-normal) 86%, transparent);
     font-variation-settings: "wght" 500;
     text-shadow: none;
+  }
+
+  .ir-calendar-sidebar.has-background-wall .day-number {
+    color: color-mix(in srgb, var(--text-normal) 94%, var(--weave-ir-sidebar-surface-background));
+    text-shadow:
+      0 1px 2px color-mix(in srgb, var(--weave-ir-sidebar-surface-background) 76%, transparent),
+      0 0 1px color-mix(in srgb, var(--weave-ir-sidebar-surface-background) 62%, transparent);
+  }
+
+  .ir-calendar-sidebar.has-background-wall .day-cell.other-month .day-number {
+    color: color-mix(in srgb, var(--text-muted) 92%, var(--weave-ir-sidebar-surface-background));
+    opacity: 0.78;
   }
 
   .day-complete-icon {
@@ -4473,6 +5665,26 @@
     background: transparent;
     padding: 0;
     min-width: 0;
+  }
+
+  .reading-empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px 12px 22px;
+    margin-top: 8px;
+    border: 1px dashed color-mix(in srgb, var(--background-modifier-border) 86%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--background-secondary) 72%, transparent);
+    text-align: center;
+    pointer-events: none;
+  }
+
+  .reading-empty-state__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    line-height: 1.5;
   }
 
   @container (max-width: 340px) {
@@ -4689,300 +5901,44 @@
     color: var(--text-muted);
     font-size: 12px;
   }
-
-  .reading-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 4px;
-    background: none;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
-    outline: none;
-    text-align: left;
-    width: 100%;
-  }
-
-  .reading-item:hover {
-    background: var(--background-modifier-hover);
-  }
-
-  .reading-item-content {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .reading-item-main {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border: none;
-    background: none;
-    box-shadow: none;
-    outline: none;
-    padding: 0;
-    cursor: pointer;
-    text-align: left;
-    width: 100%;
-    min-width: 0;
-  }
-
-  .reading-item-main:focus-visible {
-    outline: 2px solid var(--interactive-accent);
-    outline-offset: 2px;
-    border-radius: 6px;
-  }
-
-  .item-text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-  }
-
-  .item-text-content {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-    width: 100%;
-  }
-
-  .item-tags {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-wrap: wrap;
-    min-width: 0;
-  }
-
-  .item-tag {
-    display: inline-flex;
-    align-items: center;
-    max-width: 100%;
-    padding: 1px 6px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--weave-ir-sidebar-elevated-background));
-    color: var(--interactive-accent);
-    font-size: 10px;
-    font-weight: 600;
-    line-height: 1.4;
-    white-space: nowrap;
-  }
-
-  .item-tag.more {
-    color: var(--text-muted);
-    background: color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
-  }
-
-  .reading-item-controls {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    flex-shrink: 0;
-  }
-
-  .associated-note-link {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 34px;
-    height: 18px;
-    padding: 0 6px;
-    border: 1px solid color-mix(in srgb, var(--interactive-accent) 38%, var(--background-modifier-border));
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--interactive-accent) 12%, var(--weave-ir-sidebar-surface-background));
-    box-shadow: none;
-    color: var(--interactive-accent);
-    cursor: pointer;
-    font-size: 10px;
-    line-height: 1;
-    flex-shrink: 0;
-  }
-
-  .associated-note-link:hover {
-    color: var(--interactive-accent);
-    border-color: var(--interactive-accent);
-    background: color-mix(in srgb, var(--interactive-accent) 18%, var(--weave-ir-sidebar-surface-background));
-  }
-
-  .associated-note-link:focus-visible {
-    outline: 2px solid var(--interactive-accent);
-    outline-offset: 2px;
-    border-radius: 4px;
-  }
-
-  .associated-note-link span {
-    display: block;
-    white-space: nowrap;
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-  }
-
-  .schedule-checkbox {
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .schedule-checkbox:hover .checkbox-box {
-    border-color: color-mix(in srgb, var(--interactive-accent) 50%, var(--background-modifier-border));
-  }
-
-  .schedule-checkbox:focus-visible {
-    outline: 2px solid var(--interactive-accent);
-    outline-offset: 2px;
-    border-radius: 4px;
-  }
-
-  .checkbox-box {
-    width: 14px;
-    height: 14px;
-    border-radius: 3px;
-    border: 1px solid var(--background-modifier-border);
-    background: transparent;
-    position: relative;
-  }
-
-  .checkbox-box.checked {
-    border-color: var(--interactive-accent);
-    background: color-mix(in srgb, var(--interactive-accent) 25%, var(--weave-ir-sidebar-elevated-background));
-  }
-
-  .checkbox-box.checked::after {
-    content: '';
-    position: absolute;
-    left: 4px;
-    top: 1px;
-    width: 4px;
-    height: 8px;
-    border-right: 2px solid var(--interactive-accent);
-    border-bottom: 2px solid var(--interactive-accent);
-    transform: rotate(45deg);
-  }
-
-  .reading-timer-btn {
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    border: none;
-    border-radius: 50%;
-    background: transparent;
-    color: var(--text-faint);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    transition: all 0.15s ease;
-  }
-
-  .reading-timer-btn:hover:not(:disabled) {
-    color: var(--text-normal);
-    background: var(--background-modifier-hover);
-  }
-
-  .reading-timer-btn.tracked {
-    color: var(--interactive-accent);
-  }
-
-  .reading-timer-btn.active {
-    color: var(--color-red);
-    background: color-mix(in srgb, var(--color-red) 14%, transparent);
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-red) 20%, transparent);
-  }
-
-  .reading-timer-btn:disabled {
-    opacity: 0.55;
-    cursor: wait;
-  }
-
-  .reading-timer-chip {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 42px;
-    padding: 1px 6px;
-    border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 85%, transparent);
-    background: color-mix(in srgb, var(--weave-ir-sidebar-elevated-background) 92%, transparent);
-    color: var(--text-muted);
-    font-size: 10px;
-    font-weight: 600;
-    line-height: 1.4;
-    font-variant-numeric: tabular-nums;
-    flex-shrink: 0;
-  }
-
-  .reading-timer-chip.tracked {
-    color: var(--interactive-accent);
-    border-color: color-mix(in srgb, var(--interactive-accent) 32%, var(--background-modifier-border));
-    background: color-mix(in srgb, var(--interactive-accent) 9%, var(--weave-ir-sidebar-surface-background));
-  }
-
-  .reading-timer-chip.active {
-    color: var(--color-red);
-    border-color: color-mix(in srgb, var(--color-red) 35%, var(--background-modifier-border));
-    background: color-mix(in srgb, var(--color-red) 10%, var(--weave-ir-sidebar-surface-background));
-  }
-
-  .item-rank {
-    width: 18px;
-    height: 18px;
-    font-size: 10px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--background-modifier-border);
-    border-radius: 4px;
-    color: var(--text-muted);
-    flex-shrink: 0;
-  }
-
-  .item-rank.top {
-    background: var(--color-orange);
-    color: white;
-  }
-
-  .item-title {
-    flex: 1;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-normal);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
-  }
-
-  .item-title.processed {
-    text-decoration: line-through;
-    color: var(--text-muted);
-  }
-
-  .item-due {
-    font-size: 10px;
-    color: var(--text-faint);
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-
+  
   .ir-calendar-scheduling-menu {
     min-width: 220px;
+  }
+
+  :global(.floating-menu.ir-calendar-priority-menu) {
+    width: min(360px, calc(100vw - 24px));
+    min-width: min(360px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    border-radius: 20px;
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 16%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--background-primary) 94%, var(--background-secondary));
+    box-shadow:
+      0 18px 40px color-mix(in srgb, var(--background-primary) 18%, transparent),
+      0 4px 14px rgba(0, 0, 0, 0.08);
+    backdrop-filter: blur(10px);
+    overflow: hidden;
+  }
+
+  :global(.floating-menu.ir-calendar-priority-menu .ir-calendar-priority-panel) {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    width: 100%;
+    background: transparent;
+  }
+
+  :global(.floating-menu.ir-calendar-priority-menu .ir-calendar-preview-summary) {
+    margin: 0 16px 16px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border-color: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-modifier-border));
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--interactive-accent) 5%, var(--background-secondary)),
+      color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary))
+    );
+    box-shadow: none;
   }
 
   .ir-calendar-scheduling-grid {
@@ -5029,29 +5985,6 @@
     color: var(--text-normal);
   }
 
-  .priority-badge {
-    padding: 2px 6px;
-    font-size: 10px;
-    font-weight: 600;
-    border-radius: 8px;
-    flex-shrink: 0;
-  }
-
-  .priority-badge.high {
-    background: rgba(var(--color-red-rgb), 0.15);
-    color: var(--color-red);
-  }
-
-  .priority-badge.medium {
-    background: rgba(var(--color-yellow-rgb), 0.15);
-    color: var(--color-yellow);
-  }
-
-  .priority-badge.low {
-    background: rgba(var(--color-green-rgb), 0.15);
-    color: var(--color-green);
-  }
-
   .clear-tag-filter-btn {
     border: 1px solid var(--background-modifier-border);
     background: var(--weave-ir-sidebar-elevated-background);
@@ -5067,127 +6000,7 @@
     border-color: var(--interactive-accent);
   }
 
-
-  .expand-btn {
-    width: 18px;
-    height: 18px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    border-radius: 3px;
-    transition: transform 0.15s ease, color 0.15s ease;
-  }
-
-  .expand-btn:hover {
-    color: var(--text-normal);
-    background: var(--background-modifier-hover);
-  }
-
-  .expand-btn.expanded {
-    transform: rotate(90deg);
-  }
-
-  .expand-btn.loading {
-    transform: none;
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-
-
-  .reading-item-wrapper {
-    display: flex;
-    flex-direction: column;
-    background: none;
-    border: none;
-    box-shadow: none;
-    outline: none;
-  }
-
-
-  .sibling-list {
-    margin-left: 26px;
-    padding-left: 10px;
-    border-left: 1px solid var(--background-modifier-border);
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin-top: 2px;
-    margin-bottom: 4px;
-  }
-
-  .sibling-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 6px;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
-    outline: none;
-    background: none;
-  }
-
-  .sibling-item:hover {
-    background: var(--background-modifier-hover);
-  }
-
-  .sibling-item-content {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .sibling-item-main {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    border: none;
-    background: none;
-    box-shadow: none;
-    outline: none;
-    padding: 0;
-    cursor: pointer;
-    text-align: left;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .sibling-associated-note-link {
-    min-width: 34px;
-  }
-
-  .sibling-title {
-    flex: 1;
-    font-size: 11px;
-    color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
-  }
-
-  .sibling-due {
-    font-size: 10px;
-    color: var(--text-faint);
-    flex-shrink: 0;
-    margin-left: 4px;
-  }
-
-  .sibling-empty {
-    font-size: 11px;
-    color: var(--text-faint);
-    padding: 4px 0;
+  .search-empty-state {
+    gap: 8px;
   }
 </style>

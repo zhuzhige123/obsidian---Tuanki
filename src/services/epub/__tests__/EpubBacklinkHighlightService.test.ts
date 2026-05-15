@@ -1,5 +1,18 @@
 vi.mock('obsidian', () => ({
+	App: class MockApp {},
 	TFile: class MockTFile {},
+	ItemView: class MockItemView {},
+	WorkspaceLeaf: class MockWorkspaceLeaf {},
+	MarkdownView: class MockMarkdownView {},
+	Notice: class MockNotice {
+		constructor(_message?: string) {}
+	},
+	Menu: class MockMenu {},
+	Modal: class MockModal {},
+	Plugin: class MockPlugin {},
+	PluginSettingTab: class MockPluginSettingTab {},
+	Platform: { isMobile: false },
+	setIcon: vi.fn(),
 	normalizePath: (value: string) => String(value || '').replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, ''),
 }));
 
@@ -184,23 +197,113 @@ describe('EpubBacklinkHighlightService', () => {
 		]);
 	});
 
-	it('removes a legacy protocol epub callout from markdown sources', async () => {
-		const notePath = 'Notes/demo.md';
+	it('parses strikethrough markdown source back into clean display text', async () => {
 		const noteContent = [
-			'> [!EPUB|blue] [Legacy](obsidian://weave-epub?vault=Vault&file=Books%2Fdemo.epub&cfi=epubcfi(/6/8)&text=Legacy)',
-			'> Legacy quote',
+			'> [!EPUB|purple+strikethrough] [[Books/demo.epub#weave-cfi=readium%3Ahidden|Demo]]',
+			'> ~~Hidden quote~~',
 			'',
-			'Plain tail',
+		].join('\n');
+		const { app } = createMockApp({
+			'Notes/hidden.md': noteContent,
+		});
+		const service = new EpubBacklinkHighlightService(app);
+
+		await expect(service.collectHighlights('Books/demo.epub')).resolves.toEqual([
+			{
+				cfiRange: 'readium:hidden',
+				color: 'purple',
+				style: 'strikethrough',
+				text: 'Hidden quote',
+				sourceFile: 'Notes/hidden.md',
+				sourceRef: undefined,
+				createdTime: undefined,
+			},
+		]);
+	});
+
+	it('reuses the single-file disk cache when the highlight source manifest is unchanged', async () => {
+		const notePath = 'Notes/cache-hit.md';
+		const noteContent = [
+			'> [!EPUB|green] [[Books/demo.epub#weave-cfi=readium%3Acached|Demo]]',
+			'> Cached quote',
+			'',
+		].join('\n');
+		const { app } = createMockApp({
+			[notePath]: noteContent,
+		});
+		app.metadataCache.resolvedLinks = {
+			[notePath]: {
+				'Books/demo.epub': 1,
+			},
+		};
+		const service = new EpubBacklinkHighlightService(app);
+
+		const firstHighlights = await service.collectHighlights('Books/demo.epub');
+		const readCallsAfterFirstLoad = (app.vault.cachedRead as any).mock.calls.filter(
+			([file]: [MockFile]) => file.path.replace(/\\/g, '/') === notePath
+		).length;
+		const secondHighlights = await service.collectHighlights('Books/demo.epub');
+		const readCallsAfterSecondLoad = (app.vault.cachedRead as any).mock.calls.filter(
+			([file]: [MockFile]) => file.path.replace(/\\/g, '/') === notePath
+		).length;
+
+		expect(firstHighlights).toEqual(secondHighlights);
+		expect(readCallsAfterFirstLoad).toBe(1);
+		expect(readCallsAfterSecondLoad).toBe(1);
+		expect(app.vault.adapter.write).toHaveBeenCalledWith(
+			expect.stringContaining('epub-backlink-highlights-cache.json'),
+			expect.any(String)
+		);
+	});
+
+	it('invalidates cached highlights when the source excerpt is removed', async () => {
+		const notePath = 'Notes/cache-invalidation.md';
+		const noteContent = [
+			'> [!EPUB|green] [[Books/demo.epub#weave-cfi=readium%3Aremove-me|Demo]]',
+			'> Remove me',
+			'',
 		].join('\n');
 		const { app, files } = createMockApp({
 			[notePath]: noteContent,
 		});
+		app.metadataCache.resolvedLinks = {
+			[notePath]: {
+				'Books/demo.epub': 1,
+			},
+		};
 		const service = new EpubBacklinkHighlightService(app);
 
-		const deleted = await service.deleteHighlight(notePath, 'epubcfi(/6/8)', 'Books/demo.epub');
+		await expect(service.collectHighlights('Books/demo.epub')).resolves.toEqual([
+			{
+				cfiRange: 'readium:remove-me',
+				color: 'green',
+				text: 'Remove me',
+				sourceFile: notePath,
+				sourceRef: undefined,
+				createdTime: undefined,
+			},
+		]);
 
-		expect(deleted).toBe(true);
-		expect(files.get(notePath)).toBe('Plain tail');
+		files.set(notePath, 'Plain tail');
+
+		await expect(service.collectHighlights('Books/demo.epub')).resolves.toEqual([]);
+	});
+
+	it('detects whether a newly changed markdown file may affect the current epub highlights', async () => {
+		const notePath = 'Notes/potential-source.md';
+		const unrelatedPath = 'Notes/unrelated.md';
+		const { app } = createMockApp({
+			[notePath]: [
+				'> [!EPUB|purple] [[Books/demo.epub#weave-cfi=readium%3Anew-source|Demo]]',
+				'> New source quote',
+				'',
+			].join('\n'),
+			[unrelatedPath]: '# plain note',
+		});
+		const service = new EpubBacklinkHighlightService(app);
+
+		await expect(service.mayFileAffectHighlights(notePath, 'Books/demo.epub')).resolves.toBe(true);
+		await expect(service.mayFileAffectHighlights(unrelatedPath, 'Books/demo.epub')).resolves.toBe(false);
 	});
 
 	it('collects sid-bound highlights after the epub file is renamed to a new path', async () => {
@@ -346,6 +449,111 @@ describe('EpubBacklinkHighlightService', () => {
 		expect(app.vault.process).not.toHaveBeenCalled();
 	});
 
+	it('updates markdown highlight styles and can clear style metadata back to normal highlight', async () => {
+		const notePath = 'Notes/demo-style.md';
+		const noteContent = [
+			'> [!EPUB|green+underline] [[Books/demo.epub#weave-cfi=readium%3Aalpha|Demo]]',
+			'> Current quote',
+			'',
+		].join('\n');
+		const { app, files } = createMockApp({
+			[notePath]: noteContent,
+		});
+		const service = new EpubBacklinkHighlightService(app);
+
+		const changedToWavy = await service.changeHighlightStyle(
+			notePath,
+			'readium:alpha',
+			'Books/demo.epub',
+			'wavy'
+		);
+
+		expect(changedToWavy).toBe(true);
+		expect(files.get(notePath)).toContain('> [!EPUB|green+wavy] [[Books/demo.epub#weave-cfi=readium%3Aalpha|Demo]]');
+
+		const cleared = await service.changeHighlightStyle(
+			notePath,
+			'readium:alpha',
+			'Books/demo.epub',
+			undefined
+		);
+
+		expect(cleared).toBe(true);
+		expect(files.get(notePath)).toContain('> [!EPUB|green] [[Books/demo.epub#weave-cfi=readium%3Aalpha|Demo]]');
+	});
+
+	it('rewrites markdown quote text when highlight style switches to and from strikethrough', async () => {
+		const notePath = 'Notes/demo-strikethrough-style.md';
+		const noteContent = [
+			'> [!EPUB|green] [[Books/demo.epub#weave-cfi=readium%3Aalpha|Demo]]',
+			'> Current quote',
+			'',
+		].join('\n');
+		const { app, files } = createMockApp({
+			[notePath]: noteContent,
+		});
+		const service = new EpubBacklinkHighlightService(app);
+
+		const changedToStrikethrough = await service.changeHighlightStyle(
+			notePath,
+			'readium:alpha',
+			'Books/demo.epub',
+			'strikethrough'
+		);
+
+		expect(changedToStrikethrough).toBe(true);
+		expect(files.get(notePath)).toContain('> [!EPUB|green+strikethrough] [[Books/demo.epub#weave-cfi=readium%3Aalpha|Demo]]');
+		expect(files.get(notePath)).toContain('> ~~Current quote~~');
+
+		const changedBackToNormal = await service.changeHighlightStyle(
+			notePath,
+			'readium:alpha',
+			'Books/demo.epub',
+			undefined
+		);
+
+		expect(changedBackToNormal).toBe(true);
+		expect(files.get(notePath)).toContain('> [!EPUB|green] [[Books/demo.epub#weave-cfi=readium%3Aalpha|Demo]]');
+		expect(files.get(notePath)).toContain('> Current quote');
+		expect(files.get(notePath)).not.toContain('~~Current quote~~');
+	});
+
+	it('preserves the current note body text when changing styles instead of restoring source excerpt text', async () => {
+		const notePath = 'Notes/demo-preserve-body.md';
+		const noteContent = [
+			'> [!EPUB|blue] [[Books/demo.epub#weave-cfi=readium%3Aedited|Demo]]',
+			'> 我自己改写过的摘录正文',
+			'',
+		].join('\n');
+		const { app, files } = createMockApp({
+			[notePath]: noteContent,
+		});
+		const service = new EpubBacklinkHighlightService(app);
+
+		const changedToUnderline = await service.changeHighlightStyle(
+			notePath,
+			'readium:edited',
+			'Books/demo.epub',
+			'underline'
+		);
+
+		expect(changedToUnderline).toBe(true);
+		expect(files.get(notePath)).toContain('> [!EPUB|blue+underline] [[Books/demo.epub#weave-cfi=readium%3Aedited|Demo]]');
+		expect(files.get(notePath)).toContain('> 我自己改写过的摘录正文');
+
+		const changedToStrikethrough = await service.changeHighlightStyle(
+			notePath,
+			'readium:edited',
+			'Books/demo.epub',
+			'strikethrough'
+		);
+
+		expect(changedToStrikethrough).toBe(true);
+		expect(files.get(notePath)).toContain('> [!EPUB|blue+strikethrough] [[Books/demo.epub#weave-cfi=readium%3Aedited|Demo]]');
+		expect(files.get(notePath)).toContain('> ~~我自己改写过的摘录正文~~');
+		expect(files.get(notePath)).not.toContain('Current quote');
+	});
+
 	it('updates only the targeted canvas node highlight color when sourceRef is provided', async () => {
 		const canvasPath = 'Canvas/demo.canvas';
 		const canvasContent = JSON.stringify({
@@ -401,5 +609,170 @@ describe('EpubBacklinkHighlightService', () => {
 		expect(parsed.cards[0].content).toContain('> [!EPUB|green]');
 		expect(parsed.cards[1].content).toContain('> [!EPUB|red]');
 		expect(typeof parsed.cards[1].modified).toBe('string');
+	});
+
+	it('resolves wdeck card source with card reference when locating by cfi', async () => {
+		const wdeckPath = 'weave/memory/deck-files/示例牌组_01.wdeck';
+		const wdeckContent = JSON.stringify({
+			fileType: 'wdeck',
+			logicalDeckId: 'deck-demo',
+			logicalDeckName: '示例牌组',
+			segmentIndex: 1,
+			cards: [
+				{
+					uuid: 'card-a',
+					content: '> [!EPUB|green] [[Books/demo.epub#weave-cfi=readium%3Aalpha|Demo]]\n> Quote A\n',
+				},
+				{
+					uuid: 'card-b',
+					content: '> [!EPUB|blue] [[Books/demo.epub#weave-cfi=readium%3Abeta|Demo]]\n> Quote B\n',
+				},
+			],
+		});
+		const { app } = createMockApp({
+			[wdeckPath]: wdeckContent,
+		});
+		const service = new EpubBacklinkHighlightService(app);
+
+		const match = await service.findSourceForCfi('readium:beta', 'Books/demo.epub');
+
+		expect(match).toEqual({
+			sourceFile: wdeckPath,
+			sourceRef: 'card:card-b',
+		});
+	});
+
+	it('updates only the targeted wdeck card entry highlight color when sourceRef is provided', async () => {
+		const wdeckPath = 'weave/memory/deck-files/示例牌组_01.wdeck';
+		const wdeckContent = JSON.stringify({
+			fileType: 'wdeck',
+			logicalDeckId: 'deck-demo',
+			logicalDeckName: '示例牌组',
+			segmentIndex: 1,
+			cards: [
+				{
+					uuid: 'card-a',
+					content: '> [!EPUB|green] [[Books/demo.epub#weave-cfi=readium%3Aalpha|Demo]]\n> Quote A\n',
+				},
+				{
+					uuid: 'card-b',
+					content: '> [!EPUB|blue] [[Books/demo.epub#weave-cfi=readium%3Abeta|Demo]]\n> Quote B\n',
+				},
+			],
+		});
+		const { app, files } = createMockApp({
+			[wdeckPath]: wdeckContent,
+		});
+		const service = new EpubBacklinkHighlightService(app);
+
+		const changed = await service.changeHighlightColor(wdeckPath, 'readium:beta', 'Books/demo.epub', 'purple', 'card:card-b');
+
+		expect(changed).toBe(true);
+		const parsed = JSON.parse(files.get(wdeckPath) || '{}');
+		expect(parsed.cards[0].content).toContain('> [!EPUB|green]');
+		expect(parsed.cards[1].content).toContain('> [!EPUB|purple]');
+		expect(typeof parsed.cards[1].modified).toBe('string');
+	});
+
+	it('updates only the targeted markdown excerpt when duplicate callouts share the same cfi but have different excerpt ids', async () => {
+		const notePath = 'Notes/duplicate-excerpts.md';
+		const noteContent = [
+			'> [!EPUB|green] [[Books/demo.epub#weave-cfi=readium%3Ashared&eid=excerpt-a|Demo]]',
+			'> Quote A',
+			'',
+			'> [!EPUB|blue] [[Books/demo.epub#weave-cfi=readium%3Ashared&eid=excerpt-b|Demo]]',
+			'> Quote B',
+			'',
+		].join('\n');
+		const { app, files } = createMockApp({
+			[notePath]: noteContent,
+		});
+		const service = new EpubBacklinkHighlightService(app);
+
+		const changed = await service.changeHighlightColor(
+			notePath,
+			'readium:shared',
+			'Books/demo.epub',
+			'purple',
+			undefined,
+			'excerpt-b'
+		);
+
+		expect(changed).toBe(true);
+		expect(files.get(notePath)).toContain('> [!EPUB|green] [[Books/demo.epub#weave-cfi=readium%3Ashared&eid=excerpt-a|Demo]]');
+		expect(files.get(notePath)).toContain('> [!EPUB|purple] [[Books/demo.epub#weave-cfi=readium%3Ashared&eid=excerpt-b|Demo]]');
+	});
+
+	it('adds a canvas file-node locator while keeping the underlying markdown note as the mutable source', async () => {
+		const notePath = 'Notes/epub-excerpt.md';
+		const canvasPath = 'Canvas/epub-notes.canvas';
+		const noteContent = [
+			'> [!EPUB|purple] [[Books/demo.epub#weave-cfi=readium%3Aalpha&eid=excerpt-fixed|Demo]] 2026-04-27 14:44',
+			'> 紧挨车门旁有个空座，我将书包轻轻地放在座上。',
+			'',
+		].join('\n');
+		const canvasContent = JSON.stringify({
+			nodes: [
+				{
+					id: 'file-node-1',
+					type: 'file',
+					file: notePath,
+				},
+			],
+		});
+		const { app } = createMockApp({
+			[notePath]: noteContent,
+			[canvasPath]: canvasContent,
+		});
+		app.metadataCache.resolvedLinks = {};
+		const service = new EpubBacklinkHighlightService(app);
+
+		const highlights = await service.collectHighlights('Books/demo.epub', canvasPath);
+
+		expect(highlights).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					sourceFile: notePath,
+					excerptId: 'excerpt-fixed',
+					sourceLocators: expect.arrayContaining([
+						expect.objectContaining({
+							sourceFile: canvasPath,
+							sourceRef: 'canvas-file-node:file-node-1',
+							excerptId: 'excerpt-fixed',
+						}),
+					]),
+				}),
+			]),
+		);
+	});
+
+	it('deletes only the targeted markdown excerpt when duplicate callouts share the same cfi but have different excerpt ids', async () => {
+		const notePath = 'Notes/duplicate-delete.md';
+		const noteContent = [
+			'> [!EPUB|green] [[Books/demo.epub#weave-cfi=readium%3Ashared&eid=excerpt-a|Demo]]',
+			'> Quote A',
+			'',
+			'> [!EPUB|blue] [[Books/demo.epub#weave-cfi=readium%3Ashared&eid=excerpt-b|Demo]]',
+			'> Quote B',
+			'',
+			'Plain tail',
+		].join('\n');
+		const { app, files } = createMockApp({
+			[notePath]: noteContent,
+		});
+		const service = new EpubBacklinkHighlightService(app);
+
+		const deleted = await service.deleteHighlight(
+			notePath,
+			'readium:shared',
+			'Books/demo.epub',
+			undefined,
+			'excerpt-a'
+		);
+
+		expect(deleted).toBe(true);
+		expect(files.get(notePath)).not.toContain('excerpt-a');
+		expect(files.get(notePath)).toContain('excerpt-b');
+		expect(files.get(notePath)).toContain('Plain tail');
 	});
 });

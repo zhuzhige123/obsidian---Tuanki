@@ -11,6 +11,7 @@ import { logger } from "../../utils/logger";
 
 import type { App } from "obsidian";
 import type WeavePlugin from "../../main";
+import { applyStyleProps } from "../../utils/style-props";
 
 /**
  * UI组件类型
@@ -210,10 +211,10 @@ export class UIManager {
 		});
 
 		// 添加闪烁效果
-		component.container.setCssProps({ animation: "pulse 0.5s ease-in-out" });
+		applyStyleProps(component.container, { animation: "pulse 0.5s ease-in-out" });
 		setTimeout(() => {
 			if (component.container) {
-				component.container.setCssProps({ animation: "" });
+				applyStyleProps(component.container, { animation: "" });
 			}
 		}, 500);
 

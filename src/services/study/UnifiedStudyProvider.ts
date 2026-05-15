@@ -116,16 +116,6 @@ export class UnifiedStudyProvider {
 			// 2. 从队列派生统计（保证一致）
 			const stats = this.deriveStatsFromQueue(queue);
 
-			logger.info("[UnifiedStudyProvider] ✅ 统一数据生成完成:", {
-				deckId: deckId.slice(0, 8),
-				queueLength: queue.length,
-				stats: {
-					new: stats.newCards,
-					learning: stats.learningCards,
-					review: stats.reviewCards,
-				},
-			});
-
 			return { queue, stats, debug };
 		} catch (error) {
 			logger.error("[UnifiedStudyProvider] 获取学习数据失败:", error);
@@ -247,12 +237,6 @@ export class UnifiedStudyProvider {
 
 		// Step 8: 应用每日复习限制
 		const finalQueue = combined.slice(0, opts.reviewsPerDay);
-
-		logger.debug("[UnifiedStudyProvider] 队列构建完成:", {
-			deckId: deckId.slice(0, 8),
-			...debug,
-			finalQueue: finalQueue.length,
-		});
 
 		return { queue: finalQueue, debug };
 	}

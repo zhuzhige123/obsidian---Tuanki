@@ -20,6 +20,7 @@ import {
 	getCardTypeMetadata,
 } from "../../types/unified-card-types";
 import { getCardFieldsByType } from "../../utils/card-field-helper";
+import { hasAnyClozeSyntax } from "../../utils/cloze-syntax";
 import { logger } from "../../utils/logger";
 import { ExtensiblePreviewManager } from "./types/ExtensiblePreview";
 
@@ -398,25 +399,7 @@ export class ContentPreviewEngine {
 
 		if (!contentToCheck) return false;
 
-		// 检测 Obsidian 高亮语法 ==text==
-		const obsidianClozeRegex = /==(.*?)==/g;
-		if (obsidianClozeRegex.test(contentToCheck)) {
-			return true;
-		}
-
-		//  增强：检测 Anki 带提示的挖空语法 {{c1::答案::提示}}
-		const ankiClozeHintRegex = /\{\{c(\d+)::(.*?)::(.*?)\}\}/g;
-		if (ankiClozeHintRegex.test(contentToCheck)) {
-			return true;
-		}
-
-		// 检测 Anki 基础挖空语法 {{c1::text}}
-		const ankiClozeRegex = /\{\{c(\d+)::(.*?)\}\}/g;
-		if (ankiClozeRegex.test(contentToCheck)) {
-			return true;
-		}
-
-		return false;
+		return hasAnyClozeSyntax(contentToCheck);
 	}
 
 	/**

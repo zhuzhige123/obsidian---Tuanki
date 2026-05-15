@@ -80,6 +80,64 @@ describe("IRScheduleKernel deck identifier compatibility", () => {
 		expect(plan.deckIds).toEqual(["deck-1"]);
 	});
 
+	it("uses the last hierarchical segment as displayName for pdf and epub reading points", async () => {
+		vi.spyOn(IRStorageService.prototype, "getAllChunkDataWithSync").mockResolvedValue({});
+		vi.spyOn(IRPdfBookmarkTaskService.prototype, "getAllTasks").mockResolvedValue([
+			{
+				id: "pdfbm-1",
+				topicId: "deck-1",
+				deckId: "deck-1",
+				pdfPath: "Books/Test.pdf",
+				title: "第一章 / 第二节 / PDF 阅读点",
+				link: "[[Books/Test.pdf#page=1]]",
+				status: "new",
+				priorityUi: 5,
+				priorityEff: 5,
+				intervalDays: 1,
+				nextRepDate: 0,
+				stats: {},
+				meta: {},
+				tags: [],
+				createdAt: 1,
+				updatedAt: 1,
+			} as any,
+		]);
+		vi.spyOn(IREpubBookmarkTaskService.prototype, "getAllTasks").mockResolvedValue([
+			{
+				id: "epubbm-1",
+				topicId: "deck-1",
+				deckId: "deck-1",
+				sourceId: "book-1",
+				epubFilePath: "Books/Test.epub",
+				title: "第一部分 / 第二章 / EPUB 阅读点",
+				tocHref: "chapter-2.xhtml",
+				tocLevel: 2,
+				status: "new",
+				priorityUi: 5,
+				priorityEff: 5,
+				intervalDays: 1,
+				nextRepDate: 0,
+				stats: {},
+				meta: {},
+				tags: [],
+				createdAt: 1,
+				updatedAt: 1,
+			} as any,
+		]);
+
+		const kernel = new IRScheduleKernel({
+			plugins: {
+				getPlugin: () => null,
+			},
+		} as any);
+		const plan = await kernel.recomputeScheduleForDeck("ui_refresh", { deckIds: ["deck-1"] });
+		const items = plan.days.flatMap((day) => day.items);
+
+		expect(items).toHaveLength(2);
+		expect(items.find((item) => item.id === "pdfbm-1")?.displayName).toBe("PDF 阅读点");
+		expect(items.find((item) => item.id === "epubbm-1")?.displayName).toBe("EPUB 阅读点");
+	});
+
 	it("includes legacy-path chunks in canonical deck recompute output", async () => {
 		vi.spyOn(IRStorageService.prototype, "getAllChunkDataWithSync").mockResolvedValue({
 			"chunk-1": {

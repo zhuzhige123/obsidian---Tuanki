@@ -57,6 +57,19 @@
     };
   });
 
+  let sourceDocumentStatus = $derived.by(() => {
+    const sourcePath = sourceInfo.sourceFile || card?.sourceFile || '';
+    if (!sourcePath) {
+      return { known: false, exists: false };
+    }
+
+    const abstractFile = plugin.app.vault.getAbstractFileByPath(sourcePath);
+    return {
+      known: true,
+      exists: !!abstractFile,
+    };
+  });
+
   // 复制UUID
   function copyUUID() {
     navigator.clipboard.writeText(card.uuid);
@@ -274,8 +287,8 @@
       <div class="info-row" class:mobile={isMobile}>
         <span class="info-label">文档状态</span>
         <span class="info-value">
-          {#if card.sourceExists !== undefined}
-            {#if card.sourceExists}
+          {#if sourceDocumentStatus.known}
+            {#if sourceDocumentStatus.exists}
               <span class="status-indicator status-exists">存在</span>
             {:else}
               <span class="status-indicator status-missing">已删除</span>

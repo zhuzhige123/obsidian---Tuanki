@@ -4,7 +4,6 @@
   import StatusBadge from "../../ui/StatusBadge.svelte";
   import { untrack } from "svelte";
   import EnhancedIcon from "../../ui/EnhancedIcon.svelte";
-  import ResolvedDeckRefs from "../../ui/ResolvedDeckRefs.svelte";
   import DraggableCheckboxWrapper from "./DraggableCheckboxWrapper.svelte";
   import { ICON_NAMES } from "../../../icons/index.js";
   import { truncateText, getFieldTemplateInfo, getSourceDocumentStatusInfo } from "../utils/table-utils";
@@ -15,12 +14,12 @@
   import ModifiedCell from "./cells/ModifiedCell.svelte";
   import type { FieldTemplateInfo, SourceDocumentStatusInfo, TableRowProps } from "../types/table-types";
   import { getCardBack, getCardFront } from "../../../utils/card-field-helper";
-  import type { ResolvedDeckRef } from "../../../types/emergent-deck-types";
-  import { getCardDeckNames as getNormalizedCardDeckNames } from "../../../utils/yaml-utils";
+  import { getCardDeckIds } from "../../../utils/yaml-utils";
 
   let {
     card,
     selected,
+    selectionOrder = null,
     columnOrder,
     tableViewMode,
     callbacks,
@@ -220,13 +219,17 @@
 
   let cardDeckNames = $derived.by(() => {
     if (!isVisible) return [];
-    return getNormalizedCardDeckNames(card, decks, '未分组');
-  });
 
-  let resolvedDeckRefs = $derived.by((): ResolvedDeckRef[] => {
-    if (!isVisible) return [];
-    const refs = (card as any).resolvedDeckRefs;
-    return Array.isArray(refs) ? refs : [];
+    const { deckIds } = getCardDeckIds(card, decks, { fallbackToReferences: false });
+    if (deckIds.length === 0) {
+      return [];
+    }
+
+    const names = deckIds
+      .map((deckId) => decks.find((deck) => deck.id === deckId)?.name || "")
+      .filter(Boolean);
+
+    return Array.from(new Set(names));
   });
 
   let irCardDeckNames = $derived.by(() => {
@@ -293,15 +296,22 @@
   class:selected={selected}
 >
   <td class="weave-checkbox-column">
-    <DraggableCheckboxWrapper
-      checked={selected}
-      onchange={handleRowSelect}
-      ariaLabel="选择卡片"
-      cardId={card.uuid}
-      {onDragSelectStart}
-      {onDragSelectMove}
-      {isDragSelectActive}
-    />
+    <div class="weave-checkbox-cell">
+      <DraggableCheckboxWrapper
+        checked={selected}
+        onchange={handleRowSelect}
+        ariaLabel="选择卡片"
+        cardId={card.uuid}
+        {onDragSelectStart}
+        {onDragSelectMove}
+        {isDragSelectActive}
+      />
+      {#if selected && selectionOrder}
+        <span class="weave-selection-order-badge" title={`多选序号 ${selectionOrder}`}>
+          {selectionOrder}
+        </span>
+      {/if}
+    </div>
   </td>
 
   {#each columnOrder as columnKey (columnKey)}
@@ -325,24 +335,20 @@
       <td class="weave-status-column"><StatusBadge state={card.fsrs ? card.fsrs.state : 0} /></td>
     {:else if columnKey === 'deck'}
       <td class="weave-deck-column">
-        {#if resolvedDeckRefs.length > 0}
-          <ResolvedDeckRefs refs={resolvedDeckRefs} truncateLength={14} compact={true} showLabel={false} containerClass="weave-decks-container" emptyText="" />
+        <div class="weave-decks-container">
+        {#if cardDeckNames.length > 0}
+          {#each cardDeckNames as deckName}
+            <span class="weave-deck-badge weave-deck-badge--memory" title={deckName}>
+              {truncateText(deckName, 12)}
+            </span>
+          {/each}
         {:else}
-          <div class="weave-decks-container">
-          {#if cardDeckNames.length > 0}
-            {#each cardDeckNames as deckName}
-              <span class="weave-deck-badge weave-deck-badge--memory" title={deckName}>
-                {truncateText(deckName, 12)}
-              </span>
-            {/each}
-          {:else}
-            <span class="weave-text-muted">未分配</span>
-          {/if}
-          </div>
+          <span class="weave-text-muted">未分配</span>
         {/if}
+        </div>
       </td>
     {:else if columnKey === 'tags'}
-      <TagsCell {card} {availableTags} onTagsUpdate={callbacks.onTagsUpdate} />
+      <TagsCell app={plugin?.app} {card} {availableTags} onTagsUpdate={callbacks.onTagsUpdate} />
     {:else if columnKey === 'priority'}
       <PriorityCell {card} onPriorityUpdate={callbacks.onPriorityUpdate} />
     {:else if columnKey === 'uuid'}
@@ -460,7 +466,7 @@
         </span>
       </td>
     {:else if columnKey === 'ir_tags'}
-      <TagsCell {card} {availableTags} onTagsUpdate={callbacks.onTagsUpdate} />
+      <TagsCell app={plugin?.app} {card} {availableTags} onTagsUpdate={callbacks.onTagsUpdate} />
     {:else if columnKey === 'ir_next_review'}
       <td class="weave-ir-next-review-column">
         <span class="weave-text-content">
@@ -620,13 +626,38 @@
   }
 
   .weave-table-row .weave-checkbox-column {
-    width: 48px;
-    min-width: 48px;
-    max-width: 48px;
+    width: 72px;
+    min-width: 72px;
+    max-width: 72px;
     text-align: center;
     padding: var(--weave-table-cell-padding-y, 6px) var(--weave-table-cell-padding-x, 16px);
     text-overflow: clip;
     overflow: visible;
+  }
+
+  .weave-checkbox-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .weave-selection-order-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--interactive-accent) 16%, var(--weave-table-surface-bg, var(--background-secondary)));
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, transparent);
+    color: var(--text-accent);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
   }
 
   .weave-actions-column {
@@ -957,10 +988,21 @@
     }
 
     .weave-table-row .weave-checkbox-column {
-      width: 42px;
-      min-width: 42px;
-      max-width: 42px;
+      width: 58px;
+      min-width: 58px;
+      max-width: 58px;
       padding: 4px 10px;
+    }
+
+    .weave-checkbox-cell {
+      gap: 4px;
+    }
+
+    .weave-selection-order-badge {
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      font-size: 9px;
     }
 
     .weave-actions-column {

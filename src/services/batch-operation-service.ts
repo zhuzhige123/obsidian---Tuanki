@@ -8,10 +8,11 @@ import type { WeaveDataStorage } from "../data/storage";
 import type { Card } from "../data/types";
 import type {
 	BatchOperationResult,
-	BatchProgressCallback,
+	BatchUpdateCardsOptions,
 	BatchUpdateFunction,
 } from "../types/batch-operation-types";
 import { getCardFront } from "../utils/card-field-helper";
+import { createGlobalOperationController } from "../utils/global-operation-progress";
 
 /**
  * 批量更新卡片
@@ -25,7 +26,7 @@ export async function batchUpdateCards(
 	cards: Card[],
 	updateFn: BatchUpdateFunction,
 	dataStorage: WeaveDataStorage,
-	onProgress?: BatchProgressCallback
+	options?: BatchUpdateCardsOptions
 ): Promise<BatchOperationResult> {
 	const startTime = Date.now();
 	const result: BatchOperationResult = {
@@ -35,44 +36,89 @@ export async function batchUpdateCards(
 		errors: [],
 		duration: 0,
 	};
+	const updatedCards: Card[] = [];
+	if (cards.length === 0) {
+		return result;
+	}
 
-	for (let i = 0; i < cards.length; i++) {
-		const card = cards[i];
-		try {
-			const updatedCard = updateFn(card);
-			const response = await dataStorage.saveCard(updatedCard);
+	const progress = createGlobalOperationController({
+		title: options?.progressTitle || "正在批量处理卡片",
+		total: cards.length,
+		detail: options?.progressDetail || `正在准备处理 ${cards.length} 张卡片`,
+		allowNavigation: options?.allowNavigation ?? false,
+		navigationMessage:
+			options?.navigationMessage || "正在批量处理卡片，请暂时留在当前页面，完成后会自动刷新。",
+	});
 
-			if (response.success) {
-				result.success++;
-			} else {
+	try {
+		for (let i = 0; i < cards.length; i++) {
+			const card = cards[i];
+			try {
+				updatedCards.push(updateFn(card));
+			} catch (error) {
 				result.failed++;
 				result.errors.push({
 					cardId: card.uuid,
 					cardTitle: getCardTitle(card),
-					error: response.error || "保存失败",
+					error: error instanceof Error ? error.message : "未知错误",
 				});
-				logger.error(`[BatchOperation] 保存卡片失败: ${card.uuid}`, response.error);
+				logger.error(`[BatchOperation] 更新卡片失败: ${card.uuid}`, error);
 			}
-		} catch (error) {
-			result.failed++;
-			result.errors.push({
-				cardId: card.uuid,
-				cardTitle: getCardTitle(card),
-				error: error instanceof Error ? error.message : "未知错误",
+
+			const current = i + 1;
+			options?.onProgress?.(current, cards.length);
+			progress.update({
+				status: "running",
+				current,
+				detail: `正在处理第 ${current} / ${cards.length} 张卡片`,
 			});
-			logger.error(`[BatchOperation] 更新卡片失败: ${card.uuid}`, error);
+
+			if (current % 10 === 0) {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			}
 		}
 
-		// 报告进度
-		onProgress?.(i + 1, cards.length);
+		if (updatedCards.length > 0) {
+			progress.update({
+				status: "running",
+				current: cards.length,
+				detail: `正在保存 ${updatedCards.length} 张已处理卡片`,
+			});
 
-		// 每10张卡片让出控制权，避免阻塞UI
-		if ((i + 1) % 10 === 0) {
-			await new Promise((resolve) => setTimeout(resolve, 0));
+			try {
+				await dataStorage.saveCardsBatch(updatedCards);
+				result.success += updatedCards.length;
+			} catch (error) {
+				result.failed += updatedCards.length;
+				for (const card of updatedCards) {
+					result.errors.push({
+						cardId: card.uuid,
+						cardTitle: getCardTitle(card),
+						error: error instanceof Error ? error.message : "批量保存失败",
+					});
+				}
+				logger.error("[BatchOperation] 批量保存卡片失败", error);
+			}
 		}
+	} catch (error) {
+		logger.error("[BatchOperation] 批量操作执行失败", error);
+		progress.finish({
+			status: "error",
+			current: result.total,
+			detail: error instanceof Error ? error.message : "批量操作失败",
+		}, 2500);
+		throw error;
 	}
 
 	result.duration = Date.now() - startTime;
+	progress.finish({
+		status: result.failed > 0 ? "error" : "success",
+		current: result.total,
+		detail:
+			result.failed > 0
+				? `批量处理完成：成功 ${result.success} 张，失败 ${result.failed} 张`
+				: `批量处理完成：共处理 ${result.success} 张卡片`,
+	}, result.failed > 0 ? 2500 : 1500);
 
 	logger.debug("[BatchOperation] 批量操作完成:", result);
 

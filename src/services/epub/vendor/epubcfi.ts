@@ -223,6 +223,7 @@ const isTextNode = ({ nodeType }) => nodeType === 3 || nodeType === 4;
 const isElementNode = ({ nodeType }) => nodeType === 1;
 
 const getChildNodes = (node, filter) => {
+	if (!node?.childNodes) return [];
 	const nodes = Array.from(node.childNodes).filter(
 		(child) => isTextNode(child) || isElementNode(child)
 	);
@@ -239,6 +240,7 @@ const getChildNodes = (node, filter) => {
 };
 
 const indexChildNodes = (node, filter) => {
+	if (!node) return ["before", "after"];
 	const nodes = getChildNodes(node, filter).reduce((arr, child) => {
 		const last = arr[arr.length - 1];
 		if (!last) arr.push(child);
@@ -260,27 +262,35 @@ const indexChildNodes = (node, filter) => {
 };
 
 const partsToNode = (node, parts, filter) => {
-	const { id } = parts[parts.length - 1];
+	if (!node) return { node: null, offset: 0 };
+	if (!Array.isArray(parts) || parts.length === 0) return { node: null, offset: 0 };
+	const lastPart = parts[parts.length - 1] ?? {};
+	const { id } = lastPart;
 	if (id) {
 		const el = node.ownerDocument.getElementById(id);
 		if (el) return { node: el, offset: 0 };
 	}
-	for (const { index } of parts) {
+	for (const part of parts) {
+		const index = part?.index;
+		if (typeof index !== "number" || !Number.isFinite(index)) return { node: null, offset: 0 };
 		const newNode = node ? indexChildNodes(node, filter)[index] : null;
 		if (newNode === "first") return { node: node.firstChild ?? node };
 		if (newNode === "last") return { node: node.lastChild ?? node };
 		if (newNode === "before") return { node, before: true };
 		if (newNode === "after") return { node, after: true };
+		if (newNode == null) return { node: null, offset: 0 };
 		node = newNode;
 	}
-	const { offset } = parts[parts.length - 1];
+	const offset = typeof lastPart.offset === "number" && Number.isFinite(lastPart.offset) ? lastPart.offset : 0;
 	if (!Array.isArray(node)) return { node, offset };
 	let sum = 0;
 	for (const n of node) {
-		const { length } = n.nodeValue;
+		const length = n?.nodeValue?.length ?? 0;
+		if (!n) continue;
 		if (sum + length >= offset) return { node: n, offset: offset - sum };
 		sum += length;
 	}
+	return { node: null, offset: 0 };
 };
 
 const nodeToParts = (node, offset, filter) => {
@@ -321,8 +331,9 @@ export const toRange = (doc, parts, filter = undefined) => {
 	const endParts = collapse(parts, true);
 
 	const root = doc.documentElement;
-	const start = partsToNode(root, startParts[0], filter);
-	const end = partsToNode(root, endParts[0], filter);
+	const start = partsToNode(root, startParts?.[0], filter);
+	const end = partsToNode(root, endParts?.[0], filter);
+	if (!start?.node || !end?.node) throw new Error("Invalid EPUB CFI target");
 
 	const range = doc.createRange();
 

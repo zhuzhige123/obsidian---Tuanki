@@ -456,7 +456,6 @@ describe('WeaveDataStorage delete source resolution', () => {
       deleted: [...uuids],
       notFound: []
     }));
-    const cascadeDeleteCards = vi.fn(async () => ({ success: true, totalAffectedDecks: 0, errors: [] }));
     const cleanupAfterCardDeletions = vi.fn();
 
     const plugin = {
@@ -465,9 +464,6 @@ describe('WeaveDataStorage delete source resolution', () => {
         getCardsByUUIDsBatch,
         getAllCards,
         deleteCardsBatch
-      },
-      referenceDeckService: {
-        cascadeDeleteCards
       },
       directFileReader: {
         removeCardIndex: vi.fn()
@@ -494,6 +490,23 @@ describe('WeaveDataStorage delete source resolution', () => {
     const ensureCleanupServiceSpy = vi
       .spyOn(storage as any, 'ensureCleanupService')
       .mockReturnValue({ cleanupAfterCardDeletions });
+    const writePersistedDecksSpy = vi
+      .spyOn(storage as any, 'writePersistedDecks')
+      .mockResolvedValue(undefined);
+    vi.spyOn(storage as any, 'readPersistedDecks').mockResolvedValue([
+      {
+        id: 'deck-to-delete',
+        name: '待删牌组',
+        cardUUIDs: ['apkg-1', 'apkg-2'],
+        modified: '2026-03-15T00:00:00.000Z'
+      },
+      {
+        id: 'deck-keep',
+        name: '保留牌组',
+        cardUUIDs: ['apkg-1', 'apkg-2', 'stay-1'],
+        modified: '2026-03-15T00:00:00.000Z'
+      }
+    ] as any);
 
     const result = await storage.deleteCards(['apkg-1', 'apkg-2'], {
       skipCascadeDeckIds: ['deck-to-delete']
@@ -504,9 +517,16 @@ describe('WeaveDataStorage delete source resolution', () => {
     expect(getCardsByUUIDsBatch).toHaveBeenCalledWith(['apkg-1', 'apkg-2']);
     expect(getAllCards).not.toHaveBeenCalled();
     expect(deleteCardsBatch).toHaveBeenCalledWith(['apkg-1', 'apkg-2']);
-    expect(cascadeDeleteCards).toHaveBeenCalledWith(['apkg-1', 'apkg-2'], {
-      skipDeckIds: ['deck-to-delete']
-    });
+    expect(writePersistedDecksSpy).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'deck-to-delete',
+        cardUUIDs: ['apkg-1', 'apkg-2']
+      }),
+      expect.objectContaining({
+        id: 'deck-keep',
+        cardUUIDs: ['stay-1']
+      })
+    ]);
     expect(ensureCleanupServiceSpy).not.toHaveBeenCalled();
     expect(cleanupAfterCardDeletions).not.toHaveBeenCalled();
   });
@@ -580,7 +600,11 @@ describe('WeaveDataStorage delete source resolution', () => {
     expect(notifyChange).toHaveBeenCalledWith({
       type: 'decks',
       action: 'delete',
-      ids: ['deck-to-delete']
+      ids: ['deck-to-delete'],
+      metadata: {
+        deckId: 'deck-to-delete',
+        deckIds: ['deck-to-delete']
+      }
     });
   });
 
@@ -590,7 +614,6 @@ describe('WeaveDataStorage delete source resolution', () => {
       notFound: []
     }));
     const deleteCardsByUUIDs = vi.fn(async (uuids: string[]) => [...uuids]);
-    const cascadeDeleteCards = vi.fn(async () => ({ success: true, totalAffectedDecks: 0, errors: [] }));
 
     const plugin = {
       settings: {},
@@ -633,8 +656,133 @@ describe('WeaveDataStorage delete source resolution', () => {
         isWDeckCard: vi.fn((card: any) => card?.deckId === 'wdeck:deck-1'),
         deleteCardsByUUIDs
       },
-      referenceDeckService: {
-        cascadeDeleteCards
+      directFileReader: {
+        removeCardIndex: vi.fn()
+      },
+      cardIndexService: {
+        removeCardIndex: vi.fn()
+      },
+      cardMetadataCache: {
+        invalidate: vi.fn()
+      },
+      app: {
+        workspace: {
+          trigger: vi.fn()
+        },
+        vault: {
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    const writePersistedDecksSpy = vi
+      .spyOn(storage as any, 'writePersistedDecks')
+      .mockResolvedValue(undefined);
+    vi.spyOn(storage as any, 'readPersistedDecks').mockResolvedValue([
+      {
+        id: 'deck-a',
+        name: '牌组 A',
+        cardUUIDs: ['legacy-1', 'wdeck-1', 'stay-1'],
+        modified: '2026-03-15T00:00:00.000Z'
+      }
+    ] as any);
+
+    const result = await storage.deleteCards(['legacy-1', 'wdeck-1']);
+
+    expect(result.deleted).toEqual(['legacy-1', 'wdeck-1']);
+    expect(result.failed).toEqual([]);
+    expect(deleteCardsBatch).toHaveBeenCalledWith(['legacy-1']);
+    expect(deleteCardsByUUIDs).toHaveBeenCalledWith(['wdeck-1']);
+    expect(writePersistedDecksSpy).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'deck-a',
+        cardUUIDs: ['stay-1']
+      })
+    ]);
+  });
+
+  it('deletes progressive child cards via targeted UUID lookup before deleting the progressive parent', async () => {
+    const deletedOrder: string[] = [];
+    const parent = createProgressiveParent();
+    const child1 = createProgressiveChild(CHILD_UUID_1, 0);
+    const child2 = createProgressiveChild(CHILD_UUID_2, 1);
+    const getAllCards = vi.fn(async () => {
+      throw new Error('should not scan all cards');
+    });
+
+    const plugin = {
+      settings: {},
+      cardFileService: {
+        getCardsByUUIDsBatch: vi.fn(async (uuids: string[]) => ({
+          found: uuids.map(uuid => {
+            if (uuid === parent.uuid) return parent;
+            if (uuid === child1.uuid) return child1;
+            return child2;
+          }),
+          notFound: []
+        })),
+        getAllCards,
+        deleteCard: vi.fn(async (uuid: string) => {
+          deletedOrder.push(uuid);
+          return true;
+        })
+      },
+      cardMetadataCache: {
+        invalidate: vi.fn()
+      },
+      app: {
+        workspace: {
+          trigger: vi.fn()
+        },
+        vault: {
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    vi.spyOn(storage as any, 'ensureCleanupService').mockReturnValue({
+      cleanupAfterCardDeletion: vi.fn(async () => ({ success: true, cleanedItems: [] }))
+    });
+
+    const result = await storage.deleteCard(parent.uuid);
+
+    expect(result.success).toBe(true);
+    expect(plugin.cardFileService.getCardsByUUIDsBatch).toHaveBeenCalledWith([parent.uuid]);
+    expect(plugin.cardFileService.getAllCards).not.toHaveBeenCalled();
+    expect(deletedOrder).toEqual([CHILD_UUID_1, CHILD_UUID_2, parent.uuid]);
+  });
+
+  it('expands progressive parent batch deletion through targeted child UUID lookups before fallback scans', async () => {
+    const parent = createProgressiveParent();
+    const child1 = createProgressiveChild(CHILD_UUID_1, 0);
+    const child2 = createProgressiveChild(CHILD_UUID_2, 1);
+    const getAllCards = vi.fn(async () => {
+      throw new Error('should not scan all cards');
+    });
+    const deleteCardsBatch = vi.fn(async (uuids: string[]) => ({
+      deleted: [...uuids],
+      notFound: []
+    }));
+
+    const plugin = {
+      settings: {},
+      cardFileService: {
+        getCardsByUUIDsBatch: vi.fn(async (uuids: string[]) => ({
+          found: uuids.map(uuid => {
+            if (uuid === parent.uuid) return parent;
+            if (uuid === child1.uuid) return child1;
+            return child2;
+          }),
+          notFound: []
+        })),
+        getAllCards,
+        deleteCardsBatch
       },
       directFileReader: {
         removeCardIndex: vi.fn()
@@ -658,14 +806,20 @@ describe('WeaveDataStorage delete source resolution', () => {
     } as any;
 
     const storage = new WeaveDataStorage(plugin);
+    vi.spyOn(storage as any, 'ensureCleanupService').mockReturnValue({
+      cleanupAfterCardDeletions: vi.fn(async () => [])
+    });
+    vi.spyOn(storage as any, 'writePersistedDecks').mockResolvedValue(undefined);
+    vi.spyOn(storage as any, 'readPersistedDecks').mockResolvedValue([]);
 
-    const result = await storage.deleteCards(['legacy-1', 'wdeck-1']);
+    const result = await storage.deleteCards([parent.uuid]);
 
-    expect(result.deleted).toEqual(['legacy-1', 'wdeck-1']);
+    expect(result.deleted).toEqual([parent.uuid]);
     expect(result.failed).toEqual([]);
-    expect(deleteCardsBatch).toHaveBeenCalledWith(['legacy-1']);
-    expect(deleteCardsByUUIDs).toHaveBeenCalledWith(['wdeck-1']);
-    expect(cascadeDeleteCards).toHaveBeenCalledWith(['legacy-1', 'wdeck-1'], undefined);
+    expect(plugin.cardFileService.getCardsByUUIDsBatch).toHaveBeenCalledWith([parent.uuid]);
+    expect(plugin.cardFileService.getCardsByUUIDsBatch).toHaveBeenCalledWith([CHILD_UUID_1, CHILD_UUID_2]);
+    expect(plugin.cardFileService.getAllCards).not.toHaveBeenCalled();
+    expect(deleteCardsBatch).toHaveBeenCalledWith([parent.uuid, CHILD_UUID_1, CHILD_UUID_2]);
   });
 
   it('collects we_decks-linked cards before deck index removal', async () => {
@@ -765,7 +919,11 @@ describe('WeaveDataStorage delete source resolution', () => {
     expect(notifyChange).toHaveBeenCalledWith({
       type: 'decks',
       action: 'delete',
-      ids: ['deck-to-delete']
+      ids: ['deck-to-delete'],
+      metadata: {
+        deckId: 'deck-to-delete',
+        deckIds: ['deck-to-delete']
+      }
     });
   });
 
@@ -931,6 +1089,14 @@ describe('WeaveDataStorage delete source resolution', () => {
       type: CardType.ProgressiveParent
     });
     expect(processContentChangeMock.mock.calls[0][1]).toContain('{{c1::Alpha2}}');
+    expect(processContentChangeMock.mock.calls[0][2]).toEqual(
+      expect.objectContaining({
+        getCardsByUUIDs: expect.any(Function),
+        getDeckCards: expect.any(Function),
+        saveCard: expect.any(Function),
+        deleteCard: expect.any(Function)
+      })
+    );
 
     expect(plugin.cardFileService.saveCard).toHaveBeenCalledTimes(3);
     expect(plugin.cardFileService.saveCard).toHaveBeenNthCalledWith(

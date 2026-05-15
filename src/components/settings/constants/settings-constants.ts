@@ -3,7 +3,7 @@
  * 消除硬编码，提供统一的配置管理
  */
 
-import { t } from "../../../utils/i18n";
+import { i18n, t } from "../../../utils/i18n";
 import type { SettingsTab } from "../types/settings-types";
 
 //  标签页配置 - 使用i18n键
@@ -11,7 +11,6 @@ import type { SettingsTab } from "../types/settings-types";
 export const SETTINGS_TABS: SettingsTab[] = [
 	{ id: "basic", label: "settings.categories.basic" },
 	{ id: "memory-learning", label: "settings.categories.memoryLearning" },
-	{ id: "incremental-reading", label: "settings.categories.incrementalReading" },
 	{ id: "card-parsing", label: "settings.categories.cardParsing" },
 	{ id: "ai-config", label: "settings.categories.aiConfig" },
 	{ id: "anki-connect", label: "settings.categories.ankiConnect" },
@@ -63,7 +62,7 @@ export const MODAL_SIZE_LIMITS = {
 
 export const PRODUCT_INFO = {
 	NAME: "Weave",
-	VERSION: "v0.7.8",
+	VERSION: "v0.8.1",
 	PLATFORM: "Obsidian 全平台",
 	DEVELOPER: "rabbit",
 } as const;
@@ -144,6 +143,16 @@ export const VALIDATION_RULES = {
 // AI配置相关常量
 // ================================
 
+// AI提供商类型
+export type AIProvider =
+	| "openai"
+	| "gemini"
+	| "anthropic"
+	| "deepseek"
+	| "zhipu"
+	| "siliconflow"
+	| "xai";
+
 // 默认 API 地址配置
 export const DEFAULT_API_URLS = {
 	openai: "https://api.openai.com/v1",
@@ -155,27 +164,40 @@ export const DEFAULT_API_URLS = {
 	xai: "https://api.x.ai/v1",
 } as const;
 
+// AI提供商默认模型与支持模型列表
+export const DEFAULT_AI_PROVIDER_MODELS: Record<AIProvider, string> = {
+	openai: "gpt-5.4-mini",
+	gemini: "gemini-2.5-flash",
+	anthropic: "claude-sonnet-4-6",
+	deepseek: "deepseek-v4-flash",
+	zhipu: "glm-4.5-flash",
+	siliconflow: "Qwen/Qwen3-32B",
+	xai: "grok-4.3",
+};
+
+export function getDefaultAIModel(provider: AIProvider): string {
+	return DEFAULT_AI_PROVIDER_MODELS[provider];
+}
+
 // AI配置默认值
 export const DEFAULT_AI_CONFIG = {
 	apiKeys: {
-		openai: { apiKey: "", model: "gpt-5-mini", verified: false, baseUrl: undefined },
-		gemini: { apiKey: "", model: "gemini-2.5-flash", verified: false, baseUrl: undefined },
+		openai: { apiKey: "", model: DEFAULT_AI_PROVIDER_MODELS.openai, verified: false, baseUrl: undefined },
+		gemini: { apiKey: "", model: DEFAULT_AI_PROVIDER_MODELS.gemini, verified: false, baseUrl: undefined },
 		anthropic: {
 			apiKey: "",
-			model: "claude-3-7-sonnet-latest",
+			model: DEFAULT_AI_PROVIDER_MODELS.anthropic,
 			verified: false,
 			baseUrl: undefined,
 		},
-		deepseek: { apiKey: "", model: "deepseek-chat", verified: false, baseUrl: undefined },
-		zhipu: { apiKey: "", model: "glm-4-flash", verified: false, baseUrl: undefined },
-		siliconflow: { apiKey: "", model: "Qwen/Qwen3-32B", verified: false, baseUrl: undefined },
-		xai: { apiKey: "", model: "grok-3", verified: false, baseUrl: undefined },
+		deepseek: { apiKey: "", model: DEFAULT_AI_PROVIDER_MODELS.deepseek, verified: false, baseUrl: undefined },
+		zhipu: { apiKey: "", model: DEFAULT_AI_PROVIDER_MODELS.zhipu, verified: false, baseUrl: undefined },
+		siliconflow: { apiKey: "", model: DEFAULT_AI_PROVIDER_MODELS.siliconflow, verified: false, baseUrl: undefined },
+		xai: { apiKey: "", model: DEFAULT_AI_PROVIDER_MODELS.xai, verified: false, baseUrl: undefined },
 	},
 	defaultProvider: "zhipu" as const,
 	lastUsedProvider: undefined as string | undefined, // 上次使用的 AI 服务提供商
 	lastUsedModel: undefined as string | undefined, // 上次使用的 AI 模型
-	/** 已弃用，仅为兼容旧配置保留。 */
-	formattingProvider: undefined,
 	formatting: {
 		enabled: true, // 仅保留总开关
 	},
@@ -185,6 +207,7 @@ export const DEFAULT_AI_CONFIG = {
 		requestTimeout: 30,
 		concurrentLimit: 3,
 	},
+
 	// 全局系统提示词配置
 	systemPromptConfig: {
 		useBuiltin: true,
@@ -250,23 +273,20 @@ export const DEFAULT_AI_CONFIG = {
 	// 自定义AI功能列表
 	customFormatActions: [],
 	customSplitActions: [],
-	officialFormatActions: {
-		choice: { enabled: true },
-		mathFormula: { enabled: true },
-		memoryAid: { enabled: true },
-	},
 };
 
 // AI模型选项
 export const AI_MODEL_OPTIONS = {
 	openai: [
-		{ id: "gpt-5", label: "GPT-5", description: "OpenAI 新一代旗舰通用模型" },
+		{ id: "gpt-5.4-mini", label: "GPT-5.4 Mini", description: "当前更均衡的 GPT-5 系列选择，适合作为默认模型" },
 		{
-			id: "gpt-5-mini",
-			label: "GPT-5 Mini",
-			description: "更均衡的成本/速度选择，适合作为默认模型",
+			id: "gpt-5.5",
+			label: "GPT-5.5",
+			description: "OpenAI 当前旗舰推理/编码模型",
 		},
-		{ id: "gpt-5-nano", label: "GPT-5 Nano", description: "超低成本轻量模型" },
+		{ id: "gpt-5.4-nano", label: "GPT-5.4 Nano", description: "超低成本轻量模型" },
+		{ id: "gpt-5.2", label: "GPT-5.2", description: "GPT-5 系列稳定版本" },
+		{ id: "gpt-5.1", label: "GPT-5.1", description: "GPT-5 早期稳定版本，适合兼容旧配置" },
 		{ id: "gpt-4.1", label: "GPT-4.1", description: "成熟稳定的高质量通用模型" },
 		{ id: "gpt-4.1-mini", label: "GPT-4.1 Mini", description: "轻量通用模型" },
 		{ id: "gpt-4o", label: "GPT-4o", description: "经典多模态模型" },
@@ -274,60 +294,63 @@ export const AI_MODEL_OPTIONS = {
 		{ id: "o4-mini", label: "o4-mini", description: "轻量推理模型" },
 	],
 	gemini: [
-		{ id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", description: "高质量通用/推理模型" },
 		{
 			id: "gemini-2.5-flash",
 			label: "Gemini 2.5 Flash",
 			description: "速度与质量平衡，适合作为默认模型",
 		},
+		{ id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", description: "高质量通用/推理模型" },
 		{
 			id: "gemini-2.5-flash-lite",
 			label: "Gemini 2.5 Flash-Lite",
 			description: "更低成本的轻量模型",
 		},
-		{ id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", description: "成熟稳定的快速模型" },
-		{ id: "gemini-2.0-flash-lite", label: "Gemini 2.0 Flash-Lite", description: "轻量快速模型" },
+		{ id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview", description: "Gemini 3 系列高能力预览模型" },
+		{ id: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview", description: "Gemini 3 系列快速预览模型" },
+		{ id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash-Lite Preview", description: "高频轻量任务的低成本预览模型" },
 	],
 	anthropic: [
-		{ id: "claude-opus-4-1", label: "Claude Opus 4.1", description: "Claude 高端旗舰模型" },
-		{ id: "claude-sonnet-4", label: "Claude Sonnet 4", description: "Claude 主力均衡模型" },
-		{
-			id: "claude-3-7-sonnet-latest",
-			label: "Claude 3.7 Sonnet",
-			description: "成熟稳定，兼顾推理与写作",
-		},
-		{ id: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet", description: "经典稳定版本" },
+		{ id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", description: "当前主力均衡模型，适合作为默认模型" },
+		{ id: "claude-opus-4-7", label: "Claude Opus 4.7", description: "Anthropic 当前旗舰模型" },
+		{ id: "claude-haiku-4-5", label: "Claude Haiku 4.5", description: "高频、低延迟场景的轻量模型" },
 	],
 	deepseek: [
-		{ id: "deepseek-chat", label: "DeepSeek Chat", description: "通用对话模型" },
-		{ id: "deepseek-reasoner", label: "DeepSeek Reasoner", description: "推理增强模型" },
+		{ id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", description: "当前快速通用模型，适合作为默认模型" },
+		{ id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", description: "当前高性能模型" },
+		{ id: "deepseek-chat", label: "DeepSeek Chat", description: "兼容别名，对应非思考模式，计划于 2026-07-24 下线" },
+		{ id: "deepseek-reasoner", label: "DeepSeek Reasoner", description: "兼容别名，对应思考模式，计划于 2026-07-24 下线" },
 	],
 	zhipu: [
-		{ id: "glm-4-plus", label: "GLM-4 Plus", description: "智谱高性能通用模型" },
-		{ id: "glm-4-air", label: "GLM-4 Air", description: "平衡成本与性能" },
-		{ id: "glm-4-flash", label: "GLM-4 Flash", description: "快速响应，适合作为默认模型" },
-		{ id: "glm-4", label: "GLM-4", description: "标准版本" },
+		{ id: "glm-4.5-flash", label: "GLM-4.5 Flash", description: "快速低成本，适合作为默认模型" },
+		{ id: "glm-5", label: "GLM-5", description: "智谱当前高端通用模型" },
+		{ id: "glm-5.1", label: "GLM-5.1", description: "智谱最新主线文本模型" },
+		{ id: "glm-5-turbo", label: "GLM-5 Turbo", description: "更均衡的 GLM-5 系列选择" },
+		{ id: "glm-4.7", label: "GLM-4.7", description: "强化 Coding 与工具协同" },
+		{ id: "glm-4.7-flash", label: "GLM-4.7 Flash", description: "面向效率场景的 4.7 轻量版" },
+		{ id: "glm-4.6", label: "GLM-4.6", description: "稳定通用版本" },
+		{ id: "glm-4.5-air", label: "GLM-4.5 Air", description: "均衡成本与性能" },
+		{ id: "glm-4.5-airx", label: "GLM-4.5 AirX", description: "低时延高并发优化" },
 	],
 	siliconflow: [
-		{ id: "Qwen/Qwen3-32B", label: "Qwen3 32B", description: "通义千问新一代通用模型" },
-		{ id: "Qwen/Qwen3-235B-A22B", label: "Qwen3 235B A22B", description: "高性能大模型" },
-		{ id: "deepseek-ai/DeepSeek-V3", label: "DeepSeek V3", description: "DeepSeek 通用模型" },
-		{ id: "deepseek-ai/DeepSeek-R1", label: "DeepSeek R1", description: "DeepSeek 推理模型" },
-		{
-			id: "meta-llama/Llama-3.3-70B-Instruct",
-			label: "Llama 3.3 70B",
-			description: "Meta 开源高性能模型",
-		},
-		{ id: "THUDM/GLM-4-9B-Chat", label: "GLM-4 9B Chat", description: "智谱开源轻量模型" },
-		{ id: "google/gemma-2-9b-it", label: "Gemma 2 9B", description: "Google 轻量模型" },
+		{ id: "Qwen/Qwen3-32B", label: "Qwen3 32B", description: "当前均衡通用模型，适合作为默认模型" },
+		{ id: "Pro/zai-org/GLM-5", label: "GLM-5 (Pro)", description: "SiliconFlow 当前高端 GLM 路线模型" },
+		{ id: "Pro/zai-org/GLM-4.7", label: "GLM-4.7 (Pro)", description: "强化 Coding 与 Agent 场景" },
+		{ id: "deepseek-ai/DeepSeek-V3.2", label: "DeepSeek V3.2", description: "当前通用主线模型" },
+		{ id: "Pro/deepseek-ai/DeepSeek-V3.2", label: "DeepSeek V3.2 (Pro)", description: "更高性能版本" },
+		{ id: "Pro/deepseek-ai/DeepSeek-R1", label: "DeepSeek R1 (Pro)", description: "推理增强模型" },
+		{ id: "Qwen/Qwen3-30B-A3B", label: "Qwen3 30B A3B", description: "兼顾速度与成本的 Qwen3 MoE 模型" },
+		{ id: "Qwen/Qwen3-14B", label: "Qwen3 14B", description: "中等成本通用模型" },
+		{ id: "Qwen/Qwen3-8B", label: "Qwen3 8B", description: "轻量高频场景模型" },
+		{ id: "zai-org/GLM-4.6", label: "GLM-4.6", description: "稳定通用版本" },
 	],
 	xai: [
-		{ id: "grok-4", label: "Grok 4", description: "xAI 新一代旗舰模型" },
-		{ id: "grok-3", label: "Grok 3", description: "成熟稳定版本" },
+		{ id: "grok-4.3", label: "Grok 4.3", description: "xAI 当前推荐模型，适合作为默认模型" },
+		{ id: "grok-4", label: "Grok 4", description: "上一代旗舰版本" },
+		{ id: "grok-3", label: "Grok 3", description: "兼容旧配置的稳定版本" },
 	],
 } as const;
 
-export const AI_PROVIDER_LABELS = {
+const AI_PROVIDER_LABEL_FALLBACKS: Record<AIProvider, string> = {
 	openai: "OpenAI",
 	gemini: "Google Gemini",
 	anthropic: "Anthropic Claude",
@@ -335,18 +358,9 @@ export const AI_PROVIDER_LABELS = {
 	zhipu: "Zhipu AI",
 	siliconflow: "SiliconFlow",
 	xai: "xAI Grok",
-} as const;
+};
 
-// AI提供商类型
-export type AIProvider =
-	| "openai"
-	| "gemini"
-	| "anthropic"
-	| "deepseek"
-	| "zhipu"
-	| "siliconflow"
-	| "xai";
-export const AI_PROVIDER_CAPABILITIES: Record<
+const AI_PROVIDER_CAPABILITY_FALLBACKS: Record<
 	AIProvider,
 	{
 		keyPlaceholder: string;
@@ -365,6 +379,100 @@ export const AI_PROVIDER_CAPABILITIES: Record<
 	zhipu: { keyPlaceholder: "Enter API Key", openaiCompatible: true, description: "Zhipu AI" },
 	siliconflow: { keyPlaceholder: "sk-...", openaiCompatible: true, description: "SiliconFlow" },
 	xai: { keyPlaceholder: "xai-...", openaiCompatible: true, description: "xAI Grok" },
+};
+
+function resolveOptionalTranslation(key: string, fallback: string): string {
+	return i18n.hasTranslation(key) ? t(key) : fallback;
+}
+
+export const AI_PROVIDER_CAPABILITIES: Record<
+	AIProvider,
+	{
+		keyPlaceholder: string;
+		openaiCompatible: boolean;
+		description: string;
+	}
+> = {
+	get openai() {
+		const fallback = AI_PROVIDER_CAPABILITY_FALLBACKS.openai;
+		return {
+			keyPlaceholder: resolveOptionalTranslation("settingsConstants.aiKeyPlaceholder.openai", fallback.keyPlaceholder),
+			openaiCompatible: fallback.openaiCompatible,
+			description: resolveOptionalTranslation("settingsConstants.aiProviderDesc.openai", fallback.description),
+		};
+	},
+	get gemini() {
+		const fallback = AI_PROVIDER_CAPABILITY_FALLBACKS.gemini;
+		return {
+			keyPlaceholder: resolveOptionalTranslation("settingsConstants.aiKeyPlaceholder.gemini", fallback.keyPlaceholder),
+			openaiCompatible: fallback.openaiCompatible,
+			description: resolveOptionalTranslation("settingsConstants.aiProviderDesc.gemini", fallback.description),
+		};
+	},
+	get anthropic() {
+		const fallback = AI_PROVIDER_CAPABILITY_FALLBACKS.anthropic;
+		return {
+			keyPlaceholder: resolveOptionalTranslation("settingsConstants.aiKeyPlaceholder.anthropic", fallback.keyPlaceholder),
+			openaiCompatible: fallback.openaiCompatible,
+			description: resolveOptionalTranslation("settingsConstants.aiProviderDesc.anthropic", fallback.description),
+		};
+	},
+	get deepseek() {
+		const fallback = AI_PROVIDER_CAPABILITY_FALLBACKS.deepseek;
+		return {
+			keyPlaceholder: resolveOptionalTranslation("settingsConstants.aiKeyPlaceholder.deepseek", fallback.keyPlaceholder),
+			openaiCompatible: fallback.openaiCompatible,
+			description: resolveOptionalTranslation("settingsConstants.aiProviderDesc.deepseek", fallback.description),
+		};
+	},
+	get zhipu() {
+		const fallback = AI_PROVIDER_CAPABILITY_FALLBACKS.zhipu;
+		return {
+			keyPlaceholder: resolveOptionalTranslation("settingsConstants.aiKeyPlaceholder.zhipu", fallback.keyPlaceholder),
+			openaiCompatible: fallback.openaiCompatible,
+			description: resolveOptionalTranslation("settingsConstants.aiProviderDesc.zhipu", fallback.description),
+		};
+	},
+	get siliconflow() {
+		const fallback = AI_PROVIDER_CAPABILITY_FALLBACKS.siliconflow;
+		return {
+			keyPlaceholder: resolveOptionalTranslation("settingsConstants.aiKeyPlaceholder.siliconflow", fallback.keyPlaceholder),
+			openaiCompatible: fallback.openaiCompatible,
+			description: resolveOptionalTranslation("settingsConstants.aiProviderDesc.siliconflow", fallback.description),
+		};
+	},
+	get xai() {
+		const fallback = AI_PROVIDER_CAPABILITY_FALLBACKS.xai;
+		return {
+			keyPlaceholder: resolveOptionalTranslation("settingsConstants.aiKeyPlaceholder.xai", fallback.keyPlaceholder),
+			openaiCompatible: fallback.openaiCompatible,
+			description: resolveOptionalTranslation("settingsConstants.aiProviderDesc.xai", fallback.description),
+		};
+	},
+};
+
+export const AI_PROVIDER_LABELS: Record<AIProvider, string> = {
+	get openai() {
+		return resolveOptionalTranslation("settingsConstants.aiProviderLabels.openai", AI_PROVIDER_LABEL_FALLBACKS.openai);
+	},
+	get gemini() {
+		return resolveOptionalTranslation("settingsConstants.aiProviderLabels.gemini", AI_PROVIDER_LABEL_FALLBACKS.gemini);
+	},
+	get anthropic() {
+		return resolveOptionalTranslation("settingsConstants.aiProviderLabels.anthropic", AI_PROVIDER_LABEL_FALLBACKS.anthropic);
+	},
+	get deepseek() {
+		return resolveOptionalTranslation("settingsConstants.aiProviderLabels.deepseek", AI_PROVIDER_LABEL_FALLBACKS.deepseek);
+	},
+	get zhipu() {
+		return resolveOptionalTranslation("settingsConstants.aiProviderLabels.zhipu", AI_PROVIDER_LABEL_FALLBACKS.zhipu);
+	},
+	get siliconflow() {
+		return resolveOptionalTranslation("settingsConstants.aiProviderLabels.siliconflow", AI_PROVIDER_LABEL_FALLBACKS.siliconflow);
+	},
+	get xai() {
+		return resolveOptionalTranslation("settingsConstants.aiProviderLabels.xai", AI_PROVIDER_LABEL_FALLBACKS.xai);
+	},
 };
 
 // ================================

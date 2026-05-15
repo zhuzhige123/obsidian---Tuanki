@@ -1,9 +1,8 @@
 <script lang="ts">
   /**
    * 牌组模式筛选器
-   * 当前主牌组页使用三种模式切换
+   * 当前主牌组页使用两种模式切换
    * - memory: 记忆牌组（FSRS学习）
-   * - incremental-reading: 增量阅读
    * - question-bank: 题库牌组（考试测试）
    * 
    * `DeckFilter` 仍保留旧值类型，便于读取历史状态：
@@ -19,7 +18,7 @@
   import { get } from 'svelte/store';
   import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
 
-  export type DeckFilter = 'memory' | 'reading' | 'question-bank' | 'incremental-reading' | 'parent' | 'child' | 'all';
+  export type DeckFilter = 'memory' | 'reading' | 'question-bank' | 'parent' | 'child' | 'all';
 
   interface Props {
     selectedFilter: DeckFilter;
@@ -49,13 +48,6 @@
 
   const filterDefs: Array<{ id: DeckFilter; nameKey: string; icon: string; colorStart: string; colorEnd: string }> = [
     {
-      id: 'incremental-reading',
-      nameKey: 'decks.categoryFilter.incrementalReading',
-      icon: '📖',
-      colorStart: '#ef4444',
-      colorEnd: '#dc2626'
-    },
-    {
       id: 'memory',
       nameKey: 'decks.categoryFilter.memory',
       icon: '📚',
@@ -74,13 +66,6 @@
   const filters = $derived(filterDefs.map(f => ({ ...f, name: t(f.nameKey) })));
   const visibleFilters = $derived(
     filters.filter(filter => {
-      if (filter.id === 'incremental-reading') {
-        return premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.INCREMENTAL_READING, {
-          isPremium,
-          showPremiumPreview: showPremiumFeaturesPreview
-        });
-      }
-
       if (filter.id === 'question-bank') {
         return premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.QUESTION_BANK, {
           isPremium,

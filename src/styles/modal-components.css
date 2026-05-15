@@ -6,6 +6,211 @@
 
 /* ===== 模态窗基础样式 ===== */
 
+.modal.weave-obsidian-modal-shell {
+  display: flex;
+  flex-direction: column;
+  width: var(--weave-obsidian-modal-width, 88vw);
+  max-width: var(--weave-obsidian-modal-max-width, 960px);
+  height: var(--weave-obsidian-modal-height, auto);
+  max-height: var(--weave-obsidian-modal-max-height, 80vh);
+  min-height: var(--weave-obsidian-modal-min-height, auto);
+  overflow: var(--weave-obsidian-modal-overflow, visible);
+}
+
+.modal-content.weave-obsidian-modal-content-shell {
+  display: flex;
+  flex-direction: column;
+  flex: var(--weave-obsidian-modal-content-flex, 1 1 auto);
+  min-height: var(--weave-obsidian-modal-content-min-height, 0);
+  padding: var(--weave-obsidian-modal-content-padding, 0);
+  overflow: var(--weave-obsidian-modal-content-overflow, hidden);
+}
+
+.weave-ai-config-modal {
+  --weave-obsidian-modal-width: 94vw;
+  --weave-obsidian-modal-max-width: 1100px;
+  --weave-obsidian-modal-height: 88vh;
+  --weave-obsidian-modal-max-height: 88vh;
+}
+
+.weave-ir-analytics-modal {
+  --weave-obsidian-modal-width: 94vw;
+  --weave-obsidian-modal-max-width: 1260px;
+  --weave-obsidian-modal-height: 84vh;
+  --weave-obsidian-modal-max-height: 84vh;
+}
+
+.weave-material-import-modal {
+  --weave-obsidian-modal-width: 92vw;
+  --weave-obsidian-modal-max-width: 1120px;
+  --weave-obsidian-modal-height: 84vh;
+  --weave-obsidian-modal-max-height: 84vh;
+  --weave-obsidian-modal-min-height: 0;
+  --weave-obsidian-modal-overflow: hidden;
+}
+
+.weave-apkg-import-modal {
+  --weave-obsidian-modal-width: 90vw;
+  --weave-obsidian-modal-max-width: 860px;
+  --weave-obsidian-modal-height: 80vh;
+  --weave-obsidian-modal-max-height: 80vh;
+}
+
+.weave-create-deck-modal {
+  --weave-obsidian-modal-width: 88vw;
+  --weave-obsidian-modal-max-width: 640px;
+  --weave-obsidian-modal-height: auto;
+  --weave-obsidian-modal-max-height: 80vh;
+}
+
+.weave-create-deck-modal-content {
+  --weave-obsidian-modal-content-overflow: auto;
+}
+
+.weave-data-management-modal {
+  --weave-obsidian-modal-width: 88vw;
+  --weave-obsidian-modal-max-width: 960px;
+  --weave-obsidian-modal-height: 78vh;
+  --weave-obsidian-modal-max-height: 78vh;
+}
+
+.weave-deck-analytics-modal {
+  --weave-obsidian-modal-width: 92vw;
+  --weave-obsidian-modal-max-width: 1180px;
+  --weave-obsidian-modal-height: 82vh;
+  --weave-obsidian-modal-max-height: 82vh;
+}
+
+.weave-question-bank-analytics-modal {
+  --weave-obsidian-modal-width: 88vw;
+  --weave-obsidian-modal-max-width: 1080px;
+  --weave-obsidian-modal-height: 80vh;
+  --weave-obsidian-modal-max-height: 80vh;
+}
+
+.weave-view-card-modal {
+  --weave-obsidian-modal-width: 88vw;
+  --weave-obsidian-modal-max-width: 960px;
+  --weave-obsidian-modal-height: 80vh;
+  --weave-obsidian-modal-max-height: 80vh;
+}
+
+.weave-card-type-mapping-modal {
+  --weave-obsidian-modal-width: 96vw;
+  --weave-obsidian-modal-max-width: 1280px;
+  --weave-obsidian-modal-height: auto;
+  --weave-obsidian-modal-max-height: 88vh;
+}
+
+.weave-card-type-mapping-modal-content {
+  --weave-obsidian-modal-content-flex: 0 1 auto;
+  --weave-obsidian-modal-content-min-height: auto;
+  --weave-obsidian-modal-content-padding: 0 20px 18px 20px;
+  --weave-obsidian-modal-content-overflow: auto;
+}
+
+.weave-ai-action-manager-host {
+  --weave-obsidian-modal-width: 92vw;
+  --weave-obsidian-modal-max-width: 1200px;
+  --weave-obsidian-modal-height: 86vh;
+  --weave-obsidian-modal-max-height: 86vh;
+}
+
+.weave-column-manager-modal {
+  --weave-obsidian-modal-width: min(820px, 92vw);
+  --weave-obsidian-modal-max-width: 820px;
+  --weave-obsidian-modal-max-height: 80vh;
+}
+
+.weave-column-manager-modal-content {
+  --weave-obsidian-modal-content-padding: 0 var(--size-4-6) var(--size-4-6);
+  --weave-obsidian-modal-content-overflow: auto;
+}
+
+.weave-emergent-rule-group-modal {
+  --weave-obsidian-modal-width: min(720px, 84vw);
+  --weave-obsidian-modal-max-width: 720px;
+  --weave-obsidian-modal-height: min(80vh, 760px);
+  --weave-obsidian-modal-max-height: 80vh;
+}
+
+.weave-emergent-rule-group-modal--mobile {
+  --weave-obsidian-modal-width: calc(100vw - 12px);
+  --weave-obsidian-modal-max-width: calc(100vw - 12px);
+  --weave-obsidian-modal-height: calc(100dvh - 12px);
+  --weave-obsidian-modal-max-height: calc(100dvh - 12px);
+}
+
+.weave-emergent-rule-group-modal__content,
+.weave-deck-edit-native-modal-content {
+  --weave-obsidian-modal-content-overflow: auto;
+}
+
+.weave-deck-edit-native-modal {
+  --weave-obsidian-modal-width: 88vw;
+  --weave-obsidian-modal-max-width: 640px;
+  --weave-obsidian-modal-height: auto;
+  --weave-obsidian-modal-max-height: 80vh;
+}
+
+.weave-selection-to-ir-modal {
+  width: min(720px, 92vw);
+}
+
+.weave-selection-to-ir-modal-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.weave-selection-to-ir-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--background-modifier-border);
+  background-color: var(--background-secondary);
+}
+
+.weave-selection-to-ir-toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.weave-selection-to-ir-toolbar-info {
+  flex: 1;
+}
+
+.weave-selection-to-ir-picker-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+  background-color: var(--background-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: none;
+}
+
+.weave-selection-to-ir-title-input {
+  width: 100%;
+}
+
+.weave-selection-to-ir-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 .weave-modal-overlay {
   position: fixed;
   inset: 0;
@@ -492,10 +697,6 @@
 
 /* ===== 笔记类型配置模态窗样式 ===== */
 
-.weave-note-type-config-modal {
-  /* 确保模态窗正确显示 */
-}
-
 /* ✅ 移除 !important：使用更具体的选择器提高优先级 */
 .weave-app .weave-note-type-config-modal .modal-content,
 .weave-app .weave-note-type-config-content {
@@ -576,4 +777,210 @@
 .weave-tag-input-container input[type="text"]:focus {
   border-color: var(--interactive-accent);
   outline: none;
+}
+
+.weave-deck-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem 1rem;
+}
+
+.weave-deck-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.weave-deck-edit-field-label {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.weave-deck-edit-input {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 0.5rem;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: 0.9rem;
+}
+
+.weave-deck-edit-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.weave-deck-edit-tag-input-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 0.5rem;
+  background: var(--background-secondary);
+  min-height: 38px;
+  transition: all 0.2s ease;
+}
+
+.weave-deck-edit-tag-input-wrapper:focus-within {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+}
+
+.weave-deck-edit-selected-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.weave-deck-edit-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.weave-deck-edit-tag-chip-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 50%;
+  color: var(--text-on-accent);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.weave-deck-edit-tag-chip-remove:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.weave-deck-edit-tag-input {
+  flex: 1;
+  min-width: 120px;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-normal);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.weave-deck-edit-tag-input::placeholder {
+  color: var(--text-faint);
+}
+
+.weave-deck-edit-available-tags {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+}
+
+.weave-deck-edit-available-tags-title {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.weave-deck-edit-available-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.weave-deck-edit-available-tag-item {
+  padding: 4px 10px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  color: var(--text-normal);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.weave-deck-edit-available-tag-item:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.weave-deck-edit-available-tag-item.selected {
+  background: color-mix(in srgb, var(--interactive-accent) 15%, var(--background-secondary));
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
+  font-weight: 600;
+}
+
+.weave-deck-edit-hint {
+  font-size: 0.8rem;
+  color: var(--text-accent);
+  font-style: italic;
+  margin-top: 4px;
+}
+
+.weave-deck-edit-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0 1rem 1rem;
+}
+
+.weave-deck-edit-btn {
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.weave-deck-edit-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.weave-deck-edit-btn-primary {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  font-weight: 600;
+}
+
+body:not(.theme-dark) .weave-deck-edit-btn-primary {
+  background: var(--interactive-accent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--interactive-accent) 25%, transparent);
+}
+
+body:not(.theme-dark) .weave-deck-edit-btn-primary:hover {
+  background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.35);
+}
+
+body.theme-dark .weave-deck-edit-btn-primary {
+  background: var(--interactive-accent);
+}
+
+body.theme-dark .weave-deck-edit-btn-primary:hover {
+  background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
+}
+
+.weave-deck-edit-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

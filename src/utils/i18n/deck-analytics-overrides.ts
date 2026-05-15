@@ -1,4 +1,4 @@
-import type { SupportedLanguage, TranslationKey } from "../i18n";
+import type { SupportedLanguage, TranslationKey } from "./types";
 
 export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage, TranslationKey>> = {
 	"zh-CN": {
@@ -34,7 +34,7 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 				avgPredictedRecall: "平均预测回忆率",
 				firstReviewPassRate: "首次复习通过率",
 				targetRetention: "目标保持率",
-				axisX: "日期",
+				axisX: "天数",
 				axisY: "回忆 / 保持率 (%)",
 				avgEmpty: "暂无可用复习历史",
 				trueEmpty: "当前时间范围内没有首次复习样本"
@@ -107,7 +107,7 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 				avgPredictedRecall: "Avg Predicted Recall",
 				firstReviewPassRate: "First Review Pass Rate",
 				targetRetention: "Target Retention",
-				axisX: "Date",
+				axisX: "Days",
 				axisY: "Recall / Retention (%)",
 				avgEmpty: "No review history yet",
 				trueEmpty: "No first-review samples in this range"

@@ -1,6 +1,21 @@
 import { TFile } from "obsidian";
 import type { App, TAbstractFile, WorkspaceLeaf } from "obsidian";
 
+type WorkspaceCompat = App["workspace"] & {
+	iterateAllLeaves?: (callback: (leaf: WorkspaceLeaf) => void) => void;
+	revealLeaf?: (leaf: WorkspaceLeaf) => Promise<void> | void;
+	setActiveLeaf?: {
+		(leaf: WorkspaceLeaf, pushHistory: boolean): void;
+		(leaf: WorkspaceLeaf, options: { focus?: boolean }): void;
+	};
+};
+
+type LeafWithOptionalFileView = WorkspaceLeaf & {
+	view: WorkspaceLeaf["view"] & {
+		file?: TFile | null;
+	};
+};
+
 function unwrapLinkText(linkText: string): string {
 	return (
 		linkText
@@ -17,7 +32,7 @@ function getLinkTargetPath(linkText: string): string {
 }
 
 function collectAllLeaves(app: App): WorkspaceLeaf[] {
-	const workspace = app.workspace as any;
+	const workspace = app.workspace as WorkspaceCompat;
 	const leaves: WorkspaceLeaf[] = [];
 
 	if (typeof workspace.iterateAllLeaves === "function") {
@@ -44,7 +59,7 @@ function collectAllLeaves(app: App): WorkspaceLeaf[] {
 
 export function findLeafByFile(app: App, file: TFile): WorkspaceLeaf | null {
 	for (const leaf of collectAllLeaves(app)) {
-		const leafFile = (leaf.view as any)?.file;
+		const leafFile = (leaf as LeafWithOptionalFileView).view?.file;
 		if (leafFile?.path === file.path) {
 			return leaf;
 		}
@@ -54,7 +69,7 @@ export function findLeafByFile(app: App, file: TFile): WorkspaceLeaf | null {
 }
 
 export function revealLeaf(app: App, leaf: WorkspaceLeaf, focus = true): void {
-	const workspace = app.workspace as any;
+	const workspace = app.workspace as WorkspaceCompat;
 
 	try {
 		if (typeof workspace.setActiveLeaf === "function") {
@@ -66,7 +81,12 @@ export function revealLeaf(app: App, leaf: WorkspaceLeaf, focus = true): void {
 		}
 	} catch {}
 
-	void app.workspace.revealLeaf(leaf);
+	try {
+		const maybeRevealLeaf = workspace?.["revealLeaf"];
+		if (typeof maybeRevealLeaf === "function") {
+			void maybeRevealLeaf.call(workspace, leaf);
+		}
+	} catch {}
 }
 
 function resolveLinkFile(app: App, linkText: string, contextPath: string): TFile | null {

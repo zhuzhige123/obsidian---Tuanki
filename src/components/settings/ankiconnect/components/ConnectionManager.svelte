@@ -24,19 +24,19 @@
 <div class="connection-manager">
   <div class="setting-item connection-item">
     <div class="setting-info">
-      <div class="setting-label">{t('ankiConnect.connection.endpointLabel')}</div>
+      <div class="setting-label">{t('ankiConnect.connection.address.label')}</div>
       <div class="setting-description">
         {#if isTesting}
-          {t('ankiConnect.connection.testing')}
+          {t('ankiConnect.connection.statusLabel.testing')}
         {:else if connectionStatus === null}
           {t('ankiConnect.connection.notTested')}
         {:else if connectionStatus.isConnected}
-          {t('ankiConnect.connection.connected')}
+          {t('ankiConnect.connection.statusLabel.connected')}
           {#if connectionStatus.apiVersion}
             <span class="connection-meta">API v{connectionStatus.apiVersion}</span>
           {/if}
         {:else}
-          {t('ankiConnect.connection.disconnected')}
+          {t('ankiConnect.connection.statusLabel.disconnected')}
         {/if}
       </div>
     </div>
@@ -55,7 +55,7 @@
         onclick={onTestConnection}
         disabled={isTesting}
       >
-        {isTesting ? t('ankiConnect.connection.testingButton') : t('ankiConnect.connection.testButton')}
+        {isTesting ? t('ankiConnect.connection.test.testing') : t('ankiConnect.connection.test.button')}
       </button>
     </div>
   </div>
@@ -79,10 +79,10 @@
 
   .setting-item {
     margin: 0;
-    padding: 14px 16px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--background-secondary) 90%, transparent);
+    padding: 1.25rem 1.5rem;
+    border: none;
+    border-radius: 14px;
+    background: var(--background-secondary);
   }
 
   .connection-item {
@@ -108,10 +108,10 @@
   }
 
   .error-banner {
-    padding: 14px 16px;
-    background: color-mix(in srgb, var(--text-error) 10%, transparent);
-    border-radius: 12px;
-    border-left: 3px solid var(--text-error);
+    padding: 1rem 1.1rem;
+    background: color-mix(in oklab, var(--text-error), var(--background-primary) 92%);
+    border-radius: 14px;
+    border: 1px solid color-mix(in oklab, var(--text-error), transparent 35%);
   }
 
   .error-text {

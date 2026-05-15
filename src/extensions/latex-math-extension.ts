@@ -17,6 +17,7 @@ import { Decoration, EditorView, ViewPlugin, ViewUpdate, WidgetType } from "@cod
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import type { ExtensionConfig, ExtensionLoader } from "../utils/dynamic-extension-manager";
+import { applyStyleProps } from "../utils/style-props";
 
 /**
  * LaTeX数学公式配置接口
@@ -104,15 +105,15 @@ class MathWidget extends WidgetType {
 			const sourceElement = document.createElement("span");
 			sourceElement.className = "cm-math-source";
 			sourceElement.textContent = this.content;
-			sourceElement.setCssProps({ display: "none" });
+			applyStyleProps(sourceElement, { display: "none" });
 			container.appendChild(sourceElement);
 
 			// 添加切换功能
 			container.addEventListener("click", (e) => {
 				if (e.altKey) {
 					const isShowingSource = sourceElement.style.display !== "none";
-					mathElement.setCssProps({ display: isShowingSource ? "inline" : "none" });
-					sourceElement.setCssProps({ display: isShowingSource ? "none" : "inline" });
+					applyStyleProps(mathElement, { display: isShowingSource ? "inline" : "none" });
+					applyStyleProps(sourceElement, { display: isShowingSource ? "none" : "inline" });
 				}
 			});
 		} catch (error) {

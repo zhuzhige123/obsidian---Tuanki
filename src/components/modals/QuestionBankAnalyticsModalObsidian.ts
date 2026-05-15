@@ -2,6 +2,7 @@ import { App, Modal } from "obsidian";
 import { mount, unmount } from "svelte";
 import type { Deck } from "../../data/types";
 import type { WeavePlugin } from "../../main";
+import { configureWeaveObsidianModalLayout } from "../../utils/obsidian-modal-layout";
 import QuestionBankAnalyticsModal from "./QuestionBankAnalyticsModal.svelte";
 
 export interface QuestionBankAnalyticsModalObsidianOptions {
@@ -21,25 +22,9 @@ export class QuestionBankAnalyticsModalObsidian extends Modal {
 
 	onOpen() {
 		this.setTitle(`${this.options.questionBank.name} - 题库分析`);
-		this.modalEl.addClass("weave-question-bank-analytics-modal");
-		this.modalEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			width: "88vw",
-			"max-width": "1080px",
-			height: "80vh",
-			"max-height": "80vh",
-		});
-
-		this.contentEl.empty();
-		this.contentEl.addClass("weave-question-bank-analytics-modal-content");
-		this.contentEl.setCssProps({
-			display: "flex",
-			"flex-direction": "column",
-			flex: "1",
-			"min-height": "0",
-			padding: "0",
-			overflow: "hidden",
+		configureWeaveObsidianModalLayout(this, {
+			modalClass: "weave-question-bank-analytics-modal",
+			contentClass: "weave-question-bank-analytics-modal-content",
 		});
 
 		this.component = mount(QuestionBankAnalyticsModal, {

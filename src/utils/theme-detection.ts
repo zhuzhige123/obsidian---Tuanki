@@ -199,20 +199,6 @@ export class UnifiedThemeManager {
 	}
 }
 
-/** @deprecated 寤鸿鏀圭敤 `UnifiedThemeManager.getInstance().isDarkMode()`銆?*/
-export function isDarkMode(): boolean {
-	return UnifiedThemeManager.getInstance().isDarkMode();
-}
-
-/** @deprecated 寤鸿鏀圭敤 `UnifiedThemeManager.getInstance().addListener()`銆?*/
-export function createThemeListener(callback: (isDark: boolean) => void): () => void {
-	const themeManager = UnifiedThemeManager.getInstance();
-
-	return themeManager.addListener((result) => {
-		callback(result.isDark);
-	});
-}
-
 /** 创建可在组件里复用的响应式主题快照。 */
 export function createReactiveThemeState() {
 	const themeManager = UnifiedThemeManager.getInstance();

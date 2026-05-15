@@ -109,4 +109,28 @@ describe("applyIRCardManagementSourceStats", () => {
 			ir_associated_note_paths: [],
 		});
 	});
+
+	it("只有多关联笔记数组字段时也会保留完整去重后的路径集合", () => {
+		const sourceDocumentKey = normalizeTraceDocumentKey("Notes/multi.md", "markdown")!;
+		const rows = [
+			createCard({
+				uuid: "row-multi",
+				sourceDocumentKey,
+				sourceKind: "markdown",
+				sourceFile: "Notes/multi.md",
+				associatedNotePaths: ["Notes/Topic", "Notes/Topic.md", "Notes/Appendix.md"],
+			}),
+		];
+
+		const result = applyIRCardManagementSourceStats({
+			rows,
+			allCards: [],
+		});
+
+		expect(result[0]).toMatchObject({
+			ir_notes: 2,
+			ir_associated_note_primary_path: "Notes/Topic.md",
+			ir_associated_note_paths: ["Notes/Topic.md", "Notes/Appendix.md"],
+		});
+	});
 });

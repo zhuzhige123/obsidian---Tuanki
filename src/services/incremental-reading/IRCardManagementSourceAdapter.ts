@@ -13,24 +13,38 @@ import {
 	getIRTagGroupLabel,
 } from "./IRCardManagementAdapter";
 
+function getCardAssociatedNotePaths(card: Card): string[] {
+	return resolveAssociatedNotePaths({
+		associatedNotePath:
+			(card as any).primaryAssociatedNotePath ||
+			(card as any).associatedNotePath ||
+			(card as any).ir_primary_associated_note_path ||
+			(card as any).ir_associated_note_primary_path,
+		associatedNotePaths: [
+			...(Array.isArray((card as any).associatedNotePaths) ? (card as any).associatedNotePaths : []),
+			...(Array.isArray((card as any).ir_associated_note_paths)
+				? (card as any).ir_associated_note_paths
+				: []),
+		],
+	});
+}
+
 export function applyIRCardManagementSourceStats(options: {
 	rows: Card[];
 	allCards: Card[];
 	extractCardIds?: Iterable<string>;
 }): Card[] {
 	const units: IRCardManagementSourceUnit[] = options.rows
-		.map((card) => ({
-			sourceDocumentKey: String((card as any).sourceDocumentKey || ""),
-			sourceKind: (((card as any).sourceKind || "unknown") as IRTraceSourceKind),
-			sourceSubunitKey: (card as any).sourceSubunitKey || undefined,
-			associatedNotePath:
-				(card as any).primaryAssociatedNotePath ||
-				(card as any).associatedNotePath ||
-				undefined,
-			associatedNotePaths: Array.isArray((card as any).ir_associated_note_paths)
-				? (card as any).ir_associated_note_paths
-				: undefined,
-		}))
+		.map((card) => {
+			const associatedNotePaths = getCardAssociatedNotePaths(card);
+			return {
+				sourceDocumentKey: String((card as any).sourceDocumentKey || ""),
+				sourceKind: (((card as any).sourceKind || "unknown") as IRTraceSourceKind),
+				sourceSubunitKey: (card as any).sourceSubunitKey || undefined,
+				associatedNotePath: associatedNotePaths[0],
+				associatedNotePaths,
+			};
+		})
 		.filter((unit) => !!unit.sourceDocumentKey);
 
 	const sourceStats = buildIRCardManagementSourceStats({
@@ -43,14 +57,7 @@ export function applyIRCardManagementSourceStats(options: {
 		const sourceDocumentKey = String((card as any).sourceDocumentKey || "");
 		const sourceKind = (((card as any).sourceKind || "unknown") as IRTraceSourceKind);
 		const sourceStat = sourceDocumentKey ? sourceStats.get(sourceDocumentKey) : undefined;
-		const rowAssociatedNotePaths = resolveAssociatedNotePaths({
-			associatedNotePath:
-				(card as any).primaryAssociatedNotePath ||
-				(card as any).associatedNotePath,
-			associatedNotePaths: Array.isArray((card as any).ir_associated_note_paths)
-				? (card as any).ir_associated_note_paths
-				: undefined,
-		});
+		const rowAssociatedNotePaths = getCardAssociatedNotePaths(card);
 		return {
 			...card,
 			ir_source_kind: sourceKind,

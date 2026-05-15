@@ -1,21 +1,17 @@
 import type { App } from "obsidian";
 import { logger } from "../../utils/logger";
 import { IREpubBookmarkTaskService } from "../incremental-reading/IREpubBookmarkTaskService";
+import { IRPointWriteService } from "../incremental-reading/IRPointWriteService";
 import type { EpubStorageService } from "./EpubStorageService";
 import type { EpubReaderEngine } from "./reader-engine-types";
-import type { Bookmark, Note } from "./types";
 
 export interface EpubLocationMigrationSummary {
 	progressMigrated: boolean;
-	bookmarksMigrated: number;
-	notesMigrated: number;
 	resumePointsMigrated: number;
 }
 
 const EMPTY_SUMMARY: EpubLocationMigrationSummary = {
 	progressMigrated: false,
-	bookmarksMigrated: 0,
-	notesMigrated: 0,
 	resumePointsMigrated: 0,
 };
 
@@ -40,24 +36,9 @@ export class EpubLocationMigrationService {
 			progressMigrated: await this.migrateReadingProgress(bookId),
 		};
 
-		const migratedBookmarks = await this.migrateBookmarks(bookId);
-		if (migratedBookmarks.length > 0) {
-			summary.bookmarksMigrated = migratedBookmarks.length;
-		}
-
-		const migratedNotes = await this.migrateNotes(bookId);
-		if (migratedNotes.length > 0) {
-			summary.notesMigrated = migratedNotes.length;
-		}
-
 		summary.resumePointsMigrated = await this.migrateResumePoints(filePath);
 
-		if (
-			summary.progressMigrated ||
-			summary.bookmarksMigrated > 0 ||
-			summary.notesMigrated > 0 ||
-			summary.resumePointsMigrated > 0
-		) {
+		if (summary.progressMigrated || summary.resumePointsMigrated > 0) {
 			logger.info("[EpubLocationMigrationService] Migrated legacy EPUB locations:", {
 				bookId,
 				filePath,
@@ -87,67 +68,9 @@ export class EpubLocationMigrationService {
 		return true;
 	}
 
-	private async migrateBookmarks(bookId: string): Promise<Bookmark[]> {
-		const bookmarks = await this.storageService.loadBookmarks(bookId);
-		if (bookmarks.length === 0) {
-			return [];
-		}
-
-		let changed = false;
-		const migrated: Bookmark[] = [];
-
-		for (const bookmark of bookmarks) {
-			const nextCfi = await this.canonicalizeLocation(bookmark.cfi);
-			if (nextCfi && nextCfi !== bookmark.cfi) {
-				migrated.push({ ...bookmark, cfi: nextCfi });
-				changed = true;
-				continue;
-			}
-			migrated.push(bookmark);
-		}
-
-		if (!changed) {
-			return [];
-		}
-
-		await this.storageService.saveBookmarks(bookId, migrated);
-		return migrated.filter((bookmark, index) => bookmark.cfi !== bookmarks[index]?.cfi);
-	}
-
-	private async migrateNotes(bookId: string): Promise<Note[]> {
-		const notes = await this.storageService.loadNotes(bookId);
-		if (notes.length === 0) {
-			return [];
-		}
-
-		let changed = false;
-		const migrated: Note[] = [];
-
-		for (const note of notes) {
-			if (!note.cfi) {
-				migrated.push(note);
-				continue;
-			}
-
-			const nextCfi = await this.canonicalizeLocation(note.cfi, note.quotedText);
-			if (nextCfi && nextCfi !== note.cfi) {
-				migrated.push({ ...note, cfi: nextCfi });
-				changed = true;
-				continue;
-			}
-			migrated.push(note);
-		}
-
-		if (!changed) {
-			return [];
-		}
-
-		await this.storageService.saveNotes(bookId, migrated);
-		return migrated.filter((note, index) => note.cfi !== notes[index]?.cfi);
-	}
-
 	private async migrateResumePoints(filePath: string): Promise<number> {
 		const taskService = new IREpubBookmarkTaskService(this.app);
+		const pointWriteService = new IRPointWriteService(this.app);
 		const tasks = await taskService.getTasksByEpub(filePath);
 		let migratedCount = 0;
 
@@ -161,8 +84,10 @@ export class EpubLocationMigrationService {
 				continue;
 			}
 
-			await taskService.setResumePoint(task.id, nextCfi);
-			migratedCount += 1;
+			const updated = await pointWriteService.updateEpubResumePoint(task.id, nextCfi);
+			if (updated) {
+				migratedCount += 1;
+			}
 		}
 
 		return migratedCount;

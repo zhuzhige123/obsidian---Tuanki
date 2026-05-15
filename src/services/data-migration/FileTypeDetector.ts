@@ -150,7 +150,7 @@ export class FileTypeDetector {
 					check: () => this.isIRDecksFile(content),
 					type: "ir-decks",
 					confidence: "high",
-					getTarget: () => v2Paths.ir.decks,
+					getTarget: () => v2Paths.ir.legacyDecks,
 				},
 				// 7. IR内容块 - version:4.0 + blocks
 				{

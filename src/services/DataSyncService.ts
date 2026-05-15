@@ -6,6 +6,8 @@
 
 import { logger } from "../utils/logger";
 
+export const MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE = "memory_study_session";
+
 export type DataChangeType = "cards" | "decks" | "sessions" | "settings";
 export type DataChangeAction = "create" | "update" | "delete" | "batch";
 export interface DataChangeEvent {

@@ -7,36 +7,24 @@
  * @version 1.0.0
  */
 
-import { TFile } from "obsidian";
+import { normalizePath, TFile } from "obsidian";
 import {
 	LEGACY_DOT_TUANKI,
+	getLegacyIRImportFolder,
 	getPluginPaths,
+	getReadableWeaveRoot,
 	getV2Paths,
 	normalizeWeaveParentFolder,
 	resolveIRImportFolder,
 } from "../../config/paths";
 import type { Card, Deck } from "../../data/types";
 import type { WeavePlugin } from "../../main";
-import { IR_STORAGE_VERSION } from "../../types/ir-types";
 import {
 	hasProgressiveClozeContent,
 	isProgressiveClozeChild,
 	isProgressiveClozeParent,
 } from "../../types/progressive-cloze-v2";
 import { DirectoryUtils } from "../../utils/directory-utils";
-import {
-	IR_TOPICS_FILE,
-	READING_LEGACY_DECK_YAML_KEY,
-	READING_TOPIC_YAML_KEY,
-	buildTopicStore,
-	extractReadingTopicIdFromFrontmatter,
-	normalizeTopicStoreRecords,
-	serializeBookmarkTaskForStorage,
-	serializeChunkForStorage,
-	serializeIRSessionForStorage,
-	serializeReadingMaterialForStorage,
-	serializeStudySessionForStorage,
-} from "../../utils/ir-topic-compat";
 import {
 	cleanupUnusedLegacyMemoryStorage,
 	getUnusedLegacyMemoryStorageCandidates,
@@ -50,6 +38,7 @@ import {
 	type PathRewriteRule,
 	buildKnownPathReferenceFiles,
 	rewriteKnownPathReferences,
+	rewriteJsonWithRules,
 } from "../../utils/persisted-path-rewriter";
 import {
 	type SyncIssueType,
@@ -71,12 +60,31 @@ import {
 	type DataMigrationReport,
 	UnifiedDataMigrationService,
 } from "../data-migration/UnifiedDataMigrationService";
+import { migrateLegacyWeaveFolders } from "../data-migration/LegacyWeaveFolderMigration";
+import { SchemaV2MigrationService } from "../data-migration/SchemaV2MigrationService";
+import { EpubStorageService } from "../epub/EpubStorageService";
 import { EpubLinkService } from "../epub/EpubLinkService";
+import { DataConsistencyService } from "../reference-deck/DataConsistencyService";
+import {
+	generateUniqueVaultFilePath,
+	resolveObsidianDefaultNewNoteFolder,
+} from "../incremental-reading/IRReadableMarkdownPathResolver";
+import { IRPointDataReadService } from "../incremental-reading/IRPointDataReadService";
+import { IRPointStorageService } from "../incremental-reading/IRPointStorageService";
 import { accuracyCalculator } from "../question-bank/AccuracyCalculator";
+import type {
+	QBankFileData,
+	QuestionInBank,
+	QBankStats,
+	QuestionTestStats,
+	TestAttempt,
+} from "../question-bank/QBankFileTypes";
+import { QuestionBankStorage } from "../question-bank/QuestionBankStorage";
 import {
 	WDECK_FILE_EXTENSION,
 	WDECK_UNGROUPED_DECK_NAME,
 	normalizeWDeckLogicalDeckId,
+	WDeckService,
 	type WDeckFileData,
 } from "../wdeck/WDeckService";
 
@@ -87,8 +95,12 @@ export type CheckType =
 	| "wdeck_migration"
 	| "wdeck_conflicts"
 	| "wdeck_cache"
+	| "structured_data_format"
+	| "ir_redundant_frontmatter_cleanup"
 	| "ir_point_storage_migration"
+	| "ir_legacy_readable_markdown_migration"
 	| "ir_local_state_relocation"
+	| "ir_legacy_bookmark_cleanup"
 	| "migration_conflict_files"
 	| "legacy_memory_files"
 	| "memory_single_membership"
@@ -96,13 +108,13 @@ export type CheckType =
 	| "we_decks_fix" // we_decks 牌组ID修复
 	| "we_block_migration" // we_block -> we_source 合并迁移
 	| "epub_source_link_migration" // 旧 EPUB 溯源链接格式迁移
+	| "epub_markdown_source_id_backfill" // Markdown 中 EPUB sourceId 回填
 	| "deprecated_fields" // 弃用字段检测
 	| "card_deck_consistency" // 卡片-牌组一致性
 	| "ir_material_consistency" // 导入材料一致性（增量阅读）
 	| "orphan_cards" // 孤立卡片
 	| "duplicate_cards" // 重复卡片
 	| "invalid_refs" // 无效引用
-	| "ir_topic_migration" // 增量阅读专题迁移
 	| "schema_migration" // Schema V2 数据迁移
 	| "structure_check" // 目录结构核对
 	| "legacy_cleanup" // 旧目录清理
@@ -111,7 +123,9 @@ export type CheckType =
 	| "progressive_cloze_unconverted" // 符合渐进式挖空格式但未转换
 	| "progressive_cloze_orphan" // 孤儿子卡片（父卡片已不存在）
 	| "progressive_cloze_missing_children" // 父卡片缺少序号对应的子卡片
-	| "progressive_cloze_extra_children"; // 子卡片序号在父卡片内容中不存在
+	| "progressive_cloze_extra_children" // 子卡片序号在父卡片内容中不存在
+	| "qbank_migration" // 考试题组迁移到 .qbank 格式
+	| "qbank_legacy_cleanup"; // 清理已迁移的旧题库文件
 
 /** 检测状态 */
 export type CheckStatus = "ok" | "warning" | "error";
@@ -179,6 +193,55 @@ type LegacyMemorySnapshot = {
 	deckCardUUIDs: Map<string, string[]>;
 };
 
+type QBankMigrationCandidate = {
+	bank: Deck;
+	fileName: string;
+	filePath: string;
+	questionCount: number;
+};
+
+type QBankMigrationPlan = {
+	targetFolder: string;
+	candidates: QBankMigrationCandidate[];
+	alreadyMigrated: ExistingQBankFileInfo[];
+	conflicts: Array<{ bank: Deck; filePath: string; reason: string }>;
+};
+
+type ExistingQBankFileInfo = {
+	path: string;
+	bankId: string;
+	bankName: string;
+};
+
+type LegacyQuestionRef = {
+	cardUuid: string;
+	addedAt?: string;
+};
+
+type LegacyQuestionCard = Pick<Card, "uuid" | "created">;
+
+type LegacyQuestionTestHistoryEntry = TestAttempt & {
+	cardUuid: string;
+};
+
+type LegacyQuestionRefsFile =
+	| LegacyQuestionRef[]
+	| {
+			refs?: LegacyQuestionRef[];
+			questions?: LegacyQuestionCard[];
+	  };
+
+type StructuredDataFileKind = "wdeck" | "irdeck" | "qbank";
+
+type StructuredDataFormatIssue = {
+	kind: StructuredDataFileKind;
+	path: string;
+	repairable: boolean;
+	reason: string;
+	normalizedContent?: string;
+	repairStrategy?: "rewrite" | "restore_backup";
+};
+
 const WDECK_MIGRATION_DIR_NAME = "deck-files";
 
 // ===== 弃用字段定义 =====
@@ -194,6 +257,13 @@ const DEPRECATED_FIELDS_TO_DELETE = [
 	"fields", // Content-Only 架构下从 content 实时解析
 ] as const;
 
+const LEGACY_IR_FRONTMATTER_FIELDS = [
+	"weave-reading-category",
+	"weave-reading-priority",
+	"weave-reading-topic-id",
+	"weave-reading-ir-deck-id",
+] as const;
+
 export const DEFAULT_BATCH_FIX_TYPES: CheckType[] = [
 	"yaml_migration",
 	"we_decks_fix",
@@ -201,18 +271,24 @@ export const DEFAULT_BATCH_FIX_TYPES: CheckType[] = [
 	"we_block_migration",
 	"epub_source_link_migration",
 	"deprecated_fields",
+	"structured_data_format",
 	"card_deck_consistency",
 ];
 
 export const HIGH_RISK_FIX_TYPES: CheckType[] = [
 	"duplicate_cards",
 	"ir_material_consistency",
+	"ir_redundant_frontmatter_cleanup",
+	"epub_markdown_source_id_backfill",
 	"ir_point_storage_migration",
-	"ir_topic_migration",
+	"ir_legacy_readable_markdown_migration",
+	"ir_legacy_bookmark_cleanup",
 	"migration_conflict_files",
 	"legacy_memory_files",
 	"legacy_cleanup",
 	"wdeck_migration",
+	"qbank_migration",
+	"qbank_legacy_cleanup",
 	"filename_compatibility",
 	"sync_conflict_files",
 	"progressive_cloze_unconverted",
@@ -333,11 +409,16 @@ export class DataManagementService {
 			"memory_single_membership",
 			"we_block_migration",
 			"epub_source_link_migration",
+			"epub_markdown_source_id_backfill",
 			"deprecated_fields",
+			"structured_data_format",
+			"ir_redundant_frontmatter_cleanup",
 			"duplicate_cards",
 			"card_deck_consistency",
 			"ir_point_storage_migration",
+			"ir_legacy_readable_markdown_migration",
 			"ir_local_state_relocation",
+			"ir_legacy_bookmark_cleanup",
 			"wdeck_migration",
 			"legacy_memory_files",
 			"wdeck_conflicts",
@@ -376,33 +457,36 @@ export class DataManagementService {
 					await this.plugin.dataStorage.getCards(),
 					await this.plugin.dataStorage.getDecks()
 				);
-			case "deprecated_fields":
-				return this.checkDeprecatedFields(await this.plugin.dataStorage.getCards());
 			case "we_block_migration":
 				return this.checkWeBlockMigration(await this.plugin.dataStorage.getCards());
 			case "epub_source_link_migration":
-				return this.checkEpubSourceLinkMigration(await this.plugin.dataStorage.getCards());
-			// redundant_fields 已移除：Content-Only 架构下 type/tags 是从 content YAML 派生的运行时字段
-			case "orphan_cards":
-				return this.checkOrphanCards(
-					await this.plugin.dataStorage.getCards(),
-					await this.plugin.dataStorage.getDecks()
-				);
+				return await this.checkEpubSourceLinkMigration(await this.plugin.dataStorage.getCards());
+			case "epub_markdown_source_id_backfill":
+				return await this.checkEpubMarkdownSourceIdBackfill();
+			case "deprecated_fields":
+				return this.checkDeprecatedFields(await this.plugin.dataStorage.getCards());
+			case "structured_data_format":
+				return await this.checkStructuredDataFormat();
+			case "ir_redundant_frontmatter_cleanup":
+				return await this.checkIRRedundantFrontmatterCleanup();
 			case "duplicate_cards":
 				return this.checkDuplicateCards(await this.plugin.dataStorage.getCards());
 			case "card_deck_consistency":
-				return await this.checkCardDeckConsistency(
-					await this.plugin.dataStorage.getCards(),
-					await this.plugin.dataStorage.getDecks()
-				);
+				return await this.checkCardDeckConsistency();
 			case "ir_material_consistency":
 				return await this.checkIRMaterialConsistency();
 			case "ir_point_storage_migration":
 				return await this.checkIRPointStorageMigration();
+			case "ir_legacy_readable_markdown_migration":
+				return await this.checkIRLegacyReadableMarkdownMigration();
 			case "ir_local_state_relocation":
 				return await this.checkIRLocalStateRelocation();
-			case "ir_topic_migration":
-				return await this.checkIRTopicMigration();
+			case "ir_legacy_bookmark_cleanup":
+				return await this.checkIRLegacyBookmarkCleanup();
+			case "schema_migration":
+				return await this.checkSchemaMigration();
+			case "structure_check":
+				return await this.checkStructure();
 			case "wdeck_migration":
 				return await this.checkWDeckMigration();
 			case "legacy_memory_files":
@@ -427,48 +511,26 @@ export class DataManagementService {
 				return this.checkProgressiveClozeMissingChildren(await this.plugin.dataStorage.getCards());
 			case "progressive_cloze_extra_children":
 				return this.checkProgressiveClozeExtraChildren(await this.plugin.dataStorage.getCards());
+			case "qbank_migration":
+				return await this.checkQBankMigration();
+			case "qbank_legacy_cleanup":
+				return await this.checkQBankLegacyCleanup();
+			case "orphan_cards":
+				return this.checkOrphanCards(
+					await this.plugin.dataStorage.getCards(),
+					await this.plugin.dataStorage.getDecks()
+				);
 			default:
 				return {
 					type,
 					status: "ok",
 					count: 0,
 					items: [],
-					message: "暂未实现",
+					message: "未实现的检查项",
 				};
 		}
 	}
 
-	// ===== 修复方法 =====
-
-	/**
-	 * 修复所有问题
-	 */
-	async fixAll(onProgress?: ProgressCallback): Promise<DataFixResult[]> {
-		const results: DataFixResult[] = [];
-		const fixes = DEFAULT_BATCH_FIX_TYPES;
-
-		for (let i = 0; i < fixes.length; i++) {
-			onProgress?.(i + 1, fixes.length, `修复 ${this.getCheckName(fixes[i])}...`);
-			const result = await this.fix(fixes[i]);
-			results.push(result);
-
-			// 每个修复操作后清除缓存，确保下次读取时获取最新数据
-			if (this.plugin.cardFileService) {
-				this.plugin.cardFileService.clearCache();
-			}
-			// 等待文件系统同步
-			await new Promise((resolve) => setTimeout(resolve, 50));
-		}
-
-		// 最终等待文件系统完全同步
-		await new Promise((resolve) => setTimeout(resolve, 100));
-
-		return results;
-	}
-
-	/**
-	 * 修复单项
-	 */
 	async fix(type: CheckType, options: DataFixOptions = {}): Promise<DataFixResult> {
 		const blocked = this.ensureHighRiskFixAllowed(type, options);
 		if (blocked) {
@@ -477,43 +539,47 @@ export class DataManagementService {
 
 		switch (type) {
 			case "yaml_migration":
-				return this.fixYAMLMigration(await this.plugin.dataStorage.getCards());
+				return await this.fixYAMLMigration(await this.plugin.dataStorage.getCards());
 			case "we_decks_fix":
-				return this.fixWeDecksId(
+				return await this.fixWeDecksId(
 					await this.plugin.dataStorage.getCards(),
 					await this.plugin.dataStorage.getDecks()
 				);
 			case "memory_single_membership":
-				return this.fixMemorySingleMembership(
+				return await this.fixMemorySingleMembership(
 					await this.plugin.dataStorage.getCards(),
 					await this.plugin.dataStorage.getDecks()
 				);
-			case "deprecated_fields":
-				return this.fixDeprecatedFields(await this.plugin.dataStorage.getCards());
 			case "we_block_migration":
-				return this.fixWeBlockMigration(await this.plugin.dataStorage.getCards());
+				return await this.fixWeBlockMigration(await this.plugin.dataStorage.getCards());
 			case "epub_source_link_migration":
-				return this.fixEpubSourceLinkMigration(await this.plugin.dataStorage.getCards());
+				return await this.fixEpubSourceLinkMigration(await this.plugin.dataStorage.getCards());
+			case "epub_markdown_source_id_backfill":
+				return await this.fixEpubMarkdownSourceIdBackfill();
+			case "deprecated_fields":
+				return await this.fixDeprecatedFields(await this.plugin.dataStorage.getCards());
+			case "structured_data_format":
+				return await this.fixStructuredDataFormat();
+			case "ir_redundant_frontmatter_cleanup":
+				return await this.fixIRRedundantFrontmatterCleanup();
 			case "duplicate_cards":
-				return await this.fixDuplicateCards(
-					await this.plugin.dataStorage.getCards(),
-					await this.plugin.dataStorage.getDecks()
-				);
+				return await this.fixDuplicateCards(await this.plugin.dataStorage.getCards());
 			case "card_deck_consistency":
-				return await this.fixCardDeckConsistency(
-					await this.plugin.dataStorage.getCards(),
-					await this.plugin.dataStorage.getDecks()
-				);
+				return await this.fixCardDeckConsistency();
 			case "ir_material_consistency":
 				return await this.fixIRMaterialConsistency();
 			case "ir_point_storage_migration":
-				return await this.executeIRPointStorageMigration({
-					confirmed: !!options.allowHighRisk,
-				});
+				return await this.executeIRPointStorageMigration({ confirmed: !!options.allowHighRisk });
+			case "ir_legacy_readable_markdown_migration":
+				return await this.migrateLegacyIRReadableMarkdown(options);
 			case "ir_local_state_relocation":
 				return await this.fixIRLocalStateRelocation();
-			case "ir_topic_migration":
-				return await this.fixIRTopicMigration(options);
+			case "ir_legacy_bookmark_cleanup":
+				return await this.cleanupIRLegacyBookmarkFiles(options);
+			case "schema_migration":
+				return await this.executeSchemaMigration({ confirmed: !!options.allowHighRisk });
+			case "structure_check":
+				return await this.fixStructure();
 			case "wdeck_migration":
 				return await this.executeWDeckMigration({ confirmed: !!options.allowHighRisk });
 			case "legacy_memory_files":
@@ -532,6 +598,10 @@ export class DataManagementService {
 				return await this.fixSyncConflictFiles();
 			case "progressive_cloze_unconverted":
 				return await this.fixProgressiveClozeUnconverted(await this.plugin.dataStorage.getCards());
+			case "qbank_migration":
+				return await this.executeQBankMigration({ confirmed: !!options.allowHighRisk });
+			case "qbank_legacy_cleanup":
+				return await this.executeQBankLegacyCleanup({ confirmed: !!options.allowHighRisk });
 			default:
 				return {
 					type,
@@ -540,6 +610,18 @@ export class DataManagementService {
 					errors: [],
 				};
 		}
+	}
+
+	async fixAll(onProgress?: ProgressCallback): Promise<DataFixResult[]> {
+		const results: DataFixResult[] = [];
+		for (let i = 0; i < DEFAULT_BATCH_FIX_TYPES.length; i++) {
+			const type = DEFAULT_BATCH_FIX_TYPES[i];
+			onProgress?.(i + 1, DEFAULT_BATCH_FIX_TYPES.length, `修复 ${this.getCheckName(type)}...`);
+			const result = await this.fix(type);
+			results.push(result);
+			this.plugin.cardFileService?.clearCache?.();
+		}
+		return results;
 	}
 
 	// ===== 具体检测实现 =====
@@ -671,13 +753,13 @@ export class DataManagementService {
 	/**
 	 * 检测需要迁移旧 EPUB 溯源链接格式的卡片
 	 */
-	private checkEpubSourceLinkMigration(cards: Card[]): DataCheckResult {
+	private async checkEpubSourceLinkMigration(cards: Card[]): Promise<DataCheckResult> {
 		const needsMigration: string[] = [];
 		const epubLinkService = new EpubLinkService(this.plugin.app);
 
 		for (const card of cards) {
 			if (!card.content) continue;
-			const migrationResult = epubLinkService.migrateLegacyEpubLinksInContent(card.content);
+			const migrationResult = await epubLinkService.enrichEpubLinksWithSourceIdsInContent(card.content);
 			if (migrationResult.changed) {
 				needsMigration.push(card.uuid);
 			}
@@ -695,6 +777,57 @@ export class DataManagementService {
 		};
 	}
 
+	private findEpubMarkdownLinksNeedingSourceId(content: string): string[] {
+		if (!content) {
+			return [];
+		}
+
+		const matches = new Set<string>();
+		for (const markup of EpubLinkService.collectEpubLinkMarkups(content)) {
+			const parsed = EpubLinkService.parseLinkMarkup(markup);
+			if (!parsed?.filePath || parsed.sourceId) {
+				continue;
+			}
+			matches.add(markup);
+		}
+
+		return Array.from(matches);
+	}
+
+	private async checkEpubMarkdownSourceIdBackfill(): Promise<DataCheckResult> {
+		try {
+			const adapter = this.plugin.app.vault.adapter;
+			const items: string[] = [];
+
+			for (const filePath of await this.listVaultMarkdownPaths()) {
+				const content = await adapter.read(filePath);
+				if (this.findEpubMarkdownLinksNeedingSourceId(content).length > 0) {
+					items.push(filePath);
+				}
+			}
+
+			return {
+				type: "epub_markdown_source_id_backfill",
+				status: items.length > 0 ? "warning" : "ok",
+				count: items.length,
+				items,
+				message:
+					items.length > 0
+						? `发现 ${items.length} 个 Markdown 文件包含缺少 sourceId 的 EPUB 链接`
+						: "Markdown 中的 EPUB 链接 sourceId 状态正常",
+			};
+		} catch (error) {
+			logger.error("[DataManagement] EPUB Markdown sourceId 回填检测失败:", error);
+			return {
+				type: "epub_markdown_source_id_backfill",
+				status: "error",
+				count: 0,
+				items: [],
+				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+			};
+		}
+	}
+
 	/**
 	 * 检测卡片-牌组一致性（引用式牌组数据一致性）
 	 *
@@ -703,26 +836,14 @@ export class DataManagementService {
 	 * - 只检查牌组中是否存在指向不存在卡片的UUID
 	 * - 不再检查已废弃的 card.referencedByDecks 字段
 	 */
-	private async checkCardDeckConsistency(cards: Card[], decks: Deck[]): Promise<DataCheckResult> {
-		// 构建卡片UUID集合
-		const cardUUIDSet = new Set(cards.map((c) => c.uuid));
-
-		// 统计无效引用
-		let invalidDeckRefs = 0;
-		const affectedDecks: string[] = [];
-
-		for (const deck of decks) {
-			let hasInvalidRef = false;
-			for (const uuid of deck.cardUUIDs || []) {
-				if (!cardUUIDSet.has(uuid)) {
-					invalidDeckRefs++;
-					hasInvalidRef = true;
-				}
-			}
-			if (hasInvalidRef) {
-				affectedDecks.push(deck.id);
-			}
-		}
+	private async checkCardDeckConsistency(): Promise<DataCheckResult> {
+		const consistencyService = new DataConsistencyService(this.plugin);
+		const result = await consistencyService.checkConsistency();
+		const affectedDecks = result.invalidReferences.map((item) => item.deckId);
+		const invalidDeckRefs = result.invalidReferences.reduce(
+			(total, item) => total + item.invalidCardUUIDs.length,
+			0
+		);
 
 		return {
 			type: "card_deck_consistency",
@@ -731,8 +852,8 @@ export class DataManagementService {
 			items: affectedDecks,
 			message:
 				invalidDeckRefs > 0
-					? `发现 ${invalidDeckRefs} 个牌组无效引用（${affectedDecks.length} 个牌组受影响）`
-					: "牌组引用一致",
+					? `发现 ${invalidDeckRefs} 个牌组缓存不一致项（${affectedDecks.length} 个牌组受影响）`
+					: "牌组缓存一致",
 		};
 	}
 
@@ -744,45 +865,17 @@ export class DataManagementService {
 	 * - 只清理牌组中指向不存在卡片的UUID
 	 * - 不再尝试修改已废弃的 card.referencedByDecks 字段（该字段是派生字段，保存时会被剥离）
 	 */
-	private async fixCardDeckConsistency(cards: Card[], decks: Deck[]): Promise<DataFixResult> {
-		let success = 0;
-		let failed = 0;
-		const errors: Array<{ uuid: string; error: string }> = [];
-
-		logger.info("[DataManagement] 开始修复牌组无效引用...");
-
-		// 构建卡片UUID集合
-		const cardUUIDSet = new Set(cards.map((c) => c.uuid));
-
-		// 清理牌组中的无效引用
-		for (const deck of decks) {
-			const originalCount = (deck.cardUUIDs || []).length;
-			const validUUIDs = (deck.cardUUIDs || []).filter((uuid) => cardUUIDSet.has(uuid));
-			const removedCount = originalCount - validUUIDs.length;
-
-			if (removedCount > 0) {
-				try {
-					deck.cardUUIDs = validUUIDs;
-					deck.modified = new Date().toISOString();
-					await this.plugin.dataStorage.saveDeck(deck);
-					success += removedCount;
-					logger.debug(`[DataManagement] 清理牌组 ${deck.name} 的 ${removedCount} 个无效引用`);
-				} catch (e) {
-					failed += removedCount;
-					errors.push({ uuid: deck.id, error: `牌组 ${deck.name}: ${String(e)}` });
-				}
-			}
-		}
-
-		logger.info(
-			`[DataManagement] 牌组无效引用修复完成: 清理 ${success} 个无效引用, 失败 ${failed}`
-		);
+	private async fixCardDeckConsistency(): Promise<DataFixResult> {
+		const consistencyService = new DataConsistencyService(this.plugin);
+		const result = await consistencyService.repairConsistency();
 
 		return {
 			type: "card_deck_consistency",
-			success,
-			failed,
-			errors,
+			success: result.success ? result.cleanedInvalidRefs : 0,
+			failed: result.success ? 0 : 1,
+			errors: result.success
+				? []
+				: [{ uuid: "card_deck_consistency", error: result.error || "牌组缓存一致性修复失败" }],
 		};
 	}
 
@@ -790,20 +883,16 @@ export class DataManagementService {
 	 * 检测孤立卡片（不属于任何牌组）
 	 */
 	private checkOrphanCards(cards: Card[], decks: Deck[]): DataCheckResult {
+		const deckLookups = decks.map((deck) => ({
+			id: deck.id,
+			name: deck.name,
+			purpose: deck.purpose,
+		}));
 		const orphans: string[] = [];
-		const allDeckCardUUIDs = new Set<string>();
-
-		// 收集所有牌组中的卡片UUID
-		for (const deck of decks) {
-			if (deck.cardUUIDs) {
-				for (const uuid of deck.cardUUIDs) {
-					allDeckCardUUIDs.add(uuid);
-				}
-			}
-		}
 
 		for (const card of cards) {
-			if (!allDeckCardUUIDs.has(card.uuid)) {
+			const membership = getCardDeckIds(card, deckLookups, { fallbackToReferences: false }).deckIds;
+			if (membership.length === 0) {
 				orphans.push(card.uuid);
 			}
 		}
@@ -872,7 +961,7 @@ export class DataManagementService {
 	 * 2. 删除重复卡片
 	 * 3. 更新牌组 cardUUIDs：将重复UUID替换为保留的UUID
 	 */
-	private async fixDuplicateCards(cards: Card[], decks: Deck[]): Promise<DataFixResult> {
+	private async fixDuplicateCards(cards: Card[]): Promise<DataFixResult> {
 		let success = 0;
 		let failed = 0;
 		const errors: Array<{ uuid: string; error: string }> = [];
@@ -889,16 +978,13 @@ export class DataManagementService {
 		}
 
 		// 2. 找出需要删除的重复卡片，建立 UUID 重映射
-		const uuidRemapping = new Map<string, string>(); // removedUUID -> keptUUID
 		const toDelete: string[] = [];
 
 		for (const [, groupCards] of groups) {
 			if (groupCards.length <= 1) continue;
 			groupCards.sort((a, b) => this.getCardRetentionScore(b) - this.getCardRetentionScore(a));
-			const kept = groupCards[0];
 			for (let i = 1; i < groupCards.length; i++) {
 				toDelete.push(groupCards[i].uuid);
-				uuidRemapping.set(groupCards[i].uuid, kept.uuid);
 			}
 		}
 
@@ -910,55 +996,45 @@ export class DataManagementService {
 		logger.info(`[DataManagement] 发现 ${toDelete.length} 张重复卡片待删除`);
 
 		// 3. 删除重复卡片
-		for (const uuid of toDelete) {
-			try {
-				if (this.plugin.cardFileService) {
-					const deleted = await this.plugin.cardFileService.deleteCard(uuid);
-					if (deleted) {
-						success++;
-					} else {
-						failed++;
-						errors.push({ uuid, error: "删除失败" });
+		if (typeof this.plugin.dataStorage.deleteCards === "function") {
+			const deleteResult = await this.plugin.dataStorage.deleteCards(toDelete);
+			success += deleteResult.deleted.length;
+			failed += deleteResult.failed.length;
+			errors.push(
+				...deleteResult.failed.map((item) => ({
+					uuid: item.uuid,
+					error: item.error || "删除失败",
+				}))
+			);
+		} else {
+			for (const uuid of toDelete) {
+				try {
+					if (this.plugin.cardFileService?.deleteCard) {
+						const deleted = await this.plugin.cardFileService.deleteCard(uuid);
+						if (deleted) {
+							success++;
+						} else {
+							failed++;
+							errors.push({ uuid, error: "删除失败" });
+						}
 					}
+				} catch (e) {
+					failed++;
+					errors.push({ uuid, error: String(e) });
 				}
-			} catch (e) {
-				failed++;
-				errors.push({ uuid, error: String(e) });
 			}
 		}
 
 		// 4. 更新牌组 cardUUIDs：替换已删除UUID为保留的UUID
-		const keptUUIDs = new Set(cards.filter((c) => !uuidRemapping.has(c.uuid)).map((c) => c.uuid));
-		for (const deck of decks) {
-			const originalUUIDs = deck.cardUUIDs || [];
-			if (originalUUIDs.length === 0) continue;
-
-			const newUUIDs = new Set<string>();
-			let changed = false;
-
-			for (const uuid of originalUUIDs) {
-				if (uuidRemapping.has(uuid)) {
-					// 替换为保留卡片的UUID
-					const replacement = uuidRemapping.get(uuid)!;
-					newUUIDs.add(replacement);
-					changed = true;
-				} else if (keptUUIDs.has(uuid)) {
-					newUUIDs.add(uuid);
-				} else {
-					// 不在任何卡片中的无效引用，丢弃
-					changed = true;
-				}
-			}
-
-			if (changed) {
-				try {
-					deck.cardUUIDs = Array.from(newUUIDs);
-					deck.modified = new Date().toISOString();
-					await this.plugin.dataStorage.saveDeck(deck);
-					logger.debug(`[DataManagement] 更新牌组 ${deck.name} 的卡片引用`);
-				} catch (e) {
-					errors.push({ uuid: deck.id, error: `更新牌组失败: ${String(e)}` });
-				}
+		if (success > 0) {
+			const consistencyService = new DataConsistencyService(this.plugin);
+			const repairResult = await consistencyService.repairConsistency();
+			if (!repairResult.success) {
+				errors.push({
+					uuid: "duplicate_cards",
+					error: repairResult.error || "删除重复卡片后重建牌组缓存失败",
+				});
+				failed += 1;
 			}
 		}
 
@@ -1270,7 +1346,7 @@ export class DataManagementService {
 		for (const card of cards) {
 			if (!card.content) continue;
 
-			const migrationResult = epubLinkService.migrateLegacyEpubLinksInContent(card.content);
+			const migrationResult = await epubLinkService.enrichEpubLinksWithSourceIdsInContent(card.content);
 			if (!migrationResult.changed) {
 				continue;
 			}
@@ -1302,6 +1378,60 @@ export class DataManagementService {
 
 		return {
 			type: "epub_source_link_migration",
+			success,
+			failed,
+			errors,
+		};
+	}
+
+	private async fixEpubMarkdownSourceIdBackfill(): Promise<DataFixResult> {
+		let success = 0;
+		let failed = 0;
+		const errors: Array<{ uuid: string; error: string }> = [];
+		const adapter = this.plugin.app.vault.adapter;
+		const epubLinkService = new EpubLinkService(this.plugin.app);
+
+		for (const filePath of await this.listVaultMarkdownPaths()) {
+			try {
+				const content = await adapter.read(filePath);
+				if (this.findEpubMarkdownLinksNeedingSourceId(content).length === 0) {
+					continue;
+				}
+
+				const migration = await epubLinkService.enrichEpubLinksWithSourceIdsInContent(
+					content,
+					filePath
+				);
+				if (!migration.changed || migration.content === content) {
+					failed++;
+					errors.push({
+						uuid: filePath,
+						error: "检测到旧 EPUB 链接，但未能完成 sourceId 回填",
+					});
+					continue;
+				}
+
+				const abstractFile = this.plugin.app.vault.getAbstractFileByPath(filePath);
+				if (abstractFile instanceof TFile) {
+					await this.plugin.app.vault.process(abstractFile, (current) =>
+						current === content ? migration.content : current
+					);
+				} else {
+					await adapter.write(filePath, migration.content);
+				}
+
+				success++;
+			} catch (error) {
+				failed++;
+				errors.push({
+					uuid: filePath,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+
+		return {
+			type: "epub_markdown_source_id_backfill",
 			success,
 			failed,
 			errors,
@@ -1363,44 +1493,26 @@ export class DataManagementService {
 			const normalizedEntries = keepSingleMemoryFormalDeck(yaml.we_decks, decks);
 			const normalizedDeckNames = normalizedEntries.map((entry) => entry.deckName);
 			const normalizedDeckIds = normalizedEntries.map((entry) => entry.deckId);
-			const currentReferencedByDecks = Array.isArray(card.referencedByDecks)
-				? card.referencedByDecks.filter(
-						(deckId): deckId is string => typeof deckId === "string" && deckId.length > 0
-				  )
-				: [];
 			const currentDeckId = typeof card.deckId === "string" ? card.deckId : undefined;
 			const nextContent = setCardProperties(card.content || "", {
 				we_decks: normalizedDeckNames.length > 0 ? normalizedDeckNames : undefined,
 			});
 			const contentChanged = nextContent !== (card.content || "");
-			const referencedChanged = !this.areStringArraysEqual(
-				currentReferencedByDecks,
-				normalizedDeckIds
-			);
 			const deckIdChanged = (currentDeckId || undefined) !== (normalizedDeckIds[0] || undefined);
 
-			if (!contentChanged && !referencedChanged && !deckIdChanged) {
+			if (!contentChanged && !deckIdChanged) {
 				return null;
 			}
 
 			return {
 				...card,
 				content: nextContent,
-				referencedByDecks: normalizedDeckIds,
 				deckId: normalizedDeckIds[0],
 				modified: new Date().toISOString(),
 			};
 		} catch {
 			return null;
 		}
-	}
-
-	private areStringArraysEqual(left: string[], right: string[]): boolean {
-		if (left.length !== right.length) {
-			return false;
-		}
-
-		return left.every((value, index) => value === right[index]);
 	}
 
 	/**
@@ -1531,34 +1643,25 @@ export class DataManagementService {
 	 *
 	 * 检测项目:
 	 * 1. materials.json 中记录的文件是否实际存在
-	 * 2. blocks.json 中内容块的源文件是否存在
+	 * 2. legacy block 兼容内容块的源文件是否存在
 	 * 3. IR牌组中的 blockIds 是否都有效
 	 */
 	private async checkIRMaterialConsistency(): Promise<DataCheckResult> {
 		const issues: string[] = [];
-		let orphanedMaterials = 0;
+		let materialIssues = 0;
 		let orphanedBlocks = 0;
 		const _orphanedDeckRefs = 0;
 
 		try {
-			// 1. 检测 materials.json 中的残留记录
-			if (this.plugin.readingMaterialManager) {
-				const storage = (this.plugin.readingMaterialManager as any).storage;
-				if (storage) {
-					await storage.initialize();
-					const allMaterials = await storage.getAllMaterials();
-
-					for (const material of allMaterials) {
-						const file = this.plugin.app.vault.getAbstractFileByPath(material.filePath);
-						if (!file) {
-							orphanedMaterials++;
-							issues.push(`材料记录无效: ${material.filePath}`);
-						}
-					}
-				}
+			// 1. 检测 IR Point 新材料层的一致性
+			const pointStorageService = await this.getIRPointStorageService();
+			if (pointStorageService?.inspectMaterialStorageConsistency) {
+				const inspection = await pointStorageService.inspectMaterialStorageConsistency();
+				materialIssues = inspection.issueCount;
+				issues.push(...inspection.items);
 			}
 
-			// 2. 检测IR存储服务中的孤立内容块（只检测不清理）
+			// 2. 检测 IR 存储服务中的孤立 legacy block 内容块（只检测不清理）
 			const irStorageService = await this.getIRStorageService();
 			if (irStorageService) {
 				// 检测孤立内容块（源文件已删除的内容块）
@@ -1574,7 +1677,7 @@ export class DataManagementService {
 			issues.push(`检测失败: ${error instanceof Error ? error.message : String(error)}`);
 		}
 
-		const totalIssues = orphanedMaterials + orphanedBlocks;
+		const totalIssues = materialIssues + orphanedBlocks;
 
 		return {
 			type: "ir_material_consistency",
@@ -1583,8 +1686,8 @@ export class DataManagementService {
 			items: issues,
 			message:
 				totalIssues > 0
-					? `发现 ${totalIssues} 个一致性问题（材料记录: ${orphanedMaterials}, 内容块: ${orphanedBlocks}）`
-					: "导入材料数据一致",
+					? `发现 ${totalIssues} 个一致性问题（点内溯源与旧残留: ${materialIssues}, legacy block 内容块: ${orphanedBlocks}）`
+					: "增量阅读点溯源与导入材料数据一致",
 		};
 	}
 
@@ -1593,7 +1696,7 @@ export class DataManagementService {
 	 *
 	 * 修复操作:
 	 * 1. 清理 materials.json 中的残留记录
-	 * 2. 清理 blocks.json 中的孤立内容块
+	 * 2. 清理 legacy block 兼容视图中的孤立内容块
 	 * 3. 清理 IR牌组中的无效引用
 	 */
 	private async fixIRMaterialConsistency(): Promise<DataFixResult> {
@@ -1602,27 +1705,24 @@ export class DataManagementService {
 		const errors: Array<{ uuid: string; error: string }> = [];
 
 		try {
-			// 1. 清理 materials.json 中的残留记录
-			if (this.plugin.readingMaterialManager) {
-				const storage = (this.plugin.readingMaterialManager as any).storage;
-				if (storage) {
-					await storage.initialize();
-					const allMaterials = await storage.getAllMaterials();
-
-					for (const material of allMaterials) {
-						const file = this.plugin.app.vault.getAbstractFileByPath(material.filePath);
-						if (!file) {
-							try {
-								await storage.deleteMaterial(material.uuid);
-								success++;
-								logger.debug(`[DataManagement] 清理残留材料记录: ${material.uuid}`);
-							} catch (e) {
-								failed++;
-								errors.push({ uuid: material.uuid, error: String(e) });
-							}
-						}
-					}
-				}
+			// 1. 清理 IR Point 新材料层残留
+			const pointStorageService = await this.getIRPointStorageService();
+			if (pointStorageService?.cleanupMaterialStorageResidue) {
+				const cleanup = await pointStorageService.cleanupMaterialStorageResidue();
+				success +=
+					cleanup.backfilledPointSourceCount +
+					(cleanup.removedMissingTargetPointCount || 0) +
+					cleanup.removedLegacyMaterialRecordCount +
+					cleanup.removedLegacyMaterialsIndexCount +
+					cleanup.removedLegacyMaterialsFileCount +
+					cleanup.removedEmptyLegacyMaterialDirCount;
+				failed += cleanup.failures.length;
+				errors.push(
+					...cleanup.failures.map((item: { id: string; message: string }) => ({
+						uuid: item.id,
+						error: item.message,
+					}))
+				);
 			}
 
 			// 2. 清理孤立内容块和牌组无效引用
@@ -1665,487 +1765,6 @@ export class DataManagementService {
 	 * - 无扩展名的标记文件
 	 * - 其它不安全字符
 	 */
-	private getIRTopicMigrationPaths() {
-		const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
-		const v2Paths = getV2Paths(parentFolder);
-		return {
-			v2Paths,
-			topics: (v2Paths.ir as { topics?: string }).topics || `${v2Paths.ir.root}/${IR_TOPICS_FILE}`,
-			decks: v2Paths.ir.decks,
-			materials: v2Paths.ir.materials.index,
-			chunks: v2Paths.ir.chunks,
-			sources: v2Paths.ir.sources,
-			history: v2Paths.ir.history,
-			studySessions: v2Paths.ir.studySessions,
-			pdfBookmarkTasks: v2Paths.ir.pdfBookmarkTasks,
-			epubBookmarkTasks: v2Paths.ir.epubBookmarkTasks,
-		};
-	}
-
-	private async readJsonIfExists<T>(path: string): Promise<T | null> {
-		const adapter = this.plugin.app.vault.adapter;
-		if (!(await adapter.exists(path))) {
-			return null;
-		}
-
-		return JSON.parse(await adapter.read(path)) as T;
-	}
-
-	private collectIRTopicMarkdownPaths(input: {
-		materials?: Record<string, any>;
-		chunks?: Record<string, any>;
-		sources?: Record<string, any>;
-	}): string[] {
-		const paths = new Set<string>();
-
-		for (const material of Object.values(input.materials || {})) {
-			if (typeof material?.filePath === "string" && material.filePath.trim()) {
-				paths.add(material.filePath.trim());
-			}
-		}
-
-		for (const chunk of Object.values(input.chunks || {})) {
-			if (typeof chunk?.filePath === "string" && chunk.filePath.trim()) {
-				paths.add(chunk.filePath.trim());
-			}
-		}
-
-		for (const source of Object.values(input.sources || {})) {
-			for (const key of ["indexFilePath", "rawFilePath", "originalPath"]) {
-				const value = source?.[key];
-				if (typeof value === "string" && value.trim().endsWith(".md")) {
-					paths.add(value.trim());
-				}
-			}
-		}
-
-		return Array.from(paths);
-	}
-
-	private async countLegacyIRTopicFrontmatter(paths: string[]): Promise<number> {
-		let count = 0;
-
-		for (const path of paths) {
-			const file = this.plugin.app.vault.getAbstractFileByPath(path);
-			if (!(file instanceof TFile)) {
-				continue;
-			}
-
-			const frontmatter = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter;
-			if (!frontmatter) {
-				continue;
-			}
-
-			if (
-				frontmatter[READING_LEGACY_DECK_YAML_KEY] !== undefined ||
-				frontmatter.deck_tag !== undefined ||
-				frontmatter.deck_names !== undefined ||
-				frontmatter.deck_name !== undefined
-			) {
-				count += 1;
-			}
-		}
-
-		return count;
-	}
-
-	private async migrateIRTopicFrontmatter(paths: string[]): Promise<{
-		success: number;
-		failed: number;
-		errors: Array<{ uuid: string; error: string }>;
-	}> {
-		let success = 0;
-		let failed = 0;
-		const errors: Array<{ uuid: string; error: string }> = [];
-
-		for (const path of paths) {
-			const file = this.plugin.app.vault.getAbstractFileByPath(path);
-			if (!(file instanceof TFile)) {
-				continue;
-			}
-
-			try {
-				let changed = false;
-				await this.plugin.app.fileManager.processFrontMatter(file, (frontmatter) => {
-					const topicId = extractReadingTopicIdFromFrontmatter(frontmatter);
-					if (
-						topicId ||
-						frontmatter[READING_TOPIC_YAML_KEY] !== undefined ||
-						frontmatter[READING_LEGACY_DECK_YAML_KEY] !== undefined
-					) {
-						if (topicId) {
-							frontmatter[READING_TOPIC_YAML_KEY] = topicId;
-						} else {
-							delete frontmatter[READING_TOPIC_YAML_KEY];
-						}
-						delete frontmatter[READING_LEGACY_DECK_YAML_KEY];
-						changed = true;
-					}
-
-					const topicTag =
-						typeof frontmatter.topic_tag === "string"
-							? String(frontmatter.topic_tag).trim()
-							: typeof frontmatter.deck_tag === "string"
-							? String(frontmatter.deck_tag).trim()
-							: "";
-					if (
-						topicTag ||
-						frontmatter.topic_tag !== undefined ||
-						frontmatter.deck_tag !== undefined
-					) {
-						if (topicTag) {
-							frontmatter.topic_tag = topicTag;
-						} else {
-							frontmatter.topic_tag = undefined;
-						}
-						frontmatter.deck_tag = undefined;
-						changed = true;
-					}
-
-					const topicNames = (
-						Array.isArray(frontmatter.topic_names)
-							? frontmatter.topic_names
-							: Array.isArray(frontmatter.deck_names)
-							? frontmatter.deck_names
-							: []
-					)
-						.map((value: unknown) => String(value || "").trim())
-						.filter(Boolean);
-					if (
-						topicNames.length > 0 ||
-						frontmatter.topic_names !== undefined ||
-						frontmatter.deck_names !== undefined
-					) {
-						if (topicNames.length > 0) {
-							frontmatter.topic_names = topicNames;
-						} else {
-							frontmatter.topic_names = undefined;
-						}
-						frontmatter.deck_names = undefined;
-						changed = true;
-					}
-
-					const topicName =
-						typeof frontmatter.topic_name === "string"
-							? String(frontmatter.topic_name).trim()
-							: typeof frontmatter.deck_name === "string"
-							? String(frontmatter.deck_name).trim()
-							: "";
-					if (
-						topicName ||
-						frontmatter.topic_name !== undefined ||
-						frontmatter.deck_name !== undefined
-					) {
-						if (topicName) {
-							frontmatter.topic_name = topicName;
-						} else {
-							frontmatter.topic_name = undefined;
-						}
-						frontmatter.deck_name = undefined;
-						changed = true;
-					}
-				});
-
-				if (changed) {
-					success += 1;
-				}
-			} catch (error) {
-				failed += 1;
-				errors.push({ uuid: path, error: String(error) });
-			}
-		}
-
-		return { success, failed, errors };
-	}
-
-	async checkIRTopicMigration(): Promise<DataCheckResult> {
-		const issues: string[] = [];
-
-		try {
-			const paths = this.getIRTopicMigrationPaths();
-
-			const [
-				topicsStore,
-				legacyDeckStore,
-				materialsStore,
-				chunksStore,
-				sourcesStore,
-				historyStore,
-				studySessionStore,
-				pdfTasksStore,
-				epubTasksStore,
-			] = await Promise.all([
-				this.readJsonIfExists<any>(paths.topics),
-				this.readJsonIfExists<any>(paths.decks),
-				this.readJsonIfExists<any>(paths.materials),
-				this.readJsonIfExists<any>(paths.chunks),
-				this.readJsonIfExists<any>(paths.sources),
-				this.readJsonIfExists<any>(paths.history),
-				this.readJsonIfExists<any>(paths.studySessions),
-				this.readJsonIfExists<any>(paths.pdfBookmarkTasks),
-				this.readJsonIfExists<any>(paths.epubBookmarkTasks),
-			]);
-
-			if (legacyDeckStore) {
-				issues.push(`检测到旧专题定义文件: ${paths.decks}`);
-			}
-			if (topicsStore?.decks) {
-				issues.push("topics.json 仍在使用旧 decks 结构");
-			}
-			if (!topicsStore && legacyDeckStore) {
-				issues.push("缺少 topics.json，当前仍依赖 decks.json");
-			}
-
-			const materialLegacyCount = Object.values(materialsStore?.materials || {}).filter(
-				(_material) => _material && typeof _material === "object" && "readingDeckId" in _material
-			).length;
-			if (materialLegacyCount > 0) {
-				issues.push(`materials.json 中有 ${materialLegacyCount} 条阅读材料仍使用 readingDeckId`);
-			}
-
-			const pdfLegacyCount = Object.values(pdfTasksStore?.tasks || {}).filter(
-				(_task) => _task && typeof _task === "object" && "deckId" in _task
-			).length;
-			if (pdfLegacyCount > 0) {
-				issues.push(`PDF 书签任务中有 ${pdfLegacyCount} 条记录仍使用 deckId`);
-			}
-
-			const epubLegacyCount = Object.values(epubTasksStore?.tasks || {}).filter(
-				(_task) => _task && typeof _task === "object" && "deckId" in _task
-			).length;
-			if (epubLegacyCount > 0) {
-				issues.push(`EPUB 书签任务中有 ${epubLegacyCount} 条记录仍使用 deckId`);
-			}
-
-			const chunkLegacyCount = Object.values(chunksStore?.chunks || {}).filter(
-				(_chunk) =>
-					_chunk && typeof _chunk === "object" && ("deckIds" in _chunk || "deckTag" in _chunk)
-			).length;
-			if (chunkLegacyCount > 0) {
-				issues.push(`chunks.json 中有 ${chunkLegacyCount} 个块仍使用 deckIds/deckTag`);
-			}
-
-			const historyLegacyCount = Array.isArray(historyStore?.sessions)
-				? historyStore.sessions.filter(
-						(session: Record<string, unknown>) => session && "deckId" in session
-				  ).length
-				: 0;
-			if (historyLegacyCount > 0) {
-				issues.push(`history.json 中有 ${historyLegacyCount} 条历史仍使用 deckId`);
-			}
-
-			const studyLegacyCount = Array.isArray(studySessionStore?.sessions)
-				? studySessionStore.sessions.filter(
-						(session: Record<string, unknown>) =>
-							session && ("deckId" in session || "deckName" in session)
-				  ).length
-				: 0;
-			if (studyLegacyCount > 0) {
-				issues.push(
-					`study-sessions.json 中有 ${studyLegacyCount} 条学习会话仍使用 deckId/deckName`
-				);
-			}
-
-			const markdownPaths = this.collectIRTopicMarkdownPaths({
-				materials: materialsStore?.materials,
-				chunks: chunksStore?.chunks,
-				sources: sourcesStore?.sources,
-			});
-			const legacyFrontmatterCount = await this.countLegacyIRTopicFrontmatter(markdownPaths);
-			if (legacyFrontmatterCount > 0) {
-				issues.push(`有 ${legacyFrontmatterCount} 个 Markdown 文件仍包含旧 deck frontmatter 字段`);
-			}
-		} catch (error) {
-			logger.error("[DataManagement] 增量阅读专题迁移检测失败:", error);
-			issues.push(`检测失败: ${error instanceof Error ? error.message : String(error)}`);
-		}
-
-		return {
-			type: "ir_topic_migration",
-			status: issues.length > 0 ? "warning" : "ok",
-			count: issues.length,
-			items: issues,
-			message:
-				issues.length > 0
-					? `发现 ${issues.length} 项增量阅读专题迁移问题`
-					: "增量阅读专题数据已是最新结构",
-		};
-	}
-
-	async fixIRTopicMigration(options: DataFixOptions = {}): Promise<DataFixResult> {
-		if (!options.allowHighRisk) {
-			return this.buildBlockedFixResult(
-				"ir_topic_migration",
-				"专题迁移会直接改写增量阅读真实数据，必须在明确确认后单独执行。"
-			);
-		}
-
-		let success = 0;
-		let failed = 0;
-		const errors: Array<{ uuid: string; error: string }> = [];
-
-		try {
-			const adapter = this.plugin.app.vault.adapter;
-			const paths = this.getIRTopicMigrationPaths();
-
-			const [
-				topicsStore,
-				legacyDeckStore,
-				materialsStore,
-				chunksStore,
-				sourcesStore,
-				historyStore,
-				studySessionStore,
-				pdfTasksStore,
-				epubTasksStore,
-			] = await Promise.all([
-				this.readJsonIfExists<any>(paths.topics),
-				this.readJsonIfExists<any>(paths.decks),
-				this.readJsonIfExists<any>(paths.materials),
-				this.readJsonIfExists<any>(paths.chunks),
-				this.readJsonIfExists<any>(paths.sources),
-				this.readJsonIfExists<any>(paths.history),
-				this.readJsonIfExists<any>(paths.studySessions),
-				this.readJsonIfExists<any>(paths.pdfBookmarkTasks),
-				this.readJsonIfExists<any>(paths.epubBookmarkTasks),
-			]);
-
-			const topics = normalizeTopicStoreRecords(topicsStore || legacyDeckStore);
-			if (topicsStore || legacyDeckStore || Object.keys(topics).length > 0) {
-				const version =
-					typeof topicsStore?.version === "string"
-						? topicsStore.version
-						: typeof legacyDeckStore?.version === "string"
-						? legacyDeckStore.version
-						: IR_STORAGE_VERSION;
-				await adapter.write(paths.topics, JSON.stringify(buildTopicStore(topics, version)));
-				success += 1;
-				if (await adapter.exists(paths.decks)) {
-					await adapter.remove(paths.decks);
-					success += 1;
-				}
-			}
-
-			if (materialsStore?.materials && typeof materialsStore.materials === "object") {
-				await adapter.write(
-					paths.materials,
-					JSON.stringify({
-						...materialsStore,
-						materials: Object.fromEntries(
-							Object.entries(materialsStore.materials).map(([id, material]) => [
-								id,
-								serializeReadingMaterialForStorage(material as Record<string, unknown>),
-							])
-						),
-					})
-				);
-				success += 1;
-			}
-
-			if (pdfTasksStore?.tasks && typeof pdfTasksStore.tasks === "object") {
-				await adapter.write(
-					paths.pdfBookmarkTasks,
-					JSON.stringify({
-						...pdfTasksStore,
-						tasks: Object.fromEntries(
-							Object.entries(pdfTasksStore.tasks).map(([id, task]) => [
-								id,
-								serializeBookmarkTaskForStorage(task as { topicId?: string; deckId?: string }),
-							])
-						),
-					})
-				);
-				success += 1;
-			}
-
-			if (epubTasksStore?.tasks && typeof epubTasksStore.tasks === "object") {
-				await adapter.write(
-					paths.epubBookmarkTasks,
-					JSON.stringify({
-						...epubTasksStore,
-						tasks: Object.fromEntries(
-							Object.entries(epubTasksStore.tasks).map(([id, task]) => [
-								id,
-								serializeBookmarkTaskForStorage(task as { topicId?: string; deckId?: string }),
-							])
-						),
-					})
-				);
-				success += 1;
-			}
-
-			if (chunksStore?.chunks && typeof chunksStore.chunks === "object") {
-				await adapter.write(
-					paths.chunks,
-					JSON.stringify({
-						...chunksStore,
-						chunks: Object.fromEntries(
-							Object.entries(chunksStore.chunks).map(([id, chunk]) => [
-								id,
-								serializeChunkForStorage(chunk as Record<string, unknown>),
-							])
-						),
-					})
-				);
-				success += 1;
-			}
-
-			if (historyStore?.sessions && Array.isArray(historyStore.sessions)) {
-				await adapter.write(
-					paths.history,
-					JSON.stringify({
-						...historyStore,
-						sessions: historyStore.sessions.map((session: Record<string, unknown>) =>
-							serializeIRSessionForStorage(session as { topicId?: string; deckId?: string })
-						),
-					})
-				);
-				success += 1;
-			}
-
-			if (studySessionStore?.sessions && Array.isArray(studySessionStore.sessions)) {
-				await adapter.write(
-					paths.studySessions,
-					JSON.stringify({
-						...studySessionStore,
-						sessions: studySessionStore.sessions.map((session: Record<string, unknown>) =>
-							serializeStudySessionForStorage(
-								session as {
-									topicId?: string;
-									deckId?: string;
-									topicName?: string;
-									deckName?: string;
-								}
-							)
-						),
-					})
-				);
-				success += 1;
-			}
-
-			const markdownPaths = this.collectIRTopicMarkdownPaths({
-				materials: materialsStore?.materials,
-				chunks: chunksStore?.chunks,
-				sources: sourcesStore?.sources,
-			});
-			const frontmatterResult = await this.migrateIRTopicFrontmatter(markdownPaths);
-			success += frontmatterResult.success;
-			failed += frontmatterResult.failed;
-			errors.push(...frontmatterResult.errors);
-		} catch (error) {
-			logger.error("[DataManagement] 增量阅读专题迁移执行失败:", error);
-			failed += 1;
-			errors.push({ uuid: "ir_topic_migration", error: String(error) });
-		}
-
-		return {
-			type: "ir_topic_migration",
-			success,
-			failed,
-			errors,
-		};
-	}
-
 	private async checkFilenameCompatibility(): Promise<DataCheckResult> {
 		const issues: string[] = [];
 
@@ -2402,6 +2021,182 @@ export class DataManagementService {
 		}
 	}
 
+	private async getIRPointDataReadService(): Promise<IRPointDataReadService | null> {
+		try {
+			const service = new IRPointDataReadService(this.plugin.app);
+			await service.initialize();
+			return service;
+		} catch (error) {
+			logger.debug("[DataManagement] 无法获取 IR Point 数据读取服务:", error);
+			return null;
+		}
+	}
+
+	private async getIRTagGroupService(): Promise<any> {
+		try {
+			const { IRTagGroupService } = await import("../incremental-reading/IRTagGroupService");
+			const service = new IRTagGroupService(this.plugin.app);
+			await service.initialize();
+			return service;
+		} catch (error) {
+			logger.debug("[DataManagement] 无法获取 IR 标签组服务:", error);
+			return null;
+		}
+	}
+
+	private getEpubStorageService(): EpubStorageService {
+		return new EpubStorageService(this.plugin.app);
+	}
+
+	private getIRLocalStateRelocationPaths() {
+		const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+		const v2Paths = getV2Paths(parentFolder);
+		const pluginPaths = getPluginPaths(this.plugin.app);
+		return [
+			{
+				label: "文件同步状态缓存",
+				legacyPath: `${v2Paths.ir.root}/sync-state.json`,
+				targetPath: pluginPaths.cache.incrementalReading.syncState,
+				rebuildable: true,
+			},
+			{
+				label: "文档标签组映射缓存",
+				legacyPath: v2Paths.ir.documentGroupMap,
+				targetPath: pluginPaths.cache.incrementalReading.documentGroupMap,
+				rebuildable: true,
+			},
+			{
+				label: "增量阅读监控分析",
+				legacyPath: `${v2Paths.ir.root}/monitoring.json`,
+				targetPath: pluginPaths.state.incrementalReading.monitoring,
+				rebuildable: false,
+			},
+			{
+				label: "增量阅读历史",
+				legacyPath: v2Paths.ir.history,
+				targetPath: pluginPaths.state.incrementalReading.history,
+				rebuildable: false,
+			},
+			{
+				label: "增量阅读学习会话",
+				legacyPath: v2Paths.ir.studySessions,
+				targetPath: pluginPaths.state.incrementalReading.studySessions,
+				rebuildable: false,
+			},
+			{
+				label: "增量阅读月历进度",
+				legacyPath: v2Paths.ir.calendarProgress,
+				targetPath: pluginPaths.state.incrementalReading.calendarProgress,
+				rebuildable: false,
+			},
+		] as const;
+	}
+
+	private async inspectIRStructuredLocalStateRelocation(): Promise<{
+		legacyFiles: Array<{ label: string; legacyPath: string; targetPath: string; rebuildable: boolean }>;
+	}> {
+		const adapter = this.plugin.app.vault.adapter;
+		const legacyFiles: Array<{
+			label: string;
+			legacyPath: string;
+			targetPath: string;
+			rebuildable: boolean;
+		}> = [];
+
+		for (const entry of this.getIRLocalStateRelocationPaths()) {
+			if (await adapter.exists(entry.legacyPath)) {
+				legacyFiles.push({ ...entry });
+			}
+		}
+
+		return { legacyFiles };
+	}
+
+	private async relocateIRStructuredLocalStateFile(options: {
+		label: string;
+		legacyPath: string;
+		targetPath: string;
+		rebuildable: boolean;
+		cleanupLegacyFile?: boolean;
+	}): Promise<{
+		migratedFileCount: number;
+		removedLegacyFileCount: number;
+		remainingLegacyFiles: string[];
+		failures: Array<{ path: string; message: string }>;
+	}> {
+		const adapter = this.plugin.app.vault.adapter;
+		const cleanupLegacyFile = options.cleanupLegacyFile === true;
+		const failures: Array<{ path: string; message: string }> = [];
+		let migratedFileCount = 0;
+		let removedLegacyFileCount = 0;
+
+		if (!(await adapter.exists(options.legacyPath))) {
+			return {
+				migratedFileCount,
+				removedLegacyFileCount,
+				remainingLegacyFiles: [],
+				failures,
+			};
+		}
+
+		let targetReady = await adapter.exists(options.targetPath);
+		if (!targetReady) {
+			const parsed = await safeReadJson<unknown>(
+				adapter as any,
+				options.legacyPath,
+				this.plugin.app as any
+			);
+			if (parsed !== null) {
+				try {
+					await DirectoryUtils.ensureDirForFile(adapter as any, options.targetPath);
+					await safeWriteJson(
+						adapter as any,
+						options.targetPath,
+						JSON.stringify(parsed, null, 2),
+						this.plugin.app as any
+					);
+					targetReady = true;
+					migratedFileCount += 1;
+				} catch (error) {
+					failures.push({
+						path: options.legacyPath,
+						message: `${options.label} 写入插件本地目录失败: ${
+							error instanceof Error ? error.message : String(error)
+						}`,
+					});
+				}
+			} else if (!options.rebuildable) {
+				failures.push({
+					path: options.legacyPath,
+					message: `${options.label} 内容无效，无法安全迁移到插件目录`,
+				});
+			}
+		}
+
+		if (cleanupLegacyFile && (targetReady || options.rebuildable)) {
+			try {
+				if (await adapter.exists(options.legacyPath)) {
+					await adapter.remove(options.legacyPath);
+					removedLegacyFileCount += 1;
+				}
+			} catch (error) {
+				failures.push({
+					path: options.legacyPath,
+					message: `${options.label} 清理旧文件失败: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				});
+			}
+		}
+
+		return {
+			migratedFileCount,
+			removedLegacyFileCount,
+			remainingLegacyFiles: (await adapter.exists(options.legacyPath)) ? [options.legacyPath] : [],
+			failures,
+		};
+	}
+
 	/**
 	 * 获取检测类型的中文名称
 	 */
@@ -2413,20 +2208,26 @@ export class DataManagementService {
 		const names: Partial<Record<CheckType, string>> = {
 			yaml_migration: "YAML 元数据迁移",
 			we_decks_fix: "we_decks 牌组ID",
+			structured_data_format: "结构化数据文件格式修复",
 			memory_single_membership: "记忆牌组单归属",
 			we_block_migration: "we_block 合并迁移",
 			epub_source_link_migration: "EPUB 溯源链接迁移",
+			epub_markdown_source_id_backfill: "EPUB Markdown sourceId 回填",
 			deprecated_fields: "弃用字段",
-			card_deck_consistency: "引用式牌组一致性",
+			ir_redundant_frontmatter_cleanup: "增量阅读历史 frontmatter 清理（临时）",
+			card_deck_consistency: "牌组缓存一致性",
 			ir_material_consistency: "导入材料一致性",
 			ir_point_storage_migration: "增量阅读新存储迁移",
-			ir_local_state_relocation: "阅读器本地状态迁移",
+			ir_legacy_readable_markdown_migration: "旧 IR 正文迁移",
+			ir_local_state_relocation: "增量阅读本地状态迁移",
+			ir_legacy_bookmark_cleanup: "增量阅读旧书签文件清理",
 			orphan_cards: "孤立卡片",
 			duplicate_cards: "重复卡片",
 			invalid_refs: "无效引用",
-			ir_topic_migration: "增量阅读专题迁移",
 			schema_migration: "Schema V2 数据迁移",
 			structure_check: "目录结构核对",
+			qbank_migration: ".qbank 考试题组迁移",
+			qbank_legacy_cleanup: "旧题库文件清理",
 			migration_conflict_files: "迁移冲突文件",
 			legacy_cleanup: "旧目录清理",
 			filename_compatibility: "文件名云同步兼容性",
@@ -2613,13 +2414,25 @@ export class DataManagementService {
 	async checkSchemaMigration(): Promise<DataCheckResult> {
 		try {
 			const plan = await this.planUnifiedMigration(undefined, "manual-review");
+			const schemaV2Service = new SchemaV2MigrationService(this.plugin.app);
+			const needsSchemaV2Migration = await schemaV2Service.needsMigration({
+				allowWhenSchemaUpToDate: true,
+			});
+			const legacyFolderMigrations = await this.inspectLegacyWeaveFolderMigration();
+			const items = [
+				...plan.activeSourceRoots.map((root) => `${root.kind}: ${root.path}`),
+				...(needsSchemaV2Migration ? ["schema-v2: 检测到旧版本数据结构"] : []),
+				...legacyFolderMigrations.map(
+					(item) => `${item.label}: ${item.legacyPath} -> ${item.targetPath}`
+				),
+			];
 
 			return {
 				type: "schema_migration",
-				status: plan.requiresMigration ? "warning" : "ok",
-				count: plan.requiresMigration ? Math.max(plan.activeSourceRoots.length, 1) : 0,
-				items: plan.activeSourceRoots.map((root) => `${root.kind}: ${root.path}`),
-				message: plan.requiresMigration ? "发现需要执行的数据迁移" : "数据目录结构已是最新版本",
+				status: items.length > 0 ? "warning" : "ok",
+				count: items.length,
+				items,
+				message: items.length > 0 ? "发现需要执行的真源数据迁移/归位任务" : "数据目录结构已是最新版本",
 			};
 		} catch (error) {
 			logger.error("[DataManagement] 统一数据迁移检测失败:", error);
@@ -2649,14 +2462,46 @@ export class DataManagementService {
 		try {
 			const migrationService = this.getMigrationService();
 			const plan = await migrationService.planDataMigration({ reason: "manual-review" });
-			const result = await migrationService.executeDataMigration(plan);
+			const schemaV2Service = new SchemaV2MigrationService(this.plugin.app);
+			const legacyFolderMigrations = await this.inspectLegacyWeaveFolderMigration();
+			const errors: Array<{ uuid: string; error: string }> = [];
+			let success = 0;
+			let failed = 0;
+
+			if (plan.requiresMigration) {
+				const result = await migrationService.executeDataMigration(plan);
+				success += result.movedFiles + result.rewrittenReferences;
+				failed += result.errors.length;
+				errors.push(...result.errors.map((error) => ({ uuid: "", error })));
+			}
+
+			const needsSchemaV2Migration = await schemaV2Service.needsMigration({
+				allowWhenSchemaUpToDate: true,
+			});
+			if (needsSchemaV2Migration) {
+				const schemaV2Result = await schemaV2Service.migrate();
+				success += schemaV2Result.migratedCount;
+				failed += schemaV2Result.failedCount;
+				errors.push(
+					...schemaV2Result.errors.map((error) => ({
+						uuid: "",
+						error,
+					}))
+				);
+			}
+
+			if (legacyFolderMigrations.length > 0) {
+				await migrateLegacyWeaveFolders(this.plugin.app, this.plugin.settings?.weaveParentFolder);
+				success += legacyFolderMigrations.length;
+			}
+
 			await this.plugin.saveSettings();
 
 			return {
 				type: "schema_migration",
-				success: result.movedFiles,
-				failed: result.errors.length,
-				errors: result.errors.map((error) => ({ uuid: "", error })),
+				success,
+				failed,
+				errors,
 			};
 		} catch (error) {
 			logger.error("[DataManagement] 统一数据迁移执行失败:", error);
@@ -2677,15 +2522,562 @@ export class DataManagementService {
 			migratedMaterials: number;
 			migratedPoints: number;
 			migratedReaderStateFiles: number;
+			removedLegacyReaderStateFiles: number;
+			removedLegacyBookmarkTaskFiles: number;
+			removedLegacyChunkStorageFiles: number;
+			removedLegacyMaterialRecordFiles: number;
+			removedLegacyMaterialsIndexCount: number;
+			removedLegacyMaterialsFileCount: number;
+			removedEmptyLegacyMaterialDirs: number;
+			removedLegacyRegistryFiles: number;
 			failures: Array<{ id: string; type: string; message: string }>;
 			completedAt: string;
 		};
 	} | null> {
-		const service = await this.getIRPointStorageService();
+		const service = await this.getIRPointDataReadService();
 		if (!service) {
 			return null;
 		}
 		return service.getLatestMigrationReport();
+	}
+
+	private async pathExistsOrHasEntries(path: string): Promise<boolean> {
+		const adapter: any = this.plugin.app.vault.adapter as any;
+
+		try {
+			if (await adapter.exists?.(path)) {
+				return true;
+			}
+		} catch {}
+
+		if (typeof adapter.list !== "function") {
+			return false;
+		}
+
+		try {
+			const listing = await adapter.list(path);
+			return Boolean((listing?.files?.length || 0) > 0 || (listing?.folders?.length || 0) > 0);
+		} catch {
+			return false;
+		}
+	}
+
+	private async inspectLegacyWeaveFolderMigration(): Promise<
+		Array<{ label: string; legacyPath: string; targetPath: string }>
+	> {
+		const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+		const readableRoot = getReadableWeaveRoot(parentFolder);
+		const v2Paths = getV2Paths(parentFolder);
+		const candidates = [
+			{
+				label: "deck-graphs",
+				legacyPath: normalizePath(`${readableRoot}/deck-graphs`),
+				targetPath: normalizePath(v2Paths.memory.knowledgeGraphs),
+			},
+			{
+				label: "epub-reading",
+				legacyPath: normalizePath(`${readableRoot}/epub-reading`),
+				targetPath: normalizePath(v2Paths.ir.epub),
+			},
+		];
+
+		const pending: Array<{ label: string; legacyPath: string; targetPath: string }> = [];
+		for (const candidate of candidates) {
+			if (
+				candidate.legacyPath &&
+				candidate.legacyPath !== candidate.targetPath &&
+				(await this.pathExistsOrHasEntries(candidate.legacyPath))
+			) {
+				pending.push(candidate);
+			}
+		}
+
+		return pending;
+	}
+
+	private getLegacyIRReadableMarkdownRoot(): string {
+		const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+		return getLegacyIRImportFolder(parentFolder);
+	}
+
+	private async collectMarkdownFilesRecursively(rootPath: string): Promise<string[]> {
+		const adapter = this.plugin.app.vault.adapter;
+		if (rootPath && !(await adapter.exists(rootPath))) {
+			return [];
+		}
+
+		const files: string[] = [];
+		const walk = async (dir: string): Promise<void> => {
+			const listing = await adapter.list(dir);
+			for (const folder of listing.folders || []) {
+				await walk(folder);
+			}
+			for (const file of listing.files || []) {
+				if (file.toLowerCase().endsWith(".md")) {
+					files.push(file);
+				}
+			}
+		};
+
+		await walk(rootPath);
+		return files.sort((left, right) => left.localeCompare(right, "zh-CN"));
+	}
+
+	private async listVaultMarkdownPaths(): Promise<string[]> {
+		const rawConfigDir = String(this.plugin.app.vault?.configDir || "").trim();
+		const configDirPrefix = rawConfigDir ? `${normalizePath(rawConfigDir)}/` : "";
+		if (typeof this.plugin.app.vault?.getMarkdownFiles === "function") {
+			return this.plugin.app.vault
+				.getMarkdownFiles()
+				.map((file: { path?: string }) => normalizePath(String(file?.path || "").trim()))
+				.filter((path: string) => path.length > 0 && (!configDirPrefix || !path.startsWith(configDirPrefix)))
+				.sort((left: string, right: string) => left.localeCompare(right, "zh-CN"));
+		}
+
+		return (await this.collectMarkdownFilesRecursively(""))
+			.map((path) => normalizePath(path))
+			.filter((path) => path.length > 0 && (!configDirPrefix || !path.startsWith(configDirPrefix)));
+	}
+
+	private getLegacyIRFrontmatterFields(content: string): string[] {
+		try {
+			const yaml = parseYAMLFromContent(content) as Record<string, unknown>;
+			return LEGACY_IR_FRONTMATTER_FIELDS.filter((field) => yaml[field] !== undefined);
+		} catch {
+			return [];
+		}
+	}
+
+	private async checkIRRedundantFrontmatterCleanup(): Promise<DataCheckResult> {
+		try {
+			const adapter = this.plugin.app.vault.adapter;
+			const items: string[] = [];
+			for (const filePath of await this.listVaultMarkdownPaths()) {
+				const content = await adapter.read(filePath);
+				const fields = this.getLegacyIRFrontmatterFields(content);
+				if (fields.length === 0) {
+					continue;
+				}
+				items.push(`${filePath} -> ${fields.join(", ")}`);
+			}
+
+			return {
+				type: "ir_redundant_frontmatter_cleanup",
+				status: items.length > 0 ? "warning" : "ok",
+				count: items.length,
+				items,
+				message:
+					items.length > 0
+						? `发现 ${items.length} 个 Markdown 文件仍含历史遗留的增量阅读 frontmatter 字段。这是临时批量处理项，因插件已不再写入这些多余字段，后续会移除。`
+						: "未发现需要清理的增量阅读历史 frontmatter 遗留字段",
+			};
+		} catch (error) {
+			return {
+				type: "ir_redundant_frontmatter_cleanup",
+				status: "error",
+				count: 0,
+				items: [],
+				message: `增量阅读历史 frontmatter 检测失败: ${error instanceof Error ? error.message : String(error)}`,
+			};
+		}
+	}
+
+	private async fixIRRedundantFrontmatterCleanup(): Promise<DataFixResult> {
+		let success = 0;
+		let failed = 0;
+		const errors: Array<{ uuid: string; error: string }> = [];
+
+		for (const filePath of await this.listVaultMarkdownPaths()) {
+			try {
+				const adapter = this.plugin.app.vault.adapter;
+				const content = await adapter.read(filePath);
+				const fields = this.getLegacyIRFrontmatterFields(content);
+				if (fields.length === 0) {
+					continue;
+				}
+
+				const abstractFile = this.plugin.app.vault.getAbstractFileByPath(filePath) as TFile | null;
+				if (
+					!abstractFile ||
+					typeof this.plugin.app.fileManager?.processFrontMatter !== "function"
+				) {
+					throw new Error("无法安全访问 Obsidian frontmatter 处理接口");
+				}
+
+				await this.plugin.app.fileManager.processFrontMatter(
+					abstractFile,
+					(frontmatter: Record<string, unknown>) => {
+						for (const field of fields) {
+							delete frontmatter[field];
+						}
+					}
+				);
+				success += 1;
+			} catch (error) {
+				failed += 1;
+				errors.push({
+					uuid: filePath,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+
+		return {
+			type: "ir_redundant_frontmatter_cleanup",
+			success,
+			failed,
+			errors,
+		};
+	}
+
+	private isLegacyIRDeletedReadableMarkdown(content: string): boolean {
+		try {
+			const yaml = parseYAMLFromContent(content) as Record<string, unknown> | null;
+			const normalizedTags = new Set(
+				(
+					Array.isArray(yaml?.tags)
+						? yaml.tags
+						: typeof yaml?.tags === "string"
+							? String(yaml.tags)
+									.split(",")
+									.map((tag) => tag.trim())
+							: []
+				)
+					.map((tag) => String(tag || "").trim().replace(/^#/, "").toLowerCase())
+					.filter(Boolean)
+			);
+
+			if (normalizedTags.has("we_已删除") || normalizedTags.has("we_deleted")) {
+				return true;
+			}
+		} catch {}
+
+		return (
+			/(^|\s)#we_已删除(?=\s|$)/m.test(content) || /(^|\s)#we_deleted(?=\s|$)/im.test(content)
+		);
+	}
+
+	private isLegacyIRSystemMarkdownFile(filePath: string, content: string): boolean {
+		const normalizedPath = normalizePath(filePath);
+		const fileName = normalizedPath.split("/").pop()?.toLowerCase() || "";
+		if (!fileName.endsWith(".md")) {
+			return true;
+		}
+
+		if (fileName.startsWith("_")) {
+			return true;
+		}
+
+		if (
+			normalizedPath.includes("/raw/") ||
+			normalizedPath.includes("/sources/") ||
+			normalizedPath.includes("/chunks/")
+		) {
+			return true;
+		}
+
+		if (this.isLegacyIRDeletedReadableMarkdown(content)) {
+			return true;
+		}
+
+		try {
+			const yaml = parseYAMLFromContent(content) as Record<string, unknown> | null;
+			const weaveType = typeof yaml?.weave_type === "string" ? String(yaml.weave_type).trim() : "";
+			if (weaveType.startsWith("ir-")) {
+				return true;
+			}
+		} catch {}
+
+		return false;
+	}
+
+	private inspectLegacyIRReadableMarkdownTargetRoot(): {
+		targetRoot: string;
+		blockedReason?: string;
+	} {
+		const legacyRoot = this.getLegacyIRReadableMarkdownRoot();
+		const targetRoot =
+			resolveObsidianDefaultNewNoteFolder(this.plugin.app, {
+				allowActiveFileFallback: false,
+			}) || "/";
+		const normalizedTargetRoot = targetRoot === "/" ? "/" : normalizePath(targetRoot);
+		const normalizedLegacyRoot = normalizePath(legacyRoot);
+
+		if (
+			normalizedTargetRoot === normalizedLegacyRoot ||
+			normalizedTargetRoot.startsWith(`${normalizedLegacyRoot}/`)
+		) {
+			return {
+				targetRoot,
+				blockedReason:
+					"当前 Obsidian 默认新建笔记位置仍指向旧 IR 目录，请先调整 Obsidian 的新建笔记默认位置后再执行迁移。",
+			};
+		}
+
+		return { targetRoot };
+	}
+
+	private async inspectLegacyIRReadableMarkdownMigration(): Promise<{
+		legacyRoot: string;
+		targetRoot: string;
+		files: string[];
+		blockedReason?: string;
+	}> {
+		const adapter = this.plugin.app.vault.adapter;
+		const legacyRoot = this.getLegacyIRReadableMarkdownRoot();
+		const { targetRoot, blockedReason } = this.inspectLegacyIRReadableMarkdownTargetRoot();
+		if (!(await adapter.exists(legacyRoot))) {
+			return { legacyRoot, targetRoot, files: [], blockedReason };
+		}
+
+		const readableMarkdownFiles: string[] = [];
+		for (const filePath of await this.collectMarkdownFilesRecursively(legacyRoot)) {
+			try {
+				const content = await adapter.read(filePath);
+				if (!this.isLegacyIRSystemMarkdownFile(filePath, content)) {
+					readableMarkdownFiles.push(normalizePath(filePath));
+				}
+			} catch (error) {
+				logger.warn(`[DataManagement] 读取旧 IR 正文失败: ${filePath}`, error);
+			}
+		}
+
+		return {
+			legacyRoot,
+			targetRoot,
+			files: readableMarkdownFiles,
+			blockedReason,
+		};
+	}
+
+	private getLegacyIRReadableMarkdownTargetFolder(
+		legacyRoot: string,
+		targetRoot: string,
+		sourcePath: string
+	): string {
+		const normalizedLegacyRoot = normalizePath(legacyRoot);
+		const normalizedSourcePath = normalizePath(sourcePath);
+		const relativePath = normalizedSourcePath.startsWith(`${normalizedLegacyRoot}/`)
+			? normalizedSourcePath.slice(normalizedLegacyRoot.length + 1)
+			: normalizedSourcePath;
+		const relativeDir = relativePath.includes("/")
+			? relativePath.slice(0, relativePath.lastIndexOf("/"))
+			: "";
+
+		if (!relativeDir) {
+			return targetRoot;
+		}
+
+		return targetRoot === "/" ? relativeDir : normalizePath(`${targetRoot}/${relativeDir}`);
+	}
+
+	private async renameVaultMarkdownFileWithLinkSupport(
+		sourcePath: string,
+		targetPath: string
+	): Promise<void> {
+		const adapter = this.plugin.app.vault.adapter as any;
+		await DirectoryUtils.ensureDirForFile(adapter, targetPath);
+
+		const abstractFile = this.plugin.app.vault.getAbstractFileByPath(sourcePath);
+		const fileManager = this.plugin.app.fileManager as
+			| { renameFile?: (file: unknown, newPath: string) => Promise<void> }
+			| undefined;
+		if (abstractFile && typeof fileManager?.renameFile === "function") {
+			await fileManager.renameFile(abstractFile, targetPath);
+			return;
+		}
+
+		const vault = this.plugin.app.vault as { rename?: (file: unknown, newPath: string) => Promise<void> };
+		if (abstractFile && typeof vault.rename === "function") {
+			await vault.rename(abstractFile, targetPath);
+			return;
+		}
+
+		const content = await adapter.read(sourcePath);
+		await adapter.write(targetPath, content);
+		await adapter.remove(sourcePath);
+	}
+
+	private async rewriteIRPointStoragePathReferences(rules: PathRewriteRule[]): Promise<number> {
+		const normalizedRules = rules.filter((rule) => rule.from && rule.to && rule.from !== rule.to);
+		if (normalizedRules.length === 0) {
+			return 0;
+		}
+
+		const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+		const v2Paths = getV2Paths(parentFolder);
+		const adapter = this.plugin.app.vault.adapter as any;
+		if (!(await adapter.exists(v2Paths.ir.pointFilesIndex))) {
+			return 0;
+		}
+
+		let rewrittenCount = 0;
+		try {
+			const rawIndex = await adapter.read(v2Paths.ir.pointFilesIndex);
+			const parsedIndex = JSON.parse(rawIndex) as { files?: Array<{ file?: string }> };
+			for (const entry of parsedIndex.files || []) {
+				const relativePath = String(entry?.file || "").trim();
+				if (!relativePath) {
+					continue;
+				}
+
+				const absolutePath = normalizePath(`${v2Paths.ir.root}/${relativePath}`);
+				if (!(await adapter.exists(absolutePath))) {
+					continue;
+				}
+
+				const raw = await adapter.read(absolutePath);
+				const parsed = JSON.parse(raw);
+				const result = rewriteJsonWithRules(parsed, normalizedRules);
+				if (!result.changed) {
+					continue;
+				}
+
+				await adapter.write(absolutePath, JSON.stringify(result.value, null, 2));
+				rewrittenCount += result.count;
+			}
+		} catch (error) {
+			logger.warn("[DataManagement] 回写 IR point 文件路径引用失败:", error);
+		}
+
+		return rewrittenCount;
+	}
+
+	async checkIRLegacyReadableMarkdownMigration(): Promise<DataCheckResult> {
+		try {
+			const inspection = await this.inspectLegacyIRReadableMarkdownMigration();
+			if (inspection.files.length === 0) {
+				return {
+					type: "ir_legacy_readable_markdown_migration",
+					status: "ok",
+					count: 0,
+					items: [],
+					message: "旧 IR 正文目录中没有待迁移的 Markdown 文件",
+				};
+			}
+
+			const items = [
+				`旧正文目录: ${inspection.legacyRoot}`,
+				`迁移目标: ${inspection.targetRoot}`,
+				...inspection.files,
+			];
+			return {
+				type: "ir_legacy_readable_markdown_migration",
+				status: inspection.blockedReason ? "error" : "warning",
+				count: inspection.files.length,
+				items,
+				message: inspection.blockedReason
+					? `检测到 ${inspection.files.length} 个旧 IR 正文文件，但当前迁移目标无效：${inspection.blockedReason}`
+					: `检测到 ${inspection.files.length} 个旧 IR 正文文件，可通过数据管理显式迁移到当前 Obsidian 默认新建笔记目录`,
+			};
+		} catch (error) {
+			logger.error("[DataManagement] 旧 IR 正文迁移检测失败:", error);
+			return {
+				type: "ir_legacy_readable_markdown_migration",
+				status: "error",
+				count: 0,
+				items: [],
+				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+			};
+		}
+	}
+
+	async migrateLegacyIRReadableMarkdown(options: DataFixOptions = {}): Promise<DataFixResult> {
+		const blocked = this.ensureHighRiskFixAllowed(
+			"ir_legacy_readable_markdown_migration",
+			options
+		);
+		if (blocked) {
+			return blocked;
+		}
+
+		try {
+			const inspection = await this.inspectLegacyIRReadableMarkdownMigration();
+			if (inspection.blockedReason) {
+				return this.buildBlockedFixResult(
+					"ir_legacy_readable_markdown_migration",
+					inspection.blockedReason
+				);
+			}
+
+			if (inspection.files.length === 0) {
+				return {
+					type: "ir_legacy_readable_markdown_migration",
+					success: 0,
+					failed: 0,
+					errors: [],
+				};
+			}
+
+			const rewriteRules: PathRewriteRule[] = [];
+			const errors: Array<{ uuid: string; error: string }> = [];
+			let movedCount = 0;
+
+			for (const sourcePath of inspection.files) {
+				try {
+					const fileName = sourcePath.split("/").pop() || "untitled.md";
+					const targetFolder = this.getLegacyIRReadableMarkdownTargetFolder(
+						inspection.legacyRoot,
+						inspection.targetRoot,
+						sourcePath
+					);
+					const targetPath = await generateUniqueVaultFilePath(
+						this.plugin.app,
+						targetFolder,
+						fileName
+					);
+					await this.renameVaultMarkdownFileWithLinkSupport(sourcePath, targetPath);
+					rewriteRules.push({ from: sourcePath, to: targetPath });
+					movedCount++;
+				} catch (error) {
+					errors.push({
+						uuid: sourcePath,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}
+
+			let rewrittenCount = 0;
+			if (rewriteRules.length > 0) {
+				const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+				const v2Paths = getV2Paths(parentFolder);
+				const pluginPaths = getPluginPaths(this.plugin.app);
+				rewrittenCount += await rewriteKnownPathReferences(
+					this.plugin.app,
+					buildKnownPathReferenceFiles({ v2Paths, pluginPaths }),
+					rewriteRules
+				);
+				rewrittenCount += await this.rewriteIRPointStoragePathReferences(rewriteRules);
+			}
+
+			const removedEmptyDirs = await DirectoryUtils.pruneEmptyDirsUnder(
+				this.plugin.app.vault.adapter as any,
+				inspection.legacyRoot,
+				{
+					preserveRoot: true,
+				}
+			);
+
+			return {
+				type: "ir_legacy_readable_markdown_migration",
+				success: movedCount + rewrittenCount + removedEmptyDirs,
+				failed: errors.length,
+				errors,
+			};
+		} catch (error) {
+			logger.error("[DataManagement] 旧 IR 正文迁移执行失败:", error);
+			return {
+				type: "ir_legacy_readable_markdown_migration",
+				success: 0,
+				failed: 1,
+				errors: [
+					{
+						uuid: "ir_legacy_readable_markdown_migration",
+						error: error instanceof Error ? error.message : String(error),
+					},
+				],
+			};
+		}
 	}
 
 	async checkIRPointStorageMigration(): Promise<DataCheckResult> {
@@ -2702,14 +3094,90 @@ export class DataManagementService {
 
 		try {
 			const inspection = await service.inspectMigrationStatus();
+			const tagGroupService = await this.getIRTagGroupService();
+			const legacyTagGroupInspection =
+				tagGroupService?.inspectLegacyCatalogResidue
+					? await tagGroupService.inspectLegacyCatalogResidue()
+					: {
+							legacyFileCount: 0,
+							filePaths: [] as string[],
+							groupCount: 0,
+							profileCount: 0,
+							pointFileCount: 0,
+							failures: [] as Array<{ id: string; type: string; message: string }>,
+					  };
+			const irStorageService = await this.getIRStorageService();
+			const deletedReadableMarkdownInspection =
+				irStorageService?.inspectDeletedReadableMarkdownResidue
+					? await irStorageService.inspectDeletedReadableMarkdownResidue()
+					: { count: 0, files: [] as string[] };
+			const residualLegacyChunkStorageFileCount = Number(
+				inspection.legacyChunkStorageFileCount || 0
+			);
+			const deletedReadableMarkdownCount = Number(
+				deletedReadableMarkdownInspection.count || 0
+			);
+			const legacyTagGroupFileCount = Number(legacyTagGroupInspection.legacyFileCount || 0);
+			const hasPendingObjects =
+				inspection.pendingCount > 0 ||
+				deletedReadableMarkdownCount > 0 ||
+				legacyTagGroupFileCount > 0;
+			const hasResidualLegacyChunkStorage = residualLegacyChunkStorageFileCount > 0;
+			const items = [...inspection.pendingItems];
+			if (hasResidualLegacyChunkStorage) {
+				items.push(
+					inspection.pendingChunkPointCount > 0
+						? `旧 chunks/sources 文件 ${residualLegacyChunkStorageFileCount} 个仍承载待迁阅读点`
+						: `旧 chunks/sources 文件 ${residualLegacyChunkStorageFileCount} 个已退出真源但仍残留在同步目录`
+				);
+			}
+			if (deletedReadableMarkdownCount > 0) {
+				items.push(`旧 IR 已标记删除的 Markdown 残留 ${deletedReadableMarkdownCount} 个可安全清理`);
+				items.push(...deletedReadableMarkdownInspection.files);
+			}
+			if (legacyTagGroupFileCount > 0) {
+				items.push(
+					legacyTagGroupInspection.groupCount > 0 || legacyTagGroupInspection.profileCount > 0
+						? `旧标签组定义文件 ${legacyTagGroupFileCount} 个仍残留在仓库目录，可迁入 .irdeck 后清理`
+						: `旧标签组兼容文件 ${legacyTagGroupFileCount} 个已退出真源但仍残留在仓库目录`
+				);
+				items.push(...legacyTagGroupInspection.filePaths);
+			}
+			if (legacyTagGroupInspection.failures.length > 0) {
+				items.push(
+					...legacyTagGroupInspection.failures.map(
+						(item: { id: string; type: string; message: string }) =>
+							`${item.type}: ${item.id} -> ${item.message}`
+					)
+				);
+			}
+
+			const count =
+				inspection.pendingCount +
+				residualLegacyChunkStorageFileCount +
+				deletedReadableMarkdownCount +
+				legacyTagGroupFileCount;
+			const messageParts: string[] = [];
+			if (inspection.pendingCount > 0) {
+				messageParts.push(`检测到 ${inspection.pendingCount} 个增量阅读迁移/收尾项待处理`);
+			}
+			if (residualLegacyChunkStorageFileCount > 0) {
+				messageParts.push(`有 ${residualLegacyChunkStorageFileCount} 个旧 chunks/sources 文件待清理`);
+			}
+			if (deletedReadableMarkdownCount > 0) {
+				messageParts.push(`有 ${deletedReadableMarkdownCount} 个已标记删除的旧 IR Markdown 文件待清理`);
+			}
+			if (legacyTagGroupFileCount > 0) {
+				messageParts.push(`有 ${legacyTagGroupFileCount} 个旧标签组文件待迁移/清理`);
+			}
 			return {
 				type: "ir_point_storage_migration",
-				status: inspection.pendingCount > 0 ? "warning" : "ok",
-				count: inspection.pendingCount,
-				items: inspection.pendingItems,
+				status: hasPendingObjects || hasResidualLegacyChunkStorage ? "warning" : "ok",
+				count,
+				items,
 				message:
-					inspection.pendingCount > 0
-						? `检测到 ${inspection.pendingCount} 个旧增量阅读对象待迁移到新存储结构`
+					messageParts.length > 0
+						? messageParts.join("，")
 						: "增量阅读新存储结构已就绪，当前没有待迁移对象",
 			};
 		} catch (error) {
@@ -2725,10 +3193,60 @@ export class DataManagementService {
 	}
 
 	async checkIRLocalStateRelocation(): Promise<DataCheckResult> {
+		try {
+			const service = this.getEpubStorageService();
+			const inspection = await service.inspectLocalDataMigrationStatus();
+			const structuredInspection = await this.inspectIRStructuredLocalStateRelocation();
+			const structuredLegacyCount = structuredInspection.legacyFiles.length;
+			const count = inspection.legacyFileCount + structuredLegacyCount;
+			const items = [
+				...inspection.legacyFiles,
+				...structuredInspection.legacyFiles.map(
+					(item) => `${item.label}: ${item.legacyPath} -> ${item.targetPath}`
+				),
+			];
+			return {
+				type: "ir_local_state_relocation",
+				status: count > 0 ? "warning" : "ok",
+				count,
+				items,
+				message:
+					count > 0
+						? inspection.legacyFileCount > 0 && structuredLegacyCount > 0
+							? `检测到 ${inspection.legacyFileCount} 个旧 EPUB 本地数据文件，以及 ${structuredLegacyCount} 个旧增量阅读本地状态/缓存文件，可迁入插件目录后清理`
+							: inspection.legacyFileCount > 0
+								? inspection.hasUnifiedDataFile
+									? `检测到 ${inspection.legacyFileCount} 个旧 EPUB 本地数据文件残留，可迁入统一单文件后清理`
+									: `检测到 ${inspection.legacyFileCount} 个旧 EPUB 本地数据文件，尚未迁入插件目录单文件`
+								: `检测到 ${structuredLegacyCount} 个旧增量阅读本地状态/缓存文件仍留在仓库目录，可迁入插件目录后清理`
+						: "增量阅读本地状态、缓存与分析文件已收口到插件目录",
+			};
+		} catch (error) {
+			logger.error("[DataManagement] 增量阅读本地状态迁移检测失败:", error);
+			return {
+				type: "ir_local_state_relocation",
+				status: "error",
+				count: 0,
+				items: [],
+				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+			};
+		}
+	}
+
+	private getIRLegacyBookmarkTaskPaths() {
+		const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+		const v2Paths = getV2Paths(parentFolder);
+		return {
+			pdf: v2Paths.ir.pdfBookmarkTasks,
+			epub: v2Paths.ir.epubBookmarkTasks,
+		};
+	}
+
+	async checkIRLegacyBookmarkCleanup(): Promise<DataCheckResult> {
 		const service = await this.getIRPointStorageService();
 		if (!service) {
 			return {
-				type: "ir_local_state_relocation",
+				type: "ir_legacy_bookmark_cleanup",
 				status: "error",
 				count: 0,
 				items: [],
@@ -2738,23 +3256,42 @@ export class DataManagementService {
 
 		try {
 			const inspection = await service.inspectMigrationStatus();
+			const adapter = this.plugin.app.vault.adapter;
+			const legacyPaths = this.getIRLegacyBookmarkTaskPaths();
+			const existingFiles: string[] = [];
+			if (await adapter.exists(legacyPaths.pdf)) {
+				existingFiles.push(legacyPaths.pdf);
+			}
+			if (await adapter.exists(legacyPaths.epub)) {
+				existingFiles.push(legacyPaths.epub);
+			}
+
+			const pendingLegacyTaskCount =
+				inspection.pendingPdfTaskCount + inspection.pendingEpubTaskCount;
+			const items =
+				pendingLegacyTaskCount > 0
+					? [
+							`仍有 ${pendingLegacyTaskCount} 条旧书签任务待迁移，暂不能删除旧书签文件`,
+							...existingFiles,
+					  ]
+					: existingFiles;
+
 			return {
-				type: "ir_local_state_relocation",
-				status: inspection.legacyReaderStateCount > 0 ? "warning" : "ok",
-				count: inspection.legacyReaderStateCount,
-				items:
-					inspection.legacyReaderStateCount > 0
-						? [`旧阅读器状态文件 ${inspection.legacyReaderStateCount} 个待迁移到插件本地目录`]
-						: [],
+				type: "ir_legacy_bookmark_cleanup",
+				status: existingFiles.length > 0 ? "warning" : "ok",
+				count: existingFiles.length,
+				items,
 				message:
-					inspection.legacyReaderStateCount > 0
-						? "检测到旧 EPUB 阅读器状态仍位于同步目录"
-						: "阅读器本地状态已位于插件目录",
+					existingFiles.length === 0
+						? "旧 PDF/EPUB 书签文件已清理，运行时已完全使用新 points 存储"
+						: pendingLegacyTaskCount > 0
+							? `检测到 ${existingFiles.length} 个旧书签文件，但仍有 ${pendingLegacyTaskCount} 条旧任务未迁移`
+							: `检测到 ${existingFiles.length} 个旧书签文件残留，可安全清理`,
 			};
 		} catch (error) {
-			logger.error("[DataManagement] 阅读器本地状态迁移检测失败:", error);
+			logger.error("[DataManagement] IR 旧书签文件清理检查失败", error);
 			return {
-				type: "ir_local_state_relocation",
+				type: "ir_legacy_bookmark_cleanup",
 				status: "error",
 				count: 0,
 				items: [],
@@ -2769,7 +3306,7 @@ export class DataManagementService {
 		if (!options.confirmed) {
 			return this.buildBlockedFixResult(
 				"ir_point_storage_migration",
-				"增量阅读新存储迁移会写入新的 points/materials/registry 文件，必须在明确确认后执行。"
+				"增量阅读新存储迁移会写入新的 .irdeck 阅读点文件，并把旧索引、标签组与材料元数据迁入新结构或插件目录，必须在明确确认后执行。"
 			);
 		}
 
@@ -2782,15 +3319,82 @@ export class DataManagementService {
 		}
 
 		try {
-			const report = await service.executeMigration();
+			const report = await service.executeMigration({
+				cleanupLegacyReaderStateFiles: false,
+				cleanupLegacyBookmarkTaskFiles: true,
+				cleanupLegacyChunkStorageFiles: true,
+				cleanupLegacyMaterialFiles: true,
+				cleanupLegacyRegistryFiles: true,
+				cleanupLegacyTopicStoreFiles: true,
+			});
+			const tagGroupService = await this.getIRTagGroupService();
+			const legacyTagGroupMigration =
+				tagGroupService?.migrateLegacyCatalogToPointFiles
+					? await tagGroupService.migrateLegacyCatalogToPointFiles({
+							cleanupLegacyFiles: true,
+					  })
+					: {
+							embeddedTopicCount: 0,
+							removedLegacyFileCount: 0,
+							remainingLegacyFiles: [] as string[],
+							failures: [] as Array<{ id: string; type: string; message: string }>,
+					  };
+			const irStorageService = await this.getIRStorageService();
+			const deletedReadableMarkdownCleanup =
+				irStorageService?.cleanupDeletedReadableMarkdownResidue
+					? await irStorageService.cleanupDeletedReadableMarkdownResidue()
+					: {
+							removed: 0,
+							files: [],
+							failures: [] as Array<{ path: string; message: string }>,
+					  };
 			return {
 				type: "ir_point_storage_migration",
-				success: report.summary.migratedMaterials + report.summary.migratedPoints,
-				failed: report.summary.failures.length,
-				errors: report.summary.failures.map((item: { id: string; type: string; message: string }) => ({
-					uuid: item.id,
-					error: `${item.type}: ${item.message}`,
-				})),
+				success:
+					report.summary.migratedMaterials +
+					report.summary.migratedPoints +
+					report.summary.migratedReaderStateFiles +
+					report.summary.removedLegacyReaderStateFiles +
+					report.summary.removedLegacyBookmarkTaskFiles +
+					report.summary.removedLegacyChunkStorageFiles +
+					(report.summary.removedLegacyMaterialRecordFiles || 0) +
+					(report.summary.removedLegacyMaterialsIndexCount || 0) +
+					(report.summary.removedLegacyMaterialsFileCount || 0) +
+					(report.summary.removedEmptyLegacyMaterialDirs || 0) +
+					(report.summary.removedLegacyRegistryFiles || 0) +
+					(report.summary.removedLegacyTopicStoreFiles || 0) +
+					legacyTagGroupMigration.embeddedTopicCount +
+					legacyTagGroupMigration.removedLegacyFileCount +
+					deletedReadableMarkdownCleanup.removed,
+				failed:
+					report.summary.failures.length +
+					legacyTagGroupMigration.failures.length +
+					legacyTagGroupMigration.remainingLegacyFiles.length +
+					deletedReadableMarkdownCleanup.failures.length,
+				errors: [
+					...report.summary.failures.map(
+						(item: { id: string; type: string; message: string }) => ({
+							uuid: item.id,
+							error: `${item.type}: ${item.message}`,
+						})
+					),
+					...legacyTagGroupMigration.failures.map(
+						(item: { id: string; type: string; message: string }) => ({
+							uuid: item.id,
+							error: `${item.type}: ${item.message}`,
+						})
+					),
+					...legacyTagGroupMigration.remainingLegacyFiles.map((path: string) => ({
+						uuid: path,
+						error: "legacy-tag-group-cleanup: 迁移后旧标签组文件仍然存在",
+					})),
+					...deletedReadableMarkdownCleanup.failures.map(
+						(item: { path: string; message: string }) => ({
+							uuid: item.path,
+							error: `legacy-readable-markdown-cleanup: ${item.message}`,
+						})
+					),
+				],
 			};
 		} catch (error) {
 			logger.error("[DataManagement] IR Point 存储迁移执行失败:", error);
@@ -2804,27 +3408,58 @@ export class DataManagementService {
 	}
 
 	async fixIRLocalStateRelocation(): Promise<DataFixResult> {
-		const service = await this.getIRPointStorageService();
-		if (!service) {
-			return this.buildBlockedFixResult(
-				"ir_local_state_relocation",
-				"IR Point 存储服务不可用。"
-			);
-		}
-
 		try {
-			const report = await service.executeMigration();
+			const service = this.getEpubStorageService();
+			const report = await service.migrateLegacyLocalData({
+				cleanupLegacyFiles: true,
+			});
+			const structuredResults = [];
+			for (const entry of this.getIRLocalStateRelocationPaths()) {
+				structuredResults.push(
+					await this.relocateIRStructuredLocalStateFile({
+						...entry,
+						cleanupLegacyFile: true,
+					})
+				);
+			}
+			const structuredSuccess = structuredResults.reduce(
+				(sum, item) => sum + item.migratedFileCount + item.removedLegacyFileCount,
+				0
+			);
+			const structuredFailures = structuredResults.flatMap((item) => item.failures);
+			const remainingStructuredLegacyFiles = structuredResults.flatMap(
+				(item) => item.remainingLegacyFiles
+			);
 			return {
 				type: "ir_local_state_relocation",
-				success: report.summary.migratedReaderStateFiles,
-				failed: report.summary.failures.length,
-				errors: report.summary.failures.map((item: { id: string; type: string; message: string }) => ({
-					uuid: item.id,
-					error: `${item.type}: ${item.message}`,
-				})),
+				success:
+					report.migratedSectionCount + report.removedLegacyFileCount + structuredSuccess,
+				failed:
+					report.failures.length +
+					report.remainingLegacyFiles.length +
+					structuredFailures.length +
+					remainingStructuredLegacyFiles.length,
+				errors: [
+					...report.failures.map((item) => ({
+						uuid: item.path,
+						error: item.message,
+					})),
+					...report.remainingLegacyFiles.map((path) => ({
+						uuid: path,
+						error: "迁移后仍有旧 EPUB 本地数据文件残留。",
+					})),
+					...structuredFailures.map((item) => ({
+						uuid: item.path,
+						error: item.message,
+					})),
+					...remainingStructuredLegacyFiles.map((path) => ({
+						uuid: path,
+						error: "迁移后仍有旧增量阅读本地状态/缓存文件残留。",
+					})),
+				],
 			};
 		} catch (error) {
-			logger.error("[DataManagement] 阅读器本地状态迁移失败:", error);
+			logger.error("[DataManagement] 增量阅读本地状态迁移失败:", error);
 			return {
 				type: "ir_local_state_relocation",
 				success: 0,
@@ -2837,6 +3472,72 @@ export class DataManagementService {
 	/**
 	 * 检测目录结构是否符合 V2 规范
 	 */
+	async cleanupIRLegacyBookmarkFiles(options: DataFixOptions = {}): Promise<DataFixResult> {
+		if (!options.allowHighRisk) {
+			return this.buildBlockedFixResult(
+				"ir_legacy_bookmark_cleanup",
+				"旧书签文件清理会删除已停用的历史文件，必须在明确确认后单独执行。"
+			);
+		}
+
+		const service = await this.getIRPointStorageService();
+		if (!service) {
+			return this.buildBlockedFixResult(
+				"ir_legacy_bookmark_cleanup",
+				"IR Point 存储服务不可用。"
+			);
+		}
+
+		try {
+			const inspection = await service.inspectMigrationStatus();
+			const pendingLegacyTaskCount =
+				inspection.pendingPdfTaskCount + inspection.pendingEpubTaskCount;
+			if (pendingLegacyTaskCount > 0) {
+				return this.buildBlockedFixResult(
+					"ir_legacy_bookmark_cleanup",
+					`仍有 ${pendingLegacyTaskCount} 条旧书签任务未迁移，已阻止删除旧书签文件。`
+				);
+			}
+
+			const adapter = this.plugin.app.vault.adapter;
+			const legacyPaths = this.getIRLegacyBookmarkTaskPaths();
+			let success = 0;
+			const errors: Array<{ uuid: string; error: string }> = [];
+
+			for (const path of [legacyPaths.pdf, legacyPaths.epub]) {
+				try {
+					if (await adapter.exists(path)) {
+						await adapter.remove(path);
+						success += 1;
+					}
+				} catch (error) {
+					errors.push({ uuid: path, error: String(error) });
+				}
+			}
+
+			const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+			const v2Paths = getV2Paths(parentFolder);
+			await DirectoryUtils.pruneEmptyDirsUnder(adapter as any, v2Paths.ir.root, {
+				preserveRoot: true,
+			});
+
+			return {
+				type: "ir_legacy_bookmark_cleanup",
+				success,
+				failed: errors.length,
+				errors,
+			};
+		} catch (error) {
+			logger.error("[DataManagement] IR 旧书签文件清理失败", error);
+			return {
+				type: "ir_legacy_bookmark_cleanup",
+				success: 0,
+				failed: 1,
+				errors: [{ uuid: "ir_legacy_bookmark_cleanup", error: String(error) }],
+			};
+		}
+	}
+
 	private getWDeckMigrationFolderPath(): string {
 		const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
 		const v2Paths = getV2Paths(parentFolder);
@@ -2982,6 +3683,131 @@ export class DataManagementService {
 		}
 
 		return results;
+	}
+
+	private async getExistingQBankFiles(basePath: string): Promise<ExistingQBankFileInfo[]> {
+		const adapter = this.plugin.app.vault.adapter;
+		const results: ExistingQBankFileInfo[] = [];
+
+		try {
+			const files = await adapter.list(basePath);
+			const qbankFiles = files.files.filter((path) => path.endsWith(".qbank"));
+
+			for (const path of qbankFiles) {
+				try {
+					const content = await adapter.read(path);
+					const data = JSON.parse(content);
+					results.push({
+						path,
+						bankId: data.id || "",
+						bankName: data.name || "",
+					});
+				} catch (error) {
+					logger.warn(`[DataManagement] 读取 QBank 文件失败: ${path}`, error);
+				}
+			}
+		} catch (error) {
+			logger.warn(`[DataManagement] 列出 QBank 文件失败`, error);
+		}
+
+		return results;
+	}
+
+	private async getQuestionCount(bankId: string): Promise<number> {
+		try {
+			const adapter = this.plugin.app.vault.adapter;
+			const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+			const v2Paths = getV2Paths(parentFolder);
+			const basePath = v2Paths.questionBank.root;
+			const questionsFile = `${basePath}/banks/${bankId}/questions.json`;
+
+			if (!(await adapter.exists(questionsFile))) {
+				return 0;
+			}
+
+			const content = await adapter.read(questionsFile);
+			const data = JSON.parse(content);
+			return Array.isArray(data.refs) ? data.refs.length : 0;
+		} catch (error) {
+			logger.warn(`[DataManagement] 读取题目数量失败: ${bankId}`, error);
+			return 0;
+		}
+	}
+
+	private async planQBankMigration(): Promise<QBankMigrationPlan> {
+		const adapter = this.plugin.app.vault.adapter;
+		const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+		const v2Paths = getV2Paths(parentFolder);
+		const basePath = v2Paths.questionBank.root;
+
+		// 1. 检测旧结构文件
+		const oldBanksFile = `${basePath}/banks.json`;
+		const oldBanksExists = await adapter.exists(oldBanksFile);
+
+		if (!oldBanksExists) {
+			return { targetFolder: basePath, candidates: [], alreadyMigrated: [], conflicts: [] };
+		}
+
+		// 2. 读取旧数据
+		const banksData = JSON.parse(await adapter.read(oldBanksFile));
+		const banks: Deck[] = Array.isArray(banksData) ? banksData : (banksData.decks || []);
+
+		// 3. 检测已迁移的 .qbank 文件
+		const existingQBankFiles = await this.getExistingQBankFiles(basePath);
+		const existingByBankId = new Map(existingQBankFiles.map((f) => [f.bankId, f]));
+
+		const candidates: QBankMigrationCandidate[] = [];
+		const alreadyMigrated: ExistingQBankFileInfo[] = [];
+		const conflicts: Array<{ bank: Deck; filePath: string; reason: string }> = [];
+		const seenFileNames = new Map<string, string>();
+
+		// 4. 遍历每个题库
+		for (const bank of banks) {
+			// 跳过已迁移的
+			const existing = existingByBankId.get(bank.id);
+			if (existing) {
+				alreadyMigrated.push(existing);
+				continue;
+			}
+
+			// 生成文件名
+			const fileName = sanitizeForSync(bank.name);
+			const filePath = `${basePath}/${fileName}.qbank`;
+
+			// 检测文件名冲突
+			const existingOwner = seenFileNames.get(fileName);
+			if (existingOwner && existingOwner !== bank.id) {
+				conflicts.push({
+					bank,
+					filePath,
+					reason: `文件名冲突：${fileName}.qbank 已被题库 ${existingOwner} 使用`,
+				});
+				continue;
+			}
+
+			// 检测文件是否已存在
+			if (await adapter.exists(filePath)) {
+				conflicts.push({
+					bank,
+					filePath,
+					reason: `目标文件已存在：${filePath}`,
+				});
+				continue;
+			}
+
+			// 读取题目数量
+			const questionCount = await this.getQuestionCount(bank.id);
+
+			seenFileNames.set(fileName, bank.id);
+			candidates.push({
+				bank,
+				fileName,
+				filePath,
+				questionCount,
+			});
+		}
+
+		return { targetFolder: basePath, candidates, alreadyMigrated, conflicts };
 	}
 
 	private async planWDeckMigration(): Promise<WDeckMigrationPlan> {
@@ -3271,6 +4097,55 @@ export class DataManagementService {
 		}
 	}
 
+	async checkQBankMigration(): Promise<DataCheckResult> {
+		try {
+			const plan = await this.planQBankMigration();
+
+			if (plan.conflicts.length > 0) {
+				return {
+					type: "qbank_migration",
+					status: "error",
+					count: plan.conflicts.length,
+					items: plan.conflicts.map((item) => `${item.bank.name}: ${item.reason}`),
+					message: `发现 ${plan.conflicts.length} 个冲突，需要手动处理`,
+				};
+			}
+
+			if (plan.candidates.length === 0) {
+				return {
+					type: "qbank_migration",
+					status: "ok",
+					count: 0,
+					items: [],
+					message:
+						plan.alreadyMigrated.length > 0
+							? "所有题库已迁移到 .qbank 格式"
+							: "当前没有需要迁移的题库",
+				};
+			}
+
+			return {
+				type: "qbank_migration",
+				status: "warning",
+				count: plan.candidates.length,
+				items: plan.candidates.map(
+					(item) =>
+						`${item.bank.name} -> weave/question-bank/${item.fileName}.qbank (${item.questionCount} 道题)`
+				),
+				message: `发现 ${plan.candidates.length} 个题库可迁移到 .qbank 格式`,
+			};
+		} catch (error) {
+			logger.error("[DataManagement] QBank 迁移检测失败:", error);
+			return {
+				type: "qbank_migration",
+				status: "error",
+				count: 0,
+				items: [],
+				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+			};
+		}
+	}
+
 	async executeWDeckMigration(
 		options: WDeckMigrationExecutionOptions = {}
 	): Promise<DataFixResult> {
@@ -3381,6 +4256,500 @@ export class DataManagementService {
 				failed: 1,
 				errors: [{ uuid: "", error: error instanceof Error ? error.message : String(error) }],
 			};
+		}
+	}
+
+	async executeQBankMigration(
+		options: { confirmed?: boolean } = {}
+	): Promise<DataFixResult> {
+		if (!options.confirmed) {
+			return this.buildBlockedFixResult(
+				"qbank_migration",
+				".qbank 迁移会在 vault 中写入新的题库文件，必须在明确确认后执行。"
+			);
+		}
+
+		try {
+			const plan = await this.planQBankMigration();
+			if (plan.conflicts.length > 0) {
+				return {
+					type: "qbank_migration",
+					success: 0,
+					failed: plan.conflicts.length,
+					errors: plan.conflicts.map((item) => ({
+						uuid: item.bank.id,
+						error: `${item.filePath}: ${item.reason}`,
+					})),
+				};
+			}
+
+			if (plan.candidates.length === 0) {
+				return {
+					type: "qbank_migration",
+					success: 0,
+					failed: 0,
+					errors: [],
+				};
+			}
+
+			// 确保目标文件夹存在
+			await DirectoryUtils.ensureDirRecursive(this.plugin.app.vault.adapter, plan.targetFolder);
+
+			// 确保插件缓存目录存在
+			const pluginCacheDir = `${this.plugin.manifest.dir}/cache/question-bank`;
+			await DirectoryUtils.ensureDirRecursive(this.plugin.app.vault.adapter, pluginCacheDir);
+			await DirectoryUtils.ensureDirRecursive(
+				this.plugin.app.vault.adapter,
+				`${pluginCacheDir}/in-progress`
+			);
+			await DirectoryUtils.ensureDirRecursive(
+				this.plugin.app.vault.adapter,
+				`${pluginCacheDir}/session-archives`
+			);
+
+			let success = 0;
+			let failed = 0;
+			const errors: Array<{ uuid: string; error: string }> = [];
+
+			// 读取全局数据文件
+			const adapter = this.plugin.app.vault.adapter;
+			const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+			const qbankDir = `${parentFolder}/question-bank`;
+
+			let testHistoryMap = new Map<string, LegacyQuestionTestHistoryEntry[]>();
+			let inProgressMap = new Map<string, unknown>();
+			let sessionArchivesMap = new Map<string, unknown[]>();
+
+			// 读取 test-history.json
+			try {
+				const testHistoryPath = `${qbankDir}/test-history.json`;
+				if (await adapter.exists(testHistoryPath)) {
+					const raw = await adapter.read(testHistoryPath);
+					const data = JSON.parse(raw) as Record<string, LegacyQuestionTestHistoryEntry[]>;
+					testHistoryMap = new Map(
+						Object.entries(data).map(([bankId, attempts]) => [
+							bankId,
+							Array.isArray(attempts) ? attempts : [],
+						])
+					);
+				}
+			} catch (error) {
+				logger.warn("[DataManagement] 读取 test-history.json 失败:", error);
+			}
+
+			// 读取 in-progress.json
+			try {
+				const inProgressPath = `${qbankDir}/in-progress.json`;
+				if (await adapter.exists(inProgressPath)) {
+					const raw = await adapter.read(inProgressPath);
+					const data = JSON.parse(raw) as Record<string, unknown>;
+					inProgressMap = new Map(Object.entries(data));
+				}
+			} catch (error) {
+				logger.warn("[DataManagement] 读取 in-progress.json 失败:", error);
+			}
+
+			// 读取 session-archives.json
+			try {
+				const sessionArchivesPath = `${qbankDir}/session-archives.json`;
+				if (await adapter.exists(sessionArchivesPath)) {
+					const raw = await adapter.read(sessionArchivesPath);
+					const data = JSON.parse(raw) as Record<string, unknown[]>;
+					sessionArchivesMap = new Map(
+						Object.entries(data).map(([bankId, archives]) => [
+							bankId,
+							Array.isArray(archives) ? archives : [],
+						])
+					);
+				}
+			} catch (error) {
+				logger.warn("[DataManagement] 读取 session-archives.json 失败:", error);
+			}
+
+			// 迁移每个题库
+			for (const candidate of plan.candidates) {
+				try {
+					// 读取题目列表
+					const questionsPath = `${qbankDir}/banks/${candidate.bank.id}/questions.json`;
+					let questionRefs: Array<{ cardUuid: string; addedAt?: string }> = [];
+					if (await adapter.exists(questionsPath)) {
+						const raw = await adapter.read(questionsPath);
+						const questionsData = JSON.parse(raw) as LegacyQuestionRefsFile;
+
+						// 支持三种格式：
+						// 1. 直接数组
+						// 2. v2.0.0 格式：{ _schemaVersion: "2.0.0", bankId: "...", refs: [...] }
+						// 3. v1.0.0 格式：{ _schemaVersion: "1.0.0", bankId: "...", questions: [Card对象数组] }
+						if (Array.isArray(questionsData)) {
+							questionRefs = questionsData;
+						} else if (questionsData.refs) {
+							questionRefs = questionsData.refs;
+						} else if (questionsData.questions) {
+							// v1.0.0 格式：从 Card 对象中提取 uuid
+							questionRefs = questionsData.questions.map((card) => ({
+								cardUuid: card.uuid,
+								addedAt: card.created || new Date().toISOString()
+							}));
+						}
+					}
+
+					// 构建题目数据（包含测试历史）
+					const questionsInBank = questionRefs.map((q) => {
+						const testHistory = testHistoryMap.get(candidate.bank.id) || [];
+						const questionHistory = testHistory.filter((history) => history.cardUuid === q.cardUuid);
+
+						return {
+							cardUuid: q.cardUuid,
+							addedAt: q.addedAt || new Date().toISOString(),
+							testHistory: questionHistory,
+							stats: this.calculateQuestionStats(questionHistory),
+						};
+					});
+
+					// 构建 .qbank 文件数据
+					const qbankData: QBankFileData = {
+						id: candidate.bank.id,
+						name: candidate.bank.name,
+						description: candidate.bank.description || "",
+						deckType: "question-bank",
+						metadata: {
+							pairedMemoryDeckId:
+								typeof candidate.bank.metadata?.pairedMemoryDeckId === "string"
+									? candidate.bank.metadata.pairedMemoryDeckId
+									: undefined,
+							tags: candidate.bank.tags || [],
+							createdAt: candidate.bank.created,
+							updatedAt: new Date().toISOString(),
+						},
+						config: {
+							defaultMode: "exam",
+							defaultQuestionCount: undefined,
+							defaultTimeLimit: undefined,
+							enableErrorBook: true,
+							showExplanation: false,
+						},
+						questions: questionsInBank,
+						stats: this.calculateBankStats(questionsInBank),
+					};
+
+					// 写入 .qbank 文件
+					await adapter.write(candidate.filePath, JSON.stringify(qbankData, null, 2));
+
+					// 迁移进行中会话到插件目录
+					const inProgress = inProgressMap.get(candidate.bank.id);
+					if (inProgress) {
+						const inProgressPath = `${pluginCacheDir}/in-progress/${candidate.bank.name}.json`;
+						await adapter.write(inProgressPath, JSON.stringify(inProgress, null, 2));
+					}
+
+					// 迁移会话归档到插件目录
+					const sessionArchives = sessionArchivesMap.get(candidate.bank.id);
+					if (sessionArchives && sessionArchives.length > 0) {
+						const archivePath = `${pluginCacheDir}/session-archives/${candidate.bank.name}.json`;
+						await adapter.write(archivePath, JSON.stringify(sessionArchives, null, 2));
+					}
+
+					success++;
+				} catch (error) {
+					failed++;
+					errors.push({
+						uuid: candidate.bank.id,
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}
+
+			// 清理旧文件
+			if (success > 0) {
+				await this.cleanupLegacyQBankFiles();
+			}
+
+			return {
+				type: "qbank_migration",
+				success,
+				failed,
+				errors,
+			};
+		} catch (error) {
+			logger.error("[DataManagement] QBank 迁移执行失败:", error);
+			return {
+				type: "qbank_migration",
+				success: 0,
+				failed: 1,
+				errors: [{ uuid: "", error: error instanceof Error ? error.message : String(error) }],
+			};
+		}
+	}
+
+	async checkQBankLegacyCleanup(): Promise<DataCheckResult> {
+		try {
+			const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+			const v2Paths = getV2Paths(parentFolder);
+			const basePath = v2Paths.questionBank.root;
+
+			// 检查是否存在 .qbank 文件
+			const qbankFiles = await this.getExistingQBankFiles(basePath);
+			if (qbankFiles.length === 0) {
+				return {
+					type: "qbank_legacy_cleanup",
+					status: "ok",
+					count: 0,
+					items: [],
+					message: "没有找到 .qbank 文件，无需清理旧文件",
+				};
+			}
+
+			// 检查是否存在旧的 JSON 文件
+			const legacyFiles: string[] = [];
+			const filesToCheck = [
+				"banks.json",
+				"question-stats.json",
+				"test-history.json",
+				"in-progress.json",
+				"session-archives.json",
+				"error-book.json",
+			];
+
+			for (const file of filesToCheck) {
+				const filePath = `${basePath}/${file}`;
+				if (await this.plugin.app.vault.adapter.exists(filePath)) {
+					legacyFiles.push(file);
+				}
+			}
+
+			// 检查 banks/ 文件夹
+			const banksFolderPath = `${basePath}/banks`;
+			if (await this.plugin.app.vault.adapter.exists(banksFolderPath)) {
+				legacyFiles.push("banks/");
+			}
+
+			if (legacyFiles.length === 0) {
+				return {
+					type: "qbank_legacy_cleanup",
+					status: "ok",
+					count: 0,
+					items: [],
+					message: "旧题库文件已清理",
+				};
+			}
+
+			return {
+				type: "qbank_legacy_cleanup",
+				status: "warning",
+				count: legacyFiles.length,
+				items: legacyFiles,
+				message: `发现 ${legacyFiles.length} 个旧题库文件需要清理：${legacyFiles.join(", ")}`,
+			};
+		} catch (error) {
+			logger.error("[DataManagement] QBank 旧文件检测失败:", error);
+			return {
+				type: "qbank_legacy_cleanup",
+				status: "error",
+				count: 0,
+				items: [],
+				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+			};
+		}
+	}
+
+	async executeQBankLegacyCleanup(options: { confirmed?: boolean } = {}): Promise<DataFixResult> {
+		if (!options.confirmed) {
+			return this.buildBlockedFixResult(
+				"qbank_legacy_cleanup",
+				"需要用户确认后才能清理旧题库文件（此操作不可逆）"
+			);
+		}
+
+		try {
+			const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+			const v2Paths = getV2Paths(parentFolder);
+			const basePath = v2Paths.questionBank.root;
+
+			const filesToDelete = [
+				"banks.json",
+				"question-stats.json",
+				"test-history.json",
+				"in-progress.json",
+				"session-archives.json",
+				"error-book.json",
+			];
+
+			let successCount = 0;
+			let failedCount = 0;
+			const errors: Array<{ uuid: string; error: string }> = [];
+
+			// 删除文件
+			for (const file of filesToDelete) {
+				const filePath = `${basePath}/${file}`;
+				try {
+					if (await this.plugin.app.vault.adapter.exists(filePath)) {
+						await this.plugin.app.vault.adapter.remove(filePath);
+						successCount++;
+						logger.info(`[DataManagement] 已删除旧文件: ${file}`);
+					}
+				} catch (error) {
+					failedCount++;
+					errors.push({
+						uuid: file,
+						error: error instanceof Error ? error.message : String(error),
+					});
+					logger.error(`[DataManagement] 删除文件失败: ${file}`, error);
+				}
+			}
+
+			// 删除 banks/ 文件夹
+			const banksFolderPath = `${basePath}/banks`;
+			try {
+				if (await this.plugin.app.vault.adapter.exists(banksFolderPath)) {
+					await this.plugin.app.vault.adapter.rmdir(banksFolderPath, true);
+					successCount++;
+					logger.info("[DataManagement] 已删除 banks/ 文件夹");
+				}
+			} catch (error) {
+				failedCount++;
+				errors.push({
+					uuid: "banks/",
+					error: error instanceof Error ? error.message : String(error),
+				});
+				logger.error("[DataManagement] 删除 banks/ 文件夹失败", error);
+			}
+
+			return {
+				type: "qbank_legacy_cleanup",
+				success: successCount,
+				failed: failedCount,
+				errors,
+			};
+		} catch (error) {
+			logger.error("[DataManagement] QBank 旧文件清理失败:", error);
+			return {
+				type: "qbank_legacy_cleanup",
+				success: 0,
+				failed: 1,
+				errors: [{ uuid: "", error: error instanceof Error ? error.message : String(error) }],
+			};
+		}
+	}
+
+	private calculateQuestionStats(testHistory: TestAttempt[]): QuestionTestStats {
+		const totalAttempts = testHistory.length;
+		const correctAttempts = testHistory.filter((history) => history.isCorrect).length;
+		const accuracy = totalAttempts > 0 ? correctAttempts / totalAttempts : 0;
+
+		const scores = testHistory.map((history) => history.score || 0);
+		const highestScore = scores.length > 0 ? Math.max(...scores) : undefined;
+		const lowestScore = scores.length > 0 ? Math.min(...scores) : undefined;
+
+		const times = testHistory.map((history) => history.timeSpent || 0).filter((time) => time > 0);
+		const averageTimeSpent = times.length > 0 ? times.reduce((a, b) => a + b, 0) / times.length : undefined;
+
+		const lastTestedAt = testHistory.length > 0 ? testHistory[testHistory.length - 1].timestamp : undefined;
+
+		// 计算连续错误次数来判断是否在错题本
+		let consecutiveIncorrect = 0;
+		for (let i = testHistory.length - 1; i >= 0; i--) {
+			if (!testHistory[i].isCorrect) {
+				consecutiveIncorrect++;
+			} else {
+				break;
+			}
+		}
+
+		const isInErrorBook = consecutiveIncorrect >= 3 || (totalAttempts > 0 && accuracy < 0.5);
+
+		return {
+			totalAttempts,
+			correctAttempts,
+			accuracy,
+			isInErrorBook,
+			lastTestedAt,
+			averageTimeSpent,
+			highestScore,
+			lowestScore,
+		};
+	}
+
+	private calculateBankStats(questions: QuestionInBank[]): QBankStats {
+		const totalQuestions = questions.length;
+
+		const allScores = questions
+			.flatMap((q) => q.testHistory)
+			.map((t) => t.score)
+			.filter((s) => s !== undefined);
+
+		const averageScore =
+			allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : undefined;
+		const highestScore = allScores.length > 0 ? Math.max(...allScores) : undefined;
+		const lowestScore = allScores.length > 0 ? Math.min(...allScores) : undefined;
+
+		const errorBookCount = questions.filter((q) => q.stats.isInErrorBook).length;
+
+		const allTests = questions.flatMap((q) => q.testHistory);
+		const totalTests = allTests.length;
+
+		const lastTestedAt =
+			allTests.length > 0
+				? allTests.reduce((latest, test) =>
+						test.timestamp > latest ? test.timestamp : latest
+				  , allTests[0].timestamp)
+				: undefined;
+
+		return {
+			totalQuestions,
+			totalTests,
+			averageScore,
+			highestScore,
+			lowestScore,
+			errorBookCount,
+			lastTestedAt,
+		};
+	}
+
+	private async cleanupLegacyQBankFiles(): Promise<void> {
+		const adapter = this.plugin.app.vault.adapter;
+		const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+		const qbankDir = `${parentFolder}/question-bank`;
+
+		const filesToDelete = [
+			`${qbankDir}/banks.json`,
+			`${qbankDir}/question-stats.json`,
+			`${qbankDir}/test-history.json`,
+			`${qbankDir}/in-progress.json`,
+			`${qbankDir}/session-archives.json`,
+			`${qbankDir}/error-book.json`,
+		];
+
+		for (const filePath of filesToDelete) {
+			try {
+				if (await adapter.exists(filePath)) {
+					await adapter.remove(filePath);
+					logger.info(`[DataManagement] 已删除旧文件: ${filePath}`);
+				}
+			} catch (error) {
+				logger.warn(`[DataManagement] 删除旧文件失败: ${filePath}`, error);
+			}
+		}
+
+		// 删除 banks/ 文件夹
+		try {
+			const banksDir = `${qbankDir}/banks`;
+			if (await adapter.exists(banksDir)) {
+				const listing = await adapter.list(banksDir);
+				// 删除所有子文件夹中的文件
+				for (const folder of listing.folders || []) {
+					const folderListing = await adapter.list(folder);
+					for (const file of folderListing.files || []) {
+						await adapter.remove(file);
+					}
+					// 删除文件夹
+					await adapter.rmdir(folder, false);
+				}
+				// 删除 banks 文件夹本身
+				await adapter.rmdir(banksDir, false);
+				logger.info(`[DataManagement] 已删除旧文件夹: ${banksDir}`);
+			}
+		} catch (error) {
+			logger.warn(`[DataManagement] 删除 banks 文件夹失败:`, error);
 		}
 	}
 
@@ -3763,6 +5132,269 @@ export class DataManagementService {
 		}
 	}
 
+	private getStructuredDataKindLabel(kind: StructuredDataFileKind): string {
+		switch (kind) {
+			case "wdeck":
+				return ".wdeck";
+			case "irdeck":
+				return ".irdeck";
+			case "qbank":
+				return ".qbank";
+			default:
+				return kind;
+		}
+	}
+
+	private async listStructuredDataFiles(): Promise<Array<{ kind: StructuredDataFileKind; path: string }>> {
+		const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
+		const v2Paths = getV2Paths(parentFolder);
+		const roots: Array<{ kind: StructuredDataFileKind; root: string; extension: string }> = [
+			{ kind: "wdeck", root: v2Paths.memory.root, extension: ".wdeck" },
+			{ kind: "irdeck", root: v2Paths.ir.root, extension: ".irdeck" },
+			{ kind: "qbank", root: v2Paths.questionBank.root, extension: ".qbank" },
+		];
+		const vaultAny = this.plugin.app.vault as {
+			getFiles?: () => Array<{ path: string; extension?: string }>;
+		};
+
+		if (typeof vaultAny.getFiles === "function") {
+			return roots.flatMap(({ kind, root, extension }) =>
+				vaultAny
+					.getFiles?.()
+					.filter(
+						(file) =>
+							typeof file.path === "string" &&
+							file.path.startsWith(root) &&
+							file.path.toLowerCase().endsWith(extension)
+					)
+					.map((file) => ({ kind, path: file.path })) || []
+			);
+		}
+
+		const adapter = this.plugin.app.vault.adapter;
+		const results: Array<{ kind: StructuredDataFileKind; path: string }> = [];
+		for (const { kind, root, extension } of roots) {
+			if (!(await adapter.exists(root))) {
+				continue;
+			}
+			const stack = [root];
+			while (stack.length > 0) {
+				const current = stack.pop();
+				if (!current) {
+					continue;
+				}
+				let listing: { files?: string[]; folders?: string[] };
+				try {
+					listing = await adapter.list(current);
+				} catch {
+					continue;
+				}
+				for (const folder of listing.folders || []) {
+					stack.push(folder);
+				}
+				for (const filePath of listing.files || []) {
+					if (typeof filePath === "string" && filePath.toLowerCase().endsWith(extension)) {
+						results.push({ kind, path: filePath });
+					}
+				}
+			}
+		}
+
+		return results;
+	}
+
+	private async inspectStructuredDataFormatIssues(): Promise<StructuredDataFormatIssue[]> {
+		const adapter = this.plugin.app.vault.adapter;
+		const wdeckService = this.plugin.wdeckService ?? new WDeckService(this.plugin);
+		const pointStorageService = new IRPointStorageService(this.plugin.app);
+		const questionBankStorage = this.plugin.questionBankStorage ?? new QuestionBankStorage(this.plugin.app);
+		const files = await this.listStructuredDataFiles();
+		const issues: StructuredDataFormatIssue[] = [];
+
+		for (const file of files) {
+			let raw = "";
+			try {
+				raw = await adapter.read(file.path);
+			} catch (error) {
+				issues.push({
+					kind: file.kind,
+					path: file.path,
+					repairable: false,
+					reason: `读取失败：${error instanceof Error ? error.message : String(error)}`,
+				});
+				continue;
+			}
+
+			if (!raw.trim()) {
+				const canRestoreBackup =
+					file.kind === "wdeck"
+						? await wdeckService.hasRecoverableBackup(file.path)
+						: false;
+				issues.push({
+					kind: file.kind,
+					path: file.path,
+					repairable: canRestoreBackup,
+					reason: canRestoreBackup
+						? "文件为空，但存在可恢复的有效备份"
+						: "文件为空，无法安全自动修复",
+					repairStrategy: canRestoreBackup ? "restore_backup" : undefined,
+				});
+				continue;
+			}
+
+			let parsed: unknown;
+			try {
+				parsed = JSON.parse(raw);
+			} catch {
+				const canRestoreBackup =
+					file.kind === "wdeck"
+						? await wdeckService.hasRecoverableBackup(file.path)
+						: false;
+				issues.push({
+					kind: file.kind,
+					path: file.path,
+					repairable: canRestoreBackup,
+					reason: canRestoreBackup
+						? "内容不是合法 JSON，但存在可恢复的有效备份"
+						: "内容不是合法 JSON，无法安全自动修复",
+					repairStrategy: canRestoreBackup ? "restore_backup" : undefined,
+				});
+				continue;
+			}
+
+			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+				const canRestoreBackup =
+					file.kind === "wdeck"
+						? await wdeckService.hasRecoverableBackup(file.path)
+						: false;
+				issues.push({
+					kind: file.kind,
+					path: file.path,
+					repairable: canRestoreBackup,
+					reason: canRestoreBackup
+						? "JSON 根结构不是对象，但存在可恢复的有效备份"
+						: "JSON 根结构不是对象，无法安全自动修复",
+					repairStrategy: canRestoreBackup ? "restore_backup" : undefined,
+				});
+				continue;
+			}
+
+			let normalized: Record<string, unknown>;
+			switch (file.kind) {
+				case "wdeck":
+					normalized = wdeckService.normalizeDeckFileDataForPersistence(
+						parsed as Partial<WDeckFileData> & Record<string, unknown>,
+						file.path
+					);
+					break;
+				case "irdeck":
+					normalized = pointStorageService.normalizePointFileDataForPersistence(
+						parsed as Record<string, unknown>,
+						file.path
+					) as unknown as Record<string, unknown>;
+					break;
+				case "qbank":
+					normalized = questionBankStorage.normalizeQBankFileDataForPersistence(
+						parsed as Partial<QBankFileData> & Record<string, unknown>,
+						file.path
+					);
+					break;
+			}
+
+			if (JSON.stringify(parsed) === JSON.stringify(normalized)) {
+				continue;
+			}
+
+			issues.push({
+				kind: file.kind,
+				path: file.path,
+				repairable: true,
+				reason: "可按当前插件规范重写为稳定结构",
+				normalizedContent: `${JSON.stringify(normalized, null, 2)}\n`,
+				repairStrategy: "rewrite",
+			});
+		}
+
+		return issues;
+	}
+
+	async checkStructuredDataFormat(): Promise<DataCheckResult> {
+		const issues = await this.inspectStructuredDataFormatIssues();
+		const repairable = issues.filter((issue) => issue.repairable);
+		const manual = issues.filter((issue) => !issue.repairable);
+
+		return {
+			type: "structured_data_format",
+			status: manual.length > 0 ? "error" : issues.length > 0 ? "warning" : "ok",
+			count: issues.length,
+			items: issues.map(
+				(issue) =>
+					`${issue.repairable ? "[可自动修复]" : "[需人工处理]"} ${this.getStructuredDataKindLabel(issue.kind)} ${issue.path} - ${issue.reason}`
+			),
+			message:
+				issues.length === 0
+					? "未发现 .wdeck / .irdeck / .qbank 结构化数据文件格式问题"
+					: `发现 ${issues.length} 个结构化数据文件格式问题（可自动修复 ${repairable.length}，需人工处理 ${manual.length}）`,
+		};
+	}
+
+	async fixStructuredDataFormat(): Promise<DataFixResult> {
+		const issues = await this.inspectStructuredDataFormatIssues();
+		const adapter = this.plugin.app.vault.adapter;
+		const wdeckService = this.plugin.wdeckService ?? new WDeckService(this.plugin);
+		let success = 0;
+		let failed = 0;
+		const errors: Array<{ uuid: string; error: string }> = [];
+
+		for (const issue of issues) {
+			if (!issue.repairable) {
+				failed += 1;
+				errors.push({ uuid: issue.path, error: issue.reason });
+				continue;
+			}
+
+			try {
+				if (issue.kind === "wdeck" && issue.repairStrategy === "restore_backup") {
+					const restored = await wdeckService.restoreDeckFileFromBackup(issue.path);
+					if (!restored) {
+						throw new Error("未找到可恢复的有效备份");
+					}
+				} else {
+					if (!issue.normalizedContent) {
+						throw new Error("缺少可写回的规范化内容");
+					}
+					await safeWriteJson(adapter as any, issue.path, issue.normalizedContent, this.plugin.app as any);
+				}
+				success += 1;
+			} catch (error) {
+				failed += 1;
+				errors.push({
+					uuid: issue.path,
+					error: error instanceof Error ? error.message : String(error),
+				});
+			}
+		}
+
+		if (success > 0 && this.plugin.wdeckService) {
+			try {
+				await this.plugin.wdeckService.rebuildCache();
+			} catch (error) {
+				failed += 1;
+				errors.push({
+					uuid: "wdeck_cache",
+					error: `结构化文件修复后重建 .wdeck 缓存失败: ${error instanceof Error ? error.message : String(error)}`,
+				});
+			}
+		}
+
+		return {
+			type: "structured_data_format",
+			success,
+			failed,
+			errors,
+		};
+	}
+
 	async checkStructure(): Promise<DataCheckResult> {
 		const adapter = this.plugin.app.vault.adapter;
 		const issues: string[] = [];
@@ -3773,7 +5405,6 @@ export class DataManagementService {
 		// 预期的 V2 目录结构
 		const expectedDirs = [
 			v2Paths.memory.root,
-			v2Paths.memory.cards,
 			v2Paths.memory.learning.root,
 			v2Paths.ir.root,
 			v2Paths.questionBank.root,
@@ -3790,10 +5421,10 @@ export class DataManagementService {
 			this.plugin.settings?.weaveParentFolder
 		);
 		if (irImportFolder === ".weave" || irImportFolder.startsWith(".weave/")) {
-			issues.push(`导入材料存储文件夹不应位于隐藏目录: ${irImportFolder}`);
+			issues.push(`旧导入/复制兼容目录不应位于隐藏目录: ${irImportFolder}`);
 		}
 
-		// 检查 IR 导入文件夹不应位于内部数据子目录（memory/cards, question-bank 等）
+		// 检查旧导入/复制兼容目录不应位于内部数据子目录（memory/cards, question-bank 等）
 		const internalDirs = [
 			v2Paths.memory.cards,
 			v2Paths.memory.learning.root,
@@ -3801,7 +5432,7 @@ export class DataManagementService {
 		];
 		for (const intDir of internalDirs) {
 			if (irImportFolder === intDir || irImportFolder.startsWith(`${intDir}/`)) {
-				issues.push(`导入材料存储文件夹不应位于内部数据目录: ${irImportFolder}`);
+				issues.push(`旧导入/复制兼容目录不应位于内部数据目录: ${irImportFolder}`);
 				break;
 			}
 		}
@@ -3829,7 +5460,6 @@ export class DataManagementService {
 
 		const expectedDirs = [
 			v2Paths.memory.root,
-			v2Paths.memory.cards,
 			v2Paths.memory.learning.root,
 			v2Paths.ir.root,
 			v2Paths.questionBank.root,
@@ -5022,7 +6652,7 @@ export class DataManagementService {
 	): Promise<{ mergedFiles: number; errors: string[] }> {
 		const adapter = this.plugin.app.vault.adapter;
 		const conflictDir = `${v2Paths.root}/_migration_conflicts`;
-		const monitoringPath = `${v2Paths.ir.root}/monitoring.json`;
+		const monitoringPath = getPluginPaths(this.plugin.app).state.incrementalReading.monitoring;
 		const result = {
 			mergedFiles: 0,
 			errors: [] as string[],

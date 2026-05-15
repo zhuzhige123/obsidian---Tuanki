@@ -208,7 +208,7 @@ export interface DeckHierarchyExtension {
 
 /**
  * 阅读材料索引
- * 存储在 materials.json 中
+ * 当前仅作为兼容运行时快照，存储在插件本地 `reading-materials-runtime.json` 中
  */
 export interface ReadingMaterialsIndex {
 	/** 版本号 */

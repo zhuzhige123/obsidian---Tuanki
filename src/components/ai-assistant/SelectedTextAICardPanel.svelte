@@ -1,6 +1,5 @@
 <script lang="ts">
   import { Notice } from 'obsidian';
-  import type { WeavePlugin } from '../../main';
   import type { Card } from '../../data/types';
   import { CardType } from '../../data/types';
   import { get } from 'svelte/store';
@@ -10,19 +9,21 @@
   import UnifiedActionsBar from '../study/UnifiedActionsBar.svelte';
 
   import { AISplitService } from '../../services/ai/AISplitService';
+  import { resolveDefaultAISplitInstruction, type AISelectedTextPanelHost } from '../../services/ai/ai-host';
   import { createContentWithMetadata, extractBodyContent } from '../../utils/yaml-utils';
   import { generateCardUUID } from '../../services/identifier/WeaveIDGenerator';
   import { detectTraceSourceKind, normalizeTraceDocumentKey } from '../../services/incremental-reading/IRSourceTraceStats';
 
   interface Props {
-    plugin: WeavePlugin;
+    host: AISelectedTextPanelHost;
     selectedText: string;
     actionId: string;
     sourceFilePath: string;
+    sourceLink?: string;
     onClose: () => void;
   }
 
-  let { plugin, selectedText, actionId, sourceFilePath, onClose }: Props = $props();
+  let { host, selectedText, actionId, sourceFilePath, sourceLink = '', onClose }: Props = $props();
 
   let isGenerating = $state(false);
   let childCards = $state<Card[]>([]);
@@ -36,13 +37,13 @@
   let didInit = $state(false);
 
   let currentAction = $derived.by(() => {
-    const actions = get(customActionsForMenu);
-    return actions.split.find((a) => a.id === actionId) || null;
+    const actions = get(customActionsForMenu).split;
+    return actions.find((a) => a.id === actionId) || null;
   });
 
   async function loadDecks() {
     try {
-      const allDecks = await plugin.dataStorage.getDecks();
+      const allDecks = await host.dataStorage.getDecks();
       availableDecks = allDecks
         .filter((deck) => deck.purpose !== 'test')
         .map((deck) => ({ id: deck.id, name: deck.name }));
@@ -60,6 +61,12 @@
 
   async function ensureSourceReference(): Promise<void> {
     if (sourceWeSource) return;
+
+    const explicitSourceLink = (sourceLink || '').trim();
+    if (explicitSourceLink) {
+      sourceWeSource = explicitSourceLink;
+      return;
+    }
 
     if (!sourceFilePath) {
       return;
@@ -145,11 +152,10 @@
       await loadDecks();
       await ensureSourceReference();
 
-      const splitService = new AISplitService(plugin);
+      const splitService = new AISplitService(host);
       const effectiveTargetCount = action.splitConfig?.targetCount || 3;
 
-      const baseInstruction = (plugin.settings as any).aiConfig?.cardSplitting?.defaultInstruction || undefined;
-      const instruction = baseInstruction ? String(baseInstruction) : undefined;
+      const instruction = resolveDefaultAISplitInstruction(host);
 
       const tempParentCard: Card = {
         uuid: `temp-parent-${Date.now()}`,
@@ -274,14 +280,14 @@
 
         delete (cardToSave as any).fields;
 
-        const res = await plugin.dataStorage.saveCard(cardToSave);
+        const res = await host.dataStorage.saveCard(cardToSave);
         if (res.success) savedCount++;
       }
 
       new Notice(`成功导入 ${savedCount} 张卡片`);
 
       try {
-        (plugin.app.workspace as any).trigger('Weave:card-created', {
+        (host.app.workspace as any).trigger('Weave:card-created', {
           deckId: selectedDeckId,
           source: 'editor-ai-split'
         });

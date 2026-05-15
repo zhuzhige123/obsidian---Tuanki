@@ -16,7 +16,6 @@
   import QuestionBankVerticalToolbar from "./QuestionBankVerticalToolbar.svelte";
   import QuestionNavigator from "./QuestionNavigator.svelte";
   import CardEditorContainer from "../study/CardEditorContainer.svelte";
-  import CardDebugModal from "../modals/CardDebugModal.svelte";
   import { logger } from "../../utils/logger";
   import { detectClozeModeFromContent } from "../../utils/cloze-mode";
   import { isInputClozeQuestionContent } from "../../utils/question-bank/input-cloze-utils";
@@ -28,6 +27,8 @@
   import type { ChoiceQuestion } from "../../parsing/choice-question-parser";
   import { parseCardContent } from "../../parsing/card-content-parser";
   import CardContentView from "../content/CardContentView.svelte";
+  import type { ChoiceOptionOrder } from '../../utils/study/choiceOptionOrder';
+  import { applyChoiceQuestionOptionOrder } from '../../utils/study/choiceOptionOrder';
   
   // 重要程度贴纸
   import ImportanceIndicator from "./ImportanceIndicator.svelte";
@@ -89,8 +90,11 @@
   let selectedPriority = $state(2);
   let priorityAnchorElement: HTMLElement | null = $state(null);
 
+  const studyViewPrefs = untrack(() => plugin.getStudyInterfaceViewPreferences());
+
   // 题目学习顺序设置
-  let questionOrder = $state<'sequential' | 'random'>('sequential');
+  let questionOrder = $state<'sequential' | 'random'>(studyViewPrefs.cardOrder || 'sequential');
+  let choiceOptionOrder = $state<ChoiceOptionOrder>(studyViewPrefs.choiceOptionOrder || 'sequential');
   
   // 题目导航列数模式（持久化）
   let navColumnMode = $state<1 | 3>(3);
@@ -111,9 +115,6 @@
   let isKeyboardVisible = $state(false);
   let mobileViewportHeight = $state<number | null>(null);
   let mobileViewportCleanup: (() => void) | null = null;
-
-  // --- 题目数据结构调试窗口状态 ---
-  let showCardDebug = $state(false);
 
   // 计时器
   let elapsedSeconds = $state(0);
@@ -180,6 +181,15 @@
     return null;
   });
 
+  const orderedChoiceQuestionResult = $derived.by(() => {
+    if (!choiceQuestionDerived || !currentQuestion?.question) {
+      return null;
+    }
+
+    const seedSource = `${currentQuestion.question.uuid || currentQuestion.question.sourceFile || currentQuestion.question.content}::${choiceQuestionDerived.question}`;
+    return applyChoiceQuestionOptionOrder(choiceQuestionDerived, choiceOptionOrder, seedSource);
+  });
+
   const isInputClozeQuestion = $derived.by(() =>
     !choiceQuestionDerived
       && !!currentQuestion?.question.content
@@ -208,17 +218,28 @@
     return '题目';
   });
 
-  const inputClozeQuestionHint = $derived.by(() => {
-    if (!isInputClozeQuestion) {
-      return '';
+  function mapChoiceAnswerWithLabelMap(
+    answer: string | string[] | null,
+    labelMap: Record<string, string> | null | undefined
+  ): string | string[] | null {
+    if (!answer || !labelMap) {
+      return answer;
     }
 
-    if (isPureExamMode) {
-      return '请直接在空格中输入答案并提交。系统会完成判定后立即进入下一题，不在当前题显示标准答案。';
+    if (Array.isArray(answer)) {
+      return answer.map((item) => labelMap[item] ?? item);
     }
 
-    return '请直接在空格中输入答案并提交。提交后会在当前题显示对错和标准答案。';
-  });
+    return labelMap[answer] ?? answer;
+  }
+
+  function mapStoredChoiceAnswerToDisplayed(answer: string | string[] | null): string | string[] | null {
+    return mapChoiceAnswerWithLabelMap(answer, orderedChoiceQuestionResult?.originalToDisplayedLabelMap);
+  }
+
+  function mapDisplayedChoiceAnswerToStored(answer: string | string[] | null): string | string[] | null {
+    return mapChoiceAnswerWithLabelMap(answer, orderedChoiceQuestionResult?.displayedToOriginalLabelMap);
+  }
 
   const clozeUserAnswers = $derived.by(() => {
     if (Array.isArray(userAnswer)) {
@@ -347,7 +368,7 @@
           if (currentSession) {
             currentQuestion = sessionManager.getCurrentQuestion();
             if (currentQuestion) {
-              userAnswer = currentQuestion.userAnswer || null;
+              userAnswer = mapStoredChoiceAnswerToDisplayed(currentQuestion.userAnswer || null);
               hasSubmitted = currentQuestion.isCorrect !== null && currentQuestion.isCorrect !== undefined;
             }
             startTimer();
@@ -370,8 +391,8 @@
         {
           bankId,
           mode: mode,
-          shuffleQuestions: config?.shuffleQuestions ?? false,
-          shuffleOptions: config?.shuffleOptions ?? false,
+          shuffleQuestions: questionOrder === 'random' || config?.shuffleQuestions === true,
+          shuffleOptions: choiceOptionOrder === 'random' || config?.shuffleOptions === true,
           questionCount: config?.questionCount,
           timeLimit: config?.timeLimit ?? (getExamTimeLimitMinutes() ? getExamTimeLimitMinutes()! * 60 * 1000 : undefined)
         },
@@ -406,10 +427,13 @@
       }
 
       const normalizedAnswerToSubmit = answerToSubmit as string | string[];
+      const sessionAnswerToSubmit = (choiceQuestionDerived
+        ? mapDisplayedChoiceAnswerToStored(normalizedAnswerToSubmit)
+        : normalizedAnswerToSubmit) as string | string[];
 
       const result = await sessionManager.submitAnswer({
         questionId: currentQuestion.questionId,
-        answer: normalizedAnswerToSubmit,
+        answer: sessionAnswerToSubmit,
         timeSpent: elapsedSeconds
       });
 
@@ -419,7 +443,7 @@
       // 确保UI能正确显示答题结果和解析内容
       if (currentQuestion) {
         currentQuestion.isCorrect = result.isCorrect;
-        currentQuestion.userAnswer = normalizedAnswerToSubmit;
+        currentQuestion.userAnswer = sessionAnswerToSubmit;
         currentQuestion.submittedAt = new Date().toISOString();
         // 触发响应式更新
         currentQuestion = { ...currentQuestion };
@@ -479,7 +503,7 @@
     if (hasPrev) {
       // 使用刷新方法从数据库加载最新数据
       currentQuestion = await sessionManager.getCurrentQuestionWithRefresh();
-      userAnswer = currentQuestion?.userAnswer || null;
+      userAnswer = mapStoredChoiceAnswerToDisplayed(currentQuestion?.userAnswer || null);
       // 统一判断逻辑，确保已作答的题目正确显示状态
       hasSubmitted = currentQuestion?.isCorrect !== null && currentQuestion?.isCorrect !== undefined;
       currentSession = sessionManager.getCurrentSession();
@@ -890,12 +914,33 @@
   // 处理题目学习顺序切换
   function handleQuestionOrderChange(newOrder: 'sequential' | 'random') {
     questionOrder = newOrder;
+    void plugin.saveStudyInterfaceViewPreferences({ cardOrder: newOrder });
     
     // 提示用户：顺序将在下次学习时生效
     new Notice(
-      `题目学习顺序已切换为"${newOrder === 'sequential' ? '顺序学习' : '随机学习'}"，将在下次开始学习时生效`,
-      3000
+      `题目顺序已切换为${newOrder === 'random' ? '乱序' : '正序'}，重新开始本次测试后生效`
     );
+  }
+
+  function handleChoiceOptionOrderChange(newOrder: ChoiceOptionOrder) {
+    const storedAnswer = currentQuestion?.userAnswer || null;
+    choiceOptionOrder = newOrder;
+    void plugin.saveStudyInterfaceViewPreferences({ choiceOptionOrder: newOrder });
+    let noticeMessage = `选项顺序已切换为${newOrder === 'random' ? '乱序' : '正序'}`;
+    if (choiceQuestionDerived) {
+      if (hasSubmitted) {
+        const nextOrderedChoice = applyChoiceQuestionOptionOrder(
+          choiceQuestionDerived,
+          newOrder,
+          `${currentQuestion?.question.uuid || currentQuestion?.question.sourceFile || currentQuestion?.question.content || ''}::${choiceQuestionDerived.question}`
+        );
+        userAnswer = mapChoiceAnswerWithLabelMap(storedAnswer, nextOrderedChoice.originalToDisplayedLabelMap);
+      } else {
+        userAnswer = null;
+        noticeMessage += '，当前题未提交的选择已重置';
+      }
+    }
+    new Notice(noticeMessage);
   }
 
   // 处理导航列数模式切换
@@ -1012,7 +1057,7 @@
       
       // 统一答案状态判断逻辑
       if (currentQuestion) {
-        userAnswer = currentQuestion.userAnswer || null;
+        userAnswer = mapStoredChoiceAnswerToDisplayed(currentQuestion.userAnswer || null);
         hasSubmitted = currentQuestion.isCorrect !== null && currentQuestion.isCorrect !== undefined;
       } else {
         userAnswer = null;
@@ -1254,12 +1299,6 @@
     };
   });
 
-  // 打开题目数据结构调试窗口
-  function handleOpenCardDebug() {
-    if (!currentQuestion) return;
-    showCardDebug = true;
-  }
-
   function toggleMobileStatsBar() {
     const nextExpanded = !showMobileStatsBar;
     showMobileStatsBar = nextExpanded;
@@ -1292,8 +1331,9 @@
       enableDirectDelete,
       showStatsBar: showMobileStatsBar,
       questionOrder,
+      choiceOptionOrder,
       navColumnMode,
-      showNavigator //  题目导航栏状态
+      showNavigator // 题目导航栏状态
     };
 
     // 构建回调函数
@@ -1303,10 +1343,10 @@
       onToggleFavorite: handleToggleFavorite,
       onChangePriority: handleChangePriority,
       onOpenDetailedView: handleOpenDetailedView,
-      onOpenCardDebug: handleOpenCardDebug,
       onToggleStatsBar: toggleMobileStatsBar,
-      onToggleNavigator: toggleNavigatorPanel, //  切换题目导航栏
+      onToggleNavigator: toggleNavigatorPanel, // 切换题目导航栏
       onQuestionOrderChange: handleQuestionOrderChange,
+      onChoiceOptionOrderChange: handleChoiceOptionOrderChange,
       onNavColumnModeChange: handleNavColumnModeChange,
       onDirectDeleteToggle: (enabled) => { enableDirectDelete = enabled; }
     };
@@ -1464,9 +1504,6 @@
           {/if}
           <span class="question-type">{currentQuestionTypeLabel}</span>
         </div>
-        {#if isInputClozeQuestion}
-          <div class="question-hint">{inputClozeQuestionHint}</div>
-        {/if}
         <div class="question-content" bind:this={questionContentEl} oninput={handleQuestionContentInput}>
           {#if choiceQuestionDerived}
             <section class="study-preview-section">
@@ -1510,6 +1547,7 @@
               content={currentQuestion.question.content}
               sourcePath={currentQuestion.question.sourceFile || ''}
               section="options"
+              {choiceOptionOrder}
               {userAnswer}
               {hasSubmitted}
               onSingleSelect={handleSingleChoiceSelect}
@@ -1629,6 +1667,8 @@
             onNavColumnModeChange={handleNavColumnModeChange}
             {questionOrder}
             onQuestionOrderChange={handleQuestionOrderChange}
+            {choiceOptionOrder}
+            onChoiceOptionOrderChange={handleChoiceOptionOrderChange}
             {compactMode}
             {compactModeSetting}
             onCompactModeSettingChange={handleCompactModeSettingChange}
@@ -1642,7 +1682,6 @@
             {enableDirectDelete}
             onDirectDeleteToggle={(enabled) => enableDirectDelete = enabled}
             onOpenDetailedView={handleOpenDetailedView}
-            onOpenCardDebug={handleOpenCardDebug}
           />
         </div>
       {/if}
@@ -1692,14 +1731,6 @@
     {/if}
     </div>
   </div>
-
-<!-- 题目数据结构调试窗口 -->
-{#if currentQuestion && showCardDebug}
-  <CardDebugModal
-    card={currentQuestion.question}
-    onClose={() => showCardDebug = false}
-  />
-{/if}
 
 <FloatingMenu
   bind:show={showPriorityModal}
@@ -1998,17 +2029,6 @@
     display: flex;
     gap: 0.75rem;
     margin-bottom: 1rem;
-  }
-
-  .question-hint {
-    margin-bottom: 1rem;
-    padding: 0.75rem 0.9rem;
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--interactive-accent) 9%, var(--weave-question-bank-panel-bg));
-    border: 1px solid color-mix(in srgb, var(--interactive-accent) 16%, var(--background-modifier-border));
-    color: var(--text-muted);
-    font-size: 0.9rem;
-    line-height: 1.6;
   }
 
   .difficulty-badge,

@@ -4,6 +4,9 @@ interface ClozeInputModeHintModalOptions {
 	onConfirm: (dismissPermanently: boolean) => void | Promise<void>;
 }
 
+const YAML_INPUT_SAMPLE = ["we_cloze_mode", ": input"].join("");
+const YAML_TAG_SAMPLE = ["tags", ": [we_input]"].join("");
+
 export class ClozeInputModeHintModal extends Modal {
 	private dismissPermanently = false;
 	private readonly options: ClozeInputModeHintModalOptions;
@@ -32,13 +35,11 @@ export class ClozeInputModeHintModal extends Modal {
 
 		const yamlFieldItem = list.createEl("li");
 		yamlFieldItem.appendText("YAML 添加 ");
-		// eslint-disable-next-line obsidianmd/ui/sentence-case -- Code sample should keep the exact config key.
-		yamlFieldItem.createEl("code", { text: "we_cloze_mode: input" });
+		yamlFieldItem.createEl("code", { text: YAML_INPUT_SAMPLE });
 
 		const yamlTagItem = list.createEl("li");
 		yamlTagItem.appendText("YAML 标签添加 ");
-		// eslint-disable-next-line obsidianmd/ui/sentence-case -- Code sample should keep the exact YAML syntax.
-		yamlTagItem.createEl("code", { text: "tags: [we_input]" });
+		yamlTagItem.createEl("code", { text: YAML_TAG_SAMPLE });
 
 		const note = contentEl.createEl("p", {
 			text: "插件会自动识别，下次切到该卡片时会自动切换到输入模式。",

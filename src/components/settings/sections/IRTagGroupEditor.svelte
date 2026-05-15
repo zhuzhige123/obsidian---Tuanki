@@ -9,20 +9,28 @@
   import { Notice } from 'obsidian';
   import { tr } from '../../../utils/i18n';
   import { logger } from '../../../utils/logger';
-  import type WeavePlugin from '../../../main';
-  import type { IRTagGroup, IRTagGroupMatchSource } from '../../../types/ir-types';
+  import type { IncrementalReadingSettingsHost } from '../types/incremental-reading-settings-host';
+  import type { IRTagGroup, IRTagGroupMatchSource, IRTagGroupProfile } from '../../../types/ir-types';
+  import { DEFAULT_TAG_GROUP_PROFILE } from '../../../types/ir-types';
   import EnhancedIcon from '../../ui/EnhancedIcon.svelte';
 
   let t = $derived($tr);
 
   interface Props {
-    plugin: WeavePlugin;
+    plugin: IncrementalReadingSettingsHost;
     group: IRTagGroup | null;
-    onSave: (group: IRTagGroup) => void;
+    profile: IRTagGroupProfile | null;
+    availableScopes: Array<{ topicId: string; topicName: string }>;
+    selectedScopeTopicIds: string[];
+    onSave: (payload: {
+      group: IRTagGroup;
+      profile: IRTagGroupProfile;
+      targetTopicIds: string[];
+    }) => void | Promise<void>;
     onCancel: () => void;
   }
 
-  let { plugin, group, onSave, onCancel }: Props = $props();
+  let { plugin, group, profile, availableScopes, selectedScopeTopicIds, onSave, onCancel }: Props = $props();
 
   // 表单状态
   let name = $state(untrack(() => group?.name || ''));
@@ -30,6 +38,23 @@
   let tags = $state<string[]>(untrack(() => group?.matchAnyTags ? [...group.matchAnyTags] : []));
   let tagInput = $state('');
   let showTagSuggestions = $state(false);
+  let intervalFactorBase = $state(
+    untrack(() => profile?.intervalFactorBase ?? DEFAULT_TAG_GROUP_PROFILE.intervalFactorBase)
+  );
+  let initialIntervalMultiplier = $state(
+    untrack(() => profile?.initialIntervalMultiplier ?? DEFAULT_TAG_GROUP_PROFILE.initialIntervalMultiplier)
+  );
+  let loadHalfLifeDays = $state<string>(
+    untrack(() => Number.isFinite(profile?.loadHalfLifeDays) ? String(profile?.loadHalfLifeDays) : '')
+  );
+  let targetTopicIds = $state<string[]>(
+    untrack(() => {
+      const base = selectedScopeTopicIds.length > 0
+        ? selectedScopeTopicIds
+        : availableScopes.map((scope) => scope.topicId);
+      return Array.from(new Set(base.map((value) => String(value || '').trim()).filter(Boolean)));
+    })
+  );
 
   // 匹配源配置
   let useYamlTags = $state(untrack(() => group?.matchSource?.yamlTags ?? true));
@@ -117,13 +142,17 @@
   }
 
   // 验证并保存
-  function handleSave() {
+  async function handleSave() {
     if (!name.trim()) {
       new Notice(t('irTagGroup.nameRequired'));
       return;
     }
     if (tags.length === 0) {
       new Notice(t('irTagGroup.tagRequired'));
+      return;
+    }
+    if (targetTopicIds.length === 0) {
+      new Notice('请至少选择一个要写回的增量阅读专题文件');
       return;
     }
 
@@ -145,7 +174,51 @@
       updatedAt: now
     };
 
-    onSave(savedGroup);
+    const savedProfile: IRTagGroupProfile = {
+      ...(profile || DEFAULT_TAG_GROUP_PROFILE),
+      groupId: savedGroup.id,
+      intervalFactorBase: Math.max(
+        1.1,
+        Math.min(3, Number(intervalFactorBase) || DEFAULT_TAG_GROUP_PROFILE.intervalFactorBase)
+      ),
+      initialIntervalMultiplier: Math.max(
+        0.7,
+        Math.min(
+          1.5,
+          Number(initialIntervalMultiplier) || DEFAULT_TAG_GROUP_PROFILE.initialIntervalMultiplier
+        )
+      ),
+      loadHalfLifeDays: loadHalfLifeDays.trim()
+        ? Math.max(1, Number(loadHalfLifeDays) || 0)
+        : undefined,
+      sampleCount: Number(profile?.sampleCount || DEFAULT_TAG_GROUP_PROFILE.sampleCount),
+      updatedAt: now,
+      history: profile?.history ? [...profile.history] : undefined
+    };
+
+    await onSave({
+      group: savedGroup,
+      profile: savedProfile,
+      targetTopicIds
+    });
+  }
+
+  function toggleScope(topicId: string) {
+    const normalized = String(topicId || '').trim();
+    if (!normalized) return;
+    if (targetTopicIds.includes(normalized)) {
+      targetTopicIds = targetTopicIds.filter((value) => value !== normalized);
+      return;
+    }
+    targetTopicIds = [...targetTopicIds, normalized];
+  }
+
+  function selectAllScopes() {
+    targetTopicIds = availableScopes.map((scope) => scope.topicId);
+  }
+
+  function clearScopes() {
+    targetTopicIds = [];
   }
 
   // 点击背景关闭
@@ -312,6 +385,51 @@
         <p class="form-hint">
           {t('irTagGroup.editor.priorityHint')}
         </p>
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">调度参数</div>
+        <p class="form-hint">这里的参数会作为标签组正式参数，写回选中的 `.irdeck` 专题文件。</p>
+        <div class="profile-grid">
+          <label class="profile-field">
+            <span>间隔因子基线</span>
+            <input type="number" min="1.1" max="3" step="0.05" bind:value={intervalFactorBase} />
+          </label>
+          <label class="profile-field">
+            <span>冷启动乘子</span>
+            <input type="number" min="0.7" max="1.5" step="0.05" bind:value={initialIntervalMultiplier} />
+          </label>
+          <label class="profile-field">
+            <span>负载半衰期(天)</span>
+            <input type="number" min="1" step="1" bind:value={loadHalfLifeDays} placeholder="可选" />
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <div class="form-label">写回范围</div>
+        <p class="form-hint">设置界面负责统一管理，但真源仍然在对应的增量阅读专题 `.irdeck` 文件里。</p>
+        {#if availableScopes.length === 0}
+          <div class="scope-empty">当前还没有可写入的 `.irdeck` 专题文件。</div>
+        {:else}
+          <div class="scope-toolbar">
+            <button type="button" class="scope-btn" onclick={selectAllScopes}>全选</button>
+            <button type="button" class="scope-btn" onclick={clearScopes}>清空</button>
+            <span class="scope-count">已选 {targetTopicIds.length} / {availableScopes.length}</span>
+          </div>
+          <div class="scope-list">
+            {#each availableScopes as scope}
+              <label class="scope-item">
+                <input
+                  type="checkbox"
+                  checked={targetTopicIds.includes(scope.topicId)}
+                  onchange={() => toggleScope(scope.topicId)}
+                />
+                <span>{scope.topicName}</span>
+              </label>
+            {/each}
+          </div>
+        {/if}
       </div>
 
       <!-- 算法说明 -->
@@ -623,6 +741,107 @@
     font-weight: 600;
     color: var(--text-normal);
     text-align: right;
+  }
+
+  .profile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  .profile-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .profile-field input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 0.85rem;
+  }
+
+  .profile-field input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+  }
+
+  .scope-empty {
+    padding: 12px;
+    background: var(--background-secondary);
+    border: 1px dashed var(--background-modifier-border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  .scope-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    margin-bottom: 10px;
+  }
+
+  .scope-btn {
+    padding: 6px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  .scope-btn:hover {
+    background: var(--background-secondary-alt);
+    border-color: var(--interactive-accent);
+  }
+
+  .scope-count {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .scope-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 8px;
+  }
+
+  .scope-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: var(--text-normal);
+    cursor: pointer;
+  }
+
+  .scope-item:hover {
+    border-color: var(--interactive-accent);
+    background: var(--background-secondary-alt);
+  }
+
+  .scope-item input[type="checkbox"] {
+    margin: 0;
   }
 
   /* 算法说明 */

@@ -12,11 +12,13 @@ vi.mock("obsidian", () => ({
 			this.extension = dotIndex >= 0 ? fileName.slice(dotIndex + 1) : "";
 		}
 	},
+	normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/+/g, "/"),
 }));
 
 import { TFile } from "obsidian";
 import {
 	WDECK_UNGROUPED_DECK_NAME,
+	WDeckFileLoadError,
 	WDeckService,
 	isWDeckRuntimeDeckId,
 	normalizeWDeckLogicalDeckId,
@@ -53,6 +55,18 @@ function createWDeckPlugin(initialFiles: Record<string, string> = {}) {
 		const normalized = normalizeTestPath(path);
 		ensureDir(parentPath(normalized));
 		files.set(normalized, content);
+	};
+
+	const renameText = (sourcePath: string, targetPath: string) => {
+		const normalizedSource = normalizeTestPath(sourcePath);
+		const normalizedTarget = normalizeTestPath(targetPath);
+		const value = files.get(normalizedSource);
+		if (value === undefined) {
+			throw new Error(`File not found: ${normalizedSource}`);
+		}
+		ensureDir(parentPath(normalizedTarget));
+		files.set(normalizedTarget, value);
+		files.delete(normalizedSource);
 	};
 
 	for (const [path, content] of Object.entries(initialFiles)) {
@@ -137,10 +151,16 @@ function createWDeckPlugin(initialFiles: Record<string, string> = {}) {
 				},
 				cachedRead: async (file: TFile) => adapter.read(file.path),
 				modify: async (file: TFile, content: string) => adapter.write(file.path, content),
+				rename: async (file: TFile, newPath: string) => {
+					renameText(file.path, newPath);
+				},
 			},
 			fileManager: {
 				trashFile: async (file: TFile) => {
 					files.delete(normalizeTestPath(file.path));
+				},
+				renameFile: async (file: TFile, newPath: string) => {
+					renameText(file.path, newPath);
 				},
 			},
 		},
@@ -218,6 +238,42 @@ describe("WDeckService deck file actions", () => {
 		});
 		expect(files.has("weave/memory/deck-files/循环系统_01.wdeck")).toBe(false);
 		expect(files.has("weave/memory/deck-files/循环系统_02.wdeck")).toBe(false);
+	});
+
+	test("treats a 0KB .wdeck file as a dedicated empty-file error", async () => {
+		const filePath = "weave/memory/deck-files/空文件_01.wdeck";
+		const { plugin } = createWDeckPlugin({
+			[filePath]: "",
+		});
+		const service = new WDeckService(plugin);
+
+		const loadPromise = service.loadDeckAggregateFromFilePath(filePath);
+
+		await expect(loadPromise).rejects.toBeInstanceOf(WDeckFileLoadError);
+		await expect(loadPromise).rejects.toMatchObject({
+			code: "empty_file",
+			filePath,
+		});
+	});
+
+	test("allows a valid empty .wdeck deck to open as an empty deck", async () => {
+		const filePath = "weave/memory/deck-files/空牌组_01.wdeck";
+		const { plugin } = createWDeckPlugin({
+			[filePath]: JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "空牌组",
+				logicalDeckName: "空牌组",
+				segmentIndex: 1,
+				cards: [],
+			}),
+		});
+		const service = new WDeckService(plugin);
+
+		const aggregate = await service.loadDeckAggregateFromFilePath(filePath);
+
+		expect(aggregate.logicalDeckId).toBe("空牌组");
+		expect(aggregate.logicalDeckName).toBe("空牌组");
+		expect(aggregate.cards).toEqual([]);
 	});
 
 	test("dissolves a deck into the ungrouped deck file and keeps review data", async () => {
@@ -346,6 +402,163 @@ describe("WDeckService deck file actions", () => {
 		expect(aggregate.cards.map((card) => card.uuid)).toEqual(["card-1", "card-3"]);
 	});
 
+	test("resolves aggregates from snapshot members without depending on scanResolvedFiles", async () => {
+		const { plugin } = createWDeckPlugin({
+			"vault/study/circulation_03.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "deck-circulation",
+				logicalDeckName: "circulation",
+				segmentIndex: 3,
+				cards: [{ uuid: "card-3", content: "segment-3" }],
+			}),
+			"archive/memory/circulation_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "deck-circulation",
+				logicalDeckName: "circulation",
+				segmentIndex: 1,
+				cards: [{ uuid: "card-1", content: "segment-1" }],
+			}),
+			"vault/study/other_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "deck-other",
+				logicalDeckName: "other",
+				segmentIndex: 1,
+				cards: [{ uuid: "other-card", content: "other" }],
+			}),
+		});
+		const service = new WDeckService(plugin);
+
+		await service.rebuildCache();
+		const scanSpy = vi
+			.spyOn(service as any, "scanResolvedFiles")
+			.mockRejectedValue(new Error("scanResolvedFiles should not be used here"));
+
+		try {
+			const aggregateByRuntime = await service.getDeckAggregateByDeckId("wdeck:deck-circulation");
+			const aggregateByLogical = await service.getDeckAggregateByAnyDeckId("deck-circulation");
+			const aggregateByPath = await service.loadDeckAggregateFromFilePath(
+				"vault/study/circulation_03.wdeck"
+			);
+			const allCards = await service.getAllCards();
+			const locatedCard = await service.getCardByUUID("card-3");
+
+			expect(aggregateByRuntime?.files.map((file) => file.path)).toEqual([
+				"archive/memory/circulation_01.wdeck",
+				"vault/study/circulation_03.wdeck",
+			]);
+			expect(aggregateByLogical?.cards.map((card) => card.uuid)).toEqual(["card-1", "card-3"]);
+			expect(aggregateByPath.segmentIndices).toEqual([1, 3]);
+			expect(allCards.map((card) => card.uuid)).toEqual(["card-1", "card-3", "other-card"]);
+			expect(locatedCard?.uuid).toBe("card-3");
+			expect(scanSpy).not.toHaveBeenCalled();
+		} finally {
+			scanSpy.mockRestore();
+		}
+	});
+
+	test("builds all deck aggregates from cached .wdeck members without depending on scanResolvedFiles", async () => {
+		const { plugin } = createWDeckPlugin({
+			"vault/study/circulation_03.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "deck-circulation",
+				logicalDeckName: "circulation",
+				segmentIndex: 3,
+				cards: [{ uuid: "card-3", content: "segment-3" }],
+			}),
+			"archive/memory/circulation_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "deck-circulation",
+				logicalDeckName: "circulation",
+				segmentIndex: 1,
+				cards: [{ uuid: "card-1", content: "segment-1" }],
+				deck: { id: "deck-circulation", name: "circulation", description: "bio" },
+			}),
+			"vault/study/other_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "deck-other",
+				logicalDeckName: "other",
+				segmentIndex: 1,
+				cards: [{ uuid: "other-card", content: "other" }],
+			}),
+		});
+		const service = new WDeckService(plugin);
+
+		await service.rebuildCache();
+		const scanSpy = vi
+			.spyOn(service as any, "scanResolvedFiles")
+			.mockRejectedValue(new Error("scanResolvedFiles should not be used here"));
+
+		try {
+			const aggregates = await service.getAllDeckAggregates();
+			const circulation = aggregates.find((item) => item.logicalDeckId === "deck-circulation");
+			const other = aggregates.find((item) => item.logicalDeckId === "deck-other");
+
+			expect(circulation).toMatchObject({
+				runtimeDeckId: "wdeck:deck-circulation",
+				logicalDeckName: "circulation",
+				segmentIndices: [1, 3],
+				deck: expect.objectContaining({
+					id: "deck-circulation",
+					name: "circulation",
+					description: "bio",
+				}),
+			});
+			expect(circulation?.files.map((file) => file.path)).toEqual([
+				"archive/memory/circulation_01.wdeck",
+				"vault/study/circulation_03.wdeck",
+			]);
+			expect(circulation?.cards.map((card) => card.uuid)).toEqual(["card-1", "card-3"]);
+			expect(other?.cards.map((card) => card.uuid)).toEqual(["other-card"]);
+			expect(scanSpy).not.toHaveBeenCalled();
+		} finally {
+			scanSpy.mockRestore();
+		}
+	});
+
+	test("builds lightweight deck summaries from cached .wdeck members", async () => {
+		const { plugin } = createWDeckPlugin({
+			"archive/memory/circulation_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "deck-circulation",
+				logicalDeckName: "circulation",
+				segmentIndex: 1,
+				cards: [{ uuid: "card-1", content: "segment-1" }],
+				deck: { id: "deck-circulation", name: "circulation", description: "bio" }
+			}),
+			"vault/study/circulation_03.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "deck-circulation",
+				logicalDeckName: "circulation",
+				segmentIndex: 3,
+				cards: [{ uuid: "card-3", content: "segment-3" }, { uuid: "card-1", content: "dup" }]
+			}),
+			"vault/study/other_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "deck-other",
+				logicalDeckName: "other",
+				segmentIndex: 1,
+				cards: [{ uuid: "other-card", content: "other" }]
+			}),
+		});
+		const service = new WDeckService(plugin);
+
+		const summaries = await service.getAllDeckSummaries();
+		const circulation = summaries.find((item) => item.logicalDeckId === "deck-circulation");
+
+		expect(circulation).toMatchObject({
+			runtimeDeckId: "wdeck:deck-circulation",
+			logicalDeckName: "circulation",
+			segmentIndices: [1, 3],
+			filePaths: ["archive/memory/circulation_01.wdeck", "vault/study/circulation_03.wdeck"],
+			cardUUIDs: ["card-1", "card-3"],
+			deck: expect.objectContaining({
+				id: "deck-circulation",
+				name: "circulation",
+				description: "bio"
+			})
+		});
+	});
+
 	test("reuses an existing .wdeck file when the stable deck id stays the same", async () => {
 		const { plugin, files } = createWDeckPlugin({
 			"custom/decks/legacy-name_01.wdeck": JSON.stringify({
@@ -456,9 +669,13 @@ describe("WDeckService deck file actions", () => {
 			logicalDeckId: "deck-1",
 			logicalDeckName: "renamed-deck",
 		});
+		expect(files.has("custom/decks/legacy-name_01.wdeck")).toBe(false);
+		expect(files.has("custom/decks/legacy-name_02.wdeck")).toBe(false);
+		expect(files.has("custom/decks/renamed-deck_01.wdeck")).toBe(true);
+		expect(files.has("custom/decks/renamed-deck_02.wdeck")).toBe(true);
 
-		const firstSegment = JSON.parse(files.get("custom/decks/legacy-name_01.wdeck") || "{}");
-		const secondSegment = JSON.parse(files.get("custom/decks/legacy-name_02.wdeck") || "{}");
+		const firstSegment = JSON.parse(files.get("custom/decks/renamed-deck_01.wdeck") || "{}");
+		const secondSegment = JSON.parse(files.get("custom/decks/renamed-deck_02.wdeck") || "{}");
 		expect(firstSegment.logicalDeckName).toBe("renamed-deck");
 		expect(secondSegment.logicalDeckName).toBe("renamed-deck");
 		expect(firstSegment.deck).toMatchObject({

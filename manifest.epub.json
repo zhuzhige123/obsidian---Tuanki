@@ -1,0 +1,10 @@
+{
+  "id": "weave-epub-reader",
+  "name": "Weave EPUB Reader",
+  "version": "0.7.25",
+  "minAppVersion": "1.7.0",
+  "description": "Standalone EPUB reader for Obsidian with bookshelf, deep links, and reading state persistence.",
+  "author": "Rabbit (zhuzhige)",
+  "authorUrl": "https://github.com/zhuzhige123",
+  "isDesktopOnly": false
+}

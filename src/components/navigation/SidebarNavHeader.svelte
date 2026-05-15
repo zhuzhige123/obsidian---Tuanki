@@ -13,7 +13,7 @@
    * @module components/navigation/SidebarNavHeader
    * @version 1.3.0 - 卡片管理页面圆点改为视图切换
    */
-  import { Notice, type App } from 'obsidian';
+  import { Menu, type App } from 'obsidian';
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
@@ -21,14 +21,17 @@
   import CardSearchInput from '../search/CardSearchInput.svelte';
   import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
   import { openWeaveMainMenu } from '../../utils/weave-main-menu';
+  import { weaveMainInterfaceStore } from '../../stores/weave-main-interface-store';
+  import { vaultStorage } from '../../utils/vault-local-storage';
 
   // 牌组学习页面的筛选类型
-  export type DeckFilter = 'memory' | 'question-bank' | 'incremental-reading';
+  export type DeckFilter = 'memory' | 'question-bank';
   export type DeckStudyViewType = 'grid' | 'kanban';
   // 卡片管理页面的视图类型
   export type CardViewType = 'table' | 'grid' | 'kanban';
   // 卡片管理页面的数据源类型（保留用于兼容）
   export type CardDataSource = 'memory' | 'questionBank' | 'incremental-reading';
+  type MemoryDeckDisplayMode = 'formal' | 'emergent';
   type TableViewMode = 'basic' | 'review';
   type GridLayoutMode = 'fixed' | 'masonry' | 'timeline';
   type KanbanLayoutMode = 'compact' | 'comfortable' | 'spacious';
@@ -36,9 +39,12 @@
   interface Props {
     currentPage: string;
     navigationVisibility?: {
+      deckStudy?: boolean;
+      cardManagement?: boolean;
+      incrementalReading?: boolean;
+      aiAssistant?: boolean;
       apkgImport?: boolean;
       csvImport?: boolean;
-      clipboardImport?: boolean;
     };
     // 牌组学习页面的筛选状态
     selectedFilter?: DeckFilter;
@@ -52,6 +58,8 @@
     onCardDataSourceChange?: (source: CardDataSource) => void;
     app?: App;
     isInSidebarMode?: boolean;
+    inspirationPopoverOpen?: boolean;
+    onOpenInspirationModal?: (anchor: HTMLElement | null) => void;
     // 导航回调
     onNavigate: (pageId: string) => void;
   }
@@ -68,16 +76,18 @@
     onCardDataSourceChange,
     app,
     isInSidebarMode = false,
+    inspirationPopoverOpen = false,
+    onOpenInspirationModal,
     onNavigate
   }: Props = $props();
 
   const premiumGuard = PremiumFeatureGuard.getInstance();
+  const deckStudyFeatureContext = { page: 'deck-study' };
   let isPremium = $state(get(premiumGuard.isPremiumActive));
   let showPremiumFeaturesPreview = $state(get(premiumGuard.premiumFeaturesPreviewEnabled));
 
   // 牌组学习页面的彩色圆点配置
   const deckFilters = [
-    { id: 'incremental-reading' as DeckFilter, name: '增量阅读', colorStart: '#ef4444', colorEnd: '#dc2626' },
     { id: 'memory' as DeckFilter, name: '记忆牌组', colorStart: '#3b82f6', colorEnd: '#2563eb' },
     { id: 'question-bank' as DeckFilter, name: '考试题组', colorStart: '#10b981', colorEnd: '#059669' }
   ];
@@ -107,31 +117,19 @@
     return premiumGuard.shouldShowFeatureEntry(featureId, {
       isPremium,
       showPremiumPreview: showPremiumFeaturesPreview
-    });
+    }, currentPage === 'deck-study' ? deckStudyFeatureContext : undefined);
   }
 
   function getPremiumEntryTitle(baseTitle: string, featureId: string): string {
-    return premiumGuard.canUseFeature(featureId) ? baseTitle : `${baseTitle} (高级)`;
-  }
-
-  function isClipboardImportMenuVisible(): boolean {
-    return navigationVisibility?.clipboardImport !== false;
-  }
-
-  function isAPKGImportMenuVisible(): boolean {
-    return navigationVisibility?.apkgImport !== false;
-  }
-
-  function isCSVImportMenuVisible(): boolean {
-    return navigationVisibility?.csvImport !== false;
+    return premiumGuard.getFeatureEntryTitle(
+      baseTitle,
+      featureId,
+      currentPage === 'deck-study' ? deckStudyFeatureContext : undefined
+    );
   }
 
   const visibleDeckFilters = $derived(
     deckFilters.filter(filter => {
-      if (filter.id === 'incremental-reading') {
-        return shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING);
-      }
-
       if (filter.id === 'question-bank') {
         return shouldShowPremiumEntry(PREMIUM_FEATURES.QUESTION_BANK);
       }
@@ -154,6 +152,9 @@
     })
   );
 
+  const shouldRenderDeckStudyDots = $derived(visibleDeckFilters.length > 1);
+  const shouldRenderCardManagementDots = $derived(visibleCardViewTypes.length > 1);
+
   let cardTableViewMode = $state<TableViewMode>('basic');
   let cardGridLayoutMode = $state<GridLayoutMode>('fixed');
   let cardKanbanLayoutMode = $state<KanbanLayoutMode>('comfortable');
@@ -161,6 +162,7 @@
   let cardSearchQuery = $state('');
   let cardDocumentFilterMode = $state<'all' | 'current'>('all');
   let cardCurrentActiveDocument = $state<string | null>(null);
+  let cardEnableRelationFilter = $state(false);
   let cardEnableLocationJump = $state(false);
   let cardSearchAvailableDecks = $state<any[]>([]);
   let cardSearchAvailableTags = $state<string[]>([]);
@@ -177,7 +179,7 @@
   let cardSearchTotalCount = $state(-1);
   let cardSortField = $state('created');
   let cardSortDirection = $state<'asc' | 'desc'>('desc');
-  let showSidebarCardSearch = $state(false); 
+  let showSidebarCardSearch = $state(false);
   let aiSelectedFileName = $state('');
   let aiPromptFileName = $state('');
   let aiPromptFilePath = $state('');
@@ -190,10 +192,66 @@
   let aiIsParsing = $state(false);
   let aiCanGenerate = $state(false);
   let aiCanParse = $state(false);
+  let memoryDeckDisplayMode = $state<MemoryDeckDisplayMode>((() => {
+    try {
+      return normalizeMemoryDeckDisplayMode(vaultStorage.getItem('weave-memory-deck-display-mode'));
+    } catch {}
+    return 'formal';
+  })());
   const cardSearchLabel = '\u641c\u7d22\u5361\u7247';
   const cardSearchPlaceholder = '\u641c\u7d22\u5361\u7247...';
 
+  function normalizeMemoryDeckDisplayMode(value: string | null | undefined): MemoryDeckDisplayMode {
+    return value === 'emergent' && premiumGuard.canUseFeature(PREMIUM_FEATURES.EMERGENT_DECKS, deckStudyFeatureContext)
+      ? 'emergent'
+      : 'formal';
+  }
+
+  function getCardDataSourceLabel(source: CardDataSource): string {
+    if (source === 'questionBank') return '题组';
+    if (source === 'incremental-reading') return '阅读';
+    return '记忆';
+  }
+
+  const cardKanbanLayoutModeLabels: Record<KanbanLayoutMode, string> = {
+    compact: '紧凑',
+    comfortable: '舒适',
+    spacious: '宽松'
+  };
+
+  const cardKanbanLayoutModeIcons: Record<KanbanLayoutMode, string> = {
+    compact: 'minimize-2',
+    comfortable: 'square',
+    spacious: 'maximize-2'
+  };
+
+  const cardKanbanLayoutModeOrder: KanbanLayoutMode[] = ['compact', 'comfortable', 'spacious'];
+
+  function getNextCardKanbanLayoutMode(mode: KanbanLayoutMode): KanbanLayoutMode {
+    const currentIndex = cardKanbanLayoutModeOrder.indexOf(mode);
+    return cardKanbanLayoutModeOrder[(currentIndex + 1) % cardKanbanLayoutModeOrder.length] ?? 'comfortable';
+  }
+
+  function toggleCardKanbanLayoutMode() {
+    const nextMode = getNextCardKanbanLayoutMode(cardKanbanLayoutMode);
+    emitCardManagementToolbarAction(`kanban-layout-${nextMode}`);
+  }
+
+  function getCardKanbanLayoutButtonLabel(mode: KanbanLayoutMode): string {
+    return `密度·${cardKanbanLayoutModeLabels[mode]}`;
+  }
+
+  function getCardKanbanLayoutButtonTitle(mode: KanbanLayoutMode): string {
+    const nextMode = getNextCardKanbanLayoutMode(mode);
+    return `当前${cardKanbanLayoutModeLabels[mode]}布局，点击切换为${cardKanbanLayoutModeLabels[nextMode]}布局`;
+  }
+
+  function getCardKanbanLayoutButtonAriaLabel(mode: KanbanLayoutMode): string {
+    return `切换看板密度（当前${cardKanbanLayoutModeLabels[mode]}）`;
+  }
+
   function handleMenuClick(evt: MouseEvent) {
+    const anchorEl = evt.currentTarget instanceof HTMLElement ? evt.currentTarget : null;
     openWeaveMainMenu({
       currentPage,
       isMobile: false,
@@ -209,24 +267,64 @@
       irTypeFilter: cardIRTypeFilter,
       documentFilterMode: cardDocumentFilterMode,
       currentActiveDocument: cardCurrentActiveDocument,
+      enableCardRelationFilterMode: cardEnableRelationFilter,
       enableCardLocationJump: cardEnableLocationJump,
-      event: evt,
+      anchorEl,
       onNavigate,
       onCardDataSourceChange,
       onViewChange
     });
   }
 
+  function openCardDataSourceMenu(evt: MouseEvent) {
+    const menu = new Menu();
+
+    menu.addItem((item) => {
+      item
+        .setTitle('记忆牌组')
+        .setIcon('graduation-cap')
+        .setChecked(cardDataSource === 'memory')
+        .onClick(() => {
+          onCardDataSourceChange?.('memory');
+        });
+    });
+
+    if (shouldShowPremiumEntry(PREMIUM_FEATURES.QUESTION_BANK)) {
+      menu.addItem((item) => {
+        item
+          .setTitle(getPremiumEntryTitle('考试题组', PREMIUM_FEATURES.QUESTION_BANK))
+          .setIcon('clipboard-list')
+          .setChecked(cardDataSource === 'questionBank')
+          .onClick(() => {
+            onCardDataSourceChange?.('questionBank');
+          });
+      });
+    }
+
+    if (shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)) {
+      menu.addItem((item) => {
+        item
+          .setTitle(getPremiumEntryTitle('增量阅读', PREMIUM_FEATURES.INCREMENTAL_READING))
+          .setIcon('bookmark')
+          .setChecked(cardDataSource === 'incremental-reading')
+          .onClick(() => {
+            onCardDataSourceChange?.('incremental-reading');
+          });
+      });
+    }
+
+    const anchor = evt.currentTarget instanceof HTMLElement ? evt.currentTarget : null;
+    if (anchor) {
+      const rect = anchor.getBoundingClientRect();
+      menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
+      return;
+    }
+
+    menu.showAtPosition({ x: evt.clientX, y: evt.clientY + 4 });
+  }
+
   function handleDotClick(dotId: string) {
     if (currentPage === 'deck-study') {
-      if (dotId === 'incremental-reading' && !premiumGuard.canUseFeature(PREMIUM_FEATURES.INCREMENTAL_READING)) {
-          new Notice('增量阅读是高级功能，请激活许可证后使用');
-          return;
-      }
-      if (dotId === 'question-bank' && !premiumGuard.canUseFeature(PREMIUM_FEATURES.QUESTION_BANK)) {
-        new Notice('考试题组是高级功能，请激活许可证后使用');
-        return;
-      }
       // 牌组学习页面：切换筛选
       if (onFilterSelect) {
         onFilterSelect(dotId as DeckFilter);
@@ -291,10 +389,26 @@
     }));
   }
 
-  function emitDeckStudyToolbarAction(action: 'open-emergent-rule-groups', anchor?: HTMLElement | null) {
+  function emitDeckStudyToolbarAction(
+    action: 'open-emergent-rule-groups' | 'set-memory-deck-display-mode',
+    anchor?: HTMLElement | null,
+    mode?: MemoryDeckDisplayMode
+  ) {
     window.dispatchEvent(new CustomEvent('Weave:deck-study-toolbar-action', {
-      detail: { action, anchor }
+      detail: { action, anchor, mode }
     }));
+  }
+
+  function toggleMemoryDeckDisplayMode(anchor?: HTMLElement | null) {
+    const nextMode: MemoryDeckDisplayMode = memoryDeckDisplayMode === 'formal' ? 'emergent' : 'formal';
+
+    if (nextMode === 'emergent' && !premiumGuard.canUseFeature(PREMIUM_FEATURES.EMERGENT_DECKS, deckStudyFeatureContext)) {
+      emitDeckStudyToolbarAction('set-memory-deck-display-mode', anchor, nextMode);
+      return;
+    }
+
+    memoryDeckDisplayMode = nextMode;
+    emitDeckStudyToolbarAction('set-memory-deck-display-mode', anchor, nextMode);
   }
 
   function getFileName(path: string | null | undefined): string {
@@ -331,37 +445,20 @@
   }
 
   onMount(() => {  
-    const handleAIToolbarStateChange = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        subView?: 'generate' | 'parse-preview';
-        selectedFileName?: string;
-        selectedFilePath?: string;
-        promptFileName?: string;
-        promptFilePath?: string;
-        modelLabel?: string;
-        modelTitle?: string;
-        parsePresetName?: string;
-        parsePresetId?: string;
-        historyCount?: number;
-        canGenerate?: boolean;
-        canParse?: boolean;
-        isGenerating?: boolean;
-        isParsing?: boolean;
-      }>).detail;
-
-      aiSubView = detail?.subView ?? aiSubView;
-      aiSelectedFileName = detail?.selectedFileName?.trim() ?? '';
-      aiPromptFileName = detail?.promptFileName?.trim() ?? '';
-      aiPromptFilePath = detail?.promptFilePath?.trim() ?? '';
-      aiModelLabel = detail?.modelLabel?.trim() ?? '';
-      aiModelTitle = detail?.modelTitle?.trim() ?? '';
-      aiParsePresetName = detail?.parsePresetName?.trim() ?? '';
-      aiHistoryCount = Math.max(0, detail?.historyCount ?? 0);
-      aiCanGenerate = !!detail?.canGenerate;
-      aiCanParse = !!detail?.canParse;
-      aiIsGenerating = !!detail?.isGenerating;
-      aiIsParsing = !!detail?.isParsing;
-    };
+    const unsubscribeMainInterfaceStore = weaveMainInterfaceStore.subscribe((state) => {
+      aiSubView = state.aiToolbar.subView;
+      aiSelectedFileName = state.aiToolbar.selectedFileName;
+      aiPromptFileName = state.aiToolbar.promptFileName;
+      aiPromptFilePath = state.aiToolbar.promptFilePath;
+      aiModelLabel = state.aiToolbar.modelLabel;
+      aiModelTitle = state.aiToolbar.modelTitle;
+      aiParsePresetName = state.aiToolbar.parsePresetName;
+      aiHistoryCount = state.aiToolbar.historyCount;
+      aiCanGenerate = state.aiToolbar.canGenerate;
+      aiCanParse = state.aiToolbar.canParse;
+      aiIsGenerating = state.aiToolbar.isGenerating;
+      aiIsParsing = state.aiToolbar.isParsing;
+    });
 
     const handleCardToolbarState = (event: Event) => { 
       const detail = (event as CustomEvent<{
@@ -372,6 +469,7 @@
         searchQuery?: string;
         documentFilterMode?: 'all' | 'current';
         currentActiveDocument?: string | null;
+        enableCardRelationFilterMode?: boolean;
         enableCardLocationJump?: boolean;
         dataSource?: CardDataSource;
         availableDecks?: any[];
@@ -422,6 +520,10 @@
         cardCurrentActiveDocument = detail.currentActiveDocument;
       }
 
+      if (typeof detail.enableCardRelationFilterMode === 'boolean') {
+        cardEnableRelationFilter = detail.enableCardRelationFilterMode;
+      }
+
       if (typeof detail.enableCardLocationJump === 'boolean') {
         cardEnableLocationJump = detail.enableCardLocationJump;
       }
@@ -447,14 +549,21 @@
       if (detail.sortDirection) cardSortDirection = detail.sortDirection;
     };
 
-    window.addEventListener('Weave:ai-toolbar-state-change', handleAIToolbarStateChange as EventListener);
+    const handleMemoryDeckDisplayModeChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ mode?: string } | string>).detail;
+      const nextMode = typeof detail === 'string' ? detail : detail?.mode;
+      memoryDeckDisplayMode = normalizeMemoryDeckDisplayMode(nextMode);
+    };
+
     window.addEventListener('Weave:card-management-toolbar-state', handleCardToolbarState as EventListener); 
+    window.addEventListener('Weave:memory-deck-display-mode-change', handleMemoryDeckDisplayModeChange as EventListener);
  
     return () => { 
-      window.removeEventListener('Weave:ai-toolbar-state-change', handleAIToolbarStateChange as EventListener);
+      unsubscribeMainInterfaceStore();
       window.removeEventListener('Weave:card-management-toolbar-state', handleCardToolbarState as EventListener); 
+      window.removeEventListener('Weave:memory-deck-display-mode-change', handleMemoryDeckDisplayModeChange as EventListener);
     }; 
-  }); 
+  });
 </script>
 
 <header
@@ -538,49 +647,50 @@
           class="sidebar-action-btn card-toolbar-btn"
           class:active={cardEnableLocationJump}
           onclick={() => emitCardManagementToolbarAction('toggle-card-location-jump')}
-          aria-label="定位模式"
+          aria-label="定位跳转模式"
         >
-          <EnhancedIcon name="bullseye" size={16} />
+          <ObsidianIcon name="navigation" size={16} />
+        </button>
+        <button
+          class="sidebar-action-btn card-toolbar-btn relation-mode-btn"
+          class:active={cardEnableRelationFilter}
+          class:relation-active={cardEnableRelationFilter}
+          class:is-hidden-slot={!(currentView === 'grid' || currentView === 'kanban')}
+          onclick={() => emitCardManagementToolbarAction('toggle-card-relation-filter')}
+          aria-label="关联卡片模式"
+        >
+          <ObsidianIcon name="link-2" size={16} />
         </button>
         {/if}
         {#if !isInSidebarMode}
           <button
             class="sidebar-action-btn card-toolbar-btn"
-            class:active={cardDataSource === 'memory'}
-            onclick={() => {
-              onCardDataSourceChange?.('memory');
-            }}
-            aria-label="记忆牌组"
+            onclick={openCardDataSourceMenu}
+            aria-label="数据源"
           >
-            <ObsidianIcon name="graduation-cap" size={16} />
-            <span class="card-toolbar-btn-label">记忆</span>
+            <ObsidianIcon name="database" size={16} />
+            <span class="card-toolbar-btn-label">数据源·{getCardDataSourceLabel(cardDataSource)}</span>
           </button>
-          {#if shouldShowPremiumEntry(PREMIUM_FEATURES.QUESTION_BANK)}
-            <button
-              class="sidebar-action-btn card-toolbar-btn"
-              class:active={cardDataSource === 'questionBank'}
-              onclick={() => {
-                onCardDataSourceChange?.('questionBank');
-              }}
-              aria-label="考试题组"
-            >
-              <ObsidianIcon name="clipboard-list" size={16} />
-              <span class="card-toolbar-btn-label">题组</span>
-            </button>
-          {/if}
-          {#if shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)}
-            <button
-              class="sidebar-action-btn card-toolbar-btn"
-              class:active={cardDataSource === 'incremental-reading'}
-              onclick={() => {
-                onCardDataSourceChange?.('incremental-reading');
-              }}
-              aria-label="增量阅读"
-            >
-              <ObsidianIcon name="bookmark" size={16} />
-              <span class="card-toolbar-btn-label">阅读</span>
-            </button>
-          {/if}
+          <button
+            class="sidebar-action-btn card-toolbar-btn"
+            class:active={currentView === 'table' && cardDataSource === 'incremental-reading' && cardIRTypeFilter === 'md'}
+            class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'incremental-reading')}
+            onclick={() => emitCardManagementToolbarAction('ir-type-md')}
+            aria-label="Markdown 阅读材料"
+          >
+            <ObsidianIcon name="file-text" size={16} />
+            <span class="card-toolbar-btn-label">MD</span>
+          </button>
+          <button
+            class="sidebar-action-btn card-toolbar-btn"
+            class:active={currentView === 'table' && cardDataSource === 'incremental-reading' && cardIRTypeFilter === 'pdf'}
+            class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'incremental-reading')}
+            onclick={() => emitCardManagementToolbarAction('ir-type-pdf')}
+            aria-label="PDF 阅读材料"
+          >
+            <ObsidianIcon name="file" size={16} />
+            <span class="card-toolbar-btn-label">PDF</span>
+          </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
             class:active={currentView === 'table' && cardDataSource === 'memory' && cardTableViewMode === 'basic'}
@@ -600,26 +710,6 @@
           >
             <ObsidianIcon name="bar-chart-2" size={16} />
             <span class="card-toolbar-btn-label">复习</span>
-          </button>
-          <button
-            class="sidebar-action-btn card-toolbar-btn"
-            class:active={currentView === 'table' && cardDataSource === 'incremental-reading' && cardIRTypeFilter === 'md'}
-            class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'incremental-reading')}
-            onclick={() => emitCardManagementToolbarAction('ir-type-md')}
-            aria-label="MD文件"
-          >
-            <ObsidianIcon name="file-text" size={16} />
-            <span class="card-toolbar-btn-label">MD</span>
-          </button>
-          <button
-            class="sidebar-action-btn card-toolbar-btn"
-            class:active={currentView === 'table' && cardDataSource === 'incremental-reading' && cardIRTypeFilter === 'pdf'}
-            class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'incremental-reading')}
-            onclick={() => emitCardManagementToolbarAction('ir-type-pdf')}
-            aria-label="PDF书签"
-          >
-            <ObsidianIcon name="file" size={16} />
-            <span class="card-toolbar-btn-label">PDF</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
@@ -654,33 +744,33 @@
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
-            class:active={currentView === 'kanban' && cardKanbanLayoutMode === 'compact'}
             class:is-hidden-slot={currentView !== 'kanban'}
-            onclick={() => emitCardManagementToolbarAction('kanban-layout-compact')}
-            aria-label="紧凑布局"
+            onclick={toggleCardKanbanLayoutMode}
+            aria-label={getCardKanbanLayoutButtonAriaLabel(cardKanbanLayoutMode)}
+            title={getCardKanbanLayoutButtonTitle(cardKanbanLayoutMode)}
           >
-            <ObsidianIcon name="minimize-2" size={16} />
-            <span class="card-toolbar-btn-label">紧凑</span>
+            <ObsidianIcon name={cardKanbanLayoutModeIcons[cardKanbanLayoutMode]} size={16} />
+            <span class="card-toolbar-btn-label">{getCardKanbanLayoutButtonLabel(cardKanbanLayoutMode)}</span>
+          </button>
+          <button
+            class="sidebar-action-btn card-toolbar-btn relation-mode-btn"
+            class:active={cardEnableRelationFilter}
+            class:relation-active={cardEnableRelationFilter}
+            class:is-hidden-slot={!(currentView === 'grid' || currentView === 'kanban')}
+            onclick={() => emitCardManagementToolbarAction('toggle-card-relation-filter')}
+            aria-label="关联卡片模式"
+          >
+            <ObsidianIcon name="link-2" size={16} />
+            <span class="card-toolbar-btn-label">{cardEnableRelationFilter ? '关联中' : '关联'}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
-            class:active={currentView === 'kanban' && cardKanbanLayoutMode === 'comfortable'}
-            class:is-hidden-slot={currentView !== 'kanban'}
-            onclick={() => emitCardManagementToolbarAction('kanban-layout-comfortable')}
-            aria-label="舒适布局"
+            class:is-hidden-slot={!(currentView === 'grid' || currentView === 'kanban')}
+            onclick={(event) => emitCardManagementToolbarAction('open-grid-attribute-menu', event.currentTarget as HTMLElement)}
+            aria-label="属性选择"
           >
-            <ObsidianIcon name="square" size={16} />
-            <span class="card-toolbar-btn-label">舒适</span>
-          </button>
-          <button
-            class="sidebar-action-btn card-toolbar-btn"
-            class:active={currentView === 'kanban' && cardKanbanLayoutMode === 'spacious'}
-            class:is-hidden-slot={currentView !== 'kanban'}
-            onclick={() => emitCardManagementToolbarAction('kanban-layout-spacious')}
-            aria-label="宽松布局"
-          >
-            <ObsidianIcon name="maximize-2" size={16} />
-            <span class="card-toolbar-btn-label">宽松</span>
+            <ObsidianIcon name="tag" size={16} />
+            <span class="card-toolbar-btn-label">属性</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
@@ -708,15 +798,6 @@
             <ObsidianIcon name="sliders-horizontal" size={16} />
             <span class="card-toolbar-btn-label">列设置</span>
           </button>
-          <button
-            class="sidebar-action-btn card-toolbar-btn"
-            class:is-hidden-slot={!(currentView === 'grid' || currentView === 'kanban')}
-            onclick={(event) => emitCardManagementToolbarAction('open-grid-attribute-menu', event.currentTarget as HTMLElement)}
-            aria-label="属性选择"
-          >
-            <ObsidianIcon name="tag" size={16} />
-            <span class="card-toolbar-btn-label">属性</span>
-          </button>
         {/if}
       </div>
     {/if}
@@ -725,7 +806,7 @@
   <!-- 中间：彩色圆点 + 插件菜单按钮 -->
   <div class="sidebar-header-center">
     <div class="sidebar-dots-container">
-    {#if currentPage === 'deck-study'}
+    {#if currentPage === 'deck-study' && shouldRenderDeckStudyDots}
       {#each visibleDeckFilters as filter}
         <button
           class="sidebar-dot"
@@ -740,7 +821,7 @@
           {/if}
         </button>
       {/each}
-    {:else if currentPage === 'weave-card-management'}
+    {:else if currentPage === 'weave-card-management' && shouldRenderCardManagementDots}
       {#each visibleCardViewTypes as viewType}
         <button
           class="sidebar-dot"
@@ -803,16 +884,31 @@
     {:else if currentPage === 'deck-study'}
       <div class="deck-study-header-actions">
         {#if selectedFilter === 'memory'}
-          <button
-            class="sidebar-action-btn deck-study-toolbar-btn"
-            onclick={(event) => emitDeckStudyToolbarAction('open-emergent-rule-groups', event.currentTarget as HTMLElement)}
-            aria-label="涌现筛选"
-            title="涌现筛选"
-          >
-            <ObsidianIcon name="filter" size={16} />
-          </button>
+          {#if shouldShowPremiumEntry(PREMIUM_FEATURES.EMERGENT_DECKS)}
+            <button
+              class="sidebar-action-btn deck-study-toolbar-btn"
+              class:active={memoryDeckDisplayMode === 'emergent' && premiumGuard.canUseFeature(PREMIUM_FEATURES.EMERGENT_DECKS, deckStudyFeatureContext)}
+              onclick={(event) => toggleMemoryDeckDisplayMode(event.currentTarget as HTMLElement)}
+              aria-label={memoryDeckDisplayMode === 'formal' ? getPremiumEntryTitle('切换到涌现牌组', PREMIUM_FEATURES.EMERGENT_DECKS) : '切换到正式牌组'}
+              title={memoryDeckDisplayMode === 'formal'
+                ? getPremiumEntryTitle('当前显示正式牌组（点击切换到涌现牌组）', PREMIUM_FEATURES.EMERGENT_DECKS)
+                : '当前显示涌现牌组（点击切换到正式牌组）'}
+            >
+              <ObsidianIcon name={memoryDeckDisplayMode === 'formal' ? 'folder' : 'sparkles'} size={16} />
+            </button>
+          {/if}
+          {#if memoryDeckDisplayMode === 'emergent' && premiumGuard.canUseFeature(PREMIUM_FEATURES.EMERGENT_DECKS, deckStudyFeatureContext)}
+            <button
+              class="sidebar-action-btn deck-study-toolbar-btn"
+              onclick={(event) => emitDeckStudyToolbarAction('open-emergent-rule-groups', event.currentTarget as HTMLElement)}
+              aria-label="涌现筛选"
+              title="涌现筛选"
+            >
+              <ObsidianIcon name="filter" size={16} />
+            </button>
+          {/if}
         {/if}
-        {#if deckStudyView === 'kanban'}
+        {#if deckStudyView === 'kanban' && premiumGuard.canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, deckStudyFeatureContext)}
           <button
             class="sidebar-action-btn deck-study-toolbar-btn"
             onclick={(evt) => {
@@ -888,6 +984,19 @@
           </button>
         {/if}
       </div>
+    {/if}
+
+    {#if currentPage === 'deck-study'}
+    <button
+      class="sidebar-action-btn sidebar-inspiration-trigger"
+      onclick={(event) => onOpenInspirationModal?.(event.currentTarget as HTMLElement)}
+      aria-label="设计灵感与借鉴说明"
+      aria-expanded={inspirationPopoverOpen}
+      aria-haspopup="dialog"
+      title="设计灵感与借鉴说明"
+    >
+      <ObsidianIcon name="circle-help" size={16} />
+    </button>
     {/if}
   </div>
 </header>
@@ -1202,6 +1311,14 @@
     pointer-events: none;
   }
 
+  .sidebar-inspiration-trigger {
+    color: var(--text-normal);
+  }
+
+  .sidebar-inspiration-trigger :global(svg) {
+    stroke-width: 1.9;
+  }
+
   .ai-header-actions {
     display: flex;
     align-items: center;
@@ -1236,7 +1353,7 @@
   }
 
   .sidebar-nav-header.card-management-desktop .card-header-actions-left {
-    gap: 6px;
+    gap: 5px;
   }
 
   .sidebar-nav-header.card-management-desktop .card-header-actions-left::-webkit-scrollbar {
@@ -1262,12 +1379,40 @@
     background: var(--background-modifier-hover);
   }
 
+  .relation-mode-btn {
+    position: relative;
+  }
+
+  .relation-mode-btn.relation-active {
+    color: var(--interactive-accent);
+    background: color-mix(in srgb, var(--interactive-accent) 16%, var(--background-modifier-hover));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 44%, transparent) !important;
+  }
+
+  .relation-mode-btn.relation-active::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--interactive-accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+  }
+
+  .deck-study-toolbar-btn.active {
+    color: var(--text-accent);
+    background: var(--background-modifier-hover);
+    box-shadow: inset 0 0 0 1px var(--background-modifier-border-hover, var(--background-modifier-border));
+  }
+
   .sidebar-nav-header.card-management-desktop .card-toolbar-btn {
     width: auto;
     min-width: 0;
     height: 32px;
-    padding: 0 10px;
-    gap: 6px;
+    padding: 0 9px;
+    gap: 5px;
     border-radius: 6px;
     color: var(--text-muted);
     justify-content: flex-start;
@@ -1289,8 +1434,20 @@
     box-shadow: inset 0 0 0 1px var(--background-modifier-border-hover, var(--background-modifier-border));
   }
 
+  .sidebar-nav-header.card-management-desktop .relation-mode-btn.relation-active {
+    color: var(--interactive-accent);
+    background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-modifier-hover));
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 42%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  }
+
   .sidebar-nav-header.card-management-desktop .card-toolbar-btn.active .card-toolbar-btn-label {
     font-weight: 600;
+  }
+
+  .sidebar-nav-header.card-management-desktop .relation-mode-btn.relation-active .card-toolbar-btn-label {
+    font-weight: 700;
   }
 
   .sidebar-nav-header.card-management-desktop .card-toolbar-btn :global(svg) {

@@ -46,10 +46,6 @@ export const CONVERSION_REGEX = {
 	/** Callout 行：> content */
 	CALLOUT_LINE: /^>\s*(.*)$/,
 
-	// ==================== 高亮和样式 ====================
-	/** 高亮：==text== */
-	HIGHLIGHT: /==([^=]+)==/g,
-
 	/** 删除线：~~text~~ */
 	STRIKETHROUGH: /~~([^~]+)~~/g,
 

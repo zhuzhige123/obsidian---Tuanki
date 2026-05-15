@@ -3,14 +3,14 @@
   统一的进度显示组件，支持多种操作类型
 -->
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
   import { fade } from 'svelte/transition';
   import { tr } from '../../../utils/i18n';
   import ObsidianIcon from '../../ui/ObsidianIcon.svelte';
+  import OperationProgressCard from '../../ui/OperationProgressCard.svelte';
 
   let t = $derived($tr);
 
-  type OperationType = 'fetch_models' | 'sync_to_anki' | 'sync_from_anki' | 'batch_sync';
+  type OperationType = 'fetch_models' | 'sync_to_anki' | 'batch_sync';
 
   interface Props {
     /** 是否显示模态窗 */
@@ -58,7 +58,6 @@
   const operationIcons: Record<OperationType, string> = {
     fetch_models: 'layout-template',
     sync_to_anki: 'upload',
-    sync_from_anki: 'download',
     batch_sync: 'refresh-cw'
   };
 
@@ -77,12 +76,29 @@
     `${Math.round(progressPercentage)}%`
   );
 
+  let currentItemText = $derived(
+    currentItem ? `${t('ankiConnect.syncProgress.processing')}：${currentItem}` : ''
+  );
+
+  let deckProgressText = $derived(
+    totalDecks > 0 ? `${t('ankiConnect.syncProgress.deckProgress')}：${deckIndex} / ${totalDecks}` : ''
+  );
+
+  let cardTitle = $derived(status || title);
+
+  let cardCounter = $derived(total > 0 ? progressText : percentageText);
+
+  let cardMessage = $derived(
+    currentItemText || deckProgressText || status || progressText
+  );
+
+  let cardDetail = $derived(
+    currentItemText && deckProgressText ? deckProgressText : ''
+  );
+
   // 获取操作图标
   function getOperationIcon(): string {
     return operationIcons[operation] || 'settings';
-  }
-
-  function handleKeydown(_event: KeyboardEvent) {
   }
 
   // 处理取消
@@ -94,17 +110,6 @@
       onClose();
     }
   }
-
-  // 监听键盘事件
-  onMount(() => {
-    if (allowCancel) {
-      window.addEventListener('keydown', handleKeydown);
-    }
-  });
-
-  onDestroy(() => {
-    window.removeEventListener('keydown', handleKeydown);
-  });
 </script>
 
 {#if open}
@@ -130,47 +135,23 @@
 
       <!-- 进度区域 -->
       <div class="modal-body">
-        <!-- 当前处理项 -->
-        {#if currentItem}
-          <div class="current-item">
-            <span class="label">{t('ankiConnect.syncProgress.processing')}</span>
-            <span class="value">{currentItem}</span>
-          </div>
-        {/if}
-
-        <!-- 牌组进度（批量操作时显示） -->
-        {#if totalDecks > 0}
-          <div class="deck-progress">
-            <span class="label">{t('ankiConnect.syncProgress.deckProgress')}</span>
-            <span class="value">{deckIndex} / {totalDecks}</span>
-          </div>
-        {/if}
-
-        <!-- 进度条 -->
-        <div class="progress-bar-wrapper">
-          <div class="progress-bar-container">
-            <div 
-              class="progress-bar-fill"
-              style="width: {progressPercentage}%"
-            ></div>
-          </div>
-          <div class="progress-percentage">{percentageText}</div>
-        </div>
-
-        <!-- 进度文本 -->
-        <div class="progress-text">
-          {progressText}
-          {#if status}
-            <span class="status">· {status}</span>
-          {/if}
-        </div>
-
-        <!-- 活动指示器（动画点） -->
-        <div class="activity-indicator">
-          <div class="dot"></div>
-          <div class="dot"></div>
-          <div class="dot"></div>
-        </div>
+        <OperationProgressCard
+          title={cardTitle}
+          counter={cardCounter}
+          message={cardMessage}
+          detail={cardDetail}
+          percent={progressPercentage}
+          status="running"
+          statusLabel="进行中"
+          centered={true}
+          detailInCard={Boolean(cardDetail)}
+          footerPrimary={percentageText}
+          footerSecondary={total > 0 ? progressText : ''}
+          progressValueMin={0}
+          progressValueMax={total > 0 ? total : 100}
+          progressValueNow={total > 0 ? Math.min(current, total) : Math.round(progressPercentage)}
+          progressValueText={total > 0 ? progressText : percentageText}
+        />
       </div>
 
       <!-- 底部按钮 -->
@@ -269,135 +250,6 @@
   /* 主体内容 */
   .modal-body {
     padding: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .current-item,
-  .deck-progress {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.9rem;
-  }
-
-  .label {
-    color: var(--text-muted);
-    font-weight: 500;
-  }
-
-  .value {
-    color: var(--text-normal);
-    font-weight: 600;
-    font-family: var(--font-monospace);
-  }
-
-  /* 进度条 */
-  .progress-bar-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-
-  .progress-bar-container {
-    flex: 1;
-    height: 10px;
-    background: var(--background-modifier-border);
-    border-radius: 5px;
-    overflow: hidden;
-    position: relative;
-  }
-
-  .progress-bar-fill {
-    height: 100%;
-    background: var(--interactive-accent);
-    border-radius: 5px;
-    transition: width 0.3s ease;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .progress-bar-fill::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(255, 255, 255, 0.3),
-      transparent
-    );
-    animation: shimmer 2s infinite;
-  }
-
-  @keyframes shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-  }
-
-  .progress-percentage {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--text-normal);
-    min-width: 3rem;
-    text-align: right;
-    font-family: var(--font-monospace);
-  }
-
-  /* 进度文本 */
-  .progress-text {
-    text-align: center;
-    font-size: 0.875rem;
-    color: var(--text-muted);
-  }
-
-  .status {
-    color: var(--text-accent);
-    font-style: italic;
-  }
-
-  /* 活动指示器 */
-  .activity-indicator {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 0;
-  }
-
-  .dot {
-    width: 6px;
-    height: 6px;
-    background: var(--interactive-accent);
-    border-radius: 50%;
-    animation: pulse 1.5s ease-in-out infinite;
-  }
-
-  .dot:nth-child(1) {
-    animation-delay: 0s;
-  }
-
-  .dot:nth-child(2) {
-    animation-delay: 0.2s;
-  }
-
-  .dot:nth-child(3) {
-    animation-delay: 0.4s;
-  }
-
-  @keyframes pulse {
-    0%, 80%, 100% {
-      opacity: 0.3;
-      transform: scale(1);
-    }
-    40% {
-      opacity: 1;
-      transform: scale(1.2);
-    }
   }
 
   /* 底部按钮 */

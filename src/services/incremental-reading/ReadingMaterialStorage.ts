@@ -1,11 +1,12 @@
 /**
- * 阅读材料存储服务
+ * 阅读材料兼容存储服务
  *
- * 负责阅读材料索引的持久化存储
- * 核心原则：只存储索引和元数据，不存储MD文件内容
+ * 当前正式增量阅读真源已经切到 point-only 结构。
+ * 这个服务只保留给旧阅读材料管理链路做兼容运行时状态，
+ * 并将状态写入插件本地单文件，不再污染 vault 中的同步目录。
  *
  * @module services/incremental-reading/ReadingMaterialStorage
- * @version 1.0.0
+ * @version 2.0.0
  */
 
 import type { App } from "obsidian";
@@ -24,12 +25,23 @@ import {
 	serializeReadingMaterialForStorage,
 } from "../../utils/ir-topic-compat";
 import { logger } from "../../utils/logger";
+import { remapAssociatedNotePaths, resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 
-/**
- * 存储路径配置
- * 材料数据存放在 weave/incremental-reading/materials/
- * 锚点缓存存放在插件目录 .obsidian/plugins/weave/cache/
- */
+type ReadingMaterialRuntimeStore = {
+	version: string;
+	lastUpdated: string;
+	materials: Record<string, ReadingMaterial>;
+	sessionsByMaterial: Record<string, ReadingSession[]>;
+};
+
+function createEmptyRuntimeStore(): ReadingMaterialRuntimeStore {
+	return {
+		version: "2.0.0",
+		lastUpdated: new Date(0).toISOString(),
+		materials: {},
+		sessionsByMaterial: {},
+	};
+}
 
 /**
  * 阅读材料存储服务
@@ -37,15 +49,20 @@ import { logger } from "../../utils/logger";
 export class ReadingMaterialStorage {
 	private app: App;
 	private materialsCache: Map<string, ReadingMaterial> = new Map();
+	private sessionsCache: Map<string, ReadingSession[]> = new Map();
 	private initialized = false;
 
 	private get storagePaths() {
 		const v2Paths = getV2PathsFromApp(this.app);
+		const pluginPaths = getPluginPaths(this.app);
 		return {
-			ROOT: v2Paths.ir.materials.root,
-			MATERIALS_INDEX: v2Paths.ir.materials.index,
-			ANCHORS_CACHE: getPluginPaths(this.app).cache.anchors,
-			SESSIONS_DIR: v2Paths.ir.materials.sessions,
+			RUNTIME_STATE: pluginPaths.state.incrementalReading.readingMaterialsRuntime,
+			PLUGIN_STATE_ROOT: pluginPaths.state.root,
+			PLUGIN_IR_STATE_ROOT: pluginPaths.state.incrementalReading.root,
+			ANCHORS_CACHE: pluginPaths.cache.anchors,
+			CACHE_ROOT: pluginPaths.cache.root,
+			LEGACY_MATERIALS_INDEX: v2Paths.ir.materials.index,
+			LEGACY_SESSIONS_DIR: v2Paths.ir.materials.sessions,
 		} as const;
 	}
 
@@ -64,11 +81,11 @@ export class ReadingMaterialStorage {
 		try {
 			logger.info("[ReadingMaterialStorage] 初始化存储...");
 
-			// 确保目录存在（迁移由 SchemaV2MigrationService 统一处理）
+			// 仅确保插件本地状态目录存在，不再创建旧 vault materials 目录
 			await this.ensureDirectories();
 
-			// 加载材料索引
-			await this.loadMaterialsIndex();
+			// 加载插件本地兼容运行时状态
+			await this.loadRuntimeStore();
 
 			this.initialized = true;
 			logger.info("[ReadingMaterialStorage] 存储初始化完成");
@@ -87,9 +104,9 @@ export class ReadingMaterialStorage {
 		const storagePaths = this.storagePaths;
 
 		const directories = [
-			storagePaths.ROOT,
-			storagePaths.SESSIONS_DIR,
-			getPluginPaths(this.app).cache.root,
+			storagePaths.PLUGIN_STATE_ROOT,
+			storagePaths.PLUGIN_IR_STATE_ROOT,
+			storagePaths.CACHE_ROOT,
 		];
 
 		for (const dir of directories) {
@@ -103,49 +120,136 @@ export class ReadingMaterialStorage {
 	}
 
 	/**
-	 * 加载材料索引
+	 * 加载插件本地兼容运行时状态
 	 */
-	private async loadMaterialsIndex(): Promise<void> {
+	private async loadRuntimeStore(): Promise<void> {
 		const adapter = this.app.vault.adapter;
-
 		const storagePaths = this.storagePaths;
 
 		try {
-			const exists = await adapter.exists(storagePaths.MATERIALS_INDEX);
+			const exists = await adapter.exists(storagePaths.RUNTIME_STATE);
 
 			if (exists) {
-				const content = await adapter.read(storagePaths.MATERIALS_INDEX);
-				const index: ReadingMaterialsIndex = JSON.parse(content);
-
-				// 加载到缓存
-				this.materialsCache.clear();
-				for (const [uuid, material] of Object.entries(index.materials)) {
-					this.materialsCache.set(uuid, normalizeReadingMaterialForRuntime(material));
-				}
-
-				logger.info(`[ReadingMaterialStorage] 加载了 ${this.materialsCache.size} 个阅读材料`);
-			} else {
-				// 创建空索引
-				await this.saveMaterialsIndex();
-				logger.info("[ReadingMaterialStorage] 创建了新的材料索引");
+				const content = await adapter.read(storagePaths.RUNTIME_STATE);
+				this.applyRuntimeStore(JSON.parse(content));
+				logger.info(
+					`[ReadingMaterialStorage] 已从插件本地状态加载 ${this.materialsCache.size} 个阅读材料`
+				);
+				return;
 			}
+
+			const legacyStore = await this.loadLegacyRuntimeStore();
+			this.applyRuntimeStore(legacyStore);
+
+			if (this.materialsCache.size > 0 || this.sessionsCache.size > 0) {
+				await this.saveRuntimeStore();
+				logger.info(
+					`[ReadingMaterialStorage] 已将旧材料兼容状态迁入插件本地单文件: ${storagePaths.RUNTIME_STATE}`
+				);
+				return;
+			}
+
+			logger.info("[ReadingMaterialStorage] 未检测到兼容材料状态，已使用空运行时缓存");
 		} catch (error) {
-			logger.error("[ReadingMaterialStorage] 加载材料索引失败:", error);
-			// 创建空缓存
+			logger.error("[ReadingMaterialStorage] 加载兼容运行时状态失败:", error);
 			this.materialsCache.clear();
+			this.sessionsCache.clear();
 		}
 	}
 
 	/**
-	 * 保存材料索引
+	 * 从旧 vault materials.json / sessions 目录导入兼容状态
 	 */
-	private async saveMaterialsIndex(): Promise<void> {
+	private async loadLegacyRuntimeStore(): Promise<ReadingMaterialRuntimeStore> {
 		const adapter = this.app.vault.adapter;
-
 		const storagePaths = this.storagePaths;
+		const store = createEmptyRuntimeStore();
 
-		const index: ReadingMaterialsIndex = {
-			version: "1.0.0",
+		try {
+			if (await adapter.exists(storagePaths.LEGACY_MATERIALS_INDEX)) {
+				const content = await adapter.read(storagePaths.LEGACY_MATERIALS_INDEX);
+				const index: ReadingMaterialsIndex = JSON.parse(content);
+				for (const [uuid, material] of Object.entries(index.materials || {})) {
+					store.materials[uuid] = normalizeReadingMaterialForRuntime(material);
+				}
+			}
+
+			if (await adapter.exists(storagePaths.LEGACY_SESSIONS_DIR)) {
+				const listing = await adapter.list(storagePaths.LEGACY_SESSIONS_DIR);
+				for (const filePath of listing.files || []) {
+					if (!filePath.toLowerCase().endsWith(".json")) {
+						continue;
+					}
+
+					try {
+						const content = await adapter.read(filePath);
+						const parsed = JSON.parse(content) as { sessions?: ReadingSession[] };
+						const fileName = filePath.split("/").pop() || "";
+						const materialId = fileName.replace(/\.json$/i, "").trim();
+						if (!materialId) {
+							continue;
+						}
+						store.sessionsByMaterial[materialId] = Array.isArray(parsed.sessions)
+							? parsed.sessions
+							: [];
+					} catch (error) {
+						logger.warn(`[ReadingMaterialStorage] 导入旧会话文件失败: ${filePath}`, error);
+					}
+				}
+			}
+		} catch (error) {
+			logger.warn("[ReadingMaterialStorage] 导入旧 vault 兼容状态失败，将退回空缓存", error);
+		}
+
+		return store;
+	}
+
+	private applyRuntimeStore(raw: unknown): void {
+		const store = this.normalizeRuntimeStore(raw);
+		this.materialsCache.clear();
+		for (const [uuid, material] of Object.entries(store.materials)) {
+			this.materialsCache.set(uuid, normalizeReadingMaterialForRuntime(material));
+		}
+
+		this.sessionsCache.clear();
+		for (const [materialId, sessions] of Object.entries(store.sessionsByMaterial)) {
+			this.sessionsCache.set(materialId, Array.isArray(sessions) ? sessions : []);
+		}
+	}
+
+	private normalizeRuntimeStore(raw: unknown): ReadingMaterialRuntimeStore {
+		if (!raw || typeof raw !== "object") {
+			return createEmptyRuntimeStore();
+		}
+
+		const candidate = raw as Partial<ReadingMaterialRuntimeStore>;
+		return {
+			version:
+				typeof candidate.version === "string" && candidate.version.trim()
+					? candidate.version
+					: "2.0.0",
+			lastUpdated:
+				typeof candidate.lastUpdated === "string" && candidate.lastUpdated.trim()
+					? candidate.lastUpdated
+					: new Date().toISOString(),
+			materials:
+				candidate.materials && typeof candidate.materials === "object"
+					? (candidate.materials as Record<string, ReadingMaterial>)
+					: {},
+			sessionsByMaterial:
+				candidate.sessionsByMaterial && typeof candidate.sessionsByMaterial === "object"
+					? (candidate.sessionsByMaterial as Record<string, ReadingSession[]>)
+					: {},
+		};
+	}
+
+	/**
+	 * 保存插件本地兼容运行时状态
+	 */
+	private async saveRuntimeStore(): Promise<void> {
+		const adapter = this.app.vault.adapter;
+		const store: ReadingMaterialRuntimeStore = {
+			version: "2.0.0",
 			lastUpdated: new Date().toISOString(),
 			materials: Object.fromEntries(
 				Array.from(this.materialsCache.entries()).map(([uuid, material]) => [
@@ -153,13 +257,14 @@ export class ReadingMaterialStorage {
 					serializeReadingMaterialForStorage(material),
 				])
 			),
+			sessionsByMaterial: Object.fromEntries(this.sessionsCache.entries()),
 		};
 
 		try {
-			await adapter.write(storagePaths.MATERIALS_INDEX, JSON.stringify(index));
-			logger.debug("[ReadingMaterialStorage] 材料索引已保存");
+			await adapter.write(this.storagePaths.RUNTIME_STATE, JSON.stringify(store));
+			logger.debug("[ReadingMaterialStorage] 插件本地兼容状态已保存");
 		} catch (error) {
-			logger.error("[ReadingMaterialStorage] 保存材料索引失败:", error);
+			logger.error("[ReadingMaterialStorage] 保存插件本地兼容状态失败:", error);
 			throw error;
 		}
 	}
@@ -198,7 +303,7 @@ export class ReadingMaterialStorage {
 	async saveMaterial(material: ReadingMaterial): Promise<void> {
 		material.modified = new Date().toISOString();
 		this.materialsCache.set(material.uuid, normalizeReadingMaterialForRuntime(material));
-		await this.saveMaterialsIndex();
+		await this.saveRuntimeStore();
 		logger.debug(`[ReadingMaterialStorage] 保存材料: ${material.uuid}`);
 	}
 
@@ -208,9 +313,8 @@ export class ReadingMaterialStorage {
 	async deleteMaterial(uuid: string): Promise<boolean> {
 		const deleted = this.materialsCache.delete(uuid);
 		if (deleted) {
-			await this.saveMaterialsIndex();
-			// 删除相关会话记录
-			await this.deleteSessionsForMaterial(uuid);
+			this.sessionsCache.delete(uuid);
+			await this.saveRuntimeStore();
 			logger.debug(`[ReadingMaterialStorage] 删除材料: ${uuid}`);
 		}
 		return deleted;
@@ -225,85 +329,73 @@ export class ReadingMaterialStorage {
 			material.modified = now;
 			this.materialsCache.set(material.uuid, normalizeReadingMaterialForRuntime(material));
 		}
-		await this.saveMaterialsIndex();
+		await this.saveRuntimeStore();
 		logger.debug(`[ReadingMaterialStorage] 批量保存 ${materials.length} 个材料`);
+	}
+
+	async remapAssociatedNoteFileReferences(oldPath: string, newPath: string): Promise<number> {
+		const updates: ReadingMaterial[] = [];
+
+		for (const material of this.materialsCache.values()) {
+			const currentPaths = resolveAssociatedNotePaths({
+				associatedNotePath: material.primaryAssociatedNotePath || material.associatedNotePath,
+				associatedNotePaths: material.associatedNotePaths,
+			});
+			if (currentPaths.length === 0) {
+				continue;
+			}
+
+			const nextPaths = remapAssociatedNotePaths(currentPaths, oldPath, newPath);
+			if (
+				nextPaths.length === currentPaths.length &&
+				nextPaths.every((path, index) => path === currentPaths[index])
+			) {
+				continue;
+			}
+
+			updates.push({
+				...material,
+				primaryAssociatedNotePath: nextPaths[0] || undefined,
+				associatedNotePath: nextPaths[0] || undefined,
+				associatedNotePaths: nextPaths,
+			});
+		}
+
+		if (updates.length === 0) {
+			return 0;
+		}
+
+		await this.saveMaterials(updates);
+		logger.debug(
+			`[ReadingMaterialStorage] 已重映射 ${updates.length} 个材料的关联笔记路径: ${oldPath} -> ${newPath}`
+		);
+		return updates.length;
 	}
 
 	// ===== 会话记录操作 =====
 
 	/**
-	 * 获取材料的会话记录文件路径
-	 */
-	private getSessionsFilePath(materialId: string): string {
-		return `${this.storagePaths.SESSIONS_DIR}/${materialId}.json`;
-	}
-
-	/**
 	 * 获取材料的所有会话记录
 	 */
 	async getSessionsForMaterial(materialId: string): Promise<ReadingSession[]> {
-		const adapter = this.app.vault.adapter;
-		const filePath = this.getSessionsFilePath(materialId);
-
-		try {
-			const exists = await adapter.exists(filePath);
-			if (!exists) {
-				return [];
-			}
-
-			const content = await adapter.read(filePath);
-			const data = JSON.parse(content);
-			return data.sessions || [];
-		} catch (error) {
-			logger.error(`[ReadingMaterialStorage] 加载会话记录失败: ${materialId}`, error);
-			return [];
-		}
+		return [...(this.sessionsCache.get(materialId) || [])];
 	}
 
 	/**
 	 * 保存会话记录
 	 */
 	async saveSession(session: ReadingSession): Promise<void> {
-		const adapter = this.app.vault.adapter;
-		const filePath = this.getSessionsFilePath(session.materialId);
-
-		try {
-			// 加载现有会话
-			const sessions = await this.getSessionsForMaterial(session.materialId);
-
-			// 添加或更新会话
-			const existingIndex = sessions.findIndex((s) => s.uuid === session.uuid);
-			if (existingIndex >= 0) {
-				sessions[existingIndex] = session;
-			} else {
-				sessions.push(session);
-			}
-
-			// 保存
-			await adapter.write(filePath, JSON.stringify({ sessions }));
-			logger.debug(`[ReadingMaterialStorage] 保存会话: ${session.uuid}`);
-		} catch (error) {
-			logger.error(`[ReadingMaterialStorage] 保存会话失败: ${session.uuid}`, error);
-			throw error;
+		const sessions = [...(this.sessionsCache.get(session.materialId) || [])];
+		const existingIndex = sessions.findIndex((item) => item.uuid === session.uuid);
+		if (existingIndex >= 0) {
+			sessions[existingIndex] = session;
+		} else {
+			sessions.push(session);
 		}
-	}
 
-	/**
-	 * 删除材料的所有会话记录
-	 */
-	private async deleteSessionsForMaterial(materialId: string): Promise<void> {
-		const adapter = this.app.vault.adapter;
-		const filePath = this.getSessionsFilePath(materialId);
-
-		try {
-			const exists = await adapter.exists(filePath);
-			if (exists) {
-				await adapter.remove(filePath);
-				logger.debug(`[ReadingMaterialStorage] 删除会话记录: ${materialId}`);
-			}
-		} catch (error) {
-			logger.warn(`[ReadingMaterialStorage] 删除会话记录失败: ${materialId}`, error);
-		}
+		this.sessionsCache.set(session.materialId, sessions);
+		await this.saveRuntimeStore();
+		logger.debug(`[ReadingMaterialStorage] 保存会话: ${session.uuid}`);
 	}
 
 	// ===== 锚点缓存操作（可选优化）=====

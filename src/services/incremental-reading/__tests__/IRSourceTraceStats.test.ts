@@ -176,4 +176,25 @@ other pdf`,
 			noteCount: 0,
 		});
 	});
+
+	it("counts all normalized associated note paths from multi-note units", () => {
+		const units = [
+			{
+				sourceKind: "markdown" as const,
+				sourceDocumentKey: normalizeTraceDocumentKey("Notes/Alpha.md", "markdown")!,
+				associatedNotePaths: ["Permanent/Alpha", "Permanent/Alpha.md", "Permanent/Appendix.md"],
+			},
+		];
+
+		expect(
+			buildIRTraceOverviewStats({
+				units,
+				cards: [],
+			})
+		).toEqual({
+			extractCount: 0,
+			memoryCardCount: 0,
+			noteCount: 2,
+		});
+	});
 });

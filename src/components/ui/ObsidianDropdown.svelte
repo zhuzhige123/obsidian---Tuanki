@@ -36,7 +36,7 @@
   let selectedOption = $derived(options.find(opt => opt.id === value));
 
   // 显示菜单
-  function showMenu() {
+  function showMenu(triggerEvent?: MouseEvent) {
     if (disabled) return;
 
     const menu = new Menu();
@@ -66,27 +66,40 @@
       });
     }
 
-    const rect = buttonRef.getBoundingClientRect();
-    const ownerDocument = buttonRef.ownerDocument ?? document;
-    menu.showAtPosition(
-      {
+    try {
+      if (triggerEvent) {
+        menu.showAtMouseEvent(triggerEvent);
+        return;
+      }
+
+      const rect = buttonRef.getBoundingClientRect();
+      const position = {
         x: Math.round(rect.left),
         y: Math.round(rect.bottom)
-      },
-      ownerDocument
-    );
+      };
+      menu.showAtPosition(position);
+    } catch {
+      const rect = buttonRef.getBoundingClientRect();
+      const position = {
+        x: Math.round(rect.left),
+        y: Math.round(rect.bottom)
+      };
+      menu.showAtPosition(position);
+    }
   }
 
   // 处理点击
   function handleClick(event: MouseEvent) {
     event.preventDefault();
-    showMenu();
+    event.stopPropagation();
+    showMenu(event);
   }
 
   // 处理键盘
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
+      event.stopPropagation();
       showMenu();
     }
   }
@@ -165,5 +178,9 @@
 
   .placeholder {
     color: var(--text-muted);
+  }
+
+  :global(body > .menu) {
+    z-index: var(--weave-z-dropdown, 1600);
   }
 </style>

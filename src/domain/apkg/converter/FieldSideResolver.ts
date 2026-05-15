@@ -19,9 +19,9 @@ function extractFieldsFromTemplate(template: string): Set<string> {
 	}
 
 	const regex = /\{\{([^}]+?)\}\}/g;
-	let match = regex.exec(template);
+	let match: RegExpExecArray | null;
 
-	while (match !== null) {
+	while ((match = regex.exec(template)) !== null) {
 		let fieldName = match[1].trim();
 
 		// 过滤特殊标记
@@ -37,7 +37,6 @@ function extractFieldsFromTemplate(template: string): Set<string> {
 		}
 
 		fields.add(fieldName);
-		match = regex.exec(template);
 	}
 
 	return fields;

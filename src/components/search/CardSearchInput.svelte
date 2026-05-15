@@ -7,8 +7,10 @@
   import { ICON_NAMES } from '../../icons/index.js';
   import { logger } from '../../utils/logger';
   import type { Deck } from '../../data/types';
+  import { normalizeTagSuggestionOptions, TagInputSuggest } from '../../utils/tag-suggest';
 
   type DataSource = 'memory' | 'questionBank' | 'incremental-reading';
+  type TagSuggestionOption = string | { name: string; count?: number };
 
   interface Props {
     value?: string;
@@ -20,7 +22,7 @@
     dataSource?: DataSource;
     // 卡片数据统计
     availableDecks?: Deck[];
-    availableTags?: string[];
+    availableTags?: TagSuggestionOption[];
     availablePriorities?: number[];
     availableQuestionTypes?: string[];
     availableSources?: string[];
@@ -72,6 +74,11 @@
   let showDropdown = $state(false);
   let anchorWidth = $state(0);
   let activeMenu: Menu | null = null;
+  let tagSuggest: TagInputSuggest | null = null;
+
+  const normalizedAvailableTags = $derived.by(() => {
+    return normalizeTagSuggestionOptions(availableTags || []);
+  });
 
   // 搜索选项定义
   const baseSearchOptions = [
@@ -227,43 +234,13 @@
       .replace(/['"]+$/, '');
   }
 
-  function getFilteredStringSuggestions(values: string[], query: string): string[] {
-    const normalizedQuery = query.trim().toLocaleLowerCase();
-    const uniqueValues = Array.from(
-      new Map(
-        values
-          .map((item) => item.trim())
-          .filter((item) => item.length > 0)
-          .map((item) => [item.toLocaleLowerCase(), item] as const)
-      ).values()
-    );
-
-    if (!normalizedQuery) {
-      return uniqueValues;
-    }
-
-    const startsWithMatches: string[] = [];
-    const containsMatches: string[] = [];
-
-    uniqueValues.forEach((item) => {
-      const normalizedItem = item.toLocaleLowerCase();
-      if (normalizedItem.startsWith(normalizedQuery)) {
-        startsWithMatches.push(item);
-      } else if (normalizedItem.includes(normalizedQuery)) {
-        containsMatches.push(item);
-      }
-    });
-
-    return [...startsWithMatches, ...containsMatches];
-  }
-
   // 检测并显示建议
   function checkAndShowSuggestions() {
     const lastWord = getCurrentSearchToken();
     const normalizedWord = lastWord.toLowerCase();
 
     if (normalizedWord.startsWith('tag:')) {
-      showTagSuggestions();
+      closeActiveMenu();
     } else if (lastWord.endsWith('deck:')) {
       showDeckSuggestions();
     } else if (lastWord.endsWith('priority:')) {
@@ -489,33 +466,9 @@
 
   // 显示标签建议
   function showTagSuggestions() {
-    if (!containerRef) return;
-
-    const matchedTags = getFilteredStringSuggestions(availableTags, getSuggestionQuery('tag:'));
-    const menu = new Menu();
-    (menu as any).app = app;
-    menu.addItem((item) => {
-      item.setTitle(`标签 (${matchedTags.length}/${availableTags.length})`);
-      item.setDisabled(true);
-    });
-
-    if (matchedTags.length === 0) {
-      menu.addItem((item) => {
-        item.setTitle('没有匹配的标签');
-        item.setDisabled(true);
-      });
-    } else {
-      matchedTags.forEach((tag) => {
-        menu.addItem((item) => {
-          item.setTitle(tag);
-          item.onClick(() => {
-            replaceLastWord(tag);
-          });
-        });
-      });
-    }
-
-    showMenuSafe(menu);
+    closeActiveMenu();
+    inputRef?.focus();
+    inputRef?.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
   // 显示牌组建议
@@ -717,6 +670,31 @@
       }, 50);
     }
   }
+
+  $effect(() => {
+    if (!inputRef) {
+      tagSuggest?.destroy();
+      tagSuggest = null;
+      return;
+    }
+
+    const suggest = new TagInputSuggest(app, inputRef, {
+      getItems: () => normalizedAvailableTags,
+      getQuery: () => getSuggestionQuery('tag:'),
+      isActive: () => getCurrentSearchToken().toLowerCase().startsWith('tag:'),
+      onSelectTag: (tag) => replaceLastWord(tag),
+      limit: 40,
+    });
+
+    tagSuggest = suggest;
+
+    return () => {
+      suggest.destroy();
+      if (tagSuggest === suggest) {
+        tagSuggest = null;
+      }
+    };
+  });
 </script>
 
 <div class="card-search-container" bind:this={containerRef}>

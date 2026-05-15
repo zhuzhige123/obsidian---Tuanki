@@ -23,6 +23,209 @@ body:not(.is-mobile) .workspace-leaf-content[data-type="weave-question-bank-view
   padding: 0;
 }
 
+.workspace-leaf-content[data-type="weave-study-view"] > .view-content > .weave-study-view-content {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--weave-surface-background, var(--background-primary));
+}
+
+.weave-study-view-content .weave-study-state {
+  width: 100%;
+  height: 100%;
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  padding: clamp(18px, 3vw, 36px);
+  box-sizing: border-box;
+  background:
+    radial-gradient(
+      120% 120% at 0% 0%,
+      color-mix(in srgb, var(--interactive-accent) 10%, transparent),
+      transparent 52%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background-primary) 90%, var(--background-secondary) 10%),
+      var(--background-primary)
+    );
+}
+
+.weave-study-state-shell {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: clamp(24px, 3vw, 36px);
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 76%, var(--interactive-accent) 24%);
+  background:
+    radial-gradient(
+      135% 135% at 18% 10%,
+      color-mix(in srgb, var(--interactive-accent) 12%, transparent),
+      transparent 56%
+    ),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary) 8%),
+      color-mix(in srgb, var(--background-secondary) 86%, var(--background-primary) 14%)
+    );
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  text-align: center;
+}
+
+.weave-study-state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--background-secondary) 84%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.weave-study-state-badge-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--interactive-accent);
+}
+
+.weave-study-state-badge-icon svg,
+.weave-study-state-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.weave-study-state-spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--interactive-accent) 18%, var(--background-modifier-border));
+  border-top-color: var(--interactive-accent);
+  animation: weave-study-state-spin 0.95s linear infinite;
+}
+
+.weave-study-state-icon {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  border-radius: 18px;
+  color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 20%, var(--background-modifier-border));
+}
+
+.weave-study-state-copy {
+  width: min(46ch, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.weave-study-state-copy--restore {
+  width: min(50ch, 100%);
+}
+
+.weave-study-state-title {
+  margin: 0;
+  font-size: clamp(20px, 1.8vw, 28px);
+  line-height: 1.25;
+  font-weight: 700;
+  color: var(--text-normal);
+}
+
+.weave-study-state-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+.weave-study-state-meta {
+  max-width: 100%;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 70%, transparent);
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weave-study-state-actions {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.weave-study-state-button {
+  min-width: 148px;
+  padding: 10px 18px;
+}
+
+.weave-study-view-error .weave-study-state-shell {
+  border-color: color-mix(in srgb, var(--text-error, var(--interactive-accent)) 35%, var(--background-modifier-border));
+}
+
+.weave-study-view-error .weave-study-state-icon {
+  color: var(--text-error, var(--interactive-accent));
+  background: color-mix(in srgb, var(--text-error, var(--interactive-accent)) 12%, transparent);
+  border-color: color-mix(in srgb, var(--text-error, var(--interactive-accent)) 24%, var(--background-modifier-border));
+}
+
+@keyframes weave-study-state-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 768px) {
+  .weave-study-view-content .weave-study-state {
+    padding: 16px;
+  }
+
+  .weave-study-state-shell {
+    gap: 12px;
+    padding: 22px 18px;
+    border-radius: 16px;
+  }
+
+  .weave-study-state-title {
+    font-size: 18px;
+  }
+
+  .weave-study-state-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .weave-study-state-button {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weave-study-state-spinner {
+    animation: none;
+  }
+}
+
 /* Weave 主界面同样接管 view-content，避免移动端键盘弹出时出现空白区。 */
 .workspace-leaf-content[data-type="weave-view"] > .view-content {
   position: relative;

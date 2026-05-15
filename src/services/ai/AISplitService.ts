@@ -6,11 +6,25 @@
  */
 
 import type { Card } from "../../data/types";
-import type { WeavePlugin } from "../../main";
-import type { AIAction } from "../../types/ai-types";
+import type { AIAction, AIProvider } from "../../types/ai-types";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
 import { DerivationMethod } from "../relation/types";
 import { PromptVariableResolver } from "./PromptVariableResolver";
+import { resolveAIConfig, type AISplitHost } from "./ai-host";
+
+const AI_PROVIDERS: AIProvider[] = [
+	"openai",
+	"gemini",
+	"anthropic",
+	"deepseek",
+	"zhipu",
+	"siliconflow",
+	"xai",
+];
+
+function isAIProvider(value?: string): value is AIProvider {
+	return value !== undefined && AI_PROVIDERS.includes(value as AIProvider);
+}
 
 /**
  * 拆分配置接口
@@ -90,7 +104,7 @@ interface ParsedSplitCard {
 export class AISplitService {
 	private static variableResolver = new PromptVariableResolver();
 
-	constructor(private plugin: WeavePlugin) {}
+	constructor(private host: AISplitHost) {}
 
 	/**
 	 * 拆分卡片
@@ -102,7 +116,7 @@ export class AISplitService {
 	): Promise<SplitResult> {
 		try {
 			// 检查AI配置
-			const aiConfig = this.plugin.settings.aiConfig;
+			const aiConfig = resolveAIConfig(this.host);
 			if (!aiConfig?.cardSplitting?.enabled) {
 				return {
 					success: false,
@@ -112,7 +126,7 @@ export class AISplitService {
 
 			// ✅ 统一的provider选择逻辑：action.provider > defaultProvider
 			// 注意：由AIActionExecutor统一处理，这里action.provider已经被设置
-			const provider = action.provider || aiConfig.defaultProvider;
+			const provider = action.provider || (isAIProvider(aiConfig.defaultProvider) ? aiConfig.defaultProvider : undefined);
 			const modelFromAction = action.model;
 
 			if (!provider) {
@@ -136,7 +150,7 @@ export class AISplitService {
 
 			// 获取AI服务实例
 			const { AIServiceFactory } = await import("./AIServiceFactory");
-			const aiService = AIServiceFactory.createService(provider, this.plugin, modelFromAction);
+			const aiService = AIServiceFactory.createService(provider, this.host, modelFromAction);
 
 			// 调用AI服务
 			const response = await aiService.chat({
@@ -467,7 +481,7 @@ export class AISplitService {
 				parentCard.relationMetadata.isParent = true;
 			}
 
-			await this.plugin.dataStorage.saveCard(parentCard);
+			await this.host.dataStorage.saveCard(parentCard);
 		}
 	}
 
@@ -486,7 +500,7 @@ export class AISplitService {
 		parentCard.relationMetadata.childCardIds = childCardUUIDs;
 		parentCard.modified = new Date().toISOString();
 
-		await this.plugin.dataStorage.saveCard(parentCard);
+		await this.host.dataStorage.saveCard(parentCard);
 	}
 
 	/**

@@ -11,6 +11,7 @@
  */
 
 import { Card, CardType } from "../../data/types";
+import { hasAnyClozeSyntax } from "../cloze-syntax";
 
 /**
  * 一致性问题类型
@@ -162,10 +163,7 @@ export class CardConsistencyChecker {
 	 * @returns 检测到的卡片类型
 	 */
 	detectCardTypeFromContent(content: string): CardType {
-		// 检测挖空标记 {{c::...}} 或 ==text==
-		// 注意：多个挖空序号的卡片在转换前也是 Cloze 类型
-		// 转换为渐进式挖空父子卡片是通过 ProgressiveClozeConverter 完成的
-		if (/\{\{c\d+::/.test(content) || /==.+?==/.test(content)) {
+		if (hasAnyClozeSyntax(content)) {
 			return CardType.Cloze;
 		}
 

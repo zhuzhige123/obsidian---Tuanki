@@ -1,4 +1,6 @@
 import { Menu, TFile, normalizePath, type App } from "obsidian";
+import { i18n } from "../../utils/i18n";
+import { revealLeaf } from "../../utils/workspace-navigation";
 
 export interface AssociatedNoteMenuOptions {
 	menu: Menu;
@@ -13,6 +15,14 @@ export interface AssociatedNoteMenuOptions {
 	openAllTitle?: string;
 }
 
+function uiText(zh: string, en: string): string {
+	return i18n.getCurrentLanguage() === "zh-CN" ? zh : en;
+}
+
+function untitledNoteLabel(): string {
+	return uiText("\u672a\u547d\u540d\u7b14\u8bb0", "Untitled note");
+}
+
 export function populateAssociatedNoteMenu(options: AssociatedNoteMenuOptions): void {
 	const {
 		menu,
@@ -24,13 +34,18 @@ export function populateAssociatedNoteMenu(options: AssociatedNoteMenuOptions): 
 		onSetPrimary,
 		onRemove,
 		onClear,
-		openAllTitle = "打开关联笔记",
+		openAllTitle = uiText("\u6253\u5f00\u5173\u8054\u7b14\u8bb0", "Open linked notes"),
 	} = options;
 
 	if (notePaths.length > 0) {
 		menu.addItem((item) =>
 			item
-				.setTitle(`打开主笔记: ${getLabel(notePaths[0])}`)
+				.setTitle(
+					uiText(
+						`\u6253\u5f00\u4e3b\u7b14\u8bb0\uff1a${getLabel(notePaths[0])}`,
+						`Open primary note: ${getLabel(notePaths[0])}`
+					)
+				)
 				.setIcon("file-text")
 				.onClick(() => {
 					void onOpen(notePaths[0]);
@@ -57,7 +72,11 @@ export function populateAssociatedNoteMenu(options: AssociatedNoteMenuOptions): 
 
 	menu.addItem((item) =>
 		item
-			.setTitle(notePaths.length > 0 ? "追加关联笔记" : "关联笔记")
+			.setTitle(
+				notePaths.length > 0
+					? uiText("\u8ffd\u52a0\u5173\u8054\u7b14\u8bb0", "Add linked note")
+					: uiText("\u5173\u8054\u7b14\u8bb0", "Link note")
+			)
 			.setIcon("plus")
 			.onClick(() => {
 				void onPick(notePaths.length > 0 ? "append" : "replace");
@@ -66,7 +85,11 @@ export function populateAssociatedNoteMenu(options: AssociatedNoteMenuOptions): 
 
 	menu.addItem((item) =>
 		item
-			.setTitle(notePaths.length > 0 ? "新建并追加笔记" : "新建并关联笔记")
+			.setTitle(
+				notePaths.length > 0
+					? uiText("\u65b0\u5efa\u5e76\u8ffd\u52a0\u7b14\u8bb0", "Create and add note")
+					: uiText("\u65b0\u5efa\u5e76\u5173\u8054\u7b14\u8bb0", "Create and link note")
+			)
 			.setIcon("file-plus")
 			.onClick(() => {
 				void onCreate(notePaths.length > 0 ? "append" : "replace");
@@ -80,13 +103,15 @@ export function populateAssociatedNoteMenu(options: AssociatedNoteMenuOptions): 
 	menu.addSeparator();
 
 	menu.addItem((item) => {
-		item.setTitle("设为主笔记").setIcon("star");
+		item.setTitle(uiText("\u8bbe\u4e3a\u4e3b\u7b14\u8bb0", "Set primary note")).setIcon("star");
 		const subMenu = (item as any).setSubmenu();
 		for (const notePath of notePaths) {
 			const isPrimary = notePath === notePaths[0];
 			subMenu.addItem((subItem: any) => {
 				subItem
-					.setTitle(`${isPrimary ? "主笔记" : "设为主笔记"}: ${getLabel(notePath)}`)
+					.setTitle(
+						`${isPrimary ? uiText("\u4e3b\u7b14\u8bb0", "Primary") : uiText("\u8bbe\u4e3a\u4e3b\u7b14\u8bb0", "Set primary note")}: ${getLabel(notePath)}`
+					)
 					.setIcon(isPrimary ? "check" : "chevrons-up")
 					.setDisabled(isPrimary)
 					.onClick(() => {
@@ -99,7 +124,7 @@ export function populateAssociatedNoteMenu(options: AssociatedNoteMenuOptions): 
 	});
 
 	menu.addItem((item) => {
-		item.setTitle("移除关联笔记").setIcon("trash");
+		item.setTitle(uiText("\u79fb\u9664\u5173\u8054\u7b14\u8bb0", "Remove linked note")).setIcon("trash");
 		const subMenu = (item as any).setSubmenu();
 		for (const notePath of notePaths) {
 			subMenu.addItem((subItem: any) => {
@@ -116,7 +141,7 @@ export function populateAssociatedNoteMenu(options: AssociatedNoteMenuOptions): 
 	menu.addSeparator();
 	menu.addItem((item) =>
 		item
-			.setTitle("清空关联笔记")
+			.setTitle(uiText("\u6e05\u7a7a\u5173\u8054\u7b14\u8bb0", "Clear linked notes"))
 			.setIcon("x-circle")
 			.onClick(() => {
 				void onClear();
@@ -127,7 +152,7 @@ export function populateAssociatedNoteMenu(options: AssociatedNoteMenuOptions): 
 function sanitizeAssociatedNoteBaseName(rawName: string): string {
 	const normalized = String(rawName || "").trim().replace(/[\\/:*?"<>|#^\[\]]+/g, " ");
 	const compact = normalized.replace(/\s+/g, " ").trim();
-	return compact || "未命名笔记";
+	return compact || untitledNoteLabel();
 }
 
 async function ensureFolderExists(app: App, folderPath: string): Promise<void> {
@@ -219,13 +244,13 @@ export async function openAssociatedMarkdownNote(app: App, notePath: string): Pr
 
 	const leaf = app.workspace.getRightLeaf(false) || app.workspace.getLeaf("tab");
 	await leaf.openFile(file, { active: true, state: { mode: "source" } as any });
-	await app.workspace.revealLeaf(leaf);
+	revealLeaf(app, leaf);
 	return file;
 }
 
 export function getAssociatedMarkdownLabel(app: App, notePath: string): string {
 	const normalized = normalizePath(String(notePath || "").trim());
-	if (!normalized) return "未命名笔记";
+	if (!normalized) return untitledNoteLabel();
 
 	let file = app.vault.getAbstractFileByPath(normalized);
 	if (!(file instanceof TFile) && !/\.[^/.]+$/i.test(normalized)) {
@@ -233,9 +258,9 @@ export function getAssociatedMarkdownLabel(app: App, notePath: string): string {
 	}
 
 	if (file instanceof TFile) {
-		return file.basename || "未命名笔记";
+		return file.basename || untitledNoteLabel();
 	}
 
 	const filename = normalized.split("/").pop() || normalized;
-	return filename.replace(/\.md$/i, "") || "未命名笔记";
+	return filename.replace(/\.md$/i, "") || untitledNoteLabel();
 }

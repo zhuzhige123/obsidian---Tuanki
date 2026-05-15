@@ -1,7 +1,7 @@
 import { DataConsistencyService } from '../reference-deck/DataConsistencyService';
 
 describe('DataConsistencyService', () => {
-  it('repairs deck caches and back references from YAML truth', async () => {
+  it('repairs deck caches from YAML truth without rewriting compatibility back references', async () => {
     const decks = [
       {
         id: 'deck-a',
@@ -65,24 +65,13 @@ describe('DataConsistencyService', () => {
         invalidCardUUIDs: expect.arrayContaining(['card-2']),
       }),
     ]);
-    expect(checkResult.inconsistentBackReferences).toEqual([
-      expect.objectContaining({
-        cardUUID: 'card-1',
-        expected: ['deck-a'],
-        actual: [],
-      }),
-      expect.objectContaining({
-        cardUUID: 'card-2',
-        expected: ['deck-b'],
-        actual: ['deck-a'],
-      }),
-    ]);
+    expect(checkResult.inconsistentBackReferences).toEqual([]);
 
     const repairResult = await service.repairConsistency();
 
     expect(repairResult).toEqual({
       success: true,
-      repairedCards: 2,
+      repairedCards: 0,
       cleanedInvalidRefs: 3,
     });
     expect(saveDeck).toHaveBeenNthCalledWith(1, expect.objectContaining({
@@ -93,20 +82,11 @@ describe('DataConsistencyService', () => {
       id: 'deck-b',
       cardUUIDs: ['card-2'],
     }));
-    expect(saveCardsBatch).toHaveBeenCalledWith([
-      expect.objectContaining({
-        uuid: 'card-1',
-        referencedByDecks: ['deck-a'],
-      }),
-      expect.objectContaining({
-        uuid: 'card-2',
-        referencedByDecks: ['deck-b'],
-      }),
-    ]);
+    expect(saveCardsBatch).not.toHaveBeenCalled();
     expect(rebuildFromCards).toHaveBeenCalledWith(
       [
-        expect.objectContaining({ uuid: 'card-1', referencedByDecks: ['deck-a'] }),
-        expect.objectContaining({ uuid: 'card-2', referencedByDecks: ['deck-b'] }),
+        expect.objectContaining({ uuid: 'card-1', referencedByDecks: [] }),
+        expect.objectContaining({ uuid: 'card-2', referencedByDecks: ['deck-a'] }),
       ],
       decks,
     );

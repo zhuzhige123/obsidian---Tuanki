@@ -13,14 +13,40 @@ const premiumFeatureIds = vi.hoisted(() => new Set([
   'question-bank',
   'grid-view',
   'kanban-view',
-  'timeline-view'
+  'timeline-view',
+  'emergent-decks'
 ]));
 const premiumMockState = vi.hoisted(() => ({
   isPremium: false,
   showPreview: false,
   blockedFeatures: new Set<string>()
 }));
+const translationMap = vi.hoisted(() => ({
+  'navigation.deckStudy': '牌组学习',
+  'navigation.cardManagement': '卡片管理',
+  'navigation.aiAssistant': 'AI制卡',
+  'mainMenu.cardManagement.dataSourceSwitch': '数据源切换',
+  'mainMenu.cardManagement.tableBasic': '基础信息模式',
+  'mainMenu.cardManagement.tableReview': '复习历史模式',
+  'mainMenu.cardManagement.gridFixed': '固定布局',
+  'mainMenu.cardManagement.gridMasonry': '瀑布流布局',
+  'mainMenu.cardManagement.timeline': '时间线视图',
+  'mainMenu.cardManagement.kanbanCompact': '紧凑模式',
+  'mainMenu.cardManagement.kanbanComfortable': '舒适模式',
+  'mainMenu.cardManagement.kanbanSpacious': '宽松模式',
+  'mainMenu.cardManagement.kanbanColumnSettings': '看板列设置',
+  'mainMenu.cardManagement.gridAttributes': '卡片属性',
+  'mainMenu.cardManagement.dataManagement': '数据管理',
+  'mainMenu.cardManagement.currentDocumentOnly': '关联当前活动文档',
+  'mainMenu.cardManagement.cardLocationJump': '定位跳转模式',
+  'mainMenu.cardManagement.irMd': 'MD文件',
+  'mainMenu.cardManagement.irPdf': 'PDF书签'
+}));
 const mockPremiumGuard = vi.hoisted(() => {
+  const isDeckStudyLimitedTimeFeature = (featureId: string, context?: { page?: string }) => {
+    return context?.page === 'deck-study' && (featureId === 'kanban-view' || featureId === 'emergent-decks');
+  };
+
   const createStore = <T, K extends 'isPremium' | 'showPreview'>(key: K) => ({
     subscribe: vi.fn((callback: (value: T) => void) => {
       callback(premiumMockState[key] as T);
@@ -30,7 +56,11 @@ const mockPremiumGuard = vi.hoisted(() => {
     update: vi.fn()
   });
 
-  const canUseFeature = vi.fn((featureId: string) => {
+  const canUseFeature = vi.fn((featureId: string, context?: { page?: string }) => {
+    if (isDeckStudyLimitedTimeFeature(featureId, context)) {
+      return true;
+    }
+
     if (!premiumFeatureIds.has(featureId)) {
       return true;
     }
@@ -40,19 +70,34 @@ const mockPremiumGuard = vi.hoisted(() => {
 
   return {
     canUseFeature,
-    isFeatureRestricted: vi.fn((featureId: string) => {
+    isFeatureRestricted: vi.fn((featureId: string, context?: { page?: string }) => {
+      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
+        return false;
+      }
+
       if (!premiumFeatureIds.has(featureId)) {
         return false;
       }
 
-      return !canUseFeature(featureId);
+      return !canUseFeature(featureId, context);
     }),
-    shouldShowFeatureEntry: vi.fn((featureId: string) => {
+    shouldShowFeatureEntry: vi.fn((featureId: string, _options?: unknown, context?: { page?: string }) => {
+      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
+        return true;
+      }
+
       if (!premiumFeatureIds.has(featureId)) {
         return true;
       }
 
       return premiumMockState.isPremium || premiumMockState.showPreview;
+    }),
+    getFeatureEntryTitle: vi.fn((baseTitle: string, featureId: string, context?: { page?: string }) => {
+      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
+        return `${baseTitle} (限时开放)`;
+      }
+
+      return canUseFeature(featureId, context) ? baseTitle : `${baseTitle} (高级)`;
     }),
     isPremiumActive: createStore<boolean, 'isPremium'>('isPremium'),
     premiumFeaturesPreviewEnabled: createStore<boolean, 'showPreview'>('showPreview'),
@@ -86,7 +131,8 @@ vi.mock('../../services/premium/PremiumFeatureGuard', () => {
       QUESTION_BANK: 'question-bank',
       GRID_VIEW: 'grid-view',
       KANBAN_VIEW: 'kanban-view',
-      TIMELINE_VIEW: 'timeline-view'
+      TIMELINE_VIEW: 'timeline-view',
+      EMERGENT_DECKS: 'emergent-decks'
     }
   };
 });
@@ -94,9 +140,12 @@ vi.mock('../../services/premium/PremiumFeatureGuard', () => {
 vi.mock('../../utils/i18n', () => ({
   tr: {
     subscribe: (callback: (translator: (key: string) => string) => void) => {
-      callback((key: string) => key);
+      callback((key: string) => translationMap[key as keyof typeof translationMap] ?? key);
       return () => {};
     }
+  },
+  i18n: {
+    t: (key: string) => translationMap[key as keyof typeof translationMap] ?? key
   }
 }));
 
@@ -110,6 +159,7 @@ describe('SidebarNavHeader desktop menu dedupe', () => {
     premiumMockState.isPremium = false;
     premiumMockState.showPreview = false;
     premiumMockState.blockedFeatures.clear();
+    window.localStorage.clear();
     vi.clearAllMocks();
   });
 
@@ -127,13 +177,61 @@ describe('SidebarNavHeader desktop menu dedupe', () => {
     });
 
     const dots = container.querySelectorAll('.sidebar-dot');
-    expect(dots).toHaveLength(3);
+    expect(dots).toHaveLength(2);
 
-    await fireEvent.click(dots[0]);
-    await fireEvent.click(dots[2]);
+    await fireEvent.click(dots[1]);
 
-    expect(onFilterSelect).toHaveBeenNthCalledWith(1, 'incremental-reading');
-    expect(onFilterSelect).toHaveBeenNthCalledWith(2, 'question-bank');
+    expect(onFilterSelect).toHaveBeenCalledTimes(1);
+    expect(onFilterSelect).toHaveBeenCalledWith('question-bank');
+  });
+
+  it('keeps premium preview deck-study dots clickable so page-level activation prompt can handle them', async () => {
+    premiumMockState.showPreview = true;
+
+    const onFilterSelect = vi.fn();
+    const { container } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'deck-study',
+        selectedFilter: 'memory',
+        onNavigate: mockOnNavigate,
+        onFilterSelect
+      }
+    });
+
+    const dots = container.querySelectorAll('.sidebar-dot');
+    expect(dots).toHaveLength(2);
+
+    await fireEvent.click(dots[1]);
+
+    expect(onFilterSelect).toHaveBeenCalledTimes(1);
+    expect(onFilterSelect).toHaveBeenCalledWith('question-bank');
+  });
+
+  it('hides deck-study dots entirely when premium preview is off and only the base filter remains', () => {
+    const { container } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'deck-study',
+        selectedFilter: 'memory',
+        onNavigate: mockOnNavigate
+      }
+    });
+
+    expect(container.querySelectorAll('.sidebar-dot')).toHaveLength(0);
+  });
+
+  it('hides card-management dots entirely when premium preview is off and only table view remains', () => {
+    const { container } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'weave-card-management',
+        currentView: 'table',
+        cardDataSource: 'memory',
+        onNavigate: mockOnNavigate,
+        onViewChange: mockOnViewChange,
+        onCardDataSourceChange: mockOnCardDataSourceChange
+      }
+    });
+
+    expect(container.querySelectorAll('.sidebar-dot')).toHaveLength(0);
   });
 
   it('shows the emergent filter button in memory deck study and dispatches its toolbar action', async () => {
@@ -148,14 +246,55 @@ describe('SidebarNavHeader desktop menu dedupe', () => {
       }
     });
 
+    const toggleButton = getByLabelText('切换到涌现牌组 (限时开放)');
+    await fireEvent.click(toggleButton);
+
     const button = getByLabelText('涌现筛选');
     await fireEvent.click(button);
 
-    expect(toolbarListener).toHaveBeenCalledTimes(1);
-    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('open-emergent-rule-groups');
-    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.anchor).toBe(button);
+    expect(toolbarListener).toHaveBeenCalledTimes(2);
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('set-memory-deck-display-mode');
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.mode).toBe('emergent');
+    expect((toolbarListener.mock.calls[1][0] as CustomEvent).detail?.action).toBe('open-emergent-rule-groups');
+    expect((toolbarListener.mock.calls[1][0] as CustomEvent).detail?.anchor).toBe(button);
 
     window.removeEventListener('Weave:deck-study-toolbar-action', toolbarListener);
+  });
+
+  it('shows the memory deck display toggle button and dispatches display mode change action', async () => {
+    const toolbarListener = vi.fn();
+    window.addEventListener('Weave:deck-study-toolbar-action', toolbarListener);
+
+    const { getByLabelText } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'deck-study',
+        selectedFilter: 'memory',
+        onNavigate: mockOnNavigate
+      }
+    });
+
+    const toggleButton = getByLabelText('切换到涌现牌组 (限时开放)');
+    await fireEvent.click(toggleButton);
+
+    expect(toolbarListener).toHaveBeenCalledTimes(1);
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('set-memory-deck-display-mode');
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.mode).toBe('emergent');
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.anchor).toBe(toggleButton);
+
+    window.removeEventListener('Weave:deck-study-toolbar-action', toolbarListener);
+  });
+
+  it('shows deck-study kanban settings button during limited-time open access', () => {
+    const { getByLabelText } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'deck-study',
+        selectedFilter: 'memory',
+        deckStudyView: 'kanban',
+        onNavigate: mockOnNavigate
+      }
+    });
+
+    expect(getByLabelText('看板设置')).toBeTruthy();
   });
 
   it('hides the emergent filter button outside the memory deck filter', () => {
@@ -266,9 +405,9 @@ describe('SidebarNavHeader desktop menu dedupe', () => {
     await fireEvent.click(container.querySelector('.sidebar-menu-trigger')!);
 
     const menu = menuInstances[0];
-    expect(menu.findItemByTitle('\u7d27\u51d1\u6a21\u5f0f')).toBeUndefined();
-    expect(menu.findItemByTitle('\u8212\u9002\u6a21\u5f0f')).toBeUndefined();
-    expect(menu.findItemByTitle('\u5bbd\u677e\u6a21\u5f0f')).toBeUndefined();
+    expect(menu.findItemByTitle('\u7d27\u51d1\u6a21\u5f0f')).toBeTruthy();
+    expect(menu.findItemByTitle('\u8212\u9002\u6a21\u5f0f')).toBeTruthy();
+    expect(menu.findItemByTitle('\u5bbd\u677e\u6a21\u5f0f')).toBeTruthy();
     expect(menu.findItemByTitle('\u770b\u677f\u5217\u8bbe\u7f6e')).toBeUndefined();
     expect(menu.findItemByTitle('\u5361\u7247\u5c5e\u6027')).toBeUndefined();
     expect(menu.findItemByTitle('\u6570\u636e\u7ba1\u7406')).toBeUndefined();

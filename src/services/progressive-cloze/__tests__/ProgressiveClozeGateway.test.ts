@@ -216,13 +216,14 @@ describe('ProgressiveClozeGateway', () => {
     const deleteCard = vi.fn(async (_uuid: string) => {});
     const saveCard = vi.fn(async (_card: Card) => {});
     const getDeckCards = vi.fn(async (_deckId: string) => [child1, child2]);
+    const getCardsByUUIDs = vi.fn(async (_uuids: string[]) => [child1, child2]);
 
     const newContent = '---\nwe_type: progressive-parent\n---\n{{c1::Alpha2}} {{c2::Beta2}}';
 
     const result = await gateway.processContentChange(
       parent,
       newContent,
-      { deleteCard, saveCard, getDeckCards }
+      { deleteCard, saveCard, getDeckCards, getCardsByUUIDs }
     );
 
     expect(result).not.toBeNull();
@@ -241,6 +242,8 @@ describe('ProgressiveClozeGateway', () => {
 
     expect(saveCard).toHaveBeenCalledTimes(2);
     expect(deleteCard).not.toHaveBeenCalled();
+    expect(getCardsByUUIDs).toHaveBeenCalledWith(['child-1', 'child-2']);
+    expect(getDeckCards).not.toHaveBeenCalled();
   });
 
   it('ord 变化时保留的子卡保持历史并更新子卡元数据与快照', async () => {
@@ -292,5 +295,25 @@ describe('ProgressiveClozeGateway', () => {
     expect(addedChild.clozeSnapshot?.text).toBe('Gamma new');
 
     expect(saveCard).toHaveBeenCalledTimes(2);
+  });
+
+  it('缺少定向子卡读取能力时会回退到 deck 级扫描', async () => {
+    const gateway = new ProgressiveClozeGateway();
+    const parent = createParentCard();
+    const child1 = createChildCard('child-1', 0);
+    const child2 = createChildCard('child-2', 1);
+
+    const deleteCard = vi.fn(async (_uuid: string) => {});
+    const saveCard = vi.fn(async (_card: Card) => {});
+    const getDeckCards = vi.fn(async (_deckId: string) => [child1, child2]);
+
+    const result = await gateway.processContentChange(
+      parent,
+      '---\nwe_type: progressive-parent\n---\n{{c1::Alpha fallback}} {{c2::Beta fallback}}',
+      { deleteCard, saveCard, getDeckCards }
+    );
+
+    expect(result).not.toBeNull();
+    expect(getDeckCards).toHaveBeenCalledWith('deck-1');
   });
 });

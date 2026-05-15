@@ -24,6 +24,10 @@
     offset?: number;
     /** 关闭回调 */
     onClose?: () => void;
+    /** 可访问性角色 */
+    role?: string;
+    /** 关联标题元素 */
+    ariaLabelledby?: string;
     /** 自定义class */
     class?: string;
     /** 子内容 */
@@ -36,6 +40,8 @@
     placement = 'right-start',
     offset: offsetValue = 8,
     onClose,
+    role = 'menu',
+    ariaLabelledby,
     class: customClass = '',
     children
   }: Props = $props();
@@ -175,8 +181,9 @@
     bind:this={menuElement}
     class="floating-menu {customClass}"
     style="top: {position.top}px; left: {position.left}px;"
-    role="menu"
+    role={role}
     aria-hidden={!show}
+    aria-labelledby={ariaLabelledby}
   >
     {@render children?.()}
   </div>

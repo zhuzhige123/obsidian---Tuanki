@@ -72,6 +72,8 @@ const IGNORED_MEASUREMENT_SELECTORS = [
 	".modal-overlay",
 	".resizable-modal-overlay",
 	".test-result-backdrop",
+	".epub-reader-root",
+	".weave-epub-view-content",
 	".receipt-modal",
 	"[data-weave-safe-area-probe='true']",
 ].join(", ");

@@ -126,6 +126,7 @@ describe("IRProjectedScheduleSummary", () => {
 						updatedAt: new Date(today).toISOString(),
 						contentPreview: "Legacy preview",
 						tags: [],
+						associatedNotePaths: ["Notes/Legacy", "Notes/Legacy.md", "Notes/Appendix.md"],
 					} as any,
 				},
 				history: { sessions: [] },
@@ -136,9 +137,11 @@ describe("IRProjectedScheduleSummary", () => {
 		const tomorrowLoad = getProjectedDayLoad(summary, tomorrow, ["deck-1"]);
 
 		expect(todayLoad.items.map((item) => item.id)).toContain("legacy-1");
-		expect(todayLoad.items.find((item) => item.id === "legacy-1")?.sourceType).toBe(
-			"legacy-block"
-		);
+		expect(todayLoad.items.find((item) => item.id === "legacy-1")).toMatchObject({
+			sourceType: "legacy-block",
+			associatedNotePath: "Notes/Legacy.md",
+			associatedNoteScope: "point",
+		});
 		expect(tomorrowLoad.items.map((item) => item.id)).toContain("chunk-1");
 	});
 

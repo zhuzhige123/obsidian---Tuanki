@@ -20,8 +20,25 @@ function sanitizeSourcePath(path: string | null | undefined): string | null {
 	}
 
 	normalized = normalized.replace(/^['"]+|['"]+$/g, "");
+	const epubMarkupPath = EpubLinkService.parseLinkMarkup(normalized)?.filePath;
+	if (epubMarkupPath) {
+		normalized = epubMarkupPath;
+	} else {
+		const obsidianLinkPath = parseObsidianLink(normalized);
+		if (obsidianLinkPath) {
+			normalized = obsidianLinkPath;
+		}
+	}
+
 	normalized = normalized.replace(/\\/g, "/");
+	if (/^[a-z]+:\/\//i.test(normalized) || /^[A-Za-z]:[\\/]/.test(normalized)) {
+		return null;
+	}
+
 	normalized = normalized.replace(/^\/+/, "");
+	if (!normalized || normalized.startsWith("../")) {
+		return null;
+	}
 
 	const locatorIndex = normalized.search(/[?#]/);
 	if (locatorIndex !== -1) {

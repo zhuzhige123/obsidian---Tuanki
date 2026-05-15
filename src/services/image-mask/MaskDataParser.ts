@@ -13,8 +13,9 @@ import { logger } from "../../utils/logger";
  */
 
 import type { App, TFile } from "obsidian";
-import type { CommentLocation, Mask, MaskData, ParseResult } from "../../types/image-mask-types";
+import type { CommentLocation, Mask, MaskData, MaskTarget, ParseResult } from "../../types/image-mask-types";
 import { MASK_CONSTANTS } from "../../types/image-mask-types";
+import { getMaskTargetComparablePath } from "./image-mask-target";
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
 	"png",
@@ -162,6 +163,101 @@ export class MaskDataParser {
 	}
 
 	/**
+	 * 为指定图片行构建稳定遮罩目标
+	 */
+	buildMaskTargetForImage(content: string, imageLineIndex: number, sourceFilePath: string): MaskTarget | null {
+		const lines = content.split("\n");
+		if (imageLineIndex < 0 || imageLineIndex >= lines.length) {
+			return null;
+		}
+
+		const imageLink = this.extractImageLink(lines[imageLineIndex]);
+		if (!imageLink) {
+			return null;
+		}
+
+		const imageFile = this.resolveImagePath(imageLink, sourceFilePath);
+		const imagePath = imageFile?.path || this.extractImageFilename(imageLink) || undefined;
+		const comparablePath = getMaskTargetComparablePath({ imagePath, imageLink });
+		if (!comparablePath) {
+			return null;
+		}
+
+		let occurrence = 0;
+		for (let i = 0; i <= imageLineIndex; i++) {
+			const currentImageLink = this.extractImageLink(lines[i]);
+			if (!currentImageLink) {
+				continue;
+			}
+
+			const currentImageFile = this.resolveImagePath(currentImageLink, sourceFilePath);
+			const currentImagePath =
+				currentImageFile?.path || this.extractImageFilename(currentImageLink) || undefined;
+			const currentComparablePath = getMaskTargetComparablePath({
+				imagePath: currentImagePath,
+				imageLink: currentImageLink,
+			});
+			if (currentComparablePath === comparablePath) {
+				occurrence += 1;
+			}
+		}
+
+		return {
+			imagePath,
+			imageLink: this.extractImageFilename(imageLink) || imageLink,
+			imageOccurrence: occurrence > 0 ? occurrence : 1,
+		};
+	}
+
+	/**
+	 * 按图片文件路径查找最合适的图片行
+	 */
+	findImageLineForFile(
+		content: string,
+		sourceFilePath: string,
+		targetImagePath: string,
+		preferredLineIndex?: number
+	): number | null {
+		const matchedLines = this.findImageLinesForFile(content, sourceFilePath, targetImagePath);
+		if (matchedLines.length === 0) {
+			return null;
+		}
+
+		if (!Number.isInteger(preferredLineIndex)) {
+			return matchedLines[0] ?? null;
+		}
+
+		let bestLine = matchedLines[0];
+		let bestDistance = Math.abs(bestLine - (preferredLineIndex as number));
+		for (const lineIndex of matchedLines) {
+			const distance = Math.abs(lineIndex - (preferredLineIndex as number));
+			if (distance < bestDistance) {
+				bestLine = lineIndex;
+				bestDistance = distance;
+			}
+		}
+
+		return bestLine;
+	}
+
+	/**
+	 * 按同图出现次序查找图片行
+	 */
+	findImageLineForFileOccurrence(
+		content: string,
+		sourceFilePath: string,
+		targetImagePath: string,
+		occurrence: number
+	): number | null {
+		if (!Number.isFinite(occurrence) || occurrence < 1) {
+			return null;
+		}
+
+		const matchedLines = this.findImageLinesForFile(content, sourceFilePath, targetImagePath);
+		return matchedLines[occurrence - 1] ?? null;
+	}
+
+	/**
 	 * 检测文本行中是否包含图片链接
 	 *
 	 * @param line 文本行
@@ -216,6 +312,33 @@ export class MaskDataParser {
 		const end = trimmed.length - MASK_CONSTANTS.COMMENT_SUFFIX.length;
 
 		return trimmed.substring(start, end).trim();
+	}
+
+	private findImageLinesForFile(content: string, sourceFilePath: string, targetImagePath: string): number[] {
+		const lines = content.split("\n");
+		const targetComparablePath = getMaskTargetComparablePath({ imagePath: targetImagePath });
+		if (!targetComparablePath) {
+			return [];
+		}
+
+		const matchedLines: number[] = [];
+		for (let i = 0; i < lines.length; i++) {
+			const imageLink = this.extractImageLink(lines[i]);
+			if (!imageLink) {
+				continue;
+			}
+
+			const imageFile = this.resolveImagePath(imageLink, sourceFilePath);
+			const comparablePath = getMaskTargetComparablePath({
+				imagePath: imageFile?.path || this.extractImageFilename(imageLink) || undefined,
+				imageLink,
+			});
+			if (comparablePath === targetComparablePath) {
+				matchedLines.push(i);
+			}
+		}
+
+		return matchedLines;
 	}
 
 	/**

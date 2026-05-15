@@ -13,7 +13,7 @@
 
 import { TFile } from "obsidian";
 import type { App } from "obsidian";
-import { getV2PathsFromApp } from "../../config/paths";
+import { getPluginPaths, getV2PathsFromApp } from "../../config/paths";
 import type {
 	IRAdvancedScheduleSettings,
 	IRDocumentGroupMap,
@@ -31,6 +31,8 @@ import {
 	IR_STORAGE_VERSION,
 } from "../../types/ir-types";
 import { logger } from "../../utils/logger";
+import { DirectoryUtils } from "../../utils/directory-utils";
+import { IRPointStorageService } from "./IRPointStorageService";
 
 // ============================================
 // 存储路径常量
@@ -39,6 +41,47 @@ import { logger } from "../../utils/logger";
 const TAG_GROUPS_FILE = "tag-groups.json";
 const TAG_GROUP_PROFILES_FILE = "tag-group-profiles.json";
 const DOCUMENT_GROUP_MAP_FILE = "document-group-map.json";
+
+type IRTagGroupDeckScope = {
+	topicId: string;
+	topicName: string;
+	relativePath: string;
+	absolutePath: string;
+};
+
+export function computeTagGroupPriorityBias(
+	profile:
+		| Pick<IRTagGroupProfile, "intervalFactorBase" | "sampleCount">
+		| null
+		| undefined,
+	options: {
+		groupId?: string | null;
+		defaultIntervalFactor?: number;
+		maxBias?: number;
+		fullEffectSampleCount?: number;
+	} = {}
+): number {
+	const groupId = String(options.groupId || "").trim();
+	if (!profile || !groupId || groupId === DEFAULT_TAG_GROUP.id) {
+		return 0;
+	}
+
+	const baseline = Math.max(
+		1,
+		Number(
+			options.defaultIntervalFactor ??
+				DEFAULT_ADVANCED_SCHEDULE_SETTINGS.defaultIntervalFactor ??
+				1.5
+		)
+	);
+	const intervalFactorBase = Number(profile.intervalFactorBase || baseline);
+	const sampleCount = Math.max(0, Number(profile.sampleCount || 0));
+	const maxBias = Math.max(0, Number(options.maxBias ?? 0.8));
+	const fullEffectSampleCount = Math.max(1, Number(options.fullEffectSampleCount ?? 6));
+	const confidence = Math.min(1, sampleCount / fullEffectSampleCount);
+	const normalizedDelta = Math.max(-1, Math.min(1, (baseline - intervalFactorBase) / 0.6));
+	return Math.round(normalizedDelta * maxBias * confidence * 100) / 100;
+}
 
 export function normalizeTagGroupCandidateTags(tags: string[]): string[] {
 	const ordered = new Map<string, string>();
@@ -85,6 +128,9 @@ export class IRTagGroupService {
 	private groupsCache: Record<string, IRTagGroup> = {};
 	private profilesCache: Record<string, IRTagGroupProfile> = {};
 	private documentMapCache: Record<string, IRDocumentGroupMap> = {};
+	private groupScopeCache: Record<string, string[]> = {};
+	private deckScopesCache: IRTagGroupDeckScope[] = [];
+	private pointStorageService: IRPointStorageService | null = null;
 
 	constructor(app: App) {
 		this.app = app;
@@ -92,6 +138,29 @@ export class IRTagGroupService {
 
 	private getStorageDir(): string {
 		return getV2PathsFromApp(this.app).ir.root;
+	}
+
+	private getPointStorageService(): IRPointStorageService {
+		if (!this.pointStorageService) {
+			this.pointStorageService = new IRPointStorageService(this.app);
+		}
+		return this.pointStorageService;
+	}
+
+	private getDocumentMapPath(): string {
+		return getPluginPaths(this.app as any).cache.incrementalReading.documentGroupMap;
+	}
+
+	private getLegacyDocumentMapPath(): string {
+		return `${this.getStorageDir()}/${DOCUMENT_GROUP_MAP_FILE}`;
+	}
+
+	private getLegacyGroupsPath(): string {
+		return `${this.getStorageDir()}/${TAG_GROUPS_FILE}`;
+	}
+
+	private getLegacyProfilesPath(): string {
+		return `${this.getStorageDir()}/${TAG_GROUP_PROFILES_FILE}`;
 	}
 
 	/**
@@ -120,22 +189,8 @@ export class IRTagGroupService {
 				await adapter.mkdir(storageDir);
 			}
 
-			// ??????????
-			await Promise.all([this.loadGroups(), this.loadProfiles(), this.loadDocumentMap()]);
-
-			// ?????????????
-			const savePromises: Promise<void>[] = [];
-			if (!this.groupsCache.default) {
-				this.groupsCache.default = { ...DEFAULT_TAG_GROUP };
-				savePromises.push(this.saveGroups());
-			}
-			if (!this.profilesCache.default) {
-				this.profilesCache.default = { ...DEFAULT_TAG_GROUP_PROFILE };
-				savePromises.push(this.saveProfiles());
-			}
-			if (savePromises.length > 0) {
-				await Promise.all(savePromises);
-			}
+			await this.loadDeckBackedCatalog();
+			await this.loadDocumentMap();
 
 			this.initialized = true;
 			logger.info("[IRTagGroupService] initialized");
@@ -149,116 +204,427 @@ export class IRTagGroupService {
 	// 标签组管理
 	// ============================================
 
-	/**
-	 * 加载所有标签组
-	 */
-	private async loadGroups(): Promise<void> {
-		const adapter = this.app.vault.adapter;
-		const filePath = `${this.getStorageDir()}/${TAG_GROUPS_FILE}`;
+	private cloneGroup(group: IRTagGroup): IRTagGroup {
+		return {
+			...group,
+			matchAnyTags: Array.isArray(group.matchAnyTags) ? [...group.matchAnyTags] : [],
+			matchSource: group.matchSource
+				? {
+						yamlTags: group.matchSource.yamlTags !== false,
+						inlineTags: group.matchSource.inlineTags !== false,
+						customProperties: Array.isArray(group.matchSource.customProperties)
+							? [...group.matchSource.customProperties]
+							: [],
+				  }
+				: undefined,
+		};
+	}
 
+	private cloneProfile(profile: IRTagGroupProfile): IRTagGroupProfile {
+		return {
+			...profile,
+			history: Array.isArray(profile.history)
+				? profile.history.map((entry) => ({ ...entry }))
+				: undefined,
+		};
+	}
+
+	private compareIsoTimestamp(left?: string, right?: string): number {
+		const leftValue = Date.parse(String(left || "")) || 0;
+		const rightValue = Date.parse(String(right || "")) || 0;
+		return leftValue - rightValue;
+	}
+
+	private registerGroupScope(groupId: string, topicId: string): void {
+		const normalizedGroupId = String(groupId || "").trim();
+		const normalizedTopicId = String(topicId || "").trim();
+		if (!normalizedGroupId || !normalizedTopicId) {
+			return;
+		}
+
+		const scopeSet = new Set(this.groupScopeCache[normalizedGroupId] || []);
+		scopeSet.add(normalizedTopicId);
+		this.groupScopeCache[normalizedGroupId] = Array.from(scopeSet).sort((a, b) =>
+			a.localeCompare(b, "zh-CN")
+		);
+	}
+
+	private shouldReplaceGroup(existing: IRTagGroup | undefined, incoming: IRTagGroup): boolean {
+		if (!existing) {
+			return true;
+		}
+		return this.compareIsoTimestamp(existing.updatedAt, incoming.updatedAt) <= 0;
+	}
+
+	private shouldReplaceProfile(
+		existing: IRTagGroupProfile | undefined,
+		incoming: IRTagGroupProfile
+	): boolean {
+		if (!existing) {
+			return true;
+		}
+		const timestampCompare = this.compareIsoTimestamp(existing.updatedAt, incoming.updatedAt);
+		if (timestampCompare !== 0) {
+			return timestampCompare < 0;
+		}
+		return Number(existing.sampleCount || 0) <= Number(incoming.sampleCount || 0);
+	}
+
+	private async loadLegacyGroupsFile(): Promise<{
+		exists: boolean;
+		groups: Record<string, IRTagGroup>;
+		error: string | null;
+	}> {
+		const adapter = this.app.vault.adapter;
+		const filePath = this.getLegacyGroupsPath();
 		try {
 			if (!(await adapter.exists(filePath))) {
-				this.groupsCache = {};
-				return;
+				return { exists: false, groups: {}, error: null };
 			}
 
-			const content = await adapter.read(filePath);
-			const parsed = JSON.parse(content) as IRTagGroupsStore;
+			const parsed = JSON.parse(await adapter.read(filePath)) as IRTagGroupsStore;
 			const groups =
 				parsed &&
 				typeof parsed === "object" &&
 				(parsed as any).groups &&
 				typeof (parsed as any).groups === "object"
-					? (parsed as any).groups
+					? ((parsed as any).groups as Record<string, IRTagGroup>)
 					: {};
-			this.groupsCache = groups as Record<string, IRTagGroup>;
-		} catch {
-			this.groupsCache = {};
+			return {
+				exists: true,
+				groups: Object.fromEntries(
+					Object.entries(groups).map(([groupId, group]) => [
+						groupId,
+						this.cloneGroup({
+							...group,
+							id: String(group?.id || groupId || "").trim() || groupId,
+						}),
+					])
+				),
+				error: null,
+			};
+		} catch (error) {
+			return {
+				exists: true,
+				groups: {},
+				error: error instanceof Error ? error.message : String(error),
+			};
 		}
 	}
 
-	private async saveGroups(): Promise<void> {
+	private async loadLegacyProfilesFile(): Promise<{
+		exists: boolean;
+		profiles: Record<string, IRTagGroupProfile>;
+		error: string | null;
+	}> {
 		const adapter = this.app.vault.adapter;
-		const filePath = `${this.getStorageDir()}/${TAG_GROUPS_FILE}`;
-
-		const store: IRTagGroupsStore = {
-			version: IR_STORAGE_VERSION,
-			groups: this.groupsCache,
-		};
-
-		await adapter.write(filePath, JSON.stringify(store));
-	}
-
-	private async loadProfiles(): Promise<void> {
-		const adapter = this.app.vault.adapter;
-		const filePath = `${this.getStorageDir()}/${TAG_GROUP_PROFILES_FILE}`;
-
+		const filePath = this.getLegacyProfilesPath();
 		try {
 			if (!(await adapter.exists(filePath))) {
-				this.profilesCache = {};
-			} else {
-				const content = await adapter.read(filePath);
-				const parsed = JSON.parse(content) as IRTagGroupProfilesStore;
-				const profiles =
-					parsed &&
-					typeof parsed === "object" &&
-					(parsed as any).profiles &&
-					typeof (parsed as any).profiles === "object"
-						? (parsed as any).profiles
-						: {};
-				this.profilesCache = profiles as Record<string, IRTagGroupProfile>;
+				return { exists: false, profiles: {}, error: null };
 			}
-		} catch {
-			this.profilesCache = {};
+
+			const parsed = JSON.parse(await adapter.read(filePath)) as IRTagGroupProfilesStore;
+			const profiles =
+				parsed &&
+				typeof parsed === "object" &&
+				(parsed as any).profiles &&
+				typeof (parsed as any).profiles === "object"
+					? ((parsed as any).profiles as Record<string, IRTagGroupProfile>)
+					: {};
+			return {
+				exists: true,
+				profiles: Object.fromEntries(
+					Object.entries(profiles).map(([groupId, profile]) => [
+						groupId,
+						this.cloneProfile({
+							...profile,
+							groupId: String(profile?.groupId || groupId || "").trim() || groupId,
+						}),
+					])
+				),
+				error: null,
+			};
+		} catch (error) {
+			return {
+				exists: true,
+				profiles: {},
+				error: error instanceof Error ? error.message : String(error),
+			};
 		}
 	}
 
-	private async saveProfiles(): Promise<void> {
-		const adapter = this.app.vault.adapter;
-		const filePath = `${this.getStorageDir()}/${TAG_GROUP_PROFILES_FILE}`;
-
-		const store: IRTagGroupProfilesStore = {
-			version: IR_STORAGE_VERSION,
-			profiles: this.profilesCache,
+	private normalizeLegacyCatalog(
+		groups: Record<string, IRTagGroup>,
+		profiles: Record<string, IRTagGroupProfile>
+	): {
+		groups: Record<string, IRTagGroup>;
+		profiles: Record<string, IRTagGroupProfile>;
+	} {
+		const mergedGroups = {
+			...groups,
 		};
+		const mergedProfiles = {
+			...profiles,
+		};
+		if (!mergedGroups[DEFAULT_TAG_GROUP.id]) {
+			mergedGroups[DEFAULT_TAG_GROUP.id] = this.cloneGroup(DEFAULT_TAG_GROUP);
+		}
+		for (const groupId of Object.keys(mergedGroups)) {
+			if (!mergedProfiles[groupId]) {
+				mergedProfiles[groupId] = this.cloneProfile({
+					...DEFAULT_TAG_GROUP_PROFILE,
+					groupId,
+				});
+			}
+		}
+		return {
+			groups: mergedGroups,
+			profiles: mergedProfiles,
+		};
+	}
 
-		await adapter.write(filePath, JSON.stringify(store));
+	/**
+	 * 旧 tag-group 文件只用于数据管理中的迁移检测与显式迁移。
+	 * 运行时正式读取来源始终是 .irdeck 内嵌 catalog，避免弃用文件重新变成真源。
+	 */
+	async inspectLegacyCatalogResidue(): Promise<{
+		legacyFileCount: number;
+		filePaths: string[];
+		groupCount: number;
+		profileCount: number;
+		pointFileCount: number;
+		failures: Array<{ id: string; type: string; message: string }>;
+	}> {
+		const groupFile = await this.loadLegacyGroupsFile();
+		const profileFile = await this.loadLegacyProfilesFile();
+		const pointStorage = this.getPointStorageService();
+		await pointStorage.initialize();
+		const catalog = await pointStorage.listPointFileCatalogEntries();
+		const filePaths = [
+			...(groupFile.exists ? [this.getLegacyGroupsPath()] : []),
+			...(profileFile.exists ? [this.getLegacyProfilesPath()] : []),
+		];
+		const failures: Array<{ id: string; type: string; message: string }> = [];
+		if (groupFile.error) {
+			failures.push({
+				id: this.getLegacyGroupsPath(),
+				type: "legacy-tag-group-parse",
+				message: groupFile.error,
+			});
+		}
+		if (profileFile.error) {
+			failures.push({
+				id: this.getLegacyProfilesPath(),
+				type: "legacy-tag-group-profile-parse",
+				message: profileFile.error,
+			});
+		}
+		return {
+			legacyFileCount: filePaths.length,
+			filePaths,
+			groupCount: Object.keys(groupFile.groups).length,
+			profileCount: Object.keys(profileFile.profiles).length,
+			pointFileCount: catalog.length,
+			failures,
+		};
+	}
+
+	async migrateLegacyCatalogToPointFiles(
+		options: { cleanupLegacyFiles?: boolean } = {}
+	): Promise<{
+		embeddedTopicCount: number;
+		removedLegacyFileCount: number;
+		remainingLegacyFiles: string[];
+		failures: Array<{ id: string; type: string; message: string }>;
+	}> {
+		const groupFile = await this.loadLegacyGroupsFile();
+		const profileFile = await this.loadLegacyProfilesFile();
+		const existingFiles = [
+			...(groupFile.exists ? [this.getLegacyGroupsPath()] : []),
+			...(profileFile.exists ? [this.getLegacyProfilesPath()] : []),
+		];
+		const failures: Array<{ id: string; type: string; message: string }> = [];
+		if (groupFile.error) {
+			failures.push({
+				id: this.getLegacyGroupsPath(),
+				type: "legacy-tag-group-parse",
+				message: groupFile.error,
+			});
+		}
+		if (profileFile.error) {
+			failures.push({
+				id: this.getLegacyProfilesPath(),
+				type: "legacy-tag-group-profile-parse",
+				message: profileFile.error,
+			});
+		}
+
+		if (existingFiles.length === 0) {
+			return {
+				embeddedTopicCount: 0,
+				removedLegacyFileCount: 0,
+				remainingLegacyFiles: [],
+				failures,
+			};
+		}
+
+		const hasLegacyCatalog =
+			Object.keys(groupFile.groups).length > 0 || Object.keys(profileFile.profiles).length > 0;
+		let embeddedTopicCount = 0;
+		const pointStorage = this.getPointStorageService();
+		await pointStorage.initialize();
+		const catalog = await pointStorage.listPointFileCatalogEntries();
+
+		if (hasLegacyCatalog) {
+			if (catalog.length === 0) {
+				failures.push({
+					id: "legacy-tag-group-catalog",
+					type: "legacy-tag-group-migration",
+					message: "存在旧标签组定义，但当前没有 .irdeck 专题文件可承接，已保留旧文件",
+				});
+			} else {
+				const normalizedCatalog = this.normalizeLegacyCatalog(
+					groupFile.groups,
+					profileFile.profiles
+				);
+				const affectedTopicIds = await pointStorage.mergeTagGroupCatalogIntoPointFiles({
+					groups: normalizedCatalog.groups,
+					profiles: normalizedCatalog.profiles,
+				});
+				embeddedTopicCount = affectedTopicIds.length;
+			}
+		}
+
+		let removedLegacyFileCount = 0;
+		if (options.cleanupLegacyFiles === true && failures.length === 0) {
+			const adapter = this.app.vault.adapter;
+			for (const filePath of existingFiles) {
+				try {
+					if (await adapter.exists(filePath)) {
+						await adapter.remove(filePath);
+						removedLegacyFileCount += 1;
+					}
+				} catch (error) {
+					failures.push({
+						id: filePath,
+						type: "legacy-tag-group-cleanup",
+						message: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}
+		}
+
+		const remainingLegacyFiles: string[] = [];
+		for (const filePath of existingFiles) {
+			if (await this.app.vault.adapter.exists(filePath)) {
+				remainingLegacyFiles.push(filePath);
+			}
+		}
+
+		return {
+			embeddedTopicCount,
+			removedLegacyFileCount,
+			remainingLegacyFiles,
+			failures,
+		};
+	}
+
+	private async loadDeckBackedCatalog(): Promise<void> {
+		this.groupsCache = {};
+		this.profilesCache = {};
+		this.groupScopeCache = {};
+		this.deckScopesCache = [];
+
+		const pointStorage = this.getPointStorageService();
+		await pointStorage.initialize();
+		const catalog = await pointStorage.listPointFileCatalogEntries();
+		this.deckScopesCache = catalog.map((entry) => ({
+			topicId: entry.topicId,
+			topicName: entry.topicName,
+			relativePath: entry.relativePath,
+			absolutePath: entry.absolutePath,
+		}));
+
+		// 运行时只聚合 .irdeck 中已落盘的标签组定义。
+		for (const entry of catalog) {
+			for (const group of Object.values(entry.fileData.tagGroups || {})) {
+				if (!group?.id) {
+					continue;
+				}
+				this.registerGroupScope(group.id, entry.topicId);
+				if (this.shouldReplaceGroup(this.groupsCache[group.id], group)) {
+					this.groupsCache[group.id] = this.cloneGroup(group);
+				}
+			}
+			for (const profile of Object.values(entry.fileData.tagGroupProfiles || {})) {
+				if (!profile?.groupId) {
+					continue;
+				}
+				this.registerGroupScope(profile.groupId, entry.topicId);
+				if (this.shouldReplaceProfile(this.profilesCache[profile.groupId], profile)) {
+					this.profilesCache[profile.groupId] = this.cloneProfile(profile);
+				}
+			}
+		}
+
+		if (!this.groupsCache[DEFAULT_TAG_GROUP.id]) {
+			this.groupsCache[DEFAULT_TAG_GROUP.id] = this.cloneGroup(DEFAULT_TAG_GROUP);
+		}
+		if (!this.profilesCache[DEFAULT_TAG_GROUP_PROFILE.groupId]) {
+			this.profilesCache[DEFAULT_TAG_GROUP_PROFILE.groupId] =
+				this.cloneProfile(DEFAULT_TAG_GROUP_PROFILE);
+		}
+		for (const groupId of Object.keys(this.groupsCache)) {
+			if (!this.profilesCache[groupId]) {
+				this.profilesCache[groupId] = this.cloneProfile({
+					...DEFAULT_TAG_GROUP_PROFILE,
+					groupId,
+				});
+			}
+		}
 	}
 
 	private async loadDocumentMap(): Promise<void> {
 		const adapter = this.app.vault.adapter;
-		const filePath = `${this.getStorageDir()}/${DOCUMENT_GROUP_MAP_FILE}`;
+		const filePath = this.getDocumentMapPath();
+		const legacyFilePath = this.getLegacyDocumentMapPath();
 
-		try {
-			if (!(await adapter.exists(filePath))) {
-				this.documentMapCache = {};
+		for (const pathToRead of [filePath, legacyFilePath]) {
+			try {
+				if (!(await adapter.exists(pathToRead))) {
+					continue;
+				}
+
+				const content = await adapter.read(pathToRead);
+				const parsed = JSON.parse(content) as IRDocumentGroupMapStore;
+				const map =
+					parsed &&
+					typeof parsed === "object" &&
+					(parsed as any).map &&
+					typeof (parsed as any).map === "object"
+						? (parsed as any).map
+						: {};
+				this.documentMapCache = map as Record<string, IRDocumentGroupMap>;
 				return;
+			} catch {
+				// continue to the next candidate path
 			}
-
-			const content = await adapter.read(filePath);
-			const parsed = JSON.parse(content) as IRDocumentGroupMapStore;
-			const map =
-				parsed &&
-				typeof parsed === "object" &&
-				(parsed as any).map &&
-				typeof (parsed as any).map === "object"
-					? (parsed as any).map
-					: {};
-			this.documentMapCache = map as Record<string, IRDocumentGroupMap>;
-		} catch {
-			this.documentMapCache = {};
 		}
+
+		this.documentMapCache = {};
 	}
 
 	private async saveDocumentMap(): Promise<void> {
 		const adapter = this.app.vault.adapter;
-		const filePath = `${this.getStorageDir()}/${DOCUMENT_GROUP_MAP_FILE}`;
+		const filePath = this.getDocumentMapPath();
 
 		const store: IRDocumentGroupMapStore = {
 			version: IR_STORAGE_VERSION,
 			map: this.documentMapCache,
 		};
 
+		await DirectoryUtils.ensureDirForFile(adapter as any, filePath);
 		await adapter.write(filePath, JSON.stringify(store));
 	}
 
@@ -269,11 +635,37 @@ export class IRTagGroupService {
 		);
 	}
 
+	async getDeckScopes(): Promise<Array<{ topicId: string; topicName: string }>> {
+		await this.initialize();
+		return this.deckScopesCache.map((scope) => ({
+			topicId: scope.topicId,
+			topicName: scope.topicName,
+		}));
+	}
+
+	async getGroupScopeTopicIds(groupId: string): Promise<string[]> {
+		await this.initialize();
+		return [...(this.groupScopeCache[String(groupId || "").trim()] || [])];
+	}
+
+	private resolveTargetTopicIds(groupId: string, targetTopicIds?: string[]): string[] {
+		const explicit = (targetTopicIds || []).map((value) => String(value || "").trim()).filter(Boolean);
+		if (explicit.length > 0) {
+			return Array.from(new Set(explicit));
+		}
+		const scoped = this.groupScopeCache[String(groupId || "").trim()] || [];
+		if (scoped.length > 0) {
+			return [...scoped];
+		}
+		return this.deckScopesCache.map((scope) => scope.topicId);
+	}
+
 	async createGroup(
 		name: string,
 		matchAnyTags: string[],
 		description = "",
-		matchPriority = 100
+		matchPriority = 100,
+		options: { targetTopicIds?: string[] } = {}
 	): Promise<IRTagGroup> {
 		await this.initialize();
 		const id = `group_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
@@ -287,29 +679,66 @@ export class IRTagGroupService {
 			createdAt: now,
 			updatedAt: now,
 		};
-		this.groupsCache[id] = group;
-		await this.saveGroups();
-
-		if (!this.profilesCache[id]) {
-			this.profilesCache[id] = {
-				...DEFAULT_TAG_GROUP_PROFILE,
-				groupId: id,
-			};
-			await this.saveProfiles();
+		const targetTopicIds = this.resolveTargetTopicIds(group.id, options.targetTopicIds);
+		if (targetTopicIds.length === 0) {
+			throw new Error("当前没有可写入的 .irdeck 专题文件");
 		}
+
+		const profile: IRTagGroupProfile = {
+			...DEFAULT_TAG_GROUP_PROFILE,
+			groupId: id,
+			updatedAt: now,
+		};
+		await this.getPointStorageService().mergeTagGroupCatalogIntoPointFiles({
+			groups: {
+				[id]: group,
+			},
+			profiles: {
+				[id]: profile,
+			},
+			targetTopicIds,
+		});
+		this.groupsCache[id] = this.cloneGroup(group);
+		this.profilesCache[id] = this.cloneProfile(profile);
+		this.groupScopeCache[id] = [...targetTopicIds].sort((a, b) => a.localeCompare(b, "zh-CN"));
 
 		return group;
 	}
 
-	async saveGroup(group: IRTagGroup): Promise<void> {
+	async saveGroup(
+		group: IRTagGroup,
+		options: { targetTopicIds?: string[] } = {}
+	): Promise<{ affectedTopicIds: string[] }> {
 		await this.initialize();
-		this.groupsCache[group.id] = group;
-		await this.saveGroups();
+		const targetTopicIds = this.resolveTargetTopicIds(group.id, options.targetTopicIds);
+		if (targetTopicIds.length === 0) {
+			throw new Error("当前没有可写入的 .irdeck 专题文件");
+		}
+		const profile =
+			this.profilesCache[group.id] ||
+			this.cloneProfile({
+				...DEFAULT_TAG_GROUP_PROFILE,
+				groupId: group.id,
+			});
+		const affectedTopicIds = await this.getPointStorageService().mergeTagGroupCatalogIntoPointFiles({
+			groups: {
+				[group.id]: group,
+			},
+			profiles: {
+				[group.id]: profile,
+			},
+			targetTopicIds,
+		});
+		this.groupsCache[group.id] = this.cloneGroup(group);
+		this.profilesCache[group.id] = this.cloneProfile(profile);
+		this.groupScopeCache[group.id] = [...targetTopicIds].sort((a, b) => a.localeCompare(b, "zh-CN"));
+		return { affectedTopicIds: affectedTopicIds.length > 0 ? affectedTopicIds : targetTopicIds };
 	}
 
 	async deleteGroup(
 		groupId: string,
-		storageService?: {
+		options?: {
+			targetTopicIds?: string[];
 			getAllChunkData?: () => Promise<Record<string, any>>;
 			saveChunkData?: (data: any) => Promise<void>;
 			getAllSources?: () => Promise<Record<string, any>>;
@@ -322,41 +751,61 @@ export class IRTagGroupService {
 			return;
 		}
 
-		for (const mapping of Object.values(this.documentMapCache)) {
-			if (mapping.groupId === groupId) {
-				mapping.groupId = "default";
-				mapping.updatedAt = new Date().toISOString();
+		const currentScopeIds = new Set(this.groupScopeCache[groupId] || []);
+		const targetTopicIds = this.resolveTargetTopicIds(groupId, options?.targetTopicIds);
+		const removedTopicIds = new Set(
+			await this.getPointStorageService().removeTagGroupFromPointFiles(groupId, targetTopicIds)
+		);
+		const remainingScopeIds = Array.from(currentScopeIds).filter((topicId) => !removedTopicIds.has(topicId));
+
+		if (remainingScopeIds.length === 0) {
+			for (const mapping of Object.values(this.documentMapCache)) {
+				if (mapping.groupId === groupId) {
+					mapping.groupId = "default";
+					mapping.updatedAt = new Date().toISOString();
+				}
 			}
+			delete this.groupsCache[groupId];
+			delete this.profilesCache[groupId];
+			delete this.groupScopeCache[groupId];
+			await this.saveDocumentMap();
+		} else {
+			this.groupScopeCache[groupId] = remainingScopeIds.sort((a, b) =>
+				a.localeCompare(b, "zh-CN")
+			);
 		}
 
-		delete this.groupsCache[groupId];
-		delete this.profilesCache[groupId];
-
-		await Promise.all([this.saveGroups(), this.saveProfiles(), this.saveDocumentMap()]);
-
-		// 级联清理 chunk/source 中的残留 groupId
-		if (storageService?.getAllChunkData && storageService?.saveChunkData) {
+		// 只有在该标签组被全局移除时，才级联清理兼容层 chunk/source 残留 groupId
+		if (
+			remainingScopeIds.length === 0 &&
+			options?.getAllChunkData &&
+			options?.saveChunkData
+		) {
 			try {
-				const allChunks = await storageService.getAllChunkData();
+				const allChunks = await options.getAllChunkData();
 				for (const chunk of Object.values(allChunks)) {
 					if (chunk?.meta?.tagGroup === groupId) {
 						chunk.meta.tagGroup = "default";
 						chunk.updatedAt = Date.now();
-						await storageService.saveChunkData(chunk);
+						await options.saveChunkData(chunk);
 					}
 				}
 			} catch (error) {
 				logger.warn(`[IRTagGroupService] 级联清理 chunk tagGroup 失败: ${groupId}`, error);
 			}
 		}
-		if (storageService?.getAllSources && storageService?.saveSource) {
+		if (
+			remainingScopeIds.length === 0 &&
+			options?.getAllSources &&
+			options?.saveSource
+		) {
 			try {
-				const allSources = await storageService.getAllSources();
+				const allSources = await options.getAllSources();
 				for (const source of Object.values(allSources)) {
 					if (source?.tagGroup === groupId) {
 						source.tagGroup = "default";
 						source.updatedAt = Date.now();
-						await storageService.saveSource(source);
+						await options.saveSource(source);
 					}
 				}
 			} catch (error) {
@@ -368,21 +817,52 @@ export class IRTagGroupService {
 	async getProfile(groupId: string): Promise<IRTagGroupProfile> {
 		await this.initialize();
 		const existing = this.profilesCache[groupId];
-		if (existing) return existing;
+		if (existing) return this.cloneProfile(existing);
 
 		const created: IRTagGroupProfile = {
 			...DEFAULT_TAG_GROUP_PROFILE,
 			groupId,
 		};
 		this.profilesCache[groupId] = created;
-		await this.saveProfiles();
-		return created;
+		const targetTopicIds = this.resolveTargetTopicIds(groupId);
+		if (targetTopicIds.length > 0 && this.groupsCache[groupId]) {
+			await this.getPointStorageService().mergeTagGroupCatalogIntoPointFiles({
+				groups: {
+					[groupId]: this.groupsCache[groupId],
+				},
+				profiles: {
+					[groupId]: created,
+				},
+				targetTopicIds,
+			});
+		}
+		return this.cloneProfile(created);
 	}
 
-	async saveProfile(profile: IRTagGroupProfile): Promise<void> {
+	async saveProfile(
+		profile: IRTagGroupProfile,
+		options: { targetTopicIds?: string[] } = {}
+	): Promise<{ affectedTopicIds: string[] }> {
 		await this.initialize();
-		this.profilesCache[profile.groupId] = profile;
-		await this.saveProfiles();
+		this.profilesCache[profile.groupId] = this.cloneProfile(profile);
+		const group = this.groupsCache[profile.groupId];
+		const targetTopicIds = this.resolveTargetTopicIds(profile.groupId, options.targetTopicIds);
+		if (!group || targetTopicIds.length === 0) {
+			return { affectedTopicIds: [] };
+		}
+		const affectedTopicIds = await this.getPointStorageService().mergeTagGroupCatalogIntoPointFiles({
+			groups: {
+				[profile.groupId]: group,
+			},
+			profiles: {
+				[profile.groupId]: profile,
+			},
+			targetTopicIds,
+		});
+		this.groupScopeCache[profile.groupId] = [...targetTopicIds].sort((a, b) =>
+			a.localeCompare(b, "zh-CN")
+		);
+		return { affectedTopicIds: affectedTopicIds.length > 0 ? affectedTopicIds : targetTopicIds };
 	}
 
 	/**

@@ -7,6 +7,7 @@ import { logger } from "../utils/logger";
 import { Component, MarkdownRenderer } from "obsidian";
 import type { WeavePlugin } from "../main";
 import type { EditorResourceManager } from "./resource-manager";
+import { applyStyleProps } from "./style-props";
 
 export interface PreviewOptions {
 	/** 防抖延迟（毫秒） */
@@ -320,7 +321,7 @@ export class PreviewManager {
 		button.type = "button";
 		button.textContent = "隐藏错误";
 		button.addEventListener("click", () => {
-			wrapper.setCssProps({ display: "none" });
+			applyStyleProps(wrapper, { display: "none" });
 		});
 
 		actions.appendChild(button);

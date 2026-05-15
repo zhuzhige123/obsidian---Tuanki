@@ -50,8 +50,39 @@ export function normalizeDeckTagGroup(tagGroup: DeckTagGroup): DeckTagGroup {
 	};
 }
 
+export function findMatchingTagInDeckTagGroup(
+	tags: readonly string[] | undefined,
+	tagGroup: DeckTagGroup
+): string | null {
+	if (!tags || tags.length === 0) {
+		return null;
+	}
+
+	const normalizedTagSet = new Set(tags.map((tag) => normalizeDeckTagName(tag)).filter(Boolean));
+	if (normalizedTagSet.size === 0) {
+		return null;
+	}
+
+	for (const tag of normalizeDeckTagGroupTags(tagGroup.tags)) {
+		if (normalizedTagSet.has(tag)) {
+			return tag;
+		}
+	}
+
+	return null;
+}
+
 export function createDeckTagColumnKey(tag: string): string {
 	return `${DECK_TAG_COLUMN_KEY_PREFIX}${normalizeDeckTagName(tag)}`;
+}
+
+export function getDeckTagLabelFromColumnKey(key: string): string | null {
+	if (!key.startsWith(DECK_TAG_COLUMN_KEY_PREFIX)) {
+		return null;
+	}
+
+	const label = key.slice(DECK_TAG_COLUMN_KEY_PREFIX.length).trim();
+	return label || null;
 }
 
 /**

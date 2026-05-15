@@ -82,6 +82,15 @@ export class EmergentRuleGroupModal extends Modal {
 				});
 			});
 
+			new Setting(sectionEl)
+				.setName("仅显示有可学卡片的牌组")
+				.setDesc("开启后会隐藏当前无可学卡片的涌现牌组")
+				.addToggle((toggle) => {
+					toggle.setValue(group.onlyLearnableDecks === true).onChange((value) => {
+						group.onlyLearnableDecks = value;
+					});
+				});
+
 			const actionSetting = new Setting(sectionEl)
 				.setName("操作")
 				.setDesc(this.activeRuleGroupId === group.id ? "当前规则组已在涌现区域生效" : "可切换为当前规则组");
@@ -125,6 +134,7 @@ export class EmergentRuleGroupModal extends Modal {
 						id: `rule-group-${Date.now()}`,
 						name: `规则组 ${nextIndex}`,
 						minCandidateCardCount: this.groups[this.groups.length - 1]?.minCandidateCardCount || 2,
+						onlyLearnableDecks: false,
 						requiredTags: [],
 						excludedTags: [],
 						sourceFolders: [],
@@ -153,6 +163,7 @@ export class EmergentRuleGroupModal extends Modal {
 							...group,
 							name: group.name.trim() || "未命名规则组",
 							minCandidateCardCount: Math.max(1, Math.floor(group.minCandidateCardCount || 1)),
+							onlyLearnableDecks: group.onlyLearnableDecks === true,
 						})),
 						activeRuleGroupId: this.activeRuleGroupId || this.groups[0]?.id || "",
 					});

@@ -11,10 +11,8 @@
   import { onMount, untrack } from 'svelte';
   import type { WeavePlugin } from '../../main';
   import type { Card } from '../../data/types';
-  import type { ResolvedDeckRef } from '../../types/emergent-deck-types';
   import type { EmbeddableEditorManager } from '../../services/editor/EmbeddableEditorManager';
   import ResizableModal from '../ui/ResizableModal.svelte';
-  import ResolvedDeckRefs from '../ui/ResolvedDeckRefs.svelte';
   import InlineCardEditor from '../editor/InlineCardEditor.svelte';
   import { Menu, Notice, Platform } from 'obsidian';
   import { getCardMetadata } from '../../utils/yaml-utils';
@@ -37,7 +35,6 @@
 
     /**  预加载的牌组数据 */
     decks: any[];
-    resolvedDeckRefs?: ResolvedDeckRef[];
 
     /** 保存成功回调 */
     onSave?: (card: Card) => void;
@@ -53,7 +50,6 @@
     plugin,
     editorPoolManager,
     decks: preloadedDecks,
-    resolvedDeckRefs = [],
     onSave,
     onCancel
   }: Props = $props();
@@ -236,11 +232,6 @@
         <span class="deck-multi-selector-value">{getDeckSelectorText()}</span>
       </button>
     {/if}
-    {#if resolvedDeckRefs.length > 0}
-      <div class="resolved-deck-panel" aria-label={MEMORY_DECK_UI_TEXT.resolvedRefsLabel}>
-        <ResolvedDeckRefs refs={resolvedDeckRefs} label={MEMORY_DECK_UI_TEXT.resolvedRefsLabel} emptyText="" />
-      </div>
-    {/if}
   {/snippet}
 
   {#snippet children()}
@@ -284,21 +275,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .resolved-deck-panel {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    margin-left: 0.75rem;
-    max-width: min(100%, 420px);
-    padding: 0.25rem 0.5rem;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--input-radius);
-    background: var(--background-modifier-form-field);
-    color: var(--text-normal);
-    vertical-align: middle;
   }
 
 </style>

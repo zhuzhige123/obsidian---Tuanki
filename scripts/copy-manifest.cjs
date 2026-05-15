@@ -9,8 +9,21 @@ const {
 
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 const DIST_DIR = path.join(PROJECT_ROOT, "dist");
-const MANIFEST_SOURCE = path.join(PROJECT_ROOT, "manifest.json");
-const PLUGIN_ID = "weave";
+const IS_STANDALONE_EPUB_BUILD = process.env.WEAVE_EPUB_STANDALONE === "1";
+const IS_STANDALONE_IR_BUILD = process.env.WEAVE_IR_STANDALONE === "1";
+const MANIFEST_SOURCE = path.join(
+	PROJECT_ROOT,
+	IS_STANDALONE_EPUB_BUILD
+		? "manifest.epub.json"
+		: IS_STANDALONE_IR_BUILD
+			? "manifest.ir.json"
+			: "manifest.json"
+);
+const PLUGIN_ID = IS_STANDALONE_EPUB_BUILD
+	? "weave-epub-reader"
+	: IS_STANDALONE_IR_BUILD
+		? "weave-incremental-reading"
+		: "weave";
 
 function resolveTargetDirs() {
 	const targets = new Set();

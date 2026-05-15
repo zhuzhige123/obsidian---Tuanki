@@ -153,6 +153,39 @@ export function resolveAssociatedNotePaths(input: {
 	return Array.from(ordered.values());
 }
 
+export function remapAssociatedNotePath(
+	path: string | undefined | null,
+	oldPath: string,
+	newPath: string
+): string | null {
+	const normalizedPath = normalizeNotePath(path);
+	const normalizedOldPath = normalizeNotePath(oldPath);
+	const normalizedNewPath = normalizeNotePath(newPath);
+	if (!normalizedPath || !normalizedOldPath || !normalizedNewPath) {
+		return normalizedPath;
+	}
+
+	if (normalizedPath === normalizedOldPath) {
+		return normalizedNewPath;
+	}
+
+	return normalizePathForComparison(normalizedPath) === normalizePathForComparison(normalizedOldPath)
+		? normalizedNewPath
+		: normalizedPath;
+}
+
+export function remapAssociatedNotePaths(
+	notePaths: Array<string | null | undefined>,
+	oldPath: string,
+	newPath: string
+): string[] {
+	return resolveAssociatedNotePaths({
+		associatedNotePaths: notePaths
+			.map((path) => remapAssociatedNotePath(path, oldPath, newPath))
+			.filter((path): path is string => Boolean(path)),
+	});
+}
+
 export function buildAssociatedNoteSignalIndex(cards: Card[]): IRAssociatedNoteSignalIndex {
 	const aggregates = new Map<string, { count: number; prioritySum: number; maxPriority: number }>();
 

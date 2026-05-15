@@ -10,12 +10,15 @@
    * - 精致的统计信息展示
    */
   import type { Deck, DeckStats } from '../../data/types';
+  import type { MemoryDeckLevelProgress } from '../../services/deck/MemoryDeckLevelService';
+  import DeckLevelBadge from '../ui/DeckLevelBadge.svelte';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import { tr } from '../../utils/i18n';
 
   interface Props {
     deck: Deck;
     stats: DeckStats;
+    levelProgress?: MemoryDeckLevelProgress;
     colorVariant?: 1 | 2 | 3 | 4;
     compact?: boolean;
     deckMode?: 'memory' | 'question-bank' | 'incremental-reading';
@@ -28,6 +31,7 @@
   let {
     deck,
     stats,
+    levelProgress,
     colorVariant = 1,
     compact = false,
     deckMode = 'memory',
@@ -62,19 +66,55 @@
     return ((Math.abs(hash) % 4) + 1) as 1 | 2 | 3 | 4;
   });
 
+  let pendingStudyPointerId = $state<number | null>(null);
+
   // 处理点击事件
   function handleClick() {
     onStudy();
   }
 
+  function resetStudyPointerIntent() {
+    pendingStudyPointerId = null;
+  }
+
+  function isMenuButtonTarget(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest('.menu-btn') !== null;
+  }
+
+  function handlePointerDown(event: PointerEvent) {
+    if (event.button !== 0 || isMenuButtonTarget(event.target)) {
+      resetStudyPointerIntent();
+      return;
+    }
+
+    pendingStudyPointerId = event.pointerId;
+  }
+
+  function handlePointerUp(event: PointerEvent) {
+    if (pendingStudyPointerId !== event.pointerId || isMenuButtonTarget(event.target)) {
+      resetStudyPointerIntent();
+      return;
+    }
+
+    resetStudyPointerIntent();
+    handleClick();
+  }
+
   // 处理右键菜单
   function handleContextMenu(event: MouseEvent) {
+    resetStudyPointerIntent();
     event.preventDefault();
     onMenu(event);
   }
 
   // 处理菜单按钮点击
+  function handleMenuPointerDown(event: PointerEvent) {
+    resetStudyPointerIntent();
+    event.stopPropagation();
+  }
+
   function handleMenuClick(event: MouseEvent) {
+    resetStudyPointerIntent();
     event.preventDefault();
     event.stopPropagation();
     onMenu(event);
@@ -92,10 +132,9 @@
 <div 
   class="chinese-elegant-card variant-{stableColorVariant()}"
   class:compact
-  onclick={(event) => {
-    if (event.defaultPrevented) return;
-    handleClick();
-  }}
+  onpointerdown={handlePointerDown}
+  onpointerup={handlePointerUp}
+  onpointercancel={resetStudyPointerIntent}
   onkeydown={handleKeyDown}
   oncontextmenu={handleContextMenu}
   role="button"
@@ -117,6 +156,7 @@
   <!-- 右上角菜单按钮 -->
   <button 
     class="menu-btn"
+    onpointerdown={handleMenuPointerDown}
     onclick={handleMenuClick}
     aria-label={t('decks.card.moreActions')}
     title={t('decks.card.moreActions')}
@@ -130,6 +170,12 @@
     <div class="card-title">
       {deck.name}
     </div>
+
+    {#if deckMode === 'memory' && levelProgress}
+      <div class="level-badge-wrap">
+        <DeckLevelBadge progress={levelProgress} />
+      </div>
+    {/if}
 
     <!-- 底部统计信息栏 - 左下角 -->
     <div class="stats-bar">
@@ -297,6 +343,16 @@
     justify-content: space-between;
   }
 
+  .level-badge-wrap {
+    position: absolute;
+    right: 18px;
+    bottom: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+
   /* 牌组标题 - 左上角对齐 */
   .card-title {
     font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -316,7 +372,7 @@
     overflow: hidden;
   }
 
-  /* 底部统计信息栏 - 左下角对齐 */
+  /* 底部统计信息栏 - 左下角 */
   .stats-bar {
     display: flex;
     gap: 20px;
@@ -371,6 +427,13 @@
     font-size: 14px;
   }
 
+  .compact .level-badge-wrap {
+    right: 14px;
+    bottom: 10px;
+    transform: scale(0.92);
+    transform-origin: bottom right;
+  }
+
   /* 移动端适配 */
   @media (max-width: 768px) {
     .chinese-elegant-card {
@@ -399,6 +462,13 @@
 
     .menu-btn {
       opacity: 1;
+    }
+
+    .level-badge-wrap {
+      right: 16px;
+      bottom: 12px;
+      transform: scale(0.9);
+      transform-origin: bottom right;
     }
   }
 
@@ -449,6 +519,11 @@
 
     .menu-btn {
       opacity: 1;
+    }
+
+    .level-badge-wrap {
+      transform: scale(0.94);
+      transform-origin: bottom right;
     }
   }
 

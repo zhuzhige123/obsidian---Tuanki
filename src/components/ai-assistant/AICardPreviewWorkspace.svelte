@@ -3,11 +3,16 @@
   import { logger } from '../../utils/logger';
 
   import type { WeavePlugin } from '../../main';
-  import type { AICardPreviewItem, GenerationConfig, GenerationProgress } from '../../types/ai-types';
+  import type {
+    AICardPreviewItem,
+    AIPreviewImportOptions,
+    AIPreviewImportResult,
+    GenerationConfig,
+    GenerationProgress
+  } from '../../types/ai-types';
   import type { Card } from '../../data/types';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import ObsidianDropdown from '../ui/ObsidianDropdown.svelte';
-  import RegenerateDialog from './RegenerateDialog.svelte';
   import PreviewContainer from '../preview/PreviewContainer.svelte';
   import { CardConverter } from '../../services/ai/CardConverter';
   import { Notice } from 'obsidian';
@@ -26,14 +31,13 @@
     emptyDescription?: string;
     busyTitle?: string;
     busyDescription?: string;
-    showRegenerateAction?: boolean;
     showImportControls?: boolean;
     enableSelection?: boolean;
     previewTitle?: string;
     previewSubtitle?: string;
     showCurrentIndexLabel?: boolean;
     navigationHint?: string;
-    onImport?: (selectedItems: AICardPreviewItem[], targetDeck: string) => Promise<void>;
+    onImport?: (selectedItems: AICardPreviewItem[], options: AIPreviewImportOptions) => Promise<AIPreviewImportResult>;
   }
 
   let {
@@ -49,7 +53,6 @@
     emptyDescription,
     busyTitle,
     busyDescription,
-    showRegenerateAction = variant === 'generate',
     showImportControls = variant === 'generate',
     enableSelection = variant === 'generate',
     previewTitle = '',
@@ -63,12 +66,14 @@
 
   let currentIndex = $state(0);
   let selectedCardIds = $state<Set<string>>(new Set());
-  let showRegenerateDialog = $state(false);
   let isImporting = $state(false);
   let availableDecks = $state<Array<{ id: string; name: string }>>([]);
   let selectedDeckId = $state('');
+  let committedImportTags = $state<string[]>([]);
+  let importAutoTagsText = $state('');
   let previewCard = $state<Card | null>(null);
   let showPreviewAnswer = $state(true);
+  let lastImportSummary = $state<AIPreviewImportResult | null>(null);
 
   let previousCardIds = new Set<string>();
   let previousCardSignature = '';
@@ -76,8 +81,7 @@
   let suppressThumbnailClick = false;
   let pressedThumbnailId = $state<string | null>(null);
 
-  let currentItem = $derived(items[currentIndex]);
-  let currentCard = $derived(currentItem?.generatedCard ?? null);
+  let currentCard = $derived(items[currentIndex]?.generatedCard ?? null);
   let selectedCount = $derived(selectedCardIds.size);
   let isAllSelected = $derived(selectedCount === items.length && items.length > 0);
   let hasCards = $derived(items.length > 0);
@@ -109,6 +113,65 @@
   let resolvedNavigationHint = $derived(
     navigationHint ?? (enableSelection ? '点按切换卡片，长按序号可选中或取消选中' : '点按切换卡片')
   );
+  let importAutoTags = $derived.by(() => normalizeTagList(committedImportTags));
+  let importSummaryText = $derived.by(() => {
+    if (!lastImportSummary || lastImportSummary.importedCount <= 0) return '';
+    const deckName = lastImportSummary.targetDeckName || '目标牌组';
+    const failedPart = lastImportSummary.failedCount > 0
+      ? `，另有 ${lastImportSummary.failedCount} 张未成功导入`
+      : '';
+    return `刚刚已成功导入 ${lastImportSummary.importedCount} 张卡片到“${deckName}”${failedPart}`;
+  });
+
+  function normalizeTagList(tags: string[] | undefined): string[] {
+    return Array.from(new Set((tags ?? []).map((tag) => String(tag || '').trim().replace(/^#+/, '')).filter(Boolean)));
+  }
+
+  function normalizeTagListFromText(value: string): string[] {
+    return normalizeTagList(value.split(/[\n,，]/).map((item) => item.trim()));
+  }
+
+  async function persistImportAutoTags(nextTags: string[]): Promise<void> {
+    await plugin.saveAIAssistantPreferences({
+      ...plugin.getAIAssistantPreferences(),
+      importAutoTags: nextTags
+    });
+  }
+
+  async function setCommittedImportTags(nextTags: string[]): Promise<void> {
+    const normalized = normalizeTagList(nextTags);
+    committedImportTags = normalized;
+    await persistImportAutoTags(normalized);
+  }
+
+  async function commitDraftImportTags(): Promise<string[]> {
+    const draftTags = normalizeTagListFromText(importAutoTagsText);
+    const nextTags = normalizeTagList([...(committedImportTags ?? []), ...draftTags]);
+
+    if (draftTags.length > 0 || nextTags.length !== committedImportTags.length) {
+      await setCommittedImportTags(nextTags);
+    }
+
+    importAutoTagsText = '';
+    return nextTags;
+  }
+
+  async function removeCommittedImportTag(tagToRemove: string): Promise<void> {
+    await setCommittedImportTags(committedImportTags.filter((tag) => tag !== tagToRemove));
+  }
+
+  async function handleImportTagKeydown(event: KeyboardEvent): Promise<void> {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      await commitDraftImportTags();
+      return;
+    }
+
+    if (event.key === 'Backspace' && !importAutoTagsText.trim() && committedImportTags.length > 0) {
+      event.preventDefault();
+      await removeCommittedImportTag(committedImportTags[committedImportTags.length - 1]);
+    }
+  }
 
   function dispatchSelectionState() {
     if (typeof window === 'undefined') return;
@@ -151,7 +214,6 @@
       currentIndex = 0;
       selectedCardIds = new Set();
       previousCardIds = new Set();
-      showRegenerateDialog = false;
       return;
     }
 
@@ -159,7 +221,6 @@
       selectedCardIds = new Set();
       previousCardIds = currentIds;
       currentIndex = Math.min(currentIndexSnapshot, Math.max(items.length - 1, 0));
-      showRegenerateDialog = false;
       return;
     }
 
@@ -188,6 +249,18 @@
     mode;
     config.targetDeck;
     void loadDecks();
+  });
+
+  $effect(() => {
+    if (!showImportControls || !onImport) {
+      committedImportTags = [];
+      importAutoTagsText = '';
+      return;
+    }
+
+    const savedTags = plugin.getAIAssistantPreferences().importAutoTags;
+    committedImportTags = normalizeTagList(savedTags);
+    importAutoTagsText = '';
   });
 
   $effect(() => {
@@ -227,7 +300,6 @@
   function goToCard(index: number) {
     if (index < 0 || index >= items.length) return;
     currentIndex = index;
-    showRegenerateDialog = false;
   }
 
   function toggleCardSelection(cardId: string) {
@@ -290,149 +362,6 @@
     selectedCardIds = new Set();
   }
 
-  function toggleRegenerateDialog() {
-    showRegenerateDialog = !showRegenerateDialog;
-  }
-
-  async function handleRegenerate(instruction: string) {
-    if (!currentItem || !currentCard) return;
-
-    try {
-      new Notice('正在重新生成卡片...');
-
-      const { AIServiceFactory } = await import('../../services/ai/AIServiceFactory');
-      const aiService = AIServiceFactory.createService(config.provider, plugin, config.model);
-
-      const originalContent = currentCard.content || '';
-      const cardType = currentCard.type;
-      let regeneratePrompt = '';
-      let typeDistribution = { qa: 0, cloze: 0, choice: 0 };
-
-      if (cardType === 'cloze') {
-        typeDistribution.cloze = 100;
-        regeneratePrompt = `
-原始卡片内容：
-${originalContent}
-
-卡片类型：挖空题（cloze）
-
-用户修改要求：${instruction}
-
-请根据用户的修改要求重新生成这张挖空题卡片。
-
-返回JSON数组，格式如下：
-[
-  {
-    "type": "cloze",
-    "content": "完整原文（用==文本==标记需要挖空的部分）"
-  }
-]
-
-注意：
-1. 使用==文本==语法标记挖空部分
-2. content字段包含完整的卡片内容
-3. 返回的必须是包含1个对象的JSON数组`;
-      } else if (cardType === 'choice') {
-        typeDistribution.choice = 100;
-        regeneratePrompt = `
-原始卡片内容：
-${originalContent}
-
-卡片类型：选择题（choice）
-
-用户修改要求：${instruction}
-
-请根据用户的修改要求重新生成这张选择题卡片。
-
-返回JSON数组，格式如下：
-[
-  {
-    "type": "choice",
-    "content": "Q: 问题内容\\n\\nA) 选项A\\nB) 选项B\\nC) 选项C\\nD) 选项D\\n\\n---div---\\n\\n正确答案) 答案解释"
-  }
-]
-
-注意：
-1. content字段使用特定格式：Q:开头的问题，A)/B)/C)/D)开头的选项，---div---分隔，正确答案)开头的答案
-2. 返回的必须是包含1个对象的JSON数组`;
-      } else {
-        typeDistribution.qa = 100;
-        regeneratePrompt = `
-原始卡片内容：
-${originalContent}
-
-卡片类型：问答题（qa）
-
-用户修改要求：${instruction}
-
-请根据用户的修改要求重新生成这张问答题卡片。
-
-返回JSON数组，格式如下：
-[
-  {
-    "type": "qa",
-    "content": "问题内容\\n\\n---div---\\n\\n答案内容"
-  }
-]
-
-注意：
-1. content字段使用 ---div--- 分隔问题和答案
-2. 返回的必须是包含1个对象的JSON数组`;
-      }
-
-      const aiConfig = plugin.settings.aiConfig!;
-      const providerConfig = aiConfig.apiKeys?.[
-        config.provider as keyof typeof aiConfig.apiKeys
-      ];
-
-      if (!providerConfig || !providerConfig.apiKey) {
-        throw new Error(`${config.provider} API密钥未配置`);
-      }
-
-      const response = await aiService.generateCards(
-        regeneratePrompt,
-        {
-          templateId: 'regenerate',
-          promptTemplate: regeneratePrompt,
-          cardCount: 1,
-          difficulty: currentCard.metadata.difficulty || 'medium',
-          typeDistribution,
-          provider: config.provider,
-          model: config.model,
-          temperature: config.temperature,
-          maxTokens: config.maxTokens,
-          imageGeneration: {
-            enabled: false,
-            strategy: 'none',
-            imagesPerCard: 0,
-            placement: 'question'
-          },
-          autoTags: [],
-          enableHints: false
-        },
-        () => {}
-      );
-
-      if (!response.success || !response.cards || response.cards.length === 0) {
-        throw new Error(response.error || '生成失败');
-      }
-
-      const nextItems = [...items];
-      nextItems[currentIndex] = {
-        ...currentItem,
-        generatedCard: {
-          ...currentCard,
-          content: response.cards[0].content || ''
-        }
-      };
-      items = nextItems;
-      new Notice('卡片已重新生成');
-    } catch (error) {
-      logger.error('[AICardPreviewWorkspace] 重新生成失败:', error);
-      new Notice(error instanceof Error ? error.message : '重新生成失败');
-    }
-  }
-
   async function loadDecks() {
     try {
       const allDecks = await plugin.dataStorage.getDecks();
@@ -468,9 +397,7 @@ ${originalContent}
   }
 
   async function handleImportCards() {
-    if (!showImportControls || !onImport) {
-      return;
-    }
+    if (!showImportControls || !onImport) return;
 
     if (selectedCount === 0) {
       new Notice('请至少选择一张卡片');
@@ -484,10 +411,32 @@ ${originalContent}
 
     try {
       isImporting = true;
-      await onImport(
-        items.filter((item) => selectedCardIds.has(item.id)),
-        selectedDeckId
+      const selectedItems = items.filter((item) => selectedCardIds.has(item.id));
+      const finalAutoTags = importAutoTagsText.trim()
+        ? await commitDraftImportTags()
+        : [...committedImportTags];
+      const result = await onImport(
+        selectedItems,
+        {
+          targetDeckId: selectedDeckId,
+          autoTags: finalAutoTags
+        }
       );
+
+      lastImportSummary = result;
+
+      const importedItemIds = new Set(result.importedItemIds || selectedItems.map((item) => item.id));
+      const nextSelected = new Set(selectedCardIds);
+      for (const itemId of importedItemIds) {
+        nextSelected.delete(itemId);
+      }
+      selectedCardIds = nextSelected;
+
+      if (result.importedCount > 0) {
+        const deckName = result.targetDeckName || '目标牌组';
+        const failedPart = result.failedCount > 0 ? `，${result.failedCount} 张未成功导入` : '';
+        new Notice(`已成功导入 ${result.importedCount} 张卡片到“${deckName}”${failedPart}`);
+      }
     } catch (error) {
       logger.error('[AICardPreviewWorkspace] 导入失败:', error);
       new Notice(error instanceof Error ? error.message : '导入失败');
@@ -539,28 +488,7 @@ ${originalContent}
           {:else}
             <div class="no-preview-warning">卡片预览加载失败</div>
           {/if}
-
-          {#if showRegenerateAction}
-            <div class="card-action-buttons">
-              <button
-                class="regenerate-toggle-btn"
-                onclick={toggleRegenerateDialog}
-                class:active={showRegenerateDialog}
-              >
-                <ObsidianIcon name="message-square" size={16} />
-                <span>{t(showRegenerateDialog ? 'modals.cardPreview.collapseDialog' : 'modals.cardPreview.modifyRequirement')}</span>
-              </button>
-            </div>
-          {/if}
         </div>
-
-        {#if showRegenerateAction && showRegenerateDialog}
-          <RegenerateDialog
-            {currentItem}
-            {currentCard}
-            onRegenerate={handleRegenerate}
-          />
-        {/if}
       {:else}
         <div class="preview-empty-state" class:with-progress-panel={showGenerationProgressPanel}>
           <div class="empty-icon">
@@ -638,22 +566,71 @@ ${originalContent}
 
       {#if showImportControls}
         <div class="preview-actions">
+          {#if importSummaryText}
+            <div class="import-feedback-banner">
+              <ObsidianIcon name="check-circle-2" size={14} />
+              <span>{importSummaryText}</span>
+            </div>
+          {/if}
           <div class="preview-actions-row">
-            <div class="deck-selector compact">
-              <ObsidianDropdown
-                className="target-deck-select"
-                value={selectedDeckId}
-                disabled={isImporting}
-                iconPosition="left"
-                options={availableDecks.map((deck) => ({
-                  id: deck.id,
-                  label: truncateDeckName(deck.name),
-                  description: deck.id === selectedDeckId ? deck.name : undefined
-                }))}
-                onchange={(value) => {
-                  selectedDeckId = value;
-                }}
-              />
+            <div class="import-config-fields">
+              <div class="deck-selector compact">
+                <ObsidianDropdown
+                  className="target-deck-select"
+                  value={selectedDeckId}
+                  disabled={isImporting}
+                  iconPosition="left"
+                  options={availableDecks.map((deck) => ({
+                    id: deck.id,
+                    label: truncateDeckName(deck.name),
+                    description: deck.id === selectedDeckId ? deck.name : undefined
+                  }))}
+                  onchange={(value) => {
+                    selectedDeckId = value;
+                  }}
+                />
+              </div>
+
+              <label class="import-tags-field">
+                <div class="import-tags-editor" class:is-empty={committedImportTags.length === 0 && !importAutoTagsText.trim()}>
+                  {#each committedImportTags as tag (tag)}
+                    <span class="import-tag-chip">
+                      <span class="import-tag-chip-text">{tag}</span>
+                      <button
+                        type="button"
+                        class="import-tag-chip-remove"
+                        aria-label={`移除标签 ${tag}`}
+                        disabled={isImporting}
+                        onclick={() => {
+                          void removeCommittedImportTag(tag);
+                        }}
+                      >
+                        <ObsidianIcon name="x" size={12} />
+                      </button>
+                    </span>
+                  {/each}
+
+                  <input
+                    type="text"
+                    class="import-tags-input"
+                    value={importAutoTagsText}
+                    placeholder={committedImportTags.length > 0 ? '继续输入后按回车' : '输入标签后按回车'}
+                    aria-label="自动标签"
+                    disabled={isImporting}
+                    oninput={(event) => {
+                      importAutoTagsText = (event.currentTarget as HTMLInputElement).value;
+                    }}
+                    onkeydown={(event) => {
+                      void handleImportTagKeydown(event);
+                    }}
+                    onblur={() => {
+                      if (importAutoTagsText.trim()) {
+                        void commitDraftImportTags();
+                      }
+                    }}
+                  />
+                </div>
+              </label>
             </div>
 
             <button
@@ -869,12 +846,6 @@ ${originalContent}
     transition: width 0.25s ease;
   }
 
-  .generation-progress-hint {
-    max-width: none;
-    font-size: 13px;
-    color: var(--text-normal);
-  }
-
   .empty-icon { 
     width: 52px;
     height: 52px;
@@ -884,36 +855,6 @@ ${originalContent}
     border-radius: 16px;
     background: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
     color: var(--text-accent);
-  }
-
-  .card-action-buttons {
-    display: flex;
-    gap: 12px;
-    margin-top: 16px;
-  }
-
-  .regenerate-toggle-btn {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 12px;
-    border-radius: 8px;
-    background: var(--interactive-accent);
-    color: white;
-    font-weight: 500;
-    transition: all 0.2s;
-    cursor: pointer;
-  }
-
-  .regenerate-toggle-btn:hover {
-    background: var(--interactive-accent-hover);
-  }
-
-  .regenerate-toggle-btn.active {
-    background: var(--background-modifier-border);
-    color: var(--text-normal);
   }
 
   .preview-footer {
@@ -1031,15 +972,40 @@ ${originalContent}
   .preview-actions {
     display: flex;
     flex-direction: column;
-    gap: 0;
+    gap: 8px;
+  }
+
+  .import-feedback-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--color-green, #22c55e) 14%, var(--weave-ai-card-bg, var(--background-secondary)));
+    border: 1px solid color-mix(in srgb, var(--color-green, #22c55e) 24%, var(--background-modifier-border));
+    color: var(--text-normal);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .import-feedback-banner :global(svg) {
+    color: var(--color-green, #22c55e);
+    flex-shrink: 0;
   }
 
   .preview-actions-row {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: 10px;
     min-width: 0;
     flex-wrap: nowrap;
+  }
+
+  .import-config-fields {
+    flex: 0 1 auto;
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
   }
 
   .deck-selector {
@@ -1049,25 +1015,27 @@ ${originalContent}
   }
 
   .deck-selector.compact {
-    flex: 1 1 0;
-    min-width: 0;
+    flex: 0 0 220px;
+    width: 220px;
+    min-width: 220px;
   }
 
   :global(.deck-selector .obsidian-dropdown-trigger.target-deck-select) {
-    padding: 6px 12px;
-    border-radius: 6px;
-    background: var(--weave-ai-card-bg, var(--background-secondary));
+    padding: 0 12px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
     border: 1px solid var(--background-modifier-border);
     color: var(--text-normal);
     font-size: 13px;
     cursor: pointer;
-    min-height: 0;
+    min-height: 36px;
+    box-shadow: none;
   }
 
   :global(.deck-selector.compact .obsidian-dropdown-trigger.target-deck-select) {
     width: 100%;
-    min-height: 34px;
-    border-radius: 10px;
+    min-height: 36px;
+    border-radius: 8px;
   }
 
   :global(.deck-selector.compact .obsidian-dropdown-trigger.target-deck-select .dropdown-icon.is-leading) {
@@ -1075,17 +1043,107 @@ ${originalContent}
   }
 
   :global(.deck-selector .obsidian-dropdown-trigger.target-deck-select:hover:not(.disabled)) {
-    border-color: var(--text-accent);
+    border-color: var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
   }
 
   :global(.deck-selector .obsidian-dropdown-trigger.target-deck-select:focus-visible) {
     outline: none;
-    border-color: var(--text-accent);
+    border-color: var(--interactive-accent);
     box-shadow: none;
   }
 
   :global(.deck-selector .obsidian-dropdown-trigger.target-deck-select.disabled) {
     opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .import-tags-field {
+    flex: 0 0 180px;
+    width: 180px;
+    min-width: 180px;
+    display: flex;
+    align-items: stretch;
+  }
+
+  .import-tags-editor {
+    width: 100%;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
+    box-shadow: none;
+  }
+
+  .import-tags-editor:focus-within {
+    border-color: var(--interactive-accent);
+  }
+
+  .import-tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    min-height: 22px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-secondary));
+    color: var(--text-normal);
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .import-tag-chip-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .import-tag-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 999px;
+  }
+
+  .import-tag-chip-remove:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .import-tags-input {
+    flex: 1 1 72px;
+    width: auto;
+    min-width: 72px;
+    min-height: 22px;
+    padding: 0;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-normal);
+    font-size: 12px;
+    box-shadow: none;
+  }
+
+  .import-tags-input:focus {
+    outline: none;
+    box-shadow: none;
+  }
+
+  .import-tags-input:disabled {
+    opacity: 0.6;
     cursor: not-allowed;
   }
 
@@ -1095,26 +1153,29 @@ ${originalContent}
     justify-content: center;
     gap: 8px;
     width: 100%;
-    min-height: 42px;
+    min-height: 36px;
     padding: 0 18px;
-    border-radius: 12px;
+    border-radius: 8px;
     background: var(--interactive-accent);
     color: white;
     font-weight: 600;
-    transition: all 0.2s;
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 82%, transparent);
+    transition: none;
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
+    box-shadow: none;
   }
 
   .import-btn.compact {
     width: auto;
-    min-width: 116px;
+    min-width: 92px;
     flex: 0 0 auto;
   }
 
   .import-btn:hover:not(:disabled) {
-    background: var(--interactive-accent-hover);
+    background: var(--interactive-accent);
+    border-color: color-mix(in srgb, var(--interactive-accent) 82%, transparent);
   }
 
   .import-btn:disabled {
@@ -1249,6 +1310,29 @@ ${originalContent}
     .preview-actions-row {
       align-items: stretch;
       gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .import-config-fields {
+      width: 100%;
+      flex-direction: column;
+      flex: 1 1 100%;
+    }
+
+    .import-tags-field {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .import-tags-editor {
+      min-height: 44px;
+      padding: 6px 10px;
+      border-radius: 14px;
+    }
+
+    .import-tags-input {
+      min-height: 24px;
+      font-size: 13px;
     }
 
     .card-display {
@@ -1275,8 +1359,9 @@ ${originalContent}
     }
 
     .deck-selector.compact {
-      flex: 1 1 0;
+      width: 100%;
       min-width: 0;
+      flex: 1 1 auto;
     }
 
     :global(.deck-selector.compact .obsidian-dropdown-trigger.target-deck-select) {
@@ -1294,9 +1379,7 @@ ${originalContent}
       min-height: 44px;
       padding: 0 16px;
       border-radius: 14px;
-      box-shadow:
-        0 10px 24px color-mix(in srgb, var(--interactive-accent) 24%, transparent),
-        inset 0 1px 0 color-mix(in srgb, white 18%, transparent);
+      box-shadow: none;
     }
   }
 </style>

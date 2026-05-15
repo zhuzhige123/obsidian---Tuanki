@@ -1,7 +1,7 @@
 import type { ReadingMaterial } from "../types/incremental-reading-types";
 import type { IRChunkFileData, IRDeck, IRSession, IRStudySession } from "../types/ir-types";
 
-export const IR_TOPICS_FILE = "topics.json";
+export const IR_LEGACY_TOPICS_FILE = "topics.json";
 export const IR_LEGACY_DECKS_FILE = "decks.json";
 export const READING_TOPIC_YAML_KEY = "weave-reading-topic-id";
 export const READING_LEGACY_DECK_YAML_KEY = "weave-reading-ir-deck-id";

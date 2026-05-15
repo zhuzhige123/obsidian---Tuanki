@@ -52,6 +52,7 @@ export class IRWorkspaceSnapshotService {
 	private inflightWorkspaceData: Promise<IRWorkspaceDataSnapshot> | null = null;
 	private deckOverviewCache = new Map<string, IRDeckOverviewSnapshot>();
 	private inflightDeckOverview = new Map<string, Promise<IRDeckOverviewSnapshot>>();
+	private cacheVersion = 0;
 
 	constructor(app: App) {
 		this.app = app;
@@ -61,8 +62,11 @@ export class IRWorkspaceSnapshotService {
 	}
 
 	invalidate(): void {
+		this.cacheVersion += 1;
 		this.workspaceDataCache = null;
+		this.inflightWorkspaceData = null;
 		this.deckOverviewCache.clear();
+		this.inflightDeckOverview.clear();
 	}
 
 	getCachedWorkspaceData(): IRWorkspaceDataSnapshot | null {
@@ -77,7 +81,8 @@ export class IRWorkspaceSnapshotService {
 			return this.inflightWorkspaceData;
 		}
 
-		const snapshotPromise = this.buildWorkspaceData();
+		const requestVersion = this.cacheVersion;
+		const snapshotPromise = this.buildWorkspaceData(requestVersion);
 		this.inflightWorkspaceData = snapshotPromise;
 		try {
 			return await snapshotPromise;
@@ -104,7 +109,8 @@ export class IRWorkspaceSnapshotService {
 			return inflight;
 		}
 
-		const snapshotPromise = this.buildDeckOverview(options, cacheKey);
+		const requestVersion = this.cacheVersion;
+		const snapshotPromise = this.buildDeckOverview(options, cacheKey, requestVersion);
 		this.inflightDeckOverview.set(cacheKey, snapshotPromise);
 		try {
 			return await snapshotPromise;
@@ -127,7 +133,8 @@ export class IRWorkspaceSnapshotService {
 
 	private async buildDeckOverview(
 		options: DeckOverviewOptions,
-		cacheKey: string
+		cacheKey: string,
+		requestVersion: number
 	): Promise<IRDeckOverviewSnapshot> {
 		const startedAt = Date.now();
 		const {
@@ -302,7 +309,9 @@ export class IRWorkspaceSnapshotService {
 			decks,
 			deckStats,
 		};
-		this.deckOverviewCache.set(cacheKey, snapshot);
+		if (this.cacheVersion === requestVersion) {
+			this.deckOverviewCache.set(cacheKey, snapshot);
+		}
 		logger.info("[IRWorkspaceSnapshotService] deck overview ready", {
 			deckCount: decks.length,
 			blockCount: Object.keys(blocksRecord).length,
@@ -314,7 +323,7 @@ export class IRWorkspaceSnapshotService {
 		return snapshot;
 	}
 
-	private async buildWorkspaceData(): Promise<IRWorkspaceDataSnapshot> {
+	private async buildWorkspaceData(requestVersion: number): Promise<IRWorkspaceDataSnapshot> {
 		const startedAt = Date.now();
 		await Promise.all([
 			this.storage.initialize(),
@@ -350,7 +359,9 @@ export class IRWorkspaceSnapshotService {
 			pdfTasks,
 			epubTasks,
 		};
-		this.workspaceDataCache = snapshot;
+		if (this.cacheVersion === requestVersion) {
+			this.workspaceDataCache = snapshot;
+		}
 		logger.info("[IRWorkspaceSnapshotService] workspace data ready", {
 			deckCount: Object.keys(decksRecord).length,
 			blockCount: Object.keys(blocksRecord).length,

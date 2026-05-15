@@ -6,17 +6,17 @@ import { logger } from "../../utils/logger";
  */
 
 import type { WeaveDataStorage } from "../../data/storage";
-import type { Card, CardType, Deck } from "../../data/types";
+import type { Card, Deck } from "../../data/types";
+import { getCardTagValues } from "../../utils/tag-utils";
 import {
 	createDeckTagColumnKey,
 	DECK_TAG_EMPTY_GROUP_KEY,
 	DECK_TAG_GROUP_OTHER_KEY,
-	normalizeDeckTagGroupTags,
+	findMatchingTagInDeckTagGroup,
 	normalizeDeckTagName,
 	type DeckGroupByType,
 	type DeckTagGroup,
 } from "../../types/deck-kanban-types";
-import { getCardMetadataService } from "../CardMetadataService";
 
 /**
  * 牌组统计数据接口
@@ -33,7 +33,7 @@ interface DeckStats {
  */
 export class DeckAggregationService {
 	private storage: WeaveDataStorage;
-	private cardsCache: Card[] | null = null;
+	private deckCardsCache = new Map<string, Card[]>();
 	private cacheTimestamp = 0;
 	private readonly CACHE_TTL = 30000; // 30秒缓存有效期
 	private deckStats?: Record<string, DeckStats>; //  实时统计数据
@@ -53,35 +53,60 @@ export class DeckAggregationService {
 	/**
 	 * 获取所有卡片（带缓存）
 	 */
-	private async getAllCards(): Promise<Card[]> {
+	private async getDeckCards(deck: Deck): Promise<Card[]> {
 		const now = Date.now();
+		const cacheKey = String(deck.id || "").trim();
 
-		// 如果缓存有效，直接返回
-		if (this.cardsCache && now - this.cacheTimestamp < this.CACHE_TTL) {
-			return this.cardsCache;
+		if (cacheKey && now - this.cacheTimestamp < this.CACHE_TTL) {
+			const cachedCards = this.deckCardsCache.get(cacheKey);
+			if (cachedCards) {
+				return cachedCards;
+			}
 		}
 
-		// 重新获取并缓存
-		this.cardsCache = await this.storage.getCards();
+		const requestedCardUUIDs = Array.isArray(deck.cardUUIDs)
+			? Array.from(new Set(deck.cardUUIDs.map((uuid) => String(uuid || "").trim()).filter(Boolean)))
+			: [];
+
+		const deckCards =
+			requestedCardUUIDs.length > 0 && typeof this.storage.getCardsByUUIDs === "function"
+				? await this.storage.getCardsByUUIDs(requestedCardUUIDs)
+				: await this.storage.getCards({ deckId: deck.id });
+		if (cacheKey) {
+			this.deckCardsCache.set(cacheKey, deckCards);
+		}
 		this.cacheTimestamp = now;
-		return this.cardsCache;
+		return deckCards;
+	}
+
+	/**
+	 * 获取牌组内卡片的标签值
+	 *
+	 * @param deck 牌组对象
+	 * @returns 标签值数组
+	 */
+	private async getDeckTagValues(deck: Deck): Promise<string[]> {
+		const deckCards = await this.getDeckCards(deck);
+		const tagSet = new Set<string>();
+
+		for (const card of deckCards) {
+			for (const tag of getCardTagValues(card, deck.purpose === "test" ? "questionBank" : "memory")) {
+				const normalizedTag = normalizeDeckTagName(tag);
+				if (normalizedTag) {
+					tagSet.add(normalizedTag);
+				}
+			}
+		}
+
+		return Array.from(tagSet);
 	}
 
 	/**
 	 * 清除缓存（在数据更新时调用）
 	 */
 	public clearCache(): void {
-		this.cardsCache = null;
+		this.deckCardsCache.clear();
 		this.cacheTimestamp = 0;
-	}
-
-	/**
-	 * 获取牌组的卡片。
-	 * 以卡片内容中的牌组归属为准，不使用旧索引缓存反推。
-	 */
-	private getDeckCards(allCards: Card[], deck: Deck): Card[] {
-		const metadataService = getCardMetadataService();
-		return metadataService.filterByDeck(allCards, deck.id);
 	}
 
 	/**
@@ -115,9 +140,7 @@ export class DeckAggregationService {
 	 */
 	async analyzeTimeRange(deck: Deck): Promise<string> {
 		try {
-			// 使用缓存获取牌组所有卡片
-			const allCards = await this.getAllCards();
-			const deckCards = this.getDeckCards(allCards, deck);
+			const deckCards = await this.getDeckCards(deck);
 
 			if (deckCards.length === 0) {
 				return "future";
@@ -168,15 +191,11 @@ export class DeckAggregationService {
 	 */
 	async analyzePriority(deck: Deck): Promise<string> {
 		try {
-			//  优先从牌组的metadata中读取优先级（支持拖拽设置）
 			if (deck.metadata?.priority) {
 				return deck.metadata.priority as string;
 			}
 
-			// 备选方案：分析牌组内卡片的优先级
-			// 使用缓存获取牌组所有卡片
-			const allCards = await this.getAllCards();
-			const deckCards = this.getDeckCards(allCards, deck);
+			const deckCards = await this.getDeckCards(deck);
 
 			if (deckCards.length === 0) {
 				return "none";
@@ -211,9 +230,8 @@ export class DeckAggregationService {
 	 * @param deck 牌组对象
 	 * @returns 标签名称或'noTag'
 	 */
-	analyzeTag(deck: Deck): string {
-		// 牌组的tags数组中，只取第一个标签（单选）
-		const firstTag = deck.tags?.map((tag) => normalizeDeckTagName(tag)).find(Boolean);
+	async analyzeTag(deck: Deck): Promise<string> {
+		const firstTag = (await this.getDeckTagValues(deck)).find(Boolean);
 		return firstTag ? createDeckTagColumnKey(firstTag) : DECK_TAG_EMPTY_GROUP_KEY;
 	}
 
@@ -224,17 +242,9 @@ export class DeckAggregationService {
 	 * @param tagGroup 标签组定义
 	 * @returns 匹配的标签名称或'__other__'
 	 */
-	analyzeTagGroup(deck: Deck, tagGroup: DeckTagGroup): string {
-		const candidateTags = normalizeDeckTagGroupTags(tagGroup.tags);
-		if (deck.tags && deck.tags.length > 0 && candidateTags.length > 0) {
-			const deckTagSet = new Set(deck.tags.map((tag) => normalizeDeckTagName(tag)).filter(Boolean));
-			for (const tag of candidateTags) {
-				if (deckTagSet.has(tag)) {
-					return createDeckTagColumnKey(tag);
-				}
-			}
-		}
-		return DECK_TAG_GROUP_OTHER_KEY;
+	async analyzeTagGroup(deck: Deck, tagGroup: DeckTagGroup): Promise<string> {
+		const matchedTag = findMatchingTagInDeckTagGroup(await this.getDeckTagValues(deck), tagGroup);
+		return matchedTag ? createDeckTagColumnKey(matchedTag) : DECK_TAG_GROUP_OTHER_KEY;
 	}
 
 	/**
@@ -254,7 +264,7 @@ export class DeckAggregationService {
 
 		// 根据分组方式分析每个牌组
 		// 对于需要异步操作的分组方式，使用Promise.all并行处理
-		if (groupBy === "timeRange" || groupBy === "priority") {
+		if (groupBy === "timeRange" || groupBy === "priority" || groupBy === "tag" || groupBy === "tagGroup") {
 			// 并行处理所有牌组
 			const results = await Promise.all(
 				decks.map(async (deck) => {
@@ -266,6 +276,17 @@ export class DeckAggregationService {
 							break;
 						case "priority":
 							groupKey = await this.analyzePriority(deck);
+							break;
+						case "tag":
+							groupKey = await this.analyzeTag(deck);
+							break;
+						case "tagGroup":
+							if (!tagGroup) {
+								logger.error('tagGroup is required when groupBy is "tagGroup"');
+								groupKey = DECK_TAG_GROUP_OTHER_KEY;
+							} else {
+								groupKey = await this.analyzeTagGroup(deck, tagGroup);
+							}
 							break;
 						default:
 							groupKey = "unknown";
@@ -283,25 +304,13 @@ export class DeckAggregationService {
 				grouped[groupKey].push(deck);
 			}
 		} else {
-			// 同步分组方式（completion, tag, tagGroup）
+			// 同步分组方式（completion）
 			for (const deck of decks) {
 				let groupKey: string;
 
 				switch (groupBy) {
 					case "completion":
 						groupKey = this.analyzeCompletion(deck);
-						break;
-					case "tag":
-						groupKey = this.analyzeTag(deck);
-						break;
-										case "tagGroup":
-												// 按标签组分组，需要传入tagGroup
-												if (!tagGroup) {
-														logger.error('tagGroup is required when groupBy is "tagGroup"');
-														groupKey = DECK_TAG_GROUP_OTHER_KEY;
-												} else {
-														groupKey = this.analyzeTagGroup(deck, tagGroup);
-												}
 						break;
 					default:
 						groupKey = "unknown";

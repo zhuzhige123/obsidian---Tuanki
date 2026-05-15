@@ -11,19 +11,18 @@
  * │  │   │   └── sessions/                           │
  * │  │   └── media/                                  │
  * │  ├── incremental-reading/  (增量阅读模块)        │
- * │  │   ├── registry/                               │
- * │  │   ├── materials/                              │
  * │  │   ├── points/                                 │
- * │  │   ├── decks.json                              │
+ * │  │   ├── topics.json         (旧专题 store，仅迁移/清理用) │
+ * │  │   ├── decks.json          (旧专题别名 store，仅迁移/清理用) │
  * │  │   ├── blocks.json                             │
  * │  │   ├── chunks.json                             │
  * │  │   ├── sources.json                            │
  * │  │   ├── study-sessions.json                     │
  * │  │   ├── calendar-progress.json                  │
- * │  │   ├── tag-groups.json                         │
- * │  │   ├── document-group-map.json                 │
+ * │  │   ├── tag-groups.json     (旧兼容残留，仅迁移/清理用) │
+ * │  │   ├── tag-group-profiles.json (旧兼容残留，仅迁移/清理用) │
  * │  │   ├── pdf-bookmark-tasks.json                 │
- * │  │   ├── materials/                              │
+ * │  │   ├── materials/          (旧兼容残留，仅迁移/清理用) │
  * │  │   └── IR/               (人类可读 Markdown)   │
  * │  └── question-bank/        (考试题库模块)        │
  * │      ├── banks.json                             │
@@ -43,6 +42,9 @@
  * │  │   ├── indices/          (索引文件)            │
  * │  │   ├── migration/        (迁移状态/报告)       │
  * │  │   └── incremental-reading/                    │
+ * │  │       ├── document-group-map.json             │
+ * │  │       ├── point-files-index.json              │
+ * │  │       ├── sync-state.json                     │
  * │  │       └── reader-artifacts/                   │
  * │  │   └── editor-temp/      (编辑器缓冲文件)      │
  * │  └── state/                (插件本地状态)        │
@@ -51,7 +53,11 @@
  * │      ├── study-session.json (学习会话续接)       │
  * │      ├── local-storage.json (统一本地键值状态)   │
  * │      └── quality-inbox.json (卡片质量收件箱)     │
- * │      └── incremental-reading/reader-state/       │
+ * │      └── incremental-reading/                    │
+ * │          ├── reading-materials-runtime.json      │
+ * │          ├── epub-reader-data.json               │
+ * │          ├── monitoring.json                     │
+ * │          └── reader-state/                       │
  * └──────────────────────────────────────────────────┘
  *
  * 核心原则：
@@ -63,6 +69,8 @@
  */
 
 import { type App, normalizePath } from "obsidian";
+
+declare const __WEAVE_IR_STANDALONE__: boolean;
 
 type PluginFolderSettings = {
 	settings?: {
@@ -88,7 +96,7 @@ export const LEGACY_DOT_TUANKI = ".tuanki";
 /** Compatibility note: v2.x 旧的机读数据子目录名（已废弃，数据现在直接在 weave/ 下） */
 export const LEGACY_MACHINE_DATA_SUBDIR = "_data";
 
-/** 增量阅读处理后 Markdown 输出默认目录（在 incremental-reading/ 模块内） */
+/** 旧增量阅读正文/文件化块兼容目录（新正文默认路径已不再写入这里） */
 export const DEFAULT_IR_IMPORT_FOLDER = `${WEAVE_DATA}/incremental-reading/IR`;
 const DEFAULT_OBSIDIAN_CONFIG_DIR = [".", "obsidian"].join("");
 
@@ -150,8 +158,8 @@ export function getV2Paths(parentFolder?: string) {
 			registry: `${root}/incremental-reading/registry`,
 			pointsDir: `${root}/incremental-reading/points`,
 			materialRecordsDir: `${root}/incremental-reading/materials`,
-			topics: `${root}/incremental-reading/topics.json`,
-			decks: `${root}/incremental-reading/decks.json`,
+			legacyTopics: `${root}/incremental-reading/topics.json`,
+			legacyDecks: `${root}/incremental-reading/decks.json`,
 			blocks: `${root}/incremental-reading/blocks.json`,
 			history: `${root}/incremental-reading/history.json`,
 			chunks: `${root}/incremental-reading/chunks.json`,
@@ -190,7 +198,13 @@ export function getV2Paths(parentFolder?: string) {
 export function getV2PathsFromApp(app?: App | AppWithPluginAccess) {
 	try {
 		const pluginHost = app as AppWithPluginAccess | undefined;
-		const plugin = pluginHost?.plugins?.getPlugin?.("weave");
+		const pluginId =
+			typeof __WEAVE_IR_STANDALONE__ !== "undefined" && __WEAVE_IR_STANDALONE__
+				? "weave-incremental-reading"
+				: "weave";
+		const plugin =
+			pluginHost?.plugins?.getPlugin?.(pluginId)
+			?? pluginHost?.plugins?.getPlugin?.("weave");
 		const parentFolder = plugin?.settings?.weaveParentFolder;
 		return getV2Paths(parentFolder);
 	} catch {
@@ -198,13 +212,13 @@ export function getV2PathsFromApp(app?: App | AppWithPluginAccess) {
 	}
 }
 
-export function getDefaultIRImportFolder(parentFolder?: string): string {
+export function getLegacyIRImportFolder(parentFolder?: string): string {
 	return normalizePath(`${getReadableWeaveRoot(parentFolder)}/incremental-reading/IR`);
 }
 
 export function resolveIRImportFolder(importFolder?: string, parentFolder?: string): string {
 	const raw = (importFolder || "").trim();
-	const dynamicDefault = getDefaultIRImportFolder(parentFolder);
+	const dynamicDefault = getLegacyIRImportFolder(parentFolder);
 
 	if (!raw) return dynamicDefault;
 
@@ -229,10 +243,23 @@ export function getReadableMediaFolder(parentFolder?: string): string {
 }
 
 /** 插件目录根路径（动态获取，兼容自定义 configDir） */
-export function getPluginDir(app?: { vault: { configDir: string } }): string {
+export function getPluginDirById(
+	app: { vault: { configDir: string } } | undefined,
+	pluginId: string
+): string {
 	const configDir = resolveVaultConfigDir(app);
-	return `${configDir}/plugins/weave`;
+	return `${configDir}/plugins/${pluginId}`;
 }
+
+/** 插件目录根路径（动态获取，兼容自定义 configDir） */
+export function getPluginDir(app?: { vault: { configDir: string } }): string {
+	const pluginId =
+		typeof __WEAVE_IR_STANDALONE__ !== "undefined" && __WEAVE_IR_STANDALONE__
+			? "weave-incremental-reading"
+			: "weave";
+	return getPluginDirById(app, pluginId);
+}
+
 /** Schema 版本号 */
 export const SCHEMA_VERSION = "3.0.0";
 
@@ -244,8 +271,11 @@ export const DEFAULT_MEDIA_FOLDER_NAME = "media";
 // ============================================================================
 
 /** 动态获取插件目录路径（支持自定义 configDir） */
-export function getPluginPaths(app?: { vault: { configDir: string } }) {
-	const root = getPluginDir(app);
+export function getPluginPathsById(
+	app: { vault: { configDir: string } } | undefined,
+	pluginId: string
+) {
+	const root = getPluginDirById(app, pluginId);
 	const cacheRoot = `${root}/cache`;
 	const indicesRoot = `${cacheRoot}/indices`;
 	const migrationRoot = `${cacheRoot}/migration`;
@@ -264,6 +294,12 @@ export function getPluginPaths(app?: { vault: { configDir: string } }) {
 			qualityInbox: `${stateRoot}/quality-inbox.json`,
 			incrementalReading: {
 				root: irStateRoot,
+				readingMaterialsRuntime: `${irStateRoot}/reading-materials-runtime.json`,
+				epubReaderData: `${irStateRoot}/epub-reader-data.json`,
+				monitoring: `${irStateRoot}/monitoring.json`,
+				history: `${irStateRoot}/history.json`,
+				studySessions: `${irStateRoot}/study-sessions.json`,
+				calendarProgress: `${irStateRoot}/calendar-progress.json`,
 				readerState: `${irStateRoot}/reader-state`,
 			},
 		},
@@ -283,6 +319,11 @@ export function getPluginPaths(app?: { vault: { configDir: string } }) {
 			wdeckConflicts: `${cacheRoot}/wdeck-conflicts.json`,
 			incrementalReading: {
 				root: irCacheRoot,
+				irCalendarCache: `${irCacheRoot}/ir-calendar-cache.json`,
+				epubBacklinkHighlightsCache: `${irCacheRoot}/epub-backlink-highlights-cache.json`,
+				documentGroupMap: `${irCacheRoot}/document-group-map.json`,
+				pointFilesIndex: `${irCacheRoot}/point-files-index.json`,
+				syncState: `${irCacheRoot}/sync-state.json`,
 				readerArtifacts: `${irCacheRoot}/reader-artifacts`,
 			},
 		},
@@ -292,6 +333,15 @@ export function getPluginPaths(app?: { vault: { configDir: string } }) {
 			state: `${migrationRoot}/migration-state.json`,
 		},
 	} as const;
+}
+
+/** 动态获取插件目录路径（支持自定义 configDir） */
+export function getPluginPaths(app?: { vault: { configDir: string } }) {
+	const pluginId =
+		typeof __WEAVE_IR_STANDALONE__ !== "undefined" && __WEAVE_IR_STANDALONE__
+			? "weave-incremental-reading"
+			: "weave";
+	return getPluginPathsById(app, pluginId);
 }
 
 export function getLegacyPluginPaths(app?: { vault: { configDir: string } }) {

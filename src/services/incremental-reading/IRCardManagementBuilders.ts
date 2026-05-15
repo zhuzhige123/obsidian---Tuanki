@@ -1,6 +1,7 @@
 import { TFile, type App } from "obsidian";
 import type { Card } from "../../data/types";
 import { CardType } from "../../data/types";
+import type { IRMaterialRecord, IRPoint } from "../../types/ir-point-storage-types";
 import type { IRChunkFileData, IRDeck } from "../../types/ir-types";
 import type { IRPdfBookmarkTask } from "./IRPdfBookmarkTaskService";
 import type { IREpubBookmarkTask } from "./IREpubBookmarkTaskService";
@@ -11,9 +12,10 @@ import {
 	getIRSourceDocumentLabel,
 	getIRSourceSubunitLabel,
 } from "./IRCardManagementAdapter";
-import { resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
+import { resolveAssociatedNotePath, resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 import { detectTraceSourceKind, normalizeTraceDocumentKey, normalizeTraceSubunitKey } from "./IRSourceTraceStats";
 import { getChunkTopicIds, getTaskTopicId } from "../../utils/ir-topic-compat";
+import { extractAllTags } from "../../utils/yaml-utils";
 
 type BuildIRCardBase = (params: {
 	id: string;
@@ -65,8 +67,28 @@ export interface IRCardBuilderHelpers {
 	}) => Promise<string>;
 }
 
+type LegacyAssociatedNoteCarrier = {
+	primaryAssociatedNotePath?: string | null;
+	associatedNotePath?: string | null;
+	associatedNotePaths?: Array<string | null | undefined> | null;
+} | null | undefined;
+
+function resolveLegacyAssociatedNotePaths(
+	primary: LegacyAssociatedNoteCarrier,
+	fallback?: LegacyAssociatedNoteCarrier
+): string[] {
+	return resolveAssociatedNotePaths({
+		associatedNotePath:
+			resolveAssociatedNotePath(primary as any) || resolveAssociatedNotePath(fallback as any),
+		associatedNotePaths: Array.isArray(primary?.associatedNotePaths)
+			? primary.associatedNotePaths
+			: Array.isArray(fallback?.associatedNotePaths)
+				? fallback.associatedNotePaths
+				: undefined,
+	});
+}
+
 export async function extractChunkTags(app: App, chunkFilePath: string): Promise<string[]> {
-	let tags: string[] = [];
 	try {
 		const chunkFile = app.vault.getAbstractFileByPath(chunkFilePath);
 		if (!(chunkFile instanceof TFile)) {
@@ -74,35 +96,9 @@ export async function extractChunkTags(app: App, chunkFilePath: string): Promise
 		}
 
 		const content = await app.vault.read(chunkFile);
-		const yamlMatch = content.match(/^---\n([\s\S]*?)\n---/);
-		if (yamlMatch) {
-			const yamlContent = yamlMatch[1];
-			const tagsMatch =
-				yamlContent.match(/tags:\s*\[([^\]]+)\]/) ||
-				yamlContent.match(/tags:\s*\n((?:\s+-\s+.+\n)+)/);
-			if (tagsMatch) {
-				if (tagsMatch[1].includes("-")) {
-					tags = tagsMatch[1]
-						.split("\n")
-						.map((line) => line.trim().replace(/^-\s+/, ""))
-						.filter((tag) => tag.length > 0);
-				} else {
-					tags = tagsMatch[1]
-						.split(",")
-						.map((tag) => tag.trim())
-						.filter((tag) => tag.length > 0);
-				}
-			}
-		}
-
-		const bodyContent = content.replace(/^---\n[\s\S]*?\n---/, "");
-		const contentTags = bodyContent.match(/(?<![#\w])#([\w\u4e00-\u9fa5-]+)/g) || [];
-		const filteredTags = contentTags
-			.map((tag) => tag.substring(1))
-			.filter((tag) => !/^\d+$/.test(tag));
-		return [...new Set([...tags, ...filteredTags])];
+		return extractAllTags(content);
 	} catch {
-		return tags;
+		return [];
 	}
 }
 
@@ -138,10 +134,7 @@ export async function buildLegacyIRBlockCard(options: {
 	const sourceKind = detectTraceSourceKind(block.filePath);
 	const sourceDocumentKey = normalizeTraceDocumentKey(block.filePath, sourceKind) || block.filePath;
 	const priorityValue = getIRPriorityValue(block.priorityUi, block.priorityEff, block.priority);
-	const associatedNotePaths = resolveAssociatedNotePaths({
-		associatedNotePath: block.primaryAssociatedNotePath || block.associatedNotePath || block.meta?.primaryAssociatedNotePath || block.meta?.associatedNotePath,
-		associatedNotePaths: block.associatedNotePaths || block.meta?.associatedNotePaths,
-	});
+	const associatedNotePaths = resolveLegacyAssociatedNotePaths(block, (block.meta || null) as any);
 	const primaryAssociatedNotePath = associatedNotePaths[0];
 	const tagGroupName = await helpers.resolveTagGroupName({
 		explicitGroupId: block.tagGroupId || block.meta?.tagGroup,
@@ -238,10 +231,7 @@ export async function buildIRChunkCard(options: {
 	const sourceKind = detectTraceSourceKind(sourcePath);
 	const sourceDocumentKey = normalizeTraceDocumentKey(sourcePath, sourceKind) || sourcePath;
 	const priorityValue = getIRPriorityValue((chunk as any).priorityUi, chunk.priorityEff);
-	const associatedNotePaths = resolveAssociatedNotePaths({
-		associatedNotePath: (chunk.meta as any)?.primaryAssociatedNotePath || chunk.meta?.associatedNotePath,
-		associatedNotePaths: (chunk.meta as any)?.associatedNotePaths,
-	});
+	const associatedNotePaths = resolveLegacyAssociatedNotePaths((chunk.meta || null) as any);
 	const primaryAssociatedNotePath = associatedNotePaths[0];
 	const tagGroupName = await helpers.resolveTagGroupName({
 		explicitGroupId: chunk.meta?.tagGroup,
@@ -335,10 +325,7 @@ export async function buildIRPdfTaskCard(options: {
 	const sourceKind: IRTraceSourceKind = "pdf";
 	const sourceDocumentKey = normalizeTraceDocumentKey(task.pdfPath, sourceKind) || task.pdfPath;
 	const sourceSubunitKey = normalizeTraceSubunitKey(task.link) || undefined;
-	const associatedNotePaths = resolveAssociatedNotePaths({
-		associatedNotePath: task.meta?.primaryAssociatedNotePath || task.meta?.associatedNotePath,
-		associatedNotePaths: task.meta?.associatedNotePaths,
-	});
+	const associatedNotePaths = resolveLegacyAssociatedNotePaths(task.meta as any);
 	const primaryAssociatedNotePath = associatedNotePaths[0];
 	const tagGroupName = await helpers.resolveTagGroupName({
 		explicitGroupId: task.meta?.tagGroup,
@@ -380,6 +367,7 @@ export async function buildIRPdfTaskCard(options: {
 			metadata: {
 				irPdfBookmark: true,
 				pdfPath: task.pdfPath,
+				resumeLink: task.link,
 				link: task.link,
 				annotationId: task.annotationId,
 				deckIds: canonicalDeckIds,
@@ -409,6 +397,156 @@ export async function buildIRPdfTaskCard(options: {
 	};
 }
 
+function getIRScheduleFsrsState(status: string | undefined): number {
+	return status === "new"
+		? 0
+		: status === "active" || status === "queued" || status === "scheduled"
+			? 1
+			: 2;
+}
+
+function getPointMetadataString(point: IRPoint, key: string): string | undefined {
+	const value = point.metadata?.[key];
+	return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function resolvePointTopicIds(point: IRPoint, topicId: string): string[] {
+	const topicIds = Array.isArray(point.relations.topicIds) ? point.relations.topicIds : [];
+	const normalized = Array.from(
+		new Set(
+			[...topicIds, topicId]
+				.map((value) => String(value || "").trim())
+				.filter(Boolean)
+		)
+	);
+	return normalized;
+}
+
+function resolvePointReadingSeconds(
+	point: IRPoint,
+	readingSecondsById: Map<string, number>,
+	helpers: IRCardBuilderHelpers
+): number {
+	return helpers.getIRReadingSeconds(
+		point.id,
+		readingSecondsById,
+		Math.max(0, Math.round((point.stats?.totalReadingTimeMs || 0) / 1000))
+	);
+}
+
+function resolvePointAssociatedNotePaths(point: IRPoint): string[] {
+	return resolveAssociatedNotePaths({
+		associatedNotePaths: point.relations.linkedNotePaths,
+	});
+}
+
+export async function buildIRPdfPointCard(options: {
+	point: IRPoint;
+	material: IRMaterialRecord | null;
+	topicId: string;
+	topicName: string;
+	readingSecondsById: Map<string, number>;
+	helpers: IRCardBuilderHelpers;
+}): Promise<Card & Record<string, any>> {
+	const { point, material, topicId, topicName, readingSecondsById, helpers } = options;
+	const topicIds = resolvePointTopicIds(point, topicId);
+	const canonicalDeckIds = helpers.resolveIRDeckIds(topicIds);
+	const canonicalDeckId = canonicalDeckIds[0] || helpers.resolveIRDeckId(topicId);
+	const deckName = helpers.getIRDeckName(canonicalDeckId || topicId, topicName || "未分配");
+	const pdfPath =
+		(typeof point.trace.locator.pdfPath === "string" && point.trace.locator.pdfPath.trim()) ||
+		point.source?.path ||
+		material?.source.path ||
+		"";
+	const link =
+		(typeof point.trace.locator.link === "string" && point.trace.locator.link.trim()) || point.id;
+	const annotationId =
+		typeof point.trace.locator.annotationId === "string" && point.trace.locator.annotationId.trim()
+			? point.trace.locator.annotationId.trim()
+			: undefined;
+	const title = point.userData.title || point.source?.title || material?.bibliography.title || point.id;
+	const priorityValue = getIRPriorityValue(
+		point.schedule.manualPriority,
+		point.schedule.priorityScore
+	);
+	const readingSeconds = resolvePointReadingSeconds(point, readingSecondsById, helpers);
+	const sourceKind: IRTraceSourceKind = "pdf";
+	const sourceDocumentKey = normalizeTraceDocumentKey(pdfPath, sourceKind) || pdfPath;
+	const sourceSubunitKey = normalizeTraceSubunitKey(link) || undefined;
+	const associatedNotePaths = resolvePointAssociatedNotePaths(point);
+	const primaryAssociatedNotePath = associatedNotePaths[0];
+	const tagGroupName = await helpers.resolveTagGroupName({
+		explicitGroupId: getPointMetadataString(point, "tagGroupId"),
+		documentPath: pdfPath,
+		tags: point.userData.tags || [],
+	});
+	const displayContent = `# ${title}\n\nPDF: ${pdfPath}\n链接: ${link}`;
+	const reviewCount = point.stats.reviewCount || point.stats.impressionCount || 0;
+
+	return {
+		...helpers.buildIRCardBase({
+			id: point.id,
+			deckId: canonicalDeckId,
+			templateId: CardType.IRChunk,
+			type: CardType.IRChunk,
+			content: displayContent,
+			front: title,
+			back: pdfPath,
+			sourceFile: pdfPath,
+			sourcePosition: { startLine: 0, endLine: 0, contentHash: "" },
+			created: point.timestamps.createdAt,
+			modified: point.timestamps.updatedAt,
+			totalReviews: reviewCount,
+			totalTime: readingSeconds,
+			averageTime: reviewCount ? Math.floor(readingSeconds / reviewCount) : 0,
+			fsrsState: getIRScheduleFsrsState(point.schedule.status),
+			stability: point.schedule.intervalDays,
+			due: point.schedule.nextReviewAt || new Date().toISOString(),
+			lastReview: point.schedule.lastReviewedAt || undefined,
+			reps: reviewCount,
+			scheduledDays: point.schedule.intervalDays || 0,
+			tags: point.userData.tags || [],
+			priority: priorityValue,
+			suspended: point.schedule.status === "suspended",
+			sourceKind,
+			sourceDocumentKey,
+			sourceSubunitKey,
+			primaryAssociatedNotePath,
+			associatedNotePath: primaryAssociatedNotePath,
+			associatedNotePaths,
+			metadata: {
+				irPdfBookmark: true,
+				pdfPath,
+				resumeLink: link,
+				link,
+				annotationId,
+				deckIds: canonicalDeckIds,
+			},
+		}),
+		...buildIRTableFields({
+			title,
+			sourceFile: pdfPath,
+			sourceKind,
+			sourceDocumentKey,
+			sourceDocumentLabel: getIRSourceDocumentLabel(pdfPath, sourceDocumentKey),
+			sourceSubunitLabel: getIRSourceSubunitLabel(sourceSubunitKey, sourceKind),
+			deckName,
+			deckIds: canonicalDeckIds,
+			state: point.schedule.status,
+			priority: priorityValue,
+			priorityValue,
+			tags: point.userData.tags || [],
+			associatedNotePaths,
+			favorite: point.userData.isStarred,
+			nextReview: point.schedule.nextReviewAt || null,
+			reviewCount,
+			readingTime: readingSeconds,
+			tagGroupName,
+			created: point.timestamps.createdAt,
+		}),
+	};
+}
+
 export async function buildIREpubTaskCard(options: {
 	task: IREpubBookmarkTask;
 	readingSecondsById: Map<string, number>;
@@ -427,10 +565,7 @@ export async function buildIREpubTaskCard(options: {
 	const sourceKind: IRTraceSourceKind = "epub";
 	const sourceDocumentKey = normalizeTraceDocumentKey(task.epubFilePath, sourceKind) || task.epubFilePath;
 	const sourceSubunitKey = normalizeTraceSubunitKey(task.tocHref || task.id) || undefined;
-	const associatedNotePaths = resolveAssociatedNotePaths({
-		associatedNotePath: task.meta?.primaryAssociatedNotePath || task.meta?.associatedNotePath,
-		associatedNotePaths: task.meta?.associatedNotePaths,
-	});
+	const associatedNotePaths = resolveLegacyAssociatedNotePaths(task.meta as any);
 	const primaryAssociatedNotePath = associatedNotePaths[0];
 	const tagGroupName = await helpers.resolveTagGroupName({
 		explicitGroupId: task.meta?.tagGroup,
@@ -472,9 +607,11 @@ export async function buildIREpubTaskCard(options: {
 			associatedNotePaths,
 			metadata: {
 				irEpubBookmark: true,
+				sourceId: task.sourceId,
 				epubFilePath: task.epubFilePath,
 				tocHref: task.tocHref,
 				tocLevel: task.tocLevel,
+				resumeCfi: task.resumeCfi,
 				deckIds: canonicalDeckIds,
 			},
 		}),
@@ -498,6 +635,118 @@ export async function buildIREpubTaskCard(options: {
 			readingTime: readingSeconds,
 			tagGroupName,
 			created: new Date(task.createdAt).toISOString(),
+		}),
+	};
+}
+
+export async function buildIREpubPointCard(options: {
+	point: IRPoint;
+	material: IRMaterialRecord | null;
+	topicId: string;
+	topicName: string;
+	readingSecondsById: Map<string, number>;
+	helpers: IRCardBuilderHelpers;
+}): Promise<Card & Record<string, any>> {
+	const { point, material, topicId, topicName, readingSecondsById, helpers } = options;
+	const topicIds = resolvePointTopicIds(point, topicId);
+	const canonicalDeckIds = helpers.resolveIRDeckIds(topicIds);
+	const canonicalDeckId = canonicalDeckIds[0] || helpers.resolveIRDeckId(topicId);
+	const deckName = helpers.getIRDeckName(canonicalDeckId || topicId, topicName || "未分配");
+	const epubFilePath = point.source?.path || material?.source.path || "";
+	const tocHref =
+		(typeof point.trace.locator.tocHref === "string" && point.trace.locator.tocHref.trim()) ||
+		"";
+	const tocLevel =
+		typeof point.trace.locator.tocLevel === "number" ? point.trace.locator.tocLevel : undefined;
+	const title = point.userData.title || point.source?.title || material?.bibliography.title || point.id;
+	const priorityValue = getIRPriorityValue(
+		point.schedule.manualPriority,
+		point.schedule.priorityScore
+	);
+	const readingSeconds = resolvePointReadingSeconds(point, readingSecondsById, helpers);
+	const sourceKind: IRTraceSourceKind = "epub";
+	const sourceDocumentKey =
+		normalizeTraceDocumentKey(epubFilePath, sourceKind) || epubFilePath;
+	const sourceSubunitKey =
+		normalizeTraceSubunitKey(
+			tocHref ||
+				(typeof point.trace.locator.resumeCfi === "string" && point.trace.locator.resumeCfi.trim()) ||
+				point.id
+		) || undefined;
+	const associatedNotePaths = resolvePointAssociatedNotePaths(point);
+	const primaryAssociatedNotePath = associatedNotePaths[0];
+	const tagGroupName = await helpers.resolveTagGroupName({
+		explicitGroupId: getPointMetadataString(point, "tagGroupId"),
+		documentPath: epubFilePath,
+		tags: point.userData.tags || [],
+	});
+	const displayContent = `# ${title}\n\nEPUB: ${epubFilePath}\n目录: ${tocHref || point.id}`;
+	const reviewCount = point.stats.reviewCount || point.stats.impressionCount || 0;
+
+	return {
+		...helpers.buildIRCardBase({
+			id: point.id,
+			deckId: canonicalDeckId,
+			templateId: CardType.IRChunk,
+			type: CardType.IRChunk,
+			content: displayContent,
+			front: title,
+			back: epubFilePath,
+			sourceFile: epubFilePath,
+			sourcePosition: { startLine: 0, endLine: 0, contentHash: "" },
+			created: point.timestamps.createdAt,
+			modified: point.timestamps.updatedAt,
+			totalReviews: reviewCount,
+			totalTime: readingSeconds,
+			averageTime: reviewCount ? Math.floor(readingSeconds / reviewCount) : 0,
+			fsrsState: getIRScheduleFsrsState(point.schedule.status),
+			stability: point.schedule.intervalDays,
+			due: point.schedule.nextReviewAt || new Date().toISOString(),
+			lastReview: point.schedule.lastReviewedAt || undefined,
+			reps: reviewCount,
+			scheduledDays: point.schedule.intervalDays || 0,
+			tags: point.userData.tags || [],
+			priority: priorityValue,
+			suspended: point.schedule.status === "suspended",
+			sourceKind,
+			sourceDocumentKey,
+			sourceSubunitKey,
+			primaryAssociatedNotePath,
+			associatedNotePath: primaryAssociatedNotePath,
+			associatedNotePaths,
+			metadata: {
+				irEpubBookmark: true,
+				sourceId: point.source?.id,
+				epubFilePath,
+				tocHref,
+				tocLevel,
+				resumeCfi:
+					typeof point.trace.locator.resumeCfi === "string"
+						? point.trace.locator.resumeCfi
+						: undefined,
+				deckIds: canonicalDeckIds,
+			},
+		}),
+		...buildIRTableFields({
+			title,
+			sourceFile: epubFilePath,
+			sourceKind,
+			sourceDocumentKey,
+			sourceDocumentLabel: getIRSourceDocumentLabel(epubFilePath, sourceDocumentKey),
+			sourceSubunitLabel: getIRSourceSubunitLabel(sourceSubunitKey, sourceKind),
+			deckName,
+			deckIds: canonicalDeckIds,
+			state: point.schedule.status,
+			priority: priorityValue,
+			priorityValue,
+			tags: point.userData.tags || [],
+			associatedNotePaths,
+			favorite: point.userData.isStarred,
+			nextReview: point.schedule.nextReviewAt || null,
+			reviewCount,
+			readingTime: readingSeconds,
+			tagGroupName,
+			created: point.timestamps.createdAt,
 		}),
 	};
 }

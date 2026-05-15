@@ -34,6 +34,10 @@ export interface IRPdfPointCreateInput {
 	link: string;
 	annotationId?: string;
 	priorityUi?: number;
+	sourceSequenceGroup?: string;
+	sourceSequenceOrder?: number;
+	sourceSequenceLocked?: boolean;
+	sourceSequenceAnchorDateKey?: string;
 }
 
 export interface IREpubPointCreateInput {
@@ -45,6 +49,10 @@ export interface IREpubPointCreateInput {
 	tocHref: string;
 	tocLevel: number;
 	priorityUi?: number;
+	sourceSequenceGroup?: string;
+	sourceSequenceOrder?: number;
+	sourceSequenceLocked?: boolean;
+	sourceSequenceAnchorDateKey?: string;
 }
 
 export interface IREpubBatchPointCreateInput extends IREpubPointCreateInput {
@@ -54,6 +62,12 @@ export interface IREpubBatchPointCreateInput extends IREpubPointCreateInput {
 export interface IRPointDeleteInput {
 	id: string;
 	kind?: IRPointWriteKind;
+}
+
+export interface IRPointWriteTarget {
+	id: string;
+	kind?: IRPointWriteKind;
+	sourceDocumentPath?: string;
 }
 
 function resolveCardSourceDocumentPath(card: Card): string | undefined {
@@ -85,6 +99,21 @@ function normalizeDeckIds(deckIds: string[]): string[] {
 	);
 }
 
+function buildCardLikeTarget(target: IRPointWriteTarget): Card {
+	const metadata: Record<string, unknown> = {};
+	if (target.kind === "chunk") {
+		metadata.irChunk = true;
+	}
+	if (target.kind === "block") {
+		metadata.irBlock = true;
+	}
+	return {
+		uuid: target.id,
+		metadata,
+		ir_source_document_key: target.sourceDocumentPath,
+	} as any;
+}
+
 export class IRPointWriteService {
 	private readonly storage: IRStorageService;
 	private readonly pdfService: IRPdfBookmarkTaskService;
@@ -113,6 +142,52 @@ export class IRPointWriteService {
 	): Promise<IREpubBookmarkTask[]> {
 		await this.epubService.initialize();
 		return await this.epubService.batchCreateTasks(inputs);
+	}
+
+	async deletePointsByDeckIdentifiers(deckIds: string[]): Promise<number> {
+		const normalizedDeckIds = normalizeDeckIds(deckIds);
+		if (normalizedDeckIds.length === 0) {
+			return 0;
+		}
+
+		await Promise.all([this.pdfService.initialize(), this.epubService.initialize()]);
+		const [deletedPdf, deletedEpub] = await Promise.all([
+			this.pdfService.deleteTasksByDeckIdentifiers(normalizedDeckIds),
+			this.epubService.deleteTasksByDeckIdentifiers(normalizedDeckIds),
+		]);
+		return deletedPdf + deletedEpub;
+	}
+
+	async deletePdfPointsByPaths(pdfPaths: string[]): Promise<number> {
+		const normalizedPaths = Array.from(
+			new Set(
+				(Array.isArray(pdfPaths) ? pdfPaths : [])
+					.map((path) => normalizePath(String(path || "").trim()))
+					.filter(Boolean)
+			)
+		);
+		if (normalizedPaths.length === 0) {
+			return 0;
+		}
+
+		await this.pdfService.initialize();
+		return await this.pdfService.deleteTasksByPdfPaths(normalizedPaths);
+	}
+
+	async deleteEpubPointsByPaths(epubPaths: string[]): Promise<number> {
+		const normalizedPaths = Array.from(
+			new Set(
+				(Array.isArray(epubPaths) ? epubPaths : [])
+					.map((path) => normalizePath(String(path || "").trim()))
+					.filter(Boolean)
+			)
+		);
+		if (normalizedPaths.length === 0) {
+			return 0;
+		}
+
+		await this.epubService.initialize();
+		return await this.epubService.deleteTasksByEpubPaths(normalizedPaths);
 	}
 
 	async deleteCard(card: Card): Promise<boolean> {
@@ -170,6 +245,13 @@ export class IRPointWriteService {
 		}
 
 		return false;
+	}
+
+	async updatePointTags(
+		target: IRPointWriteTarget,
+		tags: string[]
+	): Promise<IRPointWriteResult | null> {
+		return await this.updateTags(buildCardLikeTarget(target), tags);
 	}
 
 	async updateTags(card: Card, tags: string[]): Promise<IRPointWriteResult | null> {
@@ -312,6 +394,13 @@ export class IRPointWriteService {
 		return null;
 	}
 
+	async updatePointAssociatedNotes(
+		target: IRPointWriteTarget,
+		notePaths: string[]
+	): Promise<IRPointWriteResult | null> {
+		return await this.updateAssociatedNotes(buildCardLikeTarget(target), notePaths);
+	}
+
 	async updateAssociatedNotes(card: Card, notePaths: string[]): Promise<IRPointWriteResult | null> {
 		const normalizedNotePaths = resolveAssociatedNotePaths({
 			associatedNotePaths: notePaths,
@@ -407,8 +496,30 @@ export class IRPointWriteService {
 		return null;
 	}
 
+	async updateEpubResumePoint(
+		taskId: string,
+		cfi: string
+	): Promise<IRPointWriteResult | null> {
+		if (!isEpubBookmarkTaskId(taskId)) {
+			return null;
+		}
+
+		await this.epubService.initialize();
+		const task = await this.epubService.getTask(taskId);
+		if (!task) {
+			return null;
+		}
+
+		await this.epubService.setResumePoint(taskId, cfi);
+		return {
+			kind: "epub",
+			sourceDocumentPath:
+				normalizePath(String(task.epubFilePath || "").trim()) || undefined,
+		};
+	}
+
 	async updateDecks(card: Card, deckIds: string[]): Promise<IRPointWriteResult | null> {
-		const normalizedDeckIds = normalizeDeckIds(deckIds);
+		const normalizedDeckIds = normalizeDeckIds(deckIds).slice(0, 1);
 
 		if (isPdfBookmarkTaskId(card.uuid)) {
 			await this.pdfService.initialize();

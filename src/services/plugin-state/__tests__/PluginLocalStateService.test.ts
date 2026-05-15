@@ -149,7 +149,9 @@ describe('PluginLocalStateService', () => {
       sidebarCompactModeSetting: 'fixed',
       statsCollapsed: false,
       cardOrder: 'random',
+      choiceOptionOrder: 'random',
       sidebarPosition: 'bottom',
+      ratingLabelStyle: 'mood',
     });
     await service.saveIRCalendarSidebarSettings({
       continuousReadingEnabled: true,
@@ -160,11 +162,11 @@ describe('PluginLocalStateService', () => {
     await service.saveAIAssistantPreferences({
       lastUsedProvider: 'zhipu',
       lastUsedModel: 'glm-4-flash',
+      importAutoTags: ['legacy'],
       savedGenerationConfig: {
         cardCount: 8,
         difficulty: 'mixed',
         typeDistribution: { qa: 40, cloze: 30, choice: 30 },
-        autoTags: ['legacy'],
         enableHints: true,
         temperature: 0.6,
         maxTokens: 1600,
@@ -215,7 +217,6 @@ describe('PluginLocalStateService', () => {
             choice: 'official-choice',
             cloze: 'official-cloze',
           },
-          autoTags: [],
           enableHints: true,
         },
         selectedPrompt: null,
@@ -238,7 +239,9 @@ describe('PluginLocalStateService', () => {
       sidebarCompactModeSetting: 'fixed',
       statsCollapsed: false,
       cardOrder: 'random',
+      choiceOptionOrder: 'random',
       sidebarPosition: 'bottom',
+      ratingLabelStyle: 'mood',
     });
     expect(await service.loadIRCalendarSidebarSettings()).toEqual({
       continuousReadingEnabled: true,
@@ -249,11 +252,11 @@ describe('PluginLocalStateService', () => {
     expect(await service.loadAIAssistantPreferences()).toEqual({
       lastUsedProvider: 'zhipu',
       lastUsedModel: 'glm-4-flash',
+      importAutoTags: ['legacy'],
       savedGenerationConfig: {
         cardCount: 8,
         difficulty: 'mixed',
         typeDistribution: { qa: 40, cloze: 30, choice: 30 },
-        autoTags: ['legacy'],
         enableHints: true,
         temperature: 0.6,
         maxTokens: 1600,
@@ -305,7 +308,9 @@ describe('PluginLocalStateService', () => {
         sidebarCompactModeSetting: 'fixed',
         statsCollapsed: false,
         cardOrder: 'random',
+        choiceOptionOrder: 'random',
         sidebarPosition: 'bottom',
+        ratingLabelStyle: 'mood',
       },
       createCardPreferences: {
         lastSelectedDeckId: 'legacy-deck-id',
@@ -363,7 +368,6 @@ describe('PluginLocalStateService', () => {
                 choice: 'official-choice',
                 cloze: 'official-cloze',
               },
-              autoTags: [],
               enableHints: true,
             },
             selectedPrompt: null,
@@ -386,7 +390,24 @@ describe('PluginLocalStateService', () => {
 
     await migrateLegacyPluginRuntimeState(host as any);
 
-    expect(JSON.parse(files.get(normalizeTestPath(pluginPaths.state.localStorage)) || '{}')).toEqual({
+    const localStorageState = JSON.parse(
+      files.get(normalizeTestPath(pluginPaths.state.localStorage)) ?? '{}'
+    );
+    expect(JSON.parse(localStorageState['weave-ai-assistant-preferences'])).toEqual({
+      lastUsedProvider: 'openai',
+      lastUsedModel: 'gpt-5-mini',
+      importAutoTags: ['ai'],
+      savedGenerationConfig: {
+        cardCount: 5,
+        difficulty: 'hard',
+        typeDistribution: { qa: 60, cloze: 20, choice: 20 },
+        enableHints: false,
+        temperature: 0.4,
+        maxTokens: 1200,
+      },
+    });
+    delete localStorageState['weave-ai-assistant-preferences'];
+    expect(localStorageState).toEqual({
       'weave-deck-view': 'kanban',
       'weave-card-management-view-preferences': JSON.stringify({
         currentView: 'kanban',
@@ -401,20 +422,9 @@ describe('PluginLocalStateService', () => {
         sidebarCompactModeSetting: 'fixed',
         statsCollapsed: false,
         cardOrder: 'random',
+        choiceOptionOrder: 'random',
         sidebarPosition: 'bottom',
-      }),
-      'weave-ai-assistant-preferences': JSON.stringify({
-        lastUsedProvider: 'openai',
-        lastUsedModel: 'gpt-5-mini',
-        savedGenerationConfig: {
-          cardCount: 5,
-          difficulty: 'hard',
-          typeDistribution: { qa: 60, cloze: 20, choice: 20 },
-          autoTags: ['ai'],
-          enableHints: false,
-          temperature: 0.4,
-          maxTokens: 1200,
-        },
+        ratingLabelStyle: 'mood',
       }),
       'weave-create-card-preferences': JSON.stringify({
         lastSelectedDeckId: 'legacy-deck-id',
@@ -451,7 +461,9 @@ describe('PluginLocalStateService', () => {
       sidebarCompactModeSetting: 'fixed',
       statsCollapsed: false,
       cardOrder: 'random',
+      choiceOptionOrder: 'random',
       sidebarPosition: 'bottom',
+      ratingLabelStyle: 'mood',
     });
     expect(await service.loadIRCalendarSidebarSettings()).toEqual({
       continuousReadingEnabled: true,
@@ -462,11 +474,11 @@ describe('PluginLocalStateService', () => {
     expect(await service.loadAIAssistantPreferences()).toEqual({
       lastUsedProvider: 'openai',
       lastUsedModel: 'gpt-5-mini',
+      importAutoTags: ['ai'],
       savedGenerationConfig: {
         cardCount: 5,
         difficulty: 'hard',
         typeDistribution: { qa: 60, cloze: 20, choice: 20 },
-        autoTags: ['ai'],
         enableHints: false,
         temperature: 0.4,
         maxTokens: 1200,
@@ -634,7 +646,9 @@ describe('PluginLocalStateService', () => {
         sidebarCompactModeSetting: 'auto',
         statsCollapsed: true,
         cardOrder: 'sequential',
+        choiceOptionOrder: 'sequential',
         sidebarPosition: 'right',
+        ratingLabelStyle: 'classic',
       }),
       service.saveCreateCardPreferences({
         lastSelectedDeckId: 'deck-race',
@@ -656,7 +670,9 @@ describe('PluginLocalStateService', () => {
         sidebarCompactModeSetting: 'auto',
         statsCollapsed: true,
         cardOrder: 'sequential',
+        choiceOptionOrder: 'sequential',
         sidebarPosition: 'right',
+        ratingLabelStyle: 'classic',
       }),
       'weave-create-card-preferences': JSON.stringify({
         lastSelectedDeckId: 'deck-race',

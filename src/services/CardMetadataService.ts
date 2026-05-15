@@ -10,8 +10,7 @@
  */
 
 import type { Card, Deck } from "../data/types";
-import { getCardMetadata } from "../utils/yaml-utils";
-import { getSingleMemoryFormalDeckIds } from "../utils/memory-deck-membership";
+import { getCardDeckIds as resolveCardDeckIds } from "../utils/yaml-utils";
 import { getCardMetadataCache } from "./CardMetadataCache";
 import { getDeckNameMapper } from "./DeckNameMapper";
 
@@ -81,19 +80,6 @@ export class CardMetadataService {
 	 * @returns 牌组ID数组
 	 */
 	getCardDeckIds(card: Card, options: CardDeckLookupOptions = {}): string[] {
-		const fallbackToReferences = options.fallbackToReferences ?? true;
-
-		// 1. 优先从缓存获取（新格式：YAML frontmatter）
-		try {
-			const cache = getCardMetadataCache();
-			const metadata = cache.getMetadata(card);
-			if (metadata.deckIds.length > 0) {
-				return metadata.deckIds;
-			}
-		} catch {
-			// 缓存未初始化，继续使用旧格式
-		}
-
 		let mapper: ReturnType<typeof getDeckNameMapper> | null = null;
 
 		try {
@@ -103,27 +89,9 @@ export class CardMetadataService {
 		}
 		const allDecks = mapper?.getAllDecks();
 
-		// 2. 直接从 YAML 读取 we_decks，避免缓存未初始化时误判。
-		if (card.content) {
-			try {
-				const metadata = getCardMetadata(card.content);
-				if (Array.isArray(metadata.we_decks) && metadata.we_decks.length > 0) {
-					return getSingleMemoryFormalDeckIds(metadata.we_decks, allDecks);
-				}
-			} catch {
-				// YAML 解析失败时再决定是否走兼容回退
-			}
-		}
-
-		if (!fallbackToReferences) {
-			return [];
-		}
-
-		// 3. 回退到旧格式字段
-		return getSingleMemoryFormalDeckIds(
-			[...(card.referencedByDecks || []), ...(card.deckId ? [card.deckId] : [])],
-			allDecks
-		);
+		return resolveCardDeckIds(card, allDecks, {
+			fallbackToReferences: options.fallbackToReferences,
+		}).deckIds;
 	}
 
 	/**
@@ -133,37 +101,28 @@ export class CardMetadataService {
 	 * @returns 牌组名称数组
 	 */
 	getCardDeckNames(card: Card, options: CardDeckLookupOptions = {}): string[] {
-		// 1. 优先从缓存获取（新格式）
+		const deckIds = this.getCardDeckIds(card, options);
+		try {
+			const mapper = getDeckNameMapper();
+			const deckNames = mapper.getDeckNamesByIds(deckIds);
+			if (deckNames.length > 0) {
+				return deckNames;
+			}
+		} catch {
+			// 继续回退到缓存里的显示名称
+		}
+
 		try {
 			const cache = getCardMetadataCache();
 			const metadata = cache.getMetadata(card);
 			if (metadata.decks.length > 0) {
-				const mapper = getDeckNameMapper();
-				const normalizedNames: string[] = [];
-				const seen = new Set<string>();
-
-				for (const value of metadata.decks) {
-					const normalizedName = mapper.getDeckNameById(value) || value;
-					if (!seen.has(normalizedName)) {
-						seen.add(normalizedName);
-						normalizedNames.push(normalizedName);
-					}
-				}
-
-				return normalizedNames;
+				return metadata.decks;
 			}
 		} catch {
-			// 继续使用旧格式
+			// 忽略缓存异常
 		}
 
-		// 2. 回退：通过 ID 获取名称
-		const deckIds = this.getCardDeckIds(card, options);
-		try {
-			const mapper = getDeckNameMapper();
-			return mapper.getDeckNamesByIds(deckIds);
-		} catch {
-			return [];
-		}
+		return deckIds;
 	}
 
 	/**
