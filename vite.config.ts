@@ -201,7 +201,7 @@ export default defineConfig(({ mode }) => {
 						dest: ".",
 					},
 					{
-						src: "public/assets/coffee-support-qr.png",
+						src: "src/icons/coffee-support-qr.png",
 						dest: "assets",
 					},
 					...(!isDev
