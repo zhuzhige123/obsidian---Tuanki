@@ -1,5 +1,7 @@
 # Weave (Weave)
 
+语言切换：[English](README.md) | 简体中文
+
 <div align="center">
 
 ![Weave](https://img.shields.io/badge/Weave-Weave-blue?style=for-the-badge)

@@ -1,6 +1,6 @@
 # Weave
 
-Chinese documentation: [README.zh-CN.md](README.zh-CN.md)
+Language: English | [简体中文](README.zh-CN.md)
 
 <div align="center">
 
