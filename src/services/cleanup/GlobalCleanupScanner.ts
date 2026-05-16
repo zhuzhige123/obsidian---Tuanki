@@ -14,6 +14,7 @@ import { App, TFile, Vault } from "obsidian";
 import { BlockLinkCleanupService } from "./BlockLinkCleanupService";
 import { OrphanedLinkDetector } from "./OrphanedLinkDetector";
 import { CleanupDetail, GlobalScanResult, ScanProgress } from "./types";
+import { listVaultMarkdownFiles } from "../../utils/vault-file-list";
 
 export class GlobalCleanupScanner {
 	private cleanupService: BlockLinkCleanupService;
@@ -233,7 +234,7 @@ export class GlobalCleanupScanner {
 	 */
 	private async getFilesToScan(): Promise<TFile[]> {
 		// 步骤1: 获取所有Markdown文件
-		const allFiles = this.vault.getMarkdownFiles();
+		const allFiles = listVaultMarkdownFiles(this.vault);
 
 		logger.debug(`[GlobalScanner] 总文件数: ${allFiles.length}`);
 

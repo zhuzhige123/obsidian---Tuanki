@@ -242,6 +242,29 @@
 - 由 workflow 直接构建、attest、上传三件套
 - 不再手工追加额外 release 文件
 
+### 历史 release 的特别说明
+
+如果你在 Obsidian 社区后台看到：
+
+- `The release asset does not have a GitHub artifact attestation`
+- `The release contains additional files`
+
+先不要误判成“当前仓库代码还没修”。
+
+这两类提示经常来自 **已经发布出去的旧 release**：
+
+- 旧 release 可能是在 attestation 工作流落地前发布的
+- 旧 release 可能手工附加过 `sql-wasm.wasm`、`versions.json` 或其他额外文件
+
+这种情况下，**本地代码修复不会反向修改 GitHub 上的旧 release**。正确收口方式是：
+
+1. 保持当前仓库通过本地检查
+2. 确认 `.github/workflows/release.yml` 仍只上传三件套
+3. 用新 tag 重新触发自动 release
+4. 不要在 GitHub 页面手工补传额外资产
+
+只要新的正式 release 是由工作流自动构建、自动 attest、自动上传，历史 release 遗留的这两类提示就不会继续污染新版本审核。
+
 ## 对这个仓库的具体建议
 
 当前最适合的策略是：

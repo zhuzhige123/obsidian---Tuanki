@@ -203,7 +203,7 @@
 /* ========== 响应式设计 ========== */
 
 @media (max-width: 768px) {
-  .progressive-cloze-container {
+  :where(.progressive-cloze-container) {
     padding: 16px;
     font-size: 15px;
   }
@@ -264,7 +264,6 @@
   font-size: 0.9em;
   color: var(--text-muted);
 }
-
 
 
 

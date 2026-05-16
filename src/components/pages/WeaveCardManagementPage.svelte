@@ -47,6 +47,7 @@
 
   import { getCardContentBySide } from "../../utils/helpers";
   import { showNotification } from "../../utils/notifications";
+  import { writeSystemClipboardText } from "../../utils/system-clipboard";
   // 源文档路径筛选工具
   import { extractSourceBlock, extractSourcePath, filterCardsBySourceDocument } from "../../utils/source-path-matcher";
   // 标签层级筛选工具
@@ -4073,8 +4074,8 @@
     }).join('\n');
 
     // 复制到剪贴板
-    navigator.clipboard.writeText(copyText).then(() => {
-      new Notice(`已复制 ${selectedCardIds.length} 张卡片到剪贴板`);
+    writeSystemClipboardText(copyText).then((copied) => {
+      new Notice(copied ? `已复制 ${selectedCardIds.length} 张卡片到剪贴板` : "复制失败，请重试");
     }).catch(() => {
       new Notice("复制失败，请重试");
     });

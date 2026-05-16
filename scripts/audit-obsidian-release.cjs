@@ -13,6 +13,26 @@ function readText(relPath) {
   return fs.readFileSync(path.join(root, relPath), "utf8");
 }
 
+function walkFiles(dir, predicate, acc = []) {
+  if (!fs.existsSync(dir)) {
+    return acc;
+  }
+
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walkFiles(fullPath, predicate, acc);
+      continue;
+    }
+
+    if (predicate(fullPath)) {
+      acc.push(fullPath);
+    }
+  }
+
+  return acc;
+}
+
 function requireFile(relPath) {
   if (!fs.existsSync(path.join(root, relPath))) {
     failures.push(`Missing required file: ${relPath}`);
@@ -37,6 +57,10 @@ if (failures.length === 0) {
   const versions = readJson("versions.json");
   const publicVersions = readJson("public/versions.json");
   const workflow = readText(".github/workflows/release.yml");
+  const sourceFiles = walkFiles(
+    path.join(root, "src"),
+    (fullPath) => /\.(ts|svelte)$/.test(fullPath) && !/__tests__|\.test\.|\.spec\./.test(fullPath)
+  );
 
   expect(typeof manifest.id === "string" && manifest.id.length > 0, "manifest.json missing id");
   expect(typeof manifest.name === "string" && manifest.name.length > 0, "manifest.json missing name");
@@ -82,6 +106,39 @@ if (failures.length === 0) {
   const readme = readText("README.md");
   if (!/README\.zh-CN\.md/.test(readme)) {
     notes.push("README.md does not link the Chinese companion README at the top.");
+  }
+
+  const sourceMatches = {
+    clipboardApis: [],
+    browserStorageApis: [],
+    vaultEnumerationApis: [],
+  };
+
+  for (const fullPath of sourceFiles) {
+    const relPath = path.relative(root, fullPath).replace(/\\/g, "/");
+    const content = fs.readFileSync(fullPath, "utf8");
+
+    if (/navigator\.clipboard/.test(content)) {
+      sourceMatches.clipboardApis.push(relPath);
+    }
+    if (/window\.localStorage|localStorage\.(getItem|setItem|removeItem)|sessionStorage\./.test(content)) {
+      sourceMatches.browserStorageApis.push(relPath);
+    }
+    if (/\.(getMarkdownFiles|getFiles)\(/.test(content)) {
+      sourceMatches.vaultEnumerationApis.push(relPath);
+    }
+  }
+
+  if (sourceMatches.clipboardApis.length > 0) {
+    notes.push(`runtime source still references navigator.clipboard: ${sourceMatches.clipboardApis.join(", ")}`);
+  }
+
+  if (sourceMatches.browserStorageApis.length > 0) {
+    notes.push(`runtime source still references browser local/session storage: ${sourceMatches.browserStorageApis.join(", ")}`);
+  }
+
+  if (sourceMatches.vaultEnumerationApis.length > 0) {
+    notes.push(`runtime source still contains vault enumeration APIs to review: ${sourceMatches.vaultEnumerationApis.join(", ")}`);
   }
 }
 

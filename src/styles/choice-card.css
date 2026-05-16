@@ -338,7 +338,7 @@
   transform: scale(1.2);
 }
 
-.weave-choice-option--selected .weave-choice-option-indicator::after {
+.weave-choice-card .weave-choice-option--selected .weave-choice-option-indicator::after {
   content: '';
   position: absolute;
   top: 50%;

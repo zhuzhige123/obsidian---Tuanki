@@ -75,12 +75,16 @@ afterEach(async () => {
 });
 
 describe('vaultStorage', () => {
-  it('migrates managed legacy localStorage entries into state/local-storage.json', async () => {
+  it('loads managed entries from the plugin state file instead of browser localStorage', async () => {
     const { app, files } = createMemoryApp();
     const pluginPaths = getPluginPaths(app);
-
-    window.localStorage.setItem('weave-deck-view', 'kanban');
-    window.localStorage.setItem('weave-deck-filter', 'memory');
+    files.set(
+      normalizeTestPath(pluginPaths.state.localStorage),
+      JSON.stringify({
+        'weave-deck-view': 'kanban',
+        'weave-deck-filter': 'memory',
+      })
+    );
 
     await vaultStorage.initialize(app);
 
@@ -94,7 +98,7 @@ describe('vaultStorage', () => {
     expect(window.localStorage.getItem('weave-deck-filter')).toBeNull();
   });
 
-  it('persists managed keys to file while leaving non-plugin keys in Obsidian localStorage', async () => {
+  it('persists only managed plugin keys to the plugin state file', async () => {
     const { app, files } = createMemoryApp();
     const pluginPaths = getPluginPaths(app);
 
@@ -107,7 +111,7 @@ describe('vaultStorage', () => {
     expect(JSON.parse(files.get(normalizeTestPath(pluginPaths.state.localStorage)) || '{}')).toEqual({
       'weave-deck-filter': 'question-bank',
     });
-    expect(window.localStorage.getItem('language')).toBe('en');
+    expect(vaultStorage.getItem('language')).toBeNull();
     expect(window.localStorage.getItem('weave-deck-filter')).toBeNull();
 
     vaultStorage.removeItem('weave-deck-filter');
@@ -115,6 +119,6 @@ describe('vaultStorage', () => {
 
     expect(JSON.parse(files.get(normalizeTestPath(pluginPaths.state.localStorage)) || '{}')).toEqual({});
     expect(vaultStorage.getItem('weave-deck-filter')).toBeNull();
-    expect(window.localStorage.getItem('language')).toBe('en');
+    expect(window.localStorage.getItem('language')).toBeNull();
   });
 });

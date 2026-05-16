@@ -394,7 +394,7 @@
   }
 
   .weave-cloze-item.weave-cloze-revealed,
-  .weave-choice-option--selected {
+  .weave-content-preview .weave-choice-option--selected {
     animation: none;
   }
 }

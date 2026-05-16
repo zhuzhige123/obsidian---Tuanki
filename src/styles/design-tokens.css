@@ -112,7 +112,7 @@
  */
 
 /* 继续放在同一插件作用域，避免重复定义 .weave-app 选择器 */
-:where(.weave-app):not(:root) {
+.weave-app:where(:not(:root)) {
   /* ==================== 移动端间距标准 ==================== */
   /* 默认值为桌面端值，移动端通过 body.is-mobile 覆盖 */
   --weave-mobile-spacing-xs: 4px;   /* 极小间距 */
@@ -237,6 +237,5 @@
   --weave-mobile-slide-duration: 200ms;
   --weave-mobile-slide-easing: cubic-bezier(0.4, 0, 0.2, 1);
 }
-
 
 

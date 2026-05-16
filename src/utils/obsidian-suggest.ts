@@ -9,6 +9,7 @@ import type { EditorPosition, EditorSuggestContext, EditorSuggestTriggerInfo } f
 import type { Card } from "../data/types";
 import type { WeavePlugin } from "../main";
 import { getCardTagValues } from "./tag-utils";
+import { listVaultMarkdownFiles } from "./vault-file-list";
 import {
   filterWeaveCardReferenceCandidates,
   buildWeaveCardReferenceToken,
@@ -70,7 +71,7 @@ export class LinkSuggest extends EditorSuggest<TFile> {
   }
 
   getSuggestions(context: EditorSuggestContext): TFile[] | Promise<TFile[]> {
-    const files = this.app.vault.getMarkdownFiles();
+    const files = listVaultMarkdownFiles(this.app);
     const query = context.query.toLowerCase();
     return files.filter((file) => file.basename.toLowerCase().includes(query));
   }
@@ -212,7 +213,7 @@ export class WeaveTagSuggest extends EditorSuggest<WeaveTagCandidate> {
 				usageByTag.set(normalizedTag, Math.max(usageByTag.get(normalizedTag) ?? 0, safeUsageCount));
 			}
 		} else {
-			const markdownFiles = this.app.vault?.getMarkdownFiles?.() ?? [];
+			const markdownFiles = listVaultMarkdownFiles(this.app);
 			for (const markdownFile of markdownFiles) {
 				const cache = metadataCache?.getFileCache?.(markdownFile) ?? null;
 				for (const tagCache of cache?.tags ?? []) {

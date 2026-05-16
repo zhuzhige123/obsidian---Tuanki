@@ -1,5 +1,4 @@
 import { logger } from "../utils/logger";
-import { vaultStorage } from "../utils/vault-local-storage";
 import { deckAnalyticsTranslationOverrides } from "./i18n/deck-analytics-overrides";
 import { translations, translationOverrides } from "./i18n/resources";
 import type { I18nConfig, SupportedLanguage, TranslationKey } from "./i18n/types";
@@ -118,7 +117,7 @@ function getTranslationAliasCandidates(key: string): string[] {
 // ============================================================================
 
 /**
- * 从Obsidian的localStorage获取当前语言设置
+ * 检测当前 Obsidian / 运行环境语言。
  * Obsidian语言代码: en, zh, zh-TW, ru, ko, it, id, ro, pt-BR, cz, de, es, fr, no, pl, pt, ja, da, uk, sq, tr, hi, se, nl, ar, th, fa, vi, he, ms, ca, am
  */
 function detectObsidianLanguage(): SupportedLanguage {
@@ -136,17 +135,7 @@ function detectObsidianLanguage(): SupportedLanguage {
 			return "en-US";
 		}
 
-		// 方法2: localStorage (备用)
-		const obsidianLang = vaultStorage.getItem("language");
-
-		if (obsidianLang) {
-			if (obsidianLang === "zh" || obsidianLang === "zh-TW") {
-				return "zh-CN";
-			}
-			return "en-US";
-		}
-
-		// 方法3: 浏览器语言 (最后备用)
+		// 方法2: 浏览器语言 (最后备用)
 		const browserLang = window?.navigator?.language;
 		if (browserLang?.startsWith("zh")) {
 			return "zh-CN";

@@ -331,21 +331,6 @@
   box-shadow: 0 0 0 2px var(--interactive-accent-hover);
 }
 
-/* 现代开关样式 - 统一所有开关 */
-.weave-settings .modern-switch {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-  flex-shrink: 0;
-}
-
-.weave-settings .modern-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
 .weave-settings .switch-slider {
   position: absolute;
   cursor: pointer;

@@ -1,5 +1,6 @@
 import { t } from "../../../utils/i18n";
 import { logger } from "../../../utils/logger";
+import { writeSystemClipboardText } from "../../../utils/system-clipboard";
 /**
  * 设置界面相关的工具函数
  * 提取公共逻辑，消除代码重复
@@ -153,8 +154,7 @@ export function formatActivationCode(code: string, showFull = false): string {
  */
 export async function copyToClipboard(text: string): Promise<boolean> {
 	try {
-		await navigator.clipboard.writeText(text);
-		return true;
+		return await writeSystemClipboardText(text);
 	} catch (error) {
 		logger.error("Failed to copy to clipboard:", error);
 		return false;

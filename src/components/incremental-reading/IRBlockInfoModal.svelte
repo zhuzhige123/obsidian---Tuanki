@@ -8,7 +8,7 @@
    * @module components/incremental-reading/IRBlockInfoModal
    * @version 1.1.0 - 新增计算记录视图
    */
-  import type { App } from 'obsidian';
+  import { Notice, type App } from 'obsidian';
   import type { IRBlock } from '../../types/ir-types';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import { onMount, tick, untrack } from 'svelte';
@@ -22,6 +22,7 @@
     EWMA_ALPHA,
     PRIORITY_NEUTRAL
   } from '../../services/incremental-reading/IRCoreAlgorithmsV4';
+  import { writeSystemClipboardText } from '../../utils/system-clipboard';
 
   interface Props {
     block: IRBlock;
@@ -277,8 +278,9 @@
   }
 
   // 复制JSON到剪贴板
-  function copyJson() {
-    navigator.clipboard.writeText(formattedJson);
+  async function copyJson() {
+    const copied = await writeSystemClipboardText(formattedJson);
+    new Notice(copied ? '已复制 JSON' : '复制失败');
   }
 </script>
 

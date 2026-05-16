@@ -18,6 +18,7 @@
   import { getQuestionTypeLabelFromCard } from '../../utils/question-type-utils';
   import { buildWeaveCardReferenceToken } from '../../utils/weave-card-reference';
   import { applyStyleProps } from '../../utils/style-props';
+  import { writeSystemClipboardText } from '../../utils/system-clipboard';
 
   type GridCardAttributeType = 'none' | 'uuid' | 'source' | 'priority' | 'retention' | 'modified' | 'accuracy' | 'question_type' | 'ir_state' | 'ir_priority';
   
@@ -316,8 +317,7 @@
     }
 
     try {
-      await navigator.clipboard.writeText(normalizedText);
-      return true;
+      return await writeSystemClipboardText(normalizedText);
     } catch {}
 
     try {

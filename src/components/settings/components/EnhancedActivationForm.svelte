@@ -32,6 +32,7 @@
   import Icon from '../../ui/Icon.svelte';
   import { showNotification } from '../../../utils/notifications';
   import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
+  import { writeSystemClipboardText } from '../../../utils/system-clipboard';
 
   // ==================== Props ====================
   
@@ -258,8 +259,8 @@
     if (!currentLicenseInfo?.activationCode) return;
     
     try {
-      await navigator.clipboard.writeText(currentLicenseInfo.activationCode);
-      showNotification('激活码已复制到剪贴板', 'success');
+      const copied = await writeSystemClipboardText(currentLicenseInfo.activationCode);
+      showNotification(copied ? '激活码已复制到剪贴板' : '复制激活码失败', copied ? 'success' : 'error');
     } catch (error) {
       logger.error('复制失败:', error);
       // 回退到创建临时输入框的方式

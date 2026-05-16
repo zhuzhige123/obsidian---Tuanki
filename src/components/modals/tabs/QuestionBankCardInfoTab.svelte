@@ -11,6 +11,7 @@
   import { Notice, MarkdownView } from 'obsidian';
   import type WeavePlugin from '../../../main';
   import type { Card } from '../../../data/types';
+  import { writeSystemClipboardText } from '../../../utils/system-clipboard';
   // 🌍 导入国际化
   import { tr } from '../../../utils/i18n';
   // ✅ 卡片详情模态窗改用全局方法 plugin.openViewCardModal()
@@ -71,9 +72,9 @@
   });
 
   // 复制UUID
-  function copyUUID() {
-    navigator.clipboard.writeText(card.uuid);
-    new Notice('已复制UUID');
+  async function copyUUID() {
+    const copied = await writeSystemClipboardText(card.uuid);
+    new Notice(copied ? '已复制UUID' : '复制 UUID 失败');
   }
 
   // 跳转到来源文档

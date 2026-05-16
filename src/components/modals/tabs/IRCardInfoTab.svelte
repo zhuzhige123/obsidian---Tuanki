@@ -6,6 +6,7 @@
   import { EpubLinkService } from '../../../services/epub-integration/EpubLinkService';
   import { findOpenEpubLeaf } from '../../../utils/epub-leaf-utils';
   import { formatRelativeTimeDetailed } from '../../../utils/helpers';
+  import { writeSystemClipboardText } from '../../../utils/system-clipboard';
   import { openFileWithExistingLeaf, openLinkWithExistingLeaf } from '../../../utils/workspace-navigation';
 
   const isMobile = Platform.isMobile;
@@ -94,8 +95,8 @@
 
   async function copyText(value: string, label: string): Promise<void> {
     try {
-      await navigator.clipboard.writeText(value);
-      new Notice(`已复制${label}`);
+      const copied = await writeSystemClipboardText(value);
+      new Notice(copied ? `已复制${label}` : `复制${label}失败`);
     } catch {
       new Notice(`复制${label}失败`);
     }

@@ -5,6 +5,7 @@ import { logger } from "../utils/logger";
 
 import { TFile } from "obsidian";
 import type { WeavePlugin } from "../main";
+import { listVaultMarkdownFiles } from "./vault-file-list";
 
 export interface ScanOptions {
 	/** 包含的文件路径模式 */
@@ -71,7 +72,7 @@ export class FileScanner {
 
 		try {
 			// 获取所有Markdown文件
-			const allFiles = this.plugin.app.vault.getMarkdownFiles();
+			const allFiles = listVaultMarkdownFiles(this.plugin.app);
 
 			// 应用过滤条件
 			const filteredFiles = this.filterFiles(allFiles, options);

@@ -10,6 +10,7 @@
  */
 
 import { MetadataCache, TFile, TFolder, Vault } from "obsidian";
+import { listVaultMarkdownFiles } from "../../utils/vault-file-list";
 
 /**
  * 文件选择配置
@@ -98,7 +99,7 @@ export class SimpleFileSelectorService {
 	 * 获取符合条件的文件列表
 	 */
 	async getFilesInScope(config: FileSelectorConfig): Promise<TFile[]> {
-		const allFiles = this.vault.getMarkdownFiles();
+		const allFiles = listVaultMarkdownFiles(this.vault);
 		const filesInScope: TFile[] = [];
 
 		for (const file of allFiles) {
@@ -216,7 +217,7 @@ export class SimpleFileSelectorService {
 	 * 获取扫描统计信息
 	 */
 	async getScanStats(config: FileSelectorConfig): Promise<ScanStats> {
-		const allFiles = this.vault.getMarkdownFiles();
+		const allFiles = listVaultMarkdownFiles(this.vault);
 		const stats: ScanStats = {
 			totalFiles: allFiles.length,
 			includedFiles: 0,

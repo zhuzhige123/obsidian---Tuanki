@@ -122,6 +122,7 @@ import { isSupportedBookFile } from "./services/epub-integration/book-format";
 import { exportBookNotesToMarkdown, exportBookSectionToMarkdown } from "./services/epub-integration/book-markdown-export";
 import { registerEpubHost, unregisterEpubHost, type EpubHostCapabilities } from "./services/epub-integration";
 import { applyDeviceClasses, detectDevice } from "./utils/tablet-detection";
+import { writeSystemClipboardText } from "./utils/system-clipboard";
 import { vaultStorage } from "./utils/vault-local-storage";
 import { openFileWithExistingLeaf, openLinkWithExistingLeaf, revealLeaf } from "./utils/workspace-navigation";
 
@@ -3981,12 +3982,11 @@ export class WeavePlugin extends Plugin {
 
 						const embedLink = `![[${sourceFilePath}#^${result.blockLinkInfo.blockId}]]`;
 
-						try {
-							await navigator.clipboard.writeText(embedLink);
-							new Notice("块链接已复制到剪贴板", 2000);
-						} catch {
-							new Notice("已生成块链接（无法自动写入剪贴板，请手动复制）", 3000);
-						}
+						const copied = await writeSystemClipboardText(embedLink);
+						new Notice(
+							copied ? "块链接已复制到剪贴板" : "已生成块链接（无法自动写入剪贴板，请手动复制）",
+							copied ? 2000 : 3000
+						);
 					} catch (error) {
 						logger.error("❌ [复制块链接] 执行失败:", error);
 						new Notice("获取块链接失败，请重试", 3000);
@@ -8545,21 +8545,6 @@ export class WeavePlugin extends Plugin {
 	}
 
 	private async readClipboardTextOrPrompt(promptText: string): Promise<string | null> {
-		let text = "";
-		try {
-			text = await navigator.clipboard.readText();
-		} catch {
-			try {
-				const electronClipboard = (window as any)?.require?.("electron")?.clipboard;
-				if (electronClipboard?.readText) {
-					text = String(electronClipboard.readText() || "");
-				}
-			} catch {}
-		}
-
-		text = String(text || "").trim();
-		if (text) return text;
-
 		const { showObsidianInput } = await import("./utils/obsidian-confirm");
 		const manual = await showObsidianInput(this.app, promptText);
 		if (!manual || !manual.trim()) return null;
@@ -8607,7 +8592,7 @@ export class WeavePlugin extends Plugin {
 		await new Promise((resolve) => setTimeout(resolve, 120));
 
 		const linkText = await this.readClipboardTextOrPrompt(
-			"无法读取剪贴板，请粘贴 PDF++ 生成的链接："
+			"请粘贴 PDF++ 生成的链接："
 		);
 		if (!linkText) {
 			new Notice("读取剪贴板失败");

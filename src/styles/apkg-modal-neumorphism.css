@@ -1,7 +1,7 @@
 /* 新拟态风格的APKG导入模态窗样式 */
 
 /* 设计变量 */
-:where(.weave-apkg-modal-overlay):not(:root) {
+.weave-apkg-modal-container {
   --color-background: var(--background-primary);
   --color-surface: var(--background-primary);
   --color-text-primary: var(--text-normal);
@@ -1049,7 +1049,7 @@
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
-.field-name {
+.sample-cards .field-name {
   font-weight: 600;
   color: var(--color-text-primary);
   min-width: 100px;

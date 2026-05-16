@@ -63,6 +63,7 @@
   import type { BatchImportResult } from '../../services/incremental-reading/ReadingMaterialManager';
   import { findOpenEpubLeaf } from '../../utils/epub-leaf-utils';
   import { logger } from '../../utils/logger';
+  import { listVaultFiles } from '../../utils/vault-file-list';
   import { currentLanguage, tr } from '../../utils/i18n';
   import { getChunkTopicIds, getTaskTopicId } from '../../utils/ir-topic-compat';
   import { showObsidianConfirm, showObsidianInput } from '../../utils/obsidian-confirm';
@@ -569,9 +570,7 @@
   }
 
   function getCalendarBackgroundWallImageFiles(): TFile[] {
-    return plugin.app.vault
-      .getFiles()
-      .filter((file) => isCalendarBackgroundWallImageFile(file))
+    return listVaultFiles(plugin.app.vault, (file) => isCalendarBackgroundWallImageFile(file))
       .sort((left, right) => {
         const timeDelta = Number(right.stat?.mtime || 0) - Number(left.stat?.mtime || 0);
         if (timeDelta !== 0) {

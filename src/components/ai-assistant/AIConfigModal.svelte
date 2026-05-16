@@ -15,6 +15,7 @@
   import { OFFICIAL_SYSTEM_PROMPTS, getOfficialSystemPromptById } from '../../constants/official-system-prompts';
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
   import { focusManager } from '../../utils/focus-manager';
+  import { writeSystemClipboardText } from '../../utils/system-clipboard';
 
   interface Props {
     plugin: WeavePlugin;
@@ -255,9 +256,8 @@
   }
 
   function copySystemPromptToClipboard() {
-    navigator.clipboard
-      .writeText(displayedPromptContent)
-      .then(() => new Notice('已复制到剪贴板'))
+    writeSystemClipboardText(displayedPromptContent)
+      .then((copied) => new Notice(copied ? '已复制到剪贴板' : '复制失败'))
       .catch(() => new Notice('复制失败'));
   }
 

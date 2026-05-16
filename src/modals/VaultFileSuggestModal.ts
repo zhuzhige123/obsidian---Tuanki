@@ -1,6 +1,7 @@
 import { App, FuzzySuggestModal, TFile, setIcon, type FuzzyMatch } from "obsidian";
 import { ensureWeaveSuggestModalTheme, markLatestSuggestionContainer } from "./weaveSuggestModalTheme";
 import { applyStyleProps } from "../utils/style-props";
+import { listVaultFiles } from "../utils/vault-file-list";
 
 interface AnchorRect {
 	left: number;
@@ -56,7 +57,7 @@ export class VaultFileSuggestModal extends FuzzySuggestModal<VaultFileSuggestIte
 		this.showFileIcon = options.showFileIcon ?? true;
 		this.showFilePath = options.showFilePath ?? true;
 
-		const files = (options.files ?? app.vault.getFiles()).filter((file) =>
+		const files = (options.files ?? listVaultFiles(app.vault)).filter((file) =>
 			options.filter ? options.filter(file) : true
 		);
 
