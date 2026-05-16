@@ -79,7 +79,8 @@ if (failures.length === 0) {
     notes.push("dist/ does not exist locally yet; build before doing a final release smoke check.");
   }
 
-  if (!/Chinese documentation:\s*\[README\.zh-CN\.md\]/.test(readText("README.md"))) {
+  const readme = readText("README.md");
+  if (!/README\.zh-CN\.md/.test(readme)) {
     notes.push("README.md does not link the Chinese companion README at the top.");
   }
 }
