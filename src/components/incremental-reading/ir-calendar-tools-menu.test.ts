@@ -1,4 +1,3 @@
-import { describe, expect, it, vi } from 'vitest';
 import { Menu, type MenuItem } from '../../tests/mocks/obsidian';
 import { populateCalendarBackgroundWallMenu } from './ir-calendar-tools-menu';
 

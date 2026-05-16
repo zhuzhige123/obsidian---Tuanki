@@ -3,8 +3,8 @@ import type { App } from "obsidian";
 import type {
 	EpubBookshelfMembershipEntry,
 	EpubScanIndexEntry,
-} from "../../services/epub/EpubStorageService";
-import { getBookFormatDisplayLabel } from "../../services/epub/book-format";
+} from "../../services/epub-integration/EpubStorageService";
+import { getBookFormatDisplayLabel } from "../../services/epub-integration/book-format";
 
 interface EpubBookshelfImportModalOptions {
 	entries: EpubScanIndexEntry[];

@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import { IRImportSchedulingService } from "../IRImportSchedulingService";
 import type { SchedulingConfig } from "../../../types/ir-import-scheduling";
 

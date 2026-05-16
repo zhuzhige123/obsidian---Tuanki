@@ -5,7 +5,7 @@
     DEFAULT_EPUB_BOOKMARK_FOLDER,
     getEpubBookmarkFolderDisplayPath,
     normalizeEpubBookmarkFolderPath,
-  } from "../../services/epub";
+  } from "../../services/epub-integration";
   import EpubLicenseSettingsPanel from "./EpubLicenseSettingsPanel.svelte";
   import { showNotification } from "../../utils/notifications";
 

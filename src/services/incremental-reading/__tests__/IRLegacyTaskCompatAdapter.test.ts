@@ -19,7 +19,6 @@ vi.mock('obsidian', async (importOriginal) => {
 	};
 });
 
-import { describe, expect, it } from "vitest";
 import type { IRPointSnapshot } from "../../../types/ir-point-storage-types";
 import {
 	buildLegacyBlockFromPointSnapshot,

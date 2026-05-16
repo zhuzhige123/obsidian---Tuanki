@@ -1,5 +1,4 @@
 import { render, waitFor } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QuestionBankAnalyticsSnapshot } from '../../../utils/question-bank-analytics';
 
 const echartsMocks = vi.hoisted(() => ({

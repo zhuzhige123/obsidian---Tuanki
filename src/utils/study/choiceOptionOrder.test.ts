@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import type { ChoiceQuestion } from '../../parsing/choice-question-parser';
 import { applyChoiceQuestionOptionOrder } from './choiceOptionOrder';
 

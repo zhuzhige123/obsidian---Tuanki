@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 
 import { CardState, type Card } from "../../data/types";
 import {

@@ -297,7 +297,7 @@
     
     // EPUB文件：拦截到插件内置阅读器
     if (file.path.toLowerCase().endsWith('.epub')) {
-      const { EpubLinkService } = await import('../../services/epub/EpubLinkService');
+      const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
       const linkService = new EpubLinkService(plugin.app);
       await linkService.navigateToEpubLocation(file.path, sourceInfo.epubCfi || '', sourceInfo.epubText || '');
       if (multiInfoButtonElement) {
@@ -347,7 +347,7 @@
       
       // EPUB文件：拦截到插件内置阅读器
       if (file.path.toLowerCase().endsWith('.epub')) {
-        const { EpubLinkService } = await import('../../services/epub/EpubLinkService');
+        const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
         const linkService = new EpubLinkService(plugin.app);
         await linkService.navigateToEpubLocation(file.path, sourceInfo.epubCfi || '', sourceInfo.epubText || '');
         if (multiInfoButtonElement) {

@@ -76,10 +76,6 @@ const MARKDOWN_BLOCK_TAGS = new Set([
 	"img",
 ]);
 
-function createCssDataUrl(cssText: string): string {
-	return `data:text/css;charset=utf-8,${encodeURIComponent(cssText)}`;
-}
-
 type TextQuote = {
 	highlight?: string;
 	before?: string;
@@ -1409,9 +1405,8 @@ export class FoliateVaultPublicationParser {
 		doc: Document,
 		cssText: string,
 		linkElement?: Element | null
-	): HTMLLinkElement | Element {
+	): HTMLStyleElement {
 		const styleElement = doc.createElement("style");
-		styleElement.setAttribute("type", "text/css");
 		styleElement.setAttribute("data-weave-inline-stylesheet", "true");
 		const media = linkElement?.getAttribute("media");
 		if (media) {

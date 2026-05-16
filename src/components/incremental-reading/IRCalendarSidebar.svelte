@@ -11,8 +11,8 @@
   import { IRChunkScheduleAdapter } from '../../services/incremental-reading/IRChunkScheduleAdapter';
   import { IRPdfBookmarkTaskService, isPdfBookmarkTaskId } from '../../services/incremental-reading/IRPdfBookmarkTaskService';
   import { IREpubBookmarkTaskService, isEpubBookmarkTaskId } from '../../services/incremental-reading/IREpubBookmarkTaskService';
-  import { EpubStorageService } from '../../services/epub/EpubStorageService';
-  import { EPUB_RUNTIME } from '../../services/epub';
+  import { EpubStorageService } from '../../services/epub-integration/EpubStorageService';
+  import { EPUB_RUNTIME } from '../../services/epub-integration';
   import { IRPointWriteService, type IRPointWriteTarget } from '../../services/incremental-reading/IRPointWriteService';
   import { IRPointTagService, normalizeReadingPointTags } from '../../services/incremental-reading/IRPointTagService';
   import { IRV4SchedulerService } from '../../services/incremental-reading/IRV4SchedulerService';

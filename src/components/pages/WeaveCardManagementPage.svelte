@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import { logger } from '../../utils/logger';
   import { vaultStorage } from '../../utils/vault-local-storage';
 
@@ -110,7 +110,7 @@
   import { irActiveDocumentStore } from "../../stores/ir-active-document-store";
   // EPUB阅读器活动文档store（用于文档关联筛选）
   import { epubActiveDocumentStore } from "../../stores/epub-active-document-store";
-  import { EPUB_RUNTIME } from "../../services/epub";
+  import { EPUB_RUNTIME } from "../../services/epub-integration";
   
   import { IRStorageService } from "../../services/incremental-reading/IRStorageService";
   import { loadIRCardManagementData } from "../../services/incremental-reading/IRCardManagementLoader";
@@ -3056,7 +3056,7 @@
                 // EPUB文件：拦截到插件内置阅读器，避免系统外部阅读器打开
                 if (pathOnly.toLowerCase().endsWith('.epub')) {
                   const hashPart = linkText.includes('#') ? linkText.slice(linkText.indexOf('#')) : '';
-                  const { EpubLinkService } = await import('../../services/epub/EpubLinkService');
+                  const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
                   const parsed = EpubLinkService.parseEpubLink(hashPart);
                   const linkService = new EpubLinkService(plugin.app);
                   await linkService.navigateToEpubLocation(file.path, parsed?.cfi || '', parsed?.text || '');
@@ -3130,7 +3130,7 @@
             }
           }
         }
-        const { EpubLinkService } = await import('../../services/epub/EpubLinkService');
+        const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
         const linkService = new EpubLinkService(plugin.app);
         await linkService.navigateToEpubLocation(filePath, epubCfi, epubText);
         new Notice(epubCfi ? '已跳转到EPUB源位置' : '已打开EPUB源文档');

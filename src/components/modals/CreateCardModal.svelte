@@ -6,7 +6,7 @@
 <script lang="ts">
   import { logger } from '../../utils/logger';
   import { MEMORY_DECK_UI_TEXT } from '../../constants/memory-deck-ui-text';
-  import { EpubLinkService } from '../../services/epub/EpubLinkService';
+  import { EpubLinkService } from '../../services/epub-integration/EpubLinkService';
   import {
     detectTraceSourceKind,
     normalizeTraceDocumentKey,

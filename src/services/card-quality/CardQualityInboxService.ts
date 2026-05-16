@@ -35,7 +35,7 @@ import {
 	parseSourceInfo,
 	parseYAMLFromContent,
 } from "../../utils/yaml-utils";
-import { EpubLinkService } from "../epub/EpubLinkService";
+import { EpubLinkService } from "../epub-integration/EpubLinkService";
 
 /**
  * 卡片质量收件箱服务

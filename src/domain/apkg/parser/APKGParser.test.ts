@@ -1,4 +1,3 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { loadAsyncMock, sqliteReaderConstructor, sqliteReaderReadMock } = vi.hoisted(() => {
 	const loadAsyncMock = vi.fn();

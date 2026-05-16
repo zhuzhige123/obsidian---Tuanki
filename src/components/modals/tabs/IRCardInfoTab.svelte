@@ -2,8 +2,8 @@
   import { Notice, Platform, TFile, normalizePath } from 'obsidian';
   import type { WeavePlugin } from '../../../main';
   import type { Card } from '../../../data/types';
-  import { EPUB_RUNTIME } from '../../../services/epub';
-  import { EpubLinkService } from '../../../services/epub/EpubLinkService';
+  import { EPUB_RUNTIME } from '../../../services/epub-integration';
+  import { EpubLinkService } from '../../../services/epub-integration/EpubLinkService';
   import { findOpenEpubLeaf } from '../../../utils/epub-leaf-utils';
   import { formatRelativeTimeDetailed } from '../../../utils/helpers';
   import { openFileWithExistingLeaf, openLinkWithExistingLeaf } from '../../../utils/workspace-navigation';

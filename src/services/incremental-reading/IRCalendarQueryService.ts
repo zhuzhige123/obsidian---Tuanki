@@ -3,7 +3,7 @@ import { getPluginPaths } from "../../config/paths";
 import type { ReadingMaterial } from "../../types/incremental-reading-types";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
-import { EpubStorageService } from "../epub/EpubStorageService";
+import { EpubStorageService } from "../epub-integration/EpubStorageService";
 import {
 	buildProjectedDayLoadMap,
 	getProjectedScheduleSummary,

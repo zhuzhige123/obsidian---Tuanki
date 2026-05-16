@@ -86,7 +86,7 @@ import { GlobalDataCache } from "./services/GlobalDataCache";
 import { BatchCardSaver } from "./services/batch/BatchCardSaver";
 import { ParsedCardConverter } from "./services/converter/ParsedCardConverter";
 import { MaskDataParser } from "./services/image-mask/MaskDataParser";
-import { registerExtensionsSafely } from "./services/epub/epub-plugin-support";
+import { registerExtensionsSafely } from "./utils/register-extensions-safely";
 import {
 	generateUniqueVaultFilePath,
 	normalizeIRReadableMarkdownFolderPath,
@@ -117,17 +117,12 @@ import {
 } from "./utils/cloze-syntax";
 import { ensureExistingWeaveDataReadmes } from "./utils/weave-data-readme";
 import { createContentWithMetadata } from "./utils/yaml-utils";
-import {
-	type EpubBookshelfSettings,
-	DEFAULT_EPUB_BOOKSHELF_SETTINGS,
-	EpubStorageService,
-} from "./services/epub/EpubStorageService";
-import { isSupportedBookFile } from "./services/epub/book-format";
-import { exportBookNotesToMarkdown, exportBookSectionToMarkdown } from "./services/epub/book-markdown-export";
-import { EPUB_RUNTIME, registerEpubHost, unregisterEpubHost, type EpubHostCapabilities } from "./services/epub";
+import { EpubStorageService } from "./services/epub-integration/EpubStorageService";
+import { isSupportedBookFile } from "./services/epub-integration/book-format";
+import { exportBookNotesToMarkdown, exportBookSectionToMarkdown } from "./services/epub-integration/book-markdown-export";
+import { registerEpubHost, unregisterEpubHost, type EpubHostCapabilities } from "./services/epub-integration";
 import { applyDeviceClasses, detectDevice } from "./utils/tablet-detection";
 import { vaultStorage } from "./utils/vault-local-storage";
-import { findOpenEpubLeaf, getAllOpenEpubLeaves, getOpenEpubFilePath } from "./utils/epub-leaf-utils";
 import { openFileWithExistingLeaf, openLinkWithExistingLeaf, revealLeaf } from "./utils/workspace-navigation";
 
 import { get } from "svelte/store";
@@ -318,10 +313,6 @@ export interface WeaveSettings extends SettingsWithEditor {
 
 	// 
 	showSettingsButton?: boolean;
-
-	epubBookshelf?: {
-		lastScanAt?: number;
-	};
 
 	// v1.0.0: 
 	dataFolderVisibility?: {
@@ -715,9 +706,6 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 	},
 
 	showSettingsButton: true,
-	epubBookshelf: {
-		lastScanAt: 0,
-	},
 
 	studyViewSpacing: "compact",
 
@@ -1086,7 +1074,6 @@ export class WeavePlugin extends Plugin {
 	// 
 	private currentViewCardModal: { close: () => void } | null = null;
 	private currentAIActionManagerModal: { close: () => void } | null = null;
-	private currentEpubSelectedTextAIPanelFilePath: string | null = null;
 
 	// AnkiConnect 
 	public ankiConnectService:
@@ -1128,9 +1115,6 @@ export class WeavePlugin extends Plugin {
 	private createCardPreferencesCache: CreateCardPreferencesState | null = null;
 	private editorModalSizeStateCache: EditorModalSizeState | null = null;
 	private aiGenerationHistoryCache: AIGenerationHistoryEntry[] | null = null;
-	private epubBookshelfSettingsCache: EpubBookshelfSettings = {
-		...DEFAULT_EPUB_BOOKSHELF_SETTINGS,
-	};
 
 	private normalizeNavigationVisibility(
 		navigationVisibility: WeaveSettings["navigationVisibility"] | undefined
@@ -4312,11 +4296,6 @@ export class WeavePlugin extends Plugin {
 			this.selectedTextAICardPanelManager?.dispose();
 		} catch {}
 		try {
-			if (this.currentEpubSelectedTextAIPanelFilePath) {
-				void this.closeSelectedTextAIPanelFromEpub(this.currentEpubSelectedTextAIPanelFilePath);
-			}
-		} catch {}
-		try {
 			this.editorAIToolbarManager?.destroy();
 		} catch {}
 		try {
@@ -5447,7 +5426,7 @@ export class WeavePlugin extends Plugin {
 		if (!oldPath || oldPath === newPath) return;
 
 		try {
-			const { EpubPathSyncService } = await import("./services/epub/EpubPathSyncService");
+			const { EpubPathSyncService } = await import("./services/epub-integration/EpubPathSyncService");
 			const syncService = new EpubPathSyncService(this.app);
 			const result = await syncService.syncRenamedTarget(file, oldPath);
 			const affectedItems =
@@ -5469,12 +5448,10 @@ export class WeavePlugin extends Plugin {
 				logger.info(
 					`[EpubPathSync] 已同步 EPUB 引用: old=${oldPath}, new=${newPath}, links=${result.updatedLinks}, markdown=${result.updatedMarkdownFiles}, bookmarkMarkdown=${result.updatedBookmarkFiles}, canvas=${result.updatedCanvasFiles}, cardJson=${result.updatedCardFiles}, canvasBindings=${result.updatedCanvasBindings}, books=${result.updatedBooks}, tasks=${result.updatedTasks}`
 				);
-				window.dispatchEvent(new CustomEvent(EPUB_RUNTIME.events.bookshelfDataChanged));
 				this.queueSourceTraceNotice({
 					epubFiles: affectedItems,
 					epubLinks: affectedRefs,
 				});
-				await this.refreshOpenEpubViewsAfterRename(oldPath, newPath);
 			}
 		} catch (error) {
 			logger.warn("[EpubPathSync] EPUB 文件重命名后同步引用失败:", error);
@@ -5496,7 +5473,6 @@ export class WeavePlugin extends Plugin {
 				logger.info(
 					`[EpubPathSync] 已清理失效 EPUB 跟踪数据: path=${deletedPath}, scan=${result.removedScanEntries}, membership=${result.removedMembershipEntries}, books=${result.removedBookIds.length}`
 				);
-				window.dispatchEvent(new CustomEvent(EPUB_RUNTIME.events.bookshelfDataChanged));
 				this.queueSourceTraceNotice({
 					epubFiles: affectedCount,
 				});
@@ -5599,52 +5575,6 @@ export class WeavePlugin extends Plugin {
 		this.sourceTraceNotice?.destroy();
 		this.sourceTraceNotice = createSafeNotice(`Weave: ${parts.join("；")}`, 4500);
 	}
-
-	private async refreshOpenEpubViewsAfterRename(oldPath: string, newPath: string): Promise<void> {
-		const leaves = getAllOpenEpubLeaves(this.app);
-		for (const leaf of leaves) {
-			try {
-				const state = leaf.getViewState();
-				const currentPath = getOpenEpubFilePath(leaf);
-				const remappedPath = this.remapVaultPath(currentPath, oldPath, newPath);
-				if (!remappedPath || remappedPath === currentPath) {
-					continue;
-				}
-
-				await leaf.setViewState({
-					...(state as any),
-					state: {
-						...((state as any)?.state || {}),
-						filePath: remappedPath,
-						file: remappedPath,
-					},
-				});
-			} catch (error) {
-				logger.warn("[EpubPathSync] 更新已打开 EPUB 视图失败:", error);
-			}
-		}
-	}
-
-	private remapVaultPath(sourcePath: string, oldPath: string, newPath: string): string | null {
-		if (!sourcePath || !oldPath || !newPath) {
-			return null;
-		}
-
-		const normalizedSource = sourcePath.replace(/\\/g, "/");
-		const normalizedOld = oldPath.replace(/\\/g, "/");
-		const normalizedNew = newPath.replace(/\\/g, "/");
-
-		if (normalizedSource === normalizedOld) {
-			return normalizedNew;
-		}
-
-		if (normalizedSource.startsWith(`${normalizedOld}/`)) {
-			return `${normalizedNew}${normalizedSource.slice(normalizedOld.length)}`;
-		}
-
-		return null;
-	}
-
 
 	private async syncReadingPointTagsFromMarkdown(filePath: string, reason: "metadata_changed" | "metadata_renamed" | "metadata_deleted"): Promise<void> {
 		if (!filePath || !filePath.toLowerCase().endsWith(".md")) return;
@@ -6146,24 +6076,6 @@ export class WeavePlugin extends Plugin {
 		return this.pluginLocalStateService;
 	}
 
-	getEpubBookshelfSettings(): EpubBookshelfSettings {
-		return {
-			...DEFAULT_EPUB_BOOKSHELF_SETTINGS,
-			...(this.epubBookshelfSettingsCache ?? this.settings?.epubBookshelf ?? {}),
-		};
-	}
-
-	async saveEpubBookshelfSettings(settings: Partial<EpubBookshelfSettings>): Promise<void> {
-		const nextSettings: EpubBookshelfSettings = {
-			...DEFAULT_EPUB_BOOKSHELF_SETTINGS,
-			...this.getEpubBookshelfSettings(),
-			...settings,
-		};
-		this.epubBookshelfSettingsCache = nextSettings;
-		this.settings.epubBookshelf = { ...nextSettings };
-		await this.getPluginLocalStateService().saveEpubBookshelfSettings(nextSettings);
-	}
-
 	private getDefaultStudyInterfaceViewPreferences(): StudyInterfaceViewPreferences {
 		const defaults =
 			this.settings?.studyInterfaceViewPreferences ??
@@ -6391,10 +6303,6 @@ export class WeavePlugin extends Plugin {
 			...(this.settings.editorModalSize ?? DEFAULT_SETTINGS.editorModalSize),
 			...this.editorModalSizeStateCache,
 		};
-
-		this.epubBookshelfSettingsCache =
-			(await service.loadEpubBookshelfSettings()) ?? { ...DEFAULT_EPUB_BOOKSHELF_SETTINGS };
-		this.settings.epubBookshelf = { ...this.epubBookshelfSettingsCache };
 
 		this.aiGenerationHistoryCache =
 			(await service.loadAIGenerationHistory()) ?? this.getAIGenerationHistoryFromSettings();
@@ -8034,53 +7942,29 @@ export class WeavePlugin extends Plugin {
 			return;
 		}
 
-		if (
-			this.currentEpubSelectedTextAIPanelFilePath
-			&& this.currentEpubSelectedTextAIPanelFilePath !== normalizedFilePath
-		) {
-			await this.closeSelectedTextAIPanelFromEpub(this.currentEpubSelectedTextAIPanelFilePath);
-		}
-
-		const leaf = findOpenEpubLeaf(this.app, normalizedFilePath);
-		const view = leaf?.view as {
-			openSelectedTextAIPanel?: (input: {
-				selectedText: string;
-				actionId: string;
-				sourceLink?: string;
-			}) => Promise<void>;
-		} | undefined;
-
-		if (!view?.openSelectedTextAIPanel) {
-			new Notice("未找到对应的 EPUB 阅读视图");
+		const standaloneHost = this.getStandaloneEpubHost();
+		if (!standaloneHost?.openSelectedTextAIPanelFromEpub) {
+			new Notice("请先启用独立 EPUB 阅读器插件");
 			return;
 		}
 
-		await view.openSelectedTextAIPanel({
+		await standaloneHost.openSelectedTextAIPanelFromEpub({
+			filePath: normalizedFilePath,
 			selectedText,
 			actionId,
 			sourceLink: String(options.sourceLink || "").trim() || undefined,
 		});
-		this.currentEpubSelectedTextAIPanelFilePath = normalizedFilePath;
 	}
 
 	async closeSelectedTextAIPanelFromEpub(filePath: string): Promise<void> {
 		const normalizedFilePath = normalizePath(String(filePath || "").trim());
 		if (!normalizedFilePath) {
-			this.currentEpubSelectedTextAIPanelFilePath = null;
 			return;
 		}
 
-		const leaf = findOpenEpubLeaf(this.app, normalizedFilePath);
-		const view = leaf?.view as {
-			closeSelectedTextAIPanel?: () => Promise<void>;
-		} | undefined;
-
-		if (view?.closeSelectedTextAIPanel) {
-			await view.closeSelectedTextAIPanel();
-		}
-
-		if (this.currentEpubSelectedTextAIPanelFilePath === normalizedFilePath) {
-			this.currentEpubSelectedTextAIPanelFilePath = null;
+		const standaloneHost = this.getStandaloneEpubHost();
+		if (standaloneHost?.closeSelectedTextAIPanelFromEpub) {
+			await standaloneHost.closeSelectedTextAIPanelFromEpub(normalizedFilePath);
 		}
 	}
 

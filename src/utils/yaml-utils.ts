@@ -8,7 +8,7 @@
  * @see YAML属性栏卡片元数据方案.md
  */
 
-import { EpubLinkService } from "../services/epub/EpubLinkService";
+import { EpubLinkService } from "../services/epub-integration/EpubLinkService";
 import { logger } from "./logger";
 import { getNormalizedDeckEntries, getSingleMemoryFormalDeckIds } from "./memory-deck-membership";
 import { TagExtractor } from "./tag-extractor";

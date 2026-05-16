@@ -32,10 +32,10 @@
   import { IRPdfBookmarkTaskService } from '../../services/incremental-reading/IRPdfBookmarkTaskService';
   import { IREpubBookmarkTaskService } from '../../services/incremental-reading/IREpubBookmarkTaskService';
   import { IRV4SchedulerService } from '../../services/incremental-reading/IRV4SchedulerService';
-  import { createEpubReaderEngine } from '../../services/epub';
-  import { reportEpubError } from '../../services/epub/epub-error';
-  import { EpubStorageService } from '../../services/epub/EpubStorageService';
-  import type { TocItem } from '../../services/epub/types';
+  import { reportEpubError } from '../../services/epub-integration/epub-error';
+  import { EpubStorageService } from '../../services/epub-integration/EpubStorageService';
+  import { FoliateVaultPublicationParser } from '../../services/epub-integration/FoliateVaultPublicationParser';
+  import type { TocItem } from '../../services/epub-integration/types';
   import type { SchedulingConfig, SchedulingImpact } from '../../types/ir-import-scheduling';
   import { DEFAULT_SCHEDULING_CONFIG, SCHEDULING_PRESETS } from '../../types/ir-import-scheduling';
   import { IRImportSchedulingService, type IRLoadInfo } from '../../services/incremental-reading/IRImportSchedulingService';
@@ -1551,18 +1551,18 @@
           continue;
         }
 
-        const readerService = createEpubReaderEngine(plugin.app);
+        const parser = new FoliateVaultPublicationParser(plugin.app);
         try {
           const sourceEntry = await epubStorageService.ensureSourceIdentity(filePath);
-          await readerService.loadEpub(filePath);
-          const tocItems = await readerService.getTableOfContents();
+          await parser.load(filePath);
+          const tocItems = parser.getTocItems();
           const contextualItems: TocItem[] = tocItems.map((item) =>
             attachEpubItemContext(item, filePath, tfile.basename, sourceEntry?.sourceId)
           );
           const flattenedItems = flattenEpubTocToOutlineItems(contextualItems);
           outlineItems.push(...flattenedItems);
         } finally {
-          readerService.destroy();
+          parser.dispose();
         }
       }
 

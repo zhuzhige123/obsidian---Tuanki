@@ -62,8 +62,8 @@ import {
 } from "../data-migration/UnifiedDataMigrationService";
 import { migrateLegacyWeaveFolders } from "../data-migration/LegacyWeaveFolderMigration";
 import { SchemaV2MigrationService } from "../data-migration/SchemaV2MigrationService";
-import { EpubStorageService } from "../epub/EpubStorageService";
-import { EpubLinkService } from "../epub/EpubLinkService";
+import { EpubStorageService } from "../epub-integration/EpubStorageService";
+import { EpubLinkService } from "../epub-integration/EpubLinkService";
 import { DataConsistencyService } from "../reference-deck/DataConsistencyService";
 import {
 	generateUniqueVaultFilePath,

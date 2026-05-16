@@ -13,8 +13,7 @@ import type {
 import type { IRCalendarSidebarSettings } from "../../types/plugin-settings.d";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
-import type { EpubBookshelfSettings } from "../epub/EpubStorageService";
-import { getEpubRuntime } from "../epub/epub-runtime";
+import { getEpubRuntime } from "../epub-integration/epub-runtime";
 
 interface PersistedStudySessionState {
 	persistedStudySession?: unknown;
@@ -144,7 +143,6 @@ interface LegacyPluginRuntimeData {
 	cardManagementViewPreferences?: unknown;
 	studyInterfaceViewPreferences?: unknown;
 	createCardPreferences?: unknown;
-	epubBookshelf?: unknown;
 	editorModalSize?: {
 		preset?: unknown;
 		customWidth?: unknown;
@@ -183,7 +181,6 @@ const STUDY_INTERFACE_VIEW_PREFERENCES_KEY = "weave-study-interface-view-prefere
 const IR_CALENDAR_SIDEBAR_SETTINGS_KEY = "weave-ir-calendar-sidebar-settings";
 const AI_ASSISTANT_PREFERENCES_KEY = "weave-ai-assistant-preferences";
 const CREATE_CARD_PREFERENCES_KEY = "weave-create-card-preferences";
-const EPUB_BOOKSHELF_SETTINGS_KEY = `${getEpubRuntime().pluginId}-epub-bookshelf-settings`;
 const EDITOR_MODAL_SIZE_STATE_KEY = "weave-editor-modal-size-state";
 const PLUGIN_DATA_RECOVERY_DIR_NAME = "config-recovery";
 const LAST_GOOD_PLUGIN_DATA_FILE_NAME = "plugin-data-last-good.json";
@@ -512,21 +509,6 @@ export class PluginLocalStateService {
 		);
 	}
 
-	async loadEpubBookshelfSettings(): Promise<EpubBookshelfSettings | null> {
-		const settings = await this.loadManagedJsonEntry<unknown>(EPUB_BOOKSHELF_SETTINGS_KEY);
-		if (settings == null) {
-			return null;
-		}
-		return this.normalizeEpubBookshelfSettings(settings);
-	}
-
-	async saveEpubBookshelfSettings(settings: EpubBookshelfSettings): Promise<void> {
-		await this.saveManagedJsonEntry(
-			EPUB_BOOKSHELF_SETTINGS_KEY,
-			this.normalizeEpubBookshelfSettings(settings)
-		);
-	}
-
 	async loadEditorModalSizeState(): Promise<EditorModalSizeState | null> {
 		const state = await this.loadManagedJsonEntry<unknown>(EDITOR_MODAL_SIZE_STATE_KEY);
 		if (state == null) {
@@ -667,18 +649,6 @@ export class PluginLocalStateService {
 		};
 	}
 
-	private normalizeEpubBookshelfSettings(value: unknown): EpubBookshelfSettings {
-		if (!isRecord(value)) {
-			return {
-				lastScanAt: 0,
-			};
-		}
-
-		return {
-			lastScanAt: typeof value.lastScanAt === "number" ? value.lastScanAt : 0,
-		};
-	}
-
 	private normalizeEditorModalSizeState(value: unknown): EditorModalSizeState {
 		if (!isRecord(value)) {
 			return {
@@ -774,17 +744,6 @@ export async function migrateLegacyPluginRuntimeState(
 			);
 		}
 		legacyData.createCardPreferences = undefined;
-		shouldSaveCleanedData = true;
-	}
-
-	if (Object.prototype.hasOwnProperty.call(legacyData, "epubBookshelf")) {
-		const currentSettings = await stateService.loadEpubBookshelfSettings();
-		if (currentSettings == null && isRecord(legacyData.epubBookshelf)) {
-			await stateService.saveEpubBookshelfSettings(
-				legacyData.epubBookshelf as unknown as EpubBookshelfSettings
-			);
-		}
-		legacyData.epubBookshelf = undefined;
 		shouldSaveCleanedData = true;
 	}
 

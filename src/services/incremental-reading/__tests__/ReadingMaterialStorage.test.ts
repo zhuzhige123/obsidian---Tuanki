@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import { getPluginPaths, getV2PathsFromApp } from "../../../config/paths";
 import { ReadingCategory } from "../../../types/incremental-reading-types";
 import type {

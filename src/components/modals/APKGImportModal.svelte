@@ -359,6 +359,7 @@
             <p class="selection-desc">导入后会自动转换为 Weave 卡片格式，并将内容标准化为 Obsidian 兼容格式。</p>
           </div>
         </div>
+
         {#if !canImportLegacyApkg}
           <div class="runtime-warning">
             <div class="runtime-warning__title">当前安装包未包含旧版 APKG 导入运行时</div>
@@ -367,6 +368,7 @@
             </div>
           </div>
         {/if}
+
         <div class="dropzone"
              class:is-dragover={isDragOver}
              class:is-disabled={!canImportLegacyApkg}
@@ -711,27 +713,6 @@
   .capability-desc {
     font-size: 0.8125rem;
     line-height: 1.55;
-    color: var(--text-muted);
-  }
-
-  .runtime-warning {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    padding: 0.9rem 1rem;
-    border: 1px solid color-mix(in srgb, var(--color-orange) 45%, var(--background-modifier-border));
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--color-orange) 12%, var(--background-secondary));
-  }
-
-  .runtime-warning__title {
-    font-weight: 700;
-    color: var(--text-normal);
-  }
-
-  .runtime-warning__desc {
-    font-size: 0.875rem;
-    line-height: 1.6;
     color: var(--text-muted);
   }
 

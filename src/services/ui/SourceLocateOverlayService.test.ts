@@ -1,4 +1,3 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SourceLocateOverlayService } from "./SourceLocateOverlayService";
 
 type CreateOptions = {

@@ -1,4 +1,3 @@
-import { describe, expect, it, vi } from "vitest";
 import { createDefaultIRBlockV4 } from "../../../types/ir-types";
 import { IRV4SchedulerService } from "../IRV4SchedulerService";
 

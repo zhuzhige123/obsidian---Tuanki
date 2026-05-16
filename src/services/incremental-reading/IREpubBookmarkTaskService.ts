@@ -1,6 +1,6 @@
 import type { App } from "obsidian";
 import { normalizePath } from "obsidian";
-import { EpubStorageService } from "../epub/EpubStorageService";
+import { EpubStorageService } from "../epub-integration/EpubStorageService";
 import type { IRBlockMeta, IRBlockStats, IRBlockStatus, IRBlockV4 } from "../../types/ir-types";
 import { DEFAULT_IR_BLOCK_META, DEFAULT_IR_BLOCK_STATS } from "../../types/ir-types";
 import { getTaskTopicId } from "../../utils/ir-topic-compat";

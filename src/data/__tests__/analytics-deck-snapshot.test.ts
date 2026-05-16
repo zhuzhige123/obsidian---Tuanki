@@ -1,4 +1,3 @@
-import { afterEach, describe, expect, it } from 'vitest';
 import { AnalyticsService } from '../analytics';
 import { CardState, Rating } from '../types';
 

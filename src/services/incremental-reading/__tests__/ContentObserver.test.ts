@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContentObserverImpl } from "../ContentObserver";
 
 function createObserver(): ContentObserverImpl {

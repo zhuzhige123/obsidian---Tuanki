@@ -1,10 +1,15 @@
+import type { Plugin } from "obsidian";
 import { PluginSettingTab } from "obsidian";
-import type StandaloneEpubPlugin from "../../epub-main";
+
+type EpubSettingsHost = Plugin & {
+	settings?: unknown;
+	saveSettings?: () => Promise<void>;
+};
 
 export class EpubSettingsTab extends PluginSettingTab {
-  plugin: StandaloneEpubPlugin;
+  plugin: EpubSettingsHost;
 
-  constructor(app: any, plugin: StandaloneEpubPlugin) {
+  constructor(app: any, plugin: EpubSettingsHost) {
     super(app, plugin);
     this.plugin = plugin;
   }

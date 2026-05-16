@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getV2Paths } from "../../../config/paths";
 import { IRAnalyticsService } from "../IRAnalyticsService";
 import { IRMonitoringService } from "../IRMonitoringService";
@@ -6,7 +5,7 @@ import { IRPointStorageService } from "../IRPointStorageService";
 import { IRStorageService } from "../IRStorageService";
 import { createMemoryApp } from "./testMemoryApp";
 
-vi.mock("../../epub/EpubStorageService", () => ({
+vi.mock("../../epub-integration/EpubStorageService", () => ({
 	EpubStorageService: class {
 		async ensureSourceIdentity(filePath: string, options?: { preferredSourceId?: string }) {
 			return {

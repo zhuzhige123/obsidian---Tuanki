@@ -1,5 +1,4 @@
 import { render, waitFor } from '@testing-library/svelte';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MemoryCurveData } from '../../types/view-card-modal-types';
 
 const echartsMocks = vi.hoisted(() => ({

@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: '20'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
@@ -29,38 +29,38 @@ jobs:
 
       - name: Generate test summary
         if: always()
-        shell: bash
         run: |
-          rm -f test-summary.md
-          echo "# Test Execution Report" > test-summary.md
+          echo "# 🧪 Test Execution Report" > test-summary.md
           echo "" >> test-summary.md
           echo "## Test Results" >> test-summary.md
           echo "" >> test-summary.md
 
           if [ -f "test-results.json" ]; then
+            # 解析测试结果
             TOTAL=$(jq '.numTotalTests' test-results.json || echo 0)
             PASSED=$(jq '.numPassedTests' test-results.json || echo 0)
             FAILED=$(jq '.numFailedTests' test-results.json || echo 0)
 
             echo "- **Total Tests**: $TOTAL" >> test-summary.md
-            echo "- **Passed**: $PASSED" >> test-summary.md
-            echo "- **Failed**: $FAILED" >> test-summary.md
+            echo "- **Passed**: ✅ $PASSED" >> test-summary.md
+            echo "- **Failed**: ❌ $FAILED" >> test-summary.md
             echo "" >> test-summary.md
 
-            if [ "$FAILED" -gt 0 ]; then
-              echo "## Failed Tests" >> test-summary.md
+            if [ $FAILED -gt 0 ]; then
+              echo "## ❌ Failed Tests" >> test-summary.md
               echo "" >> test-summary.md
+              # 列出失败的测试
               jq -r '.testResults[] | select(.status == "failed") | "- \(.name)"' test-results.json >> test-summary.md || true
             fi
           else
-            echo "Test results not available" >> test-summary.md
+            echo "⚠️ Test results not available" >> test-summary.md
           fi
 
           cat test-summary.md
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: |

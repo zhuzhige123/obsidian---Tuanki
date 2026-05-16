@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getV2Paths } from "../../../config/paths";
 import { IREpubBookmarkTaskService } from "../IREpubBookmarkTaskService";
 import { IRPdfBookmarkTaskService } from "../IRPdfBookmarkTaskService";
@@ -14,7 +13,7 @@ vi.mock("obsidian", async () => {
 	};
 });
 
-vi.mock("../../epub/EpubStorageService", () => ({
+vi.mock("../../epub-integration/EpubStorageService", () => ({
 	EpubStorageService: class {
 		async ensureSourceIdentity(filePath: string, options?: { preferredSourceId?: string }) {
 			return {

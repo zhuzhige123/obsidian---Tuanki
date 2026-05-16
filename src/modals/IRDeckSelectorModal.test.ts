@@ -1,4 +1,3 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setIcon } from "obsidian";
 import { IRDeckSelectorModal } from "./IRDeckSelectorModal";
 

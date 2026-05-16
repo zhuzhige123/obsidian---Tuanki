@@ -60,7 +60,6 @@ vi.mock("obsidian", async () => {
 });
 
 import { TFile } from "obsidian";
-import { describe, expect, it, vi } from "vitest";
 import { WeaveCardReferenceSuggest, WeaveTagSuggest } from "../obsidian-suggest";
 import { buildWeaveCardReferenceToken } from "../weave-card-reference";
 

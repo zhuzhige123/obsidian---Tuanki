@@ -1,10 +1,13 @@
+import type { Plugin } from "obsidian";
 import { PluginSettingTab } from "obsidian";
-import type StandaloneIncrementalReadingPlugin from "../../ir-main";
+import type { IncrementalReadingSettingsHost } from "./types/incremental-reading-settings-host";
+
+type StandaloneIRSettingsPlugin = Plugin & IncrementalReadingSettingsHost;
 
 export class StandaloneIRSettingsTab extends PluginSettingTab {
-	plugin: StandaloneIncrementalReadingPlugin;
+	plugin: StandaloneIRSettingsPlugin;
 
-	constructor(app: any, plugin: StandaloneIncrementalReadingPlugin) {
+	constructor(app: any, plugin: StandaloneIRSettingsPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}

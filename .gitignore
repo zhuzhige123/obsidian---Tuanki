@@ -65,6 +65,10 @@ dist
 
 # Gatsby files
 .cache/
+public
+!public/
+public/*
+!public/versions.json
 
 # Storybook build outputs
 .out
@@ -247,6 +251,8 @@ start-dev.sh
 
 # 脚本（含激活码生成等敏感工具）
 scripts/*
+!scripts/audit-worktree-hygiene.cjs
+!scripts/audit-test-health.cjs
 !scripts/clean-cache.cjs
 !scripts/copy-manifest.cjs
 !scripts/dev-watch.cjs
@@ -265,6 +271,9 @@ COMMIT_MSG.txt
 
 # 庆祝消息等非必要数据
 celebration-messages.json
+
+# public 目录
+public/
 
 # 不必要的配置和文档
 CHANGELOG.md

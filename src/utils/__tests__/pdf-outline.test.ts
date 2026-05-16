@@ -1,4 +1,3 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { extractPdfOutlineFromDocument, getPdfOutlineForFile } from "../pdf-outline";
 
 function createPdfFile(path = "Books/demo.pdf", size = 1024): any {
