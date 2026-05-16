@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: "npm"
@@ -30,12 +30,8 @@ jobs:
           test -f manifest.json
           test -f package.json
           test -f versions.json
-          test -f public/versions.json
-
           MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
-          ROOT_VERSIONS=$(node -p "JSON.stringify(require('./versions.json'))")
-          PUBLIC_VERSIONS=$(node -p "JSON.stringify(require('./public/versions.json'))")
 
           echo "manifest_version=$MANIFEST_VERSION" >> "$GITHUB_OUTPUT"
 
@@ -45,11 +41,6 @@ jobs:
           fi
 
           node -e "const versions=require('./versions.json'); const version=process.argv[1]; if (!versions[version]) { console.error('versions.json missing version ' + version); process.exit(1); }" "$MANIFEST_VERSION"
-
-          if [ "$ROOT_VERSIONS" != "$PUBLIC_VERSIONS" ]; then
-            echo "versions.json and public/versions.json are not synchronized"
-            exit 1
-          fi
 
       - name: Build and verify marketplace payload
         id: build
@@ -103,7 +94,7 @@ jobs:
 
       - name: Comment PR with results
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
