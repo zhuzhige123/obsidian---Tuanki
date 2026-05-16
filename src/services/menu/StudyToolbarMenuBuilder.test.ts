@@ -1,4 +1,3 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Menu } from 'obsidian';
 import type { MenuItem as MockMenuItem } from '../../tests/mocks/obsidian';
 import { StudyToolbarMenuBuilder } from './StudyToolbarMenuBuilder';

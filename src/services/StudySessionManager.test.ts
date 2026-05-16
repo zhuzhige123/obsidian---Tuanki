@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistedStudySession } from "../types/study-types";
 import { StudySessionManager } from "./StudySessionManager";
 

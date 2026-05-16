@@ -1,6 +1,5 @@
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { beforeEach, describe, expect, it } from "vitest";
 import { createWeaveCardReferenceEditorExtension } from "../WeaveCardReferenceEditorExtension";
 
 describe("WeaveCardReferenceEditorExtension", () => {

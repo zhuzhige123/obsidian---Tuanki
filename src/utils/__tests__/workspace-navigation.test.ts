@@ -9,7 +9,6 @@ vi.mock("obsidian", () => {
 });
 
 import { TFile } from "obsidian";
-import { describe, expect, it, vi } from "vitest";
 import { openLinkWithExistingLeaf } from "../workspace-navigation";
 
 type MockLeaf = {

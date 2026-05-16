@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { getQuestionBankAnalyticsSnapshot } from './question-bank-analytics';
 
 describe('getQuestionBankAnalyticsSnapshot', () => {

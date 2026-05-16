@@ -1,4 +1,3 @@
-import { describe, expect, it, vi } from "vitest";
 import { MarkdownFileSuggestModal } from "./MarkdownFileSuggestModal";
 
 vi.mock("obsidian", async () => {

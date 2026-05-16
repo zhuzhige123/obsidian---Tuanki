@@ -223,6 +223,7 @@ backup-before-migration/
 
 # 设计文档和原型
 design/
+prototypes/
 heatmap-designs/
 heatmap_prototype.html
 
@@ -250,6 +251,8 @@ start-dev.sh
 
 # 脚本（含激活码生成等敏感工具）
 scripts/*
+!scripts/audit-worktree-hygiene.cjs
+!scripts/audit-test-health.cjs
 !scripts/clean-cache.cjs
 !scripts/copy-manifest.cjs
 !scripts/dev-watch.cjs

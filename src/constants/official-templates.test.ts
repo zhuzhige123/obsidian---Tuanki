@@ -1,5 +1,3 @@
-import { describe, expect, it, afterEach } from "vitest";
-
 import { getOfficialTemplateById } from "./official-templates";
 import { setGlobalClozeDelimiterSettings } from "../utils/cloze-syntax";
 

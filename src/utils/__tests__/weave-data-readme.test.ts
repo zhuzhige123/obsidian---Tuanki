@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
 	WEAVE_DATA_README_NAME,
 	ensureExistingWeaveDataReadmes,

@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
 	DEFAULT_RATING_LABEL_STYLE,
 	getRatingLabelStyleLabel,

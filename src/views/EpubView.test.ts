@@ -1,4 +1,3 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
 
 function enhanceDiv<T extends HTMLDivElement>(div: T) {
 	const el = div as T & {
@@ -83,8 +82,6 @@ vi.mock('obsidian', async () => {
 		constructor(leaf: unknown) {
 			super(leaf as any);
 		}
-
-		async setState(): Promise<void> {}
 	}
 
 	return {

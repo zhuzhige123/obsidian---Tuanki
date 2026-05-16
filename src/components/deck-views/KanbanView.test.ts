@@ -1,5 +1,4 @@
 import { render, waitFor } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Deck, DeckStats } from '../../data/types';
 import KanbanView from './KanbanView.svelte';

@@ -1,4 +1,3 @@
-import { describe, expect, it, vi } from "vitest";
 import type { IRBlock, IRDeck, IRTagGroupProfile } from "../../../types/ir-types";
 import { IRSchedulingFacade } from "../IRSchedulingFacade";
 import type { ReadingCompletionData } from "../IRSchedulerV3";

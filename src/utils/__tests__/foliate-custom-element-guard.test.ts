@@ -1,4 +1,3 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installFoliateCustomElementGuard } from "../foliate-custom-element-guard";
 
 const PATCH_FLAG = "__weaveFoliateCustomElementGuardInstalled__";

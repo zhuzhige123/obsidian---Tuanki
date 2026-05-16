@@ -1,4 +1,3 @@
-import { describe, expect, it, vi } from "vitest";
 
 vi.mock("obsidian", () => ({
 	normalizePath: (path: string) => path.replace(/\\/g, "/").replace(/\/{2,}/g, "/"),

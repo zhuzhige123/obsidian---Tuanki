@@ -10,12 +10,13 @@ vi.mock('obsidian', async () => {
   );
 
   class TFile extends actual.TFile {
-    stat?: { mtime: number };
-
     constructor(path = '', mtime?: number) {
       super(path);
       if (mtime !== undefined) {
-        this.stat = { mtime };
+        this.stat = {
+          ...this.stat,
+          mtime,
+        };
       }
     }
   }

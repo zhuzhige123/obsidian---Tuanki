@@ -37,6 +37,8 @@
     "lint:promises": "eslint -c eslint.config.mjs src/**/*.ts --max-warnings 9999",
     "lint:svelte5": "node scripts/check-svelte5-compliance.js",
     "audit:todos": "node scripts/audit-todos.cjs",
+    "status:hygiene": "node scripts/audit-worktree-hygiene.cjs",
+    "audit:test-health": "node scripts/audit-test-health.cjs",
     "clean": "rimraf dist node_modules/.vite",
     "clean:cache": "node scripts/clean-cache.cjs",
     "clean:console": "node scripts/clean-console-logs.js",

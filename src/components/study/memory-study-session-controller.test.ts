@@ -1,4 +1,3 @@
-import { describe, expect, it, vi } from "vitest";
 import type { FSRS } from "../../algorithms/fsrs";
 import type { StudySession } from "../../data/study-types";
 import { CardState, CardType, Rating, type Card } from "../../data/types";

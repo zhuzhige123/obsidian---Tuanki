@@ -1,4 +1,3 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("obsidian", async () => {
 	const actual = await vi.importActual<typeof import("../tests/mocks/obsidian")>(
@@ -12,9 +11,6 @@ vi.mock("obsidian", async () => {
 		constructor(app: any) {
 			super(app);
 		}
-
-		open(): void {}
-		close(): void {}
 	}
 
 	class FuzzySuggestModal<T> extends actual.Component {
@@ -31,28 +27,10 @@ vi.mock("obsidian", async () => {
 		onClose(): void {}
 	}
 
-	class Menu extends actual.Menu {
-		addItem(_callback: (item: any) => void): void {}
-		showAtMouseEvent(_evt: MouseEvent): void {}
-	}
-
-	class Setting extends actual.Setting {
-		constructor(containerEl: HTMLElement) {
-			super(containerEl);
-		}
-		setName(): this { return this; }
-		setDesc(): this { return this; }
-		addDropdown(): this { return this; }
-		addText(): this { return this; }
-		addToggle(): this { return this; }
-	}
-
 	return {
 		...actual,
 		FuzzySuggestModal,
-		Menu,
 		Modal,
-		Setting,
 		normalizePath: (value: string) => value.replace(/\\/g, "/"),
 	};
 });

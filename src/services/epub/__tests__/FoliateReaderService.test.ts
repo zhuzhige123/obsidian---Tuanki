@@ -654,18 +654,16 @@ describe("FoliateReaderService", () => {
 			);
 
 			await service.applyHighlights([persistentHighlight]);
-			service.addTemporaryHighlight(
+			await (service as any).addResolvedHighlight(
 				{
 					cfiRange: persistentHighlight.cfiRange,
 					color: "blue",
 					text: persistentHighlight.text,
+					temporary: true,
 				},
 				2200
 			);
-
-			await vi.waitFor(() => {
-				expect((service as any).temporaryHighlightDataMap.get(key)?.color).toBe("blue");
-			});
+			expect((service as any).temporaryHighlightDataMap.get(key)?.color).toBe("blue");
 			expect((service as any).highlightDataMap.get(key)?.color).toBe("yellow");
 			expect((service as any).savedHighlights).toHaveLength(1);
 
@@ -885,7 +883,6 @@ describe("FoliateReaderService", () => {
 				iframe.setAttribute("sandbox", "allow-same-origin allow-scripts");
 				document.body.appendChild(iframe);
 				iframe.src = "blob:weave-mobile-epub";
-
 				await vi.waitFor(() => {
 					expect(iframe.srcdoc).toContain("mobile iframe fallback content");
 				});

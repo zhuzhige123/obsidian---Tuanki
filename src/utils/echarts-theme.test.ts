@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { applyAlphaToColor, createGradient } from './echarts-theme';
 
 describe('echarts theme color helpers', () => {
