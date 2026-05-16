@@ -9,7 +9,6 @@
   import type { WeavePlugin } from "../../main";
   import type { WeaveDataStorage } from "../../data/storage";
   import type { ImportProgress, ImportResult } from "../../domain/apkg/types";
-  import { APKGImportService } from "../../application/services/apkg/APKGImportService";
   import { ObsidianMediaStorageAdapter } from "../../infrastructure/adapters/impl/ObsidianMediaStorageAdapter";
   import { WeaveDataStorageAdapter } from "../../infrastructure/adapters/impl/WeaveDataStorageAdapter";
   import EnhancedIcon from "../ui/EnhancedIcon.svelte";
@@ -238,6 +237,7 @@
       // 创建新的APKG导入服务
       const dataStorageAdapter = new WeaveDataStorageAdapter(dataStorage);
       const mediaStorage = new ObsidianMediaStorageAdapter(plugin);
+      const { APKGImportService } = await import("../../application/services/apkg/APKGImportService");
       const importService = new APKGImportService(dataStorageAdapter, mediaStorage, { wasmUrl });
 
       // 配置导入参数

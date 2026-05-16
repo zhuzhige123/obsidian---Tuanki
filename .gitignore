@@ -229,6 +229,9 @@ heatmap_prototype.html
 
 # 内部文档
 docs/
+!docs/
+docs/*
+!docs/RELEASE_GUIDE.md
 DEVELOPMENT.md
 ERROR_CHECK_REPORT.md
 HOT_RELOAD_GUIDE.md

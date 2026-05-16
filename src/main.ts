@@ -1130,6 +1130,16 @@ export class WeavePlugin extends Plugin {
 	}
 
 	async refreshLegacyApkgImportRuntimeStatus(): Promise<void> {
+		if (
+			typeof __WEAVE_LEGACY_APKG_RUNTIME__ !== "undefined" &&
+			!__WEAVE_LEGACY_APKG_RUNTIME__
+		) {
+			this.legacyApkgRuntimePath = null;
+			this.legacyApkgImportAvailable = false;
+			this.wasmUrl = "";
+			return;
+		}
+
 		const runtimePath = `${this.manifest.dir}/sql-wasm.wasm`;
 		this.legacyApkgRuntimePath = runtimePath;
 

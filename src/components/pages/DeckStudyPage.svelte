@@ -274,7 +274,7 @@
   }
 
   function isAPKGImportEnabled(): boolean {
-    return plugin.settings.navigationVisibility?.apkgImport !== false;
+    return __WEAVE_LEGACY_APKG_RUNTIME__ && plugin.settings.navigationVisibility?.apkgImport !== false;
   }
 
   function isCSVImportEnabled(): boolean {

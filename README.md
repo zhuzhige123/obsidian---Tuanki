@@ -202,4 +202,5 @@ npm run dev
 ## 更多文档
 
 - 发布流程：`docs/RELEASE_GUIDE.md`
+- 官方预览扫描、正式审核与版本发布关系：`docs/RELEASE_GUIDE.md`
 - 图片遮罩：`docs/IMAGE_MASK_GUIDE.md`

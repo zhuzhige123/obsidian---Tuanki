@@ -70,6 +70,11 @@ export default defineConfig(({ mode }) => {
 			: process.platform === "win32";
 	const isMobileHotReloadBuild = process.env.WEAVE_MOBILE_HOT_RELOAD === "1";
 	const isDesktopHotReloadBuild = process.env.WEAVE_DESKTOP_HOT_RELOAD === "1";
+	const includeLegacyApkgRuntime =
+		process.env.WEAVE_INCLUDE_LEGACY_APKG_RUNTIME === "1" ||
+		isDev ||
+		isMobileHotReloadBuild ||
+		isDesktopHotReloadBuild;
 	const shouldInlineDynamicImports = true;
 	const mobileHotReloadOutputDir = process.env.WEAVE_MOBILE_SOURCE_DIR?.trim()
 		? path.resolve(process.env.WEAVE_MOBILE_SOURCE_DIR)
@@ -112,6 +117,7 @@ export default defineConfig(({ mode }) => {
 			global: "globalThis",
 			__WEAVE_EPUB_STANDALONE__: JSON.stringify(false),
 			__WEAVE_IR_STANDALONE__: JSON.stringify(false),
+			__WEAVE_LEGACY_APKG_RUNTIME__: JSON.stringify(includeLegacyApkgRuntime),
 		},
 		server: isDev
 			? {
@@ -196,10 +202,14 @@ export default defineConfig(({ mode }) => {
 			},
 			viteStaticCopy({
 				targets: [
-					{
-						src: "node_modules/sql.js/dist/sql-wasm.wasm",
-						dest: ".",
-					},
+					...(includeLegacyApkgRuntime
+						? [
+								{
+									src: "node_modules/sql.js/dist/sql-wasm.wasm",
+									dest: ".",
+								},
+						  ]
+						: []),
 					{
 						src: "src/icons/coffee-support-qr.png",
 						dest: "assets",
