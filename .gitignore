@@ -87,6 +87,7 @@ biome-*.txt
 _check_*.js
 _commit_msg.txt
 vitest-*.json
+head_*.txt
 
 # Local development artifacts
 .dev-watch.lock.json

@@ -257,6 +257,7 @@
   background: var(--weave-primary-light, rgba(99, 102, 241, 0.1));
   border-color: var(--weave-primary, #6366f1);
   color: var(--weave-primary, #6366f1);
+  animation: option-select 0.15s ease-out;
 }
 
 .weave-choice-option--correct-highlight {
@@ -343,10 +344,6 @@
   100% {
     transform: scale(1);
   }
-}
-
-.weave-choice-option--selected {
-  animation: option-select 0.15s ease-out;
 }
 
 /* ===== 响应式设计 ===== */

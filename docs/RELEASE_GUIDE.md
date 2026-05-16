@@ -201,6 +201,47 @@
 - 构建产物与提交说明一致
 - 如果已经准备正式发布，确认 tag、release、版本号三者一致
 
+## Release 资产硬规则
+
+正式 release 时，默认只上传这三个资产：
+
+- `main.js`
+- `manifest.json`
+- `styles.css`
+
+不要把下面这些文件挂到 release 资产里：
+
+- `versions.json`
+- 测试报告
+- 覆盖率文件
+- 其他构建中间产物
+
+原因很简单：
+
+- Obsidian 社区安装链路只认三件套
+- 多余文件会触发官方机器人 “额外文件” 提醒
+- `versions.json` 应该留在仓库根目录，用于仓库兼容映射，不是安装资产
+
+## GitHub 工件认证说明
+
+当前仓库的发布工作流应当为以下 release 资产生成 GitHub artifact attestation：
+
+- `main.js`
+- `manifest.json`
+- `styles.css`
+
+如果机器人还提示“没有 GitHub 工件认证”，优先检查：
+
+1. 这次 release 是否真的是通过 `.github/workflows/release.yml` 自动发布
+2. 是否有人手动在 GitHub 页面补传或重传过资产
+3. 当前 tag 对应的这次 release 是否早于工件认证工作流生效
+
+最稳妥的做法是：
+
+- 让 tag 触发自动 release workflow
+- 由 workflow 直接构建、attest、上传三件套
+- 不再手工追加额外 release 文件
+
 ## 对这个仓库的具体建议
 
 当前最适合的策略是：

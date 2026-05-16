@@ -290,7 +290,7 @@ body.is-phone .weave-settings .row {
    align-items: center;
  }
 
- body.is-phone .weave-settings .setting-item.mod-toggle:has(.setting-item-description) {
+ body.is-phone .weave-settings .setting-item.mod-toggle.weave-setting-item--with-description {
    align-items: flex-start;
  }
 
@@ -307,98 +307,98 @@ body.is-phone .weave-settings .row {
    margin-left: auto;
  }
 
- body.is-phone .weave-settings .setting-item.mod-toggle:has(.setting-item-description) .setting-item-control {
+ body.is-phone .weave-settings .setting-item.mod-toggle.weave-setting-item--with-description .setting-item-control {
    align-self: flex-start;
    padding-top: 2px;
  }
 
  /* 📱 手机端：自定义 setting-item + toggle-switch 保持横排对齐 */
- body.is-phone .weave-settings .setting-item:has(.toggle-switch) {
+ body.is-phone .weave-settings .setting-item.weave-setting-item--toggle {
    flex-direction: row;
    align-items: center;
  }
 
- body.is-phone .weave-settings .setting-item:has(.toggle-switch):has(.setting-description) {
+ body.is-phone .weave-settings .setting-item.weave-setting-item--toggle.weave-setting-item--with-description {
    align-items: flex-start;
  }
 
- body.is-phone .weave-settings .setting-item:has(.toggle-switch) .setting-info {
+ body.is-phone .weave-settings .setting-item.weave-setting-item--toggle .setting-info {
    width: auto;
    flex: 1;
    min-width: 0;
  }
 
- body.is-phone .weave-settings .setting-item:has(.toggle-switch) .setting-control {
+ body.is-phone .weave-settings .setting-item.weave-setting-item--toggle .setting-control {
    width: auto;
    max-width: none;
    align-self: center;
    margin-left: auto;
  }
 
- body.is-phone .weave-settings .setting-item:has(.toggle-switch):has(.setting-description) .setting-control {
+ body.is-phone .weave-settings .setting-item.weave-setting-item--toggle.weave-setting-item--with-description .setting-control {
    align-self: flex-start;
    padding-top: 2px;
  }
 
  /* 📱 手机端：自定义 row + switch 保持横排对齐 */
- body.is-phone .weave-settings .row:has(.modern-switch),
- body.is-phone .weave-settings .row:has(.checkbox-container.mod-toggle) {
+ body.is-phone .weave-settings .row.weave-setting-row--toggle,
+ body.is-phone .weave-settings .row.weave-setting-row--checkbox {
    flex-direction: row;
    align-items: center;
    justify-content: space-between;
  }
 
- body.is-phone .weave-settings .row:has(.label-with-desc):has(.modern-switch),
- body.is-phone .weave-settings .row:has(.label-with-desc):has(.checkbox-container.mod-toggle) {
+ body.is-phone .weave-settings .row.weave-setting-row--toggle.weave-setting-row--with-description,
+ body.is-phone .weave-settings .row.weave-setting-row--checkbox.weave-setting-row--with-description {
    align-items: flex-start;
  }
 
  /* 📱 手机端：下拉/选择类设置项保持横排对齐（控件在标题行右侧） */
- body.is-phone .weave-settings .row:has(.obsidian-dropdown-trigger),
- body.is-phone .weave-settings .row:has(select) {
+ body.is-phone .weave-settings .row.weave-setting-row--dropdown,
+ body.is-phone .weave-settings .row.weave-setting-row--select {
    flex-direction: row;
    align-items: center;
    justify-content: space-between;
  }
 
- body.is-phone .weave-settings .row:has(.label-with-desc):has(.obsidian-dropdown-trigger),
- body.is-phone .weave-settings .row:has(.label-with-desc):has(select) {
+ body.is-phone .weave-settings .row.weave-setting-row--dropdown.weave-setting-row--with-description,
+ body.is-phone .weave-settings .row.weave-setting-row--select.weave-setting-row--with-description {
    align-items: flex-start;
  }
 
- body.is-phone .weave-settings .row:has(.obsidian-dropdown-trigger) > label:first-child,
- body.is-phone .weave-settings .row:has(select) > label:first-child {
+ body.is-phone .weave-settings .row.weave-setting-row--dropdown > label:first-child,
+ body.is-phone .weave-settings .row.weave-setting-row--select > label:first-child {
    width: auto;
    flex: 1;
    min-width: 0;
  }
 
- body.is-phone .weave-settings .row:has(.obsidian-dropdown-trigger) .obsidian-dropdown-trigger,
- body.is-phone .weave-settings .row:has(select) select {
+ body.is-phone .weave-settings .row.weave-setting-row--dropdown .obsidian-dropdown-trigger,
+ body.is-phone .weave-settings .row.weave-setting-row--select select {
    width: auto;
    max-width: none;
    align-self: center;
    margin-left: auto;
  }
 
- body.is-phone .weave-settings .row:has(.label-with-desc):has(.obsidian-dropdown-trigger) .obsidian-dropdown-trigger,
- body.is-phone .weave-settings .row:has(.label-with-desc):has(select) select {
+ body.is-phone .weave-settings .row.weave-setting-row--dropdown.weave-setting-row--with-description .obsidian-dropdown-trigger,
+ body.is-phone .weave-settings .row.weave-setting-row--select.weave-setting-row--with-description select {
    align-self: flex-start;
    margin-top: 2px;
  }
 
- body.is-phone .weave-settings .row:has(.modern-switch) > label:first-child,
- body.is-phone .weave-settings .row:has(.checkbox-container.mod-toggle) > label:first-child {
+ body.is-phone .weave-settings .row.weave-setting-row--toggle > label:first-child,
+ body.is-phone .weave-settings .row.weave-setting-row--checkbox > label:first-child {
    width: auto;
    flex: 1;
    min-width: 0;
  }
 
- body.is-phone .weave-settings .row:has(.modern-switch) .modern-switch {
+ body.is-phone .weave-settings .row.weave-setting-row--toggle .modern-switch {
    align-self: center;
  }
 
- body.is-phone .weave-settings .row:has(.label-with-desc):has(.modern-switch) .modern-switch {
+ body.is-phone .weave-settings .row.weave-setting-row--toggle.weave-setting-row--with-description .modern-switch {
    align-self: flex-start;
    margin-top: 2px;
  }
@@ -418,8 +418,8 @@ body.is-phone .weave-settings .row input[type="number"] {
 }
 
  /* 📱 手机端：下拉/选择类设置项不使用 100% 宽度（保持控件在标题行右侧） */
- body.is-phone .weave-settings .row:has(.obsidian-dropdown-trigger) .obsidian-dropdown-trigger,
- body.is-phone .weave-settings .row:has(select) select {
+ body.is-phone .weave-settings .row.weave-setting-row--dropdown .obsidian-dropdown-trigger,
+ body.is-phone .weave-settings .row.weave-setting-row--select select {
    width: auto;
    max-width: none;
  }
@@ -2024,19 +2024,19 @@ body.is-phone .weave-settings .settings-dropdown-compact {
 }
 
 /* Fix 2: 数字输入框与标题保持同行显示 */
-body.is-phone .weave-settings .row:has(.number-input-compact) {
+body.is-phone .weave-settings .row.weave-setting-row--number-inline {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
 }
 
-body.is-phone .weave-settings .row:has(.number-input-compact) > label:first-child {
+body.is-phone .weave-settings .row.weave-setting-row--number-inline > label:first-child {
   width: auto;
   flex: 1;
   min-width: 0;
 }
 
-body.is-phone .weave-settings .row:has(.number-input-compact) .number-input-compact {
+body.is-phone .weave-settings .row.weave-setting-row--number-inline .number-input-compact {
   width: 80px;
   max-width: 80px;
   flex: 0 0 80px;

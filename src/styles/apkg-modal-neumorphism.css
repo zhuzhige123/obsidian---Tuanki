@@ -1,7 +1,7 @@
 /* 新拟态风格的APKG导入模态窗样式 */
 
 /* 设计变量 */
-.weave-apkg-modal-overlay {
+:where(.weave-apkg-modal-overlay):not(:root) {
   --color-background: var(--background-primary);
   --color-surface: var(--background-primary);
   --color-text-primary: var(--text-normal);
@@ -713,7 +713,7 @@
   flex-direction: column;
 }
 
-.field-name {
+.sample-card .field-row .field-name {
   font-weight: 600;
   color: var(--color-text-primary);
   font-size: 0.9rem;

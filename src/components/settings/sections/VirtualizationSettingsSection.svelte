@@ -70,7 +70,7 @@
       {t('virtualization.kanban.title')}
     </h4>
     
-    <div class="setting-item">
+    <div class="setting-item weave-setting-item--toggle weave-setting-item--with-description">
       <div class="setting-info">
         <div class="setting-label">{t('virtualization.kanban.enableVirtualScroll.label')}</div>
         <div class="setting-description">
@@ -89,7 +89,7 @@
       </div>
     </div>
     
-    <div class="setting-item">
+    <div class="setting-item weave-setting-item--toggle weave-setting-item--with-description">
       <div class="setting-info">
         <div class="setting-label">{t('virtualization.kanban.enableColumnVirtualization.label')}</div>
         <div class="setting-description">
@@ -109,7 +109,7 @@
       </div>
     </div>
     
-    <div class="setting-item">
+    <div class="setting-item weave-setting-item--toggle weave-setting-item--with-description">
       <div class="setting-info">
         <div class="setting-label">{t('virtualization.kanban.overscan.label')}</div>
         <div class="setting-description">

@@ -155,7 +155,7 @@ logger.info('[兄弟分散设置] 配置已保存:', siblingConfig);
     
     <div class="group-content">
       <!-- 主开关行 -->
-      <div class="row">
+      <div class="row weave-setting-row--toggle">
         <div class="setting-label-group">
           <label for="sibling-enabled" class="setting-label">
             {t('settings.siblingDispersion.enable.label') || '启用智能分散'}
@@ -178,7 +178,7 @@ logger.info('[兄弟分散设置] 配置已保存:', siblingConfig);
       <!-- 功能开关 -->
       {#if siblingConfig.enabled}
       <!-- 队列过滤 -->
-      <div class="row">
+      <div class="row weave-setting-row--toggle">
         <div class="setting-label-group">
           <label for="filter-queue" class="setting-label">
             {t('settings.siblingDispersion.filterInQueue.label') || '队列生成时过滤'}
@@ -200,7 +200,7 @@ logger.info('[兄弟分散设置] 配置已保存:', siblingConfig);
       </div>
 
       <!-- P2: 复习后调整 -->
-      <div class="row">
+      <div class="row weave-setting-row--toggle">
         <div class="setting-label-group">
           <label for="auto-adjust" class="setting-label">
             {t('settings.siblingDispersion.autoAdjustAfterReview.label') || '复习后动态调整'}
@@ -222,7 +222,7 @@ logger.info('[兄弟分散设置] 配置已保存:', siblingConfig);
       </div>
 
       <!-- P3: FSRS集成 -->
-      <div class="row">
+      <div class="row weave-setting-row--toggle">
         <div class="setting-label-group">
           <label for="respect-fuzz" class="setting-label">
             {t('settings.siblingDispersion.respectFuzzRange.label') || '遵守FSRS的fuzz范围'}

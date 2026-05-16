@@ -7,7 +7,7 @@
  */
 
 /* ⚠️ 样式隔离规范 - 所有CSS变量必须在插件作用域内定义 */
-.weave-app {
+:where(.weave-app) {
   /* ==================== 间距系统 ==================== */
   /* 基于Obsidian的size-4-x系列 */
   --weave-space-xs: calc(var(--size-4-1, 4px));
@@ -80,21 +80,19 @@
   --weave-shadow-sm: var(--shadow-s);
   --weave-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
   --weave-shadow-lg: 0 10px 24px rgba(0, 0, 0, 0.12);
-}
 
-/* ==================== 字体系统 - 继承Obsidian字体 ==================== */
-.weave-app {
   /* ==================== 过渡时长 ==================== */
   --weave-transition-fast: 150ms;
   --weave-transition-normal: 250ms;
   --weave-transition-slow: 350ms;
-  
+
   /* ==================== 缓动函数 ==================== */
   --weave-ease-out: cubic-bezier(0.4, 0, 0.2, 1);
   --weave-ease-in-out: cubic-bezier(0.4, 0, 0.6, 1);
   --weave-ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
 }
 
+/* ==================== 字体系统 - 继承Obsidian字体 ==================== */
 /* ==================== Dark Mode 微调（可选） ==================== */
 .theme-dark {
   /* Dark mode下可以微调某些值，但主要依赖Obsidian主题 */
@@ -113,7 +111,8 @@
  * - 全局移动端规则在 obsidian-mobile.css 中设置这些变量的值
  */
 
-.weave-app {
+/* 继续放在同一插件作用域，避免重复定义 .weave-app 选择器 */
+:where(.weave-app):not(:root) {
   /* ==================== 移动端间距标准 ==================== */
   /* 默认值为桌面端值，移动端通过 body.is-mobile 覆盖 */
   --weave-mobile-spacing-xs: 4px;   /* 极小间距 */
@@ -238,10 +237,6 @@
   --weave-mobile-slide-duration: 200ms;
   --weave-mobile-slide-easing: cubic-bezier(0.4, 0, 0.2, 1);
 }
-
-
-
-
 
 
 

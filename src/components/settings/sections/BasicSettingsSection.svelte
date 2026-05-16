@@ -105,7 +105,7 @@
   
     <div class="group-content">
     <!-- 显示悬浮新建卡片按钮 -->
-    <div class="row">
+    <div class="row weave-setting-row--toggle">
       <label for="showFloatingCreateButton">{t('settings.basic.floatingButton.label')}</label>
       <label class="modern-switch">
         <input
@@ -119,7 +119,7 @@
     </div>
 
     <!-- 主界面默认显示位置 -->
-    <div class="row">
+    <div class="row weave-setting-row--dropdown">
       <label for="mainInterfaceOpenLocation">{t('settings.basic.mainInterfaceOpenLocation.label')}</label>
       <div class="settings-dropdown-compact">
         <ObsidianDropdown
@@ -137,7 +137,7 @@
     </div>
 
     <!-- 性能优化界面 -->
-    <div class="row">
+    <div class="row weave-setting-row--toggle">
       <label for="showPerformanceSettings">{t('settings.basic.showPerformanceSettings.label')}</label>
       <label class="modern-switch">
         <input
@@ -151,7 +151,7 @@
     </div>
 
     <!-- 高级功能预览 -->
-    <div class="row">
+    <div class="row weave-setting-row--toggle">
       <label for="showPremiumFeaturesPreview">{t('settings.basic.premiumFeaturesPreview.label')}</label>
       <label class="modern-switch">
         <input
@@ -165,7 +165,7 @@
     </div>
 
     <!-- 启用编辑器拖拽调整 -->
-    <div class="row">
+    <div class="row weave-setting-row--toggle">
       <label for="enable-resize-switch">{t('settings.editor.window.enableResize.label')}</label>
       <label class="modern-switch">
         <input
@@ -179,7 +179,7 @@
     </div>
 
     <!-- 调试模式 -->
-    <div class="row">
+    <div class="row weave-setting-row--toggle">
       <label for="enableDebugMode">{t('settings.basic.debugMode.label')}</label>
       <label class="modern-switch">
         <input
@@ -203,7 +203,7 @@
     <h4 class="group-title with-accent-bar accent-purple">{t('settings.navigation.title')}</h4>
   
     <div class="group-content">
-    <div class="row">
+    <div class="row weave-setting-row--toggle">
       <label for="navApkgImport">{t('mainMenu.deckStudy.importLegacyPackage')}</label>
       <label class="modern-switch">
         <input
@@ -216,7 +216,7 @@
       </label>
     </div>
 
-    <div class="row">
+    <div class="row weave-setting-row--toggle">
       <label for="navCsvImport">{t('mainMenu.deckStudy.importCsv')}</label>
       <label class="modern-switch">
         <input

@@ -1,6 +1,6 @@
 <script lang="ts">
   import EnhancedIcon from "../../ui/EnhancedIcon.svelte";
-  import { vaultStorage } from '../../../utils/vault-local-storage';
+  import { currentLanguage } from "../../../utils/i18n";
   import ColumnResizer from "./ColumnResizer.svelte";
   import TableCheckbox from "./TableCheckbox.svelte";
   import { getSortIcon, getSortAriaLabel, isAllSelected, isIndeterminate } from "../utils/table-utils";
@@ -62,15 +62,9 @@
   const indeterminate = $derived(isIndeterminate(selectedCards.size, totalCards));
   
   // 获取当前语言（从localStorage）
-  const currentLocale = $derived.by<'zh' | 'en'>(() => {
-    if (typeof window === 'undefined') return 'zh';
-    try {
-      const lang = vaultStorage.getItem('weave-language') || 'zh';
-      return lang === 'en' ? 'en' : 'zh';
-    } catch {
-      return 'zh';
-    }
-  });
+  const currentLocale = $derived.by<'zh' | 'en'>(() => (
+    $currentLanguage === 'en-US' ? 'en' : 'zh'
+  ));
 </script>
 
 <thead class="weave-table-header">

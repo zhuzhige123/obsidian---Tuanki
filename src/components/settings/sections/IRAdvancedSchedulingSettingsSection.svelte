@@ -38,7 +38,7 @@
   <h4 class="group-title with-accent-bar accent-rose">{t('irSettings.advancedTitle')}</h4>
 
   <div class="group-content">
-    <div class="row">
+    <div class="row weave-setting-row--toggle weave-setting-row--with-description">
       <div class="label-with-desc">
         <label for="irTagGroupPrior">{t('irSettings.tagGroupPriorLabel')}</label>
         <p class="desc">{t('irSettings.tagGroupPriorDesc')}</p>
@@ -57,7 +57,7 @@
     {#if settings.incrementalReading?.enableTagGroupPrior !== false}
       <IRTagGroupManager {plugin} />
 
-      <div class="row">
+      <div class="row weave-setting-row--dropdown weave-setting-row--with-description">
         <div class="label-with-desc">
           <label for="irTagGroupFollowMode">{t('irSettings.tagGroupFollowLabel')}</label>
           <p class="desc">{t('irSettings.tagGroupFollowDesc')}</p>
@@ -76,7 +76,7 @@
       </div>
     {/if}
 
-    <div class="row">
+    <div class="row weave-setting-row--dropdown weave-setting-row--with-description">
       <div class="label-with-desc">
         <label for="irAgingStrength">{t('irSettings.agingStrengthLabel')}</label>
         <p class="desc">{t('irSettings.agingStrengthDesc')}</p>
@@ -90,7 +90,7 @@
       </div>
     </div>
 
-    <div class="row">
+    <div class="row weave-setting-row--dropdown weave-setting-row--with-description">
       <div class="label-with-desc">
         <label for="irPostponeStrategy">{t('irSettings.postponeLabel')}</label>
         <p class="desc">{t('irSettings.postponeDesc')}</p>

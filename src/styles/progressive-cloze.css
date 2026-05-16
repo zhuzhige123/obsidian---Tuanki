@@ -14,6 +14,7 @@
   font-size: 16px;
   border-radius: 8px;
   background: var(--background-primary);
+  animation: fadeIn 0.3s ease-out;
 }
 
 .progressive-cloze-container .cloze-content {
@@ -252,10 +253,6 @@
   }
 }
 
-.progressive-cloze-container {
-  animation: fadeIn 0.3s ease-out;
-}
-
 /* ========== 辅助类 ========== */
 
 .cloze-highlight-context {
@@ -267,8 +264,6 @@
   font-size: 0.9em;
   color: var(--text-muted);
 }
-
-
 
 
 

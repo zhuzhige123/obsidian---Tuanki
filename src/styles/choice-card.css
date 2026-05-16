@@ -343,18 +343,6 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 6px;
-  height: 6px;
-  background: white;
-  border-radius: var(--flat-radius-full);
-  transform: translate(-50%, -50%);
-}
-
-.weave-choice-option--selected .weave-choice-option-indicator::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
   width: 0.5rem;
   height: 0.5rem;
   background: white;

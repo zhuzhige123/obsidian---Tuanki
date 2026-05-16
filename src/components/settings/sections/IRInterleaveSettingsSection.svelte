@@ -30,7 +30,7 @@
   </div>
 
   <div class="group-content">
-    <div class="row">
+    <div class="row weave-setting-row--toggle weave-setting-row--with-description">
       <div class="label-with-desc">
         <label for="irInterleaveMode">{t('irSettings.interleaveModeLabel')}</label>
         <p class="desc">{t('irSettings.interleaveModeDesc')}</p>

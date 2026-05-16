@@ -130,7 +130,7 @@
       {/if}
     </div>
 
-    <div class="row">
+    <div class="row weave-setting-row--dropdown weave-setting-row--with-description">
       <div class="label-with-desc">
         <label for="irFolderSubscriptionInitialScheduleMode">{t('irSettings.autoSubscribeInitialScheduleLabel')}</label>
         <p class="desc">{t('irSettings.autoSubscribeInitialScheduleDesc')}</p>

@@ -28,7 +28,7 @@
   <h4 class="group-title with-accent-bar accent-purple">{t('irSettings.strategyTitle')} <span class="badge">v3.0</span></h4>
 
   <div class="group-content">
-    <div class="row">
+    <div class="row weave-setting-row--dropdown weave-setting-row--with-description">
       <div class="label-with-desc">
         <label for="irScheduleStrategy">{t('irSettings.strategyLabel')}</label>
         <p class="desc">{t('irSettings.strategyDesc')}</p>
