@@ -52,6 +52,10 @@ Weave uses separate storage with trace links:
 
 ---
 
+
+<img width="1920" height="1048" alt="QQ20260518-044834-HD" src="https://github.com/user-attachments/assets/bb4562aa-fbd3-40db-82a8-eea01ed546fe" />
+
+
 ## Memory Decks: Two Card Types
 
 Memory decks are the core of spaced repetition in Weave:
