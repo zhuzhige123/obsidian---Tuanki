@@ -53,7 +53,7 @@ Weave 采用分离存储并保留来源关联：
 | Canvas | Canvas 路径加节点 ID |
 
 ---
-<img width="1920" height="1048" alt="QQ20260518-044834-HD" src="https://github.com/user-attachments/assets/3348298e-aaff-4980-9785-4c536d3af032" />
+<img width="1200" height="650" alt="QQ20260518-044834-HD" src="https://github.com/user-attachments/assets/3348298e-aaff-4980-9785-4c536d3af032" />
 
 ## 记忆牌组：两类卡片
 
