@@ -14,9 +14,9 @@ Weave 是一款面向 Obsidian 的学习工作流插件。它可以把知识库�
 
 最低支持版本：Obsidian `1.7.0`
 
-<img width="1920" height="1048" alt="QQ20260518-045537-HD" src="https://github.com/user-attachments/assets/019a8a6f-8b81-46ba-b138-4811b0a8a77e" />
+<img width="800" height="650" alt="image" src="https://github.com/user-attachments/assets/56d8f254-0c70-4fc3-a770-ccbffc7073ff" />
 
-
+<img width="800" height="650" alt="image" src="https://github.com/user-attachments/assets/990e7b4f-cb32-4216-bed5-0b7f589bee93" />
 ---
 
 ## 我们解决的核心问题
