@@ -112,7 +112,7 @@
   }
 </script>
 
-<div class="question-navigator">
+<div class="question-navigator" class:single-column={columnMode === 1}>
   {#each groups as group (group.type)}
     <div class="nav-group" class:collapsed={group.collapsed}>
       <button
@@ -167,7 +167,7 @@
   }
 
   /* 单列模式：缩小容器宽度 */
-  .question-navigator:has(.grid-container[data-columns="1"]) {
+  .question-navigator.single-column {
     width: 100px;
     min-width: 80px;
   }

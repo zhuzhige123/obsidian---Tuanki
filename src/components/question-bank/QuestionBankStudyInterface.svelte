@@ -1299,6 +1299,17 @@
     };
   });
 
+  $effect(() => {
+    if (typeof document === 'undefined') return;
+
+    const isEditActive = Platform.isMobile && showEditModal;
+    document.body.classList.toggle('weave-question-bank-edit-active', isEditActive);
+
+    return () => {
+      document.body.classList.remove('weave-question-bank-edit-active');
+    };
+  });
+
   function toggleMobileStatsBar() {
     const nextExpanded = !showMobileStatsBar;
     showMobileStatsBar = nextExpanded;
@@ -2816,17 +2827,17 @@
     padding: 0;
   }
 
-  :global(body.is-phone:has(.question-bank-study-interface-overlay.edit-active)) .workspace-tab-header-container,
-  :global(body.is-phone:has(.question-bank-study-interface-overlay.edit-active)) .workspace-tab-header,
-  :global(body.is-phone:has(.question-bank-study-interface-overlay.edit-active)) .view-header,
-  :global(body.is-mobile:has(.question-bank-study-interface-overlay.edit-active)) .workspace-tab-header-container,
-  :global(body.is-mobile:has(.question-bank-study-interface-overlay.edit-active)) .workspace-tab-header,
-  :global(body.is-mobile:has(.question-bank-study-interface-overlay.edit-active)) .view-header {
-    background: transparent !important;
-    border-bottom-color: transparent !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
+  :global(body.is-phone.weave-question-bank-edit-active) .workspace-tab-header-container,
+  :global(body.is-phone.weave-question-bank-edit-active) .workspace-tab-header,
+  :global(body.is-phone.weave-question-bank-edit-active) .view-header,
+  :global(body.is-mobile.weave-question-bank-edit-active) .workspace-tab-header-container,
+  :global(body.is-mobile.weave-question-bank-edit-active) .workspace-tab-header,
+  :global(body.is-mobile.weave-question-bank-edit-active) .view-header {
+    background: transparent;
+    border-bottom-color: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   :global(body.is-phone) .question-bank-study-interface-overlay.edit-active .question-bank-study-interface-content,

@@ -253,7 +253,7 @@
   box-shadow: var(--weave-shadow-sm, 0 1px 2px 0 rgb(0 0 0 / 0.05));
 }
 
-.weave-choice-option--selected {
+.weave-content-preview .weave-choice-option--selected {
   background: var(--weave-primary-light, rgba(99, 102, 241, 0.1));
   border-color: var(--weave-primary, #6366f1);
   color: var(--weave-primary, #6366f1);
@@ -285,7 +285,7 @@
   flex-shrink: 0;
 }
 
-.weave-choice-option--selected .weave-choice-option-label {
+.weave-content-preview .weave-choice-option--selected .weave-choice-option-label {
   background: var(--weave-primary, #6366f1);
   color: white;
   border-color: var(--weave-primary, #6366f1);
@@ -394,7 +394,7 @@
   }
 
   .weave-cloze-item.weave-cloze-revealed,
-  .weave-content-preview .weave-choice-option--selected {
+  .weave-content-preview [class~="weave-choice-option--selected"] {
     animation: none;
   }
 }

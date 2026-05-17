@@ -197,8 +197,8 @@
 @media (prefers-reduced-motion: reduce) {
   .weave-mask-overlay,
   .weave-mask {
-    transition: none !important;
-    animation: none !important;
+    transition: none;
+    animation: none;
   }
 }
 
@@ -209,5 +209,4 @@
     display: none;
   }
 }
-
 

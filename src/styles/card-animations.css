@@ -192,8 +192,8 @@
 /* ✅ 保留 !important：工具类需要强制覆盖所有动画 */
 /* 参考：.augment/rules/core/04-anti-force-methods.md */
 .weave-no-animation {
-  animation: none !important;
-  transition: none !important;
+  animation: none;
+  transition: none;
 }
 
 /* GPU加速优化 */
@@ -201,7 +201,6 @@
   will-change: transform, opacity;
   transform: translateZ(0);
 }
-
 
 
 
