@@ -24,6 +24,17 @@ import { resolveIRImportFolder } from '../../../config/paths';
 import {
   DEFAULT_BATCH_FIX_TYPES,
   DataManagementService,
+  filterDisplayableDataCheckResults,
+  getDataCheckLifecycleKind,
+  getDataCheckLifecycleLabel,
+  getDataCheckLifecycleNote,
+  HIDDEN_RESCUE_CHECK_TYPES,
+  isHiddenRescueCheckType,
+  isRetirementCandidateCheckType,
+  isSplitPluginResidueCheckType,
+  MAIN_PLUGIN_HIGH_RISK_FIX_TYPES,
+  RETIREMENT_CANDIDATE_CHECK_TYPES,
+  SPLIT_PLUGIN_RESIDUE_CHECK_TYPES,
 } from '../DataManagementService';
 import { WDeckService } from '../../wdeck/WDeckService';
 import { extractBodyContent, parseYAMLFromContent } from '../../../utils/yaml-utils';
@@ -782,6 +793,60 @@ describe('DataManagementService', () => {
     expect(result.items[0]).toContain('weave_incremental-reading_monitoring.json-1775964650413');
   });
 
+  it('classifies mixed migration conflict files for startup inspection and manual follow-up', async () => {
+    const v2Paths = getV2Paths('');
+    const conflictDir = `${v2Paths.root}/_migration_conflicts`;
+    const { plugin } = createMemoryPlugin({
+      [`${conflictDir}/weave_incremental-reading_monitoring.json-1775964650413`]: JSON.stringify({
+        version: '3.0.0',
+        dailyStats: [],
+        priorityChanges: [],
+        groupParamChanges: [],
+        decisionEvents: [],
+        decisionOutcomes: [],
+        lastUpdated: '2026-04-16T09:00:00.000Z',
+      }),
+      [`${conflictDir}/weave_custom-legacy-file-1775964650414`]: 'manual-review-needed',
+      [`${conflictDir}/unexpected-conflict-copy.txt`]: 'manual-review-needed',
+    });
+    const service = new DataManagementService(plugin);
+
+    const inspection = await service.inspectMigrationConflictFiles();
+    const checkResult = await service.check('migration_conflict_files');
+
+    expect(inspection).toMatchObject({
+      conflictDir,
+      total: 3,
+      autoRecoverableCount: 1,
+      manualReviewCount: 2,
+    });
+    expect(inspection.files).toEqual([
+      expect.objectContaining({
+        fileName: 'unexpected-conflict-copy.txt',
+        autoRecoverable: false,
+      }),
+      expect.objectContaining({
+        fileName: 'weave_custom-legacy-file-1775964650414',
+        autoRecoverable: false,
+      }),
+      expect.objectContaining({
+        fileName: 'weave_incremental-reading_monitoring.json-1775964650413',
+        autoRecoverable: true,
+      }),
+    ]);
+    expect(checkResult).toMatchObject({
+      type: 'migration_conflict_files',
+      status: 'error',
+      count: 3,
+    });
+    expect(checkResult.items).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('[需人工处理]'),
+        expect.stringContaining('[可自动处理]'),
+      ])
+    );
+  });
+
   it('recovers auto-recoverable migration conflict files without leaving them behind', async () => {
     const v2Paths = getV2Paths('');
     const pluginPaths = getPluginPaths({ vault: { configDir: '.obsidian' } } as any);
@@ -872,6 +937,45 @@ describe('DataManagementService', () => {
     expect(result.items[0]).toContain('notes/ir-source.md');
     expect(result.items[0]).toContain('weave-reading-category');
     expect(result.items[0]).toContain('weave-reading-topic-id');
+  });
+
+  it('filters out resolved temporary check results but keeps long-term and failing temporary results', () => {
+    const results = filterDisplayableDataCheckResults([
+      {
+        type: 'wdeck_migration',
+        status: 'ok',
+        count: 0,
+        items: [],
+        message: 'temporary resolved'
+      },
+      {
+        type: 'wdeck_migration',
+        status: 'error',
+        count: 0,
+        items: [],
+        message: 'temporary failed'
+      },
+      {
+        type: 'card_deck_consistency',
+        status: 'ok',
+        count: 0,
+        items: [],
+        message: 'long-term ok'
+      }
+    ]);
+
+    expect(results).toHaveLength(2);
+    expect(results.map((result) => result.message)).toEqual(['temporary failed', 'long-term ok']);
+  });
+
+  it('exposes lifecycle metadata for temporary and long-term governance items', () => {
+    expect(getDataCheckLifecycleKind('wdeck_migration')).toBe('temporary');
+    expect(getDataCheckLifecycleLabel('wdeck_migration')).toBe('临时');
+    expect(getDataCheckLifecycleNote('wdeck_migration')).toContain('临时迁移/清理项');
+
+    expect(getDataCheckLifecycleKind('card_deck_consistency')).toBe('long_term');
+    expect(getDataCheckLifecycleLabel('card_deck_consistency')).toBe('长期');
+    expect(getDataCheckLifecycleNote('card_deck_consistency')).toBe('');
   });
 
   it('removes only targeted incremental-reading legacy frontmatter fields while preserving normal data', async () => {
@@ -1052,7 +1156,7 @@ describe('DataManagementService', () => {
     expect(files.has(conflictPath)).toBe(false);
   });
 
-  it('includes .wdeck migration in the unified check list', async () => {
+  it('does not include .wdeck migration in the main unified check list once it is demoted to hidden rescue', async () => {
     const { plugin } = createMemoryPlugin();
     const service = new DataManagementService(plugin);
     const checkSpy = vi
@@ -1067,8 +1171,58 @@ describe('DataManagementService', () => {
 
     const results = await service.checkAll();
 
-    expect(checkSpy.mock.calls.map(([type]) => type)).toContain('wdeck_migration');
-    expect(results.some((result) => result.type === 'wdeck_migration')).toBe(true);
+    expect(checkSpy.mock.calls.map(([type]) => type)).not.toContain('wdeck_migration');
+    expect(results.some((result) => result.type === 'wdeck_migration')).toBe(false);
+  });
+
+  it('does not include split-plugin residue governance items in the main unified check list', async () => {
+    const { plugin } = createMemoryPlugin();
+    const service = new DataManagementService(plugin);
+    const checkSpy = vi
+      .spyOn(service, 'check')
+      .mockImplementation(async (type: any) => ({
+        type,
+        status: 'ok',
+        count: 0,
+        items: [],
+        message: `${type} ok`,
+      }));
+
+    await service.checkAll();
+
+    const checkedTypes = checkSpy.mock.calls.map(([type]) => type);
+    for (const type of SPLIT_PLUGIN_RESIDUE_CHECK_TYPES) {
+      expect(checkedTypes).not.toContain(type);
+    }
+  });
+
+  it('does not include split-plugin residue items in the main high-risk fix list', () => {
+    for (const type of SPLIT_PLUGIN_RESIDUE_CHECK_TYPES) {
+      expect(MAIN_PLUGIN_HIGH_RISK_FIX_TYPES).not.toContain(type);
+    }
+    expect(MAIN_PLUGIN_HIGH_RISK_FIX_TYPES).not.toContain('legacy_memory_files');
+  });
+
+  it('marks split-plugin residue items, legacy JSON cleanup, and .wdeck migration as hidden rescue capabilities', () => {
+    expect(HIDDEN_RESCUE_CHECK_TYPES).toEqual([
+      ...SPLIT_PLUGIN_RESIDUE_CHECK_TYPES,
+      'legacy_memory_files',
+      'wdeck_migration',
+    ]);
+    for (const type of SPLIT_PLUGIN_RESIDUE_CHECK_TYPES) {
+      expect(isSplitPluginResidueCheckType(type)).toBe(true);
+      expect(isHiddenRescueCheckType(type)).toBe(true);
+    }
+    expect(isHiddenRescueCheckType('legacy_memory_files')).toBe(true);
+    expect(isHiddenRescueCheckType('wdeck_migration')).toBe(true);
+  });
+
+  it('clears the current retirement candidate set after the remaining history items are demoted to hidden rescue', () => {
+    expect(RETIREMENT_CANDIDATE_CHECK_TYPES).toEqual([]);
+
+    for (const type of RETIREMENT_CANDIDATE_CHECK_TYPES) {
+      expect(isRetirementCandidateCheckType(type)).toBe(true);
+    }
   });
 
   it('restores a sync conflict copy as the canonical file when the original is missing', async () => {
@@ -1531,29 +1685,6 @@ describe('DataManagementService', () => {
     expect(plugin.cardFileService).toBeUndefined();
   });
 
-  it('does not treat runtime deck relation fields as deprecated persisted fields', async () => {
-    const { plugin } = createMemoryPlugin();
-    plugin.dataStorage.getCards.mockResolvedValue([
-      {
-        uuid: 'card-1',
-        deckId: 'deck-1',
-        referencedByDecks: ['deck-1'],
-        content: 'runtime-only relation fields',
-        created: '2026-04-14T00:00:00.000Z',
-        modified: '2026-04-14T00:00:00.000Z',
-      },
-    ]);
-    const service = new DataManagementService(plugin);
-
-    const result = await service.check('deprecated_fields');
-
-    expect(result).toMatchObject({
-      type: 'deprecated_fields',
-      status: 'ok',
-      count: 0,
-    });
-  });
-
   it('removes empty invalid .wdeck files during wdeck conflict repair', async () => {
     const v2Paths = getV2Paths('');
     const invalidPath = `${v2Paths.memory.root}/deck-files/坏文件_01.wdeck`;
@@ -1716,6 +1847,25 @@ describe('DataManagementService', () => {
 
     expect(plugin.dataStorage.getCards).not.toHaveBeenCalled();
     expect(plugin.dataStorage.getDecks).not.toHaveBeenCalled();
+  });
+
+  it('does not include legacy JSON cleanup in the main unified check list once it is demoted to hidden rescue', async () => {
+    const { plugin } = createMemoryPlugin();
+    const service = new DataManagementService(plugin);
+    const checkSpy = vi
+      .spyOn(service, 'check')
+      .mockImplementation(async (type: any) => ({
+        type,
+        status: 'ok',
+        count: 0,
+        items: [],
+        message: `${type} ok`,
+      }));
+
+    await service.checkAll();
+
+    const checkedTypes = checkSpy.mock.calls.map(([type]) => type);
+    expect(checkedTypes).not.toContain('legacy_memory_files');
   });
 
   it('detects and executes IR point storage migration through data management', async () => {
@@ -2792,4 +2942,3 @@ tags:
     });
   });
 });
-

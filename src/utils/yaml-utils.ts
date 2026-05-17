@@ -8,7 +8,7 @@
  * @see YAML属性栏卡片元数据方案.md
  */
 
-import { EpubLinkService } from "../services/epub/EpubLinkService";
+import { EpubLinkService } from "../services/epub-integration/EpubLinkService";
 import { logger } from "./logger";
 import { getNormalizedDeckEntries, getSingleMemoryFormalDeckIds } from "./memory-deck-membership";
 import { TagExtractor } from "./tag-extractor";
@@ -993,6 +993,11 @@ export interface GetCardDeckIdsOptions {
 	 */
 	fallbackToReferences?: boolean;
 	/**
+	 * 是否允许最后回退到旧的 card.deckId。
+	 * 默认与 fallbackToReferences 保持一致，避免旧调用点行为突变。
+	 */
+	fallbackToDeckId?: boolean;
+	/**
 	 * 是否保留 YAML / 引用字段中的全部牌组归属。
 	 * 默认 false，会沿用“单正式牌组 + 全部测试牌组”的兼容口径。
 	 */
@@ -1032,6 +1037,7 @@ export function getCardDeckIds(
 ): CardDeckInfo {
 	const result: CardDeckInfo = { deckIds: [] };
 	const fallbackToReferences = options.fallbackToReferences ?? true;
+	const fallbackToDeckId = options.fallbackToDeckId ?? fallbackToReferences;
 	const preserveAllDeckIds = options.preserveAllDeckIds ?? false;
 	const runtimeDeckIds = card.deckId
 		? normalizeDeckIdentifiers([card.deckId], decks, preserveAllDeckIds)
@@ -1097,10 +1103,47 @@ export function getCardDeckIds(
 		}
 	}
 
+	if (!fallbackToDeckId) {
+		return result;
+	}
+
 	// 3. 最后回退：使用 card.deckId。
 	if (runtimeDeckIds.length > 0) {
 		result.deckIds = runtimeDeckIds;
 		result.primaryDeckId = runtimeDeckIds[0];
+	}
+
+	return result;
+}
+
+/**
+ * 仅从正式真源解析记忆卡正式归属。
+ *
+ * 用于运行时正式读取链路：
+ * - 只认 content YAML 的 we_decks
+ * - 不从 referencedByDecks / deckId 做兼容回退
+ */
+export function getCardDeckIdsFromFormalSource(
+	card: { content?: string; deckId?: string; referencedByDecks?: string[]; cardPurpose?: string },
+	decks?: Array<{ id: string; name: string; purpose?: "memory" | "test" }>
+): CardDeckInfo {
+	const result: CardDeckInfo = { deckIds: [] };
+
+	if (!card.content) {
+		return result;
+	}
+
+	try {
+		const metadata = getCardMetadata(card.content);
+		if (metadata.we_decks && metadata.we_decks.length > 0) {
+			const convertedIds = normalizeDeckIdentifiers(metadata.we_decks, decks, false);
+			if (convertedIds.length > 0) {
+				result.deckIds = convertedIds;
+				result.primaryDeckId = convertedIds[0];
+			}
+		}
+	} catch (_e) {
+		logger.debug("[yaml-utils] 解析正式归属 we_decks 失败");
 	}
 
 	return result;

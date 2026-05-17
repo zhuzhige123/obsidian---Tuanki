@@ -15,7 +15,12 @@
   import CustomDropdown from '../ui/CustomDropdown.svelte';
   import { Notice } from 'obsidian';
   import { detectClozeModeFromContent, hasClozeSyntax, setClozeModeInContent, type ClozeMode } from '../../utils/cloze-mode';
-  import { getCardDeckIds, parseYAMLFromContent, setCardProperties } from '../../utils/yaml-utils';
+  import {
+    getCardDeckIds,
+    getCardDeckIdsFromFormalSource,
+    parseYAMLFromContent,
+    setCardProperties
+  } from '../../utils/yaml-utils';
   import { detectCardQuestionType } from '../../utils/card-type-utils';
   import { getCardTypeName } from '../../types/unified-card-types';
 
@@ -344,14 +349,23 @@
         }
       }
 
-      const currentDeckIds = getCardDeckIds(card, decks).deckIds;
-      const preservedTestDeckIds = currentDeckIds.filter((deckId) => {
+      const currentFormalDeckIds = getCardDeckIdsFromFormalSource(card, decks).deckIds;
+      const currentCompatibilityDeckIds = getCardDeckIds(card, decks, {
+        fallbackToReferences: true,
+        fallbackToDeckId: true,
+        preserveAllDeckIds: true
+      }).deckIds;
+      const preservedTestDeckIds = currentCompatibilityDeckIds.filter((deckId) => {
         const matchedDeck = decks?.find(d => d.id === deckId);
         return matchedDeck?.purpose === 'test';
       });
+      const nextFormalDeckIds = selectedDeckId ? [selectedDeckId] : currentFormalDeckIds.filter((deckId) => {
+        const matchedDeck = decks?.find(d => d.id === deckId);
+        return matchedDeck?.purpose !== 'test';
+      });
       const runtimeDeckIds = selectedDeckId
         ? [selectedDeckId, ...preservedTestDeckIds.filter((deckId) => deckId !== selectedDeckId)]
-        : preservedTestDeckIds;
+        : [...nextFormalDeckIds, ...preservedTestDeckIds.filter((deckId) => !nextFormalDeckIds.includes(deckId))];
 
       updatedCard.referencedByDecks = runtimeDeckIds;
       if (runtimeDeckIds.length > 0) {

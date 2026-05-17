@@ -1289,7 +1289,7 @@ export class FoliateVaultPublicationParser {
 				continue;
 			}
 			const inlinedCss = await this.normalizeFoliateCssText(cssText);
-			linkElement.replaceWith(this.createInlineStylesheetElement(doc, inlinedCss, linkElement));
+			linkElement.replaceWith(this.createInlineStylesheetLink(doc, inlinedCss, linkElement));
 		}
 
 		return parserType === "text/html"
@@ -1405,20 +1405,24 @@ export class FoliateVaultPublicationParser {
 		return output;
 	}
 
-	private createInlineStylesheetElement(
+	private createInlineStylesheetLink(
 		doc: Document,
 		cssText: string,
 		linkElement?: Element | null
-	): HTMLLinkElement | Element {
-		const styleElement = doc.createElement("style");
-		styleElement.setAttribute("type", "text/css");
-		styleElement.setAttribute("data-weave-inline-stylesheet", "true");
+	): HTMLLinkElement {
+		const stylesheetLink = doc.createElement("link");
+		stylesheetLink.setAttribute("rel", "stylesheet");
+		stylesheetLink.setAttribute("data-weave-inline-stylesheet", "true");
 		const media = linkElement?.getAttribute("media");
 		if (media) {
-			styleElement.setAttribute("media", media);
+			stylesheetLink.setAttribute("media", media);
 		}
-		styleElement.textContent = cssText;
-		return styleElement;
+		stylesheetLink.setAttribute("href", this.createInlineStylesheetDataUrl(cssText));
+		return stylesheetLink;
+	}
+
+	private createInlineStylesheetDataUrl(cssText: string): string {
+		return `data:text/css;charset=utf-8,${encodeURIComponent(cssText)}`;
 	}
 
 	private isRemoteResourceUrl(value: string): boolean {

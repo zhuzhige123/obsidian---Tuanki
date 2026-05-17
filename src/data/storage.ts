@@ -26,6 +26,10 @@ import type { ProgressiveClozeChildCard } from "../types/progressive-cloze-v2";
 import { hasProgressiveClozeContent } from "../types/progressive-cloze-v2";
 import { extractErrorMessage } from "../types/utility-types";
 import { detectCardTypeFromContent } from "../utils/card-markdown-serializer";
+import {
+	cardNeedsLegacyStatsMigration,
+	syncCardStatsToCanonicalFormat,
+} from "../utils/card-stats-normalizer";
 import { DirectoryUtils } from "../utils/directory-utils";
 import { hasLegacyMemoryCardStorage } from "../utils/legacy-memory-storage";
 import { logger } from "../utils/logger";
@@ -37,6 +41,7 @@ import {
 	extractAllTags,
 	extractBodyContent,
 	getCardDeckIds,
+	getCardDeckIdsFromFormalSource,
 	parseBlockId,
 	parseObsidianLink,
 	parseSourceInfo,
@@ -161,9 +166,39 @@ export class WeaveDataStorage {
 	private getCardDeckMembershipIds(
 		card: Pick<Card, "content" | "deckId" | "referencedByDecks">,
 		decks: Array<Pick<Deck, "id" | "name" | "purpose">>,
-		options?: { fallbackToReferences?: boolean }
+		options?: {
+			fallbackToReferences?: boolean;
+			fallbackToDeckId?: boolean;
+			preserveAllDeckIds?: boolean;
+		}
 	): string[] {
 		return getCardDeckIds(card, decks, options).deckIds;
+	}
+
+	private getCardFormalDeckMembershipIds(
+		card: Pick<Card, "content" | "deckId" | "referencedByDecks">,
+		decks: Array<Pick<Deck, "id" | "name" | "purpose">>
+	): string[] {
+		return getCardDeckIdsFromFormalSource(card, decks).deckIds;
+	}
+
+	private getCardDeckMembershipIdsForSave(
+		card: Pick<Card, "content" | "deckId" | "referencedByDecks">,
+		decks: Array<Pick<Deck, "id" | "name" | "purpose">>
+	): string[] {
+		const formalDeckIds = this.getCardFormalDeckMembershipIds(card, decks).filter(
+			(deckId) => decks.find((deck) => deck.id === deckId)?.purpose !== "test"
+		);
+		const compatibilityDeckIds = this.getCardDeckMembershipIds(card, decks, {
+			fallbackToReferences: true,
+			fallbackToDeckId: true,
+			preserveAllDeckIds: true,
+		});
+		const testDeckIds = compatibilityDeckIds.filter(
+			(deckId) => decks.find((deck) => deck.id === deckId)?.purpose === "test"
+		);
+
+		return Array.from(new Set([...formalDeckIds, ...testDeckIds]));
 	}
 
 	private async cascadeDeleteDeckReferences(
@@ -237,15 +272,23 @@ export class WeaveDataStorage {
 		};
 	}
 
-	private async readAllCardsIncludingWDeck(): Promise<Card[]> {
+	private async readAllCardsIncludingWDeck(
+		options: { includeLegacyCards?: boolean } = {}
+	): Promise<Card[]> {
+		const rawCards = await this.readAllCardsIncludingWDeckRaw(options);
+		return rawCards.map((card) => this.hydrateCardFromYAML(card));
+	}
+
+	private async readAllCardsIncludingWDeckRaw(
+		options: { includeLegacyCards?: boolean } = {}
+	): Promise<Card[]> {
 		const cardsByUUID = new Map<string, Card>();
-		const shouldReadLegacyCards =
-			!this.plugin.wdeckService || (await this.hasLegacyMemoryStorage());
+		const includeLegacyCards = options.includeLegacyCards ?? false;
 
 		if (this.plugin.wdeckService) {
 			try {
 				const wdeckCards = await this.plugin.wdeckService.getAllCards();
-				for (const card of wdeckCards.map((item) => this.hydrateCardFromYAML(item))) {
+				for (const card of wdeckCards) {
 					if (card?.uuid) {
 						cardsByUUID.set(card.uuid, card);
 					}
@@ -255,10 +298,10 @@ export class WeaveDataStorage {
 			}
 		}
 
-		if (this.plugin.cardFileService && shouldReadLegacyCards) {
+		if (includeLegacyCards && this.plugin.cardFileService && (await this.hasLegacyMemoryStorage())) {
 			try {
 				const unifiedCards = await this.plugin.cardFileService.getAllCards();
-				for (const card of unifiedCards.map((item) => this.hydrateCardFromYAML(item))) {
+				for (const card of unifiedCards) {
 					if (card?.uuid && !cardsByUUID.has(card.uuid)) {
 						cardsByUUID.set(card.uuid, card);
 					}
@@ -269,6 +312,56 @@ export class WeaveDataStorage {
 		}
 
 		return Array.from(cardsByUUID.values());
+	}
+
+	async migrateLegacyCardStatsToCanonicalFormat(): Promise<{
+		migrated: number;
+		failed: number;
+		errors: string[];
+	}> {
+		const rawCards = await this.readAllCardsIncludingWDeckRaw({ includeLegacyCards: true });
+		const candidates = rawCards.filter((card) => cardNeedsLegacyStatsMigration(card));
+		if (candidates.length === 0) {
+			return { migrated: 0, failed: 0, errors: [] };
+		}
+
+		try {
+			await this.saveCardsBatch(candidates);
+			return { migrated: candidates.length, failed: 0, errors: [] };
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			logger.warn("[Storage] 旧统计字段迁移批量保存失败，开始逐张回退处理", error);
+			const errors: string[] = [];
+			let migrated = 0;
+			let failed = 0;
+
+			for (const candidate of candidates) {
+				try {
+					const result = await this.saveCard(candidate);
+					if (result.success) {
+						migrated++;
+					} else {
+						failed++;
+						errors.push(`${candidate.uuid}: ${result.error || "保存失败"}`);
+					}
+				} catch (candidateError) {
+					failed++;
+					errors.push(
+						`${candidate.uuid}: ${
+							candidateError instanceof Error
+								? candidateError.message
+								: String(candidateError)
+						}`
+					);
+				}
+			}
+
+			if (migrated === 0 && errors.length === 0) {
+				errors.push(message);
+			}
+
+			return { migrated, failed, errors };
+		}
 	}
 
 	private createEmptyDeckStats(): DeckStats {
@@ -747,23 +840,34 @@ export class WeaveDataStorage {
 	}
 
 	private async readAllCardsFromUnifiedStorage(): Promise<Card[]> {
-		const allCards = await this.readAllCardsIncludingWDeck();
-		if (allCards.length > 0) {
-			return allCards;
+		const snapshot = await this.readAllCardsFromUnifiedStorageSnapshot();
+		return snapshot.cards;
+	}
+
+	private async readAllCardsFromUnifiedStorageSnapshot(): Promise<{
+		cards: Card[];
+		source: "wdeck" | "legacy" | "empty";
+	}> {
+		const wdeckCards = await this.readAllCardsIncludingWDeck();
+		if (wdeckCards.length > 0) {
+			return { cards: wdeckCards, source: "wdeck" };
 		}
 
-		const shouldReadLegacyCards =
+		const shouldBootstrapFromLegacy =
 			!this.plugin.wdeckService || (await this.hasLegacyMemoryStorage());
-		if (!shouldReadLegacyCards || !this.plugin.cardFileService) {
-			return [];
+		if (!shouldBootstrapFromLegacy || !this.plugin.cardFileService) {
+			return { cards: [], source: "empty" };
 		}
 
 		try {
 			const unifiedCards = await this.plugin.cardFileService.getAllCards();
-			return unifiedCards.map((card) => this.hydrateCardFromYAML(card));
+			return {
+				cards: unifiedCards.map((card) => this.hydrateCardFromYAML(card)),
+				source: "legacy",
+			};
 		} catch (error) {
 			logger.warn("[Storage] 统一存储读取失败:", error);
-			return [];
+			return { cards: [], source: "empty" };
 		}
 	}
 
@@ -847,15 +951,20 @@ export class WeaveDataStorage {
 		const isEmergentDeckId = deckId.startsWith("tag:");
 		const filterCardsByDeck = (
 			cards: Card[],
-			options?: { fallbackToReferences?: boolean }
+			options?: { compatibilityMode?: boolean }
 		): Card[] => {
 			const runtime =
 				emergentEnabled
 					? emergentDeckService.buildRuntimeFromBindings(cards, fullDecks, formalBindings)
 					: undefined;
 			return cards.filter((card) => {
-				const legacyDeckIds = this.getCardDeckMembershipIds(card, decks, options);
-				if (legacyDeckIds.includes(deckId)) {
+				const resolvedDeckIds = options?.compatibilityMode
+					? this.getCardDeckMembershipIds(card, decks, {
+							fallbackToReferences: true,
+							fallbackToDeckId: true,
+					  })
+					: this.getCardFormalDeckMembershipIds(card, decks);
+				if (resolvedDeckIds.includes(deckId)) {
 					return true;
 				}
 				if (!runtime) {
@@ -885,7 +994,7 @@ export class WeaveDataStorage {
 					const indexedCards = (batchResult?.found || []).map((card: Card) =>
 						this.hydrateCardFromYAML(card)
 					);
-					const yamlBackedCards = filterCardsByDeck(indexedCards, { fallbackToReferences: false });
+					const yamlBackedCards = filterCardsByDeck(indexedCards);
 					const yamlUUIDSet = new Set(yamlBackedCards.map((card) => card.uuid));
 					const isIndexConsistent =
 						(batchResult?.notFound || []).length === 0 &&
@@ -903,8 +1012,10 @@ export class WeaveDataStorage {
 			}
 		}
 
-		const allCards = await this.readAllCardsFromUnifiedStorage();
-		const deckCards = filterCardsByDeck(allCards);
+		const { cards: allCards, source } = await this.readAllCardsFromUnifiedStorageSnapshot();
+		const deckCards = filterCardsByDeck(allCards, {
+			compatibilityMode: source === "legacy",
+		});
 
 		if (indexService) {
 			try {
@@ -2015,6 +2126,7 @@ export class WeaveDataStorage {
 		try {
 			const yaml = parseYAMLFromContent(card.content || "");
 			if (!card.content) {
+				syncCardStatsToCanonicalFormat(card);
 				return card; // 没有 YAML，返回原卡片
 			}
 
@@ -2061,9 +2173,11 @@ export class WeaveDataStorage {
 				hydrated.tags = [];
 			}
 
+			syncCardStatsToCanonicalFormat(hydrated);
 			return hydrated;
 		} catch (error) {
 			logger.warn("[Storage] ⚠️ YAML 解析运行时字段失败:", error);
+			syncCardStatsToCanonicalFormat(card);
 			return card;
 		}
 	}
@@ -3908,6 +4022,7 @@ export class WeaveDataStorage {
 			card.type = resolvedType;
 		}
 
+		syncCardStatsToCanonicalFormat(card);
 		return card;
 	}
 
@@ -4282,7 +4397,7 @@ export class WeaveDataStorage {
 
 		for (const card of cards) {
 			const normalized = this.normalizeCardData(card);
-			const currentDeckIds = this.getCardDeckMembershipIds(normalized, allDecks);
+			const currentDeckIds = this.getCardDeckMembershipIdsForSave(normalized, allDecks);
 			const preservedTestDeckIds = currentDeckIds.filter(
 				(_id) => deckById.get(_id)?.purpose === "test"
 			);
@@ -4311,7 +4426,7 @@ export class WeaveDataStorage {
 				continue;
 			}
 
-			const currentDeckIds = this.getCardDeckMembershipIds(existingCard, allDecks);
+			const currentDeckIds = this.getCardDeckMembershipIdsForSave(existingCard, allDecks);
 			const remainingDeckIds =
 				deck?.purpose === "test"
 					? currentDeckIds.filter((_id) => _id !== deckId)

@@ -46,8 +46,8 @@ import {
 	sanitizeForSync,
 } from "../../utils/sync-safe-filename";
 import {
-	type CardYAMLMetadata,
 	getCardDeckIds,
+	getCardDeckIdsFromFormalSource,
 	migrateSourceFields,
 	needsSourceMigration,
 	parseYAMLFromContent,
@@ -62,8 +62,8 @@ import {
 } from "../data-migration/UnifiedDataMigrationService";
 import { migrateLegacyWeaveFolders } from "../data-migration/LegacyWeaveFolderMigration";
 import { SchemaV2MigrationService } from "../data-migration/SchemaV2MigrationService";
-import { EpubStorageService } from "../epub/EpubStorageService";
-import { EpubLinkService } from "../epub/EpubLinkService";
+import { EpubStorageService } from "../epub-integration/EpubStorageService";
+import { EpubLinkService } from "../epub-integration/EpubLinkService";
 import { DataConsistencyService } from "../reference-deck/DataConsistencyService";
 import {
 	generateUniqueVaultFilePath,
@@ -104,12 +104,9 @@ export type CheckType =
 	| "migration_conflict_files"
 	| "legacy_memory_files"
 	| "memory_single_membership"
-	| "yaml_migration" // YAML 元数据迁移
-	| "we_decks_fix" // we_decks 牌组ID修复
 	| "we_block_migration" // we_block -> we_source 合并迁移
 	| "epub_source_link_migration" // 旧 EPUB 溯源链接格式迁移
 	| "epub_markdown_source_id_backfill" // Markdown 中 EPUB sourceId 回填
-	| "deprecated_fields" // 弃用字段检测
 	| "card_deck_consistency" // 卡片-牌组一致性
 	| "ir_material_consistency" // 导入材料一致性（增量阅读）
 	| "orphan_cards" // 孤立卡片
@@ -152,6 +149,163 @@ export type ProgressCallback = (current: number, total: number, message: string)
 
 export interface DataFixOptions {
 	allowHighRisk?: boolean;
+}
+
+export const TEMPORARY_CHECK_TYPES: CheckType[] = [
+	"we_block_migration",
+	"epub_source_link_migration",
+	"epub_markdown_source_id_backfill",
+	"ir_redundant_frontmatter_cleanup",
+	"schema_migration",
+	"ir_point_storage_migration",
+	"ir_legacy_readable_markdown_migration",
+	"ir_local_state_relocation",
+	"ir_legacy_bookmark_cleanup",
+	"wdeck_migration",
+	"qbank_migration",
+	"qbank_legacy_cleanup",
+	"legacy_memory_files",
+	"migration_conflict_files",
+	"legacy_cleanup",
+];
+
+export const SPLIT_PLUGIN_RESIDUE_CHECK_TYPES: CheckType[] = [
+	"epub_source_link_migration",
+	"epub_markdown_source_id_backfill",
+	"ir_redundant_frontmatter_cleanup",
+	"ir_point_storage_migration",
+	"ir_legacy_readable_markdown_migration",
+	"ir_local_state_relocation",
+	"ir_legacy_bookmark_cleanup",
+	"ir_material_consistency",
+];
+
+export const HIDDEN_RESCUE_CHECK_TYPES: CheckType[] = [
+	...SPLIT_PLUGIN_RESIDUE_CHECK_TYPES,
+	"legacy_memory_files",
+	"wdeck_migration",
+];
+
+export const RETIREMENT_CANDIDATE_CHECK_TYPES: CheckType[] = [];
+
+const CHECK_TYPE_DISPLAY_NAMES: Partial<Record<CheckType, string>> = {
+	structured_data_format: "结构化数据文件格式修复",
+	memory_single_membership: "记忆卡单正式归属收口",
+	we_block_migration: "we_block 合并迁移",
+	epub_source_link_migration: "EPUB 溯源链接迁移",
+	epub_markdown_source_id_backfill: "EPUB Markdown sourceId 回填",
+	ir_redundant_frontmatter_cleanup: "增量阅读历史 frontmatter 清理",
+	card_deck_consistency: "牌组缓存一致性",
+	ir_material_consistency: "导入材料一致性",
+	ir_point_storage_migration: "增量阅读数据迁移",
+	ir_legacy_readable_markdown_migration: "旧增量阅读正文迁移",
+	ir_local_state_relocation: "增量阅读本地状态迁移",
+	ir_legacy_bookmark_cleanup: "增量阅读旧书签文件清理",
+	legacy_memory_files: "旧记忆卡 JSON 残留",
+	wdeck_conflicts: ".wdeck 冲突检查",
+	wdeck_cache: ".wdeck 缓存重建",
+	migration_conflict_files: "迁移冲突文件处理",
+	orphan_cards: "孤立卡片",
+	duplicate_cards: "重复卡片",
+	invalid_refs: "无效引用",
+	schema_migration: "Schema V2 数据迁移",
+	structure_check: "目录结构核对",
+	legacy_cleanup: "旧目录清理",
+	filename_compatibility: "文件名与同步兼容性",
+	sync_conflict_files: "同步冲突副本处理",
+	progressive_cloze_unconverted: "渐进式挖空结构转换",
+	progressive_cloze_orphan: "渐进式挖空孤儿子卡片",
+	progressive_cloze_missing_children: "渐进式挖空缺少子卡片",
+	progressive_cloze_extra_children: "渐进式挖空多余子卡片",
+	qbank_migration: ".qbank 题库文件迁移",
+	qbank_legacy_cleanup: "旧题库文件清理",
+};
+
+export type DataCheckLifecycleKind = "temporary" | "long_term";
+
+export function isTemporaryCheckType(type: CheckType): boolean {
+	return TEMPORARY_CHECK_TYPES.includes(type);
+}
+
+export function isSplitPluginResidueCheckType(type: CheckType): boolean {
+	return SPLIT_PLUGIN_RESIDUE_CHECK_TYPES.includes(type);
+}
+
+export function isHiddenRescueCheckType(type: CheckType): boolean {
+	return HIDDEN_RESCUE_CHECK_TYPES.includes(type);
+}
+
+export function isRetirementCandidateCheckType(type: CheckType): boolean {
+	return RETIREMENT_CANDIDATE_CHECK_TYPES.includes(type);
+}
+
+export function getDataCheckLifecycleKind(type: CheckType): DataCheckLifecycleKind {
+	return isTemporaryCheckType(type) ? "temporary" : "long_term";
+}
+
+export function getDataCheckLifecycleLabel(type: CheckType): string {
+	return getDataCheckLifecycleKind(type) === "temporary" ? "临时" : "长期";
+}
+
+export function getDataCheckDisplayName(type: CheckType): string {
+	if (type === "wdeck_migration") {
+		return ".wdeck 牌组文件迁移";
+	}
+
+	return CHECK_TYPE_DISPLAY_NAMES[type] || type;
+}
+
+export function getDataCheckLifecycleNote(type: CheckType): string {
+	switch (type) {
+		case "we_block_migration":
+			return "临时兼容项：主要用于清理旧卡片结构与历史字段，旧数据完成收口后应考虑移除。";
+		case "epub_source_link_migration":
+		case "epub_markdown_source_id_backfill":
+		case "ir_redundant_frontmatter_cleanup":
+		case "ir_point_storage_migration":
+		case "ir_legacy_readable_markdown_migration":
+		case "ir_local_state_relocation":
+		case "ir_legacy_bookmark_cleanup":
+		case "ir_material_consistency":
+			return "拆分残留项：reader / EPUB / 增量阅读能力已拆分为独立插件。主插件默认不再把这些治理项作为核心卡片数据治理职责，只保留兼容处理能力。";
+		case "schema_migration":
+		case "wdeck_migration":
+		case "qbank_migration":
+		case "qbank_legacy_cleanup":
+		case "legacy_memory_files":
+		case "migration_conflict_files":
+		case "legacy_cleanup":
+			return "临时迁移/清理项：主要服务于旧架构数据迁移、遗留文件清理或迁移收尾，数据稳定后应移除。";
+		default:
+			return "";
+	}
+}
+
+export function shouldDisplayDataCheckResult(result: DataCheckResult): boolean {
+	if (!isTemporaryCheckType(result.type)) {
+		return true;
+	}
+
+	return result.count > 0 || result.status === "error";
+}
+
+export function filterDisplayableDataCheckResults(results: DataCheckResult[]): DataCheckResult[] {
+	return results.filter((result) => shouldDisplayDataCheckResult(result));
+}
+
+export interface MigrationConflictFileInfo {
+	path: string;
+	fileName: string;
+	label: string;
+	autoRecoverable: boolean;
+}
+
+export interface MigrationConflictInspection {
+	conflictDir: string;
+	total: number;
+	autoRecoverableCount: number;
+	manualReviewCount: number;
+	files: MigrationConflictFileInfo[];
 }
 
 export interface SchemaMigrationExecutionOptions {
@@ -246,17 +400,6 @@ const WDECK_MIGRATION_DIR_NAME = "deck-files";
 
 // ===== 弃用字段定义 =====
 
-/**
- * 需要直接删除的弃用字段
- * 注意：deckId、referencedByDecks 是当前运行时关系层仍会注入的字段，
- * 不能继续当作持久化残留来检测，否则会在数据管理里产生大量假阳性。
- */
-const DEPRECATED_FIELDS_TO_DELETE = [
-	"template",
-	"templateId",
-	"fields", // Content-Only 架构下从 content 实时解析
-] as const;
-
 const LEGACY_IR_FRONTMATTER_FIELDS = [
 	"weave-reading-category",
 	"weave-reading-priority",
@@ -264,13 +407,39 @@ const LEGACY_IR_FRONTMATTER_FIELDS = [
 	"weave-reading-ir-deck-id",
 ] as const;
 
+export const DEFAULT_CHECK_TYPES: CheckType[] = [
+	"memory_single_membership",
+	"we_block_migration",
+	"structured_data_format",
+	"duplicate_cards",
+	"card_deck_consistency",
+	"wdeck_conflicts",
+	"wdeck_cache",
+	"migration_conflict_files",
+	"legacy_cleanup",
+	"filename_compatibility",
+	"sync_conflict_files",
+	"progressive_cloze_unconverted",
+	"progressive_cloze_orphan",
+	"progressive_cloze_missing_children",
+	"progressive_cloze_extra_children",
+];
+
+export const MIGRATION_CHECK_TYPES: CheckType[] = [
+	"schema_migration",
+	"qbank_migration",
+	"qbank_legacy_cleanup",
+	"wdeck_conflicts",
+	"wdeck_cache",
+	"migration_conflict_files",
+	"structure_check",
+	"legacy_cleanup",
+];
+
 export const DEFAULT_BATCH_FIX_TYPES: CheckType[] = [
-	"yaml_migration",
-	"we_decks_fix",
 	"memory_single_membership",
 	"we_block_migration",
 	"epub_source_link_migration",
-	"deprecated_fields",
 	"structured_data_format",
 	"card_deck_consistency",
 ];
@@ -293,6 +462,10 @@ export const HIGH_RISK_FIX_TYPES: CheckType[] = [
 	"sync_conflict_files",
 	"progressive_cloze_unconverted",
 ];
+
+export const MAIN_PLUGIN_HIGH_RISK_FIX_TYPES: CheckType[] = HIGH_RISK_FIX_TYPES.filter(
+	(type) => !HIDDEN_RESCUE_CHECK_TYPES.includes(type)
+);
 
 export function isHighRiskFixType(type: CheckType): boolean {
 	return HIGH_RISK_FIX_TYPES.includes(type);
@@ -403,44 +576,14 @@ export class DataManagementService {
 		const results: DataCheckResult[] = [];
 		// 注意：orphan_cards（孤立卡片）在引用式牌组架构下是允许存在的，不作为问题检测
 		// 注意：redundant_fields 已移除，因为 Content-Only 架构下 type/tags 是从 content YAML 派生的运行时字段
-		const checks: CheckType[] = [
-			"yaml_migration",
-			"we_decks_fix",
-			"memory_single_membership",
-			"we_block_migration",
-			"epub_source_link_migration",
-			"epub_markdown_source_id_backfill",
-			"deprecated_fields",
-			"structured_data_format",
-			"ir_redundant_frontmatter_cleanup",
-			"duplicate_cards",
-			"card_deck_consistency",
-			"ir_point_storage_migration",
-			"ir_legacy_readable_markdown_migration",
-			"ir_local_state_relocation",
-			"ir_legacy_bookmark_cleanup",
-			"wdeck_migration",
-			"legacy_memory_files",
-			"wdeck_conflicts",
-			"wdeck_cache",
-			"migration_conflict_files",
-			"ir_material_consistency",
-			"legacy_cleanup",
-			"filename_compatibility",
-			"sync_conflict_files",
-			"progressive_cloze_unconverted",
-			"progressive_cloze_orphan",
-			"progressive_cloze_missing_children",
-			"progressive_cloze_extra_children",
-		];
-
-		for (let i = 0; i < checks.length; i++) {
-			onProgress?.(i + 1, checks.length, `检测 ${this.getCheckName(checks[i])}...`);
-			const result = await this.check(checks[i]);
+		for (let i = 0; i < DEFAULT_CHECK_TYPES.length; i++) {
+			const type = DEFAULT_CHECK_TYPES[i];
+			onProgress?.(i + 1, DEFAULT_CHECK_TYPES.length, `检测 ${this.getCheckName(type)}...`);
+			const result = await this.check(type);
 			results.push(result);
 		}
 
-		return results;
+		return filterDisplayableDataCheckResults(results);
 	}
 
 	/**
@@ -448,10 +591,6 @@ export class DataManagementService {
 	 */
 	async check(type: CheckType): Promise<DataCheckResult> {
 		switch (type) {
-			case "yaml_migration":
-				return this.checkYAMLMigration(await this.plugin.dataStorage.getCards());
-			case "we_decks_fix":
-				return this.checkWeDecksId(await this.plugin.dataStorage.getCards());
 			case "memory_single_membership":
 				return this.checkMemorySingleMembership(
 					await this.plugin.dataStorage.getCards(),
@@ -463,8 +602,6 @@ export class DataManagementService {
 				return await this.checkEpubSourceLinkMigration(await this.plugin.dataStorage.getCards());
 			case "epub_markdown_source_id_backfill":
 				return await this.checkEpubMarkdownSourceIdBackfill();
-			case "deprecated_fields":
-				return this.checkDeprecatedFields(await this.plugin.dataStorage.getCards());
 			case "structured_data_format":
 				return await this.checkStructuredDataFormat();
 			case "ir_redundant_frontmatter_cleanup":
@@ -538,13 +675,6 @@ export class DataManagementService {
 		}
 
 		switch (type) {
-			case "yaml_migration":
-				return await this.fixYAMLMigration(await this.plugin.dataStorage.getCards());
-			case "we_decks_fix":
-				return await this.fixWeDecksId(
-					await this.plugin.dataStorage.getCards(),
-					await this.plugin.dataStorage.getDecks()
-				);
 			case "memory_single_membership":
 				return await this.fixMemorySingleMembership(
 					await this.plugin.dataStorage.getCards(),
@@ -556,8 +686,6 @@ export class DataManagementService {
 				return await this.fixEpubSourceLinkMigration(await this.plugin.dataStorage.getCards());
 			case "epub_markdown_source_id_backfill":
 				return await this.fixEpubMarkdownSourceIdBackfill();
-			case "deprecated_fields":
-				return await this.fixDeprecatedFields(await this.plugin.dataStorage.getCards());
 			case "structured_data_format":
 				return await this.fixStructuredDataFormat();
 			case "ir_redundant_frontmatter_cleanup":
@@ -626,54 +754,6 @@ export class DataManagementService {
 
 	// ===== 具体检测实现 =====
 
-	/**
-	 * 检测需要 YAML 迁移的卡片
-	 */
-	private checkYAMLMigration(cards: Card[]): DataCheckResult {
-		const needsMigration: string[] = [];
-
-		for (const card of cards) {
-			if (this.cardNeedsYAMLMigration(card)) {
-				needsMigration.push(card.uuid);
-			}
-		}
-
-		return {
-			type: "yaml_migration",
-			status: needsMigration.length > 0 ? "warning" : "ok",
-			count: needsMigration.length,
-			items: needsMigration,
-			message:
-				needsMigration.length > 0
-					? `发现 ${needsMigration.length} 张卡片需要 YAML 迁移`
-					: "所有卡片已迁移",
-		};
-	}
-
-	/**
-	 * 检测 we_decks 中写入牌组ID的卡片
-	 */
-	private checkWeDecksId(cards: Card[]): DataCheckResult {
-		const needsFix: string[] = [];
-
-		for (const card of cards) {
-			if (this.cardHasWeDecksId(card)) {
-				needsFix.push(card.uuid);
-			}
-		}
-
-		return {
-			type: "we_decks_fix",
-			status: needsFix.length > 0 ? "warning" : "ok",
-			count: needsFix.length,
-			items: needsFix,
-			message:
-				needsFix.length > 0
-					? `发现 ${needsFix.length} 张卡片 we_decks 写入了牌组ID`
-					: "we_decks 数据正常",
-		};
-	}
-
 	private checkMemorySingleMembership(cards: Card[], decks: Deck[]): DataCheckResult {
 		const affectedCards: string[] = [];
 
@@ -701,28 +781,6 @@ export class DataManagementService {
 				affectedCards.length > 0
 					? `发现 ${affectedCards.length} 张记忆卡同时归属于多个正式牌组`
 					: "记忆正式牌组归属已收口为单归属",
-		};
-	}
-
-	/**
-	 * 检测卡片中的弃用字段
-	 */
-	private checkDeprecatedFields(cards: Card[]): DataCheckResult {
-		const hasDeprecated: string[] = [];
-
-		for (const card of cards) {
-			if (this.cardHasDeprecatedFields(card)) {
-				hasDeprecated.push(card.uuid);
-			}
-		}
-
-		return {
-			type: "deprecated_fields",
-			status: hasDeprecated.length > 0 ? "warning" : "ok",
-			count: hasDeprecated.length,
-			items: hasDeprecated,
-			message:
-				hasDeprecated.length > 0 ? `发现 ${hasDeprecated.length} 张卡片存在弃用字段` : "无弃用字段",
 		};
 	}
 
@@ -891,7 +949,7 @@ export class DataManagementService {
 		const orphans: string[] = [];
 
 		for (const card of cards) {
-			const membership = getCardDeckIds(card, deckLookups, { fallbackToReferences: false }).deckIds;
+			const membership = getCardDeckIdsFromFormalSource(card, deckLookups).deckIds;
 			if (membership.length === 0) {
 				orphans.push(card.uuid);
 			}
@@ -1120,101 +1178,6 @@ export class DataManagementService {
 
 	// ===== 具体修复实现 =====
 
-	/**
-	 * 修复 YAML 迁移
-	 */
-	private async fixYAMLMigration(cards: Card[]): Promise<DataFixResult> {
-		let success = 0;
-		let failed = 0;
-		const errors: Array<{ uuid: string; error: string }> = [];
-
-		for (const card of cards) {
-			if (!this.cardNeedsYAMLMigration(card)) continue;
-
-			try {
-				const migratedCard = this.migrateCardToYAML(card);
-				const result = await this.plugin.dataStorage.saveCard(migratedCard);
-				if (result.success) {
-					success++;
-				} else {
-					failed++;
-					errors.push({ uuid: card.uuid, error: result.error || "保存失败" });
-				}
-			} catch (e) {
-				failed++;
-				errors.push({ uuid: card.uuid, error: String(e) });
-			}
-		}
-
-		logger.info(`[DataManagement] YAML迁移完成: 成功 ${success}, 失败 ${failed}`);
-
-		return {
-			type: "yaml_migration",
-			success,
-			failed,
-			errors,
-		};
-	}
-
-	/**
-	 * 修复 we_decks 中的牌组ID
-	 */
-	private async fixWeDecksId(cards: Card[], decks: Deck[]): Promise<DataFixResult> {
-		let success = 0;
-		let failed = 0;
-		const errors: Array<{ uuid: string; error: string }> = [];
-
-		logger.info(
-			`[DataManagement] 开始修复 we_decks，共 ${cards.length} 张卡片，${decks.length} 个牌组`
-		);
-
-		for (const card of cards) {
-			if (!this.cardHasWeDecksId(card)) continue;
-
-			try {
-				const fixedCard = this.fixCardWeDecksId(card, decks);
-				if (fixedCard) {
-					// 验证修复结果
-					const oldYAML = parseYAMLFromContent(card.content || "");
-					const newYAML = parseYAMLFromContent(fixedCard.content || "");
-					logger.debug(`[DataManagement] 修复卡片 ${card.uuid}:`, {
-						old_we_decks: oldYAML.we_decks,
-						new_we_decks: newYAML.we_decks,
-					});
-
-					const result = await this.plugin.dataStorage.saveCard(fixedCard);
-					if (result.success) {
-						// 验证保存结果
-						if (result.data) {
-							const savedYAML = parseYAMLFromContent(result.data.content || "");
-							logger.debug(`[DataManagement] 保存后验证 ${card.uuid}:`, {
-								saved_we_decks: savedYAML.we_decks,
-							});
-						}
-						success++;
-					} else {
-						failed++;
-						errors.push({ uuid: card.uuid, error: result.error || "保存失败" });
-						logger.error(`[DataManagement] 保存失败: ${card.uuid}`, result.error);
-					}
-				}
-			} catch (e) {
-				failed++;
-				errors.push({ uuid: card.uuid, error: String(e) });
-				logger.error(`[DataManagement] 修复异常: ${card.uuid}`, e);
-			}
-		}
-
-		logger.info(`[DataManagement] we_decks修复完成: 成功 ${success}, 失败 ${failed}`);
-
-		return {
-			type: "we_decks_fix",
-			success,
-			failed,
-			errors,
-		};
-	}
-
 	private async fixMemorySingleMembership(cards: Card[], decks: Deck[]): Promise<DataFixResult> {
 		let success = 0;
 		let failed = 0;
@@ -1242,42 +1205,6 @@ export class DataManagementService {
 
 		return {
 			type: "memory_single_membership",
-			success,
-			failed,
-			errors,
-		};
-	}
-
-	/**
-	 * 清理弃用字段
-	 */
-	private async fixDeprecatedFields(cards: Card[]): Promise<DataFixResult> {
-		let success = 0;
-		let failed = 0;
-		const errors: Array<{ uuid: string; error: string }> = [];
-
-		for (const card of cards) {
-			if (!this.cardHasDeprecatedFields(card)) continue;
-
-			try {
-				const cleanedCard = this.cleanDeprecatedFields(card);
-				const result = await this.plugin.dataStorage.saveCard(cleanedCard);
-				if (result.success) {
-					success++;
-				} else {
-					failed++;
-					errors.push({ uuid: card.uuid, error: result.error || "保存失败" });
-				}
-			} catch (e) {
-				failed++;
-				errors.push({ uuid: card.uuid, error: String(e) });
-			}
-		}
-
-		logger.info(`[DataManagement] 弃用字段清理完成: 成功 ${success}, 失败 ${failed}`);
-
-		return {
-			type: "deprecated_fields",
 			success,
 			failed,
 			errors,
@@ -1440,46 +1367,6 @@ export class DataManagementService {
 
 	// ===== 辅助方法 =====
 
-	/**
-	 * 检测卡片是否需要 YAML 迁移
-	 */
-	private cardNeedsYAMLMigration(card: Card): boolean {
-		// 有旧字段但没有对应的 YAML 字段
-		if (!card.content) return false;
-
-		try {
-			const yaml = parseYAMLFromContent(card.content);
-
-			// 检查是否有旧字段但没有迁移到 YAML
-			const hasOldSource = card.sourceFile || card.sourceBlock;
-			const hasYAMLSource = yaml.we_source;
-
-			const hasOldType = card.type;
-			const hasYAMLType = yaml.we_type;
-
-			return (hasOldSource && !hasYAMLSource) || (!!hasOldType && !hasYAMLType);
-		} catch {
-			return false;
-		}
-	}
-
-	/**
-	 * 检测卡片 we_decks 是否包含牌组ID
-	 */
-	private cardHasWeDecksId(card: Card): boolean {
-		if (!card.content) return false;
-
-		try {
-			const yaml = parseYAMLFromContent(card.content);
-			if (!yaml.we_decks || yaml.we_decks.length === 0) return false;
-
-			// 检查是否有 deck_ 开头的值（牌组ID格式）
-			return yaml.we_decks.some((value: string) => value.startsWith("deck_"));
-		} catch {
-			return false;
-		}
-	}
-
 	private normalizeCardToSingleMemoryMembership(card: Card, decks: Deck[]): Card | null {
 		if (!card.content) {
 			return null;
@@ -1513,127 +1400,6 @@ export class DataManagementService {
 		} catch {
 			return null;
 		}
-	}
-
-	/**
-	 * 检测卡片是否有弃用字段
-	 * 注意：只检测真正需要删除的字段，不检测派生字段
-	 */
-	private cardHasDeprecatedFields(card: Card): boolean {
-		const cardAny = card as any;
-
-		// 只检查需要删除的字段
-		for (const field of DEPRECATED_FIELDS_TO_DELETE) {
-			if (cardAny[field] !== undefined) return true;
-		}
-
-		return false;
-	}
-
-	/**
-	 * 迁移卡片到 YAML 格式
-	 */
-	private migrateCardToYAML(card: Card): Card {
-		const metadata: CardYAMLMetadata = {};
-
-		// 迁移 sourceFile + sourceBlock -> we_source
-		if (card.sourceFile) {
-			const fileName = card.sourceFile.replace(/\.md$/, "");
-			const blockId = card.sourceBlock?.replace(/^\^/, "");
-
-			if (blockId) {
-				metadata.we_source = `![[${fileName}#^${blockId}]]`;
-			} else {
-				metadata.we_source = `[[${fileName}]]`;
-			}
-		}
-
-		// 迁移 type -> we_type
-		if (card.type) {
-			metadata.we_type = card.type as any;
-		}
-
-		// 迁移 priority -> we_priority
-		if (card.priority !== undefined) {
-			metadata.we_priority = card.priority;
-		}
-
-		// 迁移 tags
-		if (card.tags && card.tags.length > 0) {
-			metadata.tags = card.tags;
-		}
-
-		const newContent = setCardProperties(card.content, metadata);
-
-		return {
-			...card,
-			content: newContent,
-			modified: new Date().toISOString(),
-		};
-	}
-
-	/**
-	 * 修复卡片 we_decks 中的牌组ID
-	 */
-	private fixCardWeDecksId(card: Card, decks: Deck[]): Card | null {
-		if (!card.content) return null;
-
-		try {
-			const yaml = parseYAMLFromContent(card.content);
-			if (!yaml.we_decks || yaml.we_decks.length === 0) return null;
-
-			const fixedDeckNames: string[] = [];
-			let needsFix = false;
-
-			for (const value of yaml.we_decks) {
-				if (value.startsWith("deck_")) {
-					needsFix = true;
-					const matchedDeck = decks.find((d) => d.id === value);
-					if (matchedDeck) {
-						fixedDeckNames.push(matchedDeck.name);
-					} else {
-						logger.warn(`[DataManagement] 牌组ID "${value}" 找不到对应牌组，已移除`);
-					}
-				} else {
-					fixedDeckNames.push(value);
-				}
-			}
-
-			if (!needsFix) return null;
-
-			// 无论 fixedDeckNames 是否为空，都需要更新 we_decks
-			// 如果为空，表示所有牌组ID都找不到对应牌组，清空 we_decks
-			// 使用 undefined 可以在 setCardProperties 中删除该字段
-			const newContent = setCardProperties(card.content, {
-				we_decks: fixedDeckNames.length > 0 ? fixedDeckNames : undefined,
-			});
-
-			return {
-				...card,
-				content: newContent,
-				modified: new Date().toISOString(),
-			};
-		} catch (e) {
-			logger.error(`[DataManagement] 修复 we_decks 失败: ${e}`);
-			return null;
-		}
-	}
-
-	/**
-	 * 清理卡片中的弃用字段
-	 */
-	private cleanDeprecatedFields(card: Card): Card {
-		const cleanedCard = { ...card } as any;
-
-		// 删除需要删除的字段
-		for (const field of DEPRECATED_FIELDS_TO_DELETE) {
-			delete cleanedCard[field];
-		}
-
-		// 标记为已修改
-		cleanedCard.modified = new Date().toISOString();
-
-		return cleanedCard as Card;
 	}
 
 	// ===== 导入材料一致性检测 =====
@@ -2201,43 +1967,7 @@ export class DataManagementService {
 	 * 获取检测类型的中文名称
 	 */
 	private getCheckName(type: CheckType): string {
-		if (type === "wdeck_migration") {
-			return ".wdeck 牌组文件迁移";
-		}
-
-		const names: Partial<Record<CheckType, string>> = {
-			yaml_migration: "YAML 元数据迁移",
-			we_decks_fix: "we_decks 牌组ID",
-			structured_data_format: "结构化数据文件格式修复",
-			memory_single_membership: "记忆牌组单归属",
-			we_block_migration: "we_block 合并迁移",
-			epub_source_link_migration: "EPUB 溯源链接迁移",
-			epub_markdown_source_id_backfill: "EPUB Markdown sourceId 回填",
-			deprecated_fields: "弃用字段",
-			ir_redundant_frontmatter_cleanup: "增量阅读历史 frontmatter 清理（临时）",
-			card_deck_consistency: "牌组缓存一致性",
-			ir_material_consistency: "导入材料一致性",
-			ir_point_storage_migration: "增量阅读新存储迁移",
-			ir_legacy_readable_markdown_migration: "旧 IR 正文迁移",
-			ir_local_state_relocation: "增量阅读本地状态迁移",
-			ir_legacy_bookmark_cleanup: "增量阅读旧书签文件清理",
-			orphan_cards: "孤立卡片",
-			duplicate_cards: "重复卡片",
-			invalid_refs: "无效引用",
-			schema_migration: "Schema V2 数据迁移",
-			structure_check: "目录结构核对",
-			qbank_migration: ".qbank 考试题组迁移",
-			qbank_legacy_cleanup: "旧题库文件清理",
-			migration_conflict_files: "迁移冲突文件",
-			legacy_cleanup: "旧目录清理",
-			filename_compatibility: "文件名云同步兼容性",
-			sync_conflict_files: "云同步冲突副本",
-			progressive_cloze_unconverted: "未转换的渐进式挖空",
-			progressive_cloze_orphan: "孤儿子卡片",
-			progressive_cloze_missing_children: "缺失的子卡片",
-			progressive_cloze_extra_children: "多余的子卡片",
-		};
-		return names[type] || type;
+		return getDataCheckDisplayName(type);
 	}
 
 	// ===== 统一数据迁移相关 =====
@@ -2302,17 +2032,14 @@ export class DataManagementService {
 		};
 	}
 
-	private async listMigrationConflictFiles(): Promise<
-		Array<{
-			path: string;
-			fileName: string;
-			label: string;
-			autoRecoverable: boolean;
-		}>
-	> {
+	private getMigrationConflictDirectory(): string {
 		const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
 		const v2Paths = getV2Paths(parentFolder);
-		const conflictDir = `${v2Paths.root}/_migration_conflicts`;
+		return `${v2Paths.root}/_migration_conflicts`;
+	}
+
+	private async listMigrationConflictFiles(): Promise<MigrationConflictFileInfo[]> {
+		const conflictDir = this.getMigrationConflictDirectory();
 		const adapter = this.plugin.app.vault.adapter;
 
 		if (!(await adapter.exists(conflictDir))) {
@@ -2332,23 +2059,40 @@ export class DataManagementService {
 		});
 	}
 
+	async inspectMigrationConflictFiles(): Promise<MigrationConflictInspection> {
+		const files = await this.listMigrationConflictFiles();
+		const autoRecoverableCount = files.filter((file) => file.autoRecoverable).length;
+		const manualReviewCount = files.length - autoRecoverableCount;
+
+		return {
+			conflictDir: this.getMigrationConflictDirectory(),
+			total: files.length,
+			autoRecoverableCount,
+			manualReviewCount,
+			files,
+		};
+	}
+
 	async checkMigrationConflictFiles(): Promise<DataCheckResult> {
 		try {
-			const files = await this.listMigrationConflictFiles();
-			const autoRecoverable = files.filter((file) => file.autoRecoverable);
-			const manualReview = files.filter((file) => !file.autoRecoverable);
+			const inspection = await this.inspectMigrationConflictFiles();
 
 			return {
 				type: "migration_conflict_files",
-				status: manualReview.length > 0 ? "error" : files.length > 0 ? "warning" : "ok",
-				count: files.length,
-				items: files.map((file) =>
+				status:
+					inspection.manualReviewCount > 0
+						? "error"
+						: inspection.total > 0
+							? "warning"
+							: "ok",
+				count: inspection.total,
+				items: inspection.files.map((file) =>
 					`${file.autoRecoverable ? "[可自动处理]" : "[需人工处理]"} ${file.path}`
 				),
 				message:
-					files.length === 0
+					inspection.total === 0
 						? "未发现迁移冲突文件"
-						: `检测到 ${files.length} 个迁移冲突文件（可自动处理 ${autoRecoverable.length}，需人工处理 ${manualReview.length}）`,
+						: `检测到 ${inspection.total} 个迁移冲突文件（可自动处理 ${inspection.autoRecoverableCount}，需人工处理 ${inspection.manualReviewCount}）`,
 			};
 		} catch (error) {
 			return {
@@ -4996,7 +4740,7 @@ export class DataManagementService {
 				continue;
 			}
 
-			const membership = getCardDeckIds(card, decks, { fallbackToReferences: false }).deckIds;
+			const membership = getCardDeckIds(card, decks).deckIds;
 			const formalDeckId = membership.find((deckId) => deckById.get(deckId)?.purpose !== "test");
 			const formalDeck = formalDeckId ? deckById.get(formalDeckId) : undefined;
 			const targetDeck =

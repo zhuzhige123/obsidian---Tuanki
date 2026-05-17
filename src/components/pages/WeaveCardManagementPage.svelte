@@ -1,4 +1,4 @@
-﻿<script lang="ts">
+<script lang="ts">
   import { logger } from '../../utils/logger';
   import { vaultStorage } from '../../utils/vault-local-storage';
 
@@ -54,13 +54,24 @@
   // 旧的三位一体模板系统已完全移除
   import { Notice } from "obsidian";
   // v2.2: 导入牌组获取工具和内容解析工具（Content-Only 架构）
-  import { getCardMetadata, setCardProperties, getCardDeckIds, getCardDeckNames as getCardDeckNamesFromYaml, extractBodyContent, parseSourceInfo, parseYAMLFromContent, buildContentWithYAML } from "../../utils/yaml-utils";
+  import {
+    getCardMetadata,
+    setCardProperties,
+    getCardDeckIds,
+    getCardDeckIdsFromFormalSource,
+    getCardDeckNames as getCardDeckNamesFromYaml,
+    extractBodyContent,
+    parseSourceInfo,
+    parseYAMLFromContent,
+    buildContentWithYAML
+  } from "../../utils/yaml-utils";
   import { MAIN_SEPARATOR } from "../../constants/markdown-delimiters";
   import { cardsToCSV, groupCardsBySource, groupCardsByMonth, groupCardsByDeck, sanitizeFileName, type ExportGroupMode } from "../../utils/card-export-utils";
   import { showObsidianConfirm } from "../../utils/obsidian-confirm";
   import { detectCardQuestionType, getQuestionTypeDistribution } from "../../utils/card-type-utils";
   import { isInputClozeQuestionContent } from "../../utils/question-bank/input-cloze-utils";
   import { getErrorBookDistribution, getCardErrorLevel } from "../../utils/error-book-utils";
+  import { syncCardStatsToCanonicalFormat } from "../../utils/card-stats-normalizer";
   import { CardType } from "../../data/types";
   import { applyTimeFilter } from "../../utils/time-filter-utils";
   import { batchUpdateCards, mergeUnmappedFields, deleteFields } from "../../services/batch-operation-service";
@@ -69,7 +80,6 @@
   // 卡片详情模态窗改用全局方法 plugin.openViewCardModal()
   // 导入国际化
   import { tr } from "../../utils/i18n";
-  import { migrateCardsErrorTracking, getMigrationStats } from "../../utils/data-migration-utils";
   import {
     buildTagSuggestionOptions,
     expandTagSuggestionPaths,
@@ -110,7 +120,7 @@
   import { irActiveDocumentStore } from "../../stores/ir-active-document-store";
   // EPUB阅读器活动文档store（用于文档关联筛选）
   import { epubActiveDocumentStore } from "../../stores/epub-active-document-store";
-  import { EPUB_RUNTIME } from "../../services/epub";
+  import { EPUB_RUNTIME } from "../../services/epub-integration";
   
   import { IRStorageService } from "../../services/incremental-reading/IRStorageService";
   import { loadIRCardManagementData } from "../../services/incremental-reading/IRCardManagementLoader";
@@ -670,12 +680,15 @@
 
     const activeDecks = currentDataSourceDecks;
     const deckById = new Map(activeDecks.map(d => [d.id, d] as const));
-    const deckIdsCache = new Map<string, ReturnType<typeof getCardDeckIds>>();
+    const deckIdsCache = new Map<string, { deckIds: string[]; primaryDeckId?: string }>();
     const getCachedCardDeckIds = (card: Card) => {
       const key = card.uuid;
       const cached = deckIdsCache.get(key);
       if (cached) return cached;
-      const computed = getCardDeckIds(card, activeDecks);
+      const computed =
+        dataSource === "memory"
+          ? getCardDeckIdsFromFormalSource(card, activeDecks)
+          : getCardDeckIds(card, activeDecks);
       deckIdsCache.set(key, computed);
       return computed;
     };
@@ -718,9 +731,9 @@
         if (selectedDeckUuidSet) {
           return selectedDeckUuidSet.has(card.uuid);
         }
-        // v2.2: 优先从 content YAML 的 we_decks 获取牌组 ID
+        // 统一通过牌组解析器处理正式真源与兼容回退，避免页面层重复拼接旧字段判断
         const { deckIds } = getCachedCardDeckIds(card);
-        return deckIds.includes(globalSelectedDeckId!) || card.referencedByDecks?.includes(globalSelectedDeckId!) || card.deckId === globalSelectedDeckId;
+        return deckIds.includes(globalSelectedDeckId!);
       });
     }
     
@@ -762,8 +775,7 @@
         if (activeDecks.some(deck => deck.cardUUIDs?.includes(card.uuid))) {
           return false;
         }
-        const { deckIds } = getCardDeckIds(card, activeDecks);
-        return deckIds.length === 0;
+        return getDeckIdsForDataSource(card, activeDecks, dataSource).length === 0;
       });
     }
 
@@ -810,9 +822,9 @@
           if (uuidSet?.has(card.uuid)) {
             return true;
           }
-          // v2.2: 优先从 content YAML 的 we_decks 获取牌组 ID
+          // 统一通过牌组解析器处理正式真源与兼容回退，避免页面层重复拼接旧字段判断
           const { deckIds: cardDeckIds } = getCachedCardDeckIds(card);
-          if (cardDeckIds.includes(deckId) || card.referencedByDecks?.includes(deckId) || card.deckId === deckId) {
+          if (cardDeckIds.includes(deckId)) {
             return true;
           }
         }
@@ -1609,10 +1621,9 @@
         }
       });
       
-      // 方式2：对于没有 cardUUIDs 的牌组，通过 we_decks/referencedByDecks/deckId 统计
-      // v2.2: 优先从 content YAML 的 we_decks 获取牌组 ID
+      // 方式2：对于没有 cardUUIDs 的牌组，统一通过牌组解析器统计
       statsCards.forEach(card => {
-        const { deckIds: cardDeckIds } = getCardDeckIds(card, statsDecks);
+        const cardDeckIds = getDeckIdsForDataSource(card, statsDecks, dataSource);
         if (cardDeckIds.length > 0) {
           cardDeckIds.forEach((deckId: string) => {
             const deck = statsDecks.find(d => d.id === deckId);
@@ -1620,18 +1631,6 @@
               deckMap.set(deckId, (deckMap.get(deckId) || 0) + 1);
             }
           });
-        } else if (card.referencedByDecks && card.referencedByDecks.length > 0) {
-          card.referencedByDecks.forEach((deckId: string) => {
-            const deck = statsDecks.find(d => d.id === deckId);
-            if (!deck?.cardUUIDs?.length) {
-              deckMap.set(deckId, (deckMap.get(deckId) || 0) + 1);
-            }
-          });
-        } else if (card.deckId) {
-          const deck = statsDecks.find(d => d.id === card.deckId);
-          if (!deck?.cardUUIDs?.length) {
-            deckMap.set(card.deckId, (deckMap.get(card.deckId) || 0) + 1);
-          }
         }
       });
       
@@ -2363,14 +2362,7 @@
       // 同时加载牌组数据
       allDecks = await dataStorage.getDecks();
       logger.debug(`[卡片管理] 从统一存储加载 ${allCards.length} 张卡片`);
-
-      // Data migration: auto-migrate old error tracking data
-      const migrationStats = getMigrationStats(allCards);
-      if (migrationStats.needsMigration > 0) {
-        logger.debug(`检测到 ${migrationStats.needsMigration} 张卡片需要迁移错题集数据`);
-        allCards = migrateCardsErrorTracking(allCards);
-        logger.debug('错题集数据迁移完成');
-      }
+      allCards.forEach((card) => syncCardStatsToCanonicalFormat(card));
 
       // 确保是新引用，触发 Svelte 响应式更新
       cards = [...allCards];
@@ -3056,7 +3048,7 @@
                 // EPUB文件：拦截到插件内置阅读器，避免系统外部阅读器打开
                 if (pathOnly.toLowerCase().endsWith('.epub')) {
                   const hashPart = linkText.includes('#') ? linkText.slice(linkText.indexOf('#')) : '';
-                  const { EpubLinkService } = await import('../../services/epub/EpubLinkService');
+                  const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
                   const parsed = EpubLinkService.parseEpubLink(hashPart);
                   const linkService = new EpubLinkService(plugin.app);
                   await linkService.navigateToEpubLocation(file.path, parsed?.cfi || '', parsed?.text || '');
@@ -3130,7 +3122,7 @@
             }
           }
         }
-        const { EpubLinkService } = await import('../../services/epub/EpubLinkService');
+        const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
         const linkService = new EpubLinkService(plugin.app);
         await linkService.navigateToEpubLocation(filePath, epubCfi, epubText);
         new Notice(epubCfi ? '已跳转到EPUB源位置' : '已打开EPUB源文档');
@@ -4061,10 +4053,12 @@
     const selectedCardData = filteredCards.filter(card => selectedCardIds.includes(card.uuid));
 
     // 创建复制的文本内容
-    // v2.2: 优先从 content YAML 的 we_decks 获取牌组 ID
     const copyText = selectedCardData.map(card => {
-      const { primaryDeckId } = getCardDeckIds(card, currentDataSourceDecks);
-      const deck = currentDataSourceDecks.find(d => d.id === (primaryDeckId || card.deckId));
+      const primaryDeckId =
+        dataSource === "memory"
+          ? getMemoryFormalDeckId(card, currentDataSourceDecks)
+          : getCardDeckIds(card, currentDataSourceDecks).primaryDeckId || card.deckId;
+      const deck = currentDataSourceDecks.find(d => d.id === primaryDeckId);
       return `正面: ${getCardContentBySide(card, 'front', [])}
 背面: ${getCardContentBySide(card, 'back', [])}
 标签: ${card.tags?.join(', ') || '无'}
@@ -4628,9 +4622,30 @@
     return currentSourceCards.filter((card) => selectedIdSet.has(card.uuid));
   }
 
+  function getMemoryFormalDeckId(card: Card, memoryDecks: Deck[]): string {
+    const { primaryDeckId } = getCardDeckIdsFromFormalSource(card, memoryDecks);
+    return primaryDeckId || WDECK_UNGROUPED_DECK_NAME;
+  }
+
+  function getDeckIdsForDataSource(card: Card, decks: Deck[], source: string): string[] {
+    if (source === "memory") {
+      return getCardDeckIdsFromFormalSource(card, decks).deckIds;
+    }
+
+    return getCardDeckIds(card, decks).deckIds;
+  }
+
+  function getPrimaryDeckIdForDataSource(card: Card, decks: Deck[], source: string): string | undefined {
+    if (source === "memory") {
+      const { primaryDeckId } = getCardDeckIdsFromFormalSource(card, decks);
+      return primaryDeckId;
+    }
+
+    return getCardDeckIds(card, decks).primaryDeckId || card.deckId;
+  }
+
   function getBatchMemorySourceDeckId(card: Card, memoryDecks: Deck[]): string {
-    const { primaryDeckId } = getCardDeckIds(card, memoryDecks);
-    return primaryDeckId || card.deckId || WDECK_UNGROUPED_DECK_NAME;
+    return getMemoryFormalDeckId(card, memoryDecks);
   }
 
   function getBatchMemoryDeckSelectionContext(selectedCardIds: string[]) {
@@ -6724,12 +6739,12 @@
       // v2.2: 优先从 content YAML 的 we_decks 获取牌组 ID
       const currentDecks = getDecksForDataSource(dataSource);
       const existingCard = currentSourceCards.find(c => c.uuid === updatedCard.uuid);
-      const { primaryDeckId: existingDeckId } = existingCard
-        ? getCardDeckIds(existingCard, currentDecks)
-        : { primaryDeckId: undefined };
-      const { primaryDeckId: updatedDeckId } = getCardDeckIds(updatedCard, currentDecks);
-      const oldDeckId = existingDeckId || existingCard?.deckId;
-      const newDeckId = updatedDeckId || updatedCard.deckId;
+      const existingDeckId = existingCard
+        ? getPrimaryDeckIdForDataSource(existingCard, currentDecks, dataSource)
+        : undefined;
+      const updatedDeckId = getPrimaryDeckIdForDataSource(updatedCard, currentDecks, dataSource);
+      const oldDeckId = existingDeckId || (dataSource === 'memory' ? undefined : existingCard?.deckId);
+      const newDeckId = updatedDeckId || (dataSource === 'memory' ? undefined : updatedCard.deckId);
       const isMove = existingCard && oldDeckId !== newDeckId;
       
       let result;
