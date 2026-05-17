@@ -14,6 +14,8 @@ Weave 是一款面向 Obsidian 的学习工作流插件。它可以把知识库�
 
 最低支持版本：Obsidian `1.7.0`
 
+<img width="1920" height="1050" alt="QQ20260518-045158-HD" src="https://github.com/user-attachments/assets/0bbe113d-e0b9-42bf-a827-db82e06b29a2" />
+
 ---
 
 ## 我们解决的核心问题
@@ -50,6 +52,7 @@ Weave 采用分离存储并保留来源关联：
 | Canvas | Canvas 路径加节点 ID |
 
 ---
+<img width="1920" height="1048" alt="QQ20260518-044834-HD" src="https://github.com/user-attachments/assets/3348298e-aaff-4980-9785-4c536d3af032" />
 
 ## 记忆牌组：两类卡片
 
