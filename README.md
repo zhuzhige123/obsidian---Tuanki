@@ -28,7 +28,7 @@ Minimum supported version: Obsidian `1.7.0`
 | Decks become hard to reorganize | Reference-based, formal, and emergent deck organization |
 
 ---
-<img width="1200" height="800" alt="QQ20260518-044214-HD" src="https://github.com/user-attachments/assets/9ac53eee-a860-4a66-a5f5-20491b6b001d" />
+<img width="1826" height="1092" alt="image" src="https://github.com/user-attachments/assets/4d1b011f-6c46-4688-88f4-e195b5bbd06c" />
 
 ## Multi-Source Traceability
 
@@ -53,7 +53,6 @@ Weave uses separate storage with trace links:
 ---
 
 
-<img width="1920" height="1048" alt="QQ20260518-044834-HD" src="https://github.com/user-attachments/assets/bb4562aa-fbd3-40db-82a8-eea01ed546fe" />
 
 
 ## Memory Decks: Two Card Types
