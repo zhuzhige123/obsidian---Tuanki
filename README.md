@@ -28,7 +28,7 @@ Minimum supported version: Obsidian `1.7.0`
 | Decks become hard to reorganize | Reference-based, formal, and emergent deck organization |
 
 ---
-<img width="1920" height="1052" alt="QQ20260518-044214-HD" src="https://github.com/user-attachments/assets/9ac53eee-a860-4a66-a5f5-20491b6b001d" />
+<img width="1200" height="800" alt="QQ20260518-044214-HD" src="https://github.com/user-attachments/assets/9ac53eee-a860-4a66-a5f5-20491b6b001d" />
 
 ## Multi-Source Traceability
 
