@@ -30,7 +30,7 @@ Minimum supported version: Obsidian `1.7.0`
 ---
 <img width="800" height="650" alt="image" src="https://github.com/user-attachments/assets/56d8f254-0c70-4fc3-a770-ccbffc7073ff" />
 
-<img width="800" height="650" alt="image" src="https://github.com/user-attachments/assets/4d1b011f-6c46-4688-88f4-e195b5bbd06c" />
+<img width="800" height="650" alt="image" src="https://github.com/user-attachments/assets/990e7b4f-cb32-4216-bed5-0b7f589bee93" />
 
 ## Multi-Source Traceability
 
