@@ -1,7 +1,7 @@
 /* 新拟态风格的APKG导入模态窗样式 */
 
 /* 设计变量 */
-.weave-apkg-modal-container {
+.weave-apkg-modal-overlay {
   --color-background: var(--background-primary);
   --color-surface: var(--background-primary);
   --color-text-primary: var(--text-normal);

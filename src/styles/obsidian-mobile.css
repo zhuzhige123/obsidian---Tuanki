@@ -420,13 +420,6 @@ body.is-phone .weave-settings .row input[type="number"] {
   max-width: 100%;
 }
 
- /* 📱 手机端：下拉/选择类设置项不使用 100% 宽度（保持控件在标题行右侧） */
- body.is-phone .weave-settings .row.weave-setting-row--dropdown .obsidian-dropdown-trigger,
- body.is-phone .weave-settings .row.weave-setting-row--select select {
-   width: auto;
-   max-width: none;
- }
-
  /* 📱 手机端：特定文本输入保持横排（默认牌组） */
  body.is-phone .weave-settings .row.weave-inline-input {
    flex-direction: row;
