@@ -9,10 +9,10 @@ import './activation-modal.css';
  */
 export class ActivationModal extends Modal {
   private plugin: any;
-  private onSave: () => Promise<void>;
+  private onSave: () => void | Promise<void>;
   private component: any;
   
-  constructor(app: App, plugin: any, onSave: () => Promise<void>) {
+  constructor(app: App, plugin: any, onSave: () => void | Promise<void>) {
     super(app);
     this.plugin = plugin;
     this.onSave = onSave;
@@ -39,7 +39,11 @@ export class ActivationModal extends Modal {
           setTimeout(() => {
             this.close();
           }, 2000);
-        }
+        },
+        onDeactivationSuccess: async () => {
+          await this.onSave();
+          this.close();
+        },
       }
     });
   }

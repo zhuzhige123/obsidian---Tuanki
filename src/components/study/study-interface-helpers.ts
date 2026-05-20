@@ -6,6 +6,7 @@
 import { Notice } from "obsidian";
 import type { WeaveDataStorage } from "../../data/storage";
 import type { Card } from "../../data/types";
+import { t } from "../../utils/i18n";
 import { logger } from "../../utils/logger";
 import { LOG_PREFIX } from "./study-interface-constants";
 
@@ -47,7 +48,7 @@ export async function saveCardUnified(
 	} = {}
 ): Promise<SaveCardResult> {
 	const {
-		operation = "保存卡片",
+		operation = t("studyInterface.helpers.defaultOperation"),
 		showSuccessNotice = false,
 		successMessage,
 		showErrorNotice = true,
@@ -68,10 +69,10 @@ export async function saveCardUnified(
 
 			return { success: true, card };
 		} else {
-			const error = result.error || "未知错误";
+			const error = result.error || t("study.view.unknownError");
 
 			if (showErrorNotice) {
-				new Notice(errorMessage || `${operation}失败: ${error}`);
+				new Notice(errorMessage || t("studyInterface.helpers.operationFailedWithError", { operation, error }));
 			}
 
 			logger.error(`${LOG_PREFIX.CARD_OPERATION} ${operation}失败:`, error);
@@ -82,7 +83,7 @@ export async function saveCardUnified(
 		const errorMsg = error instanceof Error ? error.message : String(error);
 
 		if (showErrorNotice) {
-			new Notice(errorMessage || `${operation}失败`);
+			new Notice(errorMessage || t("studyInterface.helpers.operationFailed", { operation }));
 		}
 
 		logger.error(`${LOG_PREFIX.CARD_OPERATION} ${operation}异常:`, error);
@@ -157,7 +158,7 @@ export function handleError(
 
 	// 显示用户通知
 	if (showNotice) {
-		const message = noticeMessage || `${context}失败`;
+		const message = noticeMessage || t("studyInterface.helpers.operationFailed", { operation: context });
 		new Notice(message);
 	}
 }

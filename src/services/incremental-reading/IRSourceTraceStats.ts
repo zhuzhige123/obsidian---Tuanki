@@ -2,7 +2,7 @@ import { normalizePath } from "obsidian";
 import type { Card } from "../../data/types";
 import { extractAllSourcePaths, normalizePathForComparison } from "../../utils/source-path-matcher";
 import { parseObsidianLink, parseYAMLFromContent } from "../../utils/yaml-utils";
-import { EpubLinkService } from "../epub/EpubLinkService";
+import { EpubLinkService } from "../epub-integration/EpubLinkService";
 import { resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 
 export type IRTraceSourceKind = "markdown" | "pdf" | "epub" | "unknown";

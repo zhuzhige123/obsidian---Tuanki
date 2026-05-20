@@ -3,6 +3,9 @@
  * 解决重复的日期格式化和时间处理函数问题
  */
 
+import { get } from "svelte/store";
+import { currentLanguage, syncI18nWithObsidianLanguage } from "./i18n";
+
 // ============================================================================
 // 日期时间类型定义
 // ============================================================================
@@ -47,6 +50,16 @@ export interface RelativeTimeConfig {
  */
 export class UnifiedDateTimeProcessor {
 	private static instance: UnifiedDateTimeProcessor;
+
+	private getCurrentLocale(): string {
+		const detectedLanguage = syncI18nWithObsidianLanguage();
+		const language = get(currentLanguage) || detectedLanguage;
+		return language === "en-US" ? "en-US" : "zh-CN";
+	}
+
+	private getNowLabel(locale: string): string {
+		return locale === "en-US" ? "just now" : "刚刚";
+	}
 
 	// 默认配置
 	private defaultTimezone: TimezoneConfig = {
@@ -110,7 +123,11 @@ export class UnifiedDateTimeProcessor {
 		const dateObj = this.normalizeDate(date);
 		if (!dateObj) return "-";
 
-		const finalConfig = { ...this.defaultRelativeConfig, ...config };
+		const finalConfig = {
+			...this.defaultRelativeConfig,
+			locale: this.getCurrentLocale(),
+			...config,
+		};
 
 		try {
 			const rtf = new Intl.RelativeTimeFormat(finalConfig.locale, {
@@ -126,7 +143,7 @@ export class UnifiedDateTimeProcessor {
 
 			if (absDiffMs < 60 * 1000) {
 				// 小于1分钟
-				return "刚刚";
+				return this.getNowLabel(finalConfig.locale);
 			} else if (absDiffMs < 60 * 60 * 1000) {
 				// 小于1小时
 				const minutes = Math.round(diffMs / (60 * 1000));
@@ -333,18 +350,26 @@ export class UnifiedDateTimeProcessor {
 		const now = new Date();
 		const diffMs = now.getTime() - date.getTime();
 		const absDiffMs = Math.abs(diffMs);
+		const locale = this.getCurrentLocale();
+		const isEnglish = locale === "en-US";
 
 		if (absDiffMs < 60 * 1000) {
-			return "刚刚";
+			return this.getNowLabel(locale);
 		} else if (absDiffMs < 60 * 60 * 1000) {
 			const minutes = Math.floor(absDiffMs / (60 * 1000));
-			return `${minutes}分钟${diffMs > 0 ? "前" : "后"}`;
+			return isEnglish
+				? `${minutes} minute${minutes === 1 ? "" : "s"} ${diffMs > 0 ? "ago" : "later"}`
+				: `${minutes}分钟${diffMs > 0 ? "前" : "后"}`;
 		} else if (absDiffMs < 24 * 60 * 60 * 1000) {
 			const hours = Math.floor(absDiffMs / (60 * 60 * 1000));
-			return `${hours}小时${diffMs > 0 ? "前" : "后"}`;
+			return isEnglish
+				? `${hours} hour${hours === 1 ? "" : "s"} ${diffMs > 0 ? "ago" : "later"}`
+				: `${hours}小时${diffMs > 0 ? "前" : "后"}`;
 		} else {
 			const days = Math.floor(absDiffMs / (24 * 60 * 60 * 1000));
-			return `${days}天${diffMs > 0 ? "前" : "后"}`;
+			return isEnglish
+				? `${days} day${days === 1 ? "" : "s"} ${diffMs > 0 ? "ago" : "later"}`
+				: `${days}天${diffMs > 0 ? "前" : "后"}`;
 		}
 	}
 

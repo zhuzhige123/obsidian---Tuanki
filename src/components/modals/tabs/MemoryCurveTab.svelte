@@ -21,11 +21,11 @@
 
   // 时间范围配置
   const timeRanges = $derived([
-    { value: '7d' as TimeRange, label: '最近7天', days: 7 },
-    { value: '14d' as TimeRange, label: '最近14天', days: 14 },
-    { value: '30d' as TimeRange, label: '最近30天', days: 30 },
-    { value: '60d' as TimeRange, label: '最近60天', days: 60 },
-    { value: '90d' as TimeRange, label: '最近90天', days: 90 }
+    { value: '7d' as TimeRange, label: t('modals.memoryCurveTab.last7Days'), days: 7 },
+    { value: '14d' as TimeRange, label: t('modals.memoryCurveTab.last14Days'), days: 14 },
+    { value: '30d' as TimeRange, label: t('modals.memoryCurveTab.last30Days'), days: 30 },
+    { value: '60d' as TimeRange, label: t('modals.memoryCurveTab.last60Days'), days: 60 },
+    { value: '90d' as TimeRange, label: t('modals.memoryCurveTab.last90Days'), days: 90 }
   ]);
 
   // 当前选中的时间范围
@@ -42,7 +42,7 @@
   <!-- 时间范围选择器 -->
   <section class="curve-controls" class:mobile={isMobile}>
     <div class="range-selector" class:mobile={isMobile}>
-      <span class="range-label">快捷范围：</span>
+      <span class="range-label">{t('modals.memoryCurveTab.quickRange')}</span>
       <div class="range-buttons" class:mobile={isMobile}>
         {#each timeRanges as range}
           <button
@@ -60,7 +60,7 @@
     {#if !isMobile}
       <div class="hint-text">
         <span class="hint-indicator">ⓘ</span>
-        <span>滑动鼠标滚轮或拖拽可快速切换查看范围</span>
+        <span>{t('modals.memoryCurveTab.scrollHint')}</span>
       </div>
     {/if}
   </section>

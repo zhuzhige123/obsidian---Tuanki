@@ -9,6 +9,7 @@
   import TableRow from './components/TableRow.svelte';
   import type { ColumnVisibility, ColumnWidths, ColumnOrder, TableRowCallbacks, TableViewMode, ColumnKey, TableTagOption } from "./types/table-types";
   import { validateTableIcons } from "../../utils/icon-validator";
+  import { getMinColumnWidth } from "./utils/table-utils";
 
   interface Props {
     cards: Card[];
@@ -22,6 +23,7 @@
     sortConfig: { field: string; direction: "asc" | "desc" };
     onEdit: (cardId: string) => void;
     onDelete: (cardId: string) => void;
+    onResetReviewHistory?: (cardId: string) => void;
     onTagsUpdate?: (cardId: string, tags: string[]) => void;
     onPriorityUpdate?: (cardId: string, priority: number) => void;
     loading?: boolean;
@@ -49,6 +51,7 @@
     tableViewMode = 'basic',
     onEdit,
     onDelete,
+    onResetReviewHistory,
     onTagsUpdate,
     onPriorityUpdate,
     loading = false,
@@ -89,7 +92,7 @@
   // 列宽管理
   const COLUMN_WIDTHS_KEY = 'weave-table-column-widths';
   const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
-    checkbox: 72,
+    checkbox: 40,
     front: 250,
     back: 230,
     status: 126,
@@ -200,7 +203,7 @@
   let scrollbarContent = $state<HTMLElement | null>(null);
   let hasHorizontalOverflow = $state(false);
   let tablePixelWidth = $derived.by(() => {
-    const checkboxWidth = columnWidths.checkbox ?? 48;
+    const checkboxWidth = columnWidths.checkbox ?? DEFAULT_COLUMN_WIDTHS.checkbox;
     const visibleColumnsWidth = effectiveColumns.reduce((total, columnKey) => {
       return total + (columnWidths[columnKey as keyof ColumnWidths] ?? 0);
     }, 0);
@@ -389,8 +392,8 @@
 
   // 处理列宽调整
   function handleColumnResize(columnKey: string, deltaX: number) {
-    const currentWidth = columnWidths[columnKey as keyof ColumnWidths];
-    const newWidth = Math.max(50, currentWidth + deltaX);
+    const currentWidth = columnWidths[columnKey as keyof ColumnWidths] ?? DEFAULT_COLUMN_WIDTHS[columnKey as keyof ColumnWidths] ?? 50;
+    const newWidth = Math.max(getMinColumnWidth(columnKey), currentWidth + deltaX);
 
     columnWidths = {
       ...columnWidths,
@@ -527,6 +530,9 @@
   let callbacks: TableRowCallbacks = $derived.by(() => ({
     onEdit: (cardId) => onEdit(cardId),
     onDelete: (cardId) => onDelete(cardId),
+    onResetReviewHistory: onResetReviewHistory
+      ? (cardId) => onResetReviewHistory(cardId)
+      : undefined,
     onTagsUpdate: onTagsUpdate
       ? (cardId, tags) => onTagsUpdate(cardId, tags)
       : undefined,
@@ -578,6 +584,12 @@
           bind:this={tableElement}
           style={`min-width:${tablePixelWidth}px;width:max(100%, ${tablePixelWidth}px);table-layout:fixed;`}
         >
+          <colgroup>
+            <col class="weave-col-checkbox" style="width: {columnWidths.checkbox}px;" />
+            {#each effectiveColumns as columnKey (columnKey)}
+              <col style="width: {columnWidths[columnKey as keyof ColumnWidths] ?? 0}px;" />
+            {/each}
+          </colgroup>
           <TableHeader
             {columnVisibility}
             columnOrder={effectiveColumns}

@@ -91,36 +91,52 @@
   );
   let showGenerationProgressPanel = $derived(variant === 'generate' && isGenerating);
   let resolvedBusyTitle = $derived(
-    busyTitle ?? (variant === 'parse' ? '正在解析预览' : '正在生成卡片')
+    busyTitle ?? (
+      variant === 'parse'
+        ? t('aiAssistant.previewWorkspace.busyParsingTitle')
+        : t('aiAssistant.previewWorkspace.busyGeneratingTitle')
+    )
   );
   let resolvedEmptyTitle = $derived(
-    emptyTitle ?? (variant === 'parse' ? '解析预览区' : 'AI 制卡预览区')
+    emptyTitle ?? (
+      variant === 'parse'
+        ? t('aiAssistant.previewWorkspace.emptyParsingTitle')
+        : t('aiAssistant.previewWorkspace.emptyGeneratingTitle')
+    )
   );
   let resolvedBusyDescription = $derived(
     busyDescription ?? (
       variant === 'parse'
-        ? '当前解析模板正在整理内容，新的解析结果会直接显示在这里。'
-        : '卡片会随着生成进度逐张出现在这里。'
+        ? t('aiAssistant.previewWorkspace.busyParsingDescription')
+        : t('aiAssistant.previewWorkspace.busyGeneratingDescription')
     )
   );
   let resolvedEmptyDescription = $derived(
     emptyDescription ?? (
       variant === 'parse'
-        ? '先在顶部功能栏选择文件、解析模板并发起解析，这里会直接显示解析结果预览。'
-        : '先在顶部功能栏选择文件、提示词并发起生成，这里会直接显示可导入的卡片预览。'
+        ? t('aiAssistant.previewWorkspace.emptyParsingDescription')
+        : t('aiAssistant.previewWorkspace.emptyGeneratingDescription')
     )
   );
   let resolvedNavigationHint = $derived(
-    navigationHint ?? (enableSelection ? '点按切换卡片，长按序号可选中或取消选中' : '点按切换卡片')
+    navigationHint ?? (
+      enableSelection
+        ? t('aiAssistant.previewWorkspace.navigationHintSelectable')
+        : t('aiAssistant.previewWorkspace.navigationHintReadonly')
+    )
   );
   let importAutoTags = $derived.by(() => normalizeTagList(committedImportTags));
   let importSummaryText = $derived.by(() => {
     if (!lastImportSummary || lastImportSummary.importedCount <= 0) return '';
-    const deckName = lastImportSummary.targetDeckName || '目标牌组';
+    const deckName = lastImportSummary.targetDeckName || t('aiAssistant.previewWorkspace.defaultTargetDeck');
     const failedPart = lastImportSummary.failedCount > 0
-      ? `，另有 ${lastImportSummary.failedCount} 张未成功导入`
+      ? t('aiAssistant.previewWorkspace.importSummaryFailedPart', { count: lastImportSummary.failedCount })
       : '';
-    return `刚刚已成功导入 ${lastImportSummary.importedCount} 张卡片到“${deckName}”${failedPart}`;
+    return t('aiAssistant.previewWorkspace.importSummary', {
+      count: lastImportSummary.importedCount,
+      deck: deckName,
+      failedPart
+    });
   });
 
   function normalizeTagList(tags: string[] | undefined): string[] {
@@ -400,12 +416,12 @@
     if (!showImportControls || !onImport) return;
 
     if (selectedCount === 0) {
-      new Notice('请至少选择一张卡片');
+      new Notice(t('aiAssistant.previewWorkspace.selectCardFirst'));
       return;
     }
 
     if (!selectedDeckId) {
-      new Notice('请选择目标牌组');
+      new Notice(t('aiAssistant.previewWorkspace.selectTargetDeck'));
       return;
     }
 
@@ -433,13 +449,19 @@
       selectedCardIds = nextSelected;
 
       if (result.importedCount > 0) {
-        const deckName = result.targetDeckName || '目标牌组';
-        const failedPart = result.failedCount > 0 ? `，${result.failedCount} 张未成功导入` : '';
-        new Notice(`已成功导入 ${result.importedCount} 张卡片到“${deckName}”${failedPart}`);
+        const deckName = result.targetDeckName || t('aiAssistant.previewWorkspace.defaultTargetDeck');
+        const failedPart = result.failedCount > 0
+          ? t('aiAssistant.previewWorkspace.importNoticeFailedPart', { count: result.failedCount })
+          : '';
+        new Notice(t('aiAssistant.previewWorkspace.importNoticeSuccess', {
+          count: result.importedCount,
+          deck: deckName,
+          failedPart
+        }));
       }
     } catch (error) {
       logger.error('[AICardPreviewWorkspace] 导入失败:', error);
-      new Notice(error instanceof Error ? error.message : '导入失败');
+      new Notice(error instanceof Error ? error.message : t('aiAssistant.previewWorkspace.importFailed'));
     } finally {
       isImporting = false;
     }
@@ -462,7 +484,7 @@
                 {/if}
               </div>
               {#if showCurrentIndexLabel}
-                <div class="preview-context-index">第 {currentIndex + 1} 张</div>
+                <div class="preview-context-index">{t('aiAssistant.previewWorkspace.currentCardIndex', { index: currentIndex + 1 })}</div>
               {/if}
             </div>
           {/if}
@@ -486,7 +508,7 @@
               />
             </div>
           {:else}
-            <div class="no-preview-warning">卡片预览加载失败</div>
+            <div class="no-preview-warning">{t('aiAssistant.previewWorkspace.previewLoadFailed')}</div>
           {/if}
         </div>
       {:else}
@@ -497,17 +519,17 @@
           {#if showGenerationProgressPanel}
             <div class="generation-progress-panel">
               <div class="generation-progress-heading">
-                <strong>正在生成卡片</strong>
+                <strong>{t('aiAssistant.previewWorkspace.progressTitle')}</strong>
                 <span>{generatedCount} / {totalCards || 0} 张</span>
               </div>
               <div class="generation-progress-meta">
-                <span class="generation-progress-label">生成进度</span>
+                <span class="generation-progress-label">{t('aiAssistant.previewWorkspace.progressLabel')}</span>
                 <span class="generation-progress-count">{generatedCount} / {totalCards || 0} 张</span>
               </div>
               <div class="generation-progress-track" aria-hidden="true">
                 <div class="generation-progress-fill" style={`width: ${progressPercent}%`}></div>
               </div>
-              <p class="generation-progress-hint">AI 正在逐张生成卡片，新的结果会实时追加到这里。</p>
+              <p class="generation-progress-hint">{t('aiAssistant.previewWorkspace.progressHint')}</p>
             </div>
           {/if}
           <h3>{isGenerating ? resolvedBusyTitle : resolvedEmptyTitle}</h3>
@@ -542,7 +564,7 @@
               oncontextmenu={(event) => handleThumbnailContextMenu(event, item.id)}
               role="button"
               tabindex="0"
-              title={`${t('modals.cardPreview.title')} ${index + 1}${enableSelection ? ' · 长按可选中' : ''}`}
+              title={`${t('modals.cardPreview.title')} ${index + 1}${enableSelection ? t('aiAssistant.previewWorkspace.thumbnailLongPressHintSuffix') : ''}`}
             >
               <div class="thumbnail-number">{index + 1}</div>
               {#if enableSelection && selectedCardIds.has(item.id)}
@@ -599,7 +621,7 @@
                       <button
                         type="button"
                         class="import-tag-chip-remove"
-                        aria-label={`移除标签 ${tag}`}
+                        aria-label={t('aiAssistant.previewWorkspace.removeTag', { tag })}
                         disabled={isImporting}
                         onclick={() => {
                           void removeCommittedImportTag(tag);
@@ -614,8 +636,10 @@
                     type="text"
                     class="import-tags-input"
                     value={importAutoTagsText}
-                    placeholder={committedImportTags.length > 0 ? '继续输入后按回车' : '输入标签后按回车'}
-                    aria-label="自动标签"
+                    placeholder={committedImportTags.length > 0
+                      ? t('aiAssistant.previewWorkspace.tagPlaceholderContinue')
+                      : t('aiAssistant.previewWorkspace.tagPlaceholderFirst')}
+                    aria-label={t('aiAssistant.previewWorkspace.autoTags')}
                     disabled={isImporting}
                     oninput={(event) => {
                       importAutoTagsText = (event.currentTarget as HTMLInputElement).value;
@@ -639,7 +663,9 @@
               disabled={selectedCount === 0 || isImporting || !selectedDeckId || !onImport}
             >
               <ObsidianIcon name="download" size={16} />
-              <span>{isImporting ? '导入中' : `导入 ${selectedCount}`}</span>
+              <span>{isImporting
+                ? t('aiAssistant.previewWorkspace.importing')
+                : t('aiAssistant.previewWorkspace.importButton', { count: selectedCount })}</span>
             </button>
           </div>
         </div>

@@ -173,7 +173,7 @@ export class QuestionBankView extends ItemView {
 	 * 📱 添加编辑模式按钮（保存并返回）
 	 */
 	private addEditModeActions(): void {
-		const saveAction = this.addAction("check", "保存并返回", async () => {
+		const saveAction = this.addAction("check", i18n.t("views.questionBank.saveAndReturn"), async () => {
 			logger.debug("[QuestionBankView] 移动端保存按钮被点击");
 			await this.handleSaveFromHeader();
 		});
@@ -203,7 +203,7 @@ export class QuestionBankView extends ItemView {
 			// 所以先添加菜单按钮（显示在最右），再添加答题情况按钮（显示在菜单左边）
 
 			// 1. 菜单按钮（最右边）
-			const menuAction = this.addAction("menu", "打开菜单", () => {
+			const menuAction = this.addAction("menu", i18n.t("views.questionBank.openMenu"), () => {
 				logger.debug("[QuestionBankView] 移动端菜单按钮被点击");
 				if (this.mobileMenuCallback) {
 					this.mobileMenuCallback();
@@ -215,7 +215,7 @@ export class QuestionBankView extends ItemView {
 			if (menuAction) this.mobileActionElements.push(menuAction);
 
 			// 2. 答题情况按钮（菜单按钮左边）- 使用 activity 图标（与 StudyView 一致）
-			const statsAction = this.addAction("activity", "答题情况", () => {
+			const statsAction = this.addAction("activity", i18n.t("views.questionBank.stats"), () => {
 				logger.debug("[QuestionBankView] 移动端答题情况按钮被点击");
 				if (this.toggleStatsBarCallback) {
 					this.toggleStatsBarCallback();
@@ -227,7 +227,7 @@ export class QuestionBankView extends ItemView {
 			if (statsAction) this.mobileActionElements.push(statsAction);
 
 			// 3. 题目导航栏按钮（答题情况按钮左边）- 使用 list 图标
-			const navigatorAction = this.addAction("list", "题目导航", () => {
+			const navigatorAction = this.addAction("list", i18n.t("views.questionBank.navigator"), () => {
 				logger.debug("[QuestionBankView] 移动端题目导航按钮被点击");
 				if (this.toggleNavigatorCallback) {
 					this.toggleNavigatorCallback();
@@ -390,7 +390,7 @@ export class QuestionBankView extends ItemView {
 				await new Promise((resolve) => setTimeout(resolve, interval));
 			}
 
-			throw new Error("题库服务初始化超时");
+			throw new Error(i18n.t("views.questionBank.serviceInitTimeout"));
 		}
 	}
 
@@ -401,7 +401,7 @@ export class QuestionBankView extends ItemView {
 		this.contentEl.empty();
 		this.contentEl.createDiv({
 			cls: "weave-study-loading",
-			text: "正在加载题库...",
+			text: i18n.t("views.questionBank.loadingBank"),
 		});
 	}
 
@@ -422,7 +422,7 @@ export class QuestionBankView extends ItemView {
 	private async loadQuestionsAndCreateComponent(): Promise<void> {
 		if (!this.bankId) {
 			logger.error("[QuestionBankView] 缺少 bankId");
-			this.showError("题库ID无效，请重新选择题库");
+			this.showError(i18n.t("views.questionBank.invalidBankId"));
 			return;
 		}
 
@@ -436,7 +436,7 @@ export class QuestionBankView extends ItemView {
 			const questions = await this.plugin.questionBankService?.getQuestionsByBank(this.bankId);
 
 			if (!questions || questions.length === 0) {
-				this.showError("题库为空，请先添加题目");
+				this.showError(i18n.t("views.questionBank.emptyBank"));
 				return;
 			}
 
@@ -446,7 +446,11 @@ export class QuestionBankView extends ItemView {
 			await this.createStudyComponent();
 		} catch (error) {
 			logger.error("[QuestionBankView] 加载题目失败:", error);
-			this.showError(`加载题目失败: ${error instanceof Error ? error.message : "未知错误"}`);
+			this.showError(
+				i18n.t("views.questionBank.loadQuestionsFailed", {
+					error: error instanceof Error ? error.message : i18n.t("common.unknown"),
+				})
+			);
 		}
 	}
 
@@ -466,7 +470,7 @@ export class QuestionBankView extends ItemView {
 			);
 
 			if (!this.bankId || !this.questions) {
-				this.showError("题库数据不完整，无法打开考试界面");
+				this.showError(i18n.t("views.questionBank.incompleteData"));
 				return;
 			}
 
@@ -490,7 +494,7 @@ export class QuestionBankView extends ItemView {
 			logger.debug("[QuestionBankView] ✅ 考试组件已挂载（保持模态窗风格）");
 		} catch (error) {
 			logger.error("[QuestionBankView] 创建组件失败:", error);
-			this.showError("加载界面失败");
+			this.showError(i18n.t("views.questionBank.loadInterfaceFailed"));
 		}
 	}
 
@@ -542,7 +546,7 @@ export class QuestionBankView extends ItemView {
 			}
 		} catch (error) {
 			logger.error("[QuestionBankView] 初始化失败:", error);
-			this.showError("初始化失败");
+			this.showError(i18n.t("views.questionBank.initFailed"));
 		}
 	}
 

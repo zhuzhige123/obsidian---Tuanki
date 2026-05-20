@@ -7,6 +7,7 @@
   import { AI_PROVIDER_LABELS, AI_MODEL_OPTIONS } from '../settings/constants/settings-constants';
   import { addWeaveNavigationItems, type WeavePageId } from '../../utils/weave-navigation-menu';
   import { applyStyleProps } from '../../utils/style-props';
+  import { i18n, tr } from '../../utils/i18n';
 
   type PromptSuggestionItem = PromptTemplate & {
     category: 'official' | 'custom';
@@ -44,7 +45,10 @@
 
       const row = el.createDiv({ cls: 'weave-ai-prompt-suggest-row' });
       row.createDiv({ text: prompt.name, cls: 'weave-ai-prompt-suggest-title' });
-      row.createDiv({ text: prompt.category === 'official' ? '内置' : '自定义', cls: 'weave-ai-prompt-suggest-badge' });
+      row.createDiv({
+        text: prompt.category === 'official' ? i18n.t('aiAssistant.promptFooter.builtin') : i18n.t('aiAssistant.promptFooter.custom'),
+        cls: 'weave-ai-prompt-suggest-badge'
+      });
 
       if (prompt.description) {
         el.createDiv({ text: prompt.description, cls: 'weave-ai-prompt-suggest-desc' });
@@ -102,6 +106,7 @@
     compact = false,
     refreshKey = 0
   }: Props = $props();
+  let t = $derived($tr);
 
   // 输入框引用
   let textareaElement = $state<HTMLTextAreaElement | undefined>(undefined);
@@ -179,7 +184,7 @@
     if (officialPrompts.length === 0 && customPrompts.length === 0) {
       menu.addItem((item) => {
         item
-          .setTitle('暂无可用模板')
+          .setTitle(i18n.t('aiAssistant.toolbar.noTemplates'))
           .setDisabled(true);
       });
     }
@@ -262,7 +267,7 @@
     if (currentPage === 'ai-assistant') {
       menu.addItem((item) => {
         item
-          .setTitle('历史记录')
+          .setTitle(i18n.t('mainMenu.aiAssistant.history'))
           .setIcon('history')
           .onClick(() => {
             window.dispatchEvent(
@@ -275,7 +280,7 @@
 
       menu.addItem((item) => {
         item
-          .setTitle('选择模型')
+          .setTitle(i18n.t('mainMenu.aiAssistant.selectModel'))
           .setIcon('cpu')
           .onClick(() => {
             window.dispatchEvent(
@@ -288,7 +293,7 @@
 
       menu.addItem((item) => {
         item
-          .setTitle('AI制卡配置')
+          .setTitle(i18n.t('mainMenu.aiAssistant.config'))
           .setIcon('settings')
           .onClick(() => {
             window.dispatchEvent(
@@ -428,11 +433,11 @@
     <button
       class="prompt-selector-btn"
       onclick={openPromptMenu}
-      title="选择提示词模板"
+      title={t('aiAssistant.toolbar.selectPromptTemplate')}
     >
       <ObsidianIcon name="message-square" size={14} />
       <span class="prompt-selector-text">
-        {selectedPrompt ? selectedPrompt.name : '选择提示词'}
+        {selectedPrompt ? selectedPrompt.name : t('aiAssistant.promptFooter.selectPrompt')}
       </span>
       <ObsidianIcon name="chevron-down" size={12} />
     </button>
@@ -443,7 +448,7 @@
     <button
       class="ai-provider-selector-btn"
       onclick={openProviderMenu}
-      title="选择AI服务商和模型"
+      title={t('aiAssistant.toolbar.selectProviderModel')}
     >
       <ObsidianIcon name="cpu" size={14} />
       <span class="provider-text">
@@ -460,8 +465,8 @@
         <button
           class="plugin-menu-btn"
           onclick={openPluginMenu}
-          aria-label="打开插件菜单"
-          title="打开插件菜单"
+          aria-label={t('aiAssistant.promptFooter.openPluginMenu')}
+          title={t('aiAssistant.promptFooter.openPluginMenu')}
         >
           <ObsidianIcon name="menu" size={18} />
         </button>
@@ -470,7 +475,7 @@
       <textarea
         bind:this={textareaElement}
         class="prompt-textarea"
-        placeholder="或输入自定义提示词..."
+        placeholder={t('aiAssistant.promptFooter.customPromptPlaceholder')}
         value={customPrompt}
         oninput={handleInput}
         onkeydown={handleKeyDown}
@@ -486,14 +491,14 @@
       class="generate-btn"
       onclick={onGenerate}
       disabled={disabled || isGenerating}
-      title={disabled ? '请先输入内容' : '生成AI卡片'}
+      title={disabled ? t('aiAssistant.promptFooter.inputContentFirst') : t('aiAssistant.toolbar.generateCards')}
     >
       {#if isGenerating}
         <ObsidianIcon name="loader" size={16} />
-        <span>生成中...</span>
+        <span>{t('mainMenu.aiAssistant.generating')}</span>
       {:else}
         <ObsidianIcon name="sparkles" size={16} />
-        <span>点击生成</span>
+        <span>{t('aiAssistant.promptFooter.clickToGenerate')}</span>
       {/if}
     </button>
   {/if}

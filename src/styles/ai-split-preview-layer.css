@@ -1,0 +1,27 @@
+/**
+ * Workspace 底部全局层：AI 选中文本拆分预览（多入口共用）
+ * 约束：低于 Obsidian 模态层（--z-index-modal），避免盖住系统对话框。
+ */
+.weave-global-ai-split-preview-layer {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: calc(var(--z-index-modal, 400) - 30);
+	pointer-events: none;
+	padding-bottom: env(safe-area-inset-bottom, 0px);
+	box-sizing: border-box;
+}
+
+.weave-global-ai-split-preview-layer .weave-global-ai-split-preview-inner {
+	pointer-events: auto;
+	width: 100%;
+	max-width: 100%;
+	margin: 0 auto;
+}
+
+/* 在全局层内不必再 sticky 贴编辑器底部，避免与 fixed 父级叠算异常 */
+.weave-global-ai-split-preview-layer .weave-ai-card-panel-container {
+	position: relative;
+	bottom: auto;
+}

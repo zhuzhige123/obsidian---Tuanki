@@ -28,7 +28,7 @@ interface CacheState {
  * 全局数据缓存管理器（单例）
  */
 export class GlobalDataCache {
-	private static instance: GlobalDataCache;
+	private static instance: GlobalDataCache | null = null;
 
 	// 缓存状态
 	private state: CacheState = {
@@ -54,6 +54,15 @@ export class GlobalDataCache {
 			GlobalDataCache.instance = new GlobalDataCache();
 		}
 		return GlobalDataCache.instance;
+	}
+
+	static destroyInstance(): void {
+		if (!GlobalDataCache.instance) {
+			return;
+		}
+
+		GlobalDataCache.instance.destroy();
+		GlobalDataCache.instance = null;
 	}
 
 	/**
@@ -160,6 +169,12 @@ export class GlobalDataCache {
 		this.state.decks = null;
 		this.state.timestamp = 0;
 		this.loadPromise = null;
+	}
+
+	destroy(): void {
+		this.clear();
+		this.state.isLoading = false;
+		this.plugin = null;
 	}
 
 	/**

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { TestSession, TestQuestionRecord } from "../../types/question-bank-types";
+  import { tr } from "../../utils/i18n";
 
   interface Props {
     session: TestSession | null;
@@ -7,6 +8,7 @@
   }
 
   let { session, currentQuestion }: Props = $props();
+  let t = $derived($tr);
 
   // 计算统计信息（显示当前题目的历史统计）
   const stats = $derived.by(() => {
@@ -72,14 +74,14 @@
   <!-- 答题次数（累计） -->
   <div class="stat-card attempts-card">
     <div class="stat-header">
-      <span class="stat-title">累计答题</span>
+      <span class="stat-title">{t('study.questionBankUI.statsCards.totalAttempts')}</span>
     </div>
     <div class="stat-content">
       <div class="stat-value-row">
         <span class="stat-value">
           {stats.totalAttempts}
         </span>
-        <span class="stat-unit">次</span>
+        <span class="stat-unit">{t('study.questionBankUI.statsCards.timesUnit')}</span>
       </div>
     </div>
   </div>
@@ -87,7 +89,7 @@
   <!-- 正确率（该题目的平均正确率） -->
   <div class="stat-card accuracy-card">
     <div class="stat-header">
-      <span class="stat-title">平均正确率</span>
+      <span class="stat-title">{t('study.questionBankUI.statsCards.avgAccuracy')}</span>
     </div>
     <div class="stat-content">
       <div class="stat-value-row">
@@ -101,14 +103,14 @@
   <!-- 错误数（累计） -->
   <div class="stat-card wrong-card">
     <div class="stat-header">
-      <span class="stat-title">累计错误</span>
+      <span class="stat-title">{t('study.questionBankUI.statsCards.totalWrong')}</span>
     </div>
     <div class="stat-content">
       <div class="stat-value-row">
         <span class="stat-value">
           {stats.wrongCount}
         </span>
-        <span class="stat-unit">次</span>
+        <span class="stat-unit">{t('study.questionBankUI.statsCards.timesUnit')}</span>
       </div>
     </div>
   </div>
@@ -116,14 +118,14 @@
   <!-- 当前得分 -->
   <div class="stat-card score-card">
     <div class="stat-header">
-      <span class="stat-title">当前得分</span>
+      <span class="stat-title">{t('study.questionBankUI.statsCards.currentScore')}</span>
     </div>
     <div class="stat-content">
       <div class="stat-value-row">
         <span class="stat-value" style="color: {getScoreColor(stats.currentScore)}">
           {Math.round(stats.currentScore)}
         </span>
-        <span class="stat-unit">分</span>
+        <span class="stat-unit">{t('study.questionBankUI.statsCards.scoreUnit')}</span>
       </div>
     </div>
   </div>

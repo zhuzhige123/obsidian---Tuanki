@@ -7,18 +7,10 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
 const LOCK_FILE = path.join(PROJECT_ROOT, ".dev-watch.lock.json");
 const VITE_ENTRY = path.join("node_modules", "vite", "bin", "vite.js");
 const MAX_OLD_SPACE_SIZE = process.env.WEAVE_DEV_MEMORY_MB || "4096";
-const DEFAULT_PLUGIN_ID = "weave";
-const STANDALONE_EPUB_PLUGIN_ID = "weave-epub-reader";
-const STANDALONE_IR_PLUGIN_ID = "weave-incremental-reading";
+const PLUGIN_ID = "weave";
 const DESKTOP_SOURCE_DIR = process.env.WEAVE_DESKTOP_SOURCE_DIR?.trim()
 	? path.resolve(process.env.WEAVE_DESKTOP_SOURCE_DIR)
 	: path.resolve(PROJECT_ROOT, ".desktop-hot-reload");
-const PLUGIN_ID =
-	process.env.WEAVE_EPUB_STANDALONE === "1"
-		? STANDALONE_EPUB_PLUGIN_ID
-		: process.env.WEAVE_IR_STANDALONE === "1"
-			? STANDALONE_IR_PLUGIN_ID
-			: DEFAULT_PLUGIN_ID;
 
 function isProcessAlive(pid) {
 	if (!Number.isInteger(pid) || pid <= 0) {

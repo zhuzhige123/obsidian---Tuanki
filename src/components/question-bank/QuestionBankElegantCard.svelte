@@ -88,7 +88,12 @@
   oncontextmenu={handleContextMenu}
   role="button"
   tabindex="0"
-  aria-label="{bank.name} - 总题{stats.total}, 已练{stats.completed}, 正确率{stats.accuracy.toFixed(0)}%"
+  aria-label={t('study.questionBankUI.bankCollection.ariaLabel', {
+    name: bank.name,
+    total: stats.total,
+    completed: stats.completed,
+    accuracy: stats.accuracy.toFixed(0)
+  })}
 >
   <!-- 纹理层 -->
   <div class="texture-overlay"></div>
@@ -116,19 +121,19 @@
       {/if}
     </div>
 
-    <!-- 底部统计信息栏 - 左下角 -->
-    <div class="stats-bar">
-      <div class="stat-item">
-        <span class="stat-label">{t('decks.questionBank.total')}</span>
-        <span class="stat-value">{stats.total}</span>
+    <!-- 底部统计信息栏（qb-eleg-*：避免全局 stat-* 类名污染） -->
+    <div class="qb-eleg-stats-bar">
+      <div class="qb-eleg-stat">
+        <span class="qb-eleg-stat-num">{stats.total}</span>
+        <span class="qb-eleg-stat-lbl">{t('decks.questionBank.total')}</span>
       </div>
-      <div class="stat-item">
-        <span class="stat-label">{t('decks.questionBank.completed')}</span>
-        <span class="stat-value">{stats.completed}</span>
+      <div class="qb-eleg-stat">
+        <span class="qb-eleg-stat-num">{stats.completed}</span>
+        <span class="qb-eleg-stat-lbl">{t('decks.questionBank.completed')}</span>
       </div>
-      <div class="stat-item">
-        <span class="stat-label">{t('decks.questionBank.errors')}</span>
-        <span class="stat-value">{stats.errorCount}</span>
+      <div class="qb-eleg-stat">
+        <span class="qb-eleg-stat-num">{stats.errorCount}</span>
+        <span class="qb-eleg-stat-lbl">{t('decks.questionBank.errors')}</span>
       </div>
     </div>
   </div>
@@ -293,32 +298,41 @@
   }
 
   /* 统计信息栏 */
-  .stats-bar {
+  .qb-eleg-stats-bar {
     display: flex;
-    gap: 20px;
-    row-gap: 8px;
-    flex-wrap: wrap;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 18px;
+    row-gap: 6px;
     color: rgba(255, 255, 255, 0.9);
     font-size: 13px;
+    font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-width: 0;
   }
 
-  .stat-item {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 3px;
+  .qb-eleg-stat {
+    display: inline-flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: baseline;
+    gap: 0.2em;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
-  .stat-label {
+  .qb-eleg-stat-lbl {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.72);
     font-weight: 400;
+    white-space: nowrap;
   }
 
-  .stat-value {
+  .qb-eleg-stat-num {
     font-weight: 600;
-    font-family: var(--font-interface), -apple-system, sans-serif;
+    font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     font-size: 16px;
+    font-variant-numeric: tabular-nums;
     color: rgba(255, 255, 255, 0.95);
   }
 
@@ -335,15 +349,15 @@
     padding: 16px 20px;
   }
 
-  .compact .stats-bar {
-    gap: 16px;
+  .compact .qb-eleg-stats-bar {
+    gap: 14px;
   }
 
-  .compact .stat-label {
+  .compact .qb-eleg-stat-lbl {
     font-size: 11px;
   }
 
-  .compact .stat-value {
+  .compact .qb-eleg-stat-num {
     font-size: 14px;
   }
 
@@ -361,15 +375,15 @@
       padding: 20px 24px;
     }
 
-    .stats-bar {
-      gap: 18px;
+    .qb-eleg-stats-bar {
+      gap: 16px;
     }
 
-    .stat-label {
+    .qb-eleg-stat-lbl {
       font-size: 12px;
     }
 
-    .stat-value {
+    .qb-eleg-stat-num {
       font-size: 15px;
     }
 
@@ -392,7 +406,7 @@
       padding: 24px 28px;
     }
 
-    .stat-value {
+    .qb-eleg-stat-num {
       font-size: 18px;
     }
   }
@@ -411,15 +425,15 @@
       font-size: 21px;
     }
 
-    .stats-bar {
-      gap: 12px 16px;
+    .qb-eleg-stats-bar {
+      gap: 12px 14px;
     }
 
-    .stat-label {
+    .qb-eleg-stat-lbl {
       font-size: 11px;
     }
 
-    .stat-value {
+    .qb-eleg-stat-num {
       font-size: 14px;
     }
 
@@ -442,15 +456,15 @@
       font-size: 18px;
     }
 
-    .stats-bar {
+    .qb-eleg-stats-bar {
       gap: 10px 12px;
     }
 
-    .stat-label {
+    .qb-eleg-stat-lbl {
       font-size: 10px;
     }
 
-    .stat-value {
+    .qb-eleg-stat-num {
       font-size: 13px;
     }
 

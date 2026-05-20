@@ -6,6 +6,7 @@
 
 import type { QuestionBankModeConfig } from "../../types/question-bank-types";
 import { Notice } from "obsidian";
+import { tr } from "../../utils/i18n";
 
 interface Props {
   open: boolean;
@@ -16,6 +17,7 @@ interface Props {
 }
 
 let { open, bankName, totalQuestions, onSelect, onCancel }: Props = $props();
+let t = $derived($tr);
 
 // 配置流程状态
 let currentStep = $state(2);
@@ -82,7 +84,7 @@ function handleComplete() {
   };
 
   onSelect('exam', normalizedConfig);
-  new Notice('配置已应用，开始考试');
+  new Notice(t('study.questionBankUI.configModal.applied'));
 }
 
 function handleCancel() {
@@ -115,11 +117,13 @@ function getEstimatedTime(): string {
   const totalMinutes = Math.ceil(count * baseTimePerQuestion);
   
   if (totalMinutes < 60) {
-    return `${totalMinutes}分钟`;
+    return t('study.questionBankUI.configModal.minutesUnit', { count: totalMinutes });
   } else {
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
-    return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
+    return minutes > 0
+      ? t('study.questionBankUI.configModal.hoursMinutesUnit', { hours, minutes })
+      : t('study.questionBankUI.configModal.hoursUnit', { count: hours });
   }
 }
 </script>
@@ -133,13 +137,13 @@ function getEstimatedTime(): string {
     <!-- 模态窗头部 -->
     <header class="modal-header">
       <div class="header-left">
-        <h1 class="modal-title">考试模式配置</h1>
+        <h1 class="modal-title">{t('study.questionBankUI.configModal.title')}</h1>
       </div>
       <div class="header-center">
         <span class="bank-name">{bankName}</span>
       </div>
       <div class="header-right">
-        <button class="close-button" onclick={handleCancel} aria-label="关闭">
+        <button class="close-button" onclick={handleCancel} aria-label={t('study.questionBankUI.configModal.close')}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
@@ -156,38 +160,38 @@ function getEstimatedTime(): string {
         <div class="config-grid">
           <div class="config-group config-section question-count">
             <div class="section-header">
-              <h3 class="section-title">题目数量</h3>
+              <h3 class="section-title">{t('study.questionBankUI.configModal.questionCount')}</h3>
             </div>
             <div class="option-buttons">
-              <button class="option-btn" class:active={config.customQuestionCount?.exam === null} onclick={() => config.customQuestionCount = {...config.customQuestionCount, exam: null}}>智能推荐</button>
-              <button class="option-btn" class:active={config.customQuestionCount?.exam === 20} onclick={() => config.customQuestionCount = {...config.customQuestionCount, exam: 20}}>20题</button>
-              <button class="option-btn" class:active={config.customQuestionCount?.exam === 30} onclick={() => config.customQuestionCount = {...config.customQuestionCount, exam: 30}}>30题</button>
-              <button class="option-btn" class:active={config.customQuestionCount?.exam === 50} onclick={() => config.customQuestionCount = {...config.customQuestionCount, exam: 50}}>50题</button>
-              <button class="option-btn" class:active={config.customQuestionCount?.exam === totalQuestions} onclick={() => config.customQuestionCount = {...config.customQuestionCount, exam: totalQuestions}}>全部</button>
+              <button class="option-btn" class:active={config.customQuestionCount?.exam === null} onclick={() => config.customQuestionCount = {...config.customQuestionCount, exam: null}}>{t('study.questionBankUI.configModal.smartRecommended')}</button>
+              <button class="option-btn" class:active={config.customQuestionCount?.exam === 20} onclick={() => config.customQuestionCount = {...config.customQuestionCount, exam: 20}}>20{t('study.questionBankUI.configModal.questionsUnit')}</button>
+              <button class="option-btn" class:active={config.customQuestionCount?.exam === 30} onclick={() => config.customQuestionCount = {...config.customQuestionCount, exam: 30}}>30{t('study.questionBankUI.configModal.questionsUnit')}</button>
+              <button class="option-btn" class:active={config.customQuestionCount?.exam === 50} onclick={() => config.customQuestionCount = {...config.customQuestionCount, exam: 50}}>50{t('study.questionBankUI.configModal.questionsUnit')}</button>
+              <button class="option-btn" class:active={config.customQuestionCount?.exam === totalQuestions} onclick={() => config.customQuestionCount = {...config.customQuestionCount, exam: totalQuestions}}>{t('study.questionBankUI.configModal.all')}</button>
             </div>
           </div>
 
           <div class="config-group config-section question-source">
             <div class="section-header">
-              <h3 class="section-title">题目来源</h3>
+              <h3 class="section-title">{t('study.questionBankUI.configModal.questionSource')}</h3>
             </div>
             <div class="option-buttons">
-              <button class="option-btn" class:active={config.questionSource === 'all'} onclick={() => config.questionSource = 'all'}>全部题目</button>
-              <button class="option-btn" class:active={config.questionSource === 'untested'} onclick={() => config.questionSource = 'untested'}>未练习</button>
-              <button class="option-btn" class:active={config.questionSource === 'incorrect'} onclick={() => config.questionSource = 'incorrect'}>错题本</button>
-              <button class="option-btn" class:active={config.questionSource === 'marked'} onclick={() => config.questionSource = 'marked'}>已标记</button>
+              <button class="option-btn" class:active={config.questionSource === 'all'} onclick={() => config.questionSource = 'all'}>{t('study.questionBankUI.configModal.allQuestions')}</button>
+              <button class="option-btn" class:active={config.questionSource === 'untested'} onclick={() => config.questionSource = 'untested'}>{t('study.questionBankUI.configModal.untested')}</button>
+              <button class="option-btn" class:active={config.questionSource === 'incorrect'} onclick={() => config.questionSource = 'incorrect'}>{t('study.questionBankUI.configModal.incorrect')}</button>
+              <button class="option-btn" class:active={config.questionSource === 'marked'} onclick={() => config.questionSource = 'marked'}>{t('study.questionBankUI.configModal.marked')}</button>
             </div>
           </div>
 
           <div class="config-group config-section time-limit">
             <div class="section-header">
-              <h3 class="section-title">时间限制</h3>
+              <h3 class="section-title">{t('study.questionBankUI.configModal.timeLimit')}</h3>
             </div>
             <div class="option-buttons">
-              <button class="option-btn" class:active={!config.examTimeLimit?.exam} onclick={() => config.examTimeLimit = {...config.examTimeLimit, exam: undefined}}>不限时</button>
-              <button class="option-btn" class:active={config.examTimeLimit?.exam === 15} onclick={() => config.examTimeLimit = {...config.examTimeLimit, exam: 15}}>15分钟</button>
-              <button class="option-btn" class:active={config.examTimeLimit?.exam === 30} onclick={() => config.examTimeLimit = {...config.examTimeLimit, exam: 30}}>30分钟</button>
-              <button class="option-btn" class:active={config.examTimeLimit?.exam === 60} onclick={() => config.examTimeLimit = {...config.examTimeLimit, exam: 60}}>60分钟</button>
+              <button class="option-btn" class:active={!config.examTimeLimit?.exam} onclick={() => config.examTimeLimit = {...config.examTimeLimit, exam: undefined}}>{t('study.questionBankUI.configModal.unlimited')}</button>
+              <button class="option-btn" class:active={config.examTimeLimit?.exam === 15} onclick={() => config.examTimeLimit = {...config.examTimeLimit, exam: 15}}>{t('study.questionBankUI.configModal.minutesUnit', { count: 15 })}</button>
+              <button class="option-btn" class:active={config.examTimeLimit?.exam === 30} onclick={() => config.examTimeLimit = {...config.examTimeLimit, exam: 30}}>{t('study.questionBankUI.configModal.minutesUnit', { count: 30 })}</button>
+              <button class="option-btn" class:active={config.examTimeLimit?.exam === 60} onclick={() => config.examTimeLimit = {...config.examTimeLimit, exam: 60}}>{t('study.questionBankUI.configModal.minutesUnit', { count: 60 })}</button>
             </div>
           </div>
         </div>
@@ -196,11 +200,11 @@ function getEstimatedTime(): string {
         <div class="config-preview">
           <div class="preview-stats">
             <div class="stat-item">
-              <span class="stat-label">预计题数</span>
-              <span class="stat-value">{getEstimatedCount()}题</span>
+              <span class="stat-label">{t('study.questionBankUI.configModal.estimatedCount')}</span>
+              <span class="stat-value">{getEstimatedCount()}{t('study.questionBankUI.configModal.questionsUnit')}</span>
             </div>
             <div class="stat-item">
-              <span class="stat-label">预计用时</span>
+              <span class="stat-label">{t('study.questionBankUI.configModal.estimatedTime')}</span>
               <span class="stat-value">{getEstimatedTime()}</span>
             </div>
           </div>
@@ -214,33 +218,33 @@ function getEstimatedTime(): string {
         <div class="advanced-config">
           <div class="config-section question-type">
             <div class="section-header">
-              <h3 class="section-title">题型分布</h3>
+              <h3 class="section-title">{t('study.questionBankUI.configModal.questionTypeDistribution')}</h3>
             </div>
             <div class="slider-group">
               <div class="slider-item">
                 <div class="slider-header">
-                  <span class="slider-label">单选题</span>
+                  <span class="slider-label">{t('study.questionBankUI.configModal.singleChoice')}</span>
                   <span class="slider-value">{config.questionTypeRatio?.single_choice || 40}%</span>
                 </div>
                 <input type="range" class="config-slider" min="0" max="100" value={config.questionTypeRatio?.single_choice || 40} step="5" oninput={(e) => config.questionTypeRatio = {...config.questionTypeRatio, single_choice: parseInt(e.currentTarget.value)}}>
               </div>
               <div class="slider-item">
                 <div class="slider-header">
-                  <span class="slider-label">多选题</span>
+                  <span class="slider-label">{t('study.questionBankUI.configModal.multipleChoice')}</span>
                   <span class="slider-value">{config.questionTypeRatio?.multiple_choice || 30}%</span>
                 </div>
                 <input type="range" class="config-slider" min="0" max="100" value={config.questionTypeRatio?.multiple_choice || 30} step="5" oninput={(e) => config.questionTypeRatio = {...config.questionTypeRatio, multiple_choice: parseInt(e.currentTarget.value)}}>
               </div>
               <div class="slider-item">
                 <div class="slider-header">
-                  <span class="slider-label">填空题</span>
+                  <span class="slider-label">{t('study.questionBankUI.configModal.cloze')}</span>
                   <span class="slider-value">{config.questionTypeRatio?.cloze || 20}%</span>
                 </div>
                 <input type="range" class="config-slider" min="0" max="100" value={config.questionTypeRatio?.cloze || 20} step="5" oninput={(e) => config.questionTypeRatio = {...config.questionTypeRatio, cloze: parseInt(e.currentTarget.value)}}>
               </div>
               <div class="slider-item">
                 <div class="slider-header">
-                  <span class="slider-label">简答题</span>
+                  <span class="slider-label">{t('study.questionBankUI.configModal.shortAnswer')}</span>
                   <span class="slider-value">{config.questionTypeRatio?.short_answer || 10}%</span>
                 </div>
                 <input type="range" class="config-slider" min="0" max="100" value={config.questionTypeRatio?.short_answer || 10} step="5" oninput={(e) => config.questionTypeRatio = {...config.questionTypeRatio, short_answer: parseInt(e.currentTarget.value)}}>
@@ -250,26 +254,26 @@ function getEstimatedTime(): string {
 
           <div class="config-section difficulty">
             <div class="section-header">
-              <h3 class="section-title">难度分布</h3>
+              <h3 class="section-title">{t('study.questionBankUI.configModal.difficultyDistribution')}</h3>
             </div>
             <div class="slider-group">
               <div class="slider-item">
                 <div class="slider-header">
-                  <span class="slider-label">简单</span>
+                  <span class="slider-label">{t('study.questionBankUI.configModal.easy')}</span>
                   <span class="slider-value">{config.difficultyDistribution?.easy || 30}%</span>
                 </div>
                 <input type="range" class="config-slider" min="0" max="100" value={config.difficultyDistribution?.easy || 30} step="5" oninput={(e) => config.difficultyDistribution = {...config.difficultyDistribution, easy: parseInt(e.currentTarget.value)}}>
               </div>
               <div class="slider-item">
                 <div class="slider-header">
-                  <span class="slider-label">中等</span>
+                  <span class="slider-label">{t('study.questionBankUI.configModal.medium')}</span>
                   <span class="slider-value">{config.difficultyDistribution?.medium || 50}%</span>
                 </div>
                 <input type="range" class="config-slider" min="0" max="100" value={config.difficultyDistribution?.medium || 50} step="5" oninput={(e) => config.difficultyDistribution = {...config.difficultyDistribution, medium: parseInt(e.currentTarget.value)}}>
               </div>
               <div class="slider-item">
                 <div class="slider-header">
-                  <span class="slider-label">困难</span>
+                  <span class="slider-label">{t('study.questionBankUI.configModal.hard')}</span>
                   <span class="slider-value">{config.difficultyDistribution?.hard || 20}%</span>
                 </div>
                 <input type="range" class="config-slider" min="0" max="100" value={config.difficultyDistribution?.hard || 20} step="5" oninput={(e) => config.difficultyDistribution = {...config.difficultyDistribution, hard: parseInt(e.currentTarget.value)}}>
@@ -279,39 +283,39 @@ function getEstimatedTime(): string {
 
           <div class="config-section advanced-options">
             <div class="section-header">
-              <h3 class="section-title">其他选项</h3>
+              <h3 class="section-title">{t('study.questionBankUI.configModal.otherOptions')}</h3>
             </div>
             <div class="checkbox-group">
               <label class="checkbox-item">
                 <input type="checkbox" class="config-checkbox" bind:checked={config.options!.shuffleQuestions}>
                 <span class="checkbox-custom"></span>
                 <div class="checkbox-content">
-                  <span class="checkbox-title">随机题目顺序</span>
-                  <span class="checkbox-desc">打乱题目出现顺序</span>
+                  <span class="checkbox-title">{t('study.questionBankUI.configModal.shuffleQuestions')}</span>
+                  <span class="checkbox-desc">{t('study.questionBankUI.configModal.shuffleQuestionsDesc')}</span>
                 </div>
               </label>
               <label class="checkbox-item">
                 <input type="checkbox" class="config-checkbox" bind:checked={config.options!.shuffleOptions}>
                 <span class="checkbox-custom"></span>
                 <div class="checkbox-content">
-                  <span class="checkbox-title">随机选项顺序</span>
-                  <span class="checkbox-desc">打乱选择题选项顺序</span>
+                  <span class="checkbox-title">{t('study.questionBankUI.configModal.shuffleOptions')}</span>
+                  <span class="checkbox-desc">{t('study.questionBankUI.configModal.shuffleOptionsDesc')}</span>
                 </div>
               </label>
               <label class="checkbox-item">
                 <input type="checkbox" class="config-checkbox" bind:checked={config.options!.autoSave}>
                 <span class="checkbox-custom"></span>
                 <div class="checkbox-content">
-                  <span class="checkbox-title">自动保存进度</span>
-                  <span class="checkbox-desc">自动保存答题进度</span>
+                  <span class="checkbox-title">{t('study.questionBankUI.configModal.autoSave')}</span>
+                  <span class="checkbox-desc">{t('study.questionBankUI.configModal.autoSaveDesc')}</span>
                 </div>
               </label>
               <label class="checkbox-item">
                 <input type="checkbox" class="config-checkbox" bind:checked={config.options!.pureExamMode}>
                 <span class="checkbox-custom"></span>
                 <div class="checkbox-content">
-                  <span class="checkbox-title">启用纯考试模式</span>
-                  <span class="checkbox-desc">关闭功能栏并隐藏即时正误反馈，提交后直接进入下一题</span>
+                  <span class="checkbox-title">{t('study.questionBankUI.configModal.pureExamMode')}</span>
+                  <span class="checkbox-desc">{t('study.questionBankUI.configModal.pureExamModeDesc')}</span>
                 </div>
               </label>
             </div>
@@ -325,9 +329,9 @@ function getEstimatedTime(): string {
     <!-- 模态窗底部 -->
     {#if currentStep > 1}
     <footer class="modal-footer">
-      <button class="btn-secondary" onclick={prevStep} disabled={currentStep <= 2}>上一步</button>
+      <button class="btn-secondary" onclick={prevStep} disabled={currentStep <= 2}>{t('study.questionBankUI.configModal.prevStep')}</button>
       <button class="btn-primary" onclick={nextStep}>
-        {currentStep === maxStep ? '开始考试' : '下一步'}
+        {currentStep === maxStep ? t('study.questionBankUI.configModal.startExam') : t('study.questionBankUI.configModal.nextStep')}
       </button>
     </footer>
     {/if}

@@ -1375,6 +1375,82 @@ describe('WeaveDataStorage deck query', () => {
     expect(cards[0].content).toBe('wdeck');
   });
 
+  it('treats .wdeck as the runtime source and does not merge legacy-only cards into normal reads', async () => {
+    const plugin = {
+      settings: {},
+      cardFileService: {
+        getAllCards: vi.fn(async () => [
+          {
+            uuid: 'legacy-only',
+            deckId: 'legacy-deck',
+            content: 'legacy-only',
+            created: '2026-04-14T00:00:00.000Z',
+            modified: '2026-04-14T00:00:00.000Z',
+            stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
+          }
+        ])
+      },
+      wdeckService: {
+        getAllCards: vi.fn(async () => [
+          {
+            uuid: 'wdeck-card',
+            deckId: 'wdeck:deck-1',
+            content: 'wdeck-only',
+            created: '2026-04-14T00:00:00.000Z',
+            modified: '2026-04-14T00:00:00.000Z',
+            stats: { totalReviews: 1, totalTime: 10, averageTime: 10 }
+          }
+        ])
+      },
+      app: {
+        vault: {
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    const cards = await storage.getCards();
+
+    expect(cards.map((card) => card.uuid)).toEqual(['wdeck-card']);
+  });
+
+  it('still bootstraps from legacy cards when no .wdeck data exists yet', async () => {
+    const plugin = {
+      settings: {},
+      cardFileService: {
+        getAllCards: vi.fn(async () => [
+          {
+            uuid: 'legacy-only',
+            deckId: 'legacy-deck',
+            content: 'legacy-only',
+            created: '2026-04-14T00:00:00.000Z',
+            modified: '2026-04-14T00:00:00.000Z',
+            stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
+          }
+        ])
+      },
+      wdeckService: {
+        getAllCards: vi.fn(async () => [])
+      },
+      app: {
+        vault: {
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    vi.spyOn(storage as any, 'hasLegacyMemoryStorage').mockResolvedValue(true);
+    const cards = await storage.getCards();
+
+    expect(cards.map((card) => card.uuid)).toEqual(['legacy-only']);
+  });
+
   it('prefers targeted UUID readers before any full card scan', async () => {
     const plugin = {
       settings: {},

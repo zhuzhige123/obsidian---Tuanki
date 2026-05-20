@@ -18,7 +18,7 @@
   import type { Card, Deck } from "../../data/types";
   import type { WeavePlugin } from "../../main";
   //  导入国际化
-  import { tr } from '../../utils/i18n';
+  import { currentLanguage, tr } from '../../utils/i18n';
   import { MarkdownRenderer, Component, Notice } from "obsidian";
   import { FeatureUsageHintModal } from '../../modals/FeatureUsageHintModal';
   import {
@@ -155,7 +155,11 @@
   let t = $derived($tr);
   let ratingLabelStyleOptions = $derived(getRatingLabelStyleOptions(t));
   let normalizedRatingLabelStyle = $derived(normalizeRatingLabelStyle(ratingLabelStyle));
-	let currentLocale = $derived(t('toolbar.unknownDeck') === '未知牌组' ? 'zh-CN' : 'en-US');
+	let currentLocale = $derived($currentLanguage === 'zh-CN' ? 'zh-CN' : 'en-US');
+
+  function getLocalizedDerivationMethodName(method: string): string {
+    return getDerivationMethodName(method, (key) => t(key));
+  }
 
   // 格式化学习时间
   function formatTime(ms: number): string {
@@ -698,7 +702,7 @@
 
     // EPUB文件：拦截到插件内置阅读器
     if (file.path.toLowerCase().endsWith('.epub')) {
-      const { EpubLinkService } = await import('../../services/epub/EpubLinkService');
+      const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
       const linkService = new EpubLinkService(plugin.app);
       await linkService.navigateToEpubLocation(file.path, sourceInfo.epubCfi || '', sourceInfo.epubText || '');
       new Notice(t('toolbar.openedEpub'));
@@ -743,7 +747,7 @@
       
       // EPUB文件：拦截到插件内置阅读器
       if (file.path.toLowerCase().endsWith('.epub')) {
-        const { EpubLinkService } = await import('../../services/epub/EpubLinkService');
+        const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
         const linkService = new EpubLinkService(plugin.app);
         await linkService.navigateToEpubLocation(file.path, sourceInfo.epubCfi || '', sourceInfo.epubText || '');
         if (sourceBlockButtonElement) {
@@ -1174,7 +1178,7 @@
                     {#if card.parentCardId}
                       <span class="relation-badge-compact child">{t('toolbar.childCard')}</span>
                       {#if card.relationMetadata?.derivationMetadata?.method}
-                        <span class="relation-note">({getDerivationMethodName(card.relationMetadata.derivationMetadata.method)})</span>
+                        <span class="relation-note">({getLocalizedDerivationMethodName(card.relationMetadata.derivationMetadata.method)})</span>
                       {/if}
                     {:else if card.relationMetadata?.isParent || (card.relationMetadata?.childCardIds && card.relationMetadata.childCardIds.length > 0)}
                       <span class="relation-badge-compact parent">{t('toolbar.parentCard')}</span>

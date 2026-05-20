@@ -85,6 +85,31 @@
   --breakpoint-mobile: 768px;
   --breakpoint-tablet: 1024px;
   --breakpoint-desktop: 1280px;
+
+  /* 动画缓动（组件内 var(--weave-easing-ease) 等） */
+  --weave-easing-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 触控目标（mobile-responsive / 内联编辑器等，原 design-tokens.css） */
+  --weave-touch-xs: 40px;
+  --weave-touch-sm: 44px;
+  --weave-touch-md: 48px;
+  --weave-touch-lg: 56px;
+  --weave-touch-xl: 64px;
+  --weave-touch-gap-xs: 8px;
+  --weave-touch-gap-sm: 12px;
+  --weave-touch-gap-md: 16px;
+  --weave-touch-gap-lg: 20px;
+  --weave-touch-scale: 0.98;
+  --weave-touch-duration-fast: 0.1s;
+  --weave-touch-duration-normal: 0.2s;
+  --weave-touch-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 选择题预览状态色（MultipleChoiceCard 等，原 design-tokens.css） */
+  --weave-choice-default: var(--background-secondary);
+  --weave-choice-hover: var(--background-modifier-hover);
+  --weave-choice-selected: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+  --weave-choice-correct: color-mix(in srgb, var(--color-green, #10b981) 15%, transparent);
+  --weave-choice-incorrect: color-mix(in srgb, var(--color-red, #ef4444) 15%, transparent);
 }
 
 /* 默认为浅色调色板（无主题类时） */

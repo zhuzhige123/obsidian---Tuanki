@@ -1,5 +1,6 @@
 <script lang="ts">
   import { logger } from '../../../utils/logger';
+  import { tr } from '../../../utils/i18n';
 
   import type { Card } from '../../../data/types';
   import { formatRelativeTimeDetailed } from '../../../utils/helpers';
@@ -10,6 +11,7 @@
   }
 
   let { card, isMobile = false }: Props = $props();
+  let t = $derived($tr);
 
   // 获取测试统计数据
   const testStats = $derived(card.stats?.testStats);
@@ -38,17 +40,17 @@
 
   // 格式化时间（毫秒转秒）
   function formatTime(ms: number): string {
-    if (ms === 0) return '0秒';
+    if (ms === 0) return t('study.questionBankUI.statsTab.seconds', { count: 0 });
     const seconds = (ms / 1000).toFixed(2);
-    return `${seconds}秒`;
+    return t('study.questionBankUI.statsTab.seconds', { count: seconds });
   }
 
   // 获取正确率等级
   function getAccuracyLevel(acc: number): string {
-    if (acc >= 90) return '优秀';
-    if (acc >= 75) return '良好';
-    if (acc >= 60) return '及格';
-    return '需加强';
+    if (acc >= 90) return t('study.questionBankUI.statsTab.excellent');
+    if (acc >= 75) return t('study.questionBankUI.statsTab.good');
+    if (acc >= 60) return t('study.questionBankUI.statsTab.pass');
+    return t('study.questionBankUI.statsTab.needsWork');
   }
 
   // 获取正确率颜色类
@@ -65,27 +67,27 @@
     <!-- 核心指标 -->
     <section class="info-section" class:mobile={isMobile}>
       <h3 class="section-title with-accent-bar accent-blue" class:mobile={isMobile}>
-        核心指标
+        {t('study.questionBankUI.statsTab.coreMetrics')}
       </h3>
       
       <div class="info-grid" class:mobile={isMobile}>
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">总测试次数</span>
-          <span class="info-value">{testStats.totalAttempts} 次</span>
+          <span class="info-label">{t('study.questionBankUI.statsTab.totalAttempts')}</span>
+          <span class="info-value">{t('study.questionBankUI.statsTab.timesUnit', { count: testStats.totalAttempts })}</span>
         </div>
 
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">正确次数</span>
-          <span class="info-value success">{testStats.correctAttempts} 次</span>
+          <span class="info-label">{t('study.questionBankUI.statsTab.correctAttempts')}</span>
+          <span class="info-value success">{t('study.questionBankUI.statsTab.timesUnit', { count: testStats.correctAttempts })}</span>
         </div>
 
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">错误次数</span>
-          <span class="info-value error">{testStats.incorrectAttempts} 次</span>
+          <span class="info-label">{t('study.questionBankUI.statsTab.incorrectAttempts')}</span>
+          <span class="info-value error">{t('study.questionBankUI.statsTab.timesUnit', { count: testStats.incorrectAttempts })}</span>
         </div>
 
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">正确率</span>
+          <span class="info-label">{t('study.questionBankUI.statsTab.accuracy')}</span>
           <span class="info-value accuracy {getAccuracyColorClass(accuracy)}">
             {accuracy}% ({getAccuracyLevel(accuracy)})
           </span>
@@ -96,20 +98,20 @@
     <!-- 表现指标 -->
     <section class="info-section" class:mobile={isMobile}>
       <h3 class="section-title with-accent-bar accent-purple" class:mobile={isMobile}>
-        表现指标
+        {t('study.questionBankUI.statsTab.performance')}
       </h3>
       
       <div class="info-grid" class:mobile={isMobile}>
         <!-- 时间表现 -->
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">平均响应时间</span>
+          <span class="info-label">{t('study.questionBankUI.statsTab.avgResponseTime')}</span>
           <span class="info-value">
-            <span class="time-badge">{avgResponseTimeSec}秒</span>
+            <span class="time-badge">{t('study.questionBankUI.statsTab.seconds', { count: avgResponseTimeSec })}</span>
           </span>
         </div>
 
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">最快响应时间</span>
+          <span class="info-label">{t('study.questionBankUI.statsTab.fastestResponseTime')}</span>
           <span class="info-value">
             <span class="time-badge fastest">{formatTime(testStats.fastestTime)}</span>
           </span>
@@ -117,21 +119,21 @@
 
         <!-- 得分表现 -->
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">最佳得分</span>
+          <span class="info-label">{t('study.questionBankUI.statsTab.bestScore')}</span>
           <span class="info-value">
             <span class="score-badge best">{testStats.bestScore}</span>
           </span>
         </div>
 
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">平均得分</span>
+          <span class="info-label">{t('study.questionBankUI.statsTab.avgScore')}</span>
           <span class="info-value">
             <span class="score-badge avg">{testStats.averageScore}</span>
           </span>
         </div>
 
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">最近得分</span>
+          <span class="info-label">{t('study.questionBankUI.statsTab.recentScore')}</span>
           <span class="info-value">
             <span class="score-badge recent">{testStats.lastScore}</span>
           </span>
@@ -139,26 +141,26 @@
 
         <!-- 学习状态 -->
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">连续正确</span>
+          <span class="info-label">{t('study.questionBankUI.statsTab.consecutiveCorrect')}</span>
           <span class="info-value">
-            <span class="streak-badge">{testStats.consecutiveCorrect}次</span>
+            <span class="streak-badge">{t('study.questionBankUI.statsTab.timesUnit', { count: testStats.consecutiveCorrect })}</span>
           </span>
         </div>
 
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">错题本</span>
+          <span class="info-label">{t('study.questionBankUI.statsTab.errorBook')}</span>
           <span class="info-value">
             {#if testStats.isInErrorBook}
-              <span class="status-badge in-error-book">已加入</span>
+              <span class="status-badge in-error-book">{t('study.questionBankUI.statsTab.included')}</span>
             {:else}
-              <span class="status-badge not-in-error-book">未加入</span>
+              <span class="status-badge not-in-error-book">{t('study.questionBankUI.statsTab.notIncluded')}</span>
             {/if}
           </span>
         </div>
 
         {#if testStats.lastTestDate}
           <div class="info-row" class:mobile={isMobile}>
-            <span class="info-label">最后测试</span>
+            <span class="info-label">{t('study.questionBankUI.statsTab.lastTest')}</span>
             <span class="info-value">
               <span class="time-muted">{formatRelativeTimeDetailed(testStats.lastTestDate)}</span>
             </span>
@@ -171,8 +173,8 @@
     <!-- 无测试数据 -->
     <section class="info-section" class:mobile={isMobile}>
       <div class="no-data">
-        <div class="no-data-title">暂无测试数据</div>
-        <div class="no-data-desc">开始答题后，这里将显示您的测试统计信息</div>
+        <div class="no-data-title">{t('study.questionBankUI.statsTab.noDataTitle')}</div>
+        <div class="no-data-desc">{t('study.questionBankUI.statsTab.noDataDesc')}</div>
       </div>
     </section>
   {/if}

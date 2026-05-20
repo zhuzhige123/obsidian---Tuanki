@@ -17,6 +17,7 @@ import { logger } from '../../utils/logger';
   import BouncingBallsLoader from '../ui/BouncingBallsLoader.svelte';
   import TestModeSelectionModal from '../modals/TestModeSelectionModal.svelte';
   import { QuestionBankAnalyticsModalObsidian } from '../modals/QuestionBankAnalyticsModalObsidian';
+  import { tr } from '../../utils/i18n';
 
   interface QuestionBankStats {
     total: number;      // 总题数
@@ -30,6 +31,7 @@ import { logger } from '../../utils/logger';
   }
 
   let { plugin }: Props = $props();
+  let t = $derived($tr);
 
   // 获取当前牌组卡片设计样式
   const deckCardStyle = $derived<DeckCardStyle>(
@@ -72,7 +74,9 @@ import { logger } from '../../utils/logger';
       await loadBankStats();
     } catch (error) {
       logger.error("[QuestionBankGridView] Failed to load question bank tree:", error);
-      new Notice("加载题库失败: " + (error instanceof Error ? error.message : "未知错误"));
+      new Notice(t('study.questionBankUI.bankCollection.loadFailed', {
+        error: error instanceof Error ? error.message : t('study.questionBankUI.cardInfoTab.unknown')
+      }));
       questionBankTree = [];
     } finally {
       isLoading = false;
@@ -123,16 +127,16 @@ import { logger } from '../../utils/logger';
   // 开始测试 - 显示模式选择窗口
   async function handleStartTest(bankId: string) {
     if (!plugin.questionBankService) {
-      new Notice("题库服务未初始化");
+      new Notice(t('study.questionBankUI.bankCollection.serviceNotReady'));
       return;
     }
     
     const questions = await plugin.questionBankService.getQuestionsByBank(bankId);
     const bank = await plugin.questionBankService.getBankById(bankId);
-    const bankName = bank?.name || "未知题库";
+    const bankName = bank?.name || t('study.questionBankUI.cardInfoTab.unknown');
     
     if (questions.length === 0) {
-      new Notice("该题库暂无题目");
+      new Notice(t('study.questionBankUI.bankCollection.noQuestions'));
       return;
     }
 
@@ -163,7 +167,7 @@ import { logger } from '../../utils/logger';
     logger.debug('[QuestionBankGridView] 开始考试:', { bankId, bankName, questionCount: questions.length, mode, config });
     
     if (questions.length === 0) {
-      new Notice('题库为空，请先添加题目');
+      new Notice(t('study.questionBankUI.bankCollection.bankEmpty'));
       return;
     }
     
@@ -213,7 +217,7 @@ import { logger } from '../../utils/logger';
       
       const bank = await plugin.questionBankService?.getBankById(bankId);
       if (!bank) {
-        new Notice('题库不存在');
+        new Notice(t('study.questionBankUI.bankCollection.bankMissing'));
         return;
       }
       
@@ -228,7 +232,7 @@ import { logger } from '../../utils/logger';
       analyticsModalInstance.open();
     } catch (error) {
       logger.error('[QuestionBankGridView] 分析题库失败:', error);
-      new Notice('打开分析界面失败');
+      new Notice(t('study.questionBankUI.bankCollection.openAnalyticsFailed'));
     }
   }
 
@@ -237,22 +241,28 @@ import { logger } from '../../utils/logger';
     try {
       const bank = await plugin.questionBankService?.getBankById(bankId);
       if (!bank) {
-        new Notice('题库不存在');
+        new Notice(t('study.questionBankUI.bankCollection.bankMissing'));
         return;
       }
 
-      const confirmed = await showObsidianConfirm(plugin.app, `确定要删除题库「${bank.name}」吗？\n\n删除后题库数据将无法恢复。`, { title: '确认删除' });
+      const confirmed = await showObsidianConfirm(
+        plugin.app,
+        t('study.questionBankUI.bankCollection.deleteConfirmMessage', { name: bank.name }),
+        { title: t('study.questionBankUI.bankCollection.deleteConfirmTitle') }
+      );
       if (!confirmed) return;
 
-      new Notice('正在删除题库...');
+      new Notice(t('study.questionBankUI.bankCollection.deleting'));
       
       await plugin.questionBankService?.deleteBank(bankId);
       await loadQuestionBankTree();
       
-      new Notice('题库删除成功');
+      new Notice(t('study.questionBankUI.bankCollection.deleteSuccess'));
     } catch (error) {
       logger.error('[QuestionBankGridView] 删除题库失败:', error);
-      new Notice(`删除失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      new Notice(t('study.questionBankUI.bankCollection.deleteFailed', {
+        error: error instanceof Error ? error.message : t('study.questionBankUI.cardInfoTab.unknown')
+      }));
     }
   }
 
@@ -289,7 +299,7 @@ import { logger } from '../../utils/logger';
     // 牌组编辑
     menu.addItem((item) =>
       item
-        .setTitle("牌组编辑")
+        .setTitle(t('study.questionBankUI.bankCollection.menu.editBank'))
         .setIcon("edit-3")
         .onClick(() => handleEditBank(bankId))
     );
@@ -297,7 +307,7 @@ import { logger } from '../../utils/logger';
     // 分析功能
     menu.addItem((item) =>
       item
-        .setTitle("分析")
+        .setTitle(t('study.questionBankUI.bankCollection.menu.analyze'))
         .setIcon("bar-chart-2")
         .onClick(() => analyzeBank(bankId))
     );
@@ -307,7 +317,7 @@ import { logger } from '../../utils/logger';
     // 删除功能
     menu.addItem((item) =>
       item
-        .setTitle("删除")
+        .setTitle(t('study.questionBankUI.bankCollection.menu.delete'))
         .setIcon("trash-2")
         .onClick(() => deleteBank(bankId))
     );
@@ -327,13 +337,13 @@ import { logger } from '../../utils/logger';
 
     openObsidianDeckEditModal({
       app: plugin.app,
-      title: '编辑考试题组',
-      nameLabel: '名称',
-      tagLabel: '标签',
-      tagPlaceholder: '输入标签后按回车',
-      tagHint: '可为考试题组设置一个标签，用于分组和筛选。',
-      confirmText: '保存',
-      cancelText: '取消',
+      title: t('study.questionBankUI.bankCollection.editModal.title'),
+      nameLabel: t('study.questionBankUI.bankCollection.editModal.nameLabel'),
+      tagLabel: t('study.questionBankUI.bankCollection.editModal.tagLabel'),
+      tagPlaceholder: t('study.questionBankUI.bankCollection.editModal.tagPlaceholder'),
+      tagHint: t('study.questionBankUI.bankCollection.editModal.tagHint'),
+      confirmText: t('study.questionBankUI.bankCollection.editModal.confirm'),
+      cancelText: t('study.questionBankUI.bankCollection.editModal.cancel'),
       initialName: bank.name,
       initialTag: (bank.tags && bank.tags.length > 0) ? bank.tags[0] : '',
       availableTags,
@@ -349,10 +359,10 @@ import { logger } from '../../utils/logger';
           await dataStorage.saveDeck(updated);
           await loadQuestionBankTree();
           plugin.app.workspace.trigger('Weave:data-changed');
-          new Notice('牌组已更新');
+          new Notice(t('study.questionBankUI.bankCollection.editModal.saveSuccess'));
         } catch (error) {
           logger.error('[QuestionBankGridView] 编辑失败:', error);
-          new Notice('编辑失败');
+          new Notice(t('study.questionBankUI.bankCollection.editModal.saveFailed'));
           throw error;
         }
       }
@@ -365,7 +375,7 @@ import { logger } from '../../utils/logger';
   {#if isLoading}
     <!-- 加载动画 -->
     <div class="loading-container">
-      <BouncingBallsLoader message="正在加载题库..." />
+      <BouncingBallsLoader message={t('study.questionBankUI.bankCollection.loading')} />
     </div>
   {:else if allBanks.length > 0}
     <!-- 网格视图 -->
@@ -406,8 +416,8 @@ import { logger } from '../../utils/logger';
   {:else}
     <!-- 空状态占位符 -->
     <div class="mode-placeholder">
-      <h2 class="placeholder-title">暂无考试题组</h2>
-      <p class="placeholder-desc">请在卡片管理中从选择题引入组建考试题组</p>
+      <h2 class="placeholder-title">{t('study.questionBankUI.bankCollection.noExamSets')}</h2>
+      <p class="placeholder-desc">{t('study.questionBankUI.bankCollection.noExamSetsHint')}</p>
     </div>
   {/if}
 </div>

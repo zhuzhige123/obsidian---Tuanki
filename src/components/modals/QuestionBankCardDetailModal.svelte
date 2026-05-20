@@ -46,8 +46,8 @@
 
   // Tab定义（测试卡片专用）- 📱 移动端显示文本功能键（不显示图标）
   let tabs = $derived([
-    { id: 'info', label: '卡片信息', icon: '' },
-    { id: 'stats', label: '测试数据', icon: '' }
+    { id: 'info', label: t('study.questionBankUI.detailModal.infoTab'), icon: '' },
+    { id: 'stats', label: t('study.questionBankUI.detailModal.statsTab'), icon: '' }
   ]);
 
   // 牌组名称 - 使用$derived确保响应式更新
@@ -55,7 +55,7 @@
   
   // 响应式初始化翻译文本
   $effect(() => {
-    if (!deckName) deckName = '加载中...';
+    if (!deckName) deckName = t('study.questionBankUI.cardInfoTab.loading');
   });
 
   // 监听模态窗打开状态，重新读取最新卡片数据
@@ -96,7 +96,7 @@
               deckName = deck?.name || currentCard.deckId;
             }
           } else {
-            deckName = '无牌组';
+            deckName = t('study.questionBankUI.detailModal.noDeck');
           }
         } catch (error) {
           logger.error('[QuestionBankCardDetailModal] 加载关联数据失败:', error);

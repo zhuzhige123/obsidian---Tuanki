@@ -134,28 +134,32 @@
     <!-- 微妙的光效层 -->
     <div class="light-effect"></div>
 
-    {#if statusBadge}
-      <div class="status-badge status-badge--{statusKind}">
-        {statusBadge}
+    <div class="card-top-row">
+      <div class="card-top-left">
+        {#if statusBadge}
+          <div class="status-badge status-badge--{statusKind}">
+            {statusBadge}
+          </div>
+        {/if}
+
+        {#if deckMode === 'memory' && levelProgress}
+          <div class="level-badge-wrap">
+            <DeckLevelBadge progress={levelProgress} />
+          </div>
+        {/if}
       </div>
-    {/if}
-    
-    <!-- 右上角菜单按钮 -->
-    <button 
-      class="menu-btn"
-      onpointerdown={handleMenuPointerDown}
-      onclick={handleMenuClick}
-      aria-label={t('decks.card.moreActions')}
-      title={t('decks.card.moreActions')}
-    >
-      <EnhancedIcon name="more-horizontal" size={16} />
-    </button>
-    
-    {#if deckMode === 'memory' && levelProgress}
-      <div class="level-badge-wrap">
-        <DeckLevelBadge progress={levelProgress} />
-      </div>
-    {/if}
+      
+      <!-- 右上角菜单按钮 -->
+      <button 
+        class="menu-btn"
+        onpointerdown={handleMenuPointerDown}
+        onclick={handleMenuClick}
+        aria-label={t('decks.card.moreActions')}
+        title={t('decks.card.moreActions')}
+      >
+        <EnhancedIcon name="more-horizontal" size={16} />
+      </button>
+    </div>
     
     <div class="deck-title">
       {deck.name}
@@ -165,18 +169,19 @@
   <!-- 下方信息条 -->
   <div class="card-info-bar" style={infoBarStyle()}>
     <!-- 中间：统计数字 -->
-    <div class="info-center">
-      <div class="stat-item">
-        <span class="stat-number">{stats.newCards}</span>
-        <span class="stat-label">{statLabels.first}</span>
+    <!-- 类名使用 deck-card-stat-* 前缀，避免被全局 .stat-number / .stat-label（如 APKG 样式）污染 -->
+    <div class="deck-card-stats">
+      <div class="deck-card-stat">
+        <span class="deck-card-stat-num">{stats.newCards}</span>
+        <span class="deck-card-stat-lbl">{statLabels.first}</span>
       </div>
-      <div class="stat-item">
-        <span class="stat-number">{stats.learningCards}</span>
-        <span class="stat-label">{statLabels.second}</span>
+      <div class="deck-card-stat">
+        <span class="deck-card-stat-num">{stats.learningCards}</span>
+        <span class="deck-card-stat-lbl">{statLabels.second}</span>
       </div>
-      <div class="stat-item">
-        <span class="stat-number">{stats.reviewCards}</span>
-        <span class="stat-label">{statLabels.third}</span>
+      <div class="deck-card-stat">
+        <span class="deck-card-stat-num">{stats.reviewCards}</span>
+        <span class="deck-card-stat-lbl">{statLabels.third}</span>
       </div>
     </div>
 
@@ -236,9 +241,6 @@
 
   /* 右上角菜单按钮 */
   .menu-btn {
-    position: absolute;
-    top: 12px;
-    right: 12px;
     z-index: 10;
     display: flex;
     align-items: center;
@@ -257,10 +259,6 @@
   }
 
   .status-badge {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    z-index: 10;
     display: inline-flex;
     align-items: center;
     border-radius: 999px;
@@ -297,14 +295,30 @@
   }
 
   .level-badge-wrap {
-    position: absolute;
-    right: 20px;
-    bottom: 18px;
     z-index: 2;
     display: flex;
     align-items: center;
     justify-content: center;
     pointer-events: none;
+  }
+
+  .card-top-row {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    z-index: 10;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .card-top-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
   }
 
   /* 移动端始终显示菜单按钮 */
@@ -333,40 +347,52 @@
 
   /* 下方信息条 */
   .card-info-bar {
-    height: 52px;
+    min-height: 52px;
+    height: auto;
+    box-sizing: border-box;
     backdrop-filter: blur(10px);
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0 20px;
+    justify-content: center;
+    padding: 10px 20px;
     font-size: 13px;
     font-weight: 500;
+    font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
   }
 
-  .info-center {
+  .deck-card-stats {
     display: flex;
+    flex-direction: row;
     align-items: center;
-    gap: 12px;
-    row-gap: 4px;
-    flex-wrap: wrap;
-    flex: 1;
     justify-content: center;
+    gap: 14px;
+    flex-wrap: nowrap;
+    flex: 1;
+    min-width: 0;
   }
 
-  .stat-item {
-    display: flex;
+  .deck-card-stat {
+    display: inline-flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
     align-items: baseline;
-    gap: 2px;
+    gap: 0.15em;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
-  .stat-number {
+  .deck-card-stat-num {
     font-weight: 600;
     font-size: 16px;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
 
-  .stat-label {
+  .deck-card-stat-lbl {
     font-size: 12px;
-    opacity: 0.85;
+    opacity: 0.9;
+    font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
 
   /* 响应式 */
@@ -380,17 +406,17 @@
     }
 
     .card-info-bar {
-      height: 48px;
-      padding: 0 16px;
+      min-height: 48px;
+      padding: 8px 16px;
       font-size: 12px;
     }
 
-    .stat-number {
+    .deck-card-stat-num {
       font-size: 14px;
     }
 
-    .info-center {
-      gap: 8px;
+    .deck-card-stats {
+      gap: 10px;
     }
   }
 
@@ -412,25 +438,25 @@
   }
 
   :global(body.is-phone) .card-info-bar {
-    height: var(--weave-mobile-touch-min, 44px);
-    padding: 0 12px;
+    min-height: var(--weave-mobile-touch-min, 44px);
+    padding: 8px 12px;
   }
 
-  :global(body.is-phone) .stat-number {
+  :global(body.is-phone) .deck-card-stat-num {
     font-size: 14px;
   }
 
-  :global(body.is-phone) .stat-label {
+  :global(body.is-phone) .deck-card-stat-lbl {
     font-size: 11px;
   }
 
-  :global(body.is-phone) .info-center {
+  :global(body.is-phone) .deck-card-stats {
     gap: 8px;
   }
 
   :global(body.is-phone) .level-badge-wrap {
-    right: 16px;
-    bottom: 14px;
+    transform: scale(0.92);
+    transform-origin: top left;
   }
 
   /* 手机端：始终显示菜单按钮 */
@@ -458,20 +484,19 @@
     }
 
     .card-info-bar {
-      height: auto;
       min-height: 46px;
       padding: 8px 14px;
     }
 
-    .info-center {
-      gap: 8px 12px;
+    .deck-card-stats {
+      gap: 10px 12px;
     }
 
-    .stat-number {
+    .deck-card-stat-num {
       font-size: 14px;
     }
 
-    .stat-label {
+    .deck-card-stat-lbl {
       font-size: 11px;
     }
 
@@ -480,8 +505,8 @@
     }
 
     .level-badge-wrap {
-      right: 16px;
-      bottom: 14px;
+      transform: scale(0.92);
+      transform-origin: top left;
     }
   }
 
@@ -504,15 +529,15 @@
       padding: 6px 10px;
     }
 
-    .info-center {
+    .deck-card-stats {
       gap: 6px 10px;
     }
 
-    .stat-number {
+    .deck-card-stat-num {
       font-size: 13px;
     }
 
-    .stat-label {
+    .deck-card-stat-lbl {
       font-size: 10px;
     }
 
@@ -524,8 +549,8 @@
     }
 
     .level-badge-wrap {
-      right: 12px;
-      bottom: 12px;
+      transform: scale(0.88);
+      transform-origin: top left;
     }
   }
 </style>

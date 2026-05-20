@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tr } from '../../utils/i18n';
   /**
    * 移动端答题情况信息栏组件
    * 
@@ -35,6 +36,7 @@
     totalQuestions = 0,
     completedQuestions = 0
   }: Props = $props();
+  let t = $derived($tr);
 
   /**
    * 格式化时间（秒 -> MM:SS）
@@ -50,18 +52,18 @@
    */
   function getAccuracyStatus(): { text: string; class: string } {
     if (completedQuestions === 0) {
-      return { text: '未开始', class: 'status-idle' };
+      return { text: t('study.questionBankUI.mobileStats.notStarted'), class: 'status-idle' };
     }
     if (accuracy >= 80) {
-      return { text: '优秀', class: 'status-excellent' };
+      return { text: t('study.questionBankUI.mobileStats.excellent'), class: 'status-excellent' };
     }
     if (accuracy >= 60) {
-      return { text: '良好', class: 'status-good' };
+      return { text: t('study.questionBankUI.mobileStats.good'), class: 'status-good' };
     }
     if (accuracy >= 40) {
-      return { text: '一般', class: 'status-normal' };
+      return { text: t('study.questionBankUI.mobileStats.fair'), class: 'status-normal' };
     }
-    return { text: '需加强', class: 'status-weak' };
+    return { text: t('study.questionBankUI.mobileStats.needsWork'), class: 'status-weak' };
   }
 
   // 派生状态
@@ -76,13 +78,13 @@
       <!-- 正确数 -->
       <div class="stat-item correct">
         <span class="stat-value">{correctCount}</span>
-        <span class="stat-label">正确</span>
+        <span class="stat-label">{t('study.questionBankUI.mobileStats.correct')}</span>
       </div>
 
       <!-- 错误数 -->
       <div class="stat-item wrong">
         <span class="stat-value">{wrongCount}</span>
-        <span class="stat-label">错误</span>
+        <span class="stat-label">{t('study.questionBankUI.mobileStats.wrong')}</span>
       </div>
 
       <!-- 正确率 -->
@@ -94,7 +96,7 @@
       <!-- 用时 -->
       <div class="stat-item time">
         <span class="stat-value">{formatTime(currentTime)}</span>
-        <span class="stat-label">用时</span>
+        <span class="stat-label">{t('study.questionBankUI.mobileStats.timeSpent')}</span>
       </div>
     </div>
 

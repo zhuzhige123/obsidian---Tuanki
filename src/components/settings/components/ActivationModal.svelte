@@ -4,14 +4,13 @@
    * 通过按钮触发显示激活表单，界面更简洁优雅
    */
   
-  import { untrack } from 'svelte';
   import { ActivationModal } from './ActivationModalObsidian';
   import { tr } from '../../../utils/i18n';
   import { getPluginEffectiveLicenseState } from '../../../utils/plugin-license';
   
   interface Props {
     plugin: any;
-    onSave: () => Promise<void>;
+    onSave: () => void | Promise<void>;
     purchaseUrl?: string; // 购买激活码的链接
   }
   
@@ -24,22 +23,30 @@
   // 响应式翻译
   let t = $derived($tr);
   
-  // 当前许可证状态
-  let currentLicenseInfo = $state(
-    untrack(() => getPluginEffectiveLicenseState(plugin).primaryLicense ?? plugin?.settings?.license ?? null)
-  );
-  let isLicenseActive = $derived(
-    currentLicenseInfo?.isActivated && currentLicenseInfo?.activationCode
+  let licenseStateVersion = $state(0);
+
+  let effectiveLicenseState = $derived.by(() => {
+    licenseStateVersion;
+    return getPluginEffectiveLicenseState(plugin);
+  });
+
+  let currentLicenseInfo = $derived(
+    effectiveLicenseState.primaryLicense ?? plugin?.settings?.license ?? null
   );
 
-  async function handleSave() {
-    await onSave();
-    currentLicenseInfo = getPluginEffectiveLicenseState(plugin).primaryLicense ?? plugin?.settings?.license ?? null;
+  let isLicenseActive = $derived(effectiveLicenseState.isPremiumActive);
+
+  function refreshLicenseState(): void {
+    licenseStateVersion += 1;
+  }
+
+  function handleLicenseChanged() {
+    refreshLicenseState();
   }
   
   function openModal() {
     // 使用Obsidian原生Modal API
-    const modal = new ActivationModal(plugin.app, plugin, handleSave);
+    const modal = new ActivationModal(plugin.app, plugin, handleLicenseChanged);
     modal.open();
   }
 </script>

@@ -32,11 +32,11 @@
   //  导入国际化
   import { tr } from '../../../utils/i18n';
   import { getReadableWeaveRoot, normalizeWeaveParentFolder } from '../../../config/paths';
-  import FolderSuggestModal from '../../ui/FolderSuggestModal.svelte';
   import { DirectoryUtils } from '../../../utils/directory-utils';
   import { DataManagementService } from '../../../services/data-management-service';
   import { BackupManagementService } from '../../../services/backup-management-service';
   import { UnifiedDataMigrationService } from '../../../services/data-migration/UnifiedDataMigrationService';
+  import { VaultFolderSuggestModal } from '../../../modals/VaultFolderSuggestModal';
   
   interface Props {
     plugin: any;
@@ -123,7 +123,9 @@
   // 响应式备份存储
   let backupStore: BackupReactiveStore | null = null;
   
-  let showweaveParentFolderModal = $state(false);
+  let weaveParentFolderInputEl = $state<HTMLInputElement | null>(null);
+  let weaveParentFolderTriggerEl = $state<HTMLElement | null>(null);
+  let weaveParentFolderPickerOpen = $state(false);
   
   // 数据管理服务（用于数据概览）
   let dataManagementService: any;
@@ -186,8 +188,8 @@
     title: '',
     message: '',
     securityLevel: 'safe' as SecurityLevel,
-    confirmText: '确认',
-    cancelText: '取消',
+    confirmText: '',
+    cancelText: '',
     requireTextConfirmation: false,
     confirmationPhrase: '',
     details: [] as string[],
@@ -236,7 +238,7 @@
       ]);
     } catch (error) {
       logger.error('加载数据失败:', error);
-      lastError = '数据加载失败，请重试';
+      lastError = t('dataManagement.backup.panel.loadFailed');
     }
   }
   
@@ -256,7 +258,7 @@
       dataOverview = await dataManagementService.getDataOverview();
     } catch (error) {
       logger.error('刷新数据概览失败:', error);
-      lastError = '刷新失败，请重试';
+      lastError = t('dataManagement.backup.panel.refreshFailed');
     }
   }
 
@@ -291,8 +293,25 @@
     await loadInitialData();
   }
 
-  function openweaveParentFolderPicker() {
-    showweaveParentFolderModal = true;
+  function getAnchorRect(element?: HTMLElement | null) {
+    return element?.getBoundingClientRect();
+  }
+
+  async function openweaveParentFolderPicker(anchor?: HTMLElement | null) {
+    if (weaveParentFolderPickerOpen) return;
+
+    weaveParentFolderPickerOpen = true;
+    try {
+      const picker = new VaultFolderSuggestModal(plugin.app, {
+        placeholder: t('dataManagement.backup.panel.selectFolderPath'),
+        anchorRect: getAnchorRect(anchor || weaveParentFolderTriggerEl || weaveParentFolderInputEl)
+      });
+      const selectedFolder = await picker.openAndSelect();
+      if (!selectedFolder) return;
+      handleWeaveParentFolderSelect(selectedFolder);
+    } finally {
+      weaveParentFolderPickerOpen = false;
+    }
   }
 
   function handleWeaveParentFolderSelect(folderPath: string) {
@@ -303,28 +322,26 @@
     const newRoot = getReadableWeaveRoot(newParentFolder);
     const legacyRoot = getReadableWeaveRoot(undefined);
 
-    showweaveParentFolderModal = false;
-
     if (oldRoot === newRoot) {
       void (async () => {
         try {
           const adapter = plugin.app.vault.adapter;
           if (legacyRoot !== newRoot && (await adapter.exists(legacyRoot))) {
             showConfirmationDialog({
-              title: '修复 Weave 文件夹',
-              message: '检测到旧位置仍存在数据目录，将合并到当前设置的父目录并修复增量阅读路径引用。',
+              title: t('dataManagement.backup.panel.repairFolderTitle'),
+              message: t('dataManagement.backup.panel.repairFolderMessage'),
               securityLevel: 'caution',
               details: [
-                `旧位置: ${legacyRoot}`,
-                `当前位置: ${newRoot}`
+                t('dataManagement.backup.panel.oldLocation', { path: legacyRoot }),
+                t('dataManagement.backup.panel.currentLocation', { path: newRoot })
               ],
               onConfirm: async () => {
                 try {
                   await applyweaveParentFolder(newParentFolder);
-                  new Notice('修复完成');
+                  new Notice(t('dataManagement.backup.panel.repairDone'));
                 } catch (error) {
                   const msg = error instanceof Error ? error.message : String(error);
-                  new Notice(`修复失败: ${msg}`, 5000);
+                  new Notice(t('dataManagement.backup.panel.repairFailed', { error: msg }), 5000);
                   lastError = msg;
                 } finally {
                   closeConfirmationDialog();
@@ -339,20 +356,20 @@
     }
 
     showConfirmationDialog({
-      title: '移动 Weave 文件夹',
-      message: '将移动可读内容文件夹到新的父目录。',
+      title: t('dataManagement.backup.panel.moveFolderTitle'),
+      message: t('dataManagement.backup.panel.moveFolderMessage'),
       securityLevel: 'caution',
       details: [
-        `旧位置: ${oldRoot}`,
-        `新位置: ${newRoot}`
+        t('dataManagement.backup.panel.oldLocation', { path: oldRoot }),
+        t('dataManagement.backup.panel.newLocation', { path: newRoot })
       ],
       onConfirm: async () => {
         try {
           await applyweaveParentFolder(newParentFolder);
-          new Notice('Weave 文件夹位置已更新');
+          new Notice(t('dataManagement.backup.panel.folderUpdated'));
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
-          new Notice(`更新失败: ${msg}`, 5000);
+          new Notice(t('dataManagement.backup.panel.updateFailed', { error: msg }), 5000);
           lastError = msg;
         } finally {
           closeConfirmationDialog();
@@ -482,7 +499,7 @@
   // 恢复备份
   async function handleRestoreBackup(backupId?: string) {
     if (!backupId && backupHistory.length === 0) {
-      lastError = '没有可用的备份';
+      lastError = t('dataManagement.backup.panel.noBackupsAvailable');
       return;
     }
 
@@ -490,23 +507,23 @@
     const backup = backupHistory.find(b => b.id === targetBackupId);
     
     if (!backup) {
-      lastError = '备份不存在';
+      lastError = t('dataManagement.backup.panel.backupNotFound');
       return;
     }
 
     showConfirmationDialog({
-      title: '恢复备份',
-      message: '确定要从备份恢复数据吗？',
+      title: t('dataManagement.backup.panel.restoreTitle'),
+      message: t('dataManagement.backup.panel.restoreMessage'),
       securityLevel: 'caution',
       details: [
-        `备份时间: ${new Date(backup.timestamp).toLocaleString()}`,
-        `备份大小: ${(backup.size / 1024 / 1024).toFixed(2)} MB`,
-        `备份类型: ${backup.type}`
+        t('dataManagement.backup.panel.backupTime', { time: new Date(backup.timestamp).toLocaleString() }),
+        t('dataManagement.backup.panel.backupSize', { size: (backup.size / 1024 / 1024).toFixed(2) }),
+        t('dataManagement.backup.panel.backupType', { type: backup.type })
       ],
       warningItems: [
-        '当前数据将被覆盖',
-        '恢复前将自动创建备份',
-        '此操作不可撤销'
+        t('dataManagement.backup.panel.restoreWarningOverwrite'),
+        t('dataManagement.backup.panel.restoreWarningAutoBackup'),
+        t('dataManagement.backup.panel.restoreWarningIrreversible')
       ],
       onConfirm: async () => {
         try {
@@ -520,15 +537,15 @@
           
           if (result.success) {
             await loadInitialData();
-            new Notice(`数据恢复成功\n恢复文件数: ${result.restoredFileCount}`);
+            new Notice(t('dataManagement.backup.panel.restoreSuccess', { count: String(result.restoredFileCount) }));
             closeConfirmationDialog();
           } else {
-            throw new Error(result.error || '恢复失败');
+            throw new Error(result.error || t('dataManagement.backup.panel.restoreTitle'));
           }
         } catch (error) {
           logger.error('恢复失败:', error);
-          const errorMsg = error instanceof Error ? error.message : '恢复失败';
-          new Notice(`恢复失败: ${errorMsg}`, 5000);
+          const errorMsg = error instanceof Error ? error.message : t('dataManagement.backup.panel.restoreTitle');
+          new Notice(t('dataManagement.backup.panel.restoreFailed', { error: errorMsg }), 5000);
           lastError = errorMsg;
           closeConfirmationDialog();
         }
@@ -539,23 +556,23 @@
   // 重置数据
   async function handleResetData() {
     showConfirmationDialog({
-      title: '重置所有数据',
-      message: '此操作将永久删除所有数据！',
+      title: t('dataManagement.backup.panel.resetTitle'),
+      message: t('dataManagement.backup.panel.resetMessage'),
       securityLevel: 'danger',
       requireTextConfirmation: true,
       confirmationPhrase: t('dataManagement.resetConfirmPhrase'),
       details: [
-        `将删除 ${dataOverview?.totalCards || 0} 张卡片`,
-        `将删除 ${dataOverview?.totalDecks || 0} 个牌组`,
-        `将删除 ${dataOverview?.totalSessions || 0} 次学习记录`,
-        '将清空所有用户设置'
+        t('dataManagement.backup.panel.resetCards', { count: String(dataOverview?.totalCards || 0) }),
+        t('dataManagement.backup.panel.resetDecks', { count: String(dataOverview?.totalDecks || 0) }),
+        t('dataManagement.backup.panel.resetSessions', { count: String(dataOverview?.totalSessions || 0) }),
+        t('dataManagement.backup.panel.resetSettings')
       ],
       warningItems: [
-        '此操作不可撤销！',
-        '重置前将自动创建备份',
-        '请确保您真的要执行此操作'
+        t('dataManagement.backup.panel.resetWarningIrreversible'),
+        t('dataManagement.backup.panel.resetWarningAutoBackup'),
+        t('dataManagement.backup.panel.resetWarningConfirm')
       ],
-      confirmText: '重置',
+      confirmText: t('dataManagement.backup.panel.resetConfirm'),
       onConfirm: async () => {
         dataOperationInProgress = 'reset';
         try {
@@ -563,14 +580,14 @@
           
           if (result.success) {
             await loadInitialData();
-            new Notice(`数据重置成功\n已清理 ${result.clearedRecordCount} 条记录`);
+            new Notice(t('dataManagement.backup.panel.resetSuccess', { count: String(result.clearedRecordCount) }));
           } else {
-            throw new Error(result.error || '重置失败');
+            throw new Error(result.error || t('dataManagement.backup.panel.resetTitle'));
           }
         } catch (error) {
           logger.error('重置失败:', error);
-          const errorMsg = error instanceof Error ? error.message : '重置失败';
-          new Notice(`重置失败: ${errorMsg}`, 5000);
+          const errorMsg = error instanceof Error ? error.message : t('dataManagement.backup.panel.resetTitle');
+          new Notice(t('dataManagement.backup.panel.resetFailed', { error: errorMsg }), 5000);
           lastError = errorMsg;
           throw new Error(errorMsg);
         } finally {
@@ -603,7 +620,7 @@
     
     menu.addItem((item) => {
       item
-        .setTitle('预览')
+        .setTitle(t('dataManagement.backup.panel.preview'))
         .setIcon('eye')
         .onClick(async () => {
           await handlePreviewBackup(backup.id);
@@ -612,7 +629,7 @@
     
     menu.addItem((item) => {
       item
-        .setTitle('恢复')
+        .setTitle(t('dataManagement.backup.panel.restore'))
         .setIcon('rotate-ccw')
         .onClick(async () => {
           await handleRestoreBackup(backup.id);
@@ -623,7 +640,7 @@
     
     menu.addItem((item) => {
       item
-        .setTitle('删除')
+        .setTitle(t('dataManagement.backup.panel.delete'))
         .setIcon('trash')
         .onClick(async () => {
           await handleDeleteBackup(backup.id);
@@ -639,27 +656,27 @@
     if (!backup) return;
 
     showConfirmationDialog({
-      title: '删除备份',
-      message: '确定要删除此备份吗？',
+      title: t('dataManagement.backup.panel.deleteBackupTitle'),
+      message: t('dataManagement.backup.panel.deleteBackupMessage'),
       securityLevel: 'caution',
       details: [
-        `备份时间: ${new Date(backup.timestamp).toLocaleString()}`,
-        `备份大小: ${(backup.size / 1024 / 1024).toFixed(2)} MB`
+        t('dataManagement.backup.panel.backupTime', { time: new Date(backup.timestamp).toLocaleString() }),
+        t('dataManagement.backup.panel.backupSize', { size: (backup.size / 1024 / 1024).toFixed(2) })
       ],
       warningItems: [
-        '删除后无法恢复',
-        '建议保留重要备份'
+        t('dataManagement.backup.panel.deleteBackupWarningIrreversible'),
+        t('dataManagement.backup.panel.deleteBackupWarningKeep')
       ],
       onConfirm: async () => {
         try {
           await backupStore?.deleteBackup(backupId);
-          new Notice('备份已删除');
+          new Notice(t('dataManagement.backup.panel.deleteBackupSuccess'));
           // 响应式系统会自动更新UI
           closeConfirmationDialog();
         } catch (error) {
           logger.error('删除备份失败:', error);
-          new Notice('删除备份失败', 5000);
-          lastError = '删除备份失败';
+          new Notice(t('dataManagement.backup.panel.deleteBackupFailed'), 5000);
+          lastError = t('dataManagement.backup.panel.deleteBackupFailed');
           closeConfirmationDialog();
         }
       }
@@ -674,18 +691,18 @@
       const result = await backupStore.autoRepairAll();
       
       if (result.success > 0) {
-        new Notice(`成功修复 ${result.success} 个备份`);
+        new Notice(t('dataManagement.backup.panel.autoRepairSuccess', { count: String(result.success) }));
       }
       
       if (result.failed > 0) {
-        const msg = `修复了 ${result.success} 个备份，${result.failed} 个修复失败`;
+        const msg = t('dataManagement.backup.panel.autoRepairPartial', { success: String(result.success), failed: String(result.failed) });
         new Notice(msg, 5000);
         lastError = msg;
       }
     } catch (error) {
       logger.error('批量修复失败:', error);
-      new Notice('批量修复失败', 5000);
-      lastError = '批量修复失败';
+      new Notice(t('dataManagement.backup.panel.autoRepairFailed'), 5000);
+      lastError = t('dataManagement.backup.panel.autoRepairFailed');
     }
   }
   
@@ -694,16 +711,16 @@
     if (!backupStore) return;
     
     showConfirmationDialog({
-      title: '清理无效备份',
-      message: '确定要删除所有无效的备份吗？',
+      title: t('dataManagement.backup.panel.cleanupInvalidTitle'),
+      message: t('dataManagement.backup.panel.cleanupInvalidMessage'),
       securityLevel: 'warning',
       details: [
-        '将删除所有损坏或数据为空的备份',
-        '此操作不可撤销'
+        t('dataManagement.backup.panel.cleanupInvalidDetail'),
+        t('dataManagement.backup.panel.restoreWarningIrreversible')
       ],
       warningItems: [
-        '请确保已有其他有效备份',
-        '建议先检查备份列表'
+        t('dataManagement.backup.panel.cleanupInvalidWarningBackup'),
+        t('dataManagement.backup.panel.cleanupInvalidWarningCheck')
       ],
       onConfirm: async () => {
         if (!backupStore) return;
@@ -712,13 +729,16 @@
           const result = await backupStore.cleanupInvalidBackups();
           
           if (result) {
-            const msg = `成功删除 ${result.deleted} 个无效备份${result.failed > 0 ? `，失败 ${result.failed} 个` : ''}`;
+            const msg = t('dataManagement.backup.panel.cleanupInvalidSuccess', {
+              deleted: String(result.deleted),
+              failedPart: result.failed > 0 ? `, ${result.failed}` : ''
+            });
             new Notice(msg);
           }
         } catch (error) {
           logger.error('清理无效备份失败:', error);
-          new Notice('清理无效备份失败', 5000);
-          lastError = '清理无效备份失败';
+          new Notice(t('dataManagement.backup.panel.cleanupInvalidFailed'), 5000);
+          lastError = t('dataManagement.backup.panel.cleanupInvalidFailed');
         }
       }
     });
@@ -733,17 +753,17 @@
       
       if (preview) {
         const backup = backupHistory.find(b => b.id === backupId);
-        const backupTime = backup ? new Date(backup.timestamp).toLocaleString() : '未知';
+        const backupTime = backup ? new Date(backup.timestamp).toLocaleString() : '-';
         
         showConfirmationDialog({
-          title: '备份预览',
-          message: `备份时间: ${backupTime}`,
+          title: t('dataManagement.backup.panel.previewTitle'),
+          message: t('dataManagement.backup.panel.previewMessage', { time: backupTime }),
           securityLevel: 'safe',
-          confirmText: '关闭',
+          confirmText: t('dataManagement.backup.panel.close'),
           details: [
-            `牌组数量: ${preview.deckCount} 个`,
-            `卡片数量: ${preview.cardCount} 个`,
-            `备份ID: ${backupId}`
+            t('dataManagement.backup.panel.previewDeckCount', { count: String(preview.deckCount) }),
+            t('dataManagement.backup.panel.previewCardCount', { count: String(preview.cardCount) }),
+            t('dataManagement.backup.panel.previewBackupId', { id: backupId })
           ],
           onConfirm: () => {
             closeConfirmationDialog();
@@ -752,7 +772,7 @@
       }
     } catch (error) {
       logger.error('预览备份失败:', error);
-      lastError = '预览备份失败';
+      lastError = t('dataManagement.backup.panel.previewFailed');
     }
   }
 
@@ -764,8 +784,8 @@
       title: config.title,
       message: config.message,
       securityLevel: config.securityLevel,
-      confirmText: config.confirmText || '确认',
-      cancelText: config.cancelText || '取消',
+      confirmText: config.confirmText || t('dataManagement.backup.panel.confirm'),
+      cancelText: config.cancelText || t('dataManagement.backup.panel.cancel'),
       requireTextConfirmation: config.requireTextConfirmation || false,
       confirmationPhrase: config.confirmationPhrase || t('dataManagement.confirmPhrase'),
       details: config.details || [],
@@ -807,15 +827,15 @@
     <div class="repair-suggestion-banner">
       <div class="repair-icon">[!]</div>
       <div class="repair-content">
-        <div class="repair-title">发现 {autoRepairSuggestion.count} 个损坏的备份</div>
-        <div class="repair-description">这些备份可能缺少必要文件或元数据损坏，建议尝试自动修复或直接清理</div>
+        <div class="repair-title">{t('dataManagement.backup.panel.repairTitle', { count: String(autoRepairSuggestion.count) })}</div>
+        <div class="repair-description">{t('dataManagement.backup.panel.repairDescription')}</div>
       </div>
       <div class="repair-actions">
         <button class="repair-button" onclick={handleAutoRepairAll}>
-          自动修复全部
+          {t('dataManagement.backup.panel.repairAll')}
         </button>
         <button class="cleanup-button" onclick={handleCleanupInvalidBackups}>
-          清理无效备份
+          {t('dataManagement.backup.panel.cleanupInvalid')}
         </button>
       </div>
       <button class="repair-dismiss" onclick={() => backupStore?.clearError()}>✕</button>
@@ -874,8 +894,8 @@
                     class="menu-button clickable-icon"
                     type="button"
                     onclick={(e) => showBackupMenu(e, backup)}
-                    title="更多操作"
-                    aria-label="更多操作"
+                    title={t('dataManagement.backup.panel.moreActions')}
+                    aria-label={t('dataManagement.backup.panel.moreActions')}
                   >
                     <ObsidianIcon name="more-horizontal" size={16} />
                   </button>
@@ -887,13 +907,13 @@
       </div>
       {#if backupHistory.length > 5}
         <div class="more-backups-hint">
-          还有 {backupHistory.length - 5} 个备份未显示
+          {t('dataManagement.backup.panel.moreHidden', { count: String(backupHistory.length - 5) })}
         </div>
       {/if}
     {:else}
       <div class="no-backups">
         <ObsidianIcon name="archive" size={24} />
-        <p>暂无备份记录</p>
+        <p>{t('dataManagement.backup.panel.noBackups')}</p>
       </div>
     {/if}
   </div>
@@ -904,35 +924,28 @@
   <!-- 父文件夹路径配置 -->
   <div class="weave-settings settings-group folder-path-config">
     <div class="group-title-with-toggle">
-      <h4 class="group-title with-accent-bar accent-cyan">Weave 文件夹位置</h4>
+      <h4 class="group-title with-accent-bar accent-cyan">{t('dataManagement.backup.panel.weaveFolderTitle')}</h4>
       <div class="data-folder-visibility-section">
-        <div class="folder-input-group" style="margin-bottom: 0.75rem;">
+        <div class="folder-input-group" style="margin-bottom: 0.75rem;" bind:this={weaveParentFolderTriggerEl}>
           <input
             type="text"
             class="modern-input folder-input"
-            value={normalizeWeaveParentFolder(plugin.settings?.weaveParentFolder) || '(根目录)'}
+            value={normalizeWeaveParentFolder(plugin.settings?.weaveParentFolder) || t('dataManagement.backup.panel.rootDirectory')}
             readonly
+            bind:this={weaveParentFolderInputEl}
+            onclick={() => void openweaveParentFolderPicker(weaveParentFolderInputEl)}
           />
           <button
             class="folder-select-btn"
             type="button"
-            onclick={openweaveParentFolderPicker}
+            onclick={() => void openweaveParentFolderPicker(weaveParentFolderTriggerEl)}
           >
-            选择
+            {t('dataManagement.backup.panel.select')}
           </button>
         </div>
       </div>
     </div>
   </div>
-
-  {#if showweaveParentFolderModal}
-    <FolderSuggestModal
-      {plugin}
-      currentFolder={normalizeWeaveParentFolder(plugin.settings?.weaveParentFolder) || ''}
-      onSelect={handleWeaveParentFolderSelect}
-      onClose={() => showweaveParentFolderModal = false}
-    />
-  {/if}
 
   <!-- 操作工具栏 -->
   <DataOperationToolbar 

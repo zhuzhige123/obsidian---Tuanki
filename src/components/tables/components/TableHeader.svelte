@@ -1,6 +1,6 @@
 <script lang="ts">
   import EnhancedIcon from "../../ui/EnhancedIcon.svelte";
-  import { vaultStorage } from '../../../utils/vault-local-storage';
+  import { currentLanguage } from '../../../utils/i18n';
   import ColumnResizer from "./ColumnResizer.svelte";
   import TableCheckbox from "./TableCheckbox.svelte";
   import { getSortIcon, getSortAriaLabel, isAllSelected, isIndeterminate } from "../utils/table-utils";
@@ -61,15 +61,9 @@
   const allSelected = $derived(isAllSelected(selectedCards.size, totalCards));
   const indeterminate = $derived(isIndeterminate(selectedCards.size, totalCards));
   
-  // 获取当前语言（从localStorage）
+  // 获取当前语言（统一走全局 i18n，避免和其他区域语言状态分叉）
   const currentLocale = $derived.by<'zh' | 'en'>(() => {
-    if (typeof window === 'undefined') return 'zh';
-    try {
-      const lang = vaultStorage.getItem('weave-language') || 'zh';
-      return lang === 'en' ? 'en' : 'zh';
-    } catch {
-      return 'zh';
-    }
+    return $currentLanguage === 'en-US' ? 'en' : 'zh';
   });
 </script>
 
@@ -272,15 +266,10 @@
     transform: translateY(-0.5px);
   }
 
-  /* 复选框列：使用更高优先级选择器覆盖 .weave-table-header th 的 text-align: left */
+  /* 复选框列：宽度由 colgroup / columnWidths 控制，勿在此写死 min/max-width */
   .weave-table-header .weave-checkbox-column {
-    width: 72px;
-    min-width: 72px;
-    max-width: 72px;
     text-align: center;
-    /* 与表格行 td 的 padding 完全一致 */
-    padding: var(--weave-table-cell-padding-y, 6px) var(--weave-table-cell-padding-x, 16px);
-    /* 移除复选框列的省略号效果 */
+    padding: var(--weave-table-cell-padding-y, 6px) 8px;
     text-overflow: clip;
     overflow: visible;
   }

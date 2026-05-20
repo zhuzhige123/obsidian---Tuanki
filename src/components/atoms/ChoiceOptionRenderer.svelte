@@ -489,6 +489,14 @@
     box-shadow: inset 0 0 0 2px var(--interactive-accent);
   }
 
+  .choice-option-wrapper.memory-study-option.selected .choice-option-label-container {
+    background: var(--interactive-accent);
+  }
+
+  .choice-option-wrapper.memory-study-option.selected .choice-option-label {
+    color: var(--text-on-accent, #fff);
+  }
+
   :global(body.theme-dark) .choice-option-wrapper.memory-study-option.selected .choice-option-layout,
   :global(body.theme-light) .choice-option-wrapper.memory-study-option.selected .choice-option-layout {
     box-shadow: inset 0 0 0 2px var(--interactive-accent);

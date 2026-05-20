@@ -10,6 +10,7 @@
   import CardPreviewModal from './CardPreviewModal.svelte';
   import { logger } from '../../utils/logger';
   import { applyStyleProps } from '../../utils/style-props';
+  import { i18n, tr } from '../../utils/i18n';
 
   interface Props {
     plugin: WeavePlugin;
@@ -29,6 +30,7 @@
   let aiConfigModalInstance: AIConfigModalObsidian | null = null;
   let showPreviewModal = $state(false);
   let textareaElement = $state<HTMLTextAreaElement | undefined>(undefined);
+  let t = $derived($tr);
 
   // 从持久化设置中恢复AI制卡配置
   function createInitialGenerationConfig(): GenerationConfig {
@@ -121,7 +123,7 @@
 
     if (officialPrompts.length === 0 && customPrompts.length === 0) {
       menu.addItem((item) => {
-        item.setTitle('暂无可用模板').setDisabled(true);
+        item.setTitle(i18n.t('aiAssistant.toolbar.noTemplates')).setDisabled(true);
       });
     }
 
@@ -201,7 +203,7 @@
 
   async function handleGenerate() {
     if (!content.trim()) {
-      new Notice('当前文档内容为空');
+      new Notice(t('aiAssistant.toolbar.emptyContent'));
       return;
     }
 
@@ -232,12 +234,12 @@
       }, 1000);
 
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : 'AI生成失败');
+      new Notice(error instanceof Error ? error.message : t('aiAssistant.toolbar.generateFailed'));
       if (generationProgress) {
         generationProgress = {
           status: 'failed',
           progress: 0,
-          message: error instanceof Error ? error.message : '生成失败'
+          message: error instanceof Error ? error.message : t('aiAssistant.toolbar.generatingFailedStatus')
         };
       }
     } finally {
@@ -285,7 +287,7 @@
     try {
       const deck = await plugin.dataStorage?.getDeck(targetDeckId);
       if (!deck) {
-        throw new Error('目标牌组不存在');
+        throw new Error(t('aiAssistant.toolbar.targetDeckNotFound'));
       }
 
       const { CardConverter } = await import('../../services/ai/CardConverter');
@@ -315,13 +317,13 @@
       }
 
       if (successCount > 0) {
-        new Notice(`成功导入 ${successCount} 张卡片到 ${deck.name}`);
+        new Notice(t('aiAssistant.toolbar.importSuccess', { count: successCount, deck: deck.name }));
       }
       if (failCount > 0 || errors.length > 0) {
-        new Notice(`导入失败 ${failCount + errors.length} 张卡片`, 5000);
+        new Notice(t('aiAssistant.toolbar.importFailedCount', { count: failCount + errors.length }), 5000);
       }
     } catch (error) {
-      new Notice(error instanceof Error ? error.message : '导入失败');
+      new Notice(error instanceof Error ? error.message : t('aiAssistant.toolbar.importFailed'));
       throw error;
     }
   }
@@ -339,11 +341,11 @@
     <button
       class="toolbar-btn prompt-btn"
       onclick={openPromptMenu}
-      title="选择提示词模板"
+      title={t('aiAssistant.toolbar.selectPromptTemplate')}
     >
       <ObsidianIcon name="message-square" size={14} />
       <span class="btn-text">
-        {selectedPrompt ? selectedPrompt.name : '提示词'}
+        {selectedPrompt ? selectedPrompt.name : t('aiAssistant.toolbar.prompt')}
       </span>
       <ObsidianIcon name="chevron-down" size={12} />
     </button>
@@ -352,7 +354,7 @@
     <button
       class="toolbar-btn model-btn"
       onclick={openProviderMenu}
-      title="选择AI服务商和模型"
+      title={t('aiAssistant.toolbar.selectProviderModel')}
     >
       <ObsidianIcon name="cpu" size={14} />
       <span class="btn-text">
@@ -365,7 +367,7 @@
     <textarea
       bind:this={textareaElement}
       class="toolbar-textarea"
-      placeholder="输入自定义提示词..."
+      placeholder={t('aiAssistant.toolbar.customPromptPlaceholder')}
       value={customPrompt}
       oninput={handleInput}
       onkeydown={handleKeyDown}
@@ -375,7 +377,7 @@
     <button
       class="toolbar-btn config-btn"
       onclick={openAIConfigModalWithObsidianAPI}
-      title="AI制卡配置"
+      title={t('mainMenu.aiAssistant.config')}
     >
       <ObsidianIcon name="settings" size={14} />
     </button>
@@ -385,14 +387,14 @@
       class="toolbar-btn generate-btn"
       onclick={handleGenerate}
       disabled={!content.trim() || isGenerating}
-      title={!content.trim() ? '文档内容为空' : '生成AI卡片'}
+      title={!content.trim() ? t('aiAssistant.toolbar.emptyContent') : t('aiAssistant.toolbar.generateCards')}
     >
       {#if isGenerating}
         <ObsidianIcon name="loader" size={16} />
-        <span>生成中...</span>
+        <span>{t('mainMenu.aiAssistant.generating')}</span>
       {:else}
         <ObsidianIcon name="sparkles" size={16} />
-        <span>生成</span>
+        <span>{t('aiAssistant.toolbar.generate')}</span>
       {/if}
     </button>
 
@@ -401,7 +403,7 @@
       <button
         class="toolbar-btn expand-btn"
         onclick={() => showPreviewModal = true}
-        title="展开卡片预览 ({generatedCards.length}张)"
+        title={t('aiAssistant.toolbar.expandPreview', { count: generatedCards.length })}
       >
         <ObsidianIcon name="panel-top-open" size={14} />
         <span class="card-count-badge">{generatedCards.length}</span>
@@ -412,7 +414,7 @@
     <button
       class="toolbar-btn close-btn"
       onclick={onClose}
-      title="关闭工具栏"
+      title={t('aiAssistant.toolbar.closeToolbar')}
     >
       <ObsidianIcon name="x" size={14} />
     </button>

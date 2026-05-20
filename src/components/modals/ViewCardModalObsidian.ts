@@ -4,6 +4,7 @@ import { CardType, type Card } from "../../data/types";
 import type { ResolvedDeckRef } from "../../types/emergent-deck-types";
 import type WeavePlugin from "../../main";
 import { configureWeaveObsidianModalLayout } from "../../utils/obsidian-modal-layout";
+import { i18n } from "../../utils/i18n";
 import IRCardDetailModal from "./IRCardDetailModal.svelte";
 import QuestionBankCardDetailModal from "./QuestionBankCardDetailModal.svelte";
 import ViewCardModal from "./ViewCardModal.svelte";
@@ -71,10 +72,10 @@ export class ViewCardModalObsidian extends Modal {
 
 		this.setTitle(
 			modalVariant === "questionBank"
-				? "测试卡片详情"
+				? i18n.t("modals.viewCard.titleQuestionBank")
 				: modalVariant === "incremental-reading"
-					? "增量阅读详情"
-					: "卡片详情"
+					? i18n.t("modals.viewCard.titleIncrementalReading")
+					: i18n.t("modals.viewCard.title")
 		);
 		configureWeaveObsidianModalLayout(this, {
 			modalClass: "weave-view-card-modal",

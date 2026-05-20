@@ -5,11 +5,10 @@
   import { licenseManager } from '../../../utils/licenseManager';
   import { PremiumFeatureGuard } from '../../../services/premium/PremiumFeatureGuard';
   import {
-    clearPluginLocalLicenses,
     getPluginEffectiveLicenseState,
     getPluginLicensedProduct,
     getPluginLocalLicenses,
-    syncPluginLicenseSettings
+    resetPluginLicenseActivation
   } from '../../../utils/plugin-license';
   import {
     showNotification,
@@ -21,6 +20,7 @@
   import EnhancedLicenseStatusCard from '../components/EnhancedLicenseStatusCard.svelte';
   import EnhancedActivationForm from '../components/EnhancedActivationForm.svelte';
   import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
+  import { i18n, tr } from '../../../utils/i18n';
 
   interface Props {
     plugin: PluginExtended;
@@ -30,6 +30,7 @@
   let { plugin, onSave }: Props = $props();
 
   let stateVersion = $state(0);
+  let t = $derived($tr);
 
   function refreshSnapshot(): void {
 		stateVersion += 1;
@@ -75,33 +76,36 @@
 
       if (hasValidLicense) {
         showNotification({
-          message: '许可证验证成功',
+          message: i18n.t('about.license.notices.verifySuccess'),
           type: 'success'
         });
         return;
       }
 
       showNotification({
-        message: firstError ? `许可证验证失败: ${firstError}` : '许可证验证失败',
+        message: firstError
+          ? i18n.t('about.license.notices.verifyFailedWithReason', { reason: firstError })
+          : i18n.t('about.license.notices.verifyFailed'),
         type: 'error'
       });
     } catch (error) {
-      handleError(error, '许可证验证');
+      handleError(error, i18n.t('about.license.notices.verifyAction'));
     }
   }
 
   // 重置许可证
   async function resetLicense() {
-    const confirmed = await showObsidianConfirm(plugin.app, '确定要重置许可证吗？这将清除当前的激活状态。', { title: '确认重置' });
+    const confirmed = await showObsidianConfirm(
+      plugin.app,
+      i18n.t('about.license.notices.resetConfirm'),
+      { title: i18n.t('about.license.notices.resetConfirmTitle') }
+    );
     if (confirmed) {
-      clearPluginLocalLicenses(plugin);
-      syncPluginLicenseSettings(plugin);
-      
-      await onSave();
-		  refreshSnapshot();
+      await resetPluginLicenseActivation(plugin);
+      refreshSnapshot();
       
       showNotification({
-        message: "许可证已重置",
+        message: i18n.t('about.license.notices.resetSuccess'),
         type: 'success'
       });
     }
@@ -110,6 +114,7 @@
   // 激活成功回调
   function handleActivationSuccess(licenseInfo: any) {
     logger.debug('[LicenseSection] 激活成功:', licenseInfo);
+    refreshSnapshot();
   }
 
   // 激活失败回调
@@ -119,7 +124,7 @@
 </script>
 
 <section class={CSS_CLASSES.LICENSE_SECTION}>
-  <h2 class="section-title">许可证状态</h2>
+  <h2 class="section-title">{t('about.license.statusCard.license')}</h2>
 
   <!-- 使用增强的许可证状态卡片 -->
   <EnhancedLicenseStatusCard

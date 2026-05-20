@@ -15,6 +15,7 @@
   import { OFFICIAL_SYSTEM_PROMPTS, getOfficialSystemPromptById } from '../../constants/official-system-prompts';
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
   import { focusManager } from '../../utils/focus-manager';
+  import { tr } from '../../utils/i18n';
 
   interface Props {
     plugin: WeavePlugin;
@@ -36,6 +37,7 @@
   const AI_CONFIG_USER_PROMPT_SELECT_MENU_CLASS = 'weave-ai-config-user-prompt-select-menu';
 
   let { plugin, config, isOpen, onClose, onSave, useObsidianModal = false }: Props = $props();
+  let t = $derived($tr);
 
   let modalEl = $state<HTMLElement | null>(null);
   let lastTrapEl: HTMLElement | null = null;
@@ -60,15 +62,15 @@
     return customSystemPrompts.find((prompt) => prompt.id === selectedSystemPromptId) ?? null;
   });
   const selectedPromptName = $derived.by(() => {
-    if (!selectedSystemPromptId) return '内置系统提示词';
+    if (!selectedSystemPromptId) return t('aiAssistant.configModal.builtinSystemPrompt');
     const officialPrompt = getOfficialSystemPromptById(selectedSystemPromptId);
     if (officialPrompt) return officialPrompt.name;
-    return activeCustomSystemPrompt?.name ?? '内置系统提示词';
+    return activeCustomSystemPrompt?.name ?? t('aiAssistant.configModal.builtinSystemPrompt');
   });
   const selectedPromptTypeLabel = $derived.by(() => {
-    if (!selectedSystemPromptId) return '内置';
-    if (getOfficialSystemPromptById(selectedSystemPromptId)) return '官方';
-    return '自定义';
+    if (!selectedSystemPromptId) return t('aiAssistant.configModal.builtin');
+    if (getOfficialSystemPromptById(selectedSystemPromptId)) return t('aiAssistant.configModal.official');
+    return t('aiAssistant.configModal.custom');
   });
   const currentSystemPrompt = $derived.by(() => {
     if (selectedSystemPromptId) {
@@ -91,7 +93,7 @@
     return userPromptFiles.find((file) => file.path === selectedUserPromptPath) ?? null;
   });
   const selectedUserPromptName = $derived.by(() => {
-    if (!selectedUserPromptFile) return '未选择用户提示词文件';
+    if (!selectedUserPromptFile) return t('aiAssistant.configModal.noUserPromptFileSelected');
     return getUserPromptRelativePath(plugin.app, selectedUserPromptFile.path);
   });
 
@@ -166,13 +168,13 @@
 
   function startCreatePrompt() {
     if (!canCreatePrompt) {
-      new Notice('最多只能创建 5 个自定义系统提示词');
+      new Notice(t('aiAssistant.configModal.maxCustomPrompts'));
       return;
     }
 
     editingSystemPromptId = NEW_PROMPT_ID;
     draftPrompt = {
-      name: '新系统提示词',
+      name: t('aiAssistant.configModal.newSystemPrompt'),
       content: currentSystemPrompt
     };
   }
@@ -191,7 +193,7 @@
 
   async function saveEditingPrompt() {
     if (!canSaveDraft) {
-      new Notice('请输入系统提示词名称和内容');
+      new Notice(t('aiAssistant.configModal.enterSystemPromptNameAndContent'));
       return;
     }
 
@@ -208,7 +210,7 @@
       selectedSystemPromptId = newPrompt.id;
       await persistSystemPromptState();
       resetDraft();
-      new Notice('已新增系统提示词');
+      new Notice(t('aiAssistant.configModal.systemPromptAdded'));
       return;
     }
 
@@ -226,7 +228,7 @@
     selectedSystemPromptId = editingSystemPromptId;
     await persistSystemPromptState();
     resetDraft();
-    new Notice('已保存系统提示词');
+    new Notice(t('aiAssistant.configModal.systemPromptSaved'));
   }
 
   function cancelEditingPrompt() {
@@ -237,8 +239,8 @@
     const prompt = customSystemPrompts.find((item) => item.id === promptId);
     if (!prompt) return;
 
-    const confirmed = await showObsidianConfirm(plugin.app, `确定要删除“${prompt.name}”吗？`, {
-      title: '确认删除'
+    const confirmed = await showObsidianConfirm(plugin.app, t('aiAssistant.configModal.confirmDeletePrompt', { name: prompt.name }), {
+      title: t('aiAssistant.configModal.confirmDeleteTitle')
     });
     if (!confirmed) return;
 
@@ -251,14 +253,14 @@
     }
 
     await persistSystemPromptState();
-    new Notice(`已删除“${prompt.name}”`);
+    new Notice(t('aiAssistant.configModal.deletedPrompt', { name: prompt.name }));
   }
 
   function copySystemPromptToClipboard() {
     navigator.clipboard
       .writeText(displayedPromptContent)
-      .then(() => new Notice('已复制到剪贴板'))
-      .catch(() => new Notice('复制失败'));
+      .then(() => new Notice(t('aiAssistant.configModal.copiedToClipboard')))
+      .catch(() => new Notice(t('aiAssistant.configModal.copyFailed')));
   }
 
   function showMenuAtTrigger(menu: Menu, trigger: HTMLElement) {
@@ -285,7 +287,7 @@
 
   function openSystemPromptSelectMenu(event: MouseEvent) {
     if (isEditing) {
-      new Notice('请先保存或取消当前编辑');
+      new Notice(t('aiAssistant.configModal.saveOrCancelEditingFirst'));
       return;
     }
 
@@ -296,7 +298,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('内置系统提示词')
+        .setTitle(t('aiAssistant.configModal.builtinSystemPrompt'))
         .setChecked(!selectedSystemPromptId)
         .onClick(() => {
           void selectSystemPrompt(null);
@@ -343,7 +345,7 @@
     if (isEditing) {
       menu.addItem((item) => {
         item
-          .setTitle('保存')
+          .setTitle(t('aiAssistant.configModal.menuSave'))
           .setIcon('check')
           .setDisabled(!canSaveDraft)
           .onClick(() => {
@@ -353,7 +355,7 @@
 
       menu.addItem((item) => {
         item
-          .setTitle('取消编辑')
+          .setTitle(t('aiAssistant.configModal.menuCancelEdit'))
           .setIcon('x')
           .onClick(() => {
             cancelEditingPrompt();
@@ -365,7 +367,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('新建')
+        .setTitle(t('aiAssistant.configModal.menuNew'))
         .setIcon('plus')
         .setDisabled(!canCreatePrompt || isEditing)
         .onClick(() => {
@@ -375,7 +377,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('复制')
+        .setTitle(t('aiAssistant.configModal.menuCopy'))
         .setIcon('copy')
         .onClick(() => {
           copySystemPromptToClipboard();
@@ -387,7 +389,7 @@
 
       menu.addItem((item) => {
         item
-          .setTitle('编辑')
+          .setTitle(t('aiAssistant.configModal.menuEdit'))
           .setIcon('edit')
           .onClick(() => {
             startEditPrompt(activeCustomSystemPrompt.id);
@@ -396,7 +398,7 @@
 
       menu.addItem((item) => {
         item
-          .setTitle('删除')
+          .setTitle(t('aiAssistant.configModal.menuDelete'))
           .setIcon('trash')
           .onClick(() => {
             void deleteSystemPrompt(activeCustomSystemPrompt.id);
@@ -436,7 +438,7 @@
       userPromptContent = await plugin.app.vault.read(file);
       await persistUserPromptSelection(file.path);
     } catch (error) {
-      new Notice('加载用户提示词文件失败');
+      new Notice(t('aiAssistant.configModal.loadUserPromptFilesFailed'));
       console.error('[AIConfigModal] Failed to refresh user prompt files:', error);
     }
   }
@@ -460,7 +462,7 @@
     const file = resolveUserPromptFile(plugin.app, path);
     if (!file) {
       await refreshUserPromptFiles();
-      new Notice('提示词文件不存在或不在固定目录中');
+      new Notice(t('aiAssistant.configModal.userPromptFileMissingOrOutsideFolder'));
       return;
     }
 
@@ -474,23 +476,23 @@
       const created = await createUserPromptFile(plugin.app);
       await refreshUserPromptFiles(created.path);
       notifyUserPromptFilesChanged(created.path);
-      new Notice('已创建用户提示词文件');
+      new Notice(t('aiAssistant.configModal.userPromptFileCreated'));
     } catch (error) {
-      new Notice('创建用户提示词文件失败');
+      new Notice(t('aiAssistant.configModal.createUserPromptFileFailed'));
       console.error('[AIConfigModal] Failed to create user prompt file:', error);
     }
   }
 
   async function saveUserPromptTemplateFile() {
     if (!selectedUserPromptPath) {
-      new Notice('请先选择用户提示词文件');
+      new Notice(t('aiAssistant.configModal.selectUserPromptFileFirst'));
       return;
     }
 
     const file = resolveUserPromptFile(plugin.app, selectedUserPromptPath);
     if (!file) {
       await refreshUserPromptFiles();
-      new Notice('提示词文件不存在或已移动');
+      new Notice(t('aiAssistant.configModal.userPromptFileMissingOrMoved'));
       return;
     }
 
@@ -498,21 +500,21 @@
       await plugin.app.vault.modify(file, userPromptContent);
       await refreshUserPromptFiles(file.path);
       notifyUserPromptFilesChanged(file.path);
-      new Notice('已保存用户提示词文件');
+      new Notice(t('aiAssistant.configModal.userPromptFileSaved'));
     } catch (error) {
-      new Notice('保存用户提示词文件失败');
+      new Notice(t('aiAssistant.configModal.saveUserPromptFileFailed'));
       console.error('[AIConfigModal] Failed to save user prompt file:', error);
     }
   }
 
   async function deleteUserPromptTemplateFile() {
     if (!selectedUserPromptFile) {
-      new Notice('请先选择用户提示词文件');
+      new Notice(t('aiAssistant.configModal.selectUserPromptFileFirst'));
       return;
     }
 
-    const confirmed = await showObsidianConfirm(plugin.app, `确定要删除“${selectedUserPromptFile.name}”吗？`, {
-      title: '确认删除'
+    const confirmed = await showObsidianConfirm(plugin.app, t('aiAssistant.configModal.confirmDeletePrompt', { name: selectedUserPromptFile.name }), {
+      title: t('aiAssistant.configModal.confirmDeleteTitle')
     });
     if (!confirmed) return;
 
@@ -521,9 +523,9 @@
       await plugin.app.fileManager.trashFile(selectedUserPromptFile);
       await refreshUserPromptFiles();
       notifyUserPromptFilesChanged(deletedPath);
-      new Notice(`已删除“${selectedUserPromptFile.name}”`);
+      new Notice(t('aiAssistant.configModal.deletedPrompt', { name: selectedUserPromptFile.name }));
     } catch (error) {
-      new Notice('删除用户提示词文件失败');
+      new Notice(t('aiAssistant.configModal.deleteUserPromptFileFailed'));
       console.error('[AIConfigModal] Failed to delete user prompt file:', error);
     }
   }
@@ -535,7 +537,7 @@
     const menu = new Menu();
 
     if (userPromptFiles.length === 0) {
-      menu.addItem((item) => item.setTitle('固定目录中暂无用户提示词文件').setDisabled(true));
+      menu.addItem((item) => item.setTitle(t('aiAssistant.configModal.noUserPromptFilesInFolder')).setDisabled(true));
     } else {
       userPromptFiles.forEach((file) => {
         menu.addItem((item) => {
@@ -561,7 +563,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('新建')
+        .setTitle(t('aiAssistant.configModal.menuNew'))
         .setIcon('plus')
         .onClick(() => {
           void createUserPromptTemplateFile();
@@ -570,7 +572,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('保存')
+        .setTitle(t('aiAssistant.configModal.menuSave'))
         .setIcon('check')
         .setDisabled(!selectedUserPromptFile)
         .onClick(() => {
@@ -580,7 +582,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('刷新')
+        .setTitle(t('aiAssistant.configModal.menuRefresh'))
         .setIcon('refresh-cw')
         .onClick(() => {
           void refreshUserPromptFiles();
@@ -590,7 +592,7 @@
     menu.addSeparator();
     menu.addItem((item) => {
       item
-        .setTitle('删除')
+        .setTitle(t('aiAssistant.configModal.menuDelete'))
         .setIcon('trash')
         .setDisabled(!selectedUserPromptFile)
         .onClick(() => {
@@ -606,15 +608,15 @@
   <div class="ai-config-modal" class:ai-config-modal-native={nativeMode} bind:this={modalEl} role="dialog" tabindex="-1">
     {#if !nativeMode}
       <div class="modal-header">
-        <div class="modal-title">系统提示词</div>
-        <button class="modal-close-btn" type="button" onclick={onClose} aria-label="关闭">
+        <div class="modal-title">{t('aiAssistant.configModal.title')}</div>
+        <button class="modal-close-btn" type="button" onclick={onClose} aria-label={t('aiAssistant.configModal.close')}>
           <ObsidianIcon name="x" size={18} />
         </button>
       </div>
     {/if}
 
     <div class="prompt-shell">
-      <div class="prompt-tabs" role="tablist" aria-label="提示词标签">
+      <div class="prompt-tabs" role="tablist" aria-label={t('aiAssistant.configModal.tabList')}>
         <button
           type="button"
           class="prompt-tab"
@@ -623,7 +625,7 @@
           aria-selected={activeTab === 'system'}
           onclick={() => activeTab = 'system'}
         >
-          系统提示词
+          {t('aiAssistant.configModal.systemTab')}
         </button>
         <button
           type="button"
@@ -633,7 +635,7 @@
           aria-selected={activeTab === 'user'}
           onclick={() => activeTab = 'user'}
         >
-          用户提示词
+          {t('aiAssistant.configModal.userTab')}
         </button>
       </div>
 
@@ -643,8 +645,8 @@
             type="button"
             class="toolbar-text-trigger primary-trigger"
             onclick={openSystemPromptSelectMenu}
-            title={`系统提示词列表：${selectedPromptName}`}
-            aria-label="系统提示词列表"
+            title={t('aiAssistant.configModal.systemPromptListTitle', { name: selectedPromptName })}
+            aria-label={t('aiAssistant.configModal.systemPromptList')}
           >
             <span class="trigger-label">{selectedPromptName}</span>
             <ObsidianIcon name="chevron-down" size={14} />
@@ -654,10 +656,10 @@
             type="button"
             class="toolbar-text-trigger secondary-trigger"
             onclick={openSystemPromptActionsMenu}
-            title="更多操作"
-            aria-label="更多操作"
+            title={t('aiAssistant.configModal.moreActions')}
+            aria-label={t('aiAssistant.configModal.moreActions')}
           >
-            <span class="trigger-label">更多操作</span>
+            <span class="trigger-label">{t('aiAssistant.configModal.moreActions')}</span>
             <ObsidianIcon name="chevron-down" size={14} />
           </button>
         </div>
@@ -666,10 +668,14 @@
           <div class="prompt-editor-head">
             <div class="prompt-meta">
               <span class="prompt-meta-type">{selectedPromptTypeLabel}</span>
-              <span class="prompt-meta-name">{isEditing ? (editingSystemPromptId === NEW_PROMPT_ID ? '新建系统提示词' : '编辑系统提示词') : selectedPromptName}</span>
+              <span class="prompt-meta-name">{isEditing
+                ? (editingSystemPromptId === NEW_PROMPT_ID
+                  ? t('aiAssistant.configModal.newSystemPromptLabel')
+                  : t('aiAssistant.configModal.editSystemPromptLabel'))
+                : selectedPromptName}</span>
             </div>
             {#if isEditing}
-              <div class="prompt-meta-tip">通过右上角“更多操作”保存或取消</div>
+              <div class="prompt-meta-tip">{t('aiAssistant.configModal.saveOrCancelHint')}</div>
             {/if}
           </div>
 
@@ -685,7 +691,7 @@
                     name: (event.currentTarget as HTMLInputElement).value
                   };
                 }}
-                placeholder="请输入系统提示词名称"
+                placeholder={t('aiAssistant.configModal.systemPromptNamePlaceholder')}
               />
               <textarea
                 class="prompt-content-editor"
@@ -696,7 +702,7 @@
                     content: (event.currentTarget as HTMLTextAreaElement).value
                   };
                 }}
-                placeholder="请输入系统提示词内容..."
+                placeholder={t('aiAssistant.configModal.systemPromptContentPlaceholder')}
                 rows="18"
               ></textarea>
             </div>
@@ -710,8 +716,8 @@
             type="button"
             class="toolbar-text-trigger primary-trigger"
             onclick={openUserPromptSelectMenu}
-            title={`用户提示词列表：${selectedUserPromptName}`}
-            aria-label="用户提示词列表"
+            title={t('aiAssistant.configModal.userPromptListTitle', { name: selectedUserPromptName })}
+            aria-label={t('aiAssistant.configModal.userPromptList')}
           >
             <span class="trigger-label">{selectedUserPromptName}</span>
             <ObsidianIcon name="chevron-down" size={14} />
@@ -721,10 +727,10 @@
             type="button"
             class="toolbar-text-trigger secondary-trigger"
             onclick={openUserPromptActionsMenu}
-            title="更多操作"
-            aria-label="更多操作"
+            title={t('aiAssistant.configModal.moreActions')}
+            aria-label={t('aiAssistant.configModal.moreActions')}
           >
-            <span class="trigger-label">更多操作</span>
+            <span class="trigger-label">{t('aiAssistant.configModal.moreActions')}</span>
             <ObsidianIcon name="chevron-down" size={14} />
           </button>
         </div>
@@ -732,7 +738,7 @@
         <div class="prompt-editor-shell is-editing">
           <div class="prompt-editor-head">
             <div class="prompt-meta">
-              <span class="prompt-meta-type">用户提示词</span>
+              <span class="prompt-meta-type">{t('aiAssistant.configModal.userPromptType')}</span>
               <span class="prompt-meta-name">{selectedUserPromptName}</span>
             </div>
             <div class="prompt-meta-tip prompt-meta-tip-path">{userPromptFolderPath}</div>
@@ -752,12 +758,12 @@
                 oninput={(event) => {
                   userPromptContent = (event.currentTarget as HTMLTextAreaElement).value;
                 }}
-                placeholder="请输入用户提示词内容..."
+                placeholder={t('aiAssistant.configModal.userPromptContentPlaceholder')}
                 rows="18"
               ></textarea>
             </div>
           {:else}
-            <div class="prompt-empty-state">固定目录中暂无用户提示词文件，请先新建。</div>
+            <div class="prompt-empty-state">{t('aiAssistant.configModal.noUserPromptFilesEmptyState')}</div>
           {/if}
         </div>
       {/if}

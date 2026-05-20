@@ -49,7 +49,7 @@
 
   function formatEpubLocationSummary(_text: string | undefined, chapter: number | undefined): string | null {
     if (chapter !== undefined) {
-      return `章节 ${chapter}`;
+      return t('study.sourceInfo.chapter', { chapter });
     }
     return null;
   }

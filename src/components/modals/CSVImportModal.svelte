@@ -9,6 +9,7 @@
   import { Notice, Menu, AbstractInputSuggest, TFile } from 'obsidian';
   import EnhancedModal from '../ui/EnhancedModal.svelte';
   import type { WeavePlugin } from '../../main';
+  import { tr as i18nTr, t } from '../../utils/i18n';
   import type { WeaveDataStorage } from '../../data/storage';
   import type { Deck, Card } from '../../data/types';
   import { CardType } from '../../data/types';
@@ -189,7 +190,7 @@
         });
       } catch (err) {
         logger.error('[CSVImport] 文件读取失败:', err);
-        new Notice('文件读取失败: ' + (err instanceof Error ? err.message : String(err)));
+        new Notice(t('management.csvImportModal.readFileFailed', { message: err instanceof Error ? err.message : String(err) }));
       }
     };
     input.click();
@@ -264,7 +265,7 @@
     fileLoaded = true;
 
     if (!newDeckName.trim()) {
-      newDeckName = 'CSV粘贴导入';
+      newDeckName = t('management.csvImportModal.pasteImportDeckName');
     }
 
     logger.info('[CSVImport] 粘贴内容已解析:', {
@@ -301,14 +302,14 @@
 
     // 跳过
     menu.addItem(item => {
-      item.setTitle('-- 跳过 --');
+      item.setTitle(t('management.csvImportModal.builtinFields.skip'));
       if (currentField === '_skip') item.setChecked(true);
       item.onClick(() => updateMapping(index, '_skip'));
     });
 
     // 卡片字段分组
     menu.addSeparator();
-    menu.addItem(item => { item.setTitle('卡片字段'); item.setIsLabel(true); });
+    menu.addItem(item => { item.setTitle(t('management.csvImportModal.fieldGroups.cardFields')); item.setIsLabel(true); });
     for (const f of builtinFieldList) {
       const field = f as TargetField;
       menu.addItem(item => {
@@ -321,7 +322,7 @@
     // YAML自定义属性分组
     if (userYamlProperties.length > 0) {
       menu.addSeparator();
-      menu.addItem(item => { item.setTitle('YAML自定义属性'); item.setIsLabel(true); });
+      menu.addItem(item => { item.setTitle(t('management.csvImportModal.fieldGroups.customYaml')); item.setIsLabel(true); });
       for (const prop of userYamlProperties) {
         const field = `yaml:${prop}` as TargetField;
         menu.addItem(item => {
@@ -338,7 +339,7 @@
       const newProps = headers.filter(h => !existingSet.has(h));
       if (newProps.length > 0) {
         menu.addSeparator();
-        menu.addItem(item => { item.setTitle('新建 YAML 属性'); item.setIsLabel(true); });
+        menu.addItem(item => { item.setTitle(t('management.csvImportModal.fieldGroups.newYaml')); item.setIsLabel(true); });
         for (const h of newProps) {
           const field = `yaml:${h}` as TargetField;
           menu.addItem(item => {
@@ -355,24 +356,24 @@
 
   /** 内置字段的中文标签 */
   const BUILTIN_FIELD_LABELS: Record<string, string> = {
-    question: '问题/正面',
-    answer: '答案/背面',
-    hint: '提示（>hint:）',
-    explanation: '解析',
-    optionA: '选项A',
-    optionB: '选项B',
-    optionC: '选项C',
-    optionD: '选项D',
-    optionE: '选项E',
-    optionF: '选项F',
-    correct_answer: '正确答案',
-    difficulty: '难度',
-    content: '内容',
-    tags: '标签',
-    source: '来源',
-    author: '作者',
-    page: '页码',
-    _skip: '-- 跳过 --',
+    question: t('management.csvImportModal.builtinFields.question'),
+    answer: t('management.csvImportModal.builtinFields.answer'),
+    hint: t('management.csvImportModal.builtinFields.hint'),
+    explanation: t('management.csvImportModal.builtinFields.explanation'),
+    optionA: t('management.csvImportModal.builtinFields.optionA'),
+    optionB: t('management.csvImportModal.builtinFields.optionB'),
+    optionC: t('management.csvImportModal.builtinFields.optionC'),
+    optionD: t('management.csvImportModal.builtinFields.optionD'),
+    optionE: t('management.csvImportModal.builtinFields.optionE'),
+    optionF: t('management.csvImportModal.builtinFields.optionF'),
+    correct_answer: t('management.csvImportModal.builtinFields.correct_answer'),
+    difficulty: t('management.csvImportModal.builtinFields.difficulty'),
+    content: t('management.csvImportModal.builtinFields.content'),
+    tags: t('management.csvImportModal.builtinFields.tags'),
+    source: t('management.csvImportModal.builtinFields.source'),
+    author: t('management.csvImportModal.builtinFields.author'),
+    page: t('management.csvImportModal.builtinFields.page'),
+    _skip: t('management.csvImportModal.builtinFields.skip'),
   };
 
   function getFieldLabel(field: TargetField): string {
@@ -409,7 +410,7 @@
 
       // 创建新牌组
       if (createNewDeck) {
-        const trimmedName = newDeckName.trim() || (isPasteMode ? 'CSV粘贴导入' : fileName.replace(/\.(csv|tsv|txt)$/i, ''));
+        const trimmedName = newDeckName.trim() || (isPasteMode ? t('management.csvImportModal.pasteImportDeckName') : fileName.replace(/\.(csv|tsv|txt)$/i, ''));
         const defaultDeckSettings = dataStorage.getCurrentDefaultDeckSettings({
           newCardsPerDay: 20,
           maxReviewsPerDay: 100,
@@ -420,7 +421,7 @@
         const newDeck: Deck = {
           id: generateId(),
           name: trimmedName,
-          description: isPasteMode ? 'CSV粘贴导入' : `CSV导入: ${fileName}`,
+          description: isPasteMode ? t('management.csvImportModal.pasteImportDeckName') : `CSV: ${fileName}`,
           category: 'imported',
           path: trimmedName,
           level: 0,
@@ -443,11 +444,11 @@
           },
         };
 
-        const deckResult = await dataStorage.saveDeck(newDeck);
-        if (!deckResult.success) {
-          throw new Error(`创建牌组失败: ${deckResult.error}`);
-        }
-        deckId = newDeck.id;
+          const deckResult = await dataStorage.saveDeck(newDeck);
+          if (!deckResult.success) {
+          throw new Error(t('management.csvImportModal.createFailed', { message: deckResult.error ?? t('common.unknown') }));
+          }
+          deckId = newDeck.id;
         deckName = trimmedName;
       } else {
         const deck = decks.find(d => d.id === targetDeckId);
@@ -544,14 +545,20 @@
       const successCount = allCards.length;
       importProgress = 100;
 
-      new Notice(`${isPasteMode ? 'CSV粘贴' : 'CSV'}导入完成: ${successCount} 张卡片已导入到 "${deckName}"`);
+      new Notice(t('management.csvImportModal.importSuccess', {
+        mode: isPasteMode
+          ? t('management.csvImportModal.modeCsvPaste')
+          : t('management.csvImportModal.modeCsv'),
+        count: successCount,
+        deck: deckName
+      }));
       logger.info('[CSVImport] 导入完成:', { successCount, deckName, deckId });
 
       onImportComplete?.(deckId, successCount);
       handleClose();
     } catch (err) {
       logger.error('[CSVImport] 导入失败:', err);
-      new Notice('CSV导入失败: ' + (err instanceof Error ? err.message : String(err)));
+      new Notice(t('management.csvImportModal.importFailed', { message: err instanceof Error ? err.message : String(err) }));
     } finally {
       isImporting = false;
     }
@@ -587,7 +594,7 @@
   {open}
   onClose={handleClose}
   size="lg"
-  title="CSV导入向导"
+  title={$i18nTr('management.csvImportModal.title')}
   accentColor="orange"
   maskClosable={!isImporting}
   keyboard={!isImporting}
@@ -598,17 +605,17 @@
       <div class="csv-steps">
         <div class="csv-step" class:active={currentStep === 1} class:done={currentStep > 1}>
           <span class="csv-step-num">{currentStep > 1 ? '>' : '1'}</span>
-          <span class="csv-step-label">文件配置</span>
+          <span class="csv-step-label">{$i18nTr('management.csvImportModal.steps.fileConfig')}</span>
         </div>
         <div class="csv-step-line" class:done={currentStep > 1}></div>
         <div class="csv-step" class:active={currentStep === 2} class:done={currentStep > 2}>
           <span class="csv-step-num">{currentStep > 2 ? '>' : '2'}</span>
-          <span class="csv-step-label">列映射</span>
+          <span class="csv-step-label">{$i18nTr('management.csvImportModal.steps.columnMapping')}</span>
         </div>
         <div class="csv-step-line" class:done={currentStep > 2}></div>
         <div class="csv-step" class:active={currentStep === 3}>
           <span class="csv-step-num">3</span>
-          <span class="csv-step-label">预览导入</span>
+          <span class="csv-step-label">{$i18nTr('management.csvImportModal.steps.previewImport')}</span>
         </div>
       </div>
 
@@ -617,38 +624,38 @@
         <div class="csv-step-content">
           <!-- 文件选择 -->
           <div class="csv-section">
-            <div class="csv-section-title">选择文件</div>
+            <div class="csv-section-title">{$i18nTr('management.csvImportModal.fileSection.title')}</div>
             <button class="csv-file-btn" class:csv-file-btn-active={!isPasteMode && fileName} onclick={handleFileSelect}>
-              {fileName || '点击选择 CSV/TSV 文件...'}
+              {fileName || $i18nTr('management.csvImportModal.fileSection.selectFile')}
             </button>
             {#if fileLoaded && !isPasteMode}
               <div class="csv-file-info">
-                <span>编码: {fileEncoding}</span>
-                <span>数据行: {allRows.length}</span>
-                <span>列数: {headers.length}</span>
+                <span>{$i18nTr('management.csvImportModal.fileSection.encoding')}: {fileEncoding}</span>
+                <span>{$i18nTr('management.csvImportModal.fileSection.rows')}: {allRows.length}</span>
+                <span>{$i18nTr('management.csvImportModal.fileSection.columns')}: {headers.length}</span>
               </div>
             {/if}
           </div>
 
           <!-- 分隔线 -->
           <div class="csv-or-divider">
-            <span class="csv-or-text">或</span>
+            <span class="csv-or-text">{$i18nTr('management.csvImportModal.or')}</span>
           </div>
 
           <!-- 粘贴CSV内容 -->
           <div class="csv-section">
-            <div class="csv-section-title">粘贴 CSV 内容</div>
+            <div class="csv-section-title">{$i18nTr('management.csvImportModal.pasteSection.title')}</div>
             <textarea
               class="csv-paste-textarea"
               class:csv-paste-active={isPasteMode && fileLoaded}
               value={pasteCSVText}
               oninput={(e) => handlePasteCSV((e.target as HTMLTextAreaElement).value)}
-              placeholder={"front,back,tags\n什么是间隔重复,基于遗忘曲线的学习方法,学习方法\nJava基本类型,int boolean char double,Java"}
+              placeholder={$i18nTr('management.csvImportModal.pasteSection.samplePlaceholder')}
             ></textarea>
             {#if fileLoaded && isPasteMode}
               <div class="csv-file-info">
-                <span>数据行: {allRows.length}</span>
-                <span>列数: {headers.length}</span>
+                <span>{$i18nTr('management.csvImportModal.fileSection.rows')}: {allRows.length}</span>
+                <span>{$i18nTr('management.csvImportModal.fileSection.columns')}: {headers.length}</span>
               </div>
             {/if}
           </div>
@@ -656,9 +663,9 @@
           {#if fileLoaded}
             <!-- 解析配置 -->
             <div class="csv-section">
-              <div class="csv-section-title">解析配置</div>
+              <div class="csv-section-title">{$i18nTr('management.csvImportModal.parseConfigTitle')}</div>
               <div class="csv-config-row">
-                <label class="csv-config-label" for="csv-separator-select">分隔符</label>
+                <label class="csv-config-label" for="csv-separator-select">{$i18nTr('management.csvImportModal.fileSection.separatorLabel')}</label>
                 <select
                   id="csv-separator-select"
                   class="csv-config-select"
@@ -670,20 +677,20 @@
                   {/each}
                 </select>
                 {#if detectionConfidence > 0.8}
-                  <span class="csv-auto-tag">自动检测</span>
+                  <span class="csv-auto-tag">{$i18nTr('management.csvImportModal.fileSection.autoDetected')}</span>
                 {/if}
               </div>
               <div class="csv-config-row">
                 <label class="csv-config-label">
                   <input type="checkbox" checked={hasHeader} onchange={(e) => onHasHeaderChange((e.target as HTMLInputElement).checked)} />
-                  第一行是表头
+                  {$i18nTr('management.csvImportModal.fileSection.headerRow')}
                 </label>
               </div>
             </div>
 
             <!-- 数据预览表格 -->
             <div class="csv-section">
-              <div class="csv-section-title">数据预览（前 {previewRows.length} 行）</div>
+              <div class="csv-section-title">{$i18nTr('management.csvImportModal.previewRows', { count: previewRows.length })}</div>
               <div class="csv-preview-table-wrap">
                 <table class="csv-preview-table">
                   <thead>
@@ -716,7 +723,7 @@
         <div class="csv-step-content">
           <!-- 卡片类型选择 -->
           <div class="csv-section">
-            <div class="csv-section-title">卡片类型</div>
+            <div class="csv-section-title">{$i18nTr('management.csvImportModal.cardType')}</div>
             <div class="csv-card-types">
               {#each CARD_TYPE_OPTIONS as opt}
                 <button
@@ -734,8 +741,8 @@
           <!-- 自动创建属性开关 -->
           <div class="csv-auto-create-toggle">
             <div class="csv-auto-create-info">
-              <span class="csv-auto-create-label">允许自动创建 YAML 属性</span>
-              <span class="csv-auto-create-desc">启用后可将 CSV 列映射为新的 YAML 属性</span>
+              <span class="csv-auto-create-label">{$i18nTr('management.csvImportModal.autoCreate.label')}</span>
+              <span class="csv-auto-create-desc">{$i18nTr('management.csvImportModal.autoCreate.description')}</span>
             </div>
             <div
               class="checkbox-container"
@@ -752,11 +759,11 @@
 
           <!-- 列映射表 -->
           <div class="csv-section">
-            <div class="csv-section-title">列映射</div>
-            <div class="csv-auto-create-desc">将 CSV 的提示列映射到这里后，导入时会自动写入卡片内容中的 <code>&gt;hint:</code> 引用提示块。</div>
+            <div class="csv-section-title">{$i18nTr('management.csvImportModal.columnMapping.title')}</div>
+            <div class="csv-auto-create-desc">{$i18nTr('management.csvImportModal.columnMapping.hintBlock')}</div>
             {#if missingRequiredFields.length > 0}
               <div class="csv-warning">
-                缺少必填字段: {missingRequiredFields.map(f => getFieldLabel(f)).join(', ')}
+                {$i18nTr('management.csvImportModal.columnMapping.missingRequired', { fields: missingRequiredFields.map(f => getFieldLabel(f)).join(', ') })}
               </div>
             {/if}
             <div class="csv-mapping-list">
@@ -788,19 +795,19 @@
           <!-- 导入统计 -->
           {#if importStats}
             <div class="csv-section">
-              <div class="csv-section-title">导入统计</div>
+              <div class="csv-section-title">{$i18nTr('management.csvImportModal.importStats.title')}</div>
               <div class="csv-stats-row">
                 <div class="csv-stat">
                   <div class="csv-stat-value">{importStats.totalRows}</div>
-                  <div class="csv-stat-label">总行数</div>
+                  <div class="csv-stat-label">{$i18nTr('management.csvImportModal.importStats.totalRows')}</div>
                 </div>
                 <div class="csv-stat csv-stat-success">
                   <div class="csv-stat-value">{importStats.validCards}</div>
-                  <div class="csv-stat-label">有效卡片</div>
+                  <div class="csv-stat-label">{$i18nTr('management.csvImportModal.importStats.validCards')}</div>
                 </div>
                 <div class="csv-stat csv-stat-warning">
                   <div class="csv-stat-value">{importStats.skippedRows}</div>
-                  <div class="csv-stat-label">跳过</div>
+                  <div class="csv-stat-label">{$i18nTr('management.csvImportModal.importStats.skipped')}</div>
                 </div>
               </div>
               {#if importStats.warnings.length > 0}
@@ -815,34 +822,34 @@
 
           <!-- 溯源文件（可选） -->
           <div class="csv-section">
-            <div class="csv-section-title">溯源文件（可选）</div>
+            <div class="csv-section-title">{$i18nTr('management.csvImportModal.sourceFile.title')}</div>
             <input
               bind:this={sourceInputEl}
               type="text"
               class="csv-config-input"
               value={sourceLink}
               oninput={(e) => sourceLink = (e.target as HTMLInputElement).value}
-              placeholder="输入文件名搜索或手动填写 ![[文档路径]]"
+              placeholder={$i18nTr('management.csvImportModal.sourceFile.placeholder')}
             />
             {#if sourceLink.trim()}
-              <div class="csv-source-preview">来源: {sourceLink}</div>
+              <div class="csv-source-preview">{$i18nTr('management.csvImportModal.sourceFile.preview', { source: sourceLink })}</div>
             {/if}
           </div>
 
           <!-- 目标牌组 -->
           <div class="csv-section">
-            <div class="csv-section-title">目标牌组</div>
+            <div class="csv-section-title">{$i18nTr('management.csvImportModal.targetDeck.title')}</div>
             <div class="csv-config-row">
               <label class="csv-config-label">
                 <input type="radio" name="deck-target" checked={createNewDeck} onchange={() => createNewDeck = true} />
-                创建新牌组
+                {$i18nTr('management.csvImportModal.targetDeck.createNew')}
               </label>
               {#if createNewDeck}
                 <input
                   type="text"
                   class="csv-config-input"
                   bind:value={newDeckName}
-                  placeholder="输入牌组名称..."
+                  placeholder={$i18nTr('management.csvImportModal.targetDeck.createPlaceholder')}
                 />
               {/if}
             </div>
@@ -850,7 +857,7 @@
               <div class="csv-config-row">
                 <label class="csv-config-label">
                   <input type="radio" name="deck-target" checked={!createNewDeck} onchange={() => createNewDeck = false} />
-                  导入到已有牌组
+                  {$i18nTr('management.csvImportModal.targetDeck.importExisting')}
                 </label>
                 {#if !createNewDeck}
                   <select class="csv-config-select" bind:value={targetDeckId}>
@@ -865,22 +872,22 @@
 
           <!-- 批量标签 -->
           <div class="csv-section">
-            <div class="csv-section-title">批量标签（可选）</div>
+            <div class="csv-section-title">{$i18nTr('management.csvImportModal.batchTags.title')}</div>
             <input
               type="text"
               class="csv-config-input"
               bind:value={batchTags}
-              placeholder="多个标签用逗号分隔..."
+              placeholder={$i18nTr('management.csvImportModal.batchTags.placeholder')}
             />
           </div>
 
           <!-- 卡片预览 -->
           <div class="csv-section">
-            <div class="csv-section-title">卡片预览</div>
+            <div class="csv-section-title">{$i18nTr('management.csvImportModal.cardPreview.title')}</div>
             <div class="csv-card-previews">
               {#each previewCards as card, i}
                 <div class="csv-card-preview">
-                  <div class="csv-card-preview-header">卡片 {i + 1}</div>
+                  <div class="csv-card-preview-header">{$i18nTr('management.csvImportModal.cardPreview.card', { index: i + 1 })}</div>
                   <pre class="csv-card-preview-content">{card.content}</pre>
                 </div>
               {/each}
@@ -893,7 +900,7 @@
               <div class="csv-progress-bar">
                 <div class="csv-progress-fill" style="width: {importProgress}%"></div>
               </div>
-              <div class="csv-progress-text">正在导入... {importProgress}%</div>
+              <div class="csv-progress-text">{$i18nTr('management.csvImportModal.importingProgress', { progress: importProgress })}</div>
             </div>
           {/if}
         </div>
@@ -906,13 +913,13 @@
       <div class="csv-footer-left">
         {#if currentStep > 1}
           <button class="csv-btn csv-btn-secondary" onclick={goBack} disabled={isImporting}>
-            上一步
+            {$i18nTr('management.csvImportModal.actions.prev')}
           </button>
         {/if}
       </div>
       <div class="csv-footer-right">
         <button class="csv-btn csv-btn-secondary" onclick={handleClose} disabled={isImporting}>
-          取消
+          {$i18nTr('management.csvImportModal.actions.cancel')}
         </button>
         {#if currentStep < 3}
           <button
@@ -923,7 +930,7 @@
               (currentStep === 2 && missingRequiredFields.length > 0)
             }
           >
-            下一步
+            {$i18nTr('management.csvImportModal.actions.next')}
           </button>
         {:else}
           <button
@@ -931,7 +938,7 @@
             onclick={executeImport}
             disabled={isImporting || !importStats || importStats.validCards === 0}
           >
-            {isImporting ? '导入中...' : `导入 ${importStats?.validCards || 0} 张卡片`}
+            {isImporting ? $i18nTr('management.csvImportModal.actions.importing') : $i18nTr('management.csvImportModal.actions.importCards', { count: importStats?.validCards || 0 })}
           </button>
         {/if}
       </div>

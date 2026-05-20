@@ -49,13 +49,13 @@
       </div>
       
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">成功率</span>
+        <span class="info-label">{t('modals.reviewStatsTab.successRate')}</span>
         <span class="info-value" class:highlighted={stats.successRate >= 0.8}>{formattedSuccessRate}%</span>
       </div>
       
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">平均间隔</span>
-        <span class="info-value">{stats.averageInterval.toFixed(1)} 天</span>
+        <span class="info-label">{t('modals.reviewStatsTab.averageInterval')}</span>
+        <span class="info-value">{stats.averageInterval.toFixed(1)} {t('modals.reviewStatsTab.days')}</span>
       </div>
     </div>
   </section>
@@ -63,22 +63,22 @@
   <!-- FSRS参数 -->
   <section class="stats-section" class:mobile={isMobile}>
     <h3 class="section-title with-accent-bar accent-green" class:mobile={isMobile}>
-      FSRS参数
+      {t('modals.reviewStatsTab.fsrsMetrics')}
     </h3>
     
     <div class="info-grid" class:mobile={isMobile}>
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">稳定性</span>
-        <span class="info-value">{formattedStability} 天</span>
+        <span class="info-label">{t('modals.reviewStatsTab.stability')}</span>
+        <span class="info-value">{formattedStability} {t('modals.reviewStatsTab.days')}</span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">难度</span>
+        <span class="info-label">{t('modals.reviewStatsTab.difficulty')}</span>
         <span class="info-value">{formattedDifficulty}/10</span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">可提取性</span>
+        <span class="info-label">{t('modals.reviewStatsTab.retrievability')}</span>
         <span class="info-value">{formattedRetrievability}%</span>
       </div>
     </div>
@@ -87,34 +87,34 @@
   <!-- 复习计划 -->
   <section class="stats-section" class:mobile={isMobile}>
     <h3 class="section-title with-accent-bar accent-orange" class:mobile={isMobile}>
-      复习计划
+      {t('modals.reviewStatsTab.reviewPlan')}
     </h3>
     
     <div class="info-grid" class:mobile={isMobile}>
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">上次复习</span>
+        <span class="info-label">{t('modals.reviewStatsTab.lastReview')}</span>
         <span class="info-value">
           {#if card.fsrs?.lastReview}
             {formatRelativeTimeDetailed(card.fsrs.lastReview)}
           {:else}
-            从未复习
+            {t('modals.reviewStatsTab.neverReviewed')}
           {/if}
         </span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">下次复习</span>
-        <span class="info-value">{card.fsrs?.due ? formatRelativeTimeDetailed(card.fsrs.due) : '未知'}</span>
+        <span class="info-label">{t('modals.reviewStatsTab.nextReview')}</span>
+        <span class="info-value">{card.fsrs?.due ? formatRelativeTimeDetailed(card.fsrs.due) : t('modals.reviewStatsTab.unknown')}</span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">已过天数</span>
-        <span class="info-value">{fsrsMetrics.elapsedDays} 天</span>
+        <span class="info-label">{t('modals.reviewStatsTab.elapsedDays')}</span>
+        <span class="info-value">{fsrsMetrics.elapsedDays} {t('modals.reviewStatsTab.days')}</span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">预定间隔</span>
-        <span class="info-value">{fsrsMetrics.scheduledDays} 天</span>
+        <span class="info-label">{t('modals.reviewStatsTab.scheduledDays')}</span>
+        <span class="info-value">{fsrsMetrics.scheduledDays} {t('modals.reviewStatsTab.days')}</span>
       </div>
     </div>
   </section>
@@ -123,16 +123,16 @@
   {#if stats.totalStudyTime > 0}
     <section class="stats-section" class:mobile={isMobile}>
       <h3 class="section-title with-accent-bar accent-purple" class:mobile={isMobile}>
-        学习时间
+        {t('modals.reviewStatsTab.studyTime')}
       </h3>
       
       <div class="time-stats" class:mobile={isMobile}>
         <div class="time-item" class:mobile={isMobile}>
-          <span class="time-label">总学习时间</span>
+          <span class="time-label">{t('modals.reviewStatsTab.totalStudyTime')}</span>
           <span class="time-value">{formatStudyTime(stats.totalStudyTime)}</span>
         </div>
         <div class="time-item" class:mobile={isMobile}>
-          <span class="time-label">平均学习时间</span>
+          <span class="time-label">{t('modals.reviewStatsTab.averageStudyTime')}</span>
           <span class="time-value">{formatStudyTime(stats.averageStudyTime)}</span>
         </div>
       </div>

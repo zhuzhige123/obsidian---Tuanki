@@ -75,6 +75,7 @@ export interface AIConfig {
     verified: boolean;
     lastVerified?: string;
     baseUrl?: string;
+    secretId?: string;
   }>>;
   
   /**

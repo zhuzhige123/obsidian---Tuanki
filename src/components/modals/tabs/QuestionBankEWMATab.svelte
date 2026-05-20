@@ -5,6 +5,7 @@
   import { createGradient } from '../../../utils/echarts-theme';
   import { createManagedChartRuntime } from '../../../utils/chart-runtime';
   import type { EChartsOption } from '../../../utils/echarts-loader';
+  import { tr } from '../../../utils/i18n';
 
   interface Props {
     snapshot: QuestionBankAnalyticsSnapshot | null;
@@ -19,6 +20,7 @@
 
   let { snapshot, isLoading }: Props = $props();
   let chartContainer = $state<HTMLDivElement | null>(null);
+  let t = $derived($tr);
 
   const chartRuntime = createManagedChartRuntime<ChartPayload>({
     buildOption(payload, theme): EChartsOption {
@@ -33,7 +35,7 @@
           formatter(params: Array<{ axisValue: string; color: string; seriesName: string; value: number }>) {
             let result = `<div style="font-weight:600;margin-bottom:4px;">${params[0]?.axisValue ?? ''}</div>`;
             for (const param of params) {
-              const value = param.seriesName === '置信度'
+              const value = param.seriesName === t('study.questionBankUI.analyticsTab.confidence')
                 ? param.value.toFixed(2)
                 : `${param.value.toFixed(1)}%`;
               result += `<div style="margin:2px 0;">
@@ -82,7 +84,7 @@
         yAxis: [
           {
             type: 'value',
-            name: isMobile ? '' : '正确率 (%)',
+            name: isMobile ? '' : t('study.questionBankUI.analyticsTab.accuracyPercent'),
             nameTextStyle: { color: theme.textMuted, fontSize: 12 },
             min: 0,
             max: 100,
@@ -101,7 +103,7 @@
           },
           {
             type: 'value',
-            name: isMobile ? '' : '置信度',
+            name: isMobile ? '' : t('study.questionBankUI.analyticsTab.confidence'),
             nameTextStyle: { color: theme.textMuted, fontSize: 12 },
             min: 0,
             max: 1,
@@ -118,7 +120,7 @@
         ],
         series: [
           {
-            name: 'EWMA 当前掌握度',
+            name: t('study.questionBankUI.analyticsTab.ewmaMastery'),
             type: 'line',
             data: ewmaData,
             smooth: true,
@@ -130,7 +132,7 @@
             }
           },
           {
-            name: '历史平均',
+            name: t('study.questionBankUI.analyticsTab.historicalAverage'),
             type: 'line',
             data: historicalData,
             smooth: true,
@@ -139,7 +141,7 @@
             symbolSize: 4
           },
           {
-            name: '目标线',
+            name: t('study.questionBankUI.analyticsTab.targetLine'),
             type: 'line',
             data: dates.map(() => 80),
             lineStyle: { color: theme.success, width: 2, type: 'solid' },
@@ -147,7 +149,7 @@
             symbol: 'none'
           },
           {
-            name: '置信度',
+            name: t('study.questionBankUI.analyticsTab.confidence'),
             type: 'line',
             yAxisIndex: 1,
             data: confidenceData,
@@ -178,9 +180,9 @@
 
 <div class="ewma-tab">
   {#if isLoading}
-    <div class="empty-state">正在加载题库分析数据...</div>
+    <div class="empty-state">{t('study.questionBankUI.analyticsTab.loadingData')}</div>
   {:else if !snapshot || snapshot.ewmaSeries.dates.length === 0}
-    <div class="empty-state">暂无可用的真实答题数据</div>
+    <div class="empty-state">{t('study.questionBankUI.analyticsTab.noRealData')}</div>
   {:else}
     <div class="chart-container">
       <div bind:this={chartContainer} class="chart"></div>

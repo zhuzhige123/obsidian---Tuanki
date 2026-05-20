@@ -14,6 +14,7 @@
    */
   import BottomSheetModal from '../ui/BottomSheetModal.svelte';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
+  import { tr } from '../../utils/i18n';
 
   interface MenuItem {
     id: string;
@@ -50,34 +51,35 @@
     onClose,
     onMenuItemClick
   }: Props = $props();
+  let t = $derived($tr);
 
   // 基础菜单分类配置
-  const baseMenuSections: MenuSection[] = [
+  const baseMenuSections = $derived<MenuSection[]>([
     {
-      title: '功能切换',
+      title: t('cards.management.mobileMenu.sections.functionSwitch'),
       items: [
-        { id: 'deck-study', icon: 'graduation-cap', label: '牌组学习' },
-        { id: 'card-management', icon: 'list', label: '卡片管理' },
-        { id: 'ai-assistant', icon: 'bot', label: 'AI助手' }
+        { id: 'deck-study', icon: 'graduation-cap', label: t('cards.management.mobileMenu.items.deckStudy') },
+        { id: 'card-management', icon: 'list', label: t('cards.management.mobileMenu.items.cardManagement') },
+        { id: 'ai-assistant', icon: 'bot', label: t('cards.management.mobileMenu.items.aiAssistant') }
       ]
     },
     {
-      title: '卡片操作',
+      title: t('cards.management.mobileMenu.sections.cardActions'),
       items: [
-        { id: 'new-card', icon: 'plus', label: '新建卡片' },
-        { id: 'import-cards', icon: 'download', label: '导入卡片' },
-        { id: 'export-cards', icon: 'upload', label: '导出卡片' }
+        { id: 'new-card', icon: 'plus', label: t('cards.management.mobileMenu.items.newCard') },
+        { id: 'import-cards', icon: 'download', label: t('cards.management.mobileMenu.items.importCards') },
+        { id: 'export-cards', icon: 'upload', label: t('cards.management.mobileMenu.items.exportCards') }
       ]
     },
     {
-      title: '批量操作',
+      title: t('cards.management.mobileMenu.sections.batchActions'),
       items: [
-        { id: 'multi-select', icon: 'check-square', label: '多选模式' },
-        { id: 'batch-delete', icon: 'trash-2', label: '批量删除' },
-        { id: 'batch-move', icon: 'folder', label: '批量移动' }
+        { id: 'multi-select', icon: 'check-square', label: t('cards.management.mobileMenu.items.multiSelect') },
+        { id: 'batch-delete', icon: 'trash-2', label: t('cards.management.mobileMenu.items.batchDelete') },
+        { id: 'batch-move', icon: 'folder', label: t('cards.management.mobileMenu.items.batchMove') }
       ]
     }
-  ];
+  ]);
 
   // 根据当前视图动态生成菜单
   const menuSections = $derived(() => {
@@ -86,12 +88,12 @@
     // 表格视图专用功能
     if (currentView === 'table') {
       sections.push({
-        title: '表格视图',
+        title: t('cards.management.mobileMenu.sections.tableView'),
         items: [
-          { id: 'table-basic', icon: 'table', label: '基础信息模式', active: tableViewMode === 'basic' },
-          { id: 'table-review', icon: 'history', label: '复习历史模式', active: tableViewMode === 'review' },
-          { id: 'table-question-bank', icon: 'edit-3', label: '考试题组模式', active: tableViewMode === 'questionBank' },
-          { id: 'column-manager', icon: 'columns', label: '字段管理' }
+          { id: 'table-basic', icon: 'table', label: t('cards.management.mobileMenu.items.tableBasic'), active: tableViewMode === 'basic' },
+          { id: 'table-review', icon: 'history', label: t('cards.management.mobileMenu.items.tableReview'), active: tableViewMode === 'review' },
+          { id: 'table-question-bank', icon: 'edit-3', label: t('cards.management.mobileMenu.items.tableQuestionBank'), active: tableViewMode === 'questionBank' },
+          { id: 'column-manager', icon: 'columns', label: t('cards.management.mobileMenu.items.columnManager') }
         ]
       });
     }
@@ -99,12 +101,12 @@
     // 网格视图专用功能
     if (currentView === 'grid') {
       sections.push({
-        title: '网格视图',
+        title: t('cards.management.mobileMenu.sections.gridView'),
         items: [
-          { id: 'grid-fixed', icon: 'grid', label: '固定布局', active: gridLayout === 'fixed' },
-          { id: 'grid-masonry', icon: 'layout-grid', label: '瀑布流布局', active: gridLayout === 'masonry' },
-          { id: 'grid-timeline', icon: 'history', label: '时间线布局', active: gridLayout === 'timeline' },
-          { id: 'card-location-jump', icon: 'external-link', label: '定位跳转模式', active: enableCardLocationJump }
+          { id: 'grid-fixed', icon: 'grid', label: t('cards.management.mobileMenu.items.gridFixed'), active: gridLayout === 'fixed' },
+          { id: 'grid-masonry', icon: 'layout-grid', label: t('cards.management.mobileMenu.items.gridMasonry'), active: gridLayout === 'masonry' },
+          { id: 'grid-timeline', icon: 'history', label: t('cards.management.mobileMenu.items.gridTimeline'), active: gridLayout === 'timeline' },
+          { id: 'card-location-jump', icon: 'external-link', label: t('cards.management.mobileMenu.items.cardLocationJump'), active: enableCardLocationJump }
         ]
       });
     }
@@ -112,11 +114,11 @@
     // 看板视图专用功能
     if (currentView === 'kanban') {
       sections.push({
-        title: '看板视图',
+        title: t('cards.management.mobileMenu.sections.kanbanView'),
         items: [
-          { id: 'kanban-compact', icon: 'minimize-2', label: '紧凑模式', active: kanbanLayoutMode === 'compact' },
-          { id: 'kanban-comfortable', icon: 'maximize-2', label: '舒适模式', active: kanbanLayoutMode === 'comfortable' },
-          { id: 'kanban-spacious', icon: 'expand', label: '宽松模式', active: kanbanLayoutMode === 'spacious' }
+          { id: 'kanban-compact', icon: 'minimize-2', label: t('cards.management.mobileMenu.items.kanbanCompact'), active: kanbanLayoutMode === 'compact' },
+          { id: 'kanban-comfortable', icon: 'maximize-2', label: t('cards.management.mobileMenu.items.kanbanComfortable'), active: kanbanLayoutMode === 'comfortable' },
+          { id: 'kanban-spacious', icon: 'expand', label: t('cards.management.mobileMenu.items.kanbanSpacious'), active: kanbanLayoutMode === 'spacious' }
         ]
       });
     }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Readable } from "svelte/store";
   import OperationProgressCard from "../ui/OperationProgressCard.svelte";
+  import { tr } from "../../utils/i18n";
 
   interface ProgressModalViewState {
     title: string;
@@ -24,6 +25,7 @@
   }
 
   let { progressState, onAction }: Props = $props();
+  let t = $derived($tr);
 
   let viewState = $derived($progressState);
   let counterLabel = $derived(
@@ -31,10 +33,12 @@
   );
   let statusLabel = $derived(
     viewState.status === "success"
-      ? "已完成"
+      ? t('management.dataManagement.progress.statusCompleted')
       : viewState.status === "error"
-        ? "失败"
-        : (viewState.isCancelled ? "取消中" : "进行中")
+        ? t('management.dataManagement.progress.detailStatusFailed')
+        : (viewState.isCancelled
+          ? t('management.dataManagement.progress.cancelling')
+          : t('management.dataManagement.progress.statusRunning'))
   );
   let showActionButton = $derived(viewState.cancellable || viewState.allowClose);
 </script>

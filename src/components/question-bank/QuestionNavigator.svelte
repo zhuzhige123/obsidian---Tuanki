@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Card } from "../../data/types";
   import type { TestQuestionRecord } from "../../types/question-bank-types";
+  import { tr } from "../../utils/i18n";
 
   interface Props {
     questions: TestQuestionRecord[];
@@ -10,6 +11,7 @@
   }
 
   let { questions, currentIndex, onJumpToQuestion, columnMode = 3 }: Props = $props();
+  let t = $derived($tr);
 
   // 按题型分组
   interface QuestionGroup {
@@ -26,11 +28,11 @@
   let groups = $state<QuestionGroup[]>([]);
 
   // 题型映射
-  const typeConfig = {
-    choice: { label: '选择题' },
-    cloze: { label: '填空题' },
-    qa: { label: '问答题' }
-  };
+  function getTypeLabel(type: 'choice' | 'cloze' | 'qa'): string {
+    if (type === 'choice') return t('study.questionBankUI.navigator.choice');
+    if (type === 'cloze') return t('study.questionBankUI.navigator.cloze');
+    return t('study.questionBankUI.navigator.qa');
+  }
 
   // 根据题目类型归类
   function getQuestionType(question: Card): 'choice' | 'cloze' | 'qa' {
@@ -64,7 +66,7 @@
       if (!typeGroups.has(type)) {
         typeGroups.set(type, {
           type,
-          label: typeConfig[type].label,
+          label: getTypeLabel(type),
           questions: [],
           collapsed: false
         });
@@ -134,7 +136,7 @@
               <button
                 class="nav-cell {cell.status}"
                 onclick={() => jumpToQuestion(cell.index)}
-                title="题目 {cell.index + 1}"
+                title={t('study.questionBankUI.navigator.questionTitle', { index: cell.index + 1 })}
               >
                 {cell.index + 1}
               </button>

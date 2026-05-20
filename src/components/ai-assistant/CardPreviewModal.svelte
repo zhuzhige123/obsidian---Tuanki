@@ -203,7 +203,7 @@
           editorContainer,
           {
             value: editingContent,
-            placeholder: '在此编辑卡片内容...\n\n使用 ---div--- 分隔正面和背面',
+            placeholder: t('aiAssistant.cardPreviewModal.editorPlaceholder'),
             sessionId: `preview-${currentCard.uuid}-${Date.now()}`,
             sourcePath: currentCard.metadata.sourceFile,
             onChange: (editor) => {
@@ -224,7 +224,7 @@
         logger.debug('[CardPreviewModal] 编辑器创建成功');
       } catch (error) {
         logger.error('[CardPreviewModal] 编辑器创建失败:', error);
-        new Notice('编辑器创建失败');
+        new Notice(t('aiAssistant.cardPreviewModal.editorCreateFailed'));
         isEditMode = false;
       }
     }
@@ -257,7 +257,7 @@
     }
     
     isEditMode = false;
-    new Notice('卡片内容已更新');
+    new Notice(t('aiAssistant.cardPreviewModal.contentUpdated'));
     
     logger.debug('[CardPreviewModal] 编辑内容已保存');
   }
@@ -296,7 +296,7 @@
     if (!currentCard) return;
 
     try {
-      new Notice('正在重新生成卡片...');
+      new Notice(t('aiAssistant.cardPreviewModal.regenerating'));
       
       // 调用 AI 服务重新生成卡片
       const { AIServiceFactory } = await import('../../services/ai/AIServiceFactory');
@@ -388,11 +388,11 @@ ${originalContent}
       const aiConfig = plugin.settings.aiConfig!;
       const provider = config.provider;
       const model = config.model;
-      const providerConfig = aiConfig.apiKeys?.[provider as keyof typeof aiConfig.apiKeys];
-      
-      if (!providerConfig || !providerConfig.apiKey) {
-        throw new Error(`${provider} API密钥未配置`);
-      }
+        const providerConfig = aiConfig.apiKeys?.[provider as keyof typeof aiConfig.apiKeys];
+        
+        if (!providerConfig || !providerConfig.apiKey) {
+        throw new Error(t('aiAssistant.cardPreviewModal.providerApiKeyMissing', { provider }));
+        }
       
       // 调用AI生成
       const response = await aiService.generateCards(
@@ -434,13 +434,13 @@ ${originalContent}
         newCards[currentIndex] = updatedCard;
         cards = newCards;
         
-        new Notice('卡片已重新生成');
+        new Notice(t('aiAssistant.cardPreviewModal.regenerated'));
       } else {
         throw new Error(response.error || '生成失败');
       }
     } catch (error) {
       logger.error('Regenerate failed:', error);
-      new Notice(error instanceof Error ? error.message : '重新生成失败');
+      new Notice(error instanceof Error ? error.message : t('aiAssistant.cardPreviewModal.regenerateFailed'));
     }
   }
 
@@ -482,7 +482,7 @@ ${originalContent}
     } catch (error) {
       logger.error('[CardPreviewModal] Load decks failed:', error);
       // 创建默认牌组备用
-      availableDecks = [{ id: 'default', name: '默认记忆牌组' }];
+      availableDecks = [{ id: 'default', name: t('aiAssistant.cardPreviewModal.defaultDeckName') }];
       selectedDeckId = 'default';
     }
   }
@@ -490,12 +490,12 @@ ${originalContent}
   // ===== 导入卡片 =====
   async function handleImportCards() {
     if (selectedCount === 0) {
-      new Notice('请至少选择一张卡片');
+      new Notice(t('aiAssistant.previewWorkspace.selectCardFirst'));
       return;
     }
 
     if (!selectedDeckId) {
-      new Notice('请选择目标牌组');
+      new Notice(t('aiAssistant.previewWorkspace.selectTargetDeck'));
       return;
     }
 
@@ -506,14 +506,14 @@ ${originalContent}
     try {
       isImporting = true;
       await onImport(selectedCards, selectedDeckId);
-      new Notice(`成功导入 ${selectedCount} 张卡片到 ${deckName}`);
+      new Notice(t('aiAssistant.cardPreviewModal.importSuccess', { count: selectedCount, deck: deckName }));
       onClose();
-    } catch (error) {
-      logger.error('Import failed:', error);
-      new Notice(error instanceof Error ? error.message : '导入失败');
-    } finally {
-      isImporting = false;
-    }
+      } catch (error) {
+        logger.error('Import failed:', error);
+        new Notice(error instanceof Error ? error.message : t('aiAssistant.cardPreviewModal.importFailed'));
+      } finally {
+        isImporting = false;
+      }
   }
 
   // ===== 键盘快捷键 =====
@@ -640,7 +640,7 @@ ${originalContent}
                   class="card-editor-wrapper"
                 >
                   <div class="editor-toolbar">
-                    <span class="editor-hint">编辑模式 - 使用 ---div--- 分隔正面和背面</span>
+                    <span class="editor-hint">{t('aiAssistant.cardPreviewModal.editHint')}</span>
                   </div>
                   <div 
                     class="obsidian-editor-container" 
@@ -661,9 +661,7 @@ ${originalContent}
                   </div>
                 {:else}
                   <div class="card-section">
-                    <div class="no-preview-warning">
-                      卡片预览加载失败
-                    </div>
+                    <div class="no-preview-warning">{t('aiAssistant.cardPreviewModal.previewLoadFailed')}</div>
                   </div>
                 {/if}
               {/if}
@@ -677,18 +675,18 @@ ${originalContent}
                   class:active={isEditMode}
                 >
                   <ObsidianIcon name={isEditMode ? 'eye' : 'pencil'} size={16} />
-                  <span>{isEditMode ? '预览' : '编辑内容'}</span>
+                  <span>{isEditMode ? t('aiAssistant.cardPreviewModal.previewMode') : t('aiAssistant.cardPreviewModal.editContent')}</span>
                 </button>
                 
                 <!-- 取消编辑按钮（仅编辑模式显示） -->
                 {#if isEditMode}
-                  <button
-                    class="cancel-edit-btn"
-                    onclick={cancelEditMode}
-                  >
-                    <ObsidianIcon name="x" size={16} />
-                    <span>取消</span>
-                  </button>
+                <button
+                  class="cancel-edit-btn"
+                  onclick={cancelEditMode}
+                >
+                  <ObsidianIcon name="x" size={16} />
+                    <span>{t('aiAssistant.cardPreviewModal.cancel')}</span>
+                </button>
                 {/if}
                 
                 <!-- 修改生成要求按钮（仅预览模式显示） -->
@@ -798,7 +796,7 @@ ${originalContent}
               <!-- 牌组选择器 -->
               <div class="deck-selector">
                 <label for="target-deck">
-                  导入到记忆牌组：
+                  {t('aiAssistant.cardPreviewModal.importToDeck')}
                 </label>
                 <ObsidianDropdown
                   className="target-deck-select"

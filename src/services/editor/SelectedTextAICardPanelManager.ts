@@ -1,17 +1,11 @@
 import type { MarkdownView } from "obsidian";
-import { mount, unmount } from "svelte";
-import SelectedTextAICardPanel from "../../components/ai-assistant/SelectedTextAICardPanel.svelte";
-import type { WeavePlugin } from "../../main";
+import type { SelectedTextAISplitPreviewLayer } from "./SelectedTextAISplitPreviewLayer";
 
-type PanelInstance = {
-	container: HTMLElement;
-	instance: any;
-};
-
+/**
+ * 选中文本 AI 拆分预览：统一委托给 {@link SelectedTextAISplitPreviewLayer}（workspace 底部单例）。
+ */
 export class SelectedTextAICardPanelManager {
-	private panels = new Map<MarkdownView, PanelInstance>();
-
-	constructor(private plugin: WeavePlugin) {}
+	constructor(private readonly previewLayer: SelectedTextAISplitPreviewLayer) {}
 
 	openPanel(params: {
 		view: MarkdownView;
@@ -19,47 +13,18 @@ export class SelectedTextAICardPanelManager {
 		actionId: string;
 	}): void {
 		const { view, selectedText, actionId } = params;
-
-		this.closePanel(view);
-
-		const container = document.createElement("div");
-		container.className = "weave-ai-card-panel-container";
-
-		view.contentEl.append(container);
-
-		const instance = mount(SelectedTextAICardPanel, {
-			target: container,
-			props: {
-				host: this.plugin,
-				selectedText,
-				actionId,
-				sourceFilePath: view.file?.path || "",
-				onClose: () => this.closePanel(view),
-			},
+		void this.previewLayer.open({
+			selectedText,
+			actionId,
+			sourceFilePath: view.file?.path || "",
 		});
-
-		this.panels.set(view, { container, instance });
 	}
 
-	closePanel(view: MarkdownView): void {
-		const existing = this.panels.get(view);
-		if (!existing) return;
-
-		try {
-			void unmount(existing.instance);
-		} catch {}
-
-		try {
-			existing.container.remove();
-		} catch {}
-
-		this.panels.delete(view);
+	closePanel(_view: MarkdownView): void {
+		this.previewLayer.close();
 	}
 
 	dispose(): void {
-		for (const [view] of this.panels) {
-			this.closePanel(view);
-		}
-		this.panels.clear();
+		this.previewLayer.dispose();
 	}
 }

@@ -36,8 +36,8 @@
   import type { IssueSeverity } from '../../types/card-quality-types';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import EnhancedButton from '../ui/EnhancedButton.svelte';
+  import { tr, t } from '../../utils/i18n';
   import { showDangerConfirm } from '../../utils/obsidian-confirm';
-  import { createGlobalOperationController, type GlobalOperationController } from '../../utils/global-operation-progress';
 
   // ===== Props =====
   interface Props {
@@ -76,7 +76,6 @@
   let progressCurrent = $state(0);
   let progressTotal = $state(0);
   let progressPercent = $derived(progressTotal > 0 ? Math.round((progressCurrent / progressTotal) * 100) : 0);
-  let activeGlobalOperation = $state<GlobalOperationController | null>(null);
 
   // ===== 质量扫描 State =====
   let isScanning = $state(false);
@@ -92,20 +91,20 @@
   let sortBy = $state<'severity' | 'type'>('severity');
 
   // 问题类型标签映射
-  const issueTypeLabels: Record<QualityIssueType, string> = {
-    duplicate_exact: '完全重复',
-    duplicate_similar: '内容相似',
-    empty_content: '内容为空',
-    too_short: '内容过短',
-    too_long: '内容过长',
-    missing_answer: '缺少答案',
-    missing_question: '缺少问题',
-    low_retention: '低保留率',
-    high_difficulty: '高难度',
-    orphan_card: '孤儿卡片',
-    invalid_format: '格式无效',
-    source_missing: '源文档缺失'
-  };
+  const issueTypeLabels = $derived.by(() => ({
+    duplicate_exact: t('management.cardQuality.issueTypes.duplicateExact'),
+    duplicate_similar: t('management.cardQuality.issueTypes.duplicateSimilar'),
+    empty_content: t('management.cardQuality.issueTypes.emptyContent'),
+    too_short: t('management.cardQuality.issueTypes.tooShort'),
+    too_long: t('management.cardQuality.issueTypes.tooLong'),
+    missing_answer: t('management.cardQuality.issueTypes.missingAnswer'),
+    missing_question: t('management.cardQuality.issueTypes.missingQuestion'),
+    low_retention: t('management.cardQuality.issueTypes.lowRetention'),
+    high_difficulty: t('management.cardQuality.issueTypes.highDifficulty'),
+    orphan_card: t('management.cardQuality.issueTypes.orphanCard'),
+    invalid_format: t('management.cardQuality.issueTypes.invalidFormat'),
+    source_missing: t('management.cardQuality.issueTypes.sourceMissing')
+  }) satisfies Record<QualityIssueType, string>);
 
   // 严重程度颜色
   const severityColors = {
@@ -194,48 +193,24 @@
     logs = [...logs, `[${time}] ${message}`];
   }
 
-  function startGlobalProgress(title: string, total: number, detail: string) {
-    activeGlobalOperation = createGlobalOperationController({
-      title,
-      total: Math.max(1, total),
-      detail,
-      allowNavigation: false,
-      navigationMessage: '数据管理任务正在执行，请暂时留在当前界面，完成后会自动刷新结果。'
-    });
-    return activeGlobalOperation.operationId;
+  function startGlobalProgress(_title: string, total: number, detail: string) {
+    progressCurrent = 0;
+    progressTotal = Math.max(1, total);
+    progressMessage = detail;
   }
 
   function updateSharedProgress(current: number, total: number, message: string) {
     progressCurrent = current;
-    progressTotal = total;
+    progressTotal = Math.max(1, total);
     progressMessage = message;
-
-    if (!activeGlobalOperation) {
-      return;
-    }
-
-    activeGlobalOperation.update({
-      status: 'running',
-      current,
-      total,
-      detail: message,
-    });
   }
 
-  function finishGlobalProgress(status: 'success' | 'error', detail: string, current?: number, total?: number) {
-    if (!activeGlobalOperation) {
-      return;
-    }
-
+  function finishGlobalProgress(_status: 'success' | 'error', detail: string, current?: number, total?: number) {
     const finalTotal = Math.max(1, total ?? (progressTotal || 1));
     const finalCurrent = Math.max(0, Math.min(finalTotal, current ?? (progressCurrent || finalTotal)));
-    activeGlobalOperation.finish({
-      status,
-      current: finalCurrent,
-      total: finalTotal,
-      detail,
-    }, status === 'error' ? 2500 : 1500);
-    activeGlobalOperation = null;
+    progressCurrent = finalCurrent;
+    progressTotal = finalTotal;
+    progressMessage = detail;
   }
 
   function resetLocalProgress() {
@@ -262,11 +237,11 @@
 
   const activeCheckResults = $derived(checkResults.filter(result => !isTemporaryType(result.type)));
   const activeMigrationResults = $derived(migrationResults.filter(result => !isTemporaryType(result.type)));
-  const activeCheckSectionTitle = $derived('正式数据健康检查');
-  const activeMigrationSectionTitle = $derived('正式数据迁移与结构状态');
-  const activeMigrationActionLabel = $derived('检测正式数据状态');
-  const activeCheckEmptyMessage = $derived('当前暂无正式数据检测结果，点击“检测当前页”开始检测');
-  const activeMigrationEmptyMessage = $derived('当前暂无正式数据迁移/结构结果，点击上方按钮开始检测');
+  const activeCheckSectionTitle = $derived($tr('management.dataHealth.sectionTitle'));
+  const activeMigrationSectionTitle = $derived($tr('management.dataHealth.migrationSectionTitle'));
+  const activeMigrationActionLabel = $derived($tr('management.dataHealth.checkMigrationStatus'));
+  const activeCheckEmptyMessage = $derived($tr('management.dataHealth.emptyCheckResults'));
+  const activeMigrationEmptyMessage = $derived($tr('management.dataHealth.emptyMigrationResults'));
   const activeFixableTypes = $derived(
     activeCheckResults
       .filter(result => result.count > 0 && DEFAULT_BATCH_FIX_TYPES.includes(result.type))
@@ -279,10 +254,10 @@
     const results: DataCheckResult[] = [];
     for (let i = 0; i < MIGRATION_CHECK_TYPES.length; i++) {
       const type = MIGRATION_CHECK_TYPES[i];
-      onProgress?.(i, MIGRATION_CHECK_TYPES.length, `检测 ${getTypeName(type)}...`);
+      onProgress?.(i, MIGRATION_CHECK_TYPES.length, t('management.dataManagementModal.progress.checkingType', { name: getTypeName(type) }));
       const result = await dataService.check(type);
       results.push(result);
-      onProgress?.(i + 1, MIGRATION_CHECK_TYPES.length, `已完成 ${getTypeName(type)}`);
+      onProgress?.(i + 1, MIGRATION_CHECK_TYPES.length, t('management.dataManagementModal.progress.checkedType', { name: getTypeName(type) }));
     }
 
     await refreshLatestMigrationSummary();
@@ -323,7 +298,7 @@
       if (config.afterRun) {
         const postRunDetail = typeof config.postRunDetail === 'function'
           ? config.postRunDetail(result)
-          : (config.postRunDetail || '正在刷新结果...');
+          : (config.postRunDetail || t('management.dataManagementModal.refreshingResults'));
         updateSharedProgress(1, config.totalSteps, postRunDetail);
         await config.afterRun(result);
       }
@@ -344,62 +319,66 @@
 
   function getHighRiskFixWarning(type: CheckType): string {
     if (type === 'ir_redundant_frontmatter_cleanup') {
-      return '这会批量删除 Markdown frontmatter 中 4 个已弃用的增量阅读历史字段：weave-reading-category、weave-reading-priority、weave-reading-topic-id、weave-reading-ir-deck-id。不会改正文，不会删除 weave-reading-id，也不会改动其他正常字段。';
+      return t('management.dataManagementModal.highRiskWarnings.irRedundantFrontmatterCleanup');
     }
 
     if (type === 'epub_markdown_source_id_backfill') {
-      return '这会批量改写 Vault 中的 Markdown 文件，为旧 EPUB 链接补写 sourceId，以避免后续继续依赖启动自动回填。';
+      return t('management.dataManagementModal.highRiskWarnings.epubMarkdownSourceIdBackfill');
     }
 
     if (type === 'wdeck_migration') {
-      return '这会在 vault 中写入新的 `.wdeck` 牌组文件，但不会自动删除原有卡片数据。';
+      return t('management.dataManagementModal.highRiskWarnings.wdeckMigration');
     }
 
     if (type === 'ir_point_storage_migration') {
-      return '这会把旧增量阅读材料元数据回填到阅读点内，并迁移旧书签任务和阅读器状态；成功后会清理已弃用的旧材料文件、旧书签文件和旧阅读器状态文件。';
+      return t('management.dataManagementModal.highRiskWarnings.irPointStorageMigration');
     }
 
     if (type === 'ir_legacy_readable_markdown_migration') {
-      return '这会把旧 `weave/incremental-reading/IR` 中的人类可读正文 Markdown 迁移到当前 Obsidian 默认新建笔记目录，并同步回写 Weave 内部路径引用。';
+      return t('management.dataManagementModal.highRiskWarnings.irLegacyReadableMarkdownMigration');
     }
 
     if (type === 'qbank_migration') {
-      return '这会将分散的考试题组 JSON 文件合并为单个 `.qbank` 文件，并迁移会话数据到插件缓存目录；成功后会删除旧的 JSON 文件和 banks 文件夹。';
+      return t('management.dataManagementModal.highRiskWarnings.qbankMigration');
     }
 
     switch (type) {
       case 'migration_conflict_files':
-        return '这会把可恢复的迁移冲突副本合并回正式数据，并删除已处理完成的冲突副本。';
+        return t('management.dataManagementModal.highRiskWarnings.migrationConflictFiles');
       case 'duplicate_cards':
-        return '这会删除重复卡片，并在删除后重建牌组缓存。';
+        return t('management.dataManagementModal.highRiskWarnings.duplicateCards');
       case 'ir_material_consistency':
-        return '这会清理失效的增量阅读材料记录、孤立块和无效引用。';
+        return t('management.dataManagementModal.highRiskWarnings.irMaterialConsistency');
       case 'filename_compatibility':
-        return '这会重命名真实文件和文件夹，并同步回写内部路径引用。';
+        return t('management.dataManagementModal.highRiskWarnings.filenameCompatibility');
       case 'sync_conflict_files':
-        return '这会处理云同步冲突副本：能恢复或合并的会恢复，不能自动合并的会转存到插件备份目录。';
+        return t('management.dataManagementModal.highRiskWarnings.syncConflictFiles');
       case 'progressive_cloze_unconverted':
-        return '这会把符合渐进挖空格式的卡片转换成父子卡片结构。';
+        return t('management.dataManagementModal.highRiskWarnings.progressiveClozeUnconverted');
       case 'legacy_cleanup':
-        return '这会删除旧版数据目录，只应在迁移完成并核对无误后执行。';
+        return t('management.dataManagementModal.highRiskWarnings.legacyCleanup');
       default:
-        return '这项修复会直接改写真实数据，请在确认后执行。';
+        return t('management.dataManagementModal.highRiskWarnings.default');
     }
   }
 
   async function confirmHighRiskFix(type: CheckType): Promise<boolean> {
     return showDangerConfirm(
       plugin.app,
-      `${getTypeName(type)} 将直接修改真实数据。\n${getHighRiskFixWarning(type)}\n建议先完成检查并确认结果无误。`,
-      `确认执行 ${getTypeName(type)}`
+      t('management.dataManagementModal.actions.confirmFixBody', { name: getTypeName(type), warning: getHighRiskFixWarning(type) }),
+      t('management.dataManagementModal.actions.confirmFixTitle', { name: getTypeName(type) })
     );
   }
 
   async function handleCheckAll() {
     isChecking = true;
     checkResults = [];
-    addLog('开始全面检测...');
-    startGlobalProgress('正在全面检测数据', 1, '正在准备数据检测项');
+    addLog(t('management.dataManagementModal.logs.startCheckAll'));
+    startGlobalProgress(
+      t('management.dataManagementModal.actions.checkAllTitle'),
+      1,
+      t('management.dataManagementModal.actions.checkAllDetail')
+    );
 
     try {
       checkResults = await dataService.checkAll((current, total, msg) => {
@@ -407,11 +386,11 @@
       });
 
       const totalIssues = checkResults.reduce((sum, r) => sum + r.count, 0);
-      addLog(`检测完成，发现 ${totalIssues} 个问题`);
-      finishGlobalProgress('success', `数据检测完成，发现 ${totalIssues} 个问题`, progressTotal, progressTotal);
+      addLog(t('management.dataManagementModal.logs.checkAllDone', { count: totalIssues }));
+      finishGlobalProgress('success', t('management.dataManagementModal.actions.checkAllSuccess', { count: totalIssues }), progressTotal, progressTotal);
     } catch (e) {
-      addLog(`检测失败: ${e}`);
-      finishGlobalProgress('error', `数据检测失败：${String(e)}`, progressCurrent, progressTotal || 1);
+      addLog(t('management.dataManagementModal.logs.checkFailed', { message: String(e) }));
+      finishGlobalProgress('error', t('management.dataManagementModal.actions.checkAllFailed', { message: String(e) }), progressCurrent, progressTotal || 1);
     } finally {
       isChecking = false;
       resetLocalProgress();
@@ -421,8 +400,12 @@
   async function handleFixAll() {
     isFixing = true;
     fixResults = [];
-    addLog('开始一键修复...');
-    startGlobalProgress('正在一键修复数据问题', 1, '正在准备安全修复项');
+    addLog(t('management.dataManagementModal.logs.startFixAll'));
+    startGlobalProgress(
+      t('management.dataManagementModal.actions.fixAllTitle'),
+      1,
+      t('management.dataManagementModal.actions.fixAllDetail')
+    );
 
     try {
       fixResults = await dataService.fixAll((current, total, msg) => {
@@ -431,16 +414,16 @@
 
       const totalSuccess = fixResults.reduce((sum, r) => sum + r.success, 0);
       const totalFailed = fixResults.reduce((sum, r) => sum + r.failed, 0);
-      addLog(`修复完成，成功 ${totalSuccess}，失败 ${totalFailed}`);
+      addLog(t('management.dataManagementModal.logs.fixAllDone', { success: totalSuccess, failed: totalFailed }));
 
       // 重新检测
-      addLog(`一键修复仅执行安全项：${DEFAULT_BATCH_FIX_TYPES.map(type => getTypeName(type)).join('、')}`);
-      addLog(`以下主插件高风险项需单独确认：${MAIN_PLUGIN_HIGH_RISK_FIX_TYPES.map(type => getTypeName(type)).join('、')}`);
-      finishGlobalProgress('success', `一键修复完成：成功 ${totalSuccess}，失败 ${totalFailed}`, progressTotal, progressTotal);
+      addLog(t('management.dataManagementModal.logs.fixAllSafeOnly', { names: DEFAULT_BATCH_FIX_TYPES.map(type => getTypeName(type)).join('、') }));
+      addLog(t('management.dataManagementModal.logs.fixAllHighRisk', { names: MAIN_PLUGIN_HIGH_RISK_FIX_TYPES.map(type => getTypeName(type)).join('、') }));
+      finishGlobalProgress('success', t('management.dataManagementModal.actions.fixAllSuccess', { success: totalSuccess, failed: totalFailed }), progressTotal, progressTotal);
       await handleCheckAll();
     } catch (e) {
-      addLog(`修复失败: ${e}`);
-      finishGlobalProgress('error', `一键修复失败：${String(e)}`, progressCurrent, progressTotal || 1);
+      addLog(t('management.dataManagementModal.logs.fixAllFailed', { message: String(e) }));
+      finishGlobalProgress('error', t('management.dataManagementModal.actions.fixAllFailed', { message: String(e) }), progressCurrent, progressTotal || 1);
     } finally {
       isFixing = false;
       resetLocalProgress();
@@ -454,20 +437,24 @@
 
   async function handleFixCurrentTab() {
 		if (activeFixableTypes.length === 0) {
-			new Notice('当前标签页没有可安全批量修复的项目');
+			new Notice(t('management.dataManagementModal.noSafeFixes'));
 			return;
 		}
 
 		isFixing = true;
 		fixResults = [];
-		addLog(`开始修复当前标签页安全项：${activeFixableTypes.map(type => getTypeName(type)).join('、')}`);
-		startGlobalProgress('正在修复当前标签页数据问题', activeFixableTypes.length, '正在准备安全修复项');
+		addLog(t('management.dataManagementModal.logs.startFixCurrentTab', { names: activeFixableTypes.map(type => getTypeName(type)).join('、') }));
+		startGlobalProgress(
+      t('management.dataManagementModal.actions.fixCurrentTabTitle'),
+      activeFixableTypes.length,
+      t('management.dataManagementModal.actions.fixCurrentTabDetail')
+    );
 
 		try {
 			const results: DataFixResult[] = [];
 			for (let i = 0; i < activeFixableTypes.length; i++) {
 				const type = activeFixableTypes[i];
-				updateSharedProgress(i + 1, activeFixableTypes.length, `修复 ${getTypeName(type)}...`);
+				updateSharedProgress(i + 1, activeFixableTypes.length, t('management.dataManagementModal.progress.fixingType', { name: getTypeName(type) }));
 				const result = await dataService.fix(type);
 				results.push(result);
 				plugin.cardFileService?.clearCache?.();
@@ -476,17 +463,17 @@
 			fixResults = results;
 			const totalSuccess = results.reduce((sum, result) => sum + result.success, 0);
 			const totalFailed = results.reduce((sum, result) => sum + result.failed, 0);
-			addLog(`当前标签页修复完成，成功 ${totalSuccess}，失败 ${totalFailed}`);
+			addLog(t('management.dataManagementModal.logs.fixCurrentTabDone', { success: totalSuccess, failed: totalFailed }));
 			finishGlobalProgress(
 				'success',
-				`当前标签页修复完成：成功 ${totalSuccess}，失败 ${totalFailed}`,
+				t('management.dataManagementModal.actions.fixCurrentTabSuccess', { success: totalSuccess, failed: totalFailed }),
 				activeFixableTypes.length,
 				activeFixableTypes.length
 			);
 			await handleCheckCurrentTab();
 		} catch (e) {
-			addLog(`当前标签页修复失败: ${e}`);
-			finishGlobalProgress('error', `当前标签页修复失败：${String(e)}`, progressCurrent, progressTotal || 1);
+			addLog(t('management.dataManagementModal.logs.fixCurrentTabFailed', { message: String(e) }));
+			finishGlobalProgress('error', t('management.dataManagementModal.actions.fixCurrentTabFailed', { message: String(e) }), progressCurrent, progressTotal || 1);
 		} finally {
 			isFixing = false;
 			resetLocalProgress();
@@ -495,7 +482,7 @@
 
   async function handleCheck(type: CheckType) {
     isChecking = true;
-    addLog(`检测 ${getTypeName(type)}...`);
+    addLog(t('management.dataManagementModal.logs.checkType', { name: getTypeName(type) }));
 
     try {
       const result = await dataService.check(type);
@@ -511,7 +498,7 @@
 
       addLog(result.message);
     } catch (e) {
-      addLog(`检测失败: ${e}`);
+      addLog(t('management.dataManagementModal.logs.checkFailed', { message: String(e) }));
     } finally {
       isChecking = false;
     }
@@ -534,27 +521,27 @@
     if (isHighRiskFixType(type)) {
       const confirmed = await confirmHighRiskFix(type);
       if (!confirmed) {
-        addLog(`已取消 ${getTypeName(type)}`);
+        addLog(t('management.dataManagementModal.logs.cancelFixType', { name: getTypeName(type) }));
         return;
       }
     }
 
     isFixing = true;
-    startGlobalProgress(`正在修复 ${getTypeName(type)}`, 2, `修复 ${getTypeName(type)}...`);
-    updateSharedProgress(0, 2, `修复 ${getTypeName(type)}...`);
-    addLog(`修复 ${getTypeName(type)}...`);
+    startGlobalProgress(t('management.dataManagementModal.progress.fixingType', { name: getTypeName(type) }), 2, t('management.dataManagementModal.progress.fixingType', { name: getTypeName(type) }));
+    updateSharedProgress(0, 2, t('management.dataManagementModal.progress.fixingType', { name: getTypeName(type) }));
+    addLog(t('management.dataManagementModal.logs.fixType', { name: getTypeName(type) }));
 
     try {
       const result = await dataService.fix(type, { allowHighRisk: isHighRiskFixType(type) });
-      updateSharedProgress(1, 2, `已完成修复 ${getTypeName(type)}，正在重新检测...`);
-      addLog(`修复完成: 成功 ${result.success}，失败 ${result.failed}`);
+      updateSharedProgress(1, 2, t('management.dataManagementModal.progress.recheckingAfterFix', { name: getTypeName(type) }));
+      addLog(t('management.dataManagementModal.logs.fixTypeDone', { success: result.success, failed: result.failed }));
 
       await refreshResultsAfterFix(type);
-      updateSharedProgress(2, 2, `${getTypeName(type)} 修复与复检完成`);
-      finishGlobalProgress('success', `${getTypeName(type)} 修复完成：成功 ${result.success}，失败 ${result.failed}`, 2, 2);
+      updateSharedProgress(2, 2, t('management.dataManagementModal.progress.fixAndRecheckDone', { name: getTypeName(type) }));
+      finishGlobalProgress('success', t('management.dataManagementModal.actions.fixCurrentTabSuccess', { success: result.success, failed: result.failed }), 2, 2);
     } catch (e) {
-      addLog(`修复失败: ${e}`);
-      finishGlobalProgress('error', `${getTypeName(type)} 修复失败：${String(e)}`, progressCurrent, progressTotal || 2);
+      addLog(t('management.dataManagementModal.logs.fixAllFailed', { message: String(e) }));
+      finishGlobalProgress('error', t('management.dataManagementModal.actions.fixAllFailed', { message: String(e) }), progressCurrent, progressTotal || 2);
     } finally {
       isFixing = false;
       resetLocalProgress();
@@ -569,8 +556,12 @@
   async function handleCheckMigration() {
     isMigrating = true;
     migrationResults = [];
-    addLog('开始迁移相关检测...');
-    startGlobalProgress('正在检测迁移与存储状态', MIGRATION_CHECK_TYPES.length, '正在准备迁移检测项');
+    addLog(t('management.dataManagementModal.logs.startMigrationCheck'));
+    startGlobalProgress(
+      t('management.dataManagementModal.actions.checkMigrationTitle'),
+      MIGRATION_CHECK_TYPES.length,
+      t('management.dataManagementModal.actions.checkMigrationDetail')
+    );
 
     try {
       migrationResults = await runMigrationChecks((current, total, message) => {
@@ -578,11 +569,11 @@
       });
 
       const totalIssues = migrationResults.reduce((sum, r) => sum + r.count, 0);
-      addLog(`迁移检测完成，发现 ${totalIssues} 个问题`);
-      finishGlobalProgress('success', `迁移检测完成，发现 ${totalIssues} 个问题`, MIGRATION_CHECK_TYPES.length, MIGRATION_CHECK_TYPES.length);
+      addLog(t('management.dataManagementModal.logs.migrationCheckDone', { count: totalIssues }));
+      finishGlobalProgress('success', t('management.dataManagementModal.actions.checkMigrationSuccess', { count: totalIssues }), MIGRATION_CHECK_TYPES.length, MIGRATION_CHECK_TYPES.length);
     } catch (e) {
-      addLog(`迁移检测失败: ${e}`);
-      finishGlobalProgress('error', `迁移检测失败：${String(e)}`, progressCurrent, progressTotal || MIGRATION_CHECK_TYPES.length);
+      addLog(t('management.dataManagementModal.logs.migrationCheckFailed', { message: String(e) }));
+      finishGlobalProgress('error', t('management.dataManagementModal.actions.checkMigrationFailed', { message: String(e) }), progressCurrent, progressTotal || MIGRATION_CHECK_TYPES.length);
     } finally {
       isMigrating = false;
       resetLocalProgress();
@@ -592,174 +583,174 @@
   async function handleExecuteMigration() {
     const confirmed = await showDangerConfirm(
       plugin.app,
-      '这会移动真实数据到当前标准目录，并重写内部路径引用。\n迁移过程中会保留冲突副本并生成迁移报告。',
-      '确认执行数据迁移'
+      t('management.dataManagementModal.actions.schemaMigrationConfirm'),
+      t('management.dataManagementModal.actions.schemaMigrationConfirmTitle')
     );
     if (!confirmed) {
-      addLog('已取消 Schema V2 数据迁移');
+      addLog(t('management.dataManagementModal.logs.cancelSchemaMigration'));
       return;
     }
 
     const migrationCheckCount = MIGRATION_CHECK_TYPES.length;
     await executeTrackedMigrationTask({
-      title: '正在执行 Schema V2 数据迁移',
-      startLog: '开始执行 Schema V2 迁移...',
-      initialDetail: '正在执行 Schema V2 数据迁移',
+      title: t('management.dataManagementModal.actions.schemaMigrationTitle'),
+      startLog: t('management.dataManagementModal.actions.schemaMigrationStartLog'),
+      initialDetail: t('management.dataManagementModal.actions.schemaMigrationInitialDetail'),
       totalSteps: 1 + migrationCheckCount,
       run: () => dataService.executeSchemaMigration({ confirmed: true }),
-      postRunDetail: 'Schema V2 迁移完成，正在重新检测迁移状态',
+      postRunDetail: t('management.dataManagementModal.actions.schemaMigrationPostRunDetail'),
       afterRun: async () => {
         migrationResults = await runMigrationChecks((current, total, message) => {
           updateSharedProgress(1 + current, 1 + total, message);
         });
       },
-      successLog: (result) => `迁移完成: 成功 ${result.success}，失败 ${result.failed}`,
-      successDetail: (result) => `Schema V2 数据迁移完成：成功 ${result.success}，失败 ${result.failed}`,
-      errorLogPrefix: '迁移执行失败',
-      errorDetailPrefix: 'Schema V2 数据迁移失败'
+      successLog: (result) => t('management.dataManagementModal.actions.schemaMigrationSuccessLog', { success: result.success, failed: result.failed }),
+      successDetail: (result) => t('management.dataManagementModal.actions.schemaMigrationSuccessDetail', { success: result.success, failed: result.failed }),
+      errorLogPrefix: t('management.dataManagementModal.actions.schemaMigrationErrorLogPrefix'),
+      errorDetailPrefix: t('management.dataManagementModal.actions.schemaMigrationErrorDetailPrefix')
     });
   }
 
   async function handleExecuteIRPointMigration() {
     const confirmed = await showDangerConfirm(
       plugin.app,
-      '这会把旧增量阅读书签、旧材料溯源元数据和阅读器状态迁入新的 points/registry 与插件本地状态结构。\n迁移成功后，会同步清理已弃用的旧书签文件、旧材料残留文件和旧阅读器状态文件。',
-      '确认执行增量阅读数据迁移'
+      t('management.dataManagementModal.actions.irPointMigrationConfirm'),
+      t('management.dataManagementModal.actions.irPointMigrationConfirmTitle')
     );
     if (!confirmed) {
-      addLog('已取消增量阅读数据迁移');
+      addLog(t('management.dataManagementModal.logs.cancelIrPointMigration'));
       return;
     }
 
     const migrationCheckCount = MIGRATION_CHECK_TYPES.length;
     await executeTrackedMigrationTask({
-      title: '正在执行增量阅读数据迁移',
-      startLog: '开始执行增量阅读数据迁移...',
-      initialDetail: '正在执行增量阅读数据迁移',
+      title: t('management.dataManagementModal.actions.irPointMigrationTitle'),
+      startLog: t('management.dataManagementModal.actions.irPointMigrationStartLog'),
+      initialDetail: t('management.dataManagementModal.actions.irPointMigrationInitialDetail'),
       totalSteps: 1 + migrationCheckCount,
       run: () => dataService.executeIRPointStorageMigration({ confirmed: true }),
-      postRunDetail: '增量阅读数据迁移完成，正在重新检测迁移状态',
+      postRunDetail: t('management.dataManagementModal.actions.irPointMigrationPostRunDetail'),
       afterRun: async () => {
         migrationResults = await runMigrationChecks((current, total, message) => {
           updateSharedProgress(1 + current, 1 + total, message);
         });
       },
-      successLog: (result) => `增量阅读数据迁移完成：成功 ${result.success}，失败 ${result.failed}`,
-      successDetail: (result) => `增量阅读数据迁移完成：成功 ${result.success}，失败 ${result.failed}`,
-      errorLogPrefix: '增量阅读数据迁移执行失败',
-      errorDetailPrefix: '增量阅读数据迁移失败'
+      successLog: (result) => t('management.dataManagementModal.actions.irPointMigrationSuccessLog', { success: result.success, failed: result.failed }),
+      successDetail: (result) => t('management.dataManagementModal.actions.irPointMigrationSuccessDetail', { success: result.success, failed: result.failed }),
+      errorLogPrefix: t('management.dataManagementModal.actions.irPointMigrationErrorLogPrefix'),
+      errorDetailPrefix: t('management.dataManagementModal.actions.irPointMigrationErrorDetailPrefix')
     });
   }
 
   async function handleFixStructure() {
     await executeTrackedMigrationTask({
-      title: '正在修复目录结构',
-      startLog: '开始修复目录结构...',
-      initialDetail: '正在修复目录结构',
+      title: t('management.dataManagementModal.actions.structureFixTitle'),
+      startLog: t('management.dataManagementModal.actions.structureFixStartLog'),
+      initialDetail: t('management.dataManagementModal.actions.structureFixInitialDetail'),
       totalSteps: 2,
       run: () => dataService.fixStructure(),
-      postRunDetail: '目录结构修复完成，正在重新检测目录结构',
+      postRunDetail: t('management.dataManagementModal.actions.structureFixPostRunDetail'),
       afterRun: async () => {
         const structureResult = await dataService.checkStructure();
         upsertMigrationResult(structureResult);
-        updateSharedProgress(2, 2, '目录结构复检完成');
+        updateSharedProgress(2, 2, t('management.dataManagementModal.actions.structureFixRecheckDone'));
       },
-      successLog: (result) => `修复完成: 成功创建 ${result.success} 个目录，失败 ${result.failed} 个`,
-      successDetail: (result) => `目录结构修复完成：成功 ${result.success}，失败 ${result.failed}`,
-      errorLogPrefix: '修复失败',
-      errorDetailPrefix: '目录结构修复失败'
+      successLog: (result) => t('management.dataManagementModal.actions.structureFixSuccessLog', { success: result.success, failed: result.failed }),
+      successDetail: (result) => t('management.dataManagementModal.actions.structureFixSuccessDetail', { success: result.success, failed: result.failed }),
+      errorLogPrefix: t('management.dataManagementModal.actions.structureFixErrorLogPrefix'),
+      errorDetailPrefix: t('management.dataManagementModal.actions.structureFixErrorDetailPrefix')
     });
   }
 
   async function handleCleanupLegacy() {
     const confirmed = await showDangerConfirm(
       plugin.app,
-      '这会删除旧版数据目录。\n只有在最新迁移已经完成并核对无误后才应该执行。',
-      '确认清理旧目录'
+      t('management.dataManagementModal.actions.legacyCleanupConfirm'),
+      t('management.dataManagementModal.actions.legacyCleanupConfirmTitle')
     );
     if (!confirmed) {
-      addLog('已取消旧目录清理');
+      addLog(t('management.dataManagementModal.logs.cancelLegacyCleanup'));
       return;
     }
 
     await executeTrackedMigrationTask({
-      title: '正在清理旧目录',
-      startLog: '开始清理旧目录...',
-      initialDetail: '正在清理旧目录',
+      title: t('management.dataManagementModal.actions.legacyCleanupTitle'),
+      startLog: t('management.dataManagementModal.actions.legacyCleanupStartLog'),
+      initialDetail: t('management.dataManagementModal.actions.legacyCleanupInitialDetail'),
       totalSteps: 2,
       run: () => dataService.cleanupLegacyDirectories({ allowHighRisk: true }),
-      postRunDetail: '旧目录清理完成，正在重新检测旧目录状态',
+      postRunDetail: t('management.dataManagementModal.actions.legacyCleanupPostRunDetail'),
       afterRun: async () => {
         const legacyResult = await dataService.checkLegacyDirectories();
         upsertMigrationResult(legacyResult);
-        updateSharedProgress(2, 2, '旧目录复检完成');
+        updateSharedProgress(2, 2, t('management.dataManagementModal.actions.legacyCleanupRecheckDone'));
       },
-      successLog: (result) => `清理完成: 成功删除 ${result.success} 个目录，失败 ${result.failed} 个`,
-      successDetail: (result) => `旧目录清理完成：成功 ${result.success}，失败 ${result.failed}`,
-      errorLogPrefix: '清理失败',
-      errorDetailPrefix: '旧目录清理失败'
+      successLog: (result) => t('management.dataManagementModal.actions.legacyCleanupSuccessLog', { success: result.success, failed: result.failed }),
+      successDetail: (result) => t('management.dataManagementModal.actions.legacyCleanupSuccessDetail', { success: result.success, failed: result.failed }),
+      errorLogPrefix: t('management.dataManagementModal.actions.legacyCleanupErrorLogPrefix'),
+      errorDetailPrefix: t('management.dataManagementModal.actions.legacyCleanupErrorDetailPrefix')
     });
   }
 
   async function handleExecuteQBankMigration() {
     const confirmed = await showDangerConfirm(
       plugin.app,
-      '这会将分散的考试题组 JSON 文件合并为单个 `.qbank` 文件，并迁移会话数据到插件缓存目录。\n迁移成功后，会删除旧的 JSON 文件和 banks 文件夹。',
-      '确认执行考试题组迁移'
+      t('management.dataManagementModal.actions.qbankMigrationConfirm'),
+      t('management.dataManagementModal.actions.qbankMigrationConfirmTitle')
     );
     if (!confirmed) {
-      addLog('已取消考试题组迁移');
+      addLog(t('management.dataManagementModal.logs.cancelQbankMigration'));
       return;
     }
 
     const migrationCheckCount = MIGRATION_CHECK_TYPES.length;
     await executeTrackedMigrationTask({
-      title: '正在执行考试题组迁移',
-      startLog: '开始执行考试题组迁移...',
-      initialDetail: '正在执行考试题组迁移',
+      title: t('management.dataManagementModal.actions.qbankMigrationTitle'),
+      startLog: t('management.dataManagementModal.actions.qbankMigrationStartLog'),
+      initialDetail: t('management.dataManagementModal.actions.qbankMigrationInitialDetail'),
       totalSteps: 1 + migrationCheckCount,
       run: () => dataService.fix('qbank_migration', { allowHighRisk: true }),
-      postRunDetail: '考试题组迁移完成，正在重新检测迁移状态',
+      postRunDetail: t('management.dataManagementModal.actions.qbankMigrationPostRunDetail'),
       afterRun: async () => {
         migrationResults = await runMigrationChecks((current, total, message) => {
           updateSharedProgress(1 + current, 1 + total, message);
         });
       },
-      successLog: (result) => `考试题组迁移完成：成功 ${result.success}，失败 ${result.failed}`,
-      successDetail: (result) => `考试题组迁移完成：成功 ${result.success}，失败 ${result.failed}`,
-      errorLogPrefix: '考试题组迁移失败',
-      errorDetailPrefix: '考试题组迁移失败'
+      successLog: (result) => t('management.dataManagementModal.actions.qbankMigrationSuccessLog', { success: result.success, failed: result.failed }),
+      successDetail: (result) => t('management.dataManagementModal.actions.qbankMigrationSuccessDetail', { success: result.success, failed: result.failed }),
+      errorLogPrefix: t('management.dataManagementModal.actions.qbankMigrationErrorLogPrefix'),
+      errorDetailPrefix: t('management.dataManagementModal.actions.qbankMigrationErrorDetailPrefix')
     });
   }
 
   async function handleExecuteQBankLegacyCleanup() {
     const confirmed = await showDangerConfirm(
       plugin.app,
-      '这会删除已迁移到 .qbank 文件的旧题库 JSON 文件（banks.json、question-stats.json、test-history.json 等）和 banks/ 文件夹。\n请确保 .qbank 文件已正确创建且数据完整。',
-      '确认清理旧题库文件'
+      t('management.dataManagementModal.actions.legacyQbankCleanupConfirm'),
+      t('management.dataManagementModal.actions.legacyQbankCleanupConfirmTitle')
     );
     if (!confirmed) {
-      addLog('已取消旧题库文件清理');
+      addLog(t('management.dataManagementModal.logs.cancelLegacyQbankCleanup'));
       return;
     }
 
     const migrationCheckCount = MIGRATION_CHECK_TYPES.length;
     await executeTrackedMigrationTask({
-      title: '正在清理旧题库文件',
-      startLog: '开始清理旧题库文件...',
-      initialDetail: '正在清理旧题库文件',
+      title: t('management.dataManagementModal.actions.legacyQbankCleanupTitle'),
+      startLog: t('management.dataManagementModal.actions.legacyQbankCleanupStartLog'),
+      initialDetail: t('management.dataManagementModal.actions.legacyQbankCleanupInitialDetail'),
       totalSteps: 1 + migrationCheckCount,
       run: () => dataService.fix('qbank_legacy_cleanup', { allowHighRisk: true }),
-      postRunDetail: '旧题库文件清理完成，正在重新检测迁移状态',
+      postRunDetail: t('management.dataManagementModal.actions.legacyQbankCleanupPostRunDetail'),
       afterRun: async () => {
         migrationResults = await runMigrationChecks((current, total, message) => {
           updateSharedProgress(1 + current, 1 + total, message);
         });
       },
-      successLog: (result) => `旧题库文件清理完成：成功 ${result.success}，失败 ${result.failed}`,
-      successDetail: (result) => `旧题库文件清理完成：成功 ${result.success}，失败 ${result.failed}`,
-      errorLogPrefix: '旧题库文件清理失败',
-      errorDetailPrefix: '旧题库文件清理失败'
+      successLog: (result) => t('management.dataManagementModal.actions.legacyQbankCleanupSuccessLog', { success: result.success, failed: result.failed }),
+      successDetail: (result) => t('management.dataManagementModal.actions.legacyQbankCleanupSuccessDetail', { success: result.success, failed: result.failed }),
+      errorLogPrefix: t('management.dataManagementModal.actions.legacyQbankCleanupErrorLogPrefix'),
+      errorDetailPrefix: t('management.dataManagementModal.actions.legacyQbankCleanupErrorDetailPrefix')
     });
   }
 
@@ -777,13 +768,15 @@
   }
 
   function getResultCountText(result: DataCheckResult): string {
-    return result.count > 0 ? `发现 ${result.count} 项` : '正常';
+    return result.count > 0
+      ? t('management.dataManagementModal.resultSummary.foundCount', { count: result.count })
+      : t('management.dataManagementModal.resultSummary.normal');
   }
 
   // ===== 质量扫描方法 =====
   // 通过服务层剥离 YAML frontmatter 后再显示内容
   function getCardDisplayContent(card: Card | undefined, maxLen: number = 50): string {
-    if (!card) return '(无内容)';
+    if (!card) return t('management.dataManagementModal.resultSummary.noContent');
     return CardQualityInboxService.getDisplayContent(card, maxLen);
   }
 
@@ -832,13 +825,13 @@
       scanView = 'result';
       
       if (result.issues.length === 0) {
-        new Notice('扫描完成，未发现质量问题');
+        new Notice(t('management.dataManagementModal.scanNoIssues'));
       } else {
-        new Notice(`扫描完成，发现 ${result.issues.length} 个问题`);
+        new Notice(t('management.dataManagementModal.scanIssuesFound', { count: result.issues.length }));
       }
     } catch (error) {
       logger.error('[DataManagement] 扫描失败:', error);
-      new Notice('扫描失败: ' + (error instanceof Error ? error.message : String(error)));
+      new Notice(t('management.dataManagementModal.scanFailed', { message: error instanceof Error ? error.message : String(error) }));
       scanView = 'config';
     } finally {
       isScanning = false;
@@ -858,7 +851,7 @@
         issues: scanResult.issues.filter(i => !selectedIssues.has(i.id))
       };
     }
-    new Notice(`已忽略 ${selectedIssues.size} 个问题`);
+    new Notice(t('management.dataManagementModal.ignoredIssues', { count: selectedIssues.size }));
     selectedIssues.clear();
     selectedIssues = new Set(selectedIssues);
   }
@@ -870,11 +863,11 @@
       if (card) {
         plugin.openViewCardModal(card);
       } else {
-        new Notice('找不到该卡片');
+        new Notice(t('management.dataManagementModal.cardNotFound'));
       }
     } catch (error) {
       logger.error('[DataManagement] 查看卡片失败:', error);
-      new Notice('查看卡片失败');
+      new Notice(t('management.dataManagementModal.viewCardFailed'));
     }
   }
   
@@ -886,14 +879,14 @@
         if (typeof plugin.openEditCardModal === 'function') {
           plugin.openEditCardModal(card);
         } else {
-          new Notice('编辑功能不可用');
+          new Notice(t('management.dataManagementModal.editUnavailable'));
         }
       } else {
-        new Notice('找不到该卡片');
+        new Notice(t('management.dataManagementModal.cardNotFound'));
       }
     } catch (error) {
       logger.error('[DataManagement] 编辑卡片失败:', error);
-      new Notice('编辑卡片失败');
+      new Notice(t('management.dataManagementModal.editCardFailed'));
     }
   }
   
@@ -902,7 +895,7 @@
     try {
       const card = await plugin.directFileReader.getCardByUUID(cardUuid);
       if (!card) {
-        new Notice('找不到该卡片');
+        new Notice(t('management.dataManagementModal.cardNotFound'));
         return;
       }
       if (plugin.dataStorage) {
@@ -914,11 +907,11 @@
             issues: scanResult.issues.filter(i => i.cardUuid !== cardUuid)
           };
         }
-        new Notice('卡片已删除');
+        new Notice(t('management.dataManagementModal.cardDeleted'));
       }
     } catch (error) {
       logger.error('[DataManagement] 删除卡片失败:', error);
-      new Notice('删除卡片失败');
+      new Notice(t('management.dataManagementModal.deleteCardFailed'));
     }
   }
   
@@ -938,33 +931,33 @@
 <div class="unified-management-modal">
     <!-- 顶部导航栏：分段标签 + 上下文操作 -->
     <div class="modal-header-bar">
-      <div class="modal-context-title">正式数据治理</div>
+      <div class="modal-context-title">{$tr('management.dataManagementModal.title')}</div>
       <div class="header-actions">
         <button
           class="header-action-btn"
           onclick={handleCheckCurrentTab}
           disabled={isChecking || isFixing || isMigrating}
-          title="检测当前标签页"
+          title={$tr('management.dataManagementModal.checkCurrentTabTitle')}
         >
           {#if isChecking || isMigrating}
             <EnhancedIcon name="loader" size={14} animation="spin" />
           {:else}
             <EnhancedIcon name="refresh-cw" size={14} />
           {/if}
-          <span>检测当前页</span>
+          <span>{$tr('management.dataManagementModal.checkCurrentTab')}</span>
         </button>
         <button
           class="header-action-btn fix"
           onclick={handleFixCurrentTab}
           disabled={isChecking || isFixing || isMigrating || activeFixableTypes.length === 0}
-          title="修复当前标签页安全项"
+          title={$tr('management.dataManagementModal.fixCurrentTabTitle')}
         >
           {#if isFixing}
             <EnhancedIcon name="loader" size={14} animation="spin" />
           {:else}
             <EnhancedIcon name="wrench" size={14} />
           {/if}
-          <span>修复当前页</span>
+          <span>{$tr('management.dataManagementModal.fixCurrentTab')}</span>
         </button>
       </div>
     </div>
@@ -989,7 +982,7 @@
                   <span class={`check-status-pill ${getStatusClass(result.status)}`}>{getResultCountText(result)}</span>
                   <span class={`check-lifecycle-pill ${getLifecycleKind(result.type)}`}>{getLifecycleLabel(result.type)}</span>
                   {#if result.count > 0 && isHighRiskFixType(result.type)}
-                    <span class="check-risk-pill">高风险</span>
+                    <span class="check-risk-pill">{$tr('management.dataManagementModal.highRisk')}</span>
                   {/if}
                 </div>
               </div>
@@ -1003,7 +996,7 @@
                     <span class="detail-item">{item}</span>
                   {/each}
                   {#if result.items.length > 5}
-                    <span class="detail-more">...还有 {result.items.length - 5} 个</span>
+                    <span class="detail-more">{$tr('management.dataManagementModal.moreItems', { count: result.items.length - 5 })}</span>
                   {/if}
                 </div>
               {/if}
@@ -1014,7 +1007,7 @@
                 size="sm"
                 onclick={() => handleCheck(result.type)}
                 disabled={isChecking || isFixing}
-                tooltip="重新检测"
+                tooltip={$tr('management.dataManagementModal.recheck')}
               >
                 <EnhancedIcon name="refresh-cw" size={14} />
               </EnhancedButton>
@@ -1025,7 +1018,7 @@
                     size="sm"
                     onclick={() => handleFix(result.type)}
                     disabled={isChecking || isFixing}
-                    tooltip="修复"
+                    tooltip={$tr('management.dataManagementModal.fix')}
                   >
                     <EnhancedIcon name="wrench" size={14} />
                   </EnhancedButton>
@@ -1039,7 +1032,7 @@
           <div class="batch-progress-container">
             <div class="batch-progress-header">
               <EnhancedIcon name="loader" size={14} animation="spin" />
-              <span class="batch-progress-label">{isFixing ? '修复中' : '检测中'}...</span>
+              <span class="batch-progress-label">{isFixing ? $tr('management.dataManagementModal.fixing') : $tr('management.dataManagementModal.checking')}...</span>
               <span class="batch-progress-count">{progressCurrent}/{progressTotal}</span>
             </div>
             <div class="batch-progress-bar">
@@ -1072,14 +1065,14 @@
             {#if latestMigrationSummary}
               <div class="check-item latest-migration-summary">
                 <div class="check-info">
-                  <span class="check-name">最近一次迁移报告</span>
-                  <span class="check-message">目标路径：{latestMigrationSummary.targetRoot}</span>
+                  <span class="check-name">{$tr('management.dataManagementModal.latestMigrationReport')}</span>
+                  <span class="check-message">{$tr('management.dataManagementModal.targetPath', { path: latestMigrationSummary.targetRoot })}</span>
                   <div class="check-details">
-                    <span class="detail-item">迁移文件 {latestMigrationSummary.movedFiles}</span>
-                    <span class="detail-item">冲突 {latestMigrationSummary.conflicts}</span>
-                    <span class="detail-item">重写引用 {latestMigrationSummary.rewrittenReferences}</span>
-                    <span class="detail-item">剩余旧路径 {latestMigrationSummary.remainingLegacyRoots}</span>
-                    <span class="detail-item">时间 {latestMigrationSummary.reportTime}</span>
+                    <span class="detail-item">{$tr('management.dataManagementModal.movedFiles', { count: latestMigrationSummary.movedFiles })}</span>
+                    <span class="detail-item">{$tr('management.dataManagementModal.conflicts', { count: latestMigrationSummary.conflicts })}</span>
+                    <span class="detail-item">{$tr('management.dataManagementModal.rewrittenRefs', { count: latestMigrationSummary.rewrittenReferences })}</span>
+                    <span class="detail-item">{$tr('management.dataManagementModal.remainingLegacyRoots', { count: latestMigrationSummary.remainingLegacyRoots })}</span>
+                    <span class="detail-item">{$tr('management.dataManagementModal.reportTime', { time: latestMigrationSummary.reportTime })}</span>
                   </div>
                 </div>
               </div>
@@ -1097,7 +1090,7 @@
                         <span class={`check-status-pill ${getStatusClass(result.status)}`}>{getResultCountText(result)}</span>
                         <span class={`check-lifecycle-pill ${getLifecycleKind(result.type)}`}>{getLifecycleLabel(result.type)}</span>
                         {#if result.count > 0 && isHighRiskFixType(result.type)}
-                          <span class="check-risk-pill">高风险</span>
+                          <span class="check-risk-pill">{$tr('management.dataManagementModal.highRisk')}</span>
                         {/if}
                       </div>
                     </div>
@@ -1111,7 +1104,7 @@
                           <span class="detail-item">{item}</span>
                         {/each}
                         {#if result.items.length > 3}
-                          <span class="detail-more">...还有 {result.items.length - 3} 个</span>
+                          <span class="detail-more">{$tr('management.dataManagementModal.moreItems', { count: result.items.length - 3 })}</span>
                         {/if}
                       </div>
                     {/if}
@@ -1123,10 +1116,10 @@
                         size="sm"
                         onclick={handleExecuteMigration}
                         disabled={isMigrating}
-                        tooltip="执行迁移"
+                        tooltip={$tr('management.dataManagementModal.runMigration')}
                       >
                         <EnhancedIcon name="play" size={14} />
-                        迁移
+                        {$tr('management.dataManagementModal.runMigration')}
                       </EnhancedButton>
                     {/if}
                     {#if result.type === 'ir_point_storage_migration' && result.count > 0}
@@ -1135,10 +1128,10 @@
                         size="sm"
                         onclick={handleExecuteIRPointMigration}
                         disabled={isMigrating}
-                        tooltip="迁移增量阅读新存储结构"
+                        tooltip={$tr('management.dataManagementModal.migrateIrPointStorage')}
                       >
                         <EnhancedIcon name="play" size={14} />
-                        IR迁移
+                        {$tr('management.dataManagementModal.migrateIrPointStorage')}
                       </EnhancedButton>
                     {/if}
                     {#if result.type === 'ir_legacy_readable_markdown_migration' && result.count > 0}
@@ -1147,10 +1140,10 @@
                         size="sm"
                         onclick={() => handleFix(result.type)}
                         disabled={isMigrating || isFixing}
-                        tooltip="迁移旧 IR 正文到 Obsidian 默认新建笔记目录"
+                        tooltip={$tr('management.dataManagementModal.migrateLegacyIrMarkdown')}
                       >
                         <EnhancedIcon name="folder-output" size={14} />
-                        正文迁移
+                        {$tr('management.dataManagementModal.migrateLegacyIrMarkdown')}
                       </EnhancedButton>
                     {/if}
                     {#if result.type === 'qbank_migration' && result.status !== 'error' && result.count > 0}
@@ -1159,7 +1152,7 @@
                         size="sm"
                         onclick={handleExecuteQBankMigration}
                         disabled={isMigrating}
-                        tooltip="迁移到 .qbank"
+                        tooltip={$tr('management.dataManagementModal.migrateQbank')}
                       >
                         <EnhancedIcon name="play" size={14} />
                         .qbank
@@ -1171,10 +1164,10 @@
                         size="sm"
                         onclick={handleExecuteQBankLegacyCleanup}
                         disabled={isMigrating}
-                        tooltip="清理旧题库文件"
+                        tooltip={$tr('management.dataManagementModal.cleanupLegacyQbank')}
                       >
                         <EnhancedIcon name="trash-2" size={14} />
-                        清理
+                        {$tr('management.dataManagementModal.cleanupLegacyQbank')}
                       </EnhancedButton>
                     {/if}
                     {#if result.type === 'ir_local_state_relocation' && result.count > 0}
@@ -1183,7 +1176,7 @@
                         size="sm"
                         onclick={() => handleFix(result.type)}
                         disabled={isMigrating || isFixing}
-                        tooltip="迁移增量阅读本地状态与缓存"
+                        tooltip={$tr('management.dataManagementModal.migrateIrLocalState')}
                       >
                         <EnhancedIcon name="folder-output" size={14} />
                       </EnhancedButton>
@@ -1194,7 +1187,7 @@
                         size="sm"
                         onclick={handleFixStructure}
                         disabled={isMigrating}
-                        tooltip="创建缺失目录"
+                        tooltip={$tr('management.dataManagementModal.createMissingDirs')}
                       >
                         <EnhancedIcon name="folder-plus" size={14} />
                       </EnhancedButton>
@@ -1205,7 +1198,7 @@
                         size="sm"
                         onclick={handleCleanupLegacy}
                         disabled={isMigrating}
-                        tooltip="清理旧目录"
+                        tooltip={$tr('management.dataManagementModal.cleanupLegacyDirs')}
                       >
                         <EnhancedIcon name="trash-2" size={14} />
                       </EnhancedButton>
@@ -1216,7 +1209,7 @@
                         size="sm"
                         onclick={() => handleFix(result.type)}
                         disabled={isMigrating || isFixing}
-                        tooltip="自动归并可恢复的迁移冲突，并保留需人工复核的条目"
+                        tooltip={$tr('management.dataManagementModal.resolveMigrationConflicts')}
                       >
                         <EnhancedIcon name="wrench" size={14} />
                       </EnhancedButton>
@@ -1228,7 +1221,7 @@
               {#if isMigrating}
                 <div class="progress-indicator">
                   <EnhancedIcon name="loader" size={16} animation="spin" />
-                  <span>处理中...</span>
+                  <span>{$tr('management.dataManagementModal.processing')}</span>
                 </div>
               {/if}
             </div>
@@ -1236,13 +1229,13 @@
 
           <!-- 操作日志 -->
           <section class="section">
-            <h3 class="section-title">操作日志</h3>
+            <h3 class="section-title">{$tr('management.dataManagementModal.logTitle')}</h3>
             <div class="log-container">
               {#each logs as log}
                 <div class="log-item">{log}</div>
               {/each}
               {#if logs.length === 0}
-                <div class="empty-state">暂无日志</div>
+                <div class="empty-state">{$tr('management.dataManagementModal.noLogs')}</div>
               {/if}
             </div>
           </section>

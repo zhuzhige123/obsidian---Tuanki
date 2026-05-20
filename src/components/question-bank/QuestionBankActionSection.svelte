@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Platform } from "obsidian";
   import EnhancedIcon from "../ui/EnhancedIcon.svelte";
+  import { tr } from "../../utils/i18n";
 
   interface Props {
     hasSubmitted: boolean;
@@ -25,6 +26,7 @@
   }: Props = $props();
 
   const isMobile = Platform.isMobile;
+  let t = $derived($tr);
 </script>
 
 <div class="action-section" class:is-mobile={isMobile}>
@@ -35,7 +37,7 @@
         onclick={onSubmit}
         disabled={!hasAnswer}
       >
-        <span>提交答案</span>
+        <span>{t('study.questionBankUI.actionSection.submit')}</span>
       </button>
     </div>
   {:else if isMobile}
@@ -47,15 +49,15 @@
           disabled={!canUndo}
         >
           <EnhancedIcon name="undo" size="16" />
-          <span>撤销 ({undoRemaining})</span>
+          <span>{t('study.questionBankUI.actionSection.undo', { count: undoRemaining })}</span>
         </button>
       {/if}
 
       <button class="qb-action-card qb-action-card-success next-question-btn" onclick={onNext}>
         {#if isLastQuestion}
-          <span>完成测试</span>
+          <span>{t('study.questionBankUI.actionSection.finish')}</span>
         {:else}
-          <span>下一题</span>
+          <span>{t('study.questionBankUI.actionSection.next')}</span>
         {/if}
       </button>
     </div>
@@ -64,10 +66,10 @@
       <button class="qb-action-card qb-action-card-success next-question-btn" onclick={onNext}>
         {#if isLastQuestion}
           <EnhancedIcon name="check" size="20" />
-          <span>完成测试</span>
+          <span>{t('study.questionBankUI.actionSection.finish')}</span>
         {:else}
           <EnhancedIcon name="chevron-right" size="20" />
-          <span>下一题</span>
+          <span>{t('study.questionBankUI.actionSection.next')}</span>
         {/if}
       </button>
     </div>

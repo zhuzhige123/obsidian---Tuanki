@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AICardPreviewItem, GeneratedCard } from '../../types/ai-types';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
+  import { tr } from '../../utils/i18n';
 
   interface Message {
     role: 'user' | 'assistant';
@@ -15,11 +16,20 @@
   }
 
   let { currentItem = undefined, currentCard = undefined, onRegenerate }: Props = $props();
+  let t = $derived($tr);
+  let timeLocale = $derived(t('aiAssistant.regenerateDialog.timeLocale'));
 
   // ===== 状态管理 =====
   let instruction = $state('');
   let messages = $state<Message[]>([]);
   let isRegenerating = $state(false);
+
+  function formatTimestamp(): string {
+    return new Date().toLocaleTimeString(timeLocale, {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
 
   // ===== 提交修改要求 =====
   async function handleSubmit() {
@@ -30,10 +40,7 @@
     const userMessage: Message = {
       role: 'user',
       content: trimmedInstruction,
-      timestamp: new Date().toLocaleTimeString('zh-CN', {
-        hour: '2-digit',
-        minute: '2-digit'
-      })
+      timestamp: formatTimestamp()
     };
     messages = [...messages, userMessage];
 
@@ -50,22 +57,18 @@
       // 添加AI响应
       const aiMessage: Message = {
         role: 'assistant',
-        content: '已根据您的要求重新生成卡片，请查看更新后的内容。',
-        timestamp: new Date().toLocaleTimeString('zh-CN', {
-          hour: '2-digit',
-          minute: '2-digit'
-        })
+        content: t('aiAssistant.regenerateDialog.successMessage'),
+        timestamp: formatTimestamp()
       };
       messages = [...messages, aiMessage];
     } catch (error) {
       // 添加错误消息
       const errorMessage: Message = {
         role: 'assistant',
-        content: `重新生成失败：${error instanceof Error ? error.message : '未知错误'}`,
-        timestamp: new Date().toLocaleTimeString('zh-CN', {
-          hour: '2-digit',
-          minute: '2-digit'
-        })
+        content: t('aiAssistant.regenerateDialog.errorMessage', {
+          message: error instanceof Error ? error.message : t('aiAssistant.regenerateDialog.unknownError')
+        }),
+        timestamp: formatTimestamp()
       };
       messages = [...messages, errorMessage];
     } finally {
@@ -88,12 +91,11 @@
 </script>
 
 <div class="regenerate-dialog">
-  <!-- 对话历史 -->
   {#if messages.length > 0}
     <div class="dialog-history">
       <div class="history-header">
-        <span class="history-title">对话历史</span>
-        <button class="clear-history-btn" onclick={clearHistory} title="清空历史">
+        <span class="history-title">{t('aiAssistant.regenerateDialog.historyTitle')}</span>
+        <button class="clear-history-btn" onclick={clearHistory} title={t('aiAssistant.regenerateDialog.clearHistory')}>
           <ObsidianIcon name="trash-2" size={14} />
         </button>
       </div>
@@ -102,7 +104,9 @@
           <div class="message" class:user={message.role === 'user'}>
             <div class="message-header">
               <span class="message-role">
-                {message.role === 'user' ? '你' : 'AI助手'}
+                {message.role === 'user'
+                  ? t('aiAssistant.regenerateDialog.userRole')
+                  : t('aiAssistant.regenerateDialog.assistantRole')}
               </span>
               <span class="message-time">{message.timestamp}</span>
             </div>
@@ -113,28 +117,27 @@
     </div>
   {/if}
 
-  <!-- 输入区 -->
   <div class="dialog-input">
     <div class="input-header">
       <ObsidianIcon name="edit-3" size={14} />
-      <span>输入修改要求</span>
+      <span>{t('aiAssistant.regenerateDialog.inputTitle')}</span>
     </div>
     <textarea
       bind:value={instruction}
       onkeydown={handleKeydown}
-      placeholder="例如：请增加更多细节；答案太简单，请扩展；问题需要更具体..."
+      placeholder={t('aiAssistant.regenerateDialog.inputPlaceholder')}
       rows="4"
       disabled={isRegenerating}
     ></textarea>
     <div class="input-footer">
-      <span class="hint">Ctrl+Enter 提交</span>
+      <span class="hint">{t('aiAssistant.regenerateDialog.submitHint')}</span>
       <button
         class="submit-btn"
         onclick={handleSubmit}
         disabled={!instruction.trim() || isRegenerating}
       >
         <ObsidianIcon name="send" size={14} />
-        <span>{isRegenerating ? '生成中...' : '重新生成'}</span>
+        <span>{isRegenerating ? t('aiAssistant.regenerateDialog.generating') : t('aiAssistant.regenerateDialog.regenerate')}</span>
       </button>
     </div>
   </div>

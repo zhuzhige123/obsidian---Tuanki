@@ -12,6 +12,7 @@ import { isInSidebar } from "./view-location-utils";
 import { addWeaveNavigationItems, type WeavePageId } from "./weave-navigation-menu";
 
 const DECK_STUDY_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: "deck-study" };
+const CARD_MANAGEMENT_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: "weave-card-management" };
 
 export type WeaveCardDataSource = "memory" | "questionBank" | "incremental-reading";
 export type WeaveCardViewType = "table" | "grid" | "kanban";
@@ -402,7 +403,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		) {
 			menu.addItem((item) => {
 				item
-					.setTitle("Markdown 文件")
+					.setTitle(i18n.t("mainMenu.cardManagement.irMarkdown"))
 					.setIcon("file-text")
 					.setChecked(options.irTypeFilter === "md")
 					.onClick(() => {
@@ -413,7 +414,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			if (shouldShowCardManagementMenuAction("ir-type-pdf")) {
 				menu.addItem((item) => {
 					item
-						.setTitle("PDF书签")
+						.setTitle(i18n.t("mainMenu.cardManagement.irPdf"))
 						.setIcon("file")
 						.setChecked(options.irTypeFilter === "pdf")
 						.onClick(() => {
@@ -452,7 +453,10 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 				|| currentView === "grid")
 			&& shouldShowCardManagementMenuAction("grid-layout-timeline")
 		) {
-			const gridLocked = !premiumGuard.canUseFeature(PREMIUM_FEATURES.GRID_VIEW);
+			const gridLocked = !premiumGuard.canUseFeature(
+				PREMIUM_FEATURES.GRID_VIEW,
+				CARD_MANAGEMENT_FEATURE_CONTEXT
+			);
 			menu.addItem((item) => {
 				item
 					.setTitle(
@@ -652,3 +656,4 @@ export function openWeaveMainMenu(options: WeaveMainMenuOptions): Menu {
 	showMenu(menu, options.event, options.anchorEl);
 	return menu;
 }
+

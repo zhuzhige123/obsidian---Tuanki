@@ -1,10 +1,12 @@
 import type { EffectiveLicenseState, LicenseInfo, LicenseStore, LicensedProduct } from "../types/license";
+import { PremiumFeatureGuard } from "../services/premium/PremiumFeatureGuard";
 import {
   getLegacyPrimaryLicense,
   getProductFromPluginId,
   normalizeLicenseStore,
   resolveEffectiveLicenseState,
 } from "./license-state";
+import { emitWeaveLicenseChanged } from "./license-sync-bridge";
 
 export interface LicenseCapablePluginLike {
   manifest?: {
@@ -17,6 +19,7 @@ export interface LicenseCapablePluginLike {
   getLicensedProductId?: () => LicensedProduct;
   getLocalLicenses?: () => LicenseInfo[];
   getEffectiveLicenseState?: () => EffectiveLicenseState;
+  saveSettings?: () => Promise<void>;
 }
 
 export function getPluginLicensedProduct(plugin: LicenseCapablePluginLike | null | undefined): LicensedProduct {
@@ -88,5 +91,33 @@ export function clearPluginLocalLicenses(plugin: LicenseCapablePluginLike | null
     localLicenses: [],
     updatedAt: new Date().toISOString(),
   };
+  plugin.settings.license = getLegacyPrimaryLicense([]);
   syncPluginLicenseSettings(plugin);
+}
+
+/**
+ * 立即移除本插件本地激活状态，并同步高级功能守卫与持久化设置。
+ */
+export async function resetPluginLicenseActivation(
+  plugin: LicenseCapablePluginLike | null | undefined,
+  options?: { persist?: boolean }
+): Promise<void> {
+  clearPluginLocalLicenses(plugin);
+
+  await PremiumFeatureGuard.getInstance().updateLicenseState({
+    product: getPluginLicensedProduct(plugin),
+    localLicenses: [],
+  });
+
+  if (options?.persist === false) {
+    return;
+  }
+
+  if (typeof plugin?.saveSettings === "function") {
+    await plugin.saveSettings();
+  }
+
+  if (plugin && "app" in plugin && plugin.app) {
+    emitWeaveLicenseChanged(plugin.app);
+  }
 }

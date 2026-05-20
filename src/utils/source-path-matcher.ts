@@ -6,7 +6,7 @@
  */
 
 import type { Card } from "../data/types";
-import { EpubLinkService } from "../services/epub/EpubLinkService";
+import { EpubLinkService } from "../services/epub-integration/EpubLinkService";
 import { parseBlockId, parseObsidianLink, parseSourceInfo, parseYAMLFromContent } from "./yaml-utils";
 
 function sanitizeSourcePath(path: string | null | undefined): string | null {

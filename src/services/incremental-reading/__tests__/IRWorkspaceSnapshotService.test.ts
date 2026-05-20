@@ -10,7 +10,7 @@ vi.mock("obsidian", async () => {
 	};
 });
 
-vi.mock("../../epub/EpubStorageService", () => ({
+vi.mock("../../epub-integration/EpubStorageService", () => ({
 	EpubStorageService: class {
 		async ensureSourceIdentity(filePath: string, options?: { preferredSourceId?: string }) {
 			return {

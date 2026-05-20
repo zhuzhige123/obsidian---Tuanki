@@ -977,6 +977,93 @@ export class IRPointStorageService {
 		return decks;
 	}
 
+	async refreshPointFilesIndexFromVault(): Promise<{
+		scanned: number;
+		added: number;
+		updated: number;
+		removed: number;
+	}> {
+		await this.initialize();
+		const index = await this.readPointFilesIndex();
+		const scannedFiles = await this.scanVaultForPointFiles();
+		const scannedFileSet = new Set(scannedFiles);
+		const nextEntries = [...(index.files || [])];
+		let added = 0;
+		let updated = 0;
+		let removed = 0;
+
+		for (const absolutePath of scannedFiles) {
+			const fileData = await this.readPointFile(absolutePath, DEFAULT_TOPIC_ID, DEFAULT_TOPIC_NAME);
+			const topicId = String(fileData.topicId || "").trim() || DEFAULT_TOPIC_ID;
+			const topicName = String(fileData.topicName || "").trim() || DEFAULT_TOPIC_NAME;
+			const pointCount = Array.isArray(fileData.points) ? fileData.points.length : 0;
+			const updatedAt = String(fileData.updatedAt || "").trim() || new Date().toISOString();
+			const existingIndex = nextEntries.findIndex((entry) => {
+				const entryTopicId = String(entry?.topicId || "").trim();
+				const entryFile = this.resolveIndexedPointFilePath(entry?.file)?.absolutePath || "";
+				return entryTopicId === topicId || entryFile === absolutePath;
+			});
+
+			if (existingIndex >= 0) {
+				const existing = nextEntries[existingIndex];
+				const previousFile = this.resolveIndexedPointFilePath(existing?.file)?.absolutePath || "";
+				const previousTopicName = String(existing?.topicName || "").trim();
+				const previousPointCount = Number(existing?.pointCount || 0);
+				const normalizedExisting = {
+					...existing,
+					file: absolutePath,
+					topicId,
+					topicName,
+					pointCount,
+					updatedAt,
+				};
+				nextEntries[existingIndex] = normalizedExisting;
+				if (
+					previousFile !== absolutePath ||
+					previousTopicName !== topicName ||
+					previousPointCount !== pointCount ||
+					String(existing?.topicId || "").trim() !== topicId
+				) {
+					updated += 1;
+				}
+				continue;
+			}
+
+			nextEntries.push({
+				file: absolutePath,
+				topicId,
+				topicName,
+				pointCount,
+				updatedAt,
+			});
+			added += 1;
+		}
+
+		const filteredEntries = nextEntries.filter((entry) => {
+			const absolutePath = this.resolveIndexedPointFilePath(entry?.file)?.absolutePath || "";
+			const keep = absolutePath ? scannedFileSet.has(absolutePath) : false;
+			if (!keep) {
+				removed += 1;
+			}
+			return keep;
+		});
+
+		if (added > 0 || updated > 0 || removed > 0) {
+			await this.writePointFilesIndex({
+				...index,
+				files: filteredEntries,
+				updatedAt: new Date().toISOString(),
+			});
+		}
+
+		return {
+			scanned: scannedFiles.length,
+			added,
+			updated,
+			removed,
+		};
+	}
+
 	async upsertPointDeck(deck: IRDeck): Promise<IRDeck> {
 		await this.initialize();
 		const topicId = String(deck.id || deck.path || "").trim();

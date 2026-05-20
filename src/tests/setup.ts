@@ -27,7 +27,6 @@ if (!window.matchMedia) {
   });
 }
 
-// Mock DOM APIs
 class MockAbortController {
   private readonly mockSignal: MockAbortSignal = {
     aborted: false,
@@ -47,7 +46,6 @@ Object.defineProperty(window, 'AbortController', {
   value: MockAbortController as unknown as typeof AbortController
 });
 
-// Store original timer functions
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
 
@@ -71,16 +69,13 @@ vi.spyOn(globalThis, 'clearTimeout').mockImplementation(
   }) as typeof clearTimeout
 );
 
-// Mock console methods for cleaner test output
 vi.spyOn(console, 'log').mockImplementation(() => {});
 vi.spyOn(console, 'warn').mockImplementation(() => {});
 vi.spyOn(console, 'error').mockImplementation(() => {});
 vi.spyOn(console, 'debug').mockImplementation(() => {});
 
-// Mock performance API
 vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
 
-// Mock requestAnimationFrame
 let nextAnimationFrameId = 0;
 const animationFrameTimers = new Map<number, ReturnType<typeof setTimeout>>();
 

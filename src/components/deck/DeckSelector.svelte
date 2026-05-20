@@ -22,6 +22,7 @@
     formatDeckPath
   } from '../../utils/deck-hierarchy';
   import { DeckSelectorStorage } from '../../services/deck-selector-storage';
+  import { tr } from '../../utils/i18n';
 
   interface Props {
     /** 所有牌组列表 */
@@ -51,6 +52,7 @@
   let showMenu = $state(false);
   let searchQuery = $state('');
   let expandedDeckIds = $state<Set<string>>(new Set());
+  let t = $derived($tr);
 
   // 初始化
   onMount(() => {
@@ -126,21 +128,21 @@
   // 按钮显示文本
   const buttonText = $derived.by(() => {
     if (selectedDeckIds.length === 0) {
-      return '全部牌组';
+      return t('deckSelector.allDecks');
     }
     
     if (selectedDeckIds.length === 1) {
       const deckId = selectedDeckIds[0];
       const deck = decks.find(d => d.id === deckId);
       const count = deckCardCounts.get(deckId) || 0;
-      return `${deck?.name || '未知'} (${count})`;
+      return `${deck?.name || t('deckSelector.unknownDeck')} (${count})`;
     }
     
     const totalCards = selectedDeckIds.reduce(
       (sum, id) => sum + (deckCardCounts.get(id) || 0),
       0
     );
-    return `${selectedDeckIds.length}个牌组 (${totalCards})`;
+    return t('deckSelector.multiDecks', { count: selectedDeckIds.length, cards: totalCards });
   });
 
   // 切换菜单
@@ -209,7 +211,7 @@
     class="deck-selector-button"
     class:active={showMenu}
     onclick={toggleMenu}
-    title="选择要显示的牌组"
+    title={t('deckSelector.buttonTitle')}
   >
     <EnhancedIcon name="folder" size="16" />
     <span class="deck-selector-text">{buttonText}</span>
@@ -229,7 +231,7 @@
       <div 
         class="deck-selector-menu" 
         role="dialog"
-        aria-label="选择牌组"
+        aria-label={t('deckSelector.dialogLabel')}
         tabindex="-1"
         onclick={(e) => { e.preventDefault(); }}
         onkeydown={(e) => { e.preventDefault(); }}
@@ -238,12 +240,12 @@
         <div class="deck-selector-header">
           <div class="deck-selector-title">
             <EnhancedIcon name="folder" size="14" />
-            <span>选择牌组</span>
+            <span>{t('deckSelector.title')}</span>
           </div>
           <button
             class="deck-selector-close"
             onclick={closeMenu}
-            title="关闭"
+            title={t('ui.close')}
           >
             <EnhancedIcon name="x" size="14" />
           </button>
@@ -254,7 +256,7 @@
           <EnhancedIcon name="search" size="14" />
           <input
             type="text"
-            placeholder="搜索牌组..."
+            placeholder={t('deckSelector.searchPlaceholder')}
             bind:value={searchQuery}
             class="deck-selector-search-input"
           />
@@ -270,17 +272,17 @@
 
         <!-- 统计信息 -->
         <div class="deck-selector-stats">
-          <span>已选: {selectedDeckIds.length}/{selectionLimit.maxDecks}</span>
+          <span>{t('deckSelector.selectedStats', { count: selectedDeckIds.length, max: selectionLimit.maxDecks })}</span>
           <span>|</span>
-          <span>卡片: {selectionLimit.currentCards}/{selectionLimit.maxCards}</span>
+          <span>{t('deckSelector.cardStats', { count: selectionLimit.currentCards, max: selectionLimit.maxCards })}</span>
           {#if selectedDeckIds.length > 0}
             <button
               class="deck-clear-btn"
               onclick={clearSelection}
-              title="清除所有选择"
+              title={t('deckSelector.clearAll')}
             >
               <EnhancedIcon name="x-circle" size="12" />
-              清除
+              {t('ui.clear')}
             </button>
           {/if}
         </div>
@@ -291,10 +293,10 @@
             <div class="deck-empty-state">
               {#if searchQuery.trim()}
                 <EnhancedIcon name="search" size="24" />
-                <p>未找到匹配的牌组</p>
+                <p>{t('deckSelector.emptySearch')}</p>
               {:else}
                 <EnhancedIcon name="folder" size="24" />
-                <p>暂无牌组</p>
+                <p>{t('deckSelector.empty')}</p>
               {/if}
             </div>
           {:else}
@@ -323,7 +325,7 @@
                     <button
                       class="deck-expand-btn"
                       onclick={(e) => toggleExpanded(node.deck.id, e)}
-                      title={node.expanded ? '折叠' : '展开'}
+                      title={node.expanded ? t('deckSelector.collapse') : t('deckSelector.expand')}
                     >
                       <EnhancedIcon 
                         name={node.expanded ? "chevron-down" : "chevron-right"} 
@@ -350,7 +352,7 @@
                 <div class="deck-info">
                   <div class="deck-name">{node.deck.name}</div>
                   <div class="deck-count">
-                    {node.cardCount} 张卡片
+                    {t('deckSelector.deckCount', { count: node.cardCount })}
                   </div>
                 </div>
               </div>

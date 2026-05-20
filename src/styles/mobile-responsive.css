@@ -197,12 +197,12 @@
     font-size: 18px;
   }
 
-  body:not(.is-mobile) .deck-grid-card .stat-number,
+  body:not(.is-mobile) .deck-grid-card .deck-card-stat-num,
   body:not(.is-mobile) .chinese-elegant-card .stat-value {
     font-size: 12px;
   }
 
-  body:not(.is-mobile) .deck-grid-card .stat-label,
+  body:not(.is-mobile) .deck-grid-card .deck-card-stat-lbl,
   body:not(.is-mobile) .chinese-elegant-card .stat-label {
     font-size: 10px;
   }

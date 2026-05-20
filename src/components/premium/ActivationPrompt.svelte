@@ -5,6 +5,7 @@
    */
   
   import { FEATURE_METADATA, PREMIUM_BENEFIT_FEATURE_ORDER } from '../../services/premium/PremiumFeatureGuard';
+  import { tr } from '../../utils/i18n';
   
   // FontAwesome v5 SVG 图标定义
   const FA_ICONS: Record<string, string> = {
@@ -60,17 +61,29 @@
     onClose,
     embedded = false
   }: Props = $props();
+  let t = $derived($tr);
 
   // 获取功能元数据
-  const metadata = $derived(FEATURE_METADATA[featureId] || {
-    name: '高级功能',
-    description: '此功能需要激活许可证',
-    icon: 'star'
+  const metadata = $derived.by(() => {
+    const fallback = FEATURE_METADATA[featureId] || {
+      name: '',
+      description: '',
+      icon: 'star'
+    };
+    return {
+      ...fallback,
+      name: t(`decks.activationPrompt.features.${featureId}.name`) || fallback.name || t('decks.activationPrompt.fallbackName'),
+      description: t(`decks.activationPrompt.features.${featureId}.description`) || fallback.description || t('decks.activationPrompt.fallbackDescription'),
+    };
   });
 
   const benefitFeatures = $derived(
     PREMIUM_BENEFIT_FEATURE_ORDER
-      .map((id) => ({ id, ...FEATURE_METADATA[id] }))
+      .map((id) => ({
+        id,
+        ...FEATURE_METADATA[id],
+        name: t(`decks.activationPrompt.features.${id}.name`) || FEATURE_METADATA[id]?.name || id
+      }))
       .filter((feature) => Boolean(feature.name))
   );
 
@@ -111,13 +124,13 @@
         <div class="info-box">
           <div class="info-icon">{@html getIconSvg('lock')}</div>
           <div class="info-text">
-            <p class="info-title">此功能需要激活许可证</p>
-            <p class="info-subtitle">激活后即可解锁所有高级功能</p>
+            <p class="info-title">{t('decks.activationPrompt.infoTitle')}</p>
+            <p class="info-subtitle">{t('decks.activationPrompt.infoSubtitle')}</p>
           </div>
         </div>
 
         <div class="benefits-list">
-          <p class="benefits-title">激活高级版后，您将解锁：</p>
+          <p class="benefits-title">{t('decks.activationPrompt.benefitsTitle')}</p>
           <ul>
             {#each benefitFeatures as feature (feature.id)}
               <li><span class="benefit-icon">{@html getIconSvg(feature.icon || 'star')}</span> {feature.name}</li>
@@ -126,14 +139,14 @@
         </div>
 
         <div class="purchase-section">
-          <p class="purchase-hint">还没有激活码？</p>
+          <p class="purchase-hint">{t('decks.activationPrompt.purchaseHint')}</p>
           <a 
             href="https://pay.ldxp.cn/item/ned9pw" 
             class="purchase-link"
             target="_blank"
             rel="noopener noreferrer"
           >
-            <span class="purchase-icon">{@html getIconSvg('gem')}</span> 获取激活码
+            <span class="purchase-icon">{@html getIconSvg('gem')}</span> {t('decks.activationPrompt.getActivationCode')}
           </a>
         </div>
       </div>
@@ -158,7 +171,7 @@
           <button 
             class="close-button" 
             onclick={onClose}
-            aria-label="关闭"
+            aria-label={t('decks.activationPrompt.close')}
           >
             {@html getIconSvg('times')}
           </button>
@@ -170,13 +183,13 @@
           <div class="info-box">
             <div class="info-icon">{@html getIconSvg('lock')}</div>
             <div class="info-text">
-              <p class="info-title">此功能需要激活许可证</p>
-              <p class="info-subtitle">激活后即可解锁所有高级功能</p>
+              <p class="info-title">{t('decks.activationPrompt.infoTitle')}</p>
+              <p class="info-subtitle">{t('decks.activationPrompt.infoSubtitle')}</p>
             </div>
           </div>
 
           <div class="benefits-list">
-            <p class="benefits-title">激活高级版后，您将解锁：</p>
+            <p class="benefits-title">{t('decks.activationPrompt.benefitsTitle')}</p>
             <ul>
               {#each benefitFeatures as feature (feature.id)}
                 <li><span class="benefit-icon">{@html getIconSvg(feature.icon || 'star')}</span> {feature.name}</li>
@@ -185,14 +198,14 @@
           </div>
 
           <div class="purchase-section">
-            <p class="purchase-hint">还没有激活码？</p>
+            <p class="purchase-hint">{t('decks.activationPrompt.purchaseHint')}</p>
             <a 
               href="https://pay.ldxp.cn/item/ned9pw" 
               class="purchase-link"
               target="_blank"
               rel="noopener noreferrer"
             >
-              <span class="purchase-icon">{@html getIconSvg('gem')}</span> 获取激活码
+              <span class="purchase-icon">{@html getIconSvg('gem')}</span> {t('decks.activationPrompt.getActivationCode')}
             </a>
           </div>
         </div>

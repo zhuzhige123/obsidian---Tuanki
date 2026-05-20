@@ -490,6 +490,11 @@ interface LimitedTimeFeatureRule {
 }
 
 const LIMITED_TIME_FEATURE_ACCESS: Partial<Record<string, LimitedTimeFeatureRule>> = {
+  [PREMIUM_FEATURES.GRID_VIEW]: {
+    enabled: true,
+    expiresAt: '2026-07-18T23:59:59.999+08:00',
+    contexts: [{ page: 'weave-card-management' }],
+  },
   [PREMIUM_FEATURES.KANBAN_VIEW]: {
     enabled: true,
     expiresAt: null,

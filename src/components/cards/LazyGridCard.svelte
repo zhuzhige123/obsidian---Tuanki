@@ -18,6 +18,7 @@
   import { getQuestionTypeLabelFromCard } from '../../utils/question-type-utils';
   import { buildWeaveCardReferenceToken } from '../../utils/weave-card-reference';
   import { applyStyleProps } from '../../utils/style-props';
+  import { currentLanguage, tr } from '../../utils/i18n';
 
   type GridCardAttributeType = 'none' | 'uuid' | 'source' | 'priority' | 'retention' | 'modified' | 'accuracy' | 'question_type' | 'ir_state' | 'ir_priority';
   
@@ -126,6 +127,8 @@
   
   // 移动端功能键显示状态（单击显示/隐藏）
   let showMobileActions = $state(false);
+  let t = $derived($tr);
+  let locale = $derived($currentLanguage);
 
   // 计算属性
   const frontText = $derived(getCardFieldContent(card, 'front'));
@@ -264,45 +267,51 @@
     
     switch (attributeType) {
       case 'uuid':
-        return { label: 'ID', value: displayUuid, icon: 'hash' };
+        return { label: t('toolbar.cardId'), value: displayUuid, icon: 'hash' };
       
       case 'source':
-        const source = sourceDocument || '未知来源';
-        return { label: '来源', value: source.length > 20 ? source.slice(0, 20) + '...' : source, icon: null };
+        const source = sourceDocument || t('toolbar.unknownSource');
+        return { label: t('toolbar.sourceDoc'), value: source.length > 20 ? source.slice(0, 20) + '...' : source, icon: null };
       
       case 'priority':
         const priority = card.priority || 0;
-        const priorityText = priority === 3 ? '高' : priority === 2 ? '中' : priority === 1 ? '低' : '无';
-        return { label: '优先级', value: priorityText, icon: 'flag' };
+        const priorityText = priority === 3 ? t('toolbar.priorityHigh') : priority === 2 ? t('toolbar.priorityMedium') : priority === 1 ? t('toolbar.priorityLow') : t('toolbar.none');
+        return { label: t('toolbar.priority'), value: priorityText, icon: 'flag' };
       
       case 'retention':
         const retention = card.fsrs?.retrievability ? Math.round(card.fsrs.retrievability * 100) : 0;
-        return { label: '记忆率', value: `${retention}%`, icon: 'activity' };
+        return { label: t('toolbar.retention'), value: `${retention}%`, icon: 'activity' };
       
       case 'modified':
         const modifiedStr = card.modified || card.created || new Date().toISOString();
         const date = new Date(modifiedStr);
-        const formattedDate = `${date.getMonth() + 1}/${date.getDate()}`;
-        return { label: '修改', value: formattedDate, icon: 'clock' };
+        const formattedDate = date.toLocaleDateString(locale, { month: 'numeric', day: 'numeric' });
+        return { label: t('toolbar.modified'), value: formattedDate, icon: 'clock' };
       
       case 'accuracy':
         const testStats = card.stats?.testStats as { accuracy?: number } | undefined;
-        if (!testStats) return { label: '正确率', value: '-', icon: 'target' };
+        if (!testStats) return { label: t('toolbar.accuracy'), value: '-', icon: 'target' };
         const percent = Math.round((testStats.accuracy ?? 0) * 100);
-        return { label: '正确率', value: `${percent}%`, icon: 'target' };
+        return { label: t('toolbar.accuracy'), value: `${percent}%`, icon: 'target' };
       
       case 'question_type':
-        return { label: '题型', value: getQuestionTypeLabelFromCard(card, 'short', '-'), icon: 'list-checks' };
+        return { label: t('toolbar.questionType'), value: getQuestionTypeLabelFromCard(card, 'short', '-'), icon: 'list-checks' };
       
       case 'ir_state':
         const irState = (card as any).ir_state || '';
-        const stateMap: Record<string, string> = { 'new': '新', 'queued': '排队', 'active': '学习中', 'suspended': '暂停', 'done': '完成' };
-        return { label: '状态', value: stateMap[irState] || irState || '-', icon: 'book-open' };
+        const stateMap: Record<string, string> = {
+          'new': t('toolbar.stateNew'),
+          'queued': t('toolbar.stateQueued'),
+          'active': t('toolbar.stateActive'),
+          'suspended': t('toolbar.stateSuspended'),
+          'done': t('toolbar.stateDone')
+        };
+        return { label: t('toolbar.status'), value: stateMap[irState] || irState || '-', icon: 'book-open' };
       
       case 'ir_priority':
         const irPri = (card as any).ir_priority;
-        const irPriText = irPri === 1 ? '低' : irPri === 2 ? '中' : irPri === 3 ? '高' : irPri != null ? String(irPri) : '-';
-        return { label: 'IR优先级', value: irPriText, icon: 'signal' };
+        const irPriText = irPri === 1 ? t('toolbar.priorityLow') : irPri === 2 ? t('toolbar.priorityMedium') : irPri === 3 ? t('toolbar.priorityHigh') : irPri != null ? String(irPri) : '-';
+        return { label: t('toolbar.irPriority'), value: irPriText, icon: 'signal' };
       
       default:
         return null;
@@ -349,7 +358,7 @@
     event.stopPropagation();
 
     const copied = await copyTextToClipboard(buildWeaveCardReferenceToken(fullUuid));
-    new Notice(copied ? '已复制关联卡片引用' : '复制失败，请手动复制', copied ? 2000 : 3000);
+    new Notice(copied ? t('toolbar.cardReferenceCopied') : t('toolbar.copyFailedManual'), copied ? 2000 : 3000);
   }
 
   function disposeRenderedContent(): void {
@@ -526,7 +535,7 @@
       return content;
     }
 
-    return `${content}\n\n> 来源：${sourceLink}`;
+    return `${content}\n\n> ${t('toolbar.sourceDoc')}: ${sourceLink}`;
   }
 
   function updateSidebarMode(): void {
@@ -773,7 +782,7 @@
 
   {#if emphasized}
     <div class="current-card-indicator">
-      <span>当前卡片</span>
+      <span>{t('toolbar.currentCard')}</span>
     </div>
   {/if}
 
@@ -783,8 +792,8 @@
       <button
         type="button"
         class="card-attribute card-attribute--clickable"
-        title="点击复制关联卡片格式"
-        aria-label="复制关联卡片格式"
+        title={t('toolbar.copyCardReferenceTitle')}
+        aria-label={t('toolbar.copyCardReference')}
         onclick={handleAttributeClick}
       >
         {#if attributeDisplay?.icon}
@@ -812,27 +821,27 @@
     class:mobile-visible={isMobile && showMobileActions}
   >
     {#if onSourceJump && hasSourceDocument}
-      <button class="action-menu-item" onclick={handleSourceJump} title="跳转到源文档">
+      <button class="action-menu-item" onclick={handleSourceJump} title={t('toolbar.jumpToSource')}>
         <EnhancedIcon name="external-link" size={16} />
       </button>
     {/if}
     {#if onConvertToMarkdown}
-      <button class="action-menu-item" onclick={handleConvertToMarkdown} title="转换为 MD">
+      <button class="action-menu-item" onclick={handleConvertToMarkdown} title={t('toolbar.convertToMd')}>
         <EnhancedIcon name="markdown" size={16} />
       </button>
     {/if}
     {#if onEdit}
-      <button class="action-menu-item" onclick={handleEdit} title="编辑">
+      <button class="action-menu-item" onclick={handleEdit} title={t('toolbar.edit')}>
         <EnhancedIcon name="edit" size={16} />
       </button>
     {/if}
     {#if onView}
-      <button class="action-menu-item" onclick={handleView} title="查看">
+      <button class="action-menu-item" onclick={handleView} title={t('toolbar.preview')}>
         <EnhancedIcon name="eye" size={16} />
       </button>
     {/if}
     {#if onDelete}
-      <button class="action-menu-item danger" onclick={handleDelete} title="删除">
+      <button class="action-menu-item danger" onclick={handleDelete} title={t('toolbar.delete')}>
         <EnhancedIcon name="trash-2" size={16} />
       </button>
     {/if}

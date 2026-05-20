@@ -150,10 +150,20 @@ export function showObsidianChoice<T extends string>(
 			};
 		}
 
-		const buttonContainer = modal.contentEl.createDiv({ cls: "obsidian-confirm-buttons" });
+		if (layout === "horizontal") {
+			const cancelOptionEl = choiceContainer.createDiv({ cls: "obsidian-choice-option" });
+			cancelOptionEl.addClass("obsidian-choice-option--horizontal");
 
-		const cancelButton = buttonContainer.createEl("button", { text: cancelText });
-		cancelButton.onclick = () => modal.close();
+			const cancelButton = cancelOptionEl.createEl("button", { text: cancelText });
+			cancelButton.addClass("obsidian-choice-option-button");
+			cancelButton.addClass("obsidian-choice-option-button--center");
+			cancelButton.addClass("obsidian-choice-option-button--secondary");
+			cancelButton.onclick = () => modal.close();
+		} else {
+			const buttonContainer = modal.contentEl.createDiv({ cls: "obsidian-confirm-buttons" });
+			const cancelButton = buttonContainer.createEl("button", { text: cancelText });
+			cancelButton.onclick = () => modal.close();
+		}
 
 		modal.onClose = () => resolve(result);
 		modal.open();

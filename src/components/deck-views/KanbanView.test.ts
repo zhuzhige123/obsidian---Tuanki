@@ -197,7 +197,7 @@ describe('KanbanView', () => {
     });
 
     await waitFor(() => {
-      const statNumbers = Array.from(rendered.container.querySelectorAll('.stat-number')).map((node) => node.textContent?.trim());
+      const statNumbers = Array.from(rendered.container.querySelectorAll('.deck-card-stat-num')).map((node) => node.textContent?.trim());
       expect(statNumbers).toEqual(['0', '0', '0']);
     });
 
@@ -209,7 +209,7 @@ describe('KanbanView', () => {
     });
 
     await waitFor(() => {
-      const statNumbers = Array.from(rendered.container.querySelectorAll('.stat-number')).map((node) => node.textContent?.trim());
+      const statNumbers = Array.from(rendered.container.querySelectorAll('.deck-card-stat-num')).map((node) => node.textContent?.trim());
       expect(statNumbers).toEqual(['21', '0', '0']);
     });
   });

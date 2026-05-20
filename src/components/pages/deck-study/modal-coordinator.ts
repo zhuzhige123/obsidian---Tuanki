@@ -3,9 +3,10 @@ import type WeavePlugin from "../../../main";
 import type { WeaveDataStorage } from "../../../data/storage";
 import type { Deck } from "../../../data/types";
 import type { ImportResult } from "../../../domain/apkg/types";
-import { APKGImportModalObsidian } from "../../modals/APKGImportModalObsidian";
 import { CreateDeckModalObsidian } from "../../modals/CreateDeckModalObsidian";
 import { logger } from "../../../utils/logger";
+
+declare const __WEAVE_LEGACY_APKG_RUNTIME__: boolean;
 
 interface DeckStudyModalCoordinatorOptions {
   getPlugin: () => WeavePlugin;
@@ -29,7 +30,9 @@ export function createDeckStudyModalCoordinator(
 ): DeckStudyModalCoordinator {
   let createDeckModalInstance: CreateDeckModalObsidian | null = null;
   let editDeckModalInstance: CreateDeckModalObsidian | null = null;
-  let apkgImportModalInstance: APKGImportModalObsidian | null = null;
+  let apkgImportModalInstance:
+    | import("../../modals/APKGImportModalObsidian").APKGImportModalObsidian
+    | null = null;
 
   async function handleAPKGImportComplete(result: ImportResult): Promise<void> {
     if (result.success) {
@@ -84,20 +87,29 @@ export function createDeckStudyModalCoordinator(
   }
 
   function showAPKGImportModal(): void {
-    apkgImportModalInstance?.close();
-    const plugin = options.getPlugin();
-    apkgImportModalInstance = new APKGImportModalObsidian(plugin.app, {
-      plugin,
-      dataStorage: options.getDataStorage(),
-      wasmUrl: plugin.wasmUrl,
-      legacyImportAvailable: plugin.hasLegacyApkgImportRuntime(),
-      legacyImportHelpText: plugin.getLegacyApkgImportUnavailableMessage(),
-      onImportComplete: handleAPKGImportComplete,
-      onClose: () => {
-        apkgImportModalInstance = null;
-      },
-    });
-    apkgImportModalInstance.open();
+    if (!__WEAVE_LEGACY_APKG_RUNTIME__) {
+      new Notice(options.getPlugin().getLegacyApkgImportUnavailableMessage(), 8000);
+      return;
+    }
+
+    void (async () => {
+      apkgImportModalInstance?.close();
+      const plugin = options.getPlugin();
+      const { APKGImportModalObsidian } = await import("../../modals/APKGImportModalObsidian");
+
+      apkgImportModalInstance = new APKGImportModalObsidian(plugin.app, {
+        plugin,
+        dataStorage: options.getDataStorage(),
+        wasmUrl: plugin.wasmUrl,
+        legacyImportAvailable: plugin.hasLegacyApkgImportRuntime(),
+        legacyImportHelpText: plugin.getLegacyApkgImportUnavailableMessage(),
+        onImportComplete: handleAPKGImportComplete,
+        onClose: () => {
+          apkgImportModalInstance = null;
+        },
+      });
+      apkgImportModalInstance.open();
+    })();
   }
 
   function showEditDeckModal(deck: Deck): void {

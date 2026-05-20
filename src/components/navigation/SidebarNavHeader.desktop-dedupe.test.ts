@@ -25,6 +25,12 @@ const translationMap = vi.hoisted(() => ({
   'navigation.deckStudy': '牌组学习',
   'navigation.cardManagement': '卡片管理',
   'navigation.aiAssistant': 'AI制卡',
+  'mainMenu.deckStudy.switchToEmergent': '切换到涌现牌组',
+  'mainMenu.deckStudy.switchToFormal': '切换到正式牌组',
+  'mainMenu.deckStudy.showingFormal': '当前显示正式牌组',
+  'mainMenu.deckStudy.showingEmergent': '当前显示涌现牌组',
+  'mainMenu.deckStudy.emergentFilter': '涌现筛选',
+  'mainMenu.deckStudy.kanbanColumnSettings': '看板设置',
   'mainMenu.cardManagement.dataSourceSwitch': '数据源切换',
   'mainMenu.cardManagement.tableBasic': '基础信息模式',
   'mainMenu.cardManagement.tableReview': '复习历史模式',
@@ -40,7 +46,13 @@ const translationMap = vi.hoisted(() => ({
   'mainMenu.cardManagement.currentDocumentOnly': '关联当前活动文档',
   'mainMenu.cardManagement.cardLocationJump': '定位跳转模式',
   'mainMenu.cardManagement.irMd': 'MD文件',
-  'mainMenu.cardManagement.irPdf': 'PDF书签'
+  'mainMenu.cardManagement.irPdf': 'PDF书签',
+  'cardManagement.search': '搜索卡片',
+  'cardManagement.viewModes.grid': '网格视图',
+  'cardManagement.density.title': '密度',
+  'cardManagement.density.compact': '紧凑',
+  'cardManagement.density.comfortable': '舒适',
+  'cardManagement.density.spacious': '宽松'
 }));
 const mockPremiumGuard = vi.hoisted(() => {
   const isDeckStudyLimitedTimeFeature = (featureId: string, context?: { page?: string }) => {

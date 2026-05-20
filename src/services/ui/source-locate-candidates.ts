@@ -1,4 +1,4 @@
-import { EPUB_RUNTIME } from "../epub";
+import { EPUB_RUNTIME } from "../epub-integration";
 
 export const EPUB_LOCATE_LINK_PREFIX = "__weave_epub_link__=";
 export const EPUB_LOCATE_CFI_PREFIX = "__weave_epub_cfi__=";

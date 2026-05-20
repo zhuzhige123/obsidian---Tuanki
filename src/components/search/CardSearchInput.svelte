@@ -1,13 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { vaultStorage } from '../../utils/vault-local-storage';
-  import { Menu, type App } from 'obsidian';
+  import { Menu, TFolder, type App } from 'obsidian';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import FloatingMenu from '../ui/FloatingMenu.svelte';
   import { ICON_NAMES } from '../../icons/index.js';
   import { logger } from '../../utils/logger';
   import type { Deck } from '../../data/types';
   import { normalizeTagSuggestionOptions, TagInputSuggest } from '../../utils/tag-suggest';
+  import { tr } from '../../utils/i18n';
 
   type DataSource = 'memory' | 'questionBank' | 'incremental-reading';
   type TagSuggestionOption = string | { name: string; count?: number };
@@ -41,9 +42,9 @@
     showSortButton?: boolean;
   }
 
-  let { 
+  let {
     value = $bindable(''),
-    placeholder = '搜索卡片...',
+    placeholder = '',
     onSearch,
     onClear,
     onSort,
@@ -75,35 +76,41 @@
   let anchorWidth = $state(0);
   let activeMenu: Menu | null = null;
   let tagSuggest: TagInputSuggest | null = null;
+  let activeSuggestionPanel = $state<'folder' | 'source' | null>(null);
+  let suggestionQuery = $state('');
+  let suggestionInputRef: HTMLInputElement | null = $state(null);
+  let t = $derived($tr);
+  let resolvedPlaceholder = $derived(placeholder || t('management.cardSearch.defaultPlaceholder'));
 
   const normalizedAvailableTags = $derived.by(() => {
     return normalizeTagSuggestionOptions(availableTags || []);
   });
 
   // 搜索选项定义
-  const baseSearchOptions = [
-    { prefix: 'deck:', label: 'deck: 匹配牌组', afterInsert: () => showDeckSuggestions() },
-    { prefix: 'tag:', label: 'tag: 搜索标签', afterInsert: () => showTagSuggestions() },
-    { prefix: 'priority:', label: 'priority: 搜索优先级', afterInsert: () => showPrioritySuggestions() },
-    { prefix: 'source:', label: 'source: 搜索来源文档', afterInsert: () => showSourceSuggestions() },
-    { prefix: 'created:', label: 'created: 创建日期筛选', afterInsert: () => showDateSuggestions('created') },
-    { prefix: 'modified:', label: 'modified: 修改日期筛选', afterInsert: () => showDateSuggestions('modified') },
-    { prefix: 'due:', label: 'due: 复习到期日筛选', afterInsert: () => showDateSuggestions('due') },
-    { prefix: 'yaml:', label: 'yaml: YAML属性筛选', afterInsert: () => showYamlSuggestions() },
-  ];
+  const baseSearchOptions = $derived.by(() => [
+    { prefix: 'deck:', label: t('management.cardSearch.options.deck'), afterInsert: () => showDeckSuggestions() },
+    { prefix: 'tag:', label: t('management.cardSearch.options.tag'), afterInsert: () => showTagSuggestions() },
+    { prefix: 'folder:', label: t('management.cardSearch.options.folder'), afterInsert: () => openFolderPicker() },
+    { prefix: 'priority:', label: t('management.cardSearch.options.priority'), afterInsert: () => showPrioritySuggestions() },
+    { prefix: 'source:', label: t('management.cardSearch.options.source'), afterInsert: () => showSourceSuggestions() },
+    { prefix: 'created:', label: t('management.cardSearch.options.created'), afterInsert: () => showDateSuggestions('created') },
+    { prefix: 'modified:', label: t('management.cardSearch.options.modified'), afterInsert: () => showDateSuggestions('modified') },
+    { prefix: 'due:', label: t('management.cardSearch.options.due'), afterInsert: () => showDateSuggestions('due') },
+    { prefix: 'yaml:', label: t('management.cardSearch.options.yaml'), afterInsert: () => showYamlSuggestions() },
+  ]);
 
   const dataSourceOptions = $derived.by(() => {
     const opts = [...baseSearchOptions];
     if (dataSource === 'memory') {
-      opts.push({ prefix: 'type:', label: 'type: 搜索题型', afterInsert: () => showTypeSuggestions() });
-      opts.push({ prefix: 'status:', label: 'status: 搜索状态', afterInsert: () => showStatusSuggestions() });
+      opts.push({ prefix: 'type:', label: t('management.cardSearch.options.type'), afterInsert: () => showTypeSuggestions() });
+      opts.push({ prefix: 'status:', label: t('management.cardSearch.options.status'), afterInsert: () => showStatusSuggestions() });
     } else if (dataSource === 'questionBank') {
-      opts.push({ prefix: 'type:', label: 'type: 搜索题型', afterInsert: () => showTypeSuggestions() });
-      opts.push({ prefix: 'accuracy:', label: 'accuracy: 搜索正确率', afterInsert: () => showAccuracySuggestions() });
-      opts.push({ prefix: 'attempts:', label: 'attempts: 搜索测试次数', afterInsert: () => showAttemptsSuggestions() });
-      opts.push({ prefix: 'error:', label: 'error: 搜索错题等级', afterInsert: () => showErrorSuggestions() });
+      opts.push({ prefix: 'type:', label: t('management.cardSearch.options.type'), afterInsert: () => showTypeSuggestions() });
+      opts.push({ prefix: 'accuracy:', label: t('management.cardSearch.options.accuracy'), afterInsert: () => showAccuracySuggestions() });
+      opts.push({ prefix: 'attempts:', label: t('management.cardSearch.options.attempts'), afterInsert: () => showAttemptsSuggestions() });
+      opts.push({ prefix: 'error:', label: t('management.cardSearch.options.error'), afterInsert: () => showErrorSuggestions() });
     } else if (dataSource === 'incremental-reading') {
-      opts.push({ prefix: 'state:', label: 'state: 搜索阅读状态', afterInsert: () => showStateSuggestions() });
+      opts.push({ prefix: 'state:', label: t('management.cardSearch.options.state'), afterInsert: () => showStateSuggestions() });
     }
     return opts;
   });
@@ -124,6 +131,8 @@
 
   function handleDropdownClose() {
     showDropdown = false;
+    activeSuggestionPanel = null;
+    suggestionQuery = '';
     closeActiveMenu();
   }
 
@@ -158,7 +167,7 @@
         searchHistory = JSON.parse(saved);
       }
     } catch (error) {
-      logger.error('加载搜索历史失败:', error);
+      logger.error(t('management.cardSearch.loadHistoryFailed'), error);
     }
 
     return () => {
@@ -185,7 +194,7 @@
     try {
       vaultStorage.setItem(`weave-search-history-${dataSource}`, JSON.stringify(searchHistory));
     } catch (error) {
-      logger.error('保存搜索历史失败:', error);
+      logger.error(t('management.cardSearch.saveHistoryFailed'), error);
     }
   }
 
@@ -241,6 +250,8 @@
 
     if (normalizedWord.startsWith('tag:')) {
       closeActiveMenu();
+    } else if (lastWord.endsWith('folder:')) {
+      openFolderPicker();
     } else if (lastWord.endsWith('deck:')) {
       showDeckSuggestions();
     } else if (lastWord.endsWith('priority:')) {
@@ -272,6 +283,83 @@
     }
   }
 
+  function collectFolders(): string[] {
+    const folders = new Set<string>(['/']);
+
+    function walk(folder: TFolder) {
+      for (const child of folder.children) {
+        if (child instanceof TFolder) {
+          folders.add(child.path);
+          walk(child);
+        }
+      }
+    }
+
+    walk(app.vault.getRoot());
+    return Array.from(folders).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  }
+
+  function openFolderPicker() {
+    showDropdown = false;
+    closeActiveMenu();
+    activeSuggestionPanel = 'folder';
+    suggestionQuery = '';
+    setTimeout(() => {
+      suggestionInputRef?.focus();
+      suggestionInputRef?.select();
+    }, 0);
+  }
+
+  function getSuggestionPanelTitle(): string {
+    return activeSuggestionPanel === 'folder'
+      ? t('management.cardSearch.folderPanelTitle')
+      : t('management.cardSearch.sourcePanelTitle');
+  }
+
+  function getSuggestionItems(): string[] {
+    const normalizedQuery = suggestionQuery.trim().toLowerCase();
+
+    if (activeSuggestionPanel === 'folder') {
+      const folders = collectFolders();
+      return normalizedQuery
+        ? folders.filter((item) => getSuggestionItemLabel(item).toLowerCase().includes(normalizedQuery))
+        : folders;
+    }
+    if (activeSuggestionPanel === 'source') {
+      const sources = availableSources.slice(0, 100);
+      return normalizedQuery
+        ? sources.filter((item) => getSuggestionItemLabel(item).toLowerCase().includes(normalizedQuery))
+        : sources;
+    }
+    return [];
+  }
+
+  function getSuggestionItemLabel(item: string): string {
+    if (activeSuggestionPanel === 'folder') {
+      return item === '/' ? t('management.cardSearch.vaultRoot') : item;
+    }
+    const fileName = item.split('/').pop() || item;
+    return `${fileName} · ${item}`;
+  }
+
+  function handleSuggestionItemSelect(item: string, e: MouseEvent) {
+    e.preventDefault();
+    replaceLastWord(`"${item}"`);
+    activeSuggestionPanel = null;
+    suggestionQuery = '';
+  }
+
+  function openSourceSuggestionPanel() {
+    showDropdown = false;
+    closeActiveMenu();
+    activeSuggestionPanel = 'source';
+    suggestionQuery = '';
+    setTimeout(() => {
+      suggestionInputRef?.focus();
+      suggestionInputRef?.select();
+    }, 0);
+  }
+
   function closeActiveMenu() {
     if (!activeMenu) return;
 
@@ -284,6 +372,7 @@
 
   function showMenuSafe(menu: Menu) {
     if (!containerRef) return;
+    activeSuggestionPanel = null;
     closeActiveMenu();
     activeMenu = menu;
     menuShown = true;
@@ -302,7 +391,7 @@
     const menu = new Menu();
     (menu as any).app = app;
     menu.addItem((item) => {
-      item.setTitle('状态');
+      item.setTitle(t('management.cardSearch.menuSections.status'));
       item.setDisabled(true);
     });
     const values = availableStatuses.length > 0 ? availableStatuses : ['new', 'learning', 'review', 'relearning'];
@@ -322,7 +411,7 @@
     const menu = new Menu();
     (menu as any).app = app;
     menu.addItem((item) => {
-      item.setTitle('阅读状态');
+      item.setTitle(t('management.cardSearch.menuSections.readingState'));
       item.setDisabled(true);
     });
     const values = availableStates.length > 0 ? availableStates : ['new', 'learning', 'review', 'queued', 'active', 'scheduled', 'done', 'suspended', 'removed'];
@@ -342,7 +431,7 @@
     const menu = new Menu();
     (menu as any).app = app;
     menu.addItem((item) => {
-      item.setTitle('正确率');
+      item.setTitle(t('management.cardSearch.menuSections.accuracy'));
       item.setDisabled(true);
     });
     const values = availableAccuracies.length > 0 ? availableAccuracies : ['high', 'medium', 'low', '80', '60'];
@@ -362,7 +451,7 @@
     const menu = new Menu();
     (menu as any).app = app;
     menu.addItem((item) => {
-      item.setTitle('测试次数');
+      item.setTitle(t('management.cardSearch.menuSections.attempts'));
       item.setDisabled(true);
     });
     const values = availableAttemptThresholds.length > 0 ? availableAttemptThresholds : [1, 3, 5, 10];
@@ -382,7 +471,7 @@
     const menu = new Menu();
     (menu as any).app = app;
     menu.addItem((item) => {
-      item.setTitle('错题等级');
+      item.setTitle(t('management.cardSearch.menuSections.errorLevel'));
       item.setDisabled(true);
     });
     const values = availableErrorLevels.length > 0 ? availableErrorLevels : ['high', 'common', 'light', 'none'];
@@ -402,7 +491,11 @@
     const menu = new Menu();
     (menu as any).app = app;
 
-    const titleMap = { created: '创建日期筛选', modified: '修改日期筛选', due: '复习到期日筛选' };
+    const titleMap = {
+      created: t('management.cardSearch.dateMenus.created'),
+      modified: t('management.cardSearch.dateMenus.modified'),
+      due: t('management.cardSearch.dateMenus.due')
+    };
     menu.addItem((item) => {
       item.setTitle(titleMap[dateType]);
       item.setDisabled(true);
@@ -417,17 +510,17 @@
 
     const presets = dateType === 'due'
       ? [
-          { label: `今天到期 (${todayStr})`, value: todayStr },
-          { label: '已逾期', value: `<${todayStr}` },
-          { label: '本周内到期', value: `${todayStr}..${new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10)}` },
-          { label: `本月到期 (${thisMonthStr})`, value: thisMonthStr },
+          { label: t('management.cardSearch.dateMenus.dueToday', { date: todayStr }), value: todayStr },
+          { label: t('management.cardSearch.dateMenus.overdue'), value: `<${todayStr}` },
+          { label: t('management.cardSearch.dateMenus.dueThisWeek'), value: `${todayStr}..${new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10)}` },
+          { label: t('management.cardSearch.dateMenus.dueThisMonth', { month: thisMonthStr }), value: thisMonthStr },
         ]
       : [
-          { label: `今天 (${todayStr})`, value: todayStr },
-          { label: `本月 (${thisMonthStr})`, value: thisMonthStr },
-          { label: `上月 (${lastMonthStr})`, value: lastMonthStr },
-          { label: `今年以来`, value: `>${thisYearStart}` },
-          { label: '起止范围 (YYYY-MM-DD..YYYY-MM-DD)', value: `${thisYearStart}..${todayStr}` },
+          { label: t('management.cardSearch.dateMenus.today', { date: todayStr }), value: todayStr },
+          { label: t('management.cardSearch.dateMenus.thisMonth', { month: thisMonthStr }), value: thisMonthStr },
+          { label: t('management.cardSearch.dateMenus.lastMonth', { month: lastMonthStr }), value: lastMonthStr },
+          { label: t('management.cardSearch.dateMenus.thisYear'), value: `>${thisYearStart}` },
+          { label: t('management.cardSearch.dateMenus.range'), value: `${thisYearStart}..${todayStr}` },
         ];
     presets.forEach(({ label, value: v }) => {
       menu.addItem((item) => {
@@ -444,11 +537,11 @@
     const menu = new Menu();
     (menu as any).app = app;
     menu.addItem((item) => {
-      item.setTitle('YAML 属性筛选');
+      item.setTitle(t('management.cardSearch.menuSections.yamlFilter'));
       item.setDisabled(true);
     });
     menu.addItem((item) => {
-      item.setTitle('输入格式: yaml:属性名:值');
+      item.setTitle(t('management.cardSearch.menuSections.yamlInputFormat'));
       item.setDisabled(true);
     });
 
@@ -477,7 +570,7 @@
     const menu = new Menu();
     (menu as any).app = app;
     menu.addItem((item) => {
-      item.setTitle('牌组');
+      item.setTitle(t('management.cardSearch.menuSections.deck'));
       item.setDisabled(true);
     });
     availableDecks.slice(0, 20).forEach((deck) => {
@@ -497,7 +590,7 @@
     const menu = new Menu();
     (menu as any).app = app;
     menu.addItem((item) => {
-      item.setTitle('优先级');
+      item.setTitle(t('management.cardSearch.menuSections.priority'));
       item.setDisabled(true);
     });
     availablePriorities.forEach((priority) => {
@@ -517,7 +610,7 @@
     const menu = new Menu();
     (menu as any).app = app;
     menu.addItem((item) => {
-      item.setTitle('题型');
+      item.setTitle(t('management.cardSearch.menuSections.type'));
       item.setDisabled(true);
     });
     availableQuestionTypes.forEach((type) => {
@@ -533,30 +626,7 @@
 
   // 显示来源建议
   function showSourceSuggestions() {
-    if (!containerRef || menuShown) return;
-    const menu = new Menu();
-    (menu as any).app = app;
-    menu.addItem((item) => {
-      item.setTitle('来源文档');
-      item.setDisabled(true);
-    });
-    if (availableSources.length === 0) {
-      menu.addItem((item) => {
-        item.setTitle('暂无来源文档');
-        item.setDisabled(true);
-      });
-    } else {
-      availableSources.slice(0, 20).forEach((source) => {
-        const fileName = source.split('/').pop() || source;
-        menu.addItem((item) => {
-          item.setTitle(fileName);
-          item.onClick(() => {
-            replaceLastWord(`"${source}"`);
-          });
-        });
-      });
-    }
-    showMenuSafe(menu);
+    openSourceSuggestionPanel();
   }
 
   // 替换最后一个词
@@ -606,13 +676,13 @@
     (menu as any).app = app;
     
     const sortFields = [
-      { field: 'created', label: '创建时间' },
-      { field: 'modified', label: '修改时间' },
-      { field: 'front', label: '正面内容' },
-      { field: 'back', label: '背面内容' },
-      { field: 'deck', label: '牌组' },
-      { field: 'tags', label: '标签' },
-      { field: 'status', label: '状态' },
+      { field: 'created', label: t('management.cardSearch.sortFields.created') },
+      { field: 'modified', label: t('management.cardSearch.sortFields.modified') },
+      { field: 'front', label: t('management.cardSearch.sortFields.front') },
+      { field: 'back', label: t('management.cardSearch.sortFields.back') },
+      { field: 'deck', label: t('management.cardSearch.sortFields.deck') },
+      { field: 'tags', label: t('management.cardSearch.sortFields.tags') },
+      { field: 'status', label: t('management.cardSearch.sortFields.status') },
     ];
     
     sortFields.forEach(({ field, label }) => {
@@ -707,7 +777,7 @@
       bind:this={inputRef}
       type="text"
       class="search-input"
-      {placeholder}
+      placeholder={resolvedPlaceholder}
       value={value}
       oninput={handleInput}
       onkeydown={handleKeydown}
@@ -725,7 +795,7 @@
         tabindex="-1"
         onclick={handleClear}
         onkeydown={(e) => { if (e.key === 'Enter') handleClear(); }}
-        aria-label="清除搜索"
+        aria-label={t('management.cardSearch.clearSearch')}
       >
         <EnhancedIcon name={ICON_NAMES.TIMES} size={14} />
       </div>
@@ -738,8 +808,8 @@
         tabindex="-1"
         onclick={showSortMenu}
         onkeydown={(e) => { if (e.key === 'Enter') showSortMenu(e as unknown as MouseEvent); }}
-        aria-label="排序"
-        title="排序选项"
+        aria-label={t('management.cardSearch.sort')}
+        title={t('management.cardSearch.sortOptions')}
       >
         <EnhancedIcon name={ICON_NAMES.SORT} size={14} />
       </div>
@@ -757,7 +827,7 @@
     {#snippet children()}
       <div class="search-dropdown" style={getDropdownStyle()}>
         <div class="dropdown-section">
-          <div class="dropdown-section-header">搜索选项</div>
+          <div class="dropdown-section-header">{t('management.cardSearch.searchOptions')}</div>
           {#each dataSourceOptions as opt}
             <div
               class="dropdown-item"
@@ -778,12 +848,12 @@
         {#if searchHistory.length > 0}
           <div class="dropdown-divider"></div>
           <div class="dropdown-section">
-            <div class="dropdown-section-header">搜索历史<span
+            <div class="dropdown-section-header">{t('management.cardSearch.searchHistory')}<span
                 class="dropdown-clear-all"
                 role="button"
                 tabindex="-1"
                 onmousedown={clearAllHistory}
-              >清空</span></div>
+              >{t('management.cardSearch.clearHistory')}</span></div>
             {#each searchHistory.slice(0, 10) as historyItem}
               <div
                 class="dropdown-item"
@@ -800,7 +870,7 @@
                     e.preventDefault();
                     removeHistoryItem(historyItem, e);
                   }}
-                  aria-label="删除"
+                  aria-label={t('management.cardSearch.deleteHistoryItem')}
                 >
                   <EnhancedIcon name={ICON_NAMES.TIMES} size={10} />
                 </span>
@@ -808,6 +878,69 @@
             {/each}
           </div>
         {/if}
+      </div>
+    {/snippet}
+  </FloatingMenu>
+
+  <FloatingMenu
+    show={activeSuggestionPanel !== null}
+    anchor={containerRef}
+    placement="bottom-start"
+    offset={4}
+    onClose={() => {
+      activeSuggestionPanel = null;
+    }}
+    class="card-search-floating-menu"
+  >
+    {#snippet children()}
+      <div class="search-dropdown search-suggestion-panel" style={getDropdownStyle()}>
+        <div class="dropdown-section">
+          <div class="dropdown-section-header">{getSuggestionPanelTitle()}</div>
+          <div class="suggestion-search-box">
+            <input
+              bind:this={suggestionInputRef}
+              type="text"
+              class="suggestion-search-input"
+              placeholder={activeSuggestionPanel === 'folder'
+                ? t('management.cardSearch.searchFolderPlaceholder')
+                : t('management.cardSearch.searchSourcePlaceholder')}
+              bind:value={suggestionQuery}
+            />
+            {#if suggestionQuery}
+              <button
+                type="button"
+                class="suggestion-search-clear"
+                onclick={() => {
+                  suggestionQuery = '';
+                  suggestionInputRef?.focus();
+                }}
+                aria-label={t('management.cardSearch.clearSuggestionSearch')}
+              >
+                <EnhancedIcon name={ICON_NAMES.TIMES} size={12} />
+              </button>
+            {/if}
+          </div>
+          {#if getSuggestionItems().length === 0}
+            <div class="dropdown-empty-state">
+              {activeSuggestionPanel === 'folder'
+                ? t('management.cardSearch.noFolders')
+                : t('management.cardSearch.noSources')}
+            </div>
+          {:else}
+            {#each getSuggestionItems() as item}
+              <div
+                class="dropdown-item dropdown-item--multiline"
+                role="button"
+                tabindex="-1"
+                onmousedown={(e) => handleSuggestionItemSelect(item, e)}
+              >
+                <span class="dropdown-item-label dropdown-item-label--multiline">
+                  {getSuggestionItemLabel(item)}
+                </span>
+              </div>
+            {/each}
+          {/if}
+        </div>
       </div>
     {/snippet}
   </FloatingMenu>
@@ -999,6 +1132,75 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .search-suggestion-panel {
+    border-radius: 16px;
+    max-height: min(420px, calc(100vh - 16px));
+    padding: 6px 0;
+  }
+
+  .dropdown-item--multiline {
+    align-items: flex-start;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .dropdown-item-label--multiline {
+    white-space: normal;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  .dropdown-empty-state {
+    padding: 12px;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+  }
+
+  .suggestion-search-box {
+    position: relative;
+    padding: 6px 12px 8px;
+  }
+
+  .suggestion-search-input {
+    width: 100%;
+    min-height: 36px;
+    padding: 8px 34px 8px 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 10px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 0.875rem;
+    outline: none;
+  }
+
+  .suggestion-search-input:focus {
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+  }
+
+  .suggestion-search-clear {
+    position: absolute;
+    top: 50%;
+    right: 20px;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-faint);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+
+  .suggestion-search-clear:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
   .dropdown-item-remove {

@@ -25,6 +25,20 @@ export interface CardHistoryEvent {
 
 export type TimelineDisplayMode = "simple" | "compact" | "full";
 
+const derivationMethodTranslationKeys: Record<string, string> = {
+	[DerivationMethod.AI_SPLIT]: "cards.relationMethods.aiSplit",
+	[DerivationMethod.MANUAL]: "cards.relationMethods.manual",
+	[DerivationMethod.INCREMENTAL]: "cards.relationMethods.incremental",
+	[DerivationMethod.IMPORT]: "cards.relationMethods.import",
+};
+
+const derivationMethodFallbackNames: Record<string, string> = {
+	[DerivationMethod.AI_SPLIT]: "AI Split",
+	[DerivationMethod.MANUAL]: "Manual Split",
+	[DerivationMethod.INCREMENTAL]: "Incremental Reading",
+	[DerivationMethod.IMPORT]: "Imported",
+};
+
 // ============================================================================
 // 工具函数
 // ============================================================================
@@ -65,14 +79,20 @@ export function getCardPreview(card: Card, maxLength = 100): string {
 /**
  * 获取派生方法的显示名称
  */
-export function getDerivationMethodName(method: DerivationMethod | string): string {
-	const names: Record<string, string> = {
-		[DerivationMethod.AI_SPLIT]: "AI拆分",
-		[DerivationMethod.MANUAL]: "手动拆解",
-		[DerivationMethod.INCREMENTAL]: "增量阅读",
-		[DerivationMethod.IMPORT]: "外部导入",
-	};
-	return names[method] || method;
+export function getDerivationMethodTranslationKey(method: DerivationMethod | string): string | null {
+	return derivationMethodTranslationKeys[method] ?? null;
+}
+
+export function getDerivationMethodName(
+	method: DerivationMethod | string,
+	translate?: (key: string) => string
+): string {
+	const translationKey = getDerivationMethodTranslationKey(method);
+	if (translationKey && translate) {
+		return translate(translationKey);
+	}
+
+	return derivationMethodFallbackNames[method] || method;
 }
 
 /**

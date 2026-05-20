@@ -17,6 +17,7 @@ import { vaultStorage } from '../../utils/vault-local-storage';
 import { QuestionBankAnalyticsModalObsidian } from "../modals/QuestionBankAnalyticsModalObsidian";
 import { Notice, Menu } from "obsidian";
 import { isInputClozeQuestionContent } from "../../utils/question-bank/input-cloze-utils";
+import { tr } from "../../utils/i18n";
 
   interface Props {
     plugin: WeavePlugin;
@@ -25,6 +26,7 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
   }
 
   let { plugin, onCreateBank, onStartTest }: Props = $props();
+  let t = $derived($tr);
 
   // 状态管理
   let questionBankTree = $state<DeckTreeNode[]>([]);
@@ -94,7 +96,9 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
       }
     } catch (error) {
       logger.error("[QuestionBankListView] Failed to load question bank tree:", error);
-      new Notice("加载题库失败: " + (error instanceof Error ? error.message : "未知错误"));
+      new Notice(t('study.questionBankUI.bankCollection.loadFailed', {
+        error: error instanceof Error ? error.message : t('study.questionBankUI.cardInfoTab.unknown')
+      }));
       questionBankTree = [];
     } finally {
       isLoading = false;
@@ -171,16 +175,16 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
     
     // 加载题目数据
     if (!plugin.questionBankService) {
-      new Notice("题库服务未初始化");
+      new Notice(t('study.questionBankUI.bankCollection.serviceNotReady'));
       return;
     }
     
     const questions = await plugin.questionBankService.getQuestionsByBank(bankId);
     const bank = await plugin.questionBankService.getBankById(bankId);
-    const bankName = bank?.name || "未知题库";
+    const bankName = bank?.name || t('study.questionBankUI.cardInfoTab.unknown');
     
     if (questions.length === 0) {
-      new Notice("该题库暂无题目");
+      new Notice(t('study.questionBankUI.bankCollection.noQuestions'));
       return;
     }
 
@@ -211,7 +215,7 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
     logger.debug('[QuestionBankListView] 开始考试:', { bankId, bankName, questionCount: questions.length, mode, config });
     
     if (questions.length === 0) {
-      new Notice('题库为空，请先添加题目');
+      new Notice(t('study.questionBankUI.bankCollection.bankEmpty'));
       return;
     }
     
@@ -234,7 +238,7 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
     });
 
     if (filteredQuestions.length === 0) {
-      new Notice('根据当前配置筛选后没有可用题目，请调整配置');
+      new Notice(t('study.questionBankUI.bankCollection.noFilteredQuestions'));
       return;
     }
     
@@ -710,9 +714,9 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
     const menu = new Menu();
     
     // 分析功能
-    menu.addItem((item) =>
+      menu.addItem((item) =>
       item
-        .setTitle("分析")
+        .setTitle(t('study.questionBankUI.bankCollection.menu.analyze'))
         .setIcon("bar-chart-2")
         .onClick(() => analyzeBank(bankId))
     );
@@ -720,9 +724,9 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
     menu.addSeparator();
 
     // 删除功能
-    menu.addItem((item) =>
+      menu.addItem((item) =>
       item
-        .setTitle("删除")
+        .setTitle(t('study.questionBankUI.bankCollection.menu.delete'))
         .setIcon("trash-2")
         .onClick(() => deleteBank(bankId))
     );
@@ -739,7 +743,7 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
       // 获取题库信息
       const bank = await plugin.questionBankService?.getBankById(bankId);
       if (!bank) {
-        new Notice('题库不存在');
+        new Notice(t('study.questionBankUI.bankCollection.bankMissing'));
         return;
       }
       
@@ -756,7 +760,7 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
       logger.debug('[QuestionBankListView] 打开分析模态窗:', bank.name);
     } catch (error) {
       logger.error('[QuestionBankListView] 分析题库失败:', error);
-      new Notice('打开分析界面失败');
+      new Notice(t('study.questionBankUI.bankCollection.openAnalyticsFailed'));
     }
   }
 
@@ -765,22 +769,28 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
     try {
       const bank = await plugin.questionBankService?.getBankById(bankId);
       if (!bank) {
-        new Notice('题库不存在');
+        new Notice(t('study.questionBankUI.bankCollection.bankMissing'));
         return;
       }
 
-      const confirmed = await showObsidianConfirm(plugin.app, `确定要删除题库「${bank.name}」吗？\n\n删除后题库数据将无法恢复。`, { title: '确认删除' });
+      const confirmed = await showObsidianConfirm(
+        plugin.app,
+        t('study.questionBankUI.bankCollection.deleteConfirmMessage', { name: bank.name }),
+        { title: t('study.questionBankUI.bankCollection.deleteConfirmTitle') }
+      );
       if (!confirmed) return;
 
-      new Notice('正在删除题库...');
+      new Notice(t('study.questionBankUI.bankCollection.deleting'));
       
       await plugin.questionBankService?.deleteBank(bankId);
       await loadQuestionBankTree();
       
-      new Notice('题库删除成功');
+      new Notice(t('study.questionBankUI.bankCollection.deleteSuccess'));
     } catch (error) {
       logger.error('[QuestionBankListView] 删除题库失败:', error);
-      new Notice(`删除失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      new Notice(t('study.questionBankUI.bankCollection.deleteFailed', {
+        error: error instanceof Error ? error.message : t('study.questionBankUI.cardInfoTab.unknown')
+      }));
     }
   }
 
@@ -842,7 +852,7 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
             e.preventDefault();
             toggleExpand(node.deck.id);
           }}
-          aria-label={expanded ? "折叠" : "展开"}
+          aria-label={expanded ? t('study.questionBankUI.bankCollection.collapse') : t('study.questionBankUI.bankCollection.expand')}
         >
           <ObsidianIcon 
             name={expanded ? "chevron-down" : "chevron-right"} 
@@ -857,9 +867,9 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
         <span class="bank-name">{node.deck.name}</span>
         
         {#if isEmpty}
-          <span class="bank-status empty">空题库</span>
+          <span class="bank-status empty">{t('study.questionBankUI.bankCollection.emptyBank')}</span>
         {:else if stats.completed === stats.total}
-          <span class="bank-status completed">已完成</span>
+          <span class="bank-status completed">{t('study.questionBankUI.bankCollection.completed')}</span>
         {/if}
       </div>
     </div>
@@ -886,7 +896,7 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
             onclick={() => handleStartTest(node.deck.id)}
           >
             <ObsidianIcon name="play" size={16} />
-            开始考试 ({stats.total})
+            {t('study.questionBankUI.bankCollection.startExam', { count: stats.total })}
           </button>
         {:else}
           <button
@@ -894,7 +904,7 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
             disabled
           >
             <ObsidianIcon name="list" size={16} />
-            空题库
+            {t('study.questionBankUI.bankCollection.emptyBank')}
           </button>
         {/if}
 
@@ -905,7 +915,7 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
             e.preventDefault();
             showBankMenu(e, node.deck.id);
           }}
-          aria-label="更多操作"
+          aria-label={t('study.questionBankUI.bankCollection.moreActions')}
         >
           <EnhancedIcon name="more-horizontal" size={16} />
         </button>
@@ -925,16 +935,16 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
   {#if isLoading}
     <!-- 加载动画 -->
     <div class="loading-container">
-      <BouncingBallsLoader message="正在加载题库..." />
+      <BouncingBallsLoader message={t('study.questionBankUI.bankCollection.loading')} />
     </div>
   {:else}
     <!-- 表头 -->
     <div class="question-bank-header">
-      <div class="header-bank-name">题库名称</div>
-      <div class="header-stat">总题</div>
-      <div class="header-stat">已练</div>
-      <div class="header-stat">正确率</div>
-      <div class="header-actions">操作</div>
+      <div class="header-bank-name">{t('study.questionBankUI.bankCollection.headers.bankName')}</div>
+      <div class="header-stat">{t('study.questionBankUI.bankCollection.headers.total')}</div>
+      <div class="header-stat">{t('study.questionBankUI.bankCollection.headers.completed')}</div>
+      <div class="header-stat">{t('study.questionBankUI.bankCollection.headers.accuracy')}</div>
+      <div class="header-actions">{t('study.questionBankUI.bankCollection.headers.actions')}</div>
     </div>
 
     <!-- 考试题组列表 -->
@@ -945,8 +955,8 @@ import { isInputClozeQuestionContent } from "../../utils/question-bank/input-clo
         {/each}
       {:else}
         <div class="empty-state">
-          <p>暂无考试题组</p>
-          <p class="empty-hint">请在卡片管理中从选择题引入组建考试题组</p>
+          <p>{t('study.questionBankUI.bankCollection.noExamSets')}</p>
+          <p class="empty-hint">{t('study.questionBankUI.bankCollection.noExamSetsHint')}</p>
         </div>
       {/if}
     </div>

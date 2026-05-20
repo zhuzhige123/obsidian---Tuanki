@@ -199,6 +199,7 @@ export interface ColumnWidths {
 export interface TableRowCallbacks {
 	onEdit: (cardId: string) => void;
 	onDelete: (cardId: string) => void;
+	onResetReviewHistory?: (cardId: string) => void;
 	onTagsUpdate?: (cardId: string, tags: string[]) => void;
 	onPriorityUpdate?: (cardId: string, priority: number) => void;
 	onTempFileEdit?: (cardId: string) => void;
@@ -251,6 +252,7 @@ export interface PriorityCellProps extends BaseCellProps {
 export interface ActionsCellProps extends BaseCellProps {
 	onView?: (cardId: string) => void;
 	onTempFileEdit?: (cardId: string) => void;
+	onResetReviewHistory?: (cardId: string) => void;
 	onEdit: (cardId: string) => void;
 	onDelete: (cardId: string) => void;
 }

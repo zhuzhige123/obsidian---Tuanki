@@ -246,7 +246,7 @@
     height: 60px;
   }
 
-  .weave-decks-render.size-large :global(.deck-grid-card .stat-number) {
+  .weave-decks-render.size-large :global(.deck-grid-card .deck-card-stat-num) {
     font-size: 18px;
   }
 

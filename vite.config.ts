@@ -18,10 +18,6 @@ const {
 	syncRuntimeFiles,
 } = require("./scripts/hot-reload-utils.cjs");
 
-const STANDALONE_EPUB_PLUGIN_ID = "weave-epub-reader";
-const STANDALONE_EPUB_MANIFEST = "manifest.epub.json";
-const STANDALONE_IR_PLUGIN_ID = "weave-incremental-reading";
-const STANDALONE_IR_MANIFEST = "manifest.ir.json";
 const DEFAULT_MANIFEST = "manifest.json";
 
 function resolveInstalledPackageVersion(packageName: string): string {
@@ -74,8 +70,11 @@ export default defineConfig(({ mode }) => {
 			: process.platform === "win32";
 	const isMobileHotReloadBuild = process.env.WEAVE_MOBILE_HOT_RELOAD === "1";
 	const isDesktopHotReloadBuild = process.env.WEAVE_DESKTOP_HOT_RELOAD === "1";
-	const isStandaloneEpubBuild = process.env.WEAVE_EPUB_STANDALONE === "1";
-	const isStandaloneIRBuild = process.env.WEAVE_IR_STANDALONE === "1";
+	const includeLegacyApkgRuntime =
+		process.env.WEAVE_INCLUDE_LEGACY_APKG_RUNTIME === "1" ||
+		isDev ||
+		isMobileHotReloadBuild ||
+		isDesktopHotReloadBuild;
 	const shouldInlineDynamicImports = true;
 	const mobileHotReloadOutputDir = process.env.WEAVE_MOBILE_SOURCE_DIR?.trim()
 		? path.resolve(process.env.WEAVE_MOBILE_SOURCE_DIR)
@@ -94,16 +93,8 @@ export default defineConfig(({ mode }) => {
 		"a11y_interactive_supports_focus",
 		"css_unused_selector",
 	]);
-	const pluginId = isStandaloneEpubBuild
-		? STANDALONE_EPUB_PLUGIN_ID
-		: isStandaloneIRBuild
-			? STANDALONE_IR_PLUGIN_ID
-			: "weave";
-	const manifestFileName = isStandaloneEpubBuild
-		? STANDALONE_EPUB_MANIFEST
-		: isStandaloneIRBuild
-			? STANDALONE_IR_MANIFEST
-			: DEFAULT_MANIFEST;
+	const pluginId = "weave";
+	const manifestFileName = DEFAULT_MANIFEST;
 
 	const resolvedPluginDir =
 		resolvePluginDir(pluginId, process.env) ?? path.resolve(process.cwd(), "dist");
@@ -121,12 +112,13 @@ export default defineConfig(({ mode }) => {
 		resolve: {
 			conditions: ["browser", "import", "module", "default"],
 		},
-		define: {
-			"process.env.NODE_ENV": JSON.stringify(mode),
-			global: "globalThis",
-			__WEAVE_EPUB_STANDALONE__: JSON.stringify(isStandaloneEpubBuild),
-			__WEAVE_IR_STANDALONE__: JSON.stringify(isStandaloneIRBuild),
-		},
+			define: {
+				"process.env.NODE_ENV": JSON.stringify(mode),
+				global: "globalThis",
+				__WEAVE_EPUB_STANDALONE__: JSON.stringify(false),
+				__WEAVE_IR_STANDALONE__: JSON.stringify(false),
+				__WEAVE_LEGACY_APKG_RUNTIME__: JSON.stringify(includeLegacyApkgRuntime),
+			},
 		server: isDev
 			? {
 					watch: {
@@ -210,15 +202,19 @@ export default defineConfig(({ mode }) => {
 			},
 			viteStaticCopy({
 				targets: [
-					{
-						src: "node_modules/sql.js/dist/sql-wasm.wasm",
-						dest: ".",
-					},
+					...(includeLegacyApkgRuntime
+						? [
+								{
+									src: "node_modules/sql.js/dist/sql-wasm.wasm",
+									dest: ".",
+								},
+						  ]
+						: []),
 					{
 						src: "public/assets/coffee-support-qr.png",
 						dest: "assets",
 					},
-					...(!isDev && !isStandaloneEpubBuild && !isStandaloneIRBuild
+					...(!isDev
 						? [
 								{
 									src: "README.md",
@@ -306,18 +302,14 @@ export default defineConfig(({ mode }) => {
 
 			build: {
 				lib: {
-				entry: isStandaloneEpubBuild
-					? "src/epub-main"
-					: isStandaloneIRBuild
-						? "src/ir-main"
-						: "src/main",
+				entry: "src/main",
 				formats: ["cjs"],
 			},
 			cssCodeSplit: false,
 			assetsInlineLimit: 4096000,
 			...(isDev && {
 				watch: {
-					include: ["src/**", DEFAULT_MANIFEST, STANDALONE_EPUB_MANIFEST, STANDALONE_IR_MANIFEST],
+					include: ["src/**", DEFAULT_MANIFEST],
 					exclude: ["node_modules/**", "dist/**", "**/*.test.*", ".git/**"],
 					buildDelay: 120,
 					chokidar: {
@@ -359,18 +351,10 @@ export default defineConfig(({ mode }) => {
 					/^@lezer\/.*/,
 					...builtins,
 				],
-				treeshake: {
-					moduleSideEffects: (id) => {
-						if (id && (id.includes("demo.ts") || id.includes("integration-demo.ts"))) {
-							return false;
-						}
-						return true;
-					},
-				},
 			},
 			outDir: isDev ? buildOutDir : "dist",
 			copyPublicDir: false,
-			emptyOutDir: !isDev && (isStandaloneEpubBuild || isStandaloneIRBuild),
+			emptyOutDir: false,
 			sourcemap: buildSourceMap,
 			target: ["es2020"],
 			minify: shouldMinifyOutput ? "esbuild" : false,

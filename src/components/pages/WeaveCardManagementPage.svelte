@@ -1219,25 +1219,25 @@
   function getColumnManagerPresets(): ColumnManagerPreset[] {
     if (dataSource === 'questionBank') {
       return [
-        { id: 'minimal', label: '极简', description: '保留考试最核心字段' },
-        { id: 'exam', label: '考试', description: '显示考试分析常用字段' },
-        { id: 'all', label: '全部', description: '显示当前数据源的全部字段' },
+        { id: 'minimal', label: t('cardManagement.columnPresets.minimal.label'), description: t('cardManagement.columnPresets.questionBankMinimal') },
+        { id: 'exam', label: t('cardManagement.columnPresets.questionBankExam.label'), description: t('cardManagement.columnPresets.questionBankExam.description') },
+        { id: 'all', label: t('cardManagement.columnPresets.all.label'), description: t('cardManagement.columnPresets.all.description') },
       ];
     }
 
     if (dataSource === 'incremental-reading') {
       return [
-        { id: 'minimal', label: '极简', description: '保留阅读流程核心字段' },
-        { id: 'reading', label: '阅读', description: '显示增量阅读常用字段' },
-        { id: 'all', label: '全部', description: '显示当前数据源的全部字段' },
+        { id: 'minimal', label: t('cardManagement.columnPresets.minimal.label'), description: t('cardManagement.columnPresets.incrementalReadingMinimal') },
+        { id: 'reading', label: t('cardManagement.columnPresets.incrementalReadingReading.label'), description: t('cardManagement.columnPresets.incrementalReadingReading.description') },
+        { id: 'all', label: t('cardManagement.columnPresets.all.label'), description: t('cardManagement.columnPresets.all.description') },
       ];
     }
 
     return [
-      { id: 'minimal', label: '极简', description: '只保留卡片浏览最常用字段' },
-      { id: 'learning', label: '学习', description: '显示卡片管理常用字段' },
-      { id: 'review', label: '复习', description: '显示复习分析常用字段' },
-      { id: 'all', label: '全部', description: '显示记忆牌组全部字段' },
+      { id: 'minimal', label: t('cardManagement.columnPresets.minimal.label'), description: t('cardManagement.columnPresets.memoryMinimal') },
+      { id: 'learning', label: t('cardManagement.columnPresets.memoryLearning.label'), description: t('cardManagement.columnPresets.memoryLearning.description') },
+      { id: 'review', label: t('cardManagement.columnPresets.memoryReview.label'), description: t('cardManagement.columnPresets.memoryReview.description') },
+      { id: 'all', label: t('cardManagement.columnPresets.all.label'), description: t('cardManagement.columnPresets.memoryAll') },
     ];
   }
 
@@ -3052,7 +3052,7 @@
                   const parsed = EpubLinkService.parseEpubLink(hashPart);
                   const linkService = new EpubLinkService(plugin.app);
                   await linkService.navigateToEpubLocation(file.path, parsed?.cfi || '', parsed?.text || '');
-                  new Notice(parsed?.cfi ? '已跳转到EPUB源位置' : '已打开EPUB源文档');
+                  new Notice(parsed?.cfi ? t('cardManagement.notices.jumpedToEpubSource') : t('cardManagement.notices.openedEpubSource'));
                   return;
                 }
 
@@ -3060,9 +3060,9 @@
                 if (!pathOnly.toLowerCase().endsWith('.canvas')) {
                   await plugin.app.workspace.openLinkText(linkText, contextPath, false);
                   if (linkText.includes('#^')) {
-                    new Notice('已跳转到源文档块');
+                    new Notice(t('cardManagement.notices.jumpedToSourceBlock'));
                   } else {
-                    new Notice('已打开源文档');
+                    new Notice(t('cardManagement.notices.openedSourceDocument'));
                   }
                   return;
                 }
@@ -3094,7 +3094,7 @@
       }
       
       if (!filePath) {
-        new Notice('此卡片没有关联的源文档');
+        new Notice(t('cardManagement.notices.noSourceDocument'));
         return;
       }
       
@@ -3125,7 +3125,7 @@
         const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
         const linkService = new EpubLinkService(plugin.app);
         await linkService.navigateToEpubLocation(filePath, epubCfi, epubText);
-        new Notice(epubCfi ? '已跳转到EPUB源位置' : '已打开EPUB源文档');
+        new Notice(epubCfi ? t('cardManagement.notices.jumpedToEpubSource') : t('cardManagement.notices.openedEpubSource'));
         return;
       }
 
@@ -3138,11 +3138,11 @@
         const openedLeaf = await sourceNavigationService.openCanvasAndLocate(
           filePath,
           textCandidates,
-          normalizedBlockId,
-          {
-            label: '定位到溯源位置',
-            icon: 'map-pinned',
-            focus: true,
+            normalizedBlockId,
+            {
+              label: t('cardManagement.notices.locateSourcePosition'),
+              icon: 'map-pinned',
+              focus: true,
             openInNewTab: true,
             delayMs: 500,
             nodeRect: targetRect ?? undefined
@@ -3150,13 +3150,13 @@
         );
 
         if (!openedLeaf) {
-          new Notice('源 Canvas 不存在');
+          new Notice(t('cardManagement.notices.sourceCanvasMissing'));
           return;
         }
 
         new Notice(normalizedBlockId || textCandidates.length > 0 || targetRect
           ? '已定位到 Canvas 溯源节点'
-          : '已打开源 Canvas');
+          : t('cardManagement.notices.openedSourceCanvas'));
         return;
       }
       
@@ -3166,13 +3166,13 @@
       await plugin.app.workspace.openLinkText(linktext, contextPath, false);
       
       if (blockId) {
-        new Notice('已跳转到源文档块');
+        new Notice(t('cardManagement.notices.jumpedToSourceBlock'));
       } else {
-        new Notice('已打开源文档');
+        new Notice(t('cardManagement.notices.openedSourceDocument'));
       }
     } catch (error) {
       logger.error('跳转到源文档失败:', error);
-      new Notice('跳转失败');
+      new Notice(t('cardManagement.notices.navigateFailed'));
     } finally {
       // 确保导航状态被重置
       isNavigatingToSource = false;
@@ -3186,7 +3186,7 @@
     relationFilterAnchorCardUuid = null;
     customCardIdsFilter = null;
     customFilterName = '';
-    new Notice('已清除所有筛选');
+    new Notice(t('cardManagement.notices.clearedAllFilters'));
   }
 
   function clearCardRelationFilterResult() {
@@ -3207,11 +3207,11 @@
     currentPage = 1;
 
     if (relationResultIds.length === 1) {
-      showNotification('该卡片暂无其他关联卡片，已定位当前卡片', 'info');
+      showNotification(t('cardManagement.notices.noRelatedCardsLocated'), 'info');
       return;
     }
 
-    showNotification('已筛选 ' + relationResultIds.length + ' 张关联卡片', 'success');
+    showNotification(t('cardManagement.notices.filteredRelatedCards', { count: relationResultIds.length }), 'success');
   }
 
   // 批量更新源文档状态
@@ -3240,10 +3240,10 @@
       // 已移除旧的 CustomEvent 触发（Weave:refresh-decks）
       // 现在通过 DataSyncService 在 saveCard 时自动通知
 
-      new Notice(`已更新 ${updatedCards.length} 张卡片的源文档状态`);
+      new Notice(t('cardManagement.notices.sourceStatusUpdated', { count: updatedCards.length }));
     } catch (error) {
       logger.error('更新源文档状态失败:', error);
-      new Notice('更新源文档状态失败');
+      new Notice(t('cardManagement.notices.sourceStatusUpdateFailed'));
     }
   }
   // 孤儿卡片扫描（只在表格工具栏点击时触发）
@@ -3305,7 +3305,7 @@
     cards = [...cards];
 
     try {
-      new Notice(`扫描完成：存在 ${exist}，缺失 ${missing}，无源文档 ${none}`);
+      new Notice(t('cardManagement.notices.orphanScanSummary', { exist, missing, none }));
     } catch {
       logger.debug(`扫描完成：存在 ${exist}，缺失 ${missing}，无源文档 ${none}`);
     }
@@ -3401,7 +3401,7 @@
     
     filterManager.deleteFilter(filterId);
     savedFilters = filterManager.getAllFilters();
-    showNotification('筛选器已删除', 'success');
+    showNotification(t('cardManagement.notices.savedFilterDeleted'), 'success');
   }
 
   function handleUpdateSavedFilter(filter: SavedFilter) {
@@ -3409,7 +3409,7 @@
     
     filterManager.updateFilter(filter.id, filter);
     savedFilters = filterManager.getAllFilters();
-    showNotification('筛选器已更新', 'success');
+    showNotification(t('cardManagement.notices.savedFilterUpdated'), 'success');
   }
   
   /**
@@ -3539,7 +3539,7 @@
         } else {
           const deleted = await pointWriteService.deleteCard(card);
           if (!deleted) {
-            throw new Error(`未找到可删除的增量阅读记录: ${id}`);
+            throw new Error(t('cardManagement.notices.irDeleteRecordNotFound', { id }));
           }
           logger.debug(`[IR] 已通过统一写入口删除阅读点: ${id}`);
         }
@@ -3648,16 +3648,16 @@
   // 显示排序菜单
   function handleShowSortMenu(e: MouseEvent) {
     const menu = new Menu();
-    const deckLabel = dataSource === 'incremental-reading' ? '专题' : '牌组';
+    const deckLabel = dataSource === 'incremental-reading' ? t('cardManagement.sortMenu.topic') : t('cardManagement.sortMenu.deck');
     
     const sortFields = [
-      { field: 'created', label: '创建时间', icon: ICON_NAMES.CLOCK },
-      { field: 'modified', label: '修改时间', icon: ICON_NAMES.CLOCK },
-      { field: 'front', label: '正面内容', icon: ICON_NAMES.FILE_TEXT },
-      { field: 'back', label: '背面内容', icon: ICON_NAMES.FILE_TEXT },
+      { field: 'created', label: t('cardManagement.sortMenu.created'), icon: ICON_NAMES.CLOCK },
+      { field: 'modified', label: t('cardManagement.sortMenu.modified'), icon: ICON_NAMES.CLOCK },
+      { field: 'front', label: t('cardManagement.sortMenu.front'), icon: ICON_NAMES.FILE_TEXT },
+      { field: 'back', label: t('cardManagement.sortMenu.back'), icon: ICON_NAMES.FILE_TEXT },
       { field: 'deck', label: deckLabel, icon: ICON_NAMES.FOLDER },
-      { field: 'tags', label: '标签', icon: ICON_NAMES.TAG },
-      { field: 'status', label: '状态', icon: ICON_NAMES.CHECK_CIRCLE },
+      { field: 'tags', label: t('cardManagement.sortMenu.tags'), icon: ICON_NAMES.TAG },
+      { field: 'status', label: t('cardManagement.sortMenu.status'), icon: ICON_NAMES.CHECK_CIRCLE },
     ];
     
     sortFields.forEach(({ field, label, icon }) => {
@@ -3669,9 +3669,9 @@
         if (sortConfig.field === field) {
           item.setChecked(true);
           if (sortConfig.direction === 'asc') {
-            item.setTitle(`${label} ↑`);
+            item.setTitle(`${label} ${t('cardManagement.sortMenu.ascending')}`);
           } else {
-            item.setTitle(`${label} ↓`);
+            item.setTitle(`${label} ${t('cardManagement.sortMenu.descending')}`);
           }
         }
         
@@ -3736,12 +3736,12 @@
     const { memoryDecks, uniqueSourceDeckIds } = batchDeckContext;
 
     if (selectedCardIds.length === 0) {
-      new Notice("请先选择要更换牌组的卡片");
+      new Notice(t('cardManagement.notices.changeDeckSelectCardsFirst'));
       return;
     }
 
     if (uniqueSourceDeckIds.length !== 1) {
-      showNotification('批量更换牌组仅支持处理同一来源牌组的卡片，请先按牌组筛选后再进行批量操作', 'warning');
+      showNotification(t('cardManagement.notices.batchDeckSameSourceRequired'), 'warning');
       return;
     }
 
@@ -3758,7 +3758,7 @@
 
     // 记忆牌组子菜单
     menu.addItem((item) => {
-      item.setTitle('记忆牌组').setIcon('graduation-cap');
+      item.setTitle(t('cardManagement.batchDeckMenu.memoryDecks')).setIcon('graduation-cap');
       const submenu = (item as any).setSubmenu();
 
       const selectedSet = new Set(selectedCardIds);
@@ -3787,14 +3787,14 @@
       menu.addItem((item) => {
         const questionBankLocked = premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.QUESTION_BANK);
         item
-          .setTitle(questionBankLocked ? '考试牌组 (高级)' : '考试牌组')
+          .setTitle(questionBankLocked ? t('cardManagement.batchDeckMenu.questionBankDecksPremium') : t('cardManagement.batchDeckMenu.questionBankDecks'))
           .setIcon('clipboard-list');
         const submenu = (item as any).setSubmenu();
 
         if (questionBankLocked) {
           submenu.addItem((subItem: any) => {
             subItem
-              .setTitle('激活后使用')
+              .setTitle(t('cardManagement.batchDeckMenu.activateToUse'))
               .setIcon('lock')
               .onClick(() => {
                 promptPremiumFeature(PREMIUM_FEATURES.QUESTION_BANK);
@@ -3816,12 +3816,12 @@
             });
           } else {
             submenu.addItem((subItem: any) => {
-              subItem.setTitle('暂无考试牌组').setDisabled(true);
+              subItem.setTitle(t('cardManagement.batchDeckMenu.noQuestionBanks')).setDisabled(true);
             });
           }
         } else {
           submenu.addItem((subItem: any) => {
-            subItem.setTitle('考试牌组服务未初始化').setDisabled(true);
+            subItem.setTitle(t('cardManagement.notices.questionBankServiceInitMissing')).setDisabled(true);
           });
         }
       });
@@ -3839,7 +3839,7 @@
       }
 
       if (!plugin.questionBankService) {
-        showNotification('考试牌组服务未初始化', 'error');
+        showNotification(t('cardManagement.notices.questionBankServiceInitMissing'), 'error');
         return;
       }
 
@@ -3855,14 +3855,14 @@
       const skippedUnsupportedCount = selectedCardData.length - supportedQuestionCards.length;
 
       if (supportedQuestionCards.length === 0) {
-        showNotification('选中的卡片中没有可加入考试题组的选择题或带 #input 标签的挖空题', 'warning');
+        showNotification(t('cardManagement.notices.noSupportedQuestionsForBank'), 'warning');
         return;
       }
 
       // 获取考试牌组信息
       const bank = plugin.questionBankService.getQuestionBank(bankId);
       if (!bank) {
-        showNotification('考试牌组不存在', 'error');
+        showNotification(t('cardManagement.notices.questionBankMissing'), 'error');
         return;
       }
 
@@ -3880,7 +3880,7 @@
       }
 
       if (addedCount === 0) {
-        showNotification('可加入的题目都已在该考试题组中', 'info');
+        showNotification(t('cardManagement.notices.allQuestionsAlreadyInBank'), 'info');
         return;
       }
 
@@ -3898,7 +3898,7 @@
       showNotification(summaryParts.join('，'), 'success');
     } catch (error) {
       logger.error('添加到考试牌组失败:', error);
-      showNotification('操作失败', 'error');
+      showNotification(t('cardManagement.notices.operationFailed'), 'error');
     }
   }
 
@@ -3911,7 +3911,7 @@
     (menu as any).app = plugin.app;
 
     menu.addItem((item) => {
-      item.setTitle(`设置 ${selectedCardIds.length} 张卡片所属牌组`);
+      item.setTitle(t('cardManagement.dialogs.setDeckForCards', { count: selectedCardIds.length }));
       item.setDisabled(true);
     });
 
@@ -3968,24 +3968,24 @@
   ) {
     const { uniqueSourceDeckIds } = getBatchMemoryDeckSelectionContext(cardUUIDs);
     if (uniqueSourceDeckIds.length !== 1) {
-      showNotification('批量更换牌组仅支持处理同一来源牌组的卡片，请先按牌组筛选后再进行批量操作', 'warning');
+      showNotification(t('cardManagement.notices.batchDeckSameSourceRequired'), 'warning');
       return;
     }
 
     if (!dataStorage || typeof dataStorage.moveCardsToDeck !== 'function') {
-      showNotification("数据存储服务未初始化", "error");
+      showNotification(t('cardManagement.notices.dataStorageMissing'), 'error');
       return;
     }
 
     let progress: GlobalOperationController | null = null;
     try {
       progress = createCardManagementGlobalOperation({
-        title: current.allInDeck ? '正在批量移出牌组' : '正在批量更换牌组',
+        title: current.allInDeck ? t('cardManagement.batchOps.removeDeckTitle') : t('cardManagement.batchOps.moveDeckTitle'),
         total: cardUUIDs.length,
         detail: current.allInDeck
-          ? `正在将 ${cardUUIDs.length} 张卡片移至未归组卡片`
-          : `正在将 ${cardUUIDs.length} 张卡片移至牌组“${deck.name}”`,
-        navigationMessage: '正在批量更换牌组，请暂时留在当前页面，完成后会自动刷新。'
+          ? t('cardManagement.batchOps.moveToUngrouped', { count: cardUUIDs.length })
+          : t('cardManagement.batchOps.moveToDeck', { count: cardUUIDs.length, name: deck.name }),
+        navigationMessage: t('cardManagement.batchOps.moveDeckNavigation')
       });
       const targetDeckId = current.allInDeck ? WDECK_UNGROUPED_DECK_NAME : deck.id;
       const moveResult = await dataStorage.moveCardsToDeck(cardUUIDs, targetDeckId, {
@@ -4002,7 +4002,7 @@
       progress.update({
         status: 'running',
         current: cardUUIDs.length,
-        detail: '正在刷新卡片列表'
+        detail: t('cardManagement.batchOps.refreshingCards')
       });
       await loadCards();
 
@@ -4010,33 +4010,33 @@
         status: moveResult.failed.length > 0 ? 'error' : 'success',
         current: cardUUIDs.length,
         detail: moveResult.failed.length > 0
-          ? `批量更换牌组完成：成功 ${moveResult.moved.length} 张，失败 ${moveResult.failed.length} 张`
+          ? t('cardManagement.batchOps.moveDeckSummary', { success: moveResult.moved.length, failed: moveResult.failed.length })
           : current.allInDeck
-            ? `已将 ${moveResult.moved.length} 张卡片移至未归组卡片`
-            : `已将 ${moveResult.moved.length} 张卡片移至牌组“${deck.name}”`
+            ? t('cardManagement.batchOps.moveToUngroupedDone', { count: moveResult.moved.length })
+            : t('cardManagement.batchOps.moveToDeckDone', { count: moveResult.moved.length, name: deck.name })
       });
 
       if (moveResult.failed.length > 0) {
         const successCount = moveResult.moved.length;
         const failedCount = moveResult.failed.length;
-        showNotification(`批量更换牌组完成：成功 ${successCount} 张，失败 ${failedCount} 张`, "warning");
+        showNotification(t('cardManagement.batchOps.moveDeckSummary', { success: successCount, failed: failedCount }), 'warning');
         logger.warn('[WeaveCardManagement] 批量更换牌组部分失败:', moveResult.failed);
       } else {
         showNotification(
-          current.allInDeck ? `已将 ${moveResult.moved.length} 张卡片移至未归组卡片` : `已将 ${moveResult.moved.length} 张卡片移至牌组“${deck.name}”`,
+          current.allInDeck ? t('cardManagement.batchOps.moveToUngroupedDone', { count: moveResult.moved.length }) : t('cardManagement.batchOps.moveToDeckDone', { count: moveResult.moved.length, name: deck.name }),
           "success"
         );
       }
 
       dataVersion++;
     } catch (error) {
-      progress?.finish({
-        status: 'error',
-        current: 0,
-        detail: error instanceof Error ? error.message : '批量更换牌组失败'
-      }, 2500);
-      logger.error('[WeaveCardManagement] 批量更换牌组失败:', error);
-      showNotification("批量更换牌组失败", "error");
+        progress?.finish({
+          status: 'error',
+          current: 0,
+          detail: error instanceof Error ? error.message : t('cardManagement.batchOps.moveDeckFailed')
+        }, 2500);
+        logger.error('[WeaveCardManagement] 批量更换牌组失败:', error);
+        showNotification(t('cardManagement.batchOps.moveDeckFailed'), 'error');
     }
   }
 
@@ -4045,7 +4045,7 @@
     logger.debug("批量复制:", selectedCardIds);
 
     if (selectedCardIds.length === 0) {
-      new Notice("请先选择要复制的卡片");
+      new Notice(t('cardManagement.notices.copySelectCardsFirst'));
       return;
     }
 
@@ -4068,9 +4068,9 @@
 
     // 复制到剪贴板
     navigator.clipboard.writeText(copyText).then(() => {
-      new Notice(`已复制 ${selectedCardIds.length} 张卡片到剪贴板`);
+      new Notice(t('cardManagement.notices.copyClipboardSuccess', { count: selectedCardIds.length }));
     }).catch(() => {
-      new Notice("复制失败，请重试");
+      new Notice(t('cardManagement.notices.copyClipboardFailed'));
     });
   }
 
@@ -4144,7 +4144,7 @@
       const csvContent = cardsToCSV(cardsToExport, currentDataSourceDecks);
       const finalPath = await getUniqueFilePath(filePath);
       await plugin.app.vault.create(finalPath, csvContent);
-      new Notice(`已导出 ${cardsToExport.length} 张卡片到 ${finalPath}`);
+      new Notice(t('cardManagement.batchToolbar.exportSuccess').replace('{count}', String(cardsToExport.length)).replace('{path}', finalPath));
     } else {
       const groups = getExportGroups(mode, cardsToExport);
       let totalExported = 0;
@@ -4160,7 +4160,7 @@
         totalExported += groupCards.length;
         fileCount++;
       }
-      new Notice(`已导出 ${totalExported} 张卡片到 ${fileCount} 个 CSV 文件`);
+      new Notice(t('cardManagement.batchToolbar.exportSuccessMultiple').replace('{count}', String(totalExported)).replace('{fileCount}', String(fileCount)));
     }
   }
 
@@ -4447,7 +4447,7 @@
         const rawName = options.fileName.trim().replace(/\.md$/i, '');
         const safeName = sanitizeFileName(rawName).trim();
         if (!safeName) {
-          throw new Error('请输入有效的文件名');
+          throw new Error(t('cardManagement.notices.validFileNameRequired'));
         }
 
         const normalizedFileName = `${safeName}.md`;
@@ -4465,7 +4465,7 @@
         const targetFile = plugin.app.vault.getAbstractFileByPath(normalizedTargetFilePath);
 
         if (!(targetFile instanceof TFile) || targetFile.extension !== 'md') {
-          throw new Error('请选择一个已存在的 Markdown 文件');
+          throw new Error(t('cardManagement.notices.existingMarkdownRequired'));
         }
 
         const currentContent = await plugin.app.vault.read(targetFile);
@@ -4486,19 +4486,19 @@
       closeCardToMarkdownModal();
 
       const saveMessage = options.mode === 'append'
-        ? `已追加到 ${targetPath}`
-        : `已保存到 ${targetPath}`;
+        ? t('cardManagement.notices.appendedToPath', { path: targetPath })
+        : t('cardManagement.notices.savedToPath', { path: targetPath });
 
       if (deleteFailed) {
-        showNotification(`${saveMessage}，但删除原卡片失败`, 'warning');
+        showNotification(t('cardManagement.notices.savedButDeleteOriginalFailed', { pathMessage: saveMessage }), 'warning');
       } else if (options.deleteOriginal) {
-        showNotification(`${saveMessage}，并已删除原卡片`, 'success');
+        showNotification(t('cardManagement.notices.savedAndDeletedOriginal', { pathMessage: saveMessage }), 'success');
       } else {
         showNotification(saveMessage, 'success');
       }
     } catch (error: any) {
       logger.error('[WeaveCardManagement] 转换卡片为 Markdown 失败:', error);
-      showNotification(error?.message || '转换失败', 'error');
+      showNotification(error?.message || t('cardManagement.notices.convertToMarkdownFailed'), 'error');
     } finally {
       isConvertingCardToMarkdown = false;
     }
@@ -4594,10 +4594,10 @@
     return {
       key,
       tag: normalized,
-      label: `新建 ${label}`,
+      label: t('cardManagement.tagMenu.createTagLabel', { label }),
       count: 0,
-      keywords: [normalized, label, '新建'],
-      searchText: [normalized, label, '新建']
+      keywords: [normalized, label, t('cardManagement.tagMenu.create')],
+      searchText: [normalized, label, t('cardManagement.tagMenu.create')]
         .map((value) => value.toLowerCase())
         .join(' '),
       isCreateSuggestion: true,
@@ -4696,9 +4696,9 @@
       .filter((item) => !existingTagKeys.has(item.key));
 
     if (tagItems.length === 0) {
-      const placeholderItem = buildBatchTagCreateSuggestion('新标签', existingTagKeys);
+      const placeholderItem = buildBatchTagCreateSuggestion(t('cardManagement.tagMenu.newTag'), existingTagKeys);
       if (!placeholderItem) {
-        new Notice("没有可添加的标签");
+        new Notice(t('cardManagement.tagMenu.noTagsToAdd'));
         return;
       }
     }
@@ -4710,7 +4710,7 @@
         void handleBatchAddTags([item.tag]);
       },
       {
-        placeholder: `为 ${selectedCardIds.length} 张卡片搜索可添加标签...`,
+        placeholder: t('cardManagement.tagMenu.searchTagsToAdd', { count: selectedCardIds.length }),
         anchorRect: getBatchTagMenuAnchorRect(event),
         createSuggestion: (query) => buildBatchTagCreateSuggestion(query, existingTagKeys),
       }
@@ -4722,7 +4722,7 @@
     const sortedTags = collectBatchTagStats(selectedCardData);
 
     if (sortedTags.length === 0) {
-      new Notice("选中卡片没有标签");
+      new Notice(t('cardManagement.tagMenu.selectedCardsHaveNoTags'));
       return;
     }
 
@@ -4732,10 +4732,10 @@
         ? [{
             key: BATCH_REMOVE_ALL_TAG,
             tag: BATCH_REMOVE_ALL_TAG,
-            label: `移除全部 ${sortedTags.length} 个标签`,
-            keywords: ["全部", "移除全部"],
+            label: t('cardManagement.tagMenu.removeAllTags', { count: sortedTags.length }),
+            keywords: [t('cardManagement.tagMenu.all'), t('cardManagement.tagMenu.removeAll')],
             count: 0,
-            searchText: ["全部", "移除全部", `移除全部 ${sortedTags.length} 个标签`]
+            searchText: [t('cardManagement.tagMenu.all'), t('cardManagement.tagMenu.removeAll'), t('cardManagement.tagMenu.removeAllTags', { count: sortedTags.length })]
               .map((value) => value.toLowerCase())
               .join(' '),
           }]
@@ -4763,7 +4763,7 @@
         void handleBatchRemoveTagsConfirm([item.tag]);
       },
       {
-        placeholder: `从 ${selectedCardIds.length} 张卡片中搜索要移除的标签...`,
+        placeholder: t('cardManagement.tagMenu.searchTagsToRemove', { count: selectedCardIds.length }),
         anchorRect: getBatchTagMenuAnchorRect(event),
       }
     ).open();
@@ -4772,7 +4772,7 @@
   function handleBatchAddTagsMenu(event?: MouseEvent) {
     const selectedCardIds = Array.from(selectedCards);
     if (selectedCardIds.length === 0) {
-      new Notice("请先选择卡片");
+      new Notice(t('cardManagement.notices.batchSelectCardsFirst'));
       return;
     }
     openBatchAddTagsMenu(selectedCardIds, event);
@@ -4781,7 +4781,7 @@
   function handleBatchRemoveTagsMenu(event?: MouseEvent) {
     const selectedCardIds = Array.from(selectedCards);
     if (selectedCardIds.length === 0) {
-      new Notice("请先选择卡片");
+      new Notice(t('cardManagement.notices.batchSelectCardsFirst'));
       return;
     }
     openBatchRemoveTagsMenu(selectedCardIds, event);
@@ -4793,7 +4793,7 @@
     logger.debug("组建牌组:", selectedCardIds);
 
     if (selectedCardIds.length === 0) {
-      new Notice("请先选择要组建牌组的卡片");
+      new Notice(t('cardManagement.notices.buildDeckSelectCardsFirst'));
       return;
     }
 
@@ -4816,14 +4816,16 @@
     logger.debug("批量删除:", selectedCardIds, "数据源:", dataSource);
 
     if (selectedCardIds.length === 0) {
-      new Notice("请先选择要删除的卡片");
+      new Notice(t('cardManagement.notices.batchDeleteSelectCardsFirst'));
       return;
     }
 
     // 使用 Obsidian Modal 代替 confirm()，避免焦点劫持问题
     const modal = new Modal(plugin.app);
-    modal.titleEl.setText('确认删除');
-    modal.contentEl.setText(`确定要删除选中的 ${selectedCardIds.length} 张卡片吗？\n\n此操作不可撤销！`);
+    modal.titleEl.setText(t('cardManagement.dialogs.confirmDeleteTitle'));
+    modal.contentEl.setText(
+      t('cardManagement.dialogs.confirmDeleteMessage', { count: selectedCardIds.length })
+    );
     
     const buttonContainer = modal.contentEl.createDiv({ cls: 'confirm-buttons' });
     applyStyleProps(buttonContainer, {
@@ -4835,11 +4837,11 @@
     
     let shouldDelete = false;
     
-    const cancelButton = buttonContainer.createEl('button', { text: '取消' });
+    const cancelButton = buttonContainer.createEl('button', { text: t('cardManagement.dialogs.cancel') });
     cancelButton.onclick = () => modal.close();
     
     const deleteButton = buttonContainer.createEl('button', { 
-      text: '确认删除',
+      text: t('cardManagement.dialogs.confirmDelete'),
       cls: 'mod-warning'
     });
     deleteButton.onclick = () => {
@@ -4850,10 +4852,10 @@
       if (!shouldDelete) return;
 
       const progress = createCardManagementGlobalOperation({
-        title: '正在批量删除卡片',
+        title: t('cardManagement.batchOps.deleteCardsTitle'),
         total: selectedCardIds.length,
-        detail: `正在准备删除 ${selectedCardIds.length} 张卡片`,
-        navigationMessage: '正在批量删除卡片，请暂时留在当前页面，完成后会自动刷新。'
+        detail: t('cardManagement.batchOps.deleteCardsPrepare', { count: selectedCardIds.length }),
+        navigationMessage: t('cardManagement.batchOps.deleteCardsNavigation')
       });
 
       let ok = 0;
@@ -4873,7 +4875,7 @@
             progress.update({
               status: 'running',
               current: missingCount,
-              detail: `已跳过 ${missingCount} 个未找到的阅读点，继续删除中`
+              detail: t('cardManagement.batchOps.skippedMissingReadingDelete', { count: missingCount })
             });
           }
 
@@ -4882,7 +4884,7 @@
             progress.update({
               status: 'running',
               current: processed,
-              detail: `正在删除第 ${processed} / ${selectedCardIds.length} 个阅读点`
+              detail: t('cardManagement.batchOps.deletingReadingPoint', { current: processed, total: selectedCardIds.length })
             });
           });
           ok += result.ok;
@@ -4891,7 +4893,7 @@
           progress.update({
             status: 'running',
             current: selectedCardIds.length,
-            detail: '正在刷新增量阅读列表'
+            detail: t('cardManagement.batchOps.refreshingReadingList')
           });
           await recomputeAndBroadcastIRData(plugin.app, 'remove_block');
           await loadIRContentCards({ silent: true });
@@ -4899,10 +4901,10 @@
           logger.debug("使用题库存储删除卡片");
 
           if (!questionBankStorage) {
-            throw new Error('题库存储服务未初始化');
+            throw new Error(t('cardManagement.notices.questionBankStorageMissing'));
           }
           if (!plugin.questionBankService) {
-            throw new Error('题库服务未初始化');
+            throw new Error(t('cardManagement.notices.questionBankServiceMissing'));
           }
 
           const cardsByBank = new Map<string, Card[]>();
@@ -4927,7 +4929,7 @@
             progress.update({
               status: 'running',
               current: processed,
-              detail: `已跳过 ${processed} 张未找到的题库卡片，继续删除中`
+              detail: t('cardManagement.batchOps.skippedMissingQuestionDelete', { count: processed })
             });
           }
 
@@ -4944,7 +4946,7 @@
                 progress.update({
                   status: 'running',
                   current: processed,
-                  detail: `正在删除第 ${processed} / ${selectedCardIds.length} 张题库卡片`
+                  detail: t('cardManagement.batchOps.deletingQuestionCard', { current: processed, total: selectedCardIds.length })
                 });
               }
             }
@@ -4953,7 +4955,7 @@
           progress.update({
             status: 'running',
             current: selectedCardIds.length,
-            detail: '正在刷新题库列表'
+            detail: t('cardManagement.batchOps.refreshingQuestionBank')
           });
           await loadQuestionBankCards();
         } else {
@@ -4961,7 +4963,7 @@
 
           progress.update({
             status: 'running',
-            detail: `正在删除 ${selectedCardIds.length} 张卡片`
+            detail: t('cardManagement.batchOps.deletingCards', { count: selectedCardIds.length })
           });
           const batchResult = await dataStorage.deleteCards(selectedCardIds);
           ok = batchResult.deleted.length;
@@ -4971,7 +4973,7 @@
           progress.update({
             status: 'running',
             current: selectedCardIds.length,
-            detail: '正在刷新卡片列表'
+            detail: t('cardManagement.batchOps.refreshingCards')
           });
           await loadCards();
         }
@@ -4980,11 +4982,14 @@
           status: fail > 0 ? 'error' : 'success',
           current: selectedCardIds.length,
           detail: fail > 0
-            ? `批量删除完成：成功 ${ok} 张，失败 ${fail} 张`
-            : `已删除 ${ok} 张卡片`
+            ? t('cardManagement.batchOps.deleteCardsSummary', { success: ok, failed: fail })
+            : t('cardManagement.batchOps.deleteCardsSuccess', { count: ok })
         });
 
-        new Notice(`已删除 ${ok} 张卡片${fail ? `，失败 ${fail}` : ''}`);
+        new Notice(t('cardManagement.batchOps.deleteCardsNotice', {
+          success: ok,
+          failedPart: fail ? t('cardManagement.batchOps.failedPart', { count: fail }) : ''
+        }));
         plugin.app.workspace.trigger('Weave:data-changed');
         handleClearSelection();
       } catch (error) {
@@ -4992,7 +4997,7 @@
         progress.finish({
           status: 'error',
           current: Math.min(progress.total, ok + fail),
-          detail: error instanceof Error ? error.message : '批量删除失败'
+          detail: error instanceof Error ? error.message : t('cardManagement.batchOps.deleteCardsFailed')
         }, 2500);
 
         if (dataSource === 'questionBank') {
@@ -5003,7 +5008,7 @@
           await loadCards();
         }
 
-        showNotification('批量删除失败，请重试', 'error');
+        showNotification(t('cardManagement.batchOps.deleteCardsRetry'), 'error');
       }
     };
     
@@ -5054,11 +5059,11 @@
       invalidateCardManagementDerivedCaches();
       
       logger.debug(`[QuestionBank] 最终加载了${questionBankCards.length}张题目卡片`);
-      showNotification(`已加载 ${questionBankCards.length} 张题目卡片`, 'success');
+      showNotification(t('cardManagement.notices.loadQuestionBankSuccess', { count: questionBankCards.length }), 'success');
       
     } catch (error) {
       logger.error('[QuestionBank] 加载失败:', error);
-      showNotification('加载考试数据失败', 'error');
+      showNotification(t('cardManagement.notices.loadQuestionBankFailed'), 'error');
     } finally {
       isLoadingQuestionBank = false;
     }
@@ -5104,11 +5109,11 @@
     
     // 显示切换提示
     const sourceNames: Record<string, string> = {
-      'memory': '记忆牌组',
+      'memory': t('cardManagement.dataSources.memory'),
       'questionBank': '考试牌组',
       'incremental-reading': '增量阅读'
     };
-    showNotification(`切换到${sourceNames[newSource]}数据`, 'success');
+    showNotification(t('cardManagement.notices.switchDataSourceSuccess', { source: sourceNames[newSource] }), 'success');
   }
   
   // 加载增量阅读卡片，同时兼容旧版 blocks.json 与新版 chunks.json
@@ -5147,12 +5152,12 @@
         `[IR] 加载了 ${irContentCards.length} 个内容块 (旧版: ${loadResult.legacyCount}, 新版: ${loadResult.chunkCount}, PDF书签: ${loadResult.pdfTaskCount}, EPUB书签: ${loadResult.epubTaskCount})`
       );
       if (!options?.silent) {
-        showNotification(`已加载 ${irContentCards.length} 个增量阅读内容块`, 'success');
+        showNotification(t('cardManagement.notices.loadIRSuccess', { count: irContentCards.length }), 'success');
       }
       
     } catch (error) {
       logger.error('[IR] 加载失败:', error);
-      showNotification('加载增量阅读数据失败', 'error');
+      showNotification(t('cardManagement.notices.loadIRFailed'), 'error');
     } finally {
       isLoadingIR = false;
       if (irReloadQueued) {
@@ -5166,7 +5171,7 @@
   async function handleIRBatchChangeDeck(event: MouseEvent): Promise<void> {
     const selectedIds = Array.from(selectedCards);
     if (selectedIds.length === 0) {
-      showNotification('请先选择阅读点', 'warning');
+      showNotification(t('cardManagement.batchOps.selectReadingPointsFirst'), 'warning');
       return;
     }
     
@@ -5180,7 +5185,7 @@
 
     if (validDecks.length === 0) {
       menu.addItem((item) => {
-        item.setTitle('暂无专题（请先在增量阅读界面创建）');
+        item.setTitle(t('cardManagement.batchOps.noTopicsAvailable'));
         item.setIcon('info');
         item.setDisabled(true);
       });
@@ -5189,7 +5194,7 @@
     }
 
     menu.addItem((item) => {
-      item.setTitle(`将 ${selectedIds.length} 个阅读点更换到专题`);
+      item.setTitle(t('cardManagement.batchOps.changeTopicMenuTitle', { count: selectedIds.length }));
       item.setDisabled(true);
     });
     menu.addSeparator();
@@ -5204,10 +5209,10 @@
             .filter((card): card is Card => Boolean(card));
 
           const progress = createCardManagementGlobalOperation({
-            title: '正在批量更换专题',
+            title: t('cardManagement.batchOps.changeTopicTitle'),
             total: selectedIds.length,
-            detail: `正在将 ${selectedIds.length} 个阅读点更换到专题“${deck.name}”`,
-            navigationMessage: '正在批量更换专题，请暂时留在当前页面，完成后会自动刷新。'
+            detail: t('cardManagement.batchOps.changeTopicDetail', { count: selectedIds.length, name: deck.name }),
+            navigationMessage: t('cardManagement.batchOps.changeTopicNavigation')
           });
 
           try {
@@ -5219,7 +5224,7 @@
               progress.update({
                 status: 'running',
                 current: processed,
-                detail: `已跳过 ${processed} 个未找到的阅读点，继续处理中`
+                detail: t('cardManagement.batchOps.skippedMissingReadingPoints', { count: processed })
               });
             }
 
@@ -5235,7 +5240,7 @@
                 progress.update({
                   status: 'running',
                   current: processed,
-                  detail: `正在处理第 ${processed} / ${selectedIds.length} 个阅读点`
+                  detail: t('cardManagement.batchOps.processingReadingPoints', { current: processed, total: selectedIds.length })
                 });
               }
             }
@@ -5244,7 +5249,7 @@
               progress.update({
                 status: 'running',
                 current: selectedIds.length,
-                detail: '正在刷新增量阅读列表'
+                detail: t('cardManagement.batchOps.refreshingReadingList')
               });
               await recomputeAndBroadcastIRData(plugin.app, 'ui_refresh', { deckIds: [deck.id] });
               await loadIRContentCards({ silent: true });
@@ -5254,23 +5259,23 @@
               status: failed === 0 ? 'success' : 'error',
               current: selectedIds.length,
               detail: failed === 0
-                ? `已将 ${success} 个阅读点更换到“${deck.name}”专题`
-                : `专题更换完成：成功 ${success} 个，失败 ${failed} 个`
+                ? t('cardManagement.batchOps.changeTopicSuccess', { count: success, name: deck.name })
+                : t('cardManagement.batchOps.changeTopicSummary', { success, failed })
             });
 
             if (failed === 0) {
-              showNotification(`已将 ${success} 个阅读点更换到“${deck.name}”专题`, 'success');
+              showNotification(t('cardManagement.batchOps.changeTopicSuccess', { count: success, name: deck.name }), 'success');
             } else {
-              showNotification(`专题更换完成：成功 ${success} 个，失败 ${failed} 个`, 'warning');
+              showNotification(t('cardManagement.batchOps.changeTopicSummary', { success, failed }), 'warning');
             }
           } catch (error) {
             progress.finish({
               status: 'error',
               current: 0,
-              detail: error instanceof Error ? error.message : '批量更换专题失败'
+              detail: error instanceof Error ? error.message : t('cardManagement.batchOps.changeTopicFailed')
             }, 2500);
             logger.error('[IR] 批量更换专题失败:', error);
-            showNotification('批量更换专题失败', 'error');
+            showNotification(t('cardManagement.batchOps.changeTopicFailed'), 'error');
           }
         });
       });
@@ -5342,20 +5347,20 @@
   async function deleteCardCore(cardUuid: string) {
     logger.debug('[WeaveCardManagement] 删除单个卡片:', cardUuid, '数据源:', dataSource);
 
-    const sourceCards = currentSourceCards;
-    const cardToDelete = sourceCards.find(c => c.uuid === cardUuid);
-    if (!cardToDelete) {
-      throw new Error('未找到要删除的卡片');
-    }
+      const sourceCards = currentSourceCards;
+      const cardToDelete = sourceCards.find(c => c.uuid === cardUuid);
+      if (!cardToDelete) {
+        throw new Error(t('cardManagement.batchOps.deleteCardNotFound'));
+      }
 
     if (dataSource === 'questionBank') {
       if (!questionBankStorage) {
-        throw new Error('题库存储服务未初始化');
+        throw new Error(t('cardManagement.notices.questionBankStorageMissing'));
       }
 
       const bankId = cardToDelete.deckId || '';
       if (!plugin.questionBankService) {
-        throw new Error('题库服务未初始化');
+        throw new Error(t('cardManagement.notices.questionBankServiceMissing'));
       }
 
       await plugin.questionBankService.deleteQuestion(bankId, cardUuid);
@@ -5364,7 +5369,7 @@
     } else if (dataSource === 'incremental-reading') {
       const result = await deleteIncrementalReadingCards([cardToDelete]);
       if (result.ok === 0) {
-        throw new Error(`未找到可删除的增量阅读记录: ${cardUuid}`);
+        throw new Error(t('cardManagement.notices.irDeleteRecordNotFound', { id: cardUuid }));
       }
       await recomputeAndBroadcastIRData(plugin.app, 'remove_block');
       await loadIRContentCards({ silent: true });
@@ -5390,14 +5395,14 @@
     const frontContent = getCardContentBySide(cardToDelete, 'front', [], " / ");
     const confirmed = await showObsidianConfirm(
       plugin.app,
-      `确定要删除卡片 "${frontContent}" 吗？`,
-      { title: '确认删除', confirmText: '删除' }
+      t('cardManagement.confirms.deleteCardMessage', { content: frontContent }),
+      { title: t('cardManagement.confirms.deleteTitle'), confirmText: t('cardManagement.confirms.deleteConfirm') }
     );
     if (!confirmed) return;
 
     try {
       await deleteCardCore(cardUuid);
-      showNotification('卡片已删除', 'success');
+      showNotification(t('cardManagement.notices.cardDeleted'), 'success');
     } catch (error) {
       logger.error('删除卡片失败:', error);
       if (dataSource === 'questionBank') {
@@ -5407,7 +5412,7 @@
       } else {
         await loadCards();
       }
-      showNotification('删除失败，请重试', 'error');
+      showNotification(t('cardManagement.notices.deleteFailedRetry'), 'error');
     }
   }
 
@@ -5442,7 +5447,7 @@
             const contextPath = plugin.app.workspace.getActiveFile()?.path ?? '';
             plugin.app.workspace.openLinkText(pdfPath, contextPath, false);
           } else {
-            showNotification('PDF书签链接不存在', 'error');
+            showNotification(t('cardManagement.notices.pdfBookmarkLinkMissing'), 'error');
           }
           return;
         }
@@ -5455,7 +5460,7 @@
             plugin.app.workspace.openLinkText(cardToEdit.sourceFile, contextPath, false);
             return;
           } else {
-            showNotification('源文件不存在', 'error');
+            showNotification(t('cardManagement.notices.sourceFileMissing'), 'error');
             return;
           }
         }
@@ -5477,7 +5482,7 @@
               });
               return;
             } else {
-              showNotification('源文件不存在', 'error');
+              showNotification(t('cardManagement.notices.sourceFileMissing'), 'error');
               return;
             }
           }
@@ -5505,11 +5510,11 @@
       }
 
       // 立即显示成功通知
-      showNotification("卡片保存成功", "success");
+      showNotification(t('cardManagement.notices.cardSaved'), 'success');
       await applySavedCardToCurrentDataSource(_updatedCard);
     } catch (error) {
       logger.error('临时文件编辑保存失败:', error);
-      showNotification("保存失败", "error");
+      showNotification(t('cardManagement.notices.saveFailed'), 'error');
     }
   }
 
@@ -5555,7 +5560,7 @@
   async function openIRAssociatedNote(notePath: string): Promise<void> {
     const file = await openAssociatedMarkdownNote(plugin.app, notePath);
     if (!(file instanceof TFile)) {
-      new Notice('关联笔记不存在或已被移动');
+      new Notice(t('cardManagement.notices.associatedNoteMissing'));
     }
   }
 
@@ -5567,16 +5572,16 @@
       lastFilteredCardsKey = '';
       cachedTransformedCards = [];
       dataVersion++;
-      showNotification(notePaths.length > 0 ? '关联笔记已更新' : '已清空关联笔记', 'success');
+      showNotification(notePaths.length > 0 ? t('cardManagement.notices.associatedNotesUpdated') : t('cardManagement.notices.associatedNotesCleared'), 'success');
     } catch (error) {
       logger.error('[WeaveCardManagement] 更新 IR 关联笔记失败:', error);
-      showNotification('关联笔记更新失败', 'error');
+      showNotification(t('cardManagement.notices.associatedNotesUpdateFailed'), 'error');
     }
   }
 
   async function chooseIRAssociatedNote(card: Card, mode: 'replace' | 'append'): Promise<void> {
     const picker = new MarkdownFileSuggestModal(plugin.app, {
-      placeholder: mode === 'append' ? '选择要追加的 Markdown 笔记' : '选择要关联的 Markdown 笔记'
+      placeholder: mode === 'append' ? t('cardManagement.notices.chooseAppendMarkdown') : t('cardManagement.notices.chooseLinkMarkdown')
     });
     const file = await picker.openAndSelect();
     if (!file) return;
@@ -5595,7 +5600,7 @@
     const baseName =
       String((card as any).ir_title || '').trim() ||
       String((card as any).ir_source_file || '').split('/').pop()?.replace(/\.[^/.]+$/, '') ||
-      '阅读笔记';
+      t('cardManagement.notices.defaultReadingNote');
     const createdFile = await createAssociatedMarkdownNote(plugin.app, {
       baseName,
       preferredFolderPath
@@ -5644,7 +5649,7 @@
     
     if (!cardToUpdate) {
       logger.error('[WeaveCardManagement] 未找到要更新标签的卡片:', cardId, '数据源:', dataSource);
-      showNotification("卡片数据不存在", "error");
+      showNotification(t('cardManagement.notices.cardNotFound'), 'error');
       return;
     }
 
@@ -5652,7 +5657,7 @@
       if (dataSource === 'questionBank') {
         // 考试牌组模式：更新题库中的卡片标签
         if (!questionBankStorage) {
-          showNotification("题库存储服务未初始化", "error");
+          showNotification(t('cardManagement.notices.questionBankStorageMissing'), 'error');
           return;
         }
 
@@ -5692,7 +5697,7 @@
         logger.debug('[WeaveCardManagement] 数据库保存结果:', result.success);
         
         if (!result.success) {
-          throw new Error(result.error || '保存失败');
+          throw new Error(result.error || t('cardManagement.notices.saveFailed'));
         }
         
         // 修复：清理该卡片的缓存
@@ -5720,10 +5725,10 @@
         logger.debug('[WeaveCardManagement] 数据版本更新:', dataVersion);
       }
       
-      showNotification("标签更新成功", "success");
+      showNotification(t('cardManagement.notices.tagsUpdated'), 'success');
     } catch (error) {
       logger.error('[WeaveCardManagement] 标签更新失败:', error);
-      showNotification("标签更新失败", "error");
+      showNotification(t('cardManagement.notices.tagsUpdateFailed'), 'error');
     }
   }
 
@@ -5737,7 +5742,7 @@
     
     if (!cardToUpdate) {
       logger.error('[WeaveCardManagement] 未找到要更新优先级的卡片:', cardId, '数据源:', dataSource);
-      showNotification("卡片数据不存在", "error");
+      showNotification(t('cardManagement.notices.cardNotFound'), 'error');
       return;
     }
 
@@ -5745,7 +5750,7 @@
       if (dataSource === 'questionBank') {
         // 考试牌组模式：更新题库中的卡片优先级
         if (!questionBankStorage) {
-          showNotification("题库存储服务未初始化", "error");
+          showNotification(t('cardManagement.notices.questionBankStorageMissing'), 'error');
           return;
         }
 
@@ -5787,10 +5792,10 @@
         dataVersion++;
       }
       
-      showNotification("优先级更新成功", "success");
+      showNotification(t('cardManagement.notices.priorityUpdated'), 'success');
     } catch (error) {
       logger.error('[WeaveCardManagement] 优先级更新失败:', error);
-      showNotification("优先级更新失败", "error");
+      showNotification(t('cardManagement.notices.priorityUpdateFailed'), 'error');
     }
   }
 
@@ -5844,10 +5849,10 @@
 
       if (dataSource === 'incremental-reading') {
         localProgress = createCardManagementGlobalOperation({
-          title: '正在批量添加标签',
+          title: t('cardManagement.batchOps.addTagsTitle'),
           total: selectedCardIds.length,
-          detail: `正在为 ${selectedCardIds.length} 个阅读点添加标签`,
-          navigationMessage: '正在批量添加标签，请暂时留在当前页面，完成后会自动刷新。'
+          detail: t('cardManagement.batchOps.addTagsReadingDetail', { count: selectedCardIds.length }),
+          navigationMessage: t('cardManagement.batchOps.addTagsNavigation')
         });
 
         let success = 0;
@@ -5858,7 +5863,7 @@
           localProgress.update({
             status: 'running',
             current: processed,
-            detail: `已跳过 ${processed} 个未找到的内容块，继续处理中`
+            detail: t('cardManagement.batchOps.skippedMissingBlocks', { count: processed })
           });
         }
 
@@ -5876,7 +5881,7 @@
             localProgress.update({
               status: 'running',
               current: processed,
-              detail: `正在处理第 ${processed} / ${selectedCardIds.length} 个阅读点`
+              detail: t('cardManagement.batchOps.processingReadingBlocks', { current: processed, total: selectedCardIds.length })
             });
           }
         }
@@ -5884,33 +5889,33 @@
         localProgress.update({
           status: 'running',
           current: selectedCardIds.length,
-          detail: '正在刷新增量阅读列表'
+          detail: t('cardManagement.batchOps.refreshingReadingList')
         });
         await loadIRContentCards();
         localProgress.finish({
           status: failed === 0 ? 'success' : 'error',
           current: selectedCardIds.length,
           detail: failed === 0
-            ? `成功为 ${success} 个内容块添加标签`
-            : `添加完成：成功 ${success} 个，失败 ${failed} 个`
+            ? t('cardManagement.batchOps.addTagsSuccessBlocks', { count: success })
+            : t('cardManagement.batchOps.addTagsSummaryBlocks', { success, failed })
         });
 
         if (failed === 0) {
-          showNotification(`成功为 ${success} 个内容块添加标签`, "success");
+          showNotification(t('cardManagement.batchOps.addTagsSuccessBlocks', { count: success }), 'success');
         } else {
-          showNotification(`添加完成：成功 ${success} 个，失败 ${failed} 个`, "warning");
+          showNotification(t('cardManagement.batchOps.addTagsSummaryBlocks', { success, failed }), 'warning');
         }
       } else if (dataSource === 'questionBank') {
         if (!questionBankStorage) {
-          showNotification("题库存储服务未初始化", "error");
+          showNotification(t('cardManagement.notices.questionBankStorageMissing'), 'error');
           return;
         }
 
         localProgress = createCardManagementGlobalOperation({
-          title: '正在批量添加标签',
+          title: t('cardManagement.batchOps.addTagsTitle'),
           total: selectedCardIds.length,
-          detail: `正在为 ${selectedCardIds.length} 张题库卡片添加标签`,
-          navigationMessage: '正在批量添加标签，请暂时留在当前页面，完成后会自动刷新。'
+          detail: t('cardManagement.batchOps.addTagsQuestionDetail', { count: selectedCardIds.length }),
+          navigationMessage: t('cardManagement.batchOps.addTagsNavigation')
         });
 
         let success = 0;
@@ -5933,7 +5938,7 @@
           localProgress.update({
             status: 'running',
             current: processed,
-            detail: `已跳过 ${processed} 张未找到的题库卡片，继续处理中`
+            detail: t('cardManagement.batchOps.skippedMissingQuestionCards', { count: processed })
           });
         }
 
@@ -5958,7 +5963,7 @@
               localProgress.update({
                 status: 'running',
                 current: processed,
-                detail: `正在处理第 ${processed} / ${selectedCardIds.length} 张题库卡片`
+                detail: t('cardManagement.batchOps.processingQuestionCards', { current: processed, total: selectedCardIds.length })
               });
             }
           }
@@ -5967,21 +5972,21 @@
         localProgress.update({
           status: 'running',
           current: selectedCardIds.length,
-          detail: '正在刷新题库列表'
+          detail: t('cardManagement.batchOps.refreshingQuestionBank')
         });
         await loadQuestionBankCards();
         localProgress.finish({
           status: failed === 0 ? 'success' : 'error',
           current: selectedCardIds.length,
           detail: failed === 0
-            ? `成功为 ${success} 张卡片添加标签`
-            : `添加完成：成功 ${success} 张，失败 ${failed} 张`
+            ? t('cardManagement.batchOps.addTagsSuccessCards', { count: success })
+            : t('cardManagement.batchOps.addTagsSummaryCards', { success, failed })
         });
 
         if (failed === 0) {
-          showNotification(`成功为 ${success} 张卡片添加标签`, "success");
+          showNotification(t('cardManagement.batchOps.addTagsSuccessCards', { count: success }), 'success');
         } else {
-          showNotification(`添加完成：成功 ${success} 张，失败 ${failed} 张`, "warning");
+          showNotification(t('cardManagement.batchOps.addTagsSummaryCards', { success, failed }), 'warning');
         }
       } else {
         // 记忆牌组模式：使用批量操作服务
@@ -6006,10 +6011,10 @@
           },
           dataStorage,
           {
-            progressTitle: '正在批量添加标签',
-            progressDetail: `正在为 ${cardsToUpdate.length} 张卡片添加标签`,
+            progressTitle: t('cardManagement.batchOps.addTagsTitle'),
+            progressDetail: t('cardManagement.batchOps.addTagsCardsDetail', { count: cardsToUpdate.length }),
             allowNavigation: false,
-            navigationMessage: '正在批量添加标签，请暂时留在当前页面，完成后会自动刷新。'
+            navigationMessage: t('cardManagement.batchOps.addTagsNavigation')
           }
         );
 
@@ -6019,12 +6024,15 @@
         // 显示结果通知
         if (operationResult.failed === 0) {
           showNotification(
-            `成功为 ${operationResult.success} 张卡片添加标签`,
+            t('cardManagement.batchOps.addTagsSuccessCards', { count: operationResult.success }),
             "success"
           );
         } else {
           showNotification(
-            `添加完成：成功 ${operationResult.success} 张，失败 ${operationResult.failed} 张`,
+            t('cardManagement.batchOps.addTagsSummaryCards', {
+              success: operationResult.success,
+              failed: operationResult.failed
+            }),
             "warning"
           );
           logger.error('[BatchAddTags] 失败详情:', operationResult.errors);
@@ -6035,10 +6043,10 @@
       localProgress?.finish({
         status: 'error',
         current: 0,
-        detail: error instanceof Error ? error.message : '批量添加标签失败'
+        detail: error instanceof Error ? error.message : t('cardManagement.batchOps.addTagsFailed')
       }, 2500);
       logger.error('批量添加标签失败:', error);
-      showNotification("批量添加标签失败", "error");
+      showNotification(t('cardManagement.batchOps.addTagsFailed'), 'error');
     }
   }
 
@@ -6061,10 +6069,10 @@
 
       if (dataSource === 'incremental-reading') {
         localProgress = createCardManagementGlobalOperation({
-          title: '正在批量删除标签',
+          title: t('cardManagement.batchOps.removeTagsTitle'),
           total: selectedCardIds.length,
-          detail: `正在从 ${selectedCardIds.length} 个阅读点中删除标签`,
-          navigationMessage: '正在批量删除标签，请暂时留在当前页面，完成后会自动刷新。'
+          detail: t('cardManagement.batchOps.removeTagsReadingDetail', { count: selectedCardIds.length }),
+          navigationMessage: t('cardManagement.batchOps.removeTagsNavigation')
         });
 
         let success = 0;
@@ -6075,7 +6083,7 @@
           localProgress.update({
             status: 'running',
             current: processed,
-            detail: `已跳过 ${processed} 个未找到的内容块，继续处理中`
+            detail: t('cardManagement.batchOps.skippedMissingBlocks', { count: processed })
           });
         }
 
@@ -6093,7 +6101,7 @@
             localProgress.update({
               status: 'running',
               current: processed,
-              detail: `正在处理第 ${processed} / ${selectedCardIds.length} 个阅读点`
+              detail: t('cardManagement.batchOps.processingReadingBlocks', { current: processed, total: selectedCardIds.length })
             });
           }
         }
@@ -6101,33 +6109,33 @@
         localProgress.update({
           status: 'running',
           current: selectedCardIds.length,
-          detail: '正在刷新增量阅读列表'
+          detail: t('cardManagement.batchOps.refreshingReadingList')
         });
         await loadIRContentCards();
         localProgress.finish({
           status: failed === 0 ? 'success' : 'error',
           current: selectedCardIds.length,
           detail: failed === 0
-            ? `成功从 ${success} 个内容块中删除标签`
-            : `删除完成：成功 ${success} 个，失败 ${failed} 个`
+            ? t('cardManagement.batchOps.removeTagsSuccessBlocks', { count: success })
+            : t('cardManagement.batchOps.removeTagsSummaryBlocks', { success, failed })
         });
 
         if (failed === 0) {
-          showNotification(`成功从 ${success} 个内容块中删除标签`, "success");
+          showNotification(t('cardManagement.batchOps.removeTagsSuccessBlocks', { count: success }), 'success');
         } else {
-          showNotification(`删除完成：成功 ${success} 个，失败 ${failed} 个`, "warning");
+          showNotification(t('cardManagement.batchOps.removeTagsSummaryBlocks', { success, failed }), 'warning');
         }
       } else if (dataSource === 'questionBank') {
         if (!questionBankStorage) {
-          showNotification("题库存储服务未初始化", "error");
+          showNotification(t('cardManagement.notices.questionBankStorageMissing'), 'error');
           return;
         }
 
         localProgress = createCardManagementGlobalOperation({
-          title: '正在批量删除标签',
+          title: t('cardManagement.batchOps.removeTagsTitle'),
           total: selectedCardIds.length,
-          detail: `正在从 ${selectedCardIds.length} 张题库卡片中删除标签`,
-          navigationMessage: '正在批量删除标签，请暂时留在当前页面，完成后会自动刷新。'
+          detail: t('cardManagement.batchOps.removeTagsQuestionDetail', { count: selectedCardIds.length }),
+          navigationMessage: t('cardManagement.batchOps.removeTagsNavigation')
         });
 
         let success = 0;
@@ -6150,7 +6158,7 @@
           localProgress.update({
             status: 'running',
             current: processed,
-            detail: `已跳过 ${processed} 张未找到的题库卡片，继续处理中`
+            detail: t('cardManagement.batchOps.skippedMissingQuestionCards', { count: processed })
           });
         }
 
@@ -6175,7 +6183,7 @@
               localProgress.update({
                 status: 'running',
                 current: processed,
-                detail: `正在处理第 ${processed} / ${selectedCardIds.length} 张题库卡片`
+                detail: t('cardManagement.batchOps.processingQuestionCards', { current: processed, total: selectedCardIds.length })
               });
             }
           }
@@ -6184,21 +6192,21 @@
         localProgress.update({
           status: 'running',
           current: selectedCardIds.length,
-          detail: '正在刷新题库列表'
+          detail: t('cardManagement.batchOps.refreshingQuestionBank')
         });
         await loadQuestionBankCards();
         localProgress.finish({
           status: failed === 0 ? 'success' : 'error',
           current: selectedCardIds.length,
           detail: failed === 0
-            ? `成功从 ${success} 张卡片中删除标签`
-            : `删除完成：成功 ${success} 张，失败 ${failed} 张`
+            ? t('cardManagement.batchOps.removeTagsSuccessCards', { count: success })
+            : t('cardManagement.batchOps.removeTagsSummaryCards', { success, failed })
         });
 
         if (failed === 0) {
-          showNotification(`成功从 ${success} 张卡片中删除标签`, "success");
+          showNotification(t('cardManagement.batchOps.removeTagsSuccessCards', { count: success }), 'success');
         } else {
-          showNotification(`删除完成：成功 ${success} 张，失败 ${failed} 张`, "warning");
+          showNotification(t('cardManagement.batchOps.removeTagsSummaryCards', { success, failed }), 'warning');
         }
       } else {
         // 记忆牌组模式：使用批量操作服务
@@ -6223,10 +6231,10 @@
           },
           dataStorage,
           {
-            progressTitle: '正在批量删除标签',
-            progressDetail: `正在从 ${cardsToUpdate.length} 张卡片中删除标签`,
+            progressTitle: t('cardManagement.batchOps.removeTagsTitle'),
+            progressDetail: t('cardManagement.batchOps.removeTagsCardsDetail', { count: cardsToUpdate.length }),
             allowNavigation: false,
-            navigationMessage: '正在批量删除标签，请暂时留在当前页面，完成后会自动刷新。'
+            navigationMessage: t('cardManagement.batchOps.removeTagsNavigation')
           }
         );
 
@@ -6236,12 +6244,15 @@
         // 显示结果通知
         if (operationResult.failed === 0) {
           showNotification(
-            `成功从 ${operationResult.success} 张卡片中删除标签`,
+            t('cardManagement.batchOps.removeTagsSuccessCards', { count: operationResult.success }),
             "success"
           );
         } else {
           showNotification(
-            `删除完成：成功 ${operationResult.success} 张，失败 ${operationResult.failed} 张`,
+            t('cardManagement.batchOps.removeTagsSummaryCards', {
+              success: operationResult.success,
+              failed: operationResult.failed
+            }),
             "warning"
           );
           logger.error('[BatchRemoveTags] 失败详情:', operationResult.errors);
@@ -6252,10 +6263,10 @@
       localProgress?.finish({
         status: 'error',
         current: 0,
-        detail: error instanceof Error ? error.message : '批量删除标签失败'
+        detail: error instanceof Error ? error.message : t('cardManagement.batchOps.removeTagsFailed')
       }, 2500);
       logger.error('批量删除标签失败:', error);
-      showNotification("批量删除标签失败", "error");
+      showNotification(t('cardManagement.batchOps.removeTagsFailed'), 'error');
     }
   }
 
@@ -6529,11 +6540,11 @@
     // 切换到跳转模式时，清空已选中的卡片
     if (enableCardLocationJump && selectedCards.size > 0) {
       selectedCards = new Set();
-      showNotification('已启用定位跳转模式\n点击卡片将跳转到源文档', 'success');
+      showNotification(t('cardManagement.notices.locationJumpEnabled'), 'success');
     } else if (enableCardLocationJump) {
-      showNotification('已启用定位跳转模式\n点击卡片将跳转到源文档', 'success');
+      showNotification(t('cardManagement.notices.locationJumpEnabled'), 'success');
     } else {
-      showNotification('已禁用定位跳转模式\n恢复单击选中、双击编辑功能', 'info');
+      showNotification(t('cardManagement.notices.locationJumpDisabled'), 'info');
     }
   }
 
@@ -6550,7 +6561,7 @@
       }
 
       await saveViewPreferences();
-      showNotification('已启用关联卡片模式\n点击卡片将筛选关联卡片', 'success');
+      showNotification(t('cardManagement.notices.relationModeEnabled'), 'success');
       return;
     }
 
@@ -6559,7 +6570,7 @@
     }
 
     await saveViewPreferences();
-    showNotification('已禁用关联卡片模式\n恢复默认点击行为', 'info');
+    showNotification(t('cardManagement.notices.relationModeDisabled'), 'info');
   }
 
   function openGridAttributeMenu(anchor?: HTMLElement | null) {
@@ -6567,7 +6578,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('不显示')
+        .setTitle(t('cardManagement.gridAttributeSelector.none'))
         .setIcon('eye-off')
         .setChecked(gridCardAttribute === 'none')
         .onClick(() => {
@@ -6577,7 +6588,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('UUID')
+        .setTitle(t('cardManagement.gridAttributeSelector.uuid'))
         .setIcon('hash')
         .setChecked(gridCardAttribute === 'uuid')
         .onClick(() => {
@@ -6587,7 +6598,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('来源')
+        .setTitle(t('cardManagement.gridAttributeSelector.source'))
         .setIcon('file-text')
         .setChecked(gridCardAttribute === 'source')
         .onClick(() => {
@@ -6597,7 +6608,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('优先级')
+        .setTitle(t('cardManagement.gridAttributeSelector.priority'))
         .setIcon('flag')
         .setChecked(gridCardAttribute === 'priority')
         .onClick(() => {
@@ -6607,7 +6618,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('记忆率')
+        .setTitle(t('cardManagement.gridAttributeSelector.retention'))
         .setIcon('activity')
         .setChecked(gridCardAttribute === 'retention')
         .onClick(() => {
@@ -6617,7 +6628,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('修改时间')
+        .setTitle(t('cardManagement.gridAttributeSelector.modified'))
         .setIcon('clock')
         .setChecked(gridCardAttribute === 'modified')
         .onClick(() => {
@@ -6675,7 +6686,7 @@
 
   function handleKanbanStartStudy(cards: Card[]) {
     // 这里可以集成学习功能，暂时显示通知
-    showNotification(`开始学习 ${cards.length} 张卡片`, "info");
+    showNotification(t('cardManagement.notices.startStudyCards', { count: cards.length }), 'info');
   }
 
   // 看板视图卡片更新（包括新增和跨牌组移动）
@@ -6695,7 +6706,7 @@
             modified: new Date().toISOString(),
           });
           await recomputeAndBroadcastIRData(plugin.app, 'ui_refresh');
-          showNotification('优先级更新成功', 'success');
+          showNotification(t('cardManagement.notices.priorityUpdated'), 'success');
           return;
         }
 
@@ -6729,7 +6740,7 @@
             modified: new Date().toISOString(),
           });
           await recomputeAndBroadcastIRData(plugin.app, 'ui_refresh', { deckIds: nextDeckIds });
-          showNotification('所属专题更新成功', 'success');
+          showNotification(t('cardManagement.notices.topicUpdated'), 'success');
           return;
         }
 
@@ -6751,7 +6762,7 @@
       if (isMove) {
         // 验证：跨牌组移动必须有有效的源和目标牌组
         if (!oldDeckId || !newDeckId) {
-          showNotification('无法移动：卡片必须属于一个有效的牌组', 'error');
+          showNotification(t('cardManagement.notices.moveRequiresDeck'), 'error');
           logger.warn(`[KanbanCardUpdate] 跨牌组移动失败: 源=${oldDeckId}, 目标=${newDeckId}`);
           return;
         }
@@ -6763,28 +6774,28 @@
           newDeckId
         );
         if (result.success) {
-          showNotification('卡片已移动到新牌组', 'success');
+          showNotification(t('cardManagement.notices.cardMoved'), 'success');
         }
       } else {
         // 普通保存（优先级等属性更新）
         // 确保卡片有有效的 deckId
         if (!updatedCard.deckId) {
-          showNotification('无法保存：卡片必须属于一个牌组', 'error');
+          showNotification(t('cardManagement.notices.saveRequiresDeck'), 'error');
           return;
         }
         result = await dataStorage.saveCard(updatedCard);
         if (result.success) {
           const index = cards.findIndex(c => c.uuid === updatedCard.uuid);
           if (index !== -1) {
-            showNotification('卡片已更新', 'success');
+            showNotification(t('cardManagement.notices.cardUpdated'), 'success');
           } else {
-            showNotification('卡片已创建', 'success');
+            showNotification(t('cardManagement.notices.cardCreated'), 'success');
           }
         }
       }
       
       if (!result.success) {
-        throw new Error(result.error || '保存失败');
+        throw new Error(result.error || t('cardManagement.notices.saveFailed'));
       }
       
       // 更新本地状态
@@ -6797,7 +6808,7 @@
       }
     } catch (error) {
       logger.error('保存卡片失败:', error);
-      showNotification(`保存卡片失败: ${error instanceof Error ? error.message : '未知错误'}`, 'error');
+      showNotification(t('cardManagement.notices.saveCardFailed', { error: error instanceof Error ? error.message : t('common.unknown') }), 'error');
       // 重新加载数据以恢复状态
       await loadCards();
     }
@@ -6814,8 +6825,8 @@
       // 使用 Obsidian Modal 代替 confirm()，避免焦点劫持问题
       const confirmed = await showObsidianConfirm(
         plugin.app,
-        `确定要删除卡片 "${frontContent}" 吗？`,
-        { title: '确认删除', confirmText: '删除' }
+        t('cardManagement.confirms.deleteCardMessage', { content: frontContent }),
+        { title: t('cardManagement.confirms.deleteTitle'), confirmText: t('cardManagement.confirms.deleteConfirm') }
       );
       if (!confirmed) return;
       
@@ -6830,11 +6841,11 @@
       
       // 延迟显示通知，避免覆盖清理通知
       setTimeout(() => {
-        showNotification('卡片已删除', 'success');
+        showNotification(t('cardManagement.notices.cardDeleted'), 'success');
       }, 1000);
     } catch (error) {
       logger.error('删除卡片失败:', error);
-      showNotification('删除卡片失败', 'error');
+      showNotification(t('cardManagement.notices.deleteFailedRetry'), 'error');
       // 重新加载数据以恢复状态
       await loadCards();
     }
@@ -6853,12 +6864,12 @@
     <div class="initial-loading-overlay">
       <BouncingBallsLoader 
         message={isLoading 
-          ? "正在加载卡片数据..." 
+          ? t('cardManagement.loading.cards') 
           : currentView === 'grid' 
-            ? (gridLayout === 'timeline' ? '正在加载时间线视图...' : '正在加载网格视图...') 
+            ? (gridLayout === 'timeline' ? t('cardManagement.loading.timeline') : t('cardManagement.loading.grid')) 
             : currentView === 'kanban' 
-              ? '正在加载看板视图...' 
-              : '正在加载表格视图...'
+              ? t('cardManagement.loading.kanban') 
+              : t('cardManagement.loading.table')
         } 
       />
     </div>
@@ -6878,7 +6889,7 @@
       <div class="mobile-search-container">
         <CardSearchInput
           bind:value={searchQuery}
-          placeholder="搜索卡片..."
+          placeholder={`${t('cardManagement.search')}...`}
           onSearch={handleSearch}
           onClear={() => {
             handleClearSearch();
@@ -6936,8 +6947,8 @@
             <button 
               class="clear-filter-btn"
               onclick={() => documentFilterMode = 'all'}
-              title="显示全部"
-              aria-label="显示全部"
+              title={t('cardManagement.filters.showAll')}
+              aria-label={t('cardManagement.filters.showAll')}
             >
               <EnhancedIcon name="x" size={14} />
             </button>
@@ -6966,27 +6977,27 @@
               {#if customCardIdsFilter && customCardIdsFilter.size > 0}
                 <span class="filter-title">{customFilterName}</span>
               {:else}
-                <span>已应用筛选条件</span>
+                <span>{t('cardManagement.filters.appliedFilters')}</span>
               {/if}
               {#if globalSelectedDeckId}
-                <span class="filter-badge">{dataSource === 'incremental-reading' ? '专题' : '牌组'}</span>
+                <span class="filter-badge">{dataSource === 'incremental-reading' ? t('cardManagement.sortMenu.topic') : t('cardManagement.sortMenu.deck')}</span>
               {/if}
               {#if globalSelectedCardTypes.size > 0}
-                <span class="filter-badge">题型 ({globalSelectedCardTypes.size})</span>
+                <span class="filter-badge">{`${t('cardManagement.filters.cardType')} (${globalSelectedCardTypes.size})`}</span>
               {/if}
               {#if globalSelectedPriority !== null}
-                <span class="filter-badge">优先级</span>
+                <span class="filter-badge">{t('cardManagement.filters.priority')}</span>
               {/if}
               {#if globalSelectedTags.size > 0}
-                <span class="filter-badge">标签 ({globalSelectedTags.size})</span>
+                <span class="filter-badge">{`${t('cardManagement.filters.tags')} (${globalSelectedTags.size})`}</span>
               {/if}
               {#if globalSelectedTimeFilter}
-                <span class="filter-badge">时间</span>
+                <span class="filter-badge">{t('cardManagement.filters.time')}</span>
               {/if}
               {#if customCardIdsFilter && customCardIdsFilter.size > 0}
                 <span class="filter-badge custom-id-filter">
                   <EnhancedIcon name="layout-grid" size={12} />
-                  {customCardIdsFilter.size} 张卡片
+                  {t('cardManagement.management.filtered', { count: customCardIdsFilter.size })}
                 </span>
               {/if}
             {/if}
@@ -6994,12 +7005,12 @@
           <button 
             class="clear-filter-btn"
             onclick={clearGlobalFilters}
-            title="清除所有筛选"
-            aria-label="清除筛选"
+            title={t('cardManagement.filters.clearAll')}
+            aria-label={t('cardManagement.filters.clearAll')}
           >
             <EnhancedIcon name="x" size={14} />
             {#if !isMobile}
-              清除筛选
+              {t('cardManagement.filters.clearAll')}
             {/if}
           </button>
           </div>

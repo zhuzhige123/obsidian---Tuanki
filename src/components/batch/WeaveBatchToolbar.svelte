@@ -64,7 +64,7 @@
     const confirmed = await showObsidianConfirm(
       app,
       t('cardManagement.batchDelete.confirm').replace('{count}', String(selectedCount)),
-      { title: '确认删除', confirmText: '删除' }
+      { title: t('ui.confirmDelete'), confirmText: t('ui.delete') }
     );
     if (confirmed) {
       onBatchDelete?.();
@@ -92,27 +92,28 @@
 </script>
 
 {#if visible}
-  <div class="weave-batch-toolbar" class:mobile={isMobile}>
+  <div class="weave-batch-toolbar-anchor" class:mobile={isMobile}>
     <div class="weave-toolbar-info">
-      <span>已选{selectedCount}张</span>
+      <span>{t('cardManagement.batchToolbar.selected', { count: selectedCount })}</span>
     </div>
-    <div class="weave-toolbar-actions">
+    <div class="weave-batch-toolbar">
+      <div class="weave-toolbar-actions">
       {#if isIRDataSource}
         <!-- 增量阅读模式按钮顺序：更换专题、提取卡片、标签操作、删除 -->
         {#if onIRChangeDeck}
-          <button type="button" class="weave-toolbar-btn" title="更换专题" onclick={handleIRChangeDeckClick}>
+          <button type="button" class="weave-toolbar-btn" title={t('cardManagement.batchToolbar.changeTopic')} onclick={handleIRChangeDeckClick}>
             <ObsidianIcon name="folder" size={16} />
           </button>
         {/if}
         {#if onIRExtractCards}
-          <button type="button" class="weave-toolbar-btn" title="提取卡片" onclick={handleIRExtractCardsClick}>
+          <button type="button" class="weave-toolbar-btn" title={t('cardManagement.batchToolbar.extractCards')} onclick={handleIRExtractCardsClick}>
             <ObsidianIcon name="file-plus" size={16} />
           </button>
         {/if}
       {:else}
         <!-- 记忆/考试模式按钮顺序：组建牌组、更换牌组、标签操作、删除 -->
         {#if onBuildDeck}
-          <button type="button" class="weave-toolbar-btn weave-btn-primary" title="组建牌组" onclick={handleBuildDeckClick}>
+          <button type="button" class="weave-toolbar-btn weave-btn-primary" title={t('cardManagement.batchToolbar.buildDeck')} onclick={handleBuildDeckClick}>
             <ObsidianIcon name="layers" size={16} />
           </button>
         {/if}
@@ -127,8 +128,8 @@
         <button
           type="button"
           class="weave-toolbar-btn"
-          title="新增标签"
-          aria-label="新增标签"
+          title={t('cardManagement.batchToolbar.addTags')}
+          aria-label={t('cardManagement.batchToolbar.addTags')}
           onclick={handleBatchAddTagsMenuClick}
         >
           <ObsidianIcon name="plus-circle" size={16} />
@@ -138,8 +139,8 @@
         <button
           type="button"
           class="weave-toolbar-btn"
-          title="移除标签"
-          aria-label="移除标签"
+          title={t('cardManagement.batchToolbar.removeTags')}
+          aria-label={t('cardManagement.batchToolbar.removeTags')}
           onclick={handleBatchRemoveTagsMenuClick}
         >
           <ObsidianIcon name="minus-circle" size={16} />
@@ -159,40 +160,51 @@
       <button type="button" class="weave-toolbar-btn weave-btn-danger" title={t('ui.delete')} onclick={handleBatchDeleteClick}>
         <ObsidianIcon name="trash-2" size={16} />
       </button>
-      <button type="button" class="weave-toolbar-btn weave-btn-secondary" title="取消选择" onclick={() => onClearSelection?.()}>
+      <button type="button" class="weave-toolbar-btn weave-btn-secondary" title={t('cardManagement.batchToolbar.clearSelection')} onclick={() => onClearSelection?.()}>
         <ObsidianIcon name="x-circle" size={16} />
       </button>
+      </div>
     </div>
   </div>
 {/if}
 
 <style>
-  .weave-batch-toolbar {
+  .weave-batch-toolbar-anchor {
     position: fixed;
     bottom: 1rem;
     left: 50%;
     transform: translateX(-50%);
+    z-index: var(--weave-z-overlay);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    max-width: calc(100vw - 2rem);
+    animation: slideInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .weave-batch-toolbar {
     background: var(--background-secondary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 0.75rem;
     box-shadow: none;
     backdrop-filter: blur(8px);
-    z-index: var(--weave-z-overlay);
-    animation: slideInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    max-width: calc(100vw - 2rem);
     display: flex;
     align-items: center;
-    gap: 1rem;
     padding: 0.75rem 1rem;
   }
 
   .weave-toolbar-info {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.5rem;
     color: var(--text-accent);
     font-size: 0.875rem;
     font-weight: 500;
+    line-height: 1.2;
+    text-align: center;
+    white-space: nowrap;
   }
 
   .weave-toolbar-actions {
@@ -278,12 +290,9 @@
   }
 
   /* 移动端适配 */
-  .weave-batch-toolbar.mobile {
+  .weave-batch-toolbar-anchor.mobile {
     --weave-batch-toolbar-mobile-bottom-gap: 8px;
-    flex-direction: column;
     gap: 0.75rem;
-    padding: 1rem;
-    border-radius: 0.75rem 0.75rem 0 0;
     bottom: calc(
       var(--weave-workspace-bottom-offset, var(--weave-modal-bottom, env(safe-area-inset-bottom, 0px)))
       + var(--weave-batch-toolbar-mobile-bottom-gap)
@@ -294,17 +303,19 @@
     max-width: none;
   }
 
-  .weave-batch-toolbar.mobile .weave-toolbar-info {
-    align-self: flex-start;
+  .weave-batch-toolbar-anchor.mobile .weave-batch-toolbar {
+    width: 100%;
+    padding: 1rem;
+    border-radius: 0.75rem 0.75rem 0 0;
   }
 
-  .weave-batch-toolbar.mobile .weave-toolbar-actions {
+  .weave-batch-toolbar-anchor.mobile .weave-toolbar-actions {
     width: 100%;
     justify-content: space-around;
     flex-wrap: wrap;
   }
 
-  .weave-batch-toolbar.mobile .weave-toolbar-btn {
+  .weave-batch-toolbar-anchor.mobile .weave-toolbar-btn {
     width: 2.5rem;
     height: 2.5rem;
     flex: none;

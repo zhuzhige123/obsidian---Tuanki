@@ -4,7 +4,7 @@ import { IRScheduleKernel } from "../IRScheduleKernel";
 import { IRStorageService } from "../IRStorageService";
 import { createMemoryApp } from "./testMemoryApp";
 
-vi.mock("../../epub/EpubStorageService", () => ({
+vi.mock("../../epub-integration/EpubStorageService", () => ({
 	EpubStorageService: class {
 		async ensureSourceIdentity(filePath: string, options?: { preferredSourceId?: string }) {
 			return {

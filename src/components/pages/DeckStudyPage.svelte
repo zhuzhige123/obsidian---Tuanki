@@ -274,7 +274,7 @@
   }
 
   function isAPKGImportEnabled(): boolean {
-    return plugin.settings.navigationVisibility?.apkgImport !== false;
+    return __WEAVE_LEGACY_APKG_RUNTIME__ && plugin.settings.navigationVisibility?.apkgImport !== false;
   }
 
   function isCSVImportEnabled(): boolean {
@@ -581,7 +581,7 @@
     emergentRuleGroupDrafts.forEach((group, index) => {
       menu.addItem((item) => {
         item
-          .setTitle(group.name || `规则组 ${index + 1}`)
+          .setTitle(group.name || t("deckStudyPage.emergentRules.groupLabel", { index: String(index + 1) }))
           .setIcon(group.id === emergentRuleGroupDraftActiveId ? "check" : "gallery-vertical")
           .onClick(() => {
             selectEmergentRuleGroupDraft(group.id);
@@ -613,14 +613,14 @@
 
     menu.addItem((item) => {
       item
-        .setTitle("复制筛选组")
+        .setTitle(t("deckStudyPage.emergentRules.duplicateGroup"))
         .setIcon("copy")
         .onClick(() => duplicateEmergentRuleGroupDraft(groupId));
     });
 
     menu.addItem((item) => {
       item
-        .setTitle("删除筛选组")
+        .setTitle(t("deckStudyPage.emergentRules.deleteGroup"))
         .setIcon("trash")
         .onClick(() => removeEmergentRuleGroupDraftV2(groupId));
     });
@@ -660,7 +660,7 @@
     });
 
     if (!hasItem) {
-      new Notice("可添加的条件已经全部显示", 2500);
+      new Notice(t("deckStudyPage.emergentRules.noMoreConditions"), 2500);
       return;
     }
 
@@ -676,7 +676,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle("清空条件")
+        .setTitle(t("deckStudyPage.emergentRules.clearCondition"))
         .setIcon("eraser")
         .onClick(() => clearEmergentRuleCondition(groupId, conditionKey));
     });
@@ -701,7 +701,7 @@
       .filter((item) => !existingTags.has(item.key));
 
     if (items.length === 0) {
-      new Notice("没有可添加的标签", 2500);
+      new Notice(t("deckStudyPage.emergentRules.noMoreTags"), 2500);
       return;
     }
 
@@ -712,7 +712,10 @@
         appendEmergentRuleGroupTagDraft(groupId, field, item.tag);
       },
       {
-        placeholder: field === "requiredTags" ? "搜索要包含的标签..." : "搜索要排除的标签...",
+        placeholder:
+          field === "requiredTags"
+            ? t("deckStudyPage.emergentRules.searchRequiredTags")
+            : t("deckStudyPage.emergentRules.searchExcludedTags"),
         anchorRect: getAnchorRect(anchor),
       }
     ).open();
@@ -740,7 +743,7 @@
 
   async function addEmergentRuleGroupSourceFolderDraft(groupId: string, anchor?: HTMLElement | null): Promise<void> {
     const picker = new VaultFolderSuggestModal(plugin.app, {
-      placeholder: "选择要观察的来源文件夹",
+      placeholder: t("deckStudyPage.emergentRules.selectObservedSourceFolder"),
       anchorRect: getAnchorRect(anchor),
     });
     const selectedFolder = await picker.openAndSelect();
@@ -765,7 +768,7 @@
       groupId
     );
     if (!nextState) {
-      new Notice("至少需要保留一个涌现筛选组", 3000);
+      new Notice(t("deckStudyPage.emergentRules.keepAtLeastOne"), 3000);
       return;
     }
     emergentRuleGroupDrafts = nextState.groups;
@@ -777,7 +780,12 @@
     const nextGroups = normalizeEmergentRuleGroupsForSave(emergentRuleGroupDrafts);
     await saveEmergentRuleGroups(nextGroups, emergentRuleGroupDraftActiveId);
     const activeGroup = nextGroups.find((group) => group.id === emergentRuleGroupDraftActiveId) || nextGroups[0];
-    new Notice(`已应用涌现筛选组：${activeGroup?.name || "默认规则组"}`, 3000);
+    new Notice(
+      t("deckStudyPage.emergentRules.applied", {
+        name: activeGroup?.name || t("deckStudyPage.emergentRules.defaultGroupName"),
+      }),
+      3000
+    );
     closeEmergentRuleGroupPopover();
   }
 
@@ -1469,7 +1477,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle(`新建正式牌组：${candidate.name}`)
+        .setTitle(t('deckStudyPage.promote.createFormalDeck', { name: candidate.name }))
         .setIcon('plus-circle')
         .onClick(async () => {
           try {
@@ -1477,10 +1485,14 @@
             await emergentDeckService.promoteCandidateToDeck(candidate, newDeck.id);
             await refreshData(true);
             plugin.app.workspace.trigger('Weave:data-changed');
-            new Notice(`已将“${candidate.name}”转为正式牌组`);
+            new Notice(t('deckStudyPage.promote.promotedSuccess', { name: candidate.name }));
           } catch (error) {
             logger.error('[DeckStudyPage] 创建正式牌组失败:', error);
-            new Notice(`创建正式牌组失败: ${error instanceof Error ? error.message : '未知错误'}`);
+            new Notice(
+              t('deckStudyPage.promote.promoteFailed', {
+                error: error instanceof Error ? error.message : t('common.unknown')
+              })
+            );
           }
         });
     });
@@ -1490,17 +1502,24 @@
       for (const deck of decks) {
         menu.addItem((item) => {
           item
-            .setTitle(`归入正式牌组：${deck.name}`)
+            .setTitle(t('deckStudyPage.promote.attachToFormalDeck', { name: deck.name }))
             .setIcon('folder')
             .onClick(async () => {
               try {
                 await emergentDeckService.promoteCandidateToDeck(candidate, deck.id);
                 await refreshData(true);
                 plugin.app.workspace.trigger('Weave:data-changed');
-                new Notice(`已将“${candidate.name}”绑定到正式牌组“${deck.name}”`);
+                new Notice(t('deckStudyPage.promote.attachSuccess', {
+                  candidate: candidate.name,
+                  deck: deck.name
+                }));
               } catch (error) {
                 logger.error('[DeckStudyPage] 绑定正式牌组失败:', error);
-                new Notice(`绑定正式牌组失败: ${error instanceof Error ? error.message : '未知错误'}`);
+                new Notice(
+                  t('deckStudyPage.promote.attachFailed', {
+                    error: error instanceof Error ? error.message : t('common.unknown')
+                  })
+                );
               }
             });
         });
@@ -1875,7 +1894,7 @@
       return candidates[0].bank;
     }
 
-    new Notice('找到多个可用考试题组，请选择要进入的题组');
+    new Notice(t('deckStudyPage.wdeck.multipleBanksFound'));
     return await new Promise<Deck | null>((resolve) => {
       let settled = false;
       const modal = new QuestionBankSelectorModal(plugin.app, candidates, (candidate) => {
@@ -2160,13 +2179,13 @@
   async function openWDeckSegmentFile(filePath: string): Promise<void> {
     const normalizedPath = normalizePath(String(filePath || '').trim());
     if (!normalizedPath) {
-      new Notice('未找到可打开的 `.wdeck` 文件路径。');
+      new Notice(t('deckStudyPage.wdeck.missingOpenPath'));
       return;
     }
 
     const abstractFile = plugin.app.vault.getAbstractFileByPath(normalizedPath);
     if (!(abstractFile instanceof TFile)) {
-      new Notice(`对应的 .wdeck 文件不存在：${normalizedPath}`);
+      new Notice(t('deckStudyPage.wdeck.fileMissing', { path: normalizedPath }));
       return;
     }
 
@@ -2181,11 +2200,11 @@
 
     menu.addItem((item) =>
       item
-        .setTitle(filePaths.length > 1 ? '编辑首个牌组文件' : '编辑牌组文件')
+        .setTitle(filePaths.length > 1 ? t('deckStudyPage.wdeck.editFirstFile') : t('deckStudyPage.wdeck.editFile'))
         .setIcon('file-json')
         .onClick(async () => {
           if (filePaths.length === 0) {
-            new Notice('当前 `.wdeck` 牌组缺少分卷文件路径信息。');
+            new Notice(t('deckStudyPage.wdeck.missingSegmentInfo'));
             return;
           }
           await openWDeckSegmentFile(filePaths[0]);
@@ -2194,7 +2213,7 @@
 
     if (filePaths.length > 1) {
       menu.addItem((item) => {
-        item.setTitle(`编辑指定牌组文件 (${filePaths.length})`).setIcon('files');
+        item.setTitle(t('deckStudyPage.wdeck.editSpecificFile', { count: String(filePaths.length) })).setIcon('files');
         const submenu = (item as any).setSubmenu();
 
         filePaths.forEach((filePath, index) => {
@@ -2212,11 +2231,11 @@
 
     menu.addItem((item) =>
       item
-        .setTitle('从牌组文件重新进入学习')
+        .setTitle(t('deckStudyPage.wdeck.reopenFromFile'))
         .setIcon('refresh-cw')
         .onClick(async () => {
           if (filePaths.length === 0) {
-            new Notice('当前 `.wdeck` 牌组缺少分卷文件路径信息。');
+            new Notice(t('deckStudyPage.wdeck.missingSegmentInfo'));
             return;
           }
           await plugin.openWDeckStudy(filePaths[0]);
@@ -2227,7 +2246,7 @@
 
     menu.addItem((item) =>
       item
-        .setTitle('删除牌组文件')
+        .setTitle(t('deckStudyPage.wdeck.deleteFileDeck'))
         .setIcon('trash-2')
         .onClick(async () => {
           await deleteWDeckDeck(deck.id);
@@ -2236,7 +2255,7 @@
 
     menu.addItem((item) =>
       item
-        .setTitle('解散牌组文件')
+        .setTitle(t('deckStudyPage.wdeck.dissolveFileDeck'))
         .setIcon('unlink')
         .onClick(async () => {
           await dissolveWDeckDeck(deck.id);
@@ -2251,8 +2270,8 @@
     const { showDangerConfirm } = await import('../../utils/obsidian-confirm');
     const confirmed = await showDangerConfirm(
       plugin.app,
-      `将删除牌组文件“${deck.name}”及其全部分卷，文件内卡片与复习数据会一并删除。`,
-      '确认删除牌组文件'
+      t('deckStudyPage.wdeck.deleteConfirmMessage', { name: deck.name }),
+      t('deckStudyPage.wdeck.deleteConfirmTitle')
     );
     if (!confirmed) return;
 
@@ -2261,10 +2280,14 @@
       decks = await dataStorage.getDecks();
       await refreshData();
       plugin.app.workspace.trigger('Weave:data-changed');
-      new Notice(`已删除牌组文件“${deck.name}”。`);
+      new Notice(t('deckStudyPage.wdeck.deleteSuccess', { name: deck.name }));
     } catch (error) {
       logger.error('[DeckStudyPage] 删除 .wdeck 牌组文件失败:', error);
-      new Notice(`删除牌组文件失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      new Notice(
+        t('deckStudyPage.wdeck.deleteFailed', {
+          error: error instanceof Error ? error.message : t('common.unknown')
+        })
+      );
     }
   }
 
@@ -2275,8 +2298,8 @@
     const { showDangerConfirm } = await import('../../utils/obsidian-confirm');
     const confirmed = await showDangerConfirm(
       plugin.app,
-      `将解散牌组文件“${deck.name}”。其中卡片会整体迁入“未归组卡片”牌组文件，并保留复习数据。`,
-      '确认解散牌组文件'
+      t('deckStudyPage.wdeck.dissolveConfirmMessage', { name: deck.name }),
+      t('deckStudyPage.wdeck.dissolveConfirmTitle')
     );
     if (!confirmed) return;
 
@@ -2285,10 +2308,20 @@
       decks = await dataStorage.getDecks();
       await refreshData();
       plugin.app.workspace.trigger('Weave:data-changed');
-      new Notice(`已解散牌组文件“${deck.name}”，共迁移 ${result?.movedCards || 0} 张卡片到“${result?.targetDeckName || '未归组卡片'}”。`);
+      new Notice(
+        t('deckStudyPage.wdeck.dissolveSuccess', {
+          name: deck.name,
+          count: String(result?.movedCards || 0),
+          target: result?.targetDeckName || t('deckStudyPage.wdeck.ungroupedFallback')
+        })
+      );
     } catch (error) {
       logger.error('[DeckStudyPage] 解散 .wdeck 牌组文件失败:', error);
-      new Notice(`解散牌组文件失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      new Notice(
+        t('deckStudyPage.wdeck.dissolveFailed', {
+          error: error instanceof Error ? error.message : t('common.unknown')
+        })
+      );
     }
   }
 
@@ -2379,7 +2412,10 @@
             const { ProgressModal } = await import('../../utils/progress-modal');
             deleteProgress = new ProgressModal(plugin.app, {
               title: t('deckStudyPage.deleteModal.progressTitle'),
-              description: `正在删除牌组“${deck.name}”中的 ${cardCount} 张卡片；如这些卡片关联了来源文档，也会一并清理对应残留记录...`,
+              description: t('deckStudyPage.deleteModal.progressDescription', {
+                name: deck.name,
+                count: String(cardCount),
+              }),
               total: 2,
               cancellable: false
             });
@@ -2388,17 +2424,19 @@
             logger.suspendVerboseLogs();
             
             // 阶段 1/2: 统一通过 dataStorage 删除；如存在来源文档则一并清理
-            deleteProgress.updateDescription(`正在删除卡片数据；如这些卡片关联了来源文档，也会一并清理对应残留记录...`);
-            deleteProgress.updateProgress(1, '删除卡片数据并处理关联清理...');
+            deleteProgress.updateDescription(t('deckStudyPage.deleteModal.progressDeletingCardsDescription'));
+            deleteProgress.updateProgress(1, t('deckStudyPage.deleteModal.progressDeletingCardsStep'));
             const deleteResult = await dataStorage.deleteCards(cardUUIDs, {
               skipCascadeDeckIds: [deckId]
             });
             const deletedCount = deleteResult.deleted.length;
             logger.info(`[DeckStudyPage] 统一批量删除完成: 成功${deleteResult.deleted.length}, 失败${deleteResult.failed.length}`);
-            deleteProgress.increment(`已删除 ${deletedCount} 张卡片，并完成关联清理`);
+            deleteProgress.increment(
+              t('deckStudyPage.deleteModal.progressDeletedCards', { count: String(deletedCount) })
+            );
 
-            deleteProgress.updateDescription('正在删除牌组并刷新界面...');
-            deleteProgress.updateProgress(2, '删除牌组并刷新界面...');
+            deleteProgress.updateDescription(t('deckStudyPage.deleteModal.progressDeletingDeckDescription'));
+            deleteProgress.updateProgress(2, t('deckStudyPage.deleteModal.progressDeletingDeckStep'));
             
             logger.info(`[DeckStudyPage] 删除牌组卡片完成: ${deletedCount}/${cardCount}`);
           }
@@ -2416,7 +2454,9 @@
           }
 
           if (deleteProgress) {
-            deleteProgress.setComplete(`已删除 ${cardCount} 张卡片，并完成牌组移除`);
+            deleteProgress.setComplete(
+              t('deckStudyPage.deleteModal.progressComplete', { count: String(cardCount) })
+            );
           }
 
           void refreshData(false).catch((refreshError) => {
@@ -2551,8 +2591,10 @@
     const skippedSection = skippedNonMarkdownCount > 0
       ? [
           '',
-          '## 说明',
-          `- 已跳过 ${skippedNonMarkdownCount} 个非 Markdown 来源，当前版本的牌组知识图谱只纳入可参与 Obsidian 双链图谱的 Markdown 文档。`
+          `## ${t('deckStudyPage.knowledgeGraph.notesHeading')}`,
+          t('deckStudyPage.knowledgeGraph.skippedNonMarkdownNote', {
+            count: String(skippedNonMarkdownCount),
+          })
         ]
       : [];
 
@@ -2566,13 +2608,13 @@
       `card_count: ${cards.length}`,
       '---',
       '',
-      `# ${deck.name} - 牌组知识图谱`,
+      `# ${t('deckStudyPage.knowledgeGraph.documentTitle', { name: deck.name })}`,
       '',
-      '## 源文档',
+      `## ${t('deckStudyPage.knowledgeGraph.sourcesHeading')}`,
       ...lines,
       ...skippedSection,
       '',
-      '> 此页面由 Weave 自动生成，用于驱动 Obsidian 局部关系图谱。'
+      `> ${t('deckStudyPage.knowledgeGraph.generatedNote')}`
     ].join('\n');
   }
 
@@ -3047,7 +3089,7 @@
   >
     <div class="weave-emergent-rule-popover__header">
       <div class="weave-emergent-rule-popover__header-main">
-        <div class="weave-emergent-rule-popover__title">涌现筛选组</div>
+        <div class="weave-emergent-rule-popover__title">{t("deckStudyPage.emergentRules.title")}</div>
       </div>
 
       <div class="weave-emergent-rule-popover__header-actions">
@@ -3055,8 +3097,8 @@
           class="weave-emergent-rule-popover__icon-btn"
           type="button"
           onclick={createEmergentRuleGroupDraft}
-          aria-label="新增筛选组"
-          title="新增筛选组"
+          aria-label={t("deckStudyPage.emergentRules.createGroup")}
+          title={t("deckStudyPage.emergentRules.createGroup")}
         >
           <ObsidianIcon name="plus" size={14} />
         </button>
@@ -3064,8 +3106,8 @@
           class="weave-emergent-rule-popover__icon-btn"
           type="button"
           onclick={(event) => showEmergentRuleGroupMoreMenu(event, currentRuleGroupDraft.id)}
-          aria-label="更多"
-          title="更多"
+          aria-label={t("deckStudyPage.emergentRules.more")}
+          title={t("deckStudyPage.emergentRules.more")}
         >
           <ObsidianIcon name="more-horizontal" size={14} />
         </button>
@@ -3080,16 +3122,16 @@
             class="weave-emergent-rule-popover__switcher"
             onclick={(event) => showEmergentRuleGroupSwitcherMenu(event)}
           >
-            <span>{currentRuleGroupDraft.name || "默认观察"}</span>
+            <span>{currentRuleGroupDraft.name || t("deckStudyPage.emergentRules.defaultObservation")}</span>
             <ObsidianIcon name="chevron-down" size={14} />
           </button>
           <label class="weave-emergent-rule-popover__field is-inline">
-            <span>筛选组名称</span>
+            <span>{t("deckStudyPage.emergentRules.groupNameLabel")}</span>
             <input
               type="text"
               value={currentRuleGroupDraft.name}
               oninput={(event) => updateEmergentRuleGroupDraftName(currentRuleGroupDraft.id, (event.currentTarget as HTMLInputElement).value)}
-              placeholder="默认观察"
+              placeholder={t("deckStudyPage.emergentRules.defaultObservation")}
             />
           </label>
         </div>
@@ -3097,16 +3139,16 @@
         <section class="weave-emergent-rule-popover__block">
           <div class="weave-emergent-rule-popover__block-head">
             <div class="weave-emergent-rule-popover__block-meta">
-              <div class="weave-emergent-rule-popover__block-label">显示门槛</div>
+              <div class="weave-emergent-rule-popover__block-label">{t("deckStudyPage.emergentRules.thresholdTitle")}</div>
             </div>
           </div>
 
           <div class="weave-emergent-rule-popover__threshold-row">
             <button type="button" class="weave-emergent-rule-popover__token is-static">
-              标签簇卡片数
+              {t("deckStudyPage.emergentRules.candidateCardCount")}
             </button>
             <button type="button" class="weave-emergent-rule-popover__token is-static">
-              至少
+              {t("deckStudyPage.emergentRules.atLeast")}
             </button>
             <input
               class="weave-emergent-rule-popover__inline-input"
@@ -3115,25 +3157,25 @@
               value={currentRuleGroupDraft.minCandidateCardCount}
               oninput={(event) => updateEmergentRuleGroupDraftThreshold(currentRuleGroupDraft.id, (event.currentTarget as HTMLInputElement).value)}
             />
-            <span class="weave-emergent-rule-popover__inline-suffix">张</span>
+            <span class="weave-emergent-rule-popover__inline-suffix">{t("deckStudyPage.emergentRules.cardsUnit")}</span>
           </div>
         </section>
 
         <section class="weave-emergent-rule-popover__block">
           <div class="weave-emergent-rule-popover__block-head">
             <div class="weave-emergent-rule-popover__block-meta">
-              <div class="weave-emergent-rule-popover__block-label">候选池过滤</div>
+              <div class="weave-emergent-rule-popover__block-label">{t("deckStudyPage.emergentRules.candidatePoolFilter")}</div>
             </div>
           </div>
 
           <div class="weave-emergent-rule-popover__condition-list">
             <div class="weave-emergent-rule-popover__condition-row">
-              <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+              <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label={t("deckStudyPage.emergentRules.dragOrder")}>
                 <ObsidianIcon name="grip-vertical" size={14} />
               </button>
-              <button type="button" class="weave-emergent-rule-popover__logic-pill">当</button>
-              <button type="button" class="weave-emergent-rule-popover__token is-static">标签</button>
-              <button type="button" class="weave-emergent-rule-popover__token is-static">包含任一</button>
+              <button type="button" class="weave-emergent-rule-popover__logic-pill">{t("deckStudyPage.emergentRules.when")}</button>
+              <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.tags")}</button>
+              <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.containsAny")}</button>
               <div
                 class="weave-emergent-rule-popover__value-surface is-clickable"
                 role="button"
@@ -3157,20 +3199,20 @@
                           event.stopPropagation();
                           removeEmergentRuleGroupTagDraft(currentRuleGroupDraft.id, "requiredTags", tag);
                         }}
-                        aria-label={`移除标签 ${tag}`}
+                        aria-label={t("deckStudyPage.emergentRules.removeTag", { tag })}
                       >
                         <ObsidianIcon name="x" size={12} />
                       </button>
                     </span>
                   {/each}
                 {:else}
-                  <span class="weave-emergent-rule-popover__placeholder-text">选择标签</span>
+                  <span class="weave-emergent-rule-popover__placeholder-text">{t("deckStudyPage.emergentRules.selectTags")}</span>
                 {/if}
               </div>
               <button
                 type="button"
                 class="weave-emergent-rule-popover__row-menu"
-                aria-label="更多"
+                aria-label={t("deckStudyPage.emergentRules.more")}
                 onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "requiredTags")}
               >
                 <ObsidianIcon name="more-horizontal" size={14} />
@@ -3179,12 +3221,12 @@
 
             {#if visibleConditions.includes("createdAt")}
               <div class="weave-emergent-rule-popover__condition-row">
-                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label={t("deckStudyPage.emergentRules.dragOrder")}>
                   <ObsidianIcon name="grip-vertical" size={14} />
                 </button>
-                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
-                <button type="button" class="weave-emergent-rule-popover__token is-static">创建时间</button>
-                <button type="button" class="weave-emergent-rule-popover__token is-static">在范围内</button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">{t("deckStudyPage.emergentRules.and")}</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.createdAt")}</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.withinRange")}</button>
                 <div class="weave-emergent-rule-popover__value-surface is-split">
                   <input
                     type="date"
@@ -3201,7 +3243,7 @@
                 <button
                   type="button"
                   class="weave-emergent-rule-popover__row-menu"
-                  aria-label="更多"
+                  aria-label={t("deckStudyPage.emergentRules.more")}
                   onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "createdAt")}
                 >
                   <ObsidianIcon name="more-horizontal" size={14} />
@@ -3211,24 +3253,24 @@
 
             {#if visibleConditions.includes("onlyLearnableDecks")}
               <div class="weave-emergent-rule-popover__condition-row">
-                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label={t("deckStudyPage.emergentRules.dragOrder")}>
                   <ObsidianIcon name="grip-vertical" size={14} />
                 </button>
-                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
-                <button type="button" class="weave-emergent-rule-popover__token is-static">卡片状态</button>
-                <button type="button" class="weave-emergent-rule-popover__token is-static">仅显示</button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">{t("deckStudyPage.emergentRules.and")}</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.cardStatus")}</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.onlyShow")}</button>
                 <label class="weave-emergent-rule-popover__value-surface">
                   <input
                     type="checkbox"
                     checked={currentRuleGroupDraft.onlyLearnableDecks}
                     onchange={(event) => updateEmergentRuleGroupOnlyLearnableDraft(currentRuleGroupDraft.id, (event.currentTarget as HTMLInputElement).checked)}
                   />
-                  <span>含有可学习卡片的涌现牌组</span>
+                  <span>{t("deckStudyPage.emergentRules.onlyLearnableDecks")}</span>
                 </label>
                 <button
                   type="button"
                   class="weave-emergent-rule-popover__row-menu"
-                  aria-label="更多"
+                  aria-label={t("deckStudyPage.emergentRules.more")}
                   onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "onlyLearnableDecks")}
                 >
                   <ObsidianIcon name="more-horizontal" size={14} />
@@ -3238,12 +3280,12 @@
 
             {#if visibleConditions.includes("sourceFolders")}
               <div class="weave-emergent-rule-popover__condition-row">
-                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label={t("deckStudyPage.emergentRules.dragOrder")}>
                   <ObsidianIcon name="grip-vertical" size={14} />
                 </button>
-                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
-                <button type="button" class="weave-emergent-rule-popover__token is-static">来源文件夹</button>
-                <button type="button" class="weave-emergent-rule-popover__token is-static">位于</button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">{t("deckStudyPage.emergentRules.and")}</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.sourceFolder")}</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.locatedIn")}</button>
                 <div
                   class="weave-emergent-rule-popover__value-surface is-clickable"
                   role="button"
@@ -3267,20 +3309,20 @@
                             event.stopPropagation();
                             removeEmergentRuleGroupSourceFolderDraft(currentRuleGroupDraft.id, folderPath);
                           }}
-                          aria-label={`移除文件夹 ${folderPath}`}
+                          aria-label={t("deckStudyPage.emergentRules.removeFolder", { folder: folderPath })}
                         >
                           <ObsidianIcon name="x" size={12} />
                         </button>
                       </span>
                     {/each}
                   {:else}
-                    <span class="weave-emergent-rule-popover__placeholder-text">选择文件夹</span>
+                    <span class="weave-emergent-rule-popover__placeholder-text">{t("deckStudyPage.emergentRules.selectFolder")}</span>
                   {/if}
                 </div>
                 <button
                   type="button"
                   class="weave-emergent-rule-popover__row-menu"
-                  aria-label="更多"
+                  aria-label={t("deckStudyPage.emergentRules.more")}
                   onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "sourceFolders")}
                 >
                   <ObsidianIcon name="more-horizontal" size={14} />
@@ -3290,17 +3332,17 @@
 
             {#if visibleConditions.includes("priority")}
               <div class="weave-emergent-rule-popover__condition-row">
-                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label={t("deckStudyPage.emergentRules.dragOrder")}>
                   <ObsidianIcon name="grip-vertical" size={14} />
                 </button>
-                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
-                <button type="button" class="weave-emergent-rule-popover__token is-static">优先级</button>
-                <button type="button" class="weave-emergent-rule-popover__token is-static">介于</button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">{t("deckStudyPage.emergentRules.and")}</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.priority")}</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.between")}</button>
                 <div class="weave-emergent-rule-popover__value-surface is-split">
                   <input
                     type="number"
                     min="0"
-                    placeholder="最低"
+                    placeholder={t("deckStudyPage.emergentRules.minimum")}
                     value={currentRuleGroupDraft.priorityMin ?? ""}
                     oninput={(event) => updateEmergentRuleGroupPriorityDraft(currentRuleGroupDraft.id, "priorityMin", (event.currentTarget as HTMLInputElement).value)}
                   />
@@ -3308,7 +3350,7 @@
                   <input
                     type="number"
                     min="0"
-                    placeholder="最高"
+                    placeholder={t("deckStudyPage.emergentRules.maximum")}
                     value={currentRuleGroupDraft.priorityMax ?? ""}
                     oninput={(event) => updateEmergentRuleGroupPriorityDraft(currentRuleGroupDraft.id, "priorityMax", (event.currentTarget as HTMLInputElement).value)}
                   />
@@ -3316,7 +3358,7 @@
                 <button
                   type="button"
                   class="weave-emergent-rule-popover__row-menu"
-                  aria-label="更多"
+                  aria-label={t("deckStudyPage.emergentRules.more")}
                   onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "priority")}
                 >
                   <ObsidianIcon name="more-horizontal" size={14} />
@@ -3326,12 +3368,12 @@
 
             {#if visibleConditions.includes("excludedTags")}
               <div class="weave-emergent-rule-popover__condition-row">
-                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label="条件顺序">
+                <button type="button" class="weave-emergent-rule-popover__drag-handle" aria-label={t("deckStudyPage.emergentRules.dragOrder")}>
                   <ObsidianIcon name="grip-vertical" size={14} />
                 </button>
-                <button type="button" class="weave-emergent-rule-popover__logic-pill">与</button>
-                <button type="button" class="weave-emergent-rule-popover__token is-static">标签</button>
-                <button type="button" class="weave-emergent-rule-popover__token is-static">不包含</button>
+                <button type="button" class="weave-emergent-rule-popover__logic-pill">{t("deckStudyPage.emergentRules.and")}</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.tags")}</button>
+                <button type="button" class="weave-emergent-rule-popover__token is-static">{t("deckStudyPage.emergentRules.doesNotContain")}</button>
                 <div
                   class="weave-emergent-rule-popover__value-surface is-clickable"
                   role="button"
@@ -3355,20 +3397,20 @@
                             event.stopPropagation();
                             removeEmergentRuleGroupTagDraft(currentRuleGroupDraft.id, "excludedTags", tag);
                           }}
-                          aria-label={`移除标签 ${tag}`}
+                          aria-label={t("deckStudyPage.emergentRules.removeTag", { tag })}
                         >
                           <ObsidianIcon name="x" size={12} />
                         </button>
                       </span>
                     {/each}
                   {:else}
-                    <span class="weave-emergent-rule-popover__placeholder-text">选择排除标签</span>
+                    <span class="weave-emergent-rule-popover__placeholder-text">{t("deckStudyPage.emergentRules.selectExcludedTags")}</span>
                   {/if}
                 </div>
                 <button
                   type="button"
                   class="weave-emergent-rule-popover__row-menu"
-                  aria-label="更多"
+                  aria-label={t("deckStudyPage.emergentRules.more")}
                   onclick={(event) => showEmergentRuleConditionRowMenu(event, currentRuleGroupDraft.id, "excludedTags")}
                 >
                   <ObsidianIcon name="more-horizontal" size={14} />
@@ -3383,7 +3425,7 @@
               onclick={(event) => showEmergentRuleConditionMenu(event, currentRuleGroupDraft.id)}
             >
               <ObsidianIcon name="plus" size={14} />
-              <span>添加条件</span>
+              <span>{t("deckStudyPage.emergentRules.addCondition")}</span>
             </button>
           </div>
         </section>
@@ -3391,8 +3433,8 @@
     </div>
 
     <div class="weave-emergent-rule-popover__footer">
-      <button type="button" class="weave-emergent-rule-popover__text-btn" onclick={closeEmergentRuleGroupPopover}>取消</button>
-      <button type="button" class="weave-emergent-rule-popover__primary-btn" onclick={applyEmergentRuleGroupDraftsV2}>保存并应用</button>
+      <button type="button" class="weave-emergent-rule-popover__text-btn" onclick={closeEmergentRuleGroupPopover}>{t("common.cancel")}</button>
+      <button type="button" class="weave-emergent-rule-popover__primary-btn" onclick={applyEmergentRuleGroupDraftsV2}>{t("deckStudyPage.emergentRules.saveAndApply")}</button>
     </div>
   </div>
 {/if}

@@ -10,6 +10,7 @@
   import EmptyTrendState from "./EmptyTrendState.svelte";
   import type WeavePlugin from "../../main";
   import { getWorkspaceBounds, isMobileDevice, type WorkspaceBounds } from '../../utils/mobile-modal-bounds';
+  import { tr } from '../../utils/i18n';
 
   interface TestHistoryPoint {
     sessionId: string;
@@ -37,6 +38,7 @@
     soundVolume = 0.5,
     onBackToBank 
   }: Props = $props();
+  let t = $derived($tr);
 
   // 趋势图状态
   let testHistory = $state<TestHistoryPoint[]>([]);
@@ -64,35 +66,35 @@
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     
-    if (mins === 0) return `${secs}秒`;
-    if (mins < 60) return `${mins}分钟`;
+    if (mins === 0) return t('study.questionBankUI.result.seconds', { count: secs });
+    if (mins < 60) return t('study.questionBankUI.result.minutes', { count: mins });
     
     const hours = Math.floor(mins / 60);
     const remainMins = mins % 60;
-    return `${hours}小时${remainMins}分钟`;
+    return t('study.questionBankUI.result.hoursMinutes', { hours, minutes: remainMins });
   }
 
   // 获取成绩标题
   function getGradeTitle(grade: string): string {
     const titleMap: Record<string, string> = {
-      'A+': '完美通过！',
-      'A': '表现优秀',
-      'B+': '表现出色',
-      'B': '表现良好',
-      'C': '基本掌握',
-      'D': '仍需努力',
-      'F': '继续加油'
+      'A+': t('study.questionBankUI.result.gradeAPlus'),
+      'A': t('study.questionBankUI.result.gradeA'),
+      'B+': t('study.questionBankUI.result.gradeBPlus'),
+      'B': t('study.questionBankUI.result.gradeB'),
+      'C': t('study.questionBankUI.result.gradeC'),
+      'D': t('study.questionBankUI.result.gradeD'),
+      'F': t('study.questionBankUI.result.gradeF')
     };
-    return titleMap[grade] || '测试完成';
+    return titleMap[grade] || t('study.questionBankUI.result.titleDefault');
   }
 
   // 获取成绩副标题
   function getGradeSubtitle(score: number): string {
-    if (score >= 95) return '近乎完美，非常棒！';
-    if (score >= 90) return '表现优异，继续保持';
-    if (score >= 80) return '继续保持这个状态';
-    if (score >= 60) return '还有提升空间';
-    return '多加练习会更好';
+    if (score >= 95) return t('study.questionBankUI.result.subtitleExcellentPlus');
+    if (score >= 90) return t('study.questionBankUI.result.subtitleExcellent');
+    if (score >= 80) return t('study.questionBankUI.result.subtitleGood');
+    if (score >= 60) return t('study.questionBankUI.result.subtitlePass');
+    return t('study.questionBankUI.result.subtitleRetry');
   }
 
   // 加载历史数据
@@ -194,7 +196,7 @@
   }}
   role="button"
   tabindex="0"
-  aria-label="关闭结果窗口"
+  aria-label={t('study.questionBankUI.result.closeAria')}
 >
   <!-- 礼花动画层 -->
   <ConfettiEffect />
@@ -252,22 +254,22 @@
     
     <!-- 测试统计 - 网格布局 -->
     <div class="stats-section">
-      <div class="stats-title">测试统计</div>
+      <div class="stats-title">{t('study.questionBankUI.result.statsTitle')}</div>
       <div class="stats-grid">
         <div class="stat-item">
-          <div class="stat-label">得分</div>
+          <div class="stat-label">{t('study.questionBankUI.result.score')}</div>
           <div class="stat-value">{sessionScore.totalScore.toFixed(1)}</div>
         </div>
         <div class="stat-item">
-          <div class="stat-label">答对</div>
+          <div class="stat-label">{t('study.questionBankUI.result.correct')}</div>
           <div class="stat-value">{sessionScore.correctCount}</div>
         </div>
         <div class="stat-item">
-          <div class="stat-label">用时</div>
+          <div class="stat-label">{t('study.questionBankUI.result.timeSpent')}</div>
           <div class="stat-value">{formatTime(session.totalTimeSpent || 0)}</div>
         </div>
         <div class="stat-item">
-          <div class="stat-label">正确率</div>
+          <div class="stat-label">{t('study.questionBankUI.result.accuracy')}</div>
           <div class="stat-value">{sessionScore.accuracy.toFixed(0)}%</div>
         </div>
       </div>
@@ -276,27 +278,27 @@
     <!-- 历史趋势 -->
     <div class="trend-section">
       <div class="trend-header">
-        <div class="trend-title">历史趋势</div>
+        <div class="trend-title">{t('study.questionBankUI.result.trendTitle')}</div>
         <div class="metric-toggle">
           <button 
             class="metric-btn" 
             class:active={currentMetric === 'accuracy'}
             onclick={() => currentMetric = 'accuracy'}
           >
-            正确率
+            {t('study.questionBankUI.trendChart.accuracy')}
           </button>
           <button 
             class="metric-btn" 
             class:active={currentMetric === 'score'}
             onclick={() => currentMetric = 'score'}
           >
-            测试分数
+            {t('study.questionBankUI.trendChart.score')}
           </button>
         </div>
       </div>
 
       {#if isLoadingHistory}
-        <div class="loading-chart">加载中...</div>
+        <div class="loading-chart">{t('study.questionBankUI.result.loading')}</div>
       {:else if testHistory.length > 0}
         <TestTrendChart history={testHistory} {currentMetric} />
       {:else}
@@ -308,7 +310,7 @@
     <!-- 底部按钮 -->
     <div class="result-footer">
       <button class="btn-close" onclick={() => onBackToBank?.()}>
-        关闭
+        {t('study.questionBankUI.result.close')}
       </button>
     </div>
   </div>
@@ -697,8 +699,6 @@
   }
 
 </style>
-
-
 
 
 

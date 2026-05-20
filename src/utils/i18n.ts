@@ -1,36 +1,13 @@
 import { logger } from "../utils/logger";
 import { vaultStorage } from "../utils/vault-local-storage";
 import { deckAnalyticsTranslationOverrides } from "./i18n/deck-analytics-overrides";
+import { mergeTranslationTrees } from "./i18n/merge-translation-trees";
 import { translations, translationOverrides } from "./i18n/resources";
 import type { I18nConfig, SupportedLanguage, TranslationKey } from "./i18n/types";
 import { derived, get, writable } from "svelte/store";
 
 export type { I18nConfig, SupportedLanguage, TranslationKey } from "./i18n/types";
-
-function isTranslationBranch(value: string | TranslationKey | undefined): value is TranslationKey {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function mergeTranslationTrees(base: TranslationKey, override?: TranslationKey): TranslationKey {
-	if (!override) {
-		return { ...base };
-	}
-
-	const merged: TranslationKey = { ...base };
-
-	for (const [key, overrideValue] of Object.entries(override)) {
-		const baseValue = merged[key];
-
-		if (isTranslationBranch(baseValue) && isTranslationBranch(overrideValue)) {
-			merged[key] = mergeTranslationTrees(baseValue, overrideValue);
-			continue;
-		}
-
-		merged[key] = overrideValue;
-	}
-
-	return merged;
-}
+export { mergeTranslationTrees } from "./i18n/merge-translation-trees";
 
 export const translationCatalog: Record<SupportedLanguage, TranslationKey> = {
 	"zh-CN": mergeTranslationTrees(
@@ -123,10 +100,18 @@ function getTranslationAliasCandidates(key: string): string[] {
  */
 function detectObsidianLanguage(): SupportedLanguage {
 	try {
-		// 方法1: 使用moment.locale() - Obsidian使用moment.js管理语言
+		// 方法1: localStorage (Obsidian 主语言来源，优先使用)
+		const obsidianLang = vaultStorage.getItem("language");
+		if (obsidianLang) {
+			if (obsidianLang === "zh" || obsidianLang === "zh-CN" || obsidianLang === "zh-TW") {
+				return "zh-CN";
+			}
+			return "en-US";
+		}
+
+		// 方法2: 使用moment.locale() - Obsidian使用moment.js管理语言
 		// @ts-ignore - moment是Obsidian全局变量
 		const momentLocale = window.moment?.locale?.();
-
 		if (momentLocale) {
 			// 中文locale: zh-cn, zh-tw
 			if (momentLocale.startsWith("zh")) {
@@ -136,17 +121,16 @@ function detectObsidianLanguage(): SupportedLanguage {
 			return "en-US";
 		}
 
-		// 方法2: localStorage (备用)
-		const obsidianLang = vaultStorage.getItem("language");
-
-		if (obsidianLang) {
-			if (obsidianLang === "zh" || obsidianLang === "zh-TW") {
+		// 方法3: 文档语言标签（备用）
+		const documentLang = window?.document?.documentElement?.lang;
+		if (documentLang) {
+			if (documentLang.startsWith("zh")) {
 				return "zh-CN";
 			}
 			return "en-US";
 		}
 
-		// 方法3: 浏览器语言 (最后备用)
+		// 方法4: 浏览器语言 (最后备用)
 		const browserLang = window?.navigator?.language;
 		if (browserLang?.startsWith("zh")) {
 			return "zh-CN";
@@ -163,10 +147,20 @@ function detectObsidianLanguage(): SupportedLanguage {
 // ============================================================================
 
 export const currentLanguage = writable<SupportedLanguage>(defaultConfig.defaultLanguage);
+let lastDetectedLanguage: SupportedLanguage | null = null;
+let stableDetectionCount = 0;
+const REQUIRED_STABLE_DETECTIONS = 2;
 
 export function syncI18nWithObsidianLanguage(): SupportedLanguage {
 	const detectedLang = detectObsidianLanguage();
-	if (get(currentLanguage) !== detectedLang) {
+	if (lastDetectedLanguage === detectedLang) {
+		stableDetectionCount += 1;
+	} else {
+		lastDetectedLanguage = detectedLang;
+		stableDetectionCount = 1;
+	}
+
+	if (stableDetectionCount >= REQUIRED_STABLE_DETECTIONS && get(currentLanguage) !== detectedLang) {
 		currentLanguage.set(detectedLang);
 	}
 	return detectedLang;
@@ -177,7 +171,10 @@ export function syncI18nWithObsidianLanguage(): SupportedLanguage {
  * 应在插件onload时调用
  */
 export function initI18n(): void {
-	syncI18nWithObsidianLanguage();
+	const detectedLang = detectObsidianLanguage();
+	lastDetectedLanguage = detectedLang;
+	stableDetectionCount = REQUIRED_STABLE_DETECTIONS;
+	currentLanguage.set(detectedLang);
 }
 export const i18nConfig = writable<I18nConfig>(defaultConfig);
 

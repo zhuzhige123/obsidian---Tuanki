@@ -272,6 +272,10 @@ COMMIT_MSG.txt
 # 庆祝消息等非必要数据
 celebration-messages.json
 
+# 本地打包产物（勿提交）
+/weave*.zip
+/*.zip
+
 # public 目录
 public/
 

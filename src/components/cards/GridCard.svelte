@@ -12,6 +12,7 @@
   import type { Card } from '../../data/types';
   import type { WeavePlugin } from '../../main';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
+  import { tr } from '../../utils/i18n';
   // 导入挖空处理工具
   import { stripClozeForDisplay } from '../../utils/cloze-utils';
   import { getCardFieldContent } from '../../utils/card-field-helper';
@@ -47,6 +48,7 @@
   let isHovered = $state(false);
   let showMenu = $state(false);
   let contentComponent: Component | null = null;
+  let t = $derived($tr);
 
   // 计算属性
   const frontText = $derived(getCardFieldContent(card, 'front'));
@@ -276,7 +278,7 @@
     <button
       class="menu-button"
       onclick={toggleMenu}
-      title="更多操作"
+      title={t('toolbar.moreActions')}
     >
       <EnhancedIcon name="more-horizontal" size={16} />
     </button>
@@ -287,17 +289,17 @@
       <div class="action-menu-backdrop" onclick={() => showMenu = false} onkeydown={() => {}}></div>
       <div class="action-menu">
         {#if onEdit}
-          <button class="action-menu-item" onclick={handleEdit} title="编辑">
+          <button class="action-menu-item" onclick={handleEdit} title={t('toolbar.edit')}>
             <EnhancedIcon name="edit" size={16} />
           </button>
         {/if}
         {#if onDelete}
-          <button class="action-menu-item danger" onclick={handleDelete} title="删除">
+          <button class="action-menu-item danger" onclick={handleDelete} title={t('toolbar.delete')}>
             <EnhancedIcon name="trash-2" size={16} />
           </button>
         {/if}
         {#if onView}
-          <button class="action-menu-item" onclick={handleView} title="查看">
+          <button class="action-menu-item" onclick={handleView} title={t('toolbar.preview')}>
             <EnhancedIcon name="eye" size={16} />
           </button>
         {/if}

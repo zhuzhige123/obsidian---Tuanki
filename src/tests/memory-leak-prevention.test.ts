@@ -3,6 +3,9 @@
  * 验证资源管理器能否正确防止内存泄漏
  */
 import { EditorResourceManager, getGlobalResourceManager } from '../utils/resource-manager';
+import { GlobalDataCache } from '../services/GlobalDataCache';
+import EditorContextManager from '../services/editor/EditorContextManager';
+import { BlockLinkCleanupService } from '../services/cleanup/BlockLinkCleanupService';
 
 describe('资源管理器内存泄漏防护测试', () => {
   let resourceManager: EditorResourceManager;
@@ -313,5 +316,57 @@ describe('全局资源管理器测试', () => {
     // 验证全局统计为空
     const globalStats = globalManager.getGlobalStats();
     expect(Object.keys(globalStats)).toHaveLength(0);
+  });
+});
+
+describe('单例清理防护测试', () => {
+  test('应该释放 GlobalDataCache 的缓存状态和插件引用', () => {
+    const instance = GlobalDataCache.getInstance() as any;
+    instance.state.decks = [{ id: 'deck-1' }];
+    instance.state.timestamp = Date.now();
+    instance.state.isLoading = true;
+    instance.plugin = { id: 'plugin-ref' };
+
+    GlobalDataCache.destroyInstance();
+
+    const nextInstance = GlobalDataCache.getInstance() as any;
+    expect(nextInstance).not.toBe(instance);
+    expect(nextInstance.state.decks).toBeNull();
+    expect(nextInstance.state.timestamp).toBe(0);
+    expect(nextInstance.state.isLoading).toBe(false);
+    expect(nextInstance.plugin).toBeNull();
+  });
+
+  test('应该释放 EditorContextManager 持有的活动编辑器引用', () => {
+    const instance = EditorContextManager.getInstance() as any;
+    const editorRef = { id: 'editor-1' };
+    instance.registerActive(editorRef);
+
+    EditorContextManager.resetInstance();
+
+    const nextInstance = EditorContextManager.getInstance() as any;
+    expect(nextInstance).not.toBe(instance);
+    expect(nextInstance.getActivePluginEditor()).toBeNull();
+  });
+
+  test('应该释放 BlockLinkCleanupService 的单例资源引用', () => {
+    const instance = BlockLinkCleanupService.getInstance() as any;
+    instance.dataStorage = { id: 'storage' };
+    instance.vault = { id: 'vault' };
+    instance.app = { id: 'app' };
+    instance.detector = { id: 'detector' };
+    instance.strategies.set('quick-create', { id: 'strategy' });
+    instance.initialized = true;
+
+    BlockLinkCleanupService.resetInstance();
+
+    const nextInstance = BlockLinkCleanupService.getInstance() as any;
+    expect(nextInstance).not.toBe(instance);
+    expect(nextInstance.dataStorage).toBeNull();
+    expect(nextInstance.vault).toBeNull();
+    expect(nextInstance.app).toBeNull();
+    expect(nextInstance.detector).toBeNull();
+    expect(nextInstance.strategies.size).toBe(0);
+    expect(nextInstance.initialized).toBe(false);
   });
 });

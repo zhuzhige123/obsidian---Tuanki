@@ -1,6 +1,7 @@
 ﻿<script lang="ts">
   import type { Card } from '../../../data/types';
   import { Menu, TFile } from "obsidian";
+  import { tr } from "../../../utils/i18n";
   import StatusBadge from "../../ui/StatusBadge.svelte";
   import { untrack } from "svelte";
   import EnhancedIcon from "../../ui/EnhancedIcon.svelte";
@@ -33,6 +34,7 @@
     isDragSelectActive,
     isVisible = true
   }: TableRowProps = $props();
+  let t = $derived($tr);
 
   function getSourceFileName(card: any): string {
     if (card.sourceFile) {
@@ -60,10 +62,11 @@
     return Number(card.ir_priority_value ?? card.ir_priority ?? 5) || 5;
   }
 
-  function getIRPriorityClass(value: number): string {
-    if (value >= 8) return 'high';
-    if (value >= 5) return 'medium';
-    return 'low';
+  function getIRPriorityTone(value: number): string {
+    if (value >= 8) return 'red';
+    if (value >= 6) return 'orange';
+    if (value >= 4) return 'blue';
+    return 'gray';
   }
 
   function isIRDeckIdentifierLike(value: string | null | undefined): boolean {
@@ -282,12 +285,12 @@
 
   function getIRStateLabel(state: string | undefined): string {
     const s = state || 'new';
-    if (s === 'new') return '新导入';
-    if (s === 'learning' || s === 'queued' || s === 'active') return '阅读中';
-    if (s === 'review' || s === 'scheduled') return '复习';
-    if (s === 'suspended') return '已暂停';
-    if (s === 'done') return '已完成';
-    return '未知';
+    if (s === 'new') return t('cardManagement.table.ir.state.new');
+    if (s === 'learning' || s === 'queued' || s === 'active') return t('cardManagement.table.ir.state.learning');
+    if (s === 'review' || s === 'scheduled') return t('cardManagement.table.ir.state.review');
+    if (s === 'suspended') return t('cardManagement.table.ir.state.suspended');
+    if (s === 'done') return t('cardManagement.table.ir.state.done');
+    return t('cardManagement.table.common.unknown');
   }
 </script>
 
@@ -300,14 +303,14 @@
       <DraggableCheckboxWrapper
         checked={selected}
         onchange={handleRowSelect}
-        ariaLabel="选择卡片"
+        ariaLabel={t('cardManagement.table.common.selectCard')}
         cardId={card.uuid}
         {onDragSelectStart}
         {onDragSelectMove}
         {isDragSelectActive}
       />
       {#if selected && selectionOrder}
-        <span class="weave-selection-order-badge" title={`多选序号 ${selectionOrder}`}>
+        <span class="weave-selection-order-badge" title={t('cardManagement.table.common.selectionOrder', { n: selectionOrder })}>
           {selectionOrder}
         </span>
       {/if}
@@ -343,7 +346,7 @@
             </span>
           {/each}
         {:else}
-          <span class="weave-text-muted">未分配</span>
+          <span class="weave-text-muted">{t('cardManagement.table.common.unassigned')}</span>
         {/if}
         </div>
       </td>
@@ -375,8 +378,8 @@
             class="weave-source-link"
             onclick={() => callbacks.onJumpToSource?.(card)}
             title={card.sourceBlock || (card.customFields?.blockId)
-              ? '点击打开源文档并定位到块引用位置'
-              : '点击打开源文档'}
+              ? t('cardManagement.table.source.jumpWithBlock')
+              : t('cardManagement.table.source.jump')}
           >
             <span>{truncateText(getSourceFileName(card), 20)}</span>
             {#if card.sourceBlock || (card.customFields?.blockId)}
@@ -395,7 +398,7 @@
             <span class="weave-field-template-text">{templateInfo.name}</span>
           </div>
         {:else}
-          <span class="weave-text-muted">未设置</span>
+          <span class="weave-text-muted">{t('cardManagement.table.common.notSet')}</span>
         {/if}
       </td>
     {:else if columnKey === 'source_document_status'}
@@ -461,7 +464,8 @@
       </td>
     {:else if columnKey === 'ir_priority'}
       <td class="weave-ir-priority-column">
-        <span class="weave-priority-badge weave-priority-{getIRPriorityClass(getIRPriorityValue(card as any))}">
+        <span class="weave-priority-badge weave-priority-tone-{getIRPriorityTone(getIRPriorityValue(card as any))}">
+          <span class="weave-priority-badge-dot"></span>
           P{getIRPriorityValue(card as any)}
         </span>
       </td>
@@ -485,11 +489,11 @@
             const hours = Math.floor(totalSeconds / 3600);
             const minutes = Math.floor((totalSeconds % 3600) / 60);
             if (hours > 0) {
-              return `${hours}小时${minutes}分钟`;
+              return t('cardManagement.table.ir.readingTime.hoursMinutes', { hours, minutes });
             } else if (minutes > 0) {
-              return `${minutes}分钟`;
+              return t('cardManagement.table.ir.readingTime.minutes', { minutes });
             } else {
-              return '0分钟';
+              return t('cardManagement.table.ir.readingTime.zero');
             }
           })()}
         </span>
@@ -518,9 +522,9 @@
             </button>
             {#if getAssociatedNoteDisplay(card as any).remainingCount > 0}
               <button
-                type="button"
-                class="weave-ir-note-more"
-                title={`查看其余 ${getAssociatedNoteDisplay(card as any).remainingCount} 个关联笔记`}
+              type="button"
+              class="weave-ir-note-more"
+              title={t('cardManagement.table.ir.viewRemainingNotes', { count: getAssociatedNoteDisplay(card as any).remainingCount })}
                 onclick={(event) => openAssociatedNotesMenu(event, getAssociatedNoteDisplay(card as any).paths)}
                 oncontextmenu={openAssociatedNotesManager}
               >
@@ -546,8 +550,8 @@
       </td>
     {:else if columnKey === 'ir_tag_group'}
       <td class="weave-ir-tag-group-column">
-        <span class="weave-inline-chip weave-inline-chip--soft" title={(card as any).ir_tag_group || '默认'}>
-          {(card as any).ir_tag_group || '默认'}
+        <span class="weave-inline-chip weave-inline-chip--soft" title={(card as any).ir_tag_group || t('cardManagement.table.ir.defaultTagGroup')}>
+          {(card as any).ir_tag_group || t('cardManagement.table.ir.defaultTagGroup')}
         </span>
       </td>
     {:else if columnKey === 'ir_created'}
@@ -569,7 +573,7 @@
               </span>
             {/if}
           {:else}
-            <span class="weave-text-muted">未分配</span>
+            <span class="weave-text-muted">{t('cardManagement.table.common.unassigned')}</span>
           {/if}
         </div>
       </td>
@@ -579,6 +583,7 @@
           {card}
           onView={callbacks.onView}
           onTempFileEdit={callbacks.onTempFileEdit}
+          onResetReviewHistory={callbacks.onResetReviewHistory}
           onEdit={callbacks.onEdit}
           onDelete={callbacks.onDelete}
         />
@@ -626,11 +631,8 @@
   }
 
   .weave-table-row .weave-checkbox-column {
-    width: 72px;
-    min-width: 72px;
-    max-width: 72px;
     text-align: center;
-    padding: var(--weave-table-cell-padding-y, 6px) var(--weave-table-cell-padding-x, 16px);
+    padding: var(--weave-table-cell-padding-y, 6px) 8px;
     text-overflow: clip;
     overflow: visible;
   }
@@ -911,27 +913,48 @@
   .weave-priority-badge {
     display: inline-flex;
     align-items: center;
+    gap: 5px;
     min-height: var(--weave-table-pill-height, 22px);
-    padding: 0 var(--weave-table-pill-padding-x, 8px);
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 500;
+    padding: 0 10px;
+    border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
     white-space: nowrap;
   }
 
-  .weave-priority-high {
-    background: color-mix(in srgb, var(--color-red, var(--text-error)) 15%, transparent);
+  .weave-priority-badge-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.88;
+    flex-shrink: 0;
+  }
+
+  .weave-priority-tone-gray {
+    background: color-mix(in srgb, var(--color-gray) 12%, transparent);
+    color: var(--color-gray);
+    border-color: color-mix(in srgb, var(--color-gray) 20%, transparent);
+  }
+
+  .weave-priority-tone-blue {
+    background: color-mix(in srgb, var(--color-blue) 12%, transparent);
+    color: var(--color-blue);
+    border-color: color-mix(in srgb, var(--color-blue) 20%, transparent);
+  }
+
+  .weave-priority-tone-orange {
+    background: color-mix(in srgb, var(--color-orange) 12%, transparent);
+    color: var(--color-orange);
+    border-color: color-mix(in srgb, var(--color-orange) 22%, transparent);
+  }
+
+  .weave-priority-tone-red {
+    background: color-mix(in srgb, var(--color-red, var(--text-error)) 12%, transparent);
     color: var(--color-red, var(--text-error));
-  }
-
-  .weave-priority-medium {
-    background: color-mix(in srgb, var(--color-yellow, var(--interactive-accent)) 15%, transparent);
-    color: var(--color-yellow, var(--interactive-accent));
-  }
-
-  .weave-priority-low {
-    background: color-mix(in srgb, var(--color-green, var(--interactive-accent)) 15%, transparent);
-    color: var(--color-green, var(--interactive-accent));
+    border-color: color-mix(in srgb, var(--color-red, var(--text-error)) 22%, transparent);
   }
 
   .weave-ir-note-links {
@@ -988,10 +1011,7 @@
     }
 
     .weave-table-row .weave-checkbox-column {
-      width: 58px;
-      min-width: 58px;
-      max-width: 58px;
-      padding: 4px 10px;
+      padding: 4px 8px;
     }
 
     .weave-checkbox-cell {

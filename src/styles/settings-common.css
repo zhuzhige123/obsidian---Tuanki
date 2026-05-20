@@ -338,6 +338,7 @@
   width: 44px;
   height: 24px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .weave-settings .modern-switch input {
@@ -577,11 +578,6 @@ body.theme-light .weave-view-content .modern-slider::-moz-range-track,
 
 /* 强制开关按钮靠右对齐 */
 /* ✅ 移除 !important：.weave-settings 命名空间已有足够优先级 */
-.weave-settings .modern-switch {
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
 /* 输入控件样式 */
 .weave-settings .settings-input {
   width: 100%;

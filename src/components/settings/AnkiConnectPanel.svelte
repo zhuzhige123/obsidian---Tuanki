@@ -109,16 +109,28 @@
   }
 
   function buildExportNotice(result: ExportResult): string {
-    return `新增 ${result.createdCards}，更新 ${result.updatedCards}，无变化 ${result.unchangedCards}，重复 ${result.duplicateCards}，失败 ${result.failedCards}`;
+    return t('ankiConnect.notices.exportSummary', {
+      created: result.createdCards,
+      updated: result.updatedCards,
+      unchanged: result.unchangedCards,
+      duplicate: result.duplicateCards,
+      failed: result.failedCards
+    });
   }
 
   function buildRepairNotice(result: ModelMismatchRepairResult): string {
     const remaining = result.failedCards + result.archivedOnlyCards;
     if (remaining === 0) {
-      return `错模型修复完成：已修复 ${result.fixedCards} 张，旧卡已归档到 ${result.archiveDeckName}`;
+      return t('ankiConnect.notices.repairDoneAll', {
+        fixed: result.fixedCards,
+        archive: result.archiveDeckName
+      });
     }
 
-    return `已修复 ${result.fixedCards} 张，仍有 ${remaining} 张需要继续处理`;
+    return t('ankiConnect.notices.repairDonePartial', {
+      fixed: result.fixedCards,
+      remaining
+    });
   }
 
   function createEmptyExportResult(): ExportResult {
@@ -265,7 +277,7 @@
       }
 
       if (!ankiService) {
-        throw new Error('AnkiConnect 服务初始化失败');
+        throw new Error(t('ankiConnect.notices.initServiceFailed'));
       }
 
       const status = await ankiService.testConnection();
@@ -295,7 +307,7 @@
         error: {
           type: ConnectionErrorType.UNKNOWN,
           message: error.message,
-          suggestion: '请确保 Anki 正在运行且已安装 AnkiConnect 插件'
+          suggestion: t('ankiConnect.notices.connectSuggestion')
         }
       };
 
@@ -345,10 +357,10 @@
     progressModal = {
       open: true,
       operation: 'fetch_models',
-      title: '正在获取 Anki 模板',
+      title: t('ankiConnect.notices.fetchModelsTitle'),
       current: 0,
       total: 0,
-      status: '正在读取 Anki 笔记类型和字段...',
+      status: t('ankiConnect.notices.fetchModelsStatus'),
       currentItem: '',
       deckIndex: 0,
       totalDecks: 0
@@ -358,7 +370,7 @@
       const models = await ankiService.getAnkiModels((current, total) => {
         progressModal.current = current;
         progressModal.total = total;
-        progressModal.status = `正在读取 Anki 模板 ${current}/${total}`;
+        progressModal.status = t('ankiConnect.notices.fetchModelsProgress', { current, total });
       });
 
       ankiModels = [...models].sort((left, right) =>
@@ -371,11 +383,11 @@
 
       progressModal.open = false;
       await saveSettings(false);
-      new Notice(`已获取 ${ankiModels.length} 个 Anki 模板`, 5000);
+      new Notice(t('ankiConnect.notices.fetchedModels', { count: ankiModels.length }), 5000);
     } catch (error: any) {
       progressModal.open = false;
       logger.error('获取 Anki 模板失败:', error);
-      new Notice(`获取 Anki 模板失败：${error.message}`, 8000);
+      new Notice(t('ankiConnect.notices.fetchModelsFailed') + error.message, 8000);
     } finally {
       isFetchingModels = false;
     }
@@ -444,7 +456,7 @@
 
   async function repairModelMismatchFromModal() {
     if (!ankiService || !resultModal.result) {
-      new Notice('AnkiConnect 服务未初始化，无法修复');
+      new Notice(t('ankiConnect.notices.repairUnavailable'));
       return;
     }
 
@@ -453,7 +465,7 @@
     );
 
     if (pendingItems.length === 0) {
-      new Notice('当前没有待修复的错模型卡片');
+      new Notice(t('ankiConnect.notices.repairNothingPending'));
       return;
     }
 
@@ -462,11 +474,11 @@
     progressModal = {
       open: true,
       operation: 'sync_to_anki',
-      title: '正在修复错模型卡片',
+      title: t('ankiConnect.notices.repairTitle'),
       current: 0,
       total: pendingItems.length * 2,
-      status: '正在准备归档旧卡并重建正确模板...',
-      currentItem: `待修复 ${pendingItems.length} 张卡片`,
+      status: t('ankiConnect.notices.repairPreparing'),
+      currentItem: t('ankiConnect.notices.repairPendingCards', { count: pendingItems.length }),
       deckIndex: 1,
       totalDecks: 1
     };
@@ -477,7 +489,7 @@
         (current, total, status) => {
           progressModal.current = current;
           progressModal.total = total;
-          progressModal.status = status || '正在修复错模型卡片';
+          progressModal.status = status || t('ankiConnect.notices.repairRunning');
         }
       );
 
@@ -496,7 +508,7 @@
     } catch (error: any) {
       progressModal.open = false;
       logger.error('修复错模型卡片失败:', error);
-      new Notice(`修复错模型卡片失败：${error.message}`, 8000);
+      new Notice(t('ankiConnect.notices.repairFailed', { error: error.message }), 8000);
     } finally {
       resultModal.isRepairing = false;
     }
@@ -546,8 +558,11 @@
       mapping.lastSyncTime = new Date().toISOString();
       await saveSettings(false);
 
-      new Notice(`${mapping.weaveDeckName} 同步完成：${buildExportNotice(result)}`, 5000);
-      showResultModal(`${mapping.weaveDeckName} 同步结果`, result);
+      new Notice(t('ankiConnect.notices.syncDeckComplete', {
+        deck: mapping.weaveDeckName,
+        summary: buildExportNotice(result)
+      }), 5000);
+      showResultModal(t('ankiConnect.notices.syncDeckResultTitle', { deck: mapping.weaveDeckName }), result);
 
       if (result.errors.length > 0) {
         logger.warn('同步过程中出现警告:', result.errors);
@@ -649,10 +664,14 @@
 
       if (mergedExportResult) {
         new Notice(
-          `批量同步完成：成功牌组 ${results.successDecks}/${results.totalDecks}，${buildExportNotice(mergedExportResult)}`,
+          t('ankiConnect.notices.batchSyncSummary', {
+            success: results.successDecks,
+            total: results.totalDecks,
+            summary: buildExportNotice(mergedExportResult)
+          }),
           results.failedDecks === 0 ? 6000 : 8000
         );
-        showResultModal('批量同步结果', mergedExportResult);
+        showResultModal(t('ankiConnect.notices.batchSyncResultTitle'), mergedExportResult);
       } else if (results.failedDecks === 0) {
         new Notice(
           t('ankiConnect.notices.batchComplete', {
@@ -818,7 +837,7 @@
           <button
             class="floating-panel-close"
             type="button"
-            aria-label="关闭"
+            aria-label={t('ankiConnect.notices.close')}
             onclick={() => {
               showCorsModal = false;
             }}
@@ -841,7 +860,7 @@
               showCorsModal = false;
             }}
           >
-            关闭
+            {t('ankiConnect.notices.close')}
           </button>
           <button class="primary-action-btn" type="button" onclick={copyCorsConfig}>
             {t('ankiConnect.notices.copyBtn')}

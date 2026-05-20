@@ -6,7 +6,6 @@
  * @module domain/apkg/parser
  */
 
-import initSqlJs, { type Database as SqlDatabase } from "sql.js";
 import { APKGLogger } from "../../../infrastructure/logger/APKGLogger";
 import { throwIfImportAborted, yieldImportTask } from "../ImportTaskControl";
 import type { APKGFormat, APKGMetadata, AnkiDeck, AnkiModel, AnkiNote } from "../types";
@@ -43,6 +42,20 @@ interface RawAnkiDeck {
 
 type NoteRow = [number, number, string, string, number | null, string | null, string | null];
 
+interface SqlDatabase {
+	exec(sql: string): Array<{ values: unknown[][] }>;
+	prepare(sql: string): {
+		step(): boolean;
+		get(): unknown[];
+		free(): void;
+	};
+	close(): void;
+}
+
+interface SqlJsRuntime {
+	Database: new (data: Uint8Array) => SqlDatabase;
+}
+
 /**
  * SQLite 数据库读取器
  */
@@ -57,14 +70,24 @@ export class SQLiteReader {
 		this.sqlInitTimeoutMs = sqlInitTimeoutMs;
 	}
 
-	private async initializeSqlJs(): Promise<Awaited<ReturnType<typeof initSqlJs>>> {
+	private async loadSqlJsRuntime(): Promise<SqlJsRuntime> {
+		const module = await import("sql.js");
+		const initSqlJs = module.default;
+		if (typeof initSqlJs !== "function") {
+			throw new Error("SQLite 解析器入口不可用");
+		}
+
+		return initSqlJs({
+			locateFile: (file) => (file.endsWith(".wasm") ? this.wasmUrl : file),
+		}) as Promise<SqlJsRuntime>;
+	}
+
+	private async initializeSqlJs(): Promise<SqlJsRuntime> {
 		let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
 		try {
 			return await Promise.race([
-				initSqlJs({
-					locateFile: (file) => (file.endsWith(".wasm") ? this.wasmUrl : file),
-				}),
+				this.loadSqlJsRuntime(),
 				new Promise<never>((_, reject) => {
 					timeoutHandle = setTimeout(() => {
 						reject(

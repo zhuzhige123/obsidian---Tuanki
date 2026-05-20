@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Menu } from "obsidian";
+  import { tr } from "../../../../utils/i18n";
   import EnhancedIcon from "../../../ui/EnhancedIcon.svelte";
   import type { ActionsCellProps } from "../../types/table-types";
 
@@ -7,9 +8,11 @@
     card,
     onView,
     onTempFileEdit,
+    onResetReviewHistory,
     onEdit,
     onDelete
   }: ActionsCellProps = $props();
+  let t = $derived($tr);
 
   function showMenu(event: MouseEvent) {
     event.preventDefault();
@@ -19,7 +22,7 @@
     if (onView) {
       menu.addItem((item) => {
         item
-          .setTitle("查看详情")
+          .setTitle(t("study.menu.cardDetails"))
           .setIcon("eye")
           .onClick(() => onView(card.uuid));
       });
@@ -28,7 +31,7 @@
     if (onEdit || onTempFileEdit) {
       menu.addItem((item) => {
         item
-          .setTitle("编辑卡片")
+          .setTitle(t("study.menu.editCard"))
           .setIcon("edit")
           .onClick(() => {
             if (onTempFileEdit) {
@@ -40,11 +43,20 @@
       });
     }
 
+    if (card.fsrs && onResetReviewHistory) {
+      menu.addItem((item) => {
+        item
+          .setTitle(t("cardManagement.actions.resetReviewHistory"))
+          .setIcon("rotate-ccw")
+          .onClick(() => onResetReviewHistory(card.uuid));
+      });
+    }
+
     menu.addSeparator();
 
     menu.addItem((item) => {
       item
-        .setTitle("删除卡片")
+        .setTitle(t("study.menu.deleteCard"))
         .setIcon("trash")
         .setWarning(true)
         .onClick(() => onDelete(card.uuid));
@@ -58,10 +70,10 @@
   <button
     class="actions-menu-button"
     onclick={showMenu}
-    aria-label="操作菜单"
+    aria-label={t("cardManagement.actions.menu")}
     type="button"
   >
-    <EnhancedIcon name="more-horizontal" size={16} ariaLabel="操作菜单" />
+    <EnhancedIcon name="more-horizontal" size={16} ariaLabel={t("cardManagement.actions.menu")} />
   </button>
 </div>
 

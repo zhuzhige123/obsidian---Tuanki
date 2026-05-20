@@ -2,6 +2,7 @@
   import { Notice } from 'obsidian';
   import type { Card } from '../../data/types';
   import { CardType } from '../../data/types';
+  import { onDestroy } from 'svelte';
   import { get } from 'svelte/store';
 
   import { customActionsForMenu } from '../../stores/ai-config.store';
@@ -13,6 +14,7 @@
   import { createContentWithMetadata, extractBodyContent } from '../../utils/yaml-utils';
   import { generateCardUUID } from '../../services/identifier/WeaveIDGenerator';
   import { detectTraceSourceKind, normalizeTraceDocumentKey } from '../../services/incremental-reading/IRSourceTraceStats';
+  import { tr } from '../../utils/i18n';
 
   interface Props {
     host: AISelectedTextPanelHost;
@@ -34,12 +36,102 @@
 
   let sourceWeSource = $state<string>('');
 
+  let previewHeight = $state(248);
+  let resizeButtonEl: HTMLButtonElement | null = $state(null);
+  let isResizeDragging = $state(false);
+  let activeResizePointerId: number | null = null;
+
   let didInit = $state(false);
+
+  /** 与 EPUB 阅读器插件共用键，便于两处预览高度一致 */
+  const PREVIEW_HEIGHT_STORAGE_KEY = 'weave-ai-split-preview-height';
+  const MIN_PREVIEW_HEIGHT = 188;
+  const MAX_PREVIEW_HEIGHT = 420;
+  const DEFAULT_PREVIEW_HEIGHT = 248;
+  let dragStartY = 0;
+  let dragStartHeight = DEFAULT_PREVIEW_HEIGHT;
+
+  function clampPreviewHeight(value: number): number {
+    return Math.min(MAX_PREVIEW_HEIGHT, Math.max(MIN_PREVIEW_HEIGHT, Math.round(value)));
+  }
+
+  function persistPreviewHeight(value: number): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    try {
+      window.localStorage.setItem(PREVIEW_HEIGHT_STORAGE_KEY, String(value));
+    } catch {
+    }
+  }
+
+  function restorePreviewHeight(): void {
+    if (typeof window === 'undefined') {
+      previewHeight = DEFAULT_PREVIEW_HEIGHT;
+      return;
+    }
+
+    try {
+      const stored = Number(window.localStorage.getItem(PREVIEW_HEIGHT_STORAGE_KEY));
+      previewHeight = Number.isFinite(stored)
+        ? clampPreviewHeight(stored)
+        : DEFAULT_PREVIEW_HEIGHT;
+    } catch {
+      previewHeight = DEFAULT_PREVIEW_HEIGHT;
+    }
+  }
+
+  function stopResizeDrag(): void {
+    if (!isResizeDragging) {
+      return;
+    }
+    isResizeDragging = false;
+    try {
+      if (activeResizePointerId !== null) {
+        resizeButtonEl?.releasePointerCapture?.(activeResizePointerId);
+      }
+    } catch {
+    }
+    activeResizePointerId = null;
+    window.removeEventListener('pointermove', handleResizePointerMove);
+    window.removeEventListener('pointerup', handleResizePointerUp);
+    window.removeEventListener('pointercancel', handleResizePointerUp);
+  }
+
+  function handleResizePointerMove(event: PointerEvent): void {
+    if (!isResizeDragging) {
+      return;
+    }
+    const deltaY = event.clientY - dragStartY;
+    previewHeight = clampPreviewHeight(dragStartHeight + deltaY);
+  }
+
+  function handleResizePointerUp(): void {
+    persistPreviewHeight(previewHeight);
+    stopResizeDrag();
+  }
+
+  function handleResizePointerDown(event: PointerEvent): void {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    dragStartY = event.clientY;
+    dragStartHeight = previewHeight;
+    isResizeDragging = true;
+    activeResizePointerId = event.pointerId;
+    resizeButtonEl?.setPointerCapture?.(event.pointerId);
+    window.addEventListener('pointermove', handleResizePointerMove);
+    window.addEventListener('pointerup', handleResizePointerUp);
+    window.addEventListener('pointercancel', handleResizePointerUp);
+  }
 
   let currentAction = $derived.by(() => {
     const actions = get(customActionsForMenu).split;
     return actions.find((a) => a.id === actionId) || null;
   });
+  let t = $derived($tr);
 
   async function loadDecks() {
     try {
@@ -136,13 +228,13 @@
 
     const action = currentAction;
     if (!action) {
-      new Notice('未找到指定的AI拆分功能');
+      new Notice(t('aiAssistant.selectedTextPanel.missingAction'));
       return;
     }
 
     const trimmed = (selectedText || '').trim();
     if (!trimmed) {
-      new Notice('请先选中要制卡的文本');
+      new Notice(t('aiAssistant.selectedTextPanel.emptySelection'));
       return;
     }
 
@@ -198,7 +290,7 @@
       );
 
       if (!result.success || !result.splitCards || result.splitCards.length === 0) {
-        throw new Error(result.error || '拆分失败');
+        throw new Error(result.error || t('aiAssistant.selectedTextPanel.splitFailed'));
       }
 
       const newlyGenerated = result.splitCards.map((c, idx) => {
@@ -208,9 +300,9 @@
 
       childCards = newlyGenerated;
       selectedCardIds = new Set(newlyGenerated.map((c) => c.uuid));
-      new Notice(`已生成 ${newlyGenerated.length} 张预览卡片`);
+      new Notice(t('aiAssistant.selectedTextPanel.generatedPreviewCards', { count: newlyGenerated.length }));
     } catch (e) {
-      new Notice(e instanceof Error ? e.message : '生成失败');
+      new Notice(e instanceof Error ? e.message : t('aiAssistant.selectedTextPanel.generateFailed'));
     } finally {
       isGenerating = false;
     }
@@ -238,18 +330,18 @@
 
   async function handleSaveSelected(): Promise<void> {
     if (isGenerating) {
-      new Notice('正在生成，请稍候');
+      new Notice(t('aiAssistant.selectedTextPanel.generatingPleaseWait'));
       return;
     }
 
     const selectedIds = Array.from(selectedCardIds);
     if (selectedIds.length === 0) {
-      new Notice('请先选择要导入的卡片');
+      new Notice(t('aiAssistant.selectedTextPanel.selectCardsFirst'));
       return;
     }
 
     if (!selectedDeckId) {
-      new Notice('请先选择目标牌组');
+      new Notice(t('aiAssistant.selectedTextPanel.selectTargetDeckFirst'));
       return;
     }
 
@@ -284,7 +376,7 @@
         if (res.success) savedCount++;
       }
 
-      new Notice(`成功导入 ${savedCount} 张卡片`);
+      new Notice(t('aiAssistant.selectedTextPanel.importSuccess', { count: savedCount }));
 
       try {
         (host.app.workspace as any).trigger('Weave:card-created', {
@@ -296,15 +388,20 @@
 
       onClose();
     } catch (e) {
-      new Notice(e instanceof Error ? e.message : '导入失败');
+      new Notice(e instanceof Error ? e.message : t('aiAssistant.selectedTextPanel.importFailed'));
     }
   }
 
   $effect(() => {
     if (didInit) return;
     didInit = true;
+    restorePreviewHeight();
     loadDecks();
     generateCards();
+  });
+
+  onDestroy(() => {
+    stopResizeDrag();
   });
 
   function toggleCardSelection(cardId: string) {
@@ -317,22 +414,36 @@
 
 <div class="weave-ai-card-panel">
   <div class="header">
-    <div class="title">AI预览卡片分布</div>
+    <div class="title">{t('aiAssistant.selectedTextPanel.title')}</div>
     <div class="header-actions">
-      <button class="close" type="button" onclick={onClose}>关闭</button>
+      <button
+        bind:this={resizeButtonEl}
+        class="resize-control"
+        class:dragging={isResizeDragging}
+        type="button"
+        title={t('aiAssistant.selectedTextPanel.previewResizeTitle')}
+        aria-label={t('aiAssistant.selectedTextPanel.previewResizeAriaLabel')}
+        onpointerdown={handleResizePointerDown}
+      >
+        ↕
+      </button>
+      <button class="close" type="button" onclick={onClose}>{t('aiAssistant.selectedTextPanel.close')}</button>
     </div>
   </div>
 
-  <div class="content">
+  <div
+    class="content"
+    style={`height: ${previewHeight}px; --weave-ai-preview-card-height: ${Math.max(156, previewHeight - 28)}px;`}
+  >
     {#if isGenerating}
       <div class="generating-overlay" aria-busy="true">
         <div class="spinner"></div>
-        <div class="generating-text">正在生成...</div>
+        <div class="generating-text">{t('aiAssistant.selectedTextPanel.generating')}</div>
       </div>
     {/if}
 
     {#if childCards.length === 0}
-      <div class="loading">暂无预览卡片</div>
+      <div class="loading">{t('aiAssistant.selectedTextPanel.emptyPreview')}</div>
     {:else}
       <div class="cards-strip">
         {#each childCards as card, i}
@@ -395,19 +506,60 @@
     gap: 0.5rem;
   }
 
+  .resize-control,
   .close {
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-primary);
+    appearance: none;
+    -webkit-appearance: none;
+    margin: 0;
+    border: none !important;
+    border-radius: 0;
+    background: none !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
     color: var(--text-normal);
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.375rem;
+    padding: 4px 2px;
     cursor: pointer;
     font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .resize-control {
+    min-width: 18px;
+    text-align: center;
+    touch-action: none;
+    user-select: none;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .resize-control.dragging {
+    color: var(--interactive-accent);
+  }
+
+  .resize-control:hover,
+  .close:hover {
+    color: var(--interactive-accent);
+    border: none !important;
+    box-shadow: none !important;
+    background: none !important;
+    background-color: transparent !important;
+  }
+
+  .resize-control:focus-visible,
+  .close:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--interactive-accent) 55%, transparent);
+    outline-offset: 2px;
+    border: none !important;
+    box-shadow: none !important;
+    background: none !important;
+    background-color: transparent !important;
   }
 
   .content {
     position: relative;
     min-height: 160px;
+    max-height: 420px;
+    transition: height 0.14s ease;
   }
 
   .cards-strip {
@@ -416,7 +568,9 @@
     overflow-x: auto;
     overflow-y: hidden;
     padding: 0.5rem 0 1rem;
-    align-items: center;
+    align-items: stretch;
+    height: 100%;
+    box-sizing: border-box;
   }
 
   .generating-overlay {

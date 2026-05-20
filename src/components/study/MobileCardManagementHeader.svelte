@@ -14,6 +14,7 @@
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import { get } from 'svelte/store';
   import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
+  import { tr } from '../../utils/i18n';
 
   // 视图类型
   export type CardViewType = 'table' | 'grid' | 'kanban';
@@ -31,17 +32,19 @@
     onSearchClick,
     onViewChange
   }: Props = $props();
+  let t = $derived($tr);
 
   const premiumGuard = PremiumFeatureGuard.getInstance();
+  const cardManagementFeatureContext = { page: 'weave-card-management' };
   let isPremium = $state(get(premiumGuard.isPremiumActive));
   let showPremiumFeaturesPreview = $state(get(premiumGuard.premiumFeaturesPreviewEnabled));
 
   // 视图配置（与桌面端统一）
-  const viewTypes = [
-    { id: 'table' as CardViewType, name: '表格视图', colorStart: '#ef4444', colorEnd: '#dc2626' },
-    { id: 'grid' as CardViewType, name: '网格视图', colorStart: '#3b82f6', colorEnd: '#2563eb' },
-    { id: 'kanban' as CardViewType, name: '看板视图', colorStart: '#10b981', colorEnd: '#059669' }
-  ];
+  const viewTypes = $derived([
+    { id: 'table' as CardViewType, name: t('cards.management.mobileHeader.views.table'), colorStart: '#ef4444', colorEnd: '#dc2626' },
+    { id: 'grid' as CardViewType, name: t('cards.management.mobileHeader.views.grid'), colorStart: '#3b82f6', colorEnd: '#2563eb' },
+    { id: 'kanban' as CardViewType, name: t('cards.management.mobileHeader.views.kanban'), colorStart: '#10b981', colorEnd: '#059669' }
+  ]);
 
   $effect(() => {
     const unsubscribePremium = premiumGuard.isPremiumActive.subscribe(value => {
@@ -63,14 +66,14 @@
         return premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.GRID_VIEW, {
           isPremium,
           showPremiumPreview: showPremiumFeaturesPreview
-        });
+        }, cardManagementFeatureContext);
       }
 
       if (viewType.id === 'kanban') {
         return premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.KANBAN_VIEW, {
           isPremium,
           showPremiumPreview: showPremiumFeaturesPreview
-        });
+        }, cardManagementFeatureContext);
       }
 
       return true;
@@ -97,7 +100,7 @@
   <button
     class="mobile-menu-trigger"
     onclick={handleMenuClick}
-    aria-label="打开菜单"
+    aria-label={t('cards.management.mobileHeader.openMenu')}
   >
     <ObsidianIcon name="menu" size={18} />
   </button>
@@ -125,7 +128,7 @@
   <button
     class="mobile-search-btn"
     onclick={onSearchClick}
-    aria-label="搜索卡片"
+    aria-label={t('cards.management.mobileHeader.searchCards')}
   >
     <ObsidianIcon name="search" size={16} />
   </button>

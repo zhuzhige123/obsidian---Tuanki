@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { GenerationConfig } from '../../types/ai-types';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
+  import { tr } from '../../utils/i18n';
 
   interface Props {
     config: GenerationConfig;
@@ -13,8 +14,9 @@
     config,
     onSave,
     onCancel = undefined,
-    saveLabel = '保存并应用'
+    saveLabel = ''
   }: Props = $props();
+  let t = $derived($tr);
 
   function normalizeConfig(value: GenerationConfig): GenerationConfig {
     const count = Math.max(1, Math.min(value.maxGenerationLimit ?? value.cardCount ?? 20, 50));
@@ -111,16 +113,16 @@
     const errors: string[] = [];
 
     if (localConfig.cardCount < 1 || localConfig.cardCount > 50) {
-      errors.push('卡片数量必须在 1-50 之间');
+      errors.push(t('aiAssistant.generationConfig.errors.cardCountRange'));
     }
 
     const total = Object.values(localConfig.typeDistribution).reduce((sum, value) => sum + value, 0);
     if (Math.abs(total - 100) > 1) {
-      errors.push(`题型分布总和必须为 100%（当前: ${total}%）`);
+      errors.push(t('aiAssistant.generationConfig.errors.distributionTotal', { total }));
     }
 
     if (!Number.isFinite(localConfig.maxTokens) || localConfig.maxTokens < 1 || localConfig.maxTokens > 64000) {
-      errors.push('Token 限制必须在 1-64000 之间');
+      errors.push(t('aiAssistant.generationConfig.errors.maxTokensRange'));
     }
 
     validationErrors = errors;
@@ -153,27 +155,27 @@
     <section class="config-section difficulty">
       <div class="section-header">
         <div class="section-indicator difficulty-indicator"></div>
-        <h3 class="section-title">难度级别</h3>
+        <h3 class="section-title">{t('aiAssistant.generationConfig.sections.difficulty')}</h3>
       </div>
       <div class="config-item">
         <fieldset class="config-fieldset">
-          <legend class="visually-hidden">难度级别</legend>
+          <legend class="visually-hidden">{t('aiAssistant.generationConfig.sections.difficulty')}</legend>
           <div class="radio-group">
             <label class="radio-item">
               <input type="radio" name="difficulty" value="easy" bind:group={localConfig.difficulty} />
-              <span class="radio-label">简单</span>
+              <span class="radio-label">{t('aiAssistant.generationConfig.difficulty.easy')}</span>
             </label>
             <label class="radio-item">
               <input type="radio" name="difficulty" value="medium" bind:group={localConfig.difficulty} />
-              <span class="radio-label">中等</span>
+              <span class="radio-label">{t('aiAssistant.generationConfig.difficulty.medium')}</span>
             </label>
             <label class="radio-item">
               <input type="radio" name="difficulty" value="hard" bind:group={localConfig.difficulty} />
-              <span class="radio-label">困难</span>
+              <span class="radio-label">{t('aiAssistant.generationConfig.difficulty.hard')}</span>
             </label>
             <label class="radio-item">
               <input type="radio" name="difficulty" value="mixed" bind:group={localConfig.difficulty} />
-              <span class="radio-label">混合</span>
+              <span class="radio-label">{t('aiAssistant.generationConfig.difficulty.mixed')}</span>
             </label>
           </div>
         </fieldset>
@@ -183,11 +185,11 @@
     <section class="config-section card-count">
       <div class="section-header">
         <div class="section-indicator count-indicator"></div>
-        <h3 class="section-title">生成数量</h3>
+        <h3 class="section-title">{t('aiAssistant.generationConfig.sections.cardCount')}</h3>
       </div>
       <div class="config-item">
         <label class="config-label visually-hidden" for="card-count-slider">
-          生成数量 ({localConfig.cardCount} 张)
+          {t('aiAssistant.generationConfig.sections.cardCount')} ({t('aiAssistant.generationConfig.cardCountValue', { count: localConfig.cardCount })})
         </label>
         <div class="slider-row">
           <input
@@ -198,7 +200,7 @@
             bind:value={localConfig.cardCount}
             class="config-slider full-width"
           />
-          <span class="slider-value-inline">{localConfig.cardCount} 张</span>
+          <span class="slider-value-inline">{t('aiAssistant.generationConfig.cardCountValue', { count: localConfig.cardCount })}</span>
         </div>
       </div>
     </section>
@@ -206,16 +208,16 @@
     <section class="config-section type-distribution">
       <div class="section-header">
         <div class="section-indicator distribution-indicator"></div>
-        <h3 class="section-title">题型分布</h3>
+        <h3 class="section-title">{t('aiAssistant.generationConfig.sections.typeDistribution')}</h3>
       </div>
       <div class="config-item">
         <fieldset class="config-fieldset">
-          <legend class="visually-hidden">题型分布</legend>
+          <legend class="visually-hidden">{t('aiAssistant.generationConfig.sections.typeDistribution')}</legend>
           <div class="distribution-controls">
             <div class="distribution-item">
               <label class="distribution-label" for="qa-distribution-slider">
                 <span class="type-dot qa-dot"></span>
-                问答题
+                {t('aiAssistant.generationConfig.types.qa')}
               </label>
               <div class="slider-container">
                 <input
@@ -234,7 +236,7 @@
             <div class="distribution-item">
               <label class="distribution-label" for="cloze-distribution-slider">
                 <span class="type-dot cloze-dot"></span>
-                挖空题
+                {t('aiAssistant.generationConfig.types.cloze')}
               </label>
               <div class="slider-container">
                 <input
@@ -253,7 +255,7 @@
             <div class="distribution-item">
               <label class="distribution-label" for="choice-distribution-slider">
                 <span class="type-dot choice-dot"></span>
-                选择题
+                {t('aiAssistant.generationConfig.types.choice')}
               </label>
               <div class="slider-container">
                 <input
@@ -279,15 +281,15 @@
             <div class="bar-legend">
               <span class="legend-item">
                 <span class="legend-dot qa-dot"></span>
-                问答 {localConfig.typeDistribution.qa}%
+                {t('aiAssistant.generationConfig.types.qaShort')} {localConfig.typeDistribution.qa}%
               </span>
               <span class="legend-item">
                 <span class="legend-dot cloze-dot"></span>
-                挖空 {localConfig.typeDistribution.cloze}%
+                {t('aiAssistant.generationConfig.types.clozeShort')} {localConfig.typeDistribution.cloze}%
               </span>
               <span class="legend-item">
                 <span class="legend-dot choice-dot"></span>
-                选择 {localConfig.typeDistribution.choice}%
+                {t('aiAssistant.generationConfig.types.choiceShort')} {localConfig.typeDistribution.choice}%
               </span>
             </div>
           </div>
@@ -298,11 +300,11 @@
     <section class="config-section advanced-options">
       <div class="section-header">
         <div class="section-indicator advanced-indicator"></div>
-        <h3 class="section-title">高级选项</h3>
+        <h3 class="section-title">{t('aiAssistant.generationConfig.sections.advanced')}</h3>
       </div>
 
       <div class="config-item">
-        <label class="config-label" for="max-tokens-input">Token 限制</label>
+        <label class="config-label" for="max-tokens-input">{t('aiAssistant.generationConfig.maxTokens')}</label>
         <input
           id="max-tokens-input"
           type="number"
@@ -327,17 +329,17 @@
   <div class="modal-footer">
     <button class="reset-btn obsidian-action-btn" type="button" onclick={resetToDefaults}>
       <ObsidianIcon name="rotate-ccw" size={14} />
-      <span class="btn-label">重置默认</span>
+      <span class="btn-label">{t('aiAssistant.generationConfig.resetDefaults')}</span>
     </button>
     <div class="footer-actions setting-item-control">
       {#if onCancel}
         <button class="cancel-btn obsidian-action-btn" type="button" onclick={onCancel}>
-          <span class="btn-label">取消</span>
+          <span class="btn-label">{t('ui.cancel')}</span>
         </button>
       {/if}
       <button class="save-btn obsidian-action-btn mod-cta" type="button" onclick={handleSave}>
         <ObsidianIcon name="check" size={16} />
-        <span class="btn-label">{saveLabel}</span>
+        <span class="btn-label">{saveLabel || t('aiAssistant.generationConfig.saveAndApply')}</span>
       </button>
     </div>
   </div>

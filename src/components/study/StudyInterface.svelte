@@ -133,6 +133,10 @@
   import { isProgressiveClozeChild } from "../../types/progressive-cloze-v2";
   import type { ProgressiveClozeChildCard } from "../../types/progressive-cloze-v2";
   import { StudyQueueGenerator } from "../../utils/study/StudyQueueGenerator";
+  import {
+    setCardErrorBookState,
+    syncCardStatsToCanonicalFormat,
+  } from "../../utils/card-stats-normalizer";
   import { createMemoryStudySessionController } from "./memory-study-session-controller";
   
   //  组件辅助工具和常量
@@ -783,13 +787,7 @@
   async function handleAddToErrorBook() {
     if (!isValidCard(currentCard)) return;
 
-    // 初始化选择题统计（如果不存在）
-    if (!currentCard.stats.choiceStats) {
-      currentCard.stats.choiceStats = initializeChoiceStats();
-    }
-
-    // 标记为错题集
-    currentCard.stats.choiceStats.isInErrorBook = true;
+    setCardErrorBookState(currentCard, true);
 
     // 保存卡片
     const result = await saveCardUnified(currentCard, dataStorage, {
@@ -810,10 +808,9 @@
    * 将当前卡片移出错题集
    */
   async function handleRemoveFromErrorBook() {
-    if (!isValidCard(currentCard) || !currentCard.stats.choiceStats) return;
+    if (!isValidCard(currentCard)) return;
 
-    // 移除错题集标记
-    currentCard.stats.choiceStats.isInErrorBook = false;
+    setCardErrorBookState(currentCard, false);
 
     // 保存卡版
     const result = await saveCardUnified(currentCard, dataStorage, {
@@ -2023,7 +2020,7 @@
     saveReviewSnapshot: ({ card, rating, responseTime, currentCardIndex, session }) => {
       const snapshotFsrs = card.fsrs;
       if (!snapshotFsrs) {
-        throw new Error('评分快照缺少 fsrs');
+        throw new Error(t('studyInterface.errors.reviewSnapshotMissingFsrs'));
       }
 
       const snapshot: ReviewSnapshot = {
@@ -3036,7 +3033,7 @@
       await tick();
       
       if (!currentCard || currentCard.uuid !== snapshot.cardId) {
-        throw new Error('卡片索引恢复失败');
+        throw new Error(t('studyInterface.errors.restoreCardIndexFailed'));
       }
       
       // 恢复卡片数据
@@ -3074,7 +3071,7 @@
         new Notice(t('studyInterface.notices.undoSuccess'));
         logger.debug('撤销成功');
       } else {
-        throw new Error('保存卡片失败');
+        throw new Error(t('studyInterface.errors.saveCardFailed'));
       }
     } catch (error) {
       logger.error('[StudyModal] 撤销失败:', error);
@@ -3359,6 +3356,8 @@
     if (stats.recentAttempts.length > 10) {
       stats.recentAttempts = stats.recentAttempts.slice(0, 10);
     }
+
+    syncCardStatsToCanonicalFormat(card);
 
     logger.debug('选择题统计已更新:', {
       totalAttempts: stats.totalAttempts,
@@ -4178,7 +4177,7 @@
           await plugin.saveSettings();
         } catch (error) {
           logger.error('[StudyInterface] 保存教程提示状态失败:', error);
-          new Notice('保存教程提示设置失败');
+          new Notice(t('studyInterface.notices.saveTutorialHintFailed'));
         }
       }
     });
@@ -4212,9 +4211,9 @@
       isClozeModeSaving = true;
 
       const saveResult = await saveCardUnified(updatedCard, dataStorage, {
-        operation: '切换挖空模式',
+        operation: t('studyInterface.notices.clozeModeToggleOperation'),
         showErrorNotice: true,
-        errorMessage: '切换挖空模式失败'
+        errorMessage: t('studyInterface.notices.clozeModeToggleFailed')
       });
 
       if (!saveResult.success) {
@@ -4222,13 +4221,17 @@
       }
 
       syncStudyQueueAfterRegularEdit(updatedCard, previousStudyCard);
-      new Notice(mode === 'input' ? '已切换为输入模式' : '已切换为显示模式');
+      new Notice(
+        mode === 'input'
+          ? t('studyInterface.notices.clozeModeSwitchedInput')
+          : t('studyInterface.notices.clozeModeSwitchedReveal')
+      );
       if (mode === 'input') {
         void maybeShowClozeInputModeHint();
       }
     } catch (error) {
       logger.error('[StudyInterface] 切换挖空模式失败:', error);
-      new Notice(error instanceof Error ? error.message : '切换挖空模式失败');
+      new Notice(error instanceof Error ? error.message : t('studyInterface.notices.clozeModeToggleFailed'));
     } finally {
       isClozeModeSaving = false;
     }
@@ -4607,7 +4610,7 @@
   function openAIActionManagerWithObsidianAPI() {
     void plugin.openAISplitConfigModal({
       availableDecks: decks,
-      title: 'AI拆分配置'
+      title: t('study.aiActionManager.splitConfigTitle')
     });
   }
   // 处理牌组切换（正式牌组单归属：重复点击清空，改选直接替换）
@@ -4621,7 +4624,7 @@
 
     try {
       if (!plugin?.dataStorage) {
-        new Notice('数据存储服务不可用');
+        new Notice(t('studyInterface.notices.dataStorageUnavailable'));
         return;
       }
 
@@ -4638,7 +4641,7 @@
       const nextDeckId = isSelected ? WDECK_UNGROUPED_DECK_NAME : deckId;
       const result = await plugin.dataStorage.moveCardToDeck(cardUuid, sourceDeckId, nextDeckId);
       if (!result.success || !result.data) {
-        throw new Error(result.error || '更换牌组失败');
+        throw new Error(result.error || t('studyInterface.notices.changeDeckFailed'));
       }
 
       const updatedCard: Card = result.data;
@@ -5185,7 +5188,7 @@
       
       // EPUB文件：拦截到插件内置阅读器
       if (file.path.toLowerCase().endsWith('.epub')) {
-        const { EpubLinkService } = await import('../../services/epub/EpubLinkService');
+        const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
         const linkService = new EpubLinkService(app);
         await linkService.navigateToEpubLocation(file.path, epubSource.cfi || '', epubSource.text || '');
         new Notice(t('studyInterface.notices.epubSourceOpened'));
@@ -5593,7 +5596,7 @@
                     class="hint-floating-shell"
                     style={`width: ${hintPanelWidth}px; height: ${hintPanelHeight}px;`}
                     role="dialog"
-                    aria-label="提示浮窗"
+                    aria-label={t('studyInterface.hint.panelAriaLabel')}
                   >
                     <button
                       bind:this={hintResizeHandleElement}
@@ -5601,8 +5604,8 @@
                       class="hint-resize-handle"
                       class:active={hintResizeActive}
                       onpointerdown={handleHintResizePointerDown}
-                      aria-label="从右上角调整提示浮窗大小"
-                      title="拖动右上角可调整提示浮窗大小"
+                      aria-label={t('studyInterface.hint.resizeAriaLabel')}
+                      title={t('studyInterface.hint.resizeTitle')}
                     >
                       <span class="hint-resize-handle-icon" aria-hidden="true"></span>
                     </button>
@@ -5617,8 +5620,8 @@
           {#if showStudyClozeModeToggle || showAnswer}
             <div class="footer-top-controls">
               {#if showStudyClozeModeToggle}
-                <div class="footer-cloze-mode-switch" role="group" aria-label="挖空模式切换">
-                  <span class="cloze-mode-label">作答方式</span>
+                <div class="footer-cloze-mode-switch" role="group" aria-label={t('studyInterface.clozeMode.switchAriaLabel')}>
+                  <span class="cloze-mode-label">{t('studyInterface.clozeMode.label')}</span>
                   <div class="cloze-mode-segmented">
                     <button
                       type="button"
@@ -5628,7 +5631,7 @@
                       disabled={isClozeModeSaving || currentStudyClozeMode === 'reveal'}
                       aria-pressed={currentStudyClozeMode === 'reveal'}
                     >
-                      显示答案
+                      {t('studyInterface.clozeMode.reveal')}
                     </button>
                     <button
                       type="button"
@@ -5638,7 +5641,7 @@
                       disabled={isClozeModeSaving || currentStudyClozeMode === 'input'}
                       aria-pressed={currentStudyClozeMode === 'input'}
                     >
-                      输入作答
+                      {t('studyInterface.clozeMode.input')}
                     </button>
                   </div>
                 </div>

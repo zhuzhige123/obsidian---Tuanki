@@ -1,14 +1,17 @@
 import { TFile, type App, type WorkspaceLeaf } from "obsidian";
-import { EpubStorageService } from "../services/epub";
-import { EPUB_RUNTIME } from "../services/epub/epub-runtime";
-import { isSupportedBookPath } from "../services/epub/book-format";
+import { EpubStorageService } from "../services/epub-integration";
+import { EPUB_RUNTIME } from "../services/epub-integration/epub-runtime";
+import { isSupportedBookPath } from "../services/epub-integration/book-format";
 import { epubActiveDocumentStore } from "../stores/epub-active-document-store";
-import { VIEW_TYPE_EPUB } from "../views/EpubView";
 import { getLeafLocation } from "./view-location-utils";
 import { revealLeaf } from "./workspace-navigation";
 
 const KNOWN_EPUB_VIEW_TYPES = Array.from(
-	new Set([VIEW_TYPE_EPUB, EPUB_RUNTIME.viewTypes.reader, "weave-epub-reader", "weave-epub-reader-standalone"])
+	new Set([
+		EPUB_RUNTIME.viewTypes.reader,
+		"weave-epub-reader",
+		"weave-epub-reader-standalone",
+	])
 );
 
 function isCenterLeaf(leaf: WorkspaceLeaf | null | undefined): leaf is WorkspaceLeaf {

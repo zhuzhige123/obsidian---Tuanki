@@ -8,18 +8,21 @@
  * @since 2025-12-06
  */
 
+import { tr } from '../../utils/i18n';
+
 interface Props {
   importance: number;  // 1-4 的重要程度
   sticky?: boolean;    // 贴纸模式
 }
 
 let { importance, sticky = false }: Props = $props();
+let t = $derived($tr);
 
 // 重要程度等级配置
 const levelConfig = {
   1: { 
     number: '1',
-    label: '一般',
+    label: () => t('study.questionBankUI.studyInterface.priorityLow'),
     color: '#10b981',  // 绿色
     bgGradient: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)',
     textColor: '#065f46',
@@ -27,7 +30,7 @@ const levelConfig = {
   },
   2: { 
     number: '2',
-    label: '重要',
+    label: () => t('study.questionBankUI.studyInterface.priorityMedium'),
     color: '#3b82f6',  // 蓝色
     bgGradient: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
     textColor: '#1e40af',
@@ -35,7 +38,7 @@ const levelConfig = {
   },
   3: { 
     number: '3',
-    label: '很重要',
+    label: () => t('study.questionBankUI.studyInterface.priorityHigh'),
     color: '#f59e0b',  // 橙色
     bgGradient: 'linear-gradient(135deg, #fed7aa 0%, #fdba74 100%)',
     textColor: '#7c2d12',
@@ -43,7 +46,7 @@ const levelConfig = {
   },
   4: { 
     number: '4',
-    label: '非常重要',
+    label: () => t('study.questionBankUI.studyInterface.priorityVeryHigh'),
     color: '#ef4444',  // 红色
     bgGradient: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
     textColor: '#991b1b',
@@ -86,23 +89,23 @@ $effect(() => {
     onmouseleave={() => isHovered = false}
   >
     <div class="sticky-number">{config.number}</div>
-    <div class="sticky-label">{config.label}</div>
+    <div class="sticky-label">{config.label()}</div>
     
     <!-- Hover详情 -->
     {#if isHovered}
       <div class="sticky-tooltip">
         <div class="tooltip-row">
-          <span class="tooltip-label">重要程度</span>
-          <span class="tooltip-value">{config.label}</span>
+          <span class="tooltip-label">{t('study.questionBankUI.importanceIndicator.title')}</span>
+          <span class="tooltip-value">{config.label()}</span>
         </div>
         <div class="tooltip-row">
-          <span class="tooltip-label">等级</span>
+          <span class="tooltip-label">{t('study.questionBankUI.importanceIndicator.level')}</span>
           <span class="tooltip-value">{importance}/4</span>
         </div>
         {#if importance >= 3}
           <div class="tooltip-row highlight">
-            <span class="tooltip-label">提示</span>
-            <span class="tooltip-value">重点关注</span>
+            <span class="tooltip-label">{t('study.questionBankUI.importanceIndicator.hint')}</span>
+            <span class="tooltip-value">{t('study.questionBankUI.importanceIndicator.focus')}</span>
           </div>
         {/if}
       </div>

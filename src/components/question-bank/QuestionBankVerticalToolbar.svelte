@@ -207,7 +207,7 @@
     if (!plugin || !sourceNavigationService) return;
     sourceNavigationService.locateOpenedMarkdownLeaf(openedLeaf, candidates, {
       fallbackEl,
-      label: '定位到溯源位置',
+      label: t('study.questionBankUI.verticalToolbar.locateSource'),
       icon: 'map-pinned',
       delayMs: 220
     });
@@ -297,12 +297,12 @@
     
     // EPUB文件：拦截到插件内置阅读器
     if (file.path.toLowerCase().endsWith('.epub')) {
-      const { EpubLinkService } = await import('../../services/epub/EpubLinkService');
+      const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
       const linkService = new EpubLinkService(plugin.app);
       await linkService.navigateToEpubLocation(file.path, sourceInfo.epubCfi || '', sourceInfo.epubText || '');
       if (multiInfoButtonElement) {
         sourceLocateOverlay.showAtRect(multiInfoButtonElement.getBoundingClientRect(), {
-          label: '定位到 EPUB 溯源位置',
+          label: t('study.questionBankUI.verticalToolbar.locateEpubSource'),
           icon: 'map-pinned'
         });
       }
@@ -347,12 +347,12 @@
       
       // EPUB文件：拦截到插件内置阅读器
       if (file.path.toLowerCase().endsWith('.epub')) {
-        const { EpubLinkService } = await import('../../services/epub/EpubLinkService');
+        const { EpubLinkService } = await import('../../services/epub-integration/EpubLinkService');
         const linkService = new EpubLinkService(plugin.app);
         await linkService.navigateToEpubLocation(file.path, sourceInfo.epubCfi || '', sourceInfo.epubText || '');
         if (multiInfoButtonElement) {
           sourceLocateOverlay.showAtRect(multiInfoButtonElement.getBoundingClientRect(), {
-            label: '定位到 EPUB 溯源位置',
+            label: t('study.questionBankUI.verticalToolbar.locateEpubSource'),
             icon: 'map-pinned'
           });
         }
@@ -377,7 +377,7 @@
 
   // 格式化日期时间
   function formatDateTime(dateStr: string | undefined): string {
-    if (!dateStr) return '未知';
+    if (!dateStr) return t('study.questionBankUI.cardInfoTab.unknown');
     try {
       const date = new Date(dateStr);
       return date.toLocaleString('zh-CN', {
@@ -388,19 +388,19 @@
         minute: '2-digit'
       });
     } catch {
-      return '格式错误';
+      return t('study.questionBankUI.cardInfoTab.unknown');
     }
   }
 
   // 获取卡片状态文本
   function getCardStateText(state: number): string {
     const stateMap: Record<number, string> = {
-      0: '新卡片',
-      1: '学习中',
-      2: '复习中',
-      3: '重学中'
+      0: t('toolbar.newCard'),
+      1: t('study.questionBankUI.verticalToolbar.stateLearning'),
+      2: t('study.questionBankUI.verticalToolbar.stateReviewing'),
+      3: t('study.questionBankUI.verticalToolbar.stateRelearning')
     };
-    return stateMap[state] || '未知';
+    return stateMap[state] || t('study.questionBankUI.cardInfoTab.unknown');
   }
 
   // 删除功能
@@ -421,7 +421,7 @@
 
     <div class="timer-display avg-timer">
       <span class="timer-text">{formatTime(averageTime)}</span>
-      <div class="timer-label">平均用时</div>
+      <div class="timer-label">{t('study.questionBankUI.verticalToolbar.averageTime')}</div>
     </div>
   </div>
 
@@ -444,10 +444,10 @@
       onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
       onmouseup={handleButtonDragEnd}
       ontouchstart={(e) => handleButtonLongPressStart(e, e.currentTarget)}
-      title={isEditing ? "保存并预览" : "编辑卡片"}
+      title={isEditing ? t('toolbar.saveAndPreview') : t('toolbar.editCard')}
     >
       <EnhancedIcon name={isEditing ? "eye" : "edit"} size="18" />
-      <span class="btn-label">{isEditing ? "预览" : "编辑"}</span>
+      <span class="btn-label">{isEditing ? t('toolbar.preview') : t('toolbar.edit')}</span>
     </button>
 
     <!-- 普通文本编辑器按钮 -->
@@ -458,10 +458,10 @@
         onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
         onmouseup={handleButtonDragEnd}
         ontouchstart={(e) => handleButtonLongPressStart(e, e.currentTarget)}
-        title="普通文本编辑器"
+        title={t('study.questionBankUI.verticalToolbar.plainTextEditor')}
       >
         <EnhancedIcon name="fileText" size="18" />
-        <span class="btn-label">文本</span>
+        <span class="btn-label">{t('study.questionBankUI.verticalToolbar.textShort')}</span>
       </button>
     {/if}
 
@@ -472,10 +472,10 @@
       onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
       onmouseup={handleButtonDragEnd}
       ontouchstart={(e) => handleButtonLongPressStart(e, e.currentTarget)}
-      title={enableDirectDelete ? "直接删除卡片" : "删除卡片"}
+      title={enableDirectDelete ? t('toolbar.directDeleteCard') : t('toolbar.deleteCard')}
     >
       <EnhancedIcon name="delete" size="18" />
-      <span class="btn-label">删除</span>
+      <span class="btn-label">{t('toolbar.delete')}</span>
     </button>
 
     <!-- 收藏 -->
@@ -486,10 +486,10 @@
       onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
       onmouseup={handleButtonDragEnd}
       ontouchstart={(e) => handleButtonLongPressStart(e, e.currentTarget)}
-      title={card.tags?.includes('#收藏') ? "取消收藏" : "收藏卡片"}
+      title={card.tags?.includes('#收藏') ? t('study.questionBankUI.verticalToolbar.unfavorite') : t('study.questionBankUI.verticalToolbar.favoriteCard')}
     >
       <EnhancedIcon name={card.tags?.includes('#收藏') ? "starFilled" : "star"} size="18" />
-      <span class="btn-label">收藏</span>
+      <span class="btn-label">{t('study.questionBankUI.verticalToolbar.favorite')}</span>
     </button>
 
     <!-- 重要程度 -->
@@ -500,13 +500,13 @@
       onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
       onmouseup={handleButtonDragEnd}
       ontouchstart={(e) => handleButtonLongPressStart(e, e.currentTarget)}
-      title="设置重要程度"
+      title={t('study.questionBankUI.verticalToolbar.setPriority')}
       style="color: {getPriorityColor(card.priority || 2)}"
     >
       <div class="priority-indicator">
         {'!'.repeat(Math.min(card.priority || 2, 3))}
       </div>
-      <span class="btn-label">重要</span>
+      <span class="btn-label">{t('study.questionBankUI.verticalToolbar.priorityShort')}</span>
     </button>
 
     <!-- 多功能信息键 -->
@@ -519,10 +519,10 @@
         onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
         onmouseup={handleButtonDragEnd}
         ontouchstart={(e) => handleButtonLongPressStart(e, e.currentTarget)}
-        title="查看卡片信息与来源"
+        title={t('study.questionBankUI.verticalToolbar.viewCardInfo')}
       >
         <EnhancedIcon name="eye" size="18" />
-        <span class="btn-label">查看</span>
+        <span class="btn-label">{t('study.questionBankUI.verticalToolbar.viewShort')}</span>
       </button>
 
       <FloatingMenu
@@ -535,7 +535,7 @@
         {#snippet children()}
           {@const sourceInfo = getSourceInfo()}
           <div class="multi-info-menu-header">
-            <span>卡片信息与来源</span>
+            <span>{t('study.questionBankUI.verticalToolbar.cardInfoAndSource')}</span>
             <button class="close-btn" onclick={() => showMultiInfoMenu = false}>
               <EnhancedIcon name="times" size="12" />
             </button>
@@ -544,24 +544,24 @@
           <div class="multi-info-menu-content">
             <!-- 基础信息 -->
             <div class="info-section">
-              <div class="info-section-title">基础信息</div>
+              <div class="info-section-title">{t('study.questionBankUI.verticalToolbar.basicInfo')}</div>
               <div class="info-item">
-                <span class="info-label">卡片ID</span>
+                <span class="info-label">{t('study.questionBankUI.verticalToolbar.cardId')}</span>
                 <span class="info-value">{card.uuid.slice(0, 8)}...</span>
               </div>
               <div class="info-item">
-                <span class="info-label">卡片状态</span>
-                <span class="info-value">{card.fsrs ? getCardStateText(card.fsrs.state) : '未知'}</span>
+                <span class="info-label">{t('study.questionBankUI.verticalToolbar.cardState')}</span>
+                <span class="info-value">{card.fsrs ? getCardStateText(card.fsrs.state) : t('study.questionBankUI.cardInfoTab.unknown')}</span>
               </div>
             </div>
 
             <!-- 来源信息 -->
             <div class="info-section">
-              <div class="info-section-title">来源信息</div>
+              <div class="info-section-title">{t('study.questionBankUI.cardInfoTab.sourceInfo')}</div>
               {#if !sourceInfo.sourceFile && !sourceInfo.sourceBlock && !sourceInfo.sourceCardId}
                 <div class="info-item no-source">
                   <span class="info-label no-source-label">
-                    无来源
+                    {t('study.questionBankUI.verticalToolbar.noSourceShort')}
                   </span>
                   <span class="info-value text-muted">{t('toolbar.noSourceLinked')}</span>
                 </div>
@@ -592,7 +592,7 @@
                     tabindex="0"
                   >
                     <span class="info-label">
-                      块引用
+                      {t('study.questionBankUI.verticalToolbar.blockReference')}
                     </span>
                     <span class="info-value link-value">
                       {sourceInfo.sourceBlock}
@@ -604,7 +604,7 @@
                 {#if sourceInfo.sourceCardId}
                   <div class="info-item source-card-item">
                     <span class="info-label">
-                      源记忆卡片
+                      {t('study.questionBankUI.verticalToolbar.sourceMemoryCard')}
                     </span>
                     <span class="info-value" title={sourceInfo.sourceCardId}>
                       {(sourceInfo.sourceCardId as string).slice(0, 12)}...
@@ -615,15 +615,15 @@
                   {#if isLoadingSourceCard}
                     <div class="source-card-loading">
                       <EnhancedIcon name="loader" size="14" />
-                      <span>加载源卡片内容中...</span>
+                      <span>{t('study.questionBankUI.verticalToolbar.loadingSourceCard')}</span>
                     </div>
                   {:else if sourceCard}
                     <div class="source-card-content">
                       <div class="source-card-header">
-                        <span>源记忆卡片内容</span>
+                        <span>{t('study.questionBankUI.verticalToolbar.sourceMemoryCardContent')}</span>
                       </div>
                       <div class="source-card-body">
-                        <!-- /skip {@html} renders Markdown card content from trusted internal data source -->{@html sourceCard.content || '（无内容）'}
+                        <!-- /skip {@html} renders Markdown card content from trusted internal data source -->{@html sourceCard.content || t('study.questionBankUI.verticalToolbar.emptyContent')}
                       </div>
                     </div>
                   {/if}
@@ -644,7 +644,7 @@
                   >
                     <span class="card-action-main">
                       <ObsidianIcon name="maximize-2" size={15} />
-                      <span>查看详情</span>
+                      <span>{t('study.menu.cardDetails')}</span>
                     </span>
                     <span class="card-action-arrow">
                       <ObsidianIcon name="chevron-right" size={14} />
@@ -668,10 +668,10 @@
         onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
         onmouseup={handleButtonDragEnd}
         ontouchstart={(e) => handleButtonLongPressStart(e, e.currentTarget)}
-        title="更多设置"
+        title={t('study.questionBankUI.verticalToolbar.moreSettings')}
       >
         <EnhancedIcon name="settings" size="18" />
-        <span class="btn-label">更多</span>
+        <span class="btn-label">{t('study.questionBankUI.verticalToolbar.moreShort')}</span>
       </button>
 
       <FloatingMenu
@@ -683,7 +683,7 @@
       >
         {#snippet children()}
           <div class="more-settings-menu-header">
-            <span>更多设置</span>
+            <span>{t('study.questionBankUI.verticalToolbar.moreSettings')}</span>
             <button class="close-btn" onclick={() => showMoreSettingsMenu = false}>
               <EnhancedIcon name="times" size="12" />
             </button>
@@ -693,12 +693,12 @@
             <!-- 题目导航设置 -->
             <div class="setting-section">
               <div class="setting-item">
-                <div class="setting-label">显示列数</div>
+                <div class="setting-label">{t('study.questionBankUI.verticalToolbar.showColumns')}</div>
                 <ObsidianDropdown
                   className="setting-select"
                   options={[
-                    { id: '1', label: '单列显示' },
-                    { id: '3', label: '三列显示' }
+                    { id: '1', label: t('study.questionBankUI.verticalToolbar.singleColumn') },
+                    { id: '3', label: t('study.questionBankUI.verticalToolbar.threeColumns') }
                   ]}
                   value={String(navColumnMode)}
                   onchange={(value) => onNavColumnModeChange?.(parseInt(value, 10) as 1 | 3)}
@@ -709,12 +709,12 @@
             <!-- 学习顺序设置 -->
             <div class="setting-section">
               <div class="setting-item">
-                <div class="setting-label">题目顺序</div>
+                <div class="setting-label">{t('study.questionBankUI.verticalToolbar.questionOrder')}</div>
                 <ObsidianDropdown
                   className="setting-select"
                   options={[
-                    { id: 'sequential', label: '正序学习' },
-                    { id: 'random', label: '乱序学习' }
+                    { id: 'sequential', label: t('study.questionBankUI.verticalToolbar.sequentialStudy') },
+                    { id: 'random', label: t('study.questionBankUI.verticalToolbar.randomStudy') }
                   ]}
                   value={questionOrder}
                   onchange={(value) => onQuestionOrderChange?.(value as 'sequential' | 'random')}
@@ -724,12 +724,12 @@
 
             <div class="setting-section">
               <div class="setting-item">
-                <div class="setting-label">选项顺序</div>
+                <div class="setting-label">{t('study.questionBankUI.verticalToolbar.optionOrder')}</div>
                 <ObsidianDropdown
                   className="setting-select"
                   options={[
-                    { id: 'sequential', label: '正序' },
-                    { id: 'random', label: '乱序' }
+                    { id: 'sequential', label: t('study.questionBankUI.verticalToolbar.sequentialShort') },
+                    { id: 'random', label: t('study.questionBankUI.verticalToolbar.randomShort') }
                   ]}
                   value={choiceOptionOrder}
                   onchange={(value) => onChoiceOptionOrderChange?.(value as ChoiceOptionOrder)}
@@ -741,7 +741,7 @@
             <div class="setting-section">
               <div class="setting-item toggle-item">
                 <div class="setting-label">
-                  <span>启用直接删除</span>
+                  <span>{t('study.questionBankUI.verticalToolbar.enableDirectDelete')}</span>
                 </div>
                 <label class="toggle-switch">
                   <input

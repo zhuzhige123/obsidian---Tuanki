@@ -1,5 +1,6 @@
 ﻿<script lang="ts">
   import EnhancedIcon from "../../../ui/EnhancedIcon.svelte";
+  import { tr } from "../../../../utils/i18n";
   import {
     formatTagSuggestionLabel,
     normalizeTagSuggestionOptions,
@@ -9,13 +10,7 @@
   import type { TagsCellProps } from "../../types/table-types";
 
   let { app, card, onTagsUpdate, availableTags = [] }: TagsCellProps = $props();
-  const labels = {
-    editTags: '\u7f16\u8f91\u6807\u7b7e',
-    removeTag: '\u5220\u9664\u6807\u7b7e',
-    addTagPlaceholder: '\u70b9\u51fb\u6dfb\u52a0\u6807\u7b7e',
-    inputPlaceholder: '\u8f93\u5165\u6807\u7b7e...',
-    inputPlaceholderFirst: '\u8f93\u5165\u6807\u7b7e\u540e\u6309 Enter'
-  };
+  let t = $derived($tr);
 
   const colorPalette = [
     'var(--color-cyan, var(--interactive-accent))',
@@ -172,10 +167,10 @@
     return {
       key,
       tag: normalized,
-      label: `新建 ${formatTagSuggestionLabel(normalized)}`,
+      label: `${t('cardManagement.table.tags.create')} ${formatTagSuggestionLabel(normalized)}`,
       count: 0,
-      keywords: [normalized, formatTagSuggestionLabel(normalized), '新建'],
-      searchText: [normalized, formatTagSuggestionLabel(normalized), '新建']
+      keywords: [normalized, formatTagSuggestionLabel(normalized), t('cardManagement.table.tags.create')],
+      searchText: [normalized, formatTagSuggestionLabel(normalized), t('cardManagement.table.tags.create')]
         .map((value) => value.toLowerCase())
         .join(' '),
       isCreateSuggestion: true,
@@ -300,7 +295,7 @@
     }}
     role="button"
     tabindex="0"
-    aria-label={labels.editTags}
+    aria-label={t('cardManagement.table.tags.edit')}
   >
     <div class="weave-tags-flow">
       {#if displayTags.length > 0}
@@ -311,7 +306,7 @@
               <button
                 type="button"
                 class="weave-tag-remove"
-                aria-label={`${labels.removeTag} ${tag}`}
+                aria-label={`${t('cardManagement.table.tags.remove')} ${tag}`}
                 onclick={(event) => {
                   isolateCellInteraction(event);
                   removeTag(tag);
@@ -331,7 +326,7 @@
         <input
           bind:this={inputEl}
           class="weave-tag-input"
-          placeholder={activeTags.length > 0 ? labels.inputPlaceholder : labels.inputPlaceholderFirst}
+          placeholder={activeTags.length > 0 ? t('cardManagement.table.tags.inputPlaceholder') : t('cardManagement.table.tags.inputPlaceholderFirst')}
           bind:value={inputValue}
           oninput={(event) => {
             isolateCellInteraction(event);
@@ -347,7 +342,7 @@
           spellcheck="false"
         />
       {:else if displayTags.length === 0}
-        <span class="weave-tags-placeholder">{labels.addTagPlaceholder}</span>
+        <span class="weave-tags-placeholder">{t('cardManagement.table.tags.addPlaceholder')}</span>
       {/if}
     </div>
 

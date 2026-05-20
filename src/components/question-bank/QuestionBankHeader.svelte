@@ -2,6 +2,7 @@
   import { Platform } from "obsidian";
   import ObsidianIcon from "../ui/ObsidianIcon.svelte";
   import FlipClock from "./FlipClock.svelte";
+  import { tr } from "../../utils/i18n";
 
   interface Props {
     bankName: string;
@@ -42,14 +43,15 @@
   }: Props = $props();
 
   const isMobile = Platform.isMobile;
+  let t = $derived($tr);
 </script>
 
 {#if !isMobile}
   <div class="study-header">
     <div class="header-left">
-      <h2 class="study-title">{bankName || "考试测试"}</h2>
+      <h2 class="study-title">{bankName || t('study.questionBankUI.header.defaultBank')}</h2>
       <div class="study-progress">
-        <span class="progress-text" aria-label={`学习进度 ${currentIndex} / ${totalQuestions}`}>
+        <span class="progress-text" aria-label={t('study.questionBankUI.header.progressAria', { current: currentIndex, total: totalQuestions })}>
           <span class="progress-current">{currentIndex}</span>
           <span class="progress-divider">/</span>
           <span class="progress-total">{totalQuestions}</span>
@@ -69,8 +71,8 @@
               type="button"
               class="clickable-icon study-header-icon-btn pause-btn"
               onclick={onTogglePause}
-              aria-label={isPaused ? "继续倒计时" : "暂停倒计时"}
-              title={isPaused ? "继续" : "暂停"}
+              aria-label={isPaused ? t('study.questionBankUI.header.resumeTimer') : t('study.questionBankUI.header.pauseTimer')}
+              title={isPaused ? t('study.questionBankUI.header.resume') : t('study.questionBankUI.header.pause')}
             >
               <ObsidianIcon name={isPaused ? "play" : "pause"} size={14} />
             </button>
@@ -86,8 +88,8 @@
           class="clickable-icon study-header-icon-btn"
           class:active={showNavigator}
           onclick={onToggleNavigator}
-          aria-label={showNavigator ? "隐藏题目导航" : "显示题目导航"}
-          title={showNavigator ? "隐藏题目导航" : "显示题目导航"}
+          aria-label={showNavigator ? t('study.questionBankUI.header.hideNavigator') : t('study.questionBankUI.header.showNavigator')}
+          title={showNavigator ? t('study.questionBankUI.header.hideNavigator') : t('study.questionBankUI.header.showNavigator')}
         >
           <ObsidianIcon name="panel-left" size={16} />
         </button>
@@ -97,8 +99,8 @@
         type="button"
         class="clickable-icon study-header-icon-btn"
         onclick={onToggleStats}
-        aria-label={statsCollapsed ? "展开统计" : "收起统计"}
-        title={statsCollapsed ? "展开统计" : "收起统计"}
+        aria-label={statsCollapsed ? t('study.questionBankUI.header.expandStats') : t('study.questionBankUI.header.collapseStats')}
+        title={statsCollapsed ? t('study.questionBankUI.header.expandStats') : t('study.questionBankUI.header.collapseStats')}
       >
         <ObsidianIcon name={statsCollapsed ? "chevron-down" : "chevron-up"} size={16} />
       </button>
@@ -109,8 +111,8 @@
           class="clickable-icon study-header-icon-btn"
           class:active={showSidebar}
           onclick={onToggleSidebar}
-          aria-label={showSidebar ? "隐藏侧边栏" : "显示侧边栏"}
-          title={showSidebar ? "隐藏侧边栏" : "显示侧边栏"}
+          aria-label={showSidebar ? t('study.questionBankUI.header.hideSidebar') : t('study.questionBankUI.header.showSidebar')}
+          title={showSidebar ? t('study.questionBankUI.header.hideSidebar') : t('study.questionBankUI.header.showSidebar')}
         >
           <ObsidianIcon name="panel-right" size={16} />
         </button>

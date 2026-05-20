@@ -91,7 +91,7 @@
     font-weight: 700;
     letter-spacing: 0.5px;
     opacity: 0.9;
-    text-transform: uppercase;
+    text-align: center;
   }
 
   .accuracy-sticker-excellent {

@@ -13,12 +13,13 @@ import type { TestSession, TestMode, QuestionBankModeConfig, QuestionBankResumeB
 import type { QuestionBankView } from '../../views/QuestionBankView';
 import QuestionBankStudyInterface from './QuestionBankStudyInterface.svelte';
 import TestResultView from './TestResultView.svelte';
+import { tr } from '../../utils/i18n';
 
 // Props
 let {
   plugin,
   bankId,
-  bankName = '题库测试',
+  bankName = '',
   questions = [],
   mode = 'exam',
   config,
@@ -36,6 +37,10 @@ let {
   viewInstance?: QuestionBankView; //  视图实例用于移动端回调
   onBack?: () => void;
 } = $props();
+let t = $derived($tr);
+$effect(() => {
+  if (!bankName) bankName = t('study.questionBankUI.studyInterface.defaultBankName');
+});
 
 // 状态管理
 type ViewState = 'studying' | 'result';

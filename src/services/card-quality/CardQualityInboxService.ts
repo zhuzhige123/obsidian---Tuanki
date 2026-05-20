@@ -27,6 +27,7 @@ import type {
 import { DEFAULT_SCAN_CONFIG } from "../../types/card-quality-types";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { generateId } from "../../utils/helpers";
+import { t } from "../../utils/i18n";
 import { logger } from "../../utils/logger";
 import { extractSourcePath } from "../../utils/source-path-matcher";
 import {
@@ -35,7 +36,7 @@ import {
 	parseSourceInfo,
 	parseYAMLFromContent,
 } from "../../utils/yaml-utils";
-import { EpubLinkService } from "../epub/EpubLinkService";
+import { EpubLinkService } from "../epub-integration/EpubLinkService";
 
 /**
  * 卡片质量收件箱服务
@@ -104,7 +105,7 @@ export class CardQualityInboxService {
 			current: 0,
 			total: cards.length,
 			phase: "preparing",
-			message: "正在准备扫描...",
+			message: t("management.cardQuality.progress.preparing"),
 		});
 
 		const issues: QualityIssue[] = [];
@@ -139,7 +140,7 @@ export class CardQualityInboxService {
 				current: i + 1,
 				total: cards.length,
 				phase: "scanning",
-				message: `正在扫描卡片 ${i + 1}/${cards.length}...`,
+				message: t("management.cardQuality.progress.scanningCard", { current: i + 1, total: cards.length }),
 			});
 
 			// 获取卡片内容
@@ -154,7 +155,7 @@ export class CardQualityInboxService {
 			if (fullConfig.detectEmpty) {
 				// 只有问题和答案都为空时才认为是空内容
 				if (!hasQuestion && !hasAnswer) {
-					const issue = this.createIssue(card, "empty_content", "error", "卡片内容为空");
+					const issue = this.createIssue(card, "empty_content", "error", t("management.cardQuality.descriptions.emptyContent"));
 					issues.push(issue);
 					issuesByType.empty_content++;
 					issuesBySeverity.error++;
@@ -164,14 +165,14 @@ export class CardQualityInboxService {
 			// 2. 检测问题/答案缺失 - 只有在卡片不是完全为空时才检测
 			if (hasQuestion || hasAnswer) {
 				if (!hasQuestion) {
-					const issue = this.createIssue(card, "missing_question", "error", "卡片缺少问题内容");
+					const issue = this.createIssue(card, "missing_question", "error", t("management.cardQuality.descriptions.missingQuestion"));
 					issues.push(issue);
 					issuesByType.missing_question++;
 					issuesBySeverity.error++;
 				}
 
 				if (!hasAnswer) {
-					const issue = this.createIssue(card, "missing_answer", "warning", "卡片缺少答案内容");
+					const issue = this.createIssue(card, "missing_answer", "warning", t("management.cardQuality.descriptions.missingAnswer"));
 					issues.push(issue);
 					issuesByType.missing_answer++;
 					issuesBySeverity.warning++;
@@ -185,7 +186,7 @@ export class CardQualityInboxService {
 						card,
 						"too_short",
 						"warning",
-						`卡片内容过短（${content.length}字符，建议至少${fullConfig.minContentLength}字符）`
+						t("management.cardQuality.descriptions.tooShort", { length: content.length, min: fullConfig.minContentLength })
 					);
 					issues.push(issue);
 					issuesByType.too_short++;
@@ -200,8 +201,8 @@ export class CardQualityInboxService {
 						card,
 						"too_long",
 						"warning",
-						`卡片内容过长（${content.length}字符，建议不超过${fullConfig.maxContentLength}字符）`,
-						{ suggestedAction: "建议拆分为多张卡片" }
+						t("management.cardQuality.descriptions.tooLong", { length: content.length, max: fullConfig.maxContentLength }),
+						{ suggestedAction: t("management.cardQuality.suggestedActions.splitCards") }
 					);
 					issues.push(issue);
 					issuesByType.too_long++;
@@ -223,7 +224,7 @@ export class CardQualityInboxService {
 					// 检查是否手动创建的卡片（无源文档是正常的）
 					const isManuallyCreated = card.fields?.creation_method === "manual";
 					if (!isManuallyCreated) {
-						const issue = this.createIssue(card, "source_missing", "info", "卡片缺少源文档链接");
+						const issue = this.createIssue(card, "source_missing", "info", t("management.cardQuality.descriptions.sourceMissing"));
 						issues.push(issue);
 						issuesByType.source_missing++;
 						issuesBySeverity.info++;
@@ -257,8 +258,8 @@ export class CardQualityInboxService {
 								card,
 								"source_missing",
 								"warning",
-								`源文档不存在: ${missingLabel}`,
-								{ suggestedAction: "源文档可能已被移动或删除" }
+								t("management.cardQuality.descriptions.sourceMissingFile", { label: missingLabel }),
+								{ suggestedAction: t("management.cardQuality.suggestedActions.sourceMoved") }
 							);
 							issues.push(issue);
 							issuesByType.source_missing++;
@@ -277,8 +278,8 @@ export class CardQualityInboxService {
 						card,
 						"low_retention",
 						"warning",
-						`卡片保留率较低（${(retention * 100).toFixed(1)}%）`,
-						{ suggestedAction: "建议简化内容或添加助记" }
+						t("management.cardQuality.descriptions.lowRetention", { percent: (retention * 100).toFixed(1) }),
+						{ suggestedAction: t("management.cardQuality.suggestedActions.simplify") }
 					);
 					issues.push(issue);
 					issuesByType.low_retention++;
@@ -292,8 +293,8 @@ export class CardQualityInboxService {
 						card,
 						"high_difficulty",
 						"info",
-						`卡片难度较高（${difficulty.toFixed(1)}/10）`,
-						{ suggestedAction: "建议拆分或添加更多上下文" }
+						t("management.cardQuality.descriptions.highDifficulty", { score: difficulty.toFixed(1) }),
+						{ suggestedAction: t("management.cardQuality.suggestedActions.addContext") }
 					);
 					issues.push(issue);
 					issuesByType.high_difficulty++;
@@ -329,13 +330,13 @@ export class CardQualityInboxService {
 				current: cards.length,
 				total: cards.length,
 				phase: "analyzing",
-				message: "正在检测孤儿卡片...",
+				message: t("management.cardQuality.progress.analyzingOrphans"),
 			});
 
 			for (const card of cards) {
 				if (this.plugin.cardMetadataCache.isOrphanCard(card)) {
-					const issue = this.createIssue(card, "orphan_card", "warning", "卡片未关联到任何牌组", {
-						suggestedAction: "建议将卡片添加到合适的牌组或删除",
+					const issue = this.createIssue(card, "orphan_card", "warning", t("management.cardQuality.descriptions.orphanCard"), {
+						suggestedAction: t("management.cardQuality.suggestedActions.addToDeckOrDelete"),
 					});
 					issues.push(issue);
 					issuesByType.orphan_card++;
@@ -349,7 +350,7 @@ export class CardQualityInboxService {
 			current: cards.length,
 			total: cards.length,
 			phase: "analyzing",
-			message: "正在分析重复卡片...",
+			message: t("management.cardQuality.progress.analyzingDuplicates"),
 		});
 
 		if (fullConfig.detectDuplicates) {
@@ -365,7 +366,7 @@ export class CardQualityInboxService {
 									group[i],
 									"duplicate_exact",
 									"error",
-									"发现完全重复的卡片",
+									t("management.cardQuality.descriptions.duplicateExact"),
 									{
 										similarCards: group.filter((_, idx) => idx !== i).map((c) => c.uuid),
 										similarityScore: 1.0,
@@ -401,7 +402,7 @@ export class CardQualityInboxService {
 							current: pairCount,
 							total: totalPairs,
 							phase: "analyzing",
-							message: `正在分析相似卡片 ${pairCount}/${totalPairs}...`,
+							message: t("management.cardQuality.progress.analyzingSimilar", { current: pairCount, total: totalPairs }),
 						});
 						// 让出事件循环防止UI阻塞
 						await new Promise((resolve) => setTimeout(resolve, 0));
@@ -424,7 +425,7 @@ export class CardQualityInboxService {
 								cardContents[j].card,
 								"duplicate_similar",
 								"warning",
-								`发现相似内容的卡片（相似度：${(similarity * 100).toFixed(1)}%）`,
+								t("management.cardQuality.descriptions.duplicateSimilar", { percent: (similarity * 100).toFixed(1) }),
 								{
 									similarCards: [cardContents[i].card.uuid],
 									similarityScore: similarity,
@@ -446,7 +447,7 @@ export class CardQualityInboxService {
 			current: cards.length,
 			total: cards.length,
 			phase: "complete",
-			message: `扫描完成，发现 ${issues.length} 个问题`,
+			message: t("management.cardQuality.progress.complete", { count: issues.length }),
 		});
 
 		const result: ScanResult = {
@@ -784,7 +785,7 @@ export class CardQualityInboxService {
 					card,
 					"invalid_format",
 					"error",
-					"YAML frontmatter 未正确关闭（缺少结束的 ---）"
+					t("management.cardQuality.descriptions.invalidYamlFrontmatter")
 				);
 			}
 		}
@@ -799,7 +800,7 @@ export class CardQualityInboxService {
 					card,
 					"invalid_format",
 					"warning",
-					`挖空标记不匹配：${openCount} 个开始标记，${closeCount} 个结束标记`
+					t("management.cardQuality.descriptions.invalidClozeMarkers", { openCount, closeCount })
 				);
 			}
 		}

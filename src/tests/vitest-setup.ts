@@ -14,16 +14,13 @@ type TestWindow = Window &
     __weaveThemeManagerCleanup?: (() => void) | null;
   };
 
-// 全局测试工具
 Object.defineProperty(globalThis, 'vi', {
   configurable: true,
   value: vi,
   writable: true
 });
 
-// Mock Obsidian全局对象（如果需要）
 if (typeof window !== 'undefined') {
-  // 确保测试环境中有基本的window对象
   const testWindow = window as TestWindow;
   testWindow.app ??= {};
 }

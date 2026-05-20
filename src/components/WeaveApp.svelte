@@ -408,6 +408,7 @@
       window.removeEventListener("Weave:navigate", handleNavigate as EventListener);
       window.removeEventListener("Weave:open-inspiration-modal", handleOpenInspirationModal);
       window.removeEventListener("Weave:deck-filter-change", handleDeckFilterChange as EventListener);
+      window.removeEventListener("Weave:card-view-change", handleCardViewChange as EventListener);
       window.removeEventListener("Weave:deck-view-change", handleDeckViewChange as EventListener);
       document.removeEventListener('Weave:open-plugin-config', handleOpenPluginConfig);
       plugin.app.workspace.offref(layoutChangeRef);

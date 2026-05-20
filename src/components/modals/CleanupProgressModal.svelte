@@ -7,6 +7,7 @@
   import type { Readable } from 'svelte/store';
   import OperationProgressCard from '../ui/OperationProgressCard.svelte';
   import type { CleanupDetail, GlobalScanResult, ScanProgress } from '../../services/cleanup/types';
+  import { tr } from '../../utils/i18n';
 
   interface Props {
     progressState: Readable<{
@@ -29,11 +30,14 @@
   }
 
   let { progressState, onClose, onCancel }: Props = $props();
+  let t = $derived($tr);
 
   let viewState = $derived($progressState);
   let progress = $derived(viewState.progress);
   let currentFile = $derived(
-    progress?.currentFile || (viewState.isCompleted ? '扫描完成' : '准备扫描...')
+    progress?.currentFile || (viewState.isCompleted
+      ? t('management.dataManagement.progress.cleanupFinished')
+      : t('management.dataManagement.progress.cleanupPreparing'))
   );
   let percentage = $derived(
     viewState.isCompleted
@@ -46,36 +50,48 @@
       : `${percentage}%`
   );
   let detailLabel = $derived(
-    `检测：${viewState.stats.detectedOrphans} ｜ 已清理：${viewState.stats.cleanedOrphans} ｜ 错误：${viewState.stats.errorCount}`
+    t('management.dataManagement.progress.detailSummary', {
+      detected: viewState.stats.detectedOrphans,
+      cleaned: viewState.stats.cleanedOrphans,
+      errors: viewState.stats.errorCount
+    })
   );
-  let elapsedText = $derived(`${(viewState.elapsedMs / 1000).toFixed(1)}秒`);
+  let elapsedText = $derived(t('management.dataManagement.progress.seconds', {
+    count: (viewState.elapsedMs / 1000).toFixed(1)
+  }));
   let showDetails = $state(true);
 
   function resolveStatusLabel(status: CleanupDetail['status']): string {
-    if (status === 'success') return '已清理';
-    if (status === 'protected') return '受保护';
-    if (status === 'processing') return '处理中';
-    if (status === 'error') return '失败';
-    return '已跳过';
+    if (status === 'success') return t('management.dataManagement.progress.detailStatusCleaned');
+    if (status === 'protected') return t('management.dataManagement.progress.detailStatusProtected');
+    if (status === 'processing') return t('management.dataManagement.progress.detailStatusProcessing');
+    if (status === 'error') return t('management.dataManagement.progress.detailStatusFailed');
+    return t('management.dataManagement.progress.detailStatusSkipped');
   }
 </script>
 
 <div class="cleanup-progress-modal" aria-labelledby="cleanup-modal-title">
   <header class="modal-header">
-    <h2 id="cleanup-modal-title">全局清理孤立块链接</h2>
+    <h2 id="cleanup-modal-title">{t('management.dataManagement.progress.cleanupTitle')}</h2>
   </header>
 
   <div class="modal-body">
     <OperationProgressCard
-      title={viewState.isCompleted ? '扫描完成' : '正在清理残留元数据'}
+      title={viewState.isCompleted
+        ? t('management.dataManagement.progress.cleanupFinished')
+        : t('management.dataManagement.progress.cleanupRunning')}
       counter={counterLabel}
-      message={`当前处理：${currentFile}`}
+      message={t('management.dataManagement.progress.currentProcessing', { file: currentFile })}
       detail={detailLabel}
       percent={percentage}
       status={viewState.isCompleted ? 'success' : 'running'}
-      statusLabel={viewState.isCompleted ? '已完成' : (viewState.isCancelled ? '已取消' : '进行中')}
+      statusLabel={viewState.isCompleted
+        ? t('management.dataManagement.progress.statusCompleted')
+        : (viewState.isCancelled
+          ? t('management.dataManagement.progress.statusCancelled')
+          : t('management.dataManagement.progress.statusRunning'))}
       detailInCard={true}
-      footerHint={`用时：${elapsedText}`}
+      footerHint={`${t('management.dataManagement.progress.elapsedTime')}：${elapsedText}`}
       footerPrimary={`${percentage}%`}
       footerSecondary={counterLabel}
       progressValueMin={0}
@@ -86,19 +102,19 @@
 
     <div class="stats-section">
       <div class="stat-item">
-        <span class="stat-label">文件</span>
+        <span class="stat-label">{t('management.dataManagement.progress.files')}</span>
         <span class="stat-value">{viewState.stats.processedFiles} / {viewState.stats.totalFiles}</span>
       </div>
       <div class="stat-item">
-        <span class="stat-label">检测</span>
+        <span class="stat-label">{t('management.dataManagement.progress.detected')}</span>
         <span class="stat-value">{viewState.stats.detectedOrphans}</span>
       </div>
       <div class="stat-item">
-        <span class="stat-label">已清理</span>
+        <span class="stat-label">{t('management.dataManagement.progress.cleaned')}</span>
         <span class="stat-value cleaned">{viewState.stats.cleanedOrphans}</span>
       </div>
       <div class="stat-item">
-        <span class="stat-label">错误</span>
+        <span class="stat-label">{t('management.dataManagement.progress.errors')}</span>
         <span class="stat-value error">{viewState.stats.errorCount}</span>
       </div>
     </div>
@@ -111,14 +127,14 @@
           showDetails = !showDetails;
         }}
       >
-        <span>清理详情</span>
-        <span>{showDetails ? '收起' : '展开'}</span>
+        <span>{t('management.dataManagement.progress.cleanupDetails')}</span>
+        <span>{showDetails ? t('management.dataManagement.progress.collapse') : t('management.dataManagement.progress.expand')}</span>
       </button>
 
       {#if showDetails}
         <div class="details-list">
           {#if viewState.details.length === 0}
-            <div class="details-empty">等待扫描结果...</div>
+            <div class="details-empty">{t('management.dataManagement.progress.waitingResults')}</div>
           {:else}
             {#each viewState.details as detail (detail.filePath + detail.message + detail.status)}
               <div class={`detail-item status-${detail.status}`}>
@@ -137,9 +153,9 @@
 
   <footer class="modal-footer">
     {#if !viewState.isCompleted && !viewState.isCancelled}
-      <button class="cancel-btn" onclick={onCancel}>取消清理</button>
+      <button class="cancel-btn" onclick={onCancel}>{t('management.dataManagement.progress.cancelCleanup')}</button>
     {:else}
-      <button class="close-btn" onclick={onClose}>完成</button>
+      <button class="close-btn" onclick={onClose}>{t('management.dataManagement.progress.done')}</button>
     {/if}
   </footer>
   </div>

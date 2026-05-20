@@ -1,27 +1,37 @@
 <script lang="ts">
   import { Menu, Platform } from 'obsidian';
+  import { tr } from '../../../../utils/i18n';
   import type { PriorityCellProps } from "../../types/table-types";
 
   let { card, onPriorityUpdate }: PriorityCellProps = $props();
+  let t = $derived($tr);
 
   const isMobile = Platform.isMobile;
 
-  const priorityConfig: Record<number, { label: string; short: string; tone: string }> = {
-    1: { label: '低', short: 'P1', tone: 'gray' },
-    2: { label: '中', short: 'P2', tone: 'blue' },
-    3: { label: '高', short: 'P3', tone: 'orange' },
-    4: { label: '紧急', short: 'P4', tone: 'red' },
-  };
+  function getPriorityConfig(priority: number): { label: string; short: string; tone: string } {
+    switch (priority) {
+      case 1:
+        return { label: t('cardManagement.table.priority.level.low'), short: 'P1', tone: 'gray' };
+      case 2:
+        return { label: t('cardManagement.table.priority.level.medium'), short: 'P2', tone: 'blue' };
+      case 3:
+        return { label: t('cardManagement.table.priority.level.high'), short: 'P3', tone: 'orange' };
+      case 4:
+        return { label: t('cardManagement.table.priority.level.urgent'), short: 'P4', tone: 'red' };
+      default:
+        return { label: t('cardManagement.table.priority.level.medium'), short: 'P2', tone: 'blue' };
+    }
+  }
 
   let currentPriority = $derived(card.priority || 2);
-  let config = $derived(priorityConfig[currentPriority] || priorityConfig[2]);
+  let config = $derived(getPriorityConfig(currentPriority));
 
   function showPriorityMenu(event: MouseEvent) {
     if (!onPriorityUpdate) return;
 
     const menu = new Menu();
     [1, 2, 3, 4].forEach((priority) => {
-      const itemConfig = priorityConfig[priority];
+      const itemConfig = getPriorityConfig(priority);
       menu.addItem((item) => {
         item
           .setTitle(`${itemConfig.short} · ${itemConfig.label}`)
@@ -32,20 +42,14 @@
 
     menu.showAtMouseEvent(event);
   }
-
-  function handleDesktopClick() {
-    if (!onPriorityUpdate) return;
-    const nextPriority = currentPriority >= 4 ? 1 : currentPriority + 1;
-    onPriorityUpdate(card.uuid, nextPriority);
-  }
 </script>
 
 <td class="weave-priority-column">
   <button
     class="weave-priority-badge tone-{config.tone}"
-    onclick={isMobile ? showPriorityMenu : handleDesktopClick}
-    aria-label={`优先级 ${config.short} ${config.label}`}
-    title={isMobile ? '点击选择优先级' : `优先级 ${config.label}，点击切换`}
+    onclick={showPriorityMenu}
+    aria-label={t('cardManagement.table.priority.ariaLabel', { short: config.short, label: config.label })}
+    title={isMobile ? t('cardManagement.table.priority.mobileTitle') : t('cardManagement.table.priority.desktopTitle', { label: config.label })}
     type="button"
   >
     <span class="priority-dot"></span>
@@ -70,16 +74,17 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    min-width: 42px;
+    gap: 5px;
+    min-width: 48px;
     min-height: var(--weave-table-pill-height, 22px);
-    padding: 0 var(--weave-table-pill-padding-x, 8px);
-    border: 1px solid transparent;
+    padding: 0 10px;
+    border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
     border-radius: 999px;
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 800;
+    letter-spacing: 0.02em;
     cursor: pointer;
-    transition: transform 0.16s ease, filter 0.16s ease, border-color 0.16s ease;
+    transition: transform 0.16s ease, filter 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
   }
 
   .priority-dot {
@@ -87,7 +92,8 @@
     height: 6px;
     border-radius: 50%;
     background: currentColor;
-    opacity: 0.9;
+    opacity: 0.88;
+    flex-shrink: 0;
   }
 
   .priority-text {
@@ -120,11 +126,16 @@
 
   .weave-priority-badge:hover {
     transform: translateY(-1px);
-    filter: brightness(1.04);
+    filter: brightness(1.03);
   }
 
   .weave-priority-badge:active {
     transform: scale(0.97);
+  }
+
+  .weave-priority-badge:focus-visible {
+    outline: 2px solid color-mix(in srgb, currentColor 36%, transparent);
+    outline-offset: 2px;
   }
 
   @media (max-width: 768px) {
@@ -136,12 +147,10 @@
     }
 
     .weave-priority-badge {
-      gap: 4px;
       min-width: 50px;
-      min-height: 17px;
-      padding: 0 7px;
+      min-height: 20px;
+      padding: 0 8px;
       font-size: 11px;
-      border-radius: 10px;
     }
 
     .priority-dot {

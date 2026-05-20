@@ -20,7 +20,7 @@ import type { DetachedLeafEditor } from "./DetachedLeafEditor";
  * 编辑器上下文管理器（单例）
  */
 class EditorContextManager {
-	private static instance: EditorContextManager;
+	private static instance: EditorContextManager | null = null;
 	private activePluginEditor: DetachedLeafEditor | null = null;
 
 	private constructor() {
@@ -35,6 +35,15 @@ class EditorContextManager {
 			this.instance = new EditorContextManager();
 		}
 		return this.instance;
+	}
+
+	static resetInstance(): void {
+		if (!this.instance) {
+			return;
+		}
+
+		this.instance.activePluginEditor = null;
+		this.instance = null;
 	}
 
 	/**

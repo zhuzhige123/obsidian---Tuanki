@@ -2,6 +2,7 @@
   import type { GenerationConfig } from '../../types/ai-types';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import AIGenerationConfigForm from './AIGenerationConfigForm.svelte';
+  import { tr } from '../../utils/i18n';
 
   interface Props {
     isOpen: boolean;
@@ -12,19 +13,20 @@
   }
 
   let { isOpen, config, style = '', onClose, onSave }: Props = $props();
+  let t = $derived($tr);
 </script>
 
 {#if isOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="ai-config-popover-backdrop" onclick={(event) => event.target === event.currentTarget && onClose()}>
-    <div class="ai-config-popover" style={style} role="dialog" aria-label="AI 制卡配置">
+    <div class="ai-config-popover" style={style} role="dialog" aria-label={t('aiAssistant.generationConfig.title')}>
       <div class="modal-header">
         <div class="header-title-group">
-          <h2 class="modal-title">AI 制卡配置</h2>
-          <div class="modal-subtitle">制卡设置</div>
+          <h2 class="modal-title">{t('aiAssistant.generationConfig.title')}</h2>
+          <div class="modal-subtitle">{t('aiAssistant.generationConfig.subtitle')}</div>
         </div>
-        <button class="close-btn clickable-icon" type="button" onclick={onClose} title="关闭" aria-label="关闭">
+        <button class="close-btn clickable-icon" type="button" onclick={onClose} title={t('ui.close')} aria-label={t('ui.close')}>
           <ObsidianIcon name="x" size={18} />
         </button>
       </div>

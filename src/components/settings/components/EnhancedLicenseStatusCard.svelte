@@ -2,10 +2,11 @@
   /**
    * 增强的许可证状态卡片组件
    * 提供清晰、突出的激活状态显示
-   */
+  */
   
   import type { EffectiveLicenseState } from '../../../types/license';
   import type { LicenseInfo } from '../types/settings-types';
+  import { currentLanguage, tr } from '../../../utils/i18n';
   
   interface Props {
     license: LicenseInfo | null;
@@ -16,15 +17,17 @@
   }
   
   let { license, effectiveState, showActions = true, onVerify, onReset }: Props = $props();
+  let t = $derived($tr);
+  let locale = $derived($currentLanguage);
  
   function formatLicenseSourcePluginName(sourcePluginId: string | undefined): string {
     if (sourcePluginId === 'weave') {
       return 'Weave';
     }
     if (sourcePluginId === 'weave-epub-reader') {
-      return 'EPUB 阅读器';
+      return t('about.license.statusCard.epubReader');
     }
-    return '关联产品';
+    return t('about.license.statusCard.relatedProduct');
   }
   
   // 状态计算
@@ -37,26 +40,26 @@
   let isActivated = $derived(effectiveState?.isPremiumActive ?? (displayLicense?.isActivated || false));
 
   let licenseSourceLabel = $derived.by(() => {
-    if (!displayLicense) return '未激活';
+    if (!displayLicense) return t('about.license.statusCard.notActivated');
     if (displayLicense.source === 'inherited') {
       return displayLicense.sourcePluginId
-				? `共享授权（来自 ${formatLicenseSourcePluginName(displayLicense.sourcePluginId)})`
-				: '共享授权';
+				? t('about.license.statusCard.sharedLicenseFrom', { product: formatLicenseSourcePluginName(displayLicense.sourcePluginId) })
+				: t('about.license.statusCard.sharedLicense');
     }
-    return '当前产品授权';
+    return t('about.license.statusCard.currentProductLicense');
   });
   
   // 许可证类型显示
   let licenseTypeInfo = $derived.by(() => {
-    if (!displayLicense?.licenseType) return { text: '未知', color: 'gray' };
+    if (!displayLicense?.licenseType) return { text: t('about.license.statusCard.unknown'), color: 'gray' };
 
     switch (displayLicense.licenseType) {
       case 'lifetime':
-        return { text: '永久买断', color: 'premium' };
+        return { text: t('about.license.statusCard.lifetimeBuyout'), color: 'premium' };
       case 'subscription':
-        return { text: '订阅许可', color: 'subscription' };
+        return { text: t('about.license.statusCard.subscriptionLicense'), color: 'subscription' };
       default:
-        return { text: '许可证', color: 'default' };
+        return { text: t('about.license.statusCard.license'), color: 'default' };
     }
   });
   
@@ -69,13 +72,13 @@
     const daysUntilExpiry = Math.ceil((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     
     if (daysUntilExpiry < 0) {
-      return { status: 'expired', text: '已过期', color: 'red' };
+      return { status: 'expired', text: t('about.license.statusCard.expired'), color: 'red' };
     } else if (daysUntilExpiry <= 30) {
-      return { status: 'expiring', text: `${daysUntilExpiry}天后过期`, color: 'orange' };
+      return { status: 'expiring', text: t('about.license.statusCard.daysUntilExpiry', { days: daysUntilExpiry }), color: 'orange' };
     } else if (daysUntilExpiry <= 365) {
-      return { status: 'active', text: `${daysUntilExpiry}天后过期`, color: 'green' };
+      return { status: 'active', text: t('about.license.statusCard.daysUntilExpiry', { days: daysUntilExpiry }), color: 'green' };
     } else {
-      return { status: 'long-term', text: '长期有效', color: 'green' };
+      return { status: 'long-term', text: t('about.license.statusCard.longTermValid'), color: 'green' };
     }
   });
   
@@ -87,7 +90,7 @@
     <!-- 状态头部 -->
     <div class="status-header">
       <div class="status-badge success">
-        <span class="badge-text">许可证已激活</span>
+        <span class="badge-text">{t('about.license.statusCard.activated')}</span>
       </div>
     </div>
     
@@ -96,7 +99,7 @@
       <div class="detail-grid">
         <!-- 许可证类型 -->
         <div class="detail-item">
-          <div class="detail-label">许可证类型</div>
+          <div class="detail-label">{t('about.license.statusCard.licenseType')}</div>
           <div class="detail-value">
             <span class="license-type-badge {licenseTypeInfo.color}">
               {licenseTypeInfo.text}
@@ -105,37 +108,37 @@
         </div>
 
         <div class="detail-item">
-          <div class="detail-label">授权来源</div>
+          <div class="detail-label">{t('about.license.statusCard.licenseSource')}</div>
           <div class="detail-value">{licenseSourceLabel}</div>
         </div>
 
         <div class="detail-item">
-          <div class="detail-label">当前产品授权数</div>
+          <div class="detail-label">{t('about.license.statusCard.currentProductLicenseCount')}</div>
           <div class="detail-value">{localLicenseCount}</div>
         </div>
 
         {#if inheritedLicenseCount > 0}
           <div class="detail-item">
-            <div class="detail-label">共享授权数</div>
+            <div class="detail-label">{t('about.license.statusCard.sharedLicenseCount')}</div>
             <div class="detail-value">{inheritedLicenseCount}</div>
           </div>
         {/if}
         
         <!-- 激活时间 -->
         <div class="detail-item">
-          <div class="detail-label">激活时间</div>
+          <div class="detail-label">{t('about.license.statusCard.activatedAt')}</div>
           <div class="detail-value">
-            {displayLicense?.activatedAt ? new Date(displayLicense.activatedAt).toLocaleString('zh-CN') : '-'}
+            {displayLicense?.activatedAt ? new Date(displayLicense.activatedAt).toLocaleString(locale) : '-'}
           </div>
         </div>
         
         <!-- 到期时间 -->
         {#if displayLicense?.expiresAt && displayLicense.licenseType !== 'lifetime'}
           <div class="detail-item">
-            <div class="detail-label">到期时间</div>
+            <div class="detail-label">{t('about.license.statusCard.expiresAt')}</div>
             <div class="detail-value">
               <span class="expiry-date {expiryInfo?.color}">
-                {new Date(displayLicense.expiresAt).toLocaleString('zh-CN')}
+                {new Date(displayLicense.expiresAt).toLocaleString(locale)}
               </span>
               {#if expiryInfo}
                 <span class="expiry-status {expiryInfo?.color ?? ''}">
@@ -148,7 +151,7 @@
         
         <!-- 产品版本 -->
         <div class="detail-item">
-          <div class="detail-label">产品版本</div>
+          <div class="detail-label">{t('about.license.statusCard.productVersion')}</div>
           <div class="detail-value">
             {displayLicense?.productVersion || 'v0.5.0'}
           </div>
@@ -162,12 +165,12 @@
       <div class="license-actions">
         {#if onVerify}
           <button class="action-button primary" onclick={onVerify}>
-            验证许可证
+            {t('about.license.statusCard.verifyLicense')}
           </button>
         {/if}
         {#if onReset}
           <button class="action-button secondary" onclick={onReset}>
-            重置许可证
+            {t('about.license.statusCard.resetLicense')}
           </button>
         {/if}
       </div>
@@ -178,12 +181,12 @@
   <div class="license-status-card not-activated">
     <div class="status-header">
       <div class="status-badge inactive">
-        <span class="badge-text">许可证未激活</span>
+        <span class="badge-text">{t('about.license.statusCard.notActivated')}</span>
       </div>
     </div>
     
     <div class="inactive-message">
-      <p>当前仅可使用免费功能，激活许可证后可解锁所有高级功能。</p>
+      <p>{t('about.license.statusCard.inactiveMsg')}</p>
     </div>
   </div>
 {/if}

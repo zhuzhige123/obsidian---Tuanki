@@ -18,6 +18,7 @@ export const LICENSED_PRODUCTS = {
 export const LICENSE_ENTITLEMENTS = {
   WEAVE_PREMIUM: "weave-premium",
   EPUB_PREMIUM: "epub-premium",
+  IR_PREMIUM: "ir-premium",
 } as const satisfies Record<string, LicenseEntitlement>;
 
 const LEGACY_WEAVE_PRODUCT_IDS = new Set<string>([
@@ -48,7 +49,9 @@ export function normalizeEntitlements(values: Array<string | null | undefined>):
   const deduped = dedupeStrings(values);
   return deduped.filter(
     (value): value is LicenseEntitlement =>
-      value === LICENSE_ENTITLEMENTS.WEAVE_PREMIUM || value === LICENSE_ENTITLEMENTS.EPUB_PREMIUM
+      value === LICENSE_ENTITLEMENTS.WEAVE_PREMIUM ||
+      value === LICENSE_ENTITLEMENTS.EPUB_PREMIUM ||
+      value === LICENSE_ENTITLEMENTS.IR_PREMIUM
   );
 }
 
@@ -59,7 +62,11 @@ export function mapProductIdToEntitlements(productId: string | undefined): Licen
   }
 
   if (LEGACY_WEAVE_PRODUCT_IDS.has(normalized)) {
-    return [LICENSE_ENTITLEMENTS.WEAVE_PREMIUM, LICENSE_ENTITLEMENTS.EPUB_PREMIUM];
+    return [
+      LICENSE_ENTITLEMENTS.WEAVE_PREMIUM,
+      LICENSE_ENTITLEMENTS.EPUB_PREMIUM,
+      LICENSE_ENTITLEMENTS.IR_PREMIUM,
+    ];
   }
 
   if (EPUB_PRODUCT_IDS.has(normalized)) {

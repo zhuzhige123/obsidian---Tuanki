@@ -7,9 +7,9 @@
   import { Notice } from "obsidian";
   import { onDestroy, tick } from "svelte";
   import type { WeavePlugin } from "../../main";
+  import { tr, t } from "../../utils/i18n";
   import type { WeaveDataStorage } from "../../data/storage";
   import type { ImportProgress, ImportResult } from "../../domain/apkg/types";
-  import { APKGImportService } from "../../application/services/apkg/APKGImportService";
   import { ObsidianMediaStorageAdapter } from "../../infrastructure/adapters/impl/ObsidianMediaStorageAdapter";
   import { WeaveDataStorageAdapter } from "../../infrastructure/adapters/impl/WeaveDataStorageAdapter";
   import EnhancedIcon from "../ui/EnhancedIcon.svelte";
@@ -64,38 +64,38 @@
   function getImportStageLabel(stage: ImportProgress['stage']): string {
     switch (stage) {
       case 'parsing':
-        return '解析中';
+        return t('management.apkgImportModal.stages.parsing');
       case 'analyzing':
-        return '分析中';
+        return t('management.apkgImportModal.stages.analyzing');
       case 'converting':
-        return '转换中';
+        return t('management.apkgImportModal.stages.converting');
       case 'media':
-        return '处理媒体';
+        return t('management.apkgImportModal.stages.media');
       case 'building':
-        return '构建卡片';
+        return t('management.apkgImportModal.stages.building');
       case 'saving':
-        return '保存中';
+        return t('management.apkgImportModal.stages.saving');
       default:
-        return '正在导入';
+        return t('management.apkgImportModal.stages.importing');
     }
   }
 
   function getImportStageDescription(stage: ImportProgress['stage']): string {
     switch (stage) {
       case 'parsing':
-        return '读取 APKG 压缩包与 Anki 数据库';
+        return t('management.apkgImportModal.stageDescriptions.parsing');
       case 'analyzing':
-        return '识别字段布局并转换模板映射';
+        return t('management.apkgImportModal.stageDescriptions.analyzing');
       case 'media':
-        return '迁移图片、音频、视频到 Obsidian 附件';
+        return t('management.apkgImportModal.stageDescriptions.media');
       case 'converting':
-        return '转换为 Weave 卡片格式与 Obsidian 标准内容';
+        return t('management.apkgImportModal.stageDescriptions.converting');
       case 'building':
-        return '构建 Weave 卡片数据';
+        return t('management.apkgImportModal.stageDescriptions.building');
       case 'saving':
-        return '写入牌组与卡片数据';
+        return t('management.apkgImportModal.stageDescriptions.saving');
       default:
-        return '准备导入';
+        return t('management.apkgImportModal.stageDescriptions.preparing');
     }
   }
 
@@ -156,7 +156,7 @@
     
     if (file) {
       if (!file.name.toLowerCase().endsWith('.apkg')) {
-        new Notice('请选择 .apkg 文件');
+        new Notice(t('management.apkgImportModal.invalidFile'));
         return;
       }
       selectedFile = file;
@@ -167,7 +167,7 @@
 
   function selectFile() {
     if (!canImportLegacyApkg) {
-      new Notice(legacyImportHelpText || '当前安装包未包含旧版 APKG 导入运行时');
+      new Notice(legacyImportHelpText || t('management.apkgImportModal.runtimeMissing'));
       return;
     }
     if (fileInput) {
@@ -187,7 +187,7 @@
     isDragOver = false;
 
     if (!canImportLegacyApkg) {
-      new Notice(legacyImportHelpText || '当前安装包未包含旧版 APKG 导入运行时');
+      new Notice(legacyImportHelpText || t('management.apkgImportModal.runtimeMissing'));
       return;
     }
 
@@ -199,7 +199,7 @@
         importResult = null;
         await startImport();
       } else {
-        new Notice('请选择 .apkg 文件');
+        new Notice(t('management.apkgImportModal.invalidFile'));
       }
     }
   }
@@ -221,7 +221,7 @@
   async function startImport() {
     if (!selectedFile) return;
     if (!canImportLegacyApkg) {
-      new Notice(legacyImportHelpText || '当前安装包未包含旧版 APKG 导入运行时');
+      new Notice(legacyImportHelpText || t('management.apkgImportModal.runtimeMissing'));
       return;
     }
 
@@ -238,6 +238,7 @@
       // 创建新的APKG导入服务
       const dataStorageAdapter = new WeaveDataStorageAdapter(dataStorage);
       const mediaStorage = new ObsidianMediaStorageAdapter(plugin);
+      const { APKGImportService } = await import("../../application/services/apkg/APKGImportService");
       const importService = new APKGImportService(dataStorageAdapter, mediaStorage, { wasmUrl });
 
       // 配置导入参数
@@ -268,7 +269,7 @@
         applyImportProgress({
           stage: 'saving',
           progress: 100,
-          message: '导入完成',
+          message: t('management.apkgImportModal.progress.completed'),
         });
       }
       importStage = 'result';
@@ -290,7 +291,7 @@
       importResult = {
         success: false,
         stats: { totalCards: 0, importedCards: 0, skippedCards: 0, failedCards: 0, mediaFiles: 0, mediaTotalSize: 0 },
-        errors: [{ stage: 'parsing', message: error instanceof Error ? error.message : "导入失败", code: 'UNKNOWN_ERROR' }],
+        errors: [{ stage: 'parsing', message: error instanceof Error ? error.message : t('management.apkgImportModal.result.failedTitle'), code: 'UNKNOWN_ERROR' }],
         warnings: [],
         duration: 0
       };
@@ -355,16 +356,16 @@
             <EnhancedIcon name="package" size={26} />
           </div>
           <div class="selection-hero-copy">
-            <h3 class="selection-title">导入旧版 APKG 到 Weave</h3>
-            <p class="selection-desc">导入后会自动转换为 Weave 卡片格式，并将内容标准化为 Obsidian 兼容格式。</p>
+            <h3 class="selection-title">{$tr('management.apkgImportModal.selection.title')}</h3>
+            <p class="selection-desc">{$tr('management.apkgImportModal.selection.description')}</p>
           </div>
         </div>
 
         {#if !canImportLegacyApkg}
           <div class="runtime-warning">
-            <div class="runtime-warning__title">当前安装包未包含旧版 APKG 导入运行时</div>
+            <div class="runtime-warning__title">{$tr('management.apkgImportModal.selection.runtimeWarningTitle')}</div>
             <div class="runtime-warning__desc">
-              {legacyImportHelpText || '社区市场版默认只包含上架所需核心文件。若你需要导入旧版 APKG，请改用手动增强安装包并补充 sql-wasm.wasm。'}
+              {legacyImportHelpText || $tr('management.apkgImportModal.selection.runtimeWarningDescription')}
             </div>
           </div>
         {/if}
@@ -381,28 +382,28 @@
              tabindex={canImportLegacyApkg ? 0 : -1}
              aria-disabled={!canImportLegacyApkg}>
           <EnhancedIcon name="upload" size={56} />
-          <h3 class="dropzone-title">选择或拖拽 APKG 文件</h3>
+          <h3 class="dropzone-title">{$tr('management.apkgImportModal.selection.dropzoneTitle')}</h3>
           <p class="dropzone-hint">
             {#if canImportLegacyApkg}
-              支持 Anki 标准导出格式
+              {$tr('management.apkgImportModal.selection.dropzoneHintEnabled')}
             {:else}
-              当前安装包未启用该导入运行时
+              {$tr('management.apkgImportModal.selection.dropzoneHintDisabled')}
             {/if}
           </p>
         </div>
 
         <div class="selection-capabilities">
           <div class="capability-card">
-            <div class="capability-title">卡片格式收口</div>
-            <div class="capability-desc">导入结果会统一转换为插件当前使用的 Weave 卡片结构，不保留旧运行时依赖。</div>
+            <div class="capability-title">{$tr('management.apkgImportModal.selection.capabilities.cardFormat')}</div>
+            <div class="capability-desc">{$tr('management.apkgImportModal.selection.capabilities.cardFormatDesc')}</div>
           </div>
           <div class="capability-card">
-            <div class="capability-title">内容标准化</div>
-            <div class="capability-desc">HTML、媒体引用、挖空内容会尽量转换为 Obsidian 兼容的 Markdown 与附件链接。</div>
+            <div class="capability-title">{$tr('management.apkgImportModal.selection.capabilities.contentStandard')}</div>
+            <div class="capability-desc">{$tr('management.apkgImportModal.selection.capabilities.contentStandardDesc')}</div>
           </div>
           <div class="capability-card">
-            <div class="capability-title">媒体迁移</div>
-            <div class="capability-desc">图片、音频、视频会迁移到 Obsidian 附件路径，避免继续依赖原 APKG 包内部结构。</div>
+            <div class="capability-title">{$tr('management.apkgImportModal.selection.capabilities.mediaMigration')}</div>
+            <div class="capability-desc">{$tr('management.apkgImportModal.selection.capabilities.mediaMigrationDesc')}</div>
           </div>
         </div>
         <input
@@ -425,7 +426,7 @@
             detail={progressDetail}
             percent={progressPercent}
             status="running"
-            statusLabel="进行中"
+            statusLabel={$tr('management.apkgImportModal.progress.running')}
             centered={true}
             detailInCard={true}
             progressValueMin={0}
@@ -455,34 +456,34 @@
             <div class="result-icon">
               <EnhancedIcon name="check-circle" size={56} color="var(--color-green)" />
             </div>
-            <h3 class="result-title">导入成功</h3>
-            <p class="result-message">成功导入 {importResult.stats.importedCards} 张卡片，已完成 Weave 格式与 Obsidian 内容标准化。</p>
+            <h3 class="result-title">{$tr('management.apkgImportModal.result.successTitle')}</h3>
+            <p class="result-message">{$tr('management.apkgImportModal.result.successMessage', { count: importResult.stats.importedCards })}</p>
 
             <div class="result-pill-row">
-              <span class="result-pill">Weave 卡片格式</span>
-              <span class="result-pill">Obsidian 标准内容</span>
-              <span class="result-pill">附件已迁移</span>
+              <span class="result-pill">{$tr('management.apkgImportModal.result.pills.weave')}</span>
+              <span class="result-pill">{$tr('management.apkgImportModal.result.pills.obsidian')}</span>
+              <span class="result-pill">{$tr('management.apkgImportModal.result.pills.media')}</span>
             </div>
 
             {#if importResult.deckName}
               <div class="result-details result-grid">
                 <div class="detail-item">
-                  <span class="detail-label">牌组：</span>
+                  <span class="detail-label">{$tr('management.apkgImportModal.result.deck')}</span>
                   <span class="detail-value">{importResult.deckName}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="detail-label">成功导入：</span>
-                  <span class="detail-value">{importResult.stats.importedCards} 张</span>
+                  <span class="detail-label">{$tr('management.apkgImportModal.result.imported')}</span>
+                  <span class="detail-value">{importResult.stats.importedCards} {$tr('management.apkgImportModal.result.cardsUnit')}</span>
                 </div>
                 {#if importResult.stats.failedCards > 0}
                   <div class="detail-item mod-warning">
-                    <span class="detail-label">失败：</span>
-                    <span class="detail-value">{importResult.stats.failedCards} 张</span>
+                    <span class="detail-label">{$tr('management.apkgImportModal.result.failed')}</span>
+                    <span class="detail-value">{importResult.stats.failedCards} {$tr('management.apkgImportModal.result.cardsUnit')}</span>
                   </div>
                 {/if}
                 <div class="detail-item">
-                  <span class="detail-label">媒体：</span>
-                  <span class="detail-value">{importResult.stats.mediaFiles} 个</span>
+                  <span class="detail-label">{$tr('management.apkgImportModal.result.media')}</span>
+                  <span class="detail-value">{importResult.stats.mediaFiles} {$tr('management.apkgImportModal.result.mediaUnit')}</span>
                 </div>
               </div>
             {/if}
@@ -492,7 +493,7 @@
               <details class="error-collapsible">
                 <summary class="error-collapsible-trigger">
                   <EnhancedIcon name="alert-triangle" size={16} />
-                  <span>查看错误信息 ({importResult.errors.length})</span>
+                  <span>{$tr('management.apkgImportModal.result.errorDetails', { count: importResult.errors.length })}</span>
                   <EnhancedIcon name="chevron-down" size={16} class="chevron" />
                 </summary>
                 <div class="error-collapsible-content">
@@ -514,8 +515,8 @@
             <div class="result-icon">
               <EnhancedIcon name="alert-circle" size={56} color="var(--color-red)" />
             </div>
-            <h3 class="result-title">导入失败</h3>
-            <p class="result-message">{importResult?.errors?.[0]?.message || '未知错误'}</p>
+            <h3 class="result-title">{$tr('management.apkgImportModal.result.failedTitle')}</h3>
+            <p class="result-message">{importResult?.errors?.[0]?.message || $tr('management.apkgImportModal.result.unknownError')}</p>
           </div>
         {/if}
       </div>
@@ -525,13 +526,13 @@
     {#if importStage === 'result'}
       <div class="apkg-modal-footer">
         <button class="apkg-close-btn" onclick={closeModal}>
-          关闭
+          {$tr('management.apkgImportModal.result.close')}
         </button>
       </div>
     {:else if importStage === 'importing'}
       <div class="apkg-modal-footer">
         <button class="apkg-close-btn" onclick={closeModal}>
-          取消并关闭
+          {$tr('management.apkgImportModal.result.cancelAndClose')}
         </button>
       </div>
     {/if}
@@ -545,7 +546,7 @@
   <ResizableModal
     bind:open={show}
     {plugin}
-    title="导入 APKG 文件"
+    title={$tr('management.apkgImportModal.windowTitle')}
     accentColor="cyan"
     className="apkg-import-modal"
     closable={true}

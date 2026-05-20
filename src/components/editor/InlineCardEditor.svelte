@@ -23,6 +23,7 @@
   } from '../../utils/yaml-utils';
   import { detectCardQuestionType } from '../../utils/card-type-utils';
   import { getCardTypeName } from '../../types/unified-card-types';
+  import { tr } from '../../utils/i18n';
 
   // Props接口定义
   interface Props {
@@ -70,6 +71,7 @@
     propsFieldTemplates = [],
     sourcePath // 接收 sourcePath
   }: Props = $props();
+  let t = $derived($tr);
 
   // 编辑器状态管理
   let editorContainer: HTMLDivElement | null = $state(null);
@@ -95,7 +97,7 @@
     return detectClozeModeFromContent(currentContent || card.content || '');
   });
 
-  const secondaryActionLabel = $derived(mode === 'create' ? '取消' : '关闭');
+  const secondaryActionLabel = $derived(mode === 'create' ? t('cards.editorModal.cancel') : t('cards.editorModal.close'));
 
   function extractClozeOrdinals(content: string): number[] {
     const ordinals = new Set<number>();
@@ -113,18 +115,18 @@
   }
 
   function getCardTypeDisplayName(targetCard: Card | null | undefined): string {
-    if (!targetCard) return '未知题型';
+    if (!targetCard) return t('cards.editorModal.cardTypes.unknown');
 
     switch (targetCard.type) {
       case CardType.ProgressiveParent:
       case CardType.ProgressiveChild:
-        return '渐进式挖空';
+        return t('cards.editorModal.cardTypes.progressive');
       case CardType.Basic:
-        return '问答题';
+        return t('cards.editorModal.cardTypes.basic');
       case CardType.Cloze:
-        return '普通挖空';
+        return t('cards.editorModal.cardTypes.cloze');
       case CardType.Multiple:
-        return '选择题';
+        return t('cards.editorModal.cardTypes.multiple');
       default:
         return getCardTypeName(detectCardQuestionType(targetCard));
     }
@@ -165,7 +167,7 @@
     if (previousCard.type !== persistedCard.type) {
       const previousTypeLabel = getCardTypeDisplayName(previousCard);
       const nextTypeLabel = getCardTypeDisplayName(persistedCard);
-      new Notice(`卡片题型已从「${previousTypeLabel}」变更为「${nextTypeLabel}」`, 7000);
+      new Notice(t('studyInterface.notices.cardTypeChanged', { from: previousTypeLabel, to: nextTypeLabel }), 7000);
     }
 
     const progressiveNotice = buildProgressiveClozeSaveNotice(previousCard, persistedCard);
@@ -189,7 +191,7 @@
     }
 
     await updateEditorContent(nextContent);
-    new Notice(mode === 'input' ? '已切换为输入模式' : '已切换为显示模式');
+    new Notice(mode === 'input' ? t('studyInterface.notices.clozeModeSwitchedInput') : t('studyInterface.notices.clozeModeSwitchedReveal'));
   }
 
   // 初始化编辑器（使用文件池方案）
@@ -259,10 +261,10 @@
     } catch (error) {
       logger.error('[InlineCardEditor] 编辑器初始化失败:', error);
       errorDetails = {
-        message: error instanceof Error ? error.message : '编辑器初始化失败',
+        message: error instanceof Error ? error.message : t('cards.editorModal.initializing'),
         timestamp: Date.now()
       };
-      new Notice('编辑器初始化失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      new Notice(t('cards.editorModal.initializing') + ': ' + (error instanceof Error ? error.message : t('cards.editorModal.unknownError')));
     } finally {
       isLoading = false;
       logger.debug('[InlineCardEditor] 初始化完成，isLoading =', isLoading, ', editorInitialized =', editorInitialized);
@@ -435,7 +437,7 @@
     } catch (error) {
       isLoading = false;
       logger.error('[InlineCardEditor] 保存失败:', error);
-      new Notice('保存失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      new Notice(t('cards.editorModal.saveFailedPrefix') + (error instanceof Error ? error.message : t('cards.editorModal.unknownError')));
     } finally {
       //  延迟重置处理标志，防止快速连续点击
       setTimeout(() => {
@@ -559,26 +561,26 @@
   {#if showHeader}
     <div class="editor-header">
       <div class="header-left">
-        <h3>{mode === 'create' ? '创建卡片' : '编辑卡片'}</h3>
+        <h3>{mode === 'create' ? t('cards.editorModal.createTitle') : t('cards.editorModal.editTitle')}</h3>
         {#if isLoading}
           <div class="loading-indicator">
             <EnhancedIcon name="loader" size={16} />
-            {editorInitialized ? '保存中...' : '初始化编辑器...'}
+            {editorInitialized ? (mode === 'create' ? t('cards.editorModal.creating') : t('cards.editorModal.saving')) : t('cards.editorModal.initializing')}
           </div>
         {/if}
       </div>
       
       <div class="header-right">
         {#if supportsClozeModeToggle}
-          <div class="cloze-mode-switch" role="group" aria-label="挖空模式切换">
-            <span class="cloze-mode-label">挖空模式</span>
+          <div class="cloze-mode-switch" role="group" aria-label={t('cards.editorModal.clozeModeGroup')}>
+            <span class="cloze-mode-label">{t('cards.editorModal.clozeModeLabel')}</span>
             <button
               type="button"
               class:active={currentClozeMode === 'reveal'}
               onclick={() => void handleClozeModeToggle('reveal')}
               disabled={isLoading || !editorInitialized}
             >
-              显示
+              {t('cards.editorModal.clozeModeReveal')}
             </button>
             <button
               type="button"
@@ -586,7 +588,7 @@
               onclick={() => void handleClozeModeToggle('input')}
               disabled={isLoading || !editorInitialized}
             >
-              输入
+              {t('cards.editorModal.clozeModeInput')}
             </button>
           </div>
         {/if}
@@ -594,7 +596,7 @@
         <!-- 牌组选择器 -->
         {#if decks && decks.length > 0}
           <CustomDropdown
-            label="牌组:"
+            label={t('cards.editorModal.deckLabel')}
             bind:value={selectedDeckId}
             options={decks}
             onchange={(value) => {
@@ -612,8 +614,8 @@
           <button
             class="close-btn"
             onclick={onClose}
-            aria-label="关闭"
-            title="关闭"
+            aria-label={t('cards.editorModal.close')}
+            title={t('cards.editorModal.closeTitle')}
           >
             <EnhancedIcon name="x" size={16} />
           </button>
@@ -633,15 +635,15 @@
         {#if !editorInitialized && !isLoading}
           <div class="editor-placeholder">
             <EnhancedIcon name="edit" size={24} />
-            <p>点击这里开始编辑卡片内容</p>
-            <small>支持Markdown语法，会自动解析为不同题型</small>
+            <p>{t('cards.editorModal.clickToEdit')}</p>
+            <small>{t('cards.editorModal.editorHint')}</small>
           </div>
         {/if}
         
         {#if isLoading && !editorInitialized}
           <div class="editor-loading">
             <EnhancedIcon name="loader" size={24} />
-            <p>正在初始化编辑器...</p>
+            <p>{t('cards.editorModal.initializingBody')}</p>
           </div>
         {/if}
       </div>
@@ -695,7 +697,7 @@
         {:else}
           <EnhancedIcon name={mode === 'create' ? 'plus' : 'save'} size={16} />
         {/if}
-        {mode === 'create' ? '创建' : '保存'}
+        {mode === 'create' ? t('cards.editorModal.createAction') : t('cards.editorModal.saveAction')}
       </button>
     </div>
   {/if}

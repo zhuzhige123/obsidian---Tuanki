@@ -221,6 +221,64 @@ describe("IRPointStorageService", () => {
 		expect(files.has(normalizeTestPath(v2Paths.ir.materialsIndex))).toBe(false);
 	});
 
+	it("refreshes the point-files index from vault irdeck files", async () => {
+		const v2Paths = getV2Paths("");
+		const pointFilePath = `${v2Paths.ir.root}/points/Existing Topic.irdeck`;
+		const { app, files } = createMemoryApp(
+			{
+				[pointFilePath]: JSON.stringify({
+					schemaVersion: IR_POINT_STORAGE_VERSION,
+					topicId: "topic-existing",
+					topicName: "Existing Topic",
+					updatedAt: "2026-04-16T12:00:00.000Z",
+					points: [
+						{
+							id: "legacy-block-1",
+							source: { type: "markdown", path: "Notes/Existing.md" },
+							trace: { locatorType: "markdown-block" },
+							relations: { topicIds: ["topic-existing"] },
+						},
+					],
+				}),
+			},
+			[`${v2Paths.ir.root}/points`]
+		);
+		files.set(
+			getPointFilesIndexPath(app),
+			JSON.stringify({
+				version: 1,
+				updatedAt: "2026-04-16T10:00:00.000Z",
+				files: [
+					{
+						file: "weave/incremental-reading/points/Stale Topic.irdeck",
+						topicId: "stale-topic",
+						topicName: "Stale Topic",
+						pointCount: 1,
+						updatedAt: "2026-04-16T10:00:00.000Z",
+					},
+				],
+			})
+		);
+		const service = new IRPointStorageService(app);
+
+		const result = await service.refreshPointFilesIndexFromVault();
+		const pointIndex = JSON.parse(files.get(getPointFilesIndexPath(app)) || "{}");
+
+		expect(result).toMatchObject({
+			scanned: 1,
+			added: 1,
+			updated: 0,
+			removed: 1,
+		});
+		expect(pointIndex.files).toHaveLength(1);
+		expect(pointIndex.files[0]).toMatchObject({
+			file: "weave/incremental-reading/points/Existing Topic.irdeck",
+			topicId: "topic-existing",
+			topicName: "Existing Topic",
+			pointCount: 1,
+		});
+	});
+
 	it("keeps migrated stats and note links when later legacy syncs omit them, and exposes point snapshots", async () => {
 		const v2Paths = getV2Paths("");
 		const { app, files } = createMemoryApp();

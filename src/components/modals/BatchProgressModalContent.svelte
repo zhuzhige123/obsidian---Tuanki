@@ -2,6 +2,7 @@
   import type { Readable } from "svelte/store";
   import type { ParseProgress } from "../../services/batch-parsing";
   import OperationProgressCard from "../ui/OperationProgressCard.svelte";
+  import { tr } from "../../utils/i18n";
 
   interface BatchProgressViewState {
     progress: ParseProgress | null;
@@ -14,6 +15,7 @@
   }
 
   let { progressState, onCancel }: Props = $props();
+  let t = $derived($tr);
 
   let viewState = $derived($progressState);
   let progress = $derived(viewState.progress);
@@ -24,22 +26,29 @@
     progress && progress.totalFiles > 0 ? `${progress.processedFiles} / ${progress.totalFiles}` : `${percentage}%`
   );
   let message = $derived(
-    progress?.currentFile ? `正在处理：${progress.currentFile}` : "正在初始化..."
+    progress?.currentFile
+      ? t('management.dataManagement.progress.batchProcessing', { file: progress.currentFile })
+      : t('management.dataManagement.progress.batchInitializing')
   );
   let detail = $derived(
-    progress ? `成功：${progress.successCount} ｜ 失败：${progress.errorCount}` : ""
+    progress
+      ? t('management.dataManagement.progress.batchDetail', {
+          success: progress.successCount,
+          failed: progress.errorCount
+        })
+      : ""
   );
 </script>
 
 <div class="batch-progress-content">
   <OperationProgressCard
-    title="批量解析进行中"
+    title={t('management.dataManagement.progress.batchParsingTitle')}
     counter={counterLabel}
     message={message}
     detail={detail}
     percent={percentage}
     status="running"
-    statusLabel="进行中"
+    statusLabel={t('management.dataManagement.progress.statusRunning')}
     centered={true}
     detailInCard={Boolean(detail)}
     footerPrimary={`${percentage}%`}
@@ -52,7 +61,7 @@
 
   <div class="batch-progress-actions">
     <button class="batch-progress-cancel" onclick={onCancel} disabled={viewState.isCancelling}>
-      {viewState.isCancelling ? "取消中..." : "取消"}
+      {viewState.isCancelling ? t('management.dataManagement.progress.cancelling') : t('management.dataManagement.progress.cancelOperation')}
     </button>
   </div>
 </div>

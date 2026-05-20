@@ -1,4 +1,11 @@
-import { createContentWithMetadata, extractAllTags, parseSourceInfo, setCardProperty } from '../utils/yaml-utils';
+import {
+  createContentWithMetadata,
+  extractAllTags,
+  getCardDeckIds,
+  getCardDeckIdsFromFormalSource,
+  parseSourceInfo,
+  setCardProperty
+} from '../utils/yaml-utils';
 
 describe('yaml-utils wikilink quoting', () => {
   test('should quote we_source wikilink in YAML output', () => {
@@ -58,5 +65,17 @@ tags:
 <mark style="background: #FFF3A3A6;">高亮内容</mark> 和正文标签 #真实标签`;
 
     expect(extractAllTags(content)).toEqual(['手工标签', '真实标签']);
+  });
+
+  test('should allow strict formal-source parsing without legacy deck field fallback', () => {
+    const decks = [{ id: 'deck-target', name: '目标牌组', purpose: 'memory' as const }];
+    const card = {
+      deckId: 'deck-target',
+      referencedByDecks: ['deck-target'],
+      content: '正文内容'
+    };
+
+    expect(getCardDeckIds(card, decks).deckIds).toEqual(['deck-target']);
+    expect(getCardDeckIdsFromFormalSource(card, decks).deckIds).toEqual([]);
   });
 });

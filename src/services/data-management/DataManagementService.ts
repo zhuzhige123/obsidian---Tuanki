@@ -25,6 +25,7 @@ import {
 	isProgressiveClozeParent,
 } from "../../types/progressive-cloze-v2";
 import { DirectoryUtils } from "../../utils/directory-utils";
+import { t } from "../../utils/i18n";
 import {
 	cleanupUnusedLegacyMemoryStorage,
 	getUnusedLegacyMemoryStorageCandidates,
@@ -189,36 +190,42 @@ export const HIDDEN_RESCUE_CHECK_TYPES: CheckType[] = [
 export const RETIREMENT_CANDIDATE_CHECK_TYPES: CheckType[] = [];
 
 const CHECK_TYPE_DISPLAY_NAMES: Partial<Record<CheckType, string>> = {
-	structured_data_format: "结构化数据文件格式修复",
-	memory_single_membership: "记忆卡单正式归属收口",
-	we_block_migration: "we_block 合并迁移",
-	epub_source_link_migration: "EPUB 溯源链接迁移",
-	epub_markdown_source_id_backfill: "EPUB Markdown sourceId 回填",
-	ir_redundant_frontmatter_cleanup: "增量阅读历史 frontmatter 清理",
-	card_deck_consistency: "牌组缓存一致性",
-	ir_material_consistency: "导入材料一致性",
-	ir_point_storage_migration: "增量阅读数据迁移",
-	ir_legacy_readable_markdown_migration: "旧增量阅读正文迁移",
-	ir_local_state_relocation: "增量阅读本地状态迁移",
-	ir_legacy_bookmark_cleanup: "增量阅读旧书签文件清理",
-	legacy_memory_files: "旧记忆卡 JSON 残留",
-	wdeck_conflicts: ".wdeck 冲突检查",
-	wdeck_cache: ".wdeck 缓存重建",
-	migration_conflict_files: "迁移冲突文件处理",
-	orphan_cards: "孤立卡片",
-	duplicate_cards: "重复卡片",
-	invalid_refs: "无效引用",
-	schema_migration: "Schema V2 数据迁移",
-	structure_check: "目录结构核对",
-	legacy_cleanup: "旧目录清理",
-	filename_compatibility: "文件名与同步兼容性",
-	sync_conflict_files: "同步冲突副本处理",
-	progressive_cloze_unconverted: "渐进式挖空结构转换",
-	progressive_cloze_orphan: "渐进式挖空孤儿子卡片",
-	progressive_cloze_missing_children: "渐进式挖空缺少子卡片",
-	progressive_cloze_extra_children: "渐进式挖空多余子卡片",
-	qbank_migration: ".qbank 题库文件迁移",
-	qbank_legacy_cleanup: "旧题库文件清理",
+	structured_data_format: "management.dataCheckService.checkNames.structuredDataFormat",
+	memory_single_membership: "management.dataCheckService.checkNames.memorySingleMembership",
+	we_block_migration: "management.dataCheckService.checkNames.weBlockMigration",
+	epub_source_link_migration: "management.dataCheckService.checkNames.epubSourceLinkMigration",
+	epub_markdown_source_id_backfill:
+		"management.dataCheckService.checkNames.epubMarkdownSourceIdBackfill",
+	ir_redundant_frontmatter_cleanup:
+		"management.dataCheckService.checkNames.irRedundantFrontmatterCleanup",
+	card_deck_consistency: "management.dataCheckService.checkNames.cardDeckConsistency",
+	ir_material_consistency: "management.dataCheckService.checkNames.irMaterialConsistency",
+	ir_point_storage_migration: "management.dataCheckService.checkNames.irPointStorageMigration",
+	ir_legacy_readable_markdown_migration:
+		"management.dataCheckService.checkNames.irLegacyReadableMarkdownMigration",
+	ir_local_state_relocation: "management.dataCheckService.checkNames.irLocalStateRelocation",
+	ir_legacy_bookmark_cleanup: "management.dataCheckService.checkNames.irLegacyBookmarkCleanup",
+	legacy_memory_files: "management.dataCheckService.checkNames.legacyMemoryFiles",
+	wdeck_conflicts: "management.dataCheckService.checkNames.wdeckConflicts",
+	wdeck_cache: "management.dataCheckService.checkNames.wdeckCache",
+	migration_conflict_files: "management.dataCheckService.checkNames.migrationConflictFiles",
+	orphan_cards: "management.dataCheckService.checkNames.orphanCards",
+	duplicate_cards: "management.dataCheckService.checkNames.duplicateCards",
+	invalid_refs: "management.dataCheckService.checkNames.invalidRefs",
+	schema_migration: "management.dataCheckService.checkNames.schemaMigration",
+	structure_check: "management.dataCheckService.checkNames.structureCheck",
+	legacy_cleanup: "management.dataCheckService.checkNames.legacyCleanup",
+	filename_compatibility: "management.dataCheckService.checkNames.filenameCompatibility",
+	sync_conflict_files: "management.dataCheckService.checkNames.syncConflictFiles",
+	progressive_cloze_unconverted:
+		"management.dataCheckService.checkNames.progressiveClozeUnconverted",
+	progressive_cloze_orphan: "management.dataCheckService.checkNames.progressiveClozeOrphan",
+	progressive_cloze_missing_children:
+		"management.dataCheckService.checkNames.progressiveClozeMissingChildren",
+	progressive_cloze_extra_children:
+		"management.dataCheckService.checkNames.progressiveClozeExtraChildren",
+	qbank_migration: "management.dataCheckService.checkNames.qbankMigration",
+	qbank_legacy_cleanup: "management.dataCheckService.checkNames.qbankLegacyCleanup",
 };
 
 export type DataCheckLifecycleKind = "temporary" | "long_term";
@@ -244,21 +251,24 @@ export function getDataCheckLifecycleKind(type: CheckType): DataCheckLifecycleKi
 }
 
 export function getDataCheckLifecycleLabel(type: CheckType): string {
-	return getDataCheckLifecycleKind(type) === "temporary" ? "临时" : "长期";
+	return getDataCheckLifecycleKind(type) === "temporary"
+		? t("management.dataCheckService.lifecycle.temporary")
+		: t("management.dataCheckService.lifecycle.longTerm");
 }
 
 export function getDataCheckDisplayName(type: CheckType): string {
 	if (type === "wdeck_migration") {
-		return ".wdeck 牌组文件迁移";
+		return t("management.dataCheckService.checkNames.wdeckMigration");
 	}
 
-	return CHECK_TYPE_DISPLAY_NAMES[type] || type;
+	const displayName = CHECK_TYPE_DISPLAY_NAMES[type];
+	return displayName ? t(displayName) : type;
 }
 
 export function getDataCheckLifecycleNote(type: CheckType): string {
 	switch (type) {
 		case "we_block_migration":
-			return "临时兼容项：主要用于清理旧卡片结构与历史字段，旧数据完成收口后应考虑移除。";
+			return t("management.dataCheckService.notes.weBlockMigration");
 		case "epub_source_link_migration":
 		case "epub_markdown_source_id_backfill":
 		case "ir_redundant_frontmatter_cleanup":
@@ -267,7 +277,7 @@ export function getDataCheckLifecycleNote(type: CheckType): string {
 		case "ir_local_state_relocation":
 		case "ir_legacy_bookmark_cleanup":
 		case "ir_material_consistency":
-			return "拆分残留项：reader / EPUB / 增量阅读能力已拆分为独立插件。主插件默认不再把这些治理项作为核心卡片数据治理职责，只保留兼容处理能力。";
+			return t("management.dataCheckService.notes.splitPluginResidue");
 		case "schema_migration":
 		case "wdeck_migration":
 		case "qbank_migration":
@@ -275,7 +285,7 @@ export function getDataCheckLifecycleNote(type: CheckType): string {
 		case "legacy_memory_files":
 		case "migration_conflict_files":
 		case "legacy_cleanup":
-			return "临时迁移/清理项：主要服务于旧架构数据迁移、遗留文件清理或迁移收尾，数据稳定后应移除。";
+			return t("management.dataCheckService.notes.migrationCleanup");
 		default:
 			return "";
 	}
@@ -501,7 +511,7 @@ export class DataManagementService {
 			return null;
 		}
 
-		return this.buildBlockedFixResult(type, "该修复会改动真实用户数据，必须在明确确认后单独执行。");
+		return this.buildBlockedFixResult(type, t("management.dataCheckService.messages.highRiskBlocked"));
 	}
 
 	async recoverMigrationConflictData(): Promise<{
@@ -531,7 +541,11 @@ export class DataManagementService {
 			result.importedDecks = imported.importedDecks;
 			result.errors.push(...imported.errors);
 		} catch (error) {
-			result.errors.push(`恢复迁移冲突数据失败: ${String(error)}`);
+			result.errors.push(
+				t("management.dataCheckService.messages.recoverMigrationConflictDataFailed", {
+					message: String(error),
+				})
+			);
 		}
 
 		try {
@@ -540,7 +554,11 @@ export class DataManagementService {
 			result.mergedCardFiles = cardCleanup.merged;
 			result.errors.push(...cardCleanup.errors);
 		} catch (error) {
-			result.errors.push(`清理空卡片文件失败: ${String(error)}`);
+			result.errors.push(
+				t("management.dataCheckService.messages.emptyCardCleanupFailed", {
+					message: String(error),
+				})
+			);
 		}
 
 		try {
@@ -548,20 +566,32 @@ export class DataManagementService {
 			result.mergedIRMonitoringFiles = monitoringRecovery.mergedFiles;
 			result.errors.push(...monitoringRecovery.errors);
 		} catch (error) {
-			result.errors.push(`恢复增量阅读监控冲突文件失败: ${String(error)}`);
+			result.errors.push(
+				t("management.dataCheckService.messages.recoverIRMonitoringConflictFailed", {
+					message: String(error),
+				})
+			);
 		}
 
 		try {
 			const structuredRecovery = await this.recoverStructuredJsonConflictFiles(v2Paths);
 			result.errors.push(...structuredRecovery.errors);
 		} catch (error) {
-			result.errors.push(`恢复结构化迁移冲突文件失败: ${String(error)}`);
+			result.errors.push(
+				t("management.dataCheckService.messages.recoverStructuredConflictFailed", {
+					message: String(error),
+				})
+			);
 		}
 
 		try {
 			result.renamedManifests = await this.renameDotManifestFiles(v2Paths);
 		} catch (error) {
-			result.errors.push(`修正媒体清单文件失败: ${String(error)}`);
+			result.errors.push(
+				t("management.dataCheckService.messages.renameMediaManifestFailed", {
+					message: String(error),
+				})
+			);
 		}
 
 		return result;
@@ -578,7 +608,11 @@ export class DataManagementService {
 		// 注意：redundant_fields 已移除，因为 Content-Only 架构下 type/tags 是从 content YAML 派生的运行时字段
 		for (let i = 0; i < DEFAULT_CHECK_TYPES.length; i++) {
 			const type = DEFAULT_CHECK_TYPES[i];
-			onProgress?.(i + 1, DEFAULT_CHECK_TYPES.length, `检测 ${this.getCheckName(type)}...`);
+			onProgress?.(
+				i + 1,
+				DEFAULT_CHECK_TYPES.length,
+				t("management.dataCheckService.progress.checking", { name: this.getCheckName(type) })
+			);
 			const result = await this.check(type);
 			results.push(result);
 		}
@@ -663,7 +697,7 @@ export class DataManagementService {
 					status: "ok",
 					count: 0,
 					items: [],
-					message: "未实现的检查项",
+					message: t("management.dataCheckService.messages.notImplemented"),
 				};
 		}
 	}
@@ -744,7 +778,11 @@ export class DataManagementService {
 		const results: DataFixResult[] = [];
 		for (let i = 0; i < DEFAULT_BATCH_FIX_TYPES.length; i++) {
 			const type = DEFAULT_BATCH_FIX_TYPES[i];
-			onProgress?.(i + 1, DEFAULT_BATCH_FIX_TYPES.length, `修复 ${this.getCheckName(type)}...`);
+			onProgress?.(
+				i + 1,
+				DEFAULT_BATCH_FIX_TYPES.length,
+				t("management.dataCheckService.progress.fixing", { name: this.getCheckName(type) })
+			);
 			const result = await this.fix(type);
 			results.push(result);
 			this.plugin.cardFileService?.clearCache?.();
@@ -779,8 +817,8 @@ export class DataManagementService {
 			items: affectedCards,
 			message:
 				affectedCards.length > 0
-					? `发现 ${affectedCards.length} 张记忆卡同时归属于多个正式牌组`
-					: "记忆正式牌组归属已收口为单归属",
+					? t("management.dataCheckService.messages.memorySingleMembershipFound", { count: affectedCards.length })
+					: t("management.dataCheckService.messages.memorySingleMembershipOk"),
 		};
 	}
 
@@ -803,8 +841,8 @@ export class DataManagementService {
 			items: needsMigration,
 			message:
 				needsMigration.length > 0
-					? `发现 ${needsMigration.length} 张卡片需要合并 we_block 到 we_source`
-					: "we_source 格式正常",
+					? t("management.dataCheckService.messages.weBlockMigrationFound", { count: needsMigration.length })
+					: t("management.dataCheckService.messages.weBlockMigrationOk"),
 		};
 	}
 
@@ -830,8 +868,8 @@ export class DataManagementService {
 			items: needsMigration,
 			message:
 				needsMigration.length > 0
-					? `发现 ${needsMigration.length} 张卡片包含旧 EPUB 溯源链接格式`
-					: "EPUB 溯源链接格式正常",
+					? t("management.dataCheckService.messages.epubSourceLinkFound", { count: needsMigration.length })
+					: t("management.dataCheckService.messages.epubSourceLinkOk"),
 		};
 	}
 
@@ -871,8 +909,8 @@ export class DataManagementService {
 				items,
 				message:
 					items.length > 0
-						? `发现 ${items.length} 个 Markdown 文件包含缺少 sourceId 的 EPUB 链接`
-						: "Markdown 中的 EPUB 链接 sourceId 状态正常",
+						? t("management.dataCheckService.messages.epubMarkdownSourceIdFound", { count: items.length })
+						: t("management.dataCheckService.messages.epubMarkdownSourceIdOk"),
 			};
 		} catch (error) {
 			logger.error("[DataManagement] EPUB Markdown sourceId 回填检测失败:", error);
@@ -881,7 +919,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+				message: t("management.dataCheckService.messages.checkFailed", { message: error instanceof Error ? error.message : String(error) }),
 			};
 		}
 	}
@@ -910,8 +948,8 @@ export class DataManagementService {
 			items: affectedDecks,
 			message:
 				invalidDeckRefs > 0
-					? `发现 ${invalidDeckRefs} 个牌组缓存不一致项（${affectedDecks.length} 个牌组受影响）`
-					: "牌组缓存一致",
+					? t("management.dataCheckService.messages.cardDeckConsistencyFound", { invalidCount: invalidDeckRefs, deckCount: affectedDecks.length })
+					: t("management.dataCheckService.messages.cardDeckConsistencyOk"),
 		};
 	}
 
@@ -933,7 +971,7 @@ export class DataManagementService {
 			failed: result.success ? 0 : 1,
 			errors: result.success
 				? []
-				: [{ uuid: "card_deck_consistency", error: result.error || "牌组缓存一致性修复失败" }],
+				: [{ uuid: "card_deck_consistency", error: result.error || t("management.dataCheckService.messages.cardDeckConsistencyRepairFailed") }],
 		};
 	}
 
@@ -960,7 +998,7 @@ export class DataManagementService {
 			status: orphans.length > 0 ? "warning" : "ok",
 			count: orphans.length,
 			items: orphans,
-			message: orphans.length > 0 ? `发现 ${orphans.length} 张孤立卡片` : "无孤立卡片",
+			message: orphans.length > 0 ? t("management.dataCheckService.messages.orphanCardsFound", { count: orphans.length }) : t("management.dataCheckService.messages.orphanCardsOk"),
 		};
 	}
 
@@ -1006,8 +1044,8 @@ export class DataManagementService {
 			items: duplicateUUIDs.slice(0, 200),
 			message:
 				duplicateUUIDs.length > 0
-					? `发现 ${duplicateUUIDs.length} 张内容重复卡片（${duplicateGroups} 组），通常由 AnkiConnect 同步异常导致`
-					: "无内容重复卡片",
+					? t("management.dataCheckService.messages.duplicateCardsFound", { count: duplicateUUIDs.length, groupCount: duplicateGroups })
+					: t("management.dataCheckService.messages.duplicateCardsOk"),
 		};
 	}
 
@@ -1061,7 +1099,7 @@ export class DataManagementService {
 			errors.push(
 				...deleteResult.failed.map((item) => ({
 					uuid: item.uuid,
-					error: item.error || "删除失败",
+					error: item.error || t("management.dataCheckService.messages.duplicateDeleteFailed"),
 				}))
 			);
 		} else {
@@ -1073,7 +1111,7 @@ export class DataManagementService {
 							success++;
 						} else {
 							failed++;
-							errors.push({ uuid, error: "删除失败" });
+							errors.push({ uuid, error: t("management.dataCheckService.messages.duplicateDeleteFailed") });
 						}
 					}
 				} catch (e) {
@@ -1090,7 +1128,7 @@ export class DataManagementService {
 			if (!repairResult.success) {
 				errors.push({
 					uuid: "duplicate_cards",
-					error: repairResult.error || "删除重复卡片后重建牌组缓存失败",
+					error: repairResult.error || t("management.dataCheckService.messages.duplicateRebuildFailed"),
 				});
 				failed += 1;
 			}
@@ -1195,7 +1233,7 @@ export class DataManagementService {
 					success++;
 				} else {
 					failed++;
-					errors.push({ uuid: card.uuid, error: result.error || "保存失败" });
+					errors.push({ uuid: card.uuid, error: result.error || t("management.dataCheckService.messages.saveFailed") });
 				}
 			} catch (error) {
 				failed++;
@@ -1240,7 +1278,7 @@ export class DataManagementService {
 						logger.debug(`[DataManagement] we_block 合并成功: ${card.uuid}`);
 					} else {
 						failed++;
-						errors.push({ uuid: card.uuid, error: result.error || "保存失败" });
+						errors.push({ uuid: card.uuid, error: result.error || t("management.dataCheckService.messages.saveFailed") });
 					}
 				}
 			} catch (e) {
@@ -1293,7 +1331,7 @@ export class DataManagementService {
 					);
 				} else {
 					failed++;
-					errors.push({ uuid: card.uuid, error: result.error || "保存失败" });
+					errors.push({ uuid: card.uuid, error: result.error || t("management.dataCheckService.messages.saveFailed") });
 				}
 			} catch (e) {
 				failed++;
@@ -1333,7 +1371,7 @@ export class DataManagementService {
 					failed++;
 					errors.push({
 						uuid: filePath,
-						error: "检测到旧 EPUB 链接，但未能完成 sourceId 回填",
+						error: t("management.dataCheckService.messages.epubSourceIdBackfillIncomplete"),
 					});
 					continue;
 				}
@@ -1434,13 +1472,13 @@ export class DataManagementService {
 				const orphanedBlockIds = await irStorageService.findOrphanedBlocks();
 				orphanedBlocks = orphanedBlockIds.length;
 				if (orphanedBlocks > 0) {
-					issues.push(`孤立内容块: ${orphanedBlocks} 个`);
+					issues.push(t("management.dataCheckService.messages.irMaterialOrphanedBlocks", { count: orphanedBlocks }));
 				}
 				// 注意: 检测模式不调用 validateAndCleanOrphanedReferences，避免自动清理
 			}
 		} catch (error) {
 			logger.error("[DataManagement] 检测导入材料一致性失败:", error);
-			issues.push(`检测失败: ${error instanceof Error ? error.message : String(error)}`);
+			issues.push(t("management.dataCheckService.messages.checkFailed", { message: error instanceof Error ? error.message : String(error) }));
 		}
 
 		const totalIssues = materialIssues + orphanedBlocks;
@@ -1452,8 +1490,8 @@ export class DataManagementService {
 			items: issues,
 			message:
 				totalIssues > 0
-					? `发现 ${totalIssues} 个一致性问题（点内溯源与旧残留: ${materialIssues}, legacy block 内容块: ${orphanedBlocks}）`
-					: "增量阅读点溯源与导入材料数据一致",
+					? t("management.dataCheckService.messages.irMaterialConsistencyFound", { total: totalIssues, materialIssues, orphanedBlocks })
+					: t("management.dataCheckService.messages.irMaterialConsistencyOk"),
 		};
 	}
 
@@ -1546,7 +1584,7 @@ export class DataManagementService {
 					status: "ok",
 					count: 0,
 					items: [],
-					message: "数据目录不存在，无需检测",
+					message: t("management.dataCheckService.messages.filenameCompatibilityRootMissing"),
 				};
 			}
 
@@ -1589,7 +1627,7 @@ export class DataManagementService {
 			await scanDir(root, 0);
 		} catch (error) {
 			logger.error("[DataManagement] 文件名兼容性检测失败:", error);
-			issues.push(`检测失败: ${error instanceof Error ? error.message : String(error)}`);
+			issues.push(t("management.dataCheckService.messages.checkFailed", { message: error instanceof Error ? error.message : String(error) }));
 		}
 
 		return {
@@ -1599,8 +1637,8 @@ export class DataManagementService {
 			items: issues.slice(0, 50),
 			message:
 				issues.length > 0
-					? `发现 ${issues.length} 个文件/目录名不兼容云同步`
-					: "文件名均兼容云同步",
+					? t("management.dataCheckService.messages.filenameCompatibilityFound", { count: issues.length })
+					: t("management.dataCheckService.messages.filenameCompatibilityOk"),
 		};
 	}
 
@@ -1677,7 +1715,12 @@ export class DataManagementService {
 				try {
 					if (await adapter.exists(item.newPath)) {
 						logger.warn(`[DataManagement] 目标路径已存在，跳过: ${item.newPath}`);
-						errors.push({ uuid: item.oldPath, error: `目标路径已存在: ${item.newPath}` });
+						errors.push({
+							uuid: item.oldPath,
+							error: t("management.dataCheckService.messages.targetPathAlreadyExists", {
+								path: item.newPath,
+							}),
+						});
 						failed++;
 						continue;
 					}
@@ -1698,7 +1741,12 @@ export class DataManagementService {
 				try {
 					if (await adapter.exists(item.newPath)) {
 						logger.warn(`[DataManagement] 目标路径已存在，跳过: ${item.newPath}`);
-						errors.push({ uuid: item.oldPath, error: `目标路径已存在: ${item.newPath}` });
+						errors.push({
+							uuid: item.oldPath,
+							error: t("management.dataCheckService.messages.targetPathAlreadyExists", {
+								path: item.newPath,
+							}),
+						});
 						failed++;
 						continue;
 					}
@@ -1746,13 +1794,13 @@ export class DataManagementService {
 	 */
 	private getSyncIssueLabel(type: SyncIssueType): string {
 		const labels: Record<SyncIssueType, string> = {
-			emoji: "Emoji",
-			fullwidth_punctuation: "全角标点",
-			square_brackets: "方括号",
-			path_too_long: "路径过长",
-			no_extension: "无扩展名",
-			unsafe_chars: "不安全字符",
-			leading_dot: "点开头",
+			emoji: t("management.dataCheckService.syncIssueLabels.emoji"),
+			fullwidth_punctuation: t("management.dataCheckService.syncIssueLabels.fullwidthPunctuation"),
+			square_brackets: t("management.dataCheckService.syncIssueLabels.squareBrackets"),
+			path_too_long: t("management.dataCheckService.syncIssueLabels.pathTooLong"),
+			no_extension: t("management.dataCheckService.syncIssueLabels.noExtension"),
+			unsafe_chars: t("management.dataCheckService.syncIssueLabels.unsafeChars"),
+			leading_dot: t("management.dataCheckService.syncIssueLabels.leadingDot"),
 		};
 		return labels[type] || type;
 	}
@@ -1820,37 +1868,37 @@ export class DataManagementService {
 		const pluginPaths = getPluginPaths(this.plugin.app);
 		return [
 			{
-				label: "文件同步状态缓存",
+				label: t("management.dataCheckService.messages.localStateLabels.syncStateCache"),
 				legacyPath: `${v2Paths.ir.root}/sync-state.json`,
 				targetPath: pluginPaths.cache.incrementalReading.syncState,
 				rebuildable: true,
 			},
 			{
-				label: "文档标签组映射缓存",
+				label: t("management.dataCheckService.messages.localStateLabels.documentGroupMapCache"),
 				legacyPath: v2Paths.ir.documentGroupMap,
 				targetPath: pluginPaths.cache.incrementalReading.documentGroupMap,
 				rebuildable: true,
 			},
 			{
-				label: "增量阅读监控分析",
+				label: t("management.dataCheckService.messages.localStateLabels.monitoringAnalysis"),
 				legacyPath: `${v2Paths.ir.root}/monitoring.json`,
 				targetPath: pluginPaths.state.incrementalReading.monitoring,
 				rebuildable: false,
 			},
 			{
-				label: "增量阅读历史",
+				label: t("management.dataCheckService.messages.localStateLabels.readingHistory"),
 				legacyPath: v2Paths.ir.history,
 				targetPath: pluginPaths.state.incrementalReading.history,
 				rebuildable: false,
 			},
 			{
-				label: "增量阅读学习会话",
+				label: t("management.dataCheckService.messages.localStateLabels.studySessions"),
 				legacyPath: v2Paths.ir.studySessions,
 				targetPath: pluginPaths.state.incrementalReading.studySessions,
 				rebuildable: false,
 			},
 			{
-				label: "增量阅读月历进度",
+				label: t("management.dataCheckService.messages.localStateLabels.calendarProgress"),
 				legacyPath: v2Paths.ir.calendarProgress,
 				targetPath: pluginPaths.state.incrementalReading.calendarProgress,
 				rebuildable: false,
@@ -1926,15 +1974,18 @@ export class DataManagementService {
 				} catch (error) {
 					failures.push({
 						path: options.legacyPath,
-						message: `${options.label} 写入插件本地目录失败: ${
-							error instanceof Error ? error.message : String(error)
-						}`,
+						message: t("management.dataCheckService.messages.irLocalStateWriteFailed", {
+							label: options.label,
+							message: error instanceof Error ? error.message : String(error),
+						}),
 					});
 				}
 			} else if (!options.rebuildable) {
 				failures.push({
 					path: options.legacyPath,
-					message: `${options.label} 内容无效，无法安全迁移到插件目录`,
+					message: t("management.dataCheckService.messages.irLocalStateInvalidContent", {
+						label: options.label,
+					}),
 				});
 			}
 		}
@@ -1948,9 +1999,10 @@ export class DataManagementService {
 			} catch (error) {
 				failures.push({
 					path: options.legacyPath,
-					message: `${options.label} 清理旧文件失败: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
+					message: t("management.dataCheckService.messages.irLocalStateCleanupFailed", {
+						label: options.label,
+						message: error instanceof Error ? error.message : String(error),
+					}),
 				});
 			}
 		}
@@ -1986,48 +2038,48 @@ export class DataManagementService {
 	} {
 		if (/weave_memory_cards_.*\.json-\d+$/.test(fileName)) {
 			return {
-				label: "记忆卡片迁移冲突副本",
+				label: t("management.dataCheckService.messages.migrationConflictLabels.memoryCards"),
 				autoRecoverable: true,
 			};
 		}
 
 		if (/weave_memory_decks\.json-\d+$/.test(fileName)) {
 			return {
-				label: "记忆牌组迁移冲突副本",
+				label: t("management.dataCheckService.messages.migrationConflictLabels.memoryDecks"),
 				autoRecoverable: true,
 			};
 		}
 
 		if (/weave_incremental-reading_monitoring\.json-\d+$/.test(fileName)) {
 			return {
-				label: "增量阅读监控迁移冲突副本",
+				label: t("management.dataCheckService.messages.migrationConflictLabels.irMonitoring"),
 				autoRecoverable: true,
 			};
 		}
 
 		if (/weave_incremental-reading_.*\.json-\d+$/.test(fileName)) {
 			return {
-				label: "增量阅读迁移冲突副本",
+				label: t("management.dataCheckService.messages.migrationConflictLabels.irData"),
 				autoRecoverable: true,
 			};
 		}
 
 		if (/weave_question-bank_.*\.json-\d+$/.test(fileName)) {
 			return {
-				label: "题库迁移冲突副本",
+				label: t("management.dataCheckService.messages.migrationConflictLabels.qbank"),
 				autoRecoverable: true,
 			};
 		}
 
 		if (/weave_.*-\d+$/.test(fileName)) {
 			return {
-				label: "Weave 数据迁移冲突副本",
+				label: t("management.dataCheckService.messages.migrationConflictLabels.weaveGeneric"),
 				autoRecoverable: false,
 			};
 		}
 
 		return {
-			label: "未知类型迁移冲突副本",
+			label: t("management.dataCheckService.messages.migrationConflictLabels.unknown"),
 			autoRecoverable: false,
 		};
 	}
@@ -2087,12 +2139,16 @@ export class DataManagementService {
 							: "ok",
 				count: inspection.total,
 				items: inspection.files.map((file) =>
-					`${file.autoRecoverable ? "[可自动处理]" : "[需人工处理]"} ${file.path}`
+					`${file.autoRecoverable ? t("management.dataCheckService.messages.migrationConflictAutoRecoverable") : t("management.dataCheckService.messages.migrationConflictManualReview")} ${file.path}`
 				),
 				message:
 					inspection.total === 0
-						? "未发现迁移冲突文件"
-						: `检测到 ${inspection.total} 个迁移冲突文件（可自动处理 ${inspection.autoRecoverableCount}，需人工处理 ${inspection.manualReviewCount}）`,
+						? t("management.dataCheckService.messages.migrationConflictNone")
+						: t("management.dataCheckService.messages.migrationConflictFound", {
+							total: inspection.total,
+							autoRecoverableCount: inspection.autoRecoverableCount,
+							manualReviewCount: inspection.manualReviewCount,
+						}),
 			};
 		} catch (error) {
 			return {
@@ -2100,7 +2156,9 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: `迁移冲突检测失败: ${error instanceof Error ? error.message : String(error)}`,
+				message: t("management.dataCheckService.messages.migrationConflictCheckFailed", {
+					message: error instanceof Error ? error.message : String(error),
+				}),
 			};
 		}
 	}
@@ -2129,8 +2187,8 @@ export class DataManagementService {
 			errors.push({
 				uuid: file.path,
 				error: original.autoRecoverable
-					? "自动归并后仍残留，请检查该文件是否损坏。"
-					: "该迁移冲突文件暂不支持自动处理，请人工复核。",
+					? t("management.dataCheckService.messages.migrationConflictStillPresentAuto")
+					: t("management.dataCheckService.messages.migrationConflictStillPresentManual"),
 			});
 		}
 
@@ -2165,7 +2223,7 @@ export class DataManagementService {
 			const legacyFolderMigrations = await this.inspectLegacyWeaveFolderMigration();
 			const items = [
 				...plan.activeSourceRoots.map((root) => `${root.kind}: ${root.path}`),
-				...(needsSchemaV2Migration ? ["schema-v2: 检测到旧版本数据结构"] : []),
+				...(needsSchemaV2Migration ? [t("management.dataCheckService.messages.schemaV2LegacyStructureItem")] : []),
 				...legacyFolderMigrations.map(
 					(item) => `${item.label}: ${item.legacyPath} -> ${item.targetPath}`
 				),
@@ -2176,7 +2234,9 @@ export class DataManagementService {
 				status: items.length > 0 ? "warning" : "ok",
 				count: items.length,
 				items,
-				message: items.length > 0 ? "发现需要执行的真源数据迁移/归位任务" : "数据目录结构已是最新版本",
+				message: items.length > 0
+					? t("management.dataCheckService.messages.schemaMigrationNeeded")
+					: t("management.dataCheckService.messages.schemaMigrationUpToDate"),
 			};
 		} catch (error) {
 			logger.error("[DataManagement] 统一数据迁移检测失败:", error);
@@ -2185,7 +2245,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+				message: t("management.dataCheckService.messages.checkFailed", { message: error instanceof Error ? error.message : String(error) }),
 			};
 		}
 	}
@@ -2199,7 +2259,7 @@ export class DataManagementService {
 		if (!options.confirmed) {
 			return this.buildBlockedFixResult(
 				"schema_migration",
-				"数据迁移会移动真实用户数据，必须在明确确认后执行。"
+				t("management.dataCheckService.messages.schemaMigrationExecutionConfirm")
 			);
 		}
 
@@ -2412,8 +2472,8 @@ export class DataManagementService {
 				items,
 				message:
 					items.length > 0
-						? `发现 ${items.length} 个 Markdown 文件仍含历史遗留的增量阅读 frontmatter 字段。这是临时批量处理项，因插件已不再写入这些多余字段，后续会移除。`
-						: "未发现需要清理的增量阅读历史 frontmatter 遗留字段",
+						? t("management.dataCheckService.messages.irFrontmatterFound", { count: items.length })
+						: t("management.dataCheckService.messages.irFrontmatterOk"),
 			};
 		} catch (error) {
 			return {
@@ -2421,7 +2481,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: `增量阅读历史 frontmatter 检测失败: ${error instanceof Error ? error.message : String(error)}`,
+				message: t("management.dataCheckService.messages.irFrontmatterCheckFailed", { message: error instanceof Error ? error.message : String(error) }),
 			};
 		}
 	}
@@ -2445,7 +2505,7 @@ export class DataManagementService {
 					!abstractFile ||
 					typeof this.plugin.app.fileManager?.processFrontMatter !== "function"
 				) {
-					throw new Error("无法安全访问 Obsidian frontmatter 处理接口");
+					throw new Error(t("management.dataCheckService.messages.frontmatterAccessUnavailable"));
 				}
 
 				await this.plugin.app.fileManager.processFrontMatter(
@@ -2554,7 +2614,7 @@ export class DataManagementService {
 			return {
 				targetRoot,
 				blockedReason:
-					"当前 Obsidian 默认新建笔记位置仍指向旧 IR 目录，请先调整 Obsidian 的新建笔记默认位置后再执行迁移。",
+					t("management.dataCheckService.messages.irLegacyTargetBlocked"),
 			};
 		}
 
@@ -2696,13 +2756,13 @@ export class DataManagementService {
 					status: "ok",
 					count: 0,
 					items: [],
-					message: "旧 IR 正文目录中没有待迁移的 Markdown 文件",
+					message: t("management.dataCheckService.messages.irLegacyNoMarkdown"),
 				};
 			}
 
 			const items = [
-				`旧正文目录: ${inspection.legacyRoot}`,
-				`迁移目标: ${inspection.targetRoot}`,
+				t("management.dataCheckService.messages.irLegacySourceRootItem", { path: inspection.legacyRoot }),
+				t("management.dataCheckService.messages.irLegacyTargetRootItem", { path: inspection.targetRoot }),
 				...inspection.files,
 			];
 			return {
@@ -2711,8 +2771,8 @@ export class DataManagementService {
 				count: inspection.files.length,
 				items,
 				message: inspection.blockedReason
-					? `检测到 ${inspection.files.length} 个旧 IR 正文文件，但当前迁移目标无效：${inspection.blockedReason}`
-					: `检测到 ${inspection.files.length} 个旧 IR 正文文件，可通过数据管理显式迁移到当前 Obsidian 默认新建笔记目录`,
+					? t("management.dataCheckService.messages.irLegacyBlocked", { count: inspection.files.length, reason: inspection.blockedReason })
+					: t("management.dataCheckService.messages.irLegacyFound", { count: inspection.files.length }),
 			};
 		} catch (error) {
 			logger.error("[DataManagement] 旧 IR 正文迁移检测失败:", error);
@@ -2721,7 +2781,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+				message: t("management.dataCheckService.messages.checkFailed", { message: error instanceof Error ? error.message : String(error) }),
 			};
 		}
 	}
@@ -2832,7 +2892,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: "IR Point 存储服务不可用",
+				message: t("management.dataCheckService.messages.irPointServiceUnavailable"),
 			};
 		}
 
@@ -2871,19 +2931,19 @@ export class DataManagementService {
 			if (hasResidualLegacyChunkStorage) {
 				items.push(
 					inspection.pendingChunkPointCount > 0
-						? `旧 chunks/sources 文件 ${residualLegacyChunkStorageFileCount} 个仍承载待迁阅读点`
-						: `旧 chunks/sources 文件 ${residualLegacyChunkStorageFileCount} 个已退出真源但仍残留在同步目录`
+						? t("management.dataCheckService.messages.irPointItems.legacyChunksPending", { count: residualLegacyChunkStorageFileCount })
+						: t("management.dataCheckService.messages.irPointItems.legacyChunksResidual", { count: residualLegacyChunkStorageFileCount })
 				);
 			}
 			if (deletedReadableMarkdownCount > 0) {
-				items.push(`旧 IR 已标记删除的 Markdown 残留 ${deletedReadableMarkdownCount} 个可安全清理`);
+				items.push(t("management.dataCheckService.messages.irPointItems.deletedMarkdownResidual", { count: deletedReadableMarkdownCount }));
 				items.push(...deletedReadableMarkdownInspection.files);
 			}
 			if (legacyTagGroupFileCount > 0) {
 				items.push(
 					legacyTagGroupInspection.groupCount > 0 || legacyTagGroupInspection.profileCount > 0
-						? `旧标签组定义文件 ${legacyTagGroupFileCount} 个仍残留在仓库目录，可迁入 .irdeck 后清理`
-						: `旧标签组兼容文件 ${legacyTagGroupFileCount} 个已退出真源但仍残留在仓库目录`
+						? t("management.dataCheckService.messages.irPointItems.legacyTagGroupsPending", { count: legacyTagGroupFileCount })
+						: t("management.dataCheckService.messages.irPointItems.legacyTagGroupsResidual", { count: legacyTagGroupFileCount })
 				);
 				items.push(...legacyTagGroupInspection.filePaths);
 			}
@@ -2903,16 +2963,16 @@ export class DataManagementService {
 				legacyTagGroupFileCount;
 			const messageParts: string[] = [];
 			if (inspection.pendingCount > 0) {
-				messageParts.push(`检测到 ${inspection.pendingCount} 个增量阅读迁移/收尾项待处理`);
+				messageParts.push(t("management.dataCheckService.messages.irPointSummary.pendingTasks", { count: inspection.pendingCount }));
 			}
 			if (residualLegacyChunkStorageFileCount > 0) {
-				messageParts.push(`有 ${residualLegacyChunkStorageFileCount} 个旧 chunks/sources 文件待清理`);
+				messageParts.push(t("management.dataCheckService.messages.irPointSummary.legacyChunks", { count: residualLegacyChunkStorageFileCount }));
 			}
 			if (deletedReadableMarkdownCount > 0) {
-				messageParts.push(`有 ${deletedReadableMarkdownCount} 个已标记删除的旧 IR Markdown 文件待清理`);
+				messageParts.push(t("management.dataCheckService.messages.irPointSummary.deletedMarkdown", { count: deletedReadableMarkdownCount }));
 			}
 			if (legacyTagGroupFileCount > 0) {
-				messageParts.push(`有 ${legacyTagGroupFileCount} 个旧标签组文件待迁移/清理`);
+				messageParts.push(t("management.dataCheckService.messages.irPointSummary.legacyTagGroups", { count: legacyTagGroupFileCount }));
 			}
 			return {
 				type: "ir_point_storage_migration",
@@ -2922,7 +2982,7 @@ export class DataManagementService {
 				message:
 					messageParts.length > 0
 						? messageParts.join("，")
-						: "增量阅读新存储结构已就绪，当前没有待迁移对象",
+						: t("management.dataCheckService.messages.irPointReady"),
 			};
 		} catch (error) {
 			logger.error("[DataManagement] IR Point 存储迁移检测失败:", error);
@@ -2931,7 +2991,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+				message: t("management.dataCheckService.messages.checkFailed", { message: error instanceof Error ? error.message : String(error) }),
 			};
 		}
 	}
@@ -2957,13 +3017,16 @@ export class DataManagementService {
 				message:
 					count > 0
 						? inspection.legacyFileCount > 0 && structuredLegacyCount > 0
-							? `检测到 ${inspection.legacyFileCount} 个旧 EPUB 本地数据文件，以及 ${structuredLegacyCount} 个旧增量阅读本地状态/缓存文件，可迁入插件目录后清理`
+							? t("management.dataCheckService.messages.irLocalStateDetectedBoth", {
+								epubCount: inspection.legacyFileCount,
+								stateCount: structuredLegacyCount,
+							})
 							: inspection.legacyFileCount > 0
 								? inspection.hasUnifiedDataFile
-									? `检测到 ${inspection.legacyFileCount} 个旧 EPUB 本地数据文件残留，可迁入统一单文件后清理`
-									: `检测到 ${inspection.legacyFileCount} 个旧 EPUB 本地数据文件，尚未迁入插件目录单文件`
-								: `检测到 ${structuredLegacyCount} 个旧增量阅读本地状态/缓存文件仍留在仓库目录，可迁入插件目录后清理`
-						: "增量阅读本地状态、缓存与分析文件已收口到插件目录",
+									? t("management.dataCheckService.messages.irLocalStateDetectedEpubResidual", { count: inspection.legacyFileCount })
+									: t("management.dataCheckService.messages.irLocalStateDetectedEpubPending", { count: inspection.legacyFileCount })
+								: t("management.dataCheckService.messages.irLocalStateDetectedStateOnly", { count: structuredLegacyCount })
+						: t("management.dataCheckService.messages.irLocalStateReady"),
 			};
 		} catch (error) {
 			logger.error("[DataManagement] 增量阅读本地状态迁移检测失败:", error);
@@ -2972,7 +3035,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+				message: t("management.dataCheckService.messages.checkFailed", { message: error instanceof Error ? error.message : String(error) }),
 			};
 		}
 	}
@@ -2994,7 +3057,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: "IR Point 存储服务不可用",
+				message: t("management.dataCheckService.messages.irPointServiceUnavailable"),
 			};
 		}
 
@@ -3015,7 +3078,7 @@ export class DataManagementService {
 			const items =
 				pendingLegacyTaskCount > 0
 					? [
-							`仍有 ${pendingLegacyTaskCount} 条旧书签任务待迁移，暂不能删除旧书签文件`,
+							t("management.dataCheckService.messages.irBookmarkPendingItem", { count: pendingLegacyTaskCount }),
 							...existingFiles,
 					  ]
 					: existingFiles;
@@ -3027,10 +3090,10 @@ export class DataManagementService {
 				items,
 				message:
 					existingFiles.length === 0
-						? "旧 PDF/EPUB 书签文件已清理，运行时已完全使用新 points 存储"
+						? t("management.dataCheckService.messages.irBookmarkReady")
 						: pendingLegacyTaskCount > 0
-							? `检测到 ${existingFiles.length} 个旧书签文件，但仍有 ${pendingLegacyTaskCount} 条旧任务未迁移`
-							: `检测到 ${existingFiles.length} 个旧书签文件残留，可安全清理`,
+							? t("management.dataCheckService.messages.irBookmarkFoundPending", { fileCount: existingFiles.length, taskCount: pendingLegacyTaskCount })
+							: t("management.dataCheckService.messages.irBookmarkFound", { count: existingFiles.length }),
 			};
 		} catch (error) {
 			logger.error("[DataManagement] IR 旧书签文件清理检查失败", error);
@@ -3039,7 +3102,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+				message: t("management.dataCheckService.messages.checkFailed", { message: error instanceof Error ? error.message : String(error) }),
 			};
 		}
 	}
@@ -3050,7 +3113,7 @@ export class DataManagementService {
 		if (!options.confirmed) {
 			return this.buildBlockedFixResult(
 				"ir_point_storage_migration",
-				"增量阅读新存储迁移会写入新的 .irdeck 阅读点文件，并把旧索引、标签组与材料元数据迁入新结构或插件目录，必须在明确确认后执行。"
+				t("management.dataCheckService.messages.irPointMigrationConfirm")
 			);
 		}
 
@@ -3058,7 +3121,7 @@ export class DataManagementService {
 		if (!service) {
 			return this.buildBlockedFixResult(
 				"ir_point_storage_migration",
-				"IR Point 存储服务不可用。"
+				t("management.dataCheckService.messages.irPointServiceUnavailableShort")
 			);
 		}
 
@@ -3130,7 +3193,7 @@ export class DataManagementService {
 					),
 					...legacyTagGroupMigration.remainingLegacyFiles.map((path: string) => ({
 						uuid: path,
-						error: "legacy-tag-group-cleanup: 迁移后旧标签组文件仍然存在",
+						error: t("management.dataCheckService.messages.irTagGroupCleanupRemaining"),
 					})),
 					...deletedReadableMarkdownCleanup.failures.map(
 						(item: { path: string; message: string }) => ({
@@ -3190,7 +3253,7 @@ export class DataManagementService {
 					})),
 					...report.remainingLegacyFiles.map((path) => ({
 						uuid: path,
-						error: "迁移后仍有旧 EPUB 本地数据文件残留。",
+						error: t("management.dataCheckService.messages.irLocalStateLegacyEpubRemaining"),
 					})),
 					...structuredFailures.map((item) => ({
 						uuid: item.path,
@@ -3198,7 +3261,7 @@ export class DataManagementService {
 					})),
 					...remainingStructuredLegacyFiles.map((path) => ({
 						uuid: path,
-						error: "迁移后仍有旧增量阅读本地状态/缓存文件残留。",
+						error: t("management.dataCheckService.messages.irLocalStateLegacyStateRemaining"),
 					})),
 				],
 			};
@@ -3220,7 +3283,7 @@ export class DataManagementService {
 		if (!options.allowHighRisk) {
 			return this.buildBlockedFixResult(
 				"ir_legacy_bookmark_cleanup",
-				"旧书签文件清理会删除已停用的历史文件，必须在明确确认后单独执行。"
+				t("management.dataCheckService.messages.irBookmarkCleanupConfirm")
 			);
 		}
 
@@ -3228,7 +3291,7 @@ export class DataManagementService {
 		if (!service) {
 			return this.buildBlockedFixResult(
 				"ir_legacy_bookmark_cleanup",
-				"IR Point 存储服务不可用。"
+				t("management.dataCheckService.messages.irPointServiceUnavailableShort")
 			);
 		}
 
@@ -3239,7 +3302,7 @@ export class DataManagementService {
 			if (pendingLegacyTaskCount > 0) {
 				return this.buildBlockedFixResult(
 					"ir_legacy_bookmark_cleanup",
-					`仍有 ${pendingLegacyTaskCount} 条旧书签任务未迁移，已阻止删除旧书签文件。`
+					t("management.dataCheckService.messages.irBookmarkPendingBlocked", { count: pendingLegacyTaskCount })
 				);
 			}
 
@@ -3524,7 +3587,10 @@ export class DataManagementService {
 				conflicts.push({
 					bank,
 					filePath,
-					reason: `文件名冲突：${fileName}.qbank 已被题库 ${existingOwner} 使用`,
+					reason: t("management.dataCheckService.messages.qbankFileNameConflict", {
+						fileName,
+						owner: existingOwner,
+					}),
 				});
 				continue;
 			}
@@ -3534,7 +3600,9 @@ export class DataManagementService {
 				conflicts.push({
 					bank,
 					filePath,
-					reason: `目标文件已存在：${filePath}`,
+					reason: t("management.dataCheckService.messages.qbankTargetExists", {
+						path: filePath,
+					}),
 				});
 				continue;
 			}
@@ -3650,7 +3718,7 @@ export class DataManagementService {
 				conflicts.push({
 					deck,
 					filePath,
-					reason: "目标文件名冲突，需要调整牌组命名或手动处理。",
+					reason: t("management.dataCheckService.messages.wdeckTargetNameConflict"),
 				});
 				continue;
 			}
@@ -3661,7 +3729,7 @@ export class DataManagementService {
 				conflicts.push({
 					deck,
 					filePath,
-					reason: "目标 .wdeck 文件已存在，为避免覆盖，本次不会自动写入。",
+					reason: t("management.dataCheckService.messages.wdeckTargetExists"),
 				});
 				continue;
 			}
@@ -3803,7 +3871,7 @@ export class DataManagementService {
 					items: plan.conflicts.map(
 						(item) => `${item.deck.name} -> ${item.filePath} (${item.reason})`
 					),
-					message: `发现 ${plan.conflicts.length} 个 .wdeck 迁移冲突，请先处理冲突后再执行迁移`,
+					message: t("management.dataCheckService.messages.wdeckMigrationConflictFound", { count: plan.conflicts.length }),
 				};
 			}
 
@@ -3815,8 +3883,8 @@ export class DataManagementService {
 					items: [],
 					message:
 						plan.alreadyMigrated.length > 0
-							? "当前记忆牌组已有对应的 .wdeck 文件，暂时不需要再次迁移"
-							: "当前没有需要迁移到 .wdeck 的记忆牌组",
+							? t("management.dataCheckService.messages.wdeckMigrationAlreadyMigrated")
+							: t("management.dataCheckService.messages.wdeckMigrationNone"),
 				};
 			}
 
@@ -3825,9 +3893,13 @@ export class DataManagementService {
 				status: "warning",
 				count: plan.candidates.length,
 				items: plan.candidates.map(
-					(item) => `${item.logicalDeckName} -> ${item.filePath} (${item.cards.length} 张卡片)`
+					(item) => t("management.dataCheckService.messages.wdeckCandidateItem", {
+						name: item.logicalDeckName,
+						path: item.filePath,
+						count: item.cards.length,
+					})
 				),
-				message: `发现 ${plan.candidates.length} 个记忆牌组可迁移到 ${plan.targetFolder}`,
+				message: t("management.dataCheckService.messages.wdeckMigrationFound", { count: plan.candidates.length, targetFolder: plan.targetFolder }),
 			};
 		} catch (error) {
 			logger.error("[DataManagement] WDeck 迁移检测失败:", error);
@@ -3836,7 +3908,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+				message: t("management.dataCheckService.messages.checkFailed", { message: error instanceof Error ? error.message : String(error) }),
 			};
 		}
 	}
@@ -3851,7 +3923,7 @@ export class DataManagementService {
 					status: "error",
 					count: plan.conflicts.length,
 					items: plan.conflicts.map((item) => `${item.bank.name}: ${item.reason}`),
-					message: `发现 ${plan.conflicts.length} 个冲突，需要手动处理`,
+					message: t("management.dataCheckService.messages.qbankMigrationConflictFound", { count: plan.conflicts.length }),
 				};
 			}
 
@@ -3863,8 +3935,8 @@ export class DataManagementService {
 					items: [],
 					message:
 						plan.alreadyMigrated.length > 0
-							? "所有题库已迁移到 .qbank 格式"
-							: "当前没有需要迁移的题库",
+							? t("management.dataCheckService.messages.qbankMigrationAlreadyMigrated")
+							: t("management.dataCheckService.messages.qbankMigrationNone"),
 				};
 			}
 
@@ -3874,9 +3946,13 @@ export class DataManagementService {
 				count: plan.candidates.length,
 				items: plan.candidates.map(
 					(item) =>
-						`${item.bank.name} -> weave/question-bank/${item.fileName}.qbank (${item.questionCount} 道题)`
+						t("management.dataCheckService.messages.qbankCandidateItem", {
+							name: item.bank.name,
+							fileName: item.fileName,
+							count: item.questionCount,
+						})
 				),
-				message: `发现 ${plan.candidates.length} 个题库可迁移到 .qbank 格式`,
+				message: t("management.dataCheckService.messages.qbankMigrationFound", { count: plan.candidates.length }),
 			};
 		} catch (error) {
 			logger.error("[DataManagement] QBank 迁移检测失败:", error);
@@ -3885,7 +3961,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+				message: t("management.dataCheckService.messages.checkFailed", { message: error instanceof Error ? error.message : String(error) }),
 			};
 		}
 	}
@@ -3896,7 +3972,7 @@ export class DataManagementService {
 		if (!options.confirmed) {
 			return this.buildBlockedFixResult(
 				"wdeck_migration",
-				".wdeck 迁移会在 vault 中写入新的牌组文件，必须在明确确认后执行。"
+				t("management.dataCheckService.messages.wdeckMigrationConfirm")
 			);
 		}
 
@@ -4009,7 +4085,7 @@ export class DataManagementService {
 		if (!options.confirmed) {
 			return this.buildBlockedFixResult(
 				"qbank_migration",
-				".qbank 迁移会在 vault 中写入新的题库文件，必须在明确确认后执行。"
+				t("management.dataCheckService.messages.qbankMigrationConfirm")
 			);
 		}
 
@@ -4239,7 +4315,7 @@ export class DataManagementService {
 					status: "ok",
 					count: 0,
 					items: [],
-					message: "没有找到 .qbank 文件，无需清理旧文件",
+					message: t("management.dataCheckService.messages.qbankLegacyCleanupNoQbank"),
 				};
 			}
 
@@ -4273,7 +4349,7 @@ export class DataManagementService {
 					status: "ok",
 					count: 0,
 					items: [],
-					message: "旧题库文件已清理",
+					message: t("management.dataCheckService.messages.qbankLegacyCleanupDone"),
 				};
 			}
 
@@ -4282,7 +4358,7 @@ export class DataManagementService {
 				status: "warning",
 				count: legacyFiles.length,
 				items: legacyFiles,
-				message: `发现 ${legacyFiles.length} 个旧题库文件需要清理：${legacyFiles.join(", ")}`,
+				message: t("management.dataCheckService.messages.qbankLegacyCleanupFound", { count: legacyFiles.length, files: legacyFiles.join(", ") }),
 			};
 		} catch (error) {
 			logger.error("[DataManagement] QBank 旧文件检测失败:", error);
@@ -4291,7 +4367,7 @@ export class DataManagementService {
 				status: "error",
 				count: 0,
 				items: [],
-				message: `检测失败: ${error instanceof Error ? error.message : String(error)}`,
+				message: t("management.dataCheckService.messages.checkFailed", { message: error instanceof Error ? error.message : String(error) }),
 			};
 		}
 	}
@@ -4300,7 +4376,7 @@ export class DataManagementService {
 		if (!options.confirmed) {
 			return this.buildBlockedFixResult(
 				"qbank_legacy_cleanup",
-				"需要用户确认后才能清理旧题库文件（此操作不可逆）"
+				t("management.dataCheckService.messages.qbankLegacyCleanupConfirm")
 			);
 		}
 
@@ -4588,7 +4664,7 @@ export class DataManagementService {
 		if (!options.allowHighRisk) {
 			return this.buildBlockedFixResult(
 				"legacy_memory_files",
-				"旧记忆 JSON 清理会删除历史卡片文件，必须在明确确认后执行。"
+				t("management.dataCheckService.messages.legacyMemoryCleanupConfirm")
 			);
 		}
 
@@ -4623,7 +4699,7 @@ export class DataManagementService {
 				failed: coverage.missingCardUUIDs.length,
 				errors: coverage.missingCardUUIDs.slice(0, 20).map((uuid) => ({
 					uuid,
-					error: "该卡片尚未进入任何 .wdeck，已阻止自动清理旧 JSON。",
+					error: t("management.dataCheckService.messages.legacyMemoryNotInWdeck"),
 				})),
 			};
 		}
@@ -4647,12 +4723,14 @@ export class DataManagementService {
 		await this.plugin.wdeckService?.rebuildCache();
 		const errors = remainingFiles.map((filePath) => ({
 			uuid: filePath,
-			error: "文件仍然存在，清理未完成。",
+			error: t("management.dataCheckService.messages.legacyMemoryFileStillExists"),
 		}));
 		if (emptyLegacyDirCleanupError) {
 			errors.push({
 				uuid: "legacy_memory_dirs",
-				error: `空的旧记忆目录清理失败: ${emptyLegacyDirCleanupError}`,
+				error: t("management.dataCheckService.messages.legacyMemoryDirCleanupFailed", {
+					message: emptyLegacyDirCleanupError,
+				}),
 			});
 		}
 		return {
@@ -4669,7 +4747,7 @@ export class DataManagementService {
 				type: "wdeck_conflicts",
 				success: 0,
 				failed: 1,
-				errors: [{ uuid: "wdeck_conflicts", error: "WDeckService 未启用" }],
+				errors: [{ uuid: "wdeck_conflicts", error: t("management.dataCheckService.messages.wdeckServiceDisabled") }],
 			};
 		}
 
@@ -4692,7 +4770,7 @@ export class DataManagementService {
 					if (raw.trim().length > 0) {
 						errors.push({
 							uuid: filePath,
-							error: "该 .wdeck 文件不是空文件，暂不自动修复，请人工检查文件内容。",
+							error: t("management.dataCheckService.messages.wdeckInvalidFileNotEmpty"),
 						});
 						continue;
 					}
@@ -4712,8 +4790,8 @@ export class DataManagementService {
 			return this.buildBlockedFixResult(
 				"wdeck_conflicts",
 				report.issues.length > 0
-					? "当前剩余的是重复分卷、疑似复制副本，或不是空文件的无效 .wdeck，暂不支持自动修复。"
-					: "当前没有 .wdeck 冲突。"
+					? t("management.dataCheckService.messages.wdeckConflictAutoFixUnsupported")
+					: t("management.dataCheckService.messages.wdeckNoConflict")
 			);
 		}
 
@@ -4735,7 +4813,7 @@ export class DataManagementService {
 			if (!card) {
 				errors.push({
 					uuid,
-					error: "无法读取该卡片的权威内容，无法自动判断应保留到哪个 .wdeck。",
+					error: t("management.dataCheckService.messages.wdeckMissingAuthoritativeCard"),
 				});
 				continue;
 			}
@@ -4795,8 +4873,8 @@ export class DataManagementService {
 			items: files,
 			message:
 				files.length > 0
-					? `检测到 ${files.length} 个旧记忆 JSON 残留文件，说明还没有完全收敛到 .wdeck。`
-					: "未检测到旧记忆 JSON 残留文件",
+					? t("management.dataCheckService.messages.legacyMemoryFilesFound", { count: files.length })
+					: t("management.dataCheckService.messages.legacyMemoryFilesOk"),
 		};
 	}
 
@@ -4807,7 +4885,7 @@ export class DataManagementService {
 				status: "ok",
 				count: 0,
 				items: [],
-				message: "WDeckService 未启用",
+				message: t("management.dataCheckService.messages.wdeckServiceUnavailable"),
 			};
 		}
 
@@ -4819,8 +4897,8 @@ export class DataManagementService {
 			items: report.issues.map((issue) => issue.message),
 			message:
 				report.issues.length > 0
-					? `检测到 ${report.issues.length} 个 .wdeck 冲突或重复问题`
-					: "未检测到 .wdeck 冲突",
+					? t("management.dataCheckService.messages.wdeckConflictsFound", { count: report.issues.length })
+					: t("management.dataCheckService.messages.wdeckConflictsOk"),
 		};
 	}
 
@@ -4831,7 +4909,7 @@ export class DataManagementService {
 				status: "ok",
 				count: 0,
 				items: [],
-				message: "WDeckService 未启用",
+				message: t("management.dataCheckService.messages.wdeckServiceUnavailable"),
 			};
 		}
 
@@ -4841,10 +4919,12 @@ export class DataManagementService {
 			type: "wdeck_cache",
 			status: status.needsRebuild ? "warning" : "ok",
 			count: status.needsRebuild ? 1 : 0,
-			items: status.needsRebuild ? [`\`${cacheRoot}\` 中的 .wdeck 缓存需要重建`] : [],
+			items: status.needsRebuild
+				? [t("management.dataCheckService.messages.wdeckCacheNeedsRebuildItem", { path: cacheRoot })]
+				: [],
 			message: status.needsRebuild
-				? "`.wdeck` 私有缓存缺失或已失效，建议重建"
-				: `".wdeck" 私有缓存正常（${status.fileCount} 个文件，${status.issueCount} 个冲突项）`,
+				? t("management.dataCheckService.messages.wdeckCacheNeedsRebuild")
+				: t("management.dataCheckService.messages.wdeckCacheOk", { fileCount: status.fileCount, issueCount: status.issueCount }),
 		};
 	}
 
@@ -4854,7 +4934,7 @@ export class DataManagementService {
 				type: "wdeck_cache",
 				success: 0,
 				failed: 1,
-				errors: [{ uuid: "wdeck_cache", error: "WDeckService 未启用" }],
+				errors: [{ uuid: "wdeck_cache", error: t("management.dataCheckService.messages.wdeckServiceUnavailable") }],
 			};
 		}
 
@@ -4964,7 +5044,9 @@ export class DataManagementService {
 					kind: file.kind,
 					path: file.path,
 					repairable: false,
-					reason: `读取失败：${error instanceof Error ? error.message : String(error)}`,
+					reason: t("management.dataCheckService.messages.structuredDataReadFailed", {
+						message: error instanceof Error ? error.message : String(error),
+					}),
 				});
 				continue;
 			}
@@ -4979,8 +5061,8 @@ export class DataManagementService {
 					path: file.path,
 					repairable: canRestoreBackup,
 					reason: canRestoreBackup
-						? "文件为空，但存在可恢复的有效备份"
-						: "文件为空，无法安全自动修复",
+						? t("management.dataCheckService.messages.structuredDataEmptyRecoverable")
+						: t("management.dataCheckService.messages.structuredDataEmptyUnrecoverable"),
 					repairStrategy: canRestoreBackup ? "restore_backup" : undefined,
 				});
 				continue;
@@ -4999,8 +5081,8 @@ export class DataManagementService {
 					path: file.path,
 					repairable: canRestoreBackup,
 					reason: canRestoreBackup
-						? "内容不是合法 JSON，但存在可恢复的有效备份"
-						: "内容不是合法 JSON，无法安全自动修复",
+						? t("management.dataCheckService.messages.structuredDataInvalidJsonRecoverable")
+						: t("management.dataCheckService.messages.structuredDataInvalidJsonUnrecoverable"),
 					repairStrategy: canRestoreBackup ? "restore_backup" : undefined,
 				});
 				continue;
@@ -5016,8 +5098,8 @@ export class DataManagementService {
 					path: file.path,
 					repairable: canRestoreBackup,
 					reason: canRestoreBackup
-						? "JSON 根结构不是对象，但存在可恢复的有效备份"
-						: "JSON 根结构不是对象，无法安全自动修复",
+						? t("management.dataCheckService.messages.structuredDataInvalidRootRecoverable")
+						: t("management.dataCheckService.messages.structuredDataInvalidRootUnrecoverable"),
 					repairStrategy: canRestoreBackup ? "restore_backup" : undefined,
 				});
 				continue;
@@ -5053,7 +5135,7 @@ export class DataManagementService {
 				kind: file.kind,
 				path: file.path,
 				repairable: true,
-				reason: "可按当前插件规范重写为稳定结构",
+				reason: t("management.dataCheckService.messages.structuredDataRewriteable"),
 				normalizedContent: `${JSON.stringify(normalized, null, 2)}\n`,
 				repairStrategy: "rewrite",
 			});
@@ -5073,12 +5155,12 @@ export class DataManagementService {
 			count: issues.length,
 			items: issues.map(
 				(issue) =>
-					`${issue.repairable ? "[可自动修复]" : "[需人工处理]"} ${this.getStructuredDataKindLabel(issue.kind)} ${issue.path} - ${issue.reason}`
+					`${issue.repairable ? t("management.dataCheckService.messages.structuredDataRepairable") : t("management.dataCheckService.messages.structuredDataManual")} ${this.getStructuredDataKindLabel(issue.kind)} ${issue.path} - ${issue.reason}`
 			),
 			message:
 				issues.length === 0
-					? "未发现 .wdeck / .irdeck / .qbank 结构化数据文件格式问题"
-					: `发现 ${issues.length} 个结构化数据文件格式问题（可自动修复 ${repairable.length}，需人工处理 ${manual.length}）`,
+					? t("management.dataCheckService.messages.structuredDataFormatNone")
+					: t("management.dataCheckService.messages.structuredDataFormatFound", { count: issues.length, repairable: repairable.length, manual: manual.length }),
 		};
 	}
 
@@ -5101,11 +5183,11 @@ export class DataManagementService {
 				if (issue.kind === "wdeck" && issue.repairStrategy === "restore_backup") {
 					const restored = await wdeckService.restoreDeckFileFromBackup(issue.path);
 					if (!restored) {
-						throw new Error("未找到可恢复的有效备份");
+						throw new Error(t("management.dataCheckService.messages.recoverableBackupMissing"));
 					}
 				} else {
 					if (!issue.normalizedContent) {
-						throw new Error("缺少可写回的规范化内容");
+						throw new Error(t("management.dataCheckService.messages.normalizedContentMissing"));
 					}
 					await safeWriteJson(adapter as any, issue.path, issue.normalizedContent, this.plugin.app as any);
 				}
@@ -5126,7 +5208,7 @@ export class DataManagementService {
 				failed += 1;
 				errors.push({
 					uuid: "wdeck_cache",
-					error: `结构化文件修复后重建 .wdeck 缓存失败: ${error instanceof Error ? error.message : String(error)}`,
+					error: t("management.dataCheckService.messages.structuredDataCacheRebuildFailed", { message: error instanceof Error ? error.message : String(error) }),
 				});
 			}
 		}
@@ -5156,7 +5238,7 @@ export class DataManagementService {
 
 		for (const dir of expectedDirs) {
 			if (!(await adapter.exists(dir))) {
-				issues.push(`缺少目录: ${dir}`);
+				issues.push(t("management.dataCheckService.messages.structureMissingDir", { path: dir }));
 			}
 		}
 
@@ -5165,7 +5247,7 @@ export class DataManagementService {
 			this.plugin.settings?.weaveParentFolder
 		);
 		if (irImportFolder === ".weave" || irImportFolder.startsWith(".weave/")) {
-			issues.push(`旧导入/复制兼容目录不应位于隐藏目录: ${irImportFolder}`);
+			issues.push(t("management.dataCheckService.messages.structureLegacyImportHidden", { path: irImportFolder }));
 		}
 
 		// 检查旧导入/复制兼容目录不应位于内部数据子目录（memory/cards, question-bank 等）
@@ -5176,7 +5258,7 @@ export class DataManagementService {
 		];
 		for (const intDir of internalDirs) {
 			if (irImportFolder === intDir || irImportFolder.startsWith(`${intDir}/`)) {
-				issues.push(`旧导入/复制兼容目录不应位于内部数据目录: ${irImportFolder}`);
+				issues.push(t("management.dataCheckService.messages.structureLegacyImportInternal", { path: irImportFolder }));
 				break;
 			}
 		}
@@ -5186,7 +5268,7 @@ export class DataManagementService {
 			status: issues.length > 0 ? "warning" : "ok",
 			count: issues.length,
 			items: issues,
-			message: issues.length > 0 ? `目录结构不完整，缺少 ${issues.length} 个目录` : "目录结构完整",
+			message: issues.length > 0 ? t("management.dataCheckService.messages.structureCheckFound", { count: issues.length }) : t("management.dataCheckService.messages.structureCheckOk"),
 		};
 	}
 
@@ -5294,7 +5376,7 @@ export class DataManagementService {
 			status: items.length > 0 ? "warning" : "ok",
 			count: items.length,
 			items,
-			message: items.length > 0 ? `发现 ${items.length} 个旧目录可清理` : "无旧目录",
+			message: items.length > 0 ? t("management.dataCheckService.messages.legacyCleanupFound", { count: items.length }) : t("management.dataCheckService.messages.legacyCleanupOk"),
 		};
 	}
 
@@ -5305,7 +5387,7 @@ export class DataManagementService {
 		if (!options.allowHighRisk) {
 			return this.buildBlockedFixResult(
 				"legacy_cleanup",
-				"旧目录清理会删除历史数据目录，必须在明确确认后单独执行。"
+				t("management.dataCheckService.messages.legacyCleanupConfirm")
 			);
 		}
 
@@ -5362,13 +5444,13 @@ export class DataManagementService {
 		if (!latestReport || latestReport.status !== "completed" || !latestReport.verification?.ok) {
 			return this.buildBlockedFixResult(
 				"legacy_cleanup",
-				"未找到已完成且校验通过的迁移报告，旧目录清理已阻止。"
+				t("management.dataCheckService.messages.legacyCleanupMissingVerifiedReport")
 			);
 		}
 		if (latestReport.plan.targetRoot !== v2Paths.root) {
 			return this.buildBlockedFixResult(
 				"legacy_cleanup",
-				"迁移报告对应的数据根目录与当前配置不一致，旧目录清理已阻止。"
+				t("management.dataCheckService.messages.legacyCleanupMismatchedRoot")
 			);
 		}
 
@@ -5569,7 +5651,7 @@ export class DataManagementService {
 
 		const basePath: string | undefined = adapter?.basePath;
 		if (!basePath) {
-			result.errors.push("无法获取 Vault 基础路径，跳过冲突文件导入");
+			result.errors.push(t("management.dataCheckService.messages.migrationConflictImportBasePathMissing"));
 			return result;
 		}
 
@@ -5584,7 +5666,7 @@ export class DataManagementService {
 			const listing = await vaultAdapter.list(conflictDir);
 			allFileNames = listing.files.map((f) => f.split("/").pop() || "");
 		} catch (e) {
-			result.errors.push(`读取 _migration_conflicts 目录失败: ${String(e)}`);
+			result.errors.push(t("management.dataCheckService.messages.migrationConflictImportListFailed", { message: String(e) }));
 			return result;
 		}
 
@@ -5598,7 +5680,7 @@ export class DataManagementService {
 			try {
 				return await vaultAdapter.read(`${conflictDir}/${fileName}`);
 			} catch (e) {
-				result.errors.push(`读取冲突文件失败: ${fileName} (${String(e)})`);
+				result.errors.push(t("management.dataCheckService.messages.migrationConflictImportReadFailed", { fileName, message: String(e) }));
 				return null;
 			}
 		};
@@ -5649,7 +5731,7 @@ export class DataManagementService {
 					}
 				}
 			} catch (e) {
-				result.errors.push(`解析牌组冲突文件失败: ${deckFileName} (${String(e)})`);
+				result.errors.push(t("management.dataCheckService.messages.migrationConflictImportParseDeckFailed", { fileName: deckFileName, message: String(e) }));
 			}
 		}
 
@@ -5684,7 +5766,7 @@ export class DataManagementService {
 					importedCardsByUuid.set(c.uuid, { ...(c as any), deckId, content: nextContent } as any);
 				}
 			} catch (e) {
-				result.errors.push(`解析卡片冲突文件失败: ${cardFileName} (${String(e)})`);
+				result.errors.push(t("management.dataCheckService.messages.migrationConflictImportParseCardFailed", { fileName: cardFileName, message: String(e) }));
 			}
 		}
 
@@ -5723,7 +5805,7 @@ export class DataManagementService {
 
 				result.importedCards = importedCards.length;
 			} catch (e) {
-				result.errors.push(`导入卡片到新结构失败: ${String(e)}`);
+				result.errors.push(t("management.dataCheckService.messages.migrationConflictImportCardsFailed", { message: String(e) }));
 			}
 		}
 
@@ -5836,7 +5918,7 @@ export class DataManagementService {
 				await this.plugin.deckMembershipIndexService.markFullRebuildRequired();
 			}
 		} catch (e) {
-			result.errors.push(`导入牌组到新结构失败: ${String(e)}`);
+			result.errors.push(t("management.dataCheckService.messages.migrationConflictImportDecksFailed", { message: String(e) }));
 		}
 
 		if (result.importedCards > 0 || result.importedDecks > 0) {
@@ -6305,7 +6387,7 @@ export class DataManagementService {
 				this.isStructuredJsonMigrationConflictFile(filePath.split("/").pop() || "")
 			);
 		} catch (error) {
-			result.errors.push(`读取结构化迁移冲突目录失败: ${String(error)}`);
+			result.errors.push(t("management.dataCheckService.messages.structuredConflictDirReadFailed", { message: String(error) }));
 			return result;
 		}
 
@@ -6321,7 +6403,7 @@ export class DataManagementService {
 				targetCandidates
 			);
 			if (!targetPath) {
-				result.errors.push(`无法定位迁移冲突文件对应的正式 JSON: ${fileName}`);
+				result.errors.push(t("management.dataCheckService.messages.structuredConflictTargetMissing", { fileName }));
 				continue;
 			}
 
@@ -6329,26 +6411,26 @@ export class DataManagementService {
 			try {
 				const raw = await adapter.read(conflictPath);
 				if (!raw.trim()) {
-					result.errors.push(`迁移冲突文件为空，无法恢复: ${fileName}`);
+					result.errors.push(t("management.dataCheckService.messages.structuredConflictEmpty", { fileName }));
 					continue;
 				}
 				conflictJson = JSON.parse(raw);
 			} catch (error) {
-				result.errors.push(`解析结构化迁移冲突文件失败: ${fileName} (${String(error)})`);
+				result.errors.push(t("management.dataCheckService.messages.structuredConflictParseFailed", { fileName, message: String(error) }));
 				continue;
 			}
 
 			const currentJson = await safeReadJson(adapter, targetPath, this.plugin.app);
 			const merged = this.mergeMigrationConflictJson(currentJson, conflictJson);
 			if (merged === undefined || merged === null) {
-				result.errors.push(`结构化迁移冲突文件无法自动合并: ${fileName}`);
+				result.errors.push(t("management.dataCheckService.messages.structuredConflictMergeFailed", { fileName }));
 				continue;
 			}
 
 			try {
 				await safeWriteJson(adapter, targetPath, JSON.stringify(merged, null, 2), this.plugin.app);
 			} catch (error) {
-				result.errors.push(`写回结构化迁移冲突文件失败: ${targetPath} (${String(error)})`);
+				result.errors.push(t("management.dataCheckService.messages.structuredConflictWriteFailed", { path: targetPath, message: String(error) }));
 				continue;
 			}
 
@@ -6358,7 +6440,7 @@ export class DataManagementService {
 					result.mergedFiles += 1;
 				}
 			} catch (error) {
-				result.errors.push(`删除结构化迁移冲突文件失败: ${conflictPath} (${String(error)})`);
+				result.errors.push(t("management.dataCheckService.messages.structuredConflictDeleteFailed", { path: conflictPath, message: String(error) }));
 			}
 		}
 
@@ -6413,7 +6495,7 @@ export class DataManagementService {
 				/^\.?weave_incremental-reading_monitoring\.json-\d+$/.test(filePath.split("/").pop() || "")
 			);
 		} catch (error) {
-			result.errors.push(`读取增量阅读监控冲突目录失败: ${String(error)}`);
+			result.errors.push(t("management.dataCheckService.messages.irMonitoringConflictDirReadFailed", { message: String(error) }));
 			return result;
 		}
 
@@ -6443,7 +6525,7 @@ export class DataManagementService {
 				}
 				return parsed as MonitoringLike;
 			} catch (error) {
-				result.errors.push(`解析增量阅读监控冲突文件失败: ${filePath} (${String(error)})`);
+				result.errors.push(t("management.dataCheckService.messages.irMonitoringConflictParseFailed", { path: filePath, message: String(error) }));
 				return null;
 			}
 		};
@@ -6457,7 +6539,7 @@ export class DataManagementService {
 				}
 			}
 		} catch (error) {
-			result.errors.push(`读取当前增量阅读监控文件失败: ${String(error)}`);
+			result.errors.push(t("management.dataCheckService.messages.irMonitoringCurrentReadFailed", { message: String(error) }));
 		}
 
 		for (const conflictPath of conflictPaths) {
@@ -6510,7 +6592,7 @@ export class DataManagementService {
 		try {
 			await safeWriteJson(adapter, monitoringPath, JSON.stringify(merged, null, 2));
 		} catch (error) {
-			result.errors.push(`写回增量阅读监控文件失败: ${String(error)}`);
+			result.errors.push(t("management.dataCheckService.messages.irMonitoringWriteFailed", { message: String(error) }));
 			return result;
 		}
 
@@ -6521,7 +6603,7 @@ export class DataManagementService {
 					result.mergedFiles += 1;
 				}
 			} catch (error) {
-				result.errors.push(`删除增量阅读监控冲突文件失败: ${conflictPath} (${String(error)})`);
+				result.errors.push(t("management.dataCheckService.messages.irMonitoringDeleteFailed", { path: conflictPath, message: String(error) }));
 			}
 		}
 
@@ -6608,7 +6690,10 @@ export class DataManagementService {
 					await vaultAdapter.remove(`${cardsDir}/${f}`);
 					result.deleted++;
 				} catch (e) {
-					result.errors.push(`删除空卡片文件失败: ${f} (${String(e)})`);
+					result.errors.push(t("management.dataCheckService.messages.emptyCardFileDeleteFailed", {
+						fileName: f,
+						message: String(e),
+					}));
 				}
 			}
 
@@ -6656,12 +6741,16 @@ export class DataManagementService {
 					}
 				}
 			} catch (e) {
-				result.errors.push(`更新 card-files-index.json 失败: ${String(e)}`);
+				result.errors.push(t("management.dataCheckService.messages.cardFilesIndexUpdateFailed", {
+					message: String(e),
+				}));
 			}
 
 			logger.info(`[DataManagement] 空卡片文件清理: 删除=${result.deleted}, 合并=${result.merged}`);
 		} catch (e) {
-			result.errors.push(`清理空卡片文件失败: ${String(e)}`);
+			result.errors.push(t("management.dataCheckService.messages.emptyCardCleanupFailed", {
+				message: String(e),
+			}));
 		}
 
 		return result;
@@ -6755,7 +6844,7 @@ export class DataManagementService {
 					status: "ok",
 					count: 0,
 					items: [],
-					message: "未检测到云同步冲突副本",
+					message: t("management.dataCheckService.messages.syncConflictNone"),
 				};
 			}
 
@@ -6764,7 +6853,7 @@ export class DataManagementService {
 				status: "warning",
 				count: conflicts.length,
 				items: conflicts,
-				message: `检测到 ${conflicts.length} 个云同步冲突副本文件，可能包含未合并的数据`,
+				message: t("management.dataCheckService.messages.syncConflictFound", { count: conflicts.length }),
 			};
 		} catch (error) {
 			logger.error("[DataManagement] checkSyncConflictFiles failed:", error);
@@ -6773,7 +6862,7 @@ export class DataManagementService {
 				status: "ok",
 				count: 0,
 				items: [],
-				message: "检测失败",
+				message: t("management.dataCheckService.messages.syncConflictCheckFailed"),
 			};
 		}
 	}
@@ -6925,7 +7014,9 @@ export class DataManagementService {
 					result.failed++;
 					result.errors.push({
 						uuid: conflictPath,
-						error: `无法安全合并，已转存冲突副本供人工复核: ${archivePath}`,
+						error: t("management.dataCheckService.messages.syncConflictArchiveRequired", {
+							path: archivePath,
+						}),
 					});
 				} catch (e) {
 					result.failed++;
@@ -6970,8 +7061,8 @@ export class DataManagementService {
 			items: unconverted,
 			message:
 				unconverted.length > 0
-					? `发现 ${unconverted.length} 张卡片包含渐进式挖空格式但未转换为子卡片`
-					: "无未转换的渐进式挖空卡片",
+					? t("management.dataCheckService.messages.progressiveClozeUnconvertedFound", { count: unconverted.length })
+					: t("management.dataCheckService.messages.progressiveClozeUnconvertedOk"),
 		};
 	}
 
@@ -7001,7 +7092,7 @@ export class DataManagementService {
 					for (const c of result.cards) {
 						const saveResult = await this.plugin.dataStorage.saveCard(c);
 						if (!saveResult.success) {
-							throw new Error(saveResult.error || "保存失败");
+							throw new Error(saveResult.error || t("management.dataCheckService.messages.saveFailed"));
 						}
 					}
 					logger.info(
@@ -7057,8 +7148,8 @@ export class DataManagementService {
 			items: orphans,
 			message:
 				orphans.length > 0
-					? `发现 ${orphans.length} 张渐进式挖空子卡片的父卡片已不存在`
-					: "无孤儿子卡片",
+					? t("management.dataCheckService.messages.progressiveClozeOrphanFound", { count: orphans.length })
+					: t("management.dataCheckService.messages.progressiveClozeOrphanOk"),
 		};
 	}
 
@@ -7106,8 +7197,8 @@ export class DataManagementService {
 			items: problems,
 			message:
 				problems.length > 0
-					? `发现 ${problems.length} 张父卡片缺少对应序号的子卡片`
-					: "所有父卡片的子卡片完整",
+					? t("management.dataCheckService.messages.progressiveClozeMissingChildrenFound", { count: problems.length })
+					: t("management.dataCheckService.messages.progressiveClozeMissingChildrenOk"),
 		};
 	}
 
@@ -7152,8 +7243,8 @@ export class DataManagementService {
 			items: extras,
 			message:
 				extras.length > 0
-					? `发现 ${extras.length} 张子卡片的序号在父卡片内容中不存在`
-					: "无多余子卡片",
+					? t("management.dataCheckService.messages.progressiveClozeExtraChildrenFound", { count: extras.length })
+					: t("management.dataCheckService.messages.progressiveClozeExtraChildrenOk"),
 		};
 	}
 }

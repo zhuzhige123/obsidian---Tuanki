@@ -417,13 +417,6 @@ body.is-phone .weave-settings .row input[type="number"] {
   max-width: 100%;
 }
 
- /* 📱 手机端：下拉/选择类设置项不使用 100% 宽度（保持控件在标题行右侧） */
- body.is-phone .weave-settings .row:has(.obsidian-dropdown-trigger) .obsidian-dropdown-trigger,
- body.is-phone .weave-settings .row:has(select) select {
-   width: auto;
-   max-width: none;
- }
-
  /* 📱 手机端：特定文本输入保持横排（默认牌组） */
  body.is-phone .weave-settings .row.weave-inline-input {
    flex-direction: row;
@@ -1381,25 +1374,6 @@ body.is-mobile .weave-app .cards-grid {
 /* 🔧 看板视图移动端间距优化 */
 body.is-mobile .weave-app .kanban-view {
   padding: 4px 2px; /* 🔧 减少左右间距 */
-}
-
-/* 🔧 增量摘录内容区贴边 */
-body.is-mobile .weave-app .extract-list-view {
-  padding: 4px 0; /* 🔧 减少左右内边距，让内容贴边 */
-}
-
-body.is-mobile .weave-app .extract-list-view .list-container {
-  margin: 0 2px 2px; /* 🔧 减少列表容器的外边距 */
-  padding: 8px 4px; /* 🔧 减少列表容器的内边距 */
-}
-
-body.is-mobile .weave-app .extract-list-view .type-nav-row {
-  padding: 8px 4px; /* 🔧 减少类型筛选导航的内边距 */
-}
-
-body.is-mobile .weave-app .extract-list-view .list-item {
-  margin-bottom: 6px; /* 🔧 减少列表项之间的间距 */
-  padding: 10px 8px; /* 🔧 减少列表项的内边距 */
 }
 
 /* ==================== Part B 任务 10: 表格视图移动端优化 ==================== */

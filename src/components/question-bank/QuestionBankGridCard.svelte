@@ -2,6 +2,7 @@
   import type { Deck } from '../../data/types';
   import type { ColorScheme, CardState } from '../../config/card-color-schemes';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
+  import { tr } from '../../utils/i18n';
 
   interface QuestionBankStats {
     total: number;      // 总题数
@@ -19,6 +20,7 @@
   }
 
   let { bank, stats, colorScheme, onTest, onMenu }: Props = $props();
+  let t = $derived($tr);
 
   // 根据题库状态计算卡片状态
   const cardState = $derived.by<CardState>(() => {
@@ -50,14 +52,6 @@
 
   // 生成信息条样式
   const infoBarStyle = $derived(`background: ${colorScheme.infoBar.background}; color: ${colorScheme.infoBar.textColor};`);
-
-  // 根据正确率获取颜色（保留以便未来可能的用途）
-  function getAccuracyColor(accuracy: number): string {
-    if (accuracy === 0) return 'rgba(156, 163, 175, 0.8)'; // 灰色
-    if (accuracy < 60) return '#ef4444'; // 红色
-    if (accuracy < 80) return '#f97316'; // 橙色
-    return '#22c55e'; // 绿色
-  }
 
   // 处理点击事件
   function handleClick() {
@@ -99,7 +93,12 @@
   oncontextmenu={handleContextMenu}
   role="button"
   tabindex="0"
-  aria-label="{bank.name} - 总题{stats.total}, 已练{stats.completed}, 正确率{stats.accuracy.toFixed(0)}%"
+  aria-label={t('study.questionBankUI.bankCollection.ariaLabel', {
+    name: bank.name,
+    total: stats.total,
+    completed: stats.completed,
+    accuracy: stats.accuracy.toFixed(0)
+  })}
 >
   <!-- 上方主区域：题库名 -->
   <div class="card-main" style={mainStyle}>
@@ -110,8 +109,8 @@
     <button 
       class="menu-btn"
       onclick={handleMenuClick}
-      aria-label="更多操作"
-      title="更多操作"
+      aria-label={t('study.questionBankUI.bankCollection.moreActions')}
+      title={t('study.questionBankUI.bankCollection.moreActions')}
     >
       <EnhancedIcon name="more-horizontal" size={16} />
     </button>
@@ -122,40 +121,36 @@
 
     <!-- 空题库标记 -->
     {#if stats.total === 0}
-      <div class="empty-badge">空题库</div>
+      <div class="empty-badge">{t('study.questionBankUI.bankCollection.emptyBank')}</div>
     {/if}
   </div>
 
-  <!-- 下方信息条 -->
+  <!-- 下方信息条（qb-grid-*：避免全局 .stat-number / .stat-label 污染） -->
   <div class="card-info-bar" style={infoBarStyle}>
-    <!-- 左侧：正确率 -->
-    <div class="info-left">
+    <div class="qb-grid-info-left">
       {#if stats.completed > 0}
-        <div class="accuracy-display">
+        <div class="qb-grid-accuracy">
           {stats.accuracy.toFixed(0)}%
         </div>
       {/if}
     </div>
 
-    <!-- 中间：统计数字（标签在前，数字在后） -->
-    <div class="info-center">
-      <div class="stat-item">
-        <span class="stat-label">总题</span>
-        <span class="stat-number">{stats.total}</span>
+    <div class="qb-grid-stats">
+      <div class="qb-grid-stat">
+        <span class="qb-grid-stat-num">{stats.total}</span>
+        <span class="qb-grid-stat-lbl">{t('study.questionBankUI.bankCollection.headers.total')}</span>
       </div>
-      <div class="stat-item">
-        <span class="stat-label">已练</span>
-        <span class="stat-number">{stats.completed}</span>
+      <div class="qb-grid-stat">
+        <span class="qb-grid-stat-num">{stats.completed}</span>
+        <span class="qb-grid-stat-lbl">{t('study.questionBankUI.bankCollection.headers.completed')}</span>
       </div>
-      <div class="stat-item">
-        <span class="stat-label">错题</span>
-        <span class="stat-number">{stats.errorCount}</span>
+      <div class="qb-grid-stat">
+        <span class="qb-grid-stat-num">{stats.errorCount}</span>
+        <span class="qb-grid-stat-lbl">{t('study.questionBankUI.statsCards.totalWrong')}</span>
       </div>
     </div>
 
-    <!-- 右侧：占位（保持布局平衡） -->
-    <div class="info-right">
-    </div>
+    <div class="qb-grid-info-right" aria-hidden="true"></div>
   </div>
 </div>
 
@@ -291,64 +286,81 @@
 
   /* 下方信息条 */
   .card-info-bar {
-    height: 52px;
+    min-height: 52px;
+    height: auto;
+    box-sizing: border-box;
     backdrop-filter: blur(10px);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 20px;
+    gap: 10px;
+    padding: 10px 20px;
     font-size: 13px;
     font-weight: 500;
+    font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
   }
 
-  .info-left {
+  .qb-grid-info-left {
     display: flex;
     align-items: center;
-    min-width: 60px;
+    flex: 0 0 auto;
+    min-width: min(60px, 18%);
+    justify-content: flex-start;
   }
 
-  /* 信息条内的正确率显示 - 统一黑白色设计 */
-  .accuracy-display {
+  .qb-grid-accuracy {
     padding: 4px 10px;
-    border-radius: 4px;
+    border-radius: 6px;
     font-size: 13px;
     font-weight: 700;
-    background: rgba(0, 0, 0, 0.08);
-    color: var(--text-normal);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    font-variant-numeric: tabular-nums;
+    background: rgba(0, 0, 0, 0.12);
+    color: inherit;
+    opacity: 0.95;
+    white-space: nowrap;
+    flex-shrink: 0;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   }
 
-  .info-center {
+  .qb-grid-stats {
     display: flex;
+    flex-direction: row;
     align-items: center;
-    gap: 12px;
-    row-gap: 4px;
-    flex-wrap: wrap;
-    flex: 1;
     justify-content: center;
+    gap: 14px;
+    flex-wrap: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
-  .stat-item {
-    display: flex;
+  .qb-grid-stat {
+    display: inline-flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
     align-items: baseline;
-    gap: 4px;
+    gap: 0.2em;
+    flex-shrink: 0;
+    white-space: nowrap;
+    max-width: 100%;
   }
 
-  .stat-label {
+  .qb-grid-stat-lbl {
     font-size: 12px;
-    opacity: 0.8;
+    opacity: 0.9;
+    white-space: nowrap;
   }
 
-  .stat-number {
+  .qb-grid-stat-num {
     font-weight: 600;
     font-size: 16px;
+    font-variant-numeric: tabular-nums;
   }
 
-  .info-right {
-    display: flex;
-    align-items: center;
-    min-width: 60px;
-    justify-content: flex-end;
+  .qb-grid-info-right {
+    flex: 0 0 auto;
+    min-width: min(60px, 18%);
+    width: min(60px, 18%);
   }
 
   /* 响应式 */
@@ -362,20 +374,20 @@
     }
 
     .card-info-bar {
-      height: 48px;
-      padding: 0 16px;
+      min-height: 48px;
+      padding: 8px 16px;
       font-size: 12px;
     }
 
-    .stat-number {
+    .qb-grid-stat-num {
       font-size: 14px;
     }
 
-    .info-center {
-      gap: 8px;
+    .qb-grid-stats {
+      gap: 10px;
     }
 
-    .stat-label {
+    .qb-grid-stat-lbl {
       font-size: 10px;
     }
   }
@@ -395,20 +407,19 @@
     }
 
     .card-info-bar {
-      height: auto;
       min-height: 46px;
       padding: 8px 14px;
     }
 
-    .info-center {
-      gap: 8px 12px;
+    .qb-grid-stats {
+      gap: 10px 12px;
     }
 
-    .stat-number {
+    .qb-grid-stat-num {
       font-size: 14px;
     }
 
-    .stat-label {
+    .qb-grid-stat-lbl {
       font-size: 11px;
     }
 
@@ -436,15 +447,15 @@
       padding: 6px 10px;
     }
 
-    .info-center {
+    .qb-grid-stats {
       gap: 6px 10px;
     }
 
-    .stat-number {
+    .qb-grid-stat-num {
       font-size: 13px;
     }
 
-    .stat-label {
+    .qb-grid-stat-lbl {
       font-size: 10px;
     }
 

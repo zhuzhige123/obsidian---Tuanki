@@ -31,11 +31,16 @@ function createLicense(overrides: Partial<LicenseInfo> = {}): LicenseInfo {
 }
 
 describe("license-state dual product rules", () => {
-  it("maps Weave product ids to both Weave and EPUB entitlements", () => {
-    expect(mapProductIdToEntitlements("weave")).toEqual(["weave-premium", "epub-premium"]);
+  it("maps Weave product ids to Weave, EPUB, and IR entitlements", () => {
+    expect(mapProductIdToEntitlements("weave")).toEqual([
+      "weave-premium",
+      "epub-premium",
+      "ir-premium",
+    ]);
     expect(mapProductIdToEntitlements("weave-obsidian-plugin")).toEqual([
       "weave-premium",
       "epub-premium",
+      "ir-premium",
     ]);
   });
 

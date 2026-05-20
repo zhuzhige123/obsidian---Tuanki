@@ -172,8 +172,6 @@
     modal.open();
   }
 
-  const cardLabel = $derived.by(() => getCardLabel(card));
-
   const confirmDisabled = $derived.by(() => {
     if (busy || !card) return true;
     if (mode === "create") {
@@ -257,7 +255,6 @@
       <header class="card-to-md-header">
         <div class="card-to-md-header-copy">
           <h2 id="card-to-md-title">转换为 MD 文件</h2>
-          <p>{cardLabel}</p>
         </div>
         <button class="icon-btn" type="button" onclick={onClose} disabled={busy} aria-label="关闭">
           <EnhancedIcon name="x" size={16} />
@@ -381,14 +378,6 @@
   .card-to-md-header-copy h2 {
     margin: 0;
     font-size: 20px;
-  }
-
-  .card-to-md-header-copy p {
-    margin: 8px 0 0;
-    color: var(--text-muted);
-    font-size: 13px;
-    line-height: 1.5;
-    word-break: break-word;
   }
 
   .icon-btn {

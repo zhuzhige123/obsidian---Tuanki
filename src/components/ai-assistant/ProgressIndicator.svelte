@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { GenerationProgress } from '../../types/ai-types';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
+  import { tr } from '../../utils/i18n';
 
   interface Props {
     progress: GenerationProgress;
@@ -8,6 +9,7 @@
   }
 
   let { progress, onOpenPreview }: Props = $props();
+  let t = $derived($tr);
 
   // 状态图标映射
   let statusIcon = $derived.by(() => {
@@ -49,16 +51,15 @@
       <div class="progress-message">{progress.message}</div>
       {#if progress.currentCard && progress.totalCards}
         <div class="progress-details">
-          生成进度：{progress.currentCard} / {progress.totalCards}
+          {t('aiAssistant.progressIndicator.progressLabel', { current: progress.currentCard, total: progress.totalCards })}
         </div>
       {/if}
     </div>
     
-    <!-- 查看卡片按钮，生成中和完成时都显示 -->
     {#if onOpenPreview && (progress.status === 'generating' || progress.status === 'completed')}
-      <button class="preview-btn" onclick={onOpenPreview} title="查看生成的卡片">
+      <button class="preview-btn" onclick={onOpenPreview} title={t('aiAssistant.progressIndicator.openPreviewTitle')}>
         <ObsidianIcon name="eye" size={18} />
-        <span>{progress.status === 'generating' ? '预览' : '查看'}</span>
+        <span>{progress.status === 'generating' ? t('aiAssistant.progressIndicator.preview') : t('aiAssistant.progressIndicator.view')}</span>
       </button>
     {/if}
   </div>
@@ -193,4 +194,3 @@
     transform: translateY(0);
   }
 </style>
-

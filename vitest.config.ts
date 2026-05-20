@@ -1,8 +1,17 @@
+import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { svelteTesting } from '@testing-library/svelte/vite';
 
+const resolveFromProjectRoot = (relativePath: string) => path.resolve(process.cwd(), relativePath);
+const workspaceRoot = path.resolve(process.cwd(), '..', '..');
+
 export default defineConfig({
+  server: {
+    fs: {
+      allow: [workspaceRoot]
+    }
+  },
   plugins: [
     svelte({
       compilerOptions: {
@@ -19,7 +28,10 @@ export default defineConfig({
     globals: true,
     clearMocks: true,
     restoreMocks: true,
-    setupFiles: ['./src/tests/setup.ts', './src/tests/vitest-setup.ts'],
+    setupFiles: [
+      resolveFromProjectRoot('./src/tests/setup.ts'),
+      resolveFromProjectRoot('./src/tests/vitest-setup.ts')
+    ],
     include: ['src/**/*.{test,spec}.{js,ts}'],
     exclude: ['node_modules', 'dist'],
     coverage: {

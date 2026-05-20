@@ -104,13 +104,13 @@
     }
 
     if (!editorPoolManager || !editorInitialized) {
-      throw new Error('编辑器尚未初始化');
+      throw new Error(t('studyInterface.editor.notInitialized'));
     }
 
     const sessionCardId = editorSessionId || localEditorSessionId;
     const editorContainer = editorHostEl as HTMLElement | null;
     if (!editorContainer) {
-      throw new Error('编辑器容器未找到');
+      throw new Error(t('studyInterface.editor.containerNotFound'));
     }
 
     const updateResult = await editorPoolManager.updateSessionContent(
@@ -120,7 +120,7 @@
     );
 
     if (!updateResult.success) {
-      throw new Error(updateResult.error || '更新编辑器内容失败');
+      throw new Error(updateResult.error || t('studyInterface.editor.updateContentFailed'));
     }
   }
 
@@ -137,10 +137,14 @@
     try {
       isClozeModeUpdating = true;
       await updateEditorContent(nextContent);
-      new Notice(mode === 'input' ? '已切换为输入模式' : '已切换为显示模式');
+      new Notice(
+        mode === 'input'
+          ? t('studyInterface.notices.clozeModeSwitchedInput')
+          : t('studyInterface.notices.clozeModeSwitchedReveal')
+      );
     } catch (error) {
       logger.error('[CardEditorContainer] 切换挖空模式失败:', error);
-      new Notice(error instanceof Error ? error.message : '切换挖空模式失败');
+      new Notice(error instanceof Error ? error.message : t('studyInterface.notices.clozeModeToggleFailed'));
     } finally {
       isClozeModeUpdating = false;
     }
@@ -548,15 +552,15 @@
   >
     {#if false && supportsClozeModeToggle}
       <div class="study-editor-toolbar">
-        <div class="cloze-mode-switch" role="group" aria-label="挖空模式切换">
-          <span class="cloze-mode-label">挖空模式</span>
+        <div class="cloze-mode-switch" role="group" aria-label={t('studyInterface.clozeMode.switchAriaLabel')}>
+          <span class="cloze-mode-label">{t('studyInterface.clozeMode.groupLabel')}</span>
           <button
             type="button"
             class:active={currentClozeMode === 'reveal'}
             onclick={() => handleClozeModeToggle('reveal')}
             disabled={isClozeModeToggleDisabled}
           >
-            显示
+            {t('studyInterface.clozeMode.reveal')}
           </button>
           <button
             type="button"
@@ -564,7 +568,7 @@
             onclick={() => handleClozeModeToggle('input')}
             disabled={isClozeModeToggleDisabled}
           >
-            输入
+            {t('studyInterface.clozeMode.input')}
           </button>
         </div>
       </div>

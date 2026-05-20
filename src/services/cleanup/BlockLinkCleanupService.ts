@@ -39,7 +39,7 @@ export interface CleanupServiceDependencies {
  * 块链接清理服务
  */
 export class BlockLinkCleanupService {
-	private static instance: BlockLinkCleanupService;
+	private static instance: BlockLinkCleanupService | null = null;
 
 	private dataStorage: WeaveDataStorage | null = null;
 	private vault: Vault | null = null;
@@ -61,6 +61,15 @@ export class BlockLinkCleanupService {
 			BlockLinkCleanupService.instance = new BlockLinkCleanupService();
 		}
 		return BlockLinkCleanupService.instance;
+	}
+
+	public static resetInstance(): void {
+		if (!BlockLinkCleanupService.instance) {
+			return;
+		}
+
+		BlockLinkCleanupService.instance.destroy();
+		BlockLinkCleanupService.instance = null;
 	}
 
 	/**
@@ -903,5 +912,14 @@ export class BlockLinkCleanupService {
 		}
 
 		this.detector.markUUIDRecentlyCreated(uuid);
+	}
+
+	public destroy(): void {
+		this.dataStorage = null;
+		this.vault = null;
+		this.app = null;
+		this.detector = null;
+		this.strategies.clear();
+		this.initialized = false;
 	}
 }

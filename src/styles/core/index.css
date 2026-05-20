@@ -1,14 +1,9 @@
 /**
- * Weave插件核心样式 - 合并版本
- * 将原本分散的@import依赖合并到一个文件中，提升构建性能
- * 
- * 合并的文件：
- * - tokens.css (设计令牌)
- * - animations.css (通用动画)
- * - utility-classes.css (工具类)
- * - modern-components.css (现代组件)
- * 
- * 注意：保持weave-命名空间隔离
+ * Weave 核心组件样式（由 global.css 在 tokens.css 之后加载）
+ *
+ * 设计令牌：仅维护 src/styles/tokens.css（勿再编辑已删除的 design-tokens.css）
+ * 卡片/按钮扩展：src/styles/modern-components.css
+ * 本文件保留：动画、.weave-btn/.weave-tag 基础、常用工具类（与 modern-components 部分重叠，后加载者优先）
  */
 
 /* ===== 1. 设计令牌 (来自tokens.css) ===== */

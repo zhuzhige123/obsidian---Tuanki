@@ -6,7 +6,7 @@
 <script lang="ts">
   import { logger } from '../../utils/logger';
   import { MEMORY_DECK_UI_TEXT } from '../../constants/memory-deck-ui-text';
-  import { EpubLinkService } from '../../services/epub/EpubLinkService';
+  import { EpubLinkService } from '../../services/epub-integration/EpubLinkService';
   import {
     detectTraceSourceKind,
     normalizeTraceDocumentKey,
@@ -23,6 +23,7 @@
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import { Notice, Platform, Menu } from 'obsidian';
   import { applyStyleProps } from '../../utils/style-props';
+  import { tr } from '../../utils/i18n';
 
   function findFirstPdfPlusLinkFromBody(body: string): string | undefined {
     if (!body) return undefined;
@@ -105,6 +106,7 @@
 
   // InlineCardEditor 实例引用（用于调用其方法）
   let inlineCardEditorInstance: any = $state();
+  let t = $derived($tr);
 
   //  使用预加载的数据（无需异步加载，数据已准备就绪）
   let decks = $state<any[]>(untrack(() => preloadedDecks));
@@ -237,7 +239,7 @@
         logger.warn('[CreateCardModal] ❌ 卡片内容为空，拒绝保存', {
           content: updatedCard.content?.substring(0, 200)
         });
-        new Notice('卡片内容不能为空，请添加内容后再保存', 4000);
+        new Notice(t('cards.createModal.emptyContent'), 4000);
         return;
       }
       
@@ -322,7 +324,7 @@
           logger.debug('[CreateCardModal] ✅ 编辑器已重置，新卡片对象已同步');
         }
         
-        new Notice('卡片已保存，可以继续添加');
+        new Notice(t('cards.createModal.savedContinue'));
       } else {
         // 普通模式：关闭模态窗
         logger.debug('[CreateCardModal] 🔓 普通模式激活：关闭模态窗', {
@@ -342,7 +344,7 @@
       }
     } catch (error) {
       logger.error('[CreateCardModal] 处理卡片保存回调失败:', error);
-      new Notice('处理卡片保存时发生错误');
+      new Notice(t('cards.createModal.handleSaveFailed'));
     }
   }
 
@@ -452,7 +454,7 @@
       logger.debug('[CreateCardModal] ✅ 内容填充完成，模态窗保持打开');
     } catch (error) {
       logger.error('[CreateCardModal] 更新内容失败:', error);
-      new Notice('更新内容失败，请重试');
+      new Notice(t('cards.createModal.updateContentFailed'));
     }
   }
 
@@ -494,7 +496,7 @@
       isPinned,
       type: typeof isPinned
     });
-    new Notice(isPinned ? '已钉住：可连续添加卡片' : '已取消钉住');
+    new Notice(isPinned ? t('cards.createModal.pinnedEnabled') : t('cards.createModal.pinnedDisabled'));
   }
   
   let deckButtonRef = $state<HTMLButtonElement | undefined>(undefined);
@@ -547,7 +549,7 @@
 <ResizableModal
   bind:open
   {plugin}
-  title="创建卡片"
+  title={t('cards.createModal.title')}
   className="weave-create-card-modal"
   closable={false}
   maskClosable={false}
@@ -567,15 +569,15 @@
         logger.debug('[CreateCardModal] 📱 钉住按钮 click 触发');
         togglePin();
       }}
-      title={isPinned ? '点击取消钉住' : '点击钉住（可连续添加卡片）'}
-      aria-label={isPinned ? '取消钉住' : '钉住'}
+      title={isPinned ? t('cards.createModal.unpinTitle') : t('cards.createModal.pinTitle')}
+      aria-label={isPinned ? t('cards.createModal.unpinAria') : t('cards.createModal.pinAria')}
     >
       <EnhancedIcon
         name="pin"
         size={16}
         variant={isPinned ? 'primary' : 'muted'}
         rotate={isPinned ? 0 : -30}
-        ariaLabel={isPinned ? '已钉住' : '未钉住'}
+        ariaLabel={isPinned ? t('cards.createModal.pinnedState') : t('cards.createModal.unpinnedState')}
       />
     </button>
     

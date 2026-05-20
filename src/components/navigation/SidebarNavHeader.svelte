@@ -23,6 +23,7 @@
   import { openWeaveMainMenu } from '../../utils/weave-main-menu';
   import { weaveMainInterfaceStore } from '../../stores/weave-main-interface-store';
   import { vaultStorage } from '../../utils/vault-local-storage';
+  import { tr } from '../../utils/i18n';
 
   // 牌组学习页面的筛选类型
   export type DeckFilter = 'memory' | 'question-bank';
@@ -82,21 +83,35 @@
   }: Props = $props();
 
   const premiumGuard = PremiumFeatureGuard.getInstance();
+  let t = $derived($tr);
   const deckStudyFeatureContext = { page: 'deck-study' };
+  const cardManagementFeatureContext = { page: 'weave-card-management' };
   let isPremium = $state(get(premiumGuard.isPremiumActive));
   let showPremiumFeaturesPreview = $state(get(premiumGuard.premiumFeaturesPreviewEnabled));
 
+  function getCurrentFeatureContext() {
+    if (currentPage === 'deck-study') {
+      return deckStudyFeatureContext;
+    }
+
+    if (currentPage === 'weave-card-management') {
+      return cardManagementFeatureContext;
+    }
+
+    return undefined;
+  }
+
   // 牌组学习页面的彩色圆点配置
   const deckFilters = [
-    { id: 'memory' as DeckFilter, name: '记忆牌组', colorStart: '#3b82f6', colorEnd: '#2563eb' },
-    { id: 'question-bank' as DeckFilter, name: '考试题组', colorStart: '#10b981', colorEnd: '#059669' }
+    { id: 'memory' as DeckFilter, name: 'mainMenu.cardManagement.memoryDeck', colorStart: '#3b82f6', colorEnd: '#2563eb' },
+    { id: 'question-bank' as DeckFilter, name: 'mainMenu.cardManagement.questionBank', colorStart: '#10b981', colorEnd: '#059669' }
   ];
 
   // 卡片管理页面的彩色圆点配置（视图切换）
   const cardViewTypes = [
-    { id: 'table' as CardViewType, name: '表格视图', colorStart: '#ef4444', colorEnd: '#dc2626' },
-    { id: 'grid' as CardViewType, name: '网格视图', colorStart: '#3b82f6', colorEnd: '#2563eb' },
-    { id: 'kanban' as CardViewType, name: '看板视图', colorStart: '#10b981', colorEnd: '#059669' }
+    { id: 'table' as CardViewType, name: 'cardManagement.viewModes.table', colorStart: '#ef4444', colorEnd: '#dc2626' },
+    { id: 'grid' as CardViewType, name: 'cardManagement.viewModes.grid', colorStart: '#3b82f6', colorEnd: '#2563eb' },
+    { id: 'kanban' as CardViewType, name: 'cardManagement.viewModes.kanban', colorStart: '#10b981', colorEnd: '#059669' }
   ];
 
   $effect(() => {
@@ -117,14 +132,14 @@
     return premiumGuard.shouldShowFeatureEntry(featureId, {
       isPremium,
       showPremiumPreview: showPremiumFeaturesPreview
-    }, currentPage === 'deck-study' ? deckStudyFeatureContext : undefined);
+    }, getCurrentFeatureContext());
   }
 
   function getPremiumEntryTitle(baseTitle: string, featureId: string): string {
     return premiumGuard.getFeatureEntryTitle(
       baseTitle,
       featureId,
-      currentPage === 'deck-study' ? deckStudyFeatureContext : undefined
+      getCurrentFeatureContext()
     );
   }
 
@@ -198,8 +213,8 @@
     } catch {}
     return 'formal';
   })());
-  const cardSearchLabel = '\u641c\u7d22\u5361\u7247';
-  const cardSearchPlaceholder = '\u641c\u7d22\u5361\u7247...';
+  let cardSearchLabel = $derived(t('cardManagement.search'));
+  let cardSearchPlaceholder = $derived(`${t('cardManagement.search')}...`);
 
   function normalizeMemoryDeckDisplayMode(value: string | null | undefined): MemoryDeckDisplayMode {
     return value === 'emergent' && premiumGuard.canUseFeature(PREMIUM_FEATURES.EMERGENT_DECKS, deckStudyFeatureContext)
@@ -208,15 +223,15 @@
   }
 
   function getCardDataSourceLabel(source: CardDataSource): string {
-    if (source === 'questionBank') return '题组';
-    if (source === 'incremental-reading') return '阅读';
-    return '记忆';
+    if (source === 'questionBank') return t('mainMenu.cardManagement.questionBank');
+    if (source === 'incremental-reading') return t('mainMenu.cardManagement.incrementalReading');
+    return t('mainMenu.cardManagement.memoryDeck');
   }
 
   const cardKanbanLayoutModeLabels: Record<KanbanLayoutMode, string> = {
-    compact: '紧凑',
-    comfortable: '舒适',
-    spacious: '宽松'
+    compact: 'cardManagement.density.compact',
+    comfortable: 'cardManagement.density.comfortable',
+    spacious: 'cardManagement.density.spacious'
   };
 
   const cardKanbanLayoutModeIcons: Record<KanbanLayoutMode, string> = {
@@ -238,16 +253,24 @@
   }
 
   function getCardKanbanLayoutButtonLabel(mode: KanbanLayoutMode): string {
-    return `密度·${cardKanbanLayoutModeLabels[mode]}`;
+    return `${t('cardManagement.density.title')}·${t(cardKanbanLayoutModeLabels[mode])}`;
   }
 
   function getCardKanbanLayoutButtonTitle(mode: KanbanLayoutMode): string {
     const nextMode = getNextCardKanbanLayoutMode(mode);
-    return `当前${cardKanbanLayoutModeLabels[mode]}布局，点击切换为${cardKanbanLayoutModeLabels[nextMode]}布局`;
+    return `${t('cardManagement.density.title')}：${t(cardKanbanLayoutModeLabels[mode])} → ${t(cardKanbanLayoutModeLabels[nextMode])}`;
   }
 
   function getCardKanbanLayoutButtonAriaLabel(mode: KanbanLayoutMode): string {
-    return `切换看板密度（当前${cardKanbanLayoutModeLabels[mode]}）`;
+    return `${t('cardManagement.density.title')}（${t(cardKanbanLayoutModeLabels[mode])}）`;
+  }
+
+  function getAiPrimaryActionLabel(): string {
+    if (aiSubView === 'generate') {
+      return aiIsGenerating ? t('mainMenu.aiAssistant.generating') : t('mainMenu.aiAssistant.startGenerate');
+    }
+
+    return aiIsParsing ? t('mainMenu.aiAssistant.parsing') : t('mainMenu.aiAssistant.startParse');
   }
 
   function handleMenuClick(evt: MouseEvent) {
@@ -281,7 +304,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('记忆牌组')
+        .setTitle(t('mainMenu.cardManagement.memoryDeck'))
         .setIcon('graduation-cap')
         .setChecked(cardDataSource === 'memory')
         .onClick(() => {
@@ -292,7 +315,7 @@
     if (shouldShowPremiumEntry(PREMIUM_FEATURES.QUESTION_BANK)) {
       menu.addItem((item) => {
         item
-          .setTitle(getPremiumEntryTitle('考试题组', PREMIUM_FEATURES.QUESTION_BANK))
+          .setTitle(getPremiumEntryTitle(t('mainMenu.cardManagement.questionBank'), PREMIUM_FEATURES.QUESTION_BANK))
           .setIcon('clipboard-list')
           .setChecked(cardDataSource === 'questionBank')
           .onClick(() => {
@@ -304,7 +327,7 @@
     if (shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)) {
       menu.addItem((item) => {
         item
-          .setTitle(getPremiumEntryTitle('增量阅读', PREMIUM_FEATURES.INCREMENTAL_READING))
+          .setTitle(getPremiumEntryTitle(t('mainMenu.cardManagement.incrementalReading'), PREMIUM_FEATURES.INCREMENTAL_READING))
           .setIcon('bookmark')
           .setChecked(cardDataSource === 'incremental-reading')
           .onClick(() => {
@@ -337,7 +360,7 @@
 
         // 蓝色圆点表示“标准网格视图”，点击时需要从时间线/瀑布流回到固定网格布局。
         if (
-          premiumGuard.canUseFeature(PREMIUM_FEATURES.GRID_VIEW)
+          premiumGuard.canUseFeature(PREMIUM_FEATURES.GRID_VIEW, cardManagementFeatureContext)
           && cardGridLayoutMode !== 'fixed'
         ) {
           emitCardManagementToolbarAction('grid-layout-fixed');
@@ -577,7 +600,7 @@
     <button
       class="sidebar-menu-trigger"
       onclick={handleHeaderMenuClick}
-      aria-label="打开导航菜单"
+      aria-label={t('weave.mobileOpenMenu')}
     >
       <ObsidianIcon name="menu" size={18} />
     </button>
@@ -586,46 +609,46 @@
       <button
         class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-file-trigger"
         onclick={(evt) => emitAIAssistantToolbarAction('file', evt)}
-        aria-label="文件列表"
-        title={aiSelectedFileName ? `当前文件：${aiSelectedFileName}` : '文件列表'}
+        aria-label={t('mainMenu.aiAssistant.fileList')}
+        title={aiSelectedFileName || t('mainMenu.aiAssistant.fileList')}
       >
-        <span>{aiSelectedFileName || '文件列表'}</span>
+        <span>{aiSelectedFileName || t('mainMenu.aiAssistant.fileList')}</span>
       </button>
       {#if aiSubView === 'generate'}
         <button
           class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-prompt-trigger"
           onclick={(evt) => emitAIAssistantToolbarAction('prompt-file', evt)}
-          aria-label="提示词文件"
-          title={aiPromptFilePath || aiPromptFileName || '提示词文件'}
+          aria-label={t('mainMenu.aiAssistant.systemPrompt')}
+          title={aiPromptFilePath || aiPromptFileName || t('mainMenu.aiAssistant.systemPrompt')}
         >
-          <span>{aiPromptFileName || '提示词文件'}</span>
+          <span>{aiPromptFileName || t('mainMenu.aiAssistant.systemPrompt')}</span>
         </button>
         <button
           class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-model-trigger"
           onclick={(evt) => emitAIAssistantToolbarAction('model', evt)}
-          aria-label="AI模型"
-          title={aiModelTitle || 'AI模型'}
+          aria-label={t('mainMenu.aiAssistant.model')}
+          title={aiModelTitle || t('mainMenu.aiAssistant.model')}
         >
-          <span>{aiModelLabel || 'AI模型'}</span>
+          <span>{aiModelLabel || t('mainMenu.aiAssistant.model')}</span>
         </button>
       {:else}
         <button
           class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-parse-trigger"
           onclick={(evt) => emitAIAssistantToolbarAction('parse-template', evt)}
-          aria-label="解析模板"
-          title={aiParsePresetName || '解析模板'}
+          aria-label={t('mainMenu.aiAssistant.parseTemplate')}
+          title={aiParsePresetName || t('mainMenu.aiAssistant.parseTemplate')}
         >
-          <span>{aiParsePresetName || '解析模板'}</span>
+          <span>{aiParsePresetName || t('mainMenu.aiAssistant.parseTemplate')}</span>
         </button>
       {/if}
       <button
         class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-history-trigger"
         class:disabled={aiHistoryCount === 0}
         onclick={(evt) => emitAIAssistantToolbarAction('history', evt)}
-        aria-label="历史记录"
-        title={aiHistoryCount > 0 ? `最近 ${aiHistoryCount} 次生成记录` : '暂无生成记录'}
+        aria-label={t('mainMenu.aiAssistant.history')}
+        title={aiHistoryCount > 0 ? t('mainMenu.aiAssistant.recentHistory', { count: aiHistoryCount }) : t('mainMenu.aiAssistant.noHistory')}
       >
-        <span>历史记录</span>
+        <span>{t('mainMenu.aiAssistant.history')}</span>
       </button>
     {:else if currentPage === 'weave-card-management'}
       <div class="card-header-actions card-header-actions-left">
@@ -639,7 +662,7 @@
               emitCardManagementToolbarAction('toggle-document-filter');
             }
           }}
-          aria-label="关联当前文档"
+          aria-label={t('mainMenu.cardManagement.currentDocumentOnly')}
         >
           <EnhancedIcon name={cardDocumentFilterMode === 'current' ? 'file-text' : 'file'} size={16} />
         </button>
@@ -647,7 +670,7 @@
           class="sidebar-action-btn card-toolbar-btn"
           class:active={cardEnableLocationJump}
           onclick={() => emitCardManagementToolbarAction('toggle-card-location-jump')}
-          aria-label="定位跳转模式"
+          aria-label={t('mainMenu.cardManagement.cardLocationJump')}
         >
           <ObsidianIcon name="navigation" size={16} />
         </button>
@@ -657,7 +680,7 @@
           class:relation-active={cardEnableRelationFilter}
           class:is-hidden-slot={!(currentView === 'grid' || currentView === 'kanban')}
           onclick={() => emitCardManagementToolbarAction('toggle-card-relation-filter')}
-          aria-label="关联卡片模式"
+          aria-label={t('mainMenu.cardManagement.relationMode')}
         >
           <ObsidianIcon name="link-2" size={16} />
         </button>
@@ -666,17 +689,17 @@
           <button
             class="sidebar-action-btn card-toolbar-btn"
             onclick={openCardDataSourceMenu}
-            aria-label="数据源"
+            aria-label={t('mainMenu.cardManagement.dataSourceSwitch')}
           >
             <ObsidianIcon name="database" size={16} />
-            <span class="card-toolbar-btn-label">数据源·{getCardDataSourceLabel(cardDataSource)}</span>
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.dataSourceSwitch')}·{getCardDataSourceLabel(cardDataSource)}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
             class:active={currentView === 'table' && cardDataSource === 'incremental-reading' && cardIRTypeFilter === 'md'}
             class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'incremental-reading')}
             onclick={() => emitCardManagementToolbarAction('ir-type-md')}
-            aria-label="Markdown 阅读材料"
+            aria-label={t('mainMenu.cardManagement.irMarkdownLabel')}
           >
             <ObsidianIcon name="file-text" size={16} />
             <span class="card-toolbar-btn-label">MD</span>
@@ -686,7 +709,7 @@
             class:active={currentView === 'table' && cardDataSource === 'incremental-reading' && cardIRTypeFilter === 'pdf'}
             class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'incremental-reading')}
             onclick={() => emitCardManagementToolbarAction('ir-type-pdf')}
-            aria-label="PDF 阅读材料"
+            aria-label={t('mainMenu.cardManagement.irPdfLabel')}
           >
             <ObsidianIcon name="file" size={16} />
             <span class="card-toolbar-btn-label">PDF</span>
@@ -696,51 +719,51 @@
             class:active={currentView === 'table' && cardDataSource === 'memory' && cardTableViewMode === 'basic'}
             class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'memory')}
             onclick={() => emitCardManagementToolbarAction('table-view-basic')}
-            aria-label="基础信息模式"
+            aria-label={t('mainMenu.cardManagement.tableBasic')}
           >
             <ObsidianIcon name="table" size={16} />
-            <span class="card-toolbar-btn-label">基础</span>
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.basicShort')}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
             class:active={currentView === 'table' && cardDataSource === 'memory' && cardTableViewMode === 'review'}
             class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'memory')}
             onclick={() => emitCardManagementToolbarAction('table-view-review')}
-            aria-label="复习历史模式"
+            aria-label={t('mainMenu.cardManagement.tableReview')}
           >
             <ObsidianIcon name="bar-chart-2" size={16} />
-            <span class="card-toolbar-btn-label">复习</span>
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.reviewShort')}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
             class:active={currentView === 'grid' && cardGridLayoutMode === 'fixed'}
             class:is-hidden-slot={currentView !== 'grid'}
             onclick={() => emitCardManagementToolbarAction('grid-layout-fixed')}
-            aria-label="固定高度"
+            aria-label={t('mainMenu.cardManagement.gridFixed')}
           >
             <ObsidianIcon name="layout-grid" size={16} />
-            <span class="card-toolbar-btn-label">固高</span>
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.fixedShort')}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
             class:active={currentView === 'grid' && cardGridLayoutMode === 'masonry'}
             class:is-hidden-slot={currentView !== 'grid'}
             onclick={() => emitCardManagementToolbarAction('grid-layout-masonry')}
-            aria-label="瀑布流"
+            aria-label={t('mainMenu.cardManagement.gridMasonry')}
           >
             <ObsidianIcon name="panels-top-left" size={16} />
-            <span class="card-toolbar-btn-label">瀑布</span>
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.masonryShort')}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
             class:active={currentView === 'grid' && cardGridLayoutMode === 'timeline'}
             class:is-hidden-slot={currentView !== 'grid'}
             onclick={() => emitCardManagementToolbarAction('grid-layout-timeline')}
-            aria-label={getPremiumEntryTitle('时间线布局', PREMIUM_FEATURES.TIMELINE_VIEW)}
-            title={getPremiumEntryTitle('时间线布局', PREMIUM_FEATURES.TIMELINE_VIEW)}
+            aria-label={getPremiumEntryTitle(t('mainMenu.cardManagement.timeline'), PREMIUM_FEATURES.TIMELINE_VIEW)}
+            title={getPremiumEntryTitle(t('mainMenu.cardManagement.timeline'), PREMIUM_FEATURES.TIMELINE_VIEW)}
           >
             <ObsidianIcon name="history" size={16} />
-            <span class="card-toolbar-btn-label">时间线</span>
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.timelineShort')}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
@@ -758,45 +781,45 @@
             class:relation-active={cardEnableRelationFilter}
             class:is-hidden-slot={!(currentView === 'grid' || currentView === 'kanban')}
             onclick={() => emitCardManagementToolbarAction('toggle-card-relation-filter')}
-            aria-label="关联卡片模式"
+            aria-label={t('mainMenu.cardManagement.relationMode')}
           >
             <ObsidianIcon name="link-2" size={16} />
-            <span class="card-toolbar-btn-label">{cardEnableRelationFilter ? '关联中' : '关联'}</span>
+            <span class="card-toolbar-btn-label">{cardEnableRelationFilter ? t('mainMenu.cardManagement.relationOn') : t('mainMenu.cardManagement.relationOff')}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
             class:is-hidden-slot={!(currentView === 'grid' || currentView === 'kanban')}
             onclick={(event) => emitCardManagementToolbarAction('open-grid-attribute-menu', event.currentTarget as HTMLElement)}
-            aria-label="属性选择"
+            aria-label={t('mainMenu.cardManagement.attributeSelector')}
           >
             <ObsidianIcon name="tag" size={16} />
-            <span class="card-toolbar-btn-label">属性</span>
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.gridAttributes')}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
             onclick={() => emitCardManagementToolbarAction('open-data-management')}
-            aria-label="数据管理"
+            aria-label={t('mainMenu.cardManagement.dataManagement')}
           >
             <ObsidianIcon name="database" size={16} />
-            <span class="card-toolbar-btn-label">数据</span>
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.dataShort')}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
             class:is-hidden-slot={currentView !== 'table'}
             onclick={(event) => emitCardManagementToolbarAction('open-column-manager', event.currentTarget as HTMLElement)}
-            aria-label="字段管理"
+            aria-label={t('mainMenu.cardManagement.columnManager')}
           >
             <ObsidianIcon name="columns-2" size={16} />
-            <span class="card-toolbar-btn-label">列</span>
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.columnShort')}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
             class:is-hidden-slot={currentView !== 'kanban'}
             onclick={(event) => emitCardManagementToolbarAction('open-kanban-column-settings', event.currentTarget as HTMLElement)}
-            aria-label="看板列设置"
+            aria-label={t('mainMenu.cardManagement.kanbanColumnSettings')}
           >
             <ObsidianIcon name="sliders-horizontal" size={16} />
-            <span class="card-toolbar-btn-label">列设置</span>
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.columnSettingsShort')}</span>
           </button>
         {/if}
       </div>
@@ -813,8 +836,8 @@
           class:selected={selectedFilter === filter.id}
           style={getGradientStyle(filter.colorStart, filter.colorEnd)}
           onclick={() => handleDotClick(filter.id)}
-          aria-label={filter.name}
-          title={filter.name}
+          aria-label={t(filter.name)}
+          title={t(filter.name)}
         >
           {#if selectedFilter === filter.id}
             <span class="dot-indicator"></span>
@@ -828,7 +851,7 @@
           class:selected={currentView === viewType.id}
           style={getGradientStyle(viewType.colorStart, viewType.colorEnd)}
           onclick={() => handleDotClick(viewType.id)}
-          aria-label={viewType.name}
+          aria-label={t(viewType.name)}
         >
           {#if currentView === viewType.id}
             <span class="dot-indicator"></span>
@@ -841,8 +864,8 @@
         class:selected={aiSubView === 'generate'}
         style={getGradientStyle('#ef4444', '#dc2626')}
         onclick={(evt) => emitAIAssistantToolbarAction('sub-view', evt, 'generate')}
-        aria-label="AI制卡"
-        title="AI制卡"
+        aria-label={t('navigation.aiAssistant')}
+        title={t('navigation.aiAssistant')}
       >
         {#if aiSubView === 'generate'}
           <span class="dot-indicator"></span>
@@ -853,8 +876,8 @@
         class:selected={aiSubView === 'parse-preview'}
         style={getGradientStyle('#3b82f6', '#2563eb')}
         onclick={(evt) => emitAIAssistantToolbarAction('sub-view', evt, 'parse-preview')}
-        aria-label="解析预览"
-        title="解析预览"
+        aria-label={t('mainMenu.aiAssistant.parsePreview')}
+        title={t('mainMenu.aiAssistant.parsePreview')}
       >
         {#if aiSubView === 'parse-preview'}
           <span class="dot-indicator"></span>
@@ -875,10 +898,10 @@
           class="sidebar-action-btn ai-toolbar-btn primary ai-primary-trigger"
           class:disabled={aiSubView === 'generate' ? !aiCanGenerate : !aiCanParse}
           onclick={(evt) => emitAIAssistantToolbarAction(aiSubView === 'generate' ? 'generate' : 'parse', evt)}
-          aria-label={aiSubView === 'generate' ? (aiIsGenerating ? '生成中' : '开始生成') : (aiIsParsing ? '解析中' : '开始解析')}
-          title={aiSubView === 'generate' ? (aiIsGenerating ? '生成中' : '开始生成') : (aiIsParsing ? '解析中' : '开始解析')}
+          aria-label={getAiPrimaryActionLabel()}
+          title={getAiPrimaryActionLabel()}
         >
-          <span>{aiSubView === 'generate' ? (aiIsGenerating ? '生成中' : '开始生成') : (aiIsParsing ? '解析中' : '开始解析')}</span>
+          <span>{getAiPrimaryActionLabel()}</span>
         </button>
       </div>
     {:else if currentPage === 'deck-study'}
@@ -889,10 +912,10 @@
               class="sidebar-action-btn deck-study-toolbar-btn"
               class:active={memoryDeckDisplayMode === 'emergent' && premiumGuard.canUseFeature(PREMIUM_FEATURES.EMERGENT_DECKS, deckStudyFeatureContext)}
               onclick={(event) => toggleMemoryDeckDisplayMode(event.currentTarget as HTMLElement)}
-              aria-label={memoryDeckDisplayMode === 'formal' ? getPremiumEntryTitle('切换到涌现牌组', PREMIUM_FEATURES.EMERGENT_DECKS) : '切换到正式牌组'}
+              aria-label={memoryDeckDisplayMode === 'formal' ? getPremiumEntryTitle(t('mainMenu.deckStudy.switchToEmergent'), PREMIUM_FEATURES.EMERGENT_DECKS) : t('mainMenu.deckStudy.switchToFormal')}
               title={memoryDeckDisplayMode === 'formal'
-                ? getPremiumEntryTitle('当前显示正式牌组（点击切换到涌现牌组）', PREMIUM_FEATURES.EMERGENT_DECKS)
-                : '当前显示涌现牌组（点击切换到正式牌组）'}
+                ? getPremiumEntryTitle(t('mainMenu.deckStudy.showingFormal'), PREMIUM_FEATURES.EMERGENT_DECKS)
+                : t('mainMenu.deckStudy.showingEmergent')}
             >
               <ObsidianIcon name={memoryDeckDisplayMode === 'formal' ? 'folder' : 'sparkles'} size={16} />
             </button>
@@ -901,8 +924,8 @@
             <button
               class="sidebar-action-btn deck-study-toolbar-btn"
               onclick={(event) => emitDeckStudyToolbarAction('open-emergent-rule-groups', event.currentTarget as HTMLElement)}
-              aria-label="涌现筛选"
-              title="涌现筛选"
+              aria-label={t('mainMenu.deckStudy.emergentFilter')}
+              title={t('mainMenu.deckStudy.emergentFilter')}
             >
               <ObsidianIcon name="filter" size={16} />
             </button>
@@ -916,8 +939,8 @@
                 detail: { x: evt.clientX, y: evt.clientY, filter: selectedFilter }
               }));
             }}
-            aria-label="看板设置"
-            title="看板设置"
+            aria-label={t('mainMenu.deckStudy.kanbanColumnSettings')}
+            title={t('mainMenu.deckStudy.kanbanColumnSettings')}
           >
             <EnhancedIcon name="sliders" size={16} />
           </button>
@@ -940,7 +963,7 @@
           {#if app}
             <CardSearchInput
               bind:value={cardSearchQuery}
-              placeholder="搜索卡片..."
+              placeholder={cardSearchPlaceholder}
               onSearch={emitCardManagementSearchChange}
               onClear={() => emitCardManagementSearchChange('')}
               app={app}
@@ -965,8 +988,8 @@
           {:else}
             <input
               type="text"
-              placeholder="搜索卡片..."
-              aria-label="搜索卡片"
+              placeholder={cardSearchPlaceholder}
+              aria-label={cardSearchLabel}
               value={cardSearchQuery}
               oninput={(event) => emitCardManagementSearchChange((event.currentTarget as HTMLInputElement).value)}
             />
@@ -977,10 +1000,10 @@
           <button
             class="sidebar-action-btn card-create-btn"
             onclick={() => emitCardManagementToolbarAction('create-card')}
-            aria-label="新增卡片"
+            aria-label={t('ui.newCard')}
           >
             <ObsidianIcon name="plus" size={16} />
-            <span>新增卡片</span>
+            <span>{t('ui.newCard')}</span>
           </button>
         {/if}
       </div>
@@ -990,10 +1013,10 @@
     <button
       class="sidebar-action-btn sidebar-inspiration-trigger"
       onclick={(event) => onOpenInspirationModal?.(event.currentTarget as HTMLElement)}
-      aria-label="设计灵感与借鉴说明"
+      aria-label={t('mainMenu.deckStudy.designInspiration')}
       aria-expanded={inspirationPopoverOpen}
       aria-haspopup="dialog"
-      title="设计灵感与借鉴说明"
+      title={t('mainMenu.deckStudy.designInspiration')}
     >
       <ObsidianIcon name="circle-help" size={16} />
     </button>
@@ -1032,7 +1055,7 @@
       {:else}
         <input
           type="text"
-          placeholder="Search cards..."
+          placeholder={cardSearchPlaceholder}
           aria-label={cardSearchLabel}
           value={cardSearchQuery}
           oninput={(event) => emitCardManagementSearchChange((event.currentTarget as HTMLInputElement).value)}
@@ -1655,3 +1678,5 @@
   }
 
 </style>
+
+

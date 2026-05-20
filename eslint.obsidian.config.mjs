@@ -1,6 +1,10 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "eslint/config";
 import tsparser from "@typescript-eslint/parser";
 import obsidianmd from "eslint-plugin-obsidianmd";
+
+const configDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig([
   {
@@ -21,8 +25,8 @@ export default defineConfig([
     languageOptions: {
       parser: tsparser,
       parserOptions: {
-        project: "./tsconfig.json",
-        tsconfigRootDir: import.meta.dirname,
+        projectService: true,
+        tsconfigRootDir: configDir,
       },
     },
     rules: {

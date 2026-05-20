@@ -73,7 +73,7 @@
   // 复制UUID
   function copyUUID() {
     navigator.clipboard.writeText(card.uuid);
-    new Notice('已复制UUID');
+    new Notice(t('study.questionBankUI.cardInfoTab.copiedUuid'));
   }
 
   // 跳转到来源文档
@@ -91,7 +91,7 @@
       }
       
       if (!filePath) {
-        new Notice('该卡片没有关联的源文档');
+        new Notice(t('study.questionBankUI.cardInfoTab.noSourceDocNotice'));
         return;
       }
       
@@ -101,7 +101,7 @@
       // 验证文件是否存在，防止创建新文档
       const file = plugin.app.metadataCache.getFirstLinkpathDest(docName, contextPath);
       if (!file) {
-        new Notice('源文档不存在或已删除');
+        new Notice(t('study.questionBankUI.cardInfoTab.sourceMissingNotice'));
         return;
       }
       
@@ -109,10 +109,10 @@
       
       // 使用 Obsidian 原生 API 跳转，自动处理文件查找和块定位
       await plugin.app.workspace.openLinkText(linkText, contextPath, true);
-      new Notice('已跳转到源文档');
+      new Notice(t('study.questionBankUI.cardInfoTab.jumpedToSourceNotice'));
     } catch (error) {
       logger.error('[QuestionBankCardInfoTab] 跳转到源文档失败:', error);
-      new Notice('跳转失败');
+      new Notice(t('study.questionBankUI.cardInfoTab.jumpFailedNotice'));
     }
   }
 
@@ -127,13 +127,13 @@
     }
     switch (resolvedType) {
       case 'basic': 
-        return '基础问答';
+        return t('study.questionBankUI.cardInfoTab.typeBasic');
       case 'cloze': 
-        return '填空题';
+        return t('study.questionBankUI.cardInfoTab.typeCloze');
       case 'multiple':
-        return '选择题';
+        return t('study.questionBankUI.cardInfoTab.typeMultiple');
       default: 
-        return resolvedType || '未知';
+        return resolvedType || t('study.questionBankUI.cardInfoTab.unknown');
     }
   }
 
@@ -172,27 +172,27 @@
   <!-- 基本信息区 -->
   <section class="info-section" class:mobile={isMobile}>
     <h3 class="section-title with-accent-bar accent-blue" class:mobile={isMobile}>
-      基础信息
+      {t('study.questionBankUI.cardInfoTab.basicInfo')}
     </h3>
     
     <div class="info-grid" class:mobile={isMobile}>
       <div class="info-row" class:mobile={isMobile}>
         <span class="info-label">UUID</span>
         <span class="info-value">
-          <button class="uuid-button" onclick={copyUUID} title="点击复制">
+          <button class="uuid-button" onclick={copyUUID} title={t('study.questionBankUI.cardInfoTab.clickToCopy')}>
             <span class="button-text">{truncateText(card.uuid, 32)}</span>
           </button>
         </span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">卡片类型</span>
+        <span class="info-label">{t('study.questionBankUI.cardInfoTab.cardType')}</span>
         <span class="info-value">{getCardTypeName(card)}</span>
       </div>
 
       {#if card.metadata?.questionType}
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">题目类型</span>
+          <span class="info-label">{t('study.questionBankUI.cardInfoTab.questionType')}</span>
           <span class="info-value">
             <span class="type-badge">{getQuestionTypeLabel(card.metadata.questionType as string, 'long')}</span>
           </span>
@@ -200,18 +200,18 @@
       {/if}
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">所属牌组</span>
+        <span class="info-label">{t('study.questionBankUI.cardInfoTab.deck')}</span>
         <span class="info-value">{deckName}</span>
       </div>
 
       {#if card.difficulty}
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">难度等级</span>
+          <span class="info-label">{t('study.questionBankUI.cardInfoTab.difficulty')}</span>
           <span class="info-value">
             <span class="difficulty-badge difficulty-{card.difficulty}">
-              {card.difficulty === 'easy' ? '简单' : 
-               card.difficulty === 'medium' ? '中等' : 
-               card.difficulty === 'hard' ? '困难' : card.difficulty}
+              {card.difficulty === 'easy' ? t('study.questionBankUI.studyInterface.difficultyEasy') : 
+               card.difficulty === 'medium' ? t('study.questionBankUI.studyInterface.difficultyMedium') : 
+               card.difficulty === 'hard' ? t('study.questionBankUI.studyInterface.difficultyHard') : card.difficulty}
             </span>
           </span>
         </div>
@@ -219,7 +219,7 @@
 
       {#if card.priority}
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">优先级</span>
+          <span class="info-label">{t('study.questionBankUI.cardInfoTab.priority')}</span>
           <span class="info-value">
             <span class="priority-badge priority-{card.priority}">P{card.priority}</span>
           </span>
@@ -227,12 +227,12 @@
       {/if}
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">创建时间</span>
+        <span class="info-label">{t('study.questionBankUI.cardInfoTab.createdAt')}</span>
         <span class="info-value">{formatRelativeTimeDetailed(card.created)}</span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">最后编辑</span>
+        <span class="info-label">{t('study.questionBankUI.cardInfoTab.updatedAt')}</span>
         <span class="info-value">{formatRelativeTimeDetailed(card.modified)}</span>
       </div>
     </div>
@@ -242,7 +242,7 @@
   {#if card.tags && card.tags.length > 0}
     <section class="info-section" class:mobile={isMobile}>
       <h3 class="section-title with-accent-bar accent-purple" class:mobile={isMobile}>
-        标签
+        {t('study.questionBankUI.cardInfoTab.tags')}
       </h3>
       <div class="tags-container">
         {#each card.tags as tag}
@@ -255,46 +255,46 @@
   <!-- 溯源信息区 -->
   <section class="info-section" class:mobile={isMobile}>
     <h3 class="section-title with-accent-bar accent-orange" class:mobile={isMobile}>
-      来源信息
+      {t('study.questionBankUI.cardInfoTab.sourceInfo')}
     </h3>
     
     <!-- 使用响应式 sourceInfo 从 content YAML 实时解析 -->
     <div class="info-grid" class:mobile={isMobile}>
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">源文档</span>
+        <span class="info-label">{t('study.questionBankUI.cardInfoTab.sourceDoc')}</span>
         <span class="info-value">
           {#if sourceInfo.sourceFile}
-            <button class="link-button" onclick={navigateToSource} title="点击跳转">
+            <button class="link-button" onclick={navigateToSource} title={t('study.questionBankUI.cardInfoTab.clickToOpen')}>
               <span class="button-text">{sourceInfo.sourceFile}</span>
             </button>
           {:else}
-            <span class="text-muted">无源文档</span>
+            <span class="text-muted">{t('study.questionBankUI.cardInfoTab.noSourceDoc')}</span>
           {/if}
         </span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">块引用</span>
+        <span class="info-label">{t('study.questionBankUI.cardInfoTab.blockReference')}</span>
         <span class="info-value">
           {#if sourceInfo.sourceBlock}
             <span class="mono">{truncateText(sourceInfo.sourceBlock || '', 30)}</span>
           {:else}
-            <span class="text-muted">无块引用</span>
+            <span class="text-muted">{t('study.questionBankUI.cardInfoTab.noBlockReference')}</span>
           {/if}
         </span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">文档状态</span>
+        <span class="info-label">{t('study.questionBankUI.cardInfoTab.docStatus')}</span>
         <span class="info-value">
           {#if sourceDocumentStatus.known}
             {#if sourceDocumentStatus.exists}
-              <span class="status-indicator status-exists">存在</span>
+              <span class="status-indicator status-exists">{t('study.questionBankUI.cardInfoTab.exists')}</span>
             {:else}
-              <span class="status-indicator status-missing">已删除</span>
+              <span class="status-indicator status-missing">{t('study.questionBankUI.cardInfoTab.deleted')}</span>
             {/if}
           {:else}
-            <span class="text-muted">未知</span>
+            <span class="text-muted">{t('study.questionBankUI.cardInfoTab.unknown')}</span>
           {/if}
         </span>
       </div>
@@ -302,7 +302,7 @@
       <!-- 关联文档列表 -->
       {#if sourceInfo.refs && sourceInfo.refs.length > 0}
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">关联文档</span>
+          <span class="info-label">{t('study.questionBankUI.cardInfoTab.relatedDocs')}</span>
           <span class="info-value refs-list">
             {#each sourceInfo.refs as ref}
               <span class="ref-tag" title={ref}>{ref.replace(/\.md$/, '')}</span>
@@ -314,10 +314,10 @@
       <!-- 测试卡片的源记忆卡片信息 -->
       {#if isTestCard}
         <div class="info-row source-memory-row">
-          <span class="info-label">源记忆卡片</span>
+          <span class="info-label">{t('study.questionBankUI.cardInfoTab.sourceMemoryCard')}</span>
           <span class="info-value">
             {#if loadingSourceCard}
-              <span class="text-muted">加载中...</span>
+              <span class="text-muted">{t('study.questionBankUI.cardInfoTab.loading')}</span>
             {:else if sourceMemoryCard}
               <div class="source-card-compact">
                 <span class="source-card-id" title={sourceMemoryCard.uuid}>
@@ -326,9 +326,9 @@
                 <button 
                   class="view-source-btn" 
                   onclick={viewSourceMemoryCard}
-                  title="查看源记忆卡片详情"
+                  title={t('study.questionBankUI.cardInfoTab.viewSourceCardDetails')}
                 >
-                  查看详情
+                  {t('study.questionBankUI.cardInfoTab.viewDetails')}
                 </button>
               </div>
             {/if}
@@ -339,16 +339,16 @@
       <!-- AI生成信息 -->
       {#if card.metadata?.generatedBy}
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">生成方式</span>
+          <span class="info-label">{t('study.questionBankUI.cardInfoTab.generationMethod')}</span>
           <span class="info-value">
-            <span class="generation-badge">AI自动生成</span>
+            <span class="generation-badge">{t('study.questionBankUI.cardInfoTab.aiGenerated')}</span>
           </span>
         </div>
       {/if}
 
       {#if card.metadata?.generatedAt}
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">生成时间</span>
+          <span class="info-label">{t('study.questionBankUI.cardInfoTab.generatedAt')}</span>
           <span class="info-value">
             {formatRelativeTimeDetailed(card.metadata.generatedAt as string)}
           </span>

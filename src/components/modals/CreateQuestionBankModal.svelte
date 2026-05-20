@@ -8,6 +8,7 @@
   import ObsidianDropdown from "../ui/ObsidianDropdown.svelte";
   import { Notice } from "obsidian";
   import { generateId } from "../../utils/helpers";
+  import { tr } from "../../utils/i18n";
 
   interface Props {
     open: boolean;
@@ -32,6 +33,7 @@
     onUpdated: legacyOnUpdated,
     onBankUpdated = legacyOnUpdated
   }: Props = $props();
+  let t = $derived($tr);
 
   // 表单状态
   let name = $state("");
@@ -68,12 +70,12 @@
     nameError = "";
 
     if (!name.trim()) {
-      nameError = "题库名称不能为空";
+      nameError = t('study.questionBankUI.createBankModal.nameRequired');
       return false;
     }
 
     if (name.trim().length < 2) {
-      nameError = "题库名称至少需要2个字符";
+      nameError = t('study.questionBankUI.createBankModal.nameTooShort');
       return false;
     }
 
@@ -123,7 +125,7 @@
     // 检查服务是否初始化
     if (!plugin.questionBankService) {
       logger.error('[CreateQuestionBankModal] QuestionBankService 未初始化');
-      new Notice("题库功能未正确初始化，请重新加载插件或查看控制台错误信息");
+      new Notice(t('study.questionBankUI.createBankModal.serviceNotReady'));
       return;
     }
 
@@ -158,7 +160,7 @@
         };
 
         await plugin.questionBankService.createBank(newBank);
-        new Notice(`题库 "${newBank.name}" 创建成功`);
+        new Notice(t('study.questionBankUI.createBankModal.createSuccess', { name: newBank.name }));
 
         await notifyBankCreated(newBank);
       } else if (mode === "edit" && initialBank) {
@@ -177,7 +179,7 @@
         };
 
         await plugin.questionBankService.updateBank(updatedBank);
-        new Notice(`题库 "${updatedBank.name}" 更新成功`);
+        new Notice(t('study.questionBankUI.createBankModal.updateSuccess', { name: updatedBank.name }));
 
         await notifyBankUpdated(updatedBank);
       }
@@ -185,7 +187,11 @@
       handleClose();
     } catch (error) {
       logger.error("[CreateQuestionBankModal] Submit failed:", error);
-      new Notice(`${mode === "create" ? "创建" : "更新"}失败: ${error instanceof Error ? error.message : "未知错误"}`);
+      new Notice(
+        mode === "create"
+          ? t('study.questionBankUI.createBankModal.createFailed', { error: error instanceof Error ? error.message : t('study.editorModal.unknownError') })
+          : t('study.questionBankUI.createBankModal.updateFailed', { error: error instanceof Error ? error.message : t('study.editorModal.unknownError') })
+      );
     } finally {
       isSubmitting = false;
     }
@@ -241,13 +247,13 @@
       <!-- 模态窗头部 -->
       <div class="modal-header">
         <h2 id="modal-title">
-          {mode === "create" ? "新建题库" : "编辑题库"}
+          {mode === "create" ? t('study.questionBankUI.createBankModal.titleCreate') : t('study.questionBankUI.createBankModal.titleEdit')}
         </h2>
         <button
           class="close-btn"
           onclick={handleClose}
           disabled={isSubmitting}
-          aria-label="关闭"
+          aria-label={t('study.questionBankUI.createBankModal.close')}
         >
           <ObsidianIcon name="x" size={20} />
         </button>
@@ -258,13 +264,13 @@
         <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
           <!-- 题库名称 -->
           <div class="form-group">
-            <label for="bank-name" class="required">题库名称</label>
+            <label for="bank-name" class="required">{t('study.questionBankUI.createBankModal.nameLabel')}</label>
             <input
               type="text"
               id="bank-name"
               name="name"
               bind:value={name}
-              placeholder="例如：高等数学期末复习"
+              placeholder={t('study.questionBankUI.createBankModal.namePlaceholder')}
               class="form-input"
               class:error={nameError}
               disabled={isSubmitting}
@@ -277,11 +283,11 @@
 
           <!-- 题库描述 -->
           <div class="form-group">
-            <label for="bank-description">描述（可选）</label>
+            <label for="bank-description">{t('study.questionBankUI.createBankModal.descriptionLabel')}</label>
             <textarea
               id="bank-description"
               bind:value={description}
-              placeholder="简要描述题库的用途..."
+              placeholder={t('study.questionBankUI.createBankModal.descriptionPlaceholder')}
               class="form-textarea"
               disabled={isSubmitting}
               rows="3"
@@ -290,15 +296,15 @@
 
           <!-- 难度级别 -->
           <div class="form-group">
-            <label for="bank-difficulty">难度级别</label>
+            <label for="bank-difficulty">{t('study.questionBankUI.createBankModal.difficultyLabel')}</label>
             <ObsidianDropdown
               className="form-select"
               value={difficulty}
               disabled={isSubmitting}
               options={[
-                { id: 'easy', label: '简单' },
-                { id: 'medium', label: '中等' },
-                { id: 'hard', label: '困难' }
+                { id: 'easy', label: t('study.questionBankUI.createBankModal.difficultyEasy') },
+                { id: 'medium', label: t('study.questionBankUI.createBankModal.difficultyMedium') },
+                { id: 'hard', label: t('study.questionBankUI.createBankModal.difficultyHard') }
               ]}
               onchange={(value) => {
                 difficulty = value as any;
@@ -308,12 +314,12 @@
 
           <!-- 分类 -->
           <div class="form-group">
-            <label for="bank-category">分类（可选）</label>
+            <label for="bank-category">{t('study.questionBankUI.createBankModal.categoryLabel')}</label>
             <input
               type="text"
               id="bank-category"
               bind:value={category}
-              placeholder="例如：数学、英语、计算机"
+              placeholder={t('study.questionBankUI.createBankModal.categoryPlaceholder')}
               class="form-input"
               disabled={isSubmitting}
             />
@@ -321,7 +327,7 @@
 
           <!-- 标签 -->
           <div class="form-group">
-            <label for="bank-tags">标签（可选）</label>
+            <label for="bank-tags">{t('study.questionBankUI.createBankModal.tagsLabel')}</label>
             <div class="tags-input-container">
               <div class="tags-list">
                 {#each tags as tag}
@@ -332,7 +338,7 @@
                       class="tag-remove"
                       onclick={() => removeTag(tag)}
                       disabled={isSubmitting}
-                      aria-label="移除标签"
+                      aria-label={t('study.questionBankUI.createBankModal.removeTag')}
                     >
                       <ObsidianIcon name="x" size={12} />
                     </button>
@@ -345,7 +351,7 @@
                   id="bank-tags"
                   bind:value={tagInput}
                   onkeydown={handleTagKeydown}
-                  placeholder="输入标签后按 Enter"
+                  placeholder={t('study.questionBankUI.createBankModal.tagPlaceholder')}
                   class="tag-input"
                   disabled={isSubmitting}
                 />
@@ -370,7 +376,7 @@
           onclick={handleClose}
           disabled={isSubmitting}
         >
-          取消
+          {t('study.questionBankUI.createBankModal.cancel')}
         </button>
         <button
           class="btn-primary"
@@ -379,9 +385,9 @@
         >
           {#if isSubmitting}
             <span class="spinner"></span>
-            {mode === "create" ? "创建中..." : "保存中..."}
+            {mode === "create" ? t('study.questionBankUI.createBankModal.creating') : t('study.questionBankUI.createBankModal.saving')}
           {:else}
-            {mode === "create" ? "创建题库" : "保存更改"}
+            {mode === "create" ? t('study.questionBankUI.createBankModal.createAction') : t('study.questionBankUI.createBankModal.saveAction')}
           {/if}
         </button>
       </div>
@@ -749,4 +755,3 @@
     }
   }
 </style>
-

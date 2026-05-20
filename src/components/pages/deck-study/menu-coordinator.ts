@@ -167,10 +167,10 @@ export function createDeckStudyMenuCoordinator(
   function getCreateEntryTitle(): string {
     const selectedFilter = options.getSelectedFilter();
     if (selectedFilter === "question-bank") {
-      return "创建考试题组";
+      return options.tr("mainMenu.deckStudy.createQuestionBank");
     }
 
-    return "创建记忆牌组";
+    return options.tr("mainMenu.deckStudy.createMemoryDeck");
   }
 
   async function handleCreateDeckForCurrentFilter(): Promise<void> {

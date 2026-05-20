@@ -36,6 +36,7 @@
   //  移动端组件
   import MobileQuestionStatsBar from "./MobileQuestionStatsBar.svelte";
   import { QuestionBankMenuBuilder, type QuestionBankMenuConfig, type QuestionBankMenuCallbacks } from "../../services/menu/QuestionBankMenuBuilder";
+  import { tr } from "../../utils/i18n";
 
   //  移动端视图实例类型
   import type { QuestionBankView } from "../../views/QuestionBankView";
@@ -55,7 +56,11 @@
 
   const editorSessionId = `weave-question-bank-session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  let { bankId, bankName = "题库测试", plugin, questions, mode = 'exam', config, resumeBehavior = 'prompt', viewInstance, onComplete, onExit }: Props = $props();
+  let { bankId, bankName = "", plugin, questions, mode = 'exam', config, resumeBehavior = 'prompt', viewInstance, onComplete, onExit }: Props = $props();
+  let t = $derived($tr);
+  $effect(() => {
+    if (!bankName) bankName = t('study.questionBankUI.studyInterface.defaultBankName');
+  });
 
   // 会话管理
   let sessionManager: TestSessionManager | null = $state(null);  // 使用 $state 声明
@@ -151,9 +156,9 @@
    * @param userMessage 显示给用户的消息（可选，默认为"${operation}失败"）
    */
   function handleOperationError(error: unknown, operation: string, userMessage?: string) {
-    const errorMessage = error instanceof Error ? error.message : '未知错误';
+    const errorMessage = error instanceof Error ? error.message : t('study.questionBankUI.studyInterface.unknownError');
     logger.error(`[QuestionBankStudyInterface] ${operation} failed:`, error);
-    new Notice(userMessage || `${operation}失败: ${errorMessage}`);
+    new Notice(userMessage || t('study.questionBankUI.studyInterface.operationFailed', { error: errorMessage }));
   }
 
   // 自动解析当前题目的选择题数据（支持Obsidian渲染）
@@ -204,18 +209,18 @@
 
   const currentQuestionTypeLabel = $derived.by(() => {
     if (choiceQuestionDerived?.isMultipleChoice) {
-      return '多选题';
+      return t('study.questionBankUI.studyInterface.multipleChoice');
     }
 
     if (choiceQuestionDerived) {
-      return '单选题';
+      return t('study.questionBankUI.studyInterface.singleChoice');
     }
 
     if (isInputClozeQuestion) {
-      return '输入填空题';
+      return t('study.questionBankUI.studyInterface.inputCloze');
     }
 
-    return '题目';
+    return t('study.questionBankUI.studyInterface.question');
   });
 
   function mapChoiceAnswerWithLabelMap(
@@ -341,20 +346,20 @@
         } else {
           const choice = await showObsidianChoice<'resume' | 'restart'>(
             plugin.app,
-            '检测到未完成的考试进度，请选择后续操作。',
+            t('study.questionBankUI.studyInterface.resumePrompt'),
             {
-              title: '恢复进度',
-              cancelText: '取消',
+              title: t('study.questionBankUI.studyInterface.resumeTitle'),
+              cancelText: t('study.questionBankUI.studyInterface.cancel'),
               layout: 'horizontal',
               choices: [
                 {
                   value: 'resume',
-                  text: '恢复',
+                  text: t('study.questionBankUI.studyInterface.resume'),
                   className: 'mod-cta'
                 },
                 {
                   value: 'restart',
-                  text: '重新开始'
+                  text: t('study.questionBankUI.studyInterface.restart')
                 }
               ]
             }
@@ -403,7 +408,7 @@
       startTimer();
       initExamTimer();  // 初始化考试倒计时
     } catch (error) {
-      handleOperationError(error, '初始化测试', '启动测试失败');
+      handleOperationError(error, '初始化测试', t('study.questionBankUI.studyInterface.startupFailed'));
     } finally {
       isLoading = false;
     }
@@ -471,7 +476,7 @@
         explanationContent: choiceQuestionDerived?.explanation
       });
     } catch (error) {
-      handleOperationError(error, '提交答案');
+      handleOperationError(error, '提交答案', t('study.questionBankUI.studyInterface.submitAnswerFailed'));
     }
   }
 
@@ -529,7 +534,7 @@
         onComplete(completedSession);
       }
     } catch (error) {
-      handleOperationError(error, '完成测试');
+      handleOperationError(error, '完成测试', t('study.questionBankUI.studyInterface.completeTestFailed'));
     }
   }
 
@@ -593,10 +598,10 @@
 
     if (isFavorited) {
       currentQuestion.question.tags = tags.filter(tag => tag !== favoriteTag);
-      new Notice('已取消收藏');
+      new Notice(t('study.questionBankUI.studyInterface.unfavoriteSuccess'));
     } else {
       currentQuestion.question.tags = [...tags, favoriteTag];
-      new Notice('已收藏');
+      new Notice(t('study.questionBankUI.studyInterface.favoriteSuccess'));
     }
 
     // 保存到数据库
@@ -605,7 +610,7 @@
       // 触发界面刷新
       currentQuestion = { ...currentQuestion };
     } catch (error) {
-      handleOperationError(error, '保存收藏状态', '保存失败');
+      handleOperationError(error, '保存收藏状态', t('study.questionBankUI.studyInterface.saveFailed'));
     }
   }
 
@@ -642,7 +647,7 @@
       const result = await saveCurrentCard();
       
       if (result.success && result.updatedCard) {
-        new Notice('卡片已保存');
+        new Notice(t('study.questionBankUI.studyInterface.cardSaved'));
         await handleEditorComplete(result.updatedCard);
       } else {
         handleSaveFailure(result.error);
@@ -669,13 +674,17 @@
 
   // 处理保存失败
   function handleSaveFailure(error?: string) {
-    handleOperationError(error || '未知错误', '保存卡片（点击预览）', '保存失败: ' + (error || '未知错误'));
+    handleOperationError(
+      error || t('study.questionBankUI.studyInterface.unknownError'),
+      '保存卡片（点击预览）',
+      `${t('study.questionBankUI.studyInterface.saveFailed')}: ${error || t('study.questionBankUI.studyInterface.unknownError')}`
+    );
     // 保持编辑模式，用户可以继续编辑或重试
   }
 
   // 处理保存异常
   function handleSaveError(error: unknown) {
-    handleOperationError(error, '保存卡片（点击预览）', '保存失败');
+    handleOperationError(error, '保存卡片（点击预览）', t('study.questionBankUI.studyInterface.saveFailed'));
     // 保持编辑模式
   }
 
@@ -689,7 +698,7 @@
       // 0. 先保存到数据库
       const saveResult = await plugin.dataStorage.saveCard(updatedCard);
       if (!saveResult.success) {
-        throw new Error(saveResult.error || '保存失败');
+        throw new Error(saveResult.error || t('study.questionBankUI.studyInterface.saveFailed'));
       }
       logger.debug('[QuestionBankStudyInterface] 卡片已保存到数据库:', updatedCard.uuid);
       
@@ -743,7 +752,7 @@
       
     } catch (error) {
       logger.error('[QuestionBankStudyInterface] 保存卡片到数据库失败:', error);
-      new Notice('保存失败: ' + (error instanceof Error ? error.message : '未知错误'));
+      new Notice(`${t('study.questionBankUI.studyInterface.saveFailed')}: ${error instanceof Error ? error.message : t('study.questionBankUI.studyInterface.unknownError')}`);
       // 发生错误时不退出编辑模式，让用户可以重试
       return;
     }
@@ -783,7 +792,7 @@
       
       // 使用题库专用删除方法（更新Service缓存）
       if (!plugin.questionBankService) {
-        new Notice('题库服务未初始化');
+        new Notice(t('study.questionBankUI.bankCollection.serviceNotReady'));
         return;
       }
       
@@ -803,7 +812,7 @@
         
         // 如果没有题目了，完成测试
         if (questions.length === 0) {
-          new Notice('已删除所有题目，测试结束');
+          new Notice(t('study.questionBankUI.studyInterface.allQuestionsDeleted'));
           await handleCompleteTest();
           return;
         }
@@ -811,11 +820,11 @@
         // 移动到下一题
         await handleNextQuestion();
         
-        new Notice('卡片已删除');
+        new Notice(t('study.questionBankUI.studyInterface.cardDeleted'));
       }
 
     } catch (e) {
-      handleOperationError(e, '删除卡片');
+      handleOperationError(e, '删除卡片', t('study.questionBankUI.studyInterface.deleteCardFailed'));
     }
   }
 
@@ -845,17 +854,17 @@
         label: string;
         icon: string;
       }> = [
-        { value: 1, label: '低', icon: 'chevrons-down' },
-        { value: 2, label: '中', icon: 'minus' },
-        { value: 3, label: '高', icon: 'chevrons-up' },
-        { value: 4, label: '极高', icon: 'flame' }
+        { value: 1, label: t('study.questionBankUI.studyInterface.priorityLow'), icon: 'chevrons-down' },
+        { value: 2, label: t('study.questionBankUI.studyInterface.priorityMedium'), icon: 'minus' },
+        { value: 3, label: t('study.questionBankUI.studyInterface.priorityHigh'), icon: 'chevrons-up' },
+        { value: 4, label: t('study.questionBankUI.studyInterface.priorityVeryHigh'), icon: 'flame' }
       ];
 
       priorityOptions.forEach((option) => {
         menu.addItem((item) => {
           const title = option.value === currentPriority
-            ? `当前：${option.label}`
-            : `设置为：${option.label}`;
+            ? t('study.questionBankUI.studyInterface.currentPrefix', { label: option.label })
+            : t('study.questionBankUI.studyInterface.setToPrefix', { label: option.label });
 
           item
             .setTitle(title)
@@ -896,12 +905,18 @@
         currentQuestion.question.priority = priority;
         currentQuestion = { ...currentQuestion };
 
-        const priorityText = ['', '低', '中', '高', '极高'][priority] || '中';
-        new Notice(`重要程度已设置为：${priorityText}`);
+        const priorityText = [
+          '',
+          t('study.questionBankUI.studyInterface.priorityLow'),
+          t('study.questionBankUI.studyInterface.priorityMedium'),
+          t('study.questionBankUI.studyInterface.priorityHigh'),
+          t('study.questionBankUI.studyInterface.priorityVeryHigh')
+        ][priority] || t('study.questionBankUI.studyInterface.priorityMedium');
+        new Notice(t('study.questionBankUI.studyInterface.priorityUpdated', { label: priorityText }));
         showPriorityModal = false;
       }
     } catch (error) {
-      handleOperationError(error, '更新重要程度', '更新失败');
+      handleOperationError(error, '更新重要程度', t('study.questionBankUI.studyInterface.updatePriorityFailed'));
     }
   }
 
@@ -917,16 +932,22 @@
     void plugin.saveStudyInterfaceViewPreferences({ cardOrder: newOrder });
     
     // 提示用户：顺序将在下次学习时生效
-    new Notice(
-      `题目顺序已切换为${newOrder === 'random' ? '乱序' : '正序'}，重新开始本次测试后生效`
-    );
+    new Notice(t('study.questionBankUI.studyInterface.questionOrderChanged', {
+      order: newOrder === 'random'
+        ? t('study.questionBankUI.studyInterface.randomOrder')
+        : t('study.questionBankUI.studyInterface.sequentialOrder')
+    }));
   }
 
   function handleChoiceOptionOrderChange(newOrder: ChoiceOptionOrder) {
     const storedAnswer = currentQuestion?.userAnswer || null;
     choiceOptionOrder = newOrder;
     void plugin.saveStudyInterfaceViewPreferences({ choiceOptionOrder: newOrder });
-    let noticeMessage = `选项顺序已切换为${newOrder === 'random' ? '乱序' : '正序'}`;
+    let noticeMessage = t('study.questionBankUI.studyInterface.optionOrderChanged', {
+      order: newOrder === 'random'
+        ? t('study.questionBankUI.studyInterface.randomOrder')
+        : t('study.questionBankUI.studyInterface.sequentialOrder')
+    });
     if (choiceQuestionDerived) {
       if (hasSubmitted) {
         const nextOrderedChoice = applyChoiceQuestionOptionOrder(
@@ -937,7 +958,7 @@
         userAnswer = mapChoiceAnswerWithLabelMap(storedAnswer, nextOrderedChoice.originalToDisplayedLabelMap);
       } else {
         userAnswer = null;
-        noticeMessage += '，当前题未提交的选择已重置';
+        noticeMessage += t('study.questionBankUI.studyInterface.optionOrderReset');
       }
     }
     new Notice(noticeMessage);
@@ -946,7 +967,11 @@
   // 处理导航列数模式切换
   function handleNavColumnModeChange(mode: 1 | 3) {
     navColumnMode = mode;
-    new Notice(`导航栏已切换为${mode === 1 ? '单列' : '三列'}显示`);
+    new Notice(t('study.questionBankUI.studyInterface.navigationColumnsChanged', {
+      mode: mode === 1
+        ? t('study.questionBankUI.studyInterface.singleColumn')
+        : t('study.questionBankUI.studyInterface.threeColumns')
+    }));
   }
 
   // 处理紧凑模式切换
@@ -955,10 +980,10 @@
     
     if (setting === 'fixed') {
       compactMode = true;
-      new Notice('侧边栏已切换为固定紧凑模式（仅显示图标）');
+      new Notice(t('study.questionBankUI.studyInterface.sidebarCompactFixed'));
     } else {
       compactMode = false;
-      new Notice('侧边栏已切换为自动调整模式');
+      new Notice(t('study.questionBankUI.studyInterface.sidebarCompactAuto'));
     }
   }
 
@@ -1011,8 +1036,11 @@
       //  使用 Obsidian Modal 代替原生确认框，避免焦点劫持问题
       const confirmExit = await showObsidianConfirm(
         plugin.app,
-        "检测到正在编辑，是否保存并退出？",
-        { title: '确认退出', confirmText: '保存并退出' }
+        t('study.questionBankUI.studyInterface.confirmExitEditing'),
+        {
+          title: t('study.questionBankUI.studyInterface.confirmExitTitle'),
+          confirmText: t('study.questionBankUI.studyInterface.saveAndExit')
+        }
       );
       if (!confirmExit) return;
       
@@ -1022,7 +1050,7 @@
         logger.debug('[QuestionBankStudyInterface] 已保存编辑内容');
       } catch (error) {
         logger.error('[QuestionBankStudyInterface] 保存编辑内容失败:', error);
-        new Notice('保存失败，退出已取消');
+        new Notice(t('study.questionBankUI.studyInterface.saveFailedCancelExit'));
         return;
       }
     }
@@ -1030,8 +1058,11 @@
     //  使用 Obsidian Modal 代替原生确认框，避免焦点劫持问题
     const confirmed = await showObsidianConfirm(
       plugin.app,
-      "确定要退出测试吗？当前进度将被保存。",
-      { title: '确认退出', confirmText: '退出' }
+      t('study.questionBankUI.studyInterface.confirmExitSession'),
+      {
+        title: t('study.questionBankUI.studyInterface.confirmExitTitle'),
+        confirmText: t('study.questionBankUI.studyInterface.exit')
+      }
     );
     if (!confirmed) return;
 
@@ -1074,7 +1105,7 @@
         userAnswer: currentQuestion?.userAnswer
       });
     } catch (error) {
-      handleOperationError(error, '跳转题目', '跳转失败');
+      handleOperationError(error, '跳转题目', t('study.questionBankUI.studyInterface.jumpQuestionFailed'));
     }
   }
 
@@ -1242,7 +1273,7 @@
       const { EmbeddableEditorManager } = await import("../../services/editor/EmbeddableEditorManager");
       editorPoolManager = new EmbeddableEditorManager(plugin.app);
     } catch (error) {
-      handleOperationError(error, '初始化编辑器管理器');
+      handleOperationError(error, '初始化编辑器管理器', t('study.questionBankUI.studyInterface.initEditorFailed'));
       tempFileUnavailable = true;
     }
     
@@ -1370,7 +1401,7 @@
       <!-- 加载状态 -->
       <div class="loading-state">
         <div class="spinner"></div>
-        <p>正在准备测试...</p>
+        <p>{t('study.questionBankUI.studyInterface.loadingPreparing')}</p>
       </div>
     {:else if currentSession && currentQuestion}
       <!-- 头部工具栏 -->
@@ -1412,7 +1443,7 @@
 
       <!--  移动端题目导航下拉面板（与统计栏一致，向下展开） -->
       {#if isMobile && showNavigator && currentSession}
-        <div class="mobile-navigator-dropdown" role="region" aria-label="题目导航">
+        <div class="mobile-navigator-dropdown" role="region" aria-label={t('study.questionBankUI.studyInterface.navigatorAria')}>
           <div class="mobile-nav-dropdown-panel">
             <div class="mobile-nav-grid-scroll">
               <div class="mobile-nav-grid">
@@ -1498,8 +1529,11 @@
         <div class="question-header">
           {#if currentQuestion.question.difficulty}
             <span class="difficulty-badge {currentQuestion.question.difficulty}">
-              {currentQuestion.question.difficulty === 'easy' ? '简单' : 
-               currentQuestion.question.difficulty === 'medium' ? '中等' : '困难'}
+              {currentQuestion.question.difficulty === 'easy'
+                ? t('study.questionBankUI.studyInterface.difficultyEasy')
+                : currentQuestion.question.difficulty === 'medium'
+                  ? t('study.questionBankUI.studyInterface.difficultyMedium')
+                  : t('study.questionBankUI.studyInterface.difficultyHard')}
             </span>
           {/if}
           <span class="question-type">{currentQuestionTypeLabel}</span>
@@ -1508,7 +1542,7 @@
           {#if choiceQuestionDerived}
             <section class="study-preview-section">
               <div class="study-preview-title">
-                <span class="study-preview-chip">题干</span>
+                <span class="study-preview-chip">{t('study.questionBankUI.studyInterface.stem')}</span>
               </div>
               <div class="study-preview-card question">
                 <CardContentView
@@ -1540,7 +1574,7 @@
         {#if choiceQuestionDerived}
           <section class="study-preview-section">
             <div class="study-preview-title">
-              <span class="study-preview-chip">选项</span>
+              <span class="study-preview-chip">{t('study.questionBankUI.studyInterface.options')}</span>
             </div>
             <CardContentView
               plugin={plugin}
@@ -1573,9 +1607,9 @@
             )}
 
             {@const badgeText = hasSubmitted 
-              ? (isCorrectOption && isSelected ? '你选对了' 
-                : !isCorrectOption && isSelected ? '你选错了'
-                : isCorrectOption && !isSelected ? '漏选'
+              ? (isCorrectOption && isSelected ? t('study.questionBankUI.studyInterface.correctSelection')
+                : !isCorrectOption && isSelected ? t('study.questionBankUI.studyInterface.wrongSelection')
+                : isCorrectOption && !isSelected ? t('study.questionBankUI.studyInterface.missedSelection')
                 : '')
               : ''}
             {@const badgeIcon = hasSubmitted 
@@ -1608,7 +1642,7 @@
         <div class="explanation-area">
           <div class="explanation-header">
             <EnhancedIcon name="lightbulb" size="18" />
-            <span class="explanation-title">答案解析</span>
+            <span class="explanation-title">{t('study.questionBankUI.studyInterface.explanation')}</span>
           </div>
           <div class="explanation-content study-preview-card answer">
             <CardContentView
@@ -1632,8 +1666,8 @@
                 class="content-nav-btn clickable-icon"
                 class:active={showNavigator}
                 onclick={toggleNavigatorPanel}
-                aria-label={showNavigator ? "隐藏题目导航" : "显示题目导航"}
-                title={showNavigator ? "隐藏题目导航" : "显示题目导航"}
+                aria-label={showNavigator ? t('study.questionBankUI.header.hideNavigator') : t('study.questionBankUI.header.showNavigator')}
+                title={showNavigator ? t('study.questionBankUI.header.hideNavigator') : t('study.questionBankUI.header.showNavigator')}
               >
                 <ObsidianIcon name="panel-left" size={16} />
               </button>
@@ -1643,8 +1677,8 @@
               class="content-undo-btn clickable-icon"
               onclick={canUndo ? handleUndoAnswer : undefined}
               disabled={!canUndo}
-              aria-label={canUndo ? `撤销答案，剩余${maxUndoCount - undoCount}次` : "无法撤销"}
-              title={canUndo ? `撤销答案（剩余${maxUndoCount - undoCount}次）` : "无法撤销"}
+              aria-label={canUndo ? t('study.questionBankUI.studyInterface.undoRemainingAria', { count: maxUndoCount - undoCount }) : t('study.questionBankUI.studyInterface.cannotUndo')}
+              title={canUndo ? t('study.questionBankUI.studyInterface.undoRemainingTitle', { count: maxUndoCount - undoCount }) : t('study.questionBankUI.studyInterface.cannotUndoPlain')}
             >
               <ObsidianIcon name="rotate-ccw" size={16} />
               {#if maxUndoCount > 0 && (maxUndoCount - undoCount) > 0}
@@ -1694,7 +1728,7 @@
             <button
               class="nav-toggle-btn"
               onclick={toggleNavigatorPanel}
-              title={showNavigator ? '隐藏题目导航' : '显示题目导航'}
+              title={showNavigator ? t('study.questionBankUI.header.hideNavigator') : t('study.questionBankUI.header.showNavigator')}
             >
               <EnhancedIcon name={showNavigator ? 'panel-left-close' : 'panel-left-open'} size={20} />
             </button>
@@ -1704,7 +1738,7 @@
               class="undo-btn"
               onclick={handleUndoAnswer}
               disabled={!canUndo}
-              title={canUndo ? `撤销答案 (剩余${maxUndoCount - undoCount}次)` : '无法撤销'}
+              title={canUndo ? t('study.questionBankUI.studyInterface.undoRemainingTitle', { count: maxUndoCount - undoCount }) : t('study.questionBankUI.studyInterface.cannotUndoPlain')}
             >
               <EnhancedIcon name="undo" size={20} />
               {#if maxUndoCount > 0 && (maxUndoCount - undoCount) > 0}
@@ -1742,11 +1776,11 @@
   {#snippet children()}
     <div class="study-side-panel priority-modal" role="dialog" aria-modal="true" tabindex="-1">
       <div class="modal-header">
-        <h3>设置重要程度</h3>
+        <h3>{t('study.questionBankUI.studyInterface.setPriority')}</h3>
         <button class="modal-close" onclick={() => showPriorityModal = false}>×</button>
       </div>
       <div class="modal-body">
-        <p class="modal-description">选择当前题目的重要程度：</p>
+        <p class="modal-description">{t('study.questionBankUI.studyInterface.choosePriority')}</p>
         <div class="priority-options">
           {#each [1, 2, 3, 4] as priority}
             <button
@@ -1763,15 +1797,21 @@
                 {/each}
               </div>
               <span class="priority-label">
-                {['', '低', '中', '高', '极高'][priority]}
+                {[
+                  '',
+                  t('study.questionBankUI.studyInterface.priorityLow'),
+                  t('study.questionBankUI.studyInterface.priorityMedium'),
+                  t('study.questionBankUI.studyInterface.priorityHigh'),
+                  t('study.questionBankUI.studyInterface.priorityVeryHigh')
+                ][priority]}
               </span>
             </button>
           {/each}
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-secondary" onclick={() => showPriorityModal = false}>取消</button>
-        <button class="btn-primary" onclick={() => confirmChangePriority(selectedPriority as 1 | 2 | 3 | 4)}>确认设置</button>
+        <button class="btn-secondary" onclick={() => showPriorityModal = false}>{t('study.questionBankUI.studyInterface.cancel')}</button>
+        <button class="btn-primary" onclick={() => confirmChangePriority(selectedPriority as 1 | 2 | 3 | 4)}>{t('study.questionBankUI.studyInterface.confirmPriority')}</button>
       </div>
     </div>
   {/snippet}

@@ -111,7 +111,7 @@
       return trimmedText.length > 72 ? `${trimmedText.slice(0, 72)}…` : trimmedText;
     }
     if (chapter !== undefined) {
-      return `章节 ${chapter}`;
+      return `${t('modals.cardInfoTab.labels.locationInfo')} ${chapter}`;
     }
     return null;
   }
@@ -150,10 +150,10 @@
           return;
         }
 
-        const { EpubLinkService } = await import('../../../services/epub/EpubLinkService');
+        const { EpubLinkService } = await import('../../../services/epub-integration/EpubLinkService');
         const linkService = new EpubLinkService(plugin.app);
         await linkService.navigateToEpubLocation(filePath, sourceInfo.epubCfi || '', sourceInfo.epubText || '');
-        new Notice('已跳转到 EPUB 来源位置');
+        new Notice(t('modals.cardInfoTab.openedSource'));
         return;
       }
       
@@ -171,21 +171,21 @@
       
       // 使用 Obsidian 原生 API 跳转，自动处理文件查找和块定位
       await plugin.app.workspace.openLinkText(linkText, contextPath, true);
-      new Notice('已跳转到源文档');
+      new Notice(t('modals.cardInfoTab.jumpedToSource'));
     } catch (error) {
       logger.error('[CardInfoTab] 跳转到源文档失败:', error);
-      new Notice('跳转失败');
+      new Notice(t('modals.cardInfoTab.navigateFailed'));
     }
   }
 
   // 获取卡片状态字符串
   function getCardStatusString(state: number): string {
     switch (state) {
-      case 0: return '新卡片';
-      case 1: return '学习中';
-      case 2: return '复习中';
-      case 3: return '重新学习';
-      default: return '未知';
+      case 0: return t('modals.cardInfoTab.status.new');
+      case 1: return t('modals.cardInfoTab.status.learning');
+      case 2: return t('modals.cardInfoTab.status.review');
+      case 3: return t('modals.cardInfoTab.status.relearning');
+      default: return t('modals.cardInfoTab.status.unknown');
     }
   }
 
@@ -201,20 +201,28 @@
     }
     switch (resolvedType) {
       case 'basic': 
-        return '基础卡片';
+        return t('modals.cardInfoTab.cardTypes.basic');
       case 'cloze': 
-        return '填空题';
+        return t('modals.cardInfoTab.cardTypes.cloze');
       case 'progressive-parent':
-        return '渐进式挖空（父卡片）';
+        return t('modals.cardInfoTab.cardTypes.progressiveParent');
       case 'progressive-child':
-        return '渐进式挖空（子卡片）';
+        return t('modals.cardInfoTab.cardTypes.progressiveChild');
       case 'multiple':
-        return '选择题';
+        return t('modals.cardInfoTab.cardTypes.choice');
       case 'code':
-        return '代码题';
+        return t('modals.cardInfoTab.cardTypes.code');
       default: 
-        return resolvedType || '未知';
+        return resolvedType || t('modals.cardInfoTab.status.unknown');
     }
+  }
+
+  function getDerivationMethodLabel(method: string | undefined): string {
+    if (!method) return t('modals.cardInfoTab.createAction');
+    if (method === 'ai-split') return t('modals.cardInfoTab.methodAiSplit');
+    if (method === 'cloze-progressive') return t('modals.cardInfoTab.methodProgressive');
+    if (method === 'manual') return t('modals.cardInfoTab.methodManual');
+    return getDerivationMethodName(method, (key) => t(key));
   }
 
   // 通过 UUID 查找卡片
@@ -305,7 +313,7 @@
     });
 
     if (allSiblingIds.length === 0) {
-      new Notice('没有找到兄弟卡片');
+      new Notice(t('modals.cardInfoTab.noSiblingCards'));
       return;
     }
 
@@ -330,17 +338,17 @@
         window.dispatchEvent(new CustomEvent('Weave:filter-by-cards', {
           detail: {
             cardIds: allSiblingIds,
-            filterName: `兄弟卡片 (共${allSiblingIds.length}张)`,
+            filterName: t('modals.cardInfoTab.viewSiblingCards', { count: allSiblingIds.length }),
             parentCardPreview: parentCard ? getCardPreview(parentCard, 50) : undefined
           }
         }));
       }, 150);
 
       // 4. 提示用户
-      new Notice(`正在筛选显示 ${allSiblingIds.length} 张兄弟卡片...`);
+      new Notice(t('modals.cardInfoTab.filteringSiblingCards', { count: allSiblingIds.length }));
     } catch (error) {
       logger.error('[CardInfoTab] 激活视图失败:', error);
-      new Notice('切换视图失败，请手动切换到 Weave 插件标签页');
+      new Notice(t('modals.cardInfoTab.switchViewFailed'));
     }
   }
 
@@ -392,7 +400,7 @@
       <div class="info-row" class:mobile={isMobile}>
         <span class="info-label">{t('modals.cardInfoTab.uuid')}</span>
         <span class="info-value">
-          <button class="uuid-button" onclick={copyUUID} title="点击复制">
+          <button class="uuid-button" onclick={copyUUID} title={t('modals.cardInfoTab.labels.clickToCopy')}>
             <EnhancedIcon name="hash" size={12} />
             <span>{truncateText(card.uuid, isMobile ? 20 : 32)}</span>
           </button>
@@ -400,12 +408,12 @@
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">卡片类型</span>
+        <span class="info-label">{t('modals.cardInfoTab.labels.cardType')}</span>
         <span class="info-value">{getCardTypeName(card)}</span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">卡片状态</span>
+        <span class="info-label">{t('modals.cardInfoTab.labels.cardStatus')}</span>
         <span class="info-value">
           <span class="status-badge">{getCardStatusString(card.fsrs?.state || 0)}</span>
         </span>
@@ -413,33 +421,33 @@
 
       <!-- 卡片关系类型（多标签显示） -->
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">卡片关系</span>
+        <span class="info-label">{t('modals.cardInfoTab.labels.cardRelation')}</span>
         <span class="info-value">
           <div class="relation-badges-group">
             {#if card.parentCardId}
               <!-- 子卡片主标签 -->
               <span class="relation-badge child-card">
                 <EnhancedIcon name="file-text" size={12} />
-                子卡片
+                {t('modals.cardInfoTab.childCard')}
               </span>
               
               <!-- 拆分方式标签 -->
               {#if card.relationMetadata?.derivationMetadata?.method}
                 {#if card.relationMetadata.derivationMetadata.method === 'ai-split'}
                   <span class="relation-badge method-badge ai-method">
-                    <EnhancedIcon name="git-branch" size={12} /> AI拆分
+                    <EnhancedIcon name="git-branch" size={12} /> {t('modals.cardInfoTab.methodAiSplit')}
                   </span>
                 {:else if card.relationMetadata.derivationMetadata.method === 'cloze-progressive'}
                   <span class="relation-badge method-badge cloze-method">
-                    <EnhancedIcon name="git-branch" size={12} /> 渐进挖空
+                    <EnhancedIcon name="git-branch" size={12} /> {t('modals.cardInfoTab.methodProgressive')}
                   </span>
                 {:else if card.relationMetadata.derivationMetadata.method === 'manual'}
                   <span class="relation-badge method-badge manual-method">
-                    <EnhancedIcon name="scissors" size={12} /> 手动拆分
+                    <EnhancedIcon name="scissors" size={12} /> {t('modals.cardInfoTab.methodManual')}
                   </span>
                 {:else}
                   <span class="relation-badge method-badge">
-                    {getDerivationMethodName(card.relationMetadata.derivationMetadata.method)}
+                    {getDerivationMethodLabel(card.relationMetadata.derivationMetadata.method)}
                   </span>
                 {/if}
               {/if}
@@ -448,20 +456,20 @@
               <!-- 父卡片主标签 -->
               <span class="relation-badge parent-card">
                 <EnhancedIcon name="folder" size={12} />
-                父卡片
+                {t('modals.cardInfoTab.parentCard')}
               </span>
               
               <!-- 子卡片数量标签 -->
               {#if card.relationMetadata?.childCardIds}
                 <span class="relation-badge count-badge">
-                  <EnhancedIcon name="users" size={12} /> 含{card.relationMetadata.childCardIds.length}张子卡片
+                  <EnhancedIcon name="users" size={12} /> {t('modals.cardInfoTab.childCount', { count: card.relationMetadata.childCardIds.length })}
                 </span>
               {/if}
               
             {:else}
               <!-- 独立卡片标签 -->
               <span class="relation-badge normal-card">
-                独立卡片
+                {t('modals.cardInfoTab.independentCard')}
               </span>
             {/if}
           </div>
@@ -475,7 +483,7 @@
 
       {#if resolvedDeckRefs.length > 0}
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">被以下牌组引用</span>
+          <span class="info-label">{t('modals.cardInfoTab.labels.referencedByDecks')}</span>
           <span class="info-value">
             <ResolvedDeckRefs refs={resolvedDeckRefs} showLabel={false} emptyText="" />
           </span>
@@ -494,7 +502,7 @@
 
       {#if card.priority}
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">优先级</span>
+          <span class="info-label">{t('modals.cardInfoTab.priority')}</span>
           <span class="info-value">
             <span class="priority-badge priority-{card.priority}">P{card.priority}</span>
           </span>
@@ -520,27 +528,27 @@
   <!-- 溯源信息区 -->
   <section class="info-section" class:mobile={isMobile}>
     <h3 class="section-title with-accent-bar accent-orange" class:mobile={isMobile}>
-      溯源信息
+      {t('modals.cardInfoTab.sourceInfo')}
     </h3>
     
     <!-- 使用响应式 sourceInfo 从 content YAML 实时解析 -->
     <div class="info-grid" class:mobile={isMobile}>
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">源文档</span>
+        <span class="info-label">{t('modals.cardInfoTab.sourceFile')}</span>
         <span class="info-value">
           {#if sourceInfo.sourceFile}
-            <button class="link-button" onclick={navigateToSource} title="点击跳转">
+            <button class="link-button" onclick={navigateToSource} title={t('modals.cardInfoTab.labels.navigateToSource')}>
               <EnhancedIcon name="external-link" size={12} />
               <span>{sourceInfo.sourceFile}</span>
             </button>
           {:else}
-            <span class="text-muted">无源文档</span>
+            <span class="text-muted">{t('modals.cardInfoTab.notLinked')}</span>
           {/if}
         </span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-	        <span class="info-label">定位信息</span>
+	        <span class="info-label">{t('modals.cardInfoTab.labels.locationInfo')}</span>
 	        <span class="info-value">
 	          {#if sourceInfo.epubCfi}
 	            <span class="mono" title={sourceInfo.epubCfi}>
@@ -549,33 +557,33 @@
 	          {:else if sourceInfo.sourceBlock}
 	            <span class="mono">{truncateText(sourceInfo.sourceBlock || '', 30)}</span>
 	          {:else}
-	            <span class="text-muted">无具体定位</span>
+	            <span class="text-muted">{t('modals.cardInfoTab.labels.noLocation')}</span>
 	          {/if}
 	        </span>
 	      </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">块引用</span>
+        <span class="info-label">{t('modals.cardInfoTab.sourceBlock')}</span>
         <span class="info-value">
           {#if sourceInfo.sourceBlock}
             <span class="mono">{truncateText(sourceInfo.sourceBlock || '', 30)}</span>
           {:else}
-            <span class="text-muted">无块引用</span>
+            <span class="text-muted">{t('modals.cardInfoTab.labels.noBlockReference')}</span>
           {/if}
         </span>
       </div>
 
       <div class="info-row" class:mobile={isMobile}>
-        <span class="info-label">文档状态</span>
+        <span class="info-label">{t('modals.cardInfoTab.labels.documentStatus')}</span>
         <span class="info-value">
           {#if sourceDocumentStatus.known}
             {#if sourceDocumentStatus.exists}
-              <span class="status-indicator status-exists">✓ 存在</span>
+              <span class="status-indicator status-exists">✓ {t('modals.cardInfoTab.documentExists')}</span>
             {:else}
-              <span class="status-indicator status-missing">✗ 已删除</span>
+              <span class="status-indicator status-missing">✗ {t('modals.cardInfoTab.documentDeleted')}</span>
             {/if}
           {:else}
-            <span class="text-muted">未知</span>
+            <span class="text-muted">{t('modals.cardInfoTab.status.unknown')}</span>
           {/if}
         </span>
       </div>
@@ -583,7 +591,7 @@
       <!-- 关联文档列表 -->
       {#if sourceInfo.refs && sourceInfo.refs.length > 0}
         <div class="info-row" class:mobile={isMobile}>
-          <span class="info-label">关联文档</span>
+          <span class="info-label">{t('modals.cardInfoTab.relatedDocuments')}</span>
           <span class="info-value refs-list">
             {#each sourceInfo.refs as ref}
               <span class="ref-tag" title={ref}>{ref.replace(/\.md$/, '')}</span>
@@ -595,26 +603,26 @@
       <!-- 测试卡片的源记忆卡片信息 -->
       {#if isTestCard}
         <div class="info-row source-memory-card-row" class:mobile={isMobile}>
-          <span class="info-label">源记忆卡片</span>
+          <span class="info-label">{t('modals.cardInfoTab.sourceMemoryCard')}</span>
           <span class="info-value">
             {#if loadingSourceCard}
-              <span class="text-muted">加载中...</span>
+              <span class="text-muted">{t('modals.cardInfoTab.loading')}</span>
             {:else if sourceMemoryCard}
               <div class="source-card-compact">
-                <span class="source-card-id" title="源记忆卡片ID">{sourceMemoryCard.uuid}</span>
+                <span class="source-card-id" title={t('modals.cardInfoTab.sourceMemoryCardId')}>{sourceMemoryCard.uuid}</span>
                 <button 
                   class="view-source-btn-small" 
                   onclick={viewSourceMemoryCard}
-                  title="查看源记忆卡片详情"
+                  title={t('modals.cardInfoTab.viewSourceMemoryCard')}
                 >
                   <EnhancedIcon name="eye" size={12} />
-                  查看
+                  {t('modals.cardInfoTab.view')}
                 </button>
               </div>
             {:else if sourceCardId}
-              <span class="text-muted">不存在或已删除</span>
+              <span class="text-muted">{t('modals.cardInfoTab.missingOrDeleted')}</span>
             {:else}
-              <span class="text-muted">无</span>
+              <span class="text-muted">{t('modals.cardInfoTab.none')}</span>
             {/if}
           </span>
         </div>
@@ -626,12 +634,12 @@
   {#if timelineEvents.length > 0 || parentCard || siblingCards.length > 0}
     <section class="info-section timeline-section" class:mobile={isMobile}>
       <h3 class="section-title with-accent-bar accent-cyan" class:mobile={isMobile}>
-        卡片演化历史
+        {t('modals.cardInfoTab.evolutionHistory')}
         {#if timelineMode === 'full' || (timelineMode === 'compact' && siblingCards.length > 0)}
           <button 
             class="expand-toggle" 
             onclick={toggleTimeline}
-            title={expandedTimeline ? '收起' : '展开'}
+            title={expandedTimeline ? t('modals.cardInfoTab.collapse') : t('modals.cardInfoTab.expand')}
           >
             {expandedTimeline ? '▲' : '▼'}
           </button>
@@ -643,28 +651,28 @@
         <div class="timeline-simple">
           {#if parentCard}
             <span class="timeline-item">
-              父卡片
+              {t('modals.cardInfoTab.parentCard')}
             </span>
             <span class="timeline-arrow">→</span>
           {/if}
           <span class="timeline-item">
-            {card.relationMetadata?.derivationMetadata ? getDerivationMethodName(card.relationMetadata.derivationMetadata.method) : '创建'}
+            {card.relationMetadata?.derivationMetadata ? getDerivationMethodLabel(card.relationMetadata.derivationMetadata.method) : t('modals.cardInfoTab.createAction')}
             {#if siblingCards.length > 0}
-              ({siblingCards.length + 1}张)
+              ({t('modals.cardInfoTab.itemCount', { count: siblingCards.length + 1 })})
             {/if}
           </span>
           <span class="timeline-arrow">→</span>
-          <span class="timeline-item current">当前</span>
+          <span class="timeline-item current">{t('modals.cardInfoTab.currentCard')}</span>
           
           <div class="timeline-actions">
             {#if parentCard}
               <button class="link-button" onclick={() => parentCard && viewCard(parentCard)}>
-                [查看父卡片]
+                [{t('modals.cardInfoTab.viewParentCard')}]
               </button>
             {/if}
             {#if siblingCards.length > 0}
               <button class="link-button" onclick={() => siblingCards[0] && viewCard(siblingCards[0])}>
-                [查看兄弟卡片({siblingCards.length}张)]
+                [{t('modals.cardInfoTab.viewSiblingCards', { count: siblingCards.length })}]
               </button>
             {/if}
           </div>
@@ -683,7 +691,7 @@
                 <span class="event-description">{event.description}</span>
                 {#if event.type === 'split' && parentCard}
                   <button class="link-button-small" onclick={() => parentCard && viewCard(parentCard)}>
-                    [查看]
+                    [{t('modals.cardInfoTab.view')}]
                   </button>
                 {/if}
               </div>
@@ -692,7 +700,7 @@
           
           {#if siblingCards.length > 0}
             <div class="siblings-preview">
-              <span class="siblings-label">兄弟卡片:</span>
+              <span class="siblings-label">{t('modals.cardInfoTab.siblingCardsLabel')}:</span>
               {#each siblingCards.slice(0, 3) as sibling, index}
                 <span class="sibling-tag">#{index + 1} {getCardPreview(sibling, 20)}</span>
               {/each}
@@ -700,7 +708,7 @@
                 <span class="sibling-more">+{siblingCards.length - 3}</span>
               {/if}
               <button class="link-button-small" onclick={viewAllSiblingCards}>
-                [查看全部]
+                [{t('modals.cardInfoTab.viewAll')}]
               </button>
             </div>
           {/if}
@@ -727,14 +735,14 @@
                         {getCardPreview(parentCard, 100)}
                       </div>
                       <button class="link-button-small" onclick={() => parentCard && viewCard(parentCard)}>
-                        [查看详情]
+                        [{t('modals.cardInfoTab.viewDetails')}]
                       </button>
                     </div>
                   {:else if event.type === 'split'}
                     <!-- 显示兄弟卡片列表 -->
                     <div class="timeline-branch">
                       <div class="branch-header">
-                        生成 {siblingCards.length + 1} 张子卡片:
+                        {t('modals.cardInfoTab.generatedChildCards', { count: siblingCards.length + 1 })}
                       </div>
                       {#each siblingCards.slice(0, expandedSiblings ? undefined : 3) as sibling, idx}
                         <button 
@@ -753,34 +761,34 @@
                       <div class="child-card-item current-card-highlight">
                         <span class="child-index">#{siblingCards.length + 1}</span>
                         <span class="child-preview">
-                          {getCardPreview(card, 60)} (当前)
+                          {getCardPreview(card, 60)} {t('modals.cardInfoTab.currentSuffix')}
                         </span>
                       </div>
                       
                       {#if siblingCards.length > 3 && !expandedSiblings}
                         <div class="sibling-actions">
                           <button class="expand-siblings-btn" onclick={toggleSiblings}>
-                            还有 {siblingCards.length - 3} 张... [展开全部]
+                            {t('modals.cardInfoTab.remainingCards', { count: siblingCards.length - 3 })}
                           </button>
-                          <button class="view-in-grid-btn" onclick={viewAllSiblingCards} title="在卡片管理页面的网格视图中查看所有兄弟卡片">
+                          <button class="view-in-grid-btn" onclick={viewAllSiblingCards} title={t('modals.cardInfoTab.viewInGridTitle')}>
                             <EnhancedIcon name="grid" size={12} />
-                            在网格中查看
+                            {t('modals.cardInfoTab.viewInGrid')}
                           </button>
                         </div>
                       {:else if expandedSiblings && siblingCards.length > 3}
                         <div class="sibling-actions">
                           <button class="expand-siblings-btn" onclick={toggleSiblings}>
-                            [收起]
+                            [{t('modals.cardInfoTab.collapse')}]
                           </button>
-                          <button class="view-in-grid-btn" onclick={viewAllSiblingCards} title="在卡片管理页面的网格视图中查看所有兄弟卡片">
+                          <button class="view-in-grid-btn" onclick={viewAllSiblingCards} title={t('modals.cardInfoTab.viewInGridTitle')}>
                             <EnhancedIcon name="grid" size={12} />
-                            在网格中查看
+                            {t('modals.cardInfoTab.viewInGrid')}
                           </button>
                         </div>
                       {:else if siblingCards.length > 0}
-                        <button class="view-in-grid-btn" onclick={viewAllSiblingCards} title="在卡片管理页面的网格视图中查看所有兄弟卡片">
+                        <button class="view-in-grid-btn" onclick={viewAllSiblingCards} title={t('modals.cardInfoTab.viewInGridTitle')}>
                           <EnhancedIcon name="grid" size={12} />
-                          在网格中查看
+                          {t('modals.cardInfoTab.viewInGrid')}
                         </button>
                       {/if}
                     </div>

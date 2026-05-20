@@ -15,6 +15,7 @@
   import { DEFAULT_SPLIT_ACTIONS } from '../../data/default-split-actions';
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
   import { Menu, Notice } from 'obsidian';
+  import { tr } from '../../utils/i18n';
 
   interface Props {
     show: boolean;
@@ -33,11 +34,13 @@
     plugin,
     onClose,
     allowedTypes = ['format', 'split'],
-    title = 'AI功能配置',
+    title = '',
     useObsidianModal = false,
     onUnsavedChangesChange
   }: Props = $props();
   const isModalOpen = $derived(useObsidianModal || show);
+  let t = $derived($tr);
+  const resolvedTitle = $derived(title || t('study.aiActionManager.title'));
   const normalizedAllowedTypes = $derived(
     allowedTypes.filter((type): type is AIActionType => type === 'format' || type === 'split')
   );
@@ -149,15 +152,21 @@
   const selectedAction = $derived(currentActions.find(a => a.id === selectedActionId) || null);
 
   function getActionDisplayName(action: AIAction): string {
-    return action.name.trim() || '未命名功能';
+    return action.name.trim() || t('study.aiActionManager.unnamedAction');
   }
 
   function getActionCategoryLabel(action: AIAction): string {
-    return action.category === 'official' ? '官方模板' : '自定义功能';
+    return action.category === 'official'
+      ? t('study.aiActionManager.categoryOfficial')
+      : t('study.aiActionManager.categoryCustom');
   }
 
   const activeTypeDisplayName = $derived(
-    activeType === 'format' ? 'AI格式化' : activeType === 'split' ? 'AI拆分' : 'AI功能'
+    activeType === 'format'
+      ? t('study.aiActionManager.types.format')
+      : activeType === 'split'
+        ? t('study.aiActionManager.types.split')
+        : t('study.aiActionManager.types.generic')
   );
 
   const actionSelectorOptions = $derived(
@@ -213,7 +222,7 @@
   function getModelLabel(provider: AIProvider, modelId?: string): string {
     const fallbackModel = getDefaultModelForProvider(provider);
     const resolvedModelId = (modelId || fallbackModel || '').trim();
-    if (!resolvedModelId) return '未选择模型';
+    if (!resolvedModelId) return t('study.aiActionManager.noModelSelected');
 
     const providerOptions = AI_MODEL_OPTIONS[provider] || [];
     const matched = providerOptions.find((item) => item.id === resolvedModelId);
@@ -233,7 +242,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('使用默认配置')
+        .setTitle(t('study.aiActionManager.useDefaultConfig'))
         .setIcon(!selectedAction.provider ? 'check' : '')
         .onClick(() => {
           updateSelectedAction({ provider: undefined, model: undefined });
@@ -321,15 +330,19 @@
   function createNewAction() {
     const defaultProvider = getPreferredProvider();
     const defaultModelForProvider = getDefaultModelForProvider(defaultProvider);
-    const actionTypeName = activeType === 'format' ? '格式化' : 'AI拆分';
+    const actionTypeName = activeType === 'format'
+      ? t('study.aiActionManager.types.formatShort')
+      : t('study.aiActionManager.types.split');
     
     const newAction: AIAction = {
       id: `custom-${activeType}-${Date.now()}`,
-      name: activeType === 'format' ? '新格式化功能' : '新AI拆分功能',
+      name: activeType === 'format'
+        ? t('study.aiActionManager.newFormatActionName')
+        : t('study.aiActionManager.newSplitActionName'),
       icon: 'sparkles',
       type: activeType,
-      systemPrompt: '你是一个专业的AI助手。',
-      userPromptTemplate: '请处理以下内容:\n\n{{cardContent}}',
+      systemPrompt: t('study.aiActionManager.defaultSystemPrompt'),
+      userPromptTemplate: t('study.aiActionManager.defaultUserPromptTemplate'),
       provider: defaultProvider,
       model: defaultModelForProvider,
       category: 'custom',
@@ -348,17 +361,17 @@
     const updatedActions = [...getDraftActions(activeType), newAction];
     setDraftActions(activeType, updatedActions);
     selectedActionId = newAction.id;
-    new Notice(`已创建新的${actionTypeName}功能，点击保存后生效`);
+    new Notice(t('study.aiActionManager.notices.created', { actionType: actionTypeName }));
   }
   
   function deleteAction(id: string) {
     const action = currentActions.find(a => a.id === id);
-    const actionName = action ? getActionDisplayName(action) : '此功能';
+    const actionName = action ? getActionDisplayName(action) : t('study.aiActionManager.thisAction');
 
     showObsidianConfirm(
       plugin.app,
-      `确定要删除"${actionName}"吗？`,
-      { title: '确认删除', confirmText: '删除' }
+      t('study.aiActionManager.confirmDeleteMessage', { name: actionName }),
+      { title: t('study.aiActionManager.confirmDeleteTitle'), confirmText: t('study.aiActionManager.deleteAction') }
     ).then(confirmed => {
       if (confirmed) {
         const updatedActions = getDraftActions(activeType).filter(a => a.id !== id);
@@ -368,7 +381,7 @@
           selectedActionId = null;
         }
 
-        new Notice(`已删除"${actionName}"，点击保存后生效`);
+        new Notice(t('study.aiActionManager.notices.deleted', { name: actionName }));
       }
     });
   }
@@ -402,7 +415,7 @@
     const newAction: AIAction = {
       ...selectedAction,
       id: `custom-${activeType}-${Date.now()}`,
-      name: `${selectedAction.name} (副本)`,
+      name: t('study.aiActionManager.copyName', { name: selectedAction.name }),
       category: 'custom',
       provider: effectiveProvider,
       model: selectedAction.model || defaultModelForProvider,
@@ -413,14 +426,14 @@
     const updatedActions = [...getDraftActions(activeType), newAction];
     setDraftActions(activeType, updatedActions);
     selectedActionId = newAction.id;
-    new Notice(`已复制"${selectedAction.name}"为自定义功能，点击保存后生效`);
+    new Notice(t('study.aiActionManager.notices.duplicated', { name: selectedAction.name }));
   }
   
   function restoreOfficialTemplates() {
     if (activeType === 'format') {
-      new Notice('官方格式化模板始终显示在列表中，无需额外恢复');
+      new Notice(t('study.aiActionManager.notices.officialTemplatesAlwaysVisible'));
     } else {
-      new Notice('AI拆分功能暂无官方模板');
+      new Notice(t('study.aiActionManager.notices.noOfficialSplitTemplates'));
     }
   }
 
@@ -429,7 +442,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('新建')
+        .setTitle(t('study.aiActionManager.menu.new'))
         .setIcon('plus')
         .onClick(() => {
           createNewAction();
@@ -439,7 +452,7 @@
     if (selectedAction?.category === 'official') {
       menu.addItem((item) => {
         item
-          .setTitle('复制为自定义')
+          .setTitle(t('study.aiActionManager.menu.duplicateAsCustom'))
           .setIcon('copy')
           .onClick(() => {
             duplicateAsCustom();
@@ -448,7 +461,7 @@
     } else if (selectedAction?.category === 'custom') {
       menu.addItem((item) => {
         item
-          .setTitle('删除当前')
+          .setTitle(t('study.aiActionManager.menu.deleteCurrent'))
           .setIcon('trash')
           .onClick(() => {
             deleteAction(selectedAction.id);
@@ -459,7 +472,7 @@
     menu.addSeparator();
     menu.addItem((item) => {
       item
-        .setTitle('恢复官方模板')
+        .setTitle(t('study.aiActionManager.menu.restoreOfficialTemplates'))
         .setIcon('refresh-cw')
         .onClick(() => {
           restoreOfficialTemplates();
@@ -469,7 +482,13 @@
     menu.addSeparator();
     menu.addItem((item) => {
       item
-        .setTitle(saveState === 'saving' ? '正在保存...' : saveState === 'saved' && !hasUnsavedChanges ? '已保存' : '保存')
+        .setTitle(
+          saveState === 'saving'
+            ? t('study.aiActionManager.menu.saving')
+            : saveState === 'saved' && !hasUnsavedChanges
+              ? t('study.aiActionManager.menu.saved')
+              : t('study.aiActionManager.menu.save')
+        )
         .setIcon(saveState === 'saved' && !hasUnsavedChanges ? 'check' : 'save')
         .setDisabled(!hasUnsavedChanges || saveState === 'saving')
         .onClick(() => {
@@ -509,7 +528,7 @@
 
       hasUnsavedChanges = false;
       saveState = 'saved';
-      new Notice('AI功能配置保存成功');
+      new Notice(t('study.aiActionManager.notices.saved'));
 
       saveFeedbackTimer = setTimeout(() => {
         saveState = 'idle';
@@ -518,7 +537,7 @@
     } catch (error) {
       saveState = 'idle';
       logger.error('[AIActionManager] 保存AI功能配置失败:', error);
-      new Notice('保存失败，请重试');
+      new Notice(t('study.aiActionManager.notices.saveFailed'));
     }
   }
 
@@ -530,8 +549,8 @@
 
     const confirmed = await showObsidianConfirm(
       plugin.app,
-      '当前有未保存的AI功能更改，关闭后这些更改会丢失。确定仍要关闭吗？',
-      { title: '放弃未保存更改', confirmText: '仍然关闭' }
+      t('study.aiActionManager.unsavedChangesMessage'),
+      { title: t('study.aiActionManager.unsavedChangesTitle'), confirmText: t('study.aiActionManager.unsavedChangesConfirm') }
     );
 
     if (!confirmed) return;
@@ -555,7 +574,7 @@
 {#snippet modalHeader()}
   <div class="modal-toolbar">
     <div class="modal-toolbar-main">
-      <h3 id="modal-title" class="modal-toolbar-title">{title}</h3>
+      <h3 id="modal-title" class="modal-toolbar-title">{resolvedTitle}</h3>
     </div>
 
     <div class="modal-toolbar-center">
@@ -578,7 +597,7 @@
         iconOnly
         icon="times"
         onclick={handleCloseRequest}
-        ariaLabel="关闭"
+        ariaLabel={t('study.aiActionManager.close')}
       />
     </div>
   </div>
@@ -594,7 +613,7 @@
                 <ObsidianDropdown
                   options={actionSelectorOptions}
                   value={selectedActionValue}
-                  placeholder={`选择${activeTypeDisplayName}功能`}
+                  placeholder={t('study.aiActionManager.selectActionPlaceholder', { type: activeTypeDisplayName })}
                   className="action-selector-dropdown"
                   disabled={actionSelectorOptions.length === 0}
                   onchange={handleActionSelect}
@@ -605,10 +624,10 @@
                 type="button"
                 class="toolbar-btn obsidian-action-btn action-menu-btn"
                 onclick={(event) => showActionOperationsMenu(event)}
-                title="模板操作菜单"
+                title={t('study.aiActionManager.actionMenuTitle')}
               >
                 <EnhancedIcon name="more-horizontal" size="14" />
-                <span>操作</span>
+                <span>{t('study.aiActionManager.actions')}</span>
               </button>
             </div>
 
@@ -622,17 +641,17 @@
           <div class="edit-form">
             <div class="form-section form-section-basic">
               <div class="section-header">
-                <h4 class="section-title">基础信息</h4>
+                <h4 class="section-title">{t('study.aiActionManager.sections.basic')}</h4>
               </div>
               
               <div class="form-group">
-                <label class="form-label" for="action-name-input">功能名称</label>
+                <label class="form-label" for="action-name-input">{t('study.aiActionManager.fields.name')}</label>
                 <input 
                   id="action-name-input"
                   type="text"
                   value={selectedAction.name}
                   oninput={(e) => updateSelectedAction({ name: (e.target as HTMLInputElement).value })}
-                  placeholder="请输入功能名称"
+                  placeholder={t('study.aiActionManager.fields.namePlaceholder')}
                   disabled={selectedAction.category === 'official'}
                   class="form-input"
                 />
@@ -642,11 +661,11 @@
             {#if selectedAction.type === 'split' && selectedAction.splitConfig}
               <div class="form-section form-section-split">
                 <div class="section-header">
-                  <h4 class="section-title">拆分配置</h4>
+                  <h4 class="section-title">{t('study.aiActionManager.sections.split')}</h4>
                 </div>
                 
                 <div class="form-row">
-                  <label class="form-label" for="split-target-count">目标拆分数量</label>
+                  <label class="form-label" for="split-target-count">{t('study.aiActionManager.fields.targetCount')}</label>
                   <input
                     id="split-target-count"
                     type="number"
@@ -659,13 +678,13 @@
                 </div>
                 
                 <div class="form-row">
-                  <label class="form-label" for="split-strategy-select">拆分策略</label>
+                  <label class="form-label" for="split-strategy-select">{t('study.aiActionManager.fields.splitStrategy')}</label>
                   <div class="form-select">
                     <ObsidianDropdown
                       options={[
-                        { id: 'knowledge-point', label: '知识点拆分' },
-                        { id: 'difficulty', label: '难度层次拆分' },
-                        { id: 'content-length', label: '内容长度拆分' }
+                        { id: 'knowledge-point', label: t('study.aiActionManager.splitStrategies.knowledgePoint') },
+                        { id: 'difficulty', label: t('study.aiActionManager.splitStrategies.difficulty') },
+                        { id: 'content-length', label: t('study.aiActionManager.splitStrategies.contentLength') }
                       ]}
                       value={selectedAction.splitConfig.splitStrategy}
                       onchange={(value) => {
@@ -679,13 +698,13 @@
                 </div>
                 
                 <div class="form-row">
-                  <label class="form-label" for="split-output-format-select">输出格式</label>
+                  <label class="form-label" for="split-output-format-select">{t('study.aiActionManager.fields.outputFormat')}</label>
                   <div class="form-select">
                     <ObsidianDropdown
                       options={[
-                        { id: 'qa', label: '问答题' },
-                        { id: 'cloze', label: '挖空题' },
-                        { id: 'mixed', label: '混合格式' }
+                        { id: 'qa', label: t('study.aiActionManager.outputFormats.qa') },
+                        { id: 'cloze', label: t('study.aiActionManager.outputFormats.cloze') },
+                        { id: 'mixed', label: t('study.aiActionManager.outputFormats.mixed') }
                       ]}
                       value={selectedAction.splitConfig.outputFormat}
                       onchange={(value) => {
@@ -702,50 +721,50 @@
             
             <div class="form-section form-section-ai">
               <div class="section-header">
-                <h4 class="section-title">AI服务配置</h4>
+                <h4 class="section-title">{t('study.aiActionManager.sections.aiService')}</h4>
               </div>
               
               <div class="form-group">
-                <label class="form-label" for="action-provider-model-trigger">服务商与模型</label>
+                <label class="form-label" for="action-provider-model-trigger">{t('study.aiActionManager.fields.providerModel')}</label>
                 <button
                   id="action-provider-model-trigger"
                   type="button"
                   class="form-input form-menu-trigger"
                   onclick={openActionProviderModelMenu}
-                  aria-label="选择服务商与模型"
+                  aria-label={t('study.aiActionManager.fields.providerModel')}
                 >
                   <span>{getActionProviderModelLabel(selectedAction)}</span>
                   <EnhancedIcon name="chevron-down" size="14" />
                 </button>
                 <div class="form-hint">
-                  使用 Obsidian 列表菜单选择服务商与模型；未指定时可回退到默认配置
+                  {t('study.aiActionManager.providerHint')}
                 </div>
               </div>
             </div>
             
             <div class="form-section form-section-prompt">
               <div class="section-header">
-                <h4 class="section-title">AI提示词配置</h4>
+                <h4 class="section-title">{t('study.aiActionManager.sections.prompt')}</h4>
               </div>
               
               <div class="form-group">
                 <div class="label-with-help">
-                  <label class="form-label" for="system-prompt-textarea">系统提示词</label>
+                  <label class="form-label" for="system-prompt-textarea">{t('study.aiActionManager.fields.systemPrompt')}</label>
                   <EnhancedButton
                     variant="ghost"
                     size="xs"
                     icon={showVariableHelp ? 'chevron-up' : 'chevron-down'}
                     onclick={() => showVariableHelp = !showVariableHelp}
-                    ariaLabel="查看可用变量"
+                    ariaLabel={t('study.aiActionManager.toggleVariables')}
                   >
-                    可用变量
+                    {t('study.aiActionManager.availableVariables')}
                   </EnhancedButton>
                 </div>
                 <textarea
                   id="system-prompt-textarea"
                   value={selectedAction.systemPrompt}
                   oninput={(e) => updateSelectedAction({ systemPrompt: (e.target as HTMLTextAreaElement).value })}
-                  placeholder="定义AI的角色和行为规则..."
+                  placeholder={t('study.aiActionManager.systemPromptPlaceholder')}
                   rows="8"
                   disabled={selectedAction.category === 'official'}
                   class="form-textarea"
@@ -753,12 +772,12 @@
               </div>
               
               <div class="form-group">
-                <label class="form-label" for="user-prompt-textarea">用户提示词模板</label>
+                <label class="form-label" for="user-prompt-textarea">{t('study.aiActionManager.fields.userPromptTemplate')}</label>
                 <textarea
                   id="user-prompt-textarea"
                   value={selectedAction.userPromptTemplate}
                   oninput={(e) => updateSelectedAction({ userPromptTemplate: (e.target as HTMLTextAreaElement).value })}
-                  placeholder="使用模板变量如 {`{{cardContent}}`}..."
+                  placeholder={t('study.aiActionManager.userPromptPlaceholder')}
                   rows="6"
                   disabled={selectedAction.category === 'official'}
                   class="form-textarea"
@@ -767,7 +786,7 @@
               
               {#if showVariableHelp && availableVariables}
                 <div class="variable-help">
-                  <h5 class="variable-help-title">可用的模板变量</h5>
+                  <h5 class="variable-help-title">{t('study.aiActionManager.availableVariablesTitle')}</h5>
                   <div class="variable-list">
                     {#each Object.entries(availableVariables) as [variable, description]}
                       <div class="variable-item">
@@ -783,8 +802,8 @@
         {:else}
           <div class="empty-editor-state">
             <EnhancedIcon name="sparkles" size="48" variant="muted" />
-            <p>请先从上方选择一个AI功能模板</p>
-            <p class="hint-text">选中后即可在下方集中编辑名称、模型与提示词配置。</p>
+            <p>{t('study.aiActionManager.emptyStateTitle')}</p>
+            <p class="hint-text">{t('study.aiActionManager.emptyStateHint')}</p>
           </div>
         {/if}
       </div>
@@ -812,7 +831,7 @@
     open={show}
     onClose={handleCloseRequest}
     size="xl"
-    title={title}
+    title={resolvedTitle}
     header={modalHeader}
     zIndex={6000}
     mask={false}

@@ -2,6 +2,7 @@ import { App, Modal } from "obsidian";
 import { mount, unmount } from "svelte";
 import type { AnkiModelInfo } from "../../../types/ankiconnect-types";
 import { configureWeaveObsidianModalLayout } from "../../../utils/obsidian-modal-layout";
+import { i18n } from "../../../utils/i18n";
 import type { DeckSyncMapping } from "../types/settings-types";
 import CardTypeMappingModalContent from "./CardTypeMappingModalContent.svelte";
 
@@ -24,7 +25,7 @@ export class CardTypeMappingModalObsidian extends Modal {
 	}
 
 	onOpen() {
-		this.setTitle("题型字段映射");
+		this.setTitle(i18n.t("ankiConnect.deckMapping.cardTypeModal.title"));
 		configureWeaveObsidianModalLayout(this, {
 			modalClass: "weave-card-type-mapping-modal",
 			contentClass: "weave-card-type-mapping-modal-content",

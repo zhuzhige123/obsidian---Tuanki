@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { tr as trStore } from '../../../utils/i18n';
   import type { AnkiModelInfo } from '../../../types/ankiconnect-types';
   import type {
     AnkiSyncCardType,
@@ -83,6 +84,7 @@
     onUpdateMapping,
     onClose
   }: Props = $props();
+  let t = $derived($trStore);
 
   let localMapping = $state(untrack(() => cloneDeckMapping(mapping)));
   let localModels = $derived(sortModels(ankiModels));
@@ -103,7 +105,7 @@
     localModels.map((model) => ({
       id: model.name,
       label: model.name,
-      description: `${model.fields.length} 个字段`
+      description: t('ankiConnect.deckMapping.cardTypeModal.fieldsCount', { count: String(model.fields.length) })
     }))
   );
 
@@ -123,8 +125,8 @@
     const model = getModelByName(modelName);
     const baseOption = {
       id: '',
-      label: '自动匹配',
-      description: '不强制指定，导出时按字段名自动匹配'
+      label: t('ankiConnect.deckMapping.cardTypeModal.autoMatch'),
+      description: t('ankiConnect.deckMapping.cardTypeModal.autoMatchDesc')
     };
 
     if (!model) {
@@ -251,7 +253,7 @@
   <div class="mapping-modal-toolbar">
     <div class="toolbar-selects">
       <div class="toolbar-control">
-        <span class="toolbar-label">Weave 题型</span>
+        <span class="toolbar-label">{t('ankiConnect.deckMapping.cardTypeModal.weaveCardType')}</span>
         <ObsidianDropdown
           className="mapping-dropdown"
           options={cardTypeOptions}
@@ -261,12 +263,12 @@
       </div>
 
       <div class="toolbar-control toolbar-control-wide">
-        <span class="toolbar-label">Anki 模板</span>
+        <span class="toolbar-label">{t('ankiConnect.deckMapping.cardTypeModal.ankiModel')}</span>
         <ObsidianDropdown
           className="mapping-dropdown template-dropdown"
           options={ankiModelOptions}
           value={activeCardTypeMapping.ankiModelName}
-          placeholder={localModels.length > 0 ? '选择一个 Anki 模板' : '请先获取模板'}
+          placeholder={localModels.length > 0 ? t('ankiConnect.deckMapping.cardTypeModal.selectAnkiModel') : t('ankiConnect.deckMapping.cardTypeModal.fetchModelsFirst')}
           disabled={localModels.length === 0}
           onchange={(value) => updateCardTypeModel(activeCardType, value)}
         />
@@ -274,37 +276,37 @@
     </div>
 
     <div class="toolbar-actions">
-      <button class="toolbar-btn toolbar-btn-primary" type="button" onclick={onClose}>保存</button>
+      <button class="toolbar-btn toolbar-btn-primary" type="button" onclick={onClose}>{t('ankiConnect.deckMapping.cardTypeModal.save')}</button>
     </div>
   </div>
 
   <div class="status-stack">
     {#if !isConnected}
       <div class="status-card warning">
-        还没有完成 Anki 连接测试，建议先测试连接后再读取模板与配置字段。
+        {t('ankiConnect.deckMapping.cardTypeModal.connectionHint')}
       </div>
     {/if}
 
     {#if localModels.length === 0}
       <div class="status-card warning">
-        还没有读取到 Anki 模板。先获取模板，再按题型选择目标模板并建立字段映射。
+        {t('ankiConnect.deckMapping.cardTypeModal.noModelsHint')}
       </div>
     {/if}
 
     {#if activeCardTypeMapping.ankiModelName && !activeSelectedModel}
       <div class="status-card warning">
-        当前选择的模板不在最近一次读取结果中，请刷新模板后重新确认。
+        {t('ankiConnect.deckMapping.cardTypeModal.missingSelectedModel')}
       </div>
     {/if}
   </div>
 
-  <section class="mapping-table-card" aria-label="题型字段映射表">
+  <section class="mapping-table-card" aria-label={t('ankiConnect.deckMapping.cardTypeModal.tableLabel')}>
     <div class="mapping-table-scroll">
       <table class="mapping-table">
         <thead>
           <tr>
-            <th>Weave 解析字段</th>
-            <th>Anki 字段</th>
+            <th>{t('ankiConnect.deckMapping.cardTypeModal.weaveField')}</th>
+            <th>{t('ankiConnect.deckMapping.cardTypeModal.ankiField')}</th>
           </tr>
         </thead>
         <tbody>
@@ -324,7 +326,7 @@
                   className="mapping-dropdown"
                   options={getModelFieldOptions(activeSelectedModel?.name ?? '')}
                   value={getMappedFieldValue(activeCardType, fieldDefinition.key)}
-                  placeholder={activeSelectedModel ? '自动匹配' : '先选择模板'}
+                  placeholder={activeSelectedModel ? t('ankiConnect.deckMapping.cardTypeModal.autoMatch') : t('ankiConnect.deckMapping.cardTypeModal.selectAnkiModel')}
                   disabled={!activeSelectedModel}
                   onchange={(value) =>
                     updateCardTypeFieldMapping(activeCardType, fieldDefinition.key, value)}
@@ -552,3 +554,4 @@
     }
   }
 </style>
+  let t = $derived($tr);

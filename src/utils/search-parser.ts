@@ -28,6 +28,7 @@ export interface SearchQuery {
 	priorities: number[]; // priority: 优先级
 	types: string[]; // type: 题型
 	sources: string[]; // source: 来源文档
+	folders: string[]; // folder: 来源文件夹
 
 	statuses: string[];
 	states: string[];
@@ -47,6 +48,7 @@ export interface SearchQuery {
 	excludeTags: string[];
 	excludeTypes: string[];
 	excludeSources: string[];
+	excludeFolders: string[];
 	excludeStatuses: string[];
 	excludeText: string[];
 
@@ -65,6 +67,7 @@ export function parseSearchQuery(query: string): SearchQuery {
 		priorities: [],
 		types: [],
 		sources: [],
+		folders: [],
 		statuses: [],
 		states: [],
 		accuracies: [],
@@ -78,6 +81,7 @@ export function parseSearchQuery(query: string): SearchQuery {
 		excludeTags: [],
 		excludeTypes: [],
 		excludeSources: [],
+		excludeFolders: [],
 		excludeStatuses: [],
 		excludeText: [],
 		raw: query,
@@ -120,6 +124,10 @@ export function parseSearchQuery(query: string): SearchQuery {
 
 	execAll(/source:"([^"]+)"|source:(\S+)/g, (m) => {
 		result.sources.push(m[1] || m[2]);
+	});
+
+	execAll(/folder:"([^"]+)"|folder:(\S+)/g, (m) => {
+		result.folders.push(m[1] || m[2]);
 	});
 
 	execAll(/status:(\S+)/g, (m) => {
@@ -188,6 +196,9 @@ export function parseSearchQuery(query: string): SearchQuery {
 	});
 	execAll(/-source:"([^"]+)"|-source:(\S+)/g, (m) => {
 		result.excludeSources.push(m[1] || m[2]);
+	});
+	execAll(/-folder:"([^"]+)"|-folder:(\S+)/g, (m) => {
+		result.excludeFolders.push(m[1] || m[2]);
 	});
 	execAll(/-status:(\S+)/g, (m) => {
 		result.excludeStatuses.push(m[1]);
@@ -269,6 +280,33 @@ function parseDateRange(raw: string): DateRange | null {
 	return null;
 }
 
+function normalizeSourceFolderPath(sourceFile: string): string {
+	if (!sourceFile) return "/";
+
+	const normalized = sourceFile.replace(/\\/g, "/").trim();
+	if (!normalized) return "/";
+
+	const lastSlashIndex = normalized.lastIndexOf("/");
+	if (lastSlashIndex <= 0) {
+		return "/";
+	}
+
+	return normalized.slice(0, lastSlashIndex);
+}
+
+function matchesFolderToken(sourceFolder: string, tokenRaw: string): boolean {
+	const token = tokenRaw.replace(/\\/g, "/").trim();
+	if (!token) {
+		return sourceFolder === "/";
+	}
+
+	if (token === "/" || token === ".") {
+		return sourceFolder === "/";
+	}
+
+	return sourceFolder.toLowerCase().includes(token.toLowerCase());
+}
+
 /**
  * 匹配卡片是否符合搜索条件
  * @param card 卡片对象
@@ -342,6 +380,11 @@ export function matchSearchQuery(
 		matches =
 			matches &&
 			query.sources.some((source) => sourceDoc.toLowerCase().includes(source.toLowerCase()));
+	}
+
+	if (query.folders.length > 0) {
+		const sourceFolder = normalizeSourceFolderPath(card.sourceFile || "");
+		matches = matches && query.folders.some((folder) => matchesFolderToken(sourceFolder, folder));
 	}
 
 	if (query.statuses.length > 0) {
@@ -509,6 +552,13 @@ export function matchSearchQuery(
 		matches =
 			matches &&
 			query.excludeSources.every((s) => !sourceDoc.toLowerCase().includes(s.toLowerCase()));
+	}
+
+	if (query.excludeFolders.length > 0) {
+		const sourceFolder = normalizeSourceFolderPath(card.sourceFile || "");
+		matches =
+			matches &&
+			query.excludeFolders.every((folder) => !matchesFolderToken(sourceFolder, folder));
 	}
 
 	if (query.excludeStatuses.length > 0) {

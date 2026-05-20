@@ -116,7 +116,9 @@
   );
 
   const buildTargetMenuLabel = $derived.by(() =>
-    buildTarget === 'memory' ? '默认格式' : '考试题组'
+    buildTarget === 'memory'
+      ? t('study.questionBankUI.buildDeckModal.defaultFormat')
+      : t('study.questionBankUI.buildDeckModal.examSet')
   );
 
   // 打开时初始化
@@ -145,7 +147,7 @@
           }, 100);
         } catch (error) {
           logger.error('[BuildDeckModal] 初始化失败:', error);
-          new Notice('初始化失败');
+          new Notice(t('study.questionBankUI.buildDeckModal.initFailed'));
         }
       })();
     }
@@ -210,7 +212,7 @@
       }
 
       if (!canUseQuestionBankBuildTarget) {
-        new Notice('组建考试题组是高级功能，请激活许可证后使用');
+        new Notice(t('study.questionBankUI.buildDeckModal.qbPremiumRequired'));
         return;
       }
     }
@@ -228,7 +230,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle('组建牌组')
+        .setTitle(t('study.questionBankUI.buildDeckModal.buildDeck'))
         .setIcon('brain')
         .setChecked(buildTarget === 'memory')
         .onClick(() => {
@@ -238,7 +240,7 @@
 
     menu.addItem((item) => {
       item
-        .setTitle(canUseQuestionBankBuildTarget ? '组建考试题组' : '组建考试题组（高级）')
+        .setTitle(canUseQuestionBankBuildTarget ? t('study.questionBankUI.buildDeckModal.buildExamSet') : t('study.questionBankUI.buildDeckModal.buildExamSetPremium'))
         .setIcon('list')
         .setChecked(buildTarget === 'question-bank')
         .onClick(() => {
@@ -320,7 +322,7 @@
     }
 
     if (buildTarget === 'question-bank' && !canUseQuestionBankBuildTarget) {
-      errorMessage = '组建考试题组是高级功能，请激活许可证后使用';
+      errorMessage = t('study.questionBankUI.buildDeckModal.qbPremiumRequired');
       new Notice(errorMessage);
       return;
     }
@@ -335,7 +337,7 @@
     try {
       if (buildTarget === 'memory') {
         if (!plugin.dataStorage) {
-          throw new Error('数据存储服务未初始化');
+          throw new Error(t('study.questionBankUI.buildDeckModal.dataStorageNotReady'));
         }
 
         const now = new Date().toISOString();
@@ -363,7 +365,7 @@
 
         const saveDeckResult = await plugin.dataStorage.saveDeck(newDeck);
         if (!saveDeckResult.success || !saveDeckResult.data) {
-          throw new Error(saveDeckResult.error || '创建牌组失败');
+          throw new Error(saveDeckResult.error || t('study.questionBankUI.buildDeckModal.createDeckFailed'));
         }
 
         const moveResult = await plugin.dataStorage.moveCardsToDeck(
@@ -371,17 +373,17 @@
           saveDeckResult.data.id
         );
         if (moveResult.failed.length > 0) {
-          throw new Error(`牌组已创建，但有 ${moveResult.failed.length} 张卡片移动失败`);
+          throw new Error(t('study.questionBankUI.buildDeckModal.movePartialFailed', { count: moveResult.failed.length }));
         }
 
-        new Notice(`牌组“${name}”创建成功，已收纳 ${moveResult.moved.length} 张卡片`);
+        new Notice(t('study.questionBankUI.buildDeckModal.deckCreateSuccess', { name, count: moveResult.moved.length }));
         await notifyDeckCreated(saveDeckResult.data);
         closeModal();
         return;
       }
 
       if (!plugin.questionBankService) {
-        throw new Error('题库服务未初始化');
+        throw new Error(t('study.questionBankUI.buildDeckModal.qbServiceNotReady'));
       }
 
       const createdAt = new Date().toISOString();
@@ -412,16 +414,16 @@
       const createdBank = await plugin.questionBankService.createBank(bank);
       const uuidsToAdd = questionBankEligibleUUIDs.length > 0 ? questionBankEligibleUUIDs : [];
       if (uuidsToAdd.length === 0) {
-        throw new Error('所选卡片中没有可加入题库的选择题或带 #input 标签的挖空题');
+        throw new Error(t('study.questionBankUI.buildDeckModal.noEligibleQuestions'));
       }
 
       await plugin.questionBankService.addQuestionRefs(createdBank.id, uuidsToAdd);
-      new Notice(`题库“${name}”创建成功，引用了 ${uuidsToAdd.length} 题`);
+      new Notice(t('study.questionBankUI.buildDeckModal.bankCreateSuccess', { name, count: uuidsToAdd.length }));
       await notifyDeckCreated(createdBank);
       closeModal();
     } catch (error) {
       logger.error('[BuildDeckModal] 创建牌组失败:', error);
-      errorMessage = error instanceof Error ? error.message : '创建失败';
+      errorMessage = error instanceof Error ? error.message : t('study.questionBankUI.buildDeckModal.createFailed');
       new Notice(errorMessage);
     } finally {
       isSaving = false;
@@ -455,8 +457,8 @@
               bind:this={buildTargetMenuButtonRef}
               class="build-target-menu-btn"
               type="button"
-              aria-label="切换组建目标"
-              title="切换组建目标"
+              aria-label={t('study.questionBankUI.buildDeckModal.menuSwitchTarget')}
+              title={t('study.questionBankUI.buildDeckModal.menuSwitchTarget')}
               onclick={(event) => openBuildTargetMenu(event)}
               onkeydown={handleBuildTargetMenuKeydown}
             >
@@ -467,16 +469,16 @@
             <div class="build-target-menu-label">{buildTargetMenuLabel}</div>
           {/if}
         </div>
-        <button class="icon-btn header-close" aria-label="关闭" onclick={closeModal}>×</button>
+        <button class="icon-btn header-close" aria-label={t('study.questionBankUI.buildDeckModal.close')} onclick={closeModal}>×</button>
       </div>
 
       <div class="modal-body">
         <!-- 牌组名称 -->
         <label>
-          <span>名称</span>
+          <span>{t('study.questionBankUI.buildDeckModal.nameLabel')}</span>
           <input 
             class="text-input" 
-            placeholder="例如：计算机科学" 
+            placeholder={t('study.questionBankUI.buildDeckModal.namePlaceholder')} 
             bind:value={name} 
             bind:this={nameInputRef}
           />
@@ -484,7 +486,7 @@
 
         <!-- 标签选择 -->
         <label>
-          <span>牌组标签（单选）</span>
+          <span>{t('study.questionBankUI.buildDeckModal.tagLabel')}</span>
           
           <div class="tag-input-wrapper">
             {#if selectedTag}
@@ -495,7 +497,7 @@
                     type="button"
                     class="tag-chip-remove" 
                     onclick={clearTag}
-                    aria-label="移除标签"
+                    aria-label={t('study.questionBankUI.buildDeckModal.removeTag')}
                   >
                     ×
                   </button>
@@ -504,7 +506,7 @@
             {/if}
             <input 
               class="tag-input" 
-              placeholder={selectedTag ? "" : "输入标签后按回车添加"} 
+              placeholder={selectedTag ? "" : t('study.questionBankUI.buildDeckModal.tagPlaceholder')} 
               bind:value={tagInput}
               onkeydown={handleTagInput}
             />
@@ -512,7 +514,7 @@
           
           {#if availableTags.length > 0}
             <div class="available-tags">
-              <div class="available-tags-title">可选标签（点击选择）</div>
+              <div class="available-tags-title">{t('study.questionBankUI.buildDeckModal.availableTags')}</div>
               <div class="available-tags-list">
                 {#each availableTags as tag}
                   <button 
@@ -527,7 +529,7 @@
             </div>
           {/if}
           
-          <span class="hint">标签用于牌组分类，仅可选择一个标签</span>
+          <span class="hint">{t('study.questionBankUI.buildDeckModal.tagHint')}</span>
         </label>
 
         <!-- 卡片数量提示 -->
@@ -537,19 +539,19 @@
             <path d="M8 5v3M8 10.5v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
           {#if buildTarget === 'memory'}
-            <span>将引用 <strong>{selectedCardUUIDs.length}</strong> 张卡片</span>
+            <span>{t('study.questionBankUI.buildDeckModal.referenceCards', { count: selectedCardUUIDs.length })}</span>
           {:else}
-            <span>将引用 <strong>{questionBankEligibleUUIDs.length}</strong> 题</span>
+            <span>{t('study.questionBankUI.buildDeckModal.referenceQuestions', { count: questionBankEligibleUUIDs.length })}</span>
           {/if}
         </div>
 
         {#if buildTarget === 'question-bank'}
           <div class="build-target-hint">
-            <div class="build-target-hint-title">考试题组收录规则</div>
-            <div class="build-target-hint-text">仅收录选择题，以及内容中带 <code>#input</code> 标签的挖空题。</div>
-            <div class="build-target-hint-text">如果你希望某张挖空题进入考试题组，请先在卡片内容中加入 <code>#input</code> 标签。</div>
+            <div class="build-target-hint-title">{t('study.questionBankUI.buildDeckModal.inclusionRules')}</div>
+            <div class="build-target-hint-text">{@html t('study.questionBankUI.buildDeckModal.includeRule1')}</div>
+            <div class="build-target-hint-text">{@html t('study.questionBankUI.buildDeckModal.includeRule2')}</div>
             {#if questionBankSkippedCount > 0}
-              <div class="build-target-hint-warning">当前选中的卡片里有 <strong>{questionBankSkippedCount}</strong> 张不会加入考试题组。</div>
+              <div class="build-target-hint-warning">{t('study.questionBankUI.buildDeckModal.skippedWarning', { count: questionBankSkippedCount })}</div>
             {/if}
           </div>
         {/if}
@@ -563,13 +565,13 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn" onclick={closeModal}>取消</button>
+        <button class="btn" onclick={closeModal}>{t('study.questionBankUI.buildDeckModal.cancel')}</button>
         <button 
           class="btn primary" 
           disabled={!name.trim() || isSaving || (buildTarget === 'memory' ? selectedCardUUIDs.length === 0 : questionBankEligibleUUIDs.length === 0)} 
           onclick={handleSubmit}
         >
-          {isSaving ? '创建中...' : '创建'}
+          {isSaving ? t('study.questionBankUI.buildDeckModal.creating') : t('study.questionBankUI.buildDeckModal.create')}
         </button>
       </div>
     </div>
@@ -776,11 +778,6 @@
     flex-shrink: 0;
   }
   
-  .card-count-info strong {
-    color: var(--interactive-accent);
-    font-weight: 600;
-  }
-
   .build-target-hint {
     display: flex;
     flex-direction: column;
@@ -808,7 +805,7 @@
     color: var(--text-warning);
   }
 
-  .build-target-hint code {
+  :global(.build-target-hint code) {
     font-family: var(--font-monospace);
     font-size: 0.8rem;
   }

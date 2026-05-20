@@ -2,6 +2,7 @@ import { App, Modal } from "obsidian";
 import { mount, unmount } from "svelte";
 import type { Card } from "../../data/types";
 import type WeavePlugin from "../../main";
+import { t } from "../../utils/i18n";
 import { configureWeaveObsidianModalLayout } from "../../utils/obsidian-modal-layout";
 import DataManagementModal from "./DataManagementModal.svelte";
 
@@ -23,7 +24,7 @@ export class DataManagementModalObsidian extends Modal {
 	}
 
 	onOpen() {
-		this.setTitle("数据管理");
+		this.setTitle(t("dataManagement.title"));
 		configureWeaveObsidianModalLayout(this, {
 			modalClass: "weave-data-management-modal",
 			contentClass: "weave-data-management-modal-content",

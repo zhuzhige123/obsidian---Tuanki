@@ -234,6 +234,17 @@ export function truncateText(text: string, maxLength = 50): string {
 	return `${text.substring(0, maxLength)}...`;
 }
 
+/** 表格列最小宽度（像素） */
+export function getMinColumnWidth(columnKey: string): number {
+	if (columnKey === "checkbox") {
+		return 32;
+	}
+	if (columnKey === "actions") {
+		return 48;
+	}
+	return 50;
+}
+
 /**
  * 检查是否全选
  */

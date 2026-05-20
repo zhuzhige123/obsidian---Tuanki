@@ -1109,7 +1109,7 @@
     }
     
     if (deckMode === 'incremental-reading') {
-      // === 增量阅读牌组菜单（与 IRDeckView 网格视图一致）===
+      // === 增量阅读牌组菜单（与历史 IR 牌组网格视图一致）===
       menu.addItem((item) =>
         item.setTitle('专题编辑').setIcon('edit-3')
           .onClick(() => onEditDeck?.(deckId))

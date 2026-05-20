@@ -127,7 +127,7 @@
 /* ==================== 打印样式 ==================== */
 @media print {
   .weave-card-base {
-    border: 1px solid #ccc;
+    border: 1px solid #cccccc;
     box-shadow: none;
     page-break-inside: avoid;
   }
@@ -139,7 +139,7 @@
   
   .weave-elegant-divider .divider-label {
     background: transparent;
-    border: 1px solid #ccc;
+    border: 1px solid #cccccc;
   }
 }
 

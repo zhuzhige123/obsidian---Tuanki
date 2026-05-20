@@ -2,10 +2,8 @@ import { fireEvent, render } from '@testing-library/svelte';
 
 import type { Deck, DeckStats } from '../../data/types';
 import { COLOR_SCHEMES } from '../../config/card-color-schemes';
-import type { IRDeck, IRDeckStats } from '../../types/ir-types';
 import DeckGridCard from './DeckGridCard.svelte';
 import ChineseElegantDeckCard from './ChineseElegantDeckCard.svelte';
-import IRDeckCard from '../incremental-reading/IRDeckCard.svelte';
 
 const baseDeck = {
   id: 'deck-1',
@@ -40,19 +38,6 @@ const baseStats = {
   forecastDays: {}
 } satisfies DeckStats;
 
-const baseIrDeck = {
-  id: 'ir-deck-1',
-  name: '增量阅读牌组',
-  path: '增量阅读牌组'
-} as IRDeck;
-
-const baseIrStats = {
-  dueToday: 2,
-  dueWithinDays: 5,
-  questionCount: 1,
-  loadRatePercent: 80
-} as IRDeckStats;
-
 describe('deck card menu interactions', () => {
   const cases = [
     {
@@ -70,14 +55,6 @@ describe('deck card menu interactions', () => {
       props: {
         deck: baseDeck,
         stats: baseStats
-      }
-    },
-    {
-      name: 'IRDeckCard',
-      component: IRDeckCard,
-      props: {
-        deck: baseIrDeck,
-        stats: baseIrStats
       }
     }
   ] as const;

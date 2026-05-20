@@ -5,7 +5,7 @@
 
 export type LicensedProduct = 'weave' | 'weave-epub-reader';
 
-export type LicenseEntitlement = 'weave-premium' | 'epub-premium';
+export type LicenseEntitlement = 'weave-premium' | 'epub-premium' | 'ir-premium';
 
 export type LicenseSource = 'local' | 'inherited';
 

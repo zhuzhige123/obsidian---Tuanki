@@ -1,5 +1,6 @@
 <script lang="ts">
-  // 空状态组件，无需props
+  import { tr } from '../../utils/i18n';
+  let t = $derived($tr);
 </script>
 
 <div class="empty-state">
@@ -8,8 +9,8 @@
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
     </svg>
   </div>
-  <div class="empty-title">暂无历史数据</div>
-  <div class="empty-text">完成更多测试后，这里将显示你的学习趋势</div>
+  <div class="empty-title">{t('study.questionBankUI.emptyTrend.title')}</div>
+  <div class="empty-text">{t('study.questionBankUI.emptyTrend.text')}</div>
 </div>
 
 <style>

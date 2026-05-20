@@ -27,6 +27,12 @@
   //  响应式翻译函数
   let t = $derived($tr);
 
+  const providers: AIProvider[] = ['openai', 'gemini', 'anthropic', 'deepseek', 'zhipu', 'siliconflow', 'xai'];
+
+  function isKnownProvider(value: string | undefined): value is AIProvider {
+    return !!value && providers.includes(value as AIProvider);
+  }
+
   // 初始化AI配置
   function initializeAIConfig() {
     const defaultConfig = JSON.parse(JSON.stringify(DEFAULT_AI_CONFIG));
@@ -60,6 +66,22 @@
 
   let aiConfig = $state(initializeAIConfig());
 
+  function getInitialSelectedProvider(): AIProvider {
+    const lastUsedProvider = aiConfig.lastUsedProvider;
+    if (isKnownProvider(lastUsedProvider)) {
+      return lastUsedProvider;
+    }
+
+    const defaultProvider = aiConfig.defaultProvider;
+    if (isKnownProvider(defaultProvider)) {
+      return defaultProvider;
+    }
+
+    return providers[0];
+  }
+
+  let selectedProvider = $state<AIProvider>(getInitialSelectedProvider());
+
   // API密钥显示/隐藏状态
   let showApiKey = $state<Record<AIProvider, boolean>>({
     openai: false,
@@ -83,6 +105,11 @@
     xai: null
   });
 
+  let selectedProviderConfig = $derived(aiConfig.apiKeys[selectedProvider]);
+  let selectedProviderVerified = $derived(!!selectedProviderConfig?.verified);
+  let selectedProviderTesting = $derived(testingProvider === selectedProvider);
+  let selectedProviderTestResult = $derived(testResults[selectedProvider]);
+
   // 自定义模型浮窗状态
   let showCustomModelModal = $state(false);
   let modalProvider = $state<AIProvider | null>(null);
@@ -102,8 +129,16 @@
     }, 500);
   }
 
-  const providers: AIProvider[] = ['openai', 'gemini', 'anthropic', 'deepseek', 'zhipu', 'siliconflow', 'xai'];
   let providerFingerprints = $state(buildAIProviderVerificationFingerprintMap(providers, aiConfig.apiKeys));
+
+  function selectProvider(provider: AIProvider) {
+    if (selectedProvider === provider) {
+      return;
+    }
+
+    selectedProvider = provider;
+    aiConfig.lastUsedProvider = provider;
+  }
 
   function markProviderVerificationDirty(provider: AIProvider) {
     const config = aiConfig.apiKeys?.[provider];
@@ -163,6 +198,26 @@
   // 切换API密钥显示
   function toggleApiKeyVisibility(provider: AIProvider) {
     showApiKey[provider] = !showApiKey[provider];
+  }
+
+  function showProviderSelector(event: MouseEvent) {
+    const menu = new Menu();
+
+    providers.forEach((provider) => {
+      const config = aiConfig.apiKeys?.[provider];
+      const isVerified = !!config?.verified;
+
+      menu.addItem((item) => {
+        item
+          .setTitle(AI_PROVIDER_LABELS[provider])
+          .setIcon(provider === selectedProvider ? 'check' : isVerified ? 'shield-check' : 'circle')
+          .onClick(() => {
+            selectProvider(provider);
+          });
+      });
+    });
+
+    menu.showAtMouseEvent(event);
   }
 
   // 测试API连接（真实调用API）
@@ -362,41 +417,51 @@
 </script>
 
 <div class="weave-settings settings-section ai-config-section">
-  
+  <div class="settings-group">
+    <div class="group-header-with-menu">
+      <button
+        type="button"
+        class="provider-selector-button group-title with-accent-bar accent-purple"
+        aria-label={t('aiConfig.providers.select')}
+        title={t('aiConfig.providers.select')}
+        onclick={showProviderSelector}
+        onkeydown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            const buttonRect = e.currentTarget.getBoundingClientRect();
+            const syntheticEvent = new MouseEvent('click', {
+              clientX: buttonRect.left,
+              clientY: buttonRect.bottom,
+              bubbles: true
+            });
+            showProviderSelector(syntheticEvent);
+          }
+        }}
+      >
+        <span>{AI_PROVIDER_LABELS[selectedProvider]}</span>
+        <ObsidianIcon name="chevron-down" size={16} />
+      </button>
 
-  <!-- 每个 API 提供商作为独立的 settings-group -->
-  {#each providers as provider}
-    {@const config = aiConfig.apiKeys[provider]}
-    {@const isVerified = config?.verified || false}
-    {@const isTesting = testingProvider === provider}
-    {@const testResult = testResults[provider]}
-
-    <div class="settings-group">
-      <div class="group-header-with-menu">
-        <h4 class="group-title with-accent-bar accent-purple">
-          <span>{AI_PROVIDER_LABELS[provider]}</span>
-          {#if isVerified}
-            <span class="badge badge-success">{t('aiConfig.apiKeys.verified')}</span>
-          {/if}
-          <!-- provider description removed for cleaner UI -->
-        </h4>
+      <div class="provider-header-actions">
+        {#if selectedProviderVerified}
+          <span class="badge badge-success">{t('aiConfig.apiKeys.verified')}</span>
+        {/if}
         <button 
           type="button"
           class="provider-menu-btn"
           aria-label={t('aiConfig.apiKeys.menuLabel')}
-          title={t('aiConfig.apiKeys.configOptions')}
-          onclick={(e) => showProviderMenu(provider, e)}
+          title={`${AI_PROVIDER_LABELS[selectedProvider]} ${t('aiConfig.apiKeys.configOptions')}`}
+          onclick={(e) => showProviderMenu(selectedProvider, e)}
           onkeydown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
-              // 对于键盘事件，创建一个模拟的MouseEvent用于菜单定位
               const buttonRect = e.currentTarget.getBoundingClientRect();
               const syntheticEvent = new MouseEvent('click', {
                 clientX: buttonRect.left,
                 clientY: buttonRect.bottom,
                 bubbles: true
               });
-              showProviderMenu(provider, syntheticEvent);
+              showProviderMenu(selectedProvider, syntheticEvent);
             }
           }}
         >
@@ -407,86 +472,83 @@
           </svg>
         </button>
       </div>
-
-      {#if config}
-        <!-- API密钥 -->
-        <div class="setting-item">
-          <div class="setting-info">
-            <div class="setting-label">{t('aiConfig.apiKeys.apiKeyLabel')}</div>
-          </div>
-          <div class="setting-control">
-            <div class="input-with-button">
-              <input
-                type={showApiKey[provider] ? 'text' : 'password'}
-                value={config.apiKey}
-                oninput={(event) => updateProviderApiKey(provider, (event.currentTarget as HTMLInputElement).value)}
-                placeholder={AI_PROVIDER_CAPABILITIES[provider].keyPlaceholder}
-                class="text-input"
-              />
-              <button
-                class="btn-icon"
-                onclick={() => toggleApiKeyVisibility(provider)}
-                title={showApiKey[provider] ? t('aiConfig.apiKeys.hide') : t('aiConfig.apiKeys.show')}
-              >
-                <ObsidianIcon 
-                  name={showApiKey[provider] ? 'eye-off' : 'eye'} 
-                  size={16} 
-                />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- 模型列表 -->
-        <div class="setting-item">
-          <div class="setting-info">
-            <div class="setting-label">{t('aiConfig.apiKeys.modelListLabel')}</div>
-          </div>
-          <div class="setting-control">
-            <ObsidianDropdown
-              options={getModelOptions(provider).map(opt => ({ id: opt.id, label: opt.label, description: opt.description }))}
-              value={config.model}
-              onchange={(value) => updateProviderModel(provider, value)}
-            />
-          </div>
-        </div>
-
-        <!-- 测试连接 -->
-        <div class="setting-item">
-          <div class="setting-info">
-            <div class="setting-label">{t('aiConfig.apiKeys.testConnection')}</div>
-          </div>
-          <div class="setting-control">
-            <div class="test-control-group">
-              <button
-                class="test-btn"
-                onclick={() => testConnection(provider)}
-                disabled={!config?.apiKey || isTesting}
-              >
-                {#if isTesting}
-                  <ObsidianIcon name="loader" size={14} />
-                  <span>{t('aiConfig.apiKeys.testing')}</span>
-                {:else}
-                  <ObsidianIcon name="zap" size={14} />
-                  <span>{t('aiConfig.apiKeys.testConnection')}</span>
-                {/if}
-              </button>
-
-              {#if testResult}
-                <div class="test-result" class:success={testResult.success} class:error={!testResult.success}>
-                  <ObsidianIcon 
-                    name={testResult.success ? 'check-circle' : 'x-circle'} 
-                    size={14} 
-                  />
-                  <span>{testResult.message}</span>
-                </div>
-              {/if}
-            </div>
-          </div>
-        </div>
-      {/if}
     </div>
-  {/each}
+
+    {#if selectedProviderConfig}
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-label">{t('aiConfig.apiKeys.apiKeyLabel')}</div>
+        </div>
+        <div class="setting-control">
+          <div class="input-with-button">
+            <input
+              type={showApiKey[selectedProvider] ? 'text' : 'password'}
+              value={selectedProviderConfig.apiKey}
+              oninput={(event) => updateProviderApiKey(selectedProvider, (event.currentTarget as HTMLInputElement).value)}
+              placeholder={AI_PROVIDER_CAPABILITIES[selectedProvider].keyPlaceholder}
+              class="text-input"
+            />
+            <button
+              class="btn-icon"
+              onclick={() => toggleApiKeyVisibility(selectedProvider)}
+              title={showApiKey[selectedProvider] ? t('aiConfig.apiKeys.hide') : t('aiConfig.apiKeys.show')}
+            >
+              <ObsidianIcon 
+                name={showApiKey[selectedProvider] ? 'eye-off' : 'eye'} 
+                size={16} 
+              />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-label">{t('aiConfig.apiKeys.modelListLabel')}</div>
+        </div>
+        <div class="setting-control">
+          <ObsidianDropdown
+            options={getModelOptions(selectedProvider).map(opt => ({ id: opt.id, label: opt.label, description: opt.description }))}
+            value={selectedProviderConfig.model}
+            onchange={(value) => updateProviderModel(selectedProvider, value)}
+          />
+        </div>
+      </div>
+
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-label">{t('aiConfig.apiKeys.testConnection')}</div>
+        </div>
+        <div class="setting-control">
+          <div class="test-control-group">
+            <button
+              class="test-btn"
+              onclick={() => testConnection(selectedProvider)}
+              disabled={!selectedProviderConfig?.apiKey || selectedProviderTesting}
+            >
+              {#if selectedProviderTesting}
+                <ObsidianIcon name="loader" size={14} />
+                <span>{t('aiConfig.apiKeys.testing')}</span>
+              {:else}
+                <ObsidianIcon name="zap" size={14} />
+                <span>{t('aiConfig.apiKeys.testConnection')}</span>
+              {/if}
+            </button>
+
+            {#if selectedProviderTestResult}
+              <div class="test-result" class:success={selectedProviderTestResult.success} class:error={!selectedProviderTestResult.success}>
+                <ObsidianIcon 
+                  name={selectedProviderTestResult.success ? 'check-circle' : 'x-circle'} 
+                  size={14} 
+                />
+                <span>{selectedProviderTestResult.message}</span>
+              </div>
+            {/if}
+          </div>
+        </div>
+      </div>
+    {/if}
+  </div>
 </div>
 
 <!-- 自定义模型浮窗 -->
@@ -546,7 +608,7 @@
   .group-header-with-menu {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     gap: 0.75rem;
     margin-bottom: 0;
     padding-bottom: 0.4rem;
@@ -559,6 +621,33 @@
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
+  }
+
+  .provider-selector-button {
+    padding: 0;
+    border: 0 !important;
+    outline: none;
+    box-shadow: none !important;
+    background: transparent !important;
+    appearance: none;
+    -webkit-appearance: none;
+    color: var(--text-normal);
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .provider-selector-button:hover {
+    color: var(--interactive-accent);
+  }
+
+  .provider-selector-button:focus-visible {
+    color: var(--interactive-accent);
+  }
+
+  .provider-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   /* 徽章 */

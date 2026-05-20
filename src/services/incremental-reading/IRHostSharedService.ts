@@ -3,7 +3,7 @@ import { IRDeckSelectorModal } from "../../modals/IRDeckSelectorModal";
 import type { IRDeck, IRChunkFileData } from "../../types/ir-types";
 import { createDefaultChunkFileData, generateChunkId, generateSourceId } from "../../types/ir-types";
 import { logger } from "../../utils/logger";
-import { EpubStorageService } from "../epub/EpubStorageService";
+import { EpubStorageService } from "../epub-integration/EpubStorageService";
 import { IREpubBookmarkTaskService } from "./IREpubBookmarkTaskService";
 import {
 	normalizeIRReadableMarkdownFolderPath,

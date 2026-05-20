@@ -65,6 +65,14 @@
     question.options.filter((opt) => opt.isCorrect).map((opt) => opt.label)
   );
 
+  let sortedSelectedOptions = $derived(
+    [...selectedOptions].sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  );
+
+  let sortedCorrectAnswerLabels = $derived(
+    [...correctAnswerLabels].sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  );
+
   function handleOptionClick(option: ChoiceOption) {
     if (showAnswer) return;
     const label = option.label;
@@ -174,13 +182,13 @@
       <div class="comparison-line your-answer-line">
         <span class="comparison-label">你的答案</span>
         <span class="comparison-value" class:incorrect={!isCorrect}>
-          {selectedOptions.sort().join('、')}
+          {sortedSelectedOptions.join('、')}
         </span>
       </div>
       <div class="comparison-line correct-answer-line">
         <span class="comparison-label">正确答案</span>
         <span class="comparison-value correct">
-          {correctAnswerLabels.sort().join('、')}
+          {sortedCorrectAnswerLabels.join('、')}
         </span>
       </div>
     </div>
