@@ -16,6 +16,7 @@
 
   import { logger } from '../../utils/logger';
   import { tr } from '../../utils/i18n';
+  import { writeSystemClipboardText } from '../../utils/system-clipboard';
   import { AnkiConnectService } from '../../services/ankiconnect/AnkiConnectService';
   import { ConnectionErrorType } from '../../types/ankiconnect-types';
   import {
@@ -92,9 +93,9 @@
     resultModal.isRepairing = false;
   }
 
-  function copyCorsConfig() {
-    navigator.clipboard.writeText(corsConfigSnippet);
-    new Notice(t('ankiConnect.notices.copiedToClipboard'));
+  async function copyCorsConfig() {
+    const copied = await writeSystemClipboardText(corsConfigSnippet);
+    new Notice(copied ? t('ankiConnect.notices.copiedToClipboard') : '复制失败');
   }
 
   function showResultModal(title: string, result: ExportResult) {

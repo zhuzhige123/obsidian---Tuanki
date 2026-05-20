@@ -5408,7 +5408,7 @@
     />
 
     <!-- 主要内容区域 -->
-    <div class="study-content" class:with-sidebar={showSidebar}>
+    <div class="study-content" class:with-sidebar={showSidebar} class:editing={showEditModal}>
       <!-- 主学习区域 -->
       <div class="main-study-area">
         {#if currentCard}
@@ -5451,7 +5451,7 @@
 
           <!-- 卡片学习区域 - 预览与编辑互斥显示，高度自适应 -->
           <div class="card-study-container">
-            <div class="card-container">
+            <div class="card-container" class:editing={showEditModal}>
               {#if showEditModal}
                 <!-- 编辑器容器组件 -->
                 <CardEditorContainer
@@ -5994,7 +5994,7 @@
   }
 
   /* 编辑模式下（没有footer），调整网格行为单行 */
-  .study-content:has(:global(.inline-editor-container)) {
+  .study-content.editing {
     grid-template-rows: 1fr; /* 只有一行 */
   }
 
@@ -6058,7 +6058,7 @@
   }
   
   /*  编辑模式时移除card-container的padding，让编辑器占满空间 */
-  .card-container:has(:global(.inline-editor-container)) {
+  .card-container.editing {
     padding: 0;
   }
 

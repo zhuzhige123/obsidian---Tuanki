@@ -61,7 +61,12 @@
   }
 </script>
 
-<div class="settings-input-row">
+<div
+  class="settings-input-row"
+  class:weave-setting-row--toggle={type === 'checkbox'}
+  class:weave-setting-row--dropdown={type === 'select'}
+  class:weave-setting-row--with-description={Boolean(description)}
+>
   <div class="input-label-section">
     <label for={id} class="input-label">{label}</label>
     {#if description}

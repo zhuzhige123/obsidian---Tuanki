@@ -34,31 +34,31 @@
 
 .force-mobile-view .deck-grid-card,
 .force-mobile-view .chinese-elegant-card {
-  width: 100% !important;
-  margin: 0 !important;
-  height: 180px !important;
+  width: 100%;
+  margin: 0;
+  height: 180px;
 }
 
 .force-mobile-view .vertical-toolbar {
-  width: 56px !important;
-  padding: 0.5rem 0 !important;
+  width: 56px;
+  padding: 0.5rem 0;
 }
 
 .force-mobile-view .vertical-toolbar .btn-label {
-  display: none !important;
+  display: none;
 }
 
 .force-mobile-view .grid-card-view .cards-grid {
-  grid-template-columns: 1fr !important;
-  gap: 12px !important;
-  padding: 8px !important;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 8px;
 }
 
 .force-mobile-view .rating-modern .rate-grid,
 .force-mobile-view .rate-grid {
-  display: grid !important;
-  grid-template-columns: repeat(2, 1fr) !important;
-  gap: 8px !important;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
 }
 
 /* ==================== 手机端媒体查询 (max-width: 480px) ==================== */
@@ -95,7 +95,7 @@
   /* ✅ 保留 !important：响应式隐藏工具类，需要强制覆盖 */
   /* 参考：.augment/rules/core/04-anti-force-methods.md */
   body:not(.is-mobile) .weave-app .weave-hide-mobile-sm {
-    display: none !important;
+    display: none;
   }
 
   /* 页面标题缩小 */
@@ -182,7 +182,7 @@
   /* 隐藏更多非必要元素 */
   /* ✅ 保留 !important：响应式隐藏工具类 */
   body:not(.is-mobile) .weave-app .weave-hide-mobile-xs {
-    display: none !important;
+    display: none;
   }
 
   /* 牌组卡片进一步缩小 */
@@ -217,11 +217,11 @@
   /* 侧边栏隐藏 */
   /* ✅ 保留 !important：响应式隐藏，需要强制覆盖 */
   body:not(.is-mobile) .vertical-toolbar {
-    display: none !important;
+    display: none;
   }
 
   body:not(.is-mobile) .sidebar-content {
-    display: none !important;
+    display: none;
   }
 
   /* 学习界面全屏 */
@@ -246,27 +246,27 @@
 
 /* 仅在移动端显示 */
 .weave-show-mobile-only {
-  display: none !important;
+  display: none;
 }
 
 @media (max-width: 480px) {
   body:not(.is-mobile) .weave-show-mobile-only {
-    display: flex !important;
+    display: flex;
   }
 }
 
 /* 仅在桌面端显示 */
 @media (max-width: 480px) {
   body:not(.is-mobile) .weave-hide-mobile {
-    display: none !important;
+    display: none;
   }
 }
 
 /* 移动端全宽 */
 @media (max-width: 480px) {
   body:not(.is-mobile) .weave-mobile-full-width {
-    width: 100% !important;
-    max-width: none !important;
+    width: 100%;
+    max-width: none;
   }
 }
 
@@ -274,8 +274,8 @@
 /* ✅ 保留 !important：响应式布局工具类，需要强制覆盖 */
 @media (max-width: 480px) {
   body:not(.is-mobile) .weave-mobile-stack {
-    flex-direction: column !important;
-    align-items: stretch !important;
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
@@ -363,9 +363,9 @@
   .weave-app *,
   .weave-app *::before,
   .weave-app *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
   }
 }
 

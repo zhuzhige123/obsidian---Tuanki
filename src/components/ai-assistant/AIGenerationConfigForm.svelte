@@ -161,19 +161,19 @@
         <fieldset class="config-fieldset">
           <legend class="visually-hidden">{t('aiAssistant.generationConfig.sections.difficulty')}</legend>
           <div class="radio-group">
-            <label class="radio-item">
+            <label class="radio-item" class:selected={localConfig.difficulty === 'easy'}>
               <input type="radio" name="difficulty" value="easy" bind:group={localConfig.difficulty} />
               <span class="radio-label">{t('aiAssistant.generationConfig.difficulty.easy')}</span>
             </label>
-            <label class="radio-item">
+            <label class="radio-item" class:selected={localConfig.difficulty === 'medium'}>
               <input type="radio" name="difficulty" value="medium" bind:group={localConfig.difficulty} />
               <span class="radio-label">{t('aiAssistant.generationConfig.difficulty.medium')}</span>
             </label>
-            <label class="radio-item">
+            <label class="radio-item" class:selected={localConfig.difficulty === 'hard'}>
               <input type="radio" name="difficulty" value="hard" bind:group={localConfig.difficulty} />
               <span class="radio-label">{t('aiAssistant.generationConfig.difficulty.hard')}</span>
             </label>
-            <label class="radio-item">
+            <label class="radio-item" class:selected={localConfig.difficulty === 'mixed'}>
               <input type="radio" name="difficulty" value="mixed" bind:group={localConfig.difficulty} />
               <span class="radio-label">{t('aiAssistant.generationConfig.difficulty.mixed')}</span>
             </label>
@@ -506,7 +506,7 @@
     border-radius: 50%;
   }
 
-  .radio-item:has(input:checked) {
+  .radio-item.selected {
     border-color: var(--interactive-accent);
     background: rgba(124, 58, 237, 0.1);
   }

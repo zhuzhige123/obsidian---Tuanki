@@ -28,6 +28,7 @@
     type CardHistoryEvent,
     type TimelineDisplayMode
   } from '../../../utils/card-relation-helpers';
+  import { writeSystemClipboardText } from '../../../utils/system-clipboard';
   //  卡片详情模态窗改用全局方法 plugin.openViewCardModal()
 
   //  移动端检测
@@ -117,9 +118,9 @@
   }
 
   // 复制UUID
-  function copyUUID() {
-    navigator.clipboard.writeText(card.uuid);
-    new Notice(t('modals.cardInfoTab.copyUUID'));
+  async function copyUUID() {
+    const copied = await writeSystemClipboardText(card.uuid);
+    new Notice(copied ? t('modals.cardInfoTab.copyUUID') : '复制 UUID 失败');
   }
 
   // 跳转到来源文档，并定位高亮目标内容

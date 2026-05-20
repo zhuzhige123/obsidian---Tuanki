@@ -34,6 +34,7 @@
   import { getSourceLocateOverlayService } from '../../services/ui/SourceLocateOverlayService';
   import { SourceNavigationService } from '../../services/ui/SourceNavigationService';
   import { getCanvasLocateSupportFromCardContent, normalizeCanvasNodeId } from '../../services/ui/canvas-source-locate';
+  import { writeSystemClipboardText } from '../../utils/system-clipboard';
   // 导入 AI 助手菜单构建器
   import { AIAssistantMenuBuilder } from '../../services/menu/AIAssistantMenuBuilder';
 
@@ -535,10 +536,10 @@
   /**
    * 复制源块内容到剪贴板
    */
-  function copySourceBlockContent() {
+  async function copySourceBlockContent() {
     if (sourceBlockContent) {
-      navigator.clipboard.writeText(sourceBlockContent);
-      new Notice(t('toolbar.copiedSourceBlock'));
+      const copied = await writeSystemClipboardText(sourceBlockContent);
+      new Notice(copied ? t('toolbar.copiedSourceBlock') : '复制失败');
     }
   }
 

@@ -184,15 +184,15 @@ body.is-mobile .weave-app .study-btn {
 
 body.is-mobile .weave-app .weave-hide-mobile,
 body.is-mobile .weave-app .hide-on-mobile {
-  display: none !important;
+  display: none;
 }
 
 .weave-show-mobile-only {
-  display: none !important;
+  display: none;
 }
 
 body.is-mobile .weave-app .weave-show-mobile-only {
-  display: flex !important;
+  display: flex;
 }
 
 /* ==================== 全局输入框规则 ==================== */
@@ -222,6 +222,9 @@ body.is-mobile .weave-app .card-grid {
 
 body.is-mobile .weave-app .weave-table {
   font-size: 0.8125rem;
+  min-width: auto;
+  width: 100%;
+  table-layout: auto;
 }
 
 body.is-mobile .weave-app .weave-table th,
@@ -290,7 +293,7 @@ body.is-phone .weave-settings .row {
    align-items: center;
  }
 
- body.is-phone .weave-settings .setting-item.mod-toggle:has(.setting-item-description) {
+ body.is-phone .weave-settings .setting-item.mod-toggle.weave-setting-item--with-description {
    align-items: flex-start;
  }
 
@@ -307,98 +310,98 @@ body.is-phone .weave-settings .row {
    margin-left: auto;
  }
 
- body.is-phone .weave-settings .setting-item.mod-toggle:has(.setting-item-description) .setting-item-control {
+ body.is-phone .weave-settings .setting-item.mod-toggle.weave-setting-item--with-description .setting-item-control {
    align-self: flex-start;
    padding-top: 2px;
  }
 
  /* 📱 手机端：自定义 setting-item + toggle-switch 保持横排对齐 */
- body.is-phone .weave-settings .setting-item:has(.toggle-switch) {
+ body.is-phone .weave-settings .setting-item.weave-setting-item--toggle {
    flex-direction: row;
    align-items: center;
  }
 
- body.is-phone .weave-settings .setting-item:has(.toggle-switch):has(.setting-description) {
+ body.is-phone .weave-settings .setting-item.weave-setting-item--toggle.weave-setting-item--with-description {
    align-items: flex-start;
  }
 
- body.is-phone .weave-settings .setting-item:has(.toggle-switch) .setting-info {
+ body.is-phone .weave-settings .setting-item.weave-setting-item--toggle .setting-info {
    width: auto;
    flex: 1;
    min-width: 0;
  }
 
- body.is-phone .weave-settings .setting-item:has(.toggle-switch) .setting-control {
+ body.is-phone .weave-settings .setting-item.weave-setting-item--toggle .setting-control {
    width: auto;
    max-width: none;
    align-self: center;
    margin-left: auto;
  }
 
- body.is-phone .weave-settings .setting-item:has(.toggle-switch):has(.setting-description) .setting-control {
+ body.is-phone .weave-settings .setting-item.weave-setting-item--toggle.weave-setting-item--with-description .setting-control {
    align-self: flex-start;
    padding-top: 2px;
  }
 
  /* 📱 手机端：自定义 row + switch 保持横排对齐 */
- body.is-phone .weave-settings .row:has(.modern-switch),
- body.is-phone .weave-settings .row:has(.checkbox-container.mod-toggle) {
+ body.is-phone .weave-settings .row.weave-setting-row--toggle,
+ body.is-phone .weave-settings .row.weave-setting-row--checkbox {
    flex-direction: row;
    align-items: center;
    justify-content: space-between;
  }
 
- body.is-phone .weave-settings .row:has(.label-with-desc):has(.modern-switch),
- body.is-phone .weave-settings .row:has(.label-with-desc):has(.checkbox-container.mod-toggle) {
+ body.is-phone .weave-settings .row.weave-setting-row--toggle.weave-setting-row--with-description,
+ body.is-phone .weave-settings .row.weave-setting-row--checkbox.weave-setting-row--with-description {
    align-items: flex-start;
  }
 
  /* 📱 手机端：下拉/选择类设置项保持横排对齐（控件在标题行右侧） */
- body.is-phone .weave-settings .row:has(.obsidian-dropdown-trigger),
- body.is-phone .weave-settings .row:has(select) {
+ body.is-phone .weave-settings .row.weave-setting-row--dropdown,
+ body.is-phone .weave-settings .row.weave-setting-row--select {
    flex-direction: row;
    align-items: center;
    justify-content: space-between;
  }
 
- body.is-phone .weave-settings .row:has(.label-with-desc):has(.obsidian-dropdown-trigger),
- body.is-phone .weave-settings .row:has(.label-with-desc):has(select) {
+ body.is-phone .weave-settings .row.weave-setting-row--dropdown.weave-setting-row--with-description,
+ body.is-phone .weave-settings .row.weave-setting-row--select.weave-setting-row--with-description {
    align-items: flex-start;
  }
 
- body.is-phone .weave-settings .row:has(.obsidian-dropdown-trigger) > label:first-child,
- body.is-phone .weave-settings .row:has(select) > label:first-child {
+ body.is-phone .weave-settings .row.weave-setting-row--dropdown > label:first-child,
+ body.is-phone .weave-settings .row.weave-setting-row--select > label:first-child {
    width: auto;
    flex: 1;
    min-width: 0;
  }
 
- body.is-phone .weave-settings .row:has(.obsidian-dropdown-trigger) .obsidian-dropdown-trigger,
- body.is-phone .weave-settings .row:has(select) select {
+ body.is-phone .weave-settings .row.weave-setting-row--dropdown .obsidian-dropdown-trigger,
+ body.is-phone .weave-settings .row.weave-setting-row--select select {
    width: auto;
    max-width: none;
    align-self: center;
    margin-left: auto;
  }
 
- body.is-phone .weave-settings .row:has(.label-with-desc):has(.obsidian-dropdown-trigger) .obsidian-dropdown-trigger,
- body.is-phone .weave-settings .row:has(.label-with-desc):has(select) select {
+ body.is-phone .weave-settings .row.weave-setting-row--dropdown.weave-setting-row--with-description .obsidian-dropdown-trigger,
+ body.is-phone .weave-settings .row.weave-setting-row--select.weave-setting-row--with-description select {
    align-self: flex-start;
    margin-top: 2px;
  }
 
- body.is-phone .weave-settings .row:has(.modern-switch) > label:first-child,
- body.is-phone .weave-settings .row:has(.checkbox-container.mod-toggle) > label:first-child {
+ body.is-phone .weave-settings .row.weave-setting-row--toggle > label:first-child,
+ body.is-phone .weave-settings .row.weave-setting-row--checkbox > label:first-child {
    width: auto;
    flex: 1;
    min-width: 0;
  }
 
- body.is-phone .weave-settings .row:has(.modern-switch) .modern-switch {
+ body.is-phone .weave-settings .row.weave-setting-row--toggle .modern-switch {
    align-self: center;
  }
 
- body.is-phone .weave-settings .row:has(.label-with-desc):has(.modern-switch) .modern-switch {
+ body.is-phone .weave-settings .row.weave-setting-row--toggle.weave-setting-row--with-description .modern-switch {
    align-self: flex-start;
    margin-top: 2px;
  }
@@ -595,9 +598,9 @@ body.is-mobile .weave-app .scrollable {
   body.is-mobile .weave-app *,
   body.is-mobile .weave-app *::before,
   body.is-mobile .weave-app *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
   }
 }
 
@@ -688,7 +691,7 @@ body.is-tablet .weave-app .study-btn {
 :global(body.is-phone.weave-study-active) .workspace-tab-header-container,
 :global(body.is-phone.weave-study-active) .view-header,
 :global(body.is-phone.weave-study-active) .workspace-tab-header {
-  display: none !important;
+  display: none;
 }
 */
 
@@ -706,7 +709,7 @@ body.is-tablet .weave-app .study-btn {
 :global(body.is-mobile.weave-edit-active) .study-header,
 :global(body.is-phone.weave-edit-active) .stats-cards,
 :global(body.is-mobile.weave-edit-active) .stats-cards {
-  display: none !important;
+  display: none;
 }
 
 /* 📱 手机端编辑模式：防止键盘弹出时内容区域缩小 */
@@ -747,13 +750,12 @@ body.is-tablet .weave-app .study-btn {
 /* ✅ 保留 !important：响应式隐藏，需要强制覆盖 */
 /* 参考：.augment/rules/core/04-anti-force-methods.md */
 :global(body.is-phone) .weave-app .vertical-toolbar {
-  display: none !important;
+  display: none;
 }
 
 /* 🔧 修复：手机端隐藏侧边栏容器 */
-/* ✅ 保留 !important：响应式隐藏，需要强制覆盖 */
 :global(body.is-phone) .weave-app .sidebar-content {
-  display: none !important;
+  display: none;
 }
 
 /* 手机端：学习界面主容器布局调整 */
@@ -919,7 +921,7 @@ body.is-tablet .weave-app .study-btn {
 /* ✅ 保留 !important：响应式显示，需要强制覆盖默认的 display: none */
 /* 参考：.augment/rules/core/04-anti-force-methods.md */
 :global(body.is-phone) .weave-app .mobile-menu-btn {
-  display: flex !important;
+  display: flex;
 }
 
 /* 桌面端：隐藏移动端菜单按钮 */
@@ -1299,50 +1301,6 @@ body.is-mobile .weave-app .mobile-kanban-card {
 }
 
 /* 看板底部滚动条 */
-body.is-mobile .weave-app .mobile-kanban-scrollbar {
-  height: var(--weave-mobile-kanban-scrollbar-height, 32px);
-  background: var(--background-secondary);
-  border-radius: 8px;
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
-}
-
-body.is-mobile .weave-app .mobile-scrollbar-track {
-  flex: 1;
-  height: 4px;
-  background: var(--background-primary);
-  border-radius: 2px;
-  position: relative;
-}
-
-body.is-mobile .weave-app .mobile-scrollbar-thumb {
-  position: absolute;
-  left: 0;
-  top: 0;
-  height: 100%;
-  background: var(--weave-mobile-primary-color, #7c3aed);
-  border-radius: 2px;
-  transition: left 0.1s ease;
-}
-
-body.is-mobile .weave-app .mobile-scrollbar-arrow {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-  background: transparent;
-  border: none;
-}
-
-body.is-mobile .weave-app .mobile-scrollbar-arrow:active {
-  color: var(--weave-mobile-primary-color, #a78bfa);
-}
 
 /* ==================== 内容区域底部间距 ==================== */
 
@@ -1386,11 +1344,6 @@ body.is-mobile .weave-app .weave-table-wrapper {
 }
 
 /* 移动端表格 - 简化为三列 */
-body.is-mobile .weave-app .weave-table {
-  min-width: auto;
-  width: 100%;
-  table-layout: auto;
-}
 
 /* 移动端表格头部 */
 body.is-mobile .weave-app .weave-table thead th {
@@ -1439,7 +1392,7 @@ body.is-mobile .weave-app .weave-table .col-last_test,
 body.is-mobile .weave-app .weave-table .col-error_level {
   /* ✅ 保留 !important：响应式隐藏表格列，需要强制覆盖 */
   /* 参考：.augment/rules/core/04-anti-force-methods.md */
-  display: none !important;
+  display: none;
 }
 
 /* 移动端卡片内容列 - 文本截断 */
@@ -1530,8 +1483,8 @@ body.is-mobile .weave-app .grid-view {
 /* ✅ 保留 !important：移动端需要强制覆盖桌面端的多列布局 */
 /* 参考：.augment/rules/core/04-anti-force-methods.md - 响应式布局是合理场景 */
 body.is-mobile .weave-app .grid-container {
-  --column-count: var(--weave-mobile-grid-columns, 2) !important;
-  grid-template-columns: repeat(var(--weave-mobile-grid-columns, 2), 1fr) !important;
+  --column-count: var(--weave-mobile-grid-columns, 2);
+  grid-template-columns: repeat(var(--weave-mobile-grid-columns, 2), 1fr);
   gap: var(--weave-mobile-grid-gap, 8px);
 }
 
@@ -1621,8 +1574,8 @@ body.is-mobile .weave-app .lazy-grid-card .card-actions {
 /* 这是移动端交互的关键功能，必须确保显示 */
 body.is-mobile .weave-app .grid-card .card-actions.mobile-visible,
 body.is-mobile .weave-app .lazy-grid-card .card-actions.mobile-visible {
-  opacity: 1 !important;
-  pointer-events: auto !important;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* 移动端网格卡片固定高度布局调整 */
@@ -1795,15 +1748,11 @@ body.is-mobile .weave-app .kanban-drag-handle {
 
 /* ==================== 桌面端隐藏移动端专属元素 ==================== */
 
-.weave-app .mobile-top-header,
-.weave-app .mobile-fab,
-.weave-app .mobile-kanban-scrollbar {
+.weave-app :is(.mobile-top-header, .mobile-fab, .mobile-kanban-scrollbar) {
   display: none;
 }
 
-body.is-mobile .weave-app .mobile-top-header,
-body.is-mobile .weave-app .mobile-fab,
-body.is-mobile .weave-app .mobile-kanban-scrollbar {
+body.is-mobile .weave-app :is(.mobile-top-header, .mobile-fab, .mobile-kanban-scrollbar) {
   display: flex;
 }
 
@@ -1814,7 +1763,7 @@ body.is-mobile .weave-app .mobile-kanban-scrollbar {
 /* 这些样式处理虚拟键盘弹出时的复杂布局问题，是移动端体验的核心 */
 body.is-mobile .weave-app .keyboard-visible {
   /* 禁用父容器滚动，防止页面整体滚动 */
-  overflow: hidden !important;
+  overflow: hidden;
 }
 
 /* 🆕 iOS Safari CSS 动画 Hack - 帮助正确处理 viewport */
@@ -1841,12 +1790,12 @@ body.is-mobile .weave-app .keyboard-visible .inline-editor-container {
 /* ✅ 保留 !important：确保编辑器在键盘弹出时可以正确滚动 */
 body.is-mobile .weave-app .keyboard-visible .cm-editor {
   /* 确保编辑器内部可滚动 */
-  overflow-y: auto !important;
+  overflow-y: auto;
 }
 
 body.is-mobile .weave-app .keyboard-visible .cm-scroller {
   /* 确保滚动区域正确 */
-  overflow-y: auto !important;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -1858,20 +1807,20 @@ body.is-phone.weave-edit-active .study-interface-overlay,
 body.is-mobile.weave-edit-active .study-interface-overlay {
   /* 高度由 JavaScript 通过 style 属性动态设置为 visualViewport.height */
   /* 这里只设置 fallback 值 */
-  height: var(--weave-viewport-height, 100%) !important;
+  height: var(--weave-viewport-height, 100%);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  padding: 0 !important;
+  padding: 0;
   /* 关键：保持在 view-content 内，避免默认态正文跑进 Obsidian 顶部栏 */
-  position: absolute !important;
+  position: absolute;
   /* 继续从当前 view-content 顶部开始，由 JavaScript 计算真实可见高度 */
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  bottom: auto !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: auto;
   /* height 使用前面定义的 --weave-viewport-height */
 }
 
@@ -1894,11 +1843,11 @@ body.is-phone.weave-edit-active .view-header,
 body.is-mobile.weave-edit-active .workspace-tab-header-container,
 body.is-mobile.weave-edit-active .workspace-tab-header,
 body.is-mobile.weave-edit-active .view-header {
-  background: transparent !important;
-  border-bottom-color: transparent !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  background: transparent;
+  border-bottom-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* 编辑模式下的内容区域 */
@@ -1935,7 +1884,7 @@ body.is-mobile.weave-edit-active .inline-editor-container {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  margin: 0 !important;
+  margin: 0;
   overflow: hidden;
 }
 
@@ -1951,7 +1900,7 @@ body.is-mobile.weave-edit-active .cm-editor {
 /* ✅ 保留 !important：确保编辑器滚动区域正确 */
 body.is-phone.weave-edit-active .cm-scroller,
 body.is-mobile.weave-edit-active .cm-scroller {
-  overflow-y: auto !important;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   /* height 由父容器 flex 布局决定 */
   flex: 1;
@@ -1964,7 +1913,7 @@ body.is-phone.weave-edit-active .study-footer,
 body.is-mobile.weave-edit-active .study-footer,
 body.is-phone.weave-edit-active .rating-section,
 body.is-mobile.weave-edit-active .rating-section {
-  display: none !important;
+  display: none;
 }
 
 /* 📱 编辑模式下的主学习区域 */
@@ -1976,7 +1925,7 @@ body.is-mobile.weave-edit-active .main-study-area {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  padding: 0 !important;
+  padding: 0;
 }
 
 body.is-phone .weave-app,
@@ -1998,19 +1947,19 @@ body.is-phone .weave-settings .settings-dropdown-compact {
 }
 
 /* Fix 2: 数字输入框与标题保持同行显示 */
-body.is-phone .weave-settings .row:has(.number-input-compact) {
+body.is-phone .weave-settings .row.weave-setting-row--number-inline {
   flex-direction: row;
   align-items: center;
   justify-content: space-between;
 }
 
-body.is-phone .weave-settings .row:has(.number-input-compact) > label:first-child {
+body.is-phone .weave-settings .row.weave-setting-row--number-inline > label:first-child {
   width: auto;
   flex: 1;
   min-width: 0;
 }
 
-body.is-phone .weave-settings .row:has(.number-input-compact) .number-input-compact {
+body.is-phone .weave-settings .row.weave-setting-row--number-inline .number-input-compact {
   width: 80px;
   max-width: 80px;
   flex: 0 0 80px;
@@ -2040,18 +1989,18 @@ body.is-phone .preset-editor-overlay .editor-footer .btn-save {
 /* 参考：.augment/rules/core/04-anti-force-methods.md - 工具类覆盖是合理场景 */
 /* 这是处理移动端键盘弹出的关键工具类 */
 .weave-scroll-disabled {
-  overflow: hidden !important;
-  touch-action: none !important;
-  position: fixed !important;
-  width: 100% !important;
-  height: 100% !important;
+  overflow: hidden;
+  touch-action: none;
+  position: fixed;
+  width: 100%;
+  height: 100%;
 }
 
 /* 仅允许编辑器内部滚动 */
 /* ✅ 保留 !important：确保编辑器内部可以正确滚动 */
 .weave-scroll-disabled .inline-editor-container {
-  overflow-y: auto !important;
-  touch-action: pan-y !important;
+  overflow-y: auto;
+  touch-action: pan-y;
 }
 
 /* ==================== AI助手页面移动端优化 ==================== */

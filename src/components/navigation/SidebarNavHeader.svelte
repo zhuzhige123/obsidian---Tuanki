@@ -448,7 +448,15 @@
   }
 
   function focusSidebarSearchInput() {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
     requestAnimationFrame(() => {
+      if (typeof document === 'undefined') {
+        return;
+      }
+
       const input = document.querySelector('.sidebar-card-search-panel .search-input') as HTMLInputElement | null;
       input?.focus();
       input?.select();

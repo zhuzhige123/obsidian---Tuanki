@@ -4,6 +4,7 @@
   import type { WeavePlugin } from '../../main';
   import { ObsidianNavigationService, type NavigationTarget } from '../../services/obsidian-navigation-service';
   import { showNotification } from '../../utils/notifications';
+  import { writeSystemClipboardText } from '../../utils/system-clipboard';
   import EnhancedIcon from './EnhancedIcon.svelte';
 
   interface Props {
@@ -133,8 +134,8 @@
 
     const text = info.join('\n');
     
-    navigator.clipboard.writeText(text).then(() => {
-      showNotification('源信息已复制', 'success');
+    writeSystemClipboardText(text).then((copied) => {
+      showNotification(copied ? '源信息已复制' : '复制失败', copied ? 'success' : 'error');
     }).catch(() => {
       showNotification('复制失败', 'error');
     });

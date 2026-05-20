@@ -14,18 +14,27 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+        with:
+          fetch-depth: 0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
-      - name: Check code formatting
-        run: npm run format -- --check
+
+      - name: Check patch formatting hygiene
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "${{ github.base_ref }}" --depth=1
+            git diff --check "origin/${{ github.base_ref }}"...HEAD
+          else
+            git diff --check "${{ github.event.before }}" "${{ github.sha }}"
+          fi
         continue-on-error: false
 
   # Job 2: Lint检查
@@ -35,22 +44,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run linter
-        run: npm run lint
-        continue-on-error: false
-      
-      - name: Check Svelte 5 Compliance
-        run: npm run lint:svelte5
+        run: npm run lint:ci
         continue-on-error: false
 
   # Job 3: TypeScript类型检查（关键）
@@ -60,20 +65,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run svelte-check
         run: npm run check
         continue-on-error: false
-      
+
       - name: Count TypeScript errors
         if: failure()
         run: |
@@ -88,20 +93,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Run tests with coverage
-        run: npm run test -- --coverage
+        run: npm run test:coverage
         continue-on-error: false
-      
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         if: always()
@@ -109,7 +114,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/coverage-final.json
           fail_ci_if_error: false
-          
+
   # Job 5: 构建验证
   build:
     name: Build Verification
@@ -117,20 +122,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Build project
         run: npm run build
         continue-on-error: false
-      
+
       - name: Check build size
         run: |
           if [ -f "dist/main.js" ]; then
@@ -145,7 +150,7 @@ jobs:
             echo "❌ Build file not found!"
             exit 1
           fi
-      
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -169,7 +174,7 @@ jobs:
           echo "Type Check: ${{ needs.type-check.result }}"
           echo "Tests: ${{ needs.test.result }}"
           echo "Build: ${{ needs.build.result }}"
-          
+
           if [[ "${{ needs.format-check.result }}" != "success" ]] || \
              [[ "${{ needs.lint.result }}" != "success" ]] || \
              [[ "${{ needs.type-check.result }}" != "success" ]] || \

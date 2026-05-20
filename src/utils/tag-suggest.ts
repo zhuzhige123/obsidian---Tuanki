@@ -1,6 +1,7 @@
 import { AbstractInputSuggest, App } from "obsidian";
 import type { Card } from "../data/types";
 import { getCardTagValues, removeHashPrefix } from "./tag-utils";
+import { listVaultMarkdownFiles } from "./vault-file-list";
 
 export type TagSuggestionDataSource = "memory" | "questionBank" | "incremental-reading";
 export type TagSuggestionOption = string | { name: string; count?: number };
@@ -122,7 +123,7 @@ function collectVaultTagCounts(app: App): Map<string, number> {
 		return usageByTag;
 	}
 
-	for (const markdownFile of app.vault.getMarkdownFiles()) {
+	for (const markdownFile of listVaultMarkdownFiles(app)) {
 		const cache = metadataCache?.getFileCache?.(markdownFile) ?? null;
 		const tagsInFile = new Set<string>();
 		const frontmatterTags = cache?.frontmatter?.tags;

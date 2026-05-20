@@ -16,6 +16,7 @@
   import { generateCardUUID } from '../../services/identifier/WeaveIDGenerator';
   import { generateId } from '../../utils/helpers';
   import { buildContentWithYAML } from '../../utils/yaml-utils';
+  import { listVaultMarkdownFiles } from '../../utils/vault-file-list';
   import {
     type Separator,
     type ImportCardType,
@@ -102,7 +103,7 @@
   // ===== 溯源文件建议器 =====
   class SourceFileSuggest extends AbstractInputSuggest<TFile> {
     getSuggestions(inputStr: string): TFile[] {
-      const files = this.app.vault.getMarkdownFiles();
+      const files = listVaultMarkdownFiles(this.app);
       const lower = inputStr.toLowerCase();
       if (!lower) return files.slice(0, 30);
       return files.filter(f => f.path.toLowerCase().includes(lower)).slice(0, 30);

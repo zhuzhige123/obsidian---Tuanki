@@ -1,6 +1,7 @@
 import { App, TFile, normalizePath } from "obsidian";
 import { getV2PathsFromApp } from "../../config/paths";
 import { DirectoryUtils } from "../../utils/directory-utils";
+import { listVaultFilesInFolder } from "../../utils/vault-file-list";
 
 export const USER_PROMPT_FOLDER_SEGMENT = "ai-assistant/user-prompts";
 export const DEFAULT_USER_PROMPT_BASENAME = "用户提示词";
@@ -35,10 +36,7 @@ export function resolveUserPromptFile(app: App, filePath: string | null | undefi
 
 export async function listUserPromptFiles(app: App): Promise<TFile[]> {
 	const folderPath = await ensureUserPromptFolder(app);
-	const prefix = `${folderPath}/`;
-	return app.vault
-		.getMarkdownFiles()
-		.filter((file) => file.path.startsWith(prefix))
+	return listVaultFilesInFolder(app.vault, folderPath, (file) => file.extension === "md")
 		.sort((left, right) => {
 			if (right.stat.mtime !== left.stat.mtime) {
 				return right.stat.mtime - left.stat.mtime;

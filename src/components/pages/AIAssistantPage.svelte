@@ -18,6 +18,7 @@
   } from '../../types/ai-types';
   import type { ParsedCard, RegexParsingConfig } from '../../types/newCardParsingTypes';
   import { logger } from '../../utils/logger';
+  import { listVaultMarkdownFiles } from '../../utils/vault-file-list';
   import { fileToInfo, sortFilesByModified } from '../../utils/file-utils';
   import { AICardGenerationService } from '../../services/ai/AICardGenerationService';
   import {
@@ -229,7 +230,7 @@
   }
 
   async function openSourceFileMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
-    const allFiles = sortFilesByModified(plugin.app.vault.getMarkdownFiles());
+    const allFiles = sortFilesByModified(listVaultMarkdownFiles(plugin.app));
     const selected = await new MarkdownFileSuggestModal(plugin.app, {
       files: allFiles,
       placeholder: '搜索并选择源 Markdown 文件...',
