@@ -1,10 +1,11 @@
 import { get } from 'svelte/store';
 
-import { i18n, initI18n, syncI18nWithObsidianLanguage, trArray } from '../i18n';
+import { i18n, initI18n, resetI18nDetectionStateForTests, syncI18nWithObsidianLanguage, trArray } from '../i18n';
 
 describe('i18n runtime fallbacks', () => {
   beforeEach(() => {
     window.localStorage.removeItem('language');
+    resetI18nDetectionStateForTests();
     i18n.setLanguage('en-US');
   });
 

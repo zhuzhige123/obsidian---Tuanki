@@ -1,5 +1,4 @@
 import { logger } from "../utils/logger";
-import { vaultStorage } from "../utils/vault-local-storage";
 import { deckAnalyticsTranslationOverrides } from "./i18n/deck-analytics-overrides";
 import { mergeTranslationTrees } from "./i18n/merge-translation-trees";
 import { translations, translationOverrides } from "./i18n/resources";
@@ -98,10 +97,18 @@ function getTranslationAliasCandidates(key: string): string[] {
  * 从Obsidian的localStorage获取当前语言设置
  * Obsidian语言代码: en, zh, zh-TW, ru, ko, it, id, ro, pt-BR, cz, de, es, fr, no, pl, pt, ja, da, uk, sq, tr, hi, se, nl, ar, th, fa, vi, he, ms, ca, am
  */
+function readObsidianHostLanguage(): string | null {
+	try {
+		return window.localStorage.getItem("language");
+	} catch {
+		return null;
+	}
+}
+
 function detectObsidianLanguage(): SupportedLanguage {
 	try {
-		// 方法1: localStorage (Obsidian 主语言来源，优先使用)
-		const obsidianLang = vaultStorage.getItem("language");
+		// 方法1: Obsidian 宿主 localStorage（非插件 vaultStorage）
+		const obsidianLang = readObsidianHostLanguage();
 		if (obsidianLang) {
 			if (obsidianLang === "zh" || obsidianLang === "zh-CN" || obsidianLang === "zh-TW") {
 				return "zh-CN";
@@ -150,6 +157,12 @@ export const currentLanguage = writable<SupportedLanguage>(defaultConfig.default
 let lastDetectedLanguage: SupportedLanguage | null = null;
 let stableDetectionCount = 0;
 const REQUIRED_STABLE_DETECTIONS = 2;
+
+/** @internal test-only reset for detection debounce state */
+export function resetI18nDetectionStateForTests(): void {
+	lastDetectedLanguage = null;
+	stableDetectionCount = 0;
+}
 
 export function syncI18nWithObsidianLanguage(): SupportedLanguage {
 	const detectedLang = detectObsidianLanguage();

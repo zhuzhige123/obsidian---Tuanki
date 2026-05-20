@@ -279,7 +279,57 @@ function evaluateExpressionInternal(moduleInfo, expression, stack) {
     return evaluateExpression(moduleInfo, expression.expression, stack);
   }
 
+  if (ts.isAsExpression(expression) || ts.isTypeAssertionExpression?.(expression)) {
+    return evaluateExpression(moduleInfo, expression.expression, stack);
+  }
+
+  if (ts.isCallExpression(expression)) {
+    return evaluateCallExpression(moduleInfo, expression, stack);
+  }
+
   throw new Error(`Unsupported expression kind ${ts.SyntaxKind[expression.kind]} in ${moduleInfo.filePath}`);
+}
+
+function mergeTranslationTreesForAudit(base, ...overrides) {
+  if (!isTranslationBranch(base)) {
+    throw new Error('mergeTranslationTrees base must be an object');
+  }
+
+  return overrides.reduce((merged, override) => {
+    if (!override) {
+      return merged;
+    }
+    if (!isTranslationBranch(override)) {
+      throw new Error('mergeTranslationTrees override must be an object');
+    }
+
+    const next = { ...merged };
+    for (const [key, overrideValue] of Object.entries(override)) {
+      const baseValue = next[key];
+      if (isTranslationBranch(baseValue) && isTranslationBranch(overrideValue)) {
+        next[key] = mergeTranslationTreesForAudit(baseValue, overrideValue);
+        continue;
+      }
+      next[key] = overrideValue;
+    }
+    return next;
+  }, { ...base });
+}
+
+function evaluateCallExpression(moduleInfo, expression, stack) {
+  const calleeName = ts.isIdentifier(expression.expression)
+    ? expression.expression.text
+    : null;
+
+  if (calleeName === 'mergeTranslationTrees') {
+    const args = expression.arguments.map((arg) => evaluateExpression(moduleInfo, arg, stack));
+    const [base, ...overrides] = args;
+    return mergeTranslationTreesForAudit(base ?? {}, ...overrides);
+  }
+
+  throw new Error(
+    `Unsupported call expression ${calleeName ?? ts.SyntaxKind[expression.expression.kind]} in ${moduleInfo.filePath}`
+  );
 }
 
 function resolveIdentifier(moduleInfo, name, stack = []) {
@@ -412,8 +462,20 @@ function validateAggregateObject(moduleInfo, declarationName, expectedExportSuff
     }
 
     for (const child of languageProperty.initializer.properties) {
-      if (!ts.isSpreadAssignment(child)) {
+      if (
+        !ts.isSpreadAssignment(child) &&
+        !(
+          ts.isPropertyAssignment(child) &&
+          ts.isCallExpression(child.initializer) &&
+          ts.isIdentifier(child.initializer.expression) &&
+          child.initializer.expression.text === 'mergeTranslationTrees'
+        )
+      ) {
         violations.push(`${declarationName}.${language} must only contain spread assignments. Add new keys in src/utils/i18n/resources/* modules instead.`);
+        continue;
+      }
+
+      if (!ts.isSpreadAssignment(child)) {
         continue;
       }
 
