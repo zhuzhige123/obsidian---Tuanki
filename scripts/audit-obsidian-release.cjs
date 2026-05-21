@@ -43,6 +43,15 @@ function expect(condition, message) {
   if (!condition) failures.push(message);
 }
 
+function descriptionViolatesObsidianRule(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+
+  if (/obsidian/i.test(text)) return true;
+  if (/黑曜石/.test(text)) return true;
+  return false;
+}
+
 requireFile("README.md");
 requireFile("LICENSE");
 requireFile("manifest.json");
@@ -70,18 +79,33 @@ if (failures.length === 0) {
 
   const manifestDescription = String(manifest.description || "");
   const packageDescription = String(pkg.description || "");
-  const obsidianWordPattern = /\bobsidian\b/i;
 
   expect(
-    !obsidianWordPattern.test(manifestDescription),
-    'manifest.json description must not include the word "Obsidian" (community plugin validation bot rule)',
+    !descriptionViolatesObsidianRule(manifestDescription),
+    'manifest.json description must not include "Obsidian" or "黑曜石" (community plugin validation bot rule)',
   );
 
   if (packageDescription.length > 0) {
     expect(
-      !obsidianWordPattern.test(packageDescription),
-      'package.json description should stay aligned with manifest.json and must not include the word "Obsidian"',
+      !descriptionViolatesObsidianRule(packageDescription),
+      'package.json description should stay aligned with manifest.json and must not include "Obsidian" or "黑曜石"',
     );
+  }
+
+  const distManifestPath = path.join(root, "dist", "manifest.json");
+  if (fs.existsSync(distManifestPath)) {
+    const distManifest = readJson("dist/manifest.json");
+    const distDescription = String(distManifest.description || "");
+    expect(
+      !descriptionViolatesObsidianRule(distDescription),
+      'dist/manifest.json description must not include "Obsidian" or "黑曜石" (release asset must match community rules)',
+    );
+    expect(
+      distManifest.version === manifest.version,
+      `dist/manifest.json version (${distManifest.version}) does not match manifest.json (${manifest.version})`,
+    );
+  } else {
+    notes.push("dist/manifest.json not found locally; run build before final release smoke check.");
   }
 
   const normalizeDescription = (value) => value.replace(/\.\s*$/, "").trim();
