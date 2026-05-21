@@ -68,6 +68,30 @@ if (failures.length === 0) {
   expect(typeof manifest.minAppVersion === "string" && manifest.minAppVersion.length > 0, "manifest.json missing minAppVersion");
   expect(typeof manifest.description === "string" && manifest.description.length > 0, "manifest.json missing description");
 
+  const manifestDescription = String(manifest.description || "");
+  const packageDescription = String(pkg.description || "");
+  const obsidianWordPattern = /\bobsidian\b/i;
+
+  expect(
+    !obsidianWordPattern.test(manifestDescription),
+    'manifest.json description must not include the word "Obsidian" (community plugin validation bot rule)',
+  );
+
+  if (packageDescription.length > 0) {
+    expect(
+      !obsidianWordPattern.test(packageDescription),
+      'package.json description should stay aligned with manifest.json and must not include the word "Obsidian"',
+    );
+  }
+
+  const normalizeDescription = (value) => value.replace(/\.\s*$/, "").trim();
+  if (packageDescription.length > 0) {
+    expect(
+      normalizeDescription(manifestDescription) === normalizeDescription(packageDescription),
+      "package.json description should match manifest.json description (ignoring trailing period)",
+    );
+  }
+
   expect(pkg.version === manifest.version, `package.json version (${pkg.version}) does not match manifest.json (${manifest.version})`);
   expect(versions[manifest.version] != null, `versions.json missing current version ${manifest.version}`);
   expect(publicVersions[manifest.version] != null, `public/versions.json missing current version ${manifest.version}`);

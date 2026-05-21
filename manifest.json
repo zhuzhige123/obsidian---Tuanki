@@ -3,7 +3,7 @@
   "name": "Weave",
   "version": "0.8.7",
   "minAppVersion": "1.7.0",
-  "description": "Enhance knowledge learning and memory consolidation in Obsidian with memory decks and practice quiz decks.",
+  "description": "Enhance knowledge learning and memory consolidation with memory decks and practice quiz decks.",
   "author": "Rabbit (zhuzhige)",
   "authorUrl": "https://github.com/zhuzhige123",
   "isDesktopOnly": false
