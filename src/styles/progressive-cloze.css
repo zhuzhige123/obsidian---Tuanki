@@ -225,14 +225,13 @@
 
 /* ========== 打印样式 ========== */
 
-/* ✅ 保留 !important：打印样式需要强制覆盖所有屏幕样式 */
-/* 参考：.augment/rules/core/04-anti-force-methods.md */
 @media print {
-  .cloze-blank {
-    background: white !important;
-    color: black !important;
+  .progressive-cloze-container .cloze-blank {
+    background: white;
+    color: black;
     border: 2px solid black;
-    box-shadow: none !important;
+    box-shadow: none;
+    transform: none;
   }
   
   .cloze-progress-indicator {

@@ -1,187 +1,182 @@
 # Weave
 
-[English](README.en.md) · [简体中文](README.zh-CN.md)
+[简体中文](README.zh-CN.md)
 
 <div align="center">
 
-**在 Obsidian 内完成「摘录 → 制卡 → 复习 → 刷题测试」全链路学习闭环**
+**A full learning loop in Obsidian: excerpt → create cards → review → quiz**
 
 </div>
 
-Weave 是专为 Obsidian 打造的**学习工作流插件**，可在同一知识库中将阅读笔记、摘录内容转化为可间隔复习、可刷题检验、可溯源原文的标准化学习卡片。
+Weave is a **learning workflow plugin** built for Obsidian. It turns reading notes and excerpts in your vault into standardized study cards you can review on a schedule, test with quizzes, and trace back to the original source.
 
-自 `0.8.0` 版本起，**EPUB 阅读器**与**增量阅读**已拆分为独立插件并单独维护；本插件聚焦记忆牌组、刷题题库、智能制卡与多源文档溯源协作。
+Since **0.8.0**, the **EPUB reader** and **incremental reading** have been split into separate plugins maintained on their own. **This plugin** focuses on memory decks, question banks, smart card creation, and multi-source traceability.
 
-> 最低兼容版本：Obsidian **1.7.0**（支持桌面端 / 移动端）
-
----
-
-## 解决核心痛点
-
-| 用户痛点 | Weave 解决方案 |
-|----------|----------------|
-| 笔记存量大、真正记忆掌握少 | 知识库内独立制卡 + **FSRS6 智能间隔复习** |
-| 记忆卡片混入原文，污染笔记结构 | 卡片独立存入专属库，源 Markdown 保持纯阅读笔记本色 |
-| 记忆卡片与原文上下文脱节 | 溯源锚点绑定源文档，一键跳转定位并高亮原文 |
-| 仅机械记忆，无法实战检验掌握程度 | 区分记忆牌组 + 刷题题库，分层学习验收 |
-| 手动制卡耗时低效 | 内置 AI 智能制卡助手，支持批量解析（用户自备 API） |
-| 牌组杂乱难以重组管理 | 引入式牌组、正式攻坚牌组、涌现主题牌组分层管理 |
+> Minimum version: Obsidian **1.7.0** (desktop and mobile)
 
 ---
 
-## 全来源溯源设计
+## Core problems we solve
 
-### 源文档与学习卡片分离架构
-
-记忆卡片遵循**最小信息提取原则**，问答、挖空、选择题等卡片格式适合复习，但不适合嵌入原生笔记：既打乱原文思考结构，又容易混淆阅读内容与背诵内容。
-
-Weave 采用**分离存储、关联溯源**设计：
-
-- **源文档**：Markdown / EPUB / Canvas 仅负责阅读、摘录、自由思考，无需为制卡修改原文结构。
-- **学习卡片**：摘录笔记、记忆卡片统一存放于 `weave/` 专属卡片库，独立管理调度。
-- **双向溯源**：卡片绑定原文锚点，一键跳转定位、高亮上下文，实现「卡片看原文、原文查卡片」。
-
-### 支持溯源的文档来源
-
-所有来源生成的卡片均支持锚点定位、原文跳转（免费版全开放）：
-
-| 文档来源 | 锚点定位方式 |
-|----------|--------------|
-| Obsidian Markdown | 块引用、`^block-id` 块标识 |
-| EPUB 阅读器（独立插件） | CFI 章节定位 + 摘录锚点，与主插件无缝协作 |
-| Canvas 画布 | 画布路径 + 节点唯一 ID 精准定位 |
+| Pain point | How Weave helps |
+|------------|-----------------|
+| Lots of notes, little real retention | Create cards in-vault + **FSRS6 spaced repetition** |
+| Memory cards mixed into source notes pollute structure | Cards live in a dedicated library; Markdown stays clean for reading |
+| Cards disconnected from original context | Source anchors link back; jump, locate, and highlight in one click |
+| Rote recall without real mastery checks | Memory decks + question banks for layered validation |
+| Slow manual card creation | Built-in **AI assistant** and batch parsing (bring your own API) |
+| Decks hard to reorganize | Reference-based, formal, and emergent deck layers |
 
 ---
 
-## 记忆牌组：双类型卡片体系
+## Multi-source traceability
 
-记忆牌组是间隔重复学习核心，承载两类差异化笔记能力：
+### Separate storage, linked sources
 
-| 卡片类型 | 学习阶段 | 核心作用 |
-|----------|----------|----------|
-| 回顾摘录笔记 | 阅读理解阶段 | 留存原文片段 + 个人批注，复习时还原知识语境 |
-| 回忆记忆卡片 | 记忆提取阶段 | 支持问答 / 挖空 / 选择题型，由 FSRS6 智能分配复习间隔 |
+Memory cards follow a **minimum-information** format (Q&A, cloze, multiple choice). That format is great for review but **not** for embedding in source notes: it disrupts how you read and think, and blurs “note content” vs “what to memorize.”
 
-两类卡片独立存储、不污染源文档，支持同源递进创作（先摘录、再提炼为记忆卡），全程保留溯源关联；进阶可通过刷题题库生成测试题，客观检验掌握程度。
+Weave uses **separate storage with trace links**:
 
-> **名词释义**
-> - **正式牌组**：定向攻坚目标知识点，系统化背诵
-> - **涌现牌组**：自动聚合零散笔记，发现隐藏知识主题
-> - **引入式牌组**：灵活导入重组已有卡片，自定义学习计划
+- **Source documents**: Markdown, EPUB, and Canvas stay for reading, excerpting, and thinking—no need to rewrite notes for cards.
+- **Study cards**: Excerpt notes and memory cards live in the dedicated `weave/` card library with their own scheduling.
+- **Two-way traceability**: Cards store source anchors; “view source” jumps back and highlights context—**cards to source, source to cards**.
+
+### Supported sources
+
+All of the following support anchors and source navigation (**free**, no license gate):
+
+| Source | Anchor style |
+|--------|----------------|
+| Obsidian Markdown | Block references, `^block-id` |
+| EPUB reader (separate plugin) | CFI + excerpt anchors; cooperates with the main plugin |
+| Canvas | Canvas path + node ID |
 
 ---
 
-## 标准学习工作流
+## Memory decks: two card types
+
+Memory decks are the core of spaced repetition:
+
+| Type | Stage | Role |
+|------|-------|------|
+| **Review excerpt notes** | Reading & comprehension | Keep passages and annotations; restore context when reviewing |
+| **Recall memory cards** | Retrieval practice | Q&A, cloze, multiple choice; **FSRS6** schedules intervals |
+
+Both types stay out of source documents. You can excerpt first, then promote to memory cards while keeping trace links. For objective checks, **question banks** (Premium) generate tests from memory cards.
+
+> **Terms**
+> - **Formal deck**: A focused set for a clear learning goal
+> - **Emergent deck**: Surfaces themes that cluster in your knowledge network
+> - **Reference-based deck**: Import and reorganize existing cards flexibly
+
+---
+
+## Standard workflow
 
 ```mermaid
 flowchart LR
-  A[阅读笔记/EPUB/Canvas] --> B[AI辅助摘录&制卡]
-  B --> C[FSRS6间隔记忆复习]
-  C --> D[刷题题库实战检验]
-  D --> E[溯源复盘&调整牌组]
+  A[Notes/EPUB/Canvas] --> B[AI excerpt & cards]
+  B --> C[FSRS6 review]
+  C --> D[Question bank]
+  D --> E[Trace & reorganize]
   E --> A
 ```
 
-1. **内容输入**：多源文档摘录，支持 AI 助手一键制卡、批量解析  
-2. **牌组组织**：正式牌组定学习目标，涌现牌组挖掘知识关联  
-3. **间隔记忆**：摘录语境回顾 + 记忆卡片 FSRS6 智能复习  
-4. **实战检验**（高级版）：开启刷题会话，检验真实掌握程度  
-5. **复盘迭代**：溯源回到原文修正笔记、重组牌组；支持 AnkiConnect 联动同步  
+1. **Input**: Excerpt from multiple sources; AI assistant and batch parsing optional  
+2. **Organize**: Formal decks for goals; emergent decks for discovered themes  
+3. **Remember**: Review excerpts in context + FSRS6 on memory cards  
+4. **Test** (Premium): Quiz sessions for real mastery  
+5. **Reflect**: Trace to source, fix notes, reorganize decks; optional AnkiConnect sync  
 
 ---
 
-## 插件生态分工
+## Plugin ecosystem
 
-| 插件产品 | 核心职责分工 |
-|----------|--------------|
-| **Weave 主插件** | 记忆 / 刷题牌组、智能制卡、全源溯源、AI 助手、跨插件协作 |
-| **EPUB 阅读器插件** | 独立沉浸式 EPUB 阅读，与主插件联动实现摘录制卡、原文跳转 |
-| **增量阅读插件** | 阅读内容队列管理、增量阅读进度智能调度 |
-
----
-
-## 功能版本权限划分
-
-**图例说明：** `✅` 免费版可用 · `❌` 仅高级版专属 · `⚠️` 免费版功能降级
-
-| 核心功能 | 免费版 | 高级版 | 补充说明 |
-|----------|:------:|:------:|----------|
-| 主界面、FSRS6 复习、双类型卡片 | ✅ | ✅ | 核心记忆功能永久免费 |
-| 全来源溯源、一键查看原文 | ✅ | ✅ | 无任何功能限制 |
-| AI 智能助手、批量解析、CSV 导入 | ✅ | ✅ | AI API 费用由用户自行承担 |
-| 基础表格视图管理 | ✅ | ✅ | 免费版完整可用 |
-| 网格 / 看板 / 时间线视图 | ⚠️ | ✅ | 免费版仅基础查看，无筛选、分组、排序能力 |
-| 刷题题库、模拟考试、牌组数据分析 | ❌ | ✅ | 高级版专属学习检验能力 |
-| 图片遮罩、渐进式精准挖空 | ❌ | ✅ | 适配医学、结构图等专业制卡场景 |
-
-高级版激活：需专属激活码，激活绑定个人邮箱；无广告、无强制订阅。
+| Plugin | Responsibility |
+|--------|----------------|
+| **Weave (main)** | Memory / question decks, smart cards, traceability, AI assistant, cross-plugin cooperation |
+| **EPUB reader** | Immersive reading; card creation and source jump with the main plugin |
+| **Incremental reading** | Reading queue and incremental scheduling |
 
 ---
 
-## 安装与快速上手
+## Free vs Premium
 
-### 安装方式
+**Legend:** `✅` Free · `❌` Premium only · `⚠️` Degraded on Free
 
-**社区插件安装（推荐）**
+| Feature | Free | Premium | Notes |
+|---------|:----:|:-------:|-------|
+| Main UI, FSRS6, both card types | ✅ | ✅ | Core memory features stay free |
+| Full traceability, view source | ✅ | ✅ | No restrictions |
+| AI assistant, batch parsing, CSV import | ✅ | ✅ | You pay your own API costs |
+| Table view | ✅ | ✅ | Full on Free |
+| Grid / Kanban / Timeline | ⚠️ | ✅ | Free: basic view without filter/group/sort |
+| Question bank, mock exams, deck analytics | ❌ | ✅ | Premium validation tools |
+| Image occlusion, progressive cloze | ❌ | ✅ | Professional card types |
 
-Obsidian 设置 → 社区插件 → 关闭安全模式 → 搜索 Weave → 安装并启用。
-
-**手动离线安装**
-
-下载 `main.js`、`manifest.json`、`styles.css` 三个文件，放入仓库目录 `.obsidian/plugins/weave/`，重启 Obsidian 即可启用。
-
-> 补充：旧版 APKG 导入场景需额外放入 `sql-wasm.wasm` 文件。
-
-### 极简上手三步
-
-1. 侧边栏打开 Weave 主视图，初始化卡片库  
-2. 可选配置：填入 OpenAI 兼容 API 接口，开启 AI 制卡  
-3. 从 Markdown / EPUB 文档摘录内容，生成记忆卡片并开始复习  
+Premium requires an activation code (email binding). No ads, no forced subscription.
 
 ---
 
-## 数据存储说明
+## Install & quick start
 
-插件所有学习数据均在本地仓库存储，不上云、不自动上传：
+### Install
 
-| 数据类型 | 存储路径 | 文件格式 |
-|----------|----------|----------|
-| 记忆牌组数据 | `weave/memory/` | `.wdeck` |
-| 刷题题库数据 | `weave/question-bank/` | `.qbank` |
-| 插件配置缓存 | `.obsidian/plugins/weave/` | 插件内置配置文件 |
+**Community plugins (recommended)**
 
-⚠️ 请勿批量重命名、手动删除 `.wdeck` / `.qbank` 核心文件，避免卡片数据丢失。
+Settings → Community plugins → turn off Restricted mode → search **Weave** → Install → Enable.
 
----
+**Manual install**
 
-## 信息披露
+Copy `main.js`, `manifest.json`, and `styles.css` to `.obsidian/plugins/weave/`, then restart Obsidian.
 
-- **付费规则：** 核心记忆复习功能永久免费；刷题、高级视图、专业制卡等进阶功能需激活码解锁。  
-- **网络请求：** AI 能力仅连接用户自配 API；许可证验证仅连接官方授权服务；AnkiConnect 仅限本机局域网请求。  
-- **隐私保障：** 仅读写当前知识库本地学习数据；无广告、无运营遥测、不主动上传仓库文件，联网功能均由用户主动触发。  
+> Legacy APKG import also needs `sql-wasm.wasm`.
 
----
+### Three steps to start
 
-## 开源许可证与技术支持
-
-本项目基于 [GPL-3.0-or-later](LICENSE) 开源发布。
-
-- **问题反馈与功能建议：** [GitHub Issues](https://github.com/zhuzhige123/obsidian---Weave/issues)  
-- **商务合作与授权咨询：** tutaoyuan8@outlook.com  
+1. Open the Weave view from the sidebar and initialize the card library  
+2. Optional: add an OpenAI-compatible API for AI card creation  
+3. Excerpt from Markdown or EPUB, create memory cards, and start reviewing  
 
 ---
 
-## 开发调试
+## Data storage
 
-**环境要求：** Node.js 16+ / npm 常规环境
+All learning data stays in your local vault (not uploaded by default):
+
+| Data | Path | Format |
+|------|------|--------|
+| Memory decks | `weave/memory/` | `.wdeck` |
+| Question banks | `weave/question-bank/` | `.qbank` |
+| Plugin cache | `.obsidian/plugins/weave/` | Plugin config |
+
+⚠️ Avoid bulk-renaming or deleting `.wdeck` / `.qbank` files unless you know the impact.
+
+---
+
+## Disclosure
+
+- **Pricing:** Core memory review is free; quizzes, advanced views, and pro card types need Premium.  
+- **Network:** AI uses your API; license checks use the official service; AnkiConnect is localhost only.  
+- **Privacy:** Reads/writes local vault data only; no ads or product telemetry; no upload unless you use networked features.  
+
+---
+
+## License & support
+
+Released under [GPL-3.0-or-later](LICENSE).
+
+- **Issues & ideas:** [GitHub Issues](https://github.com/zhuzhige123/obsidian---Weave/issues)  
+- **Licensing & business:** tutaoyuan8@outlook.com  
+
+---
+
+## Development
+
+**Requirements:** Node.js 16+ and npm
 
 ```bash
-# 安装依赖
 npm install
-
-# 本地热更新开发
 npm run dev
-
-# 打包生产版本
 npm run build
 ```

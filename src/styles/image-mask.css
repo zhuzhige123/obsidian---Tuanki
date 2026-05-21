@@ -192,13 +192,12 @@
 /* ===== 辅助功能 ===== */
 
 /* 减少动画（用户偏好） */
-/* 保留 !important：无障碍功能，需要强制覆盖所有动画 */
-/* 参考：.augment/rules/core/04-anti-force-methods.md */
 @media (prefers-reduced-motion: reduce) {
-  .weave-mask-overlay,
-  .weave-mask {
-    transition: none !important;
-    animation: none !important;
+  .weave-mask-overlay.weave-mask-overlay,
+  .weave-mask.weave-mask,
+  .weave-mask-overlay.revealing {
+    transition: none;
+    animation: none;
   }
 }
 
