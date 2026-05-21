@@ -3,7 +3,7 @@ import { WeaveDomainService } from "./WeaveDomainService";
 describe("WeaveDomainService", () => {
 	it("exposes capability info", () => {
 		const plugin = {
-			manifest: { version: "0.8.6" },
+			manifest: { version: "0.8.7" },
 			dataStorage: {},
 		} as any;
 		const service = new WeaveDomainService(plugin);
@@ -16,7 +16,7 @@ describe("WeaveDomainService", () => {
 		const card = { uuid: "card-1" };
 		const addCard = vi.fn(async () => ({ success: true, data: card, timestamp: "" }));
 		const plugin = {
-			manifest: { version: "0.8.6" },
+			manifest: { version: "0.8.7" },
 			dataStorage: { addCard },
 		} as any;
 		const service = new WeaveDomainService(plugin);
@@ -36,7 +36,7 @@ describe("WeaveDomainService", () => {
 			failed: [{ uuid: "bad", error: "boom" }],
 		}));
 		const plugin = {
-			manifest: { version: "0.8.6" },
+			manifest: { version: "0.8.7" },
 			dataStorage: { deleteCards },
 		} as any;
 		const service = new WeaveDomainService(plugin);
