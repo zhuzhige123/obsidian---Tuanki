@@ -24,6 +24,19 @@ function writeWithExecCommand(text: string): boolean {
 	}
 }
 
+export async function readSystemClipboardText(): Promise<string> {
+	try {
+		const electronClipboard = (window as any)?.require?.("electron")?.clipboard;
+		if (electronClipboard?.readText) {
+			return String(electronClipboard.readText() || "");
+		}
+	} catch {
+		// ignore Electron clipboard failures
+	}
+
+	return "";
+}
+
 export async function writeSystemClipboardText(text: string): Promise<boolean> {
 	const normalized = String(text ?? "");
 

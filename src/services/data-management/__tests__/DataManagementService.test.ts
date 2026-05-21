@@ -337,7 +337,7 @@ describe('DataManagementService', () => {
       count: 1,
       items: ['deck-a']
     });
-    expect(result.message).toContain('牌组缓存不一致项');
+    expect(result.message).toContain('牌组归属不一致项');
   });
 
   it('uses the formal deleteCards chain when fixing duplicate cards', async () => {
@@ -975,7 +975,7 @@ describe('DataManagementService', () => {
 
     expect(getDataCheckLifecycleKind('card_deck_consistency')).toBe('long_term');
     expect(getDataCheckLifecycleLabel('card_deck_consistency')).toBe('长期');
-    expect(getDataCheckLifecycleNote('card_deck_consistency')).toBe('');
+    expect(getDataCheckLifecycleNote('card_deck_consistency')).toContain('we_decks');
   });
 
   it('removes only targeted incremental-reading legacy frontmatter fields while preserving normal data', async () => {

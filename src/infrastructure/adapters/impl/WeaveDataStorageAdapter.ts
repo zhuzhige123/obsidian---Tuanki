@@ -160,6 +160,19 @@ export class WeaveDataStorageAdapter implements IDataStorageAdapter {
 		}
 	}
 
+	async deleteCards(cardIds: string[]): Promise<void> {
+		try {
+			const result = await this.storage.deleteCards(cardIds);
+			if (result.failed.length > 0) {
+				throw new Error(`批量删除失败: ${result.failed.length} 张`);
+			}
+			this.logger.info(`批量删除卡片: ${result.deleted.length} 张`);
+		} catch (error) {
+			this.logger.error("批量删除卡片失败", error);
+			throw error;
+		}
+	}
+
 	// ===== 其他操作 =====
 
 	async saveAll(): Promise<void> {

@@ -8,6 +8,7 @@
   import type { Card, Deck, DeckStats } from "../../data/types";
   import type { StudySession } from "../../data/study-types";
   import type { DataChangeEvent } from "../../services/DataSyncService";
+  import { deleteMemoryCards, deleteMemoryDeck } from "../../services/weave-domain";
   import { CardType } from "../../data/types";
   //  移除不存在的DeckTreeBuilder导入 - 使用DeckHierarchyService代替
   import { logger } from '../../utils/logger';
@@ -2426,7 +2427,7 @@
             // 阶段 1/2: 统一通过 dataStorage 删除；如存在来源文档则一并清理
             deleteProgress.updateDescription(t('deckStudyPage.deleteModal.progressDeletingCardsDescription'));
             deleteProgress.updateProgress(1, t('deckStudyPage.deleteModal.progressDeletingCardsStep'));
-            const deleteResult = await dataStorage.deleteCards(cardUUIDs, {
+            const deleteResult = await deleteMemoryCards(plugin, cardUUIDs, {
               skipCascadeDeckIds: [deckId]
             });
             const deletedCount = deleteResult.deleted.length;
@@ -2841,7 +2842,7 @@
         try {
           new Notice(t('deckStudyPage.dissolve.inProgress'));
 
-          const result = await dataStorage.deleteDeck(deckId, {
+          const result = await deleteMemoryDeck(plugin, deckId, {
             skipCardDeletion: true,
           });
           if (!result.success) {

@@ -34,6 +34,7 @@
   import { DEFAULT_SCAN_CONFIG } from '../../types/card-quality-types';
   import { getCardQualityInboxService, CardQualityInboxService } from '../../services/card-quality/CardQualityInboxService';
   import type { IssueSeverity } from '../../types/card-quality-types';
+  import { deleteMemoryCard } from '../../services/weave-domain';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import EnhancedButton from '../ui/EnhancedButton.svelte';
   import { tr, t } from '../../utils/i18n';
@@ -548,8 +549,8 @@
     }
   }
 
-  function supportsDirectFix(type: CheckType): boolean {
-    return type !== 'wdeck_conflicts';
+  function supportsDirectFix(_type: CheckType): boolean {
+    return true;
   }
 
   // ===== 迁移检测方法 =====
@@ -899,7 +900,7 @@
         return;
       }
       if (plugin.dataStorage) {
-        await plugin.dataStorage.deleteCard(cardUuid);
+        await deleteMemoryCard(plugin, cardUuid);
         // 从扫描结果中移除该卡片的所有问题
         if (scanResult) {
           scanResult = {

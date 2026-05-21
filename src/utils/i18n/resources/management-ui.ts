@@ -45,6 +45,12 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 						"拆分残留项：reader / EPUB / 增量阅读能力已拆分为独立插件。主插件默认不再把这些治理项作为核心卡片数据治理职责，只保留兼容处理能力。",
 					migrationCleanup:
 						"临时迁移/清理项：主要服务于旧架构数据迁移、遗留文件清理或迁移收尾，数据稳定后应移除。",
+					duplicateCards:
+						"按正文指纹检测同一内容的多个 UUID 副本；与 AnkiConnect 是否启用无关。修复会保留学习记录更完整的一张，并删除其余副本。",
+					cardDeckConsistency:
+						"对比卡片 YAML 中的 we_decks 与 .wdeck 牌组文件里的实际卡片列表。若仍反复出现，可先执行「记忆卡单正式归属收口」，再执行本项修复。",
+					wdeckConflicts:
+						"扫描 .wdeck 分卷重复、同一 UUID 跨文件、疑似复制副本等问题。修复键仅可自动处理「UUID 跨文件冲突」和空无效文件；其余类型需人工核对或配合「重复卡片」等项。",
 				},
 				progress: {
 					checking: "检测 {name}...",
@@ -109,12 +115,14 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					epubMarkdownSourceIdFound: "发现 {count} 个 Markdown 文件包含缺少 sourceId 的 EPUB 链接",
 					epubMarkdownSourceIdOk: "Markdown 中的 EPUB 链接 sourceId 状态正常",
 					checkFailed: "检测失败: {message}",
-					cardDeckConsistencyFound: "发现 {invalidCount} 个牌组缓存不一致项（{deckCount} 个牌组受影响）",
-					cardDeckConsistencyOk: "牌组缓存一致",
+					cardDeckConsistencyFound:
+						"发现 {invalidCount} 个牌组归属不一致项（{deckCount} 个牌组）：卡片 YAML 的 we_decks 与 .wdeck 文件中的实际列表不匹配",
+					cardDeckConsistencyOk: "牌组归属与 .wdeck 文件一致",
 					cardDeckConsistencyRepairFailed: "牌组缓存一致性修复失败",
 					orphanCardsFound: "发现 {count} 张孤立卡片",
 					orphanCardsOk: "无孤立卡片",
-					duplicateCardsFound: "发现 {count} 张内容重复卡片（{groupCount} 组），通常由 AnkiConnect 同步异常导致",
+					duplicateCardsFound:
+						"发现 {count} 张内容重复卡片（{groupCount} 组）。同一正文对应多个 UUID，常见于历史导入、牌组迁移、批量导入或重复保存；可使用修复删除多余副本",
 					duplicateCardsOk: "无内容重复卡片",
 					duplicateDeleteFailed: "删除失败",
 					duplicateRebuildFailed: "删除重复卡片后重建牌组缓存失败",
@@ -141,7 +149,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					legacyMemoryFilesFound: "检测到 {count} 个旧记忆 JSON 残留文件，说明还没有完全收敛到 .wdeck。",
 					legacyMemoryFilesOk: "未检测到旧记忆 JSON 残留文件",
 					wdeckServiceUnavailable: "WDeckService 未启用",
-					wdeckConflictsFound: "检测到 {count} 个 .wdeck 冲突或重复问题",
+					wdeckConflictsFound:
+						"检测到 {count} 个 .wdeck 冲突或重复问题（含分卷重复、UUID 跨文件、疑似复制副本等；仅部分可自动修复）",
 					wdeckConflictsOk: "未检测到 .wdeck 冲突",
 					wdeckCacheNeedsRebuild: "`.wdeck` 私有缓存缺失或已失效，建议重建",
 					wdeckCacheOk: "\".wdeck\" 私有缓存正常（{fileCount} 个文件，{issueCount} 个冲突项）",
@@ -833,6 +842,12 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 						"Split-plugin residue: reader / EPUB / incremental reading capabilities have already been split into independent plugins. The main plugin no longer treats these governance tasks as core card-data responsibilities by default and only keeps compatibility handling.",
 					migrationCleanup:
 						"Temporary migration / cleanup task: mainly used for legacy-architecture migration, leftover file cleanup, or migration wrap-up, and should be removed once the data is stable.",
+					duplicateCards:
+						"Detects multiple UUID copies of the same body by content fingerprint. This is unrelated to whether AnkiConnect is enabled. Fix keeps the copy with richer study history and deletes the rest.",
+					cardDeckConsistency:
+						"Compares we_decks in card YAML with the actual card list inside .wdeck deck files. If it keeps reappearing, run Memory Card Formal Membership Consolidation first, then run this fix.",
+					wdeckConflicts:
+						"Scans duplicate .wdeck segments, cross-file UUID conflicts, suspected duplicate copies, and similar issues. Fix only auto-handles cross-file UUID conflicts and empty invalid files; other types need manual review or Duplicate Cards.",
 				},
 				progress: {
 					checking: "Checking {name}...",
@@ -897,12 +912,14 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					epubMarkdownSourceIdFound: "Found {count} Markdown files containing EPUB links without sourceId",
 					epubMarkdownSourceIdOk: "EPUB link sourceId state in Markdown files is healthy",
 					checkFailed: "Check failed: {message}",
-					cardDeckConsistencyFound: "Found {invalidCount} deck-cache inconsistencies ({deckCount} decks affected)",
-					cardDeckConsistencyOk: "Deck cache is consistent",
+					cardDeckConsistencyFound:
+						"Found {invalidCount} deck-membership mismatches ({deckCount} decks): card YAML we_decks does not match the actual list inside .wdeck files",
+					cardDeckConsistencyOk: "Deck membership matches .wdeck files",
 					cardDeckConsistencyRepairFailed: "Failed to repair deck cache consistency",
 					orphanCardsFound: "Found {count} orphan cards",
 					orphanCardsOk: "No orphan cards",
-					duplicateCardsFound: "Found {count} duplicate-content cards ({groupCount} groups), usually caused by AnkiConnect sync anomalies",
+					duplicateCardsFound:
+						"Found {count} duplicate-content cards ({groupCount} groups). Multiple UUIDs share the same body, often from historical imports, deck migration, batch import, or duplicate saves; use Fix to remove extra copies",
 					duplicateCardsOk: "No duplicate-content cards",
 					duplicateDeleteFailed: "Delete failed",
 					duplicateRebuildFailed: "Failed to rebuild deck cache after deleting duplicate cards",
@@ -929,7 +946,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					legacyMemoryFilesFound: "Detected {count} leftover legacy memory JSON files, which means the data has not been fully consolidated into .wdeck yet.",
 					legacyMemoryFilesOk: "No leftover legacy memory JSON files were detected",
 					wdeckServiceUnavailable: "WDeckService is not enabled",
-					wdeckConflictsFound: "Detected {count} .wdeck conflicts or duplicate issues",
+					wdeckConflictsFound:
+						"Detected {count} .wdeck conflicts or duplicate issues (duplicate segments, cross-file UUIDs, suspected copies, etc.; only some are auto-fixable)",
 					wdeckConflictsOk: "No .wdeck conflicts detected",
 					wdeckCacheNeedsRebuild: "The private .wdeck cache is missing or stale and should be rebuilt",
 					wdeckCacheOk: "The private .wdeck cache is healthy ({fileCount} files, {issueCount} conflict items)",

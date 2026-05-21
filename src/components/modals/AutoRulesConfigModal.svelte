@@ -8,6 +8,7 @@
   import { logger } from '../../utils/logger';
   import { getV2PathsFromApp } from '../../config/paths';
   import type { WeavePlugin } from '../../main';
+  import { saveMemoryDeck } from '../../services/weave-domain';
   import type { Deck } from '../../data/types';
   import { extractAllTags as extractTagsFromCardContent } from '../../utils/yaml-utils';
 
@@ -314,7 +315,7 @@
             if (added > 0) {
               deck.cardUUIDs = Array.from(deckCardUUIDs);
               deck.modified = new Date().toISOString();
-              await plugin.dataStorage.saveDeck(deck);
+              await saveMemoryDeck(plugin, deck, 'update');
               addLog(`  已引入 ${added} 张卡片`);
               totalActions += added;
             } else {
@@ -331,7 +332,7 @@
             if (removed > 0) {
               deck.cardUUIDs = Array.from(deckCardUUIDs);
               deck.modified = new Date().toISOString();
-              await plugin.dataStorage.saveDeck(deck);
+              await saveMemoryDeck(plugin, deck, 'update');
               addLog(`  已从牌组移除 ${removed} 张卡片`);
               totalActions += removed;
             } else {
@@ -348,7 +349,7 @@
             if (addedToTarget > 0) {
               deck.cardUUIDs = Array.from(deckCardUUIDs);
               deck.modified = new Date().toISOString();
-              await plugin.dataStorage.saveDeck(deck);
+              await saveMemoryDeck(plugin, deck, 'update');
               addLog(`  已引入 ${addedToTarget} 张卡片到目标牌组`);
               totalActions += addedToTarget;
             }
@@ -363,7 +364,7 @@
                 const removed = otherUUIDs.length - filtered.length;
                 otherDeck.cardUUIDs = filtered;
                 otherDeck.modified = new Date().toISOString();
-                await plugin.dataStorage.saveDeck(otherDeck);
+                await saveMemoryDeck(plugin, otherDeck, 'update');
                 removedFromOthers += removed;
               }
             }
@@ -389,7 +390,7 @@
           if (added > 0) {
             deck.cardUUIDs = Array.from(deckCardUUIDs);
             deck.modified = new Date().toISOString();
-            await plugin.dataStorage.saveDeck(deck);
+            await saveMemoryDeck(plugin, deck, 'update');
             addLog(`  已引入 ${added} 张卡片`);
             totalActions += added;
           } else {

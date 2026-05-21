@@ -16,6 +16,7 @@
   } from '../constants/activation-constants';
   
   import { licenseManager, ActivationAttemptLimiter } from '../../../utils/licenseManager';
+  import { writeSystemClipboardText } from '../../../utils/system-clipboard';
   import { PremiumFeatureGuard } from '../../../services/premium/PremiumFeatureGuard';
   import {
     getPluginEffectiveLicenseState,
@@ -276,26 +277,15 @@
   // 复制激活码到剪贴板
   async function handleCopyActivationCode() {
     if (!currentLicenseInfo?.activationCode) return;
-    
-    try {
-      await navigator.clipboard.writeText(currentLicenseInfo.activationCode);
+
+    const copied = await writeSystemClipboardText(currentLicenseInfo.activationCode);
+    if (copied) {
       showNotification(t('about.license.activation.codeCopied'), 'success');
-    } catch (error) {
-      logger.error('复制失败:', error);
-      // 回退到创建临时输入框的方式
-      try {
-        const textArea = document.createElement('textarea');
-        textArea.value = currentLicenseInfo.activationCode;
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
-        showNotification(t('about.license.activation.codeCopied'), 'success');
-      } catch (fallbackError) {
-        logger.error('复制失败（回退方式也失败）:', fallbackError);
-        showNotification(t('about.license.activation.copyFailed'), 'error');
-      }
+      return;
     }
+
+    logger.error('复制失败: clipboard write failed');
+    showNotification(t('about.license.activation.copyFailed'), 'error');
   }
 
   // 格式化激活码显示

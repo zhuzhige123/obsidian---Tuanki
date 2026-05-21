@@ -91,4 +91,92 @@ describe('DataConsistencyService', () => {
       decks,
     );
   });
+
+  it('uses YAML we_decks instead of stale deckId when checking membership', async () => {
+    const decks = [
+      {
+        id: 'deck-a',
+        name: '牌组A',
+        cardUUIDs: ['card-1'],
+        modified: '2026-03-30T00:00:00.000Z',
+      },
+      {
+        id: 'deck-b',
+        name: '牌组B',
+        cardUUIDs: [],
+        modified: '2026-03-30T00:00:00.000Z',
+      },
+    ];
+    const cards = [
+      {
+        uuid: 'card-1',
+        deckId: 'deck-a',
+        content: '---\nwe_decks:\n  - 牌组B\n---\nA',
+        referencedByDecks: ['deck-a'],
+        modified: '2026-03-30T00:00:00.000Z',
+      },
+    ];
+
+    const plugin = {
+      dataStorage: {
+        getDecks: vi.fn(async () => decks),
+        getCards: vi.fn(async () => cards),
+        saveDeck: vi.fn(async () => ({ success: true, timestamp: '2026-03-30T00:00:00.000Z' })),
+      },
+    } as any;
+
+    const service = new DataConsistencyService(plugin);
+    const checkResult = await service.checkConsistency();
+
+    expect(checkResult.invalidReferences).toEqual([
+      expect.objectContaining({
+        deckId: 'deck-a',
+        invalidCardUUIDs: ['card-1'],
+      }),
+      expect.objectContaining({
+        deckId: 'deck-b',
+        invalidCardUUIDs: ['card-1'],
+      }),
+    ]);
+  });
+
+  it('rewrites .wdeck placement from YAML we_decks during repair', async () => {
+    const decks = [
+      {
+        id: 'deck-b',
+        name: '牌组B',
+        purpose: 'memory',
+        cardUUIDs: [],
+        modified: '2026-03-30T00:00:00.000Z',
+      },
+    ];
+    const cards = [
+      {
+        uuid: 'card-1',
+        deckId: 'deck-a',
+        content: '---\nwe_decks:\n  - 牌组B\n---\nA',
+        modified: '2026-03-30T00:00:00.000Z',
+      },
+    ];
+    const replaceDeckCardsForDeck = vi.fn(async () => []);
+
+    const plugin = {
+      dataStorage: {
+        getDecks: vi.fn(async () => decks),
+        getCards: vi.fn(async () => cards),
+        saveDeck: vi.fn(async () => ({ success: true, timestamp: '2026-03-30T00:00:00.000Z' })),
+      },
+      wdeckService: {
+        replaceDeckCardsForDeck,
+      },
+    } as any;
+
+    const service = new DataConsistencyService(plugin);
+    await service.repairConsistency();
+
+    expect(replaceDeckCardsForDeck).toHaveBeenCalledWith(
+      { id: 'deck-b', name: '牌组B' },
+      [expect.objectContaining({ uuid: 'card-1' })]
+    );
+  });
 });

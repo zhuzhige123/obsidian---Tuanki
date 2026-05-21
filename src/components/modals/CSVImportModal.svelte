@@ -14,6 +14,7 @@
   import type { Deck, Card } from '../../data/types';
   import { CardType } from '../../data/types';
   import { generateCardUUID } from '../../services/identifier/WeaveIDGenerator';
+  import { saveMemoryDeck } from '../../services/weave-domain';
   import { generateId } from '../../utils/helpers';
   import { buildContentWithYAML } from '../../utils/yaml-utils';
   import { listVaultMarkdownFiles } from '../../utils/vault-file-list';
@@ -445,7 +446,7 @@
           },
         };
 
-          const deckResult = await dataStorage.saveDeck(newDeck);
+          const deckResult = await saveMemoryDeck(plugin, newDeck, 'create');
           if (!deckResult.success) {
           throw new Error(t('management.csvImportModal.createFailed', { message: deckResult.error ?? t('common.unknown') }));
           }

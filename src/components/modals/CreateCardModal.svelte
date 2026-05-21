@@ -18,6 +18,7 @@
   import type { Card } from '../../data/types';
   import { CardType } from '../../data/types';
   import type { EmbeddableEditorManager } from '../../services/editor/EmbeddableEditorManager';
+  import { createWeaveDataChangeNotifier } from '../../services/ui/WeaveDataChangeBridge';
   import ResizableModal from '../ui/ResizableModal.svelte';
   import InlineCardEditor from '../editor/InlineCardEditor.svelte';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
@@ -106,6 +107,7 @@
 
   // InlineCardEditor 实例引用（用于调用其方法）
   let inlineCardEditorInstance: any = $state();
+  const { signalLegacyCardChanged } = createWeaveDataChangeNotifier(plugin, 'cards');
   let t = $derived($tr);
 
   //  使用预加载的数据（无需异步加载，数据已准备就绪）
@@ -245,8 +247,7 @@
       
       logger.debug('[CreateCardModal] ✅ 内容验证通过（content 长度:', updatedCard.content.length, '）');
 
-      // 触发事件
-      plugin.app.workspace.trigger("Weave:card-created", updatedCard);
+      signalLegacyCardChanged('create', { payload: updatedCard });
       logger.debug('[CreateCardModal] 新卡片已创建:', updatedCard);
       
       // 调用用户提供的回调

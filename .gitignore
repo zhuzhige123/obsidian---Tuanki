@@ -280,6 +280,9 @@ celebration-messages.json
 # public 目录
 public/
 
+# Codex skill junctions (真源在 docs/technical/skills，由 scripts/sync-ai-skills.cmd 生成)
+.codex/skills/
+
 # 不必要的配置和文档
 CHANGELOG.md
 INSTALLATION.md

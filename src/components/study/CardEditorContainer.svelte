@@ -6,6 +6,8 @@
   import { cardToMarkdown, markdownToCard } from "../../utils/card-markdown-serializer";
   import { detectClozeModeFromContent, hasClozeSyntax, setClozeModeInContent, type ClozeMode } from "../../utils/cloze-mode";
   import type { WeaveDataStorage } from "../../data/storage";
+  import type { WeavePlugin } from "../../main";
+  import { saveMemoryCard } from "../../services/weave-domain";
   import { logger } from "../../utils/logger";
   import { Notice, Platform } from "obsidian";
   import { tr } from '../../utils/i18n';
@@ -19,6 +21,7 @@
     isClozeMode: boolean;
     editorPoolManager: EmbeddableEditorManager | null;
     dataStorage: WeaveDataStorage;
+    plugin: WeavePlugin;
     modalRef: HTMLDivElement | null;
     statsCollapsed: boolean;
     onEditComplete: (updatedCard: Card) => void | Promise<void>;
@@ -35,6 +38,7 @@
     isClozeMode,
     editorPoolManager,
     dataStorage,
+    plugin,
     modalRef,
     statsCollapsed,
     onEditComplete,
@@ -443,7 +447,7 @@
       const updatedCard = markdownToCard(content, card);
 
       // 保存到数据存储
-      await dataStorage.saveCard(updatedCard);
+      await saveMemoryCard(plugin, updatedCard, 'update');
 
       logger.debug('[CardEditorContainer]','Plain editor: Card saved successfully:', updatedCard.uuid);
       new Notice(t('study.editor.cardSaved'));

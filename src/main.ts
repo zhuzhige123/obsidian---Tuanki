@@ -131,6 +131,7 @@ import { exportBookNotesToMarkdown, exportBookSectionToMarkdown } from "./servic
 import { registerEpubHost, unregisterEpubHost, type EpubHostCapabilities } from "./services/epub-integration";
 import { applyDeviceClasses, detectDevice } from "./utils/tablet-detection";
 import { vaultStorage } from "./utils/vault-local-storage";
+import { readSystemClipboardText, writeSystemClipboardText } from "./utils/system-clipboard";
 import { openFileWithExistingLeaf, openLinkWithExistingLeaf, revealLeaf } from "./utils/workspace-navigation";
 
 import { get } from "svelte/store";
@@ -150,6 +151,8 @@ import { DataSyncService } from "./services/DataSyncService"; // 🆕 全局数�
 import { ExternalSyncWatcher } from "./services/ExternalSyncWatcher"; // 🆕 外部同步文件变更监听
 import { FilterStateService } from "./services/FilterStateService"; // 🆕 全局筛选状态服务
 import { DeckHierarchyService } from "./services/deck/DeckHierarchyService";
+import type { WeaveDomainAPI } from "./services/weave-domain";
+import { saveMemoryCard, saveMemoryDeck, WeaveDomainService } from "./services/weave-domain";
 import { IndexManagerService } from "./services/index/IndexManagerService";
 import { MediaManagementService } from "./services/media/MediaManagementService";
 
@@ -1123,7 +1126,8 @@ export class WeavePlugin extends Plugin {
 	mediaManager!: MediaManagementService;
 	indexManager!: IndexManagerService;
 	filterStateService!: FilterStateService; // 
-	dataSyncService!: DataSyncService; // 
+	dataSyncService!: DataSyncService; //
+	weaveDomainService!: WeaveDomainAPI;
 	externalSyncWatcher?: ExternalSyncWatcher; // 
 	deckMembershipIndexService?: import("./services/index/DeckMembershipIndexService").DeckMembershipIndexService;
 
@@ -1296,6 +1300,10 @@ export class WeavePlugin extends Plugin {
 
 	hasLegacyApkgImportRuntime(): boolean {
 		return this.legacyApkgImportAvailable;
+	}
+
+	getOfficialAPI(): WeaveDomainAPI {
+		return this.weaveDomainService;
 	}
 
 	getLegacyApkgImportUnavailableMessage(): string {
@@ -1991,18 +1999,18 @@ export class WeavePlugin extends Plugin {
 
 					if (matchedCategory) {
 						deck.categoryIds = [matchedCategory.id];
-						await this.dataStorage.saveDeck(deck);
+						await saveMemoryDeck(this, deck, "update");
 						migratedCount++;
 					} else {
 						// 未匹配到分类，分配到第一个默认分类
 						deck.categoryIds = [categories[0].id];
-						await this.dataStorage.saveDeck(deck);
+						await saveMemoryDeck(this, deck, "update");
 						migratedCount++;
 					}
 				} else {
 					// 无旧分类，分配到第一个默认分类
 					deck.categoryIds = [categories[0].id];
-					await this.dataStorage.saveDeck(deck);
+					await saveMemoryDeck(this, deck, "update");
 					migratedCount++;
 				}
 			}
@@ -3049,7 +3057,7 @@ export class WeavePlugin extends Plugin {
 			};
 
 			// 使用 saveDeck 保存
-			const createResponse = await this.dataStorage.saveDeck(newDeck);
+			const createResponse = await saveMemoryDeck(this, newDeck, "create");
 
 			if (createResponse.success && createResponse.data) {
 				logger.info("[Plugin] ✅ 已创建默认牌组:", createResponse.data.name);
@@ -3625,6 +3633,7 @@ export class WeavePlugin extends Plugin {
 
 			this.filterStateService = new FilterStateService(this);
 			this.dataSyncService = new DataSyncService();
+			this.weaveDomainService = new WeaveDomainService(this);
 			this.indexManager = new IndexManagerService(this);
 
 			// 初始化 IndexManager（异步非阻塞）
@@ -4184,10 +4193,10 @@ export class WeavePlugin extends Plugin {
 
 						const embedLink = `![[${sourceFilePath}#^${result.blockLinkInfo.blockId}]]`;
 
-						try {
-							await navigator.clipboard.writeText(embedLink);
+						const copied = await writeSystemClipboardText(embedLink);
+						if (copied) {
 							new Notice("块链接已复制到剪贴板", 2000);
-						} catch {
+						} else {
 							new Notice("已生成块链接（无法自动写入剪贴板，请手动复制）", 3000);
 						}
 					} catch (error) {
@@ -5218,46 +5227,70 @@ export class WeavePlugin extends Plugin {
 				return;
 			}
 
+			if (!this.workspaceViewsRegistered) {
+				this.registerWorkspaceViews();
+			}
+
 			// 🆕 确定打开位置：优先使用强制位置，否则使用设置中的偏好
 			const openLocation = forceLocation ?? this.settings.mainInterfaceOpenLocation ?? "content";
 			logger.debug(`[WeavePlugin] 正在激活视图: ${viewType}, 位置: ${openLocation}`);
 
-			// 🔥 清理旧视图实例（向后兼容：清理 anki-view 残留）
-			this.app.workspace.detachLeavesOfType(viewType);
+			const workspace = this.app.workspace;
 
-			// 🔥 特殊处理：如果是 weave-view，同时清理旧的 anki-view
+			// 向后兼容：仅清理旧 anki-view，避免 detach 当前 weave-view 导致 setViewState 失效
 			if (viewType === VIEW_TYPE_WEAVE) {
-				this.app.workspace.detachLeavesOfType("anki-view");
+				workspace.detachLeavesOfType("anki-view");
 			}
 
-			// 🆕 根据设置决定打开位置
-			let leaf;
-			if (openLocation === "sidebar") {
-				// 在右侧边栏打开
-				leaf = this.app.workspace.getRightLeaf(false);
-			} else {
-				// 在主编辑区打开
-				leaf = this.app.workspace.getLeaf(false);
-			}
+			let leaf = workspace.getLeavesOfType(viewType)[0] ?? null;
 
 			if (!leaf) {
-				logger.error("[WeavePlugin] activateView: 无法创建leaf");
-				return;
+				leaf =
+					openLocation === "sidebar"
+						? workspace.getRightLeaf(false)
+						: workspace.getLeaf(false);
+
+				if (!leaf) {
+					logger.error("[WeavePlugin] activateView: 无法创建leaf");
+					return;
+				}
+
+				await leaf.setViewState({
+					type: viewType,
+					active: true,
+				});
 			}
 
-			await leaf.setViewState({
-				type: viewType,
-				active: true,
-			});
+			const activeViewType =
+				typeof (leaf as { view?: { getViewType?: () => string } }).view?.getViewType ===
+				"function"
+					? (leaf as { view: { getViewType: () => string } }).view.getViewType()
+					: undefined;
 
-			// 🔧 修复：确保leaf存在后再调用revealLeaf
-			const targetLeaves = this.app.workspace.getLeavesOfType(viewType);
-			if (targetLeaves.length > 0 && targetLeaves[0]) {
-				revealLeaf(this.app, targetLeaves[0]);
-				logger.debug(`[WeavePlugin] 成功激活视图: ${viewType}`);
-			} else {
-				logger.error(`[WeavePlugin] activateView: 找不到指定类型的视图leaf: ${viewType}`);
+			if (activeViewType !== viewType) {
+				await leaf.setViewState({
+					type: viewType,
+					active: true,
+				});
 			}
+
+			try {
+				const ws = workspace as typeof workspace & {
+					setActiveLeaf?: (target: typeof leaf, focus?: boolean | { focus?: boolean }) => void;
+				};
+				if (typeof ws.setActiveLeaf === "function") {
+					try {
+						ws.setActiveLeaf(leaf, { focus: true });
+					} catch {
+						ws.setActiveLeaf(leaf, true);
+					}
+				}
+			} catch {
+				// ignore
+			}
+
+			revealLeaf(this.app, leaf);
+			logger.debug(`[WeavePlugin] 成功激活视图: ${viewType}`);
 		} catch (error) {
 			logger.error("[WeavePlugin] activateView失败:", error);
 			// 显示用户友好的错误提示
@@ -5454,7 +5487,7 @@ export class WeavePlugin extends Plugin {
 						categoryIds: partial.categoryIds,
 						cardUUIDs: partial.cardUUIDs,
 					} as import("./data/types").Deck;
-					const resp = await this.dataStorage.saveDeck(deck);
+					const resp = await saveMemoryDeck(this, deck, "create");
 					if (!resp?.success) {
 						throw new Error(resp?.error || "创建牌组失败");
 					}
@@ -5464,7 +5497,7 @@ export class WeavePlugin extends Plugin {
 					if (!this.dataStorage) {
 						throw new Error("dataStorage 未初始化");
 					}
-					const resp = await this.dataStorage.saveDeck(deck);
+					const resp = await saveMemoryDeck(this, deck, "update");
 					if (!resp?.success) {
 						throw new Error(resp?.error || "更新牌组失败");
 					}
@@ -7462,7 +7495,7 @@ export class WeavePlugin extends Plugin {
 				tags: [],
 			};
 
-			const result = await this.dataStorage.saveCard(newCard);
+			const result = await saveMemoryCard(this, newCard, "create");
 			if (result.success) {
 				new Notice(`已添加到牌组「${deck.name}」`);
 			} else {
@@ -8733,19 +8766,7 @@ export class WeavePlugin extends Plugin {
 	}
 
 	private async readClipboardTextOrPrompt(promptText: string): Promise<string | null> {
-		let text = "";
-		try {
-			text = await navigator.clipboard.readText();
-		} catch {
-			try {
-				const electronClipboard = (window as any)?.require?.("electron")?.clipboard;
-				if (electronClipboard?.readText) {
-					text = String(electronClipboard.readText() || "");
-				}
-			} catch {}
-		}
-
-		text = String(text || "").trim();
+		let text = String(await readSystemClipboardText() || "").trim();
 		if (text) return text;
 
 		const { showObsidianInput } = await import("./utils/obsidian-confirm");

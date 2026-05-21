@@ -1,10 +1,16 @@
 <script lang="ts">
   import { logger } from '../../utils/logger';
   import { vaultStorage } from '../../utils/vault-local-storage';
+  import { writeSystemClipboardText } from '../../utils/system-clipboard';
 
   import type { WeaveDataStorage } from "../../data/storage";
   import type { FSRS } from "../../algorithms/fsrs";
   import type { WeavePlugin } from "../../main";
+  import {
+    deleteMemoryCard as deleteMemoryCardCommand,
+    deleteMemoryCards as deleteMemoryCardsCommand,
+    saveMemoryCard as saveMemoryCardCommand,
+  } from "../../services/weave-domain";
 
   import type { Card, Deck } from "../../data/types";
   import type { TimeFilterType } from "../../types/time-filter-types";
@@ -3229,7 +3235,7 @@
           };
 
           // 保存到数据库
-          await plugin.dataStorage.saveCard(updatedCard);
+          await saveMemoryCardCommand(plugin, updatedCard, 'update');
           return updatedCard;
         })
       );
@@ -4067,9 +4073,11 @@
     }).join('\n');
 
     // 复制到剪贴板
-    navigator.clipboard.writeText(copyText).then(() => {
-      new Notice(t('cardManagement.notices.copyClipboardSuccess', { count: selectedCardIds.length }));
-    }).catch(() => {
+    void writeSystemClipboardText(copyText).then((copied) => {
+      if (copied) {
+        new Notice(t('cardManagement.notices.copyClipboardSuccess', { count: selectedCardIds.length }));
+        return;
+      }
       new Notice(t('cardManagement.notices.copyClipboardFailed'));
     });
   }
@@ -4965,7 +4973,7 @@
             status: 'running',
             detail: t('cardManagement.batchOps.deletingCards', { count: selectedCardIds.length })
           });
-          const batchResult = await dataStorage.deleteCards(selectedCardIds);
+          const batchResult = await deleteMemoryCardsCommand(plugin, selectedCardIds);
           ok = batchResult.deleted.length;
           fail = batchResult.failed.length;
           logger.info(`[CardMgmt] 批量删除: 成功${ok}, 失败${fail}`);
@@ -5375,7 +5383,7 @@
       await loadIRContentCards({ silent: true });
     } else {
       cards = cards.filter(c => c.uuid !== cardUuid);
-      await dataStorage.deleteCard(cardUuid);
+      await deleteMemoryCardCommand(plugin, cardUuid);
       loadCards().catch(err => {
         logger.error('重新加载卡片失败:', err);
       });
@@ -6783,7 +6791,7 @@
           showNotification(t('cardManagement.notices.saveRequiresDeck'), 'error');
           return;
         }
-        result = await dataStorage.saveCard(updatedCard);
+        result = await saveMemoryCardCommand(plugin, updatedCard, 'update');
         if (result.success) {
           const index = cards.findIndex(c => c.uuid === updatedCard.uuid);
           if (index !== -1) {
@@ -6831,7 +6839,7 @@
       if (!confirmed) return;
       
       // 删除卡片
-      await dataStorage.deleteCard(cardId);
+      await deleteMemoryCardCommand(plugin, cardId);
       
       // 更新本地状态
       cards = cards.filter(c => c.uuid !== cardId);

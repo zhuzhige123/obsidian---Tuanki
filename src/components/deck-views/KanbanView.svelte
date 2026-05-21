@@ -36,6 +36,7 @@
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
   import { type MemoryDeckMenuAction } from '../../services/deck/MemoryDeckMenu';
   import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from '../../services/premium/PremiumFeatureGuard';
+  import { saveMemoryDeck } from '../../services/weave-domain';
   
   // 导入快速标签组创建器
   import QuickTagGroupCreator from './QuickTagGroupCreator.svelte';
@@ -1306,7 +1307,7 @@
       };
       
       // 保存到数据库
-      await dataStorage.saveDeck(updatedDeck);
+      await saveMemoryDeck(plugin!, updatedDeck, 'update');
       
       // 触发父组件刷新数据
       if (onDeckUpdate) {

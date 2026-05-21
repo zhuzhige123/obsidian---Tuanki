@@ -10,7 +10,7 @@
 import type { Card, DataConsistencyCheckResult, Deck } from "../../data/types";
 import type { WeavePlugin } from "../../main";
 import { logger } from "../../utils/logger";
-import { getCardDeckIds } from "../../utils/yaml-utils";
+import { getCardDeckIdsFromFormalSource } from "../../utils/yaml-utils";
 
 export interface RepairResult {
 	success: boolean;
@@ -130,6 +130,10 @@ export class DataConsistencyService {
 				await this.plugin.deckMembershipIndexService.rebuildFromCards(allCards, decks);
 			}
 
+			if (this.plugin.wdeckService) {
+				await this.reconcileWDeckCardPlacement(allCards, decks);
+			}
+
 			logger.info("[DataConsistency] 修复完成", {
 				repairedCards: 0,
 				cleanedInvalidRefs,
@@ -162,8 +166,46 @@ export class DataConsistencyService {
 
 	private getExpectedDeckIds(card: Card, decks: DeckLookup[]): string[] {
 		return Array.from(
-			new Set(getCardDeckIds(card, decks, { fallbackToReferences: false }).deckIds.filter(Boolean))
+			new Set(getCardDeckIdsFromFormalSource(card, decks).deckIds.filter(Boolean))
 		).sort();
+	}
+
+	private async reconcileWDeckCardPlacement(cards: Card[], decks: DeckLookup[]): Promise<void> {
+		const deckById = new Map(decks.map((deck) => [deck.id, deck] as const));
+		const groups = new Map<string, Card[]>();
+
+		for (const card of cards) {
+			if (!card?.uuid) {
+				continue;
+			}
+
+			const { primaryDeckId, deckIds } = getCardDeckIdsFromFormalSource(card, decks);
+			const targetDeckId = primaryDeckId || deckIds[0];
+			if (!targetDeckId) {
+				continue;
+			}
+
+			const targetDeck = deckById.get(targetDeckId);
+			if (!targetDeck || targetDeck.purpose === "test") {
+				continue;
+			}
+
+			const bucket = groups.get(targetDeckId) || [];
+			bucket.push(card);
+			groups.set(targetDeckId, bucket);
+		}
+
+		for (const [deckId, bucketCards] of groups.entries()) {
+			const deck = deckById.get(deckId);
+			if (!deck) {
+				continue;
+			}
+
+			await this.plugin.wdeckService!.replaceDeckCardsForDeck(
+				{ id: deck.id, name: deck.name },
+				bucketCards
+			);
+		}
 	}
 
 	private buildExpectedDeckMap(cards: Card[], decks: DeckLookup[]): Map<string, string[]> {

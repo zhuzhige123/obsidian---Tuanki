@@ -4,8 +4,9 @@
  */
 
 import { Notice } from "obsidian";
-import type { WeaveDataStorage } from "../../data/storage";
 import type { Card } from "../../data/types";
+import type { WeavePlugin } from "../../main";
+import { saveMemoryCard } from "../../services/weave-domain";
 import { t } from "../../utils/i18n";
 import { logger } from "../../utils/logger";
 import { LOG_PREFIX } from "./study-interface-constants";
@@ -27,13 +28,13 @@ export interface SaveCardResult {
  * 统一的卡片保存函数
  *
  * @param card - 要保存的卡片
- * @param dataStorage - 数据存储实例
+ * @param plugin - Weave 插件实例（经官方 Domain API 写入）
  * @param options - 可选配置
  * @returns 保存结果
  */
 export async function saveCardUnified(
 	card: Card,
-	dataStorage: WeaveDataStorage,
+	plugin: WeavePlugin,
 	options: {
 		/** 操作类型（用于日志和通知） */
 		operation?: string;
@@ -56,7 +57,7 @@ export async function saveCardUnified(
 	} = options;
 
 	try {
-		const result = await dataStorage.saveCard(card);
+		const result = await saveMemoryCard(plugin, card, "update");
 
 		if (result.success) {
 			if (showSuccessNotice && successMessage) {

@@ -15,6 +15,9 @@
   import { generateCardUUID } from '../../services/identifier/WeaveIDGenerator';
   import { detectTraceSourceKind, normalizeTraceDocumentKey } from '../../services/incremental-reading/IRSourceTraceStats';
   import { tr } from '../../utils/i18n';
+  import type { WeavePlugin } from '../../main';
+  import { createWeaveDataChangeNotifier } from '../../services/ui/WeaveDataChangeBridge';
+  import { saveMemoryCard } from '../../services/weave-domain';
 
   interface Props {
     host: AISelectedTextPanelHost;
@@ -26,6 +29,8 @@
   }
 
   let { host, selectedText, actionId, sourceFilePath, sourceLink = '', onClose }: Props = $props();
+  const weavePlugin = host as WeavePlugin;
+  const { signalLegacyCardChanged } = createWeaveDataChangeNotifier(weavePlugin, 'cards');
 
   let isGenerating = $state(false);
   let childCards = $state<Card[]>([]);
@@ -372,19 +377,18 @@
 
         delete (cardToSave as any).fields;
 
-        const res = await host.dataStorage.saveCard(cardToSave);
+        const res = await saveMemoryCard(weavePlugin, cardToSave, 'create');
         if (res.success) savedCount++;
       }
 
       new Notice(t('aiAssistant.selectedTextPanel.importSuccess', { count: savedCount }));
 
-      try {
-        (host.app.workspace as any).trigger('Weave:card-created', {
+      signalLegacyCardChanged('create', {
+        payload: {
           deckId: selectedDeckId,
           source: 'editor-ai-split'
-        });
-      } catch {
-      }
+        }
+      });
 
       onClose();
     } catch (e) {

@@ -6,6 +6,7 @@
   import type { WeaveDataStorage } from "../../data/storage";
   import type { Deck } from "../../data/types";
   import { Menu, Notice } from "obsidian";
+  import { saveMemoryCard, saveMemoryDeck } from "../../services/weave-domain";
   import { normalizeMemorySchedulingSettings } from "../../utils/learning-steps/memorySchedulingConfig";
   //  导入国际化
   import { tr } from '../../utils/i18n';
@@ -173,7 +174,7 @@
           tags: selectedTag ? [selectedTag] : [],
           modified: now.toISOString(),
         } as Deck;
-        const res = await dataStorage.saveDeck(updated);
+        const res = await saveMemoryDeck(plugin, updated, 'update');
         if (!res.success) throw new Error(res.error || 'saveDeck failed');
         const savedDeck = res.data || updated;
         
@@ -193,7 +194,7 @@
                 const updatedContent = setCardProperty(card.content, 'we_decks', [newName]);
                 if (updatedContent !== card.content) {
                   card.content = updatedContent;
-                  await dataStorage.saveCard(card);
+                  await saveMemoryCard(plugin, card, 'update');
                 }
               }
             }
@@ -235,7 +236,7 @@
       // 更新分类和标签
       newDeck.category = category.trim() || '默认';
       newDeck.tags = selectedTag ? [selectedTag] : [];
-      const res = await dataStorage.saveDeck(newDeck);
+      const res = await saveMemoryDeck(plugin, newDeck, 'update');
       if (!res.success) throw new Error(res.error || 'saveDeck failed');
       
       await notifyDeckCreated(res.data || newDeck);

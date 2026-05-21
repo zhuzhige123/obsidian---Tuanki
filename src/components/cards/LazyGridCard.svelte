@@ -17,7 +17,7 @@
   import { normalizeCanvasNodeId } from '../../services/ui/canvas-source-locate';
   import { getQuestionTypeLabelFromCard } from '../../utils/question-type-utils';
   import { buildWeaveCardReferenceToken } from '../../utils/weave-card-reference';
-  import { applyStyleProps } from '../../utils/style-props';
+  import { writeSystemClipboardText } from '../../utils/system-clipboard';
   import { currentLanguage, tr } from '../../utils/i18n';
 
   type GridCardAttributeType = 'none' | 'uuid' | 'source' | 'priority' | 'retention' | 'modified' | 'accuracy' | 'question_type' | 'ir_state' | 'ir_priority';
@@ -324,29 +324,7 @@
       return false;
     }
 
-    try {
-      await navigator.clipboard.writeText(normalizedText);
-      return true;
-    } catch {}
-
-    try {
-      const textArea = document.createElement('textarea');
-      textArea.value = normalizedText;
-      textArea.setAttribute('readonly', 'true');
-      applyStyleProps(textArea, {
-        position: 'fixed',
-        opacity: '0',
-        pointerEvents: 'none'
-      });
-      document.body.appendChild(textArea);
-      textArea.select();
-      textArea.setSelectionRange(0, normalizedText.length);
-      const copied = document.execCommand('copy');
-      document.body.removeChild(textArea);
-      return copied;
-    } catch {
-      return false;
-    }
+    return writeSystemClipboardText(normalizedText);
   }
 
   async function handleAttributeClick(event: MouseEvent): Promise<void> {

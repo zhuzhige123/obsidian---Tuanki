@@ -10,6 +10,7 @@ import { logger } from '../../utils/logger';
   import type { DeckTreeNode } from '../../services/deck/DeckHierarchyService';
   import type { TestMode, QuestionBankModeConfig } from '../../types/question-bank-types';
   import type { WeavePlugin } from '../../main';
+  import { saveMemoryDeck } from '../../services/weave-domain';
   import QuestionBankGridCard from './QuestionBankGridCard.svelte';
   import QuestionBankElegantCard from './QuestionBankElegantCard.svelte';
   import { getColorSchemeForDeck } from '../../config/card-color-schemes';
@@ -356,7 +357,7 @@ import { logger } from '../../utils/logger';
             tags: tag ? [tag] : [],
             modified: new Date().toISOString(),
           };
-          await dataStorage.saveDeck(updated);
+          await saveMemoryDeck(plugin, updated, 'update');
           await loadQuestionBankTree();
           plugin.app.workspace.trigger('Weave:data-changed');
           new Notice(t('study.questionBankUI.bankCollection.editModal.saveSuccess'));

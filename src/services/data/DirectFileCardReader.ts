@@ -260,25 +260,38 @@ export class DirectFileCardReader {
 		}
 	}
 
+	private async pathExists(folderPath: string): Promise<boolean> {
+		try {
+			return await this.adapter.exists(folderPath);
+		} catch {
+			return false;
+		}
+	}
+
 	private async ensureLayoutDetected(): Promise<void> {
 		if (this.layoutDetected) {
 			return;
 		}
 
 		const cardsFolderCandidate = `${this.dataFolder}/memory/cards`;
-		try {
-			if (await this.adapter.exists(cardsFolderCandidate)) {
-				this.layout = "card-files";
-				this.cardsFolder = cardsFolderCandidate;
-				this.layoutDetected = true;
-				return;
-			}
-		} catch {
-			// ignore
+		if (await this.pathExists(cardsFolderCandidate)) {
+			this.layout = "card-files";
+			this.cardsFolder = cardsFolderCandidate;
+			this.layoutDetected = true;
+			return;
 		}
 
-		this.layout = "legacy-decks";
-		this.cardsFolder = null;
+		const legacyDecksFolder = `${this.dataFolder}/decks`;
+		if (await this.pathExists(legacyDecksFolder)) {
+			this.layout = "legacy-decks";
+			this.cardsFolder = null;
+			this.layoutDetected = true;
+			return;
+		}
+
+		// v2 默认布局：目录尚未创建时避免对 legacy decks 执行 list 触发 ENOENT
+		this.layout = "card-files";
+		this.cardsFolder = cardsFolderCandidate;
 		this.layoutDetected = true;
 	}
 
@@ -363,6 +376,13 @@ export class DirectFileCardReader {
 		await this.ensureLayoutDetected();
 
 		if (this.layout === "card-files" && this.cardsFolder) {
+			if (!(await this.pathExists(this.cardsFolder))) {
+				logger.debug(
+					`[DirectFileCardReader] 卡片目录尚未创建，跳过: ${this.cardsFolder}`
+				);
+				return deckFiles;
+			}
+
 			try {
 				const listing = await this.adapter.list(this.cardsFolder);
 				for (const filePath of listing.files) {
@@ -381,6 +401,11 @@ export class DirectFileCardReader {
 		}
 
 		const decksFolder = `${this.dataFolder}/decks`;
+
+		if (!(await this.pathExists(decksFolder))) {
+			logger.debug(`[DirectFileCardReader] legacy decks 目录不存在，跳过: ${decksFolder}`);
+			return deckFiles;
+		}
 
 		try {
 			// 使用 adapter.list() 获取文件列表（支持隐藏文件夹）

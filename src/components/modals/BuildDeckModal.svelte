@@ -12,6 +12,7 @@
   import { logger } from '../../utils/logger';
   import { focusManager } from '../../utils/focus-manager';
   import type { WeavePlugin } from "../../main";
+  import { saveMemoryDeck } from "../../services/weave-domain";
   import type { Deck } from "../../data/types";
   import { Menu, Notice } from "obsidian";
   import { get } from 'svelte/store';
@@ -363,7 +364,7 @@
           metadata: {}
         };
 
-        const saveDeckResult = await plugin.dataStorage.saveDeck(newDeck);
+        const saveDeckResult = await saveMemoryDeck(plugin, newDeck, 'create');
         if (!saveDeckResult.success || !saveDeckResult.data) {
           throw new Error(saveDeckResult.error || t('study.questionBankUI.buildDeckModal.createDeckFailed'));
         }

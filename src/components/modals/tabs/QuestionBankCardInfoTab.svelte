@@ -13,6 +13,7 @@
   import type { Card } from '../../../data/types';
   // 🌍 导入国际化
   import { tr } from '../../../utils/i18n';
+  import { writeSystemClipboardText } from '../../../utils/system-clipboard';
   // ✅ 卡片详情模态窗改用全局方法 plugin.openViewCardModal()
 
   interface Props {
@@ -71,9 +72,11 @@
   });
 
   // 复制UUID
-  function copyUUID() {
-    navigator.clipboard.writeText(card.uuid);
-    new Notice(t('study.questionBankUI.cardInfoTab.copiedUuid'));
+  async function copyUUID() {
+    const copied = await writeSystemClipboardText(card.uuid);
+    if (copied) {
+      new Notice(t('study.questionBankUI.cardInfoTab.copiedUuid'));
+    }
   }
 
   // 跳转到来源文档

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { Menu, Notice, TFile } from 'obsidian';
   import type { WeavePlugin } from '../../main';
+  import { saveMemoryCard } from '../../services/weave-domain';
   import type { WeaveDataStorage } from '../../data/storage';
   import type { FSRS } from '../../algorithms/fsrs';
   import type { AIAssistantSubView } from '../../services/plugin-state/PluginLocalStateService';
@@ -620,7 +621,7 @@
 
     let importedCount = 0;
     for (const card of converted.cards) {
-      await dataStorage.saveCard(card);
+      await saveMemoryCard(plugin, card, 'create');
       importedCount += 1;
     }
 

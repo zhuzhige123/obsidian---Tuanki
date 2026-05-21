@@ -286,6 +286,12 @@ export function getDataCheckLifecycleNote(type: CheckType): string {
 		case "migration_conflict_files":
 		case "legacy_cleanup":
 			return t("management.dataCheckService.notes.migrationCleanup");
+		case "duplicate_cards":
+			return t("management.dataCheckService.notes.duplicateCards");
+		case "card_deck_consistency":
+			return t("management.dataCheckService.notes.cardDeckConsistency");
+		case "wdeck_conflicts":
+			return t("management.dataCheckService.notes.wdeckConflicts");
 		default:
 			return "";
 	}
@@ -925,12 +931,11 @@ export class DataManagementService {
 	}
 
 	/**
-	 * 检测卡片-牌组一致性（引用式牌组数据一致性）
+	 * 检测卡片-牌组一致性（.wdeck 与 YAML we_decks 对齐）
 	 *
-	 * 简化为只检查牌组侧的无效引用
-	 * - 以 deck.cardUUIDs 为唯一权威数据源
-	 * - 只检查牌组中是否存在指向不存在卡片的UUID
-	 * - 不再检查已废弃的 card.referencedByDecks 字段
+	 * - 以卡片 YAML 的 we_decks 为权威归属
+	 * - 以 .wdeck 聚合结果中的实际卡片列表为牌组侧现状
+	 * - 对比两者差异（多余/缺失 UUID）
 	 */
 	private async checkCardDeckConsistency(): Promise<DataCheckResult> {
 		const consistencyService = new DataConsistencyService(this.plugin);
@@ -956,10 +961,7 @@ export class DataManagementService {
 	/**
 	 * 修复卡片-牌组一致性
 	 *
-	 * 简化为只清理牌组侧的无效引用
-	 * - 以 deck.cardUUIDs 为唯一权威数据源
-	 * - 只清理牌组中指向不存在卡片的UUID
-	 * - 不再尝试修改已废弃的 card.referencedByDecks 字段（该字段是派生字段，保存时会被剥离）
+	 * - 按 YAML we_decks 回写牌组缓存，并在启用 WDeck 时把卡片写回正确的 .wdeck 文件
 	 */
 	private async fixCardDeckConsistency(): Promise<DataFixResult> {
 		const consistencyService = new DataConsistencyService(this.plugin);
@@ -1003,7 +1005,7 @@ export class DataManagementService {
 	}
 
 	/**
-	 * 检测内容重复卡片（AnkiConnect同步Bug导致的重复）
+	 * 检测内容重复卡片（同一正文、不同 UUID 的副本）
 	 *
 	 * 检测逻辑：
 	 * 1. 提取每张卡片的内容指纹（去除YAML frontmatter后的纯内容）

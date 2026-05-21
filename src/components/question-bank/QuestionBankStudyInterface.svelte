@@ -16,6 +16,7 @@
   import QuestionBankVerticalToolbar from "./QuestionBankVerticalToolbar.svelte";
   import QuestionNavigator from "./QuestionNavigator.svelte";
   import CardEditorContainer from "../study/CardEditorContainer.svelte";
+  import { saveMemoryCard } from "../../services/weave-domain";
   import { logger } from "../../utils/logger";
   import { detectClozeModeFromContent } from "../../utils/cloze-mode";
   import { isInputClozeQuestionContent } from "../../utils/question-bank/input-cloze-utils";
@@ -606,7 +607,7 @@
 
     // 保存到数据库
     try {
-      await plugin.dataStorage.saveCard(currentQuestion.question);
+      await saveMemoryCard(plugin, currentQuestion.question, 'update');
       // 触发界面刷新
       currentQuestion = { ...currentQuestion };
     } catch (error) {
@@ -696,7 +697,7 @@
     
     try {
       // 0. 先保存到数据库
-      const saveResult = await plugin.dataStorage.saveCard(updatedCard);
+      const saveResult = await saveMemoryCard(plugin, updatedCard, 'update');
       if (!saveResult.success) {
         throw new Error(saveResult.error || t('study.questionBankUI.studyInterface.saveFailed'));
       }
@@ -899,7 +900,7 @@
       };
 
       // 保存卡片
-      const result = await plugin.dataStorage.saveCard(updatedCard);
+      const result = await saveMemoryCard(plugin, updatedCard, 'update');
       if (result.success) {
         // 更新当前题目
         currentQuestion.question.priority = priority;
@@ -1518,6 +1519,7 @@
             {#if showEditModal}
               <!-- 编辑器模式 -->
               <CardEditorContainer
+                {plugin}
                 card={currentQuestion.question}
                 realCardId={currentQuestion.question.uuid}
                 editorSessionId={editorSessionId}

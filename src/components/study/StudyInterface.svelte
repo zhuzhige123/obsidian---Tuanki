@@ -134,6 +134,10 @@
   import type { ProgressiveClozeChildCard } from "../../types/progressive-cloze-v2";
   import { StudyQueueGenerator } from "../../utils/study/StudyQueueGenerator";
   import {
+    deleteMemoryCard as deleteMemoryCardCommand,
+    saveMemoryCard as saveMemoryCardCommand,
+  } from "../../services/weave-domain";
+  import {
     setCardErrorBookState,
     syncCardStatsToCanonicalFormat,
   } from "../../utils/card-stats-normalizer";
@@ -790,7 +794,7 @@
     setCardErrorBookState(currentCard, true);
 
     // 保存卡片
-    const result = await saveCardUnified(currentCard, dataStorage, {
+    const result = await saveCardUnified(currentCard, plugin, {
       operation: '加入错题集',
       showSuccessNotice: true,
       successMessage: '✅ 已加入错题集',
@@ -813,7 +817,7 @@
     setCardErrorBookState(currentCard, false);
 
     // 保存卡版
-    const result = await saveCardUnified(currentCard, dataStorage, {
+    const result = await saveCardUnified(currentCard, plugin, {
       operation: '移出错题集',
       showSuccessNotice: true,
       successMessage: '✅ 已移出错题集',
@@ -1138,7 +1142,7 @@
           delete (childCard as any).fields;
 
           // 保存到数据库
-          const result = await plugin.dataStorage.saveCard(childCard);
+          const result = await saveMemoryCardCommand(plugin, childCard, 'create');
           if (result.success) {
             savedCount++;
             logger.debug(`[AI拆分] 已保存子卡片: ${childCard.uuid}`);
@@ -1165,7 +1169,7 @@
             },
             modified: new Date().toISOString()
           };
-          await plugin.dataStorage.saveCard(updatedParent);
+          await saveMemoryCardCommand(plugin, updatedParent, 'update');
           logger.debug(`[AI拆分] 已更新父卡片关系: ${parentCard.uuid}`);
         } catch (error) {
           logger.error('[AI拆分] 更新父卡片失败:', error);
@@ -2059,7 +2063,9 @@
       updateChoiceQuestionStats(card, rating, responseTime);
     },
     persistRatedCard: async (card) => {
-      await runWithMemoryStudyDataChangeContext(card.deckId, () => dataStorage.saveCard(card));
+      await runWithMemoryStudyDataChangeContext(card.deckId, () =>
+        saveMemoryCardCommand(plugin, card, 'update')
+      );
     },
     afterCardPersisted: async ({ card, log, session }) => {
       const reviewHistory = card.reviewHistory || [];
@@ -3050,7 +3056,7 @@
       
       // 保存到数据库
       const result = await runWithMemoryStudyDataChangeContext(currentCard.deckId, () =>
-        dataStorage.saveCard(currentCard)
+        saveMemoryCardCommand(plugin, currentCard, 'update')
       );
       
       if (result.success) {
@@ -4086,7 +4092,7 @@
         if (result.success && result.updatedCard) {
           let persistedCard = result.updatedCard;
           try {
-            const saveResult = await dataStorage.saveCard(result.updatedCard);
+            const saveResult = await saveMemoryCardCommand(plugin, result.updatedCard, 'update');
             if (!saveResult.success) {
               // SAVE_CANCELLED 表示用户取消了渐进式挖空变更
               if (saveResult.error === 'SAVE_CANCELLED') {
@@ -4210,7 +4216,7 @@
     try {
       isClozeModeSaving = true;
 
-      const saveResult = await saveCardUnified(updatedCard, dataStorage, {
+      const saveResult = await saveCardUnified(updatedCard, plugin, {
         operation: t('studyInterface.notices.clozeModeToggleOperation'),
         showErrorNotice: true,
         errorMessage: t('studyInterface.notices.clozeModeToggleFailed')
@@ -4259,7 +4265,7 @@
     }
 
     try {
-      const res = await dataStorage.deleteCard(currentCard.uuid);
+      const res = await deleteMemoryCardCommand(plugin, currentCard.uuid);
       if (!res?.success) {
         try {
           new Notice(t('studyInterface.notices.deleteFailed', {
@@ -4364,7 +4370,7 @@
       await recycleCard(cardToRecycle, RecycleReason.MANUAL, 5);
 
       // 保存回收后的卡片
-      const res = await dataStorage.saveCard(cardToRecycle);
+      const res = await saveMemoryCardCommand(plugin, cardToRecycle, 'update');
       if (!res?.success) {
         new Notice(t('studyInterface.notices.recycleFailed', {
           error: res?.error || t('study.view.unknownError')
@@ -4494,7 +4500,7 @@
       } as Card;
 
       // 保存卡片
-      const result = await dataStorage.saveCard(updatedCard);
+      const result = await saveMemoryCardCommand(plugin, updatedCard, 'update');
       if (result.success) {
         //  同步更新 cards 和 studyQueue
         const cardUuid = currentCard.uuid;
@@ -4558,7 +4564,7 @@
       } as any;
 
       // 保存卡片
-      const result = await dataStorage.saveCard(updatedCard);
+      const result = await saveMemoryCardCommand(plugin, updatedCard, 'update');
       if (result.success) {
         const savedCard = (result.data || updatedCard) as any;
 
@@ -5455,6 +5461,7 @@
               {#if showEditModal}
                 <!-- 编辑器容器组件 -->
                 <CardEditorContainer
+                  {plugin}
                   card={editTargetCard || currentCard}
                   editorSessionId={editorSessionId}
                   {showEditModal}
@@ -5470,7 +5477,7 @@
                     let persistedCard = updatedCard;
 
                     try {
-                      const saveResult = await dataStorage.saveCard(updatedCard);
+                      const saveResult = await saveMemoryCardCommand(plugin, updatedCard, 'update');
                       if (!saveResult.success) {
                         if (saveResult.error === 'SAVE_CANCELLED') {
                           logger.info('[StudyInterface] 用户取消了保存，返回编辑模式');

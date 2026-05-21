@@ -23,6 +23,7 @@
   } from '../../utils/yaml-utils';
   import { detectCardQuestionType } from '../../utils/card-type-utils';
   import { getCardTypeName } from '../../types/unified-card-types';
+  import { saveMemoryCard } from '../../services/weave-domain';
   import { tr } from '../../utils/i18n';
 
   // Props接口定义
@@ -407,7 +408,7 @@
       let persistedCard: Card = updatedCard;
       if (plugin.dataStorage) {
         logger.debug('[InlineCardEditor] 💾 开始保存到数据库...');
-        const saveResult = await plugin.dataStorage.saveCard(updatedCard);
+        const saveResult = await saveMemoryCard(plugin, updatedCard, 'update');
         persistedCard = saveResult.data || updatedCard;
         
         if (!saveResult.success) {

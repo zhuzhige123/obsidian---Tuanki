@@ -16,6 +16,7 @@
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
   import { focusManager } from '../../utils/focus-manager';
   import { tr } from '../../utils/i18n';
+  import { writeSystemClipboardText } from '../../utils/system-clipboard';
 
   interface Props {
     plugin: WeavePlugin;
@@ -256,11 +257,13 @@
     new Notice(t('aiAssistant.configModal.deletedPrompt', { name: prompt.name }));
   }
 
-  function copySystemPromptToClipboard() {
-    navigator.clipboard
-      .writeText(displayedPromptContent)
-      .then(() => new Notice(t('aiAssistant.configModal.copiedToClipboard')))
-      .catch(() => new Notice(t('aiAssistant.configModal.copyFailed')));
+  async function copySystemPromptToClipboard() {
+    const copied = await writeSystemClipboardText(displayedPromptContent);
+    new Notice(
+      copied
+        ? t('aiAssistant.configModal.copiedToClipboard')
+        : t('aiAssistant.configModal.copyFailed')
+    );
   }
 
   function showMenuAtTrigger(menu: Menu, trigger: HTMLElement) {

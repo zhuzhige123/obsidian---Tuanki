@@ -15,6 +15,7 @@
 import { type EventRef, TFile, type Vault } from "obsidian";
 import { getV2PathsFromApp } from "../config/paths";
 import type { WeavePlugin } from "../main";
+import { createWeaveDataChangeNotifier } from "./ui/WeaveDataChangeBridge";
 import { logger } from "../utils/logger";
 
 export class ExternalSyncWatcher {
@@ -189,9 +190,18 @@ export class ExternalSyncWatcher {
 			});
 		}
 
-		// 触发 workspace 事件（备用机制）
+		const { signalLegacyDataChanged, signalLegacyCardChanged } = createWeaveDataChangeNotifier(
+			this.plugin,
+			"cards"
+		);
+
+		// 触发 workspace 兼容事件（备用机制）
 		if (hasCardChanges || hasDeckChanges) {
-			(this.plugin.app.workspace as any).trigger("Weave:card-updated");
+			signalLegacyDataChanged();
+		}
+
+		if (hasCardChanges) {
+			signalLegacyCardChanged("update", { includeDataChanged: false });
 		}
 
 		logger.info("[ExternalSyncWatcher] 外部变更通知已发送", {
