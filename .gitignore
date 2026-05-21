@@ -228,8 +228,9 @@ prototypes/
 heatmap-designs/
 heatmap_prototype.html
 
-# 内部文档
+# 内部文档（含 docs/technical/skills，勿 force-add 提交）
 docs/
+docs/technical/
 DEVELOPMENT.md
 ERROR_CHECK_REPORT.md
 HOT_RELOAD_GUIDE.md
