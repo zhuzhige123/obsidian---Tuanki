@@ -28,14 +28,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Prepare build memory
-        shell: bash
-        run: |
-          sudo fallocate -l 4G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
+      - name: Set up swap space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
 
       - name: Read release version
         id: version
