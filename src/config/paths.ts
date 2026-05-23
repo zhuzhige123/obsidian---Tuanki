@@ -98,7 +98,9 @@ export const LEGACY_MACHINE_DATA_SUBDIR = "_data";
 
 /** 旧增量阅读正文/文件化块兼容目录（新正文默认路径已不再写入这里） */
 export const DEFAULT_IR_IMPORT_FOLDER = `${WEAVE_DATA}/incremental-reading/IR`;
-const DEFAULT_OBSIDIAN_CONFIG_DIR = [".", "obsidian"].join("");
+/** Fallback when Vault is unavailable; runtime paths prefer `Vault#configDir`. */
+// eslint-disable-next-line obsidianmd/hardcoded-config-path -- static default for exclude list / pre-vault bootstrap only
+const DEFAULT_OBSIDIAN_CONFIG_DIR = ".obsidian";
 
 function resolveVaultConfigDir(app?: { vault: { configDir: string } }): string {
 	const configDir = app?.vault?.configDir?.trim();

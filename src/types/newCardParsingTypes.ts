@@ -475,7 +475,9 @@ export interface ICardParser {
 /**
  * 默认设置
  */
-const DEFAULT_OBSIDIAN_CONFIG_FOLDER = [".", "obsidian"].join("");
+/** Fallback exclude folder name when no Vault context exists yet. */
+// eslint-disable-next-line obsidianmd/hardcoded-config-path -- default parsing exclude list only
+const DEFAULT_OBSIDIAN_CONFIG_FOLDER = ".obsidian";
 
 export const DEFAULT_SIMPLIFIED_PARSING_SETTINGS: SimplifiedParsingSettings = {
 	enableTagTrigger: true,
