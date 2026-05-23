@@ -58,7 +58,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 +wIDAQAB
 -----END PUBLIC KEY-----`;
 
-	private readonly CURRENT_VERSION = "0.8.9";
+	private readonly CURRENT_VERSION = "0.8.10";
 
 	constructor() {
 		this.cloudValidator = new CloudLicenseValidator();
