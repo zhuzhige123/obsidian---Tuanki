@@ -1,15 +1,18 @@
 {
   "name": "weave",
   "private": true,
-  "version": "0.8.8",
+  "version": "0.8.9",
   "description": "Enhance knowledge learning and memory consolidation with memory decks and practice quiz decks",
   "main": "main.js",
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev-watch.cjs",
     "dev:fresh": "npm run clean:cache && npm run dev",
-    "predev:mobile": "node scripts/kill-vite.cjs",
-    "predev:mobile:watch": "node scripts/kill-vite.cjs",
+    "predev:mobile": "node scripts/kill-vite.cjs --target=mobile",
+    "predev:mobile:watch": "node scripts/kill-vite.cjs --target=mobile",
+    "kill:vite": "node scripts/kill-vite.cjs",
+    "kill:vite:desktop": "node scripts/kill-vite.cjs --target=desktop",
+    "kill:vite:mobile": "node scripts/kill-vite.cjs --target=mobile",
     "prebuild": "node scripts/kill-vite.cjs",
     "build": "npm run check:encoding && node --max-old-space-size=4096 node_modules/vite/bin/vite.js build --mode production",
     "build:mobile": "npm run build && node scripts/deploy-mobile.cjs",
@@ -117,6 +120,7 @@
     "jszip": "3.10.1",
     "monkey-around": "3.0.0",
     "pako": "^2.1.0",
-    "sql.js": "1.13.0"
+    "sql.js": "1.13.0",
+    "ts-fsrs": "5.4.0"
   }
 }

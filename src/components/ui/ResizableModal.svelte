@@ -554,7 +554,7 @@
           <div class="modal-header-right">
             <!-- 自定义标题栏操作（牌组、模板选择器等） -->
             {#if headerActions}
-              <div class="modal-header-actions">
+              <div class="modal-header-actions weave-modal-header-toolbar">
                 {@render headerActions()}
               </div>
             {/if}

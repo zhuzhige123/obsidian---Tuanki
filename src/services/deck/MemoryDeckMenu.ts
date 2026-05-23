@@ -4,7 +4,6 @@ export type MemoryDeckMenuAction =
 	| "advance-study"
 	| "deck-analytics"
 	| "knowledge-graph"
-	| "associate-question-bank"
 	| "edit-deck"
 	| "delete-deck"
 	| "dissolve-deck";
@@ -13,7 +12,6 @@ export interface MemoryDeckMenuHandlers {
 	onAdvanceStudy: () => void | Promise<void>;
 	onOpenDeckAnalytics: () => void | Promise<void>;
 	onOpenKnowledgeGraph: () => void | Promise<void>;
-	onAssociateQuestionBank?: () => void | Promise<void>;
 	onEditDeck: () => void | Promise<void>;
 	onDeleteDeck: () => void | Promise<void>;
 	onDissolveDeck: () => void | Promise<void>;
@@ -23,7 +21,6 @@ export interface MemoryDeckMenuText {
 	advanceStudy: string;
 	deckAnalytics: string;
 	knowledgeGraph: string;
-	linkQuestionBank?: string;
 	editDeck: string;
 	deleteDeck: string;
 	dissolveDeck: string;
@@ -63,16 +60,6 @@ export function buildMemoryDeckMenu(
 			.setIcon("git-fork")
 			.onClick(async () => await handlers.onOpenKnowledgeGraph())
 	);
-
-	if (handlers.onAssociateQuestionBank && text.linkQuestionBank) {
-		const linkQuestionBankTitle = text.linkQuestionBank;
-		menu.addItem((item) =>
-			item
-				.setTitle(linkQuestionBankTitle)
-				.setIcon("link-2")
-				.onClick(async () => await handlers.onAssociateQuestionBank?.())
-		);
-	}
 
 	menu.addSeparator();
 

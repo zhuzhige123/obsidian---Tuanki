@@ -68,6 +68,7 @@ import type { SupportedLanguage, TranslationKey } from '../types';
 	questionBank: {
 		saveAndReturn: '保存并返回',
 		openMenu: '打开菜单',
+		displayPanels: '显示面板',
 		stats: '答题情况',
 		navigator: '题目导航',
 		saveFailed: '保存失败：{error}',
@@ -294,7 +295,7 @@ const zhBase: TranslationKey = {
 		footer: {
 			hint: '可以继续学习其他牌组哦~',
 			closeButton: '知道了',
-			startPracticeButton: '开始考试',
+			startPracticeButton: '选择考试题组',
 		},
 		timeFormat: {
 			lessThan1Min: '< 1分钟',
@@ -398,10 +399,13 @@ const zhBase: TranslationKey = {
 			errorRate: '错误率',
 		},
 		pagination: {
+			first: '首页',
 			previous: '上一页',
 			next: '下一页',
+			last: '末页',
 			page: '第 {n} 页',
 			total: '共 {n} 张卡片',
+			itemsPerPage: '每页条数',
 		},
 		tables: {
 			loading: '加载中...',
@@ -547,6 +551,7 @@ const zhBase: TranslationKey = {
 	},
 	mainMenu: {
 		aiAssistant: {
+			toolsMenu: '制卡工具',
 			fileList: '文件列表',
 			history: '历史记录',
 			noHistory: '暂无生成记录',
@@ -588,6 +593,13 @@ const zhBase: TranslationKey = {
 			tableReview: '复习历史模式',
 			irMarkdown: 'Markdown 文件',
 			irPdf: 'PDF书签',
+			gridLayout: '网格布局',
+			gridBorderStyle: '显示风格',
+			gridBorderSolid: '实线边框',
+			gridBorderDashed: '虚线边框',
+			gridBorderSolidShort: '实线',
+			gridBorderDashedShort: '虚线',
+			tableViewMode: '表格视图',
 			gridFixed: '固定布局',
 			gridMasonry: '瀑布流布局',
 			timeline: '时间线视图',
@@ -668,10 +680,13 @@ const enBase: TranslationKey = {
 			errorRate: 'Error rate',
 		},
 		pagination: {
+			first: 'First page',
 			previous: 'Previous page',
 			next: 'Next page',
+			last: 'Last page',
 			page: 'Page {n}',
 			total: '{n} cards total',
+			itemsPerPage: 'Items per page',
 		},
 		tables: {
 			loading: 'Loading...',
@@ -730,6 +745,7 @@ const enBase: TranslationKey = {
 		questionBank: {
 			saveAndReturn: 'Save and Return',
 			openMenu: 'Open menu',
+			displayPanels: 'Display Panels',
 			stats: 'Question Stats',
 			navigator: 'Question Navigator',
 			saveFailed: 'Save failed: {error}',
@@ -877,6 +893,7 @@ const enBase: TranslationKey = {
 	},
 	mainMenu: {
 		aiAssistant: {
+			toolsMenu: 'Card Tools',
 			fileList: 'File List',
 			history: 'History',
 			noHistory: 'No generation history yet',
@@ -918,6 +935,13 @@ const enBase: TranslationKey = {
 			tableReview: 'Review History Mode',
 			irMarkdown: 'Markdown Files',
 			irPdf: 'PDF Bookmarks',
+			gridLayout: 'Grid Layout',
+			gridBorderStyle: 'Display Style',
+			gridBorderSolid: 'Solid Border',
+			gridBorderDashed: 'Dashed Border',
+			gridBorderSolidShort: 'Solid',
+			gridBorderDashedShort: 'Dashed',
+			tableViewMode: 'Table View',
 			gridFixed: 'Fixed Layout',
 			gridMasonry: 'Masonry Layout',
 			timeline: 'Timeline View',
@@ -962,7 +986,6 @@ export const appShellTranslationOverrides: Record<SupportedLanguage, Translation
 			noAdvanceCards: '暂无可提前学习的卡片',
 		},
 		commands: {
-			aiCardGeneration: { name: 'AI 生成卡片' },
 			batchParseAllMappings: { name: '批量解析所有映射' },
 			batchParseCurrentFile: { name: '批量解析当前文件' },
 			batchParseSyncAll: { name: '批量解析并全局同步' },
@@ -986,7 +1009,6 @@ export const appShellTranslationOverrides: Record<SupportedLanguage, Translation
 			openEpubReader: { name: '打开 EPUB 阅读器' },
 			openMainView: { name: '打开主界面' },
 			quickAddCard: { name: '快速添加卡片' },
-			selectedTextAiCard: { name: '用选中文本进行 AI 制卡' },
 		},
 		toolbar: {
 			aiAssistant: 'AI制卡',
@@ -1096,7 +1118,6 @@ export const appShellTranslationOverrides: Record<SupportedLanguage, Translation
 			noAdvanceCards: 'No cards available for advance study',
 		},
 		commands: {
-			aiCardGeneration: { name: 'AI card generation' },
 			batchParseAllMappings: { name: 'Batch parse all mappings' },
 			batchParseCurrentFile: { name: 'Batch parse current file' },
 			batchParseSyncAll: { name: 'Batch parse and sync all' },
@@ -1120,7 +1141,6 @@ export const appShellTranslationOverrides: Record<SupportedLanguage, Translation
 			openEpubReader: { name: 'Open EPUB reader' },
 			openMainView: { name: 'Open main view' },
 			quickAddCard: { name: 'Quick add card' },
-			selectedTextAiCard: { name: 'Generate card from selected text with AI' },
 		},
 		toolbar: {
 			unknownDeck: 'Unknown Deck',

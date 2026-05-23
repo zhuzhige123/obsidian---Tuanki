@@ -2,12 +2,13 @@
   /**
    * 移动端学习界面工具栏菜单
    * 使用 Obsidian Menu API 构建原生风格菜单
-   * 计时器信息作为菜单头部显示
    */
   import type { Card, Deck } from '../../data/types';
   import type { RatingLabelStyle } from './rating-label-style';
   import type { ChoiceOptionOrder } from '../../utils/study/choiceOptionOrder';
-  import { StudyToolbarMenuBuilder, type MenuBuilderConfig, type MenuCallbacks } from '../../services/menu/StudyToolbarMenuBuilder';
+  import { Menu } from 'obsidian';
+  import type { MenuCallbacks } from '../../services/menu/StudyToolbarMenuBuilder';
+  import { populateStudyToolbarMenuSession } from '../../services/menu/study-toolbar-menu-session';
   import { customActionsForMenu } from '../../stores/ai-config.store';
 
   interface Props {
@@ -19,7 +20,7 @@
     isPremium?: boolean;
     isGraphLinked?: boolean;
     enableDirectDelete?: boolean;
-    showTimingInfo?: boolean; // 计时信息栏是否展开
+    showTimingInfo?: boolean;
     autoPlayMedia?: boolean;
     playMediaMode?: 'first' | 'all';
     playMediaTiming?: 'cardChange' | 'showAnswer';
@@ -43,7 +44,7 @@
     onGraphLinkToggle?: (enabled: boolean) => void;
     onOpenDetailedView?: () => void;
     onOpenSourceBlock?: () => void;
-    onToggleTimingInfo?: () => void; // 切换计时信息栏
+    onToggleTimingInfo?: () => void;
     onMediaAutoPlayChange?: (
       setting: 'enabled' | 'mode' | 'timing' | 'interval',
       value: boolean | 'first' | 'all' | 'cardChange' | 'showAnswer' | number
@@ -61,8 +62,8 @@
   let {
     show = false,
     card,
-    currentCardTime,
-    averageTime,
+    currentCardTime: _currentCardTime,
+    averageTime: _averageTime,
     decks = [],
     isPremium = false,
     isGraphLinked = false,
@@ -103,56 +104,10 @@
     onClozeModeSwitchButtonToggle,
   }: Props = $props();
 
-  // 从Store获取AI功能列表
   let customActions = $derived($customActionsForMenu);
 
-  /**
-   * 格式化时间（毫秒 -> MM:SS）
-   */
-  function formatTime(ms: number): string {
-    const totalSeconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-  }
-
-  /**
-   * 显示 Obsidian Menu（带计时器头部）
-   */
-  function showObsidianMenu() {
-    if (!card) {
-      onClose();
-      return;
-    }
-
-    // 构建菜单配置
-    const config: MenuBuilderConfig = {
-      card,
-      decks,
-      isPremium,
-      isGraphLinked,
-      hasSourceFile: !!card.sourceFile,
-      currentPriority: card.priority || 2,
-      enableDirectDelete,
-      showTimingInfo,
-      autoPlayMedia,
-      playMediaMode,
-      playMediaTiming,
-      playbackInterval,
-      cardOrder,
-      choiceOptionOrder,
-      ratingLabelStyle,
-      showRatingIntervalOnButtons,
-      timerAutoPauseSeconds,
-      hintMaxUses,
-      showClozeModeSwitchButton,
-      aiActions: {
-        split: customActions.split || []
-      }
-    };
-
-    // 构建回调函数
-    const callbacks: MenuCallbacks = {
+  function buildCallbacks(): MenuCallbacks {
+    return {
       onToggleEdit: () => {
         onClose();
         onToggleEdit?.();
@@ -196,56 +151,93 @@
         onClose();
         onOpenSourceBlock?.();
       },
-      onToggleTimingInfo: onToggleTimingInfo ? () => {
-        onToggleTimingInfo?.();
-        // 不关闭菜单，让用户可以继续操作
-      } : undefined,
-      onMediaAutoPlayChange: onMediaAutoPlayChange ? (setting, value) => {
-        onMediaAutoPlayChange?.(setting, value);
-      } : undefined,
-      onDirectDeleteToggle: onDirectDeleteToggle ? (enabled) => {
-        onDirectDeleteToggle?.(enabled);
-      } : undefined,
-      onCardOrderChange: onCardOrderChange ? (order) => {
-        onCardOrderChange?.(order);
-      } : undefined,
-      onChoiceOptionOrderChange: onChoiceOptionOrderChange ? (order) => {
-        onChoiceOptionOrderChange?.(order);
-      } : undefined,
-      onRatingLabelStyleChange: onRatingLabelStyleChange ? (style) => {
-        onRatingLabelStyleChange?.(style);
-      } : undefined,
-      onRatingIntervalButtonsToggle: onRatingIntervalButtonsToggle ? (enabled) => {
-        onRatingIntervalButtonsToggle?.(enabled);
-      } : undefined,
-      onTimerAutoPauseChange: onTimerAutoPauseChange ? (seconds) => {
-        onTimerAutoPauseChange?.(seconds);
-      } : undefined,
-      onHintMaxUsesChange: onHintMaxUsesChange ? (value) => {
-        onHintMaxUsesChange?.(value);
-      } : undefined,
-      onClozeModeSwitchButtonToggle: onClozeModeSwitchButtonToggle ? (enabled) => {
-        onClozeModeSwitchButtonToggle?.(enabled);
-      } : undefined
+      onToggleTimingInfo: onToggleTimingInfo
+        ? () => {
+            onToggleTimingInfo?.();
+          }
+        : undefined,
+      onMediaAutoPlayChange: onMediaAutoPlayChange
+        ? (setting, value) => {
+            onMediaAutoPlayChange?.(setting, value);
+          }
+        : undefined,
+      onDirectDeleteToggle: onDirectDeleteToggle
+        ? (enabled) => {
+            onDirectDeleteToggle?.(enabled);
+          }
+        : undefined,
+      onCardOrderChange: onCardOrderChange
+        ? (order) => {
+            onCardOrderChange?.(order);
+          }
+        : undefined,
+      onChoiceOptionOrderChange: onChoiceOptionOrderChange
+        ? (order) => {
+            onChoiceOptionOrderChange?.(order);
+          }
+        : undefined,
+      onRatingLabelStyleChange: onRatingLabelStyleChange
+        ? (style) => {
+            onRatingLabelStyleChange?.(style);
+          }
+        : undefined,
+      onRatingIntervalButtonsToggle: onRatingIntervalButtonsToggle
+        ? (enabled) => {
+            onRatingIntervalButtonsToggle?.(enabled);
+          }
+        : undefined,
+      onTimerAutoPauseChange: onTimerAutoPauseChange
+        ? (seconds) => {
+            onTimerAutoPauseChange?.(seconds);
+          }
+        : undefined,
+      onHintMaxUsesChange: onHintMaxUsesChange
+        ? (value) => {
+            onHintMaxUsesChange?.(value);
+          }
+        : undefined,
+      onClozeModeSwitchButtonToggle: onClozeModeSwitchButtonToggle
+        ? (enabled) => {
+            onClozeModeSwitchButtonToggle?.(enabled);
+          }
+        : undefined,
     };
+  }
 
-    // 创建菜单构建器并显示（带计时器信息）
-    const menuBuilder = new StudyToolbarMenuBuilder(config, callbacks);
-    
-    // 在屏幕中央偏上位置显示菜单
-    menuBuilder.showMenuWithTimer(
-      { x: window.innerWidth / 2, y: window.innerHeight / 3 },
-      { currentCardTime, averageTime, formatTime }
-    );
-    
-    // 菜单显示后立即关闭组件状态（菜单由 Obsidian 管理）
+  function showObsidianMenu() {
+    if (!card) {
+      onClose();
+      return;
+    }
+
+    const menu = new Menu();
+    populateStudyToolbarMenuSession(menu, {
+      card,
+      decks,
+      isPremium,
+      isGraphLinked,
+      enableDirectDelete,
+      showTimingInfo,
+      autoPlayMedia,
+      playMediaMode,
+      playMediaTiming,
+      playbackInterval,
+      cardOrder,
+      choiceOptionOrder,
+      ratingLabelStyle,
+      showRatingIntervalOnButtons,
+      timerAutoPauseSeconds,
+      hintMaxUses,
+      showClozeModeSwitchButton,
+      aiSplitActions: customActions.split || [],
+      callbacks: buildCallbacks(),
+    });
+    menu.showAtPosition({ x: window.innerWidth / 2, y: window.innerHeight / 3 });
     onClose();
   }
 
-  // 当 show 变为 true 时，显示菜单
   $effect(() => {
     if (show && card) {
-      // 延迟一帧确保状态已更新
       requestAnimationFrame(() => {
         showObsidianMenu();
       });

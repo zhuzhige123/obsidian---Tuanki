@@ -16,6 +16,8 @@
     placeholder?: string;
     disabled?: boolean;
     className?: string;
+    /** field：表单下拉；toolbar：底部/顶栏工具区（无边框扁平） */
+    appearance?: 'field' | 'toolbar';
     iconPosition?: 'left' | 'right';
     onchange?: (value: string) => void;
   }
@@ -26,6 +28,7 @@
     placeholder = '请选择...',
     disabled = false,
     className = '',
+    appearance = 'field',
     iconPosition = 'right',
     onchange
   }: Props = $props();
@@ -107,7 +110,7 @@
 
 <button
   bind:this={buttonRef}
-  class="obsidian-dropdown-trigger {className}"
+  class="obsidian-dropdown-trigger appearance-{appearance} {className}"
   class:disabled
   onclick={handleClick}
   onkeydown={handleKeydown}
@@ -178,6 +181,30 @@
 
   .placeholder {
     color: var(--text-muted);
+  }
+
+  /* 工具栏：覆盖上方 field 样式，避免 scoped 边框压过全局 */
+  .obsidian-dropdown-trigger.appearance-toolbar {
+    width: auto;
+    max-width: min(100%, 9rem);
+    padding: 0.35rem 0.5rem;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    color: var(--text-muted);
+    justify-content: flex-start;
+  }
+
+  .obsidian-dropdown-trigger.appearance-toolbar:hover:not(.disabled) {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    border: none;
+    box-shadow: none;
+  }
+
+  .obsidian-dropdown-trigger.appearance-toolbar:focus-visible {
+    border: none;
+    box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
   }
 
   :global(body > .menu) {

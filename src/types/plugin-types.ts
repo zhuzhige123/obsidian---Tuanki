@@ -4,7 +4,7 @@
  */
 
 import type { App, Notice, Plugin } from "obsidian";
-import type { FSRS6CoreAlgorithm } from "../algorithms/fsrs6-core";
+import type { FSRS } from "../algorithms/fsrs";
 import type { SettingsWithEditor } from "../components/settings/types/settings-types";
 import type { WeaveDataStorage } from "../data/storage";
 // ContentParserService已删除，现在使用SimplifiedCardParser
@@ -27,7 +27,7 @@ export interface WeavePlugin extends Plugin {
 	settings: SettingsWithEditor;
 
 	/** FSRS 算法实例 */
-	fsrs: FSRS6CoreAlgorithm;
+	fsrs: FSRS;
 
 	/** 数据存储服务 */
 	dataStorage: WeaveDataStorage;

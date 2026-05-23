@@ -111,25 +111,26 @@ export class StudyToolbarMenuBuilder {
 	/**
 	 * 构建并显示完整菜单
 	 */
+	/**
+	 * 将学习多功能菜单项填入已有 Menu（用于 Obsidian 官方 leaf 更多菜单）
+	 */
+	populateMenu(menu: Menu): void {
+		this.buildCardActionsSection(menu);
+
+		if (this.config.isPremium) {
+			menu.addSeparator();
+			this.buildAISection(menu);
+		}
+
+		menu.addSeparator();
+		this.buildMoreSection(menu);
+	}
+
 	showMenu(position: { x: number; y: number }): void {
 		try {
 			this.lastMenuPosition = position;
 			const menu = new Menu();
-
-			// 1. 卡片操作分类
-			this.buildCardActionsSection(menu);
-
-			// 2. AI功能分类（仅高级用户）
-			if (this.config.isPremium) {
-				menu.addSeparator();
-				this.buildAISection(menu);
-			}
-
-			// 3. 更多功能分类
-			menu.addSeparator();
-			this.buildMoreSection(menu);
-
-			// 显示菜单
+			this.populateMenu(menu);
 			menu.showAtPosition(position);
 
 			logger.debug("[StudyToolbarMenuBuilder] 菜单已显示");
@@ -436,22 +437,6 @@ export class StudyToolbarMenuBuilder {
 						this.safeCallback(() => this.callbacks.onRatingLabelStyleChange?.(value));
 					}
 				);
-			});
-		}
-
-		if (this.callbacks.onRatingIntervalButtonsToggle) {
-			menu.addItem((item) => {
-				item
-					.setTitle(i18n.t("study.menu.settings.showRatingIntervalOnButtons"))
-					.setIcon("clock-4")
-					.setChecked(this.config.showRatingIntervalOnButtons ?? false)
-					.onClick(() => {
-						this.safeCallback(() =>
-							this.callbacks.onRatingIntervalButtonsToggle?.(
-								!(this.config.showRatingIntervalOnButtons ?? false)
-							)
-						);
-					});
 			});
 		}
 

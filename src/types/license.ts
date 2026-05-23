@@ -25,6 +25,10 @@ export interface CloudSyncInfo {
   devicesUsed?: number;
   /** 最大设备数 */
   devicesMax?: number;
+  /** 本机已授权库数量（仅当前物理设备，由云端 vault 槽位统计） */
+  vaultsUsed?: number;
+  /** 每设备最大库数量 */
+  vaultsMax?: number;
   /** 错误信息 */
   errorMessage?: string;
 }
@@ -79,8 +83,10 @@ export interface LicenseInfo {
  * 激活码数据结构（嵌入在激活码中的数据）
  */
 export interface ActivationCodeData {
-  /** 用户ID */
+  /** 用户ID（签发时建议直接填购买邮箱，用于激活校验） */
   userId: string;
+  /** 购买邮箱（可选；若 userId 非邮箱，应在此字段写入） */
+  email?: string;
   /** 产品ID */
   productId: string;
   /** 许可证类型 */

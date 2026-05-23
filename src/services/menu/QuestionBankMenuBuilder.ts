@@ -1,6 +1,7 @@
 import { Menu } from "obsidian";
 import type { Card } from "../../data/types";
 import type { ChoiceOptionOrder } from "../../utils/study/choiceOptionOrder";
+import { i18n } from "../../utils/i18n";
 import { logger } from "../../utils/logger";
 
 /**
@@ -8,6 +9,7 @@ import { logger } from "../../utils/logger";
  */
 export interface QuestionBankMenuConfig {
 	card: Card;
+	isEditing?: boolean;
 	hasSourceFile: boolean;
 	currentPriority: number;
 	enableDirectDelete: boolean;
@@ -50,22 +52,21 @@ export class QuestionBankMenuBuilder {
 	/**
 	 * 构建并显示完整菜单
 	 */
+	/**
+	 * 将考试学习多功能菜单项填入已有 Menu（用于 Obsidian 官方 leaf 更多菜单）
+	 */
+	populateMenu(menu: Menu): void {
+		this.buildCardActionsSection(menu);
+		menu.addSeparator();
+		this.buildDisplaySection(menu);
+		menu.addSeparator();
+		this.buildMoreSection(menu);
+	}
+
 	showMenu(position: { x: number; y: number }): void {
 		try {
 			const menu = new Menu();
-
-			// 1. 卡片操作分类
-			this.buildCardActionsSection(menu);
-
-			// 2. 显示设置分类
-			menu.addSeparator();
-			this.buildDisplaySection(menu);
-
-			// 3. 更多功能分类
-			menu.addSeparator();
-			this.buildMoreSection(menu);
-
-			// 显示菜单
+			this.populateMenu(menu);
 			menu.showAtPosition(position);
 
 			logger.debug("[QuestionBankMenuBuilder] 菜单已显示");
@@ -83,11 +84,15 @@ export class QuestionBankMenuBuilder {
 			item.setTitle("卡片操作").setDisabled(true);
 		});
 
-		// 1. 编辑卡片
+		// 1. 编辑 / 保存并预览
 		menu.addItem((item) => {
 			item
-				.setTitle("编辑卡片")
-				.setIcon("edit")
+				.setTitle(
+					this.config.isEditing
+						? i18n.t("toolbar.saveAndPreview")
+						: i18n.t("study.menu.editCard")
+				)
+				.setIcon(this.config.isEditing ? "eye" : "edit")
 				.onClick(() => {
 					this.safeCallback(() => this.callbacks.onToggleEdit());
 				});

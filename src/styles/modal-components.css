@@ -33,6 +33,17 @@
   --weave-obsidian-modal-max-height: 88vh;
 }
 
+.weave-ai-generation-config-modal {
+  --weave-obsidian-modal-width: 92vw;
+  --weave-obsidian-modal-max-width: 720px;
+  --weave-obsidian-modal-height: auto;
+  --weave-obsidian-modal-max-height: 86vh;
+}
+
+.weave-ai-generation-config-modal-content {
+  --weave-obsidian-modal-content-overflow: auto;
+}
+
 .weave-ir-analytics-modal {
   --weave-obsidian-modal-width: 94vw;
   --weave-obsidian-modal-max-width: 1260px;
@@ -79,6 +90,12 @@
   --weave-obsidian-modal-max-width: 1180px;
   --weave-obsidian-modal-height: 82vh;
   --weave-obsidian-modal-max-height: 82vh;
+  --weave-obsidian-modal-min-height: 0;
+  --weave-obsidian-modal-overflow: hidden;
+}
+
+.weave-deck-analytics-modal-content {
+  --weave-obsidian-modal-content-overflow: hidden;
 }
 
 .weave-question-bank-analytics-modal {

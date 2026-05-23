@@ -62,10 +62,6 @@
     onEditDeck?: (deckId: string) => void;
     onDeleteDeck?: (deckId: string) => void;
     onOpenKnowledgeGraph?: (deckId: string) => void;
-    onAssociateQuestionBank?: (deckId: string, bankId?: string) => void | Promise<void>;
-    getQuestionBankSubmenuData?: (deckId: string) => Promise<{
-      banks: Array<{ id: string; name: string; isCurrent: boolean }>;
-    } | null>;
     onBeforeOpenDeckMenu?: () => void;
     memoryDeckMenuActionHandler?: (action: MemoryDeckMenuAction, deckId: string) => void | Promise<void>;
     // 引用式牌组系统
@@ -103,8 +99,6 @@
     onEditDeck,
     onDeleteDeck,
     onOpenKnowledgeGraph,
-    onAssociateQuestionBank,
-    getQuestionBankSubmenuData,
     onBeforeOpenDeckMenu,
     memoryDeckMenuActionHandler,
     // 引用式牌组系统
@@ -1172,53 +1166,6 @@
           .setIcon('git-fork')
           .onClick(async () => await dispatchMemoryDeckMenuAction('knowledge-graph', deckId))
       );
-
-      if (onAssociateQuestionBank) {
-        const canUseQuestionBank = premiumGuard.canUseFeature(PREMIUM_FEATURES.QUESTION_BANK);
-
-        if (!canUseQuestionBank) {
-          menu.addItem((item) =>
-            item
-              .setTitle(`${t('decks.menu.linkQuestionBank')} (高级)`)
-              .setIcon('link-2')
-              .onClick(async () => await onAssociateQuestionBank?.(deckId))
-          );
-        } else {
-          const submenuData = getQuestionBankSubmenuData
-            ? await getQuestionBankSubmenuData(deckId)
-            : null;
-
-          if (submenuData && submenuData.banks.length > 0) {
-            menu.addItem((item) => {
-              item
-                .setTitle(t('decks.menu.linkQuestionBank'))
-                .setIcon('link-2');
-
-              const hasSubmenu = withSubmenu(item, (submenu) => {
-                submenuData.banks.forEach((bank) => {
-                  submenu.addItem((subItem) => {
-                    subItem
-                      .setTitle(bank.name)
-                      .setIcon(bank.isCurrent ? 'check' : 'gallery-vertical')
-                      .onClick(async () => await onAssociateQuestionBank?.(deckId, bank.id));
-                  });
-                });
-              });
-
-              if (!hasSubmenu) {
-                item.onClick(async () => await onAssociateQuestionBank?.(deckId));
-              }
-            });
-          } else {
-            menu.addItem((item) =>
-              item
-                .setTitle(t('decks.menu.linkQuestionBank'))
-                .setIcon('link-2')
-                .onClick(async () => await onAssociateQuestionBank?.(deckId))
-            );
-          }
-        }
-      }
 
       menu.addSeparator();
 

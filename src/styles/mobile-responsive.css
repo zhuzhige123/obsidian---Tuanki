@@ -312,7 +312,7 @@
 
   /* 触控反馈 - 仅桌面端 */
   body:not(.is-mobile) .weave-app .weave-button:active,
-  body:not(.is-mobile) .weave-app button:not(.sidebar-dot):not(.view-type-dot):active {
+  body:not(.is-mobile) .weave-app button:not(.sidebar-dot):not(.view-type-dot):not(.weave-toolbar-control):not(.weave-toolbar-tab):active {
     transform: scale(0.95);
     opacity: 0.9;
   }
@@ -372,7 +372,7 @@
 /* ==================== 高对比度模式 ==================== */
 @media (prefers-contrast: high) {
   .weave-app .weave-button,
-  .weave-app button {
+  .weave-app button:not(.weave-toolbar-tab):not(.weave-toolbar-control) {
     border: 2px solid currentColor;
   }
 

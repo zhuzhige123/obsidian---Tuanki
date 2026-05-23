@@ -1,4 +1,7 @@
+import { Rating as TsRating, createEmptyCard, fsrs as createTsFsrs } from "ts-fsrs";
 import { FSRS } from "../algorithms/fsrs";
+import { toTsFsrsParams } from "../algorithms/fsrs-adapter";
+import { FSRS6_DEFAULTS } from "../types/fsrs6-types";
 import { CardState, Rating, type Card } from "../data/types";
 import { StepIndexCalculator } from "../utils/learning-steps/StepIndexCalculator";
 import { normalizeMemorySchedulingSettings } from "../utils/learning-steps/memorySchedulingConfig";
@@ -39,10 +42,27 @@ function createQueueCard(uuid: string, state: CardState, due: string): Card {
 describe("learningStepScheduling", () => {
 	test("keeps a learning card in Learning after Again", () => {
 		const fsrs = new FSRS();
+		const now = new Date("2026-01-01T00:00:00.000Z");
 		const firstAgain = fsrs.review(fsrs.createCard(), Rating.Again).card;
+		applyLearningStepScheduling({
+			prevState: CardState.New,
+			rating: Rating.Again,
+			updatedCard: firstAgain,
+			config: defaultConfig,
+			currentStepIndex: 0,
+			now,
+		});
 		expect(firstAgain.state).toBe(CardState.Learning);
 
 		const secondAgain = fsrs.review(firstAgain, Rating.Again).card;
+		applyLearningStepScheduling({
+			prevState: CardState.Learning,
+			rating: Rating.Again,
+			updatedCard: secondAgain,
+			config: defaultConfig,
+			currentStepIndex: 0,
+			now,
+		});
 		expect(secondAgain.state).toBe(CardState.Learning);
 	});
 
@@ -87,9 +107,16 @@ describe("learningStepScheduling", () => {
 	});
 
 	test("keeps FSRS6 easy interval for a new card instead of legacy 4-day override", () => {
-		const fsrs = new FSRS();
+		const now = new Date("2026-01-01T00:00:00.000Z");
+		const fsrs = new FSRS({ enableFuzz: false });
 		const original = fsrs.createCard();
-		const updated = fsrs.review(original, Rating.Easy).card;
+		const updated = fsrs.review(original, Rating.Easy, now.toISOString()).card;
+		const expected = createTsFsrs(
+			toTsFsrsParams({
+				enableFuzz: false,
+				w: [...FSRS6_DEFAULTS.DEFAULT_WEIGHTS],
+			})
+		).next(createEmptyCard(now), now, TsRating.Easy).card.scheduled_days;
 
 		const result = applyLearningStepScheduling({
 			prevState: original.state,
@@ -97,12 +124,13 @@ describe("learningStepScheduling", () => {
 			updatedCard: updated,
 			config: defaultConfig,
 			currentStepIndex: 0,
-			now: new Date("2026-01-01T00:00:00.000Z"),
+			now,
 		});
 
 		expect(result.applied).toBe(false);
 		expect(updated.state).toBe(CardState.Review);
-		expect(updated.scheduledDays).toBeCloseTo(8, 0);
+		expect(updated.scheduledDays).toBe(expected);
+		expect(updated.scheduledDays).not.toBe(defaultConfig.easyInterval);
 	});
 
 	test("allows pure FSRS mode when learning steps are empty", () => {

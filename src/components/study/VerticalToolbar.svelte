@@ -9,8 +9,8 @@
   import FloatingMenu from "../ui/FloatingMenu.svelte";
   import ObsidianDropdown from "../ui/ObsidianDropdown.svelte";
   import ObsidianIcon from "../ui/ObsidianIcon.svelte";
+  import RatingLabelStyleSettingDropdown from "./RatingLabelStyleSettingDropdown.svelte";
   import {
-    getRatingLabelStyleOptions,
     normalizeRatingLabelStyle,
     type RatingLabelStyle
   } from "./rating-label-style";
@@ -154,7 +154,6 @@
 
   //  响应式翻译函数
   let t = $derived($tr);
-  let ratingLabelStyleOptions = $derived(getRatingLabelStyleOptions(t));
   let normalizedRatingLabelStyle = $derived(normalizeRatingLabelStyle(ratingLabelStyle));
 	let currentLocale = $derived($currentLanguage === 'zh-CN' ? 'zh-CN' : 'en-US');
 
@@ -1546,33 +1545,17 @@
               </div>
             </div>
 
-              <div class="setting-section">
-                <div class="setting-item">
-                  <div class="setting-label">{t('studyInterface.ratingLabelStyle.label')}</div>
-                  <ObsidianDropdown
-                    className="setting-select"
-                  options={ratingLabelStyleOptions}
-                  value={normalizedRatingLabelStyle}
-                  onchange={(value) => onRatingLabelStyleChange?.(normalizeRatingLabelStyle(value))}
-                  />
-                </div>
+            <div class="setting-section">
+              <div class="setting-item">
+                <div class="setting-label">{t('study.menu.settings.ratingLabelStyle')}</div>
+                <RatingLabelStyleSettingDropdown
+                  className="setting-select"
+                  style={normalizedRatingLabelStyle}
+                  translate={t}
+                  onStyleChange={(value) => onRatingLabelStyleChange?.(normalizeRatingLabelStyle(value))}
+                />
               </div>
-
-              <div class="setting-section">
-                <div class="setting-item toggle-item">
-                  <div class="setting-label">
-                    <span>{t('study.menu.settings.showRatingIntervalOnButtons')}</span>
-                  </div>
-                  <label class="toggle-switch">
-                    <input
-                      type="checkbox"
-                      checked={showRatingIntervalOnButtons}
-                      onchange={(e) => onRatingIntervalButtonsToggle?.((e.target as HTMLInputElement).checked)}
-                    />
-                    <span class="slider"></span>
-                  </label>
-                </div>
-              </div>
+            </div>
 
               <div class="setting-section">
                 <div class="setting-item interval-item">
@@ -2414,6 +2397,13 @@
     padding-bottom: 4px;
   }
 
+  .more-settings-menu-content .setting-item,
+  .more-settings-menu-content .suspend-item {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+    background: color-mix(in srgb, var(--background-secondary) 40%, var(--background-primary));
+  }
+
   .setting-item {
     display: flex;
     justify-content: space-between;
@@ -2425,10 +2415,17 @@
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .setting-item:hover {
+  .more-settings-menu-content .setting-item:hover,
+  .more-settings-menu-content .suspend-item:hover {
     background: var(--background-modifier-hover);
     border-color: color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border));
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  }
+
+  .more-settings-menu-content :global(.obsidian-dropdown-trigger.appearance-field) {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+    background: color-mix(in srgb, var(--background-secondary) 25%, var(--background-modifier-form-field));
   }
 
   .setting-item.toggle-item {

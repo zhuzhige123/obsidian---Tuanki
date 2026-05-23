@@ -18,10 +18,14 @@
   import PreviewContainer from "../preview/PreviewContainer.svelte";
   import StudyHeader from "./StudyHeader.svelte";
   import CardEditorContainer from "./CardEditorContainer.svelte";
-  import MobileStudyToolbarMenu from "./MobileStudyToolbarMenu.svelte";
+  import type { Menu } from "obsidian";
+  import type { MenuCallbacks } from "../../services/menu/StudyToolbarMenuBuilder";
+  import { populateStudyToolbarMenuSession } from "../../services/menu/study-toolbar-menu-session";
   import {
     getRatingLabelStyleLabel,
     normalizeRatingLabelStyle,
+    resolveRatingLabelStyleFromPreferences,
+    shouldShowRatingIntervalOnButtons,
     type RatingLabelStyle
   } from "./rating-label-style";
 
@@ -40,6 +44,11 @@
   import type { WeavePlugin } from "../../main";
   import type { StudyInterfaceViewPreferences } from "../settings/types/settings-types";
   import type { ChoiceOptionOrder } from '../../utils/study/choiceOptionOrder';
+  import {
+    applyStudyCardOrderToQueue,
+    collectStudyInterfaceViewPreferencesFromBindings,
+    reorderStudyQueuePreservingCurrentCard,
+  } from '../../utils/study/studyInterfaceViewPreferences';
   import { MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE } from "../../services/DataSyncService";
   import { generateId } from "../../utils/helpers";
   import { Component, MarkdownRenderer, Notice, Platform } from "obsidian";
@@ -71,9 +80,6 @@
   //  AI配置Store（单一数据源）
   import { customActionsForMenu } from "../../stores/ai-config.store";
 
-  //  FSRS6个性化优化系统
-  import { RobustPersonalizationManager } from "../../algorithms/optimization/RobustPersonalizationManager";
-  
   //  复习撤销功能
   import { ReviewUndoManager, type ReviewSnapshot } from "../../services/ReviewUndoManager";
 
@@ -120,6 +126,16 @@
   import { openLinkWithExistingLeaf } from "../../utils/workspace-navigation";
   import { vaultStorage } from '../../utils/vault-local-storage';
   import { calculateMobileEditViewportHeight } from "../../utils/mobile-edit-viewport";
+  import {
+    bindMobileFloatingViewport,
+    getVisualViewportLayout,
+  } from "../../utils/mobile-floating-viewport";
+  import {
+    applyReadingViewportLock,
+    isEditableFocusedWithin,
+    resolveReadingViewportLockTarget,
+    STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS,
+  } from "../../utils/mobile-reading-viewport-lock";
   import { getCardBack, getCardFront } from "../../utils/card-field-helper";
   import { WDECK_UNGROUPED_DECK_NAME } from "../../services/wdeck/WDeckService";
   // 牌组信息获取工具
@@ -230,7 +246,6 @@
 
   // --- 管理器实例 ---
   const sessionManager = StudySessionManager.getInstance();
-  const personalizationManager = untrack(() => new RobustPersonalizationManager(plugin, dataStorage));
   const premiumGuard = PremiumFeatureGuard.getInstance();
   const STUDY_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: 'study' };
   const reviewUndoManager = new ReviewUndoManager();
@@ -273,6 +288,7 @@
   // 核心改进：不再重复调用 generateQueuePure，避免与统计不一致
   // 传入的 cards 已经应用了：回收过滤、兄弟过滤、每日限制等
   let studyQueue = $state<Card[]>([]);
+  let orderedBaseStudyQueue = $state<Card[]>([]);
   let queueInitialized = $state(false);
   
   // 初始化队列（仅执行一次）
@@ -298,7 +314,8 @@
       
       logger.debug(`[StudyInterface] 🔑 激活状态检查: ${currentPremiumStatus ? '✅ 已激活' : '❌ 未激活'}`);
       
-      studyQueue = queue;
+      orderedBaseStudyQueue = queue;
+      studyQueue = applyStudyCardOrderToQueue(orderedBaseStudyQueue, cardOrder);
       queueInitialized = true;
       
       //  详细的队列初始化日志
@@ -325,8 +342,6 @@
   let currentCardIndex = $state(untrack(() => initialCardIndex));
   let showAnswer = $state(false);
   let cardStartTime = $state(Date.now());
-  let personalizationEnabled = $state(true);
-  
   //  移动端检测
   const isMobile = Platform.isMobile;
   
@@ -380,8 +395,6 @@
   let childCards = $state<Card[]>([]);
   let aiSplitInProgress = $state(false);
   
-  // ---  移动端菜单状态 ---
-  let showMobileMenu = $state(false);
   let childCardsOverlayRef: any = $state(null); // 浮层组件引用
   let regeneratingCardIds = $state(new Set<string>()); // 正在重新生成的卡片ID集合
   let isRegenerating = $derived(regeneratingCardIds.size > 0); // 是否正在重新生成
@@ -639,9 +652,14 @@
   // ============================================
 
   // --- 图谱联动功能 ---
-  function handleGraphLinkToggle(enabled: boolean) {
+  async function handleGraphLinkToggle(enabled: boolean) {
     isGraphLinkEnabled = enabled;
     logger.debug(`[图谱联动] 状态变更: ${enabled}`);
+    try {
+      await persistStudyInterfaceViewPreferences({ graphLinkEnabled: enabled });
+    } catch (error) {
+      logger.error('[StudyInterface] 保存图谱联动设置失败:', error);
+    }
   }
   
   // 别名函数，为了兼容
@@ -1277,27 +1295,25 @@
    * 关闭卡片数据结构调试模态窗
    */
   // --- UI控制状态 ---
-  // 从 plugin.settings 初始化视图偏好，兼容 localStorage
-  const viewPrefs = untrack(() => plugin.getStudyInterfaceViewPreferences());
+  const initialViewPrefs = untrack(() => plugin.getStudyInterfaceViewPreferences());
   const hasStoredStudyInterfaceViewPreferences = untrack(() => Boolean(plugin.settings.studyInterfaceViewPreferences));
+  const legacySidebarCompactMode =
+    !hasStoredStudyInterfaceViewPreferences && typeof window !== 'undefined'
+      ? (() => {
+          try {
+            const savedCompactMode = vaultStorage.getItem('weave-sidebar-compact-mode-setting');
+            return savedCompactMode === 'auto' || savedCompactMode === 'fixed' ? savedCompactMode : null;
+          } catch (error) {
+            logger.debug('[StudyInterface] 恢复localStorage设置失败:', error);
+            return null;
+          }
+        })()
+      : null;
   
   let loadBalanceManager = $state<LoadBalanceManager | null>(null);
   
-  // 向后兼容：如果settings中没有，尝试从localStorage读取
-  if (!hasStoredStudyInterfaceViewPreferences && typeof window !== 'undefined') {
-    try {
-      const savedCompactMode = vaultStorage.getItem('weave-sidebar-compact-mode-setting');
-      if (savedCompactMode && (savedCompactMode === 'auto' || savedCompactMode === 'fixed')) {
-        viewPrefs.sidebarCompactModeSetting = savedCompactMode as 'auto' | 'fixed';
-        logger.debug('从localStorage迁移紧凑模式设置:', savedCompactMode);
-      }
-    } catch (error) {
-      logger.debug('[StudyInterface] 恢复localStorage设置失败:', error);
-    }
-  }
-  
-  let showSidebar = $state(viewPrefs.showSidebar);
-  let statsCollapsed = $state(viewPrefs.statsCollapsed);
+  let showSidebar = $state(initialViewPrefs.showSidebar);
+  let statsCollapsed = $state(initialViewPrefs.statsCollapsed);
   let sourceInfoCollapsed = $state(true);
   let showProficiencyStats = $state(false);  // 学习进度统计栏展开状态
   let showTimingInfo = $state(false);  // 卡片计时信息栏展开状态
@@ -1319,14 +1335,22 @@
   let lastContentSize = { width: 0, height: 0 }; // 缓存上次内容尺寸，防止ResizeObserver无限触发
   
   //  侧边栏紧凑模式设置：auto(自动) | fixed(固定显示图标+名称)
-  let sidebarCompactModeSetting = $state<'auto' | 'fixed'>(viewPrefs.sidebarCompactModeSetting);
+  let sidebarCompactModeSetting = $state<'auto' | 'fixed'>(
+    legacySidebarCompactMode ?? initialViewPrefs.sidebarCompactModeSetting
+  );
   
   // 卡片学习顺序设置
-  let cardOrder = $state<'sequential' | 'random'>(viewPrefs.cardOrder || 'sequential');
-  let choiceOptionOrder = $state<ChoiceOptionOrder>(viewPrefs.choiceOptionOrder || 'sequential');
+  let cardOrder = $state<'sequential' | 'random'>(initialViewPrefs.cardOrder);
+  let choiceOptionOrder = $state<ChoiceOptionOrder>(initialViewPrefs.choiceOptionOrder);
 
-  let ratingLabelStyle = $state<RatingLabelStyle>(normalizeRatingLabelStyle(viewPrefs.ratingLabelStyle));
-  let showRatingIntervalOnButtons = $state(Boolean(viewPrefs.showRatingIntervalOnButtons ?? false));
+  let ratingLabelStyle = $state<RatingLabelStyle>(
+    resolveRatingLabelStyleFromPreferences(
+      initialViewPrefs.ratingLabelStyle,
+      initialViewPrefs.showRatingIntervalOnButtons
+    )
+  );
+  let skipViewPreferencesAutosave = $state(true);
+  isGraphLinkEnabled = initialViewPrefs.graphLinkEnabled === true;
   
   //  监听侧边栏显示/隐藏状态变化，以及模式设置变化，及时重新检测
   $effect(() => {
@@ -1347,11 +1371,34 @@
   
   // 监听视图偏好状态变化并自动保存（防抖）
   let saveTimeoutId: number | null = null;
+
+  function syncViewPreferencesFromPlugin(): void {
+    const prefs = plugin.getStudyInterfaceViewPreferences();
+    showSidebar = prefs.showSidebar;
+    sidebarCompactModeSetting = prefs.sidebarCompactModeSetting;
+    statsCollapsed = prefs.statsCollapsed;
+    cardOrder = prefs.cardOrder;
+    choiceOptionOrder = prefs.choiceOptionOrder;
+    ratingLabelStyle = resolveRatingLabelStyleFromPreferences(
+      prefs.ratingLabelStyle,
+      prefs.showRatingIntervalOnButtons
+    );
+    isGraphLinkEnabled = prefs.graphLinkEnabled === true;
+  }
+
   $effect(() => {
+    if (skipViewPreferencesAutosave) {
+      return;
+    }
+
     // 追踪状态变化
     showSidebar;
     sidebarCompactModeSetting;
     statsCollapsed;
+    ratingLabelStyle;
+    cardOrder;
+    choiceOptionOrder;
+    isGraphLinkEnabled;
     
     // 清除之前的定时器
     if (saveTimeoutId !== null) {
@@ -1886,21 +1933,89 @@
   let editorUnavailable = $state(false);
   let isClozeMode = $state(false);
 
+  function populateStudyPaneMenu(menu: Menu): void {
+    if (!currentCard) {
+      return;
+    }
+
+    const callbacks: MenuCallbacks = {
+      onToggleEdit: () => {
+        showEditModal = !showEditModal;
+      },
+      onDelete: (skipConfirm) => {
+        handleDeleteCard(skipConfirm);
+      },
+      onSetReminder: handleSetReminder,
+      onChangePriority: handleMobilePriorityChange,
+      onChangeDeck: handleChangeDeck,
+      onRecycleCard: suspendCurrentCard,
+      onSplitCard: (actionId) => handleAISplit(actionId, 0),
+      onOpenAIConfig: openAIActionManagerWithObsidianAPI,
+      onGraphLinkToggle: handleGraphLinkToggle,
+      onOpenDetailedView: handleOpenViewCardModal,
+      onOpenSourceBlock: handleOpenSourceBlock,
+      onToggleTimingInfo: () => {
+        showTimingInfo = !showTimingInfo;
+      },
+      onMediaAutoPlayChange: handleMediaAutoPlayChange,
+      onDirectDeleteToggle: handleDirectDeleteToggle,
+      onCardOrderChange: handleCardOrderChange,
+      onChoiceOptionOrderChange: handleChoiceOptionOrderChange,
+      onRatingLabelStyleChange: handleRatingLabelStyleChange,
+      onTimerAutoPauseChange: handleTimerAutoPauseChange,
+      onHintMaxUsesChange: handleHintMaxUsesChange,
+      onClozeModeSwitchButtonToggle: handleClozeModeSwitchButtonToggle,
+    };
+
+    populateStudyToolbarMenuSession(menu, {
+      card: currentCard,
+      decks,
+      isPremium,
+      isGraphLinked: isGraphLinkEnabled,
+      enableDirectDelete,
+      showTimingInfo,
+      autoPlayMedia,
+      playMediaMode,
+      playMediaTiming,
+      playbackInterval,
+      cardOrder,
+      choiceOptionOrder,
+      ratingLabelStyle,
+      timerAutoPauseSeconds,
+      hintMaxUses: hintMaxUsesPerSession,
+      showClozeModeSwitchButton,
+      aiSplitActions: customActions.split || [],
+      callbacks,
+    });
+  }
+
   // 初始化编辑器管理器和模板数据
   onMount(async () => {
     try {
+      syncViewPreferencesFromPlugin();
+      if (legacySidebarCompactMode) {
+        await persistStudyInterfaceViewPreferences({
+          sidebarCompactModeSetting: legacySidebarCompactMode,
+        });
+      }
+      skipViewPreferencesAutosave = false;
+
       // 使用插件实例中的嵌入式编辑器管理器
       editorPoolManager = plugin.editorPoolManager;
 
       // 加载模板数据
       await loadTemplateData();
       
-      //  设置移动端菜单回调（如果有 viewInstance）
-      if (viewInstance && typeof viewInstance.setMobileMenuCallback === 'function') {
-        viewInstance.setMobileMenuCallback(() => {
-          showMobileMenu = true;
-        });
-        logger.debug('[StudyInterface] 📱 移动端菜单回调已设置到 StudyView');
+      if (viewInstance && typeof viewInstance.setPopulatePaneMenuCallback === 'function') {
+        viewInstance.setPopulatePaneMenuCallback(populateStudyPaneMenu);
+        logger.debug('[StudyInterface] 📱 官方更多菜单填充回调已设置到 StudyView');
+      }
+
+      if (viewInstance && typeof viewInstance.setMobilePanelStateGetter === 'function') {
+        viewInstance.setMobilePanelStateGetter(() => ({
+          showProficiencyStats,
+          statsExpanded: !statsCollapsed,
+        }));
       }
       
       //  设置展开/折叠统计栏回调
@@ -2067,26 +2182,7 @@
         saveMemoryCardCommand(plugin, card, 'update')
       );
     },
-    afterCardPersisted: async ({ card, log, session }) => {
-      const reviewHistory = card.reviewHistory || [];
-
-      if (personalizationEnabled && plugin.settings.enablePersonalization) {
-        try {
-          await personalizationManager.updateAfterReview(log as any, reviewHistory);
-
-          const progress = personalizationManager.getOptimizationProgress();
-          if (progress.state !== 'baseline' &&
-              session.cardsReviewed % PROGRESS_NOTIFICATION.OPTIMIZATION_PROGRESS_INTERVAL === 0) {
-            devLog('debug', `${LOG_PREFIX.SESSION} 📊 个性化优化进度:`, progress);
-          }
-        } catch (error) {
-          handleError(error, '个性化优化', {
-            showNotice: false,
-            logPrefix: LOG_PREFIX.SESSION
-          });
-        }
-      }
-
+    afterCardPersisted: async () => {
       progressBarRefreshTrigger++;
       logger.debug('Card saved, triggering progress bar refresh:', progressBarRefreshTrigger);
     },
@@ -4773,68 +4869,71 @@
     }
   });
 
-  //  移动端编辑模式：监听 visualViewport 并设置容器高度
-  // 让整个容器链使用 visualViewport.height 作为高度基准
+  //  移动端编辑模式：visualViewport 高度 + 阅读 leaf 锁定（对齐 EPUB 批注编辑方案）
   let mobileViewportHeight = $state<number | null>(null);
-  let mobileViewportCleanup: (() => void) | null = null;
   let studyInterfaceOverlayEl = $state<HTMLDivElement | null>(null);
-  
-  //  移动端编辑模式下，基于当前编辑层在视口中的真实顶部位置计算可见高度
+
   $effect(() => {
-    // 只在移动端编辑模式下启用 visualViewport 监听
-    if (Platform.isMobile && showEditModal) {
-      const viewport = window.visualViewport;
-      if (viewport) {
-        let rafId: number | null = null;
-        const updateViewportHeight = () => {
-          const overlayTop = studyInterfaceOverlayEl?.getBoundingClientRect().top;
-          mobileViewportHeight = calculateMobileEditViewportHeight({
-            viewportHeight: viewport.height,
-            viewportOffsetTop: viewport.offsetTop,
-            overlayTop
-          });
-
-          logger.debug('[StudyInterface] 📱 visualViewport 高度更新:', {
-            viewportHeight: viewport.height,
-            viewportOffsetTop: viewport.offsetTop,
-            overlayTop,
-            availableHeight: mobileViewportHeight
-          });
-        };
-        
-        // 立即设置初始高度
-        updateViewportHeight();
-        rafId = window.requestAnimationFrame(updateViewportHeight);
-        
-        // 监听 resize 和 scroll 事件
-        viewport.addEventListener('resize', updateViewportHeight);
-        viewport.addEventListener('scroll', updateViewportHeight);
-
-        // 保存清理函数
-        mobileViewportCleanup = () => {
-          viewport.removeEventListener('resize', updateViewportHeight);
-          viewport.removeEventListener('scroll', updateViewportHeight);
-          if (rafId !== null) {
-            window.cancelAnimationFrame(rafId);
-            rafId = null;
-          }
-        };
-      }
-    } else {
-      // 非编辑模式：清理监听器并重置高度
-      if (mobileViewportCleanup) {
-        mobileViewportCleanup();
-        mobileViewportCleanup = null;
-      }
+    if (!Platform.isMobile || !showEditModal) {
       mobileViewportHeight = null;
+      return;
     }
-    
-    // 返回清理函数
-    return () => {
-      if (mobileViewportCleanup) {
-        mobileViewportCleanup();
-        mobileViewportCleanup = null;
+
+    let readingLockCleanup: (() => void) | null = null;
+    let unbindViewport: (() => void) | null = null;
+
+    const releaseReadingSurfaceLock = () => {
+      document.body.classList.remove(STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS);
+      readingLockCleanup?.();
+      readingLockCleanup = null;
+    };
+
+    const syncMobileEditViewport = () => {
+      const layout = getVisualViewportLayout();
+      const overlayTop = studyInterfaceOverlayEl?.getBoundingClientRect().top;
+
+      mobileViewportHeight = calculateMobileEditViewportHeight({
+        viewportHeight: layout.height,
+        viewportOffsetTop: layout.offsetTop,
+        overlayTop,
+      });
+
+      const shouldLock =
+        layout.keyboardVisible
+        || isEditableFocusedWithin(studyInterfaceOverlayEl);
+
+      document.body.classList.toggle(STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS, shouldLock);
+
+      const lockTarget = resolveReadingViewportLockTarget(studyInterfaceOverlayEl);
+      if (shouldLock && lockTarget) {
+        if (!readingLockCleanup) {
+          readingLockCleanup = applyReadingViewportLock(lockTarget);
+        }
+        return;
       }
+
+      releaseReadingSurfaceLock();
+    };
+
+    syncMobileEditViewport();
+
+    unbindViewport = bindMobileFloatingViewport(syncMobileEditViewport);
+
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !studyInterfaceOverlayEl?.contains(target)) {
+        return;
+      }
+      syncMobileEditViewport();
+    };
+
+    document.addEventListener("focusin", handleFocusIn, true);
+
+    return () => {
+      unbindViewport?.();
+      document.removeEventListener("focusin", handleFocusIn, true);
+      releaseReadingSurfaceLock();
+      mobileViewportHeight = null;
     };
   });
 
@@ -4981,14 +5080,15 @@
     overrides: Partial<StudyInterfaceViewPreferences> = {}
   ) {
     await plugin.saveStudyInterfaceViewPreferences({
-      showSidebar,
-      sidebarCompactModeSetting,
-      statsCollapsed,
-      cardOrder,
-      choiceOptionOrder,
-      sidebarPosition: viewPrefs.sidebarPosition ?? 'right',
-      ratingLabelStyle,
-      showRatingIntervalOnButtons,
+      ...collectStudyInterfaceViewPreferencesFromBindings({
+        showSidebar,
+        sidebarCompactModeSetting,
+        statsCollapsed,
+        cardOrder,
+        choiceOptionOrder,
+        ratingLabelStyle,
+        isGraphLinkEnabled,
+      }),
       ...overrides,
     });
   }
@@ -5040,6 +5140,16 @@
   // 处理卡片学习顺序变化
   async function handleCardOrderChange(order: 'sequential' | 'random') {
     cardOrder = order;
+    if (queueInitialized && orderedBaseStudyQueue.length > 0) {
+      const currentCardId = studyQueue[currentCardIndex]?.uuid;
+      const reordered = reorderStudyQueuePreservingCurrentCard(
+        orderedBaseStudyQueue,
+        order,
+        currentCardId
+      );
+      studyQueue = reordered.queue;
+      currentCardIndex = reordered.currentIndex;
+    }
     try {
       await persistStudyInterfaceViewPreferences({ cardOrder: order });
       const orderLabel = order === 'sequential'
@@ -5070,36 +5180,22 @@
   }
 
   async function handleRatingLabelStyleChange(style: RatingLabelStyle) {
-    ratingLabelStyle = style;
+    ratingLabelStyle = normalizeRatingLabelStyle(style);
     try {
-      await persistStudyInterfaceViewPreferences({ ratingLabelStyle: style });
-      const styleLabel = getRatingLabelStyleLabel(style, t);
+      await persistStudyInterfaceViewPreferences({
+        ratingLabelStyle,
+        showRatingIntervalOnButtons: shouldShowRatingIntervalOnButtons(ratingLabelStyle),
+      });
+      const styleLabel = getRatingLabelStyleLabel(ratingLabelStyle, t);
       new Notice(t('studyInterface.notices.ratingLabelStyleChanged', { styleLabel }));
     } catch (error) {
       logger.error('[StudyInterface] 保存回忆按钮风格设置失败:', error);
       new Notice(t('studyInterface.notices.ratingLabelStyleChangeFailed'));
     }
   }
-
-  async function handleRatingIntervalButtonsToggle(enabled: boolean) {
-    showRatingIntervalOnButtons = enabled;
-    try {
-      await persistStudyInterfaceViewPreferences({ showRatingIntervalOnButtons: enabled });
-      new Notice(
-        t(
-          enabled
-            ? 'studyInterface.notices.ratingIntervalButtonsEnabled'
-            : 'studyInterface.notices.ratingIntervalButtonsDisabled'
-        )
-      );
-    } catch (error) {
-      logger.error('[StudyInterface] 保存评分按钮时间显示方式失败:', error);
-      new Notice(t('studyInterface.notices.ratingIntervalButtonsChangeFailed'));
-    }
-  }
   
   //  处理紧凑模式设置变化
-  function handleCompactModeSettingChange(setting: 'auto' | 'fixed') {
+  async function handleCompactModeSettingChange(setting: 'auto' | 'fixed') {
     sidebarCompactModeSetting = setting;
     
     // 立即应用新设置
@@ -5119,6 +5215,12 @@
       setTimeout(() => {
         performScrollCheck();
       }, 100);
+    }
+
+    try {
+      await persistStudyInterfaceViewPreferences({ sidebarCompactModeSetting: setting });
+    } catch (error) {
+      logger.error('[StudyInterface] 保存侧边栏紧凑模式设置失败:', error);
     }
   }
   
@@ -5300,6 +5402,22 @@
     };
   });
   onDestroy(() => {
+    if (saveTimeoutId !== null) {
+      clearTimeout(saveTimeoutId);
+      saveTimeoutId = null;
+    }
+
+    void plugin.flushStudyInterfaceViewPreferences().catch((error) => {
+      logger.error('[StudyInterface] 离开学习界面时保存视图偏好失败:', error);
+    });
+
+    if (viewInstance && typeof viewInstance.setPopulatePaneMenuCallback === 'function') {
+      viewInstance.setPopulatePaneMenuCallback(null);
+    }
+    if (viewInstance && typeof viewInstance.setMobilePanelStateGetter === 'function') {
+      viewInstance.setMobilePanelStateGetter(null);
+    }
+
     stopHintResizeInteraction();
     document.removeEventListener('focus', trapFocus, true);
 
@@ -5693,7 +5811,6 @@
             learningConfig={learningConfig ?? undefined}
             learningStepIndex={currentSessionId ? sessionManager.getSessionState(currentSessionId)?.learningStepIndex : undefined}
             {ratingLabelStyle}
-            {showRatingIntervalOnButtons}
           />
         </div>
       {/if}
@@ -5821,8 +5938,6 @@
             onChoiceOptionOrderChange={handleChoiceOptionOrderChange}
             {ratingLabelStyle}
             onRatingLabelStyleChange={handleRatingLabelStyleChange}
-            {showRatingIntervalOnButtons}
-            onRatingIntervalButtonsToggle={handleRatingIntervalButtonsToggle}
             onOpenPlainEditor={() => {
               editorUnavailable = true;
               showEditModal = true;
@@ -5851,53 +5966,6 @@
 
   </div><!-- 关闭 study-interface-content -->
   
-  <!--  移动端底部菜单（新版：Obsidian Menu API） -->
-  {#if currentCard}
-    <MobileStudyToolbarMenu
-      show={showMobileMenu}
-      card={currentCard}
-      currentCardTime={currentStudyTime}
-      averageTime={(currentCard?.stats?.averageTime || 0) * 1000}
-      {decks}
-      {isPremium}
-      isGraphLinked={isGraphLinkEnabled}
-      enableDirectDelete={enableDirectDelete}
-      showTimingInfo={showTimingInfo}
-      {autoPlayMedia}
-      {playMediaMode}
-      {playMediaTiming}
-      playbackInterval={playbackInterval}
-      {cardOrder}
-      {choiceOptionOrder}
-      {ratingLabelStyle}
-      {showRatingIntervalOnButtons}
-      {timerAutoPauseSeconds}
-      hintMaxUses={hintMaxUsesPerSession}
-      {showClozeModeSwitchButton}
-      onClose={() => showMobileMenu = false}
-      onToggleEdit={() => showEditModal = !showEditModal}
-      onDelete={handleDeleteCard}
-      onSetReminder={handleSetReminder}
-      onChangePriority={handleMobilePriorityChange}
-      onRecycleCard={suspendCurrentCard}
-      onChangeDeck={handleChangeDeck}
-      onSplitCard={(actionId) => handleAISplit(actionId, 0)}
-      onOpenAIConfig={openAIActionManagerWithObsidianAPI}
-      onGraphLinkToggle={handleGraphLinkToggle}
-      onOpenDetailedView={handleOpenViewCardModal}
-      onOpenSourceBlock={handleOpenSourceBlock}
-      onToggleTimingInfo={() => showTimingInfo = !showTimingInfo}
-      onMediaAutoPlayChange={handleMediaAutoPlayChange}
-      onDirectDeleteToggle={handleDirectDeleteToggle}
-      onCardOrderChange={handleCardOrderChange}
-      onChoiceOptionOrderChange={handleChoiceOptionOrderChange}
-      onRatingLabelStyleChange={handleRatingLabelStyleChange}
-      onRatingIntervalButtonsToggle={handleRatingIntervalButtonsToggle}
-      onTimerAutoPauseChange={handleTimerAutoPauseChange}
-      onHintMaxUsesChange={handleHintMaxUsesChange}
-      onClozeModeSwitchButtonToggle={handleClozeModeSwitchButtonToggle}
-    />
-  {/if}
 </div><!-- 关闭 study-interface-overlay -->
 
 <!-- 模板选择列表（锚定到功能键左侧展开） -->

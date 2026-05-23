@@ -3,7 +3,10 @@ import type WeavePlugin from "../../../main";
 import { PREMIUM_FEATURES } from "../../../services/premium/PremiumFeatureGuard";
 import { logger } from "../../../utils/logger";
 import { vaultStorage } from "../../../utils/vault-local-storage";
-import { showDeckStudyMobileNavMenu } from "./mobile-nav-menu";
+import {
+  populateDeckStudyMobileNavMenu,
+  showDeckStudyMobileNavMenu,
+} from "./mobile-nav-menu";
 
 interface DeckStudyMenuCoordinatorOptions {
   getPlugin: () => WeavePlugin;
@@ -36,6 +39,7 @@ export interface DeckStudyMenuCoordinator {
   showMoreActionsMenu: (event: MouseEvent) => void;
   getCreateEntryTitle: () => string;
   handleCreateDeckForCurrentFilter: () => Promise<void>;
+  populateMobileNavMenu: (menu: Menu) => void;
   showMobileNavMenu: (event: MouseEvent) => void;
 }
 
@@ -177,9 +181,9 @@ export function createDeckStudyMenuCoordinator(
     await options.routeCreateDeckByFilter(options.getSelectedFilter());
   }
 
-  function showMobileNavMenu(event: MouseEvent): void {
-    showDeckStudyMobileNavMenu({
-      evt: event,
+  function buildMobileNavMenuOptions(evt?: MouseEvent) {
+    return {
+      evt,
       selectedFilter: options.getSelectedFilter(),
       currentView: options.getCurrentView(),
       memoryDeckDisplayMode: options.getMemoryDeckDisplayMode(),
@@ -198,6 +202,17 @@ export function createDeckStudyMenuCoordinator(
       isCSVImportEnabled: options.isCSVImportEnabled,
       shouldShowPremiumEntry: options.shouldShowPremiumEntry,
       getPremiumEntryTitle: options.getPremiumEntryTitle,
+    };
+  }
+
+  function populateMobileNavMenu(menu: Menu): void {
+    populateDeckStudyMobileNavMenu(menu, buildMobileNavMenuOptions());
+  }
+
+  function showMobileNavMenu(event: MouseEvent): void {
+    showDeckStudyMobileNavMenu({
+      ...buildMobileNavMenuOptions(event),
+      evt: event,
     });
   }
 
@@ -208,6 +223,7 @@ export function createDeckStudyMenuCoordinator(
     showMoreActionsMenu,
     getCreateEntryTitle,
     handleCreateDeckForCurrentFilter,
+    populateMobileNavMenu,
     showMobileNavMenu,
   };
 }

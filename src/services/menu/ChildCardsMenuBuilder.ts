@@ -24,14 +24,15 @@ export class ChildCardsMenuBuilder {
 	constructor(private config: ChildCardsMenuConfig, private callbacks: ChildCardsMenuCallbacks) {}
 
 	/** 显示独立的牌组选择菜单。 */
-	showDeckSelectMenu(position: { x: number; y: number }): void {
+	showDeckSelectMenu(event: MouseEvent): void {
 		try {
 			const menu = new Menu();
+			menu.setUseNativeMenu?.(false);
 			this.addMenuTitle(menu, "选择目标牌组");
 			menu.addSeparator();
 			this.addDeckItems(menu);
 
-			menu.showAtPosition(position);
+			menu.showAtMouseEvent(event);
 			logger.debug("[ChildCardsMenuBuilder] 牌组选择菜单已显示");
 		} catch (error) {
 			logger.error("[ChildCardsMenuBuilder] 牌组选择菜单构建失败:", error);

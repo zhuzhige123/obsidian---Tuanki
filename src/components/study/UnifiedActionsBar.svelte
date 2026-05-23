@@ -11,12 +11,19 @@
   interface Props {
     showChildOverlay: boolean;
     selectedCount: number;
-    onReturn: () => void;
+    onReturn?: () => void;
     onRegenerate: () => void;
     onSave: () => void;
     canUndo?: boolean;
     onUndo?: () => void;
     isRegenerating?: boolean; // 是否正在重新生成
+    /** 学习界面子卡片叠层：显示返回；AI 拆分预览等场景可关闭（顶部已有关闭） */
+    showReturnButton?: boolean;
+    /** study：牌组靠左；split-preview：模型/牌组与主操作靠右 */
+    toolbarVariant?: 'study' | 'split-preview';
+    modelSelectorLabel?: string;
+    onModelSelectorClick?: (event: MouseEvent) => void;
+    modelSelectorAriaLabel?: string;
     // 牌组选择相关
     showDeckSelector?: boolean; // 是否显示牌组选择器（AI拆分模式）
     availableDecks?: Array<{ id: string; name: string }>; // 可选牌组列表
@@ -27,28 +34,41 @@
   let { 
     showChildOverlay, 
     selectedCount, 
-    onReturn, 
+    onReturn = () => {},
     onRegenerate, 
     onSave,
     canUndo = false,
     onUndo,
     isRegenerating = false,
+    showReturnButton = true,
+    toolbarVariant = 'study',
+    modelSelectorLabel = '',
+    onModelSelectorClick,
+    modelSelectorAriaLabel = '',
     // 牌组选择相关
     showDeckSelector = false,
     availableDecks = [],
     selectedDeckId = '',
     onDeckChange
   }: Props = $props();
+
+  const alignSelectorsRight = $derived(toolbarVariant === 'split-preview');
+  const showModelSelector = $derived(
+    alignSelectorsRight && Boolean(modelSelectorLabel) && Boolean(onModelSelectorClick)
+  );
   
   //  响应式翻译函数
   let t = $derived($tr);
   
-  //  移动端检测
-  const isMobile = Platform.isMobile;
+  const isCompactMobile =
+    Platform.isMobile
+    || (typeof document !== 'undefined'
+      && (document.body.classList.contains('is-mobile')
+        || document.body.classList.contains('is-phone')));
   
   //  移动端：使用 Obsidian Menu API 显示牌组选择菜单
   function handleDeckSelectorClick(event: MouseEvent) {
-    if (!isMobile || !onDeckChange) return;
+    if (!isCompactMobile || !onDeckChange) return;
     
     const menuBuilder = new ChildCardsMenuBuilder(
       {
@@ -66,10 +86,7 @@
       }
     );
     
-    menuBuilder.showDeckSelectMenu({
-      x: event.clientX,
-      y: event.clientY
-    });
+    menuBuilder.showDeckSelectMenu(event);
   }
   
   // 获取当前选中的牌组名称
@@ -78,12 +95,32 @@
   );
 </script>
 
-<div class="unified-actions-bar" class:mobile={isMobile}>
+<div
+  class="unified-actions-bar"
+  class:mobile={isCompactMobile}
+  class:split-preview={alignSelectorsRight}
+>
   {#if showChildOverlay}
-    <!-- 1. 牌组选择器（仅在AI拆分模式显示，靠左） -->
+    {#if alignSelectorsRight}
+      <div class="flex-spacer" aria-hidden="true"></div>
+    {/if}
+
+    {#if showModelSelector}
+      <button
+        type="button"
+        class="clickable-icon weave-toolbar-tab split-model-tab"
+        onclick={onModelSelectorClick}
+        title={modelSelectorLabel}
+        aria-label={modelSelectorAriaLabel || modelSelectorLabel}
+      >
+        <span class="split-model-label">{modelSelectorLabel}</span>
+        <span class="split-model-chevron" aria-hidden="true">▾</span>
+      </button>
+    {/if}
+
+    <!-- 牌组选择器（AI 拆分等） -->
     {#if showDeckSelector && availableDecks.length > 0}
-      {#if isMobile}
-        <!--  移动端：使用按钮触发 Obsidian Menu -->
+      {#if isCompactMobile}
         <button 
           class="action-btn deck-selector-btn" 
           onclick={handleDeckSelectorClick}
@@ -94,7 +131,6 @@
           <EnhancedIcon name="chevron-down" size="14" />
         </button>
       {:else}
-        <!-- 桌面端：使用原生 select -->
         <div class="deck-selector">
           <label for="deck-select">{t('study.unifiedActions.importToDeck')}</label>
           <ObsidianDropdown
@@ -111,21 +147,23 @@
         </div>
       {/if}
     {/if}
+
+    {#if !alignSelectorsRight}
+      <div class="flex-spacer" aria-hidden="true"></div>
+    {/if}
     
-    <!-- 弹性空间 - 把其他按钮推到右侧 -->
-    <div class="flex-spacer"></div>
+    {#if showReturnButton}
+      <button class="action-btn secondary" onclick={onReturn} type="button">
+        {#if isCompactMobile}
+          <EnhancedIcon name="arrow-left" size="18" />
+        {/if}
+        {#if !isCompactMobile}
+          <span>{t('studyInterface.actions.return')}</span>
+        {/if}
+      </button>
+    {/if}
     
-    <!-- 2. 返回按钮 -->
-    <button class="action-btn secondary" onclick={onReturn} type="button">
-      {#if isMobile}
-        <EnhancedIcon name="arrow-left" size="18" />
-      {/if}
-      {#if !isMobile}
-        <span>{t('studyInterface.actions.return')}</span>
-      {/if}
-    </button>
-    
-    <!-- 3. 重新生成按钮 -->
+    <!-- 重新生成按钮 -->
     <button 
       class="action-btn primary" 
       onclick={onRegenerate} 
@@ -133,10 +171,10 @@
       type="button"
       title={isRegenerating ? t('study.unifiedActions.regeneratingWait') : ''}
     >
-      {#if isMobile}
+      {#if isCompactMobile}
         <EnhancedIcon name="refresh-cw" size="18" />
       {/if}
-      {#if !isMobile}
+      {#if !isCompactMobile}
         <span>{t('studyInterface.actions.regenerate')}</span>
       {/if}
     </button>
@@ -149,10 +187,10 @@
       type="button"
       title={isRegenerating ? t('study.unifiedActions.regeneratingWait') : (showDeckSelector && !selectedDeckId) ? t('study.unifiedActions.selectTargetDeck') : ''}
     >
-      {#if isMobile}
+      {#if isCompactMobile}
         <EnhancedIcon name="save" size="18" />
       {/if}
-      {#if isMobile}
+      {#if isCompactMobile}
         <span>{selectedCount}</span>
       {:else}
         <span>{t('studyInterface.actions.collect').replace('{n}', String(selectedCount))}</span>
@@ -301,6 +339,82 @@
   
   .deck-selector-btn:active {
     background: var(--background-modifier-active-hover);
+  }
+
+  /* AI 拆分预览：模型 + 牌组与主操作同排靠右 */
+  .unified-actions-bar.split-preview {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+  }
+
+  .unified-actions-bar.split-preview .flex-spacer {
+    flex: 1 1 auto;
+    min-width: 0.5rem;
+  }
+
+  .split-model-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    max-width: min(36vw, 200px);
+    min-height: var(--weave-touch-sm, 36px);
+    padding: 0.25rem 0.35rem;
+    margin: 0;
+    border: none !important;
+    border-radius: 0;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    touch-action: manipulation;
+  }
+
+  .split-model-tab:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover) !important;
+  }
+
+  .split-model-tab:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--interactive-accent) 55%, transparent);
+    outline-offset: 2px;
+  }
+
+  .split-model-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .split-model-chevron {
+    flex-shrink: 0;
+    opacity: 0.65;
+    font-size: 0.7rem;
+  }
+
+  .unified-actions-bar.split-preview .deck-selector-btn {
+    border: none;
+    background: transparent;
+    max-width: min(32vw, 180px);
+  }
+
+  .unified-actions-bar.split-preview .deck-selector-btn:hover {
+    background: var(--background-modifier-hover);
+  }
+
+  .unified-actions-bar.split-preview :global(.obsidian-dropdown-trigger.deck-select) {
+    border: none;
+    background: transparent;
+    min-width: 120px;
+    padding: 0.25rem 0.5rem;
+  }
+
+  .unified-actions-bar.split-preview :global(.obsidian-dropdown-trigger.deck-select:hover:not(.disabled)) {
+    background: var(--background-modifier-hover);
+    border: none;
   }
 </style>
 

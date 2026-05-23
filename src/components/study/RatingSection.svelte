@@ -9,7 +9,14 @@
   import { createDefaultMemorySchedulingSettings } from "../../utils/learning-steps/memorySchedulingConfig";
   import { detectClozeModeFromContent } from "../../utils/cloze-mode";
   import { predictRatingScheduledDays } from "../../utils/study/predictRatingInterval";
-  import { getRatingLabels, isMoodGraphicStyle, isMoodTimeStyle, type RatingLabelStyle } from "./rating-label-style";
+  import {
+    getRatingLabels,
+    isMoodGraphicStyle,
+    isMoodTimeStyle,
+    normalizeRatingLabelStyle,
+    shouldShowRatingIntervalOnButtons,
+    type RatingLabelStyle,
+  } from "./rating-label-style";
   
   //  导入国际化
   import { tr } from "../../utils/i18n";
@@ -63,9 +70,15 @@
   
   //  响应式翻译函数
   let t = $derived($tr);
-  let ratingLabels = $derived(getRatingLabels(ratingLabelStyle, t));
-  let useMoodGraphicStyle = $derived(isMoodGraphicStyle(ratingLabelStyle));
-  let useMoodTimeStyle = $derived(isMoodTimeStyle(ratingLabelStyle));
+  let normalizedRatingLabelStyle = $derived(normalizeRatingLabelStyle(ratingLabelStyle));
+  let ratingLabels = $derived(getRatingLabels(normalizedRatingLabelStyle, t));
+  let useMoodGraphicStyle = $derived(isMoodGraphicStyle(normalizedRatingLabelStyle));
+  let useMoodTimeStyle = $derived(isMoodTimeStyle(normalizedRatingLabelStyle));
+  let showIntervalOnButtons = $derived(
+    shouldShowRatingIntervalOnButtons(normalizedRatingLabelStyle) ||
+      (showRatingIntervalOnButtons &&
+        (normalizedRatingLabelStyle === "classic" || normalizedRatingLabelStyle === "mood"))
+  );
   
   // 根据题型动态计算按钮文案
   let showAnswerButtonText = $derived(() => {
@@ -229,7 +242,7 @@
           class:mood-time-layout={useMoodTimeStyle}
           style="--accent: {cfg.color}; --text-color: {cfg.textColor};"
           aria-label={`评分：${cfg.label}（下一次：${cfg.predictedInterval}）`}
-          title={showRatingIntervalOnButtons ? undefined : cfg.predictedInterval}
+          title={showIntervalOnButtons ? undefined : cfg.predictedInterval}
           aria-keyshortcuts={cfg.key}
           onclick={() => {
             if (showAnswer) {onRate(cfg.rating);}
@@ -254,7 +267,7 @@
                 </div>
                 <div class="rate-copy">
                   <span class="rate-label">{useMoodTimeStyle ? cfg.predictedInterval : cfg.label}</span>
-                  {#if showRatingIntervalOnButtons && !useMoodTimeStyle}
+                  {#if showIntervalOnButtons && !useMoodTimeStyle}
                     <span class="rate-next rate-next-badge">{cfg.predictedInterval}</span>
                   {/if}
                 </div>
@@ -264,11 +277,11 @@
                 <span class="rate-label">{cfg.label}</span>
               </div>
             {/if}
-            {#if !useMoodGraphicStyle && showRatingIntervalOnButtons}
+            {#if !useMoodGraphicStyle && showIntervalOnButtons}
               <span class="rate-next">{cfg.predictedInterval}</span>
             {/if}
           </div>
-          {#if !showRatingIntervalOnButtons}
+          {#if !showIntervalOnButtons}
             <span class="rate-tooltip" aria-hidden="true">{cfg.predictedInterval}</span>
           {/if}
           <div class="rate-accent" aria-hidden="true"></div>

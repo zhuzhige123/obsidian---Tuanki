@@ -63,7 +63,7 @@
             {#if currentLicenseInfo.boundEmail}
               {t('license.boundEmail')}: {currentLicenseInfo.boundEmail}
             {/if}
-            {#if currentLicenseInfo.cloudSync?.devicesUsed}
+            {#if currentLicenseInfo.cloudSync?.devicesUsed !== undefined}
               · {t('license.activatedDevices')}: {currentLicenseInfo.cloudSync.devicesUsed}/{currentLicenseInfo.cloudSync.devicesMax || 5}
             {/if}
           </p>

@@ -9,6 +9,7 @@
   import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from '../../services/premium/PremiumFeatureGuard';
   import { currentLanguage } from '../../utils/i18n';
   import type { SupportedLanguage } from '../../utils/i18n';
+  import DeckCalibrationChart from './deck-analytics/DeckCalibrationChart.svelte';
   import DeckDifficultyChart from './deck-analytics/DeckDifficultyChart.svelte';
   import DeckLoadForecastChart from './deck-analytics/DeckLoadForecastChart.svelte';
   import DeckQuantityChart from './deck-analytics/DeckQuantityChart.svelte';
@@ -18,7 +19,7 @@
   import ActivationPrompt from '../premium/ActivationPrompt.svelte';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
 
-  type AnalyticsTab = 'retention' | 'quantity' | 'timing' | 'difficulty' | 'loadForecast';
+  type AnalyticsTab = 'retention' | 'calibration' | 'quantity' | 'timing' | 'difficulty' | 'loadForecast';
 
   interface Props {
     plugin: WeavePlugin;
@@ -39,12 +40,13 @@
   const deckAnalyticsFeatureContext: PremiumFeatureAccessContext = { page: 'deck-analytics' };
   const analyticsTabFeatureIds: Record<AnalyticsTab, string> = {
     retention: PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION,
+    calibration: PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION,
     quantity: PREMIUM_FEATURES.DECK_ANALYTICS,
     timing: PREMIUM_FEATURES.DECK_ANALYTICS_TIMING,
     difficulty: PREMIUM_FEATURES.DECK_ANALYTICS,
     loadForecast: PREMIUM_FEATURES.DECK_ANALYTICS,
   };
-  const allAnalyticsTabs: AnalyticsTab[] = ['retention', 'quantity', 'timing', 'difficulty', 'loadForecast'];
+  const allAnalyticsTabs: AnalyticsTab[] = ['retention', 'calibration', 'quantity', 'timing', 'difficulty', 'loadForecast'];
   const uiLanguage = $derived(($currentLanguage ?? 'zh-CN') as SupportedLanguage);
   const uiText = $derived.by(() => createDeckAnalyticsText(uiLanguage));
 
@@ -445,6 +447,11 @@
           {isMobile ? uiText.tab.retention.mobile : uiText.tab.retention.title}
         </button>
       {/if}
+      {#if visibleTabs.includes('calibration')}
+        <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'calibration'} onclick={() => switchTab('calibration')} title={getTabTitle('calibration', uiText.tab.calibration.title)}>
+          {isMobile ? uiText.tab.calibration.mobile : uiText.tab.calibration.title}
+        </button>
+      {/if}
       {#if visibleTabs.includes('quantity')}
         <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'quantity'} onclick={() => switchTab('quantity')} title={getTabTitle('quantity', uiText.tab.quantity.title)}>
           {isMobile ? uiText.tab.quantity.mobile : uiText.tab.quantity.title}
@@ -565,6 +572,8 @@
     <div class="chart-section">
       {#if activeTab === 'retention'}
         <DeckRetentionChart snapshot={snapshot.retention} {uiText} {uiLanguage} onRangeStep={updateQuickRangeByStep} />
+      {:else if activeTab === 'calibration'}
+        <DeckCalibrationChart snapshot={snapshot.calibration} {uiText} {uiLanguage} onRangeStep={updateQuickRangeByStep} />
       {:else if activeTab === 'quantity'}
         <DeckQuantityChart snapshot={snapshot.quantity} {uiText} {uiLanguage} onRangeStep={updateQuickRangeByStep} />
       {:else if activeTab === 'timing'}
@@ -614,6 +623,8 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
+    overflow: hidden;
     background: linear-gradient(
       180deg,
       var(--background-primary) 0%,
@@ -623,6 +634,12 @@
     padding: 12px;
     gap: 6px;
     position: relative;
+  }
+
+  .tabs-header,
+  .toolbar,
+  .scroll-hint {
+    flex-shrink: 0;
   }
 
   .tabs-header {
@@ -787,6 +804,13 @@
     margin-top: 2px;
     padding-top: 8px;
     border-top: 1px solid var(--background-modifier-border);
+  }
+
+  .chart-section {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: 12px;
   }
 
   .empty-panel {

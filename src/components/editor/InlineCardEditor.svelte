@@ -17,10 +17,10 @@
   import { detectClozeModeFromContent, hasClozeSyntax, setClozeModeInContent, type ClozeMode } from '../../utils/cloze-mode';
   import {
     getCardDeckIds,
-    getCardDeckIdsFromFormalSource,
     parseYAMLFromContent,
     setCardProperties
   } from '../../utils/yaml-utils';
+  import { applyWeDecksMembershipToCard } from '../../utils/card-we-decks-membership';
   import { detectCardQuestionType } from '../../utils/card-type-utils';
   import { getCardTypeName } from '../../types/unified-card-types';
   import { saveMemoryCard } from '../../services/weave-domain';
@@ -326,49 +326,66 @@
       
       //  现在有真实的content了
       // 合并外部 card 的 sourceFile 和 sourceBlock（钉住模式下通过 updateContent 设置）
-      const updatedCard = {
+      let updatedCard = {
         ...result.updatedCard,
-        deckId: selectedDeckId,
         modified: new Date().toISOString(),
         //  保留溯源信息（来自外部card对象）
         sourceFile: card.sourceFile,
         sourceBlock: card.sourceBlock
       };
 
-      // 只有新建卡片或用户显式修改牌组时，才回填 we_decks，
-      // 避免用户手动删掉 YAML 里的牌组后又被旧状态悄悄补回。
-      const shouldBackfillDecks =
-        isNew ||
-        deckSelectionTouched ||
-        (Array.isArray(selectedDeckNames) && selectedDeckNames.length > 0);
+      const memoryDecks = (decks || []).filter((deck) => deck.purpose !== 'test');
+      let contentForMembership = updatedCard.content || '';
 
-      let nextDeckNames: string[] = [];
-      if (shouldBackfillDecks) {
-        if (Array.isArray(selectedDeckNames) && selectedDeckNames.length > 0) {
-          nextDeckNames = [selectedDeckNames[0]];
-        } else {
-          const deckName = decks?.find(d => d.id === selectedDeckId)?.name;
-          if (deckName) nextDeckNames = [deckName];
-        }
+      if (deckSelectionTouched) {
+        const selectorDeckName =
+          (Array.isArray(selectedDeckNames) && selectedDeckNames[0]) ||
+          decks?.find((deck) => deck.id === selectedDeckId)?.name ||
+          '';
+        contentForMembership = setCardProperties(contentForMembership, {
+          we_decks: selectorDeckName ? [selectorDeckName] : undefined
+        });
       }
 
-      const currentFormalDeckIds = getCardDeckIdsFromFormalSource(card, decks).deckIds;
+      const appliedMembership = applyWeDecksMembershipToCard(
+        updatedCard,
+        contentForMembership,
+        memoryDecks
+      );
+      if (appliedMembership.resolution.invalidNames.length > 0) {
+        new Notice(
+          t('cards.editorModal.weDecksDeckNotFound', {
+            name: appliedMembership.resolution.invalidNames.join('、')
+          }),
+          5000
+        );
+        isLoading = false;
+        isProcessing = false;
+        return;
+      }
+
+      updatedCard = {
+        ...appliedMembership.card,
+        sourceFile: card.sourceFile,
+        sourceBlock: card.sourceBlock
+      };
+      if (appliedMembership.resolution.formalDeckId) {
+        selectedDeckId = appliedMembership.resolution.formalDeckId;
+      }
+
       const currentCompatibilityDeckIds = getCardDeckIds(card, decks, {
         fallbackToReferences: true,
         fallbackToDeckId: true,
         preserveAllDeckIds: true
       }).deckIds;
       const preservedTestDeckIds = currentCompatibilityDeckIds.filter((deckId) => {
-        const matchedDeck = decks?.find(d => d.id === deckId);
+        const matchedDeck = decks?.find((d) => d.id === deckId);
         return matchedDeck?.purpose === 'test';
       });
-      const nextFormalDeckIds = selectedDeckId ? [selectedDeckId] : currentFormalDeckIds.filter((deckId) => {
-        const matchedDeck = decks?.find(d => d.id === deckId);
-        return matchedDeck?.purpose !== 'test';
-      });
-      const runtimeDeckIds = selectedDeckId
-        ? [selectedDeckId, ...preservedTestDeckIds.filter((deckId) => deckId !== selectedDeckId)]
-        : [...nextFormalDeckIds, ...preservedTestDeckIds.filter((deckId) => !nextFormalDeckIds.includes(deckId))];
+      const formalDeckId = appliedMembership.resolution.formalDeckId;
+      const runtimeDeckIds = formalDeckId
+        ? [formalDeckId, ...preservedTestDeckIds.filter((deckId) => deckId !== formalDeckId)]
+        : [...preservedTestDeckIds];
 
       updatedCard.referencedByDecks = runtimeDeckIds;
       if (runtimeDeckIds.length > 0) {
@@ -384,7 +401,6 @@
           ? yaml.we_priority
           : undefined;
 
-        // YAML 中的 we_priority 优先级更高：允许用户直接编辑 frontmatter 控制卡片优先级。
         if (yamlPriority !== undefined) {
           updatedCard.priority = yamlPriority;
         }
@@ -394,10 +410,9 @@
           typeof updatedCard.priority === 'number' &&
           Number.isFinite(updatedCard.priority);
 
-        if (shouldBackfillDecks || shouldBackfillPriority) {
+        if (shouldBackfillPriority) {
           updatedCard.content = setCardProperties(updatedCard.content, {
-            ...(shouldBackfillDecks ? { we_decks: nextDeckNames.length > 0 ? nextDeckNames : undefined } : {}),
-            ...(shouldBackfillPriority ? { we_priority: updatedCard.priority } : {})
+            we_priority: updatedCard.priority
           });
         }
       }

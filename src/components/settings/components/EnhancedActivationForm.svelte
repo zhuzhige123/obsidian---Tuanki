@@ -208,7 +208,12 @@
           onActivationSuccess(result.licenseInfo);
         }
         
-        // 显示成功消息
+        if (result.cloudInfo?.replacedOldDevice) {
+          showNotification(t('about.license.activation.deviceReplaced'), 'info');
+        } else if (result.cloudInfo?.deviceAlreadyRegistered) {
+          showNotification(t('about.license.activation.deviceAlreadyRegistered'), 'info');
+        }
+
         showSuccessNotification();
       } else {
         // 激活失败

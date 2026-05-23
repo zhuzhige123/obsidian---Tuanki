@@ -1136,6 +1136,25 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 				refreshData: "刷新数据",
 			},
 		},
+		storage: {
+			firstDeck: {
+				title: "创建第一个记忆牌组",
+				message:
+					"当前仓库中没有任何记忆牌组文件（.wdeck）。\n是否现在创建你的第一个牌组？",
+				choiceCreate: "创建牌组",
+				choiceLater: "稍后再说",
+				choiceCreateDesc: "输入牌组名称并保存为 .wdeck 文件",
+				choiceLaterDesc: "暂不创建；制卡、学习等操作需要先有一个牌组",
+				nameTitle: "牌组名称",
+				nameMessage: "请输入第一个记忆牌组的名称：",
+				namePlaceholder: "例如：默认牌组",
+				confirm: "创建",
+				cancel: "取消",
+				created: "已创建牌组：{name}",
+				createFailed: "创建牌组失败：{error}",
+				invalidName: "牌组名称不能为空",
+			},
+		},
 	},
 	'en-US': {
 		analytics: {
@@ -3236,6 +3255,25 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				today: "Today",
 				urgent: "Urgent",
 				weekDays: "Mon\nTue\nWed\nThu\nFri\nSat\nSun",
+			},
+		},
+		storage: {
+			firstDeck: {
+				title: "Create your first memory deck",
+				message:
+					"This vault has no memory deck files (.wdeck) yet.\nWould you like to create your first deck now?",
+				choiceCreate: "Create deck",
+				choiceLater: "Not now",
+				choiceCreateDesc: "Enter a deck name and save it as a .wdeck file",
+				choiceLaterDesc: "Skip for now; card creation and study need at least one deck",
+				nameTitle: "Deck name",
+				nameMessage: "Enter a name for your first memory deck:",
+				namePlaceholder: "e.g. Default deck",
+				confirm: "Create",
+				cancel: "Cancel",
+				created: "Deck created: {name}",
+				createFailed: "Failed to create deck: {error}",
+				invalidName: "Deck name cannot be empty",
 			},
 		},
 	},

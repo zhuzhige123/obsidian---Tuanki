@@ -1,4 +1,5 @@
 import type { FSRS } from "../../algorithms/fsrs";
+import { sanitizeFsrsCardForScheduling } from "../../algorithms/fsrs-adapter";
 import type { StudySession } from "../../data/study-types";
 import { CardState, Rating, type Card } from "../../data/types";
 import type { StudyQueueState, StudySessionSnapshot } from "../../types/study-types";
@@ -268,7 +269,8 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 		});
 
 		const prevState = cardToRate.fsrs.state;
-		const { card: updatedCard, log } = options.getFsrs().review(cardToRate.fsrs, rating);
+		const fsrsInput = sanitizeFsrsCardForScheduling(cardToRate.fsrs);
+		const { card: updatedCard, log } = options.getFsrs().review(fsrsInput, rating);
 		options.applyLearningScheduling(prevState, rating, updatedCard, cardToRate);
 		cardToRate.fsrs = updatedCard;
 

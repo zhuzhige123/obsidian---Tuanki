@@ -32,7 +32,9 @@ import {
 } from "../utils/card-stats-normalizer";
 import { DirectoryUtils } from "../utils/directory-utils";
 import { hasLegacyMemoryCardStorage } from "../utils/legacy-memory-storage";
+import { t } from "../utils/i18n";
 import { logger } from "../utils/logger";
+import { showObsidianChoice, showObsidianInput } from "../utils/obsidian-confirm";
 import { keepSingleMemoryFormalDeck } from "../utils/memory-deck-membership";
 import { safeReadJson, safeWriteJson } from "../utils/safe-json-io";
 import { ensureWeaveDataReadmesForPath } from "../utils/weave-data-readme";
@@ -91,6 +93,9 @@ type PluginAugment = {
 
 export class WeaveDataStorage {
 	private plugin: WeavePlugin;
+	/** 启动时检测到无记忆牌组，等待用户确认后再创建 */
+	private needsFirstDeckPrompt = false;
+	private firstDeckPromptInFlight = false;
 
 	/** 寰呭埛鍐欑殑 deck cardUUIDs 澧為噺锛坉eckId 鈫?Set<cardUUID>锛?*/
 	private _pendingDeckCardUUIDs = new Map<string, Set<string>>();
@@ -1071,9 +1076,9 @@ export class WeaveDataStorage {
 			await this.ensureDataFiles();
 			await this.migrateLegacyDeckStoreIfNeeded();
 
-			// 如无任何牌组，则自动创建一个默认牌组，避免新建卡片时无 deckId
-			logger.info("[Storage] Ensuring default deck...");
-			await this.ensureDefaultDeck();
+			// 仅在确认仓库中没有任何记忆牌组来源时，标记待用户创建（不静默自动建组）
+			logger.info("[Storage] Checking memory deck presence...");
+			await this.detectEmptyMemoryDeckState();
 
 			const decks =
 				(this.plugin.app.vault as { adapter?: unknown }).adapter
@@ -1087,8 +1092,186 @@ export class WeaveDataStorage {
 		}
 	}
 
-	private async ensureDefaultDeck(): Promise<void> {
-		await this.ensureDefaultDeckExists();
+	private async detectEmptyMemoryDeckState(): Promise<void> {
+		const hasMemoryDecks = await this.hasAnyMemoryDeckPresence();
+		this.needsFirstDeckPrompt = !hasMemoryDecks;
+		if (this.needsFirstDeckPrompt) {
+			logger.info("[Storage] No memory decks found; waiting for user to create the first deck.");
+		}
+	}
+
+	async hasAnyMemoryDeckPresence(): Promise<boolean> {
+		try {
+			const decks = await this.getDecks();
+			if (Array.isArray(decks) && decks.length > 0) {
+				return true;
+			}
+		} catch (error) {
+			logger.warn("[Storage] Failed to read decks while checking memory deck presence:", error);
+		}
+
+		if (this.plugin.wdeckService) {
+			try {
+				if (await this.plugin.wdeckService.hasAnyDeckFileArtifacts()) {
+					return true;
+				}
+			} catch (error) {
+				logger.warn("[Storage] Failed to scan .wdeck files:", error);
+			}
+		}
+
+		try {
+			const persisted = await this.readPersistedDecks();
+			if (Array.isArray(persisted) && persisted.length > 0) {
+				return true;
+			}
+		} catch (error) {
+			logger.warn("[Storage] Failed to read legacy decks.json:", error);
+		}
+
+		return false;
+	}
+
+	async promptCreateFirstDeckIfNeeded(): Promise<boolean> {
+		if (this.firstDeckPromptInFlight) {
+			return false;
+		}
+
+		if (!(await this.hasAnyMemoryDeckPresence())) {
+			this.needsFirstDeckPrompt = true;
+		} else {
+			this.needsFirstDeckPrompt = false;
+			return false;
+		}
+
+		if (!this.needsFirstDeckPrompt) {
+			return false;
+		}
+
+		this.firstDeckPromptInFlight = true;
+		try {
+			const choice = await showObsidianChoice<"create" | "later">(
+				this.plugin.app,
+				t("storage.firstDeck.message"),
+				{
+					title: t("storage.firstDeck.title"),
+					cancelText: t("storage.firstDeck.cancel"),
+					choices: [
+						{
+							value: "create",
+							text: t("storage.firstDeck.choiceCreate"),
+							description: t("storage.firstDeck.choiceCreateDesc"),
+							className: "mod-cta",
+						},
+						{
+							value: "later",
+							text: t("storage.firstDeck.choiceLater"),
+							description: t("storage.firstDeck.choiceLaterDesc"),
+						},
+					],
+				}
+			);
+
+			if (choice !== "create") {
+				return false;
+			}
+
+			const defaultName = String(this.plugin.settings?.defaultDeck || "").trim() || "默认牌组";
+			const deckName = await showObsidianInput(
+				this.plugin.app,
+				t("storage.firstDeck.nameMessage"),
+				defaultName,
+				{
+					title: t("storage.firstDeck.nameTitle"),
+					placeholder: t("storage.firstDeck.namePlaceholder"),
+					confirmText: t("storage.firstDeck.confirm"),
+					cancelText: t("storage.firstDeck.cancel"),
+				}
+			);
+
+			const normalizedName = String(deckName || "").trim();
+			if (!normalizedName) {
+				new Notice(t("storage.firstDeck.invalidName"));
+				return false;
+			}
+
+			const created = await this.createUserMemoryDeck(normalizedName);
+			if (!created) {
+				return false;
+			}
+
+			this.needsFirstDeckPrompt = false;
+			new Notice(t("storage.firstDeck.created", { name: created.name }));
+			return true;
+		} catch (error) {
+			logger.error("[Storage] First deck prompt failed:", error);
+			new Notice(
+				t("storage.firstDeck.createFailed", {
+					error: extractErrorMessage(error),
+				})
+			);
+			return false;
+		} finally {
+			this.firstDeckPromptInFlight = false;
+		}
+	}
+
+	private buildUserMemoryDeck(name: string): Deck {
+		const now = new Date();
+		const normalizedName = String(name || "").trim();
+		const profile = this.createDefaultUserProfile().profile;
+		const defaultSettings = profile.globalSettings.defaultDeckSettings;
+
+		return {
+			id: `deck_${Date.now().toString(36)}`,
+			name: normalizedName,
+			description: "",
+			category: "默认",
+			path: normalizedName,
+			level: 0,
+			order: 0,
+			inheritSettings: false,
+			created: now.toISOString(),
+			modified: now.toISOString(),
+			settings: defaultSettings,
+			includeSubdecks: false,
+			stats: {
+				totalCards: 0,
+				newCards: 0,
+				learningCards: 0,
+				reviewCards: 0,
+				todayNew: 0,
+				todayReview: 0,
+				todayTime: 0,
+				totalReviews: 0,
+				totalTime: 0,
+				memoryRate: 0,
+				averageEase: 0,
+				forecastDays: {},
+			},
+			tags: [],
+			metadata: { userCreated: true },
+		};
+	}
+
+	async createUserMemoryDeck(name: string): Promise<Deck | null> {
+		const normalizedName = String(name || "").trim();
+		if (!normalizedName) {
+			return null;
+		}
+
+		try {
+			const savedResult = await this.saveDeck(this.buildUserMemoryDeck(normalizedName));
+			return savedResult.success && savedResult.data ? savedResult.data : null;
+		} catch (error) {
+			logger.error("[Storage] Failed to create user memory deck:", error);
+			new Notice(
+				t("storage.firstDeck.createFailed", {
+					error: extractErrorMessage(error),
+				})
+			);
+			return null;
+		}
 	}
 
 	private async ensureDataFolder(): Promise<void> {
@@ -1166,140 +1349,6 @@ export class WeaveDataStorage {
 				return this.createDefaultUserProfile();
 			default:
 				return {};
-		}
-	}
-
-	private async ensureDefaultDeckExists(): Promise<void> {
-		try {
-			const decks = await this.getDecks();
-			if (Array.isArray(decks) && decks.length > 0) {
-				return;
-			}
-
-			logger.info("🔄 Creating default deck for first-time use...");
-			const now = new Date();
-			const defaultName = this.plugin.settings?.defaultDeck || "默认牌组";
-			const profile = this.createDefaultUserProfile().profile;
-			const defaultSettings = profile.globalSettings.defaultDeckSettings;
-			const defaultDeck: Deck = {
-				id: `deck_${Date.now().toString(36)}`,
-				name: defaultName,
-				description: "",
-				category: "默认",
-				path: defaultName,
-				level: 0,
-				order: 0,
-				inheritSettings: false,
-				created: now.toISOString(),
-				modified: now.toISOString(),
-				settings: defaultSettings,
-				includeSubdecks: false,
-				stats: {
-					totalCards: 0,
-					newCards: 0,
-					learningCards: 0,
-					reviewCards: 0,
-					todayNew: 0,
-					todayReview: 0,
-					todayTime: 0,
-					totalReviews: 0,
-					totalTime: 0,
-					memoryRate: 0,
-					averageEase: 0,
-					forecastDays: {},
-				},
-				tags: [],
-				metadata: {},
-			};
-
-			const savedDefaultDeckResult = await this.saveDeck(defaultDeck);
-			const savedDefaultDeck = savedDefaultDeckResult.data || defaultDeck;
-			logger.info("鉁?Successfully created default deck:", defaultName);
-
-			const fsrs = this.plugin.fsrs;
-			if (fsrs) {
-				const { generateUUID } = await import("../utils/helpers");
-
-				const sampleCard: Card = {
-					uuid: generateUUID(), // 使用当前 UUID 格式
-					deckId: savedDefaultDeck.id,
-					//  templateId: 不再生成（改为可选字段）
-					content:
-						"Obsidian 是什么？\n\n---div---\n\nObsidian 是一款强大的知识管理和笔记软件，支持双向链接和插件扩展。",
-					// Content-Only 架构：不再生成 fields
-					type: CardType.Basic, // 只需要 type 判断题型
-					tags: ["入门"],
-					created: now.toISOString(),
-					modified: now.toISOString(),
-					fsrs: fsrs.createCard(),
-					reviewHistory: [],
-					stats: { totalReviews: 0, totalTime: 0, averageTime: 0, memoryRate: 0 },
-				};
-				await this.saveDeckCards(savedDefaultDeck.id, [sampleCard]);
-				logger.info("[Storage] Added a sample card to the default deck.");
-			}
-		} catch (e) {
-			// 更详细的错误处理
-			const errorMsg = extractErrorMessage(e);
-			if (errorMsg.includes("already exists") || errorMsg.includes("File already exists")) {
-				try {
-					// 尝试验证文件内容是否有效
-					const existingDecks = await this.getDecks();
-					if (Array.isArray(existingDecks) && existingDecks.length > 0) {
-						// 已读取到有效的牌组数据
-						logger.warn("⚠️ Existing deck file is empty or invalid, updating content...");
-
-						// 文件已存在但内容无效时，直接写回默认牌组内容
-						try {
-							const now = new Date();
-							const defaultName = this.plugin.settings?.defaultDeck || "默认牌组";
-							const profile = this.createDefaultUserProfile().profile;
-							const defaultSettings = profile.globalSettings.defaultDeckSettings;
-							const defaultDeck: Deck = {
-								id: `deck_${Date.now().toString(36)}`,
-								name: defaultName,
-								description: "自动创建的默认牌组",
-								category: "默认",
-								path: defaultName,
-								level: 0,
-								order: 0,
-								inheritSettings: false,
-								created: now.toISOString(),
-								modified: now.toISOString(),
-								settings: defaultSettings,
-								includeSubdecks: false,
-								stats: {
-									totalCards: 0,
-									newCards: 0,
-									learningCards: 0,
-									reviewCards: 0,
-									todayNew: 0,
-									todayReview: 0,
-									todayTime: 0,
-									totalReviews: 0,
-									totalTime: 0,
-									memoryRate: 0,
-									averageEase: 0,
-									forecastDays: {},
-								},
-								tags: [],
-								metadata: { autoCreated: true },
-							};
-
-							// 直接写回文件内容，而不是再次尝试创建新文件
-							await this.saveDeck(defaultDeck);
-							logger.info("[Storage] Successfully updated deck file with default deck");
-						} catch (updateError) {
-							logger.error("[Storage] Failed to update deck file:", updateError);
-							logger.info("[Storage] Continuing with plugin initialization despite deck file issue");
-						}
-					}
-				} catch (readError) {
-					logger.warn("⚠️ Could not validate existing deck file:", readError);
-				}
-			} else {
-				logger.warn("⚠️ ensureDefaultDeck failed:", e);
-			}
 		}
 	}
 

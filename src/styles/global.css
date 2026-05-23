@@ -14,6 +14,7 @@
 
 /* 通用组件样式 */
 @import './vertical-toolbar.css';        /* 侧边栏工具栏统一规范 */
+@import './toolbar-controls.css';        /* 底部/顶栏扁平工具按钮（无边框无凸起） */
 
 /* 功能样式 */
 @import './modal-components.css';        /* 模态窗壳尺寸；APKG 界面见 APKGImportModal.svelte + .weave-apkg-import-modal */
@@ -23,6 +24,7 @@
 @import './preview-components.css';      /* 预览组件 */
 @import './card-types.css';              /* 预览容器 .weave-card--* 题型修饰（PreviewContainer 使用） */
 @import './ai-split-preview-layer.css';   /* Workspace 底部 AI 拆分预览全局层 */
+@import './weave-mobile-modal-chrome.css'; /* 移动端模态窗/浮层底栏避让 Obsidian 底栏 */
 
 /* 在插件容器内重映射 Obsidian 变量到 Weave 设计令牌。 */
 .weave-app {

@@ -1,14 +1,12 @@
 <script lang="ts">
   /**
-   * 移动端卡片管理头部组件
-   *
-   * Part B: 卡片管理界面的移动端顶部导航栏
-   * - 左侧：菜单按钮（☰）- 使用 Obsidian 原生图标，与牌组学习界面一致
-   * - 中间：视图切换圆点（表格、网格、看板）
-   * - 右侧：搜索按钮（🔍）
+   * @deprecated 移动端已收敛到 Obsidian 原生 view-header：
+   * - 菜单：Obsidian 官方更多菜单（`onPaneMenu`）；搜索：`WeaveView.addAction("search")`
+   * - 视图圆点：`WeaveMobileHeaderCenter` + `ViewSwitcher`
+   * 页面内不再挂载本组件；保留文件仅供回归对照。
    *
    * @module components/study/MobileCardManagementHeader
-   * @version 1.3.0
+   * @version 1.4.0
    * @requirements 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 9.1, 9.2, 9.3, 9.4, 9.5
    */
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';

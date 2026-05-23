@@ -176,6 +176,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const DECK_VIEW_STORAGE_KEY = "weave-deck-view";
+const DECK_VIEW_INSERT_SELECTION_KEY = "weave-deck-view-insert-selection";
 const CARD_MANAGEMENT_VIEW_PREFERENCES_KEY = "weave-card-management-view-preferences";
 const STUDY_INTERFACE_VIEW_PREFERENCES_KEY = "weave-study-interface-view-preferences";
 const IR_CALENDAR_SIDEBAR_SETTINGS_KEY = "weave-ir-calendar-sidebar-settings";
@@ -402,6 +403,24 @@ export class PluginLocalStateService {
 
 	async saveDeckViewPreference(deckView: string): Promise<void> {
 		await this.setManagedLocalStorageEntry(DECK_VIEW_STORAGE_KEY, deckView);
+	}
+
+	async loadDeckViewInsertSelection(): Promise<string[]> {
+		const raw = await this.loadManagedJsonEntry<unknown>(DECK_VIEW_INSERT_SELECTION_KEY);
+		if (!Array.isArray(raw)) {
+			return [];
+		}
+		return raw
+			.filter((item): item is string => typeof item === "string")
+			.map((item) => item.trim())
+			.filter(Boolean);
+	}
+
+	async saveDeckViewInsertSelection(deckIds: string[]): Promise<void> {
+		const normalized = Array.from(
+			new Set(deckIds.map((id) => String(id || "").trim()).filter(Boolean))
+		);
+		await this.saveManagedJsonEntry(DECK_VIEW_INSERT_SELECTION_KEY, normalized);
 	}
 
 	async loadManagedLocalStorageEntries(): Promise<Record<string, string>> {

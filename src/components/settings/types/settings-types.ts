@@ -36,6 +36,8 @@ export interface StudyInterfaceViewPreferences {
 	ratingLabelStyle: RatingLabelStyle;
 	/** 是否在评分按钮内部直接显示下次复习时间 */
 	showRatingIntervalOnButtons?: boolean;
+	/** 学习界面侧边栏：图谱联动默认开关 */
+	graphLinkEnabled?: boolean;
 }
 
 // 卡片管理界面视图偏好设置
@@ -44,6 +46,8 @@ export interface CardManagementViewPreferences {
 	currentView: "table" | "grid" | "kanban" | "basic" | "review" | "questionBank";
 	/** 网格布局模式 */
 	gridLayout: "fixed" | "masonry" | "timeline";
+	/** 网格卡片边框显示风格 */
+	gridCardBorderStyle?: "solid" | "dashed";
 	/** 网格卡片显示属性 */
 	gridCardAttribute:
 		| "none"
@@ -143,7 +147,8 @@ export interface SettingsWithEditor {
 	// AnkiConnect 同步设置
 	ankiConnect?: AnkiConnectSettings;
 	// FSRS6 个性化优化设置
-	enablePersonalization?: boolean; // 启用个性化算法优化
+	/** @deprecated 已移除插件内自研智能优化，保留字段仅为兼容旧配置 */
+	enablePersonalization?: boolean;
 	personalizationSettings?: PersonalizationSettings;
 	// 卡片管理界面视图偏好设置
 	cardManagementViewPreferences?: CardManagementViewPreferences;

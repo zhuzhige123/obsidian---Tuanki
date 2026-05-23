@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
+  import { Notice, Platform } from 'obsidian';
   import { logger } from '../../utils/logger';
 
   import type { WeavePlugin } from '../../main';
@@ -15,7 +16,6 @@
   import ObsidianDropdown from '../ui/ObsidianDropdown.svelte';
   import PreviewContainer from '../preview/PreviewContainer.svelte';
   import { CardConverter } from '../../services/ai/CardConverter';
-  import { Notice } from 'obsidian';
   import { tr } from '../../utils/i18n';
 
   interface Props {
@@ -80,6 +80,8 @@
   let thumbnailLongPressTimer: number | null = null;
   let suppressThumbnailClick = false;
   let pressedThumbnailId = $state<string | null>(null);
+  let showImportTagEditor = $state(false);
+  let importTagInputEl = $state<HTMLInputElement | null>(null);
 
   let currentCard = $derived(items[currentIndex]?.generatedCard ?? null);
   let selectedCount = $derived(selectedCardIds.size);
@@ -116,13 +118,6 @@
       variant === 'parse'
         ? t('aiAssistant.previewWorkspace.emptyParsingDescription')
         : t('aiAssistant.previewWorkspace.emptyGeneratingDescription')
-    )
-  );
-  let resolvedNavigationHint = $derived(
-    navigationHint ?? (
-      enableSelection
-        ? t('aiAssistant.previewWorkspace.navigationHintSelectable')
-        : t('aiAssistant.previewWorkspace.navigationHintReadonly')
     )
   );
   let importAutoTags = $derived.by(() => normalizeTagList(committedImportTags));
@@ -176,7 +171,25 @@
     await setCommittedImportTags(committedImportTags.filter((tag) => tag !== tagToRemove));
   }
 
+  async function toggleImportTagEditor(): Promise<void> {
+    showImportTagEditor = !showImportTagEditor;
+    if (showImportTagEditor) {
+      await tick();
+      importTagInputEl?.focus();
+    }
+  }
+
+  function closeImportTagEditor(): void {
+    showImportTagEditor = false;
+  }
+
   async function handleImportTagKeydown(event: KeyboardEvent): Promise<void> {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeImportTagEditor();
+      return;
+    }
+
     if (event.key === 'Enter') {
       event.preventDefault();
       await commitDraftImportTags();
@@ -427,6 +440,7 @@
 
     try {
       isImporting = true;
+      closeImportTagEditor();
       const selectedItems = items.filter((item) => selectedCardIds.has(item.id));
       const finalAutoTags = importAutoTagsText.trim()
         ? await commitDraftImportTags()
@@ -583,7 +597,6 @@
             {/each}
           {/if}
         </div>
-        <div class="thumbnail-hint">{resolvedNavigationHint}</div>
       </div>
 
       {#if showImportControls}
@@ -594,70 +607,95 @@
               <span>{importSummaryText}</span>
             </div>
           {/if}
-          <div class="preview-actions-row">
-            <div class="import-config-fields">
-              <div class="deck-selector compact">
-                <ObsidianDropdown
-                  className="target-deck-select"
-                  value={selectedDeckId}
+          {#if showImportTagEditor}
+            <div class="import-tags-popover" role="dialog" aria-label={t('aiAssistant.previewWorkspace.autoTags')}>
+              <div class="import-tags-editor" class:is-empty={committedImportTags.length === 0 && !importAutoTagsText.trim()}>
+                {#each committedImportTags as tag (tag)}
+                  <span class="import-tag-chip">
+                    <span class="import-tag-chip-text">{tag}</span>
+                    <button
+                      type="button"
+                      class="import-tag-chip-remove"
+                      aria-label={t('aiAssistant.previewWorkspace.removeTag', { tag })}
+                      disabled={isImporting}
+                      onclick={() => {
+                        void removeCommittedImportTag(tag);
+                      }}
+                    >
+                      <ObsidianIcon name="x" size={12} />
+                    </button>
+                  </span>
+                {/each}
+
+                <input
+                  bind:this={importTagInputEl}
+                  type="text"
+                  class="import-tags-input"
+                  value={importAutoTagsText}
+                  placeholder={committedImportTags.length > 0
+                    ? t('aiAssistant.previewWorkspace.tagPlaceholderContinue')
+                    : t('aiAssistant.previewWorkspace.tagPlaceholderFirst')}
+                  aria-label={t('aiAssistant.previewWorkspace.autoTags')}
                   disabled={isImporting}
-                  iconPosition="left"
-                  options={availableDecks.map((deck) => ({
-                    id: deck.id,
-                    label: truncateDeckName(deck.name),
-                    description: deck.id === selectedDeckId ? deck.name : undefined
-                  }))}
-                  onchange={(value) => {
-                    selectedDeckId = value;
+                  oninput={(event) => {
+                    importAutoTagsText = (event.currentTarget as HTMLInputElement).value;
+                  }}
+                  onkeydown={(event) => {
+                    void handleImportTagKeydown(event);
+                  }}
+                  onblur={() => {
+                    if (importAutoTagsText.trim()) {
+                      void commitDraftImportTags();
+                    }
                   }}
                 />
               </div>
+            </div>
+          {/if}
 
-              <label class="import-tags-field">
-                <div class="import-tags-editor" class:is-empty={committedImportTags.length === 0 && !importAutoTagsText.trim()}>
-                  {#each committedImportTags as tag (tag)}
-                    <span class="import-tag-chip">
-                      <span class="import-tag-chip-text">{tag}</span>
-                      <button
-                        type="button"
-                        class="import-tag-chip-remove"
-                        aria-label={t('aiAssistant.previewWorkspace.removeTag', { tag })}
-                        disabled={isImporting}
-                        onclick={() => {
-                          void removeCommittedImportTag(tag);
-                        }}
-                      >
-                        <ObsidianIcon name="x" size={12} />
-                      </button>
-                    </span>
-                  {/each}
-
-                  <input
-                    type="text"
-                    class="import-tags-input"
-                    value={importAutoTagsText}
-                    placeholder={committedImportTags.length > 0
-                      ? t('aiAssistant.previewWorkspace.tagPlaceholderContinue')
-                      : t('aiAssistant.previewWorkspace.tagPlaceholderFirst')}
-                    aria-label={t('aiAssistant.previewWorkspace.autoTags')}
-                    disabled={isImporting}
-                    oninput={(event) => {
-                      importAutoTagsText = (event.currentTarget as HTMLInputElement).value;
-                    }}
-                    onkeydown={(event) => {
-                      void handleImportTagKeydown(event);
-                    }}
-                    onblur={() => {
-                      if (importAutoTagsText.trim()) {
-                        void commitDraftImportTags();
-                      }
-                    }}
-                  />
-                </div>
-              </label>
+          <div class="preview-actions-row">
+            <div class="deck-selector compact">
+              <ObsidianDropdown
+                className="target-deck-select"
+                value={selectedDeckId}
+                disabled={isImporting}
+                iconPosition="left"
+                options={availableDecks.map((deck) => ({
+                  id: deck.id,
+                  label: truncateDeckName(deck.name),
+                  description: deck.id === selectedDeckId ? deck.name : undefined
+                }))}
+                onchange={(value) => {
+                  selectedDeckId = value;
+                }}
+              />
             </div>
 
             <button
+              type="button"
+              class="import-tags-toggle-btn"
+              class:active={showImportTagEditor || committedImportTags.length > 0}
+              aria-expanded={showImportTagEditor}
+              aria-label={t('aiAssistant.previewWorkspace.autoTags')}
+              disabled={isImporting}
+              onclick={() => {
+                void toggleImportTagEditor();
+              }}
+            >
+              <ObsidianIcon name="tag" size={16} />
+              <span class="import-tags-toggle-label">
+                {#if committedImportTags.length > 0}
+                  {committedImportTags.length}
+                {:else if Platform.isMobile}
+                  {t('aiAssistant.previewWorkspace.autoTagsShort')}
+                {:else}
+                  {t('aiAssistant.previewWorkspace.autoTags')}
+                {/if}
+              </span>
+            </button>
+
+            <button
+              type="button"
               class="import-btn compact"
               onclick={handleImportCards}
               disabled={selectedCount === 0 || isImporting || !selectedDeckId || !onImport}
@@ -894,8 +932,7 @@
   }
 
   .card-navigation {
-    display: flex;
-    align-items: stretch;
+    display: block;
     margin-bottom: 16px;
   }
 
@@ -987,14 +1024,6 @@
     justify-content: center;
   }
 
-  .thumbnail-hint {
-    margin-top: 2px;
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--text-faint);
-    text-align: center;
-  }
-
   .preview-actions {
     display: flex;
     flex-direction: column;
@@ -1021,29 +1050,29 @@
 
   .preview-actions-row {
     display: flex;
-    align-items: stretch;
-    gap: 10px;
+    align-items: center;
+    gap: 8px;
     min-width: 0;
     flex-wrap: nowrap;
   }
 
-  .import-config-fields {
-    flex: 0 1 auto;
-    display: flex;
-    align-items: stretch;
-    gap: 10px;
+  .import-tags-popover {
+    margin-bottom: 8px;
   }
 
   .deck-selector {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .deck-selector.compact {
-    flex: 0 0 220px;
-    width: 220px;
-    min-width: 220px;
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    max-width: none;
   }
 
   :global(.deck-selector .obsidian-dropdown-trigger.target-deck-select) {
@@ -1084,17 +1113,52 @@
     cursor: not-allowed;
   }
 
-  .import-tags-field {
-    flex: 0 0 180px;
-    width: 180px;
-    min-width: 180px;
-    display: flex;
-    align-items: stretch;
+  .import-tags-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .import-tags-toggle-btn:hover:not(:disabled) {
+    color: var(--text-normal);
+    border-color: var(--background-modifier-border-hover);
+  }
+
+  .import-tags-toggle-btn.active {
+    color: var(--text-accent);
+    border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-secondary));
+  }
+
+  .import-tags-toggle-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .import-tags-toggle-label {
+    max-width: 4.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .import-tags-editor {
     width: 100%;
-    min-height: 36px;
+    min-height: 32px;
+    max-height: 72px;
+    overflow-y: auto;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1288,7 +1352,13 @@
       bottom: 0;
       z-index: 12;
       padding-top: 10px;
-      padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+      padding-bottom: var(
+        --weave-ai-preview-footer-bottom,
+        calc(
+          72px + var(--weave-workspace-bottom-offset, var(--weave-modal-bottom, env(safe-area-inset-bottom, 0px)))
+          + var(--weave-mobile-fixed-bottom-gap, 4px)
+        )
+      );
       background:
         linear-gradient(
           180deg,
@@ -1318,14 +1388,9 @@
       border-radius: 12px;
     }
 
-    .thumbnail-hint {
-      margin-top: 4px;
-      font-size: 11px;
-    }
-
     .preview-actions {
-      padding: 10px;
-      border-radius: 18px;
+      padding: 8px 10px;
+      border-radius: 14px;
       border: none;
       background: color-mix(in srgb, var(--background-primary) 88%, transparent);
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.1);
@@ -1334,31 +1399,35 @@
     }
 
     .preview-actions-row {
-      align-items: stretch;
-      gap: 10px;
-      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: nowrap;
     }
 
-    .import-config-fields {
-      width: 100%;
-      flex-direction: column;
-      flex: 1 1 100%;
-    }
-
-    .import-tags-field {
-      width: 100%;
-      min-width: 0;
+    .import-tags-popover {
+      margin-bottom: 6px;
     }
 
     .import-tags-editor {
-      min-height: 44px;
-      padding: 6px 10px;
-      border-radius: 14px;
+      min-height: 32px;
+      max-height: 64px;
+      padding: 4px 8px;
+      border-radius: 10px;
     }
 
     .import-tags-input {
-      min-height: 24px;
+      min-height: 22px;
       font-size: 13px;
+    }
+
+    .import-tags-toggle-btn {
+      min-height: 40px;
+      padding: 0 10px;
+      border-radius: 12px;
+    }
+
+    .import-tags-toggle-label {
+      max-width: 3rem;
     }
 
     .card-display {
@@ -1384,28 +1453,24 @@
       font-size: 11px;
     }
 
-    .deck-selector.compact {
-      width: 100%;
-      min-width: 0;
-      flex: 1 1 auto;
-    }
-
     :global(.deck-selector.compact .obsidian-dropdown-trigger.target-deck-select) {
-      min-height: 44px;
-      padding: 0 14px;
-      border-radius: 14px;
+      min-height: 40px;
+      padding: 0 12px;
+      border-radius: 12px;
       box-shadow: none;
       font-size: 13px;
     }
 
     .import-btn.compact {
-      min-width: 104px;
+      min-width: 88px;
       width: auto;
       flex: 0 0 auto;
-      min-height: 44px;
-      padding: 0 16px;
-      border-radius: 14px;
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 12px;
       box-shadow: none;
+      font-size: 13px;
     }
+
   }
 </style>

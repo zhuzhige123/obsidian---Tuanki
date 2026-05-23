@@ -99,67 +99,6 @@
           summary: '插件中多彩侧边颜色条的视觉表达，参考了 Composer 这款 Obsidian 主题的标题设计。',
           adaptation:
             '在 Weave 里又按不同页面、状态层级和主题适配做了重新组织，不是简单把原来的颜色条直接搬过来。'
-        },
-        {
-          index: '07',
-          type: '交互参考',
-          title: 'EPUB 阅读器工具条',
-          source: '微信读书工具条',
-          summary: 'EPUB 阅读器工具条的操作节奏和按钮组织方式，参考了微信读书的工具条设计。',
-          adaptation:
-            '最终落地时，为了适配 Obsidian 插件环境、阅读器状态和学习动作，做了不少减法、重排和本地化调整。'
-        }
-      ]
-    },
-    {
-      title: 'AI 制卡与卡片视觉来源',
-      intro: '这部分主要记录 AI 制卡的早期灵感、部分系统提示词来源，以及牌组卡片的视觉参考来源。',
-      items: [
-        {
-          index: '08',
-          type: '产品灵感',
-          title: 'AI 制卡的最初设计',
-          source: 'Bilibili 创作者主页',
-          summary: 'AI 制卡的最初产品方向参考了该创作者公开分享的内容与思路。',
-          adaptation:
-            '后续实际落地的生成流程、页面组织、结果承载和与 Weave 其他模块的联动，主要是作者在插件场景里持续琢磨和迭代后的结果。',
-          links: [
-            {
-              label: 'Bilibili 主页',
-              href: 'https://space.bilibili.com/22291849'
-            }
-          ]
-        },
-        {
-          index: '09',
-          type: '视觉参考',
-          title: '牌组卡片设计',
-          source: 'Pinterest 图钉',
-          sourceNote: '当前可确认作者未知',
-          summary: '牌组卡片的部分视觉层次、留白感和内容排布参考了这条 Pinterest 设计案例。',
-          adaptation:
-            'Weave 里的卡片结构、字段组合、交互状态、主题变量适配和实际信息承载，是围绕插件需求重新拆分和调整后的版本。',
-          links: [
-            {
-              label: 'Pinterest 参考图',
-              href: 'https://www.pinterest.com/pin/281543726776717/'
-            }
-          ]
-        },
-        {
-          index: '10',
-          type: '提示词来源',
-          title: 'AI 制卡系统提示词中的其中一条来源',
-          source: '二宝学长',
-          summary: 'AI 制卡系统提示词之一来源于二宝学长的分享。',
-          adaptation:
-            '当前插件里实际使用的是多组系统提示词和持续迭代后的提示词组织方式，已经结合 Weave 的字段结构、卡片格式、任务分工和使用体验做了大量改写与适配。',
-          links: [
-            {
-              label: '小红书主页',
-              href: 'https://www.xiaohongshu.com/user/profile/61b342b6000000001000f605?xsec_token=ABMG8xECSFbiGt4_JqvHrwtGecx60CKoNT0BJQ2eOZF4c%3D&xsec_source=pc_search'
-            }
-          ]
         }
       ]
     },
@@ -168,7 +107,7 @@
       intro: '这部分记录看板和日历等辅助工作区中可追溯的交互参考来源。',
       items: [
         {
-          index: '11',
+          index: '07',
           type: '交互参考',
           title: '看板列设置',
           source: 'Notion',
@@ -177,7 +116,7 @@
             'Weave 里又按卡片学习场景加入了更贴近牌组管理的数据项和操作逻辑，不是对原方案的直接照搬。'
         },
         {
-          index: '12',
+          index: '08',
           type: '调整参考',
           title: '增量阅读日历设计调整',
           source: 'obsidian-calendar-plugin',
@@ -236,17 +175,6 @@
   </div>
 
   <div class="weave-inspiration-popover__body">
-    <section class="weave-inspiration-principles">
-      <div class="weave-inspiration-principle">
-        <span class="weave-inspiration-principle-label">说明原则</span>
-        <p>能明确追溯的来源，会尽量直接写出参考对象或链接，不回避借鉴关系。</p>
-      </div>
-      <div class="weave-inspiration-principle">
-        <span class="weave-inspiration-principle-label">当前版本</span>
-        <p>Weave 不是简单复刻。整体框架、整体布局、与 Obsidian 的交互以及大量实际使用流程，仍然以作者个人设计与长期改良为主。</p>
-      </div>
-    </section>
-
     {#each inspirationSections as section}
       <section class="weave-inspiration-section">
         <div class="weave-inspiration-section-heading">
@@ -387,34 +315,6 @@
     display: flex;
     flex-direction: column;
     gap: 24px;
-  }
-
-  .weave-inspiration-principles {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-  }
-
-  .weave-inspiration-principle {
-    padding: 14px 16px;
-    border-radius: 14px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-  }
-
-  .weave-inspiration-principle-label {
-    display: inline-block;
-    margin-bottom: 8px;
-    font-size: 0.78rem;
-    font-weight: 700;
-    color: var(--text-accent);
-  }
-
-  .weave-inspiration-principle p {
-    margin: 0;
-    font-size: 0.88rem;
-    line-height: 1.65;
-    color: var(--text-muted);
   }
 
   .weave-inspiration-section {
@@ -611,10 +511,6 @@
     .weave-inspiration-popover__footer {
       padding-left: 16px;
       padding-right: 16px;
-    }
-
-    .weave-inspiration-principles {
-      grid-template-columns: minmax(0, 1fr);
     }
 
     .weave-inspiration-popover__footer {

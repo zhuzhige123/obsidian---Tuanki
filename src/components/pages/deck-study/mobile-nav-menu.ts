@@ -1,8 +1,8 @@
 import { Menu } from "obsidian";
 import { PREMIUM_FEATURES } from "../../../services/premium/PremiumFeatureGuard";
 
-interface MobileNavMenuOptions {
-  evt: MouseEvent;
+export interface DeckStudyMobileNavMenuOptions {
+  evt?: MouseEvent;
   selectedFilter: string;
   currentView: "grid" | "kanban";
   memoryDeckDisplayMode: "formal" | "emergent";
@@ -21,9 +21,11 @@ interface MobileNavMenuOptions {
   getPremiumEntryTitle: (baseTitle: string, featureId: string) => string;
 }
 
-export function showDeckStudyMobileNavMenu(options: MobileNavMenuOptions): void {
-  const menu = new Menu();
-
+/** 将牌组学习移动菜单项写入已有 Menu（用于 Obsidian 官方 onPaneMenu） */
+export function populateDeckStudyMobileNavMenu(
+  menu: Menu,
+  options: DeckStudyMobileNavMenuOptions
+): void {
   menu.addItem((item) => {
     item
       .setTitle(options.tr("navigation.deckStudy"))
@@ -64,12 +66,16 @@ export function showDeckStudyMobileNavMenu(options: MobileNavMenuOptions): void 
     item
       .setTitle(options.tr("navigation.switchView"))
       .setIcon("layout-grid")
-      .onClick(() => {
-        const viewEvent = new MouseEvent("click", {
-          bubbles: true,
-          clientX: options.evt.clientX,
-          clientY: options.evt.clientY,
-        });
+      .onClick((evt) => {
+        const viewEvent =
+          evt instanceof MouseEvent
+            ? evt
+            : options.evt ??
+              new MouseEvent("click", {
+                bubbles: true,
+                clientX: Math.round(window.innerWidth / 2),
+                clientY: Math.max(96, Math.round(window.innerHeight / 2)),
+              });
         options.showViewSwitcher(viewEvent);
       });
   });
@@ -89,11 +95,12 @@ export function showDeckStudyMobileNavMenu(options: MobileNavMenuOptions): void 
         .setTitle(options.tr("study.mobileHeader.kanbanColumnSettings"))
         .setIcon("sliders")
         .onClick(() => {
+          const anchor = options.evt;
           window.dispatchEvent(
             new CustomEvent("Weave:open-deck-kanban-menu", {
               detail: {
-                x: options.evt.clientX,
-                y: options.evt.clientY,
+                x: anchor?.clientX ?? Math.round(window.innerWidth / 2),
+                y: anchor?.clientY ?? Math.max(96, Math.round(window.innerHeight / 2)),
                 filter: options.selectedFilter,
               },
             })
@@ -160,5 +167,10 @@ export function showDeckStudyMobileNavMenu(options: MobileNavMenuOptions): void 
     });
   }
 
+}
+
+export function showDeckStudyMobileNavMenu(options: DeckStudyMobileNavMenuOptions & { evt: MouseEvent }): void {
+  const menu = new Menu();
+  populateDeckStudyMobileNavMenu(menu, options);
   menu.showAtMouseEvent(options.evt);
 }

@@ -503,6 +503,30 @@ export class WDeckService {
 		};
 	}
 
+	async hasAnyDeckFileArtifacts(): Promise<boolean> {
+		if (this.getVaultWDeckFiles().length > 0) {
+			return true;
+		}
+
+		const adapter = this.plugin.app.vault.adapter;
+		const deckFilesDir = normalizePath(this.buildDefaultDeckFolderPath());
+		if (!(await adapter.exists(deckFilesDir))) {
+			return false;
+		}
+
+		try {
+			const listing = await adapter.list(deckFilesDir);
+			return (listing.files || []).some((fileName) =>
+				String(fileName || "")
+					.trim()
+					.toLowerCase()
+					.endsWith(`.${WDECK_FILE_EXTENSION}`)
+			);
+		} catch {
+			return false;
+		}
+	}
+
 	async rebuildCache(): Promise<WDeckCacheStatus> {
 		const snapshot = await this.collectSnapshot();
 		await this.writeCacheSnapshot(snapshot);
@@ -696,9 +720,9 @@ export class WDeckService {
 		}
 
 		const filePath = this.buildDefaultDeckFilePath(logicalDeckName, 1);
-		await this.createDeckFile(filePath, logicalDeckId, logicalDeckName);
+		const createdFile = await this.createDeckFile(filePath, logicalDeckId, logicalDeckName);
 		await this.rebuildCache();
-		return filePath;
+		return createdFile.path;
 	}
 
 	async saveDeckDefinition(deck: Deck): Promise<WDeckDeckAggregate> {
@@ -711,7 +735,7 @@ export class WDeckService {
 
 		const aggregate =
 			(await this.getDeckAggregateByAnyDeckId(logicalDeckId)) ||
-			(await this.loadDeckAggregateFromFilePath(filePath));
+			(await this.resolveDeckAggregateFromEnsuredFile(filePath, logicalDeckId));
 		const deckDefinition = this.buildDeckDefinition(deck, logicalDeckId, logicalDeckName);
 
 		for (const file of aggregate.files) {
@@ -1346,11 +1370,7 @@ export class WDeckService {
 			const targetPath = existing?.file.path || this.buildDeckFilePathInDirectory(baseDirectory, logicalDeckName, segmentIndex);
 			let targetFile = this.plugin.app.vault.getAbstractFileByPath(targetPath);
 			if (!(targetFile instanceof TFile)) {
-				await this.createDeckFile(targetPath, logicalDeckId, logicalDeckName);
-				targetFile = this.plugin.app.vault.getAbstractFileByPath(targetPath);
-			}
-			if (!(targetFile instanceof TFile)) {
-				throw new Error(`WDeck 分片文件不存在: ${targetPath}`);
+				targetFile = await this.createDeckFile(targetPath, logicalDeckId, logicalDeckName);
 			}
 
 			await this.writeDeckFile(targetFile, {
@@ -1410,11 +1430,89 @@ export class WDeckService {
 		})[0];
 	}
 
+	private async resolveDeckAggregateFromEnsuredFile(
+		filePath: string,
+		logicalDeckId: string
+	): Promise<WDeckDeckAggregate> {
+		const aggregate = await this.getDeckAggregateByAnyDeckId(logicalDeckId);
+		if (aggregate) {
+			return aggregate;
+		}
+
+		await this.rebuildCache();
+		const refreshed = await this.getDeckAggregateByAnyDeckId(logicalDeckId);
+		if (refreshed) {
+			return refreshed;
+		}
+
+		const normalizedPath = normalizePath(String(filePath || "").trim());
+		const file = this.plugin.app.vault.getAbstractFileByPath(normalizedPath);
+		if (file instanceof TFile) {
+			const resolved = await this.readResolvedFile(file);
+			if (resolved) {
+				return this.buildAggregate([resolved]);
+			}
+		}
+
+		return this.loadDeckAggregateFromFilePath(normalizedPath);
+	}
+
+	private async ensureVaultWdeckFile(filePath: string, content: string): Promise<TFile> {
+		const normalizedPath = normalizePath(String(filePath || "").trim());
+		if (!normalizedPath) {
+			throw new Error("WDeck 文件路径不能为空");
+		}
+
+		const vault = this.plugin.app.vault;
+		const existing = vault.getAbstractFileByPath(normalizedPath);
+		if (existing instanceof TFile) {
+			await vault.modify(existing, content);
+			return existing;
+		}
+
+		const adapter = vault.adapter;
+		if (await adapter.exists(normalizedPath)) {
+			try {
+				const orphanContent = await adapter.read(normalizedPath);
+				await adapter.remove(normalizedPath);
+				return await vault.create(
+					normalizedPath,
+					orphanContent.trim().length > 0 ? orphanContent : content
+				);
+			} catch (error) {
+				if (await adapter.exists(normalizedPath)) {
+					await adapter.remove(normalizedPath).catch(() => undefined);
+				}
+				const recovered = vault.getAbstractFileByPath(normalizedPath);
+				if (recovered instanceof TFile) {
+					await vault.modify(recovered, content);
+					return recovered;
+				}
+				logger.warn(
+					`[WDeck] 重新登记孤儿 .wdeck 文件失败: ${normalizedPath}`,
+					error
+				);
+			}
+		}
+
+		try {
+			return await vault.create(normalizedPath, content);
+		} catch (error) {
+			const recovered = vault.getAbstractFileByPath(normalizedPath);
+			if (recovered instanceof TFile) {
+				await vault.modify(recovered, content);
+				return recovered;
+			}
+			const message = error instanceof Error ? error.message : String(error);
+			throw new Error(`创建 WDeck 文件失败: ${normalizedPath} (${message})`);
+		}
+	}
+
 	private async createDeckFile(
 		filePath: string,
 		logicalDeckId: string,
 		logicalDeckName: string
-	): Promise<void> {
+	): Promise<TFile> {
 		const adapter = this.plugin.app.vault.adapter;
 		const folderPath = filePath.split("/").slice(0, -1).join("/");
 		await DirectoryUtils.ensureDirRecursive(adapter, folderPath);
@@ -1442,7 +1540,8 @@ export class WDeckService {
 			),
 			cards: [],
 		};
-		await safeWriteJson(adapter as any, filePath, `${JSON.stringify(payload, null, 2)}\n`, this.plugin.app as any);
+		const content = `${JSON.stringify(payload, null, 2)}\n`;
+		return this.ensureVaultWdeckFile(filePath, content);
 	}
 
 	private async renameDeckFiles(filePaths: string[], logicalDeckName: string): Promise<void> {

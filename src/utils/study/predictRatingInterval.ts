@@ -1,4 +1,5 @@
 import type { FSRS } from "../../algorithms/fsrs";
+import { sanitizeFsrsCardForScheduling } from "../../algorithms/fsrs-adapter";
 import type { Card, FSRSCard, Rating } from "../../data/types";
 import { StepIndexCalculator } from "../learning-steps/StepIndexCalculator";
 import { applyLearningStepScheduling } from "../learning-steps/learningStepScheduling";
@@ -23,18 +24,6 @@ function cloneFsrsCard(card: Card): FSRSCard | null {
 	};
 }
 
-function normalizePredictCard(card: FSRSCard): void {
-	if (!card.lastReview) {
-		card.lastReview = new Date().toISOString();
-		card.elapsedDays = 0;
-		card.state = 0;
-	}
-
-	if (typeof card.elapsedDays !== "number" || Number.isNaN(card.elapsedDays)) {
-		card.elapsedDays = 0;
-	}
-}
-
 export function predictRatingScheduledDays(options: {
 	card: Card;
 	fsrs: Pick<FSRS, "review">;
@@ -48,10 +37,9 @@ export function predictRatingScheduledDays(options: {
 		return null;
 	}
 
-	normalizePredictCard(cloned);
-
-	const prevState = cloned.state;
-	const { card: updatedCard } = fsrs.review(cloned, rating);
+	const sanitized = sanitizeFsrsCardForScheduling(cloned);
+	const prevState = sanitized.state;
+	const { card: updatedCard } = fsrs.review(sanitized, rating);
 	const currentStepIndex =
 		typeof learningStepIndex === "number"
 			? learningStepIndex

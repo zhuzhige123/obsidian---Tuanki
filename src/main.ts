@@ -41,6 +41,7 @@ import { VIEW_TYPE_WEAVE, WeaveView } from "./views/WeaveView";
 
 import { DEFAULT_AI_CONFIG } from "./components/settings/constants/settings-constants";
 import { DEFAULT_RATING_LABEL_STYLE } from "./components/study/rating-label-style";
+import { normalizeStudyInterfaceViewPreferences } from "./utils/study/studyInterfaceViewPreferences";
 import {
 	AI_SECRET_STORAGE_PROVIDERS,
 	buildAIProviderSecretId,
@@ -201,8 +202,6 @@ import { createDefaultChunkFileData, generateChunkId, generateSourceId } from ".
 import { showObsidianConfirm } from "./utils/obsidian-confirm";
 import { extractAllTags } from "./utils/yaml-utils";
 
-import { EditorAIToolbarManager } from "./services/editor/EditorAIToolbarManager";
-import { SelectedTextAICardPanelManager } from "./services/editor/SelectedTextAICardPanelManager";
 import { SelectedTextAISplitPreviewLayer } from "./services/editor/SelectedTextAISplitPreviewLayer";
 import { AIActionManagerObsidian } from "./components/study/AIActionManagerObsidian";
 
@@ -338,6 +337,7 @@ export interface WeaveSettings extends SettingsWithEditor {
 	cardManagementViewPreferences?: {
 		currentView: "table" | "grid" | "kanban";
 		gridLayout: "fixed" | "masonry" | "timeline";
+		gridCardBorderStyle?: "solid" | "dashed";
 		gridCardAttribute:
 			| "none"
 			| "uuid"
@@ -410,7 +410,8 @@ export interface WeaveSettings extends SettingsWithEditor {
 	showOptimizationHistory?: boolean; // 
 
 	// 
-	enablePersonalization?: boolean; // 
+	/** @deprecated 插件内自研优化已移除，请使用官方 FSRS Optimizer */
+	enablePersonalization?: boolean;
 	personalizationSettings?: {
 		enabled: boolean;
 		minDataPoints: number;
@@ -716,7 +717,7 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 	weaveParentFolder: "",
 
 	// 
-	enablePersonalization: true, // 
+	enablePersonalization: false, 
 	personalizationSettings: {
 		enabled: true,
 		minDataPoints: 50,
@@ -739,6 +740,7 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 	cardManagementViewPreferences: {
 		currentView: "table",
 		gridLayout: "fixed",
+		gridCardBorderStyle: "solid",
 		gridCardAttribute: "uuid",
 		kanbanGroupBy: "status",
 		kanbanGroupByBySource: {
@@ -1129,6 +1131,7 @@ export class WeavePlugin extends Plugin {
 	dataSyncService!: DataSyncService; //
 	weaveDomainService!: WeaveDomainAPI;
 	externalSyncWatcher?: ExternalSyncWatcher; // 
+	cardWeDecksPropertySyncService?: import("./services/card/CardWeDecksPropertySyncService").CardWeDecksPropertySyncService;
 	deckMembershipIndexService?: import("./services/index/DeckMembershipIndexService").DeckMembershipIndexService;
 
 	// 
@@ -1147,8 +1150,6 @@ export class WeavePlugin extends Plugin {
 	public blockLinkCleanupService!: BlockLinkCleanupService;
 	private editorTempFileCleanupService?: EditorTempFileCleanupService;
 	private selectedTextAISplitPreviewLayer?: SelectedTextAISplitPreviewLayer;
-	private selectedTextAICardPanelManager?: SelectedTextAICardPanelManager;
-	private editorAIToolbarManager?: EditorAIToolbarManager;
 	private incrementalReadingFolderSubscriptionSyncPromise: Promise<number> | null = null;
 	private incrementalReadingFolderSubscriptionResyncTimer: number | null = null;
 
@@ -1253,7 +1254,9 @@ export class WeavePlugin extends Plugin {
 	private workspaceViewsRegistered = false;
 	private pluginLocalStateService?: PluginLocalStateService;
 	private deckViewPreferenceCache: string | null = null;
+	private deckViewInsertSelectedDeckIds = new Set<string>();
 	private studyInterfaceViewPreferencesCache: StudyInterfaceViewPreferences | null = null;
+	private studyInterfaceViewPreferencesDataSaveTimer: number | null = null;
 	private irCalendarSidebarSettingsCache: IRCalendarSidebarSettings | null = null;
 	private aiAssistantPreferencesCache: AIAssistantLocalPreferences | null = null;
 	private createCardPreferencesCache: CreateCardPreferencesState | null = null;
@@ -2265,6 +2268,7 @@ export class WeavePlugin extends Plugin {
 			this.dataStorage = new WeaveDataStorage(this as any);
 			await this.dataStorage.initialize();
 			logger.info("✅ 数据存储初始化完成");
+			void this.dataStorage.promptCreateFirstDeckIfNeeded();
 			await this.refreshCardSourceTrackingOnStartup();
 
 			// 尽早初始化统一清理服务，避免删卡早于 deferred 初始化时漏掉源文档清理
@@ -2634,6 +2638,17 @@ export class WeavePlugin extends Plugin {
 			logger.info("[Services] ✅ ExternalSyncWatcher 已启动");
 		} catch (error) {
 			logger.error("[Services] ExternalSyncWatcher 启动失败:", error);
+		}
+
+		try {
+			const { CardWeDecksPropertySyncService } = await import(
+				"./services/card/CardWeDecksPropertySyncService"
+			);
+			this.cardWeDecksPropertySyncService = new CardWeDecksPropertySyncService(this);
+			this.cardWeDecksPropertySyncService.start();
+			logger.info("[Services] ✅ CardWeDecksPropertySync 已启动");
+		} catch (error) {
+			logger.error("[Services] CardWeDecksPropertySync 启动失败:", error);
 		}
 
 		const totalTime = Date.now() - startTime;
@@ -3016,55 +3031,16 @@ export class WeavePlugin extends Plugin {
 				return decks[0].id;
 			}
 
-			// 3. 创建默认牌组
-			// ✅ 修复：使用 saveDeck 创建新牌组
-			logger.info("[Plugin] 🔄 创建新的默认牌组...");
-
-			// 获取用户配置
-			const userProfile = await this.dataStorage.getUserProfile();
-			const defaultSettings = userProfile.globalSettings.defaultDeckSettings;
-
-			// 构造完整牌组对象
-			const newDeck: Deck = {
-				id: `deck_${Date.now().toString(36)}`,
-				name: "批量解析",
-				description: "通过批量解析功能创建的卡片",
-				category: "默认",
-				path: "批量解析",
-				level: 0,
-				order: 0,
-				inheritSettings: false,
-				created: new Date().toISOString(),
-				modified: new Date().toISOString(),
-				settings: defaultSettings,
-				includeSubdecks: false,
-				stats: {
-					totalCards: 0,
-					newCards: 0,
-					learningCards: 0,
-					reviewCards: 0,
-					todayNew: 0,
-					todayReview: 0,
-					todayTime: 0,
-					totalReviews: 0,
-					totalTime: 0,
-					memoryRate: 0,
-					averageEase: 0,
-					forecastDays: {},
-				},
-				tags: [],
-				metadata: { autoCreated: true },
-			};
-
-			// 使用 saveDeck 保存
-			const createResponse = await saveMemoryDeck(this, newDeck, "create");
-
-			if (createResponse.success && createResponse.data) {
-				logger.info("[Plugin] ✅ 已创建默认牌组:", createResponse.data.name);
-				return createResponse.data.id;
+			// 3. 无牌组时提示用户创建，不再静默自动建组
+			const created = await this.dataStorage.promptCreateFirstDeckIfNeeded();
+			if (created) {
+				const refreshedDecks = await this.dataStorage.getDecks();
+				if (refreshedDecks.length > 0) {
+					return refreshedDecks[0].id;
+				}
 			}
 
-			logger.error("[Plugin] ❌ 创建默认牌组失败");
+			logger.warn("[Plugin] 当前没有可用牌组，请先创建记忆牌组");
 			return null;
 		} catch (error) {
 			logger.error("[Plugin] 获取默认牌组失败:", error);
@@ -3527,7 +3503,16 @@ export class WeavePlugin extends Plugin {
 				editorExtensionHost.registerEditorExtension(
 					createWeaveCardReferenceEditorExtension(this)
 				);
+				const { createWeaveDeckCodeBlockExtension } = await import(
+					"./extensions/weaveDeckCodeBlockExtension"
+				);
+				editorExtensionHost.registerEditorExtension(createWeaveDeckCodeBlockExtension(this));
 			}
+
+			this.registerMarkdownCodeBlockProcessor(
+				WEAVE_DECKS_CODE_BLOCK_LANGUAGE,
+				createWeaveDeckCodeBlockProcessor(this)
+			);
 
 			try {
 				this.editorTempFileCleanupService = new EditorTempFileCleanupService(this.app);
@@ -3590,6 +3575,8 @@ export class WeavePlugin extends Plugin {
 
 			// 验证许可证数据加载
 			logger.debug("Weave 插件启动完成");
+
+			licenseManager.initializeCloud(this.app);
 
 			// 验证许可证（异步非阻塞，不影响启动速度）
 			this.validateLicense().catch((_error) => {
@@ -4360,8 +4347,8 @@ export class WeavePlugin extends Plugin {
 			// 🖼️ 图片遮罩功能
 			this.registerImageMaskFeatures();
 
-			// 🤖 选中文本 AI 制卡（右键菜单 + 编辑器顶部预览面板）
-			this.registerSelectedTextAICardFeatures();
+			// 🤖 选中文本 AI 拆分（编辑器右键 + EPUB 等外部入口；不含编辑器 AI 制卡）
+			this.initSelectedTextAISplitPreviewLayer();
 
 			// Add settings tab
 			this.addSettingTab(new AnkiSettingsTab(this.app, this));
@@ -4515,10 +4502,7 @@ export class WeavePlugin extends Plugin {
 			void this.editorTempFileCleanupService?.cleanupNow();
 		} catch {}
 		try {
-			this.selectedTextAICardPanelManager?.dispose();
-		} catch {}
-		try {
-			this.editorAIToolbarManager?.destroy();
+			this.selectedTextAISplitPreviewLayer?.dispose();
 		} catch {}
 		try {
 			this.editorPoolManager?.cleanup();
@@ -4563,6 +4547,9 @@ export class WeavePlugin extends Plugin {
 		} catch {}
 		try {
 			this.externalSyncWatcher?.stop();
+		} catch {}
+		try {
+			this.cardWeDecksPropertySyncService?.stop();
 		} catch {}
 		try {
 			this.dataSyncService?.destroy();
@@ -5291,6 +5278,10 @@ export class WeavePlugin extends Plugin {
 
 			revealLeaf(this.app, leaf);
 			logger.debug(`[WeavePlugin] 成功激活视图: ${viewType}`);
+
+			if (viewType === VIEW_TYPE_WEAVE && this.dataStorage) {
+				void this.dataStorage.promptCreateFirstDeckIfNeeded();
+			}
 		} catch (error) {
 			logger.error("[WeavePlugin] activateView失败:", error);
 			// 显示用户友好的错误提示
@@ -6272,16 +6263,7 @@ export class WeavePlugin extends Plugin {
 		const defaults =
 			this.settings?.studyInterfaceViewPreferences ??
 			DEFAULT_SETTINGS.studyInterfaceViewPreferences;
-		return {
-			showSidebar: defaults?.showSidebar ?? true,
-			sidebarCompactModeSetting: defaults?.sidebarCompactModeSetting ?? "auto",
-			statsCollapsed: defaults?.statsCollapsed ?? true,
-			cardOrder: defaults?.cardOrder ?? "sequential",
-			choiceOptionOrder: defaults?.choiceOptionOrder ?? "sequential",
-			sidebarPosition: defaults?.sidebarPosition ?? "right",
-			ratingLabelStyle: defaults?.ratingLabelStyle ?? DEFAULT_RATING_LABEL_STYLE,
-			showRatingIntervalOnButtons: defaults?.showRatingIntervalOnButtons ?? false,
-		};
+		return normalizeStudyInterfaceViewPreferences(defaults);
 	}
 
 	private normalizeIRCalendarSidebarSettings(
@@ -6447,11 +6429,17 @@ export class WeavePlugin extends Plugin {
 		const service = this.getPluginLocalStateService();
 
 		this.deckViewPreferenceCache = await service.loadDeckViewPreference();
+		this.deckViewInsertSelectedDeckIds = new Set(await service.loadDeckViewInsertSelection());
 
-		this.studyInterfaceViewPreferencesCache =
-			(await service.loadStudyInterfaceViewPreferences()) ??
-			this.getDefaultStudyInterfaceViewPreferences();
+		const loadedStudyInterfaceViewPreferences =
+			await service.loadStudyInterfaceViewPreferences();
+		this.studyInterfaceViewPreferencesCache = normalizeStudyInterfaceViewPreferences(
+			loadedStudyInterfaceViewPreferences ?? this.getDefaultStudyInterfaceViewPreferences()
+		);
 		this.settings.studyInterfaceViewPreferences = { ...this.studyInterfaceViewPreferencesCache };
+		if (loadedStudyInterfaceViewPreferences == null) {
+			await service.saveStudyInterfaceViewPreferences(this.studyInterfaceViewPreferencesCache);
+		}
 
 		const rawIRCalendarSidebarSettings =
 			(await service.loadIRCalendarSidebarSettings()) ??
@@ -6530,24 +6518,54 @@ export class WeavePlugin extends Plugin {
 	}
 
 	getStudyInterfaceViewPreferences(): StudyInterfaceViewPreferences {
-		if (!this.studyInterfaceViewPreferencesCache) {
-			this.studyInterfaceViewPreferencesCache = this.getDefaultStudyInterfaceViewPreferences();
+		if (this.studyInterfaceViewPreferencesCache) {
+			return { ...this.studyInterfaceViewPreferencesCache };
 		}
-		return { ...this.studyInterfaceViewPreferencesCache };
+		return this.getDefaultStudyInterfaceViewPreferences();
+	}
+
+	private schedulePersistStudyInterfaceViewPreferencesToData(): void {
+		if (this.studyInterfaceViewPreferencesDataSaveTimer !== null) {
+			window.clearTimeout(this.studyInterfaceViewPreferencesDataSaveTimer);
+		}
+
+		this.studyInterfaceViewPreferencesDataSaveTimer = window.setTimeout(() => {
+			this.studyInterfaceViewPreferencesDataSaveTimer = null;
+			void this.saveSettings().catch((error) => {
+				logger.warn("[Plugin] 同步学习界面视图偏好到 data.json 失败", error);
+			});
+		}, 400);
+	}
+
+	async flushStudyInterfaceViewPreferences(): Promise<void> {
+		if (this.studyInterfaceViewPreferencesDataSaveTimer !== null) {
+			window.clearTimeout(this.studyInterfaceViewPreferencesDataSaveTimer);
+			this.studyInterfaceViewPreferencesDataSaveTimer = null;
+		}
+
+		if (!this.studyInterfaceViewPreferencesCache) {
+			return;
+		}
+
+		await this.getPluginLocalStateService().saveStudyInterfaceViewPreferences(
+			this.studyInterfaceViewPreferencesCache
+		);
+		await this.saveSettings();
 	}
 
 	async saveStudyInterfaceViewPreferences(
 		preferences: Partial<StudyInterfaceViewPreferences>
 	): Promise<void> {
-		const nextPreferences: StudyInterfaceViewPreferences = {
+		const nextPreferences = normalizeStudyInterfaceViewPreferences({
 			...this.getDefaultStudyInterfaceViewPreferences(),
 			...(this.settings.studyInterfaceViewPreferences ?? {}),
 			...(this.studyInterfaceViewPreferencesCache ?? {}),
 			...preferences,
-		};
+		});
 		this.studyInterfaceViewPreferencesCache = nextPreferences;
 		this.settings.studyInterfaceViewPreferences = { ...nextPreferences };
 		await this.getPluginLocalStateService().saveStudyInterfaceViewPreferences(nextPreferences);
+		this.schedulePersistStudyInterfaceViewPreferencesToData();
 	}
 
 	getIRCalendarSidebarSettings(): IRCalendarSidebarSettings {
@@ -6990,9 +7008,6 @@ export class WeavePlugin extends Plugin {
 	}
 
 	private registerWeaveContextMenuFeatures(): void {
-		// 初始化编辑器AI制卡工具栏管理器
-		this.editorAIToolbarManager = new EditorAIToolbarManager(this);
-
 		this.registerEvent(
 			this.app.workspace.on("editor-menu", (menu, editor, view) => {
 				try {
@@ -7004,12 +7019,9 @@ export class WeavePlugin extends Plugin {
 					const weaveSubmenu = getWeaveOperationsSubmenu(menu);
 
 					weaveSubmenu.addItem((item) => {
-						item
-							.setTitle("插入牌组视图")
-							.setIcon("layout-grid")
-							.onClick(() => {
-								this.insertWeaveDeckViewCodeBlock(editor);
-							});
+						item.setTitle("插入牌组视图").setIcon("layout-grid");
+						const submenu = (item as any).setSubmenu() as Menu;
+						void this.buildDeckViewInsertSubmenu(submenu, editor);
 					});
 
 					if (
@@ -7034,16 +7046,6 @@ export class WeavePlugin extends Plugin {
 								});
 						});
 					}
-
-					// AI制卡工具栏
-					weaveSubmenu.addItem((item) => {
-						item
-							.setTitle("AI 制卡")
-							.setIcon("sparkles")
-							.onClick(() => {
-								void this.editorAIToolbarManager?.toggle();
-							});
-					});
 
 					if (
 						this.shouldExposeIncrementalReadingOwnedUiEntrypoints() &&
@@ -7103,16 +7105,6 @@ export class WeavePlugin extends Plugin {
 				} catch {}
 			})
 		);
-
-		// 注册命令面板命令
-		this.addCommand({
-			id: "ai-card-generation",
-			name: "AI 制卡",
-			icon: "sparkles",
-			editorCallback: () => {
-				void this.editorAIToolbarManager?.toggle();
-			},
-		});
 	}
 
 	/**
@@ -9239,9 +9231,106 @@ export class WeavePlugin extends Plugin {
 		}
 	}
 
-	private insertWeaveDeckViewCodeBlock(editor: Editor): void {
+	private async persistDeckViewInsertSelection(): Promise<void> {
 		try {
-			const template = this.buildWeaveDeckViewCodeBlockTemplate();
+			await this.getPluginLocalStateService().saveDeckViewInsertSelection(
+				Array.from(this.deckViewInsertSelectedDeckIds)
+			);
+		} catch (error) {
+			logger.warn("[WeaveContextMenu] 保存牌组视图插入选择失败:", error);
+		}
+	}
+
+	private toggleDeckViewInsertSelection(deckId: string): void {
+		const normalized = String(deckId || "").trim();
+		if (!normalized) return;
+		if (this.deckViewInsertSelectedDeckIds.has(normalized)) {
+			this.deckViewInsertSelectedDeckIds.delete(normalized);
+		} else {
+			this.deckViewInsertSelectedDeckIds.add(normalized);
+		}
+		void this.persistDeckViewInsertSelection();
+	}
+
+	private async getMemoryDecksForContextMenu(): Promise<Deck[]> {
+		if (!this.dataStorage) {
+			const { waitForServiceReady } = await import("./utils/service-ready-event");
+			await waitForServiceReady("dataStorage", 15000).catch(() => undefined);
+		}
+		if (!this.dataStorage) {
+			return [];
+		}
+		const allDecks = await this.dataStorage.getAllDecks();
+		return allDecks.filter(
+			(deck) => deck.purpose !== "test" && deck.deckType !== "question-bank"
+		);
+	}
+
+	private async buildDeckViewInsertSubmenu(submenu: Menu, editor: Editor): Promise<void> {
+		try {
+			const memoryDecks = await this.getMemoryDecksForContextMenu();
+			if (memoryDecks.length === 0) {
+				submenu.addItem((subItem) => {
+					subItem.setTitle("暂无可用牌组").setDisabled(true);
+				});
+				return;
+			}
+
+			for (const deck of memoryDecks) {
+				submenu.addItem((subItem) => {
+					subItem
+						.setTitle(deck.name)
+						.setChecked(this.deckViewInsertSelectedDeckIds.has(deck.id))
+						.onClick(() => {
+							this.toggleDeckViewInsertSelection(deck.id);
+						});
+				});
+			}
+
+			submenu.addSeparator();
+			submenu.addItem((subItem) => {
+				subItem.setTitle("全选").onClick(() => {
+					this.deckViewInsertSelectedDeckIds = new Set(memoryDecks.map((deck) => deck.id));
+					void this.persistDeckViewInsertSelection();
+				});
+			});
+			submenu.addItem((subItem) => {
+				subItem.setTitle("清除选择").onClick(() => {
+					this.deckViewInsertSelectedDeckIds.clear();
+					void this.persistDeckViewInsertSelection();
+				});
+			});
+			submenu.addSeparator();
+			submenu.addItem((subItem) => {
+				subItem
+					.setTitle("插入到当前笔记")
+					.setIcon("layout-grid")
+					.onClick(() => {
+						void this.insertWeaveDeckViewCodeBlock(editor);
+					});
+			});
+		} catch (error) {
+			logger.error("[WeaveContextMenu] 构建牌组视图插入子菜单失败:", error);
+			submenu.addItem((subItem) => {
+				subItem.setTitle("加载牌组失败").setDisabled(true);
+			});
+		}
+	}
+
+	private async insertWeaveDeckViewCodeBlock(editor: Editor): Promise<void> {
+		try {
+			const memoryDecks = await this.getMemoryDecksForContextMenu();
+			const selectedDecks = memoryDecks.filter((deck) =>
+				this.deckViewInsertSelectedDeckIds.has(deck.id)
+			);
+			if (selectedDecks.length === 0) {
+				new Notice("请先在子菜单中勾选要显示的牌组");
+				return;
+			}
+
+			const template = this.buildWeaveDeckViewCodeBlockTemplate(
+				selectedDecks.map((deck) => deck.name)
+			);
 			const cursor = editor.getCursor();
 			const currentLine = editor.getLine(cursor.line);
 			const needsLeadingNewline = currentLine.trim().length > 0 && cursor.ch > 0;
@@ -9251,22 +9340,29 @@ export class WeavePlugin extends Plugin {
 
 			const insertedStartLine = cursor.line + (needsLeadingNewline ? 1 : 0);
 			const deckNamesLine = insertedStartLine + 4;
-			editor.setCursor({ line: deckNamesLine, ch: 4 });
-			new Notice("已插入牌组视图代码块");
+			editor.setCursor({ line: deckNamesLine, ch: 0 });
+			new Notice(`已插入 ${selectedDecks.length} 个牌组的视图代码块`);
 		} catch (error) {
 			logger.error("[WeaveContextMenu] 插入牌组视图代码块失败:", error);
 			new Notice("插入牌组视图代码块失败");
 		}
 	}
 
-	private buildWeaveDeckViewCodeBlockTemplate(): string {
+	private buildWeaveDeckViewCodeBlockTemplate(deckNames: string[]): string {
+		const normalizedNames = deckNames
+			.map((name) => String(name || "").trim())
+			.filter(Boolean);
+		const deckNamesYaml =
+			normalizedNames.length > 0
+				? normalizedNames.map((name) => `  - ${name}`).join("\n")
+				: "  - 牌组名称1";
+
 		return [
 			`\`\`\`${WEAVE_DECKS_CODE_BLOCK_LANGUAGE}`,
 			"title: 我的牌组",
 			"size: medium",
 			"deckNames:",
-			"  - 牌组名称1",
-			"  - 牌组名称2",
+			deckNamesYaml,
 			"sort: due",
 			"limit: 6",
 			"```",
@@ -9566,147 +9662,93 @@ export class WeavePlugin extends Plugin {
 		}
 	}
 
-	private registerSelectedTextAICardFeatures(): void {
+	private initSelectedTextAISplitPreviewLayer(): void {
 		try {
 			this.selectedTextAISplitPreviewLayer = new SelectedTextAISplitPreviewLayer(this, this.app);
-			this.selectedTextAICardPanelManager = new SelectedTextAICardPanelManager(this.selectedTextAISplitPreviewLayer);
-
-			this.addCommand({
-				id: "selected-text-ai-card",
-				name: "选中文本AI制卡",
-				icon: "brain",
-				callback: () => {
-					try {
-						const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
-						const editor = mdView?.editor;
-						if (!mdView || !editor) {
-							new Notice("未找到可用的编辑器视图");
-							return;
-						}
-
-						this.runSelectedTextAICardCommand(editor, mdView);
-					} catch {
-						new Notice("打开AI制卡失败");
-					}
-				},
-				editorCallback: (editor, view) => {
-					try {
-						const mdView =
-							view instanceof MarkdownView
-								? view
-								: this.app.workspace.getActiveViewOfType(MarkdownView);
-						this.runSelectedTextAICardCommand(editor, mdView || undefined);
-					} catch {
-						new Notice("打开AI制卡失败");
-					}
-				},
-			});
-
-			this.registerEvent(
-				this.app.workspace.on("editor-menu", (menu, editor, view) => {
-					try {
-						if (!(view instanceof MarkdownView)) return;
-
-						const selection = editor.getSelection()?.trim() || "";
-						if (!selection) return;
-
-						const weaveSubmenu = getWeaveOperationsSubmenu(menu);
-						weaveSubmenu.addItem((item) => {
-							item.setTitle("选中文本AI制卡");
-							item.setIcon("brain");
-							const submenu = (item as any).setSubmenu() as Menu;
-							const actions = get(customActionsForMenu).split;
-
-							submenu.addItem((subItem) => {
-								subItem.setTitle("主动提问...").onClick(() => {
-									this.selectedTextAICardPanelManager?.openPanel({
-										view,
-										selectedText: selection,
-										actionId: "Weave:proactive-question",
-									});
-								});
-							});
-
-							submenu.addSeparator();
-
-							if (!actions || actions.length === 0) {
-								submenu.addItem((subItem) => {
-									subItem.setTitle("暂无可用功能").setDisabled(true);
-								});
-							} else {
-								actions.forEach((action) => {
-									submenu.addItem((subItem) => {
-										subItem.setTitle(action.name).onClick(() => {
-											this.selectedTextAICardPanelManager?.openPanel({
-												view,
-												selectedText: selection,
-												actionId: action.id,
-											});
-										});
-									});
-								});
-							}
-
-							submenu.addSeparator();
-							submenu.addItem((subItem) => {
-								subItem.setTitle("AI拆分配置...").setIcon("settings").onClick(() => {
-									void this.openAISplitConfigModal();
-								});
-							});
-						});
-					} catch {}
-				})
-			);
+			this.registerEditorSelectedTextAISplitContextMenu();
 		} catch {
 			// ignore
 		}
 	}
 
-	private runSelectedTextAICardCommand(editor: Editor, view?: MarkdownView): void {
-		const selection = editor.getSelection()?.trim() || "";
-		if (!selection) {
-			new Notice("请先选中要制卡的文本");
-			return;
-		}
+	/** 编辑器右键：选中文本 AI 拆分（与学习界面 AI 拆分共用配置，不含 AI 制卡） */
+	private registerEditorSelectedTextAISplitContextMenu(): void {
+		this.registerEvent(
+			this.app.workspace.on("editor-menu", (menu, editor, view) => {
+				try {
+					if (!(view instanceof MarkdownView)) return;
 
-		const mdView = view || this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!mdView) {
-			new Notice("未找到可用的编辑器视图");
-			return;
-		}
+					const selection = editor.getSelection()?.trim() || "";
+					if (!selection) return;
 
-		this.openSelectedTextAICardActionSelector({
-			view: mdView,
-			selectedText: selection,
-		});
+					const weaveSubmenu = getWeaveOperationsSubmenu(menu);
+					weaveSubmenu.addItem((item) => {
+						item.setTitle(i18n.t("study.menu.aiSplit")).setIcon("bot");
+						const submenu = (item as any).setSubmenu() as Menu;
+						const actions = get(customActionsForMenu).split;
+
+						submenu.addItem((subItem) => {
+							subItem.setTitle("主动提问...").onClick(() => {
+								this.openEditorSelectedTextAISplitPanel({
+									view,
+									selectedText: selection,
+									actionId: "Weave:proactive-question",
+								});
+							});
+						});
+
+						submenu.addSeparator();
+
+						if (!actions || actions.length === 0) {
+							submenu.addItem((subItem) => {
+								subItem
+									.setTitle(i18n.t("study.menu.noAvailableFeatures"))
+									.setDisabled(true);
+							});
+						} else {
+							actions.forEach((action) => {
+								submenu.addItem((subItem) => {
+									subItem.setTitle(action.name).onClick(() => {
+										this.openEditorSelectedTextAISplitPanel({
+											view,
+											selectedText: selection,
+											actionId: action.id,
+										});
+									});
+								});
+							});
+						}
+
+						submenu.addSeparator();
+						submenu.addItem((subItem) => {
+							subItem
+								.setTitle(`${i18n.t("study.aiActionManager.splitConfigTitle")}...`)
+								.setIcon("settings")
+								.onClick(() => {
+									void this.openAISplitConfigModal();
+								});
+						});
+					});
+				} catch {}
+			})
+		);
 	}
 
-	private openSelectedTextAICardActionSelector(params: {
+	private openEditorSelectedTextAISplitPanel(params: {
 		view: MarkdownView;
 		selectedText: string;
+		actionId: string;
 	}): void {
-		const actions = get(customActionsForMenu).split;
-		const items: Array<{ id: string; name: string }> = [
-			{
-				id: "Weave:proactive-question",
-				name: "主动提问...",
-			},
-		];
-
-		if (actions && actions.length > 0) {
-			for (const a of actions) {
-				items.push({ id: a.id, name: a.name });
-			}
+		if (!this.selectedTextAISplitPreviewLayer) {
+			new Notice("AI 拆分预览未就绪，请稍后重试或重新加载插件");
+			return;
 		}
 
-		const modal = new SelectedTextAICardActionSuggestModal(this.app, items, (item) => {
-			this.selectedTextAICardPanelManager?.openPanel({
-				view: params.view,
-				selectedText: params.selectedText,
-				actionId: item.id,
-			});
+		void this.selectedTextAISplitPreviewLayer.open({
+			selectedText: params.selectedText,
+			actionId: params.actionId,
+			sourceFilePath: params.view.file?.path || "",
 		});
-		modal.open();
 	}
 
 	/**
@@ -10076,31 +10118,6 @@ export class WeavePlugin extends Plugin {
 		} catch (error) {
 			logger.error("[触控优化] 应用失败:", error);
 		}
-	}
-}
-
-class SelectedTextAICardActionSuggestModal extends SuggestModal<{ id: string; name: string }> {
-	constructor(
-		app: any,
-		private items: Array<{ id: string; name: string }>,
-		private onSelect: (item: { id: string; name: string }) => void
-	) {
-		super(app);
-		this.setPlaceholder("选择AI制卡功能...");
-	}
-
-	getSuggestions(query: string): Array<{ id: string; name: string }> {
-		const q = (query || "").trim().toLowerCase();
-		if (!q) return this.items;
-		return this.items.filter((it) => it.name.toLowerCase().includes(q));
-	}
-
-	renderSuggestion(item: { id: string; name: string }, el: HTMLElement): void {
-		el.setText(item.name);
-	}
-
-	onChooseSuggestion(item: { id: string; name: string }, _evt: MouseEvent | KeyboardEvent): void {
-		this.onSelect(item);
 	}
 }
 

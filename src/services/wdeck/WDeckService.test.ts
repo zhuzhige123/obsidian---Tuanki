@@ -36,9 +36,15 @@ function parentPath(path: string): string {
 	return idx > 0 ? normalized.slice(0, idx) : "";
 }
 
-function createWDeckPlugin(initialFiles: Record<string, string> = {}) {
+type WDeckPluginTestOptions = {
+	adapterOnlyWrites?: boolean;
+};
+
+function createWDeckPlugin(initialFiles: Record<string, string> = {}, options: WDeckPluginTestOptions = {}) {
 	const files = new Map<string, string>();
+	const indexedPaths = new Set<string>();
 	const folders = new Set<string>(["", "weave", "weave/memory", "weave/memory/deck-files"]);
+	const adapterOnlyWrites = options.adapterOnlyWrites === true;
 
 	const ensureDir = (dir: string) => {
 		const normalized = normalizeTestPath(dir);
@@ -71,6 +77,9 @@ function createWDeckPlugin(initialFiles: Record<string, string> = {}) {
 
 	for (const [path, content] of Object.entries(initialFiles)) {
 		writeText(path, content);
+		if (!adapterOnlyWrites) {
+			indexedPaths.add(normalizeTestPath(path));
+		}
 	}
 
 	const adapter = {
@@ -139,15 +148,21 @@ function createWDeckPlugin(initialFiles: Record<string, string> = {}) {
 				configDir: ".obsidian",
 				adapter,
 				getFiles: () =>
-					Array.from(files.keys())
+					Array.from(adapterOnlyWrites ? indexedPaths : files.keys())
 						.filter((path) => path.toLowerCase().endsWith(".wdeck"))
 						.map((path) => getTFile(path)),
 				getAbstractFileByPath: (path: string) => {
 					const normalized = normalizeTestPath(path);
-					if (files.has(normalized) && normalized.toLowerCase().endsWith(".wdeck")) {
+					const isIndexed = adapterOnlyWrites ? indexedPaths.has(normalized) : files.has(normalized);
+					if (isIndexed && normalized.toLowerCase().endsWith(".wdeck")) {
 						return getTFile(normalized);
 					}
 					return folders.has(normalized) ? ({ path: normalized } as any) : null;
+				},
+				create: async (path: string, content: string) => {
+					writeText(path, content);
+					indexedPaths.add(normalizeTestPath(path));
+					return getTFile(path);
 				},
 				cachedRead: async (file: TFile) => adapter.read(file.path),
 				modify: async (file: TFile, content: string) => adapter.write(file.path, content),
@@ -557,6 +572,73 @@ describe("WDeckService deck file actions", () => {
 				description: "bio"
 			})
 		});
+	});
+
+	test("detects .wdeck artifacts on disk even before vault indexes them", async () => {
+		const { plugin, files } = createWDeckPlugin({}, { adapterOnlyWrites: true });
+		const service = new WDeckService(plugin);
+
+		files.set("weave/memory/deck-files/existing_01.wdeck", "{}");
+		expect(await service.hasAnyDeckFileArtifacts()).toBe(true);
+	});
+
+	test("creates a new default deck file through the vault index when no .wdeck exists", async () => {
+		const { plugin, files } = createWDeckPlugin({}, { adapterOnlyWrites: true });
+		const service = new WDeckService(plugin);
+
+		const aggregate = await service.saveDeckDefinition({
+			id: "deck-default",
+			name: "默认牌组",
+			description: "",
+			category: "默认",
+			cardUUIDs: [],
+			path: "默认牌组",
+			level: 0,
+			order: 0,
+			inheritSettings: false,
+			settings: {
+				newCardsPerDay: 20,
+				maxReviewsPerDay: 100,
+				enableAutoAdvance: true,
+				showAnswerTime: 0,
+				fsrsParams: {
+					w: [],
+					requestRetention: 0.9,
+					maximumInterval: 36500,
+					enableFuzz: true,
+				},
+				learningSteps: [1, 10],
+				relearningSteps: [10],
+				graduatingInterval: 1,
+				easyInterval: 4,
+			},
+			stats: {
+				totalCards: 0,
+				newCards: 0,
+				learningCards: 0,
+				reviewCards: 0,
+				todayNew: 0,
+				todayReview: 0,
+				todayTime: 0,
+				totalReviews: 0,
+				totalTime: 0,
+				memoryRate: 0,
+				averageEase: 0,
+				forecastDays: {},
+			},
+			includeSubdecks: false,
+			purpose: "memory",
+			created: "2026-05-21T00:00:00.000Z",
+			modified: "2026-05-21T00:00:00.000Z",
+			tags: [],
+			metadata: {},
+		} as any);
+
+		expect(aggregate.logicalDeckName).toBe("默认牌组");
+		expect(files.has("weave/memory/deck-files/默认牌组_01.wdeck")).toBe(true);
+		expect(plugin.app.vault.getFiles().map((file: TFile) => file.path)).toEqual([
+			"weave/memory/deck-files/默认牌组_01.wdeck",
+		]);
 	});
 
 	test("reuses an existing .wdeck file when the stable deck id stays the same", async () => {

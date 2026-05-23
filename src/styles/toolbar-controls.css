@@ -1,0 +1,131 @@
+/* 底部/顶栏工具区：无边框、无凸起，贴近 Obsidian clickable-icon */
+
+.weave-toolbar-control,
+.weave-toolbar-tab,
+.weave-app .weave-bottom-toolbar .weave-toolbar-tab,
+.weave-bottom-toolbar .obsidian-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  box-sizing: border-box;
+  min-height: var(--clickable-icon-size, 28px);
+  padding: 0.35rem 0.65rem;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  border-radius: var(--clickable-icon-radius, var(--radius-s));
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.weave-toolbar-control:hover:not(:disabled),
+.weave-toolbar-tab:hover:not(:disabled):not(.weave-toolbar-tab--static),
+.weave-bottom-toolbar .obsidian-dropdown-trigger:hover:not(.disabled) {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+  border: none;
+  box-shadow: none;
+}
+
+.weave-toolbar-control:active:not(:disabled),
+.weave-toolbar-tab:active:not(:disabled):not(.weave-toolbar-tab--static),
+.weave-bottom-toolbar .obsidian-dropdown-trigger:active:not(.disabled) {
+  background: var(--background-modifier-active-hover);
+  color: var(--text-normal);
+  transform: none;
+  opacity: 1;
+}
+
+.weave-toolbar-control:focus-visible,
+.weave-toolbar-tab:focus-visible,
+.weave-bottom-toolbar .obsidian-dropdown-trigger:focus-visible {
+  outline: none;
+  border: none;
+  box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+}
+
+.weave-toolbar-control:disabled,
+.weave-toolbar-tab:disabled,
+.weave-bottom-toolbar .obsidian-dropdown-trigger.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.weave-bottom-toolbar .obsidian-dropdown-trigger {
+  width: auto;
+  max-width: min(100%, 9rem);
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.weave-bottom-toolbar .obsidian-dropdown-trigger .dropdown-text {
+  text-align: left;
+}
+
+/* 可调整模态窗标题栏操作区（新建/编辑卡片等） */
+.weave-modal-header-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.weave-modal-header-toolbar .deck-selector-btn {
+  max-width: min(36vw, 200px);
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+.weave-modal-header-toolbar .deck-selector-btn .deck-name,
+.weave-modal-header-toolbar .deck-multi-selector-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.weave-modal-header-toolbar .deck-multi-selector {
+  max-width: min(40vw, 320px);
+  justify-content: flex-start;
+}
+
+.weave-modal-header-toolbar .deck-multi-selector-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.weave-modal-header-toolbar .pin-button:not(.is-pinned) {
+  opacity: 0.6;
+}
+
+.weave-modal-header-toolbar .pin-button:not(.is-pinned):hover:not(:disabled) {
+  opacity: 1;
+}
+
+.weave-modal-header-toolbar .weave-toolbar-tab.is-pinned {
+  opacity: 1;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.weave-modal-header-toolbar .weave-toolbar-tab.is-pinned:hover:not(:disabled) {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  opacity: 0.9;
+}
+
+/* 高对比度：底栏与模态顶栏工具键保持无边框 */
+@media (prefers-contrast: high) {
+  .weave-app .weave-bottom-toolbar .weave-toolbar-tab,
+  .weave-app .weave-bottom-toolbar .weave-toolbar-control,
+  .weave-app .weave-bottom-toolbar .obsidian-dropdown-trigger,
+  .weave-modal-header-toolbar .weave-toolbar-tab,
+  .weave-modal-header-toolbar button.weave-toolbar-tab {
+    border: none;
+    box-shadow: none;
+  }
+}

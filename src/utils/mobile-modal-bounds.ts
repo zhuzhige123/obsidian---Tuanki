@@ -70,11 +70,15 @@ const IGNORED_MEASUREMENT_SELECTORS = [
 	".weave-modal-backdrop",
 	".weave-modal-container",
 	".modal-overlay",
+	".ai-config-popover-backdrop",
+	".weave-mobile-safe-overlay",
 	".resizable-modal-overlay",
 	".test-result-backdrop",
 	".epub-reader-root",
 	".weave-epub-view-content",
 	".receipt-modal",
+	".weave-global-ai-split-preview-layer",
+	"[data-weave-ai-split-preview-layer='true']",
 	"[data-weave-safe-area-probe='true']",
 ].join(", ");
 
@@ -533,7 +537,7 @@ export function destroyMobileModalAdaptation(): void {
 
 /**
  * 注入全局模态窗样式
- * 自动为所有 .weave-modal-backdrop、.modal-overlay 等元素应用边界限制
+ * 自动为 .weave-modal-backdrop、.modal-overlay、.weave-mobile-safe-overlay 等应用边界限制（见 dynamic-injected.css）
  */
 export function injectGlobalModalStyles(): void {
 	if (!isMobileDevice()) {

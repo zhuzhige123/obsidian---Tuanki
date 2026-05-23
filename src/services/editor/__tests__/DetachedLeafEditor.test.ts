@@ -192,4 +192,18 @@ describe('DetachedLeafEditor temp file placement', () => {
     expect(files.get(expectedPath)).toBe('pdf-note');
     expect((editor as any).tempFile?.path).toBe(expectedPath);
   });
+
+  it('exposes getTempFilePath after prepareTempFile', async () => {
+    const { app } = createMemoryApp();
+    const editor = new DetachedLeafEditor(app, document.createElement('div'), {
+      sessionId: 'session-path-api',
+      value: 'api',
+    });
+
+    expect(editor.getTempFilePath()).toBeNull();
+
+    await (editor as any).prepareTempFile();
+
+    expect(editor.getTempFilePath()).toBe('weave/editor/weave-editor-session-path-api.md');
+  });
 });

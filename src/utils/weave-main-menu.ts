@@ -19,6 +19,7 @@ export type WeaveCardViewType = "table" | "grid" | "kanban";
 export type WeaveDeckStudyFilter = "memory" | "question-bank" | "incremental-reading";
 export type WeaveTableViewMode = "basic" | "review" | "questionBank" | "irContent";
 export type WeaveGridLayoutMode = "fixed" | "masonry" | "timeline";
+export type WeaveGridCardBorderStyle = "solid" | "dashed";
 export type WeaveKanbanLayoutMode = "compact" | "comfortable" | "spacious";
 export type WeaveIRTypeFilter = "all" | "md" | "pdf";
 
@@ -26,6 +27,13 @@ type NavigationVisibility = {
 	apkgImport?: boolean;
 	csvImport?: boolean;
 };
+
+/** WeaveView.onPaneMenu 向各页分发，由页面往官方 Menu 填入条目 */
+export interface WeavePopulateMainInterfaceMenuDetail {
+	menu: Menu;
+	page: string;
+	source?: string;
+}
 
 export interface WeaveMainMenuOptions {
 	currentPage: string;
@@ -45,6 +53,7 @@ export interface WeaveMainMenuOptions {
 	currentView?: WeaveCardViewType;
 	tableViewMode?: WeaveTableViewMode;
 	gridLayoutMode?: WeaveGridLayoutMode;
+	gridCardBorderStyle?: WeaveGridCardBorderStyle;
 	kanbanLayoutMode?: WeaveKanbanLayoutMode;
 	irTypeFilter?: WeaveIRTypeFilter;
 	documentFilterMode?: "all" | "current";
@@ -185,6 +194,62 @@ function getDeckStudyCreateEntry(filter: WeaveDeckStudyFilter): {
 	}
 }
 
+type MenuItemWithSubmenu = {
+	setSubmenu: () => Menu;
+};
+
+function addAiAssistantToolsSubmenu(menu: Menu): void {
+	menu.addItem((item) => {
+		item.setTitle(i18n.t("mainMenu.aiAssistant.toolsMenu")).setIcon("more-horizontal");
+		const submenu = (item as unknown as MenuItemWithSubmenu).setSubmenu();
+
+		submenu.addItem((subItem) => {
+			subItem
+				.setTitle(i18n.t("mainMenu.aiAssistant.systemPrompt"))
+				.setIcon("file-text")
+				.onClick(() => {
+					dispatchWindowEvent("Weave:ai-toolbar-action", { action: "prompt-file" });
+				});
+		});
+
+		submenu.addItem((subItem) => {
+			subItem
+				.setTitle(i18n.t("mainMenu.aiAssistant.parseTemplate"))
+				.setIcon("layout-template")
+				.onClick(() => {
+					dispatchWindowEvent("Weave:ai-toolbar-action", { action: "parse-template" });
+				});
+		});
+
+		submenu.addItem((subItem) => {
+			subItem
+				.setTitle(i18n.t("mainMenu.aiAssistant.history"))
+				.setIcon("history")
+				.onClick(() => {
+					dispatchWindowEvent("Weave:ai-toolbar-action", { action: "history" });
+				});
+		});
+
+		submenu.addItem((subItem) => {
+			subItem
+				.setTitle(i18n.t("aiAssistant.configModal.title"))
+				.setIcon("sliders-horizontal")
+				.onClick(() => {
+					dispatchWindowEvent("Weave:ai-toolbar-action", { action: "system-prompt" });
+				});
+		});
+
+		submenu.addItem((subItem) => {
+			subItem
+				.setTitle(i18n.t("mainMenu.aiAssistant.config"))
+				.setIcon("settings")
+				.onClick(() => {
+					dispatchWindowEvent("Weave:ai-toolbar-action", { action: "config" });
+				});
+		});
+	});
+}
+
 export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions): void {
 	const premiumGuard = PremiumFeatureGuard.getInstance();
 	const premiumState = getPremiumState(premiumGuard);
@@ -196,6 +261,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 	const currentView = options.currentView ?? "table";
 	const cardDataSource = options.cardDataSource ?? "memory";
 	const gridLayoutMode = options.gridLayoutMode ?? "fixed";
+	const gridCardBorderStyle = options.gridCardBorderStyle ?? "solid";
 	const documentFilterMode = options.documentFilterMode ?? "all";
 	const enableCardLocationJump = Boolean(options.enableCardLocationJump);
 	const inSidebar = typeof options.isInSidebarMode === "boolean"
@@ -226,49 +292,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 	menu.addSeparator();
 
 	if (options.currentPage === "ai-assistant") {
-		menu.addItem((item) => {
-			item
-				.setTitle(i18n.t("mainMenu.aiAssistant.history"))
-				.setIcon("history")
-				.onClick(() => {
-					dispatchWindowEvent("Weave:ai-toolbar-action", {
-						action: "history",
-					});
-				});
-		});
-
-		menu.addItem((item) => {
-			item
-				.setTitle(i18n.t("mainMenu.aiAssistant.selectModel"))
-				.setIcon("cpu")
-				.onClick(() => {
-					dispatchWindowEvent("Weave:ai-toolbar-action", {
-						action: "model",
-					});
-				});
-		});
-
-		menu.addItem((item) => {
-			item
-				.setTitle(i18n.t("mainMenu.aiAssistant.systemPrompt"))
-				.setIcon("sliders-horizontal")
-				.onClick(() => {
-					dispatchWindowEvent("Weave:ai-toolbar-action", {
-						action: "system-prompt",
-					});
-				});
-		});
-
-		menu.addItem((item) => {
-			item
-				.setTitle(i18n.t("mainMenu.aiAssistant.config"))
-				.setIcon("settings")
-				.onClick(() => {
-					dispatchWindowEvent("Weave:ai-toolbar-action", {
-						action: "config",
-					});
-				});
-		});
+		addAiAssistantToolsSubmenu(menu);
 	}
 
 	if (options.currentPage === "deck-study") {
@@ -370,29 +394,37 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		if (
 			currentView === "table"
 			&& cardDataSource === "memory"
-			&& shouldShowCardManagementMenuAction("table-view-basic")
+			&& (shouldShowCardManagementMenuAction("table-view-basic")
+				|| shouldShowCardManagementMenuAction("table-view-review"))
 		) {
 			menu.addItem((item) => {
-				item
-					.setTitle(i18n.t("mainMenu.cardManagement.tableBasic"))
-					.setIcon("table")
-					.setChecked(options.tableViewMode === "basic")
-					.onClick(() => {
-						emitCardManagementToolbarAction("table-view-basic");
-					});
-			});
+				item.setTitle(i18n.t("mainMenu.cardManagement.tableViewMode")).setIcon("table");
+				const submenu = (item as unknown as MenuItemWithSubmenu).setSubmenu();
 
-			if (shouldShowCardManagementMenuAction("table-view-review")) {
-				menu.addItem((item) => {
-					item
-						.setTitle(i18n.t("mainMenu.cardManagement.tableReview"))
-						.setIcon("bar-chart-2")
-						.setChecked(options.tableViewMode === "review")
-						.onClick(() => {
-							emitCardManagementToolbarAction("table-view-review");
-						});
-				});
-			}
+				if (shouldShowCardManagementMenuAction("table-view-basic")) {
+					submenu.addItem((subItem) => {
+						subItem
+							.setTitle(i18n.t("mainMenu.cardManagement.tableBasic"))
+							.setIcon("table")
+							.setChecked(options.tableViewMode === "basic")
+							.onClick(() => {
+								emitCardManagementToolbarAction("table-view-basic");
+							});
+					});
+				}
+
+				if (shouldShowCardManagementMenuAction("table-view-review")) {
+					submenu.addItem((subItem) => {
+						subItem
+							.setTitle(i18n.t("mainMenu.cardManagement.tableReview"))
+							.setIcon("bar-chart-2")
+							.setChecked(options.tableViewMode === "review")
+							.onClick(() => {
+								emitCardManagementToolbarAction("table-view-review");
+							});
+					});
+				}
+			});
 		}
 
 		if (
@@ -424,60 +456,104 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			}
 		}
 
-		if (currentView === "grid" && shouldShowCardManagementMenuAction("grid-layout-fixed")) {
-			menu.addItem((item) => {
-				item
-					.setTitle(i18n.t("mainMenu.cardManagement.gridFixed"))
-					.setIcon("layout-grid")
-					.setChecked(gridLayoutMode === "fixed")
-					.onClick(() => {
-						emitCardManagementToolbarAction("grid-layout-fixed");
-					});
-			});
-
-			if (shouldShowCardManagementMenuAction("grid-layout-masonry")) {
-				menu.addItem((item) => {
-					item
-						.setTitle(i18n.t("mainMenu.cardManagement.gridMasonry"))
-						.setIcon("panels-top-left")
-						.setChecked(gridLayoutMode === "masonry")
-						.onClick(() => {
-							emitCardManagementToolbarAction("grid-layout-masonry");
-						});
-				});
-			}
-		}
-
 		if (
-			(shouldShowPremiumEntry(premiumGuard, premiumState, PREMIUM_FEATURES.TIMELINE_VIEW)
-				|| currentView === "grid")
-			&& shouldShowCardManagementMenuAction("grid-layout-timeline")
+			currentView === "grid"
+			&& (shouldShowCardManagementMenuAction("grid-layout-fixed")
+				|| shouldShowCardManagementMenuAction("grid-layout-masonry")
+				|| shouldShowCardManagementMenuAction("grid-layout-timeline"))
 		) {
 			const gridLocked = !premiumGuard.canUseFeature(
 				PREMIUM_FEATURES.GRID_VIEW,
 				CARD_MANAGEMENT_FEATURE_CONTEXT
 			);
-			menu.addItem((item) => {
-				item
-					.setTitle(
-						getPremiumEntryTitle(
-							premiumGuard,
-							i18n.t("mainMenu.cardManagement.timeline"),
-							PREMIUM_FEATURES.TIMELINE_VIEW
-						)
-					)
-					.setIcon("history")
-					.setChecked(currentView === "grid" && gridLayoutMode === "timeline")
-					.onClick(() => {
-						if (currentView !== "grid") {
-							options.onViewChange?.("grid");
-							if (gridLocked) {
-								return;
-							}
-						}
 
-						emitCardManagementToolbarAction("grid-layout-timeline");
+			menu.addItem((item) => {
+				item.setTitle(i18n.t("mainMenu.cardManagement.gridLayout")).setIcon("layout-grid");
+				const submenu = (item as unknown as MenuItemWithSubmenu).setSubmenu();
+
+				if (shouldShowCardManagementMenuAction("grid-layout-fixed")) {
+					submenu.addItem((subItem) => {
+						subItem
+							.setTitle(i18n.t("mainMenu.cardManagement.gridFixed"))
+							.setIcon("layout-grid")
+							.setChecked(gridLayoutMode === "fixed")
+							.onClick(() => {
+								emitCardManagementToolbarAction("grid-layout-fixed");
+							});
 					});
+				}
+
+				if (shouldShowCardManagementMenuAction("grid-layout-masonry")) {
+					submenu.addItem((subItem) => {
+						subItem
+							.setTitle(i18n.t("mainMenu.cardManagement.gridMasonry"))
+							.setIcon("panels-top-left")
+							.setChecked(gridLayoutMode === "masonry")
+							.onClick(() => {
+								emitCardManagementToolbarAction("grid-layout-masonry");
+							});
+					});
+				}
+
+				if (shouldShowCardManagementMenuAction("grid-layout-timeline")) {
+					submenu.addItem((subItem) => {
+						subItem
+							.setTitle(
+								getPremiumEntryTitle(
+									premiumGuard,
+									i18n.t("mainMenu.cardManagement.timeline"),
+									PREMIUM_FEATURES.TIMELINE_VIEW
+								)
+							)
+							.setIcon("history")
+							.setChecked(gridLayoutMode === "timeline")
+							.onClick(() => {
+								if (currentView !== "grid") {
+									options.onViewChange?.("grid");
+									if (gridLocked) {
+										return;
+									}
+								}
+
+								emitCardManagementToolbarAction("grid-layout-timeline");
+							});
+					});
+				}
+			});
+		}
+
+		if (
+			currentView === "grid"
+			&& (shouldShowCardManagementMenuAction("grid-border-style-solid")
+				|| shouldShowCardManagementMenuAction("grid-border-style-dashed"))
+		) {
+			menu.addItem((item) => {
+				item.setTitle(i18n.t("mainMenu.cardManagement.gridBorderStyle")).setIcon("square-dashed");
+				const submenu = (item as unknown as MenuItemWithSubmenu).setSubmenu();
+
+				if (shouldShowCardManagementMenuAction("grid-border-style-solid")) {
+					submenu.addItem((subItem) => {
+						subItem
+							.setTitle(i18n.t("mainMenu.cardManagement.gridBorderSolid"))
+							.setIcon("square")
+							.setChecked(gridCardBorderStyle === "solid")
+							.onClick(() => {
+								emitCardManagementToolbarAction("grid-border-style-solid");
+							});
+					});
+				}
+
+				if (shouldShowCardManagementMenuAction("grid-border-style-dashed")) {
+					submenu.addItem((subItem) => {
+						subItem
+							.setTitle(i18n.t("mainMenu.cardManagement.gridBorderDashed"))
+							.setIcon("square-dashed")
+							.setChecked(gridCardBorderStyle === "dashed")
+							.onClick(() => {
+								emitCardManagementToolbarAction("grid-border-style-dashed");
+							});
+					});
+				}
 			});
 		}
 
@@ -493,39 +569,50 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 		}
 
 		if (currentView === "kanban") {
-			if (shouldShowCardManagementMenuAction("kanban-layout-compact")) {
+			if (
+				shouldShowCardManagementMenuAction("kanban-layout-compact")
+				|| shouldShowCardManagementMenuAction("kanban-layout-comfortable")
+				|| shouldShowCardManagementMenuAction("kanban-layout-spacious")
+			) {
 				menu.addItem((item) => {
-					item
-						.setTitle(i18n.t("mainMenu.cardManagement.kanbanCompact"))
-						.setIcon("minimize-2")
-						.setChecked(options.kanbanLayoutMode === "compact")
-						.onClick(() => {
-							emitCardManagementToolbarAction("kanban-layout-compact");
-						});
-				});
-			}
+					item.setTitle(i18n.t("cardManagement.density.title")).setIcon("layout-grid");
+					const submenu = (item as unknown as MenuItemWithSubmenu).setSubmenu();
 
-			if (shouldShowCardManagementMenuAction("kanban-layout-comfortable")) {
-				menu.addItem((item) => {
-					item
-						.setTitle(i18n.t("mainMenu.cardManagement.kanbanComfortable"))
-						.setIcon("square")
-						.setChecked(options.kanbanLayoutMode === "comfortable")
-						.onClick(() => {
-							emitCardManagementToolbarAction("kanban-layout-comfortable");
+					if (shouldShowCardManagementMenuAction("kanban-layout-compact")) {
+						submenu.addItem((subItem) => {
+							subItem
+								.setTitle(i18n.t("mainMenu.cardManagement.kanbanCompact"))
+								.setIcon("minimize-2")
+								.setChecked(options.kanbanLayoutMode === "compact")
+								.onClick(() => {
+									emitCardManagementToolbarAction("kanban-layout-compact");
+								});
 						});
-				});
-			}
+					}
 
-			if (shouldShowCardManagementMenuAction("kanban-layout-spacious")) {
-				menu.addItem((item) => {
-					item
-						.setTitle(i18n.t("mainMenu.cardManagement.kanbanSpacious"))
-						.setIcon("maximize-2")
-						.setChecked(options.kanbanLayoutMode === "spacious")
-						.onClick(() => {
-							emitCardManagementToolbarAction("kanban-layout-spacious");
+					if (shouldShowCardManagementMenuAction("kanban-layout-comfortable")) {
+						submenu.addItem((subItem) => {
+							subItem
+								.setTitle(i18n.t("mainMenu.cardManagement.kanbanComfortable"))
+								.setIcon("square")
+								.setChecked(options.kanbanLayoutMode === "comfortable")
+								.onClick(() => {
+									emitCardManagementToolbarAction("kanban-layout-comfortable");
+								});
 						});
+					}
+
+					if (shouldShowCardManagementMenuAction("kanban-layout-spacious")) {
+						submenu.addItem((subItem) => {
+							subItem
+								.setTitle(i18n.t("mainMenu.cardManagement.kanbanSpacious"))
+								.setIcon("maximize-2")
+								.setChecked(options.kanbanLayoutMode === "spacious")
+								.onClick(() => {
+									emitCardManagementToolbarAction("kanban-layout-spacious");
+								});
+						});
+					}
 				});
 			}
 

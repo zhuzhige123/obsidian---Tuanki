@@ -18,6 +18,11 @@
   import type { WeavePlugin } from '../../main';
   import { createWeaveDataChangeNotifier } from '../../services/ui/WeaveDataChangeBridge';
   import { saveMemoryCard } from '../../services/weave-domain';
+  import type { AIAction, AIProvider } from '../../types/ai-types';
+  import {
+    formatModelLabelOnly,
+    showProviderModelMenuAt,
+  } from '../../utils/provider-model-menu';
 
   interface Props {
     host: AISelectedTextPanelHost;
@@ -47,6 +52,8 @@
   let activeResizePointerId: number | null = null;
 
   let didInit = $state(false);
+  let splitProviderOverride = $state<AIProvider | undefined>(undefined);
+  let splitModelOverride = $state<string | undefined>(undefined);
 
   /** 与 EPUB 阅读器插件共用键，便于两处预览高度一致 */
   const PREVIEW_HEIGHT_STORAGE_KEY = 'weave-ai-split-preview-height';
@@ -136,6 +143,72 @@
     const actions = get(customActionsForMenu).split;
     return actions.find((a) => a.id === actionId) || null;
   });
+
+  function getPreferredProvider(): AIProvider {
+    return (weavePlugin.settings.aiConfig?.defaultProvider || 'openai') as AIProvider;
+  }
+
+  let splitModelLabel = $derived.by(() => {
+    const apiKeys = (weavePlugin.settings.aiConfig?.apiKeys || {}) as Record<
+      string,
+      { model?: string } | undefined
+    >;
+    const action = currentAction;
+    return formatModelLabelOnly(
+      {
+        provider: splitProviderOverride ?? action?.provider,
+        model: splitModelOverride ?? action?.model,
+      },
+      getPreferredProvider(),
+      apiKeys
+    );
+  });
+
+  function getEffectiveSplitAction(): AIAction | null {
+    const action = currentAction;
+    if (!action) return null;
+    if (!splitProviderOverride && !splitModelOverride) return action;
+
+    return {
+      ...action,
+      provider: splitProviderOverride ?? action.provider,
+      model: splitModelOverride ?? action.model,
+    };
+  }
+
+  function openSplitModelMenu(event: MouseEvent) {
+    const action = currentAction;
+    if (!action) {
+      new Notice(t('aiAssistant.selectedTextPanel.missingAction'));
+      return;
+    }
+
+    const apiKeys = (weavePlugin.settings.aiConfig?.apiKeys || {}) as Record<
+      string,
+      { model?: string } | undefined
+    >;
+
+    showProviderModelMenuAt(event, {
+      apiKeys,
+      selection: {
+        provider: splitProviderOverride ?? action.provider,
+        model: splitModelOverride ?? action.model,
+      },
+      preferredProvider: getPreferredProvider(),
+      includeDefaultOption: true,
+      defaultOptionTitle: t('aiAssistant.selectedTextPanel.useActionDefaultModel'),
+      onSelect: (next) => {
+        if (!next.provider) {
+          splitProviderOverride = undefined;
+          splitModelOverride = undefined;
+          return;
+        }
+        splitProviderOverride = next.provider;
+        splitModelOverride = next.model;
+      },
+    });
+  }
+
   let t = $derived($tr);
 
   async function loadDecks() {
@@ -231,7 +304,7 @@
   async function generateCards(): Promise<void> {
     if (isGenerating) return;
 
-    const action = currentAction;
+    const action = getEffectiveSplitAction();
     if (!action) {
       new Notice(t('aiAssistant.selectedTextPanel.missingAction'));
       return;
@@ -464,11 +537,15 @@
     {/if}
   </div>
 
-  <div class="actions">
+  <div class="actions weave-bottom-toolbar">
     <UnifiedActionsBar
       showChildOverlay={true}
+      toolbarVariant="split-preview"
+      showReturnButton={false}
       selectedCount={selectedCardIds.size}
-      onReturn={onClose}
+      modelSelectorLabel={splitModelLabel}
+      onModelSelectorClick={openSplitModelMenu}
+      modelSelectorAriaLabel={t('aiAssistant.selectedTextPanel.model')}
       onRegenerate={generateCards}
       onSave={handleSaveSelected}
       isRegenerating={isGenerating}
@@ -486,7 +563,7 @@
   .weave-ai-card-panel {
     border-top: 1px solid var(--background-modifier-border);
     background: transparent;
-    padding: 0.5rem 0.75rem 0;
+    padding: 0.5rem 0.75rem 0.25rem;
     font-size: 12px;
     position: relative;
   }
@@ -496,6 +573,19 @@
     align-items: center;
     justify-content: space-between;
     padding-bottom: 0.5rem;
+  }
+
+  .actions {
+    padding: 0.5rem 0 0.375rem;
+    position: relative;
+    z-index: 3;
+  }
+
+  .actions :global(.unified-actions-bar) {
+    width: 100%;
+    padding: 0.5rem 0;
+    border-top: none;
+    background: transparent;
   }
 
   .title {
@@ -617,10 +707,6 @@
   .loading {
     padding: 0.75rem 0;
     color: var(--text-muted);
-  }
-
-  .actions {
-    padding: 0.5rem 0 0;
   }
 
   :global(.weave-ai-card-panel-container) {

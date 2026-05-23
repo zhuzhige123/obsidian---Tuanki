@@ -63,7 +63,7 @@
   {#if currentPage === "deck-study"}
     <CategoryFilter {selectedFilter} onSelect={handleFilterSelect} />
   {:else if currentPage === "weave-card-management"}
-    <ViewSwitcher currentView={cardView} onViewChange={handleCardViewChange} />
+    <ViewSwitcher currentView={cardView} onViewChange={handleCardViewChange} respectPremiumGates />
   {:else if currentPage === "ai-assistant"}
     <div class="ai-assistant-dots">
       <button

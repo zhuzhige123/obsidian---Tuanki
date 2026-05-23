@@ -30,6 +30,35 @@ body:not(.is-mobile) .workspace-leaf-content[data-type="weave-question-bank-view
   background: var(--weave-surface-background, var(--background-primary));
 }
 
+/* 记忆学习编辑 + 键盘：将 leaf 钉在 visual viewport，避免正文被顶走露出空白占位 */
+.workspace-leaf-content[data-type="weave-study-view"] > .view-content.weave-reading-viewport-locked,
+.workspace-leaf-content[data-type="weave-question-bank-view"] > .view-content.weave-reading-viewport-locked {
+  background: var(--weave-surface-background, var(--background-primary));
+  z-index: 1;
+}
+
+/* 键盘编辑期：原生 view-header 保持在锁定层之上，供 addAction 保存按钮显示 */
+body.is-mobile.weave-edit-active .workspace-leaf-content[data-type="weave-study-view"] > .view-header,
+body.is-phone.weave-edit-active .workspace-leaf-content[data-type="weave-study-view"] > .view-header,
+body.is-mobile.weave-edit-active .workspace-leaf-content[data-type="weave-question-bank-view"] > .view-header,
+body.is-phone.weave-edit-active .workspace-leaf-content[data-type="weave-question-bank-view"] > .view-header {
+  position: relative;
+  z-index: 2;
+}
+
+body.is-mobile.weave-study-edit-keyboard-active,
+body.is-phone.weave-study-edit-keyboard-active {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body.is-mobile.weave-study-edit-keyboard-active .workspace-leaf-content[data-type="weave-study-view"],
+body.is-phone.weave-study-edit-keyboard-active .workspace-leaf-content[data-type="weave-study-view"],
+body.is-mobile.weave-study-edit-keyboard-active .workspace-leaf-content[data-type="weave-question-bank-view"],
+body.is-phone.weave-study-edit-keyboard-active .workspace-leaf-content[data-type="weave-question-bank-view"] {
+  overflow: hidden;
+}
+
 .weave-study-view-content .weave-study-state {
   width: 100%;
   height: 100%;

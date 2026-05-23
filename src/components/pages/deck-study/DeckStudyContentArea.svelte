@@ -22,14 +22,11 @@
     formalDeckBindingSummary,
     memoryDeckDisplayMode = "formal",
     canShowMemoryDeckLevels = false,
-    showQuestionBankAssociationEntry = true,
     onFilterSelect,
     onStartStudy,
     onContinueStudy,
     onAdvanceStudy,
     onOpenDeckAnalytics,
-    onAssociateQuestionBank,
-    getQuestionBankSubmenuData,
     onEditDeck,
     onDeleteDeck,
     onOpenKnowledgeGraph,
@@ -60,7 +57,6 @@
     onStartStudy={onKanbanStartStudy}
     onStartEmergentStudy={onStartStudy}
     onDeckUpdate={onRefreshData}
-    onAssociateQuestionBank={selectedFilter === "memory" && showQuestionBankAssociationEntry ? onAssociateQuestionBank : undefined}
     onEditDeck={onKanbanEditDeck}
     onDeleteDeck={onKanbanDeleteDeck}
     onOpenKnowledgeGraph={selectedFilter === "memory" ? onOpenKnowledgeGraph : undefined}
@@ -87,8 +83,6 @@
     onContinueStudy={onContinueStudy}
     onAdvanceStudy={onAdvanceStudy}
     onOpenDeckAnalytics={onOpenDeckAnalytics}
-    onAssociateQuestionBank={showQuestionBankAssociationEntry ? onAssociateQuestionBank : undefined}
-    getQuestionBankSubmenuData={showQuestionBankAssociationEntry ? getQuestionBankSubmenuData : undefined}
     onBeforeOpenDeckMenu={onBeforeOpenDeckMenu}
     onEditDeck={onEditDeck}
     onDeleteDeck={onDeleteDeck}

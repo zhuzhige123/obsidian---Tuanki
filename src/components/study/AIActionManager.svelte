@@ -14,8 +14,9 @@
   import { OFFICIAL_FORMAT_ACTIONS } from '../../constants/official-format-actions';
   import { DEFAULT_SPLIT_ACTIONS } from '../../data/default-split-actions';
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
-  import { Menu, Notice } from 'obsidian';
+  import { Notice } from 'obsidian';
   import { tr } from '../../utils/i18n';
+  import { showProviderModelMenuAt } from '../../utils/provider-model-menu';
 
   interface Props {
     show: boolean;
@@ -237,67 +238,26 @@
   function openActionProviderModelMenu(event: MouseEvent) {
     if (!selectedAction) return;
 
-    const menu = new Menu();
     const apiKeys = (plugin.settings.aiConfig?.apiKeys || {}) as Record<string, { model?: string } | undefined>;
 
-    menu.addItem((item) => {
-      item
-        .setTitle(t('study.aiActionManager.useDefaultConfig'))
-        .setIcon(!selectedAction.provider ? 'check' : '')
-        .onClick(() => {
+    showProviderModelMenuAt(event, {
+      apiKeys,
+      selection: {
+        provider: selectedAction.provider,
+        model: selectedAction.model,
+      },
+      preferredProvider: getPreferredProvider(),
+      providers,
+      includeDefaultOption: true,
+      defaultOptionTitle: t('study.aiActionManager.useDefaultConfig'),
+      onSelect: (next) => {
+        if (!next.provider) {
           updateSelectedAction({ provider: undefined, model: undefined });
-        });
-    });
-
-    menu.addSeparator();
-
-    providers.forEach((provider) => {
-      const models = AI_MODEL_OPTIONS[provider] || [];
-      menu.addItem((item) => {
-        item
-          .setTitle(AI_PROVIDER_LABELS[provider])
-          .setIcon((selectedAction.provider || getPreferredProvider()) === provider ? 'check' : '');
-
-        const submenu = (item as any).setSubmenu();
-        const configuredModel = apiKeys[provider]?.model?.trim();
-        const staticModelIds: string[] = models.map((model) => model.id);
-
-        if (configuredModel && !staticModelIds.includes(configuredModel)) {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(configuredModel)
-              .setIcon(
-                (selectedAction.provider || getPreferredProvider()) === provider &&
-                (selectedAction.model || getDefaultModelForProvider(provider)) === configuredModel
-                  ? 'check'
-                  : ''
-              )
-              .onClick(() => {
-                updateSelectedAction({ provider, model: configuredModel });
-              });
-          });
-          submenu.addSeparator();
+          return;
         }
-
-        models.forEach((model) => {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(model.label)
-              .setIcon(
-                (selectedAction.provider || getPreferredProvider()) === provider &&
-                (selectedAction.model || getDefaultModelForProvider(provider)) === model.id
-                  ? 'check'
-                  : ''
-              )
-              .onClick(() => {
-                updateSelectedAction({ provider, model: model.id });
-              });
-          });
-        });
-      });
+        updateSelectedAction({ provider: next.provider, model: next.model });
+      },
     });
-
-    menu.showAtMouseEvent(event);
   }
 
   $effect(() => {

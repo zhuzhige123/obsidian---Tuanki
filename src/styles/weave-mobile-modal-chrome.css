@@ -1,0 +1,137 @@
+/**
+
+ * 移动端 Obsidian 底栏避让：插件内模态窗 / 浮层底栏（非 workspace 全局贴底层）
+
+ * 变量由 mobile-modal-bounds.ts 写入；桌面端 offset 通常为 0。
+
+ *
+
+ * 约定：全屏/固定遮罩挂 class `weave-mobile-safe-overlay`，由 dynamic-injected.css 夹定 top/bottom。
+
+ */
+
+
+
+/* AI 制卡配置：手机端居中模态壳（遮罩已由全局规则避让底栏） */
+
+:global(body.is-mobile) .ai-config-popover-backdrop.weave-mobile-safe-overlay.is-mobile-shell,
+
+:global(body.is-phone) .ai-config-popover-backdrop.weave-mobile-safe-overlay.is-mobile-shell {
+
+	display: flex;
+
+	align-items: center;
+
+	justify-content: center;
+
+	padding: 8px;
+
+	box-sizing: border-box;
+
+	z-index: var(--weave-z-modal, 10000);
+
+	background: var(--weave-modal-backdrop, rgba(0, 0, 0, 0.45));
+
+	overflow: hidden;
+
+}
+
+
+
+:global(body.is-mobile) .ai-config-popover-backdrop .ai-config-popover.is-mobile-shell,
+
+:global(body.is-phone) .ai-config-popover-backdrop .ai-config-popover.is-mobile-shell {
+
+	position: relative;
+
+	inset: auto;
+
+	left: auto;
+
+	top: auto;
+
+	width: min(100%, 520px);
+
+	max-width: calc(100% - 16px);
+
+	max-height: var(
+
+		--weave-modal-max-height,
+
+		calc(
+
+			100vh - var(--weave-workspace-top-offset, 0px) - var(--weave-workspace-bottom-offset, var(--weave-modal-bottom, env(safe-area-inset-bottom, 0px)))
+
+			- 16px
+
+		)
+
+	);
+
+	margin: 0 auto;
+
+	flex: 0 1 auto;
+
+	min-height: 0;
+
+	overflow: hidden;
+
+}
+
+
+
+/* 桌面锚点 popover：限制高度，避免超出视口 */
+
+:global(body.is-mobile) .ai-config-popover:not(.is-mobile-shell),
+
+:global(body.is-phone) .ai-config-popover:not(.is-mobile-shell) {
+
+	max-height: min(
+
+		86vh,
+
+		calc(
+
+			100vh - var(--weave-workspace-top-offset, 0px) - var(--weave-workspace-bottom-offset, var(--weave-modal-bottom, env(safe-area-inset-bottom, 0px)))
+
+			- 16px
+
+		)
+
+	);
+
+}
+
+
+
+/* 已在安全区遮罩内的配置窗：底栏只需常规内边距，勿重复叠加 workspace offset */
+
+:global(body.is-mobile) .ai-config-popover.is-mobile-shell .generation-config-form .modal-footer,
+
+:global(body.is-phone) .ai-config-popover.is-mobile-shell .generation-config-form .modal-footer {
+
+	padding-bottom: calc(16px + var(--weave-mobile-fixed-bottom-gap, 4px));
+
+}
+
+
+
+:global(body.is-mobile) .weave-ai-config-modal .modal-footer,
+
+:global(body.is-phone) .weave-ai-config-modal .modal-footer,
+
+:global(body.is-mobile) .weave-ai-action-manager-host .modal-footer,
+
+:global(body.is-phone) .weave-ai-action-manager-host .modal-footer {
+
+	padding-bottom: calc(
+
+		16px + var(--weave-workspace-bottom-offset, var(--weave-modal-bottom, env(safe-area-inset-bottom, 0px)))
+
+		+ var(--weave-mobile-fixed-bottom-gap, 4px)
+
+	);
+
+}
+
+

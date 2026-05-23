@@ -748,6 +748,14 @@ export class DetachedLeafEditor extends Component {
 
 	// --- Public API ---
 
+	/**
+	 * 返回 DetachedLeaf 背后打开的 vault 临时文件路径。
+	 * EmbeddableEditorManager 用此路径把 metadata 变更映射回编辑会话（如 we_decks 同步）。
+	 */
+	getTempFilePath(): string | null {
+		return this.tempFile?.path ?? null;
+	}
+
 	get value(): string {
 		return this.editorView?.editor?.getValue() || "";
 	}

@@ -195,4 +195,31 @@ describe('AnalyticsService.getDeckAnalyticsSnapshot', () => {
     expect(snapshot.summary.hasReviewData).toBe(false);
     expect(snapshot.retention.points.every((point) => point.actualRetention === null)).toBe(true);
   });
+
+  it('builds calibration metrics from review history and review-state stability', async () => {
+    const decks = [createDeck('deck-a', '牌组 A')];
+    const cards = [
+      createCard({
+        uuid: 'card-a',
+        deckId: 'deck-a',
+        stability: 20,
+        reviewHistory: [
+          { review: '2026-04-10T09:00:00.000Z', due: '2026-04-10T09:00:00.000Z', elapsedDays: 3, rating: Rating.Again },
+          { review: '2026-04-10T11:00:00.000Z', due: '2026-04-10T11:00:00.000Z', elapsedDays: 1, rating: Rating.Good }
+        ]
+      })
+    ];
+    const service = new AnalyticsService(createStorage(cards, decks));
+    services.push(service);
+
+    const snapshot = await service.getDeckAnalyticsSnapshot({
+      deckIds: ['deck-a'],
+      since: '2026-04-10T00:00:00.000Z',
+      until: '2026-04-10T23:59:59.999Z',
+      days: 3
+    });
+
+    expect(snapshot.calibration.againRate.some((value) => value === 50)).toBe(true);
+    expect(snapshot.calibration.passRate.some((value) => value === 50)).toBe(true);
+  });
 });

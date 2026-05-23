@@ -140,7 +140,7 @@ body.is-tablet .weave-app {
 /* 所有按钮保持最小 44px 触控目标（Apple HIG 标准） */
 body.is-mobile .weave-app .weave-button,
 body.is-mobile .weave-app .weave-card-action,
-body.is-mobile .weave-app button:not(.clickable-icon):not(.category-dot):not(.view-dot):not(.view-type-dot):not(.sidebar-dot):not(.list-item-indicator):not(.action-menu-item):not(.mobile-menu-trigger):not(.mobile-search-btn) {
+body.is-mobile .weave-app button:not(.clickable-icon):not(.category-dot):not(.view-dot):not(.view-type-dot):not(.sidebar-dot):not(.list-item-indicator):not(.action-menu-item):not(.mobile-menu-trigger):not(.mobile-search-btn):not(.weave-toolbar-control):not(.weave-toolbar-tab) {
   min-height: var(--weave-touch-target-min);
   min-width: var(--weave-touch-target-min);
 }
@@ -571,7 +571,7 @@ body.is-mobile .weave-app button + button {
 }
 
 body.is-mobile .weave-app .weave-button:active,
-body.is-mobile .weave-app button:active {
+body.is-mobile .weave-app button:not(.weave-toolbar-control):not(.weave-toolbar-tab):active {
   transform: scale(0.95);
   opacity: 0.9;
 }
@@ -708,7 +708,9 @@ body.is-tablet .weave-app .study-btn {
 :global(body.is-phone.weave-edit-active) .study-header,
 :global(body.is-mobile.weave-edit-active) .study-header,
 :global(body.is-phone.weave-edit-active) .stats-cards,
-:global(body.is-mobile.weave-edit-active) .stats-cards {
+:global(body.is-mobile.weave-edit-active) .stats-cards,
+:global(body.is-phone.weave-edit-active) .mobile-question-stats-bar,
+:global(body.is-mobile.weave-edit-active) .mobile-question-stats-bar {
   display: none;
 }
 
@@ -1804,7 +1806,9 @@ body.is-mobile .weave-app .keyboard-visible .cm-scroller {
 /* ✅ 保留 !important：移动端键盘适配的核心样式，必须强制覆盖 */
 /* 这些样式处理虚拟键盘弹出时的复杂定位和高度问题 */
 body.is-phone.weave-edit-active .study-interface-overlay,
-body.is-mobile.weave-edit-active .study-interface-overlay {
+body.is-mobile.weave-edit-active .study-interface-overlay,
+body.is-phone.weave-edit-active .question-bank-study-interface-overlay.edit-active,
+body.is-mobile.weave-edit-active .question-bank-study-interface-overlay.edit-active {
   /* 高度由 JavaScript 通过 style 属性动态设置为 visualViewport.height */
   /* 这里只设置 fallback 值 */
   height: var(--weave-viewport-height, 100%);
@@ -1825,7 +1829,9 @@ body.is-mobile.weave-edit-active .study-interface-overlay {
 }
 
 body.is-phone.weave-edit-active .study-interface-content,
-body.is-mobile.weave-edit-active .study-interface-content {
+body.is-mobile.weave-edit-active .study-interface-content,
+body.is-phone.weave-edit-active .question-bank-study-interface-content,
+body.is-mobile.weave-edit-active .question-bank-study-interface-content {
   flex: 1;
   display: flex;
   flex-direction: column;

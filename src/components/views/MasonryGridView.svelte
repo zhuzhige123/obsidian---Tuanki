@@ -11,6 +11,7 @@
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
 
   type GridCardAttributeType = 'none' | 'uuid' | 'source' | 'priority' | 'retention' | 'modified' | 'accuracy' | 'question_type' | 'ir_state' | 'ir_priority';
+  type GridCardBorderStyle = 'solid' | 'dashed';
   
   interface Props {
     cards: Card[];
@@ -18,6 +19,7 @@
     focusedCards?: Set<string>;
     plugin: WeavePlugin;
     attributeType?: GridCardAttributeType;
+    borderStyle?: GridCardBorderStyle;
     isMobile?: boolean; // 移动端状态
     onCardClick?: (card: Card) => void;
     onCardEdit?: (card: Card) => void;
@@ -36,6 +38,7 @@
     focusedCards = new Set<string>(),
     plugin,
     attributeType = 'uuid',
+    borderStyle = 'solid',
     isMobile = false,
     onCardClick,
     onCardEdit,
@@ -417,6 +420,7 @@
                   {plugin}
                   layoutMode="masonry"
                   {attributeType}
+                  {borderStyle}
                   {isMobile}
                   onClick={handleCardClick}
                   onEdit={handleCardEdit}

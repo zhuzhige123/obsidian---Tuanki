@@ -62,7 +62,7 @@ export const MODAL_SIZE_LIMITS = {
 
 export const PRODUCT_INFO = {
 	NAME: "Weave",
-	VERSION: "v0.8.1",
+	VERSION: "v0.8.9",
 	PLATFORM: "Obsidian 全平台",
 	DEVELOPER: "rabbit",
 } as const;

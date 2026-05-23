@@ -9,15 +9,20 @@
 import type { WeavePlugin } from '../../main';
 import type { StudyView } from '../../views/StudyView';
 import type { PersistedStudySession, StudyMode, StudyQueueState, StudySessionSnapshot } from '../../types/study-types';
-import type { Card, Deck } from '../../data/types';
+import type { Card } from '../../data/types';
 import type { StudySession } from '../../data/study-types';
 import { CardState } from '../../data/types';
 import StudyInterface from './StudyInterface.svelte';
 import { onMount, untrack } from 'svelte';
 import { Notice } from 'obsidian';
 import CelebrationModal from '../modals/CelebrationModal.svelte';
-import { QuestionBankSelectorModal } from '../../modals/QuestionBankSelectorModal';
+import TestModeSelectionModal from '../modals/TestModeSelectionModal.svelte';
 import type { CelebrationStats } from '../../types/celebration-types';
+import type { QuestionBankModeConfig, TestMode } from '../../types/question-bank-types';
+import {
+  openQuestionBankSessionWithModeConfig,
+  showCelebrationQuestionBankPicker,
+} from '../../utils/study/celebration-exam-flow';
 //  导入国际化
 import { tr } from '../../utils/i18n';
 
@@ -639,133 +644,83 @@ async function handleCloseCelebration() {
   shouldCloseAfterCelebration = false;
 }
 
-/**
- *  开始考试模式
- */
-async function pickQuestionBankForDeck(deckId: string): Promise<Deck | null> {
-  const currentDeck = await plugin.dataStorage.getDeck(deckId);
-  logger.info('[StudyViewWrapper] 当前牌组信息:', currentDeck ? {
-    id: currentDeck.id,
-    name: currentDeck.name,
-    deckType: currentDeck.deckType,
-    pairedMemoryDeckId: (currentDeck.metadata as any)?.pairedMemoryDeckId
-  } : '未找到');
+let showCelebrationExamConfigModal = $state(false);
+let celebrationExamBankId = $state<string | null>(null);
+let celebrationExamBankName = $state('');
+let celebrationExamQuestionCount = $state(0);
+let celebrationExamQuestions = $state<Card[]>([]);
 
-  if (currentDeck && currentDeck.deckType === 'question-bank') {
-    logger.info('[StudyViewWrapper] 当前牌组本身就是考试题组，直接使用');
-    return currentDeck;
-  }
-
-  const candidates = await plugin.questionBankService!.getBankCandidatesByMemoryDeckId(deckId);
-  logger.info('[StudyViewWrapper] 候选考试题组:', candidates.map((candidate) => ({
-    id: candidate.bank.id,
-    name: candidate.bank.name,
-    pairedMemoryDeckId: (candidate.bank.metadata as any)?.pairedMemoryDeckId,
-    matchType: candidate.matchType,
-    overlapCount: candidate.overlapCount
-  })));
-
-  if (candidates.length === 0) {
-    return null;
-  }
-
-  if (candidates.length === 1) {
-    return candidates[0].bank;
-  }
-
-  new Notice(t('deckStudyPage.exam.multipleBanksFound'));
-  return await new Promise<Deck | null>((resolve) => {
-    let settled = false;
-    const modal = new QuestionBankSelectorModal(plugin.app, candidates, (candidate) => {
-      settled = true;
-      resolve(candidate.bank);
-    });
-    const originalOnClose = modal.onClose.bind(modal);
-    modal.onClose = () => {
-      originalOnClose();
-      if (!settled) {
-        resolve(null);
-      }
-    };
-    modal.open();
-  });
+function resetCelebrationExamConfigState() {
+  showCelebrationExamConfigModal = false;
+  celebrationExamBankId = null;
+  celebrationExamBankName = '';
+  celebrationExamQuestionCount = 0;
+  celebrationExamQuestions = [];
 }
 
-async function handleStartPractice() {
-  // 关闭庆祝模态窗
+function dismissCelebrationModal() {
   showCelebrationModal = false;
-  const deckId = celebrationDeckId;
   celebrationStats = null;
   celebrationDeckId = '';
-  
-  if (!deckId) {
-    logger.error('[StudyViewWrapper] 无法开始考试：缺少牌组ID');
-    new Notice(t('deckStudyPage.exam.missingDeckInfo'));
+}
+
+async function handleStartPractice(event: MouseEvent) {
+  const shouldCloseStudyView = shouldCloseAfterCelebration;
+  shouldCloseAfterCelebration = false;
+
+  try {
+    const selection = await showCelebrationQuestionBankPicker(
+      plugin,
+      { x: event.clientX, y: event.clientY },
+      (key, params) => t(key, params as Record<string, string | number> | undefined),
+    );
+
+    if (!selection) {
+      return;
+    }
+
+    if (selection === 'resumed') {
+      dismissCelebrationModal();
+      if (shouldCloseStudyView) {
+        setTimeout(() => onClose(), 100);
+      }
+      return;
+    }
+
+    dismissCelebrationModal();
+    celebrationExamBankId = selection.bankId;
+    celebrationExamBankName = selection.bankName;
+    celebrationExamQuestionCount = selection.questions.length;
+    celebrationExamQuestions = selection.questions;
+    showCelebrationExamConfigModal = true;
+  } catch (error) {
+    logger.error('[StudyViewWrapper] 选择考试题组失败:', error);
+    new Notice(t('deckStudyPage.exam.startFailed'));
+  }
+}
+
+async function handleCelebrationExamModeSelected(mode: TestMode, config?: QuestionBankModeConfig) {
+  showCelebrationExamConfigModal = false;
+  const bankId = celebrationExamBankId;
+  const bankName = celebrationExamBankName;
+  const questions = celebrationExamQuestions;
+  resetCelebrationExamConfigState();
+
+  if (!bankId || questions.length === 0) {
     return;
   }
-  
+
   try {
-    logger.info('[StudyViewWrapper] 开始考试模式，牌组ID:', deckId);
-    
-    // 检查题库服务是否可用
-    if (!plugin.questionBankService) {
-      logger.error('[StudyViewWrapper] 题库服务未初始化');
-      new Notice(t('deckStudyPage.exam.qbNotEnabled'));
-      return;
-    }
-    
-    //  调试日志：查看所有题库
-    const allBanks = await plugin.questionBankService.getAllBanks();
-    logger.info('[StudyViewWrapper] 当前所有题库:', allBanks.map(b => ({
-      id: b.id,
-      name: b.name,
-      deckType: b.deckType,
-      pairedMemoryDeckId: (b.metadata as any)?.pairedMemoryDeckId
-    })));
-    
-    logger.info('[StudyViewWrapper] 🔍 详细匹配信息:', {
-      searchingForMemoryDeckId: deckId,
-      searchingForMemoryDeckIdType: typeof deckId,
-      allBanksWithPairing: allBanks.map(b => ({
-        bankId: b.id,
-        bankName: b.name,
-        pairedMemoryDeckId: (b.metadata as any)?.pairedMemoryDeckId,
-        pairedMemoryDeckIdType: typeof (b.metadata as any)?.pairedMemoryDeckId,
-        strictEquals: (b.metadata as any)?.pairedMemoryDeckId === deckId,
-        looseEquals: (b.metadata as any)?.pairedMemoryDeckId == deckId
-      }))
-    });
-    
-    logger.info('[StudyViewWrapper] 当前牌组是记忆牌组，查找对应的考试题组');
-    const questionBank = await pickQuestionBankForDeck(deckId);
-    
-    if (!questionBank) {
-      logger.info('[StudyViewWrapper] 暂无该记忆牌组对应的考试题组');
-      new Notice(t('deckStudyPage.exam.noPairedBank'));
-      return;
-    }
-    
-    // 打开考试学习会话
-    logger.info('[StudyViewWrapper] 打开考试题组:', questionBank.id, questionBank.name);
-    await plugin.openQuestionBankSession({
-      bankId: questionBank.id,
-      bankName: questionBank.name
-    });
-    
-    // 关闭当前学习视图
-    if (shouldCloseAfterCelebration) {
-      setTimeout(() => {
-        onClose();
-      }, 100);
-    }
-    
+    await openQuestionBankSessionWithModeConfig(plugin, bankId, bankName, questions, mode, config);
+    setTimeout(() => onClose(), 100);
   } catch (error) {
     logger.error('[StudyViewWrapper] 开始考试失败:', error);
     new Notice(t('deckStudyPage.exam.startFailed'));
   }
-  
-  // 重置标志
-  shouldCloseAfterCelebration = false;
+}
+
+function handleCelebrationExamModeCancel() {
+  resetCelebrationExamConfigState();
 }
 </script>
 
@@ -813,6 +768,14 @@ async function handleStartPractice() {
       onStartPractice={handleStartPractice}
     />
   {/if}
+
+  <TestModeSelectionModal
+    open={showCelebrationExamConfigModal}
+    bankName={celebrationExamBankName}
+    totalQuestions={celebrationExamQuestionCount}
+    onSelect={handleCelebrationExamModeSelected}
+    onCancel={handleCelebrationExamModeCancel}
+  />
 </div>
 
 <style>

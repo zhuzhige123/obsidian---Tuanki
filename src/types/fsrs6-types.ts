@@ -10,10 +10,12 @@ import type { FSRSCard, FSRSParameters } from "../data/types";
  */
 export interface FSRS6VersionInfo {
 	version: "6.1.1";
-	algorithmName: "FSRS6";
+	algorithmName: "FSRS6" | "FSRS";
 	parameterCount: 21;
 	implementationDate: string;
 	compatibilityLevel: "standard" | "enhanced";
+	/** ts-fsrs package version string when using official scheduler */
+	libraryVersion?: string;
 }
 
 /**

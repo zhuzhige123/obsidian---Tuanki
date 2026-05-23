@@ -1,4 +1,4 @@
-import { Platform } from "obsidian";
+import { Menu, Platform } from "obsidian";
 import type WeavePlugin from "../../../main";
 import type { DataChangeEvent } from "../../../services/DataSyncService";
 import type { MemoryDeckMenuAction } from "../../../services/deck/MemoryDeckMenu";
@@ -9,9 +9,9 @@ interface MemoryDeckActionRequestDetail {
   deckId: string;
 }
 
-interface MainInterfaceMenuRequestDetail {
+interface PopulateMainInterfaceMenuDetail {
   page?: string;
-  event?: MouseEvent;
+  menu?: Menu;
   source?: string;
 }
 
@@ -33,7 +33,7 @@ interface DeckStudyPageRuntimeControllerOptions {
   handleFilterSelect: (filter: string) => void;
   handleMemoryDeckMenuAction: (action: MemoryDeckMenuAction, deckId: string) => Promise<void>;
   showViewSwitcher: (event: MouseEvent) => void;
-  showMobileNavMenu: (event: MouseEvent) => Promise<void> | void;
+  populateMobileNavMenu: (menu: Menu) => void;
   showEmergentRuleGroupMenu: (anchor?: HTMLElement | null) => void;
   setMemoryDeckDisplayMode: (mode: string | null | undefined) => void;
 }
@@ -159,20 +159,20 @@ export function createDeckStudyPageRuntimeController(
       handleExternalDeckMenuAction as EventListener
     );
 
-    const handleMainInterfaceMenuRequest = (event: Event) => {
-      const detail = (event as CustomEvent<MainInterfaceMenuRequestDetail>).detail;
+    const handlePopulateMainInterfaceMenu = (event: Event) => {
+      const detail = (event as CustomEvent<PopulateMainInterfaceMenuDetail>).detail;
       if (detail?.page !== "deck-study") {
         return;
       }
-      if (!(detail.event instanceof MouseEvent)) {
+      if (!(detail.menu instanceof Menu)) {
         return;
       }
       event.preventDefault();
-      void options.showMobileNavMenu(detail.event);
+      options.populateMobileNavMenu(detail.menu);
     };
     window.addEventListener(
-      "Weave:request-main-interface-menu",
-      handleMainInterfaceMenuRequest as EventListener
+      "Weave:populate-main-interface-menu",
+      handlePopulateMainInterfaceMenu as EventListener
     );
 
     const handleDeckStudyToolbarAction = (event: Event) => {
@@ -209,8 +209,8 @@ export function createDeckStudyPageRuntimeController(
         handleExternalDeckMenuAction as EventListener
       );
       window.removeEventListener(
-        "Weave:request-main-interface-menu",
-        handleMainInterfaceMenuRequest as EventListener
+        "Weave:populate-main-interface-menu",
+        handlePopulateMainInterfaceMenu as EventListener
       );
       window.removeEventListener(
         "Weave:deck-study-toolbar-action",

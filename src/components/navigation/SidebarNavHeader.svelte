@@ -172,6 +172,7 @@
 
   let cardTableViewMode = $state<TableViewMode>('basic');
   let cardGridLayoutMode = $state<GridLayoutMode>('fixed');
+  let cardGridBorderStyle = $state<'solid' | 'dashed'>('solid');
   let cardKanbanLayoutMode = $state<KanbanLayoutMode>('comfortable');
   let cardIRTypeFilter = $state<IRTypeFilter>('all');
   let cardSearchQuery = $state('');
@@ -286,6 +287,7 @@
       currentView,
       tableViewMode: cardTableViewMode,
       gridLayoutMode: cardGridLayoutMode,
+      gridCardBorderStyle: cardGridBorderStyle,
       kanbanLayoutMode: cardKanbanLayoutMode,
       irTypeFilter: cardIRTypeFilter,
       documentFilterMode: cardDocumentFilterMode,
@@ -495,6 +497,7 @@
       const detail = (event as CustomEvent<{
         tableViewMode?: TableViewMode;
         gridLayout?: GridLayoutMode;
+        gridCardBorderStyle?: 'solid' | 'dashed';
         kanbanLayoutMode?: KanbanLayoutMode;
         irTypeFilter?: IRTypeFilter;
         searchQuery?: string;
@@ -526,6 +529,10 @@
 
       if (detail.gridLayout) {
         cardGridLayoutMode = detail.gridLayout;
+      }
+
+      if (detail.gridCardBorderStyle === 'solid' || detail.gridCardBorderStyle === 'dashed') {
+        cardGridBorderStyle = detail.gridCardBorderStyle;
       }
 
       if (detail.kanbanLayoutMode) {
@@ -772,6 +779,26 @@
           >
             <ObsidianIcon name="history" size={16} />
             <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.timelineShort')}</span>
+          </button>
+          <button
+            class="sidebar-action-btn card-toolbar-btn"
+            class:active={currentView === 'grid' && cardGridBorderStyle === 'solid'}
+            class:is-hidden-slot={currentView !== 'grid'}
+            onclick={() => emitCardManagementToolbarAction('grid-border-style-solid')}
+            aria-label={t('mainMenu.cardManagement.gridBorderSolid')}
+          >
+            <ObsidianIcon name="square" size={16} />
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.gridBorderSolidShort')}</span>
+          </button>
+          <button
+            class="sidebar-action-btn card-toolbar-btn"
+            class:active={currentView === 'grid' && cardGridBorderStyle === 'dashed'}
+            class:is-hidden-slot={currentView !== 'grid'}
+            onclick={() => emitCardManagementToolbarAction('grid-border-style-dashed')}
+            aria-label={t('mainMenu.cardManagement.gridBorderDashed')}
+          >
+            <ObsidianIcon name="square-dashed" size={16} />
+            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.gridBorderDashedShort')}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"

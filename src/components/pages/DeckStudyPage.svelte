@@ -22,8 +22,6 @@
   import { isProgressiveClozeParent, isProgressiveClozeChild } from '../../types/progressive-cloze-v2';
   import CSVImportModal from "../modals/CSVImportModal.svelte";
   import CreateQuestionBankModal from "../modals/CreateQuestionBankModal.svelte";
-  import { QuestionBankAssociationModal } from "../../modals/QuestionBankAssociationModal";
-  import { QuestionBankSelectorModal } from "../../modals/QuestionBankSelectorModal";
   import { VaultFolderSuggestModal } from "../../modals/VaultFolderSuggestModal";
   import { BatchTagSuggestModal, type BatchTagSuggestItem } from "../../modals/BatchTagSuggestModal";
   import { Menu, Modal, Notice, Setting, TFile, normalizePath } from "obsidian";
@@ -107,7 +105,6 @@
   import { tr } from '../../utils/i18n';
   
   //  导入移动端组件
-  import MobileDeckStudyHeader from "../study/MobileDeckStudyHeader.svelte";
   import { DirectoryUtils } from '../../utils/directory-utils';
   import { extractAllTags, getCardDeckIds, parseSourceInfo } from '../../utils/yaml-utils';
   import { sanitizeFileName } from '../../utils/card-export-utils';
@@ -847,7 +844,7 @@
     },
     handleMemoryDeckMenuAction,
     showViewSwitcher,
-    showMobileNavMenu: showMobileNavMenuWithObsidianAPI,
+    populateMobileNavMenu: (menu) => menuCoordinator.populateMobileNavMenu(menu),
     showEmergentRuleGroupMenu,
     setMemoryDeckDisplayMode: (mode: string | null | undefined) => {
       applyMemoryDeckDisplayMode(mode);
@@ -1066,12 +1063,7 @@
     menuCoordinator.handleFilterSelect(filter);
   }
   
-  //  移动端菜单按钮点击处理 - 使用 Obsidian Menu API
-  function handleMobileMenuClick(evt: MouseEvent) {
-    showMobileNavMenuWithObsidianAPI(evt);
-  }
-  
-  //  使用 Obsidian 原生 Menu API 显示移动端导航菜单
+  //  使用 Obsidian 原生 Menu API 显示移动端导航菜单（由 view-header 菜单触发）
   function showMobileNavMenuWithObsidianAPI(evt: MouseEvent) {
     menuCoordinator.showMobileNavMenu(evt);
   }
@@ -1566,7 +1558,6 @@
     dissolveDeck,
     openDeckAnalytics,
     openKnowledgeGraph,
-    associateQuestionBank,
     loadQBDeckTree,
     promptPremiumFeature: (featureId: string) => {
       promptFeatureId = featureId;
@@ -1864,55 +1855,6 @@
     }
   }
 
-  async function pickQuestionBankForDeck(deckId: string): Promise<Deck | null> {
-    const currentDeck = await dataStorage.getDeck(deckId);
-    logger.info('[DeckStudyPage] 当前牌组信息:', currentDeck ? {
-      id: currentDeck.id,
-      name: currentDeck.name,
-      deckType: currentDeck.deckType,
-      pairedMemoryDeckId: (currentDeck.metadata as any)?.pairedMemoryDeckId
-    } : '未找到');
-
-    if (currentDeck && currentDeck.deckType === 'question-bank') {
-      logger.info('[DeckStudyPage] 当前牌组本身就是考试题组，直接使用');
-      return currentDeck;
-    }
-
-    const candidates = await plugin.questionBankService!.getBankCandidatesByMemoryDeckId(deckId);
-    logger.info('[DeckStudyPage] 候选考试题组:', candidates.map((candidate) => ({
-      id: candidate.bank.id,
-      name: candidate.bank.name,
-      pairedMemoryDeckId: (candidate.bank.metadata as any)?.pairedMemoryDeckId,
-      matchType: candidate.matchType,
-      overlapCount: candidate.overlapCount
-    })));
-
-    if (candidates.length === 0) {
-      return null;
-    }
-
-    if (candidates.length === 1) {
-      return candidates[0].bank;
-    }
-
-    new Notice(t('deckStudyPage.wdeck.multipleBanksFound'));
-    return await new Promise<Deck | null>((resolve) => {
-      let settled = false;
-      const modal = new QuestionBankSelectorModal(plugin.app, candidates, (candidate) => {
-        settled = true;
-        resolve(candidate.bank);
-      });
-      const originalOnClose = modal.onClose.bind(modal);
-      modal.onClose = () => {
-        originalOnClose();
-        if (!settled) {
-          resolve(null);
-        }
-      };
-      modal.open();
-    });
-  }
-  
   //  关闭庆祝模态窗
   function handleCloseCelebration() {
     showCelebrationModal = false;
@@ -1920,198 +1862,9 @@
     celebrationDeckId = '';
   }
   
-  //  开始考试模式
-  async function handleStartPractice() {
-    // 关闭庆祝模态窗
-    showCelebrationModal = false;
-    const deckId = celebrationDeckId;
-    celebrationStats = null;
-    celebrationDeckId = '';
-    
-    if (!deckId) {
-      logger.error('[DeckStudyPage] 无法开始考试：缺少牌组ID');
-      new Notice(t('deckStudyPage.exam.missingDeckInfo'));
-      return;
-    }
-    
-    try {
-      logger.info('[DeckStudyPage] Starting exam mode from celebration modal, deckId:', deckId);
-      
-      // Check if question bank service is available
-      if (!plugin.questionBankService) {
-        logger.error('[DeckStudyPage] Question bank service not initialized');
-        new Notice(t('deckStudyPage.exam.qbNotEnabled'));
-        return;
-      }
-      
-      //  调试日志：查看所有题库
-      const allBanks = await plugin.questionBankService.getAllBanks();
-      logger.info('[DeckStudyPage] 当前所有题库:', allBanks.map(b => ({
-        id: b.id,
-        name: b.name,
-        deckType: b.deckType,
-        pairedMemoryDeckId: (b.metadata as any)?.pairedMemoryDeckId
-      })));
-      
-      logger.info('[DeckStudyPage] 🔍 详细匹配信息 (handleStartPractice):', {
-        searchingForMemoryDeckId: deckId,
-        searchingForMemoryDeckIdType: typeof deckId,
-        allBanksWithPairing: allBanks.map(b => ({
-          bankId: b.id,
-          bankName: b.name,
-          pairedMemoryDeckId: (b.metadata as any)?.pairedMemoryDeckId,
-          pairedMemoryDeckIdType: typeof (b.metadata as any)?.pairedMemoryDeckId,
-          strictEquals: (b.metadata as any)?.pairedMemoryDeckId === deckId,
-          looseEquals: (b.metadata as any)?.pairedMemoryDeckId == deckId
-        }))
-      });
-      
-      logger.info('[DeckStudyPage] 当前牌组是记忆牌组，查找对应的考试题组');
-      const questionBank = await pickQuestionBankForDeck(deckId);
-      
-      if (!questionBank) {
-        logger.info('[DeckStudyPage] 暂无该记忆牌组对应的考试题组');
-        new Notice(t('deckStudyPage.exam.noPairedBank'));
-        return;
-      }
-      
-      // Open exam session
-      logger.info('[DeckStudyPage] Opening question bank:', questionBank.id, questionBank.name);
-      await plugin.openQuestionBankSession({
-        bankId: questionBank.id,
-        bankName: questionBank.name
-      });
-      
-    } catch (error) {
-      logger.error('[DeckStudyPage] Failed to start exam:', error);
-      new Notice(t('deckStudyPage.exam.startFailed'));
-    }
-  }
-  
   // Close no-cards modal
   function handleCloseNoCardsModal() {
     showNoCardsModal = false;
-  }
-  
-  // Start exam from no-cards modal
-  async function handleStartPracticeFromNoCards() {
-    showNoCardsModal = false;
-    const deckId = noCardsCurrentDeckId;
-    
-    if (!deckId) {
-      logger.error('[DeckStudyPage] Cannot start exam: missing deck ID');
-      new Notice(t('deckStudyPage.exam.missingDeckInfo'));
-      return;
-    }
-    
-    try {
-      logger.info('[DeckStudyPage] 从无卡片模态窗开始考试模式，牌组ID:', deckId);
-      
-      // 检查题库服务是否可用
-      if (!plugin.questionBankService) {
-        logger.error('[DeckStudyPage] 题库服务未初始化');
-        new Notice(t('deckStudyPage.exam.qbNotEnabled'));
-        return;
-      }
-      
-      //  调试日志：查看所有题库
-      const allBanks = await plugin.questionBankService.getAllBanks();
-      logger.info('[DeckStudyPage] 当前所有题库:', allBanks.map(b => ({
-        id: b.id,
-        name: b.name,
-        deckType: b.deckType,
-        pairedMemoryDeckId: (b.metadata as any)?.pairedMemoryDeckId
-      })));
-      
-      logger.info('[DeckStudyPage] 🔍 详细匹配信息 (handleStartPracticeFromNoCards):', {
-        searchingForMemoryDeckId: deckId,
-        searchingForMemoryDeckIdType: typeof deckId,
-        allBanksWithPairing: allBanks.map(b => ({
-          bankId: b.id,
-          bankName: b.name,
-          pairedMemoryDeckId: (b.metadata as any)?.pairedMemoryDeckId,
-          pairedMemoryDeckIdType: typeof (b.metadata as any)?.pairedMemoryDeckId,
-          strictEquals: (b.metadata as any)?.pairedMemoryDeckId === deckId,
-          looseEquals: (b.metadata as any)?.pairedMemoryDeckId == deckId
-        }))
-      });
-      
-      logger.info('[DeckStudyPage] 当前牌组是记忆牌组，查找对应的考试题组');
-      const questionBank = await pickQuestionBankForDeck(deckId);
-      
-      if (!questionBank) {
-        logger.info('[DeckStudyPage] 暂无该记忆牌组对应的考试题组');
-        new Notice(t('deckStudyPage.exam.noPairedBank'));
-        return;
-      }
-      
-      // Open exam session
-      logger.info('[DeckStudyPage] Opening question bank:', questionBank.id, questionBank.name);
-      await plugin.openQuestionBankSession({
-        bankId: questionBank.id,
-        bankName: questionBank.name
-      });
-      
-    } catch (error) {
-      logger.error('[DeckStudyPage] Failed to start exam:', error);
-      new Notice(t('deckStudyPage.exam.startFailed'));
-    }
-  }
-
-  async function associateQuestionBank(deckId: string): Promise<void> {
-    try {
-      if (!plugin.questionBankService) {
-        new Notice(t('deckStudyPage.exam.qbNotEnabled'));
-        return;
-      }
-
-      const memoryDeck = decks.find((deck) => deck.id === deckId) ?? await dataStorage.getDeck(deckId);
-      if (!memoryDeck) {
-        new Notice(t('deckStudyPage.notices.deckNotFound'));
-        return;
-      }
-
-      const allBanks = (await plugin.questionBankService.getAllBanks())
-        .filter((bank) => bank.deckType === 'question-bank')
-        .sort((a, b) => {
-          const orderDiff = (a.order || 0) - (b.order || 0);
-          if (orderDiff !== 0) return orderDiff;
-          return (a.name || '').localeCompare(b.name || '', 'zh-Hans-CN');
-        });
-
-      if (allBanks.length === 0) {
-        new Notice(t('deckStudyPage.exam.noBanksAvailable'));
-        return;
-      }
-
-      const currentBank =
-        allBanks.find((bank) => (bank.metadata as any)?.pairedMemoryDeckId === deckId) ?? null;
-
-      const modal = new QuestionBankAssociationModal(
-        plugin.app,
-        allBanks,
-        currentBank?.id ?? null,
-        async (bank) => {
-          try {
-            await plugin.questionBankService!.pairBankWithMemoryDeck(bank.id, deckId);
-            await refreshData();
-            plugin.app.workspace.trigger('Weave:data-changed');
-            new Notice(t('deckStudyPage.exam.linkSuccess', {
-              bank: bank.name || t('deckStudyPage.fallback.unknownBank'),
-              deck: memoryDeck.name || t('deckStudyPage.fallback.deck')
-            }));
-          } catch (error) {
-            logger.error('[DeckStudyPage] 关联考试题组失败:', error);
-            new Notice(t('deckStudyPage.exam.linkFailed'));
-          }
-        }
-      );
-
-      modal.open();
-    } catch (error) {
-      logger.error('[DeckStudyPage] 打开考试题组关联选择器失败:', error);
-      new Notice(t('deckStudyPage.exam.linkFailed'));
-    }
   }
   
 // 提前学习回调
@@ -3008,7 +2761,6 @@
     onContinueStudy: handleContinueStudy,
     onAdvanceStudy: startAdvanceStudy,
     onOpenDeckAnalytics: openDeckAnalytics,
-    onAssociateQuestionBank: associateQuestionBank,
     onEditDeck: editDeck,
     onDeleteDeck: deleteDeck,
     onOpenKnowledgeGraph: openKnowledgeGraph,
@@ -3047,11 +2799,9 @@
       await refreshData();
     },
     onCloseCelebration: handleCloseCelebration,
-    onStartPractice: handleStartPractice,
     onCloseNoCardsModal: handleCloseNoCardsModal,
     onAdvanceStudy: handleAdvanceStudy,
     onViewStats: handleViewStats,
-    onStartPracticeFromNoCards: handleStartPracticeFromNoCards,
     onCloseActivationPrompt: () => {
       showActivationPrompt = false;
     },
@@ -3059,14 +2809,7 @@
 </script>
 
 <div class="anki-app deck-study-page">
-  <!--  移动端头部组件 -->
-  {#if isMobile}
-    <MobileDeckStudyHeader
-      {selectedFilter}
-      onMenuClick={handleMobileMenuClick}
-      onFilterSelect={handleFilterSelect}
-    />
-  {/if}
+  <!-- 移动端：菜单与分类圆点由 WeaveView 原生 view-header + WeaveMobileHeaderCenter 提供 -->
 
   <!--  加载动画 - 全屏显示 -->
   {#if isLoading}

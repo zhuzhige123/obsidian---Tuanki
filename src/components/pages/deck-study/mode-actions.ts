@@ -19,7 +19,6 @@ interface DeckStudyModeActionsOptions {
   dissolveDeck: (deckId: string) => Promise<void>;
   openDeckAnalytics: (deckId: string) => Promise<void>;
   openKnowledgeGraph: (deckId: string) => Promise<void>;
-  associateQuestionBank: (deckId: string) => Promise<void>;
   loadQBDeckTree: () => Promise<void>;
   promptPremiumFeature: (featureId: string) => void;
   isFeatureRestricted: (featureId: string) => boolean;
@@ -287,9 +286,6 @@ export function createDeckStudyModeActions(
         return;
       case "knowledge-graph":
         await options.openKnowledgeGraph(deckId);
-        return;
-      case "associate-question-bank":
-        await options.associateQuestionBank(deckId);
         return;
       case "edit-deck":
         await options.editDeck(deckId);

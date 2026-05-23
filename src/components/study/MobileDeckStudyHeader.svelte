@@ -1,14 +1,12 @@
 <script lang="ts">
   /**
-   * 移动端牌组学习头部组件
-   * 
-   * Part A: 牌组学习界面的移动端顶部导航栏
-   * - 左侧：菜单按钮（☰）- 使用 Obsidian 原生图标
-   * - 中间：复用桌面端的CategoryFilter组件（多彩圆点）
-   * - 右侧：留空（无搜索/设置按钮）
-   * 
+   * @deprecated 移动端已收敛到 Obsidian 原生 view-header：
+   * - 菜单：`WeaveView.onPaneMenu` + `Weave:populate-main-interface-menu`
+   * - 分类圆点：`WeaveMobileHeaderCenter` + `CategoryFilter`
+   * 页面内不再挂载本组件；保留文件仅供回归对照。
+   *
    * @module components/study/MobileDeckStudyHeader
-   * @version 1.2.0
+   * @version 1.3.0
    * @requirements 1.1, 1.4, 1.5, 2.1, 2.2
    */
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';

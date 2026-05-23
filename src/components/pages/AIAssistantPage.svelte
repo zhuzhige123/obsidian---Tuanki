@@ -28,12 +28,15 @@
   } from '../../services/ai/UserPromptFileService';
   import { RegexCardParser } from '../../services/batch-parsing/RegexCardParser';
   import { MarkdownFileSuggestModal } from '../../modals/MarkdownFileSuggestModal';
+  import { populateProviderModelMenu, showProviderModelMenuAt } from '../../utils/provider-model-menu';
   import { AI_MODEL_OPTIONS, AI_PROVIDER_LABELS, getDefaultAIModel } from '../settings/constants/settings-constants';
   import { weaveMainInterfaceStore } from '../../stores/weave-main-interface-store';
+  import AIAssistantMobileToolbar from '../ai-assistant/AIAssistantMobileToolbar.svelte';
   import AICardPreviewWorkspace from '../ai-assistant/AICardPreviewWorkspace.svelte';
   import AIParsePreviewWorkspace from '../ai-assistant/AIParsePreviewWorkspace.svelte';
   import AIGenerationConfigPopover from '../ai-assistant/AIGenerationConfigPopover.svelte';
   import { AIConfigModalObsidian } from '../ai-assistant/AIConfigModalObsidian';
+  import { generatedCardToPreviewItem } from '../../utils/ai-preview-items';
 
   interface Props {
     plugin: WeavePlugin;
@@ -248,26 +251,8 @@
     await selectSourceFile(fileToInfo(selected));
   }
 
-  function splitContent(value: string): { front: string; back: string } {
-    const match = value.split(/(?:\n\n|\n)?---div---(?:\n\n|\n)?/);
-    return { front: (match[0] ?? '').trim(), back: match.slice(1).join('---div---').trim() };
-  }
-
   function toPreviewItem(card: GeneratedCard): AICardPreviewItem {
-    const { front, back } = splitContent(card.content || '');
-
-    return {
-      id: `history-${card.uuid}`,
-      draft: card.type === 'choice'
-        ? { type: 'choice', question: front, options: [], answers: [], back: back || undefined, tags: [...(card.tags || [])] }
-        : card.type === 'cloze'
-          ? { type: 'cloze', text: front, back: back || undefined, tags: [...(card.tags || [])] }
-          : { type: 'qa', front, back, tags: [...(card.tags || [])] },
-      status: 'valid',
-      issues: [],
-      generatedContent: card.content || '',
-      generatedCard: { ...card, tags: [...(card.tags || [])], metadata: { ...card.metadata } }
-    };
+    return generatedCardToPreviewItem(card, { idPrefix: 'history' });
   }
 
   async function findFile(path?: string): Promise<ObsidianFileInfo | null> {
@@ -414,50 +399,58 @@
   }
 
   function openModelMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
-    const menu = new Menu();
     const apiKeys = (plugin.settings.aiConfig?.apiKeys || {}) as Record<string, { model?: string } | undefined>;
+    const preferredProvider = resolveProvider(
+      plugin.getAIAssistantPreferences().lastUsedProvider || plugin.settings.aiConfig?.defaultProvider
+    );
 
-    Object.entries(AI_MODEL_OPTIONS).forEach(([providerKey, models]) => {
-      const provider = providerKey as AIProvider;
-      menu.addItem((item) => {
-        item
-          .setTitle(AI_PROVIDER_LABELS[provider])
-          .setIcon(generationConfig.provider === provider ? 'check' : '');
-
-        const submenu = (item as any).setSubmenu();
-        const configuredModel = apiKeys[provider]?.model?.trim();
-        const staticModelIds: string[] = models.map((model) => model.id as string);
-
-        if (configuredModel && !staticModelIds.includes(configuredModel)) {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(configuredModel)
-              .setIcon(generationConfig.provider === provider && generationConfig.model === configuredModel ? 'check' : '')
-              .onClick(() => {
-                generationConfig = normalizeGenerationConfig({ ...generationConfig, provider, model: configuredModel });
-                void persistPreferences();
-                syncToolbarState();
-              });
-          });
-          submenu.addSeparator();
-        }
-
-        models.forEach((model) => {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(model.label)
-              .setIcon(generationConfig.provider === provider && generationConfig.model === model.id ? 'check' : '')
-              .onClick(() => {
-                generationConfig = normalizeGenerationConfig({ ...generationConfig, provider, model: model.id });
-                void persistPreferences();
-                syncToolbarState();
-              });
-          });
-        });
+    const applySelection = (next: { provider: AIProvider; model: string }) => {
+      generationConfig = normalizeGenerationConfig({
+        ...generationConfig,
+        provider: next.provider,
+        model: next.model,
       });
-    });
+      void persistPreferences();
+      syncToolbarState();
+    };
 
-    showMenuAtAnchor(menu, detail, { x: 120, y: 80 });
+    const anchor = normalizeAnchor(detail);
+    if (anchor) {
+      const menu = new Menu();
+      populateProviderModelMenu(menu, {
+        apiKeys,
+        selection: {
+          provider: generationConfig.provider,
+          model: generationConfig.model,
+        },
+        preferredProvider,
+        onSelect: (next) => {
+          if (!next.provider) return;
+          applySelection(next);
+        },
+      });
+      showMenuAtAnchor(menu, detail, { x: 120, y: 80 });
+      return;
+    }
+
+    const fallbackEvent = {
+      clientX: detail?.x ?? 120,
+      clientY: detail?.y ?? 80,
+      button: 0,
+    } as MouseEvent;
+
+    showProviderModelMenuAt(fallbackEvent, {
+      apiKeys,
+      selection: {
+        provider: generationConfig.provider,
+        model: generationConfig.model,
+      },
+      preferredProvider,
+      onSelect: (next) => {
+        if (!next.provider) return;
+        applySelection(next);
+      },
+    });
   }
 
   function openParsePresetMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
@@ -799,6 +792,8 @@
 </script>
 
 <div class="ai-page" bind:this={pageEl}>
+  <AIAssistantMobileToolbar />
+
   {#if historyOpen}
     <div class="panel" style={historyStyle} bind:this={historyEl}>
       <div class="panel-head"><div>{'\u6700\u8fd1 5 \u6b21\u751f\u6210\u8bb0\u5f55'}</div></div>
@@ -868,6 +863,14 @@
     position: relative;
     overflow: hidden;
     background: var(--weave-ai-page-bg);
+  }
+
+  :global(body.is-mobile) .ai-page,
+  :global(body.is-phone) .ai-page {
+    --weave-ai-preview-footer-bottom: calc(
+      56px + var(--weave-workspace-bottom-offset, var(--weave-modal-bottom, env(safe-area-inset-bottom, 0px)))
+      + var(--weave-mobile-fixed-bottom-gap, 4px)
+    );
   }
 
   .panel {

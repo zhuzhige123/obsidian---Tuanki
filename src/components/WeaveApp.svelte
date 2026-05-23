@@ -219,6 +219,11 @@
       appElement.style.setProperty('--weave-secondary-bg', surfaceTokens.elevatedBackground);
       appElement.style.setProperty('--weave-surface-secondary', surfaceTokens.elevatedBackground);
       logger.debug('[WeaveApp] 侧边栏模式:', isInSidebarMode);
+      window.dispatchEvent(
+        new CustomEvent("Weave:surface-location-change", {
+          detail: { isInSidebar: isInSidebarMode },
+        })
+      );
     } catch (error) {
       logger.error('[WeaveApp] 侧边栏检测失败:', error);
       isInSidebarMode = false;
@@ -443,15 +448,26 @@
 
 <ResponsiveContainer classPrefix="weave">
   {#snippet children(responsive: ResponsiveState)}
+    {@const isCompactLayout =
+      Platform.isMobile
+      || responsive?.isMobile
+      || responsive?.isTablet
+      || document.body.classList.contains('is-mobile')
+      || document.body.classList.contains('is-phone')}
+    {@const showInPageToolbar = !isCompactLayout || isInSidebarMode}
     <div
       bind:this={appElement}
       class="weave-app weave-app-inner"
       class:is-in-sidebar={isInSidebarMode}
       class:is-in-main-area={!isInSidebarMode}
+      class:compact-layout={isCompactLayout}
       role="application"
     >
-      {#if !isMobileDevice}
-        <div class="weave-main-toolbar">
+      {#if showInPageToolbar}
+        <div
+          class="weave-main-toolbar"
+          class:compact-sidebar-toolbar={isCompactLayout && isInSidebarMode}
+        >
           <SidebarNavHeader
             currentPage={activePage}
             {navigationVisibility}
@@ -575,6 +591,16 @@
     display: flex;
     flex-direction: column;
     border-bottom: 1px solid var(--background-modifier-border);
+    background: var(--weave-surface-background, var(--background-primary));
+  }
+
+  .weave-main-toolbar.compact-sidebar-toolbar {
+    z-index: 4;
+  }
+
+  :global(body.is-mobile) .weave-app.is-in-sidebar .weave-main-toolbar .sidebar-nav-header,
+  :global(body.is-phone) .weave-app.is-in-sidebar .weave-main-toolbar .sidebar-nav-header {
+    min-height: 40px;
   }
 
   .weave-main-content.mobile {
@@ -587,6 +613,10 @@
   .weave-main-content.mobile.ai-assistant-active {
     overflow: hidden;
     min-height: 0;
+  }
+
+  :global(.weave-app.is-in-sidebar .ai-mobile-toolbar) {
+    display: none;
   }
 
   :global(body.is-mobile .workspace-leaf-content[data-type="weave-view"][data-weave-mobile-native-header="true"] .view-header-title-container),
