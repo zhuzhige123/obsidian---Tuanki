@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
 	ACTIVATION_EMAIL_BOUND_USER_MESSAGE,
 	sanitizeCloudLicenseUserMessage,

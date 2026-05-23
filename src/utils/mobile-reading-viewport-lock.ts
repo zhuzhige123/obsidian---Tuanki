@@ -3,6 +3,7 @@ import {
 	getVisualViewportLayout,
 	type VisualViewportLayout,
 } from "./mobile-floating-viewport";
+import { applyStyleProps } from "./style-props";
 
 export const READING_VIEWPORT_LOCK_CLASS = "weave-reading-viewport-locked";
 export const STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS = "weave-study-edit-keyboard-active";
@@ -85,16 +86,18 @@ export function computeReadingViewportLockRect(
 function applyLayoutToTarget(target: HTMLElement, layout: VisualViewportLayout) {
 	const rect = computeReadingViewportLockRect(target, layout);
 
-	target.style.position = "fixed";
-	target.style.top = `${rect.top}px`;
-	target.style.left = `${rect.offsetLeft}px`;
-	target.style.width = `${rect.width}px`;
-	target.style.height = `${rect.height}px`;
-	target.style.maxHeight = `${rect.height}px`;
-	target.style.right = "auto";
-	target.style.bottom = "auto";
-	target.style.overflow = "hidden";
-	target.style.boxSizing = "border-box";
+	applyStyleProps(target, {
+		position: "fixed",
+		top: `${rect.top}px`,
+		left: `${rect.offsetLeft}px`,
+		width: `${rect.width}px`,
+		height: `${rect.height}px`,
+		maxHeight: `${rect.height}px`,
+		right: "auto",
+		bottom: "auto",
+		overflow: "hidden",
+		boxSizing: "border-box",
+	});
 }
 
 function stabilizeLayoutViewportScroll() {
