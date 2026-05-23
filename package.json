@@ -33,6 +33,8 @@
     "lint:obsidian": "eslint -c eslint.obsidian.config.mjs src --max-warnings 9999",
     "lint:obsidian:strict": "node scripts/lint-obsidian-strict.cjs",
     "audit:obsidian-release": "node scripts/audit-obsidian-release.cjs",
+    "sync:public-versions": "node scripts/sync-public-versions.cjs",
+    "sync:obsidian-version": "node scripts/sync-obsidian-community-version.cjs",
     "lint:promises": "eslint -c eslint.config.mjs src/**/*.ts --max-warnings 9999",
     "lint:svelte5": "node scripts/check-svelte5-compliance.js",
     "audit:todos": "node scripts/audit-todos.cjs",

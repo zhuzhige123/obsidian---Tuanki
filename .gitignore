@@ -218,6 +218,7 @@ test-csv-files/
 
 # 后端代码
 backend/
+cloud-license-service/
 
 # 备份文件
 backup-before-migration/
@@ -260,6 +261,8 @@ scripts/*
 !scripts/dev-watch.cjs
 !scripts/hot-reload-utils.cjs
 !scripts/kill-vite.cjs
+!scripts/sync-obsidian-community-version.cjs
+!scripts/sync-public-versions.cjs
 
 # 测试文件
 test/
