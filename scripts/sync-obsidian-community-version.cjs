@@ -126,12 +126,33 @@ function hasStashNamed(name) {
 
 function resolvePushRef(explicitPushRef) {
 	if (explicitPushRef) {
+		assertSafePushRef(explicitPushRef);
 		return explicitPushRef;
 	}
 	if (process.env.WEAVE_OBSIDIAN_PUSH_REF) {
+		assertSafePushRef(process.env.WEAVE_OBSIDIAN_PUSH_REF);
 		return process.env.WEAVE_OBSIDIAN_PUSH_REF;
 	}
 	return `${SYNC_BRANCH}:${DEFAULT_BRANCH}`;
+}
+
+function assertSafePushRef(pushRef) {
+	if (/wip-main-sync/i.test(pushRef)) {
+		fail(
+			"Refusing push ref containing wip-main-sync. Use Mode A default (obsidian-version-sync:main) so only version metadata is pushed."
+		);
+	}
+}
+
+function assertStagedVersionFilesOnly() {
+	const stagedFiles = runCapture("git", ["diff", "--cached", "--name-only"])
+		.split("\n")
+		.map((line) => line.trim())
+		.filter(Boolean);
+	const extras = stagedFiles.filter((file) => !VERSION_FILES.includes(file));
+	if (extras.length > 0) {
+		fail(`Refusing push: staged files outside version metadata: ${extras.join(", ")}`);
+	}
 }
 
 function main() {
@@ -179,6 +200,8 @@ function main() {
 		writeJson("public/versions.json", metadata.versions);
 
 		run("git", ["add", ...VERSION_FILES]);
+
+		assertStagedVersionFilesOnly();
 
 		const stagedDiff = runCapture("git", ["diff", "--cached", "--stat"]);
 		console.log(stagedDiff);
