@@ -62,6 +62,7 @@ jobs:
       - name: Build plugin
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          OBSIDIAN_VAULT_PATH: ""
         run: npm run build
 
       - name: Verify release assets
