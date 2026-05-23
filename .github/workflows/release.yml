@@ -63,7 +63,9 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=6144
           OBSIDIAN_VAULT_PATH: ""
-        run: npm run build
+        run: |
+          npm run check:encoding
+          node --max-old-space-size=6144 node_modules/vite/bin/vite.js build --mode production
 
       - name: Verify release assets
         shell: bash
