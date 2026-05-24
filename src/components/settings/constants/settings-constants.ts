@@ -481,7 +481,6 @@ export const AI_PROVIDER_LABELS: Record<AIProvider, string> = {
 
 // 致谢对象列表
 export function getAcknowledgments() {
-	const obsidianAckPrefix = ["settingsConstants", "acknowledgments", "obsidian"].join(".");
 	return [
 		{
 			id: "fsrs",
@@ -492,9 +491,9 @@ export function getAcknowledgments() {
 		},
 		{
 			id: "obsidian",
-			name: t(`${obsidianAckPrefix}.name`),
+			name: t("settingsConstants.acknowledgments.obsidian.name"),
 			icon: "",
-			description: t(`${obsidianAckPrefix}.description`),
+			description: t("settingsConstants.acknowledgments.obsidian.description"),
 			url: "https://obsidian.md/",
 		},
 		{
