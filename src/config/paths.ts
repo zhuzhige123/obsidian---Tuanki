@@ -310,6 +310,7 @@ export function getPluginPathsById(
 			card: `${indicesRoot}/card-index.json`,
 			deck: `${indicesRoot}/deck-index.json`,
 			deckMembership: `${indicesRoot}/deck-membership-index.json`,
+			studyDue: `${indicesRoot}/study-due-index.json`,
 			ir: `${indicesRoot}/ir-index.json`,
 			question: `${indicesRoot}/question-index.json`,
 		},

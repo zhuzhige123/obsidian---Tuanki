@@ -15,6 +15,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
 	{ id: "ai-config", label: "settings.categories.aiConfig" },
 	{ id: "anki-connect", label: "settings.categories.ankiConnect" },
 	{ id: "data-management", label: "settings.categories.dataManagement" },
+	{ id: "license", label: "settings.categories.license" },
 	{ id: "about", label: "settings.categories.about" },
 ];
 

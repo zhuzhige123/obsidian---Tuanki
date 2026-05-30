@@ -12,7 +12,7 @@ import type {
 } from "../../../types/emergent-deck-types";
 import type { CelebrationStats } from "../../../types/celebration-types";
 
-export type DeckStudyActiveDeckView = "kanban" | "grid";
+export type DeckStudyActiveDeckView = "kanban";
 export type DeckStudyActiveDeckFilter = "memory" | "question-bank";
 export type DeckStudyMemoryDeckDisplayMode = "formal" | "emergent";
 export type DeckStudyFilterInput = DeckStudyActiveDeckFilter | "reading" | "parent" | "child" | "all";
@@ -27,7 +27,6 @@ export interface DeckStudyNoCardsStats {
 }
 
 export interface DeckStudyContentAreaProps {
-  currentView: DeckStudyActiveDeckView;
   selectedFilter: DeckStudyActiveDeckFilter;
   dataStorage: WeaveDataStorage;
   plugin: WeavePlugin;
@@ -52,7 +51,6 @@ export interface DeckStudyContentAreaProps {
   onOpenDeckAnalytics: (deckId: string) => Promise<void>;
   onEditDeck: (deckId: string) => Promise<void>;
   onDeleteDeck: (deckId: string) => Promise<void>;
-  onOpenKnowledgeGraph: (deckId: string) => Promise<void>;
   onDissolveDeck: (deckId: string) => Promise<void>;
   onRefreshData: (showLoading?: boolean) => Promise<void>;
   onPromoteEmergentDeck: (candidate: EmergentDeckCandidate, event: MouseEvent) => Promise<void>;

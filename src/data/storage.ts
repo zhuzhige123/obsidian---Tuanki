@@ -1,4 +1,4 @@
-﻿// Anki Plugin Data Storage
+// Anki Plugin Data Storage
 // 使用 Obsidian 的 API 进行数据持久化存储
 import { TFile } from "obsidian";
 import { Notice } from "obsidian";
@@ -2380,6 +2380,7 @@ export class WeaveDataStorage {
 					"suppressCardNotifications"
 				);
 
+				await this.syncCardIndicesAfterWrite(savedCard);
 				return { success: true, data: savedCard, timestamp: now.toISOString() };
 			} catch (error) {
 				logger.warn("[Storage] WDeck 卡片保存失败:", error);
@@ -2420,6 +2421,7 @@ export class WeaveDataStorage {
 					"suppressCardNotifications"
 				);
 
+				await this.syncCardIndicesAfterWrite(savedCard);
 				return { success: true, data: savedCard, timestamp: now.toISOString() };
 			} catch (error) {
 				logger.warn("[Storage] 普通记忆卡写入 .wdeck 失败:", error);
@@ -2976,6 +2978,8 @@ export class WeaveDataStorage {
 
 						this.plugin.app.workspace.trigger("Weave:card-deleted", deletedUUID);
 					}
+
+					await this.removeCardsFromIndices(deletedUUIDs);
 
 					await this.notifyDataChange(
 						{
@@ -4781,14 +4785,60 @@ export class WeaveDataStorage {
 		return (path || "").replace(/\\/g, "/").replace(/\/+/g, "/");
 	}
 
+	private async getDeckLookupsForIndex(): Promise<Array<{ id: string; name: string }>> {
+		const decks = this.plugin.cachedDecks?.length ? this.plugin.cachedDecks : await this.getDecks();
+		return decks
+			.filter((deck) => Boolean(deck?.id && deck?.name))
+			.map((deck) => ({ id: deck.id, name: deck.name }));
+	}
+
+	private async syncCardIndicesAfterWrite(card: Card): Promise<void> {
+		try {
+			const deckLookups = await this.getDeckLookupsForIndex();
+			if (this.plugin.studyDueIndexService) {
+				await this.plugin.studyDueIndexService.updateCard(card, deckLookups);
+				return;
+			}
+
+			if (this.plugin.deckMembershipIndexService) {
+				const { getFormalDeckLookups } = await import("../services/index/StudyDueIndexService");
+				const { decks } = getFormalDeckLookups(card, deckLookups);
+				if (decks.length > 0) {
+					await this.plugin.deckMembershipIndexService.updateCards([card], decks);
+				}
+			}
+		} catch (error) {
+			logger.warn("[Storage] 同步卡片索引失败:", error);
+		}
+	}
+
+	private async removeCardsFromIndices(uuids: string[]): Promise<void> {
+		const unique = Array.from(new Set(uuids.filter(Boolean)));
+		if (unique.length === 0) {
+			return;
+		}
+
+		try {
+			if (this.plugin.studyDueIndexService) {
+				await this.plugin.studyDueIndexService.removeCards(unique);
+				return;
+			}
+			if (this.plugin.deckMembershipIndexService) {
+				await this.plugin.deckMembershipIndexService.removeCards(unique);
+			}
+		} catch (error) {
+			logger.warn("[Storage] 移除卡片索引失败:", error);
+		}
+	}
+
 	async refreshSourceFileStatuses(
 		targetPath?: string
 	): Promise<{ updated: number; missing: number }> {
 		const normalizedTargetPath = this.normalizeSourcePath(targetPath || "");
 
 		try {
-			const allCards = await this.getCards();
-			const statusChanges = allCards
+			const cards = await this.loadCardsForSourceStatusRefresh(normalizedTargetPath);
+			const statusChanges = cards
 				.map((card) => this.reconcileCardSourceStatus(card, normalizedTargetPath))
 				.filter((status): status is { missing: boolean } => !!status);
 
@@ -4805,6 +4855,70 @@ export class WeaveDataStorage {
 			logger.error("[Storage] 刷新卡片溯源状态失败:", error);
 			return { updated: 0, missing: 0 };
 		}
+	}
+
+	private async loadCardsForSourceStatusRefresh(targetPath: string): Promise<Card[]> {
+		const indexManager = (this.plugin as WeavePlugin).indexManager;
+		const batchSize = 120;
+
+		if (targetPath && indexManager) {
+			const uuids = indexManager.getCardIdsBySourceFile(targetPath);
+			if (uuids.length === 0) {
+				return [];
+			}
+			return this.loadCardsByUUIDBatches(uuids, batchSize);
+		}
+
+		if (!indexManager) {
+			return this.getCards();
+		}
+
+		const sourceFiles = indexManager.getAllIndexedSourceFiles();
+		if (sourceFiles.length === 0) {
+			return [];
+		}
+
+		const cards: Card[] = [];
+		const seen = new Set<string>();
+		for (const sourceFile of sourceFiles) {
+			const uuids = indexManager.getCardIdsBySourceFile(sourceFile);
+			if (uuids.length === 0) {
+				continue;
+			}
+			const batchCards = await this.loadCardsByUUIDBatches(uuids, batchSize);
+			for (const card of batchCards) {
+				if (card?.uuid && !seen.has(card.uuid)) {
+					seen.add(card.uuid);
+					cards.push(card);
+				}
+			}
+		}
+		return cards;
+	}
+
+	private async loadCardsByUUIDBatches(uuids: string[], batchSize: number): Promise<Card[]> {
+		const uniqueUUIDs = Array.from(new Set(uuids.filter(Boolean)));
+		if (uniqueUUIDs.length === 0) {
+			return [];
+		}
+
+		const cards: Card[] = [];
+		for (let offset = 0; offset < uniqueUUIDs.length; offset += batchSize) {
+			const batch = uniqueUUIDs.slice(offset, offset + batchSize);
+			if (this.plugin.wdeckService) {
+				cards.push(...(await this.plugin.wdeckService.getCardsByUUIDs(batch)));
+				continue;
+			}
+
+			const cardFileService = this.plugin.cardFileService as
+				| { getCardsByUUIDsBatch?: (ids: string[]) => Promise<{ found: Card[] }> }
+				| undefined;
+			if (typeof cardFileService?.getCardsByUUIDsBatch === "function") {
+				const result = await cardFileService.getCardsByUUIDsBatch(batch);
+				cards.push(...(result?.found || []));
+			}
+		}
+		return cards.map((card) => this.hydrateCardFromYAML(card));
 	}
 
 	private reconcileCardSourceStatus(card: Card, targetPath: string): { missing: boolean } | null {

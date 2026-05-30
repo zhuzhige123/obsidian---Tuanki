@@ -1,4 +1,5 @@
 import { ImageMaskIntegration } from "../ImageMaskIntegration";
+import { MaskRenderer } from "../MaskRenderer";
 
 function createApp() {
 	return {
@@ -101,5 +102,43 @@ describe("ImageMaskIntegration", () => {
 		expect(wrappers).toHaveLength(2);
 		expect(wrappers[0]?.querySelector('[data-mask-id="legacy-1"]')).not.toBeNull();
 		expect(wrappers[1]?.querySelector('[data-mask-id="legacy-2"]')).not.toBeNull();
+	});
+
+	it("交互模式下点击可切换单个遮罩的可见性", () => {
+		const renderer = new MaskRenderer();
+		const img = createLoadedImage("app://local/assets/mask-toggle.png");
+		document.body.appendChild(img);
+
+		renderer.renderMasksOnImage(
+			img,
+			{
+				version: "1.0",
+				masks: [
+					{
+						id: "mask-toggle",
+						type: "rect",
+						x: 0.1,
+						y: 0.1,
+						width: 0.2,
+						height: 0.2,
+						style: "solid",
+						fill: "rgba(255, 0, 0, 0.7)",
+						index: 1,
+					},
+				],
+			},
+			{ visible: true, interactive: true }
+		);
+
+		const shape = img.parentElement?.querySelector(".weave-mask") as SVGElement;
+		expect(shape.classList.contains("mask-revealed")).toBe(false);
+
+		shape.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		expect(shape.classList.contains("mask-revealed")).toBe(true);
+
+		shape.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		expect(shape.classList.contains("mask-revealed")).toBe(false);
+
+		img.parentElement?.remove();
 	});
 });

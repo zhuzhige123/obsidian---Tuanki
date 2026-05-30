@@ -47,7 +47,6 @@
     onEditDeck?: (deckId: string) => void;
     onDeleteDeck?: (deckId: string) => void;
     onRefreshData?: () => Promise<void>;
-    onOpenKnowledgeGraph?: (deckId: string) => void;
     onBeforeOpenDeckMenu?: () => void;
     onDissolveDeck?: (deckId: string) => void;
     onPromoteEmergentDeck?: (candidate: EmergentDeckCandidate, event: MouseEvent) => void | Promise<void>;
@@ -91,7 +90,6 @@
     onEditDeck,
     onDeleteDeck,
     onRefreshData,
-    onOpenKnowledgeGraph,
     onBeforeOpenDeckMenu,
     onDissolveDeck,
     onPromoteEmergentDeck,
@@ -213,20 +211,6 @@
       hasItems = true;
     }
 
-    if (onOpenKnowledgeGraph) {
-      if (hasItems) {
-        menu.addSeparator();
-      }
-
-      menu.addItem((item) =>
-        item
-          .setTitle(t('decks.menu.knowledgeGraph'))
-          .setIcon("git-fork")
-          .onClick(() => onOpenKnowledgeGraph(deckId))
-      );
-      hasItems = true;
-    }
-
     return hasItems;
   }
 
@@ -251,18 +235,6 @@
       [...deckAnalyticsEntryFeatures],
       deckStudyFeatureContext
     );
-  }
-
-  function withSubmenu(item: unknown, builder: (submenu: Menu) => void): boolean {
-    const submenuFactory = (item as { setSubmenu?: () => Menu }).setSubmenu;
-    if (typeof submenuFactory !== 'function') {
-      return false;
-    }
-
-    const submenu = submenuFactory.call(item as { setSubmenu: () => Menu });
-    submenu.setUseNativeMenu(false);
-    builder(submenu);
-    return true;
   }
 
   function closeActiveGridMenu() {

@@ -4,10 +4,12 @@
   import type { WeavePlugin } from '../../main';
   import type { PromptTemplate, AIProvider } from '../../types/ai-types';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
-  import { AI_PROVIDER_LABELS, AI_MODEL_OPTIONS } from '../settings/constants/settings-constants';
+  import { AI_PROVIDER_LABELS } from '../settings/constants/settings-constants';
   import { addWeaveNavigationItems, type WeavePageId } from '../../utils/weave-navigation-menu';
   import { applyStyleProps } from '../../utils/style-props';
   import { i18n, tr } from '../../utils/i18n';
+  import { addMenuRadioChoices } from '../../utils/obsidian-menu';
+  import { showProviderModelMenuAt, type ProviderModelMenuSelect } from '../../utils/provider-model-menu';
 
   type PromptSuggestionItem = PromptTemplate & {
     category: 'official' | 'custom';
@@ -142,107 +144,64 @@
   // 打开提示词选择菜单（使用 Obsidian Menu API）
   function openPromptMenu(event: MouseEvent) {
     const menu = new Menu();
+    const promptChoices = [
+      ...officialPrompts.map((prompt) => ({
+        title: prompt.name,
+        icon: 'message-square' as const,
+        value: prompt,
+      })),
+      ...customPrompts.map((prompt) => ({
+        title: prompt.name,
+        icon: 'file-text' as const,
+        value: prompt,
+      })),
+    ];
 
-    // 官方模板分组
-    if (officialPrompts.length > 0) {
-      officialPrompts.forEach(prompt => {
-        menu.addItem((item) => {
-          item
-            .setTitle(prompt.name)
-            .setIcon('message-square')
-            .setChecked(selectedPrompt?.id === prompt.id)
-            .onClick(() => {
-              selectedPrompt = prompt;
-              onPromptSelect(prompt);
-            });
-        });
-      });
-    }
-
-    // 分隔线
-    if (officialPrompts.length > 0 && customPrompts.length > 0) {
-      menu.addSeparator();
-    }
-
-    // 自定义模板分组
-    if (customPrompts.length > 0) {
-      customPrompts.forEach(prompt => {
-        menu.addItem((item) => {
-          item
-            .setTitle(prompt.name)
-            .setIcon('file-text')
-            .setChecked(selectedPrompt?.id === prompt.id)
-            .onClick(() => {
-              selectedPrompt = prompt;
-              onPromptSelect(prompt);
-            });
-        });
-      });
-    }
-
-    // 如果没有模板，显示提示
-    if (officialPrompts.length === 0 && customPrompts.length === 0) {
+    if (promptChoices.length === 0) {
       menu.addItem((item) => {
         item
           .setTitle(i18n.t('aiAssistant.toolbar.noTemplates'))
           .setDisabled(true);
       });
+    } else {
+      addMenuRadioChoices(
+        menu,
+        selectedPrompt?.id ?? '',
+        promptChoices.map((choice) => ({
+          title: choice.title,
+          icon: choice.icon,
+          value: choice.value.id,
+        })),
+        (promptId) => {
+          const prompt = promptChoices.find((choice) => choice.value.id === promptId)?.value ?? null;
+          selectedPrompt = prompt;
+          onPromptSelect(prompt);
+        }
+      );
     }
-
-    // 所有提示词管理现已整合到AIConfigModal中
 
     menu.showAtMouseEvent(event);
   }
 
   // 打开AI服务商/模型选择菜单（悬停展开子菜单）
   function openProviderMenu(event: MouseEvent) {
-    const menu = new Menu();
-    
-    // 获取settings中各provider的当前配置模型
     const aiConfig = plugin.settings.aiConfig;
     const apiKeys = (aiConfig?.apiKeys || {}) as Record<string, { model?: string } | undefined>;
-    
-    // 遍历所有AI服务商
-    Object.entries(AI_MODEL_OPTIONS).forEach(([providerKey, models]) => {
-      const provider = providerKey as AIProvider;
-      menu.addItem((item) => {
-        // 设置服务商标题，当前选中的显示勾选图标
-        item
-          .setTitle(AI_PROVIDER_LABELS[provider])
-          .setIcon(selectedProvider === provider ? 'check' : '');
-        
-        // 使用setSubmenu实现悬停展开子菜单
-        const submenu = (item as any).setSubmenu();
-        
-        // 检查settings中是否有自定义模型（不在静态列表中）
-        const configuredModel = apiKeys[provider]?.model;
-        const staticModelIds: string[] = models.map(m => m.id);
-        if (configuredModel && !staticModelIds.includes(configuredModel)) {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(configuredModel)
-              .setIcon(selectedProvider === provider && selectedModel === configuredModel ? 'check' : '')
-              .onClick(() => {
-                onProviderModelChange(provider, configuredModel);
-              });
-          });
-          submenu.addSeparator();
+
+    showProviderModelMenuAt(event, {
+      apiKeys,
+      selection: {
+        provider: selectedProvider,
+        model: selectedModel,
+      },
+      preferredProvider: selectedProvider,
+      onSelect: (next: ProviderModelMenuSelect) => {
+        if (!next.provider || !next.model) {
+          return;
         }
-        
-        models.forEach(model => {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(model.label)
-              .setIcon(selectedProvider === provider && selectedModel === model.id ? 'check' : '')
-              .onClick(() => {
-                onProviderModelChange(provider, model.id);
-              });
-          });
-        });
-      });
+        onProviderModelChange(next.provider, next.model);
+      },
     });
-    
-    menu.showAtMouseEvent(event);
   }
 
   // 处理自定义提示词输入
@@ -285,7 +244,7 @@
           .onClick(() => {
             window.dispatchEvent(
               new CustomEvent('Weave:ai-toolbar-action', {
-                detail: { action: 'provider' }
+                detail: { action: 'model' }
               })
             );
           });

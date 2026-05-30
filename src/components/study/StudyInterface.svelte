@@ -30,9 +30,8 @@
   } from "./rating-label-style";
 
   //  高级功能限制
-  import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from "../../services/premium/PremiumFeatureGuard";
+  import { PremiumFeatureGuard } from "../../services/premium/PremiumFeatureGuard";
   import { get } from 'svelte/store';
-  import ActivationPrompt from "../premium/ActivationPrompt.svelte";
 
   import type { EmbeddableEditorManager } from "../../services/editor/EmbeddableEditorManager";
   import type { Deck } from "../../data/types";
@@ -125,23 +124,11 @@
   import { logger } from "../../utils/logger";
   import { openLinkWithExistingLeaf } from "../../utils/workspace-navigation";
   import { vaultStorage } from '../../utils/vault-local-storage';
-  import { calculateMobileEditViewportHeight } from "../../utils/mobile-edit-viewport";
-  import {
-    bindMobileFloatingViewport,
-    getVisualViewportLayout,
-  } from "../../utils/mobile-floating-viewport";
-  import {
-    applyReadingViewportLock,
-    isEditableFocusedWithin,
-    resolveReadingViewportLockTarget,
-    STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS,
-  } from "../../utils/mobile-reading-viewport-lock";
   import { getCardBack, getCardFront } from "../../utils/card-field-helper";
   import { WDECK_UNGROUPED_DECK_NAME } from "../../services/wdeck/WDeckService";
   // 牌组信息获取工具
   import { getCardMetadata, parseEpubSourceInfo, parseSourceInfo, setCardProperties, getCardDeckIds, createContentWithMetadata } from "../../utils/yaml-utils";
   import { resolveStudySessionDeckId } from "../../utils/study/sessionDeckId";
-  import { extractHintMarkdown, extractHintText } from "../../utils/hint-block-utils";
   // 使用 CardMetadataService 获取卡片元数据
   import { getCardMetadataService } from "../../services/CardMetadataService";
   
@@ -208,6 +195,11 @@
     showSourceInfoToggle?: boolean;
     mode?: 'normal' | 'advance';  // 学习模式：normal=正常，advance=提前学习
     initialCardIndex?: number;  // 重启恢复时的初始卡片索引
+    isStagingSession?: boolean;
+    onStagingCardReviewed?: (card: Card) => void;
+    onStagingCardEdited?: (card: Card) => void;
+    onStagingDiscard?: (cardUuid: string) => void;
+    onStagingSessionComplete?: () => void;
     onClose: () => void;
     onComplete: (session: StudySession) => void;
   }
@@ -234,6 +226,11 @@
     showSourceInfoToggle = false,
     mode,
     initialCardIndex = 0,
+    isStagingSession = false,
+    onStagingCardReviewed,
+    onStagingCardEdited,
+    onStagingDiscard,
+    onStagingSessionComplete,
     onClose,
     onComplete
   }: Props = $props();
@@ -247,7 +244,6 @@
   // --- 管理器实例 ---
   const sessionManager = StudySessionManager.getInstance();
   const premiumGuard = PremiumFeatureGuard.getInstance();
-  const STUDY_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: 'study' };
   const reviewUndoManager = new ReviewUndoManager();
   const cardRelationService = untrack(() => new CardRelationService(dataStorage));
   const queueGenerator = new StudyQueueGenerator();
@@ -409,179 +405,6 @@
   }));
   //  缓存转换后的牌组列表，避免每次渲染都重新创建数组
   let availableDecksList = $derived(memoryDecks.map(d => ({ id: d.id, name: d.name })));
-
-  // --- 提示功能状态 ---
-  let hintMaxUsesPerSession = $state(untrack(() => plugin.settings.hintMaxUses ?? 5));
-  let hintSessionUsedCount = $state(0); // 整个会话已使用次数
-  let hintVisible = $state(false);
-  let hintCapsuleElement: HTMLElement | null = $state(null); // 胶囊按钮引用（用于浮窗锚定）
-  let hintPanelShellElement: HTMLElement | null = $state(null); // 提示浮窗内容壳层
-  let hintRenderContainer: HTMLElement | null = $state(null); // Markdown 渲染容器
-  let hintResizeHandleElement: HTMLElement | null = $state(null); // 提示浮窗右上角缩放手柄
-  let hintRenderComponent: Component | null = null; // Obsidian Component 实例
-
-  const HINT_PANEL_DEFAULT_WIDTH = 420;
-  const HINT_PANEL_DEFAULT_HEIGHT = 300;
-  const HINT_PANEL_MIN_WIDTH = 260;
-  const HINT_PANEL_MIN_HEIGHT = 180;
-  const HINT_PANEL_MAX_WIDTH = 980;
-  const HINT_PANEL_MAX_HEIGHT = 720;
-
-  let hintPanelWidth = $state(HINT_PANEL_DEFAULT_WIDTH);
-  let hintPanelHeight = $state(HINT_PANEL_DEFAULT_HEIGHT);
-  let hintResizeActive = $state(false);
-  let hintResizePointerId: number | null = null;
-  let hintResizeStartX = 0;
-  let hintResizeStartY = 0;
-  let hintResizeStartWidth = HINT_PANEL_DEFAULT_WIDTH;
-  let hintResizeStartHeight = HINT_PANEL_DEFAULT_HEIGHT;
-
-  /**
-   * 从卡片正文中提取提示内容。
-   * 默认使用原始引用提示语法（>hint:），并兼容历史 we_tip 标注块。
-   */
-  function extractHintFromContent(content: string): string {
-    return extractHintText(content);
-  }
-
-  function extractHintMarkdownFromContent(content: string): string {
-    return extractHintMarkdown(content);
-  }
-
-  let currentHintText = $derived.by(() => {
-    if (!currentCard?.content) return '';
-    return extractHintFromContent(currentCard.content);
-  });
-
-  let currentHintMarkdown = $derived.by(() => {
-    if (!currentCard?.content) return '';
-    return extractHintMarkdownFromContent(currentCard.content);
-  });
-
-  let hintUsesRemaining = $derived(Math.max(0, hintMaxUsesPerSession - hintSessionUsedCount));
-
-  /**
-   * 使用 Obsidian MarkdownRenderer 渲染提示内容到浮窗
-   */
-  async function renderHintContent() {
-    if (!hintRenderContainer || !plugin?.app) return;
-
-    const hintMarkdown = currentHintMarkdown;
-    const hintText = currentHintText;
-
-    hintRenderContainer.replaceChildren();
-
-    if (!hintMarkdown) {
-      hintRenderContainer.textContent = hintText;
-      return;
-    }
-    
-    try {
-      if (hintRenderComponent) {
-        hintRenderComponent.unload();
-      }
-      
-      const comp = new Component();
-      await MarkdownRenderer.render(
-        plugin.app,
-        hintMarkdown,
-        hintRenderContainer,
-        currentCard?.sourceFile || '',
-        comp
-      );
-      comp.load();
-      hintRenderComponent = comp;
-    } catch (error) {
-      logger.error('[StudyInterface] Hint Markdown 渲染失败:', error);
-      hintRenderContainer.textContent = hintText;
-    }
-  }
-
-  function closeHintPanel() {
-    stopHintResizeInteraction();
-    hintVisible = false;
-  }
-
-  function clampHintPanelSize(width: number, height: number): { width: number; height: number } {
-    if (typeof window === 'undefined') {
-      return {
-        width: Math.max(HINT_PANEL_MIN_WIDTH, Math.min(HINT_PANEL_MAX_WIDTH, Math.round(width))),
-        height: Math.max(HINT_PANEL_MIN_HEIGHT, Math.min(HINT_PANEL_MAX_HEIGHT, Math.round(height)))
-      };
-    }
-
-    const viewportMaxWidth = Math.max(HINT_PANEL_MIN_WIDTH, window.innerWidth - 32);
-    const viewportMaxHeight = Math.max(HINT_PANEL_MIN_HEIGHT, window.innerHeight - 120);
-
-    return {
-      width: Math.max(HINT_PANEL_MIN_WIDTH, Math.min(Math.min(HINT_PANEL_MAX_WIDTH, viewportMaxWidth), Math.round(width))),
-      height: Math.max(HINT_PANEL_MIN_HEIGHT, Math.min(Math.min(HINT_PANEL_MAX_HEIGHT, viewportMaxHeight), Math.round(height)))
-    };
-  }
-
-  function applyHintPanelSize(width: number, height: number) {
-    const nextSize = clampHintPanelSize(width, height);
-    hintPanelWidth = nextSize.width;
-    hintPanelHeight = nextSize.height;
-  }
-
-  function stopHintResizeInteraction() {
-    if (hintResizeHandleElement && hintResizePointerId !== null) {
-      try {
-        if (hintResizeHandleElement.hasPointerCapture(hintResizePointerId)) {
-          hintResizeHandleElement.releasePointerCapture(hintResizePointerId);
-        }
-      } catch {
-        // 某些环境会在元素卸载后抛出 PointerCapture 异常，这里直接忽略
-      }
-    }
-
-    hintResizePointerId = null;
-    hintResizeActive = false;
-  }
-
-  function handleHintResizePointerDown(event: PointerEvent) {
-    if (!hintVisible) return;
-    if (event.pointerType === 'mouse' && event.button !== 0) return;
-
-    event.preventDefault();
-
-    const target = event.currentTarget as HTMLElement | null;
-    if (!target) return;
-
-    stopHintResizeInteraction();
-
-    hintResizeHandleElement = target;
-    hintResizePointerId = event.pointerId;
-    hintResizeStartX = event.clientX;
-    hintResizeStartY = event.clientY;
-    hintResizeStartWidth = hintPanelWidth;
-    hintResizeStartHeight = hintPanelHeight;
-    hintResizeActive = true;
-
-    try {
-      target.setPointerCapture(event.pointerId);
-    } catch {
-      // PointerCapture 在部分环境不可用，退回 window 级事件即可
-    }
-  }
-
-  function handleHintResizePointerMove(event: PointerEvent) {
-    if (!hintResizeActive || hintResizePointerId === null || event.pointerId !== hintResizePointerId) {
-      return;
-    }
-
-    event.preventDefault();
-
-    const nextWidth = hintResizeStartWidth + (event.clientX - hintResizeStartX);
-    const nextHeight = hintResizeStartHeight + (hintResizeStartY - event.clientY);
-    applyHintPanelSize(nextWidth, nextHeight);
-  }
-
-  function handleHintResizePointerUp(event: PointerEvent) {
-    if (hintResizePointerId === null || event.pointerId !== hintResizePointerId) return;
-    stopHintResizeInteraction();
-  }
 
   // --- 卡片详细信息模态窗状态 ---
   //  改用全局模态窗，不再需要本地状态
@@ -1419,32 +1242,8 @@
     };
   });
   
-  // --- 高级功能状态 ---
-  // 使用 get() 同步获取初始值，避免时序问题
+  // --- 高级功能状态（渐进式挖空等） ---
   let isPremium = $state(get(premiumGuard.isPremiumActive));
-  let showPremiumFeaturesPreview = $state(get(premiumGuard.premiumFeaturesPreviewEnabled));
-  let promptFeatureId = $state<string>(PREMIUM_FEATURES.STUDY_SOURCE_INFO);
-  let showActivationPrompt = $state(false);
-
-  let shouldShowStudySourceInfoEntry = $derived(
-    premiumGuard.shouldShowFeatureEntry(
-      PREMIUM_FEATURES.STUDY_SOURCE_INFO,
-      {
-        isPremium,
-        showPremiumPreview: showPremiumFeaturesPreview,
-      },
-      STUDY_FEATURE_CONTEXT,
-    )
-  );
-
-  let canUseStudySourceInfo = $derived(
-    premiumGuard.canUseFeature(PREMIUM_FEATURES.STUDY_SOURCE_INFO, STUDY_FEATURE_CONTEXT)
-  );
-
-  function promptPremiumFeature(featureId: string) {
-    promptFeatureId = featureId;
-    showActivationPrompt = true;
-  }
 
   // 订阅高级版状态变化
   $effect(() => {
@@ -1452,13 +1251,9 @@
       isPremium = value;
       logger.debug(`[StudyInterface] 激活状态更新: ${value ? '已激活' : '未激活'}`);
     });
-    const unsubscribePreview = premiumGuard.premiumFeaturesPreviewEnabled.subscribe(value => {
-      showPremiumFeaturesPreview = value;
-    });
 
     return () => {
       unsubscribePremium();
-      unsubscribePreview();
     };
   });
 
@@ -1963,7 +1758,6 @@
       onChoiceOptionOrderChange: handleChoiceOptionOrderChange,
       onRatingLabelStyleChange: handleRatingLabelStyleChange,
       onTimerAutoPauseChange: handleTimerAutoPauseChange,
-      onHintMaxUsesChange: handleHintMaxUsesChange,
       onClozeModeSwitchButtonToggle: handleClozeModeSwitchButtonToggle,
     };
 
@@ -1982,7 +1776,6 @@
       choiceOptionOrder,
       ratingLabelStyle,
       timerAutoPauseSeconds,
-      hintMaxUses: hintMaxUsesPerSession,
       showClozeModeSwitchButton,
       aiSplitActions: customActions.split || [],
       callbacks,
@@ -2178,6 +1971,10 @@
       updateChoiceQuestionStats(card, rating, responseTime);
     },
     persistRatedCard: async (card) => {
+      if (isStagingSession) {
+        onStagingCardReviewed?.(card);
+        return;
+      }
       await runWithMemoryStudyDataChangeContext(card.deckId, () =>
         saveMemoryCardCommand(plugin, card, 'update')
       );
@@ -2223,18 +2020,24 @@
     },
     setSessionCompletionStatus,
     onFinishSession: async (finishedSession) => {
+      reviewUndoManager.clear();
+      updateUndoCount();
+
+      if (isStagingSession) {
+        onStagingSessionComplete?.();
+        return;
+      }
+
       try {
         await runWithMemoryStudyDataChangeContext(finishedSession.deckId, () => dataStorage.saveStudySession(finishedSession));
       } catch (e) {
         logger.error("保存学习会话失败", e);
       }
 
-      reviewUndoManager.clear();
-      updateUndoCount();
-
       onComplete(finishedSession);
       onClose();
-    }
+    },
+    shouldSkipLearningStepsInsertion: () => isStagingSession,
   });
 
   export function getQueueProgress() {
@@ -2246,6 +2049,9 @@
   }
 
   export function shouldPersist() {
+    if (isStagingSession) {
+      return false;
+    }
     return memoryStudySessionController.shouldPersist();
   }
 
@@ -2794,6 +2600,27 @@
     forceRefresh();
   }
 
+  type PersistEditedStudyCardResult =
+    | { success: true; card: Card }
+    | { success: false; cancelled?: boolean; error?: string };
+
+  async function persistEditedStudyCard(updatedCard: Card): Promise<PersistEditedStudyCardResult> {
+    if (isStagingSession) {
+      onStagingCardEdited?.(updatedCard);
+      return { success: true, card: updatedCard };
+    }
+
+    const saveResult = await saveMemoryCardCommand(plugin, updatedCard, 'update');
+    if (!saveResult.success) {
+      if (saveResult.error === 'SAVE_CANCELLED') {
+        return { success: false, cancelled: true };
+      }
+      return { success: false, error: saveResult.error };
+    }
+
+    return { success: true, card: saveResult.data || updatedCard };
+  }
+
   function getCurrentTemplateInfo() {
     if (!currentCard) return null;
 
@@ -3036,69 +2863,6 @@
     showAnswer = false;
     // 不重置cardStartTime，保持从看到卡片开始的计时
     logger.debug('撤销显示答案，返回预览状态');
-  }
-
-  // --- 提示功能处理函数 ---
-  
-  /**
-   * 显示/隐藏提示浮窗（消耗一次会话使用次数）
-   */
-  async function toggleHint() {
-    if (!currentCard) return;
-    
-    if (hintVisible) {
-      closeHintPanel();
-      return;
-    }
-    
-    if (!currentHintText) {
-      new Notice(t('studyInterface.hint.noHint'));
-      return;
-    }
-    
-    if (hintUsesRemaining <= 0) {
-      new Notice(t('studyInterface.hint.usedUp'));
-      return;
-    }
-    
-    hintSessionUsedCount++;
-    applyHintPanelSize(hintPanelWidth, hintPanelHeight);
-    hintVisible = true;
-
-    await tick();
-    if (!hintVisible) return;
-
-    await renderHintContent();
-  }
-
-  function handleHintPointerDownOutside(event: PointerEvent) {
-    if (!hintVisible) return;
-
-    const eventPath = (typeof event.composedPath === 'function' ? event.composedPath() : [])
-      .filter((target): target is EventTarget => target != null);
-    if (hintCapsuleElement && eventPath.includes(hintCapsuleElement)) {
-      return;
-    }
-
-    if (hintPanelShellElement && eventPath.includes(hintPanelShellElement)) {
-      return;
-    }
-
-    const target = event.target as Node | null;
-    if (target && (hintCapsuleElement?.contains(target) || hintPanelShellElement?.contains(target))) {
-      return;
-    }
-
-    closeHintPanel();
-  }
-
-  /**
-   * 提示次数限制变更处理
-   */
-  function handleHintMaxUsesChange(value: number) {
-    hintMaxUsesPerSession = value;
-    plugin.settings.hintMaxUses = value;
-    plugin.saveSettings();
   }
 
   //  撤销上一次评分
@@ -4141,7 +3905,7 @@
       // 进入编辑模式：如果当前卡片是子卡片，解析父卡片进行编辑
       editorUnavailable = false;
       
-      if (isProgressiveClozeChild(currentCard)) {
+      if (isProgressiveClozeChild(currentCard) && !isStagingSession) {
         // 子卡片：获取父卡片作为编辑目标
         try {
           const parentId = currentCard.parentCardId;
@@ -4187,28 +3951,21 @@
 
         if (result.success && result.updatedCard) {
           let persistedCard = result.updatedCard;
-          try {
-            const saveResult = await saveMemoryCardCommand(plugin, result.updatedCard, 'update');
-            if (!saveResult.success) {
-              // SAVE_CANCELLED 表示用户取消了渐进式挖空变更
-              if (saveResult.error === 'SAVE_CANCELLED') {
-                logger.info('[StudyInterface] 用户取消了保存，返回编辑模式');
-                return;
-              }
-              logger.error('卡片持久化失败（点击预览）:', saveResult.error);
-              new Notice(t('study.view.saveFailed', {
-                error: saveResult.error || t('study.view.unknownError')
-              }));
+          const saveResult = await persistEditedStudyCard(result.updatedCard);
+          if (!saveResult.success) {
+            if (saveResult.cancelled) {
+              logger.info('[StudyInterface] 用户取消了保存，返回编辑模式');
               return;
             }
-            persistedCard = saveResult.data || result.updatedCard;
-            logger.debug('卡片已持久化到数据库:', persistedCard.uuid);
-          } catch (persistError) {
-            logger.error('卡片持久化异常（点击预览）:', persistError);
+            logger.error('卡片持久化失败（点击预览）:', saveResult.error);
             new Notice(t('study.view.saveFailed', {
-              error: persistError instanceof Error ? persistError.message : t('study.view.unknownError')
+              error: saveResult.error || t('study.view.unknownError')
             }));
             return;
+          }
+          persistedCard = saveResult.card;
+          if (!isStagingSession) {
+            logger.debug('卡片已持久化到数据库:', persistedCard.uuid);
           }
           
           new Notice(t('studyInterface.notices.cardSaved'));
@@ -4358,6 +4115,34 @@
         }
       );
       if (!confirmed) return;
+    }
+
+    if (isStagingSession) {
+      const cardUuid = currentCard.uuid;
+      onStagingDiscard?.(cardUuid);
+
+      if (showEditModal) {
+        showEditModal = false;
+        editorUnavailable = false;
+        isClozeMode = false;
+      }
+
+      cards = cards.filter((c) => c.uuid !== cardUuid);
+      studyQueue = studyQueue.filter((c) => c.uuid !== cardUuid);
+
+      if (studyQueue.length === 0) {
+        currentCardIndex = 0;
+        showAnswer = false;
+        onStagingSessionComplete?.();
+        return;
+      }
+
+      if (currentCardIndex >= studyQueue.length) {
+        currentCardIndex = studyQueue.length - 1;
+      }
+      showAnswer = false;
+      cardStartTime = Date.now();
+      return;
     }
 
     try {
@@ -4807,33 +4592,6 @@
     
   }
 
-  // 切换卡片时重置提示状态
-  $effect(() => {
-    const _idx = currentCardIndex;
-    untrack(() => {
-      closeHintPanel();
-    });
-  });
-
-  // 提示面板改为页脚内置上弹层后，统一在当前视图上下文里处理外部点击关闭
-  $effect(() => {
-    const isVisible = hintVisible;
-
-    if (!isVisible || typeof document === 'undefined') {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      handleHintPointerDownOutside(event);
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown, true);
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true);
-    };
-  });
-
   // 自动显示答案与快捷键绑定（编辑模态开启时暂停监听与自动计时）
   $effect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -4844,13 +4602,10 @@
     return () => { document.removeEventListener('keydown', handleKeyPress); if (timer) clearTimeout(timer); };
   });
 
-  // 高度自适应响应式监听
-  // 移动端编辑模式下不调用 applyAdaptiveHeight，由 visualViewport 监听处理
+  // 高度自适应响应式监听（仅预览区，编辑器高度由 flex 布局决定）
   $effect(() => {
-    // 监听影响高度的状态变化
     if (modalRef && (showEditModal !== undefined || showAnswer !== undefined || statsCollapsed !== undefined)) {
-      //  移动端编辑模式：跳过高度调整
-      if (Platform.isMobile && showEditModal) {
+      if (showEditModal) {
         return;
       }
       setTimeout(applyAdaptiveHeight, UI_TIMING.DOM_READY_DELAY);
@@ -4867,74 +4622,6 @@
         document.body.classList.remove('weave-edit-active');
       }
     }
-  });
-
-  //  移动端编辑模式：visualViewport 高度 + 阅读 leaf 锁定（对齐 EPUB 批注编辑方案）
-  let mobileViewportHeight = $state<number | null>(null);
-  let studyInterfaceOverlayEl = $state<HTMLDivElement | null>(null);
-
-  $effect(() => {
-    if (!Platform.isMobile || !showEditModal) {
-      mobileViewportHeight = null;
-      return;
-    }
-
-    let readingLockCleanup: (() => void) | null = null;
-    let unbindViewport: (() => void) | null = null;
-
-    const releaseReadingSurfaceLock = () => {
-      document.body.classList.remove(STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS);
-      readingLockCleanup?.();
-      readingLockCleanup = null;
-    };
-
-    const syncMobileEditViewport = () => {
-      const layout = getVisualViewportLayout();
-      const overlayTop = studyInterfaceOverlayEl?.getBoundingClientRect().top;
-
-      mobileViewportHeight = calculateMobileEditViewportHeight({
-        viewportHeight: layout.height,
-        viewportOffsetTop: layout.offsetTop,
-        overlayTop,
-      });
-
-      const shouldLock =
-        layout.keyboardVisible
-        || isEditableFocusedWithin(studyInterfaceOverlayEl);
-
-      document.body.classList.toggle(STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS, shouldLock);
-
-      const lockTarget = resolveReadingViewportLockTarget(studyInterfaceOverlayEl);
-      if (shouldLock && lockTarget) {
-        if (!readingLockCleanup) {
-          readingLockCleanup = applyReadingViewportLock(lockTarget);
-        }
-        return;
-      }
-
-      releaseReadingSurfaceLock();
-    };
-
-    syncMobileEditViewport();
-
-    unbindViewport = bindMobileFloatingViewport(syncMobileEditViewport);
-
-    const handleFocusIn = (event: FocusEvent) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement) || !studyInterfaceOverlayEl?.contains(target)) {
-        return;
-      }
-      syncMobileEditViewport();
-    };
-
-    document.addEventListener("focusin", handleFocusIn, true);
-
-    return () => {
-      unbindViewport?.();
-      document.removeEventListener("focusin", handleFocusIn, true);
-      releaseReadingSurfaceLock();
-      mobileViewportHeight = null;
-    };
   });
 
   // 高度自适应计算
@@ -5331,17 +5018,11 @@
       document.body.classList.add('weave-study-active');
     }
 
-    // 添加窗口大小变化监听（同时触发滚动检测）
-    // 移动端编辑模式下不调用 applyAdaptiveHeight，避免与 CardEditorContainer 的 visualViewport 高度计算冲突
     const handleResize = () => {
-      //  移动端编辑模式：跳过高度调整，由 CardEditorContainer 的 visualViewport 监听处理
-      if (Platform.isMobile && showEditModal) {
-        // 只检测侧边栏滚动，不调整高度
-        setTimeout(checkSidebarScrollable, 150);
-        return;
+      if (!showEditModal) {
+        setTimeout(applyAdaptiveHeight, 100);
       }
-      setTimeout(applyAdaptiveHeight, 100);
-      setTimeout(checkSidebarScrollable, 150); // 窗口变化时重新检测
+      setTimeout(checkSidebarScrollable, 150);
     };
     window.addEventListener('resize', handleResize);
 
@@ -5418,14 +5099,7 @@
       viewInstance.setMobilePanelStateGetter(null);
     }
 
-    stopHintResizeInteraction();
     document.removeEventListener('focus', trapFocus, true);
-
-    // 清理提示渲染组件
-    if (hintRenderComponent) {
-      hintRenderComponent.unload();
-      hintRenderComponent = null;
-    }
 
     //  移动端：移除学习界面激活类
     document.body.classList.remove('weave-study-active');
@@ -5470,21 +5144,12 @@
 <!--  全局键盘监听 - 修复 Obsidian 快捷键阻塞问题 -->
 <!-- 参照 ResizableModal.svelte 的成功实现，在 window 对象上监听键盘事件 -->
 <!-- 这样可以避免被 aria-modal="true" 的元素阻塞事件传播 -->
-<svelte:window
-  onkeydown={handleGlobalKeydown}
-  onpointermove={handleHintResizePointerMove}
-  onpointerup={handleHintResizePointerUp}
-  onpointercancel={handleHintResizePointerUp}
-/>
+<svelte:window onkeydown={handleGlobalKeydown} />
 
 <div
   class="study-interface-overlay"
-  bind:this={studyInterfaceOverlayEl}
   class:mobile-edit-mode={Platform.isMobile && showEditModal}
   role="presentation"
-  style={Platform.isMobile && showEditModal
-    ? `${mobileViewportHeight ? `--weave-viewport-height: ${mobileViewportHeight}px;` : ''}`
-    : ''}
   ondrop={(e) => e.preventDefault()}
   ondragover={(e) => e.preventDefault()}
   ondragleave={(e) => e.preventDefault()}
@@ -5509,7 +5174,7 @@
       cardsLength={studyQueue.length}
       {statsCollapsed}
       {sourceInfoCollapsed}
-      showSourceInfoToggle={showSourceInfoToggle && shouldShowStudySourceInfoEntry}
+      showSourceInfoToggle={showSourceInfoToggle}
       {showSidebar}
       {session}
       {dataStorage}
@@ -5521,10 +5186,6 @@
         if (!statsCollapsed) sourceInfoCollapsed = true;
       }}
       onToggleSourceInfo={() => {
-        if (!canUseStudySourceInfo) {
-          promptPremiumFeature(PREMIUM_FEATURES.STUDY_SOURCE_INFO);
-          return;
-        }
         sourceInfoCollapsed = !sourceInfoCollapsed;
         if (!sourceInfoCollapsed) statsCollapsed = true;
       }}
@@ -5537,7 +5198,7 @@
       <div class="main-study-area">
         {#if currentCard}
           <!--  学习进度统计栏（移动端专用，与FSRS信息栏互斥） -->
-          {#if isMobile && deckStats}
+          {#if isMobile && !showEditModal && deckStats}
             <MobileProficiencyStatsBar 
               expanded={showProficiencyStats} 
               stats={{
@@ -5549,7 +5210,7 @@
           {/if}
           
           <!--  卡片计时信息栏（移动端专用） -->
-          {#if isMobile}
+          {#if isMobile && !showEditModal}
             <MobileTimingInfoBar 
               expanded={showTimingInfo} 
               currentTime={currentStudyTime}
@@ -5559,7 +5220,7 @@
           {/if}
           
           <!-- 来源信息栏（独立折叠控制） -->
-          {#if !sourceInfoCollapsed && canUseStudySourceInfo}
+          {#if !showEditModal && !sourceInfoCollapsed}
             <SourceInfoBar
               card={currentCard}
               {plugin}
@@ -5569,7 +5230,7 @@
           {/if}
 
           <!-- 统计卡片（可折叠） -->
-          {#if !statsCollapsed}
+          {#if !showEditModal && !statsCollapsed}
             <StatsCards card={currentCard} {fsrs} />
           {/if}
 
@@ -5592,29 +5253,23 @@
                   onEditComplete={async (updatedCard) => {
                     const previousStudyCard = currentCard;
                     const previousEditTarget = editTargetCard;
-                    let persistedCard = updatedCard;
 
-                    try {
-                      const saveResult = await saveMemoryCardCommand(plugin, updatedCard, 'update');
-                      if (!saveResult.success) {
-                        if (saveResult.error === 'SAVE_CANCELLED') {
-                          logger.info('[StudyInterface] 用户取消了保存，返回编辑模式');
-                          return;
-                        }
-                        logger.error('[StudyInterface] 卡片保存失败:', saveResult.error);
-                        new Notice(t('study.view.saveFailed', {
-                          error: saveResult.error || t('study.view.unknownError')
-                        }));
+                    const saveResult = await persistEditedStudyCard(updatedCard);
+                    if (!saveResult.success) {
+                      if (saveResult.cancelled) {
+                        logger.info('[StudyInterface] 用户取消了保存，返回编辑模式');
                         return;
                       }
-                      persistedCard = saveResult.data || updatedCard;
-                      logger.debug('[StudyInterface] 卡片已保存到数据库:', persistedCard.uuid);
-                    } catch (error) {
-                      logger.error('[StudyInterface] 卡片保存异常:', error);
+                      logger.error('[StudyInterface] 卡片保存失败:', saveResult.error);
                       new Notice(t('study.view.saveFailed', {
-                        error: error instanceof Error ? error.message : t('study.view.unknownError')
+                        error: saveResult.error || t('study.view.unknownError')
                       }));
                       return;
+                    }
+
+                    const persistedCard = saveResult.card;
+                    if (!isStagingSession) {
+                      logger.debug('[StudyInterface] 卡片已保存到数据库:', persistedCard.uuid);
                     }
                     
                     notifyCardTypeChange(previousEditTarget, persistedCard);
@@ -5695,52 +5350,6 @@
       <!-- 底部功能栏 - 移到Grid内部 -->
       {#if currentCard && !showEditModal}
         <div class="study-footer">
-          <!-- 提示胶囊（仅在未显示答案且有提示内容时显示，左对齐） -->
-          {#if !showAnswer && currentHintText}
-            <div class="hint-area">
-              <button
-                bind:this={hintCapsuleElement}
-                type="button"
-                class="hint-capsule"
-                class:hint-active={hintVisible}
-                class:hint-used-up={hintUsesRemaining <= 0}
-                onclick={toggleHint}
-                title={hintUsesRemaining > 0 
-                  ? t('studyInterface.hint.usesRemaining').replace('{n}', String(hintUsesRemaining))
-                  : t('studyInterface.hint.usedUp')}
-              >
-                <span class="hint-capsule-icon">?</span>
-                <span class="hint-capsule-label">{t('studyInterface.hint.showHint')}</span>
-                <span class="hint-capsule-count">{hintUsesRemaining}</span>
-              </button>
-
-              {#if hintVisible}
-                <div class="hint-floating-panel">
-                  <div
-                    bind:this={hintPanelShellElement}
-                    class="hint-floating-shell"
-                    style={`width: ${hintPanelWidth}px; height: ${hintPanelHeight}px;`}
-                    role="dialog"
-                    aria-label={t('studyInterface.hint.panelAriaLabel')}
-                  >
-                    <button
-                      bind:this={hintResizeHandleElement}
-                      type="button"
-                      class="hint-resize-handle"
-                      class:active={hintResizeActive}
-                      onpointerdown={handleHintResizePointerDown}
-                      aria-label={t('studyInterface.hint.resizeAriaLabel')}
-                      title={t('studyInterface.hint.resizeTitle')}
-                    >
-                      <span class="hint-resize-handle-icon" aria-hidden="true"></span>
-                    </button>
-                    <div class="hint-floating-content" bind:this={hintRenderContainer}></div>
-                  </div>
-                </div>
-              {/if}
-            </div>
-          {/if}
-
           <!-- 底部左侧工具行：未显示答案时显示挖空模式切换；显示答案后显示返回预览/撤销 -->
           {#if showStudyClozeModeToggle || showAnswer}
             <div class="footer-top-controls">
@@ -5956,8 +5565,6 @@
             {isPremium}
             {timerAutoPauseSeconds}
             onTimerAutoPauseChange={handleTimerAutoPauseChange}
-            hintMaxUses={hintMaxUsesPerSession}
-            onHintMaxUsesChange={handleHintMaxUsesChange}
           />
         </div><!-- 关闭 sidebar-content -->
       {/if}
@@ -5999,13 +5606,6 @@
     </div>
   </div>
 {/if}
-
-  <!--  激活提示 -->
-  <ActivationPrompt
-    featureId={promptFeatureId}
-    visible={showActivationPrompt}
-    onClose={() => showActivationPrompt = false}
-  />
 
   <style>
     /* 主题系统变量 */
@@ -6135,6 +5735,9 @@
   /*  编辑模式时移除card-container的padding，让编辑器占满空间 */
   .card-container.editing {
     padding: 0;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
   }
 
   /* 新的预览系统样式已移至 PreviewContainer 组件 */
@@ -6612,204 +6215,6 @@
     background: color-mix(in srgb, var(--text-muted) 76%, var(--background-modifier-border) 24%);
   }
 
-  /* --- 提示胶囊样式 --- */
-  .hint-area {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.375rem;
-    padding: 0 0.5rem;
-    margin-bottom: 0.25rem;
-    position: relative;
-    z-index: 5;
-    overflow: visible;
-  }
-
-  .hint-capsule {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.25rem 0.75rem;
-    background: var(--weave-study-panel-bg);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 999px;
-    color: var(--text-muted);
-    font-size: 0.8125rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    user-select: none;
-  }
-
-  .hint-capsule:hover {
-    background: var(--background-modifier-hover);
-    border-color: var(--text-accent);
-    color: var(--text-normal);
-  }
-
-  .hint-capsule.hint-active {
-    color: var(--text-normal);
-    border-color: var(--text-accent);
-    background: color-mix(in srgb, var(--text-accent) 10%, var(--background-secondary));
-  }
-
-  .hint-capsule.hint-used-up {
-    opacity: 0.45;
-    cursor: not-allowed;
-    border-color: var(--background-modifier-border);
-  }
-
-  .hint-capsule-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: var(--text-accent);
-    color: var(--text-on-accent, #fff);
-    font-size: 0.6875rem;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-
-  .hint-capsule.hint-used-up .hint-capsule-icon {
-    background: var(--text-muted);
-  }
-
-  .hint-capsule-label {
-    font-weight: 500;
-  }
-
-  .hint-capsule-count {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 4px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--text-accent) 15%, transparent);
-    color: var(--text-accent);
-    font-size: 0.6875rem;
-    font-weight: 600;
-  }
-
-  .hint-capsule.hint-used-up .hint-capsule-count {
-    background: color-mix(in srgb, var(--text-muted) 15%, transparent);
-    color: var(--text-muted);
-  }
-
-  /* 提示浮窗面板：直接附着在页脚提示按钮上方，避免 portal 浮层在学习页脚场景下的层级/定位不稳定 */
-  .hint-floating-panel {
-    position: absolute;
-    left: 0;
-    bottom: calc(100% + 10px);
-    z-index: calc(var(--weave-z-overlay) + 1);
-    min-width: 0;
-    max-width: min(92vw, 980px);
-    width: auto;
-  }
-
-  .hint-floating-shell {
-    position: relative;
-    min-width: 260px;
-    min-height: 180px;
-    max-width: min(92vw, 980px);
-    max-height: min(78vh, 720px);
-    box-sizing: border-box;
-    background: var(--background-primary);
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow:
-      0 8px 24px rgba(0, 0, 0, 0.12),
-      0 2px 8px rgba(0, 0, 0, 0.08);
-    backdrop-filter: blur(8px);
-    animation: slideInFade 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    transform-origin: bottom left;
-  }
-
-  .hint-resize-handle {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    cursor: nesw-resize;
-    touch-action: none;
-    z-index: 2;
-    display: inline-flex;
-    align-items: flex-start;
-    justify-content: flex-end;
-  }
-
-  .hint-resize-handle-icon {
-    width: 0;
-    height: 0;
-    border-top: 14px solid color-mix(in srgb, var(--text-accent, #f59e0b) 45%, transparent);
-    border-left: 14px solid transparent;
-    opacity: 0.6;
-    transition: opacity 0.18s ease, transform 0.18s ease;
-  }
-
-  .hint-resize-handle.active .hint-resize-handle-icon,
-  .hint-resize-handle:hover .hint-resize-handle-icon {
-    opacity: 0.95;
-    transform: translate(-1px, 1px);
-  }
-
-  .hint-floating-content {
-    padding: 1rem;
-    padding-top: 1.1rem;
-    font-size: 0.875rem;
-    line-height: 1.6;
-    color: var(--text-normal);
-    height: 100%;
-    overflow-y: auto;
-    box-sizing: border-box;
-  }
-
-  /* Obsidian 渲染内容样式微调 */
-  .hint-floating-content :global(p) {
-    margin: 0 0 0.5rem;
-  }
-
-  .hint-floating-content :global(p:last-child) {
-    margin-bottom: 0;
-  }
-
-  .hint-floating-content :global(img) {
-    max-width: 100%;
-    border-radius: 6px;
-  }
-
-  /* 移动端提示样式适配 */
-  :global(body.is-phone) .hint-area {
-    margin-bottom: 0.25rem;
-    padding: 0 0.375rem;
-  }
-
-  :global(body.is-phone) .hint-capsule {
-    font-size: 0.75rem;
-    padding: 0.1875rem 0.625rem;
-  }
-
-  :global(body.is-phone) .hint-floating-panel {
-    max-width: calc(100vw - 20px);
-  }
-
-  :global(body.is-phone) .hint-floating-shell {
-    min-width: 220px;
-    min-height: 160px;
-  }
-
-  :global(body.is-phone) .hint-resize-handle {
-    display: none;
-  }
-
   /* 编辑器样式已移至 CardEditorContainer.svelte 组件 */
 
 
@@ -6900,9 +6305,9 @@
 
   /* 移动端适配 ==================== */
   
-  /* 所有移动设备通用样式 */
-  :global(body.is-mobile) .study-interface-overlay {
-    /* 移动端不使用 fixed 定位，让 Obsidian 管理布局 */
+  /* 所有移动设备通用样式（与刷题学习一致：不用桌面模态深色遮罩） */
+  :global(body.is-mobile) .study-interface-overlay,
+  :global(body.is-phone) .study-interface-overlay {
     position: absolute;
     padding: 0;
     top: 0;
@@ -6911,6 +6316,69 @@
       var(--weave-modal-bottom, env(safe-area-inset-bottom, 0px))
     );
     height: auto;
+    background: transparent;
+    backdrop-filter: none;
+    align-items: stretch;
+    justify-content: stretch;
+    z-index: 1;
+    overflow: hidden;
+  }
+
+  /* 移动端编辑：占满 leaf，不随键盘收缩高度（与官方笔记编辑一致） */
+  :global(body.is-mobile.weave-edit-active) .study-interface-overlay,
+  :global(body.is-phone.weave-edit-active) .study-interface-overlay {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 100%;
+    max-height: none;
+  }
+
+  :global(body.is-mobile.weave-edit-active) .study-interface-content,
+  :global(body.is-phone.weave-edit-active) .study-interface-content {
+    height: 100%;
+    flex: 1;
+    min-height: 0;
+    transition: none;
+  }
+
+  :global(body.is-mobile.weave-edit-active) .study-content,
+  :global(body.is-phone.weave-edit-active) .study-content {
+    transition: none;
+  }
+
+  .study-interface-overlay.mobile-edit-mode,
+  .study-interface-overlay.mobile-edit-mode .study-interface-content,
+  .study-interface-overlay.mobile-edit-mode .study-content.editing,
+  .study-interface-overlay.mobile-edit-mode .main-study-area,
+  .study-interface-overlay.mobile-edit-mode .card-study-container,
+  .study-interface-overlay.mobile-edit-mode .card-container.editing,
+  .study-interface-overlay.mobile-edit-mode .inline-editor-container {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .study-interface-overlay.mobile-edit-mode .study-interface-content {
+    overflow: hidden;
+  }
+
+  .study-interface-overlay.mobile-edit-mode .card-study-container,
+  .study-interface-overlay.mobile-edit-mode .card-container.editing {
+    padding: 0;
+  }
+
+  :global(body.is-mobile.weave-edit-active) .study-content.editing,
+  :global(body.is-phone.weave-edit-active) .study-content.editing,
+  :global(body.is-mobile.weave-edit-active) .main-study-area,
+  :global(body.is-phone.weave-edit-active) .main-study-area,
+  :global(body.is-mobile.weave-edit-active) .card-study-container,
+  :global(body.is-phone.weave-edit-active) .card-study-container {
+    flex: 1;
+    min-height: 0;
+    padding: 0;
   }
 
   :global(body.is-mobile) .study-interface-content {
@@ -6922,6 +6390,8 @@
     /* 移除边框和阴影 */
     border: none;
     box-shadow: none;
+    /* 避免进入编辑态时 width/布局过渡露出两侧深色遮罩 */
+    transition: none;
   }
 
   :global(body.is-mobile) .card-study-container {
@@ -6962,7 +6432,7 @@
 
   /* 手机端完全隐藏侧边栏容器，不占用空间 */
   :global(body.is-phone) .sidebar-content {
-    display: none !important;
+    display: none;
   }
 
   :global(body.is-phone) .card-container {

@@ -461,7 +461,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				builtinFields: {
 					question: "问题/正面",
 					answer: "答案/背面",
-					hint: "提示（>hint:）",
+					hint: "提示（附加正文）",
 					explanation: "解析",
 					optionA: "选项A",
 					optionB: "选项B",
@@ -512,7 +512,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				},
 				columnMapping: {
 					title: "列映射",
-					hintBlock: "将 CSV 的提示列映射到这里后，导入时会自动写入卡片内容中的 >hint: 引用提示块。",
+					hintBlock: "将 CSV 的提示列映射到这里后，导入时会追加到卡片正文末尾；也可在 CSV 中直接使用 Obsidian 脚注 [^id] 与 [^id]: 内容。",
 					missingRequired: "缺少必填字段: {fields}",
 				},
 				importStats: {
@@ -1271,7 +1271,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				builtinFields: {
 					question: "Question / Front",
 					answer: "Answer / Back",
-					hint: "Hint (>hint:)",
+					hint: "Hint (append to body)",
 					explanation: "Explanation",
 					optionA: "Option A",
 					optionB: "Option B",
@@ -1322,7 +1322,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				},
 				columnMapping: {
 					title: "Column Mapping",
-					hintBlock: "If you map a CSV hint column here, the imported content will automatically write it into the card as a >hint: callout block.",
+					hintBlock: "If you map a CSV hint column here, the text is appended to the card body. You can also use Obsidian footnotes [^id] and [^id]: text directly in CSV.",
 					missingRequired: "Missing required fields: {fields}",
 				},
 				importStats: {

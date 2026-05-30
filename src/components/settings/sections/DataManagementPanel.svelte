@@ -926,7 +926,7 @@
     <div class="group-title-with-toggle">
       <h4 class="group-title with-accent-bar accent-cyan">{t('dataManagement.backup.panel.weaveFolderTitle')}</h4>
       <div class="data-folder-visibility-section">
-        <div class="folder-input-group" style="margin-bottom: 0.75rem;" bind:this={weaveParentFolderTriggerEl}>
+        <div class="folder-input-group" bind:this={weaveParentFolderTriggerEl}>
           <input
             type="text"
             class="modern-input folder-input"
@@ -975,20 +975,28 @@
 
 <style>
   .data-management-panel {
+    --weave-settings-gap-xs: var(--size-2-1, 0.25rem);
+    --weave-settings-gap-sm: var(--size-2-2, 0.5rem);
+    --weave-settings-gap-md: var(--size-4-2, 0.75rem);
+    --weave-settings-gap-lg: var(--size-4-3, 1rem);
+    --weave-settings-gap-xl: var(--size-4-5, 1.5rem);
+    --weave-settings-radius-sm: var(--radius-s, 6px);
+    --weave-settings-radius-md: var(--radius-m, 10px);
+    --weave-settings-radius-lg: var(--radius-l, 14px);
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: var(--weave-settings-gap-lg);
   }
 
   /* 错误横幅 */
   .error-banner {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 1rem 1.1rem;
+    gap: var(--weave-settings-gap-md);
+    padding: var(--weave-settings-gap-lg) calc(var(--weave-settings-gap-lg) + var(--weave-settings-gap-xs));
     background: color-mix(in oklab, var(--text-error), var(--background-primary) 92%);
     border: 1px solid color-mix(in oklab, var(--text-error), transparent 35%);
-    border-radius: 14px;
+    border-radius: var(--weave-settings-radius-lg);
     color: var(--text-error);
   }
 
@@ -999,7 +1007,7 @@
 
   .error-message {
     flex: 1;
-    font-size: 0.875rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
   }
 
   .error-dismiss {
@@ -1024,11 +1032,11 @@
   .repair-suggestion-banner {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 1rem 1.1rem;
+    gap: var(--weave-settings-gap-md);
+    padding: var(--weave-settings-gap-lg) calc(var(--weave-settings-gap-lg) + var(--weave-settings-gap-xs));
     background: color-mix(in oklab, var(--color-blue), var(--background-primary) 92%);
     border: 1px solid color-mix(in oklab, var(--color-blue), transparent 35%);
-    border-radius: 14px;
+    border-radius: var(--weave-settings-radius-lg);
   }
 
   .repair-icon {
@@ -1042,29 +1050,29 @@
   }
 
   .repair-title {
-    font-size: 0.875rem;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     font-weight: 600;
     color: var(--text-normal);
-    margin-bottom: 0.25rem;
+    margin-bottom: var(--weave-settings-gap-xs);
   }
 
   .repair-description {
-    font-size: 0.75rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     color: var(--text-muted);
   }
 
   .repair-actions {
     display: flex;
-    gap: 0.5rem;
+    gap: var(--weave-settings-gap-sm);
     align-items: center;
   }
 
   .repair-button {
-    padding: 0.5rem 1rem;
-    font-size: 0.75rem;
+    padding: var(--weave-settings-gap-sm) var(--weave-settings-gap-lg);
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     font-weight: 500;
     border: 1px solid var(--color-blue);
-    border-radius: 4px;
+    border-radius: var(--weave-settings-radius-sm);
     background: var(--color-blue);
     color: white;
     cursor: pointer;
@@ -1077,11 +1085,11 @@
   }
 
   .cleanup-button {
-    padding: 0.5rem 1rem;
-    font-size: 0.75rem;
+    padding: var(--weave-settings-gap-sm) var(--weave-settings-gap-lg);
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     font-weight: 500;
     border: 1px solid var(--text-error);
-    border-radius: 4px;
+    border-radius: var(--weave-settings-radius-sm);
     background: transparent;
     color: var(--text-error);
     cursor: pointer;
@@ -1117,7 +1125,7 @@
   .backup-table-wrapper {
     overflow-x: auto;
     border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
+    border-radius: var(--weave-settings-radius-sm);
   }
 
   /*  深色模式 - 增强表格外边框可见性 */
@@ -1133,7 +1141,7 @@
   .backup-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.875rem;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
   }
 
   .backup-table thead {
@@ -1152,11 +1160,11 @@
   }
 
   .backup-table th {
-    padding: 0.75rem;
+    padding: var(--weave-settings-gap-md);
     text-align: left;
     font-weight: 600;
     color: var(--text-muted);
-    font-size: 0.75rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -1190,20 +1198,20 @@
   }
 
   .backup-table td {
-    padding: 0.75rem;
+    padding: var(--weave-settings-gap-md);
     color: var(--text-normal);
   }
 
   .time-cell {
     font-family: var(--font-monospace);
-    font-size: 0.8125rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
   }
 
   .type-cell .type-badge {
     display: inline-block;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.75rem;
+    padding: var(--weave-settings-gap-xs) var(--weave-settings-gap-sm);
+    border-radius: var(--weave-settings-radius-sm);
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     font-weight: 500;
   }
 
@@ -1219,7 +1227,7 @@
 
   .size-cell {
     font-family: var(--font-monospace);
-    font-size: 0.8125rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
   }
 
   .action-cell {
@@ -1244,13 +1252,13 @@
   }
 
   .more-backups-hint {
-    margin-top: 0.5rem;
-    padding: 0.5rem;
+    margin-top: var(--weave-settings-gap-sm);
+    padding: var(--weave-settings-gap-sm);
     text-align: center;
-    font-size: 0.75rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     color: var(--text-muted);
     background: var(--background-secondary);
-    border-radius: 4px;
+    border-radius: var(--weave-settings-radius-sm);
   }
 
   .no-backups {
@@ -1260,13 +1268,13 @@
   }
 
   .no-backups p {
-    margin: 0.5rem 0 0 0;
-    font-size: 0.875rem;
+    margin: var(--weave-settings-gap-sm) 0 0 0;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
   }
 
   /* 父文件夹路径配置样式 */
   .folder-path-config {
-    margin-top: 1rem;
+    margin-top: var(--weave-settings-gap-lg);
   }
 
   /* 数据文件夹可见性开关样式 */
@@ -1274,28 +1282,32 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 1rem;
+    gap: var(--weave-settings-gap-lg);
+    margin-bottom: var(--weave-settings-gap-lg);
   }
 
   .data-folder-visibility-section {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: var(--weave-settings-gap-sm);
     align-items: flex-end;
+  }
+
+  .folder-input-group {
+    margin-bottom: var(--weave-settings-gap-md);
   }
 
   /* 响应式设计 */
   @media (max-width: 768px) {
     .data-management-panel {
-      gap: 0.75rem;
+      gap: var(--weave-settings-gap-md);
     }
 
     /* 移动端开关样式调整 */
     .group-title-with-toggle {
       flex-direction: column;
       align-items: flex-start;
-      gap: 0.75rem;
+      gap: var(--weave-settings-gap-md);
     }
 
     .data-folder-visibility-section {

@@ -40,7 +40,7 @@
   const deckAnalyticsFeatureContext: PremiumFeatureAccessContext = { page: 'deck-analytics' };
   const analyticsTabFeatureIds: Record<AnalyticsTab, string> = {
     retention: PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION,
-    calibration: PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION,
+    calibration: PREMIUM_FEATURES.DECK_ANALYTICS,
     quantity: PREMIUM_FEATURES.DECK_ANALYTICS,
     timing: PREMIUM_FEATURES.DECK_ANALYTICS_TIMING,
     difficulty: PREMIUM_FEATURES.DECK_ANALYTICS,

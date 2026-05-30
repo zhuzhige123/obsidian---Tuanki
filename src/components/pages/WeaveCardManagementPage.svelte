@@ -74,6 +74,11 @@
   import { MAIN_SEPARATOR } from "../../constants/markdown-delimiters";
   import { cardsToCSV, groupCardsBySource, groupCardsByMonth, groupCardsByDeck, sanitizeFileName, type ExportGroupMode } from "../../utils/card-export-utils";
   import { showObsidianConfirm } from "../../utils/obsidian-confirm";
+  import {
+    addMenuRadioChoices,
+    addMenuSubmenuGroup,
+    attachMenuApp,
+  } from "../../utils/obsidian-menu";
   import { detectCardQuestionType, getQuestionTypeDistribution } from "../../utils/card-type-utils";
   import { isInputClozeQuestionContent } from "../../utils/question-bank/input-cloze-utils";
   import { getErrorBookDistribution, getCardErrorLevel } from "../../utils/error-book-utils";
@@ -94,6 +99,7 @@
     normalizeTagSuggestionValue,
   } from "../../utils/tag-suggest";
   import { FilterManager } from "../../services/filter-manager";
+  import { isCardManagementToolbarDispatchAction } from "../../utils/card-management-toolbar-contract";
   import { openWeaveMainMenu } from "../../utils/weave-main-menu";
   import { buildWeaveCardReferenceLabel, collectWeaveRelatedCardUUIDs } from "../../utils/weave-card-reference";
   import { TFolder } from "obsidian";
@@ -285,6 +291,10 @@
     return typeof value === 'boolean' ? value : true;
   }
 
+  function resolveGridCardBorderStyle(value: unknown): 'solid' | 'dashed' {
+    return value === 'dashed' ? 'dashed' : 'solid';
+  }
+
   function resolveKanbanGroupByBySource(value: unknown): Partial<Record<KanbanDataSourceType, KanbanGroupBy>> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return {};
@@ -421,6 +431,9 @@
   let enableCardLocationJump = $state(viewPrefs.enableCardLocationJump);
   let relationFilterAnchorCardUuid = $state<string | null>(null);
   let showTableGridBorders = $state(resolveShowTableGridBorders(viewPrefs.showTableGridBorders));
+  let gridCardBorderStyle = $state<'solid' | 'dashed'>(
+    resolveGridCardBorderStyle(viewPrefs.gridCardBorderStyle)
+  );
   let gridCardAttribute = $state<GridCardAttributeType>(resolveGridCardAttribute(viewPrefs.gridCardAttribute));
   
   // 全局筛选状态（从FilterStateService同步）
@@ -524,6 +537,7 @@
       plugin.settings.cardManagementViewPreferences.tableViewMode = tableViewMode;
       plugin.settings.cardManagementViewPreferences.enableCardRelationFilterMode = enableCardRelationFilterMode;
       plugin.settings.cardManagementViewPreferences.enableCardLocationJump = enableCardLocationJump;
+      plugin.settings.cardManagementViewPreferences.gridCardBorderStyle = gridCardBorderStyle;
       plugin.settings.cardManagementViewPreferences.showTableGridBorders = true;
       
       await plugin.saveSettings();
@@ -2124,6 +2138,15 @@
         case 'grid-layout-timeline':
           void handleLayoutModeChange('timeline');
           break;
+        case 'grid-border-style-solid':
+          void handleGridCardBorderStyleChange('solid');
+          break;
+        case 'grid-border-style-dashed':
+          void handleGridCardBorderStyleChange('dashed');
+          break;
+        case 'toggle-search':
+          handleMobileSearchClick();
+          break;
         case 'kanban-layout-compact':
           void handleKanbanLayoutModeChange('compact');
           break;
@@ -2144,6 +2167,11 @@
           break;
         case 'open-grid-attribute-menu':
           openGridAttributeMenu(anchor);
+          break;
+        default:
+          if (action && !isCardManagementToolbarDispatchAction(action)) {
+            logger.warn('[CardManagement] 未识别的工具栏动作:', action);
+          }
           break;
       }
     };
@@ -3346,9 +3374,12 @@
       detail: {
         tableViewMode,
         gridLayout,
+        gridCardBorderStyle,
+        gridCardAttribute,
         kanbanLayoutMode,
         irTypeFilter,
         searchQuery,
+        showTableGridBorders,
         documentFilterMode,
         currentActiveDocument,
         enableCardRelationFilterMode,
@@ -3758,79 +3789,88 @@
       lastBatchDeckMenuPosition = { x: window.innerWidth / 2, y: window.innerHeight - 100 };
     }
 
-    // 使用分组菜单：记忆牌组 / 考试牌组
-    const menu = new Menu();
-    (menu as any).app = plugin.app;
+    const menu = attachMenuApp(new Menu(), plugin.app);
+    const selectedSet = new Set(selectedCardIds);
 
-    // 记忆牌组子菜单
-    menu.addItem((item) => {
-      item.setTitle(t('cardManagement.batchDeckMenu.memoryDecks')).setIcon('graduation-cap');
-      const submenu = (item as any).setSubmenu();
+    addMenuSubmenuGroup(
+      menu,
+      { title: t('cardManagement.batchDeckMenu.memoryDecks'), icon: 'graduation-cap' },
+      (submenu) => {
+        memoryDecks.forEach((deck) => {
+          const deckCardUUIDs = new Set(deck.cardUUIDs || []);
+          let anyInDeck = false;
+          let allInDeck = true;
+          for (const uuid of selectedSet) {
+            if (deckCardUUIDs.has(uuid)) {
+              anyInDeck = true;
+            } else {
+              allInDeck = false;
+            }
+          }
+          const indentLevel = deck.level || 0;
+          const prefix = indentLevel > 0 ? '  '.repeat(indentLevel) + '└ ' : '';
 
-      const selectedSet = new Set(selectedCardIds);
-      memoryDecks.forEach((deck) => {
-        const deckCardUUIDs = new Set(deck.cardUUIDs || []);
-        let anyInDeck = false;
-        let allInDeck = true;
-        for (const uuid of selectedSet) {
-          if (deckCardUUIDs.has(uuid)) { anyInDeck = true; } else { allInDeck = false; }
-        }
-        const indentLevel = deck.level || 0;
-        const prefix = indentLevel > 0 ? '  '.repeat(indentLevel) + '└ ' : '';
-
-        submenu.addItem((subItem: any) => {
-          subItem.setTitle(prefix + deck.name);
-          if (allInDeck) { subItem.setIcon('check-square'); }
-          else { subItem.setIcon(anyInDeck ? 'minus-square' : 'square'); }
-          subItem.onClick(async () => {
-            await handleBatchToggleDeckReference(deck, { allInDeck }, selectedCardIds);
+          submenu.addItem((subItem) => {
+            subItem.setTitle(prefix + deck.name);
+            if (allInDeck) {
+              subItem.setIcon('check-square');
+            } else {
+              subItem.setIcon(anyInDeck ? 'minus-square' : 'square');
+            }
+            subItem.onClick(async () => {
+              await handleBatchToggleDeckReference(deck, { allInDeck }, selectedCardIds);
+            });
           });
         });
-      });
-    });
+      }
+    );
 
     if (premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.QUESTION_BANK)) {
-      menu.addItem((item) => {
-        const questionBankLocked = premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.QUESTION_BANK);
-        item
-          .setTitle(questionBankLocked ? t('cardManagement.batchDeckMenu.questionBankDecksPremium') : t('cardManagement.batchDeckMenu.questionBankDecks'))
-          .setIcon('clipboard-list');
-        const submenu = (item as any).setSubmenu();
+      const questionBankLocked = premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.QUESTION_BANK);
+      addMenuSubmenuGroup(
+        menu,
+        {
+          title: questionBankLocked
+            ? t('cardManagement.batchDeckMenu.questionBankDecksPremium')
+            : t('cardManagement.batchDeckMenu.questionBankDecks'),
+          icon: 'clipboard-list',
+        },
+        (submenu) => {
+          if (questionBankLocked) {
+            submenu.addItem((subItem) => {
+              subItem
+                .setTitle(t('cardManagement.batchDeckMenu.activateToUse'))
+                .setIcon('lock')
+                .onClick(() => {
+                  promptPremiumFeature(PREMIUM_FEATURES.QUESTION_BANK);
+                });
+            });
+            return;
+          }
 
-        if (questionBankLocked) {
-          submenu.addItem((subItem: any) => {
-            subItem
-              .setTitle(t('cardManagement.batchDeckMenu.activateToUse'))
-              .setIcon('lock')
-              .onClick(() => {
-                promptPremiumFeature(PREMIUM_FEATURES.QUESTION_BANK);
-              });
-          });
-          return;
-        }
-
-        if (questionBankStorage && plugin.questionBankService) {
-          const banks = plugin.questionBankService.getAllQuestionBanks();
-          if (banks.length > 0) {
-            banks.forEach((bank) => {
-              submenu.addItem((subItem: any) => {
-                subItem.setTitle(bank.name).setIcon('edit-3');
-                subItem.onClick(async () => {
-                  await handleBatchAddToExamDeck(bank.id, selectedCardIds);
+          if (questionBankStorage && plugin.questionBankService) {
+            const banks = plugin.questionBankService.getAllQuestionBanks();
+            if (banks.length > 0) {
+              banks.forEach((bank) => {
+                submenu.addItem((subItem) => {
+                  subItem.setTitle(bank.name).setIcon('edit-3');
+                  subItem.onClick(async () => {
+                    await handleBatchAddToExamDeck(bank.id, selectedCardIds);
+                  });
                 });
               });
-            });
+            } else {
+              submenu.addItem((subItem) => {
+                subItem.setTitle(t('cardManagement.batchDeckMenu.noQuestionBanks')).setDisabled(true);
+              });
+            }
           } else {
-            submenu.addItem((subItem: any) => {
-              subItem.setTitle(t('cardManagement.batchDeckMenu.noQuestionBanks')).setDisabled(true);
+            submenu.addItem((subItem) => {
+              subItem.setTitle(t('cardManagement.notices.questionBankServiceInitMissing')).setDisabled(true);
             });
           }
-        } else {
-          submenu.addItem((subItem: any) => {
-            subItem.setTitle(t('cardManagement.notices.questionBankServiceInitMissing')).setDisabled(true);
-          });
         }
-      });
+      );
     }
 
     menu.showAtPosition(lastBatchDeckMenuPosition!);
@@ -6452,6 +6492,15 @@
     await saveViewPreferences(); // 保存视图偏好
   }
 
+  async function handleGridCardBorderStyleChange(style: 'solid' | 'dashed') {
+    if (gridCardBorderStyle === style) {
+      return;
+    }
+
+    gridCardBorderStyle = style;
+    await saveViewPreferences();
+  }
+
   // 移动端菜单项点击处理 - 使用 Obsidian Menu API
   function showMobileCardManagementMenu(evt: MouseEvent) {
     openWeaveMainMenu({
@@ -6463,6 +6512,7 @@
       cardDataSource: dataSource,
       tableViewMode,
       gridLayoutMode: gridLayout,
+      gridCardBorderStyle,
       kanbanLayoutMode,
       irTypeFilter,
       documentFilterMode,
@@ -6483,6 +6533,18 @@
   // 移动端搜索按钮点击处理
   function handleMobileSearchClick() {
     showMobileSearchInput = !showMobileSearchInput;
+
+    if (!showMobileSearchInput || typeof document === 'undefined') {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      const input = document.querySelector(
+        '.weave-card-management-page .mobile-search-container .search-input'
+      ) as HTMLInputElement | null;
+      input?.focus();
+      input?.select();
+    });
   }
 
   // 看板显示密度切换处理
@@ -6582,67 +6644,27 @@
   }
 
   function openGridAttributeMenu(anchor?: HTMLElement | null) {
-    const menu = new Menu();
+    const menu = attachMenuApp(new Menu(), plugin.app);
+    type GridAttributeMenuValue = Extract<
+      GridCardAttributeType,
+      'none' | 'uuid' | 'source' | 'priority' | 'retention' | 'modified'
+    >;
 
-    menu.addItem((item) => {
-      item
-        .setTitle(t('cardManagement.gridAttributeSelector.none'))
-        .setIcon('eye-off')
-        .setChecked(gridCardAttribute === 'none')
-        .onClick(() => {
-          void setGridCardAttribute('none');
-        });
-    });
-
-    menu.addItem((item) => {
-      item
-        .setTitle(t('cardManagement.gridAttributeSelector.uuid'))
-        .setIcon('hash')
-        .setChecked(gridCardAttribute === 'uuid')
-        .onClick(() => {
-          void setGridCardAttribute('uuid');
-        });
-    });
-
-    menu.addItem((item) => {
-      item
-        .setTitle(t('cardManagement.gridAttributeSelector.source'))
-        .setIcon('file-text')
-        .setChecked(gridCardAttribute === 'source')
-        .onClick(() => {
-          void setGridCardAttribute('source');
-        });
-    });
-
-    menu.addItem((item) => {
-      item
-        .setTitle(t('cardManagement.gridAttributeSelector.priority'))
-        .setIcon('flag')
-        .setChecked(gridCardAttribute === 'priority')
-        .onClick(() => {
-          void setGridCardAttribute('priority');
-        });
-    });
-
-    menu.addItem((item) => {
-      item
-        .setTitle(t('cardManagement.gridAttributeSelector.retention'))
-        .setIcon('activity')
-        .setChecked(gridCardAttribute === 'retention')
-        .onClick(() => {
-          void setGridCardAttribute('retention');
-        });
-    });
-
-    menu.addItem((item) => {
-      item
-        .setTitle(t('cardManagement.gridAttributeSelector.modified'))
-        .setIcon('clock')
-        .setChecked(gridCardAttribute === 'modified')
-        .onClick(() => {
-          void setGridCardAttribute('modified');
-        });
-    });
+    addMenuRadioChoices<GridAttributeMenuValue>(
+      menu,
+      gridCardAttribute as GridAttributeMenuValue,
+      [
+        { title: t('cardManagement.gridAttributeSelector.none'), icon: 'eye-off', value: 'none' },
+        { title: t('cardManagement.gridAttributeSelector.uuid'), icon: 'hash', value: 'uuid' },
+        { title: t('cardManagement.gridAttributeSelector.source'), icon: 'file-text', value: 'source' },
+        { title: t('cardManagement.gridAttributeSelector.priority'), icon: 'flag', value: 'priority' },
+        { title: t('cardManagement.gridAttributeSelector.retention'), icon: 'activity', value: 'retention' },
+        { title: t('cardManagement.gridAttributeSelector.modified'), icon: 'clock', value: 'modified' },
+      ],
+      (attr) => {
+        void setGridCardAttribute(attr);
+      }
+    );
 
     if (anchor) {
       const rect = anchor.getBoundingClientRect();
@@ -7072,6 +7094,7 @@
             focusedCards={relationFilterAnchorCardUuid ? new Set([relationFilterAnchorCardUuid]) : new Set()}
             {plugin}
             attributeType={gridCardAttribute}
+            borderStyle={gridCardBorderStyle}
             {isMobile}
             onCardClick={handleGridCardClick}
              onCardEdit={handleGridCardEdit}
@@ -7089,6 +7112,7 @@
             focusedCards={relationFilterAnchorCardUuid ? new Set([relationFilterAnchorCardUuid]) : new Set()}
             {plugin}
             attributeType={gridCardAttribute}
+            borderStyle={gridCardBorderStyle}
             {isMobile}
             documentFilterMode={documentFilterMode}
             activeDocumentName={currentActiveDocument ? getFileName(currentActiveDocument) : null}
@@ -7109,6 +7133,7 @@
             {plugin}
             layoutMode={gridLayout}
             attributeType={gridCardAttribute}
+            borderStyle={gridCardBorderStyle}
             {isMobile}
             onCardClick={handleGridCardClick}
             onCardEdit={handleGridCardEdit}

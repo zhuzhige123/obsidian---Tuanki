@@ -1,4 +1,10 @@
 import { Menu } from "obsidian";
+import {
+	addMenuRadioChoices,
+	addMenuSubmenuGroup,
+	addMenuToggle,
+	getMenuSubmenu,
+} from "../../utils/obsidian-menu";
 import type { Card, Deck } from "../../data/types";
 import type { AIAction } from "../../types/ai-types";
 import {
@@ -40,7 +46,6 @@ export interface MenuBuilderConfig {
 	ratingLabelStyle?: RatingLabelStyle;
 	showRatingIntervalOnButtons?: boolean;
 	timerAutoPauseSeconds?: number;
-	hintMaxUses?: number;
 	showClozeModeSwitchButton?: boolean;
 	aiActions: {
 		split: AIAction[];
@@ -73,7 +78,6 @@ export interface MenuCallbacks {
 	onRatingLabelStyleChange?: (style: RatingLabelStyle) => void;
 	onRatingIntervalButtonsToggle?: (enabled: boolean) => void;
 	onTimerAutoPauseChange?: (seconds: number) => void;
-	onHintMaxUsesChange?: (value: number) => void;
 	onClozeModeSwitchButtonToggle?: (enabled: boolean) => void;
 }
 
@@ -179,10 +183,8 @@ export class StudyToolbarMenuBuilder {
 				});
 		});
 
-                // 4. 更换牌组（子菜单）
-                menu.addItem((item) => {
-			item.setTitle(i18n.t("study.menu.changeDeck")).setIcon("folder");
-			const submenu = (item as any).setSubmenu();
+		// 4. 更换牌组（子菜单）
+		addMenuSubmenuGroup(menu, { title: i18n.t("study.menu.changeDeck"), icon: "folder" }, (submenu) => {
 			this.buildDeckSubmenu(submenu);
 		});
 
@@ -197,9 +199,7 @@ export class StudyToolbarMenuBuilder {
 		});
 
 		// 7. 设置优先级（子菜单）
-		menu.addItem((item) => {
-			item.setTitle(i18n.t("study.menu.setPriority")).setIcon("star");
-			const submenu = (item as any).setSubmenu();
+		addMenuSubmenuGroup(menu, { title: i18n.t("study.menu.setPriority"), icon: "star" }, (submenu) => {
 			this.buildPrioritySubmenu(submenu);
 		});
 	}
@@ -214,25 +214,20 @@ export class StudyToolbarMenuBuilder {
 		});
 
 		// AI助手（子菜单）
-		menu.addItem((item) => {
-			item.setTitle(i18n.t("study.menu.aiSplit")).setIcon("bot");
-			const submenu = (item as any).setSubmenu();
+		addMenuSubmenuGroup(menu, { title: i18n.t("study.menu.aiSplit"), icon: "bot" }, (submenu) => {
 			this.buildAISplitSubmenu(submenu);
 		});
 
-		// 图谱联动（开关）
-		const graphDisabled = !this.config.hasSourceFile;
-		menu.addItem((item) => {
-			item
-				.setTitle(i18n.t("study.menu.graphLink"))
-				.setIcon("link")
-				.setChecked(this.config.isGraphLinked)
-				.setDisabled(graphDisabled)
-				.onClick(() => {
-					if (!graphDisabled) {
-						this.safeCallback(() => this.callbacks.onGraphLinkToggle(!this.config.isGraphLinked));
-					}
+		addMenuToggle(menu, {
+			title: i18n.t("study.menu.graphLink"),
+			icon: "link",
+			getChecked: () => this.config.isGraphLinked,
+			isDisabled: () => !this.config.hasSourceFile,
+			onSetChecked: (next) => {
+				this.safeCallback(() => {
+					this.callbacks.onGraphLinkToggle(next);
 				});
+			},
 		});
 	}
 
@@ -270,21 +265,18 @@ export class StudyToolbarMenuBuilder {
 
 		// 计时信息栏开关
 		if (this.callbacks.onToggleTimingInfo) {
-			menu.addItem((item) => {
-				item
-					.setTitle(i18n.t("study.menu.timingInfo"))
-					.setIcon("clock")
-					.setChecked(this.config.showTimingInfo ?? false)
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onToggleTimingInfo?.());
-					});
+			addMenuToggle(menu, {
+				title: i18n.t("study.menu.timingInfo"),
+				icon: "clock",
+				getChecked: () => Boolean(this.config.showTimingInfo),
+				onSetChecked: () => {
+					this.safeCallback(() => this.callbacks.onToggleTimingInfo?.());
+				},
 			});
 		}
 
 		if (this.hasMoreSettingsSubmenu()) {
-			menu.addItem((item) => {
-				item.setTitle(i18n.t("study.menu.moreSettings")).setIcon("settings");
-				const submenu = (item as any).setSubmenu();
+			addMenuSubmenuGroup(menu, { title: i18n.t("study.menu.moreSettings"), icon: "settings" }, (submenu) => {
 				this.buildMoreSettingsSubmenu(submenu);
 			});
 		}
@@ -299,226 +291,189 @@ export class StudyToolbarMenuBuilder {
 			this.callbacks.onRatingLabelStyleChange ||
 			this.callbacks.onRatingIntervalButtonsToggle ||
 			this.callbacks.onTimerAutoPauseChange ||
-			this.callbacks.onHintMaxUsesChange ||
 			this.callbacks.onClozeModeSwitchButtonToggle
 		);
 	}
 
 	private buildMoreSettingsSubmenu(menu: Menu): void {
 		if (this.callbacks.onMediaAutoPlayChange) {
-			menu.addItem((item) => {
-				item
-					.setTitle(i18n.t("study.menu.settings.autoPlayMedia"))
-					.setIcon("play")
-					.setChecked(Boolean(this.config.autoPlayMedia))
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onMediaAutoPlayChange?.("enabled", !this.config.autoPlayMedia));
-					});
+			addMenuToggle(menu, {
+				title: i18n.t("study.menu.settings.autoPlayMedia"),
+				icon: "play",
+				getChecked: () => Boolean(this.config.autoPlayMedia),
+				onSetChecked: (enabled) => {
+					this.safeCallback(() => this.callbacks.onMediaAutoPlayChange?.("enabled", enabled));
+				},
 			});
 
-			menu.addItem((item) => {
-				item
-					.setTitle(this.formatMenuValueLabel("study.menu.settings.playMediaMode.label", this.getPlayMediaModeLabel(this.config.playMediaMode ?? "first")))
-					.setIcon("list")
-					.setDisabled(!this.config.autoPlayMedia);
-				const submenu = (item as any).setSubmenu();
-				this.buildOptionSubmenu(
-					submenu,
-					[
-						{ value: "first", label: i18n.t("study.menu.settings.playMediaMode.first") },
-						{ value: "all", label: i18n.t("study.menu.settings.playMediaMode.all") },
-					],
-					this.config.playMediaMode ?? "first",
-					(value) => {
-						this.safeCallback(() => this.callbacks.onMediaAutoPlayChange?.("mode", value));
-					}
-				);
-			});
+			this.addLabelledRadioSubmenu(
+				menu,
+				"study.menu.settings.playMediaMode.label",
+				this.getPlayMediaModeLabel(this.config.playMediaMode ?? "first"),
+				"list",
+				!this.config.autoPlayMedia,
+				[
+					{ value: "first", title: i18n.t("study.menu.settings.playMediaMode.first") },
+					{ value: "all", title: i18n.t("study.menu.settings.playMediaMode.all") },
+				],
+				this.config.playMediaMode ?? "first",
+				(value) => {
+					this.safeCallback(() => this.callbacks.onMediaAutoPlayChange?.("mode", value));
+				}
+			);
 
-			menu.addItem((item) => {
-				item
-					.setTitle(this.formatMenuValueLabel("study.menu.settings.playMediaTiming.label", this.getPlayMediaTimingLabel(this.config.playMediaTiming ?? "cardChange")))
-					.setIcon("clock")
-					.setDisabled(!this.config.autoPlayMedia);
-				const submenu = (item as any).setSubmenu();
-				this.buildOptionSubmenu(
-					submenu,
-					[
-						{ value: "cardChange", label: i18n.t("study.menu.settings.playMediaTiming.cardChange") },
-						{ value: "showAnswer", label: i18n.t("study.menu.settings.playMediaTiming.showAnswer") },
-					],
-					this.config.playMediaTiming ?? "cardChange",
-					(value) => {
-						this.safeCallback(() => this.callbacks.onMediaAutoPlayChange?.("timing", value));
-					}
-				);
-			});
+			this.addLabelledRadioSubmenu(
+				menu,
+				"study.menu.settings.playMediaTiming.label",
+				this.getPlayMediaTimingLabel(this.config.playMediaTiming ?? "cardChange"),
+				"clock",
+				!this.config.autoPlayMedia,
+				[
+					{ value: "cardChange", title: i18n.t("study.menu.settings.playMediaTiming.cardChange") },
+					{ value: "showAnswer", title: i18n.t("study.menu.settings.playMediaTiming.showAnswer") },
+				],
+				this.config.playMediaTiming ?? "cardChange",
+				(value) => {
+					this.safeCallback(() => this.callbacks.onMediaAutoPlayChange?.("timing", value));
+				}
+			);
 
-			menu.addItem((item) => {
-				item
-					.setTitle(this.formatMenuValueLabel("study.menu.settings.playbackInterval.label", this.formatPlaybackInterval(this.config.playbackInterval ?? 2000)))
-					.setIcon("timer")
-					.setDisabled(!this.config.autoPlayMedia || (this.config.playMediaMode ?? "first") !== "all");
-				const submenu = (item as any).setSubmenu();
-				this.buildOptionSubmenu(
-					submenu,
-					[1000, 1500, 2000, 2500, 3000].map((value) => ({
-						value,
-						label: this.formatPlaybackInterval(value),
-					})),
-					this.config.playbackInterval ?? 2000,
-					(value) => {
-						this.safeCallback(() => this.callbacks.onMediaAutoPlayChange?.("interval", value));
-					}
-				);
-			});
+			this.addLabelledRadioSubmenu(
+				menu,
+				"study.menu.settings.playbackInterval.label",
+				this.formatPlaybackInterval(this.config.playbackInterval ?? 2000),
+				"timer",
+				!this.config.autoPlayMedia || (this.config.playMediaMode ?? "first") !== "all",
+				[1000, 1500, 2000, 2500, 3000].map((value) => ({
+					value,
+					title: this.formatPlaybackInterval(value),
+				})),
+				this.config.playbackInterval ?? 2000,
+				(value) => {
+					this.safeCallback(() => this.callbacks.onMediaAutoPlayChange?.("interval", value));
+				}
+			);
 
 			menu.addSeparator();
 		}
 
 		if (this.callbacks.onCardOrderChange) {
-			menu.addItem((item) => {
-				item.setTitle(this.formatMenuValueLabel("study.menu.settings.cardOrder.label", this.getCardOrderLabel(this.config.cardOrder ?? "sequential"))).setIcon("arrow-up-down");
-				const submenu = (item as any).setSubmenu();
-				this.buildOptionSubmenu(
-					submenu,
-					[
-						{ value: "sequential", label: i18n.t("study.menu.settings.cardOrder.sequential") },
-						{ value: "random", label: i18n.t("study.menu.settings.cardOrder.random") },
-					],
-					this.config.cardOrder ?? "sequential",
-					(value) => {
-						this.safeCallback(() => this.callbacks.onCardOrderChange?.(value));
-					}
-				);
-			});
+			this.addLabelledRadioSubmenu(
+				menu,
+				"study.menu.settings.cardOrder.label",
+				this.getCardOrderLabel(this.config.cardOrder ?? "sequential"),
+				"arrow-up-down",
+				false,
+				[
+					{ value: "sequential", title: i18n.t("study.menu.settings.cardOrder.sequential") },
+					{ value: "random", title: i18n.t("study.menu.settings.cardOrder.random") },
+				],
+				this.config.cardOrder ?? "sequential",
+				(value) => {
+					this.safeCallback(() => this.callbacks.onCardOrderChange?.(value));
+				}
+			);
 		}
 
 		if (this.callbacks.onChoiceOptionOrderChange) {
-			menu.addItem((item) => {
-				item
-					.setTitle(
-						this.formatMenuValueLabel(
-							"study.menu.settings.choiceOptionOrder.label",
-							getChoiceOptionOrderLabel(this.config.choiceOptionOrder ?? "sequential")
-						)
-					)
-					.setIcon("list-ordered");
-				const submenu = (item as any).setSubmenu();
-				this.buildOptionSubmenu(
-					submenu,
-					[
-						{ value: "sequential", label: i18n.t("study.menu.settings.choiceOptionOrder.sequential") },
-						{ value: "random", label: i18n.t("study.menu.settings.choiceOptionOrder.random") },
-					],
-					this.config.choiceOptionOrder ?? "sequential",
-					(value) => {
-						this.safeCallback(() => this.callbacks.onChoiceOptionOrderChange?.(value));
-					}
-				);
-			});
+			this.addLabelledRadioSubmenu(
+				menu,
+				"study.menu.settings.choiceOptionOrder.label",
+				getChoiceOptionOrderLabel(this.config.choiceOptionOrder ?? "sequential"),
+				"list-ordered",
+				false,
+				[
+					{ value: "sequential", title: i18n.t("study.menu.settings.choiceOptionOrder.sequential") },
+					{ value: "random", title: i18n.t("study.menu.settings.choiceOptionOrder.random") },
+				],
+				this.config.choiceOptionOrder ?? "sequential",
+				(value) => {
+					this.safeCallback(() => this.callbacks.onChoiceOptionOrderChange?.(value));
+				}
+			);
 		}
 
 		if (this.callbacks.onRatingLabelStyleChange) {
 			const currentStyle = normalizeRatingLabelStyle(this.config.ratingLabelStyle);
-			menu.addItem((item) => {
-				item
-					.setTitle(this.formatMenuValueLabel("study.menu.settings.ratingLabelStyle", getRatingLabelStyleLabel(currentStyle, (key, params) => i18n.t(key, params))))
-					.setIcon("panel-top");
-				const submenu = (item as any).setSubmenu();
-				this.buildOptionSubmenu(
-					submenu,
-					getRatingLabelStyleOptions((key, params) => i18n.t(key, params)).map((option) => ({
-						value: option.id,
-						label: option.label,
-					})),
-					currentStyle,
-					(value) => {
-						this.safeCallback(() => this.callbacks.onRatingLabelStyleChange?.(value));
-					}
-				);
-			});
+			this.addLabelledRadioSubmenu(
+				menu,
+				"study.menu.settings.ratingLabelStyle",
+				getRatingLabelStyleLabel(currentStyle, (key, params) => i18n.t(key, params)),
+				"panel-top",
+				false,
+				getRatingLabelStyleOptions((key, params) => i18n.t(key, params)).map((option) => ({
+					value: option.id,
+					title: option.label,
+				})),
+				currentStyle,
+				(value) => {
+					this.safeCallback(() => this.callbacks.onRatingLabelStyleChange?.(value));
+				}
+			);
 		}
 
 		if (this.callbacks.onTimerAutoPauseChange) {
-			menu.addItem((item) => {
-				item
-					.setTitle(this.formatMenuValueLabel("study.menu.settings.timerAutoPause.label", this.formatTimerAutoPauseLabel(this.config.timerAutoPauseSeconds ?? 60)))
-					.setIcon("clock-3");
-				const submenu = (item as any).setSubmenu();
-				this.buildOptionSubmenu(
-					submenu,
-					[0, 30, 60, 90, 120, 180, 300].map((value) => ({
-						value,
-						label: this.formatTimerAutoPauseLabel(value),
-					})),
-					this.config.timerAutoPauseSeconds ?? 60,
-					(value) => {
-						this.safeCallback(() => this.callbacks.onTimerAutoPauseChange?.(value));
-					}
-				);
-			});
-		}
-
-		if (this.callbacks.onHintMaxUsesChange) {
-			menu.addItem((item) => {
-				item
-					.setTitle(this.formatMenuValueLabel("study.menu.settings.hintMaxUses.label", this.formatHintMaxUsesLabel(this.config.hintMaxUses ?? 5)))
-					.setIcon("lightbulb");
-				const submenu = (item as any).setSubmenu();
-				this.buildOptionSubmenu(
-					submenu,
-					[1, 3, 5, 8, 10].map((value) => ({
-						value,
-						label: this.formatHintMaxUsesLabel(value),
-					})),
-					this.config.hintMaxUses ?? 5,
-					(value) => {
-						this.safeCallback(() => this.callbacks.onHintMaxUsesChange?.(value));
-					}
-				);
-			});
+			this.addLabelledRadioSubmenu(
+				menu,
+				"study.menu.settings.timerAutoPause.label",
+				this.formatTimerAutoPauseLabel(this.config.timerAutoPauseSeconds ?? 60),
+				"clock-3",
+				false,
+				[0, 30, 60, 90, 120, 180, 300].map((value) => ({
+					value,
+					title: this.formatTimerAutoPauseLabel(value),
+				})),
+				this.config.timerAutoPauseSeconds ?? 60,
+				(value) => {
+					this.safeCallback(() => this.callbacks.onTimerAutoPauseChange?.(value));
+				}
+			);
 		}
 
 		if (this.callbacks.onDirectDeleteToggle) {
-			menu.addItem((item) => {
-				item
-					.setTitle(i18n.t("study.menu.settings.directDeleteEnabled"))
-					.setIcon("trash")
-					.setChecked(Boolean(this.config.enableDirectDelete))
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onDirectDeleteToggle?.(!this.config.enableDirectDelete));
-					});
+			addMenuToggle(menu, {
+				title: i18n.t("study.menu.settings.directDeleteEnabled"),
+				icon: "trash",
+				getChecked: () => Boolean(this.config.enableDirectDelete),
+				onSetChecked: (enabled) => {
+					this.safeCallback(() => this.callbacks.onDirectDeleteToggle?.(enabled));
+				},
 			});
 		}
 
 		if (this.callbacks.onClozeModeSwitchButtonToggle) {
-			menu.addItem((item) => {
-				item
-					.setTitle(i18n.t("study.menu.settings.showClozeModeSwitchButton"))
-					.setIcon("pilcrow")
-					.setChecked(this.config.showClozeModeSwitchButton ?? true)
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onClozeModeSwitchButtonToggle?.(!(this.config.showClozeModeSwitchButton ?? true)));
-					});
+			addMenuToggle(menu, {
+				title: i18n.t("study.menu.settings.showClozeModeSwitchButton"),
+				icon: "pilcrow",
+				getChecked: () => this.config.showClozeModeSwitchButton ?? true,
+				onSetChecked: (enabled) => {
+					this.safeCallback(() => this.callbacks.onClozeModeSwitchButtonToggle?.(enabled));
+				},
 			});
 		}
 	}
 
-	private buildOptionSubmenu<T extends string | number>(
+	private addLabelledRadioSubmenu<T extends string | number>(
 		menu: Menu,
-		options: Array<{ value: T; label: string }>,
+		labelKey: string,
+		currentLabel: string,
+		icon: string,
+		disabled: boolean,
+		choices: Array<{ value: T; title: string }>,
 		currentValue: T,
-		onSelect: (value: T) => void,
+		onSelect: (value: T) => void
 	): void {
-		options.forEach((option) => {
-			menu.addItem((item) => {
-				item
-					.setTitle(option.label)
-					.setChecked(option.value === currentValue)
-					.onClick(() => {
-						onSelect(option.value);
-					});
+		menu.addItem((item) => {
+			item
+				.setTitle(this.formatMenuValueLabel(labelKey, currentLabel))
+				.setIcon(icon)
+				.setDisabled(disabled);
+			if (disabled) {
+				return;
+			}
+
+			addMenuRadioChoices(getMenuSubmenu(item), currentValue, choices, (value) => {
+				onSelect(value);
 			});
 		});
 	}
@@ -561,24 +516,21 @@ export class StudyToolbarMenuBuilder {
 		return i18n.t("studyInterface.intervals.seconds", { n: seconds });
 	}
 
-	private formatHintMaxUsesLabel(value: number): string {
-		return i18n.t("study.menu.settings.hintMaxUses.value", { count: value });
-	}
-
 	/**
 	 * 构建优先级子菜单
 	 */
 	private buildPrioritySubmenu(menu: Menu): void {
-		getPriorityOptions().forEach((option) => {
-			menu.addItem((item) => {
-				item
-					.setTitle(`${option.icon} ${option.label}`)
-					.setChecked(this.config.currentPriority === option.value)
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onChangePriority(option.value));
-					});
-			});
-		});
+		addMenuRadioChoices(
+			menu,
+			this.config.currentPriority,
+			getPriorityOptions().map((option) => ({
+				title: `${option.icon} ${option.label}`,
+				value: option.value,
+			})),
+			(value) => {
+				this.safeCallback(() => this.callbacks.onChangePriority(value));
+			}
+		);
 	}
 
 	/**

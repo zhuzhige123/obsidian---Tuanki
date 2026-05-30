@@ -92,7 +92,8 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          name: Weave ${{ steps.version.outputs.manifest }}
+          # Obsidian review bot requires the release title to include (ideally match) manifest version.
+          name: ${{ steps.version.outputs.tag }}
           tag_name: ${{ steps.version.outputs.tag }}
           draft: false
           prerelease: false

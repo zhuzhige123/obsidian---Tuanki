@@ -6,7 +6,6 @@
 import { MAIN_SEPARATOR } from "../../constants/markdown-delimiters";
 import type { ParseResult } from "../../types/metadata-types";
 import { ParseErrorType } from "../../types/metadata-types";
-import { stripHintBlock } from "../../utils/hint-block-utils";
 import { extractBodyContent } from "../../utils/yaml-utils";
 import { CardType, MarkdownFieldsConverter } from "../MarkdownFieldsConverter";
 
@@ -33,7 +32,7 @@ export class QACardParser extends MarkdownFieldsConverter {
 		try {
 			//  v2.2: 先剥离 YAML frontmatter，只保留正文（Anki 导出不需要元数据）
 			const bodyContent = extractBodyContent(content);
-			const cleanContent = stripHintBlock(bodyContent).trim();
+			const cleanContent = bodyContent.trim();
 
 			if (!cleanContent) {
 				return this.createErrorResult(

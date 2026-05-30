@@ -2,25 +2,14 @@ import { logger } from "../utils/logger";
 import { extractBodyContent } from "../utils/yaml-utils";
 
 /**
- * 选择题解析器 - 支持Anki兼容标记 {}/{correct}/{*}
+ * 选择题解析器
  *
- * 格式示例：
- * ```
- * Q: 问题文本
- *
- * A) 选项1
- * B) 选项2 {}
- * C) 选项3
- *
- * ---div---
- *
- * 解析内容
- * ```
+ * 标准格式：题干末尾（B）/（AC）、选项 A. B. C.、可选 Answer: 行、---div--- 解析
  */
 
 type ParsedAnswer = {
 	answers: string[];
-	source: "answer_line" | "stem_parens" | "option_markers";
+	source: "answer_line" | "stem_parens";
 };
 
 function normalizeAnswerList(raw: string): string[] {
@@ -95,7 +84,7 @@ function extractExplanation(front: string, back: string): { front: string; expla
 }
 
 function isOptionStartLine(line: string): { label: string; content: string } | null {
-	const match = line.match(/^\s*([A-Z])\s*[\.．、\)\）]\s*(.*)$/);
+	const match = line.match(/^\s*([A-Z])\s*[\.．、]\s*(.*)$/);
 	if (!match) return null;
 	return { label: match[1], content: match[2] ?? "" };
 }
@@ -169,7 +158,7 @@ export function parseChoiceQuestion(markdown: string): ChoiceQuestion | null {
 		const explanationResult = extractExplanation(front, back);
 		const normalizedFront = explanationResult.front;
 
-		// 3. 解析选项（支持 A) / A. / A、 等，支持多行内容）
+		// 3. 解析选项（A. / A、 等，支持多行内容）
 		const options: ChoiceOption[] = [];
 		const frontLines = normalizedFront.split("\n");
 		const stemLines: string[] = [];
@@ -194,18 +183,10 @@ export function parseChoiceQuestion(markdown: string): ChoiceQuestion | null {
 					options.push(currentOption);
 				}
 
-				// 检测正确答案标记（旧格式兼容）
-				const hasCorrectMark = /\{(?:✓|correct|\*)\}/i.test(opt.content);
-				const cleanedContent = opt.content
-					.replace(/\{✓\}/g, "")
-					.replace(/\{correct\}/gi, "")
-					.replace(/\{\*\}/g, "")
-					.trim();
-
 				currentOption = {
 					label: opt.label,
-					content: cleanedContent,
-					isCorrect: hasCorrectMark,
+					content: opt.content.trim(),
+					isCorrect: false,
 				};
 
 				continue;
@@ -238,14 +219,10 @@ export function parseChoiceQuestion(markdown: string): ChoiceQuestion | null {
 		const stemNoPrefix = stripQuestionPrefix(stemRaw);
 		const stemParen = findStemParenAnswer(stemNoPrefix);
 
-		// 5. 提取答案（优先级：Answer: 行 > 题干末尾括号 > 选项标记）
+		// 5. 提取答案（Answer: 行 > 题干末尾括号）
 		const answerLine = findAnswerLine(cleanedMarkdown);
-		const markerAnswers = options.filter((o) => o.isCorrect).map((o) => o.label);
 
-		const answer: ParsedAnswer | null =
-			answerLine ||
-			stemParen.answer ||
-			(markerAnswers.length > 0 ? { answers: markerAnswers, source: "option_markers" } : null);
+		const answer: ParsedAnswer | null = answerLine || stemParen.answer;
 
 		//  无答案容错：如果满足选择题结构（已解析出选项 + 题干），但没有任何答案表达
 		// 仍然按选择题渲染，correctAnswers 置空，由上层 UI 提示“答案缺失”。
@@ -323,7 +300,7 @@ export function isChoiceQuestion(markdown: string): boolean {
 	// 快速检测：至少 2 个选项（无答案也算选择题，UI 将提示“答案缺失”）
 	const body = extractBodyContent(markdown);
 	const hasOptions =
-		body.split("\n").filter((l) => /^\s*[A-Z]\s*[\.．、\)\）]\s*/.test(l)).length >= 2;
+		body.split("\n").filter((l) => /^\s*[A-Z]\s*[\.．、]\s*/.test(l)).length >= 2;
 	if (!hasOptions) return false;
 
 	return true;

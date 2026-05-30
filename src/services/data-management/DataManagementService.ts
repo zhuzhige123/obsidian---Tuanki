@@ -5919,6 +5919,9 @@ export class DataManagementService {
 			if (this.plugin.deckMembershipIndexService) {
 				await this.plugin.deckMembershipIndexService.markFullRebuildRequired();
 			}
+			if (this.plugin.studyDueIndexService) {
+				await this.plugin.studyDueIndexService.markFullRebuildRequired();
+			}
 		} catch (e) {
 			result.errors.push(t("management.dataCheckService.messages.migrationConflictImportDecksFailed", { message: String(e) }));
 		}

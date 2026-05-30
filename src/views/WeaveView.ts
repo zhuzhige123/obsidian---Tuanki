@@ -10,6 +10,7 @@ import {
 	isInSidebar,
 	toggleViewLocation,
 } from "../utils/view-location-utils";
+import { resolveDeckStudyViewMode } from "../services/deck/deck-study-view-by-location";
 import {
 	type WeaveCardDataSource,
 	type WeaveCardViewType,
@@ -22,6 +23,7 @@ import {
 	type WeaveMainMenuOptions,
 	type WeavePopulateMainInterfaceMenuDetail,
 } from "../utils/weave-main-menu";
+import { emitCardManagementToolbarAction } from "../utils/card-management-toolbar-contract";
 import { weaveMainInterfaceStore } from "../stores/weave-main-interface-store";
 import { computeMobileHeaderCenterTop } from "../utils/mobile-header-center";
 import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from "../services/premium/PremiumFeatureGuard";
@@ -57,7 +59,7 @@ export class WeaveView extends ItemView {
 		isAllSelected: false,
 	};
 	private currentCardView: WeaveCardViewType = "table";
-	private currentDeckStudyView: "grid" | "kanban" = "grid";
+	private currentDeckStudyView: "kanban" = "kanban";
 	private currentDeckStudyFilter: WeaveDeckStudyFilter = "memory";
 	private currentCardDataSource: WeaveCardDataSource = "memory";
 	private cardToolbarState: {
@@ -85,11 +87,7 @@ export class WeaveView extends ItemView {
 	constructor(leaf: WorkspaceLeaf, plugin: WeavePlugin) {
 		super(leaf);
 		this.plugin = plugin;
-		const cachedDeckStudyView = plugin.getCachedDeckViewPreference() === "kanban" ? "kanban" : "grid";
-		this.currentDeckStudyView = cachedDeckStudyView === "kanban"
-			&& !PremiumFeatureGuard.getInstance().canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, DECK_STUDY_FEATURE_CONTEXT)
-			? "grid"
-			: cachedDeckStudyView;
+		this.currentDeckStudyView = resolveDeckStudyViewMode();
 	}
 
 	getViewType() {
@@ -214,14 +212,7 @@ export class WeaveView extends ItemView {
 		void this.syncMobileHeaderMode();
 
 		this.cardManagementSearchAction = this.addAction("search", i18n.t("cardManagement.search"), () => {
-			window.dispatchEvent(
-				new CustomEvent("Weave:card-management-toolbar-action", {
-					detail: {
-						action: "toggle-search",
-						anchor: this.cardManagementSearchAction,
-					},
-				})
-			);
+			emitCardManagementToolbarAction("toggle-search", this.cardManagementSearchAction);
 		});
 		this.mainInterfaceUnsubscribe = weaveMainInterfaceStore.subscribe((state) => {
 			if (this.currentPage !== state.currentPage) {
@@ -256,14 +247,8 @@ export class WeaveView extends ItemView {
 		};
 		this.deckViewChangeHandler = (event: Event) => {
 			const view = (event as CustomEvent<string>).detail;
-			if (view === "grid" || view === "kanban") {
-				this.currentDeckStudyView = view === "kanban"
-					&& !PremiumFeatureGuard.getInstance().canUseFeature(
-						PREMIUM_FEATURES.KANBAN_VIEW,
-						DECK_STUDY_FEATURE_CONTEXT
-					)
-					? "grid"
-					: view;
+			if (view === "kanban") {
+				this.currentDeckStudyView = "kanban";
 			}
 		};
 		this.deckFilterChangeHandler = (event: Event) => {

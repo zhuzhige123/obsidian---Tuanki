@@ -37,6 +37,19 @@
   import AIGenerationConfigPopover from '../ai-assistant/AIGenerationConfigPopover.svelte';
   import { AIConfigModalObsidian } from '../ai-assistant/AIConfigModalObsidian';
   import { generatedCardToPreviewItem } from '../../utils/ai-preview-items';
+  import {
+    getActiveDocumentFileName,
+    getSharedActiveDocumentResolver,
+    resolveCurrentActiveDocument,
+  } from '../../utils/active-document-resolver';
+  import type { CardStagingStudyMode } from '../../types/card-staging-types';
+  import { filterPreviewItemsForStudyMode } from '../../services/ai/card-staging-card-builder';
+  import {
+    resolveDefaultStagingQuestionBank,
+    resolveStagingMemoryDeck,
+  } from '../../services/ai/card-staging-target-resolver';
+  import { tr } from '../../utils/i18n';
+  import CardStagingStudyShell from '../ai-assistant/CardStagingStudyShell.svelte';
 
   interface Props {
     plugin: WeavePlugin;
@@ -70,6 +83,11 @@
     subView: AIAssistantSubView;
     selectedFileName: string;
     selectedFilePath: string;
+    activeDocumentPath: string;
+    activeDocumentName: string;
+    followActiveDocument: boolean;
+    stagingStudyMode: CardStagingStudyMode;
+    canStartStaging: boolean;
     promptFileName: string;
     promptFilePath: string;
     modelLabel: string;
@@ -85,6 +103,7 @@
 
   let { plugin, dataStorage, fsrs }: Props = $props();
 
+  let t = $derived($tr);
   let pageEl = $state<HTMLDivElement | null>(null);
   let historyEl = $state<HTMLDivElement | null>(null);
 
@@ -100,6 +119,13 @@
   let isGenerating = $state(false);
   let isParsing = $state(false);
   let generationProgress = $state<GenerationProgress | null>(null);
+
+  let followActiveDocument = $state(true);
+  let stagingStudyMode = $state<CardStagingStudyMode>('memory');
+  let previewViewMode = $state<'preview' | 'study'>('preview');
+  let activeDocumentPath = $state<string | null>(null);
+  let inlineStagingSessionId = $state<string | null>(null);
+  const activeDocumentResolver = getSharedActiveDocumentResolver();
 
   let historyOpen = $state(false);
   let historyAnchor = $state<AnchorRect | null>(null);
@@ -277,6 +303,9 @@
       lastSelectedSourceFilePath: selectedFile?.path,
       lastSelectedPromptFilePath: selectedPromptFile?.path,
       lastSelectedParsePresetId: selectedParsePreset?.id || selectedParsePreset?.name,
+      followActiveDocument,
+      stagingStudyMode,
+      previewViewMode,
       savedGenerationConfig: {
         cardCount: normalizedConfig.cardCount,
         difficulty: normalizedConfig.difficulty,
@@ -314,8 +343,109 @@
 
   async function selectSourceFile(file: ObsidianFileInfo) {
     selectedFile = file;
+    followActiveDocument = false;
     content = await plugin.app.vault.read(file.file);
     await persistPreferences();
+    syncToolbarState();
+  }
+
+  async function bindActiveDocument(path: string | null) {
+    activeDocumentPath = path;
+
+    if (!path || !followActiveDocument) {
+      syncToolbarState();
+      return;
+    }
+
+    const file = await findFile(path);
+    if (!file) {
+      syncToolbarState();
+      return;
+    }
+
+    selectedFile = file;
+    content = await plugin.app.vault.read(file.file);
+    await persistPreferences();
+    syncToolbarState();
+  }
+
+  async function toggleFollowActiveDocument() {
+    followActiveDocument = !followActiveDocument;
+    if (followActiveDocument) {
+      await bindActiveDocument(resolveCurrentActiveDocument(plugin.app, plugin.app.workspace.activeLeaf));
+    }
+    await persistPreferences();
+    syncToolbarState();
+  }
+
+  async function resolveTargetMemoryDeckForStaging(): Promise<{ id: string; name: string } | null> {
+    return resolveStagingMemoryDeck(dataStorage, generationConfig.targetDeck);
+  }
+
+  async function resolveTargetQuestionBankForStaging(
+    memoryDeckId?: string
+  ): Promise<{ id: string; name: string } | null> {
+    return resolveDefaultStagingQuestionBank(plugin, memoryDeckId);
+  }
+
+  async function startStagingStudy(openInTab = true, mode?: CardStagingStudyMode) {
+    if (generatedItems.length === 0) {
+      new Notice(t('aiAssistant.staging.generateCardsFirst'));
+      return;
+    }
+
+    const targetDeck = await resolveTargetMemoryDeckForStaging();
+    if (!targetDeck) {
+      new Notice(t('aiAssistant.staging.createMemoryDeckFirst'));
+      return;
+    }
+
+    const studyMode = mode ?? stagingStudyMode;
+    if (mode && mode !== stagingStudyMode) {
+      stagingStudyMode = mode;
+      await persistPreferences();
+      syncToolbarState();
+    }
+
+    const filtered = filterPreviewItemsForStudyMode(generatedItems, studyMode);
+    if (filtered.length === 0) {
+      new Notice(
+        studyMode === 'exam'
+          ? t('aiAssistant.staging.noExamChoiceCards')
+          : t('aiAssistant.staging.noMemoryStudyCards')
+      );
+      return;
+    }
+
+    const targetQuestionBank =
+      studyMode === 'exam' ? await resolveTargetQuestionBankForStaging(targetDeck.id) : null;
+
+    const sessionId = await plugin.openCardStagingSession({
+      sourceFilePath: selectedFile?.path ?? activeDocumentPath,
+      sourceFileName: selectedFile?.name || getActiveDocumentFileName(activeDocumentPath) || '未命名内容',
+      studyMode,
+      targetDeckId: targetDeck.id,
+      targetDeckName: targetDeck.name,
+      targetQuestionBankId: targetQuestionBank?.id,
+      targetQuestionBankName: targetQuestionBank?.name,
+      generationConfig,
+      importAutoTags: plugin.getAIAssistantPreferences().importAutoTags,
+      items: generatedItems,
+      viewMode: 'study',
+      openInTab,
+    });
+
+    if (!sessionId) {
+      return;
+    }
+
+    if (openInTab) {
+      previewViewMode = 'preview';
+      inlineStagingSessionId = null;
+    } else {
+      inlineStagingSessionId = sessionId;
+      previewViewMode = 'study';
+    }
     syncToolbarState();
   }
 
@@ -664,11 +794,17 @@
 
   function createAIToolbarStateDetail(): AIToolbarStateDetail {
     const modelLabel = getModelDisplayLabel();
+    const activeName = getActiveDocumentFileName(activeDocumentPath);
 
     return {
       subView,
       selectedFileName: selectedFile?.name ?? '',
       selectedFilePath: selectedFile?.path ?? '',
+      activeDocumentPath: activeDocumentPath ?? '',
+      activeDocumentName: activeName,
+      followActiveDocument,
+      stagingStudyMode,
+      canStartStaging: generatedItems.length > 0 && !isGenerating,
       promptFileName: selectedPromptFile?.name ?? '',
       promptFilePath: selectedPromptFile?.path ?? '',
       modelLabel,
@@ -710,6 +846,18 @@
       if (detail.action === 'parse-template') openParsePresetMenu(detail);
       if (detail.action === 'generate' && !isGenerating) void handleGenerate();
       if (detail.action === 'parse' && !isParsing) void handleParse();
+      if (detail.action === 'toggle-follow-document') void toggleFollowActiveDocument();
+      if (detail.action === 'start-staging') void startStagingStudy(true);
+      if (detail.action === 'toggle-preview-view') {
+        previewViewMode = previewViewMode === 'preview' ? 'study' : 'preview';
+        if (previewViewMode === 'study') {
+          void startStagingStudy(false);
+        } else {
+          inlineStagingSessionId = null;
+        }
+        void persistPreferences();
+        syncToolbarState();
+      }
       if (detail.action === 'sub-view') {
         const nextSubView = detail.value === 'parse-preview' ? 'parse-preview' : 'generate';
         if (subView !== nextSubView) {
@@ -751,11 +899,26 @@
     window.addEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
     window.addEventListener('Weave:ai-user-prompt-files-changed', handleUserPromptFilesChanged as EventListener);
 
+    const updateActiveDocument = () => {
+      const nextPath = activeDocumentResolver.resolve(
+        plugin.app,
+        plugin.app.workspace.activeLeaf
+      );
+      void bindActiveDocument(nextPath);
+    };
+
+    updateActiveDocument();
+    plugin.app.workspace.on('active-leaf-change', updateActiveDocument);
+    plugin.app.workspace.on('file-open', updateActiveDocument);
+
     void (async () => {
       generationHistory = plugin.getAIGenerationHistory().slice(0, 5) as HistoryEntry[];
       lastGenerationHistorySignature = JSON.stringify(generationHistory);
       const preferences = plugin.getAIAssistantPreferences();
       subView = preferences.subView ?? 'generate';
+      followActiveDocument = preferences.followActiveDocument ?? true;
+      stagingStudyMode = preferences.stagingStudyMode ?? 'memory';
+      previewViewMode = preferences.previewViewMode ?? 'preview';
       selectedFile = await findFile(preferences.lastSelectedSourceFilePath);
       selectedPromptFile = findUserPromptFile(preferences.lastSelectedPromptFilePath);
 
@@ -767,7 +930,12 @@
         new Notice('\u6700\u8fd1\u9009\u62e9\u7684\u63d0\u793a\u8bcd\u6587\u4ef6\u4e0d\u5b58\u5728\uff0c\u5df2\u6e05\u7a7a');
       }
 
-      if (selectedFile) {
+      if (followActiveDocument) {
+        const activePath = resolveCurrentActiveDocument(plugin.app, plugin.app.workspace.activeLeaf);
+        if (activePath) {
+          await bindActiveDocument(activePath);
+        }
+      } else if (selectedFile) {
         content = await plugin.app.vault.read(selectedFile.file);
       }
 
@@ -785,6 +953,8 @@
     })();
 
     return () => {
+      plugin.app.workspace.off('active-leaf-change', updateActiveDocument);
+      plugin.app.workspace.off('file-open', updateActiveDocument);
       window.removeEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
       window.removeEventListener('Weave:ai-user-prompt-files-changed', handleUserPromptFilesChanged as EventListener);
     };
@@ -825,6 +995,19 @@
   />
 
   {#if subView === 'generate'}
+    {#if previewViewMode === 'study' && inlineStagingSessionId}
+      <CardStagingStudyShell
+        {plugin}
+        {dataStorage}
+        {fsrs}
+        sessionId={inlineStagingSessionId}
+        onClose={() => {
+          inlineStagingSessionId = null;
+          previewViewMode = 'preview';
+          syncToolbarState();
+        }}
+      />
+    {:else}
     <AICardPreviewWorkspace
       {plugin}
       items={generatedItems}
@@ -833,8 +1016,11 @@
       progress={generationProgress}
       totalCards={generationConfig.maxGenerationLimit ?? generationConfig.cardCount}
       mode="split"
+      canStartStaging={generatedItems.length > 0 && !isGenerating}
+      onStartStaging={(mode) => void startStagingStudy(true, mode)}
       onImport={importCards}
     />
+    {/if}
   {:else}
     <AIParsePreviewWorkspace
       {plugin}

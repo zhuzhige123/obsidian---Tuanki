@@ -2672,7 +2672,6 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				dissolveDeck: "解散牌组",
 				edit: "编辑",
 				editDeck: "编辑牌组",
-				knowledgeGraph: "知识图谱",
 				linkQuestionBank: "关联考试题组",
 			},
 			tagGroupCreator: {
@@ -2717,12 +2716,73 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				close: "关闭",
 				infoTitle: "此功能需要激活许可证",
 				infoSubtitle: "激活后即可解锁所有高级功能",
+				tabs: {
+					basic: "基础使用",
+					premium: "高级支持",
+				},
+				basicBenefitsTitle: "无需激活，基础版已包含：",
 				benefitsTitle: "激活高级版后，您将解锁：",
 				purchaseHint: "还没有激活码？",
 				getActivationCode: "获取激活码",
+				purchaseLink: "获取永久授权激活码",
 				fallbackName: "高级功能",
 				fallbackDescription: "此功能需要激活许可证",
 				features: {
+					"fsrs-study": {
+						name: "FSRS 记忆学习",
+						description: "基于 FSRS 算法的间隔复习、牌组学习与学习统计",
+					},
+					"table-view": {
+						name: "表格视图",
+						description: "以表格管理卡片与牌组，支持筛选、排序与批量操作",
+					},
+					"obsidian-card-editing": {
+						name: "Obsidian 原生卡片编辑",
+						description: "在 Obsidian 编辑器中直接编辑卡片，支持 Markdown 与所见即所得体验",
+					},
+					"fill-input-mode": {
+						name: "填空题输入模式",
+						description: "学习填空题时在输入框作答，支持即时判分与继续学习",
+					},
+					"ai-card-creation": {
+						name: "AI 制卡",
+						description: "使用 AI 辅助生成、整理与拆分记忆卡片（需自备 API）",
+					},
+					"parse-preview-import": {
+						name: "解析预览导入",
+						description: "预览 AI 或文本解析结果后再确认导入，避免误导入",
+					},
+					"ai-assistant": { name: "AI 智能助手", description: "AI 工作台与辅助制卡入口（需自备 API）" },
+					"view-source": { name: "学习溯源", description: "快速查看卡片来源笔记与上下文" },
+					"deck-analytics-retention": {
+						name: "记忆率曲线",
+						description: "查看牌组记忆率与回忆表现趋势",
+					},
+					"csv-import": { name: "CSV 导入", description: "通过 CSV 文件批量导入卡片" },
+					"anki-connect-sync": {
+						name: "Anki Connect 同步",
+						description: "与 Anki 桌面端双向同步卡片与复习进度",
+					},
+					"apkg-import": {
+						name: "旧版 APKG 导入",
+						description: "导入 Anki .apkg 包，迁移历史牌组与卡片",
+					},
+					"deck-view-embed": {
+						name: "Markdown 牌组视图",
+						description: "在笔记中插入 weave-decks 代码块，嵌入可配置的牌组视图",
+					},
+					"active-document-filter": {
+						name: "当前文档筛选",
+						description: "按当前活动笔记筛选关联卡片，聚焦当前阅读上下文",
+					},
+					"related-cards": {
+						name: "关联卡片",
+						description: "查看与筛选同源、同笔记或彼此关联的卡片网络",
+					},
+					"image-mask": {
+						name: "图片遮罩",
+						description: "在图片上绘制遮罩区域，制作图像挖空与遮盖练习",
+					},
 					"grid-view": { name: "网格视图", description: "以卡片网格形式展示，让管理更直观" },
 					"kanban-view": { name: "看板视图", description: "看板式管理，按状态分类显示" },
 					"timeline-view": { name: "时间线视图", description: "按时间线浏览卡片，快速回看内容脉络" },
@@ -2731,6 +2791,7 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 					"question-bank": { name: "题库系统", description: "专业的题库考试功能，支持考试、小测验等多种模式" },
 					"incremental-reading": { name: "渐进性阅读", description: "支持增量阅读工作流" },
 					"emergent-decks": { name: "涌现牌组", description: "基于标签与规则自动组织涌现牌组视图" },
+					"batch-parsing": { name: "批量解析系统", description: "自动解析文档中的卡片，支持文件夹映射和智能触发" },
 					"deck-analytics": { name: "牌组分析", description: "详细的牌组学习数据分析、记忆曲线和负荷预测" },
 					"progressive-cloze": { name: "渐进式挖空", description: "智能渐进式挖空学习，逐步掌握复杂知识点" },
 				},
@@ -3159,7 +3220,6 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				dissolveDeck: "Dissolve deck",
 				edit: "Edit",
 				editDeck: "Edit deck",
-				knowledgeGraph: "Knowledge graph",
 				linkQuestionBank: "Pair exam set",
 			},
 			tagGroupCreator: {
@@ -3206,12 +3266,79 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				close: "Close",
 				infoTitle: "This feature requires activation",
 				infoSubtitle: "Activate once to unlock all premium features",
+				tabs: {
+					basic: "Basic",
+					premium: "Premium",
+				},
+				basicBenefitsTitle: "Included in the free tier (no activation required):",
 				benefitsTitle: "After activation, you will unlock:",
 				purchaseHint: "Don't have an activation code yet?",
 				getActivationCode: "Get activation code",
+				purchaseLink: "Get lifetime activation code",
 				fallbackName: "Premium feature",
 				fallbackDescription: "This feature requires activation",
 				features: {
+					"fsrs-study": {
+						name: "FSRS study",
+						description: "Spaced repetition, deck study, and learning stats powered by FSRS",
+					},
+					"table-view": {
+						name: "Table view",
+						description: "Manage cards and decks in a table with filtering, sorting, and batch actions",
+					},
+					"obsidian-card-editing": {
+						name: "Native Obsidian card editing",
+						description: "Edit cards directly in Obsidian with Markdown and WYSIWYG workflows",
+					},
+					"fill-input-mode": {
+						name: "Fill-in-the-blank input mode",
+						description: "Answer cloze cards in an input field with instant feedback while studying",
+					},
+					"ai-card-creation": {
+						name: "AI card creation",
+						description: "Generate, organize, and split memory cards with AI (bring your own API)",
+					},
+					"parse-preview-import": {
+						name: "Parse preview import",
+						description: "Preview AI or text parsing results before importing to avoid mistakes",
+					},
+					"ai-assistant": {
+						name: "AI assistant",
+						description: "AI workspace and assisted card-creation entry (bring your own API)",
+					},
+					"view-source": {
+						name: "Source navigation",
+						description: "Jump to source notes and surrounding context while studying",
+					},
+					"deck-analytics-retention": {
+						name: "Retention curve",
+						description: "Track retention and recall trends for a deck",
+					},
+					"csv-import": { name: "CSV import", description: "Import cards in bulk from CSV files" },
+					"anki-connect-sync": {
+						name: "Anki Connect sync",
+						description: "Two-way sync cards and review progress with Anki Desktop",
+					},
+					"apkg-import": {
+						name: "Legacy APKG import",
+						description: "Import Anki .apkg packages to migrate existing decks and cards",
+					},
+					"deck-view-embed": {
+						name: "Markdown deck view embed",
+						description: "Insert weave-decks code blocks in notes to embed configurable deck views",
+					},
+					"active-document-filter": {
+						name: "Active document filter",
+						description: "Filter cards linked to the currently active note for focused reading context",
+					},
+					"related-cards": {
+						name: "Related cards",
+						description: "Browse and filter cards linked by source notes or card relationships",
+					},
+					"image-mask": {
+						name: "Image masking",
+						description: "Draw mask regions on images for image cloze and occlusion practice",
+					},
 					"grid-view": { name: "Grid view", description: "Display decks as cards in a clean grid for faster management" },
 					"kanban-view": { name: "Kanban view", description: "Manage decks in grouped columns by status" },
 					"timeline-view": { name: "Timeline view", description: "Browse cards chronologically and review learning context quickly" },
@@ -3220,6 +3347,7 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 					"question-bank": { name: "Question bank", description: "Exam-oriented question bank with tests and quizzes" },
 					"incremental-reading": { name: "Incremental reading", description: "Support an incremental-reading workflow" },
 					"emergent-decks": { name: "Emergent decks", description: "Auto-organize emergent deck views from tags and rules" },
+					"batch-parsing": { name: "Batch parsing", description: "Auto-parse cards from documents with folder mapping and smart triggers" },
 					"deck-analytics": { name: "Deck analytics", description: "Detailed deck analytics, retention curves, and workload forecast" },
 					"progressive-cloze": { name: "Progressive cloze", description: "Learn complex knowledge progressively with staged cloze steps" },
 				},

@@ -111,7 +111,6 @@
       {
         advanceStudy: '提前学习',
         deckAnalytics: '牌组分析',
-        knowledgeGraph: '牌组知识图谱',
         editDeck: '编辑',
         deleteDeck: '删除',
         dissolveDeck: '解散牌组'
@@ -119,7 +118,6 @@
       {
         onAdvanceStudy: async () => await dispatchDeckMenuAction('advance-study', item.deck.id),
         onOpenDeckAnalytics: async () => await dispatchDeckMenuAction('deck-analytics', item.deck.id),
-        onOpenKnowledgeGraph: async () => await dispatchDeckMenuAction('knowledge-graph', item.deck.id),
         onEditDeck: async () => await dispatchDeckMenuAction('edit-deck', item.deck.id),
         onDeleteDeck: async () => await dispatchDeckMenuAction('delete-deck', item.deck.id),
         onDissolveDeck: async () => await dispatchDeckMenuAction('dissolve-deck', item.deck.id)

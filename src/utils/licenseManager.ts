@@ -776,15 +776,87 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 				return { ok: true };
 			}
 
+			const reconciled = await this.reconcileCloudDeviceRegistration(
+				licenseInfo,
+				currentFingerprint,
+				vaultId,
+				warnings
+			);
+			if (reconciled.ok) {
+				return { ok: true };
+			}
+
 			return {
 				ok: false,
-				error: cloudResult.error || "云端验证失败，此设备可能已被其他设备挤占，请重新激活",
+				error:
+					reconciled.error ||
+					cloudResult.error ||
+					"云端验证失败，此设备可能已被其他设备挤占，请重新激活",
 			};
 		} catch (error) {
 			logger.error("云端验证错误:", error);
 			return {
 				ok: false,
 				error: error instanceof Error ? error.message : "云端验证异常",
+			};
+		}
+	}
+
+	/**
+	 * 云端已有邮箱绑定但本机指纹未登记时，静默重新登记当前设备（常见于指纹算法升级或安装 ID 首次生成）。
+	 */
+	private async reconcileCloudDeviceRegistration(
+		licenseInfo: LicenseInfo,
+		currentFingerprint: string,
+		vaultId: string,
+		warnings: string[]
+	): Promise<{ ok: boolean; error?: string }> {
+		if (!licenseInfo.boundEmail || !licenseInfo.activationCode) {
+			return { ok: false };
+		}
+
+		try {
+			const cloudResult = await this.cloudValidator.activate(
+				licenseInfo.activationCode,
+				currentFingerprint,
+				licenseInfo.boundEmail,
+				getRuntimePlatformLabel(),
+				vaultId
+			);
+
+			if (!cloudResult.success) {
+				return {
+					ok: false,
+					error: cloudResult.error || "云端设备登记失败",
+				};
+			}
+
+			const nowIso = new Date().toISOString();
+			licenseInfo.deviceFingerprint = currentFingerprint;
+			licenseInfo.fingerprintVersion = DEVICE_FINGERPRINT_VERSION;
+			licenseInfo.cloudSync = {
+				status: "synced",
+				syncedAt: licenseInfo.cloudSync?.syncedAt || nowIso,
+				lastValidatedAt: nowIso,
+				devicesUsed: cloudResult.devices_count ?? licenseInfo.cloudSync?.devicesUsed,
+				devicesMax: normalizeLicenseMaxDevices(
+					cloudResult.max_devices ?? licenseInfo.cloudSync?.devicesMax ?? licenseInfo.maxDevices
+				),
+			};
+
+			if (cloudResult.replaced_old_device) {
+				warnings.push("本机设备指纹已更新，已自动在云端重新登记（并可能替换最久未使用的设备）");
+			} else {
+				warnings.push("本机设备指纹已更新，已自动在云端重新登记");
+			}
+
+			logger.info("许可证云端设备已自动重新登记");
+			return { ok: true };
+		} catch (error) {
+			logger.error("云端设备重新登记失败:", error);
+			return {
+				ok: false,
+				error: error instanceof Error ? error.message : "云端设备重新登记失败",
 			};
 		}
 	}

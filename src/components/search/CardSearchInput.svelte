@@ -825,7 +825,7 @@
     class="card-search-floating-menu"
   >
     {#snippet children()}
-      <div class="search-dropdown" style={getDropdownStyle()}>
+      <div class="search-dropdown weave-card-search-dropdown-panel" style={getDropdownStyle()}>
         <div class="dropdown-section">
           <div class="dropdown-section-header">{t('management.cardSearch.searchOptions')}</div>
           {#each dataSourceOptions as opt}
@@ -893,7 +893,7 @@
     class="card-search-floating-menu"
   >
     {#snippet children()}
-      <div class="search-dropdown search-suggestion-panel" style={getDropdownStyle()}>
+      <div class="search-dropdown search-suggestion-panel weave-card-search-dropdown-panel" style={getDropdownStyle()}>
         <div class="dropdown-section">
           <div class="dropdown-section-header">{getSuggestionPanelTitle()}</div>
           <div class="suggestion-search-box">
@@ -1039,34 +1039,7 @@
     color: var(--text-normal);
   }
 
-  .search-dropdown {
-    background: var(--modal-background, var(--background-primary));
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 8px;
-    box-shadow: var(--shadow-l, 0 8px 24px rgba(0, 0, 0, 0.16));
-    max-width: calc(100vw - 16px);
-    max-height: min(360px, calc(100vh - 16px));
-    overflow-y: auto;
-    animation: dropdownFadeIn 0.15s ease;
-  }
-
-  :global(body > .floating-menu.card-search-floating-menu) {
-    min-width: 0;
-    max-width: none;
-    padding: 0;
-    border: none;
-    background: transparent;
-    box-shadow: none;
-    backdrop-filter: none;
-    overflow: visible;
-    animation: none;
-    z-index: var(--weave-z-dropdown, 1600);
-  }
-
-  @keyframes dropdownFadeIn {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+  /* portal 面板实底见 src/styles/card-search-portal.css */
 
   .dropdown-section {
     padding: 4px 0;
@@ -1132,12 +1105,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .search-suggestion-panel {
-    border-radius: 16px;
-    max-height: min(420px, calc(100vh - 16px));
-    padding: 6px 0;
   }
 
   .dropdown-item--multiline {

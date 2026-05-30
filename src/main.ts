@@ -28,13 +28,18 @@ import type { EmbeddableEditorManager } from "./services/editor/EmbeddableEditor
 import type { EffectiveLicenseState, LicenseInfo, LicensedProduct } from "./types/license";
 import { DEFAULT_LICENSE_INFO, DEFAULT_LICENSE_STORE } from "./types/license";
 import type { CreateCardOptions } from "./types/modal-types";
-import { focusManager } from "./utils/focus-manager"; // 导入焦点管理器以启用全局监控
+import type { CreateCardStagingSessionParams } from "./types/card-staging-types";
+import {
+	getCardStagingSessionService,
+} from "./services/ai/CardStagingSessionService";
+import { filterPreviewItemsForStudyMode } from "./services/ai/card-staging-card-builder";
 import { licenseManager } from "./utils/licenseManager";
 import { initMediaDebug } from "./utils/mediaDebugHelper";
 import { createSafeNotice, safeOpenSettings } from "./utils/obsidian-api-safe";
 import type { SafeNotice } from "./utils/obsidian-api-safe";
 import { IR_RUNTIME } from "./services/incremental-reading/ir-runtime";
 import { QuestionBankView, VIEW_TYPE_QUESTION_BANK } from "./views/QuestionBankView"; // 考试学习视图
+import { CardStagingView, VIEW_TYPE_CARD_STAGING, openCardStagingView } from "./views/CardStagingView";
 import { StudyView, VIEW_TYPE_STUDY } from "./views/StudyView";
 import { VIEW_TYPE_WDECK, WDeckView } from "./views/WDeckView";
 import { VIEW_TYPE_WEAVE, WeaveView } from "./views/WeaveView";
@@ -198,6 +203,7 @@ import {
 import { IRStorageService } from "./services/incremental-reading/IRStorageService";
 import { getCanvasTextCandidatesFromText } from "./services/ui/canvas-source-locate";
 import { getWeaveOperationsSubmenu } from "./services/menu/WeaveContextMenuBuilder";
+import { addMenuSubmenuGroup } from "./utils/obsidian-menu";
 import { createDefaultChunkFileData, generateChunkId, generateSourceId } from "./types/ir-types";
 import { showObsidianConfirm } from "./utils/obsidian-confirm";
 import { extractAllTags } from "./utils/yaml-utils";
@@ -478,6 +484,9 @@ export interface WeaveSettings extends SettingsWithEditor {
 
 	// 
 	mainInterfaceOpenLocation?: "content" | "sidebar";
+
+	/** 根据主界面所在位置自动切换牌组学习视图（侧边栏=网格，主区域=看板） */
+	deckStudyAutoViewByLocationEnabled?: boolean;
 
 	// 
 	simplifiedParsing?: import("./types/newCardParsingTypes").SimplifiedParsingSettings;
@@ -776,6 +785,8 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 
 	// 
 	mainInterfaceOpenLocation: "content",
+
+	deckStudyAutoViewByLocationEnabled: true,
 
 	// 
 	queueOptimization: {
@@ -1133,6 +1144,7 @@ export class WeavePlugin extends Plugin {
 	externalSyncWatcher?: ExternalSyncWatcher; // 
 	cardWeDecksPropertySyncService?: import("./services/card/CardWeDecksPropertySyncService").CardWeDecksPropertySyncService;
 	deckMembershipIndexService?: import("./services/index/DeckMembershipIndexService").DeckMembershipIndexService;
+	studyDueIndexService?: import("./services/index/StudyDueIndexService").StudyDueIndexService;
 
 	// 
 	deckNameMapper?: import("./services/DeckNameMapper").DeckNameMapper;
@@ -1155,7 +1167,7 @@ export class WeavePlugin extends Plugin {
 
 	// 
 	public directFileReader!: DirectFileCardReader;
-	public cardIndexService!: CardIndexService;
+	public cardIndexService?: CardIndexService;
 	private readonly supportedImageMaskExtensions = new Set([
 		"png",
 		"jpg",
@@ -2037,12 +2049,13 @@ export class WeavePlugin extends Plugin {
 				let needsSave = false;
 				let firstError: string | undefined;
 				for (const license of this.getLocalLicenses()) {
+					const licenseSnapshot = JSON.stringify(license);
 					const result = await licenseManager.validateCurrentLicense(license, {
 						targetProduct: this.getLicensedProductId(),
 					});
 					if (result.isValid) {
 						hasValidLicense = true;
-						if (result.warnings?.includes("设备指纹已自动更新到新版本")) {
+						if (JSON.stringify(license) !== licenseSnapshot) {
 							needsSave = true;
 						}
 						continue;
@@ -2119,11 +2132,15 @@ export class WeavePlugin extends Plugin {
 				let needsSave = false;
 				let firstError: string | undefined;
 				for (const license of this.getLocalLicenses()) {
+					const licenseSnapshot = JSON.stringify(license);
 					const result = await licenseManager.validateCurrentLicense(license, {
 						targetProduct: this.getLicensedProductId(),
 					});
 					if (result.isValid) {
 						hasValidLicense = true;
+						if (JSON.stringify(license) !== licenseSnapshot) {
+							needsSave = true;
+						}
 						continue;
 					}
 					firstError ??= result.error;
@@ -2134,7 +2151,7 @@ export class WeavePlugin extends Plugin {
 					return false;
 				}
 
-				// 验证成功，保存更新的验证时间
+				// 验证成功，保存更新的验证时间或云端设备登记结果
 				if (needsSave) {
 					await this.saveSettings();
 				}
@@ -2269,7 +2286,7 @@ export class WeavePlugin extends Plugin {
 			await this.dataStorage.initialize();
 			logger.info("✅ 数据存储初始化完成");
 			void this.dataStorage.promptCreateFirstDeckIfNeeded();
-			await this.refreshCardSourceTrackingOnStartup();
+			void this.refreshCardSourceTrackingOnStartup();
 
 			// 尽早初始化统一清理服务，避免删卡早于 deferred 初始化时漏掉源文档清理
 			this.initializeBlockLinkCleanupService();
@@ -2319,6 +2336,29 @@ export class WeavePlugin extends Plugin {
 		const { CardRelationService } = await import("./services/relation");
 		this.cardRelationService = new CardRelationService(this.dataStorage);
 		logger.debug("[Services] 卡片关系服务初始化完成");
+
+		// 牌组成员持久化索引（deckId → cardUUIDs，避免按牌组查询时全库扫描）
+		try {
+			const { initDeckMembershipIndexService } = await import(
+				"./services/index/DeckMembershipIndexService"
+			);
+			this.deckMembershipIndexService = initDeckMembershipIndexService(this);
+			await this.deckMembershipIndexService.initialize();
+			logger.debug("[Services] DeckMembershipIndexService 已初始化");
+		} catch (error) {
+			logger.error("[Services] DeckMembershipIndexService 初始化失败:", error);
+		}
+
+		try {
+			const { initStudyDueIndexService } = await import("./services/index/StudyDueIndexService");
+			this.studyDueIndexService = initStudyDueIndexService(this);
+			await this.studyDueIndexService.initialize();
+			logger.debug("[Services] StudyDueIndexService 已初始化");
+		} catch (error) {
+			logger.error("[Services] StudyDueIndexService 初始化失败:", error);
+		}
+
+		void this.rebuildStudyIndicesInBackground();
 
 		const coreServicesTime = Date.now() - startTime;
 		logger.debug(`[Services] 核心服务初始化完成: ${coreServicesTime}ms`);
@@ -2606,19 +2646,21 @@ export class WeavePlugin extends Plugin {
 			logger.warn("⚠️ 渐进式缓存初始化失败（不影响功能）:", error);
 		}
 
-		// 14. 🚀 高性能卡片索引服务初始化CardIndexService（卡片反向索引服务）
-		logger.debug("初始化CardIndexService...");
-		try {
-			this.cardIndexService = new CardIndexService(this.app.vault, v2Paths.root);
-
-			// 异步构建索引（不阻塞启动）
-			this.cardIndexService.initialize().catch((_error) => {
-				logger.error("CardIndexService索引构建失败:", _error);
-			});
-
-			logger.info("✅ CardIndexService初始化完成");
-		} catch (error) {
-			logger.error("CardIndexService初始化失败:", error);
+		// 14. 旧版 deck JSON 反向索引（仅 legacy 存储存在时构建，避免与 WDeck 重复全库扫描）
+		const shouldInitLegacyCardIndex = await this.shouldInitializeLegacyCardIndex();
+		if (shouldInitLegacyCardIndex) {
+			logger.debug("初始化 CardIndexService（legacy）...");
+			try {
+				this.cardIndexService = new CardIndexService(this.app.vault, v2Paths.root);
+				this.cardIndexService.initialize().catch((_error) => {
+					logger.error("CardIndexService索引构建失败:", _error);
+				});
+				logger.info("✅ CardIndexService 已启动（legacy）");
+			} catch (error) {
+				logger.error("CardIndexService初始化失败:", error);
+			}
+		} else {
+			logger.debug("跳过 CardIndexService：当前库以 .wdeck 为主，无需 legacy 全量索引");
 		}
 
 		// ✅ 视图注册已移至 onload() 同步部分，确保在 workspace 恢复前注册
@@ -2746,6 +2788,52 @@ export class WeavePlugin extends Plugin {
 	 * 🆕 v2.3: 后台异步预热热门牌组的卡片
 	 * 识别最近学习的牌组，异步预热其卡片到元数据缓存
 	 */
+	private async shouldInitializeLegacyCardIndex(): Promise<boolean> {
+		if (this.wdeckService) {
+			try {
+				if (await this.wdeckService.hasAnyDeckFileArtifacts()) {
+					return false;
+				}
+			} catch (error) {
+				logger.warn("[Services] 检测 .wdeck 存在性失败，将回退 legacy 索引判断", error);
+			}
+		}
+
+		if (!this.dataStorage) {
+			return true;
+		}
+
+		try {
+			return await this.dataStorage.hasLegacyMemoryStorage();
+		} catch {
+			return true;
+		}
+	}
+
+	private async rebuildStudyIndicesInBackground(): Promise<void> {
+		if (!this.dataStorage || !this.studyDueIndexService) {
+			return;
+		}
+
+		try {
+			const summaries = this.wdeckService
+				? await this.wdeckService.getAllDeckSummaries()
+				: [];
+			const totalCards = summaries.reduce((sum, item) => sum + (item.cardUUIDs?.length || 0), 0);
+			if (totalCards === 0) {
+				return;
+			}
+
+			const decks = await this.dataStorage.getDecks();
+			const deckLookups = decks.map((deck) => ({ id: deck.id, name: deck.name }));
+			const allCards = await this.dataStorage.getAllCards();
+			await this.studyDueIndexService.ensureReady(allCards, deckLookups);
+			logger.info(`[StudyDueIndex] 后台索引已就绪（${allCards.length} 张卡片）`);
+		} catch (error) {
+			logger.warn("[StudyDueIndex] 后台重建索引失败（不影响启动）", error);
+		}
+	}
+
 	private async prefetchHotDeckCardsAsync(): Promise<void> {
 		if (!this.cardMetadataCache || !this.dataStorage) {
 			return;
@@ -2918,6 +3006,18 @@ export class WeavePlugin extends Plugin {
 	private async initBatchParsingWatcher(): Promise<void> {
 		if (!this.settings.simplifiedParsing) {
 			logger.warn("[Plugin] simplifiedParsing 配置未初始化");
+			return;
+		}
+
+		if (!PremiumFeatureGuard.getInstance().canUseFeature(PREMIUM_FEATURES.BATCH_PARSING)) {
+			try {
+				this.batchParsingWatcher?.destroy();
+			} catch {}
+			this.batchParsingWatcher = undefined;
+			try {
+				this.batchParsingManager?.destroy();
+			} catch {}
+			this.batchParsingManager = undefined;
 			return;
 		}
 
@@ -3189,13 +3289,24 @@ export class WeavePlugin extends Plugin {
 			name: "批量解析当前文件",
 			icon: "file-text",
 			checkCallback: (checking: boolean) => {
+				if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.BATCH_PARSING)) {
+					return false;
+				}
+
 				const activeFile = this.app.workspace.getActiveFile();
 				if (!activeFile || activeFile.extension !== "md") {
 					return false;
 				}
 
 				if (!checking) {
-					// ✅ 使用 BatchParsingManager 统一入口
+					if (
+						!this.ensurePremiumFeatureAccess(
+							PREMIUM_FEATURES.BATCH_PARSING,
+							"批量解析是高级功能，请激活许可证后使用"
+						)
+					) {
+						return false;
+					}
 					void this.batchParsingManager?.parseSingleFile(activeFile);
 				}
 				return true;
@@ -3310,7 +3421,19 @@ export class WeavePlugin extends Plugin {
 			name: "批量解析所有映射文件",
 			icon: "files",
 			checkCallback: (checking: boolean) => {
+				if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.BATCH_PARSING)) {
+					return false;
+				}
+
 				if (!checking) {
+					if (
+						!this.ensurePremiumFeatureAccess(
+							PREMIUM_FEATURES.BATCH_PARSING,
+							"批量解析是高级功能，请激活许可证后使用"
+						)
+					) {
+						return false;
+					}
 					void this.batchParsingManager?.executeBatchParsing();
 				}
 
@@ -3324,7 +3447,19 @@ export class WeavePlugin extends Plugin {
 			name: "批量解析：全局同步",
 			icon: "refresh-cw",
 			checkCallback: (checking: boolean) => {
+				if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.BATCH_PARSING)) {
+					return false;
+				}
+
 				if (!checking) {
+					if (
+						!this.ensurePremiumFeatureAccess(
+							PREMIUM_FEATURES.BATCH_PARSING,
+							"批量解析是高级功能，请激活许可证后使用"
+						)
+					) {
+						return false;
+					}
 					new Notice("开始全局同步批量解析...");
 
 					const syncTask = this.batchParsingManager?.executeBatchParsing();
@@ -3460,6 +3595,7 @@ export class WeavePlugin extends Plugin {
 		logger.debug("注册视图...");
 		this.registerView(VIEW_TYPE_WEAVE, (leaf) => new WeaveView(leaf, this));
 		this.registerView(VIEW_TYPE_STUDY, (leaf) => new StudyView(leaf, this));
+		this.registerView(VIEW_TYPE_CARD_STAGING, (leaf) => new CardStagingView(leaf, this));
 		this.registerView(VIEW_TYPE_WDECK, (leaf) => new WDeckView(leaf, this));
 		this.registerView(VIEW_TYPE_QUESTION_BANK, (leaf) => new QuestionBankView(leaf, this));
 		registerExtensionsSafely(this, this.app, ["wdeck"], VIEW_TYPE_WDECK, "[Plugin]", "Weave ");
@@ -3507,6 +3643,12 @@ export class WeavePlugin extends Plugin {
 					"./extensions/weaveDeckCodeBlockExtension"
 				);
 				editorExtensionHost.registerEditorExtension(createWeaveDeckCodeBlockExtension(this));
+				const { createImageMaskLivePreviewExtension } = await import(
+					"./services/editor/ImageMaskLivePreviewExtension"
+				);
+				editorExtensionHost.registerEditorExtension(
+					createImageMaskLivePreviewExtension(this.app)
+				);
 			}
 
 			this.registerMarkdownCodeBlockProcessor(
@@ -3572,6 +3714,13 @@ export class WeavePlugin extends Plugin {
 
 				await this.initializeDataStorage();
 			});
+
+			// 注册图片遮罩 Markdown 预览处理器（在官方编辑器预览中应用可点击遮罩）
+			void import("./services/markdown/ImageMaskPostProcessor").then(
+				async ({ createImageMaskPostProcessor }) => {
+					this.registerMarkdownPostProcessor(createImageMaskPostProcessor(this.app));
+				}
+			);
 
 			// 验证许可证数据加载
 			logger.debug("Weave 插件启动完成");
@@ -4379,7 +4528,9 @@ export class WeavePlugin extends Plugin {
 		// v2.1: 自动检测并提示 YAML 元数据迁移
 		*/
 			logger.debug("Weave plugin fully initialized");
-			await this.checkAndPromptMigration();
+			window.setTimeout(() => {
+				void this.checkAndPromptMigration();
+			}, 3000);
 
 			// 初始化 AnkiConnect 服务（如果启用）
 			await this.initializeAnkiConnect();
@@ -4402,27 +4553,54 @@ export class WeavePlugin extends Plugin {
 				return;
 			}
 
-			const allCards = await this.dataStorage.getAllCards();
-			if (allCards.length === 0) {
-				return;
-			}
-
 			const { cardNeedsMigration, CardYAMLMigrationService } = await import(
 				"./services/data-migration/CardYAMLMigrationService"
 			);
 
+			let candidateUUIDs: string[] = [];
+			if (this.wdeckService) {
+				const summaries = await this.wdeckService.getAllDeckSummaries();
+				const seen = new Set<string>();
+				for (const summary of summaries) {
+					for (const uuid of summary.cardUUIDs || []) {
+						if (uuid && !seen.has(uuid)) {
+							seen.add(uuid);
+							candidateUUIDs.push(uuid);
+						}
+					}
+				}
+			} else {
+				const allCards = await this.dataStorage.getAllCards();
+				candidateUUIDs = allCards.map((card) => card.uuid).filter(Boolean);
+			}
+
+			if (candidateUUIDs.length === 0) {
+				return;
+			}
+
 			let needsMigration = 0;
 			let alreadyMigrated = 0;
+			const batchSize = 120;
 
-			for (const card of allCards) {
-				if (cardNeedsMigration(card)) {
-					needsMigration++;
-				} else {
-					alreadyMigrated++;
+			for (let offset = 0; offset < candidateUUIDs.length; offset += batchSize) {
+				const batchUUIDs = candidateUUIDs.slice(offset, offset + batchSize);
+				let cards: import("./data/types").Card[] = [];
+				if (this.wdeckService) {
+					cards = await this.wdeckService.getCardsByUUIDs(batchUUIDs);
+				} else if (this.cardFileService && typeof this.cardFileService.getCardsByUUIDsBatch === "function") {
+					const result = await this.cardFileService.getCardsByUUIDsBatch(batchUUIDs);
+					cards = result?.found || [];
+				}
+
+				for (const card of cards) {
+					if (cardNeedsMigration(card)) {
+						needsMigration++;
+					} else {
+						alreadyMigrated++;
+					}
 				}
 			}
 
-			// 如果没有需要迁移的卡片，跳过
 			if (needsMigration === 0) {
 				logger.info("[Migration] 所有卡片已是新格式，无需迁移");
 				return;
@@ -4437,7 +4615,7 @@ export class WeavePlugin extends Plugin {
 				this.app,
 				this as any,
 				{
-					total: allCards.length,
+					total: candidateUUIDs.length,
 					needsMigration,
 					alreadyMigrated,
 				},
@@ -6211,22 +6389,48 @@ export class WeavePlugin extends Plugin {
 	 */
 	async loadStudyCards(deckId?: string): Promise<any[]> {
 		try {
-			const allCards = await this.dataStorage.getAllCards();
 			const now = Date.now();
+			const limit = this.settings.reviewsPerDay || 20;
 
-			// 过滤到期的卡片
+			if (this.studyDueIndexService) {
+				let dueUUIDs = await this.studyDueIndexService.getDueUUIDs(now, deckId);
+				if (dueUUIDs.length === 0) {
+					await this.rebuildStudyIndicesInBackground();
+					dueUUIDs = await this.studyDueIndexService.getDueUUIDs(now, deckId);
+				}
+
+				if (dueUUIDs.length > 0) {
+					const batch = dueUUIDs.slice(0, limit);
+					if (this.wdeckService) {
+						const cards = await this.wdeckService.getCardsByUUIDs(batch);
+						return cards.filter(
+							(card) => card.fsrs?.due && new Date(card.fsrs.due).getTime() <= now
+						);
+					}
+
+					const cardFileService = this.cardFileService as
+						| { getCardsByUUIDsBatch?: (uuids: string[]) => Promise<{ found: import("./data/types").Card[] }> }
+						| undefined;
+					if (typeof cardFileService?.getCardsByUUIDsBatch === "function") {
+						const result = await cardFileService.getCardsByUUIDsBatch(batch);
+						return (result?.found || []).filter(
+							(card) => card.fsrs?.due && new Date(card.fsrs.due).getTime() <= now
+						);
+					}
+				}
+			}
+
+			const allCards = await this.dataStorage.getAllCards();
 			let dueCards = allCards.filter(
 				(card) => card.fsrs?.due && new Date(card.fsrs.due).getTime() <= now
 			);
 
-			// 🆕 v2.0: 引用式牌组架构 - 如果指定了牌组，只加载该牌组的卡片
 			if (deckId) {
 				const deck = await this.dataStorage.getDeck(deckId);
 				if (deck?.cardUUIDs?.length) {
 					const uuidSet = new Set(deck.cardUUIDs);
 					dueCards = dueCards.filter((card) => uuidSet.has(card.uuid));
 				} else {
-					// 🆕 v2.2: 优先从 content YAML 的 we_decks 获取牌组ID
 					const { getCardDeckIds } = await import("./utils/yaml-utils");
 					const allDecks = await this.dataStorage.getDecks();
 					dueCards = dueCards.filter((_card) => {
@@ -6240,8 +6444,6 @@ export class WeavePlugin extends Plugin {
 				}
 			}
 
-			// 限制数量
-			const limit = this.settings.reviewsPerDay || 20;
 			return dueCards.slice(0, limit);
 		} catch (error) {
 			logger.error("[Plugin] 加载学习卡片失败:", error);
@@ -6417,6 +6619,9 @@ export class WeavePlugin extends Plugin {
 			lastSelectedSourceFilePath: preferences.lastSelectedSourceFilePath,
 			lastSelectedPromptFilePath: preferences.lastSelectedPromptFilePath,
 			lastSelectedParsePresetId: preferences.lastSelectedParsePresetId,
+			followActiveDocument: preferences.followActiveDocument,
+			stagingStudyMode: preferences.stagingStudyMode,
+			previewViewMode: preferences.previewViewMode,
 		};
 	}
 
@@ -6468,6 +6673,15 @@ export class WeavePlugin extends Plugin {
 			),
 		};
 
+		const stagingService = getCardStagingSessionService();
+		stagingService.setPersistHandler(async (session) => {
+			await this.saveCardStagingSession(session);
+		});
+		const persistedStagingSession = await service.loadCardStagingSession();
+		if (persistedStagingSession) {
+			stagingService.restoreSession(persistedStagingSession);
+		}
+
 		this.createCardPreferencesCache =
 			(await service.loadCreateCardPreferences()) ?? this.getDefaultCreateCardPreferences();
 		this.settings.createCardPreferences = {
@@ -6495,12 +6709,17 @@ export class WeavePlugin extends Plugin {
 	async loadDeckViewPreference(): Promise<string | null> {
 		const service = this.getPluginLocalStateService();
 		const loaded = await service.loadDeckViewPreference();
-		if (typeof loaded === "string" && loaded.length > 0) {
-			this.deckViewPreferenceCache = loaded;
-			return loaded;
+		const normalized =
+			loaded === "grid" ? "kanban" : typeof loaded === "string" && loaded.length > 0 ? loaded : null;
+		if (normalized) {
+			this.deckViewPreferenceCache = normalized;
+			if (loaded === "grid") {
+				await service.saveDeckViewPreference(normalized);
+			}
+			return normalized;
 		}
 		if (typeof this.deckViewPreferenceCache === "string" && this.deckViewPreferenceCache.length > 0) {
-			return this.deckViewPreferenceCache;
+			return this.deckViewPreferenceCache === "grid" ? "kanban" : this.deckViewPreferenceCache;
 		}
 		return null;
 	}
@@ -6639,6 +6858,42 @@ export class WeavePlugin extends Plugin {
 			generationHistory: [...this.aiGenerationHistoryCache],
 		};
 		await this.getPluginLocalStateService().saveAIGenerationHistory(this.aiGenerationHistoryCache);
+	}
+
+	async saveCardStagingSession(
+		session: import("./types/card-staging-types").CardStagingSession
+	): Promise<void> {
+		await this.getPluginLocalStateService().saveCardStagingSession(session);
+	}
+
+	async clearCardStagingSession(): Promise<void> {
+		await this.getPluginLocalStateService().clearCardStagingSession();
+	}
+
+	async openCardStagingSession(
+		params: CreateCardStagingSessionParams & { openInTab?: boolean }
+	): Promise<string | null> {
+		const { openInTab = true, ...sessionParams } = params;
+		const filtered = filterPreviewItemsForStudyMode(sessionParams.items, sessionParams.studyMode);
+		if (filtered.length === 0) {
+			new Notice(
+				sessionParams.studyMode === "exam"
+					? i18n.t("aiAssistant.staging.noExamChoiceCards")
+					: i18n.t("aiAssistant.staging.noMemoryStudyCards")
+			);
+			return null;
+		}
+
+		const stagingService = getCardStagingSessionService();
+		const session = stagingService.createSession({
+			...sessionParams,
+			items: filtered,
+		});
+		await this.saveCardStagingSession(session);
+		if (openInTab) {
+			await openCardStagingView(this, session.id);
+		}
+		return session.id;
 	}
 
 	getCreateCardPreferences(): CreateCardPreferencesState {
@@ -7018,11 +7273,13 @@ export class WeavePlugin extends Plugin {
 
 					const weaveSubmenu = getWeaveOperationsSubmenu(menu);
 
-					weaveSubmenu.addItem((item) => {
-						item.setTitle("插入牌组视图").setIcon("layout-grid");
-						const submenu = (item as any).setSubmenu() as Menu;
-						void this.buildDeckViewInsertSubmenu(submenu, editor);
-					});
+					addMenuSubmenuGroup(
+						weaveSubmenu,
+						{ title: "插入牌组视图", icon: "layout-grid" },
+						(submenu) => {
+							void this.buildDeckViewInsertSubmenu(submenu, editor);
+						}
+					);
 
 					if (
 						this.shouldExposeIncrementalReadingOwnedUiEntrypoints() &&
@@ -7081,26 +7338,26 @@ export class WeavePlugin extends Plugin {
 					const nodeContent = this.getCanvasNodeContent(node);
 					if (!nodeContent) return;
 
-					menu.addItem((item) => {
-						item.setTitle("添加为 Weave 卡片");
-						item.setIcon("brain");
-						const submenu = (item as any).setSubmenu() as Menu;
-
-						// 异步加载记忆牌组列表（submenu 在用户 hover 时才展开，加载时间充裕）
-						void this.buildCanvasCardDeckSubmenu(submenu, nodeContent, node);
-					});
+					addMenuSubmenuGroup(
+						menu,
+						{ title: "添加为 Weave 卡片", icon: "brain" },
+						(submenu) => {
+							// 异步加载记忆牌组列表（submenu 在用户 hover 时才展开，加载时间充裕）
+							void this.buildCanvasCardDeckSubmenu(submenu, nodeContent, node);
+						}
+					);
 
 					if (
 						this.shouldExposeIncrementalReadingOwnedUiEntrypoints() &&
 						this.shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)
 					) {
-						menu.addItem((item) => {
-							item.setTitle("Weave 阅读点");
-							item.setIcon("book-plus");
-							const submenu = (item as any).setSubmenu() as Menu;
-
-							void this.buildCanvasIRDeckSubmenu(submenu, node);
-						});
+						addMenuSubmenuGroup(
+							menu,
+							{ title: "Weave 阅读点", icon: "book-plus" },
+							(submenu) => {
+								void this.buildCanvasIRDeckSubmenu(submenu, node);
+							}
+						);
 					}
 				} catch {}
 			})
@@ -9682,9 +9939,10 @@ export class WeavePlugin extends Plugin {
 					if (!selection) return;
 
 					const weaveSubmenu = getWeaveOperationsSubmenu(menu);
-					weaveSubmenu.addItem((item) => {
-						item.setTitle(i18n.t("study.menu.aiSplit")).setIcon("bot");
-						const submenu = (item as any).setSubmenu() as Menu;
+					addMenuSubmenuGroup(
+						weaveSubmenu,
+						{ title: i18n.t("study.menu.aiSplit"), icon: "bot" },
+						(submenu) => {
 						const actions = get(customActionsForMenu).split;
 
 						submenu.addItem((subItem) => {

@@ -2,6 +2,7 @@ import { Menu, Platform } from "obsidian";
 import type WeavePlugin from "../../../main";
 import type { DataChangeEvent } from "../../../services/DataSyncService";
 import type { MemoryDeckMenuAction } from "../../../services/deck/MemoryDeckMenu";
+import { DECK_STUDY_VIEW_MODE } from "../../../services/deck/deck-study-view-by-location";
 import { logger } from "../../../utils/logger";
 
 interface MemoryDeckActionRequestDetail {
@@ -24,15 +25,12 @@ interface ToolbarActionDetail {
 interface DeckStudyPageRuntimeControllerOptions {
   getPlugin: () => WeavePlugin;
   getSelectedFilter: () => string;
-  normalizeDeckStudyView: (value: string | null | undefined) => string;
-  setCurrentView: (value: string) => void;
   setIsMobile: (value: boolean) => void;
   registerEmergentRuleGroupPopoverBridge: () => () => void;
   refreshData: (showLoading?: boolean) => Promise<void>;
   scheduleBackgroundRefresh: (event?: DataChangeEvent) => void;
   handleFilterSelect: (filter: string) => void;
   handleMemoryDeckMenuAction: (action: MemoryDeckMenuAction, deckId: string) => Promise<void>;
-  showViewSwitcher: (event: MouseEvent) => void;
   populateMobileNavMenu: (menu: Menu) => void;
   showEmergentRuleGroupMenu: (anchor?: HTMLElement | null) => void;
   setMemoryDeckDisplayMode: (mode: string | null | undefined) => void;
@@ -45,8 +43,19 @@ export interface DeckStudyPageRuntimeController {
 export function createDeckStudyPageRuntimeController(
   options: DeckStudyPageRuntimeControllerOptions
 ): DeckStudyPageRuntimeController {
-  function dispatchDeckViewChange(view: string): void {
-    window.dispatchEvent(new CustomEvent("Weave:deck-view-change", { detail: view }));
+  function dispatchDeckViewChange(): void {
+    window.dispatchEvent(
+      new CustomEvent("Weave:deck-view-change", { detail: DECK_STUDY_VIEW_MODE })
+    );
+  }
+
+  async function persistDeckStudyViewPreference(): Promise<void> {
+    dispatchDeckViewChange();
+    try {
+      await options.getPlugin().saveDeckViewPreference(DECK_STUDY_VIEW_MODE);
+    } catch (error) {
+      logger.warn("保存牌组视图偏好失败:", error);
+    }
   }
 
   function dispatchDeckFilterChange(): void {
@@ -64,25 +73,9 @@ export function createDeckStudyPageRuntimeController(
     let unsubscribeSessions: (() => void) | undefined;
     let unsubscribeCards: (() => void) | undefined;
 
-    void (async () => {
-      try {
-        const savedView = await plugin.loadDeckViewPreference();
-        if (savedView && ["kanban", "grid"].includes(savedView)) {
-          const normalizedView = options.normalizeDeckStudyView(savedView);
-          options.setCurrentView(normalizedView);
-          dispatchDeckViewChange(normalizedView);
-        } else {
-          const normalizedView = options.normalizeDeckStudyView(null);
-          options.setCurrentView(normalizedView);
-          dispatchDeckViewChange(normalizedView);
-        }
-      } catch (error) {
-        logger.warn("加载视图偏好失败:", error);
-        const normalizedView = options.normalizeDeckStudyView(null);
-        options.setCurrentView(normalizedView);
-        dispatchDeckViewChange(normalizedView);
-      }
+    void persistDeckStudyViewPreference();
 
+    void (async () => {
       if (plugin.dataSyncService) {
         unsubscribeDecks = plugin.dataSyncService.subscribe(
           "decks",
@@ -127,14 +120,6 @@ export function createDeckStudyPageRuntimeController(
     workspace.on("Weave:card-updated", handleCardUpdated);
 
     void options.refreshData();
-
-    const handleShowViewMenu = (event: Event) => {
-      const detail = (event as CustomEvent<{ event?: MouseEvent }>).detail;
-      if (detail?.event instanceof MouseEvent) {
-        options.showViewSwitcher(detail.event);
-      }
-    };
-    window.addEventListener("show-view-menu", handleShowViewMenu as EventListener);
 
     const handleSidebarFilterSelect = (event: Event) => {
       const detail = (event as CustomEvent<string>).detail;
@@ -199,7 +184,6 @@ export function createDeckStudyPageRuntimeController(
       unsubscribeCards?.();
       workspace.off("Weave:card-created", handleCardCreated);
       workspace.off("Weave:card-updated", handleCardUpdated);
-      window.removeEventListener("show-view-menu", handleShowViewMenu as EventListener);
       window.removeEventListener(
         "Weave:sidebar-filter-select",
         handleSidebarFilterSelect as EventListener

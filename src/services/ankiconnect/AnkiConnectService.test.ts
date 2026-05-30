@@ -7,7 +7,7 @@ import type { ExportResult, SyncItemResult } from '../../types/ankiconnect-types
 function createCard(uuid: string): Card {
   return {
     uuid,
-    content: 'Q: 2 + 2 = ?\n\nA) 3\nB) 4 {✓}',
+    content: 'Q: 2 + 2 = ?（B）\n\nA. 3\nB. 4\nC. 5',
     type: 'multiple' as Card['type'],
     created: '2026-04-01T00:00:00.000Z',
     modified: '2026-04-01T00:00:00.000Z',

@@ -14,6 +14,11 @@ export interface WeaveAIToolbarState {
 	subView: AIAssistantSubView;
 	selectedFileName: string;
 	selectedFilePath: string;
+	activeDocumentPath: string;
+	activeDocumentName: string;
+	followActiveDocument: boolean;
+	stagingStudyMode: "memory" | "exam";
+	canStartStaging: boolean;
 	promptFileName: string;
 	promptFilePath: string;
 	modelLabel: string;
@@ -59,6 +64,11 @@ const DEFAULT_AI_TOOLBAR_STATE: WeaveAIToolbarState = {
 	subView: "generate",
 	selectedFileName: "",
 	selectedFilePath: "",
+	activeDocumentPath: "",
+	activeDocumentName: "",
+	followActiveDocument: true,
+	stagingStudyMode: "memory",
+	canStartStaging: false,
 	promptFileName: "",
 	promptFilePath: "",
 	modelLabel: "",
@@ -116,6 +126,11 @@ function normalizeAIToolbarState(
 		subView: state?.subView === "parse-preview" ? "parse-preview" : "generate",
 		selectedFileName: state?.selectedFileName?.trim() ?? "",
 		selectedFilePath: state?.selectedFilePath?.trim() ?? "",
+		activeDocumentPath: state?.activeDocumentPath?.trim() ?? "",
+		activeDocumentName: state?.activeDocumentName?.trim() ?? "",
+		followActiveDocument: state?.followActiveDocument ?? true,
+		stagingStudyMode: state?.stagingStudyMode === "exam" ? "exam" : "memory",
+		canStartStaging: Boolean(state?.canStartStaging),
 		promptFileName: state?.promptFileName?.trim() ?? "",
 		promptFilePath: state?.promptFilePath?.trim() ?? "",
 		modelLabel: state?.modelLabel?.trim() ?? "",

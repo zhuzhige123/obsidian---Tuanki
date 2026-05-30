@@ -72,7 +72,7 @@ export class MaskRenderer {
 
 				// 如果启用交互模式，添加点击事件
 				if (options.interactive) {
-					this.makeMaskInteractive(maskElement, _mask.id);
+					this.makeMaskInteractive(maskElement as SVGGElement, _mask.id);
 				}
 			}
 		});
@@ -117,7 +117,7 @@ export class MaskRenderer {
 		// 更新所有遮罩状态为已揭示
 		const masks = container.querySelectorAll(".weave-mask");
 		masks.forEach((_mask) => {
-			const maskId = _mask.getAttribute("data-mask-id");
+			const maskId = _mask.closest("g[data-mask-id]")?.getAttribute("data-mask-id");
 			if (maskId) {
 				this.maskStates.set(maskId, false);
 			}
@@ -135,63 +135,67 @@ export class MaskRenderer {
 	 * @param maskId 遮罩ID
 	 * @param duration 动画持续时间（毫秒）
 	 */
-	toggleMask(maskId: string, duration: number = MASK_CONSTANTS.DEFAULT_ANIMATION_DURATION): void {
-		const maskElement = document.querySelector(`[data-mask-id="${maskId}"]`) as SVGElement;
+	toggleMask(
+		maskId: string,
+		duration: number = MASK_CONSTANTS.DEFAULT_ANIMATION_DURATION,
+		root: ParentNode = document
+	): void {
+		const maskElement = this.findMaskShape(maskId, root);
 		if (!maskElement) return;
 
 		const currentState = this.maskStates.get(maskId) ?? true;
 		const newState = !currentState;
 
-		// 更新状态
 		this.maskStates.set(maskId, newState);
+		this.applyMaskVisibility(maskElement, newState, duration);
+	}
 
-		// 应用动画
-		if (newState) {
-			// 显示遮罩（重新遮盖）
-			applyStyleProps(maskElement, {
-				transition: `fill-opacity ${duration}ms ease-in`,
-				"fill-opacity": maskElement.getAttribute("data-original-opacity") || "0.7",
-			});
-			maskElement.classList.remove("mask-revealed");
-			maskElement.classList.remove("mask-hovering"); // 移除hover标记
-		} else {
-			// 隐藏遮罩（揭示内容）
-			applyStyleProps(maskElement, {
-				transition: `fill-opacity ${duration}ms ease-out`,
-				"fill-opacity": "0",
-			});
-			maskElement.classList.add("mask-revealed");
-			maskElement.classList.remove("mask-hovering"); // 移除hover标记
-		}
+	/**
+	 * 恢复容器内所有遮罩为可见（用于从「显示答案」回到问题面）
+	 */
+	restoreAllMasksInContainer(container: HTMLElement): void {
+		const shapes = container.querySelectorAll("g[data-mask-id] .weave-mask");
+		shapes.forEach((shape) => {
+			const maskElement = shape as SVGElement;
+			const group = maskElement.closest("g[data-mask-id]");
+			const maskId = group?.getAttribute("data-mask-id");
+			if (!maskId) return;
+
+			this.maskStates.set(maskId, true);
+			this.applyMaskVisibility(maskElement, true, 0);
+		});
 	}
 
 	/**
 	 * 使遮罩可交互（添加点击事件）
 	 */
-	private makeMaskInteractive(maskElement: SVGElement, maskId: string): void {
-		// 允许点击事件
+	private makeMaskInteractive(maskGroup: SVGGElement, maskId: string): void {
+		const maskElement = maskGroup.querySelector(".weave-mask") as SVGElement | null;
+		if (!maskElement) return;
+
+		const maskRoot = maskGroup.closest(".weave-mask-overlay") ?? document;
+
 		applyStyleProps(maskElement, {
 			"pointer-events": "auto",
 			cursor: "pointer",
 		});
 		maskElement.classList.add("weave-mask-interactive");
 
-		// 保存原始透明度
 		const originalOpacity = maskElement.getAttribute("fill-opacity") || "0.7";
 		maskElement.setAttribute("data-original-opacity", originalOpacity);
 
-		// 添加点击事件
-		maskElement.addEventListener("click", (e) => {
+		const handleToggle = (e: Event) => {
 			e.stopPropagation();
-			this.toggleMask(maskId);
+			e.preventDefault();
+			this.toggleMask(maskId, MASK_CONSTANTS.DEFAULT_ANIMATION_DURATION, maskRoot);
 			logger.debug("[MaskRenderer] 切换遮罩:", maskId);
-		});
+		};
 
-		// 添加hover效果 - 完全透明显示背后内容（预览效果）
+		maskElement.addEventListener("click", handleToggle);
+
 		maskElement.addEventListener("mouseenter", () => {
 			const isVisible = this.maskStates.get(maskId) ?? true;
 			if (isVisible && !maskElement.classList.contains("mask-revealed")) {
-				// 保存当前透明度，然后设为0（完全透明）
 				const currentOpacity =
 					maskElement.style.fillOpacity || maskElement.getAttribute("fill-opacity") || "0.7";
 				maskElement.setAttribute("data-hover-backup-opacity", currentOpacity);
@@ -199,14 +203,13 @@ export class MaskRenderer {
 					transition: "fill-opacity 150ms ease",
 					"fill-opacity": "0",
 				});
-				maskElement.classList.add("mask-hovering"); // 标记正在hover
+				maskElement.classList.add("mask-hovering");
 			}
 		});
 
 		maskElement.addEventListener("mouseleave", () => {
 			const isVisible = this.maskStates.get(maskId) ?? true;
 			if (isVisible && maskElement.classList.contains("mask-hovering")) {
-				// 恢复原始透明度（仅在未被点击揭示时）
 				const backupOpacity = maskElement.getAttribute("data-hover-backup-opacity") || "0.7";
 				applyStyleProps(maskElement, { "fill-opacity": backupOpacity });
 				maskElement.classList.remove("mask-hovering");
@@ -274,6 +277,35 @@ export class MaskRenderer {
 	}
 
 	// ===== 私有方法 =====
+
+	private findMaskShape(maskId: string, root: ParentNode = document): SVGElement | null {
+		const group = root.querySelector(`g[data-mask-id="${maskId}"]`);
+		if (!group) return null;
+		return group.querySelector(".weave-mask") as SVGElement | null;
+	}
+
+	private applyMaskVisibility(
+		maskElement: SVGElement,
+		visible: boolean,
+		duration: number
+	): void {
+		if (visible) {
+			applyStyleProps(maskElement, {
+				transition: duration > 0 ? `fill-opacity ${duration}ms ease-in` : "",
+				"fill-opacity": maskElement.getAttribute("data-original-opacity") || "0.7",
+			});
+			maskElement.classList.remove("mask-revealed");
+			maskElement.classList.remove("mask-hovering");
+			return;
+		}
+
+		applyStyleProps(maskElement, {
+			transition: duration > 0 ? `fill-opacity ${duration}ms ease-out` : "",
+			"fill-opacity": "0",
+		});
+		maskElement.classList.add("mask-revealed");
+		maskElement.classList.remove("mask-hovering");
+	}
 
 	/**
 	 * 创建遮罩容器
@@ -460,7 +492,6 @@ export class MaskRenderer {
 		rect.setAttribute("y", `${mask.y * imgHeight}`);
 		rect.setAttribute("width", `${(mask.width || 0) * imgWidth}`);
 		rect.setAttribute("height", `${(mask.height || 0) * imgHeight}`);
-		rect.setAttribute("data-mask-id", mask.id);
 
 		return rect;
 	}
@@ -479,7 +510,6 @@ export class MaskRenderer {
 		// 圆形半径使用宽高中较小的值，保持比例
 		const minDimension = Math.min(imgWidth, imgHeight);
 		circle.setAttribute("r", `${(mask.radius || 0) * minDimension}`);
-		circle.setAttribute("data-mask-id", mask.id);
 
 		return circle;
 	}

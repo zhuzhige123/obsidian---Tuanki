@@ -7,6 +7,7 @@ import { writable, get, type Writable } from 'svelte/store';
 import { licenseManager } from '../../utils/licenseManager';
 import type { EffectiveLicenseState, LicenseInfo, LicensedProduct } from '../../types/license';
 import { LICENSED_PRODUCTS, resolveEffectiveLicenseState } from '../../utils/license-state';
+import { i18n } from '../../utils/i18n';
 
 declare const __WEAVE_IR_STANDALONE__: boolean;
 
@@ -119,28 +120,128 @@ export const FEATURE_METADATA: Record<string, {
     name: '查看原文',
     description: '快速查看卡片来源文档和上下文',
     icon: 'file-text'
-  }
+  },
+  'fsrs-study': {
+    name: 'FSRS 记忆学习',
+    description: '基于 FSRS 算法的间隔复习、牌组学习与学习统计',
+  },
+  'table-view': {
+    name: '表格视图',
+    description: '以表格管理卡片与牌组，支持筛选、排序与批量操作',
+  },
+  'obsidian-card-editing': {
+    name: 'Obsidian 原生卡片编辑',
+    description: '在 Obsidian 编辑器中直接编辑卡片，支持 Markdown 与所见即所得体验',
+  },
+  'fill-input-mode': {
+    name: '填空题输入模式',
+    description: '学习填空题时在输入框作答，支持即时判分与继续学习',
+  },
+  'ai-card-creation': {
+    name: 'AI 制卡',
+    description: '使用 AI 辅助生成、整理与拆分记忆卡片（需自备 API）',
+  },
+  'parse-preview-import': {
+    name: '解析预览导入',
+    description: '预览 AI 或文本解析结果后再确认导入，避免误导入',
+  },
+  'anki-connect-sync': {
+    name: 'Anki Connect 同步',
+    description: '与 Anki 桌面端双向同步卡片与复习进度',
+  },
+  'apkg-import': {
+    name: '旧版 APKG 导入',
+    description: '导入 Anki .apkg 包，迁移历史牌组与卡片',
+  },
+  'deck-view-embed': {
+    name: 'Markdown 牌组视图',
+    description: '在笔记中插入 weave-decks 代码块，嵌入可配置的牌组视图',
+  },
+  'active-document-filter': {
+    name: '当前文档筛选',
+    description: '按当前活动笔记筛选关联卡片，聚焦当前阅读上下文',
+  },
+  'related-cards': {
+    name: '关联卡片',
+    description: '查看与筛选同源、同笔记或彼此关联的卡片网络',
+  },
+  'image-mask': {
+    name: '图片遮罩',
+    description: '在图片上绘制遮罩区域，制作图像挖空与遮盖练习',
+  },
 };
+
+/** 激活提示中「基础使用」展示顺序（永久免费能力） */
+export const BASE_BENEFIT_FEATURE_ORDER = [
+  'fsrs-study',
+  'table-view',
+  'obsidian-card-editing',
+  'fill-input-mode',
+  'ai-card-creation',
+  'parse-preview-import',
+  PREMIUM_FEATURES.AI_ASSISTANT,
+  PREMIUM_FEATURES.VIEW_SOURCE,
+  PREMIUM_FEATURES.STUDY_SOURCE_INFO,
+  PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION,
+  PREMIUM_FEATURES.CSV_IMPORT,
+  'anki-connect-sync',
+  'apkg-import',
+] as const;
 
 export const PREMIUM_BENEFIT_FEATURE_ORDER = [
   PREMIUM_FEATURES.GRID_VIEW,
   PREMIUM_FEATURES.KANBAN_VIEW,
   PREMIUM_FEATURES.TIMELINE_VIEW,
-  PREMIUM_FEATURES.STUDY_SOURCE_INFO,
+  'deck-view-embed',
+  'active-document-filter',
+  'related-cards',
   PREMIUM_FEATURES.MEMORY_DECK_LEVELS,
+  'image-mask',
   PREMIUM_FEATURES.QUESTION_BANK,
   PREMIUM_FEATURES.INCREMENTAL_READING,
   PREMIUM_FEATURES.EMERGENT_DECKS,
+  PREMIUM_FEATURES.BATCH_PARSING,
   PREMIUM_FEATURES.DECK_ANALYTICS,
   PREMIUM_FEATURES.PROGRESSIVE_CLOZE,
 ] as const;
 
-const FREE_FEATURE_IDS = new Set<string>([
+/** 基础版永久免费的功能（不含牌组分析中的记忆率曲线） */
+export const FREE_FEATURE_IDS = new Set<string>([
+  'fsrs-study',
+  'table-view',
   PREMIUM_FEATURES.AI_ASSISTANT,
-  PREMIUM_FEATURES.BATCH_PARSING,
+  PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION,
   PREMIUM_FEATURES.CSV_IMPORT,
   PREMIUM_FEATURES.VIEW_SOURCE,
+  PREMIUM_FEATURES.STUDY_SOURCE_INFO,
 ]);
+
+export interface PremiumFeatureAccessContext {
+  /** 功能入口所在页面，用于按页面区分限时开放等功能策略 */
+  page?: string;
+}
+
+/** 牌组学习页上下文标识 */
+export const DECK_STUDY_PAGE_CONTEXT = 'deck-study';
+
+/**
+ * 按页面配置的限时开放高级功能：未激活也可在该页面使用，入口标题带「限时开放」。
+ */
+const LIMITED_TIME_OPEN_FEATURES_BY_PAGE: Readonly<Record<string, ReadonlySet<string>>> = {
+  [DECK_STUDY_PAGE_CONTEXT]: new Set<string>([PREMIUM_FEATURES.KANBAN_VIEW]),
+};
+
+export function isLimitedTimeOpenFeature(
+  featureId: string,
+  context?: PremiumFeatureAccessContext
+): boolean {
+  const page = context?.page;
+  if (!page) {
+    return false;
+  }
+
+  return LIMITED_TIME_OPEN_FEATURES_BY_PAGE[page]?.has(featureId) ?? false;
+}
 
 /**
  * 高级功能守卫类
@@ -265,13 +366,9 @@ export class PremiumFeatureGuard {
       isPremium?: boolean;
       showPremiumPreview?: boolean;
     },
-    context?: PremiumFeatureAccessContext
+    _context?: PremiumFeatureAccessContext
   ): boolean {
     if (!this.isPremiumFeature(featureId)) {
-      return true;
-    }
-
-    if (this.isLimitedTimeFeatureOpen(featureId, context)) {
       return true;
     }
 
@@ -290,7 +387,7 @@ export class PremiumFeatureGuard {
    * @param featureId 功能ID
    * @returns true表示可以使用
    */
-  canUseFeature(featureId: string, context?: PremiumFeatureAccessContext): boolean {
+  canUseFeature(featureId: string, _context?: PremiumFeatureAccessContext): boolean {
     if (
       typeof __WEAVE_IR_STANDALONE__ !== "undefined" &&
       __WEAVE_IR_STANDALONE__ &&
@@ -299,38 +396,28 @@ export class PremiumFeatureGuard {
       return true;
     }
 
-    // 使用 get() 同步获取当前高级版状态
     const isPremium = get(this.isPremiumActive);
 
-    // 基础功能完全免费，不受许可证限制
     if (FREE_FEATURE_IDS.has(featureId)) {
       return true;
     }
 
-    if (this.isLimitedTimeFeatureOpen(featureId, context)) {
+    if (isLimitedTimeOpenFeature(featureId, _context)) {
       return true;
     }
 
-    // 检查是否为高级功能
     if (this.isPremiumFeature(featureId)) {
       return isPremium;
     }
 
-    // 非高级功能，所有人都可以使用
     return true;
   }
 
   /**
    * 检查功能是否受限（canUseFeature的反向）
-   * @param featureId 功能ID
-   * @returns true表示功能受限，不可使用
    */
   isFeatureRestricted(featureId: string, context?: PremiumFeatureAccessContext): boolean {
     return !this.canUseFeature(featureId, context);
-  }
-
-  isFeatureLimitedTimeOpen(featureId: string, context?: PremiumFeatureAccessContext): boolean {
-    return this.isLimitedTimeFeatureOpen(featureId, context);
   }
 
   canUseAnyFeature(featureIds: string[], context?: PremiumFeatureAccessContext): boolean {
@@ -357,11 +444,11 @@ export class PremiumFeatureGuard {
       return baseTitle;
     }
 
-    if (featureIds.some((featureId) => this.isLimitedTimeFeatureOpen(featureId, context))) {
-      return `${baseTitle} (限时开放)`;
+    if (featureIds.some((featureId) => isLimitedTimeOpenFeature(featureId, context))) {
+      return this.formatLimitedTimeOpenEntryTitle(baseTitle);
     }
 
-    return this.canUseAnyFeature(featureIds, context) ? baseTitle : `${baseTitle} (高级)`;
+    return this.canUseAnyFeature(featureIds, context) ? baseTitle : this.formatPremiumEntryTitle(baseTitle);
   }
 
   getFeatureEntryTitle(
@@ -373,11 +460,25 @@ export class PremiumFeatureGuard {
       return baseTitle;
     }
 
-    if (this.isLimitedTimeFeatureOpen(featureId, context)) {
-      return `${baseTitle} (限时开放)`;
+    if (isLimitedTimeOpenFeature(featureId, context)) {
+      return this.formatLimitedTimeOpenEntryTitle(baseTitle);
     }
 
-    return this.canUseFeature(featureId, context) ? baseTitle : `${baseTitle} (高级)`;
+    return this.canUseFeature(featureId, context) ? baseTitle : this.formatPremiumEntryTitle(baseTitle);
+  }
+
+  private formatPremiumEntryTitle(baseTitle: string): string {
+    const suffix = i18n.hasTranslation('premium.entryTitlePremiumSuffix')
+      ? i18n.t('premium.entryTitlePremiumSuffix')
+      : ' (高级)';
+    return `${baseTitle}${suffix}`;
+  }
+
+  private formatLimitedTimeOpenEntryTitle(baseTitle: string): string {
+    const suffix = i18n.hasTranslation('premium.entryTitleLimitedTimeSuffix')
+      ? i18n.t('premium.entryTitleLimitedTimeSuffix')
+      : ' (限时开放)';
+    return `${baseTitle}${suffix}`;
   }
 
   /**
@@ -432,95 +533,7 @@ export class PremiumFeatureGuard {
   private clearCache(): void {
     this.validationCache = null;
   }
-
-  private isContextMatched(
-    context: PremiumFeatureAccessContext | undefined,
-    matcher: PremiumFeatureAccessContext
-  ): boolean {
-    if (!context) {
-      return false;
-    }
-
-    if (matcher.page && matcher.page !== context.page) {
-      return false;
-    }
-
-    return true;
-  }
-
-  private isLimitedTimeRuleActive(rule: LimitedTimeFeatureRule | undefined): boolean {
-    if (!rule?.enabled) {
-      return false;
-    }
-
-    if (!rule.expiresAt) {
-      return true;
-    }
-
-    const expiresAt = new Date(rule.expiresAt);
-    if (Number.isNaN(expiresAt.getTime())) {
-      return false;
-    }
-
-    return Date.now() <= expiresAt.getTime();
-  }
-
-  private isLimitedTimeFeatureOpen(
-    featureId: string,
-    context?: PremiumFeatureAccessContext
-  ): boolean {
-    const rule = LIMITED_TIME_FEATURE_ACCESS[featureId];
-    if (!this.isLimitedTimeRuleActive(rule) || !rule) {
-      return false;
-    }
-
-    return rule.contexts.some((matcher) => this.isContextMatched(context, matcher));
-  }
-
 }
-
- export interface PremiumFeatureAccessContext {
-  page?: string;
- }
-
-interface LimitedTimeFeatureRule {
-  enabled: boolean;
-  expiresAt?: string | null;
-  contexts: PremiumFeatureAccessContext[];
-}
-
-const LIMITED_TIME_FEATURE_ACCESS: Partial<Record<string, LimitedTimeFeatureRule>> = {
-  [PREMIUM_FEATURES.GRID_VIEW]: {
-    enabled: true,
-    expiresAt: '2026-07-18T23:59:59.999+08:00',
-    contexts: [{ page: 'weave-card-management' }],
-  },
-  [PREMIUM_FEATURES.KANBAN_VIEW]: {
-    enabled: true,
-    expiresAt: null,
-    contexts: [{ page: 'deck-study' }],
-  },
-  [PREMIUM_FEATURES.EMERGENT_DECKS]: {
-    enabled: true,
-    expiresAt: null,
-    contexts: [{ page: 'deck-study' }],
-  },
-  [PREMIUM_FEATURES.MEMORY_DECK_LEVELS]: {
-    enabled: true,
-    expiresAt: null,
-    contexts: [{ page: 'deck-study' }],
-  },
-  [PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION]: {
-    enabled: true,
-    expiresAt: null,
-    contexts: [{ page: 'deck-study' }, { page: 'deck-analytics' }],
-  },
-  [PREMIUM_FEATURES.DECK_ANALYTICS_TIMING]: {
-    enabled: true,
-    expiresAt: null,
-    contexts: [{ page: 'deck-study' }, { page: 'deck-analytics' }],
-  },
-};
 
 /**
  * 默认导出单例实例获取方法

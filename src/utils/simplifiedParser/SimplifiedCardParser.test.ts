@@ -103,11 +103,11 @@ FSRS是一种现代化的间隔重复算法。
     });
 
     test('应该检测选择题', async () => {
-      const content = `## Java中哪个不是基本数据类型？ #编程 #weave
-A) int
-B) boolean  
-C) String
-D) double
+      const content = `## Java中哪个不是基本数据类型？（C） #编程 #weave
+A. int
+B. boolean  
+C. String
+D. double
 ---div---
 String是引用类型，不是基本数据类型。`;
 
@@ -130,10 +130,10 @@ Obsidian是一款基于Markdown的知识管理工具。
 
 <->
 
-## 选择题：哪个是Markdown语法？ #语法 #weave
-A) **粗体**
-B) <b>粗体</b>
-C) [粗体]
+## 选择题：哪个是Markdown语法？（A） #语法 #weave
+A. **粗体**
+B. <b>粗体</b>
+C. [粗体]
 ---div---
 Markdown使用**文本**或__文本__表示粗体。
 
@@ -263,9 +263,9 @@ Markdown使用**文本**或__文本__表示粗体。
 
 <->
 
-## 选择题 #weave
-A) 正确答案
-B) 错误答案
+## 选择题（A） #weave
+A. 正确答案
+B. 错误答案
 <->`;
 
       const result = await parser.parseContent(content, {

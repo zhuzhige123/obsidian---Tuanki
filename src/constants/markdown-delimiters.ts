@@ -30,9 +30,6 @@ export const META_SEPARATOR_ALIASES = [
  * 语义标记前缀
  */
 export const SEMANTIC_MARKERS = {
-	/** 提示标记 - 用于问答题和选择题 */
-	HINT: "Hint:",
-
 	/** 语境标记 - 用于挖空题 */
 	CONTEXT: "Context:",
 
@@ -65,12 +62,8 @@ export const CARD_TYPE_MARKERS = {
 	/** 选择题标记 */
 	CHOICE: {
 		QUESTION: "Q:",
-		/** 选项标签（A-Z） */
-		OPTION_LABELS: ["A)", "B)", "C)", "D)", "E)", "F)", "G)", "H)"],
-		/** 正确答案标记 */
-		CORRECT_MARKER: "{✓}",
-		/** 可选的正确答案标记 */
-		CORRECT_MARKER_ALIASES: ["{✓}", "{✔}", "{correct}", "✓", "✔"],
+		/** 标准选项前缀（字母 + 句点） */
+		OPTION_LABELS: ["A.", "B.", "C.", "D.", "E.", "F.", "G.", "H."],
 	},
 
 	/** 挖空题标记 */
@@ -143,24 +136,6 @@ export function isValidOptionLabel(label: string): boolean {
 }
 
 /**
- * 检查文本是否包含正确答案标记
- */
-export function hasCorrectMarker(text: string): boolean {
-	return CARD_TYPE_MARKERS.CHOICE.CORRECT_MARKER_ALIASES.some((marker) => text.includes(marker));
-}
-
-/**
- * 移除正确答案标记
- */
-export function removeCorrectMarker(text: string): string {
-	let result = text;
-	for (const marker of CARD_TYPE_MARKERS.CHOICE.CORRECT_MARKER_ALIASES) {
-		result = result.replace(new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "");
-	}
-	return result.trim();
-}
-
-/**
  * 格式化示例
  */
 export const FORMAT_EXAMPLES = {
@@ -174,16 +149,16 @@ export const FORMAT_EXAMPLES = {
 提示：间隔重复是基于艾宾浩斯遗忘曲线理论，通过在记忆即将衰退时进行复习，可以有效强化长期记忆。`,
 
 	/** 选择题示例 */
-	CHOICE: `Q: FSRS算法中的"S"代表什么含义？
+	CHOICE: `FSRS 算法中的「S」代表什么？（B）
 
-A) Speed（速度）
-B) Stability（稳定性） {✓}
-C) Strength（强度）
-D) Success（成功率）
+A. Speed（速度）
+B. Stability（稳定性）
+C. Strength（强度）
+D. Success（成功率）
 
 ---div---
 
-解析：FSRS中Stability是最核心的概念，它代表了记忆在遗忘曲线上的位置。Stability越高，意味着记忆越牢固，下次复习间隔可以更长。`,
+S 表示 Stability（稳定性），是 FSRS 的核心参数之一。`,
 
 	/** 挖空题示例 */
 	CLOZE: `FSRS算法通过计算卡片的==稳定性==(Stability)和==难度==(Difficulty)两个核心参数，来预测下次复习的==最佳时间间隔==。

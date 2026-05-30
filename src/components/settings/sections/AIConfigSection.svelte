@@ -603,23 +603,33 @@
 
 <style>
   /* 未使用的CSS选择器已清理 */
+  .ai-config-section {
+    --weave-settings-gap-xs: var(--size-2-1, 0.25rem);
+    --weave-settings-gap-sm: var(--size-2-2, 0.5rem);
+    --weave-settings-gap-md: var(--size-4-2, 0.75rem);
+    --weave-settings-gap-lg: var(--size-4-3, 1rem);
+    --weave-settings-gap-xl: var(--size-4-5, 1.5rem);
+    --weave-settings-radius-sm: var(--radius-s, 6px);
+    --weave-settings-radius-md: var(--radius-m, 10px);
+    --weave-settings-radius-lg: var(--radius-l, 14px);
+  }
 
   /* 组标题带菜单按钮 */
   .group-header-with-menu {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 0.75rem;
+    gap: var(--weave-settings-gap-md);
     margin-bottom: 0;
-    padding-bottom: 0.4rem;
+    padding-bottom: var(--weave-settings-gap-sm);
   }
 
   .group-title {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--weave-settings-gap-sm);
     margin: 0;
-    font-size: 1rem;
+    font-size: var(--weave-settings-font-size-title, 1rem);
     font-weight: 600;
   }
 
@@ -647,14 +657,14 @@
   .provider-header-actions {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--weave-settings-gap-sm);
   }
 
   /* 徽章 */
   .badge {
-    padding: 2px 8px;
-    border-radius: 6px;
-    font-size: 0.75em;
+    padding: var(--weave-settings-gap-xs) var(--weave-settings-gap-sm);
+    border-radius: var(--weave-settings-radius-sm);
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     font-weight: 500;
   }
 
@@ -671,7 +681,7 @@
     height: 32px;
     padding: 0;
     border: none;
-    border-radius: 10px;
+    border-radius: var(--weave-settings-radius-md);
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -691,19 +701,19 @@
   /* 输入框组合 */
   .input-with-button {
     display: flex;
-    gap: 8px;
+    gap: var(--weave-settings-gap-sm);
     align-items: center;
     width: 100%;
   }
 
   .text-input {
     flex: 1;
-    padding: 8px 12px;
+    padding: var(--weave-settings-gap-sm) var(--weave-settings-gap-md);
     border: 1px solid var(--background-modifier-border);
-    border-radius: 10px;
+    border-radius: var(--weave-settings-radius-md);
     background: var(--background-primary);
     color: var(--text-normal);
-    font-size: 0.9em;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
   }
 
   .text-input:focus {
@@ -715,9 +725,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 6px;
+    padding: var(--weave-settings-gap-xs);
     border: none;
-    border-radius: 4px;
+    border-radius: var(--weave-settings-radius-sm);
     background: var(--interactive-normal);
     color: var(--text-normal);
     cursor: pointer;
@@ -736,20 +746,20 @@
   .test-control-group {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--weave-settings-gap-md);
     flex-wrap: wrap;
   }
 
   .test-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
+    gap: var(--weave-settings-gap-xs);
+    padding: var(--weave-settings-gap-xs) var(--weave-settings-gap-md);
     border: none;
-    border-radius: 4px;
+    border-radius: var(--weave-settings-radius-sm);
     background: var(--interactive-normal);
     color: var(--text-normal);
-    font-size: 0.9em;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     cursor: pointer;
     transition: all 0.2s ease;
   }
@@ -766,10 +776,10 @@
   .test-result {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
-    border-radius: 4px;
-    font-size: 0.85em;
+    gap: var(--weave-settings-gap-xs);
+    padding: var(--weave-settings-gap-xs) var(--weave-settings-gap-md);
+    border-radius: var(--weave-settings-radius-sm);
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
   }
 
   .test-result.success {
@@ -791,7 +801,7 @@
     transform: translate(-50%, -50%);
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
-    border-radius: 12px;
+    border-radius: var(--weave-settings-radius-lg);
     width: 90%;
     max-width: 480px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
@@ -814,13 +824,15 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 20px 24px 16px;
+    padding: calc(var(--weave-settings-gap-xl) - var(--weave-settings-gap-xs))
+      var(--weave-settings-gap-xl)
+      var(--weave-settings-gap-lg);
     border-bottom: 1px solid var(--background-modifier-border);
   }
 
   .modal-header h3 {
     margin: 0;
-    font-size: 1.1em;
+    font-size: var(--weave-settings-font-size-title, 1rem);
     font-weight: 600;
     color: var(--text-normal);
   }
@@ -828,9 +840,9 @@
   .btn-close {
     background: none;
     border: none;
-    padding: 4px;
+    padding: var(--weave-settings-gap-xs);
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--weave-settings-radius-sm);
     color: var(--text-muted);
     transition: all 0.2s ease;
   }
@@ -841,38 +853,38 @@
   }
 
   .custom-modal-body {
-    padding: 20px 24px;
+    padding: calc(var(--weave-settings-gap-xl) - var(--weave-settings-gap-xs)) var(--weave-settings-gap-xl);
   }
 
   .provider-info {
-    margin-bottom: 16px;
+    margin-bottom: var(--weave-settings-gap-lg);
   }
 
   .provider-name {
     display: inline-block;
-    padding: 4px 12px;
+    padding: var(--weave-settings-gap-xs) var(--weave-settings-gap-md);
     background: var(--interactive-accent-bg);
     color: var(--interactive-accent);
-    border-radius: 12px;
-    font-size: 0.85em;
+    border-radius: calc(var(--weave-settings-radius-md) + var(--weave-settings-gap-xs));
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     font-weight: 500;
   }
 
   .input-group {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--weave-settings-gap-sm);
   }
 
   .input-group label {
     font-weight: 500;
     color: var(--text-normal);
-    font-size: 0.9em;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
   }
 
   .input-hint {
     color: var(--text-muted);
-    font-size: 0.8em;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     font-style: italic;
     margin-top: 2px;
   }
@@ -883,18 +895,19 @@
 
   .modal-actions {
     display: flex;
-    gap: 12px;
+    gap: var(--weave-settings-gap-md);
     justify-content: flex-end;
-    padding: 16px 24px 20px;
+    padding: var(--weave-settings-gap-lg) var(--weave-settings-gap-xl)
+      calc(var(--weave-settings-gap-xl) - var(--weave-settings-gap-xs));
     border-top: 1px solid var(--background-modifier-border);
   }
 
   .btn {
-    padding: 8px 16px;
-    border-radius: 6px;
+    padding: var(--weave-settings-gap-sm) var(--weave-settings-gap-lg);
+    border-radius: var(--weave-settings-radius-sm);
     border: 1px solid;
     cursor: pointer;
-    font-size: 0.9em;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     font-weight: 500;
     transition: all 0.2s ease;
   }

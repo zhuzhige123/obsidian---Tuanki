@@ -87,8 +87,6 @@
     isPremium?: boolean;
     timerAutoPauseSeconds?: number;
     onTimerAutoPauseChange?: (seconds: number) => void;
-    hintMaxUses?: number;
-    onHintMaxUsesChange?: (value: number) => void;
     onPanelOpen?: () => void;
   }
 
@@ -147,8 +145,6 @@
     isPremium = false,
     timerAutoPauseSeconds = 60,
     onTimerAutoPauseChange,
-    hintMaxUses = 5,
-    onHintMaxUsesChange,
     onPanelOpen,
   }: Props = $props();
 
@@ -167,11 +163,6 @@
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-  }
-
-  // 格式化提示次数
-  function formatHintMaxUsesLabel(value: number): string {
-    return t('study.menu.settings.hintMaxUses.value', { count: value });
   }
 
   // 格式化播放间隔
@@ -1571,24 +1562,6 @@
                   step="30"
                   value={timerAutoPauseSeconds}
                   oninput={(e) => onTimerAutoPauseChange?.(parseInt((e.target as HTMLInputElement).value))}
-                />
-              </div>
-            </div>
-
-            <div class="setting-section">
-              <div class="setting-item interval-item">
-                <div class="setting-label">
-                  {t('study.menu.settings.hintMaxUses.label')}
-                  <span class="interval-value">{hintMaxUses}</span>
-                </div>
-                <input
-                  type="range"
-                  class="setting-slider"
-                  min="1"
-                  max="20"
-                  step="1"
-                  value={hintMaxUses}
-                  oninput={(e) => onHintMaxUsesChange?.(parseInt((e.target as HTMLInputElement).value))}
                 />
               </div>
             </div>

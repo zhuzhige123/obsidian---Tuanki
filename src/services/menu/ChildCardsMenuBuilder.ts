@@ -1,5 +1,8 @@
 import { Menu } from "obsidian";
-import type { Deck } from "../../data/types";
+import {
+	addMenuRadioChoices,
+	addMenuSubmenuGroup,
+} from "../../utils/obsidian-menu";
 import { logger } from "../../utils/logger";
 
 /** 子卡片菜单构建所需的状态。 */
@@ -51,11 +54,16 @@ export class ChildCardsMenuBuilder {
 
 			if (showDeckSelector && availableDecks.length > 0) {
 				const currentDeck = availableDecks.find((d) => d.id === selectedDeckId);
-				menu.addItem((item) => {
-					item.setTitle(`目标牌组: ${currentDeck?.name || "未选择"}`).setIcon("folder");
-					const submenu = (item as any).setSubmenu();
-					this.buildDeckSubmenu(submenu);
-				});
+				addMenuSubmenuGroup(
+					menu,
+					{
+						title: `目标牌组: ${currentDeck?.name || "未选择"}`,
+						icon: "folder",
+					},
+					(submenu) => {
+						this.addDeckItems(submenu);
+					}
+				);
 				menu.addSeparator();
 			}
 
@@ -100,11 +108,6 @@ export class ChildCardsMenuBuilder {
 		}
 	}
 
-	/** 构建牌组子菜单。 */
-	private buildDeckSubmenu(menu: Menu): void {
-		this.addDeckItems(menu);
-	}
-
 	/** 添加菜单标题。 */
 	private addMenuTitle(menu: Menu, title: string): void {
 		menu.addItem((item) => {
@@ -123,17 +126,18 @@ export class ChildCardsMenuBuilder {
 			return;
 		}
 
-		availableDecks.forEach((deck) => {
-			menu.addItem((item) => {
-				item
-					.setTitle(deck.name)
-					.setIcon("folder")
-					.setChecked(deck.id === selectedDeckId)
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onDeckChange(deck.id));
-					});
-			});
-		});
+		addMenuRadioChoices(
+			menu,
+			selectedDeckId,
+			availableDecks.map((deck) => ({
+				title: deck.name,
+				icon: "folder",
+				value: deck.id,
+			})),
+			(deckId) => {
+				this.safeCallback(() => this.callbacks.onDeckChange(deckId));
+			}
+		);
 	}
 
 	/** 统一捕获回调中的运行时异常。 */

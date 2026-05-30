@@ -21,6 +21,7 @@ import type { EditorOptions, EditorResult } from "../../types/editor-types";
 import { EditorLayoutManager } from "./editor-layout-manager";
 import { KeyboardEventHandler } from "./keyboard-event-handler";
 import { applyStyleProps } from "../../utils/style-props";
+import { shouldHideDocumentPropertiesForVault } from "./document-properties-visibility";
 
 export class EmbeddedEditorManager {
 	private plugin: WeavePlugin;
@@ -256,8 +257,11 @@ export class EmbeddedEditorManager {
 			".view-header-nav-buttons",
 			".inline-title",
 			".view-header-title-wrapper",
-			".metadata-container",
 		];
+
+		if (shouldHideDocumentPropertiesForVault(this.plugin.app.vault)) {
+			selectors.push(".metadata-container");
+		}
 
 		selectors.forEach((_selector) => {
 			const element = view.containerEl.querySelector(_selector);

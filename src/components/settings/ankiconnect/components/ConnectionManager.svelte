@@ -72,16 +72,23 @@
 
 <style>
   .connection-manager {
+    --weave-settings-gap-sm: var(--size-2-2, 0.5rem);
+    --weave-settings-gap-md: var(--size-4-2, 0.75rem);
+    --weave-settings-gap-lg: var(--size-4-3, 1rem);
+    --weave-settings-radius-sm: var(--radius-s, 6px);
+    --weave-settings-radius-md: var(--radius-m, 10px);
+    --weave-settings-radius-lg: var(--radius-l, 14px);
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--weave-settings-gap-md);
   }
 
   .setting-item {
     margin: 0;
-    padding: 1.25rem 1.5rem;
+    padding: calc(var(--weave-settings-gap-lg) + var(--weave-settings-gap-xs, 0.25rem))
+      var(--weave-settings-gap-xl, 1.5rem);
     border: none;
-    border-radius: 14px;
+    border-radius: var(--weave-settings-radius-lg);
     background: var(--background-secondary);
   }
 
@@ -89,7 +96,7 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 16px;
+    gap: var(--weave-settings-gap-xl, 1.5rem);
   }
 
   .setting-control {
@@ -99,38 +106,39 @@
   }
 
   .endpoint-control {
-    gap: 12px;
+    gap: var(--weave-settings-gap-md);
   }
 
   .connection-meta {
-    margin-left: 6px;
+    margin-left: var(--weave-settings-gap-sm);
     opacity: 0.7;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
   }
 
   .error-banner {
-    padding: 1rem 1.1rem;
+    padding: var(--weave-settings-gap-lg) calc(var(--weave-settings-gap-lg) + var(--weave-settings-gap-xs, 0.25rem));
     background: color-mix(in oklab, var(--text-error), var(--background-primary) 92%);
-    border-radius: 14px;
+    border-radius: var(--weave-settings-radius-lg);
     border: 1px solid color-mix(in oklab, var(--text-error), transparent 35%);
   }
 
   .error-text {
-    font-size: 14px;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     color: var(--text-error);
-    margin-bottom: 4px;
+    margin-bottom: var(--weave-settings-gap-xs, 0.25rem);
   }
 
   .error-suggestion {
-    font-size: 12px;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     color: var(--text-muted);
   }
 
   .btn {
-    padding: 8px 16px;
+    padding: var(--weave-settings-gap-sm) var(--weave-settings-gap-lg);
     border: none;
-    border-radius: 10px;
+    border-radius: var(--weave-settings-radius-md);
     cursor: pointer;
-    font-size: 14px;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     font-weight: 500;
     transition: all 0.2s ease;
     white-space: nowrap;
@@ -153,12 +161,12 @@
 
   .text-input {
     width: min(360px, 100%);
-    padding: 8px 12px;
+    padding: var(--weave-settings-gap-sm) var(--weave-settings-gap-md);
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
-    border-radius: 10px;
+    border-radius: var(--weave-settings-radius-md);
     color: var(--text-normal);
-    font-size: 14px;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     transition: border-color 0.2s;
   }
 

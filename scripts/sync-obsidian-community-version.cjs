@@ -4,7 +4,7 @@
  *
  * Usage:
  *   node scripts/sync-obsidian-community-version.cjs
- *   node scripts/sync-obsidian-community-version.cjs --version 0.8.10
+ *   node scripts/sync-obsidian-community-version.cjs --version 0.8.11
  *   node scripts/sync-obsidian-community-version.cjs --dry-run
  *   node scripts/sync-obsidian-community-version.cjs --push-ref wip-main-sync:main
  */
@@ -199,7 +199,8 @@ function main() {
 		writeJson("versions.json", metadata.versions);
 		writeJson("public/versions.json", metadata.versions);
 
-		run("git", ["add", ...VERSION_FILES]);
+		run("git", ["add", "manifest.json", "package.json", "versions.json"]);
+		run("git", ["add", "-f", "public/versions.json"]);
 
 		assertStagedVersionFilesOnly();
 

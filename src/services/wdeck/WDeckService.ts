@@ -1,4 +1,4 @@
-﻿import { TFile } from "obsidian";
+import { TFile } from "obsidian";
 import { normalizePath } from "obsidian";
 import { getPluginDir, getPluginPaths, getV2Paths, normalizeWeaveParentFolder } from "../../config/paths";
 import type { Card, Deck } from "../../data/types";
@@ -12,7 +12,7 @@ import { ensureWeaveDataReadmesForPath } from "../../utils/weave-data-readme";
 export const WDECK_FILE_EXTENSION = "wdeck";
 export const WDECK_RUNTIME_DECK_PREFIX = "wdeck:";
 export const WDECK_UNGROUPED_DECK_NAME = "未归组卡片";
-const WDECK_CACHE_VERSION = 2;
+const WDECK_CACHE_VERSION = 3;
 const WDECK_SHARD_THRESHOLD_COUNT = 500;
 const WDECK_SHARD_THRESHOLD_SIZE = 512 * 1024;
 
@@ -47,9 +47,22 @@ interface ResolvedWDeckFile {
 	segmentId?: string;
 }
 
-type CachedResolvedWDeckFile = Omit<ResolvedWDeckFile, "file"> & {
+/** 持久化缓存条目：不含卡片正文，仅元数据与 UUID 列表 */
+type CachedResolvedWDeckFile = {
 	path: string;
 	mtime?: number;
+	logicalDeckId: string;
+	logicalDeckName: string;
+	runtimeDeckId: string;
+	segmentIndex?: number;
+	segmentId?: string;
+	deck?: Partial<Deck>;
+	cardUUIDs: string[];
+};
+
+type ResolvedWDeckFileCacheEntry = {
+	mtime: number;
+	resolved: ResolvedWDeckFile;
 };
 
 type WDeckRuntimeCardSource = Pick<
@@ -197,9 +210,15 @@ export function isWDeckRuntimeDeckId(deckId?: string): boolean {
 export class WDeckService {
 	private plugin: WeavePlugin;
 	private readFailureFingerprints = new Map<string, string>();
+	/** 会话内 .wdeck 解析缓存（按 path + mtime） */
+	private resolvedFileCache = new Map<string, ResolvedWDeckFileCacheEntry>();
 
 	constructor(plugin: WeavePlugin) {
 		this.plugin = plugin;
+	}
+
+	private clearResolvedFileCache(): void {
+		this.resolvedFileCache.clear();
 	}
 
 	normalizeDeckFileDataForPersistence(
@@ -282,7 +301,10 @@ export class WDeckService {
 		}
 
 		const snapshot = await this.loadSnapshot();
-		const members = this.resolveCachedFilesByPredicate(snapshot.files, (file) => file.runtimeDeckId === deckId);
+		const members = await this.resolveCachedFilesByPredicate(
+			snapshot.files,
+			(file) => file.runtimeDeckId === deckId
+		);
 		if (members.length === 0) {
 			return null;
 		}
@@ -302,7 +324,7 @@ export class WDeckService {
 
 		const logicalDeckId = this.normalizeDeckId(normalizedDeckId);
 		const snapshot = await this.loadSnapshot();
-		const members = this.resolveCachedFilesByPredicate(
+		const members = await this.resolveCachedFilesByPredicate(
 			snapshot.files,
 			(file) => file.logicalDeckId === logicalDeckId
 		);
@@ -363,7 +385,7 @@ export class WDeckService {
 			);
 		}
 
-		const members = this.resolveCachedFilesByPredicate(
+		const members = await this.resolveCachedFilesByPredicate(
 			snapshot.files,
 			(item) => item.runtimeDeckId === target.runtimeDeckId
 		);
@@ -394,7 +416,7 @@ export class WDeckService {
 		if (locatedPath) {
 			const locatedCached = snapshot.files.find((item) => item.path === locatedPath);
 			if (locatedCached) {
-				const locatedCard = this.findDecoratedCardInCachedFile(locatedCached, normalizedUUID);
+				const locatedCard = await this.findDecoratedCardInCachedFile(locatedCached, normalizedUUID);
 				if (locatedCard) {
 					return locatedCard;
 				}
@@ -402,7 +424,7 @@ export class WDeckService {
 		}
 
 		for (const cached of snapshot.files) {
-			const found = this.findDecoratedCardInCachedFile(cached, normalizedUUID);
+			const found = await this.findDecoratedCardInCachedFile(cached, normalizedUUID);
 			if (found) {
 				return found;
 			}
@@ -445,13 +467,13 @@ export class WDeckService {
 				continue;
 			}
 
-			this.collectDecoratedCardsFromCachedFile(cached, uuidSet, foundCards);
+			await this.collectDecoratedCardsFromCachedFile(cached, uuidSet, foundCards);
 		}
 
 		if (unresolved.size > 0) {
 			const unresolvedSet = new Set(unresolved);
 			for (const cached of snapshot.files) {
-				this.collectDecoratedCardsFromCachedFile(cached, unresolvedSet, foundCards);
+				await this.collectDecoratedCardsFromCachedFile(cached, unresolvedSet, foundCards);
 			}
 		}
 
@@ -528,6 +550,7 @@ export class WDeckService {
 	}
 
 	async rebuildCache(): Promise<WDeckCacheStatus> {
+		this.clearResolvedFileCache();
 		const snapshot = await this.collectSnapshot();
 		await this.writeCacheSnapshot(snapshot);
 		return {
@@ -1270,14 +1293,13 @@ export class WDeckService {
 		const normalizedDeckId = this.normalizeDeckId(logicalDeckId, logicalDeckName);
 		const normalizedDeckName = this.normalizeDeckName(logicalDeckName, logicalDeckId);
 		const snapshot = await this.loadSnapshot();
-		return this.sortResolvedFilesBySegment(
-			this.resolveCachedFilesByPredicate(
-				snapshot.files,
-				(file) =>
-					file.logicalDeckId === normalizedDeckId ||
-					(!file.logicalDeckId && file.logicalDeckName === normalizedDeckName)
-			)
+		const members = await this.resolveCachedFilesByPredicate(
+			snapshot.files,
+			(file) =>
+				file.logicalDeckId === normalizedDeckId ||
+				(!file.logicalDeckId && file.logicalDeckName === normalizedDeckName)
 		);
+		return this.sortResolvedFilesBySegment(members);
 	}
 
 	private doesDeckDataExceedShardThreshold(filePath: string, data: WDeckFileData): boolean {
@@ -1644,6 +1666,7 @@ export class WDeckService {
 			}
 		}
 
+		this.clearResolvedFileCache();
 		const snapshot = await this.collectSnapshot(vaultFiles, vaultFingerprint);
 		await this.writeCacheSnapshot(snapshot);
 		return snapshot;
@@ -1728,7 +1751,18 @@ export class WDeckService {
 				return null;
 			}
 
-			return parsed;
+			const files = parsed.files
+				.map((entry) => this.normalizeCachedFileEntry(entry))
+				.filter((entry): entry is CachedResolvedWDeckFile => !!entry);
+			if (files.length !== parsed.files.length) {
+				return null;
+			}
+
+			return {
+				...parsed,
+				files,
+				cardLocator: this.buildCardLocator(files),
+			};
 		} catch (error) {
             logger.warn("[WDeckService] 读取缓存失败，将重新扫描。", error);
 			return null;
@@ -1751,44 +1785,176 @@ export class WDeckService {
 		return getPluginPaths(this.plugin.app).cache.wdeckConflicts;
 	}
 
+	private normalizeCachedFileEntry(raw: unknown): CachedResolvedWDeckFile | null {
+		if (!raw || typeof raw !== "object") {
+			return null;
+		}
+
+		const entry = raw as Record<string, unknown>;
+		const path = String(entry.path || "").trim();
+		if (!path) {
+			return null;
+		}
+
+		const legacyData = entry.data as WDeckFileData | undefined;
+		const cardUUIDs = Array.isArray(entry.cardUUIDs)
+			? entry.cardUUIDs.map((uuid) => String(uuid || "").trim()).filter(Boolean)
+			: Array.isArray(legacyData?.cards)
+				? legacyData.cards.map((card) => String(card?.uuid || "").trim()).filter(Boolean)
+				: null;
+		if (!cardUUIDs) {
+			return null;
+		}
+
+		const logicalDeckId = String(entry.logicalDeckId || legacyData?.logicalDeckId || "").trim();
+		const logicalDeckName = String(entry.logicalDeckName || legacyData?.logicalDeckName || "").trim();
+		const runtimeDeckId = String(entry.runtimeDeckId || "").trim();
+		if (!logicalDeckId || !logicalDeckName || !runtimeDeckId) {
+			return null;
+		}
+
+		const deck =
+			entry.deck && typeof entry.deck === "object"
+				? (entry.deck as Partial<Deck>)
+				: legacyData?.deck && typeof legacyData.deck === "object"
+					? (legacyData.deck as Partial<Deck>)
+					: undefined;
+
+		return {
+			path,
+			mtime: typeof entry.mtime === "number" ? entry.mtime : undefined,
+			logicalDeckId,
+			logicalDeckName,
+			runtimeDeckId,
+			segmentIndex:
+				typeof entry.segmentIndex === "number"
+					? entry.segmentIndex
+					: typeof legacyData?.segmentIndex === "number"
+						? legacyData.segmentIndex
+						: undefined,
+			segmentId:
+				typeof entry.segmentId === "string"
+					? entry.segmentId
+					: legacyData?.segmentId,
+			deck,
+			cardUUIDs,
+		};
+	}
+
 	private toCachedResolvedFile(file: ResolvedWDeckFile): CachedResolvedWDeckFile {
+		const cards = Array.isArray(file.data.cards) ? file.data.cards : [];
+		const deck =
+			file.data.deck && typeof file.data.deck === "object"
+				? ({ ...(file.data.deck as Partial<Deck>) } as Partial<Deck>)
+				: undefined;
+
 		return {
 			path: file.file.path,
 			mtime: this.getFileMTime(file.file),
-			data: file.data,
 			logicalDeckId: file.logicalDeckId,
 			logicalDeckName: file.logicalDeckName,
 			runtimeDeckId: file.runtimeDeckId,
 			segmentIndex: file.segmentIndex,
 			segmentId: file.segmentId,
+			deck,
+			cardUUIDs: cards.map((card) => String(card?.uuid || "").trim()).filter(Boolean),
 		};
 	}
 
-	private buildCardLocator(cachedFiles: Array<Pick<CachedResolvedWDeckFile, "path" | "data">>): WDeckCardLocator {
+	private buildCardLocator(
+		cachedFiles: Array<Pick<CachedResolvedWDeckFile, "path" | "cardUUIDs">>
+	): WDeckCardLocator {
 		const locator: WDeckCardLocator = {};
 		for (const file of cachedFiles) {
-			for (const card of Array.isArray(file.data.cards) ? file.data.cards : []) {
-				if (!card?.uuid) {
+			for (const uuid of file.cardUUIDs || []) {
+				if (!uuid) {
 					continue;
 				}
-				locator[card.uuid] = file.path;
+				locator[uuid] = file.path;
 			}
 		}
 		return locator;
 	}
 
-	private buildCardsFromCachedFiles(cachedFiles: CachedResolvedWDeckFile[]): Card[] {
-		const allCards: Card[] = [];
+	private async loadResolvedFileForCached(cached: CachedResolvedWDeckFile): Promise<ResolvedWDeckFile | null> {
+		const file = this.plugin.app.vault.getAbstractFileByPath(cached.path);
+		if (!(file instanceof TFile)) {
+			return null;
+		}
+
+		const mtime = this.getFileMTime(file);
+		if (typeof mtime === "number") {
+			const sessionCached = this.resolvedFileCache.get(cached.path);
+			if (sessionCached && sessionCached.mtime === mtime) {
+				return sessionCached.resolved;
+			}
+		}
+
+		const resolved = await this.readResolvedFile(file);
+		if (resolved && typeof mtime === "number") {
+			this.resolvedFileCache.set(cached.path, { mtime, resolved });
+		}
+		return resolved;
+	}
+
+	private async resolveFilesFromCache(cachedFiles: CachedResolvedWDeckFile[]): Promise<ResolvedWDeckFile[]> {
+		const resolved: ResolvedWDeckFile[] = [];
 		for (const cached of cachedFiles) {
-			for (const card of Array.isArray(cached.data.cards) ? cached.data.cards : []) {
-				allCards.push(this.decorateCachedCard(card, cached));
+			const loaded = await this.loadResolvedFileForCached(cached);
+			if (loaded) {
+				resolved.push(loaded);
+			}
+		}
+		return resolved;
+	}
+
+	private async resolveCachedFilesByPredicate(
+		cachedFiles: CachedResolvedWDeckFile[],
+		predicate: (file: CachedResolvedWDeckFile) => boolean
+	): Promise<ResolvedWDeckFile[]> {
+		return this.resolveFilesFromCache(cachedFiles.filter(predicate));
+	}
+
+	private async buildCardsFromCachedFiles(cachedFiles: CachedResolvedWDeckFile[]): Promise<Card[]> {
+		const resolvedFiles = await this.resolveFilesFromCache(cachedFiles);
+		const allCards: Card[] = [];
+		for (const resolved of resolvedFiles) {
+			const cachedMeta: CachedResolvedWDeckFile = {
+				path: resolved.file.path,
+				mtime: this.getFileMTime(resolved.file),
+				logicalDeckId: resolved.logicalDeckId,
+				logicalDeckName: resolved.logicalDeckName,
+				runtimeDeckId: resolved.runtimeDeckId,
+				segmentIndex: resolved.segmentIndex,
+				segmentId: resolved.segmentId,
+				deck:
+					resolved.data.deck && typeof resolved.data.deck === "object"
+						? (resolved.data.deck as Partial<Deck>)
+						: undefined,
+				cardUUIDs: (resolved.data.cards || [])
+					.map((card) => String(card?.uuid || "").trim())
+					.filter(Boolean),
+			};
+			for (const card of Array.isArray(resolved.data.cards) ? resolved.data.cards : []) {
+				if (!card?.uuid) {
+					continue;
+				}
+				allCards.push(this.decorateCachedCard(card, cachedMeta));
 			}
 		}
 		return allCards;
 	}
 
-	private findDecoratedCardInCachedFile(cached: CachedResolvedWDeckFile, uuid: string): Card | null {
-		for (const card of Array.isArray(cached.data.cards) ? cached.data.cards : []) {
+	private async findDecoratedCardInCachedFile(
+		cached: CachedResolvedWDeckFile,
+		uuid: string
+	): Promise<Card | null> {
+		const resolved = await this.loadResolvedFileForCached(cached);
+		if (!resolved) {
+			return null;
+		}
+
+		for (const card of Array.isArray(resolved.data.cards) ? resolved.data.cards : []) {
 			if (card?.uuid === uuid) {
 				return this.decorateCachedCard(card, cached);
 			}
@@ -1796,44 +1962,21 @@ export class WDeckService {
 		return null;
 	}
 
-	private collectDecoratedCardsFromCachedFile(
+	private async collectDecoratedCardsFromCachedFile(
 		cached: CachedResolvedWDeckFile,
 		targetUUIDs: Set<string>,
 		foundCards: Map<string, Card>
-	): void {
-		for (const card of Array.isArray(cached.data.cards) ? cached.data.cards : []) {
+	): Promise<void> {
+		const resolved = await this.loadResolvedFileForCached(cached);
+		if (!resolved) {
+			return;
+		}
+
+		for (const card of Array.isArray(resolved.data.cards) ? resolved.data.cards : []) {
 			if (card?.uuid && targetUUIDs.has(card.uuid) && !foundCards.has(card.uuid)) {
 				foundCards.set(card.uuid, this.decorateCachedCard(card, cached));
 			}
 		}
-	}
-
-	private resolveFilesFromCache(cachedFiles: CachedResolvedWDeckFile[]): ResolvedWDeckFile[] {
-		const resolved: ResolvedWDeckFile[] = [];
-		for (const cached of cachedFiles) {
-			const file = this.plugin.app.vault.getAbstractFileByPath(cached.path);
-			if (!(file instanceof TFile)) {
-				continue;
-			}
-
-			resolved.push({
-				file,
-				data: cached.data,
-				logicalDeckId: cached.logicalDeckId,
-				logicalDeckName: cached.logicalDeckName,
-				runtimeDeckId: cached.runtimeDeckId,
-				segmentIndex: cached.segmentIndex,
-				segmentId: cached.segmentId,
-			});
-		}
-		return resolved;
-	}
-
-	private resolveCachedFilesByPredicate(
-		cachedFiles: CachedResolvedWDeckFile[],
-		predicate: (file: CachedResolvedWDeckFile) => boolean
-	): ResolvedWDeckFile[] {
-		return this.resolveFilesFromCache(cachedFiles.filter(predicate));
 	}
 
 	private buildDeckSummariesFromCachedFiles(cachedFiles: CachedResolvedWDeckFile[]): WDeckDeckSummary[] {
@@ -1852,7 +1995,9 @@ export class WDeckService {
 			.sort((a, b) => a.logicalDeckName.localeCompare(b.logicalDeckName, "zh-CN"));
 	}
 
-	private buildDeckAggregatesFromCachedFiles(cachedFiles: CachedResolvedWDeckFile[]): WDeckDeckAggregate[] {
+	private async buildDeckAggregatesFromCachedFiles(
+		cachedFiles: CachedResolvedWDeckFile[]
+	): Promise<WDeckDeckAggregate[]> {
 		const grouped = new Map<string, CachedResolvedWDeckFile[]>();
 		for (const cached of cachedFiles) {
 			const list = grouped.get(cached.runtimeDeckId);
@@ -1863,7 +2008,11 @@ export class WDeckService {
 			}
 		}
 
-		return Array.from(grouped.values()).map((files) => this.buildAggregateFromCachedMembers(files));
+		const aggregates: WDeckDeckAggregate[] = [];
+		for (const files of grouped.values()) {
+			aggregates.push(await this.buildAggregateFromCachedMembers(files));
+		}
+		return aggregates;
 	}
 
 	private sortCachedFilesBySegment(files: CachedResolvedWDeckFile[]): CachedResolvedWDeckFile[] {
@@ -1883,9 +2032,7 @@ export class WDeckService {
 		const seenUUIDs = new Set<string>();
 		const deckDefinition =
 			sortedFiles
-				.map((file) =>
-					file.data.deck && typeof file.data.deck === "object" ? (file.data.deck as Partial<Deck>) : null
-				)
+				.map((file) => (file.deck && typeof file.deck === "object" ? file.deck : null))
 				.find((candidate): candidate is Partial<Deck> => !!candidate) || undefined;
 
 		for (const file of sortedFiles) {
@@ -1893,12 +2040,12 @@ export class WDeckService {
 				segmentIndices.push(file.segmentIndex);
 			}
 
-			for (const card of Array.isArray(file.data.cards) ? file.data.cards : []) {
-				if (!card?.uuid || seenUUIDs.has(card.uuid)) {
+			for (const uuid of file.cardUUIDs || []) {
+				if (!uuid || seenUUIDs.has(uuid)) {
 					continue;
 				}
-				seenUUIDs.add(card.uuid);
-				cardUUIDs.push(card.uuid);
+				seenUUIDs.add(uuid);
+				cardUUIDs.push(uuid);
 			}
 		}
 
@@ -1922,51 +2069,9 @@ export class WDeckService {
 		};
 	}
 
-	private buildAggregateFromCachedMembers(files: CachedResolvedWDeckFile[]): WDeckDeckAggregate {
-		const sortedFiles = this.sortCachedFilesBySegment(files);
-
-		const cardMap = new Map<string, Card>();
-		const segmentIndices: number[] = [];
-		const deckDefinition =
-			sortedFiles
-				.map((file) =>
-					file.data.deck && typeof file.data.deck === "object" ? (file.data.deck as Partial<Deck>) : null
-				)
-				.find((candidate): candidate is Partial<Deck> => !!candidate) || undefined;
-
-		for (const file of sortedFiles) {
-			if (file.segmentIndex !== undefined) {
-				segmentIndices.push(file.segmentIndex);
-			}
-
-			const cards = Array.isArray(file.data.cards) ? file.data.cards : [];
-			for (const card of cards) {
-				if (!card?.uuid) continue;
-				cardMap.set(card.uuid, this.decorateCachedCard(card, file));
-			}
-		}
-
-		const first = sortedFiles[0];
-		const logicalDeckName =
-			String(deckDefinition?.name || first.logicalDeckName || "").trim() || first.logicalDeckName;
-		const aggregateFiles = sortedFiles
-			.map((file) => this.plugin.app.vault.getAbstractFileByPath(file.path))
-			.filter((file): file is TFile => file instanceof TFile);
-		return {
-			runtimeDeckId: first.runtimeDeckId,
-			logicalDeckId: first.logicalDeckId,
-			logicalDeckName,
-			files: aggregateFiles,
-			segmentIndices,
-			deck: deckDefinition
-				? {
-						...deckDefinition,
-						id: first.logicalDeckId,
-						name: logicalDeckName,
-				  }
-				: undefined,
-			cards: Array.from(cardMap.values()),
-		};
+	private async buildAggregateFromCachedMembers(files: CachedResolvedWDeckFile[]): Promise<WDeckDeckAggregate> {
+		const members = await this.resolveFilesFromCache(files);
+		return this.buildAggregate(members);
 	}
 
 	private async refreshCacheAfterWrites(touchedPaths: Iterable<string>): Promise<void> {
@@ -1975,6 +2080,10 @@ export class WDeckService {
 		);
 		if (normalizedTouchedPaths.length === 0) {
 			return;
+		}
+
+		for (const path of normalizedTouchedPaths) {
+			this.resolvedFileCache.delete(path);
 		}
 
 		const updated = await this.updateCacheSnapshotIncrementally(normalizedTouchedPaths);
@@ -2062,7 +2171,7 @@ export class WDeckService {
 		}
 
 		nextCachedFiles.sort((a, b) => a.path.localeCompare(b.path, "zh-CN"));
-		const resolvedFiles = this.resolveFilesFromCache(nextCachedFiles);
+		const resolvedFiles = await this.resolveFilesFromCache(nextCachedFiles);
 		await this.writeCacheSnapshot({
 			version: WDECK_CACHE_VERSION,
 			vaultFingerprint: this.computeVaultFingerprint(currentVaultFiles),

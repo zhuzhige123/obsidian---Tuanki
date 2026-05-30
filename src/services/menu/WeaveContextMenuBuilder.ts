@@ -1,4 +1,5 @@
 import { Menu } from "obsidian";
+import { getMenuSubmenu } from "../../utils/obsidian-menu";
 
 const submenuByMenu = new WeakMap<Menu, Menu>();
 
@@ -11,7 +12,7 @@ export function getWeaveOperationsSubmenu(menu: Menu): Menu {
 	menu.addItem((item) => {
 		item.setTitle("Weave 操作");
 		item.setIcon("brain");
-		created = (item as any).setSubmenu() as Menu;
+		created = getMenuSubmenu(item);
 	});
 
 	const submenu = created ?? new Menu();

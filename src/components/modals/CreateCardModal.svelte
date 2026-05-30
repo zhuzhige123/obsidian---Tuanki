@@ -25,6 +25,11 @@
   import { Notice, Platform, Menu } from 'obsidian';
   import { applyStyleProps } from '../../utils/style-props';
   import { tr } from '../../utils/i18n';
+  import {
+    closeEditableFormalCreateDeckModal,
+    openEditableFormalCreateDeckModal
+  } from '../../utils/editable-formal-create-deck-modal';
+  import { populateEditableFormalDeckMenu } from '../../utils/editable-formal-deck-menu';
 
   function findFirstPdfPlusLinkFromBody(body: string): string | undefined {
     if (!body) return undefined;
@@ -203,7 +208,32 @@
       menuObserver.disconnect();
       menuObserver = null;
     }
+    closeEditableFormalCreateDeckModal();
   });
+
+  async function refreshDecks(): Promise<void> {
+    if (!plugin.dataStorage) return;
+    try {
+      decks = await plugin.dataStorage.getAllDecks();
+    } catch (error) {
+      logger.error('[CreateCardModal] 刷新牌组列表失败:', error);
+    }
+  }
+
+  function openCreateDeckModal(): void {
+    openEditableFormalCreateDeckModal({
+      plugin,
+      onDeckCreated: async (newDeck) => {
+        await refreshDecks();
+        await handleDecksChange([newDeck.name]);
+        new Notice(t('cards.createModal.deckCreated', { name: newDeck.name }));
+        plugin.app.workspace.trigger('Weave:data-changed');
+        if (lastMenuPosition) {
+          queueMicrotask(() => openDeckMenuAtPosition(lastMenuPosition!));
+        }
+      }
+    });
+  }
 
   // 处理关闭
   function handleClose() {
@@ -509,28 +539,25 @@
   }
 
   function openDeckMenuAtPosition(pos: { x: number; y: number }) {
-    if (!decks || decks.length === 0) return;
+    if (!plugin.dataStorage) return;
 
     const menu = new Menu();
 
-    for (const deck of decks) {
-      menu.addItem((item) => {
-        const checked = Array.isArray(selectedDeckNames) && selectedDeckNames.includes(deck.name);
-        item.setTitle(deck.name);
-        item.setIcon(checked ? 'check-square' : 'square');
-        item.onClick(() => {
-          const currentName = Array.isArray(selectedDeckNames) && selectedDeckNames.length > 0
-            ? selectedDeckNames[0]
-            : '';
-          const next = currentName === deck.name ? [] : [deck.name];
-          handleDecksChange(next);
-
-          if (lastMenuPosition) {
-            queueMicrotask(() => openDeckMenuAtPosition(lastMenuPosition!));
-          }
-        });
-      });
-    }
+    populateEditableFormalDeckMenu({
+      menu,
+      decks: decks ?? [],
+      selectedDeckNames,
+      createDeckLabel: t('cards.createModal.createDeckMenu'),
+      onDeckNamesChange: (names) => {
+        void handleDecksChange(names);
+      },
+      onCreateDeck: openCreateDeckModal,
+      onAfterDeckToggle: () => {
+        if (lastMenuPosition) {
+          queueMicrotask(() => openDeckMenuAtPosition(lastMenuPosition!));
+        }
+      }
+    });
 
     menu.showAtPosition(pos);
   }
@@ -582,8 +609,8 @@
       />
     </button>
     
-    <!-- 牌组选择器 -->
-    {#if decks && decks.length > 0}
+    <!-- 牌组选择器（无牌组时仍可通过菜单新建） -->
+    {#if plugin.dataStorage}
       <button
         bind:this={deckButtonRef}
         class="deck-selector-btn mobile"

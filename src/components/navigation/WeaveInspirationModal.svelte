@@ -1,6 +1,11 @@
 <script lang="ts">
   import FloatingMenu from '../ui/FloatingMenu.svelte';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
+  import {
+    cardSyntaxTutorials,
+    inspirationModalTabs,
+    type InspirationModalTabId,
+  } from './inspiration-card-syntax-content';
 
   interface InspirationLink {
     label: string;
@@ -8,13 +13,9 @@
   }
 
   interface InspirationItem {
-    index: string;
-    type: string;
-    title: string;
-    source: string;
-    summary: string;
-    adaptation: string;
-    sourceNote?: string;
+    statement: string;
+    categoryTag: string;
+    note?: string;
     links?: InspirationLink[];
   }
 
@@ -33,96 +34,67 @@
   let { visible, anchorEl = null, onClose }: Props = $props();
 
   const popoverTitleId = 'weave-inspiration-popover-title';
+  const tabListId = 'weave-inspiration-tablist';
+
+  let activeTab = $state<InspirationModalTabId>('attribution');
 
   const inspirationSections: InspirationSection[] = [
     {
       title: '底层框架与方法来源',
-      intro: '这部分主要记录插件底层框架、概念定义和核心学习方法的来源。',
+      intro: '插件底层框架、概念定义与核心学习方法的来源。',
       items: [
         {
-          index: '01',
-          type: '整体框架说明',
-          title: '整体框架、命名与局部早期参考',
-          source: '作者个人设计；Anki（局部早期参考）',
-          summary:
-            'Weave 最初命名为 Tuanki。插件整体框架、整体设计与布局、和 Obsidian 功能之间的交互，以及不同应用方式下的交互组织，主要都由作者个人设计。',
-          adaptation:
-            '参考 Anki 的部分主要集中在记忆牌组的早期思路和表格数据库的部分表达方式，不应被写成整个插件框架都来自 Anki。'
+          statement: '整体框架、命名与局部早期参考来自作者个人设计；Anki（局部早期参考）',
+          categoryTag: '整体框架说明',
+          note:
+            'Weave 最初命名为 Tuanki。插件整体框架、整体设计与布局、和 Obsidian 功能之间的交互，以及不同应用方式下的交互组织，主要都由作者个人设计。'
         },
         {
-          index: '02',
-          type: '概念来源',
-          title: '增量阅读的基础定义',
-          source: 'SuperMemo',
-          summary: '增量阅读的一些基本定义、术语理解与方法论起点来源于 SuperMemo。',
-          adaptation:
-            '在 Weave 中，这些定义已经按 Obsidian 的 Markdown、知识库组织方式和插件交互场景做了重新整理与适配。'
+          statement: '增量阅读基础定义来源于 SuperMemo',
+          categoryTag: '概念来源',
+          note: '增量阅读的一些基本定义、术语理解与方法论起点来源于 SuperMemo。'
         },
         {
-          index: '03',
-          type: '算法来源',
-          title: '记忆牌组调度算法',
-          source: 'FSRS6',
-          summary: '记忆牌组的核心调度算法来源于 FSRS6。',
-          adaptation:
-            '插件当前呈现的复习流程、数据承载方式、界面表达和上下游联动，是在 FSRS6 基础上结合 Weave 自身架构接入和包装后的结果。'
+          statement: '记忆牌组算法来源为 FSRS6',
+          categoryTag: '算法来源',
+          note: '记忆牌组的核心调度算法来源于 FSRS6。'
         }
       ]
     },
     {
       title: '界面与交互参考',
-      intro: '这部分主要记录顶部功能栏、搜索面板和导航表达上的设计灵感来源。',
+      intro: '顶部功能栏、搜索面板与导航表达上的设计参考。',
       items: [
         {
-          index: '04',
-          type: '界面参考',
-          title: '搜索匹配面板',
-          source: 'Obsidian 搜索匹配面板',
-          summary: '搜索匹配面板的布局思路与结果反馈方式，参考了 Obsidian 自身的搜索匹配面板设计。',
-          adaptation:
-            '在 Weave 中又结合了卡片字段、牌组筛选和多数据源状态，改造成更贴合插件主界面的搜索工作流。'
+          statement: '搜索匹配面板参考 Obsidian 搜索匹配面板',
+          categoryTag: '界面参考',
+          note: '搜索匹配面板的布局思路与结果反馈方式，参考了 Obsidian 自身的搜索匹配面板设计。'
         },
         {
-          index: '05',
-          type: '样式参考',
-          title: '标签页导航栏的扁平化文本风格',
-          source: 'Components AI 对话底部功能键',
-          summary: '标签页导航栏的扁平化、极简文本显示风格，参考了 Components AI 对话底部功能键的设计语言。',
-          adaptation:
-            '在插件里并未原样照搬，而是结合 Obsidian 顶部栏密度、主题变量和多页面切换节奏做了重新压缩与适配。'
+          statement: '标签页导航栏扁平化文本风格参考 Components AI 对话底部功能键',
+          categoryTag: '样式参考',
+          note: '标签页导航栏的扁平化、极简文本显示风格，参考了 Components AI 对话底部功能键的设计语言。'
         },
         {
-          index: '06',
-          type: '视觉参考',
-          title: '多彩侧边颜色条',
-          source: 'Composer 主题的标题设计',
-          summary: '插件中多彩侧边颜色条的视觉表达，参考了 Composer 这款 Obsidian 主题的标题设计。',
-          adaptation:
-            '在 Weave 里又按不同页面、状态层级和主题适配做了重新组织，不是简单把原来的颜色条直接搬过来。'
+          statement: '多彩侧边颜色条参考 Composer 主题标题设计',
+          categoryTag: '视觉参考',
+          note: '插件中多彩侧边颜色条的视觉表达，参考了 Composer 这款 Obsidian 主题的标题设计。'
         }
       ]
     },
     {
       title: '工作区与辅助交互参考',
-      intro: '这部分记录看板和日历等辅助工作区中可追溯的交互参考来源。',
+      intro: '看板、日历等辅助工作区中的交互参考。',
       items: [
         {
-          index: '07',
-          type: '交互参考',
-          title: '看板列设置',
-          source: 'Notion',
-          summary: '看板列设置的交互组织方式参考了 Notion。',
-          adaptation:
-            'Weave 里又按卡片学习场景加入了更贴近牌组管理的数据项和操作逻辑，不是对原方案的直接照搬。'
+          statement: '看板列设置参考 Notion',
+          categoryTag: '交互参考',
+          note: '看板列设置的交互组织方式参考了 Notion。'
         },
         {
-          index: '08',
-          type: '调整参考',
-          title: '增量阅读日历设计调整',
-          source: 'obsidian-calendar-plugin',
-          summary: '增量阅读日历的一些布局和节奏调整，参考了 obsidian-calendar-plugin。',
-          adaptation:
-            '当前实现仍然是围绕 Weave 的增量阅读数据与学习任务重新调整过的版本，重点是适配插件自身的信息密度和使用路径。',
+          statement: '增量阅读日历布局调整参考 obsidian-calendar-plugin',
+          categoryTag: '调整参考',
+          note: '增量阅读日历的一些布局和节奏调整，参考了 obsidian-calendar-plugin。',
           links: [
             {
               label: 'GitHub 仓库',
@@ -133,6 +105,22 @@
       ]
     }
   ];
+
+  const activeSyntaxTutorial = $derived(
+    activeTab === 'attribution' ? null : cardSyntaxTutorials[activeTab]
+  );
+
+  const modalHeading = $derived(
+    activeTab === 'attribution' ? '设计灵感与借鉴说明' : '卡片语法与示例'
+  );
+
+  const modalKicker = $derived(
+    activeTab === 'attribution' ? '来源说明' : '题型教程'
+  );
+
+  function selectTab(tabId: InspirationModalTabId): void {
+    activeTab = tabId;
+  }
 
   function handleWindowKeydown(event: KeyboardEvent) {
     if (!visible) return;
@@ -156,12 +144,8 @@
 >
   <div class="weave-inspiration-popover__header">
     <div class="weave-inspiration-popover__heading">
-      <span class="weave-inspiration-popover__kicker">来源说明</span>
-      <h2 id={popoverTitleId}>设计灵感与借鉴说明</h2>
-      <p>
-        这份说明会尽量把目前能明确追溯的灵感与借鉴来源写清楚。标注来源不是为了淡化借鉴，
-        也不是为了抹掉作者自己的改良，而是把“参考来自哪里”和“后来做了哪些适配与重构”同时说清楚。
-      </p>
+      <span class="weave-inspiration-popover__kicker">{modalKicker}</span>
+      <h2 id={popoverTitleId}>{modalHeading}</h2>
     </div>
 
     <button
@@ -174,59 +158,91 @@
     </button>
   </div>
 
-  <div class="weave-inspiration-popover__body">
-    {#each inspirationSections as section}
-      <section class="weave-inspiration-section">
-        <div class="weave-inspiration-section-heading">
-          <h3>{section.title}</h3>
-          <p>{section.intro}</p>
-        </div>
-
-        <div class="weave-inspiration-list">
-          {#each section.items as item}
-            <article class="weave-inspiration-card">
-              <div class="weave-inspiration-card-meta">
-                <span class="weave-inspiration-index">{item.index}</span>
-                <span class="weave-inspiration-type">{item.type}</span>
-              </div>
-
-              <h4>{item.title}</h4>
-
-              <p class="weave-inspiration-source">
-                <span>来源</span>
-                <strong>{item.source}</strong>
-                {#if item.sourceNote}
-                  <em>{item.sourceNote}</em>
-                {/if}
-              </p>
-
-              <p class="weave-inspiration-summary">{item.summary}</p>
-
-              <div class="weave-inspiration-adaptation">
-                <span>当前适配</span>
-                <p>{item.adaptation}</p>
-              </div>
-
-              {#if item.links?.length}
-                <div class="weave-inspiration-links">
-                  {#each item.links as link}
-                    <a href={link.href} target="_blank" rel="noopener noreferrer">
-                      {link.label}
-                    </a>
-                  {/each}
-                </div>
-              {/if}
-            </article>
-          {/each}
-        </div>
-      </section>
+  <div
+    id={tabListId}
+    class="weave-inspiration-tabs weave-toolbar-tabs"
+    role="tablist"
+    aria-label="说明与题型教程"
+  >
+    {#each inspirationModalTabs as tab (tab.id)}
+      <button
+        type="button"
+        role="tab"
+        class="weave-toolbar-tab weave-inspiration-tab"
+        class:active={activeTab === tab.id}
+        aria-selected={activeTab === tab.id}
+        aria-controls="weave-inspiration-panel"
+        onclick={() => selectTab(tab.id)}
+      >
+        {tab.label}
+      </button>
     {/each}
   </div>
 
-  <footer class="weave-inspiration-popover__footer">
-    <p>如果后续还有新的明确来源需要补充，这里也应该继续更新，不把借鉴关系写得含糊。</p>
-    <button type="button" class="mod-cta" onclick={onClose}>收起说明</button>
-  </footer>
+  <div
+    id="weave-inspiration-panel"
+    class="weave-inspiration-popover__body"
+    role="tabpanel"
+    aria-labelledby={tabListId}
+  >
+    {#if activeTab === 'attribution'}
+      {#each inspirationSections as section}
+        <section class="weave-inspiration-section">
+          <div class="weave-inspiration-section-heading">
+            <h3>{section.title}</h3>
+            <p>{section.intro}</p>
+          </div>
+
+          <div class="weave-inspiration-list">
+            {#each section.items as item}
+              <article class="weave-inspiration-card">
+                <p class="weave-inspiration-statement">
+                  <span class="weave-inspiration-statement__text">{item.statement}</span>
+                  <span class="weave-inspiration-category-tag">#{item.categoryTag}</span>
+                </p>
+
+                {#if item.note}
+                  <p class="weave-inspiration-note">{item.note}</p>
+                {/if}
+
+                {#if item.links?.length}
+                  <div class="weave-inspiration-links">
+                    {#each item.links as link}
+                      <a href={link.href} target="_blank" rel="noopener noreferrer">
+                        {link.label}
+                      </a>
+                    {/each}
+                  </div>
+                {/if}
+              </article>
+            {/each}
+          </div>
+        </section>
+      {/each}
+    {:else if activeSyntaxTutorial}
+      <section class="weave-inspiration-syntax">
+        <p class="weave-inspiration-syntax-intro">{activeSyntaxTutorial.intro}</p>
+
+        <ul class="weave-inspiration-syntax-rules">
+          {#each activeSyntaxTutorial.rules as rule}
+            <li>{rule}</li>
+          {/each}
+        </ul>
+
+        {#each activeSyntaxTutorial.syntaxBlocks as block}
+          <div class="weave-inspiration-code-block">
+            <h4>{block.title}</h4>
+            <pre><code>{block.code}</code></pre>
+          </div>
+        {/each}
+
+        <div class="weave-inspiration-code-block weave-inspiration-code-block--example">
+          <h4>{activeSyntaxTutorial.example.title}</h4>
+          <pre><code>{activeSyntaxTutorial.example.code}</code></pre>
+        </div>
+      </section>
+    {/if}
+  </div>
 </FloatingMenu>
 
 <style>
@@ -234,19 +250,16 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    width: min(820px, calc(100vw - 24px));
-    min-width: min(480px, calc(100vw - 24px));
+    width: min(800px, calc(100vw - 24px));
+    min-width: min(360px, calc(100vw - 24px));
     max-width: calc(100vw - 24px);
-    max-height: min(78vh, 860px);
+    max-height: min(82vh, 900px);
     padding: 0;
-    border-radius: 20px;
+    border-radius: 16px;
     border: 1px solid var(--background-modifier-border);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 24%),
-      color-mix(in srgb, var(--background-primary) 96%, transparent);
+    background: var(--background-primary);
     color: var(--text-normal);
-    box-shadow: 0 22px 52px rgba(0, 0, 0, 0.24);
-    backdrop-filter: blur(14px);
+    box-shadow: var(--shadow-l);
   }
 
   .weave-inspiration-popover__header {
@@ -254,46 +267,39 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 16px;
-    padding: 24px 24px 18px;
+    padding: 20px 20px 12px;
     border-bottom: 1px solid var(--background-modifier-border);
-    background: color-mix(in srgb, var(--background-secondary) 92%, transparent);
   }
 
   .weave-inspiration-popover__heading {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     min-width: 0;
   }
 
   .weave-inspiration-popover__kicker {
-    font-size: 0.73rem;
+    font-size: var(--font-ui-smaller);
     line-height: 1;
-    letter-spacing: 0.08em;
-    font-weight: 700;
-    color: var(--text-accent);
+    letter-spacing: 0.06em;
+    font-weight: var(--font-semibold);
+    color: var(--text-muted);
     text-transform: uppercase;
   }
 
   .weave-inspiration-popover__heading h2 {
     margin: 0;
-    font-size: 1.32rem;
-    line-height: 1.25;
+    font-size: var(--font-ui-large);
+    line-height: 1.3;
+    font-weight: 600;
     color: var(--text-normal);
   }
 
-  .weave-inspiration-popover__heading p {
-    margin: 0;
-    font-size: 0.9rem;
-    line-height: 1.65;
-    color: var(--text-muted);
-  }
-
   .weave-inspiration-popover__close {
-    width: 34px;
-    height: 34px;
+    width: 32px;
+    height: 32px;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-s);
     padding: 0;
     display: inline-flex;
     align-items: center;
@@ -308,167 +314,121 @@
     color: var(--text-normal);
   }
 
+  .weave-inspiration-tabs {
+    flex-shrink: 0;
+    padding: 8px 16px 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+    gap: 4px;
+  }
+
+  .weave-inspiration-tab.active {
+    color: var(--text-normal);
+    font-weight: 600;
+  }
+
   .weave-inspiration-popover__body {
     flex: 1;
     overflow: auto;
-    padding: 20px 24px 24px;
+    padding: 16px 20px 20px;
     display: flex;
     flex-direction: column;
-    gap: 24px;
+    gap: 20px;
   }
 
   .weave-inspiration-section {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
   }
 
   .weave-inspiration-section-heading {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
   }
 
   .weave-inspiration-section-heading h3 {
     margin: 0;
-    font-size: 1.02rem;
+    font-size: var(--font-ui-medium);
+    font-weight: 600;
     color: var(--text-normal);
   }
 
   .weave-inspiration-section-heading p {
     margin: 0;
-    font-size: 0.86rem;
-    line-height: 1.6;
+    font-size: var(--font-ui-smaller);
+    line-height: var(--line-height-normal);
     color: var(--text-muted);
   }
 
   .weave-inspiration-list {
-    display: grid;
-    gap: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .weave-inspiration-card {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 16px;
-    border-radius: 16px;
+    gap: 6px;
+    padding: 12px 14px;
+    border-radius: var(--radius-m);
     border: 1px solid var(--background-modifier-border);
-    background: var(--background-primary-alt, var(--background-primary));
-  }
-
-  .weave-inspiration-card-meta {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .weave-inspiration-index,
-  .weave-inspiration-type {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 24px;
-    padding: 0 9px;
-    border-radius: 999px;
-    font-size: 0.76rem;
-    line-height: 1;
-    font-weight: 700;
-  }
-
-  .weave-inspiration-index {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-  }
-
-  .weave-inspiration-type {
     background: var(--background-secondary);
-    color: var(--text-muted);
-    border: 1px solid var(--background-modifier-border);
   }
 
-  .weave-inspiration-card h4 {
+  .weave-inspiration-statement {
     margin: 0;
-    font-size: 1rem;
-    line-height: 1.45;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 8px;
+    font-size: var(--font-ui-medium, 0.9375rem);
+    line-height: 1.55;
+    font-weight: 500;
     color: var(--text-normal);
   }
 
-  .weave-inspiration-source {
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    font-size: 0.84rem;
-    color: var(--text-muted);
+  .weave-inspiration-statement__text {
+    flex: 1 1 auto;
+    min-width: 12rem;
   }
 
-  .weave-inspiration-source span,
-  .weave-inspiration-adaptation span {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 22px;
-    padding: 0 8px;
-    border-radius: 999px;
-    background: var(--background-secondary);
-    color: var(--text-muted);
-    border: 1px solid var(--background-modifier-border);
-    font-size: 0.73rem;
-    line-height: 1;
-    font-weight: 600;
-  }
-
-  .weave-inspiration-source strong {
-    color: var(--text-normal);
-    font-weight: 600;
-  }
-
-  .weave-inspiration-source em {
+  .weave-inspiration-category-tag {
+    flex: 0 0 auto;
+    font-size: var(--font-ui-smaller);
+    line-height: 1.2;
+    font-weight: var(--font-normal);
     color: var(--text-faint);
-    font-style: normal;
+    white-space: nowrap;
   }
 
-  .weave-inspiration-summary {
+  .weave-inspiration-note {
     margin: 0;
-    font-size: 0.9rem;
-    line-height: 1.7;
-    color: var(--text-normal);
-  }
-
-  .weave-inspiration-adaptation {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .weave-inspiration-adaptation p {
-    margin: 0;
-    font-size: 0.86rem;
-    line-height: 1.7;
+    font-size: var(--font-ui-smaller);
+    line-height: var(--line-height-normal);
     color: var(--text-muted);
   }
 
   .weave-inspiration-links {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 6px;
+    margin-top: 2px;
   }
 
   .weave-inspiration-links a {
     display: inline-flex;
     align-items: center;
-    min-height: 30px;
-    padding: 0 10px;
-    border-radius: 999px;
-    background: var(--background-secondary);
+    min-height: 26px;
+    padding: 0 8px;
+    border-radius: var(--radius-s);
+    background: var(--background-primary);
     color: var(--text-accent);
     border: 1px solid var(--background-modifier-border);
     text-decoration: none;
-    font-size: 0.82rem;
-    font-weight: 600;
+    font-size: var(--font-ui-smaller);
+    font-weight: 500;
   }
 
   .weave-inspiration-links a:hover {
@@ -476,25 +436,58 @@
     color: var(--text-accent-hover, var(--text-accent));
   }
 
-  .weave-inspiration-popover__footer {
+  .weave-inspiration-syntax {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 16px 24px 22px;
-    border-top: 1px solid var(--background-modifier-border);
-    background: color-mix(in srgb, var(--background-secondary) 92%, transparent);
+    flex-direction: column;
+    gap: 14px;
   }
 
-  .weave-inspiration-popover__footer p {
+  .weave-inspiration-syntax-intro {
     margin: 0;
-    font-size: 0.82rem;
+    font-size: var(--font-ui-medium, 0.9375rem);
     line-height: 1.6;
+    color: var(--text-normal);
+  }
+
+  .weave-inspiration-syntax-rules {
+    margin: 0;
+    padding-left: 1.2rem;
+    font-size: var(--font-ui-smaller);
+    line-height: 1.65;
     color: var(--text-muted);
   }
 
-  .weave-inspiration-popover__footer .mod-cta {
-    flex-shrink: 0;
+  .weave-inspiration-syntax-rules li + li {
+    margin-top: 4px;
+  }
+
+  .weave-inspiration-code-block h4 {
+    margin: 0 0 6px;
+    font-size: var(--font-ui-smaller);
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .weave-inspiration-code-block pre {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: var(--radius-m);
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    overflow: auto;
+  }
+
+  .weave-inspiration-code-block code {
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-smaller);
+    line-height: 1.6;
+    color: var(--text-normal);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .weave-inspiration-code-block--example pre {
+    border-color: color-mix(in srgb, var(--interactive-accent) 35%, var(--background-modifier-border));
   }
 
   @media (max-width: 900px) {
@@ -503,24 +496,18 @@
       min-width: calc(100vw - 16px);
       max-width: calc(100vw - 16px);
       max-height: calc(100vh - 16px);
-      border-radius: 16px;
+      border-radius: 12px;
     }
 
     .weave-inspiration-popover__header,
-    .weave-inspiration-popover__body,
-    .weave-inspiration-popover__footer {
+    .weave-inspiration-tabs,
+    .weave-inspiration-popover__body {
       padding-left: 16px;
       padding-right: 16px;
     }
 
-    .weave-inspiration-popover__footer {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .weave-inspiration-popover__footer .mod-cta {
-      width: 100%;
-      justify-content: center;
+    .weave-inspiration-tabs {
+      padding-top: 8px;
     }
   }
 </style>

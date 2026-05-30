@@ -3,7 +3,6 @@ import {
 	getVisualViewportLayout,
 	MOBILE_KEYBOARD_THRESHOLD,
 } from "../mobile-floating-viewport";
-
 describe("detectKeyboardVisible", () => {
 	it("returns true when visual viewport is much shorter than layout viewport", () => {
 		expect(detectKeyboardVisible(400, 700, MOBILE_KEYBOARD_THRESHOLD)).toBe(true);

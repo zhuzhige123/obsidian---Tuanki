@@ -53,7 +53,7 @@ describe('ContentPreviewEngine', () => {
 
     it('should detect single choice card from content', async () => {
       const singleChoiceCard = createCard(
-        'Q: What is 2 + 2?\nA) 3\nB) 4\nC) 5\nAnswer: B'
+        'Q: What is 2 + 2?（B）\n\nA. 3\nB. 4\nC. 5'
       );
 
       const result = await engine.parseCardContent(singleChoiceCard);
@@ -88,7 +88,7 @@ describe('ContentPreviewEngine', () => {
     });
 
     it('should detect single choice card', async () => {
-      const choiceCard = createCard('Q: Example?\nA) one\nB) two\nAnswer: A');
+      const choiceCard = createCard('Q: Example?（A）\n\nA. one\nB. two');
 
       const cardType = await engine.detectCardType(choiceCard);
       expect(cardType).toBe(UnifiedCardType.SINGLE_CHOICE);
@@ -96,7 +96,7 @@ describe('ContentPreviewEngine', () => {
 
     it('should detect multiple choice card', async () => {
       const multipleChoiceCard = createCard(
-        'Q: Which are prime numbers?\nA) 2\nB) 3\nC) 4\nAnswer: A,B'
+        'Q: Which are prime numbers?（AB）\n\nA. 2\nB. 3\nC. 4'
       );
 
       const cardType = await engine.detectCardType(multipleChoiceCard);

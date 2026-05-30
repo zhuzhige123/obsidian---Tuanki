@@ -1,7 +1,7 @@
 {
   "name": "weave",
   "private": true,
-  "version": "0.8.12",
+  "version": "0.8.17",
   "description": "Enhance knowledge learning and memory consolidation with memory decks and practice quiz decks",
   "main": "main.js",
   "type": "module",
@@ -93,7 +93,7 @@
     "fast-check": "4.5.3",
     "jsdom": "26.1.0",
     "obsidian": "^1.4.11",
-    "svelte": "^5.0.0",
+    "svelte": "5.55.10",
     "svelte-check": "^4.0.0",
     "tslib": "^2.6.2",
     "typescript": "^5.2.2",
@@ -124,5 +124,8 @@
     "pako": "^2.1.0",
     "sql.js": "1.13.0",
     "ts-fsrs": "5.4.0"
+  },
+  "overrides": {
+    "svelte": "5.55.10"
   }
 }

@@ -15,6 +15,7 @@ import type {
 	QuestionBankResumeBehavior,
 	TestMode,
 } from "../types/question-bank-types";
+import { addMenuSubmenuGroup, addMenuToggle } from "../utils/obsidian-menu";
 import {
 	addLocationToggleAction,
 	getLocationToggleIcon,
@@ -129,35 +130,35 @@ export class QuestionBankView extends ItemView {
 	}
 
 	private populateMobileDisplayPanelsSubmenu(menu: Menu): void {
-		const panelState = this.mobilePanelStateGetter?.() ?? {
-			showStatsBar: false,
-			showNavigator: true,
-		};
+		const readPanelState = () =>
+			this.mobilePanelStateGetter?.() ?? {
+				showStatsBar: false,
+				showNavigator: true,
+			};
 
-		menu.addItem((item) => {
-			item.setTitle(i18n.t("views.questionBank.displayPanels")).setIcon("panel-top");
-			const submenu = (item as { setSubmenu: () => Menu }).setSubmenu();
-
-			submenu.addItem((subItem) => {
-				subItem
-					.setTitle(i18n.t("views.questionBank.stats"))
-					.setIcon("activity")
-					.setChecked(panelState.showStatsBar)
-					.onClick(() => {
+		addMenuSubmenuGroup(
+			menu,
+			{ title: i18n.t("views.questionBank.displayPanels"), icon: "panel-top" },
+			(submenu) => {
+				addMenuToggle(submenu, {
+					title: i18n.t("views.questionBank.stats"),
+					icon: "activity",
+					getChecked: () => readPanelState().showStatsBar,
+					onSetChecked: () => {
 						this.toggleStatsBarCallback?.();
-					});
-			});
+					},
+				});
 
-			submenu.addItem((subItem) => {
-				subItem
-					.setTitle(i18n.t("views.questionBank.navigator"))
-					.setIcon("list")
-					.setChecked(panelState.showNavigator)
-					.onClick(() => {
+				addMenuToggle(submenu, {
+					title: i18n.t("views.questionBank.navigator"),
+					icon: "list",
+					getChecked: () => readPanelState().showNavigator,
+					onSetChecked: () => {
 						this.toggleNavigatorCallback?.();
-					});
-			});
-		});
+					},
+				});
+			}
+		);
 	}
 
 	/**

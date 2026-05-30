@@ -1,4 +1,5 @@
 import { Menu, TFile, normalizePath, type App } from "obsidian";
+import { addMenuSubmenuGroup } from "../../utils/obsidian-menu";
 import { i18n } from "../../utils/i18n";
 import { revealLeaf } from "../../utils/workspace-navigation";
 
@@ -52,11 +53,9 @@ export function populateAssociatedNoteMenu(options: AssociatedNoteMenuOptions): 
 				})
 		);
 
-		menu.addItem((item) => {
-			item.setTitle(openAllTitle).setIcon("files");
-			const subMenu = (item as any).setSubmenu();
+		addMenuSubmenuGroup(menu, { title: openAllTitle, icon: "files" }, (subMenu) => {
 			for (const notePath of notePaths) {
-				subMenu.addItem((subItem: any) => {
+				subMenu.addItem((subItem) => {
 					subItem
 						.setTitle(getLabel(notePath))
 						.setIcon("file-text")
@@ -102,41 +101,45 @@ export function populateAssociatedNoteMenu(options: AssociatedNoteMenuOptions): 
 
 	menu.addSeparator();
 
-	menu.addItem((item) => {
-		item.setTitle(uiText("\u8bbe\u4e3a\u4e3b\u7b14\u8bb0", "Set primary note")).setIcon("star");
-		const subMenu = (item as any).setSubmenu();
-		for (const notePath of notePaths) {
-			const isPrimary = notePath === notePaths[0];
-			subMenu.addItem((subItem: any) => {
-				subItem
-					.setTitle(
-						`${isPrimary ? uiText("\u4e3b\u7b14\u8bb0", "Primary") : uiText("\u8bbe\u4e3a\u4e3b\u7b14\u8bb0", "Set primary note")}: ${getLabel(notePath)}`
-					)
-					.setIcon(isPrimary ? "check" : "chevrons-up")
-					.setDisabled(isPrimary)
-					.onClick(() => {
-						if (!isPrimary) {
-							void onSetPrimary(notePath);
-						}
-					});
-			});
+	addMenuSubmenuGroup(
+		menu,
+		{ title: uiText("\u8bbe\u4e3a\u4e3b\u7b14\u8bb0", "Set primary note"), icon: "star" },
+		(subMenu) => {
+			for (const notePath of notePaths) {
+				const isPrimary = notePath === notePaths[0];
+				subMenu.addItem((subItem) => {
+					subItem
+						.setTitle(
+							`${isPrimary ? uiText("\u4e3b\u7b14\u8bb0", "Primary") : uiText("\u8bbe\u4e3a\u4e3b\u7b14\u8bb0", "Set primary note")}: ${getLabel(notePath)}`
+						)
+						.setIcon(isPrimary ? "check" : "chevrons-up")
+						.setDisabled(isPrimary)
+						.onClick(() => {
+							if (!isPrimary) {
+								void onSetPrimary(notePath);
+							}
+						});
+				});
+			}
 		}
-	});
+	);
 
-	menu.addItem((item) => {
-		item.setTitle(uiText("\u79fb\u9664\u5173\u8054\u7b14\u8bb0", "Remove linked note")).setIcon("trash");
-		const subMenu = (item as any).setSubmenu();
-		for (const notePath of notePaths) {
-			subMenu.addItem((subItem: any) => {
-				subItem
-					.setTitle(getLabel(notePath))
-					.setIcon("trash")
-					.onClick(() => {
-						void onRemove(notePath);
-					});
-			});
+	addMenuSubmenuGroup(
+		menu,
+		{ title: uiText("\u79fb\u9664\u5173\u8054\u7b14\u8bb0", "Remove linked note"), icon: "trash" },
+		(subMenu) => {
+			for (const notePath of notePaths) {
+				subMenu.addItem((subItem) => {
+					subItem
+						.setTitle(getLabel(notePath))
+						.setIcon("trash")
+						.onClick(() => {
+							void onRemove(notePath);
+						});
+				});
+			}
 		}
-	});
+	);
 
 	menu.addSeparator();
 	menu.addItem((item) =>

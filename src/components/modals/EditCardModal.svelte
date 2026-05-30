@@ -8,7 +8,7 @@
   import { logger } from '../../utils/logger';
   import { MEMORY_DECK_UI_TEXT } from '../../constants/memory-deck-ui-text';
 
-  import { onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import type { WeavePlugin } from '../../main';
   import type { Card } from '../../data/types';
   import type { EmbeddableEditorManager } from '../../services/editor/EmbeddableEditorManager';
@@ -16,6 +16,12 @@
   import InlineCardEditor from '../editor/InlineCardEditor.svelte';
   import { Menu, Notice, Platform } from 'obsidian';
   import { getCardMetadata } from '../../utils/yaml-utils';
+  import { tr } from '../../utils/i18n';
+  import {
+    closeEditableFormalCreateDeckModal,
+    openEditableFormalCreateDeckModal
+  } from '../../utils/editable-formal-create-deck-modal';
+  import { populateEditableFormalDeckMenu } from '../../utils/editable-formal-deck-menu';
 
   interface Props {
     /** 是否显示模态窗 */
@@ -56,6 +62,7 @@
 
   //  使用预加载的数据（无需异步加载，数据已准备就绪）
   let decks = $state<any[]>(untrack(() => preloadedDecks));
+  let t = $derived($tr);
   
   // 当前选择的牌组
   let selectedDeckId = $state(untrack(() => card.deckId));
@@ -158,6 +165,34 @@
     logger.debug('[EditCardModal] 牌组变更:', { selectedDeckNames, selectedDeckId });
   }
 
+  onDestroy(() => {
+    closeEditableFormalCreateDeckModal();
+  });
+
+  async function refreshDecks(): Promise<void> {
+    if (!plugin.dataStorage) return;
+    try {
+      decks = await plugin.dataStorage.getAllDecks();
+    } catch (error) {
+      logger.error('[EditCardModal] 刷新牌组列表失败:', error);
+    }
+  }
+
+  function openCreateDeckModal(): void {
+    openEditableFormalCreateDeckModal({
+      plugin,
+      onDeckCreated: async (newDeck) => {
+        await refreshDecks();
+        handleDecksChange([newDeck.name]);
+        new Notice(t('cards.createModal.deckCreated', { name: newDeck.name }));
+        plugin.app.workspace.trigger('Weave:data-changed');
+        if (lastMenuPosition) {
+          queueMicrotask(() => openDeckMenuAtPosition(lastMenuPosition!));
+        }
+      }
+    });
+  }
+
   let deckButtonRef = $state<HTMLButtonElement | undefined>(undefined);
   let lastMenuPosition: { x: number; y: number } | null = null;
 
@@ -167,28 +202,23 @@
   }
 
   function openDeckMenuAtPosition(pos: { x: number; y: number }) {
-    if (!decks || decks.length === 0) return;
+    if (!plugin.dataStorage) return;
 
     const menu = new Menu();
 
-    for (const deck of decks) {
-      menu.addItem((item) => {
-        const checked = Array.isArray(selectedDeckNames) && selectedDeckNames.includes(deck.name);
-        item.setTitle(deck.name);
-        item.setIcon(checked ? 'check-square' : 'square');
-        item.onClick(() => {
-          const currentName = Array.isArray(selectedDeckNames) && selectedDeckNames.length > 0
-            ? selectedDeckNames[0]
-            : '';
-          const next = currentName === deck.name ? [] : [deck.name];
-          handleDecksChange(next);
-
-          if (lastMenuPosition) {
-            queueMicrotask(() => openDeckMenuAtPosition(lastMenuPosition!));
-          }
-        });
-      });
-    }
+    populateEditableFormalDeckMenu({
+      menu,
+      decks: decks ?? [],
+      selectedDeckNames,
+      createDeckLabel: t('cards.createModal.createDeckMenu'),
+      onDeckNamesChange: handleDecksChange,
+      onCreateDeck: openCreateDeckModal,
+      onAfterDeckToggle: () => {
+        if (lastMenuPosition) {
+          queueMicrotask(() => openDeckMenuAtPosition(lastMenuPosition!));
+        }
+      }
+    });
 
     menu.showAtPosition(pos);
   }
@@ -214,8 +244,8 @@
   onClose={handleClose}
 >
   {#snippet headerActions()}
-    <!-- 牌组选择器 -->
-    {#if decks && decks.length > 0}
+    <!-- 牌组选择器（无牌组时仍可通过菜单新建） -->
+    {#if plugin.dataStorage}
       <button
         bind:this={deckButtonRef}
         class="deck-multi-selector"

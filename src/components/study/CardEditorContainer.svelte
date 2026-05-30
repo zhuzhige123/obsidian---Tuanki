@@ -77,22 +77,6 @@
     return !card || isClozeModeUpdating || (!tempFileUnavailable && !editorInitialized);
   });
   
-  // 移动端键盘管理
-  let isKeyboardVisible = $state(false);
-  let keyboardCleanup: (() => void) | null = null;
-
-  // 键盘状态变化处理（通知父组件）
-  //  高度计算已移到 StudyInterface，这里只负责通知状态变化
-  function handleKeyboardStateChange(visible: boolean, viewportHeight?: number, viewportOffsetTop?: number): void {
-    isKeyboardVisible = visible;
-    
-    logger.debug('[CardEditorContainer] 📱 键盘状态变化:', {
-      visible,
-      viewportHeight,
-      viewportOffsetTop
-    });
-  }
-
   function handleEditorContentChange(content: string): void {
     currentContent = content;
   }
@@ -152,53 +136,6 @@
     } finally {
       isClozeModeUpdating = false;
     }
-  }
-
-  //  监听 Visual Viewport 变化（核心修复）
-  function setupKeyboardDetection(): (() => void) | undefined {
-    if (!Platform.isMobile) return undefined;
-    
-    const viewport = window.visualViewport;
-    if (!viewport) {
-      logger.warn('[CardEditorContainer] visualViewport API 不可用');
-      return undefined;
-    }
-    
-    // 记录基准高度（用于检测键盘是否弹出）；在键盘收起时会动态更新
-    let baselineHeight = viewport.height;
-    const threshold = 150; // 键盘检测阈值（键盘高度通常 > 200px）
-    
-    logger.debug('[CardEditorContainer] 📱 初始化键盘检测, 初始高度:', baselineHeight);
-    
-    // 立即设置初始高度和位置
-    handleKeyboardStateChange(false, baselineHeight, viewport.offsetTop);
-    
-    const handleResize = () => {
-      const currentHeight = viewport.height;
-      const currentOffsetTop = viewport.offsetTop;
-      const heightDiff = baselineHeight - currentHeight;
-      const keyboardVisible = heightDiff > threshold;
-
-      // 键盘收起时，更新基准高度（处理地址栏/顶部栏动态变化）
-      if (!keyboardVisible) {
-        baselineHeight = currentHeight;
-      }
-      
-      //  每次 resize 都更新高度和位置
-      handleKeyboardStateChange(keyboardVisible, currentHeight, currentOffsetTop);
-    };
-    
-    // 监听 resize 事件
-    viewport.addEventListener('resize', handleResize);
-    
-    //  额外监听 scroll 事件（某些设备键盘弹出时会触发 scroll）
-    viewport.addEventListener('scroll', handleResize);
-    
-    // 返回清理函数
-    return () => {
-      viewport.removeEventListener('resize', handleResize);
-      viewport.removeEventListener('scroll', handleResize);
-    };
   }
 
   // 进入编辑模式
@@ -296,63 +233,11 @@
       }
 
       logger.debug('[CardEditorContainer]',' 编辑模式启动成功，当前卡片:', card.uuid);
-      
-      // 移动端不调用 applyAdaptiveHeight，由 visualViewport 监听处理高度
-      // 桌面端仍然需要调用以适应窗口大小
-      if (!Platform.isMobile) {
-        setTimeout(() => {
-          applyAdaptiveHeight();
-        }, 50);
-      }
 
     } catch (error) {
       logger.error('[CardEditorContainer] 进入编辑模式失败:', error);
       onEditCancel();
       new Notice(t('study.editor.enterEditFailed'));
-    }
-  }
-
-  /**
-   * 计算可用的内容区域高度
-   */
-  function calculateAvailableHeight(): number {
-    if (!modalRef) return 400;
-
-    const modalRect = modalRef.getBoundingClientRect();
-    const headerEl = modalRef.querySelector('.study-header') as HTMLElement;
-    const footerEl = modalRef.querySelector('.study-footer') as HTMLElement;
-    const statsEl = modalRef.querySelector('.stats-cards') as HTMLElement;
-
-    let usedHeight = 0;
-
-    // 计算已使用的高度
-    if (headerEl) usedHeight += headerEl.offsetHeight;
-    if (footerEl && !showEditModal) usedHeight += footerEl.offsetHeight;
-    if (statsEl && !statsCollapsed) usedHeight += statsEl.offsetHeight;
-
-    // 预留间距
-    const reservedSpacing = showEditModal ? 48 : 80;
-
-    return Math.max(400, modalRect.height - usedHeight - reservedSpacing);
-  }
-
-  /**
-   * 应用高度自适应
-   */
-  function applyAdaptiveHeight(): void {
-    const availableHeight = calculateAvailableHeight();
-
-    // 为编辑器容器设置高度
-    const editorContainer = inlineEditorContainer;
-    if (editorContainer && showEditModal) {
-      const cmEditor = editorContainer.querySelector('.cm-editor');
-      if (!cmEditor) {
-        return; // 编辑器未就绪，跳过本次计算
-      }
-      
-      const finalHeight = Math.max(400, availableHeight);
-      editorContainer.style.height = `${finalHeight}px`;
-      editorContainer.style.maxHeight = 'none';
     }
   }
 
@@ -486,40 +371,6 @@
     }
   });
 
-  //  移动端：仅在编辑模式期间监听键盘变化（退出编辑立即清理，避免监听泄漏与状态污染）
-  $effect(() => {
-    if (!Platform.isMobile) {
-      return;
-    }
-
-    if (showEditModal) {
-      if (!keyboardCleanup) {
-        keyboardCleanup = setupKeyboardDetection() || null;
-      }
-
-      // effect 销毁时移除监听，避免残留
-      return () => {
-        if (keyboardCleanup) {
-          keyboardCleanup();
-          keyboardCleanup = null;
-        }
-
-        if (isKeyboardVisible) {
-          handleKeyboardStateChange(false);
-        }
-      };
-    } else {
-      if (keyboardCleanup) {
-        keyboardCleanup();
-        keyboardCleanup = null;
-      }
-
-      if (isKeyboardVisible) {
-        handleKeyboardStateChange(false);
-      }
-    }
-  });
-
   // 当卡片变化时，如果编辑器已初始化，更新编辑器内容
   $effect(() => {
     if (showEditModal && card && editorPoolManager && editorInitialized && !tempFileUnavailable) {
@@ -547,10 +398,8 @@
 
 {#if showEditModal}
   <!-- 编辑器容器 - 仅编辑态显示 -->
-  <!-- Mobile height is controlled by StudyInterface visualViewport handling -->
   <div 
     class="inline-editor-container" 
-    class:mobile-keyboard-active={Platform.isMobile && isKeyboardVisible}
     bind:this={inlineEditorContainer} 
     class:cloze-deletion-mode={isClozeMode}
   >
@@ -617,18 +466,18 @@
 {/if}
 
 <style>
-  /* 行内编辑器样式 - 高度自适应优化 */
+  /* 行内编辑器：高度由父级 flex 链决定，不通过 JS 设像素高度 */
   .inline-editor-container {
-    flex: 1; /* 填满可用空间 */
+    flex: 1;
     display: flex;
     flex-direction: column;
     position: relative;
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 8px;
-    overflow: hidden; /* 由内部编辑器处理滚动 */
-    margin: var(--weave-space-md); /* 四周留出合适间距 */
-    min-height: 400px; /* 确保最小显示高度，防止过度收缩 */
+    overflow: hidden;
+    margin: var(--weave-space-md);
+    min-height: 0;
   }
 
   .embedded-editor-host {
@@ -696,38 +545,33 @@
   /*  CodeMirror编辑器填满容器 */
   .inline-editor-container :global(.cm-editor) {
     flex: 1;
-    min-height: 300px; /* 确保最小显示高度 */
+    min-height: 0;
     position: relative;
     z-index: 1;
   }
-  
-  /*  默认隐藏装订线 gutter（需要行号时再开启） */
+
   .inline-editor-container :global(.cm-gutters) {
-    display: none !important;
+    display: none;
   }
 
   :global(body.weave-line-numbers-on) .inline-editor-container :global(.cm-gutters) {
-    display: flex !important;
+    display: flex;
   }
-  
-  /*  编辑器内容区padding - UX最佳实践 */
+
   .inline-editor-container :global(.cm-content) {
-    padding: var(--weave-editor-padding-y, 20px) var(--weave-editor-padding-right, var(--weave-editor-padding-x, 24px)) var(--weave-editor-padding-y, 20px) var(--weave-editor-padding-left, var(--weave-editor-padding-x, 24px)) !important;
+    padding: var(--weave-editor-padding-y, 20px) var(--weave-editor-padding-right, var(--weave-editor-padding-x, 24px)) var(--weave-editor-padding-y, 20px) var(--weave-editor-padding-left, var(--weave-editor-padding-x, 24px));
   }
 
   :global(body.is-phone) .inline-editor-container :global(.cm-content),
   :global(body.is-mobile) .inline-editor-container :global(.cm-content) {
-    padding: var(--weave-editor-padding-y, 12px) var(--weave-editor-padding-right, var(--weave-editor-padding-x, 10px)) var(--weave-editor-padding-y, 12px) var(--weave-editor-padding-left, var(--weave-editor-padding-x, 10px)) !important;
-  }
-  
-  /*  确保CodeMirror内部滚动区域正确 */
-  .inline-editor-container :global(.cm-scroller) {
-    overflow-y: auto !important;
+    padding: var(--weave-editor-padding-y, 12px) var(--weave-editor-padding-right, var(--weave-editor-padding-x, 10px)) var(--weave-editor-padding-y, 12px) var(--weave-editor-padding-left, var(--weave-editor-padding-x, 10px));
   }
 
-  :global(body.is-phone) .inline-editor-container :global(.cm-scroller),
-  :global(body.is-mobile) .inline-editor-container :global(.cm-scroller) {
-    padding: 0 !important;
+  .inline-editor-container :global(.cm-scroller) {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   /* 挖空预览模式 */
@@ -814,61 +658,18 @@
     border-color: var(--color-accent-hover);
   }
 
-  /* 桌面端不进行布局重排，移动端布局由 :global(body.is-phone) 控制 */
-
-  /*  移动端编辑器样式 - 使用 position: fixed + visualViewport 动态定位 */
-  /* 键盘弹出时，编辑器固定在可视区域内 */
-  :global(body.is-mobile) .inline-editor-container,
-  :global(body.is-phone) .inline-editor-container {
-    /* 默认使用 flex 布局填满父容器 */
+  :global(body.is-mobile.weave-edit-active) .inline-editor-container,
+  :global(body.is-phone.weave-edit-active) .inline-editor-container {
     flex: 1;
-    display: flex;
-    flex-direction: column;
-    position: relative;
     min-height: 0;
-    margin: 0 !important;
-    border: none !important;
-    border-radius: 0 !important;
-    overflow: hidden;
-    background: var(--background-primary);
+    margin: 0;
+    border: none;
+    border-radius: 0;
   }
 
   :global(body.is-mobile) .study-editor-toolbar,
   :global(body.is-phone) .study-editor-toolbar {
     padding: 0.5rem 0.5rem 0;
-  }
-
-  /*  键盘激活时：使用 flex 布局填满父容器（父容器高度已由 StudyInterface 设置为 visualViewport.height） */
-  /* 不再使用 position: fixed，让编辑器自然填满父容器 */
-  :global(body.is-mobile) .inline-editor-container.mobile-keyboard-active,
-  :global(body.is-phone) .inline-editor-container.mobile-keyboard-active {
-    /* 使用 flex 布局填满父容器 */
-    flex: 1 !important;
-    display: flex !important;
-    flex-direction: column !important;
-    min-height: 0 !important;
-    margin: 0 !important;
-    border-radius: 0 !important;
-    overflow: hidden !important;
-    background: var(--background-primary);
-  }
-
-  :global(body.is-mobile) .inline-editor-container :global(.cm-editor),
-  :global(body.is-phone) .inline-editor-container :global(.cm-editor) {
-    /* 编辑器填满容器 - 使用 flex 而非固定高度 */
-    flex: 1;
-    min-height: 0 !important;
-    /* 移除 height: 100% !important，让容器高度由 JavaScript 控制 */
-  }
-
-  :global(body.is-mobile) .inline-editor-container :global(.cm-scroller),
-  :global(body.is-phone) .inline-editor-container :global(.cm-scroller) {
-    /* 确保滚动区域正确 */
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch;
-    /* 使用 flex 布局而非固定高度 */
-    flex: 1;
-    min-height: 0;
   }
 
 </style>

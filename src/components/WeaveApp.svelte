@@ -44,21 +44,9 @@
 
   let { plugin, dataStorage, fsrs, currentLeaf }: Props = $props();
   let activePage = $state<string>(weaveMainInterfaceStore.getState().currentPage);
+  let deckStudyPageMounted = $state(activePage === "deck-study");
 
-  function normalizeDeckStudyView(view: string | null | undefined): 'grid' | 'kanban' {
-    return view === 'kanban' ? 'kanban' : 'grid';
-  }
-
-  function getInitialDeckStudyView(): 'grid' | 'kanban' {
-    const initialView = normalizeDeckStudyView(plugin.getCachedDeckViewPreference());
-    if (
-      initialView === 'kanban'
-      && !PremiumFeatureGuard.getInstance().canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, deckStudyFeatureContext)
-    ) {
-      return 'grid';
-    }
-    return initialView;
-  }
+  let sidebarDeckStudyView = $state<'kanban'>('kanban');
 
   // 移动端检测状态
   let isMobileDevice = $state(false);
@@ -69,7 +57,6 @@
   // 侧边栏导航状态（用于与子页面同步）
   let sidebarDeckFilter = $state<'memory' | 'question-bank'>('memory');
   let sidebarCardView = $state<'table' | 'grid' | 'kanban'>('table');
-  let sidebarDeckStudyView = $state<'grid' | 'kanban'>(getInitialDeckStudyView());
   // 卡片管理页面的数据源状态
   let cardDataSource = $state<'memory' | 'questionBank' | 'incremental-reading'>('memory');
   let globalOperationProgress = $state<WeaveGlobalOperationProgressState>(
@@ -290,6 +277,9 @@
       if (activePage !== state.currentPage) {
         activePage = state.currentPage;
       }
+      if (state.currentPage === "deck-study") {
+        deckStudyPageMounted = true;
+      }
 
       const nextVisibility = state.navigationVisibility;
       if (getNavigationVisibilitySignature(navigationVisibility) !== getNavigationVisibilitySignature(nextVisibility)) {
@@ -338,10 +328,11 @@
       logger.debug('[WeaveApp] 卡片视图变化:', sidebarCardView);
     };
     const handleDeckViewChange = (e: CustomEvent<string>) => {
-      const view = e.detail as 'grid' | 'kanban' | string;
-      if (view === 'grid' || view === 'kanban') {
-        sidebarDeckStudyView = view;
-        logger.debug('[WeaveApp] 牌组学习视图变化:', sidebarDeckStudyView);
+      if (e.detail === 'kanban') {
+        sidebarDeckStudyView = 'kanban';
+        void plugin.saveDeckViewPreference('kanban').catch((error) => {
+          logger.warn('[WeaveApp] 保存牌组视图偏好失败:', error);
+        });
       }
     };
     window.addEventListener("Weave:deck-filter-change", handleDeckFilterChange as EventListener);
@@ -472,7 +463,7 @@
             currentPage={activePage}
             {navigationVisibility}
             selectedFilter={sidebarDeckFilter}
-            deckStudyView={activePage === 'deck-study' ? sidebarDeckStudyView : 'grid'}
+            deckStudyView={activePage === 'deck-study' ? sidebarDeckStudyView : 'kanban'}
             currentView={sidebarCardView}
             cardDataSource={cardDataSource}
             app={plugin.app}
@@ -505,9 +496,16 @@
         class:mobile={isMobileDevice}
         class:ai-assistant-active={isMobileDevice && activePage === 'ai-assistant'}
       >
-        {#if activePage === "deck-study"}
-          <DeckStudyPage {dataStorage} {plugin} />
-        {:else if activePage === "weave-card-management"}
+        {#if deckStudyPageMounted}
+          <div
+            class="weave-page-host weave-page-host--deck-study"
+            class:is-active={activePage === "deck-study"}
+            aria-hidden={activePage !== "deck-study"}
+          >
+            <DeckStudyPage {dataStorage} {plugin} />
+          </div>
+        {/if}
+        {#if activePage === "weave-card-management"}
           <WeaveCardManagementPage {dataStorage} {fsrs} {plugin} {currentLeaf} />
         {:else if activePage === "ai-assistant"}
           <AIAssistantPage
@@ -584,6 +582,17 @@
     padding-top: 0;
     margin-top: 0;
     transition: padding-top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .weave-page-host {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .weave-page-host:not(.is-active) {
+    display: none;
   }
 
   .weave-main-toolbar {

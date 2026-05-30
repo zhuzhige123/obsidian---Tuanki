@@ -126,7 +126,9 @@ export class DataConsistencyService {
 				await this.plugin.dataStorage.saveDeck(deck);
 			}
 
-			if (this.plugin.deckMembershipIndexService) {
+			if (this.plugin.studyDueIndexService) {
+				await this.plugin.studyDueIndexService.rebuildFromCards(allCards, decks);
+			} else if (this.plugin.deckMembershipIndexService) {
 				await this.plugin.deckMembershipIndexService.rebuildFromCards(allCards, decks);
 			}
 

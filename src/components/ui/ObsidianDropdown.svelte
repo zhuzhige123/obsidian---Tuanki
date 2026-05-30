@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Menu } from 'obsidian';
+  import { addMenuRadioChoices } from '../../utils/obsidian-menu';
   import ObsidianIcon from './ObsidianIcon.svelte';
 
   interface DropdownOption {
@@ -45,29 +46,24 @@
     const menu = new Menu();
     menu.setUseNativeMenu?.(false);
 
-    for (const option of options) {
-      menu.addItem((item) => {
-        const title = option.description ? `${option.label} - ${option.description}` : option.label;
-        item.setTitle(title);
-        if (option.id === value) {
-          item.setChecked(true);
+    addMenuRadioChoices(
+      menu,
+      value,
+      options.map((option) => ({
+        title: option.description ? `${option.label} - ${option.description}` : option.label,
+        icon: option.icon as import('obsidian').IconName | undefined,
+        value: option.id,
+        disabled: option.disabled,
+      })),
+      (nextValue) => {
+        const option = options.find((entry) => entry.id === nextValue);
+        if (option?.disabled) {
+          return;
         }
-
-        if (option.icon) {
-          item.setIcon(option.icon);
-        }
-
-        if (option.disabled) {
-          item.setDisabled(true);
-        }
-
-        item.onClick(() => {
-          if (option.disabled) return;
-          value = option.id;
-          onchange?.(option.id);
-        });
-      });
-    }
+        value = nextValue;
+        onchange?.(nextValue);
+      }
+    );
 
     try {
       if (triggerEvent) {

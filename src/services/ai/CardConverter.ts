@@ -254,17 +254,17 @@ export class CardConverter {
 
 				// 从front中提取选项和正确答案
 				if (front) {
-					const optionsMatch = front.match(/[A-D]\)[^\n]+/g);
+					const optionsMatch = front.match(/[A-D][\.．、][^\n]+/g);
 					if (optionsMatch) {
 						fields.options = optionsMatch.join("\n");
+					}
 
-						// 提取正确答案（带{}标记的选项）
-						const correctOptions = optionsMatch.filter(
-							(opt) => opt.includes("{✓}") || opt.includes("{√}")
-						);
-						if (correctOptions.length > 0) {
-							fields.correctAnswers = correctOptions.map((opt) => opt.charAt(0)).join(",");
-						}
+					const stemAnswerMatch = front.match(/[（(]\s*([A-D](?:\s*[,，]\s*[A-D])*)\s*[）)]\s*$/);
+					if (stemAnswerMatch) {
+						fields.correctAnswers = stemAnswerMatch[1]
+							.replace(/\s+/g, "")
+							.split(/[,，]/)
+							.join(",");
 					}
 				}
 

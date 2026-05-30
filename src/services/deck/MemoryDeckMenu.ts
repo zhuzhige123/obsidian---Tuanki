@@ -3,7 +3,6 @@ import { Menu } from "obsidian";
 export type MemoryDeckMenuAction =
 	| "advance-study"
 	| "deck-analytics"
-	| "knowledge-graph"
 	| "edit-deck"
 	| "delete-deck"
 	| "dissolve-deck";
@@ -11,7 +10,6 @@ export type MemoryDeckMenuAction =
 export interface MemoryDeckMenuHandlers {
 	onAdvanceStudy: () => void | Promise<void>;
 	onOpenDeckAnalytics: () => void | Promise<void>;
-	onOpenKnowledgeGraph: () => void | Promise<void>;
 	onEditDeck: () => void | Promise<void>;
 	onDeleteDeck: () => void | Promise<void>;
 	onDissolveDeck: () => void | Promise<void>;
@@ -20,7 +18,6 @@ export interface MemoryDeckMenuHandlers {
 export interface MemoryDeckMenuText {
 	advanceStudy: string;
 	deckAnalytics: string;
-	knowledgeGraph: string;
 	editDeck: string;
 	deleteDeck: string;
 	dissolveDeck: string;
@@ -53,13 +50,6 @@ export function buildMemoryDeckMenu(
 				.onClick(async () => await handlers.onOpenDeckAnalytics())
 		);
 	}
-
-	menu.addItem((item) =>
-		item
-			.setTitle(text.knowledgeGraph)
-			.setIcon("git-fork")
-			.onClick(async () => await handlers.onOpenKnowledgeGraph())
-	);
 
 	menu.addSeparator();
 

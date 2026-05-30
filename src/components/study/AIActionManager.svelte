@@ -14,7 +14,7 @@
   import { OFFICIAL_FORMAT_ACTIONS } from '../../constants/official-format-actions';
   import { DEFAULT_SPLIT_ACTIONS } from '../../data/default-split-actions';
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
-  import { Notice } from 'obsidian';
+  import { Menu, Notice } from 'obsidian';
   import { tr } from '../../utils/i18n';
   import { showProviderModelMenuAt } from '../../utils/provider-model-menu';
 

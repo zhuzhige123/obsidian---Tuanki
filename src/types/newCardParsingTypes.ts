@@ -624,10 +624,10 @@ export const DEFAULT_TEMPLATES: ParseTemplate[] = [
 				flags: "m",
 				required: true,
 			},
-			// 选项：支持 A./A) 格式的多行块
+			// 选项：A. / A、 格式多行块
 			{
 				name: "options",
-				pattern: "^(?:[A-E][\\.|\\)]\\s.*(?:\\n|$))+",
+				pattern: "^(?:[A-E][\\.．、]\\s.*(?:\\n|$))+",
 				isRegex: true,
 				flags: "m",
 				required: true,

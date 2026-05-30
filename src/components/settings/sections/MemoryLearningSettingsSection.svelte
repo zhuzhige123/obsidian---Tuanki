@@ -194,11 +194,17 @@
 
 <div class="weave-settings settings-section memory-learning-settings">
   <div class="settings-group">
-    <h4 class="group-title with-accent-bar accent-blue">{t('settings.memoryLearning.studyExperience.title')}</h4>
+    <div class="group-header">
+      <h4 class="group-title with-accent-bar accent-blue">{t('settings.memoryLearning.studyExperience.title')}</h4>
+      <p class="group-description">{t('settings.basic.sectionDescription')}</p>
+    </div>
 
     <div class="group-content">
       <div class="row weave-inline-input default-deck-row">
-        <label for="defaultDeck">{t('settings.basic.defaultDeck.label')}</label>
+        <div class="label-with-desc memory-label-with-desc">
+          <label for="defaultDeck">{t('settings.basic.defaultDeck.label')}</label>
+          <p class="desc">{t('settings.basic.defaultDeck.description')}</p>
+        </div>
         <input
           id="defaultDeck"
           type="text"
@@ -210,7 +216,10 @@
       </div>
 
       <div class="row">
-        <label for="deckCardStyle">{t('settings.basic.deckCardStyle.label')}</label>
+        <div class="label-with-desc memory-label-with-desc">
+          <label for="deckCardStyle">{t('settings.basic.deckCardStyle.label')}</label>
+          <p class="desc">{t('settings.basic.deckCardStyle.description')}</p>
+        </div>
         <div class="settings-dropdown-compact">
           <ObsidianDropdown
             options={[
@@ -231,7 +240,10 @@
       </div>
 
       <div class="row">
-        <label for="studyViewSpacing">{t('settings.basic.studyViewSpacing.label')}</label>
+        <div class="label-with-desc memory-label-with-desc">
+          <label for="studyViewSpacing">{t('settings.basic.studyViewSpacing.label')}</label>
+          <p class="desc">{t('settings.basic.studyViewSpacing.description')}</p>
+        </div>
         <div class="settings-dropdown-compact">
           <ObsidianDropdown
             options={[
@@ -273,7 +285,10 @@
 
       {#if showPremiumFeatures}
         <div class="row">
-          <label for="progressive-cloze-history">{t('settings.basic.progressiveCloze.historyInheritance.label')}</label>
+          <div class="label-with-desc memory-label-with-desc">
+            <label for="progressive-cloze-history">{t('settings.basic.progressiveCloze.historyInheritance.label')}</label>
+            <p class="desc">{t('settings.basic.progressiveCloze.historyInheritance.description')}</p>
+          </div>
           <div class="settings-dropdown-compact">
             <ObsidianDropdown
               options={[
@@ -298,11 +313,17 @@
   </div>
 
   <div class="settings-group">
-    <h4 class="group-title with-accent-bar accent-orange">{t('settings.learning.title')}</h4>
+    <div class="group-header">
+      <h4 class="group-title with-accent-bar accent-orange">{t('settings.learning.title')}</h4>
+      <p class="group-description">{t('settings.memoryLearning.fsrsShortTermNote')}</p>
+    </div>
 
     <div class="group-content">
       <div class="row">
-        <label for="reviewsPerDay">{t('settings.learning.reviewsPerDay.label')}</label>
+        <div class="label-with-desc memory-label-with-desc">
+          <label for="reviewsPerDay">{t('settings.learning.reviewsPerDay.label')}</label>
+          <p class="desc">{t('settings.learning.reviewsPerDay.description')}</p>
+        </div>
         <div class="slider-container">
           <input
             id="reviewsPerDay"
@@ -319,7 +340,10 @@
       </div>
 
       <div class="row">
-        <label for="newCardsPerDay">{t('settings.learning.newCardsPerDay.label')}</label>
+        <div class="label-with-desc memory-label-with-desc">
+          <label for="newCardsPerDay">{t('settings.learning.newCardsPerDay.label')}</label>
+          <p class="desc">{t('settings.learning.newCardsPerDay.description')}</p>
+        </div>
         <div class="slider-container">
           <input
             id="newCardsPerDay"
@@ -336,7 +360,10 @@
       </div>
 
       <div class="row">
-        <label for="autoShowAnswer">{t('settings.learning.autoAdvance.label')}</label>
+        <div class="label-with-desc memory-label-with-desc">
+          <label for="autoShowAnswer">{t('settings.learning.autoAdvance.label')}</label>
+          <p class="desc">{t('settings.learning.autoAdvance.description')}</p>
+        </div>
         <div class="slider-container">
           <input
             id="autoShowAnswer"
@@ -412,7 +439,10 @@
       </div>
 
       <div class="row">
-        <label for="maxAdvanceDays">{t('settings.memoryLearning.maxAdvanceDays.label')}</label>
+        <div class="label-with-desc memory-label-with-desc">
+          <label for="maxAdvanceDays">{t('settings.memoryLearning.maxAdvanceDays.label')}</label>
+          <p class="desc">{t('settings.memoryLearning.maxAdvanceDays.description')}</p>
+        </div>
         <div class="slider-container">
           <input
             id="maxAdvanceDays"
@@ -455,16 +485,16 @@
   .memory-label-with-desc > label,
   .memory-setting-title {
     margin: 0;
-    font-size: 0.95rem;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     font-weight: 600;
-    line-height: 1.35;
+    line-height: 1.4;
     color: var(--text-normal);
   }
 
   .memory-label-with-desc > .desc {
     margin: 0;
-    font-size: 0.8rem;
-    line-height: 1.5;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
+    line-height: 1.55;
     color: var(--text-muted);
   }
 
@@ -504,9 +534,9 @@
     flex: 1;
     min-width: 0;
     max-width: min(760px, 100%);
-    font-size: 0.78rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     color: var(--text-muted);
-    line-height: 1.5;
+    line-height: 1.55;
     padding-right: 0.5rem;
   }
 

@@ -15,6 +15,7 @@
 /* 通用组件样式 */
 @import './vertical-toolbar.css';        /* 侧边栏工具栏统一规范 */
 @import './toolbar-controls.css';        /* 底部/顶栏扁平工具按钮（无边框无凸起） */
+@import './card-search-portal.css';     /* 卡片管理搜索下拉（portal 到 body 的实底面板） */
 
 /* 功能样式 */
 @import './modal-components.css';        /* 模态窗壳尺寸；APKG 界面见 APKGImportModal.svelte + .weave-apkg-import-modal */

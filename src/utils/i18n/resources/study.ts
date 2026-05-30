@@ -1135,18 +1135,6 @@ export const studyTranslations: Record<SupportedLanguage, TranslationKey> = {
 				progressDeletingDeckStep: "删除牌组并刷新界面...",
 				progressComplete: "已删除 {count} 张卡片，并完成牌组移除",
 			},
-			knowledgeGraph: {
-				emptyDeck: "该牌组没有可用于生成知识图谱的卡片",
-				noSources: "未找到可追溯的来源信息，无法生成知识图谱",
-				opened: '已打开 "{name}" 的知识图谱，共 {count} 个来源',
-				openFailed: "打开知识图谱失败",
-				documentTitle: "{name} - 牌组知识图谱",
-				sourcesHeading: "源文档",
-				notesHeading: "说明",
-				skippedNonMarkdownNote:
-					"- 已跳过 {count} 个非 Markdown 来源，当前版本的牌组知识图谱只纳入可参与 Obsidian 双链图谱的 Markdown 文档。",
-				generatedNote: "此页面由 Weave 自动生成，用于驱动 Obsidian 局部关系图谱。",
-			},
 			analyticsAction: {
 				openFailed: "打开牌组分析失败",
 			},
@@ -1156,7 +1144,6 @@ export const studyTranslations: Record<SupportedLanguage, TranslationKey> = {
 				delete: "删除牌组",
 				dissolveDeck: "解散牌组",
 				editDeck: "编辑牌组",
-				knowledgeGraph: "知识图谱",
 				linkQuestionBank: "配对考题组",
 			},
 			dissolve: {
@@ -2495,7 +2482,6 @@ export const studyTranslations: Record<SupportedLanguage, TranslationKey> = {
 				delete: "Delete deck",
 				dissolveDeck: "Dissolve deck",
 				editDeck: "Edit deck",
-				knowledgeGraph: "Knowledge graph",
 				linkQuestionBank: "Pair exam set",
 			},
 			deleteModal: {
@@ -2560,20 +2546,6 @@ export const studyTranslations: Record<SupportedLanguage, TranslationKey> = {
 				deck: "Untitled deck",
 				incrementalReading: "Incremental Reading",
 				unknownBank: "Untitled exam set",
-			},
-			knowledgeGraph: {
-				emptyDeck: "This deck has no cards available for generating a knowledge graph",
-				noSources:
-					"No traceable source information was found, so the knowledge graph cannot be generated",
-				opened: 'Opened the knowledge graph for "{name}" with {count} sources',
-				openFailed: "Failed to open knowledge graph",
-				documentTitle: "{name} - Knowledge Graph",
-				sourcesHeading: "Source Documents",
-				notesHeading: "Notes",
-				skippedNonMarkdownNote:
-					"- Skipped {count} non-Markdown sources. The current deck knowledge graph only includes Markdown documents that can participate in Obsidian backlinks and graphs.",
-				generatedNote:
-					"This page was generated automatically by Weave to drive the Obsidian local graph.",
 			},
 			menu: {
 				exportJSON: "Export JSON",

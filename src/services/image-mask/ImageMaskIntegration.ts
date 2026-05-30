@@ -123,6 +123,8 @@ export class ImageMaskIntegration {
 			}
 		});
 
+		this.renderer.restoreAllMasksInContainer(container);
+
 		logger.debug(`[ImageMaskIntegration] 显示所有遮罩（动画: ${animated}）`);
 	}
 

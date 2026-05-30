@@ -8,8 +8,18 @@ import {
 	type CardManagementMenuSurface,
 	resolveCardManagementMenuSurface,
 } from "./card-management-menu-policy";
+import {
+	emitCardManagementToolbarAction,
+	type CardManagementToolbarDispatchAction,
+} from "./card-management-toolbar-contract";
 import { isInSidebar } from "./view-location-utils";
 import { addWeaveNavigationItems, type WeavePageId } from "./weave-navigation-menu";
+import {
+	addMenuRadioChoices,
+	addMenuSubmenuGroup,
+	addMenuToggle,
+	getMenuSubmenu,
+} from "./obsidian-menu";
 
 const DECK_STUDY_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: "deck-study" };
 const CARD_MANAGEMENT_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: "weave-card-management" };
@@ -47,7 +57,7 @@ export interface WeaveMainMenuOptions {
 	dedupeVisibleDesktopCardToolbarActions?: boolean;
 	cardManagementMenuSurface?: CardManagementMenuSurface;
 	navigationVisibility?: NavigationVisibility;
-	deckStudyView?: "grid" | "kanban";
+	deckStudyView?: "kanban";
 	deckStudyFilter?: WeaveDeckStudyFilter;
 	cardDataSource?: WeaveCardDataSource;
 	currentView?: WeaveCardViewType;
@@ -168,13 +178,6 @@ function getPremiumEntryTitle(
 	return guard.getFeatureEntryTitle(baseTitle, featureId, context);
 }
 
-function emitCardManagementToolbarAction(action: string, anchor?: HTMLElement | null): void {
-	dispatchWindowEvent("Weave:card-management-toolbar-action", {
-		action,
-		anchor: anchor ?? null,
-	});
-}
-
 function getDeckStudyCreateEntry(filter: WeaveDeckStudyFilter): {
 	title: string;
 	eventName: string;
@@ -194,14 +197,8 @@ function getDeckStudyCreateEntry(filter: WeaveDeckStudyFilter): {
 	}
 }
 
-type MenuItemWithSubmenu = {
-	setSubmenu: () => Menu;
-};
-
 function addAiAssistantToolsSubmenu(menu: Menu): void {
-	menu.addItem((item) => {
-		item.setTitle(i18n.t("mainMenu.aiAssistant.toolsMenu")).setIcon("more-horizontal");
-		const submenu = (item as unknown as MenuItemWithSubmenu).setSubmenu();
+	addMenuSubmenuGroup(menu, { title: i18n.t("mainMenu.aiAssistant.toolsMenu"), icon: "more-horizontal" }, (submenu) => {
 
 		submenu.addItem((subItem) => {
 			subItem
@@ -256,7 +253,6 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 	const actionEvent =
 		options.event ?? createAnchoredMouseEvent(options.anchorEl) ?? createViewportMouseEvent();
 	const navigationVisibility = options.navigationVisibility ?? {};
-	const deckStudyView = options.deckStudyView ?? "grid";
 	const deckStudyFilter = options.deckStudyFilter ?? "memory";
 	const currentView = options.currentView ?? "table";
 	const cardDataSource = options.cardDataSource ?? "memory";
@@ -300,17 +296,6 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 
 		menu.addItem((item) => {
 			item
-				.setTitle(i18n.t("mainMenu.deckStudy.switchView"))
-				.setIcon("layout-grid")
-				.onClick(() => {
-					dispatchWindowEvent("show-view-menu", {
-						event: actionEvent,
-					});
-				});
-		});
-
-		menu.addItem((item) => {
-			item
 				.setTitle(createEntry.title)
 				.setIcon("folder-plus")
 					.onClick(() => {
@@ -319,76 +304,52 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 						});
 					});
 		});
-
-		if (
-			deckStudyView === "kanban"
-			&& premiumGuard.canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, DECK_STUDY_FEATURE_CONTEXT)
-		) {
-			menu.addItem((item) => {
-				item
-					.setTitle(i18n.t("mainMenu.deckStudy.kanbanColumnSettings"))
-					.setIcon("sliders")
-					.onClick(() => {
-						dispatchWindowEvent("Weave:open-deck-kanban-menu", {
-							x: actionEvent.clientX,
-							y: actionEvent.clientY,
-						});
-					});
-			});
-		}
 	}
 
 	if (options.currentPage === "weave-card-management") {
 		if (shouldShowCardManagementMenuAction("data-source-switch")) {
-			menu.addItem((item) => {
-				item.setTitle(i18n.t("mainMenu.cardManagement.dataSourceSwitch")).setIcon("database");
-				const submenu = (item as any).setSubmenu() as Menu;
+			addMenuSubmenuGroup(
+				menu,
+				{ title: i18n.t("mainMenu.cardManagement.dataSourceSwitch"), icon: "database" },
+				(submenu) => {
+					const dataSourceChoices: Array<{
+						title: string;
+						icon: "brain" | "book-open" | "edit-3";
+						value: WeaveCardDataSource;
+					}> = [
+						{
+							title: i18n.t("mainMenu.cardManagement.memoryDeck"),
+							icon: "brain",
+							value: "memory",
+						},
+					];
 
-				submenu.addItem((subItem: any) => {
-					subItem
-						.setTitle(i18n.t("mainMenu.cardManagement.memoryDeck"))
-						.setIcon("brain")
-						.setChecked(cardDataSource === "memory")
-						.onClick(() => {
-							options.onCardDataSourceChange?.("memory");
-							dispatchWindowEvent("Weave:card-data-source-change", "memory");
+					if (shouldShowPremiumEntry(premiumGuard, premiumState, PREMIUM_FEATURES.INCREMENTAL_READING)) {
+						dataSourceChoices.push({
+							title: premiumGuard.canUseFeature(PREMIUM_FEATURES.INCREMENTAL_READING)
+								? i18n.t("mainMenu.cardManagement.incrementalReading")
+								: i18n.t("mainMenu.cardManagement.incrementalReadingPremium"),
+							icon: "book-open",
+							value: "incremental-reading",
 						});
-				});
+					}
 
-				if (shouldShowPremiumEntry(premiumGuard, premiumState, PREMIUM_FEATURES.INCREMENTAL_READING)) {
-					submenu.addItem((subItem: any) => {
-						const title = premiumGuard.canUseFeature(PREMIUM_FEATURES.INCREMENTAL_READING)
-							? i18n.t("mainMenu.cardManagement.incrementalReading")
-							: i18n.t("mainMenu.cardManagement.incrementalReadingPremium");
+					if (shouldShowPremiumEntry(premiumGuard, premiumState, PREMIUM_FEATURES.QUESTION_BANK)) {
+						dataSourceChoices.push({
+							title: premiumGuard.canUseFeature(PREMIUM_FEATURES.QUESTION_BANK)
+								? i18n.t("mainMenu.cardManagement.questionBank")
+								: i18n.t("mainMenu.cardManagement.questionBankPremium"),
+							icon: "edit-3",
+							value: "questionBank",
+						});
+					}
 
-						subItem
-							.setTitle(title)
-							.setIcon("book-open")
-							.setChecked(cardDataSource === "incremental-reading")
-							.onClick(() => {
-								options.onCardDataSourceChange?.("incremental-reading");
-								dispatchWindowEvent("Weave:card-data-source-change", "incremental-reading");
-							});
+					addMenuRadioChoices(submenu, cardDataSource, dataSourceChoices, (source) => {
+						options.onCardDataSourceChange?.(source);
+						dispatchWindowEvent("Weave:card-data-source-change", source);
 					});
 				}
-
-				if (shouldShowPremiumEntry(premiumGuard, premiumState, PREMIUM_FEATURES.QUESTION_BANK)) {
-					submenu.addItem((subItem: any) => {
-						const title = premiumGuard.canUseFeature(PREMIUM_FEATURES.QUESTION_BANK)
-							? i18n.t("mainMenu.cardManagement.questionBank")
-							: i18n.t("mainMenu.cardManagement.questionBankPremium");
-
-						subItem
-							.setTitle(title)
-							.setIcon("edit-3")
-							.setChecked(cardDataSource === "questionBank")
-							.onClick(() => {
-								options.onCardDataSourceChange?.("questionBank");
-								dispatchWindowEvent("Weave:card-data-source-change", "questionBank");
-							});
-					});
-				}
-			});
+			);
 		}
 
 		if (
@@ -397,34 +358,44 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			&& (shouldShowCardManagementMenuAction("table-view-basic")
 				|| shouldShowCardManagementMenuAction("table-view-review"))
 		) {
-			menu.addItem((item) => {
-				item.setTitle(i18n.t("mainMenu.cardManagement.tableViewMode")).setIcon("table");
-				const submenu = (item as unknown as MenuItemWithSubmenu).setSubmenu();
+			addMenuSubmenuGroup(
+				menu,
+				{ title: i18n.t("mainMenu.cardManagement.tableViewMode"), icon: "table" },
+				(submenu) => {
+					const tableViewChoices: Array<{
+						title: string;
+						icon: "table" | "bar-chart-2";
+						value: WeaveTableViewMode;
+					}> = [];
 
-				if (shouldShowCardManagementMenuAction("table-view-basic")) {
-					submenu.addItem((subItem) => {
-						subItem
-							.setTitle(i18n.t("mainMenu.cardManagement.tableBasic"))
-							.setIcon("table")
-							.setChecked(options.tableViewMode === "basic")
-							.onClick(() => {
-								emitCardManagementToolbarAction("table-view-basic");
-							});
-					});
-				}
+					if (shouldShowCardManagementMenuAction("table-view-basic")) {
+						tableViewChoices.push({
+							title: i18n.t("mainMenu.cardManagement.tableBasic"),
+							icon: "table",
+							value: "basic",
+						});
+					}
 
-				if (shouldShowCardManagementMenuAction("table-view-review")) {
-					submenu.addItem((subItem) => {
-						subItem
-							.setTitle(i18n.t("mainMenu.cardManagement.tableReview"))
-							.setIcon("bar-chart-2")
-							.setChecked(options.tableViewMode === "review")
-							.onClick(() => {
-								emitCardManagementToolbarAction("table-view-review");
-							});
-					});
+					if (shouldShowCardManagementMenuAction("table-view-review")) {
+						tableViewChoices.push({
+							title: i18n.t("mainMenu.cardManagement.tableReview"),
+							icon: "bar-chart-2",
+							value: "review",
+						});
+					}
+
+					addMenuRadioChoices(
+						submenu,
+						options.tableViewMode ?? "basic",
+						tableViewChoices,
+						(mode) => {
+							emitCardManagementToolbarAction(
+								mode === "basic" ? "table-view-basic" : "table-view-review"
+							);
+						}
+					);
 				}
-			});
+			);
 		}
 
 		if (
@@ -433,27 +404,30 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			&& cardDataSource === "incremental-reading"
 			&& shouldShowCardManagementMenuAction("ir-type-md")
 		) {
-			menu.addItem((item) => {
-				item
-					.setTitle(i18n.t("mainMenu.cardManagement.irMarkdown"))
-					.setIcon("file-text")
-					.setChecked(options.irTypeFilter === "md")
-					.onClick(() => {
-						emitCardManagementToolbarAction("ir-type-md");
-					});
-			});
+			const irTypeChoices: Array<{
+				title: string;
+				icon: "file-text" | "file";
+				value: Exclude<WeaveIRTypeFilter, "all">;
+			}> = [
+				{
+					title: i18n.t("mainMenu.cardManagement.irMarkdown"),
+					icon: "file-text",
+					value: "md",
+				},
+			];
 
 			if (shouldShowCardManagementMenuAction("ir-type-pdf")) {
-				menu.addItem((item) => {
-					item
-						.setTitle(i18n.t("mainMenu.cardManagement.irPdf"))
-						.setIcon("file")
-						.setChecked(options.irTypeFilter === "pdf")
-						.onClick(() => {
-							emitCardManagementToolbarAction("ir-type-pdf");
-						});
+				irTypeChoices.push({
+					title: i18n.t("mainMenu.cardManagement.irPdf"),
+					icon: "file",
+					value: "pdf",
 				});
 			}
+
+			const currentIrType = options.irTypeFilter === "pdf" ? "pdf" : "md";
+			addMenuRadioChoices(menu, currentIrType, irTypeChoices, (irType) => {
+				emitCardManagementToolbarAction(irType === "md" ? "ir-type-md" : "ir-type-pdf");
+			});
 		}
 
 		if (
@@ -462,64 +436,62 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 				|| shouldShowCardManagementMenuAction("grid-layout-masonry")
 				|| shouldShowCardManagementMenuAction("grid-layout-timeline"))
 		) {
-			const gridLocked = !premiumGuard.canUseFeature(
-				PREMIUM_FEATURES.GRID_VIEW,
-				CARD_MANAGEMENT_FEATURE_CONTEXT
+			addMenuSubmenuGroup(
+				menu,
+				{ title: i18n.t("mainMenu.cardManagement.gridLayout"), icon: "layout-grid" },
+				(submenu) => {
+					const gridLayoutChoices: Array<{
+						title: string;
+						icon: "layout-grid" | "panels-top-left" | "history";
+						value: WeaveGridLayoutMode;
+						action: "grid-layout-fixed" | "grid-layout-masonry" | "grid-layout-timeline";
+					}> = [];
+
+					if (shouldShowCardManagementMenuAction("grid-layout-fixed")) {
+						gridLayoutChoices.push({
+							title: i18n.t("mainMenu.cardManagement.gridFixed"),
+							icon: "layout-grid",
+							value: "fixed",
+							action: "grid-layout-fixed",
+						});
+					}
+
+					if (shouldShowCardManagementMenuAction("grid-layout-masonry")) {
+						gridLayoutChoices.push({
+							title: i18n.t("mainMenu.cardManagement.gridMasonry"),
+							icon: "panels-top-left",
+							value: "masonry",
+							action: "grid-layout-masonry",
+						});
+					}
+
+					if (shouldShowCardManagementMenuAction("grid-layout-timeline")) {
+						gridLayoutChoices.push({
+							title: getPremiumEntryTitle(
+								premiumGuard,
+								i18n.t("mainMenu.cardManagement.timeline"),
+								PREMIUM_FEATURES.TIMELINE_VIEW
+							),
+							icon: "history",
+							value: "timeline",
+							action: "grid-layout-timeline",
+						});
+					}
+
+					addMenuRadioChoices(submenu, gridLayoutMode, gridLayoutChoices, (mode) => {
+						const choice = gridLayoutChoices.find((entry) => entry.value === mode);
+						if (!choice) {
+							return;
+						}
+
+						if (currentView !== "grid") {
+							options.onViewChange?.("grid");
+						}
+
+						emitCardManagementToolbarAction(choice.action);
+					});
+				}
 			);
-
-			menu.addItem((item) => {
-				item.setTitle(i18n.t("mainMenu.cardManagement.gridLayout")).setIcon("layout-grid");
-				const submenu = (item as unknown as MenuItemWithSubmenu).setSubmenu();
-
-				if (shouldShowCardManagementMenuAction("grid-layout-fixed")) {
-					submenu.addItem((subItem) => {
-						subItem
-							.setTitle(i18n.t("mainMenu.cardManagement.gridFixed"))
-							.setIcon("layout-grid")
-							.setChecked(gridLayoutMode === "fixed")
-							.onClick(() => {
-								emitCardManagementToolbarAction("grid-layout-fixed");
-							});
-					});
-				}
-
-				if (shouldShowCardManagementMenuAction("grid-layout-masonry")) {
-					submenu.addItem((subItem) => {
-						subItem
-							.setTitle(i18n.t("mainMenu.cardManagement.gridMasonry"))
-							.setIcon("panels-top-left")
-							.setChecked(gridLayoutMode === "masonry")
-							.onClick(() => {
-								emitCardManagementToolbarAction("grid-layout-masonry");
-							});
-					});
-				}
-
-				if (shouldShowCardManagementMenuAction("grid-layout-timeline")) {
-					submenu.addItem((subItem) => {
-						subItem
-							.setTitle(
-								getPremiumEntryTitle(
-									premiumGuard,
-									i18n.t("mainMenu.cardManagement.timeline"),
-									PREMIUM_FEATURES.TIMELINE_VIEW
-								)
-							)
-							.setIcon("history")
-							.setChecked(gridLayoutMode === "timeline")
-							.onClick(() => {
-								if (currentView !== "grid") {
-									options.onViewChange?.("grid");
-									if (gridLocked) {
-										return;
-									}
-								}
-
-								emitCardManagementToolbarAction("grid-layout-timeline");
-							});
-					});
-				}
-			});
 		}
 
 		if (
@@ -527,34 +499,39 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			&& (shouldShowCardManagementMenuAction("grid-border-style-solid")
 				|| shouldShowCardManagementMenuAction("grid-border-style-dashed"))
 		) {
-			menu.addItem((item) => {
-				item.setTitle(i18n.t("mainMenu.cardManagement.gridBorderStyle")).setIcon("square-dashed");
-				const submenu = (item as unknown as MenuItemWithSubmenu).setSubmenu();
+			addMenuSubmenuGroup(
+				menu,
+				{ title: i18n.t("mainMenu.cardManagement.gridBorderStyle"), icon: "square-dashed" },
+				(submenu) => {
+					const borderChoices: Array<{
+						title: string;
+						icon: "square" | "square-dashed";
+						value: WeaveGridCardBorderStyle;
+					}> = [];
 
-				if (shouldShowCardManagementMenuAction("grid-border-style-solid")) {
-					submenu.addItem((subItem) => {
-						subItem
-							.setTitle(i18n.t("mainMenu.cardManagement.gridBorderSolid"))
-							.setIcon("square")
-							.setChecked(gridCardBorderStyle === "solid")
-							.onClick(() => {
-								emitCardManagementToolbarAction("grid-border-style-solid");
-							});
+					if (shouldShowCardManagementMenuAction("grid-border-style-solid")) {
+						borderChoices.push({
+							title: i18n.t("mainMenu.cardManagement.gridBorderSolid"),
+							icon: "square",
+							value: "solid",
+						});
+					}
+
+					if (shouldShowCardManagementMenuAction("grid-border-style-dashed")) {
+						borderChoices.push({
+							title: i18n.t("mainMenu.cardManagement.gridBorderDashed"),
+							icon: "square-dashed",
+							value: "dashed",
+						});
+					}
+
+					addMenuRadioChoices(submenu, gridCardBorderStyle, borderChoices, (style) => {
+						emitCardManagementToolbarAction(
+							style === "solid" ? "grid-border-style-solid" : "grid-border-style-dashed"
+						);
 					});
 				}
-
-				if (shouldShowCardManagementMenuAction("grid-border-style-dashed")) {
-					submenu.addItem((subItem) => {
-						subItem
-							.setTitle(i18n.t("mainMenu.cardManagement.gridBorderDashed"))
-							.setIcon("square-dashed")
-							.setChecked(gridCardBorderStyle === "dashed")
-							.onClick(() => {
-								emitCardManagementToolbarAction("grid-border-style-dashed");
-							});
-					});
-				}
-			});
+			);
 		}
 
 		if (currentView === "table" && shouldShowCardManagementMenuAction("open-column-manager")) {
@@ -574,46 +551,55 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 				|| shouldShowCardManagementMenuAction("kanban-layout-comfortable")
 				|| shouldShowCardManagementMenuAction("kanban-layout-spacious")
 			) {
-				menu.addItem((item) => {
-					item.setTitle(i18n.t("cardManagement.density.title")).setIcon("layout-grid");
-					const submenu = (item as unknown as MenuItemWithSubmenu).setSubmenu();
+				addMenuSubmenuGroup(
+					menu,
+					{ title: i18n.t("cardManagement.density.title"), icon: "layout-grid" },
+					(submenu) => {
+						const kanbanLayoutChoices: Array<{
+							title: string;
+							icon: "minimize-2" | "square" | "maximize-2";
+							value: WeaveKanbanLayoutMode;
+						}> = [];
 
-					if (shouldShowCardManagementMenuAction("kanban-layout-compact")) {
-						submenu.addItem((subItem) => {
-							subItem
-								.setTitle(i18n.t("mainMenu.cardManagement.kanbanCompact"))
-								.setIcon("minimize-2")
-								.setChecked(options.kanbanLayoutMode === "compact")
-								.onClick(() => {
-									emitCardManagementToolbarAction("kanban-layout-compact");
-								});
-						});
-					}
+						if (shouldShowCardManagementMenuAction("kanban-layout-compact")) {
+							kanbanLayoutChoices.push({
+								title: i18n.t("mainMenu.cardManagement.kanbanCompact"),
+								icon: "minimize-2",
+								value: "compact",
+							});
+						}
 
-					if (shouldShowCardManagementMenuAction("kanban-layout-comfortable")) {
-						submenu.addItem((subItem) => {
-							subItem
-								.setTitle(i18n.t("mainMenu.cardManagement.kanbanComfortable"))
-								.setIcon("square")
-								.setChecked(options.kanbanLayoutMode === "comfortable")
-								.onClick(() => {
-									emitCardManagementToolbarAction("kanban-layout-comfortable");
-								});
-						});
-					}
+						if (shouldShowCardManagementMenuAction("kanban-layout-comfortable")) {
+							kanbanLayoutChoices.push({
+								title: i18n.t("mainMenu.cardManagement.kanbanComfortable"),
+								icon: "square",
+								value: "comfortable",
+							});
+						}
 
-					if (shouldShowCardManagementMenuAction("kanban-layout-spacious")) {
-						submenu.addItem((subItem) => {
-							subItem
-								.setTitle(i18n.t("mainMenu.cardManagement.kanbanSpacious"))
-								.setIcon("maximize-2")
-								.setChecked(options.kanbanLayoutMode === "spacious")
-								.onClick(() => {
-									emitCardManagementToolbarAction("kanban-layout-spacious");
-								});
-						});
+						if (shouldShowCardManagementMenuAction("kanban-layout-spacious")) {
+							kanbanLayoutChoices.push({
+								title: i18n.t("mainMenu.cardManagement.kanbanSpacious"),
+								icon: "maximize-2",
+								value: "spacious",
+							});
+						}
+
+						addMenuRadioChoices(
+							submenu,
+							options.kanbanLayoutMode ?? "comfortable",
+							kanbanLayoutChoices,
+							(mode) => {
+								const actionByMode: Record<WeaveKanbanLayoutMode, CardManagementToolbarDispatchAction> = {
+									compact: "kanban-layout-compact",
+									comfortable: "kanban-layout-comfortable",
+									spacious: "kanban-layout-spacious",
+								};
+								emitCardManagementToolbarAction(actionByMode[mode]);
+							}
+						);
 					}
-				});
+				);
 			}
 
 			if (shouldShowCardManagementMenuAction("open-kanban-column-settings")) {
@@ -646,40 +632,35 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 			(currentView === "grid" || currentView === "kanban")
 			&& shouldShowCardManagementMenuAction("toggle-card-relation-filter")
 		) {
-			menu.addItem((item) => {
-				item
-					.setTitle(i18n.t("mainMenu.cardManagement.relationMode"))
-					.setIcon("link-2")
-					.setChecked(options.enableCardRelationFilterMode === true)
-					.onClick(() => {
-						emitCardManagementToolbarAction("toggle-card-relation-filter");
-					});
+			addMenuToggle(menu, {
+				title: i18n.t("mainMenu.cardManagement.relationMode"),
+				icon: "link-2",
+				getChecked: () => options.enableCardRelationFilterMode === true,
+				onSetChecked: () => {
+					emitCardManagementToolbarAction("toggle-card-relation-filter");
+				},
 			});
 		}
 
 		if (inSidebar && shouldShowCardManagementMenuAction("toggle-document-filter")) {
-			menu.addItem((item) => {
-				item
-					.setTitle(i18n.t("mainMenu.cardManagement.currentDocumentOnly"))
-					.setIcon(documentFilterMode === "current" ? "file-text" : "file")
-					.setChecked(documentFilterMode === "current")
-					.setDisabled(!options.currentActiveDocument)
-					.onClick(() => {
-						if (options.currentActiveDocument) {
-							emitCardManagementToolbarAction("toggle-document-filter");
-						}
-					});
+			addMenuToggle(menu, {
+				title: i18n.t("mainMenu.cardManagement.currentDocumentOnly"),
+				getIcon: () => (documentFilterMode === "current" ? "file-text" : "file"),
+				getChecked: () => documentFilterMode === "current",
+				isDisabled: () => !options.currentActiveDocument,
+				onSetChecked: () => {
+					emitCardManagementToolbarAction("toggle-document-filter");
+				},
 			});
 
 			if (shouldShowCardManagementMenuAction("toggle-card-location-jump")) {
-				menu.addItem((item) => {
-					item
-						.setTitle(i18n.t("mainMenu.cardManagement.cardLocationJump"))
-						.setIcon("navigation")
-						.setChecked(enableCardLocationJump)
-						.onClick(() => {
-							emitCardManagementToolbarAction("toggle-card-location-jump");
-						});
+				addMenuToggle(menu, {
+					title: i18n.t("mainMenu.cardManagement.cardLocationJump"),
+					icon: "navigation",
+					getChecked: () => enableCardLocationJump,
+					onSetChecked: () => {
+						emitCardManagementToolbarAction("toggle-card-location-jump");
+					},
 				});
 			}
 		}

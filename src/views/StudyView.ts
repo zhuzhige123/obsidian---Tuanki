@@ -24,6 +24,7 @@ import {
 	getLocationToggleTooltip,
 	toggleViewLocation,
 } from "../utils/view-location-utils";
+import { addMenuSubmenuGroup, addMenuToggle } from "../utils/obsidian-menu";
 
 export const VIEW_TYPE_STUDY = "weave-study-view";
 
@@ -248,15 +249,13 @@ export class StudyView extends ItemView {
 	}
 
 	private populateMobileInfoPanelsSubmenu(menu: Menu): void {
-		const panelState = this.mobilePanelStateGetter?.() ?? {
-			showProficiencyStats: false,
-			statsExpanded: false,
-		};
+		const readPanelState = () =>
+			this.mobilePanelStateGetter?.() ?? {
+				showProficiencyStats: false,
+				statsExpanded: false,
+			};
 
-		menu.addItem((item) => {
-			item.setTitle(i18n.t("study.view.infoPanels")).setIcon("panel-top");
-			const submenu = (item as { setSubmenu: () => Menu }).setSubmenu();
-
+		addMenuSubmenuGroup(menu, { title: i18n.t("study.view.infoPanels"), icon: "panel-top" }, (submenu) => {
 			submenu.addItem((subItem) => {
 				subItem
 					.setTitle(i18n.t("study.view.graphLink"))
@@ -266,24 +265,22 @@ export class StudyView extends ItemView {
 					});
 			});
 
-			submenu.addItem((subItem) => {
-				subItem
-					.setTitle(i18n.t("study.view.queueStats"))
-					.setIcon("bar-chart-2")
-					.setChecked(panelState.showProficiencyStats)
-					.onClick(() => {
-						this.toggleProficiencyStatsCallback?.();
-					});
+			addMenuToggle(submenu, {
+				title: i18n.t("study.view.queueStats"),
+				icon: "bar-chart-2",
+				getChecked: () => readPanelState().showProficiencyStats,
+				onSetChecked: () => {
+					this.toggleProficiencyStatsCallback?.();
+				},
 			});
 
-			submenu.addItem((subItem) => {
-				subItem
-					.setTitle(i18n.t("study.view.memoryParams"))
-					.setIcon("activity")
-					.setChecked(panelState.statsExpanded)
-					.onClick(() => {
-						this.toggleStatsCallback?.();
-					});
+			addMenuToggle(submenu, {
+				title: i18n.t("study.view.memoryParams"),
+				icon: "activity",
+				getChecked: () => readPanelState().statsExpanded,
+				onSetChecked: () => {
+					this.toggleStatsCallback?.();
+				},
 			});
 		});
 	}

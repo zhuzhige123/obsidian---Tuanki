@@ -24,7 +24,6 @@ export interface StudyToolbarMenuSessionInput {
 	ratingLabelStyle?: RatingLabelStyle;
 	showRatingIntervalOnButtons?: boolean;
 	timerAutoPauseSeconds?: number;
-	hintMaxUses?: number;
 	showClozeModeSwitchButton?: boolean;
 	aiSplitActions?: MenuBuilderConfig["aiActions"]["split"];
 	callbacks: MenuCallbacks;
@@ -56,7 +55,6 @@ export function populateStudyToolbarMenuSession(
 		ratingLabelStyle: input.ratingLabelStyle,
 		showRatingIntervalOnButtons: input.showRatingIntervalOnButtons,
 		timerAutoPauseSeconds: input.timerAutoPauseSeconds,
-		hintMaxUses: input.hintMaxUses,
 		showClozeModeSwitchButton: input.showClozeModeSwitchButton,
 		aiActions: {
 			split: input.aiSplitActions ?? [],

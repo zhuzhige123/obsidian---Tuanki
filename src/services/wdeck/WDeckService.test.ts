@@ -378,6 +378,27 @@ describe("WDeckService deck file actions", () => {
 	expect(report.issues.some((issue) => issue.type === "uuid_conflict")).toBe(true);
 	});
 
+	test("persists locator-only wdeck index without embedding card bodies", async () => {
+		const { plugin, files } = createWDeckPlugin({
+			"weave/memory/deck-files/demo_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "demo-deck",
+				logicalDeckName: "demo",
+				segmentIndex: 1,
+				cards: [{ uuid: "card-heavy", content: "x".repeat(2048) }],
+			}),
+		});
+		const service = new WDeckService(plugin);
+		await service.rebuildCache();
+
+		const cachePath = ".obsidian/plugins/weave/cache/wdeck-index.json";
+		const cache = JSON.parse(files.get(cachePath) || "{}");
+		expect(cache.version).toBe(3);
+		expect(cache.files[0]?.cardUUIDs).toEqual(["card-heavy"]);
+		expect(cache.files[0]?.data).toBeUndefined();
+		expect(JSON.stringify(cache).includes("x".repeat(2048))).toBe(false);
+	});
+
 	test("loads the full logical deck aggregate from any matching .wdeck file path", async () => {
 		const { plugin } = createWDeckPlugin({
 			"vault/study/circulation_03.wdeck": JSON.stringify({

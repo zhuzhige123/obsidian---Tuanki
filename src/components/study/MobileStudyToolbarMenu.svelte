@@ -30,7 +30,6 @@
     ratingLabelStyle?: RatingLabelStyle;
     showRatingIntervalOnButtons?: boolean;
     timerAutoPauseSeconds?: number;
-    hintMaxUses?: number;
     showClozeModeSwitchButton?: boolean;
     onClose: () => void;
     onToggleEdit?: () => void;
@@ -55,7 +54,6 @@
     onRatingLabelStyleChange?: (style: RatingLabelStyle) => void;
     onRatingIntervalButtonsToggle?: (enabled: boolean) => void;
     onTimerAutoPauseChange?: (seconds: number) => void;
-    onHintMaxUsesChange?: (value: number) => void;
     onClozeModeSwitchButtonToggle?: (enabled: boolean) => void;
   }
 
@@ -78,7 +76,6 @@
     ratingLabelStyle = 'classic',
     showRatingIntervalOnButtons = false,
     timerAutoPauseSeconds = 60,
-    hintMaxUses = 5,
     showClozeModeSwitchButton = true,
     onClose,
     onToggleEdit,
@@ -100,7 +97,6 @@
     onRatingLabelStyleChange,
     onRatingIntervalButtonsToggle,
     onTimerAutoPauseChange,
-    onHintMaxUsesChange,
     onClozeModeSwitchButtonToggle,
   }: Props = $props();
 
@@ -191,11 +187,6 @@
             onTimerAutoPauseChange?.(seconds);
           }
         : undefined,
-      onHintMaxUsesChange: onHintMaxUsesChange
-        ? (value) => {
-            onHintMaxUsesChange?.(value);
-          }
-        : undefined,
       onClozeModeSwitchButtonToggle: onClozeModeSwitchButtonToggle
         ? (enabled) => {
             onClozeModeSwitchButtonToggle?.(enabled);
@@ -227,7 +218,6 @@
       ratingLabelStyle,
       showRatingIntervalOnButtons,
       timerAutoPauseSeconds,
-      hintMaxUses,
       showClozeModeSwitchButton,
       aiSplitActions: customActions.split || [],
       callbacks: buildCallbacks(),

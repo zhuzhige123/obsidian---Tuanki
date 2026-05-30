@@ -10,13 +10,21 @@
 /* ==================== 隐藏 Obsidian view-header（仅桌面端） ==================== */
 /* 移动端保留 view-header，因为功能按钮通过 addAction() 添加到原生顶部栏 */
 body:not(.is-mobile) .workspace-leaf-content[data-type="weave-study-view"] .view-header,
-body:not(.is-mobile) .workspace-leaf-content[data-type="weave-question-bank-view"] .view-header {
+body:not(.is-mobile) .workspace-leaf-content[data-type="weave-question-bank-view"] .view-header,
+body:not(.is-mobile) .workspace-leaf-content[data-type="weave-card-staging-view"] .view-header {
+  display: none;
+}
+
+/* AI 暂存学习：移动端同样隐藏 Obsidian view-header，与记忆学习全屏体验一致 */
+body.is-mobile .workspace-leaf-content[data-type="weave-card-staging-view"] .view-header,
+body.is-phone .workspace-leaf-content[data-type="weave-card-staging-view"] .view-header {
   display: none;
 }
 
 /* ==================== 覆盖 Obsidian 默认 view-content padding ==================== */
 .workspace-leaf-content[data-type="weave-study-view"] > .view-content,
-.workspace-leaf-content[data-type="weave-question-bank-view"] > .view-content {
+.workspace-leaf-content[data-type="weave-question-bank-view"] > .view-content,
+.workspace-leaf-content[data-type="weave-card-staging-view"] > .view-content {
   position: relative;
   overflow: hidden;
   height: 100%;
@@ -30,33 +38,111 @@ body:not(.is-mobile) .workspace-leaf-content[data-type="weave-question-bank-view
   background: var(--weave-surface-background, var(--background-primary));
 }
 
-/* 记忆学习编辑 + 键盘：将 leaf 钉在 visual viewport，避免正文被顶走露出空白占位 */
+/* EPUB/阅读器场景：view-content 锁定（勿用于记忆学习内联编辑） */
 .workspace-leaf-content[data-type="weave-study-view"] > .view-content.weave-reading-viewport-locked,
 .workspace-leaf-content[data-type="weave-question-bank-view"] > .view-content.weave-reading-viewport-locked {
   background: var(--weave-surface-background, var(--background-primary));
   z-index: 1;
 }
 
-/* 键盘编辑期：原生 view-header 保持在锁定层之上，供 addAction 保存按钮显示 */
+/* 键盘编辑期：原生 view-header 浮在正文之上（与官方笔记一致，正文可滚入顶栏区域） */
+body.is-mobile.weave-edit-active .workspace-leaf-content[data-type="weave-study-view"],
+body.is-phone.weave-edit-active .workspace-leaf-content[data-type="weave-study-view"],
+body.is-mobile.weave-edit-active .workspace-leaf-content[data-type="weave-question-bank-view"],
+body.is-phone.weave-edit-active .workspace-leaf-content[data-type="weave-question-bank-view"] {
+  position: relative;
+  overflow: hidden;
+}
+
 body.is-mobile.weave-edit-active .workspace-leaf-content[data-type="weave-study-view"] > .view-header,
 body.is-phone.weave-edit-active .workspace-leaf-content[data-type="weave-study-view"] > .view-header,
 body.is-mobile.weave-edit-active .workspace-leaf-content[data-type="weave-question-bank-view"] > .view-header,
 body.is-phone.weave-edit-active .workspace-leaf-content[data-type="weave-question-bank-view"] > .view-header {
-  position: relative;
-  z-index: 2;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  flex-shrink: 0;
+  background-color: var(--background-primary);
 }
 
-body.is-mobile.weave-study-edit-keyboard-active,
-body.is-phone.weave-study-edit-keyboard-active {
-  overflow: hidden;
-  overscroll-behavior: none;
+body.is-mobile.weave-edit-active .workspace-leaf-content[data-type="weave-study-view"] > .view-content,
+body.is-phone.weave-edit-active .workspace-leaf-content[data-type="weave-study-view"] > .view-content,
+body.is-mobile.weave-edit-active .workspace-leaf-content[data-type="weave-question-bank-view"] > .view-content,
+body.is-phone.weave-edit-active .workspace-leaf-content[data-type="weave-question-bank-view"] > .view-content {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  z-index: 1;
 }
 
-body.is-mobile.weave-study-edit-keyboard-active .workspace-leaf-content[data-type="weave-study-view"],
-body.is-phone.weave-study-edit-keyboard-active .workspace-leaf-content[data-type="weave-study-view"],
-body.is-mobile.weave-study-edit-keyboard-active .workspace-leaf-content[data-type="weave-question-bank-view"],
-body.is-phone.weave-study-edit-keyboard-active .workspace-leaf-content[data-type="weave-question-bank-view"] {
+/* 嵌入式编辑：去掉标题占位，正文区 flex 顶满；属性区保留（滚动条从其上缘开始） */
+body.is-mobile.weave-edit-active .embedded-editor-host,
+body.is-phone.weave-edit-active .embedded-editor-host {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+body.is-mobile.weave-edit-active .embedded-editor-host > [data-weave-detached-leaf-editor],
+body.is-phone.weave-edit-active .embedded-editor-host > [data-weave-detached-leaf-editor] {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+body.is-mobile.weave-edit-active .embedded-editor-host .markdown-source-view,
+body.is-phone.weave-edit-active .embedded-editor-host .markdown-source-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+body.is-mobile.weave-edit-active .embedded-editor-host .inline-title-wrapper,
+body.is-phone.weave-edit-active .embedded-editor-host .inline-title-wrapper,
+body.is-mobile.weave-edit-active .embedded-editor-host .inline-title,
+body.is-phone.weave-edit-active .embedded-editor-host .inline-title,
+body.is-mobile.weave-edit-active .embedded-editor-host .mod-header,
+body.is-phone.weave-edit-active .embedded-editor-host .mod-header {
+  display: none;
+  height: 0;
+  min-height: 0;
+  max-height: 0;
+  margin: 0;
+  padding: 0;
   overflow: hidden;
+  border: 0;
+}
+
+body.is-mobile.weave-edit-active .embedded-editor-host .cm-editor,
+body.is-phone.weave-edit-active .embedded-editor-host .cm-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+body.is-mobile.weave-edit-active .embedded-editor-host .cm-scroller,
+body.is-phone.weave-edit-active .embedded-editor-host .cm-scroller {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 嵌入式卡片编辑：属性区保留，仅去掉多余顶距（滚动条从其上缘开始属正常） */
+body.is-mobile.weave-edit-active .embedded-editor-host .metadata-container,
+body.is-phone.weave-edit-active .embedded-editor-host .metadata-container {
+  flex-shrink: 0;
+  margin-top: 0;
+  padding-top: 0;
 }
 
 .weave-study-view-content .weave-study-state {

@@ -56,10 +56,10 @@
 
 <div class="weave-settings settings-section virtualization-settings">
   <div class="section-header">
-    <h3 class="section-title with-accent-bar accent-pink">
+    <div class="group-title with-accent-bar accent-pink">
       {t('virtualization.title')}
-    </h3>
-    <p class="section-description">
+    </div>
+    <p class="group-description">
       {t('virtualization.description')}
     </p>
   </div>
@@ -315,7 +315,7 @@
 
 <style>
   /* 侧边颜色条样式 */
-  .section-title.with-accent-bar {
+  .group-title.with-accent-bar {
     position: relative;
     padding-left: 16px;
     display: flex;
@@ -323,7 +323,7 @@
     gap: 0.5rem;
   }
 
-  .section-title.with-accent-bar::before {
+  .group-title.with-accent-bar::before {
     content: '';
     position: absolute;
     left: 0;
@@ -334,7 +334,7 @@
     border-radius: 2px;
   }
 
-  .section-title.accent-pink::before {
+  .group-title.accent-pink::before {
     background: linear-gradient(135deg, rgba(236, 72, 153, 0.8), rgba(219, 39, 119, 0.6));
   }
 
@@ -372,18 +372,18 @@
     padding-bottom: 0.4rem;
   }
   
-  .section-header .section-title {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.3rem;
-    font-weight: 600;
+  .section-header .group-title {
+    margin: 0;
+    font-size: var(--weave-settings-font-size-title, 1rem);
+    line-height: 1.4;
     color: var(--text-normal);
   }
   
-  .section-description {
+  .group-description {
     margin: 0;
     color: var(--text-muted);
-    font-size: 0.9rem;
-    line-height: 1.5;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
+    line-height: 1.55;
   }
   
   .settings-group {
@@ -395,7 +395,7 @@
     align-items: center;
     gap: 0.5rem;
     margin: 0;
-    font-size: 1rem;
+    font-size: var(--weave-settings-font-size-title, 1rem);
     font-weight: 600;
   }
   
@@ -415,9 +415,9 @@
   }
   
   .setting-description {
-    font-size: 0.85rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     color: var(--text-muted);
-    line-height: 1.4;
+    line-height: 1.55;
   }
   
   .setting-control {

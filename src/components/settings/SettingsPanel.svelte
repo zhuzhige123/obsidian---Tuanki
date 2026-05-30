@@ -19,6 +19,7 @@
 
   // 新的关于页面组件
   import ProductInfoSection from './components/ProductInfoSection.svelte';
+  import WeaveLicenseSettingsPanel from './sections/WeaveLicenseSettingsPanel.svelte';
 
   // 新版简化卡片解析设置组件
   import SimplifiedParsingSettings from './SimplifiedParsingSettings.svelte';
@@ -78,6 +79,13 @@
   // 根据设置动态过滤标签页（响应式）
   // 高级功能标签页列表（未激活时隐藏）
   const PREMIUM_TABS = ['card-parsing'];
+
+  function canUseSettingsPremiumTab(tabId: string): boolean {
+    if (tabId === 'card-parsing') {
+      return premiumGuard.canUseFeature(PREMIUM_FEATURES.BATCH_PARSING);
+    }
+    return true;
+  }
   
   let visibleTabs = $derived(
     SETTINGS_TABS.filter(tab => {
@@ -136,7 +144,9 @@
 
 <div class="anki-app settings-root">
   <div class="header">
-    <h1 class="title">{t('settings.title')}</h1>
+    <div class="header-text">
+      <h1 class="title">{t('settings.title')}</h1>
+    </div>
   </div>
 
   <div class="tabs">
@@ -146,9 +156,12 @@
   <!-- About -->
   {#if activeTab === 'about'}
     <div class="about-container">
-      <!-- 产品信息区域 - 包含集成的激活功能 -->
-      <ProductInfoSection {plugin} onSave={save} />
+      <ProductInfoSection {plugin} />
     </div>
+  {/if}
+
+  {#if activeTab === 'license'}
+    <WeaveLicenseSettingsPanel {plugin} onSave={save} />
   {/if}
 
   <!-- Basic -->
@@ -166,14 +179,22 @@
 
   <!-- Simplified Card Parsing Settings -->
   {#if activeTab === 'card-parsing'}
-    <SimplifiedParsingSettings
-      settings={plugin.settings.simplifiedParsing}
-      onSettingsChange={(newSettings: any) => {
-        plugin.settings.simplifiedParsing = newSettings;
-        plugin.saveSettings();
-      }}
-      {plugin}
-    />
+    {#if canUseSettingsPremiumTab('card-parsing')}
+      <SimplifiedParsingSettings
+        settings={plugin.settings.simplifiedParsing}
+        onSettingsChange={(newSettings: any) => {
+          plugin.settings.simplifiedParsing = newSettings;
+          plugin.saveSettings();
+        }}
+        {plugin}
+      />
+    {:else}
+      <ActivationPrompt
+        featureId={PREMIUM_FEATURES.BATCH_PARSING}
+        visible={true}
+        onClose={() => { activeTab = DEFAULT_ACTIVE_TAB; }}
+      />
+    {/if}
   {/if}
 
   <!-- AI Configuration -->
@@ -196,9 +217,16 @@
 <style>
   /* 基础布局样式 */
   .settings-root {
+    --weave-settings-font-size-title: var(--font-ui-medium, 1rem);
+    --weave-settings-font-size-label: var(--font-ui-small, 0.95rem);
+    --weave-settings-font-size-desc: var(--font-ui-smaller, 0.85rem);
+    --weave-settings-gap-xs: 0.25rem;
+    --weave-settings-gap-sm: 0.35rem;
+    --weave-settings-gap-md: 0.75rem;
+    --weave-settings-gap-lg: 1rem;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: var(--weave-settings-gap-lg);
     overflow-y: auto;
     height: 100%;
     pointer-events: auto;
@@ -211,9 +239,16 @@
     justify-content: space-between;
   }
 
+  .header-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--weave-settings-gap-sm);
+    min-width: 0;
+  }
+
   .title {
     margin: 0;
-    font-size: var(--weave-font-size-lg);
+    font-size: var(--weave-settings-font-size-title);
     font-weight: 700;
     background: var(--anki-gradient-primary);
     background-clip: text;
@@ -222,7 +257,7 @@
   }
 
   .tabs {
-    margin-top: 0.25rem;
+    margin-top: var(--weave-settings-gap-xs);
     position: relative;
     z-index: 0;
   }
@@ -231,7 +266,13 @@
     background: transparent;
     border-radius: 0;
     padding: 0;
-    gap: 0.35rem;
+    gap: var(--weave-settings-gap-sm);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tabs :global(.weave-tabs::-webkit-scrollbar) {
+    display: none;
   }
 
   .tabs :global(.weave-tab) {
@@ -245,6 +286,9 @@
     transition: background-color 0.15s ease, color 0.15s ease !important;
     border-radius: var(--radius-s, 8px);
     padding: 0.45rem 0.85rem;
+    font-size: var(--weave-settings-font-size-label);
+    line-height: 1.35;
+    font-weight: 600;
   }
 
   .tabs :global(.weave-tab:hover:not(.disabled)) {

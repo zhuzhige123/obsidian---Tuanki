@@ -73,6 +73,7 @@ export interface CreateMemoryStudySessionControllerOptions {
 		pendingNextDueAt?: string
 	) => void;
 	onFinishSession: (session: StudySession) => Promise<void> | void;
+	shouldSkipLearningStepsInsertion?: () => boolean;
 }
 
 function ensureCardStats(card: Card): void {
@@ -154,6 +155,10 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 		rating: Rating,
 		prevState: CardState
 	): Promise<void> {
+		if (options.shouldSkipLearningStepsInsertion?.()) {
+			return;
+		}
+
 		const memoryScheduling = options.getLearningConfigForCard(card);
 		const queueInsertionPlan = getSessionQueueInsertionPlan(prevState, rating, memoryScheduling);
 		let shouldInsert = queueInsertionPlan.shouldInsert;

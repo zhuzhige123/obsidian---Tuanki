@@ -10,6 +10,7 @@ import type {
 	GenerationConfig,
 	PromptTemplate,
 } from "../../types/ai-types";
+import type { CardStagingSession } from "../../types/card-staging-types";
 import type { IRCalendarSidebarSettings } from "../../types/plugin-settings.d";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
@@ -104,6 +105,9 @@ export interface AIAssistantLocalPreferences {
 	lastSelectedSourceFilePath?: string;
 	lastSelectedPromptFilePath?: string;
 	lastSelectedParsePresetId?: string;
+	followActiveDocument?: boolean;
+	stagingStudyMode?: "memory" | "exam";
+	previewViewMode?: "preview" | "study";
 }
 
 export interface AIGenerationHistoryEntry {
@@ -181,6 +185,7 @@ const CARD_MANAGEMENT_VIEW_PREFERENCES_KEY = "weave-card-management-view-prefere
 const STUDY_INTERFACE_VIEW_PREFERENCES_KEY = "weave-study-interface-view-preferences";
 const IR_CALENDAR_SIDEBAR_SETTINGS_KEY = "weave-ir-calendar-sidebar-settings";
 const AI_ASSISTANT_PREFERENCES_KEY = "weave-ai-assistant-preferences";
+const CARD_STAGING_SESSION_KEY = "weave-card-staging-session";
 const CREATE_CARD_PREFERENCES_KEY = "weave-create-card-preferences";
 const EDITOR_MODAL_SIZE_STATE_KEY = "weave-editor-modal-size-state";
 const PLUGIN_DATA_RECOVERY_DIR_NAME = "config-recovery";
@@ -513,6 +518,19 @@ export class PluginLocalStateService {
 		);
 	}
 
+	async loadCardStagingSession(): Promise<CardStagingSession | null> {
+		const session = await this.loadManagedJsonEntry<CardStagingSession>(CARD_STAGING_SESSION_KEY);
+		return session ?? null;
+	}
+
+	async saveCardStagingSession(session: CardStagingSession): Promise<void> {
+		await this.saveManagedJsonEntry(CARD_STAGING_SESSION_KEY, session);
+	}
+
+	async clearCardStagingSession(): Promise<void> {
+		await this.setManagedLocalStorageEntry(CARD_STAGING_SESSION_KEY, null);
+	}
+
 	async loadCreateCardPreferences(): Promise<CreateCardPreferencesState | null> {
 		const preferences = await this.loadManagedJsonEntry<unknown>(CREATE_CARD_PREFERENCES_KEY);
 		if (preferences == null) {
@@ -645,6 +663,15 @@ export class PluginLocalStateService {
 		}
 		if (typeof value.lastSelectedParsePresetId === "string") {
 			normalized.lastSelectedParsePresetId = value.lastSelectedParsePresetId;
+		}
+		if (typeof value.followActiveDocument === "boolean") {
+			normalized.followActiveDocument = value.followActiveDocument;
+		}
+		if (value.stagingStudyMode === "memory" || value.stagingStudyMode === "exam") {
+			normalized.stagingStudyMode = value.stagingStudyMode;
+		}
+		if (value.previewViewMode === "preview" || value.previewViewMode === "study") {
+			normalized.previewViewMode = value.previewViewMode;
 		}
 		return normalized;
 	}

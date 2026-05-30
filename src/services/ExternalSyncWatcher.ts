@@ -158,8 +158,13 @@ export class ExternalSyncWatcher {
 			this.plugin.cardFileService.invalidateCache();
 		}
 
-		if ((hasCardChanges || hasDeckChanges) && this.plugin.deckMembershipIndexService) {
-			await this.plugin.deckMembershipIndexService.markFullRebuildRequired();
+		if (hasCardChanges || hasDeckChanges) {
+			if (this.plugin.deckMembershipIndexService) {
+				await this.plugin.deckMembershipIndexService.markFullRebuildRequired();
+			}
+			if (this.plugin.studyDueIndexService) {
+				await this.plugin.studyDueIndexService.markFullRebuildRequired();
+			}
 		}
 
 		// 2. 通过 DataSyncService 通知 UI 刷新

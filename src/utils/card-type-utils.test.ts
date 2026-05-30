@@ -9,7 +9,7 @@ describe('card-type-utils', () => {
   it('maps legacy multiple cards to choice parsing and Anki export types', () => {
     const card = {
       type: 'multiple',
-      content: 'Q: 2 + 2 = ?\n\nA) 3\nB) 4 {✓}\nC) 5'
+      content: 'Q: 2 + 2 = ?（B）\n\nA. 3\nB. 4\nC. 5'
     } as any;
 
     expect(resolveStoredCardType(card)).toBe('multiple');
@@ -30,7 +30,7 @@ describe('card-type-utils', () => {
 
   it('falls back to content detection when both type and YAML are missing', () => {
     const card = {
-      content: '题目\n\nA) 选项一\nB) 选项二 {✓}\nC) 选项三'
+      content: '题目（B）\n\nA. 选项一\nB. 选项二\nC. 选项三'
     } as any;
 
     expect(resolveStoredCardType(card)).toBe('multiple');

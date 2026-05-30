@@ -24,7 +24,6 @@ import type { ObsidianToAnkiOptions } from "../../types/ankiconnect-types";
 import type { ParseTemplate } from "../../types/newCardParsingTypes";
 import { getCardFields } from "../../utils/card-field-helper";
 import { resolveAnkiExportCardType, resolveOfficialTemplateId } from "../../utils/card-type-utils";
-import { extractHintText, stripHintBlock } from "../../utils/hint-block-utils";
 import { extractBodyContent, parseSourceInfo } from "../../utils/yaml-utils";
 import { AnkiConnectClient } from "./AnkiConnectClient";
 import type { IncrementalSyncTracker } from "./IncrementalSyncTracker";
@@ -96,7 +95,7 @@ function normalizeChoiceLabel(label: string): string {
 	return label
 		.trim()
 		.toUpperCase()
-		.replace(/[)\].、．。\s:：]+$/g, "");
+		.replace(/[.．、\s:：]+$/g, "");
 }
 
 function parseChoiceOptionsForExport(optionsText: string): Array<{ label: string; text: string }> {
@@ -107,12 +106,12 @@ function parseChoiceOptionsForExport(optionsText: string): Array<{ label: string
 		.filter(Boolean);
 
 	for (const line of lines) {
-		const match = line.match(/^([A-Z])\s*[).．、）]\s*([\s\S]+)$/i);
+		const match = line.match(/^([A-Z])\s*[.．、]\s*([\s\S]+)$/i);
 		if (!match) {
 			continue;
 		}
 
-		const label = normalizeChoiceLabel(match[1]).replace(/[.)\]．、）：:]+$/g, "");
+		const label = normalizeChoiceLabel(match[1]).replace(/[.．、：:]+$/g, "");
 		const text = match[2].replace(/\{(?:✓|✔|√|correct|\*)\}/gi, "").trim();
 		if (!label || !text) {
 			continue;
@@ -126,7 +125,7 @@ function parseChoiceOptionsForExport(optionsText: string): Array<{ label: string
 
 	if (options.length === 0) {
 		for (const line of lines) {
-			const fallbackMatch = line.match(/^([A-Z])\s*[.)．、）]\s*(.+)$/i);
+			const fallbackMatch = line.match(/^([A-Z])\s*[.．、]\s*(.+)$/i);
 			if (!fallbackMatch) {
 				continue;
 			}
@@ -147,7 +146,7 @@ function parseChoiceOptionsForExport(optionsText: string): Array<{ label: string
 function parseChoiceAnswerLabels(correctAnswersText: string): string[] {
 	return correctAnswersText
 		.split(/[,，;\n]/)
-		.map((entry) => normalizeChoiceLabel(entry).replace(/[.)\]．、）：:]+$/g, ""))
+		.map((entry) => normalizeChoiceLabel(entry).replace(/[.．、：:]+$/g, ""))
 		.map((entry) => entry.match(/[A-Z]/i)?.[0]?.toUpperCase() || entry)
 		.filter(Boolean);
 }
@@ -166,7 +165,7 @@ function buildChoiceAnswerDisplay(optionsText: string, correctAnswersText: strin
 		.split("\n")
 		.map((entry) => entry.trim())
 		.filter(Boolean)) {
-		const fallbackMatch = line.match(/^([A-Z])\s*[.)．、）]\s*(.+)$/i);
+		const fallbackMatch = line.match(/^([A-Z])\s*[.．、]\s*(.+)$/i);
 		if (!fallbackMatch) {
 			continue;
 		}
@@ -179,7 +178,7 @@ function buildChoiceAnswerDisplay(optionsText: string, correctAnswersText: strin
 	const answerLines = answerLabels
 		.map((_label) => {
 			const optionText = optionMap.get(_label) || rawOptionTextByLabel.get(_label);
-			return optionText ? `${_label}) ${optionText}` : `${_label})`;
+			return optionText ? `${_label}. ${optionText}` : _label;
 		})
 		.filter(Boolean);
 
@@ -190,7 +189,7 @@ function buildChoiceOptionsPlainText(optionsText: string): string {
 	const options = parseChoiceOptionsForExport(optionsText);
 	if (options.length > 0) {
 		return options
-			.map((option) => `${option.label}) ${option.text}`)
+			.map((option) => `${option.label}. ${option.text}`)
 			.join("\n")
 			.trim();
 	}
@@ -207,7 +206,7 @@ function extractChoiceOptionsFromBody(content: string): string {
 	return content
 		.split("\n")
 		.map((line) => line.trim())
-		.filter((line) => /^[A-Z]\s*[.)．、）]\s*\S+/i.test(line))
+		.filter((line) => /^[A-Z]\s*[.．、]\s*\S+/i.test(line))
 		.join("\n")
 		.trim();
 }
@@ -228,7 +227,7 @@ function buildChoiceAnswerDisplaySafe(optionsText: string, correctAnswersText: s
 		.split("\n")
 		.map((entry) => entry.trim())
 		.filter(Boolean)) {
-		const match = line.match(/^([A-Z])\s*[.)．、）]\s*(.+)$/i);
+		const match = line.match(/^([A-Z])\s*[.．、]\s*(.+)$/i);
 		if (!match) {
 			continue;
 		}
@@ -242,7 +241,7 @@ function buildChoiceAnswerDisplaySafe(optionsText: string, correctAnswersText: s
 	return answerLabels
 		.map((_label) => {
 			const optionText = optionTextByLabel.get(_label);
-			return optionText ? `${_label}) ${optionText}` : `${_label})`;
+			return optionText ? `${_label}. ${optionText}` : _label;
 		})
 		.join("\n")
 		.trim();
@@ -277,7 +276,7 @@ function escapeRegExp(value: string): string {
 }
 
 function splitCardBodySections(content: string): { main: string; extra: string } {
-	const normalizedBody = stripHintBlock(extractBodyContent(content || "")).trim();
+	const normalizedBody = extractBodyContent(content || "").trim();
 	if (!normalizedBody) {
 		return { main: "", extra: "" };
 	}
@@ -361,7 +360,7 @@ function createCardPreview(card: Card): string {
 		getTrimmedString(parsedFields.text) ||
 		getTrimmedString(parsedFields.back) ||
 		getTrimmedString(parsedFields.answer) ||
-		stripHintBlock(extractBodyContent(card.content || "")).trim();
+		extractBodyContent(card.content || "").trim();
 
 	return (preview || card.uuid).replace(/\s+/g, " ").slice(0, 80);
 }
@@ -499,8 +498,7 @@ export class CardExporter {
 		warnings: SyncItemWarning[]
 	): Record<string, string> {
 		const parsedFields = getCardFields(card);
-		const hintText =
-			extractHintText(card.content || "").trim() || getTrimmedString(card.parsedMetadata?.hint);
+		const hintText = getTrimmedString(card.parsedMetadata?.hint);
 		const { main: primaryBody, extra: secondaryBody } = splitCardBodySections(card.content || "");
 		const effectiveBody = primaryBody || secondaryBody;
 		const rawOptions =
@@ -668,7 +666,7 @@ export class CardExporter {
 		);
 		const ankiFieldNames = Array.from(ankiFieldNameMap.keys());
 		const parsedFields = getCardFields(card);
-		const hintText = extractHintText(card.content || "").trim();
+		const hintText = getTrimmedString(card.parsedMetadata?.hint);
 		const cardType = resolveNativeCardType(card, template.id).toLowerCase();
 		const isChoiceCard =
 			cardType.includes("choice") || cardType === "multiple" || cardType === "single";
@@ -777,7 +775,7 @@ export class CardExporter {
 				if (fallbackHint) {
 					fieldValue = fallbackHint;
 					logger.debug(
-						`  ✓ 字段补充: "hint" ← hintBlock = "${fieldValue.slice(0, 30)}${
+						`  ✓ 字段补充: "hint" ← metadata = "${fieldValue.slice(0, 30)}${
 							fieldValue.length > 30 ? "..." : ""
 						}"`
 					);
@@ -1670,7 +1668,7 @@ export class CardExporter {
 
 		return options
 			.map((_option) => {
-				const label = `${_option.label})`;
+				const label = `${_option.label}.`;
 				return `<div class="choice-option"><span class="choice-option-label">${label}</span><span class="choice-option-text">${_option.text}</span></div>`;
 			})
 			.join("\n");

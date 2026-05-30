@@ -8,12 +8,15 @@ import {
 	resolveDetachedEditorTempFolder,
 } from "./editor-temp-file-policy";
 import { applyStyleProps } from "../../utils/style-props";
+import { shouldHideDocumentPropertiesForVault } from "./document-properties-visibility";
 
 export interface DetachedEditorOptions {
 	value?: string;
 	placeholder?: string;
 	sourcePath?: string;
 	sessionId?: string;
+	/** 为 true 时强制隐藏笔记属性区；默认跟随 Obsidian「笔记内属性」设置 */
+	hideDocumentProperties?: boolean;
 	onSubmit?: (editor: DetachedLeafEditor) => void;
 	onEscape?: (editor: DetachedLeafEditor) => void;
 	onChange?: (editor: DetachedLeafEditor) => void;
@@ -143,47 +146,6 @@ export class DetachedLeafEditor extends Component {
 				}
 			});
 		} catch {}
-	}
-
-	private shouldHidePropertiesInDocument(): boolean {
-		try {
-			const getCfg = (key: string) => {
-				try {
-					return (this.app.vault as any).getConfig?.(key);
-				} catch {
-					return undefined;
-				}
-			};
-
-			const candidates = [
-				getCfg("propertiesInDocument"),
-				getCfg("propertiesInDocumentMode"),
-				getCfg("propertiesInDocumentDisplay"),
-				getCfg("showPropertiesInDocument"),
-				getCfg("propertiesInDocumentEnabled"),
-			].filter((v) => v !== undefined);
-
-			for (const v of candidates) {
-				if (v === false) return true;
-				if (v === true) return false;
-
-				if (typeof v === "number") {
-					if (v === 0) return true;
-					continue;
-				}
-
-				if (typeof v === "string") {
-					const s = v.toLowerCase();
-					if (s === "hidden" || s === "hide" || s === "off" || s === "never") return true;
-					if (s === "source") return true;
-					if (s === "show" || s === "visible" || s === "on" || s === "always") return false;
-				}
-			}
-
-			return false;
-		} catch {
-			return false;
-		}
 	}
 
 	private async initialize() {
@@ -392,10 +354,12 @@ export class DetachedLeafEditor extends Component {
 
 		// 调整样式以适应嵌入
 		applyStyleProps(contentEl, {
-			display: "block",
+			display: "flex",
+			flexDirection: "column",
 			position: "relative",
 			width: "100%",
-			height: "100%",
+			flex: "1",
+			minHeight: "0",
 			padding: "0",
 			margin: "0",
 		});
@@ -462,27 +426,42 @@ export class DetachedLeafEditor extends Component {
 					nodes.forEach((n) => removeElNoSpace(n as HTMLElement));
 				}
 
-				const inlineTitleSelectors = [".inline-title-wrapper", ".inline-title"];
+				const inlineTitleSelectors = [
+					".inline-title-wrapper",
+					".inline-title",
+					".mod-header",
+					".markdown-source-view .mod-header",
+				];
 
 				for (const selector of inlineTitleSelectors) {
 					const nodes = contentEl.querySelectorAll(selector);
 					nodes.forEach((n) => removeElNoSpace(n as HTMLElement));
 				}
 
-				const hideProps = this.shouldHidePropertiesInDocument();
+				const hideProps =
+					this.options.hideDocumentProperties === true
+					|| shouldHideDocumentPropertiesForVault(this.app.vault);
 				const propsSelectors = [
 					".metadata-container",
 					".metadata-properties",
 					".metadata-container-inner",
 					".metadata-properties-heading",
 					".metadata-add-property",
+					".metadata-properties-title",
+					".metadata-property",
 					".markdown-source-view .metadata-container",
 					".markdown-source-view .metadata-properties",
 				];
 
 				for (const selector of propsSelectors) {
 					const nodes = contentEl.querySelectorAll(selector);
-					nodes.forEach((n) => toggleHideNoSpace(n as HTMLElement, hideProps));
+					nodes.forEach((n) => {
+						if (hideProps) {
+							removeElNoSpace(n as HTMLElement);
+						} else {
+							toggleHideNoSpace(n as HTMLElement, false);
+						}
+					});
 				}
 			} catch {}
 		};
@@ -642,12 +621,6 @@ export class DetachedLeafEditor extends Component {
 						try {
 							this.editorView?.editor?.focus();
 						} catch {}
-
-						requestAnimationFrame(() => {
-							try {
-								this.editorView?.editor?.focus();
-							} catch {}
-						});
 					}
 				};
 			}

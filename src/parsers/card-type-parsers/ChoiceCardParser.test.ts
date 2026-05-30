@@ -22,8 +22,8 @@ Working Copy 提供 Git 仓库管理能力。`,
     expect(result.fields).toEqual({
       front: '在 iOS 上用于 Git 仓库管理的应用是哪个？',
       back: 'Working Copy 提供 Git 仓库管理能力。',
-      options: 'A) TestFlight\nB) Working Copy {✓}\nC) Shortcuts\nD) Files',
-      correctAnswers: 'B)'
+      options: 'A. TestFlight\nB. Working Copy\nC. Shortcuts\nD. Files',
+      correctAnswers: 'B'
     });
   });
 
@@ -45,9 +45,9 @@ Answer: A,C
     );
 
     expect(result.success).toBe(true);
-    expect(result.fields.correctAnswers).toBe('A),C)');
-    expect(result.fields.options).toContain('A) 选项一 {✓}');
-    expect(result.fields.options).toContain('C) 选项三 {✓}');
+    expect(result.fields.correctAnswers).toBe('A,C');
+    expect(result.fields.options).toContain('A. 选项一');
+    expect(result.fields.options).toContain('C. 选项三');
     expect(result.fields.back).toBe('因为一和三都满足条件。');
   });
 });

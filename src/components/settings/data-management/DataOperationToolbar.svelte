@@ -97,7 +97,7 @@
 <div class="data-operation-toolbar" class:disabled>
   <!-- 工具栏标题 -->
   <div class="toolbar-header">
-    <h3 class="section-title with-accent-bar accent-green">{t('settings.categories.dataManagement')}</h3>
+    <div class="group-title with-accent-bar accent-green">{t('settings.categories.dataManagement')}</div>
   </div>
 
   <!-- 操作按钮网格 -->
@@ -163,20 +163,21 @@
     border-bottom: 1px solid var(--background-modifier-border);
   }
 
-  .section-title {
+  .group-title {
     margin: 0;
-    font-size: 1.125rem;
+    font-size: var(--weave-settings-font-size-title, 1rem);
     font-weight: 600;
     color: var(--text-normal);
     padding-left: 0.75rem;
+    line-height: 1.4;
   }
 
-  .section-title.with-accent-bar {
+  .group-title.with-accent-bar {
     position: relative;
     padding-left: 0.75rem;
   }
 
-  .section-title.with-accent-bar::before {
+  .group-title.with-accent-bar::before {
     content: '';
     position: absolute;
     left: 0;
@@ -187,7 +188,7 @@
     border-radius: 2px;
   }
 
-  .section-title.accent-green::before {
+  .group-title.accent-green::before {
     background: var(--text-success);
   }
 

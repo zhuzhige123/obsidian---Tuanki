@@ -125,7 +125,7 @@ describe('CardSearchInput', () => {
       const floatingMenu = document.body.querySelector('.floating-menu.card-search-floating-menu');
       expect(floatingMenu).toBeInTheDocument();
       expect(floatingMenu?.parentElement).toBe(document.body);
-      expect(floatingMenu?.querySelector('.search-dropdown')).toBeInTheDocument();
+      expect(floatingMenu?.querySelector('.weave-card-search-dropdown-panel')).toBeInTheDocument();
     });
 
     expect(container.querySelector('.search-dropdown')).not.toBeInTheDocument();

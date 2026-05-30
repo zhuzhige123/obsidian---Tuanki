@@ -129,6 +129,7 @@
       <h4 class="group-title with-accent-bar accent-blue">{t('fsrs.basicParams.title')}</h4>
       <span class="version-badge">v6.1.1</span>
     </div>
+    <p class="group-description">{t('settings.memoryLearning.fsrsShortTermNote')}</p>
     <div class="group-content">
       <BasicParametersPanel
         parameters={{
@@ -231,9 +232,9 @@
 
   .group-description {
     margin: 0 0 1rem 0;
-    font-size: 0.85rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     color: var(--text-muted);
-    line-height: 1.4;
+    line-height: 1.55;
   }
 
   .version-badge {
@@ -307,15 +308,17 @@
 
   .panel-title {
     margin: 0;
-    font-size: 0.95rem;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     font-weight: 600;
     color: var(--text-normal);
+    line-height: 1.4;
   }
 
   .panel-subtitle {
     margin: 0;
-    font-size: 0.8rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     color: var(--text-muted);
+    line-height: 1.55;
   }
 
   /* 面板控制区域 */

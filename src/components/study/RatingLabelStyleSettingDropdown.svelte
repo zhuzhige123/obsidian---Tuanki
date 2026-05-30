@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Menu } from "obsidian";
+  import { addMenuRadioChoices } from "../../utils/obsidian-menu";
   import ObsidianIcon from "../ui/ObsidianIcon.svelte";
   import {
     getRatingLabelStyleLabel,
@@ -28,16 +29,17 @@
     const menu = new Menu();
     menu.setUseNativeMenu?.(false);
 
-    for (const option of styleOptions) {
-      menu.addItem((item) => {
-        item
-          .setTitle(option.label)
-          .setChecked(option.id === normalizedStyle)
-          .onClick(() => {
-            onStyleChange?.(option.id);
-          });
-      });
-    }
+    addMenuRadioChoices(
+      menu,
+      normalizedStyle,
+      styleOptions.map((option) => ({
+        title: option.label,
+        value: option.id,
+      })),
+      (nextStyle) => {
+        onStyleChange?.(nextStyle);
+      }
+    );
 
     menu.showAtMouseEvent(event);
   }

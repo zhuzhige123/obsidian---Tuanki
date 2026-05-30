@@ -39,17 +39,6 @@
   import type { QuestionBankMenuCallbacks } from "../../services/menu/QuestionBankMenuBuilder";
   import { populateQuestionBankMenuSession } from "../../services/menu/question-bank-menu-session";
   import { tr } from "../../utils/i18n";
-  import { calculateMobileEditViewportHeight } from "../../utils/mobile-edit-viewport";
-  import {
-    bindMobileFloatingViewport,
-    getVisualViewportLayout,
-  } from "../../utils/mobile-floating-viewport";
-  import {
-    applyReadingViewportLock,
-    isEditableFocusedWithin,
-    resolveReadingViewportLockTarget,
-    STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS,
-  } from "../../utils/mobile-reading-viewport-lock";
 
   //  移动端视图实例类型
   import type { QuestionBankView } from "../../views/QuestionBankView";
@@ -63,13 +52,34 @@
     config?: import("../../types/question-bank-types").QuestionBankModeConfig;
     resumeBehavior?: QuestionBankResumeBehavior;
     viewInstance?: QuestionBankView; //  视图实例用于移动端回调
+    isStagingSession?: boolean;
+    onStagingQuestionReviewed?: (card: Card) => void;
+    onStagingDiscard?: (cardUuid: string) => void;
+    onStagingSessionComplete?: () => void;
+    onStagingCardEdited?: (card: Card) => void;
     onComplete?: (session: TestSession) => void;
     onExit?: () => void;
   }
 
   const editorSessionId = `weave-question-bank-session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  let { bankId, bankName = "", plugin, questions, mode = 'exam', config, resumeBehavior = 'prompt', viewInstance, onComplete, onExit }: Props = $props();
+  let {
+    bankId,
+    bankName = "",
+    plugin,
+    questions,
+    mode = 'exam',
+    config,
+    resumeBehavior = 'prompt',
+    viewInstance,
+    isStagingSession = false,
+    onStagingQuestionReviewed,
+    onStagingDiscard,
+    onStagingSessionComplete,
+    onStagingCardEdited,
+    onComplete,
+    onExit
+  }: Props = $props();
   let t = $derived($tr);
   $effect(() => {
     if (!bankName) bankName = t('study.questionBankUI.studyInterface.defaultBankName');
@@ -129,8 +139,6 @@
   const isMobile = Platform.isMobile;
   let showMobileStatsBar = $state(true); // 答题情况信息栏是否展开
 
-  let isKeyboardVisible = $state(false);
-  let mobileViewportHeight = $state<number | null>(null);
   let questionBankOverlayEl = $state<HTMLDivElement | null>(null);
   let modalRef = $state<HTMLDivElement | null>(null);
 
@@ -470,6 +478,10 @@
       // 更新当前会话
       currentSession = sessionManager.getCurrentSession();
 
+      if (isStagingSession && currentQuestion?.question) {
+        onStagingQuestionReviewed?.(currentQuestion.question);
+      }
+
       if (isPureExamMode) {
         const isLastQuestion = (currentSession?.currentQuestionIndex ?? 0) >= ((currentSession?.totalQuestions ?? questions.length) - 1);
         if (isLastQuestion) {
@@ -542,6 +554,11 @@
     try {
       const completedSession = await sessionManager.completeSession();
       stopTimer();
+
+      if (isStagingSession) {
+        onStagingSessionComplete?.();
+        return;
+      }
       
       if (onComplete) {
         onComplete(completedSession);
@@ -702,12 +719,40 @@
   }
 
   // 编辑器完成回调
+  function syncEditedQuestionInMemory(updatedCard: Card) {
+    const globalIndex = questions.findIndex((q) => q.uuid === updatedCard.uuid);
+    if (globalIndex !== -1) {
+      questions[globalIndex] = updatedCard;
+      questions = [...questions];
+    }
+
+    if (sessionManager && currentSession) {
+      const questionIndex = currentSession.questions.findIndex(
+        (q) => q.questionId === updatedCard.uuid
+      );
+      if (questionIndex !== -1) {
+        currentSession.questions[questionIndex].question = updatedCard;
+      }
+    }
+
+    if (currentQuestion) {
+      currentQuestion = {
+        ...currentQuestion,
+        question: updatedCard
+      };
+    }
+  }
+
   async function handleEditorComplete(updatedCard: Card) {
     // Notice提示由调用者显示，避免重复
     
     // 四层数据同步，修正时序问题
     
     try {
+      if (isStagingSession) {
+        onStagingCardEdited?.(updatedCard);
+        syncEditedQuestionInMemory(updatedCard);
+      } else {
       // 0. 先保存到数据库
       const saveResult = await saveMemoryCard(plugin, updatedCard, 'update');
       if (!saveResult.success) {
@@ -762,6 +807,7 @@
           question: updatedCard  // 使用最新的卡片数据
         };
       }
+      }
       
     } catch (error) {
       logger.error('[QuestionBankStudyInterface] 保存卡片到数据库失败:', error);
@@ -802,6 +848,27 @@
 
     try {
       const deletedCardId = currentQuestion.question.uuid;
+
+      if (isStagingSession) {
+        onStagingDiscard?.(deletedCardId);
+
+        if (showEditModal) {
+          showEditModal = false;
+          tempFileUnavailable = false;
+          isClozeMode = false;
+        }
+
+        questions = questions.filter((q) => q.uuid !== deletedCardId);
+
+        if (questions.length === 0) {
+          onStagingSessionComplete?.();
+          return;
+        }
+
+        await handleNextQuestion();
+        new Notice(t('study.questionBankUI.studyInterface.cardDeleted'));
+        return;
+      }
       
       // 使用题库专用删除方法（更新Service缓存）
       if (!plugin.questionBankService) {
@@ -854,8 +921,14 @@
   }
 
   // 重要程度功能
-  function handleChangePriority() {
+  function handleChangePriority(priority?: 1 | 2 | 3 | 4) {
     if (!currentQuestion) return;
+
+    if (priority !== undefined) {
+      void confirmChangePriority(priority);
+      return;
+    }
+
     const currentPriority = (currentQuestion.question.priority || 2) as 1 | 2 | 3 | 4;
     selectedPriority = currentPriority;
 
@@ -1321,11 +1394,7 @@
     if (viewInstance && typeof viewInstance.updateEditMode === 'function') {
       viewInstance.updateEditMode(false);
     }
-    document.body.classList.remove(
-      'weave-study-active',
-      'weave-edit-active',
-      STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS
-    );
+    document.body.classList.remove('weave-study-active', 'weave-edit-active');
     stopTimer();
   });
 
@@ -1358,73 +1427,6 @@
 
     return () => {
       document.body.classList.remove('weave-edit-active');
-    };
-  });
-
-  $effect(() => {
-    if (!Platform.isMobile || !showEditModal) {
-      mobileViewportHeight = null;
-      isKeyboardVisible = false;
-      return;
-    }
-
-    let readingLockCleanup: (() => void) | null = null;
-    let unbindViewport: (() => void) | null = null;
-
-    const releaseReadingSurfaceLock = () => {
-      document.body.classList.remove(STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS);
-      readingLockCleanup?.();
-      readingLockCleanup = null;
-    };
-
-    const syncMobileEditViewport = () => {
-      const layout = getVisualViewportLayout();
-      const overlayTop = questionBankOverlayEl?.getBoundingClientRect().top;
-
-      mobileViewportHeight = calculateMobileEditViewportHeight({
-        viewportHeight: layout.height,
-        viewportOffsetTop: layout.offsetTop,
-        overlayTop,
-      });
-
-      isKeyboardVisible = layout.keyboardVisible;
-
-      const shouldLock =
-        layout.keyboardVisible
-        || isEditableFocusedWithin(questionBankOverlayEl);
-
-      document.body.classList.toggle(STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS, shouldLock);
-
-      const lockTarget = resolveReadingViewportLockTarget(questionBankOverlayEl);
-      if (shouldLock && lockTarget) {
-        if (!readingLockCleanup) {
-          readingLockCleanup = applyReadingViewportLock(lockTarget);
-        }
-        return;
-      }
-
-      releaseReadingSurfaceLock();
-    };
-
-    syncMobileEditViewport();
-    unbindViewport = bindMobileFloatingViewport(syncMobileEditViewport);
-
-    const handleFocusIn = (event: FocusEvent) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement) || !questionBankOverlayEl?.contains(target)) {
-        return;
-      }
-      syncMobileEditViewport();
-    };
-
-    document.addEventListener('focusin', handleFocusIn, true);
-
-    return () => {
-      unbindViewport?.();
-      document.removeEventListener('focusin', handleFocusIn, true);
-      releaseReadingSurfaceLock();
-      mobileViewportHeight = null;
-      isKeyboardVisible = false;
     };
   });
 
@@ -1490,10 +1492,6 @@
   bind:this={questionBankOverlayEl}
   class:edit-active={showEditModal}
   class:mobile-edit-mode={Platform.isMobile && showEditModal}
-  class:keyboard-visible={isKeyboardVisible}
-  style={Platform.isMobile && showEditModal
-    ? `${mobileViewportHeight ? `--weave-viewport-height: ${mobileViewportHeight}px;` : ''}`
-    : ''}
 >
   <div class="question-bank-study-interface-content" bind:this={modalRef}>
     {#if isLoading}
@@ -2743,7 +2741,6 @@
   }
 
   :global(body.is-mobile) .question-bank-study-interface-overlay {
-    /* 与记忆学习界面一致：通过容器底部避让 Obsidian 底栏 */
     position: absolute;
     top: 0;
     left: 0;
@@ -2755,11 +2752,20 @@
     width: 100%;
     height: auto;
     padding: 0;
-    /* 移除背景遮罩，避免覆盖 Obsidian UI */
     background: transparent;
     backdrop-filter: none;
     z-index: 1;
     overflow: hidden;
+  }
+
+  :global(body.is-mobile.weave-edit-active) .question-bank-study-interface-overlay,
+  :global(body.is-phone.weave-edit-active) .question-bank-study-interface-overlay {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 100%;
+    max-height: none;
   }
 
   :global(body.is-mobile) .question-bank-study-interface-content {

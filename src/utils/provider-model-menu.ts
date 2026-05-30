@@ -1,4 +1,5 @@
 import { Menu, Platform } from "obsidian";
+import { getMenuSubmenu } from "./obsidian-menu";
 import type { AIProvider } from "../types/ai-types";
 import {
 	AI_MODEL_OPTIONS,
@@ -189,7 +190,7 @@ function populateNestedProviderModelMenu(
 				.setTitle(AI_PROVIDER_LABELS[provider])
 				.setIcon((selection.provider || preferredProvider) === provider ? "check" : "");
 
-			const submenu = (item as { setSubmenu: () => Menu }).setSubmenu();
+			const submenu = getMenuSubmenu(item);
 			const configuredModel = apiKeys[provider]?.model?.trim();
 			const staticModelIds = models.map((model) => model.id);
 

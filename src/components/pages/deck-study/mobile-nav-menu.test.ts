@@ -40,11 +40,9 @@ describe('showDeckStudyMobileNavMenu', () => {
     return {
       evt: new MouseEvent('click', { clientX: 40, clientY: 60 }),
       selectedFilter: 'memory',
-      currentView: 'grid' as const,
       memoryDeckDisplayMode: 'formal' as const,
       tr: (key: string) => key,
       getCreateEntryTitle: () => '创建记忆牌组',
-      showViewSwitcher: vi.fn(),
       handleCreateDeckForCurrentFilter: vi.fn(),
       setMemoryDeckDisplayMode: vi.fn(),
       showEmergentRuleGroupMenu: vi.fn(),

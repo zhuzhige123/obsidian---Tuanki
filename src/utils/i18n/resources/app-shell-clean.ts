@@ -553,6 +553,7 @@ const zhBase: TranslationKey = {
 		aiAssistant: {
 			toolsMenu: '制卡工具',
 			fileList: '文件列表',
+			pickFile: '选择文件',
 			history: '历史记录',
 			noHistory: '暂无生成记录',
 			recentHistory: '最近 {count} 次生成记录',
@@ -895,6 +896,7 @@ const enBase: TranslationKey = {
 		aiAssistant: {
 			toolsMenu: 'Card Tools',
 			fileList: 'File List',
+			pickFile: 'Pick file',
 			history: 'History',
 			noHistory: 'No generation history yet',
 			recentHistory: 'Recent {count} generations',

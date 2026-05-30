@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte';
-  import { Notice, Platform } from 'obsidian';
+  import { untrack } from 'svelte';
+  import { Notice, Menu } from 'obsidian';
   import { logger } from '../../utils/logger';
 
   import type { WeavePlugin } from '../../main';
@@ -17,6 +17,7 @@
   import PreviewContainer from '../preview/PreviewContainer.svelte';
   import { CardConverter } from '../../services/ai/CardConverter';
   import { tr } from '../../utils/i18n';
+  import type { CardStagingStudyMode } from '../../types/card-staging-types';
 
   interface Props {
     plugin: WeavePlugin;
@@ -27,6 +28,8 @@
     totalCards?: number;
     mode?: 'test' | 'split';
     variant?: 'generate' | 'parse';
+    canStartStaging?: boolean;
+    onStartStaging?: (mode: CardStagingStudyMode) => void;
     emptyTitle?: string;
     emptyDescription?: string;
     busyTitle?: string;
@@ -59,6 +62,8 @@
     previewSubtitle = '',
     showCurrentIndexLabel = false,
     navigationHint,
+    canStartStaging = false,
+    onStartStaging,
     onImport
   }: Props = $props();
 
@@ -69,8 +74,6 @@
   let isImporting = $state(false);
   let availableDecks = $state<Array<{ id: string; name: string }>>([]);
   let selectedDeckId = $state('');
-  let committedImportTags = $state<string[]>([]);
-  let importAutoTagsText = $state('');
   let previewCard = $state<Card | null>(null);
   let showPreviewAnswer = $state(true);
   let lastImportSummary = $state<AIPreviewImportResult | null>(null);
@@ -80,8 +83,6 @@
   let thumbnailLongPressTimer: number | null = null;
   let suppressThumbnailClick = false;
   let pressedThumbnailId = $state<string | null>(null);
-  let showImportTagEditor = $state(false);
-  let importTagInputEl = $state<HTMLInputElement | null>(null);
 
   let currentCard = $derived(items[currentIndex]?.generatedCard ?? null);
   let selectedCount = $derived(selectedCardIds.size);
@@ -120,7 +121,6 @@
         : t('aiAssistant.previewWorkspace.emptyGeneratingDescription')
     )
   );
-  let importAutoTags = $derived.by(() => normalizeTagList(committedImportTags));
   let importSummaryText = $derived.by(() => {
     if (!lastImportSummary || lastImportSummary.importedCount <= 0) return '';
     const deckName = lastImportSummary.targetDeckName || t('aiAssistant.previewWorkspace.defaultTargetDeck');
@@ -133,74 +133,6 @@
       failedPart
     });
   });
-
-  function normalizeTagList(tags: string[] | undefined): string[] {
-    return Array.from(new Set((tags ?? []).map((tag) => String(tag || '').trim().replace(/^#+/, '')).filter(Boolean)));
-  }
-
-  function normalizeTagListFromText(value: string): string[] {
-    return normalizeTagList(value.split(/[\n,，]/).map((item) => item.trim()));
-  }
-
-  async function persistImportAutoTags(nextTags: string[]): Promise<void> {
-    await plugin.saveAIAssistantPreferences({
-      ...plugin.getAIAssistantPreferences(),
-      importAutoTags: nextTags
-    });
-  }
-
-  async function setCommittedImportTags(nextTags: string[]): Promise<void> {
-    const normalized = normalizeTagList(nextTags);
-    committedImportTags = normalized;
-    await persistImportAutoTags(normalized);
-  }
-
-  async function commitDraftImportTags(): Promise<string[]> {
-    const draftTags = normalizeTagListFromText(importAutoTagsText);
-    const nextTags = normalizeTagList([...(committedImportTags ?? []), ...draftTags]);
-
-    if (draftTags.length > 0 || nextTags.length !== committedImportTags.length) {
-      await setCommittedImportTags(nextTags);
-    }
-
-    importAutoTagsText = '';
-    return nextTags;
-  }
-
-  async function removeCommittedImportTag(tagToRemove: string): Promise<void> {
-    await setCommittedImportTags(committedImportTags.filter((tag) => tag !== tagToRemove));
-  }
-
-  async function toggleImportTagEditor(): Promise<void> {
-    showImportTagEditor = !showImportTagEditor;
-    if (showImportTagEditor) {
-      await tick();
-      importTagInputEl?.focus();
-    }
-  }
-
-  function closeImportTagEditor(): void {
-    showImportTagEditor = false;
-  }
-
-  async function handleImportTagKeydown(event: KeyboardEvent): Promise<void> {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeImportTagEditor();
-      return;
-    }
-
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      await commitDraftImportTags();
-      return;
-    }
-
-    if (event.key === 'Backspace' && !importAutoTagsText.trim() && committedImportTags.length > 0) {
-      event.preventDefault();
-      await removeCommittedImportTag(committedImportTags[committedImportTags.length - 1]);
-    }
-  }
 
   function dispatchSelectionState() {
     if (typeof window === 'undefined') return;
@@ -278,18 +210,6 @@
     mode;
     config.targetDeck;
     void loadDecks();
-  });
-
-  $effect(() => {
-    if (!showImportControls || !onImport) {
-      committedImportTags = [];
-      importAutoTagsText = '';
-      return;
-    }
-
-    const savedTags = plugin.getAIAssistantPreferences().importAutoTags;
-    committedImportTags = normalizeTagList(savedTags);
-    importAutoTagsText = '';
   });
 
   $effect(() => {
@@ -425,6 +345,30 @@
     }
   }
 
+  function openStudyModeMenu(event: MouseEvent) {
+    if (!canStartStaging || !onStartStaging) return;
+
+    const target = event.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const menu = new Menu();
+
+    menu.addItem((item) => {
+      item
+        .setTitle(t('aiAssistant.staging.modeMemory'))
+        .setIcon('brain')
+        .onClick(() => onStartStaging('memory'));
+    });
+
+    menu.addItem((item) => {
+      item
+        .setTitle(t('aiAssistant.staging.modeExam'))
+        .setIcon('clipboard-list')
+        .onClick(() => onStartStaging('exam'));
+    });
+
+    menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
+  }
+
   async function handleImportCards() {
     if (!showImportControls || !onImport) return;
 
@@ -440,16 +384,12 @@
 
     try {
       isImporting = true;
-      closeImportTagEditor();
       const selectedItems = items.filter((item) => selectedCardIds.has(item.id));
-      const finalAutoTags = importAutoTagsText.trim()
-        ? await commitDraftImportTags()
-        : [...committedImportTags];
       const result = await onImport(
         selectedItems,
         {
           targetDeckId: selectedDeckId,
-          autoTags: finalAutoTags
+          autoTags: []
         }
       );
 
@@ -487,6 +427,8 @@
     <div class="preview-main-content">
       {#if currentCard}
         <div class="card-display">
+          <div class="preview-dashed-divider" role="presentation"></div>
+
           {#if previewTitle || previewSubtitle || showCurrentIndexLabel}
             <div class="preview-context-header">
               <div class="preview-context-copy">
@@ -502,14 +444,6 @@
               {/if}
             </div>
           {/if}
-
-          <div class="card-meta">
-            <div class="card-meta-left">
-              {#if currentCard.metadata.difficulty}
-                <span class="difficulty-badge">{currentCard.metadata.difficulty}</span>
-              {/if}
-            </div>
-          </div>
 
           {#if previewCard}
             <div class="card-preview-wrapper">
@@ -607,51 +541,6 @@
               <span>{importSummaryText}</span>
             </div>
           {/if}
-          {#if showImportTagEditor}
-            <div class="import-tags-popover" role="dialog" aria-label={t('aiAssistant.previewWorkspace.autoTags')}>
-              <div class="import-tags-editor" class:is-empty={committedImportTags.length === 0 && !importAutoTagsText.trim()}>
-                {#each committedImportTags as tag (tag)}
-                  <span class="import-tag-chip">
-                    <span class="import-tag-chip-text">{tag}</span>
-                    <button
-                      type="button"
-                      class="import-tag-chip-remove"
-                      aria-label={t('aiAssistant.previewWorkspace.removeTag', { tag })}
-                      disabled={isImporting}
-                      onclick={() => {
-                        void removeCommittedImportTag(tag);
-                      }}
-                    >
-                      <ObsidianIcon name="x" size={12} />
-                    </button>
-                  </span>
-                {/each}
-
-                <input
-                  bind:this={importTagInputEl}
-                  type="text"
-                  class="import-tags-input"
-                  value={importAutoTagsText}
-                  placeholder={committedImportTags.length > 0
-                    ? t('aiAssistant.previewWorkspace.tagPlaceholderContinue')
-                    : t('aiAssistant.previewWorkspace.tagPlaceholderFirst')}
-                  aria-label={t('aiAssistant.previewWorkspace.autoTags')}
-                  disabled={isImporting}
-                  oninput={(event) => {
-                    importAutoTagsText = (event.currentTarget as HTMLInputElement).value;
-                  }}
-                  onkeydown={(event) => {
-                    void handleImportTagKeydown(event);
-                  }}
-                  onblur={() => {
-                    if (importAutoTagsText.trim()) {
-                      void commitDraftImportTags();
-                    }
-                  }}
-                />
-              </div>
-            </div>
-          {/if}
 
           <div class="preview-actions-row">
             <div class="deck-selector compact">
@@ -673,25 +562,11 @@
 
             <button
               type="button"
-              class="import-tags-toggle-btn"
-              class:active={showImportTagEditor || committedImportTags.length > 0}
-              aria-expanded={showImportTagEditor}
-              aria-label={t('aiAssistant.previewWorkspace.autoTags')}
-              disabled={isImporting}
-              onclick={() => {
-                void toggleImportTagEditor();
-              }}
+              class="study-now-btn compact"
+              disabled={!canStartStaging}
+              onclick={openStudyModeMenu}
             >
-              <ObsidianIcon name="tag" size={16} />
-              <span class="import-tags-toggle-label">
-                {#if committedImportTags.length > 0}
-                  {committedImportTags.length}
-                {:else if Platform.isMobile}
-                  {t('aiAssistant.previewWorkspace.autoTagsShort')}
-                {:else}
-                  {t('aiAssistant.previewWorkspace.autoTags')}
-                {/if}
-              </span>
+              {t('aiAssistant.staging.studyNow')}
             </button>
 
             <button
@@ -700,10 +575,9 @@
               onclick={handleImportCards}
               disabled={selectedCount === 0 || isImporting || !selectedDeckId || !onImport}
             >
-              <ObsidianIcon name="download" size={16} />
-              <span>{isImporting
+              {isImporting
                 ? t('aiAssistant.previewWorkspace.importing')
-                : t('aiAssistant.previewWorkspace.importButton', { count: selectedCount })}</span>
+                : t('aiAssistant.previewWorkspace.importButton', { count: selectedCount })}
             </button>
           </div>
         </div>
@@ -740,6 +614,13 @@
     margin-bottom: 16px;
   }
 
+  .preview-dashed-divider {
+    height: 0;
+    margin: 0 -20px 14px;
+    border: none;
+    border-top: 1px dashed color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+  }
+
   .preview-context-header {
     display: flex;
     align-items: flex-start;
@@ -771,31 +652,6 @@
     margin-top: 0;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
-  }
-
-  .card-meta {
-    display: flex;
-    align-items: center;
-    margin-bottom: 12px;
-    gap: 12px;
-  }
-
-  .card-meta-left {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .difficulty-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1;
-    background: rgba(255, 166, 77, 0.1);
-    color: #ff922b;
   }
 
   .card-preview-wrapper {
@@ -1056,10 +912,6 @@
     flex-wrap: nowrap;
   }
 
-  .import-tags-popover {
-    margin-bottom: 8px;
-  }
-
   .deck-selector {
     display: flex;
     align-items: center;
@@ -1113,130 +965,6 @@
     cursor: not-allowed;
   }
 
-  .import-tags-toggle-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    flex: 0 0 auto;
-    min-height: 36px;
-    padding: 0 12px;
-    border-radius: 8px;
-    border: 1px solid var(--background-modifier-border);
-    background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
-    color: var(--text-muted);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-
-  .import-tags-toggle-btn:hover:not(:disabled) {
-    color: var(--text-normal);
-    border-color: var(--background-modifier-border-hover);
-  }
-
-  .import-tags-toggle-btn.active {
-    color: var(--text-accent);
-    border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
-    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-secondary));
-  }
-
-  .import-tags-toggle-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .import-tags-toggle-label {
-    max-width: 4.5rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .import-tags-editor {
-    width: 100%;
-    min-height: 32px;
-    max-height: 72px;
-    overflow-y: auto;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    padding: 4px 8px;
-    border-radius: 8px;
-    border: 1px solid var(--background-modifier-border);
-    background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
-    box-shadow: none;
-  }
-
-  .import-tags-editor:focus-within {
-    border-color: var(--interactive-accent);
-  }
-
-  .import-tag-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    max-width: 100%;
-    min-height: 22px;
-    padding: 0 8px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-secondary));
-    color: var(--text-normal);
-    font-size: 12px;
-    line-height: 1;
-  }
-
-  .import-tag-chip-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .import-tag-chip-remove {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    border-radius: 999px;
-  }
-
-  .import-tag-chip-remove:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .import-tags-input {
-    flex: 1 1 72px;
-    width: auto;
-    min-width: 72px;
-    min-height: 22px;
-    padding: 0;
-    border-radius: 0;
-    border: none;
-    background: transparent;
-    color: var(--text-normal);
-    font-size: 12px;
-    box-shadow: none;
-  }
-
-  .import-tags-input:focus {
-    outline: none;
-    box-shadow: none;
-  }
-
-  .import-tags-input:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
   .import-btn {
     display: flex;
     align-items: center;
@@ -1261,6 +989,28 @@
     width: auto;
     min-width: 92px;
     flex: 0 0 auto;
+  }
+
+  .study-now-btn.compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+    color: var(--text-normal);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+
+  .study-now-btn.compact:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .import-btn:hover:not(:disabled) {
@@ -1404,34 +1154,13 @@
       flex-wrap: nowrap;
     }
 
-    .import-tags-popover {
-      margin-bottom: 6px;
-    }
-
-    .import-tags-editor {
-      min-height: 32px;
-      max-height: 64px;
-      padding: 4px 8px;
-      border-radius: 10px;
-    }
-
-    .import-tags-input {
-      min-height: 22px;
-      font-size: 13px;
-    }
-
-    .import-tags-toggle-btn {
-      min-height: 40px;
-      padding: 0 10px;
-      border-radius: 12px;
-    }
-
-    .import-tags-toggle-label {
-      max-width: 3rem;
-    }
-
     .card-display {
       margin-bottom: 8px;
+    }
+
+    .preview-dashed-divider {
+      margin-inline: -10px;
+      margin-bottom: 10px;
     }
 
     .preview-context-header {
@@ -1442,15 +1171,6 @@
 
     .preview-context-title {
       font-size: 18px;
-    }
-
-    .card-meta {
-      margin-bottom: 8px;
-    }
-
-    .difficulty-badge {
-      padding: 5px 11px;
-      font-size: 11px;
     }
 
     :global(.deck-selector.compact .obsidian-dropdown-trigger.target-deck-select) {

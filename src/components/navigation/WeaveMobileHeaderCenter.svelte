@@ -118,7 +118,7 @@
     justify-content: center;
     min-width: 0;
     max-width: 100%;
-    pointer-events: auto;
+    pointer-events: none;
   }
 
   .weave-mobile-header-center.is-visible {
@@ -128,6 +128,12 @@
   .weave-mobile-header-center :global(.category-filter),
   .weave-mobile-header-center :global(.view-switcher) {
     margin-bottom: 0;
+  }
+
+  .weave-mobile-header-center :global(.category-dot),
+  .weave-mobile-header-center :global(.view-dot),
+  .weave-mobile-header-center :global(.ai-dot) {
+    pointer-events: auto;
   }
 
   /* AI助手圆点样式 */

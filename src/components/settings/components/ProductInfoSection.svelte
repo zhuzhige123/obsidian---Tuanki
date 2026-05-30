@@ -2,7 +2,6 @@
   import { Notice } from 'obsidian';
   import { PRODUCT_INFO, getAcknowledgments } from '../constants/settings-constants';
   import { ACTIVATION_HELP_TEXT } from '../constants/activation-constants';
-  import ActivationModal from './ActivationModal.svelte';
   import { CoffeeSupportModal } from './CoffeeSupportModal';
   import coffeeSupportQrImage from '../../../icons/coffee-support-qr.png';
   import { tr } from '../../../utils/i18n';
@@ -11,10 +10,9 @@
   interface Props {
     compact?: boolean;
     plugin?: any;
-    onSave?: () => Promise<void>;
   }
 
-  let { compact = false, plugin, onSave }: Props = $props();
+  let { compact = false, plugin }: Props = $props();
 
   let t = $derived($tr);
 
@@ -61,10 +59,6 @@
     {
       label: t('about.product.developer'),
       value: t('about.product.developerValue')
-    },
-    {
-      label: t('about.product.licenseMode'),
-      value: t('about.product.licenseModeValue')
     }
   ]);
 </script>
@@ -97,6 +91,24 @@
     </div>
   </div>
 
+  <div class="settings-group acknowledgments-section">
+    <h3 class="group-title with-accent-bar accent-purple acknowledgments-title">{t('about.acknowledgments.title')}</h3>
+    <div class="acknowledgments-grid">
+      {#each acknowledgments as item}
+        <a
+          href={item.url}
+          target={item.url ? '_blank' : undefined}
+          rel={item.url ? 'noopener noreferrer' : undefined}
+          class="acknowledgment-card"
+          title={item.description}
+        >
+          <div class="ack-name">{item.name}</div>
+          <div class="ack-description">{item.description}</div>
+        </a>
+      {/each}
+    </div>
+  </div>
+
   <div class="quick-links">
     <a
       href="https://iwi05cktlph.feishu.cn/wiki/space/7602663447460891839?ccm_open_type=lark_wiki_spaceLink&open_tab_from=wiki_home"
@@ -125,27 +137,6 @@
     </button>
   </div>
 
-  <div class="settings-group acknowledgments-section">
-    <h3 class="group-title with-accent-bar accent-purple section-title">{t('about.acknowledgments.title')}</h3>
-    <div class="acknowledgments-grid">
-      {#each acknowledgments as item}
-        <a
-          href={item.url}
-          target={item.url ? '_blank' : undefined}
-          rel={item.url ? 'noopener noreferrer' : undefined}
-          class="acknowledgment-card"
-          title={item.description}
-        >
-          <div class="ack-name">{item.name}</div>
-          <div class="ack-description">{item.description}</div>
-        </a>
-      {/each}
-    </div>
-  </div>
-
-  {#if plugin && onSave}
-    <ActivationModal {plugin} {onSave} />
-  {/if}
 </div>
 
 <style>
@@ -269,7 +260,7 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 0.75rem;
-    margin: 0;
+    margin: 0.25rem 0 0;
     padding: 0 0.25rem;
     width: 100%;
   }
@@ -322,7 +313,7 @@
     margin: 0;
   }
 
-  .section-title {
+  .acknowledgments-title {
     margin: 0 0 0.4rem 0;
     text-align: left;
   }

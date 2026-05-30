@@ -6,6 +6,7 @@ import {
 import { applyStyleProps } from "./style-props";
 
 export const READING_VIEWPORT_LOCK_CLASS = "weave-reading-viewport-locked";
+/** @deprecated 仅 EPUB/阅读器浮窗编辑使用，勿用于记忆学习内联编辑 */
 export const STUDY_EDIT_KEYBOARD_ACTIVE_BODY_CLASS = "weave-study-edit-keyboard-active";
 
 const STUDY_VIEW_DATA_TYPES = ["weave-study-view", "weave-question-bank-view"] as const;

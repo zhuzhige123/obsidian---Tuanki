@@ -11,8 +11,6 @@ import {
 interface DeckStudyMenuCoordinatorOptions {
   getPlugin: () => WeavePlugin;
   getDeckCount: () => number;
-  getCurrentView: () => "grid" | "kanban";
-  setCurrentView: (view: "grid" | "kanban") => void;
   getSelectedFilter: () => string;
   setSelectedFilter: (filter: "memory" | "question-bank") => void;
   getMemoryDeckDisplayMode: () => "formal" | "emergent";
@@ -35,7 +33,6 @@ interface DeckStudyMenuCoordinatorOptions {
 export interface DeckStudyMenuCoordinator {
   normalizeDeckFilter: (filter: string) => "memory" | "question-bank";
   handleFilterSelect: (filter: string) => void;
-  showViewSwitcher: (event: MouseEvent) => void;
   showMoreActionsMenu: (event: MouseEvent) => void;
   getCreateEntryTitle: () => string;
   handleCreateDeckForCurrentFilter: () => Promise<void>;
@@ -81,48 +78,6 @@ export function createDeckStudyMenuCoordinator(
     vaultStorage.setItem("weave-deck-mode-filter", normalizedFilter);
     logger.debug("[DeckStudyPage] 切换模式筛选器:", normalizedFilter);
     dispatchDeckFilterChange(normalizedFilter);
-  }
-
-  function showViewSwitcher(event: MouseEvent): void {
-    const menu = new Menu();
-    const currentView = options.getCurrentView();
-    const views = [
-      { id: "grid", label: options.tr("deckStudyPage.views.grid"), icon: "grid", featureId: null },
-      {
-        id: "kanban",
-        label: options.getPremiumEntryTitle(
-          options.tr("deckStudyPage.views.kanban"),
-          PREMIUM_FEATURES.KANBAN_VIEW
-        ),
-        icon: "columns",
-        featureId: PREMIUM_FEATURES.KANBAN_VIEW,
-      },
-    ] as const;
-
-    views.forEach((view) => {
-      menu.addItem((item) => {
-        item
-          .setTitle(view.label)
-          .setIcon(view.icon)
-          .setChecked(currentView === view.id)
-          .onClick(async () => {
-            if (view.featureId && options.isFeatureRestricted(view.featureId)) {
-              options.promptPremiumFeature(view.featureId);
-              return;
-            }
-
-            options.setCurrentView(view.id);
-            try {
-              await options.getPlugin().saveDeckViewPreference(view.id);
-            } catch (error) {
-              logger.warn("保存视图偏好失败:", error);
-            }
-            window.dispatchEvent(new CustomEvent("Weave:deck-view-change", { detail: view.id }));
-          });
-      });
-    });
-
-    menu.showAtMouseEvent(event);
   }
 
   function showMoreActionsMenu(event: MouseEvent): void {
@@ -185,11 +140,9 @@ export function createDeckStudyMenuCoordinator(
     return {
       evt,
       selectedFilter: options.getSelectedFilter(),
-      currentView: options.getCurrentView(),
       memoryDeckDisplayMode: options.getMemoryDeckDisplayMode(),
       tr: options.tr,
       getCreateEntryTitle,
-      showViewSwitcher,
       handleCreateDeckForCurrentFilter,
       setMemoryDeckDisplayMode: options.setMemoryDeckDisplayMode,
       showEmergentRuleGroupMenu: () => {
@@ -219,7 +172,6 @@ export function createDeckStudyMenuCoordinator(
   return {
     normalizeDeckFilter,
     handleFilterSelect,
-    showViewSwitcher,
     showMoreActionsMenu,
     getCreateEntryTitle,
     handleCreateDeckForCurrentFilter,

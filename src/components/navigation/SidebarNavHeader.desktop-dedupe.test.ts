@@ -55,10 +55,6 @@ const translationMap = vi.hoisted(() => ({
   'cardManagement.density.spacious': '宽松'
 }));
 const mockPremiumGuard = vi.hoisted(() => {
-  const isDeckStudyLimitedTimeFeature = (featureId: string, context?: { page?: string }) => {
-    return context?.page === 'deck-study' && (featureId === 'kanban-view' || featureId === 'emergent-decks');
-  };
-
   const createStore = <T, K extends 'isPremium' | 'showPreview'>(key: K) => ({
     subscribe: vi.fn((callback: (value: T) => void) => {
       callback(premiumMockState[key] as T);
@@ -68,11 +64,7 @@ const mockPremiumGuard = vi.hoisted(() => {
     update: vi.fn()
   });
 
-  const canUseFeature = vi.fn((featureId: string, context?: { page?: string }) => {
-    if (isDeckStudyLimitedTimeFeature(featureId, context)) {
-      return true;
-    }
-
+  const canUseFeature = vi.fn((featureId: string) => {
     if (!premiumFeatureIds.has(featureId)) {
       return true;
     }
@@ -82,34 +74,22 @@ const mockPremiumGuard = vi.hoisted(() => {
 
   return {
     canUseFeature,
-    isFeatureRestricted: vi.fn((featureId: string, context?: { page?: string }) => {
-      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
-        return false;
-      }
-
+    isFeatureRestricted: vi.fn((featureId: string) => {
       if (!premiumFeatureIds.has(featureId)) {
         return false;
       }
 
-      return !canUseFeature(featureId, context);
+      return !canUseFeature(featureId);
     }),
-    shouldShowFeatureEntry: vi.fn((featureId: string, _options?: unknown, context?: { page?: string }) => {
-      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
-        return true;
-      }
-
+    shouldShowFeatureEntry: vi.fn((featureId: string) => {
       if (!premiumFeatureIds.has(featureId)) {
         return true;
       }
 
       return premiumMockState.isPremium || premiumMockState.showPreview;
     }),
-    getFeatureEntryTitle: vi.fn((baseTitle: string, featureId: string, context?: { page?: string }) => {
-      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
-        return `${baseTitle} (限时开放)`;
-      }
-
-      return canUseFeature(featureId, context) ? baseTitle : `${baseTitle} (高级)`;
+    getFeatureEntryTitle: vi.fn((baseTitle: string, featureId: string) => {
+      return canUseFeature(featureId) ? baseTitle : `${baseTitle} (高级)`;
     }),
     isPremiumActive: createStore<boolean, 'isPremium'>('isPremium'),
     premiumFeaturesPreviewEnabled: createStore<boolean, 'showPreview'>('showPreview'),
@@ -247,6 +227,7 @@ describe('SidebarNavHeader desktop menu dedupe', () => {
   });
 
   it('shows the emergent filter button in memory deck study and dispatches its toolbar action', async () => {
+    premiumMockState.isPremium = true;
     const toolbarListener = vi.fn();
     window.addEventListener('Weave:deck-study-toolbar-action', toolbarListener);
 
@@ -258,7 +239,7 @@ describe('SidebarNavHeader desktop menu dedupe', () => {
       }
     });
 
-    const toggleButton = getByLabelText('切换到涌现牌组 (限时开放)');
+    const toggleButton = getByLabelText('切换到涌现牌组');
     await fireEvent.click(toggleButton);
 
     const button = getByLabelText('涌现筛选');
@@ -274,6 +255,7 @@ describe('SidebarNavHeader desktop menu dedupe', () => {
   });
 
   it('shows the memory deck display toggle button and dispatches display mode change action', async () => {
+    premiumMockState.isPremium = true;
     const toolbarListener = vi.fn();
     window.addEventListener('Weave:deck-study-toolbar-action', toolbarListener);
 
@@ -285,7 +267,7 @@ describe('SidebarNavHeader desktop menu dedupe', () => {
       }
     });
 
-    const toggleButton = getByLabelText('切换到涌现牌组 (限时开放)');
+    const toggleButton = getByLabelText('切换到涌现牌组');
     await fireEvent.click(toggleButton);
 
     expect(toolbarListener).toHaveBeenCalledTimes(1);
@@ -296,7 +278,8 @@ describe('SidebarNavHeader desktop menu dedupe', () => {
     window.removeEventListener('Weave:deck-study-toolbar-action', toolbarListener);
   });
 
-  it('shows deck-study kanban settings button during limited-time open access', () => {
+  it('shows deck-study kanban settings button when kanban premium access is active', () => {
+    premiumMockState.isPremium = true;
     const { getByLabelText } = render(SidebarNavHeader, {
       props: {
         currentPage: 'deck-study',

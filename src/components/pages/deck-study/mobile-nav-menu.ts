@@ -1,14 +1,13 @@
 import { Menu } from "obsidian";
+import { addMenuToggle } from "../../../utils/obsidian-menu";
 import { PREMIUM_FEATURES } from "../../../services/premium/PremiumFeatureGuard";
 
 export interface DeckStudyMobileNavMenuOptions {
   evt?: MouseEvent;
   selectedFilter: string;
-  currentView: "grid" | "kanban";
   memoryDeckDisplayMode: "formal" | "emergent";
   tr: (key: string, vars?: Record<string, string>) => string;
   getCreateEntryTitle: () => string;
-  showViewSwitcher: (evt: MouseEvent) => void;
   handleCreateDeckForCurrentFilter: () => Promise<void>;
   setMemoryDeckDisplayMode: (mode: "formal" | "emergent") => void;
   showEmergentRuleGroupMenu: () => void;
@@ -64,24 +63,6 @@ export function populateDeckStudyMobileNavMenu(
 
   menu.addItem((item) => {
     item
-      .setTitle(options.tr("navigation.switchView"))
-      .setIcon("layout-grid")
-      .onClick((evt) => {
-        const viewEvent =
-          evt instanceof MouseEvent
-            ? evt
-            : options.evt ??
-              new MouseEvent("click", {
-                bubbles: true,
-                clientX: Math.round(window.innerWidth / 2),
-                clientY: Math.max(96, Math.round(window.innerHeight / 2)),
-              });
-        options.showViewSwitcher(viewEvent);
-      });
-  });
-
-  menu.addItem((item) => {
-    item
       .setTitle(options.getCreateEntryTitle())
       .setIcon("folder-plus")
       .onClick(() => {
@@ -89,40 +70,19 @@ export function populateDeckStudyMobileNavMenu(
       });
   });
 
-  if (options.currentView === "kanban") {
-    menu.addItem((item) => {
-      item
-        .setTitle(options.tr("study.mobileHeader.kanbanColumnSettings"))
-        .setIcon("sliders")
-        .onClick(() => {
-          const anchor = options.evt;
-          window.dispatchEvent(
-            new CustomEvent("Weave:open-deck-kanban-menu", {
-              detail: {
-                x: anchor?.clientX ?? Math.round(window.innerWidth / 2),
-                y: anchor?.clientY ?? Math.max(96, Math.round(window.innerHeight / 2)),
-                filter: options.selectedFilter,
-              },
-            })
-          );
-        });
-    });
-  }
-
   if (options.selectedFilter === "memory" && options.shouldShowPremiumEntry(PREMIUM_FEATURES.EMERGENT_DECKS)) {
     const nextMode = options.memoryDeckDisplayMode === "formal" ? "emergent" : "formal";
     const toggleTitle = nextMode === "emergent"
       ? options.getPremiumEntryTitle("切换到涌现牌组", PREMIUM_FEATURES.EMERGENT_DECKS)
       : "切换到正式牌组";
 
-    menu.addItem((item) => {
-      item
-        .setTitle(toggleTitle)
-        .setIcon(nextMode === "emergent" ? "sparkles" : "folder")
-        .setChecked(options.memoryDeckDisplayMode === "emergent")
-        .onClick(() => {
-          options.setMemoryDeckDisplayMode(nextMode);
-        });
+    addMenuToggle(menu, {
+      title: toggleTitle,
+      icon: nextMode === "emergent" ? "sparkles" : "folder",
+      getChecked: () => options.memoryDeckDisplayMode === "emergent",
+      onSetChecked: () => {
+        options.setMemoryDeckDisplayMode(nextMode);
+      },
     });
 
     if (

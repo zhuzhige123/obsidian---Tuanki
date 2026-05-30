@@ -124,7 +124,7 @@
 </script>
 
 <section class={CSS_CLASSES.LICENSE_SECTION}>
-  <h2 class="section-title">{t('about.license.statusCard.license')}</h2>
+  <div class="group-title">{t('about.license.statusCard.license')}</div>
 
   <!-- 使用增强的许可证状态卡片 -->
   <EnhancedLicenseStatusCard

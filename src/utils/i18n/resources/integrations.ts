@@ -323,6 +323,11 @@ export const integrationsTranslations: Record<SupportedLanguage, TranslationKey>
 			getActivationCode: "获取激活码",
 			activatePremium: "激活高级功能",
 		},
+
+		premium: {
+			entryTitlePremiumSuffix: " (高级)",
+			entryTitleLimitedTimeSuffix: " (限时开放)",
+		},
 	},
 	'en-US': {
 
@@ -654,6 +659,11 @@ Output Format (JSON):
 			activationPrompt: "Unlock more powerful features after activation",
 			getActivationCode: "Get Activation Code",
 			activatePremium: "Activate Premium Features",
+		},
+
+		premium: {
+			entryTitlePremiumSuffix: " (Premium)",
+			entryTitleLimitedTimeSuffix: " (Limited-time access)",
 		},
 	},
 };

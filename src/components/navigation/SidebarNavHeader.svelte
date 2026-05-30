@@ -20,14 +20,16 @@
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import CardSearchInput from '../search/CardSearchInput.svelte';
   import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
+  import { emitCardManagementToolbarAction } from '../../utils/card-management-toolbar-contract';
   import { openWeaveMainMenu } from '../../utils/weave-main-menu';
+  import { addMenuRadioChoices, attachMenuApp } from '../../utils/obsidian-menu';
   import { weaveMainInterfaceStore } from '../../stores/weave-main-interface-store';
   import { vaultStorage } from '../../utils/vault-local-storage';
   import { tr } from '../../utils/i18n';
 
   // 牌组学习页面的筛选类型
   export type DeckFilter = 'memory' | 'question-bank';
-  export type DeckStudyViewType = 'grid' | 'kanban';
+  export type DeckStudyViewType = 'kanban';
   // 卡片管理页面的视图类型
   export type CardViewType = 'table' | 'grid' | 'kanban';
   // 卡片管理页面的数据源类型（保留用于兼容）
@@ -70,7 +72,7 @@
     navigationVisibility = {},
     selectedFilter = 'memory',
     onFilterSelect,
-    deckStudyView = 'grid',
+    deckStudyView = 'kanban',
     currentView = 'table',
     onViewChange,
     cardDataSource = 'memory',
@@ -197,6 +199,9 @@
   let cardSortDirection = $state<'asc' | 'desc'>('desc');
   let showSidebarCardSearch = $state(false);
   let aiSelectedFileName = $state('');
+  let aiActiveDocumentName = $state('');
+  let aiFollowActiveDocument = $state(true);
+  let aiCanStartStaging = $state(false);
   let aiPromptFileName = $state('');
   let aiPromptFilePath = $state('');
   let aiModelLabel = $state('');
@@ -266,6 +271,111 @@
     return `${t('cardManagement.density.title')}（${t(cardKanbanLayoutModeLabels[mode])}）`;
   }
 
+  const cardGridLayoutModeLabels: Record<GridLayoutMode, string> = {
+    fixed: 'mainMenu.cardManagement.fixedShort',
+    masonry: 'mainMenu.cardManagement.masonryShort',
+    timeline: 'mainMenu.cardManagement.timelineShort'
+  };
+
+  const cardGridLayoutModeIcons: Record<GridLayoutMode, string> = {
+    fixed: 'layout-grid',
+    masonry: 'panels-top-left',
+    timeline: 'history'
+  };
+
+  const cardGridLayoutToolbarActions: Record<GridLayoutMode, 'grid-layout-fixed' | 'grid-layout-masonry' | 'grid-layout-timeline'> = {
+    fixed: 'grid-layout-fixed',
+    masonry: 'grid-layout-masonry',
+    timeline: 'grid-layout-timeline'
+  };
+
+  function getCardGridLayoutButtonLabel(mode: GridLayoutMode): string {
+    return t(cardGridLayoutModeLabels[mode]);
+  }
+
+  function getCardGridBorderButtonLabel(style: 'solid' | 'dashed'): string {
+    return style === 'solid'
+      ? t('mainMenu.cardManagement.gridBorderSolidShort')
+      : t('mainMenu.cardManagement.gridBorderDashedShort');
+  }
+
+  function showCardToolbarMenuAt(evt: MouseEvent, populate: (menu: Menu) => void) {
+    if (!app) {
+      return;
+    }
+
+    const menu = attachMenuApp(new Menu(), app);
+    populate(menu);
+
+    const anchor = evt.currentTarget instanceof HTMLElement ? evt.currentTarget : null;
+    if (anchor) {
+      const rect = anchor.getBoundingClientRect();
+      menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
+      return;
+    }
+
+    menu.showAtPosition({ x: evt.clientX, y: evt.clientY + 4 });
+  }
+
+  function openCardGridLayoutMenu(evt: MouseEvent) {
+    showCardToolbarMenuAt(evt, (menu) => {
+      const choices: Array<{
+        title: string;
+        icon: 'layout-grid' | 'panels-top-left' | 'history';
+        value: GridLayoutMode;
+      }> = [
+        {
+          title: t('mainMenu.cardManagement.gridFixed'),
+          icon: 'layout-grid',
+          value: 'fixed'
+        },
+        {
+          title: t('mainMenu.cardManagement.gridMasonry'),
+          icon: 'panels-top-left',
+          value: 'masonry'
+        }
+      ];
+
+      if (shouldShowPremiumEntry(PREMIUM_FEATURES.TIMELINE_VIEW)) {
+        choices.push({
+          title: getPremiumEntryTitle(t('mainMenu.cardManagement.timeline'), PREMIUM_FEATURES.TIMELINE_VIEW),
+          icon: 'history',
+          value: 'timeline'
+        });
+      }
+
+      addMenuRadioChoices(menu, cardGridLayoutMode, choices, (mode) => {
+        emitCardManagementToolbarAction(cardGridLayoutToolbarActions[mode]);
+      });
+    });
+  }
+
+  function openCardGridBorderStyleMenu(evt: MouseEvent) {
+    showCardToolbarMenuAt(evt, (menu) => {
+      addMenuRadioChoices(
+        menu,
+        cardGridBorderStyle,
+        [
+          {
+            title: t('mainMenu.cardManagement.gridBorderSolid'),
+            icon: 'square',
+            value: 'solid' as const
+          },
+          {
+            title: t('mainMenu.cardManagement.gridBorderDashed'),
+            icon: 'square-dashed',
+            value: 'dashed' as const
+          }
+        ],
+        (style) => {
+          emitCardManagementToolbarAction(
+            style === 'solid' ? 'grid-border-style-solid' : 'grid-border-style-dashed'
+          );
+        }
+      );
+    });
+  }
+
   function getAiPrimaryActionLabel(): string {
     if (aiSubView === 'generate') {
       return aiIsGenerating ? t('mainMenu.aiAssistant.generating') : t('mainMenu.aiAssistant.startGenerate');
@@ -302,50 +412,39 @@
   }
 
   function openCardDataSourceMenu(evt: MouseEvent) {
-    const menu = new Menu();
+    showCardToolbarMenuAt(evt, (menu) => {
+      const choices: Array<{
+        title: string;
+        icon: 'graduation-cap' | 'clipboard-list' | 'bookmark';
+        value: CardDataSource;
+      }> = [
+        {
+          title: t('mainMenu.cardManagement.memoryDeck'),
+          icon: 'graduation-cap',
+          value: 'memory',
+        },
+      ];
 
-    menu.addItem((item) => {
-      item
-        .setTitle(t('mainMenu.cardManagement.memoryDeck'))
-        .setIcon('graduation-cap')
-        .setChecked(cardDataSource === 'memory')
-        .onClick(() => {
-          onCardDataSourceChange?.('memory');
+      if (shouldShowPremiumEntry(PREMIUM_FEATURES.QUESTION_BANK)) {
+        choices.push({
+          title: getPremiumEntryTitle(t('mainMenu.cardManagement.questionBank'), PREMIUM_FEATURES.QUESTION_BANK),
+          icon: 'clipboard-list',
+          value: 'questionBank',
         });
+      }
+
+      if (shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)) {
+        choices.push({
+          title: getPremiumEntryTitle(t('mainMenu.cardManagement.incrementalReading'), PREMIUM_FEATURES.INCREMENTAL_READING),
+          icon: 'bookmark',
+          value: 'incremental-reading',
+        });
+      }
+
+      addMenuRadioChoices(menu, cardDataSource, choices, (source) => {
+        onCardDataSourceChange?.(source);
+      });
     });
-
-    if (shouldShowPremiumEntry(PREMIUM_FEATURES.QUESTION_BANK)) {
-      menu.addItem((item) => {
-        item
-          .setTitle(getPremiumEntryTitle(t('mainMenu.cardManagement.questionBank'), PREMIUM_FEATURES.QUESTION_BANK))
-          .setIcon('clipboard-list')
-          .setChecked(cardDataSource === 'questionBank')
-          .onClick(() => {
-            onCardDataSourceChange?.('questionBank');
-          });
-      });
-    }
-
-    if (shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)) {
-      menu.addItem((item) => {
-        item
-          .setTitle(getPremiumEntryTitle(t('mainMenu.cardManagement.incrementalReading'), PREMIUM_FEATURES.INCREMENTAL_READING))
-          .setIcon('bookmark')
-          .setChecked(cardDataSource === 'incremental-reading')
-          .onClick(() => {
-            onCardDataSourceChange?.('incremental-reading');
-          });
-      });
-    }
-
-    const anchor = evt.currentTarget instanceof HTMLElement ? evt.currentTarget : null;
-    if (anchor) {
-      const rect = anchor.getBoundingClientRect();
-      menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
-      return;
-    }
-
-    menu.showAtPosition({ x: evt.clientX, y: evt.clientY + 4 });
   }
 
   function handleDotClick(dotId: string) {
@@ -383,7 +482,7 @@
   }
 
   function emitAIAssistantToolbarAction(
-    action: 'file' | 'generate' | 'history' | 'prompt-file' | 'system-prompt' | 'model' | 'parse-template' | 'parse' | 'sub-view',
+    action: 'file' | 'generate' | 'history' | 'prompt-file' | 'system-prompt' | 'model' | 'parse-template' | 'parse' | 'sub-view' | 'toggle-follow-document' | 'start-staging' | 'toggle-preview-view',
     evt: MouseEvent,
     value?: 'generate' | 'parse-preview'
   ) {
@@ -405,12 +504,6 @@
             }
           : undefined
       }
-    }));
-  }
-
-  function emitCardManagementToolbarAction(action: string, anchor?: HTMLElement | null) {
-    window.dispatchEvent(new CustomEvent('Weave:card-management-toolbar-action', {
-      detail: { action, anchor }
     }));
   }
 
@@ -481,6 +574,9 @@
     const unsubscribeMainInterfaceStore = weaveMainInterfaceStore.subscribe((state) => {
       aiSubView = state.aiToolbar.subView;
       aiSelectedFileName = state.aiToolbar.selectedFileName;
+      aiActiveDocumentName = state.aiToolbar.activeDocumentName;
+      aiFollowActiveDocument = state.aiToolbar.followActiveDocument;
+      aiCanStartStaging = state.aiToolbar.canStartStaging;
       aiPromptFileName = state.aiToolbar.promptFileName;
       aiPromptFilePath = state.aiToolbar.promptFilePath;
       aiModelLabel = state.aiToolbar.modelLabel;
@@ -622,29 +718,38 @@
 
     {#if currentPage === 'ai-assistant'}
       <button
-        class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-file-trigger"
-        onclick={(evt) => emitAIAssistantToolbarAction('file', evt)}
-        aria-label={t('mainMenu.aiAssistant.fileList')}
-        title={aiSelectedFileName || t('mainMenu.aiAssistant.fileList')}
+        class="sidebar-action-btn ai-toolbar-btn ai-file-trigger"
+        class:active={isInSidebarMode
+          ? aiFollowActiveDocument
+          : Boolean(aiSelectedFileName || aiActiveDocumentName)}
+        onclick={(evt) => emitAIAssistantToolbarAction(isInSidebarMode ? 'toggle-follow-document' : 'file', evt)}
+        aria-label={isInSidebarMode
+          ? t('aiAssistant.staging.followActiveDocument')
+          : t('mainMenu.aiAssistant.fileList')}
+        title={isInSidebarMode
+          ? (aiFollowActiveDocument
+            ? (aiActiveDocumentName || aiSelectedFileName || t('aiAssistant.staging.followActiveDocument'))
+            : t('aiAssistant.staging.followActiveDocumentOff'))
+          : (aiSelectedFileName || aiActiveDocumentName || t('mainMenu.aiAssistant.fileList'))}
       >
-        <span>{aiSelectedFileName || t('mainMenu.aiAssistant.fileList')}</span>
+        {#if isInSidebarMode}
+          <EnhancedIcon name={aiFollowActiveDocument ? 'file-text' : 'file'} size={16} />
+        {:else}
+          <span>{aiSelectedFileName || aiActiveDocumentName || t('mainMenu.aiAssistant.fileList')}</span>
+        {/if}
       </button>
       {#if aiSubView === 'generate'}
-        <button
-          class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-prompt-trigger"
-          onclick={(evt) => emitAIAssistantToolbarAction('prompt-file', evt)}
-          aria-label={t('mainMenu.aiAssistant.systemPrompt')}
-          title={aiPromptFilePath || aiPromptFileName || t('mainMenu.aiAssistant.systemPrompt')}
-        >
-          <span>{aiPromptFileName || t('mainMenu.aiAssistant.systemPrompt')}</span>
-        </button>
         <button
           class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-model-trigger"
           onclick={(evt) => emitAIAssistantToolbarAction('model', evt)}
           aria-label={t('mainMenu.aiAssistant.model')}
           title={aiModelTitle || t('mainMenu.aiAssistant.model')}
         >
-          <span>{aiModelLabel || t('mainMenu.aiAssistant.model')}</span>
+          {#if isInSidebarMode}
+            <ObsidianIcon name="bot" size={16} />
+          {:else}
+            <span>{aiModelLabel || t('mainMenu.aiAssistant.model')}</span>
+          {/if}
         </button>
       {:else}
         <button
@@ -653,18 +758,28 @@
           aria-label={t('mainMenu.aiAssistant.parseTemplate')}
           title={aiParsePresetName || t('mainMenu.aiAssistant.parseTemplate')}
         >
-          <span>{aiParsePresetName || t('mainMenu.aiAssistant.parseTemplate')}</span>
+          {#if isInSidebarMode}
+            <ObsidianIcon name="file-search" size={16} />
+          {:else}
+            <span>{aiParsePresetName || t('mainMenu.aiAssistant.parseTemplate')}</span>
+          {/if}
         </button>
       {/if}
+      {#if !isInSidebarMode}
       <button
-        class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-history-trigger"
+        class="sidebar-action-btn ai-toolbar-btn ai-history-trigger"
         class:disabled={aiHistoryCount === 0}
         onclick={(evt) => emitAIAssistantToolbarAction('history', evt)}
         aria-label={t('mainMenu.aiAssistant.history')}
         title={aiHistoryCount > 0 ? t('mainMenu.aiAssistant.recentHistory', { count: aiHistoryCount }) : t('mainMenu.aiAssistant.noHistory')}
       >
-        <span>{t('mainMenu.aiAssistant.history')}</span>
+        {#if isInSidebarMode}
+          <ObsidianIcon name="history" size={16} />
+        {:else}
+          <span>{t('mainMenu.aiAssistant.history')}</span>
+        {/if}
       </button>
+      {/if}
     {:else if currentPage === 'weave-card-management'}
       <div class="card-header-actions card-header-actions-left">
         {#if isInSidebarMode}
@@ -704,10 +819,11 @@
           <button
             class="sidebar-action-btn card-toolbar-btn"
             onclick={openCardDataSourceMenu}
-            aria-label={t('mainMenu.cardManagement.dataSourceSwitch')}
+            aria-label={getCardDataSourceLabel(cardDataSource)}
+            title={getCardDataSourceLabel(cardDataSource)}
           >
             <ObsidianIcon name="database" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.dataSourceSwitch')}·{getCardDataSourceLabel(cardDataSource)}</span>
+            <span class="card-toolbar-btn-label">{getCardDataSourceLabel(cardDataSource)}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
@@ -751,54 +867,23 @@
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
-            class:active={currentView === 'grid' && cardGridLayoutMode === 'fixed'}
             class:is-hidden-slot={currentView !== 'grid'}
-            onclick={() => emitCardManagementToolbarAction('grid-layout-fixed')}
-            aria-label={t('mainMenu.cardManagement.gridFixed')}
+            onclick={openCardGridLayoutMenu}
+            aria-label={t('mainMenu.cardManagement.gridLayout')}
+            title={t('mainMenu.cardManagement.gridLayout')}
           >
-            <ObsidianIcon name="layout-grid" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.fixedShort')}</span>
+            <ObsidianIcon name={cardGridLayoutModeIcons[cardGridLayoutMode]} size={16} />
+            <span class="card-toolbar-btn-label">{getCardGridLayoutButtonLabel(cardGridLayoutMode)}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
-            class:active={currentView === 'grid' && cardGridLayoutMode === 'masonry'}
             class:is-hidden-slot={currentView !== 'grid'}
-            onclick={() => emitCardManagementToolbarAction('grid-layout-masonry')}
-            aria-label={t('mainMenu.cardManagement.gridMasonry')}
+            onclick={openCardGridBorderStyleMenu}
+            aria-label={t('mainMenu.cardManagement.gridBorderStyle')}
+            title={t('mainMenu.cardManagement.gridBorderStyle')}
           >
-            <ObsidianIcon name="panels-top-left" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.masonryShort')}</span>
-          </button>
-          <button
-            class="sidebar-action-btn card-toolbar-btn"
-            class:active={currentView === 'grid' && cardGridLayoutMode === 'timeline'}
-            class:is-hidden-slot={currentView !== 'grid'}
-            onclick={() => emitCardManagementToolbarAction('grid-layout-timeline')}
-            aria-label={getPremiumEntryTitle(t('mainMenu.cardManagement.timeline'), PREMIUM_FEATURES.TIMELINE_VIEW)}
-            title={getPremiumEntryTitle(t('mainMenu.cardManagement.timeline'), PREMIUM_FEATURES.TIMELINE_VIEW)}
-          >
-            <ObsidianIcon name="history" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.timelineShort')}</span>
-          </button>
-          <button
-            class="sidebar-action-btn card-toolbar-btn"
-            class:active={currentView === 'grid' && cardGridBorderStyle === 'solid'}
-            class:is-hidden-slot={currentView !== 'grid'}
-            onclick={() => emitCardManagementToolbarAction('grid-border-style-solid')}
-            aria-label={t('mainMenu.cardManagement.gridBorderSolid')}
-          >
-            <ObsidianIcon name="square" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.gridBorderSolidShort')}</span>
-          </button>
-          <button
-            class="sidebar-action-btn card-toolbar-btn"
-            class:active={currentView === 'grid' && cardGridBorderStyle === 'dashed'}
-            class:is-hidden-slot={currentView !== 'grid'}
-            onclick={() => emitCardManagementToolbarAction('grid-border-style-dashed')}
-            aria-label={t('mainMenu.cardManagement.gridBorderDashed')}
-          >
-            <ObsidianIcon name="square-dashed" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.gridBorderDashedShort')}</span>
+            <ObsidianIcon name={cardGridBorderStyle === 'solid' ? 'square' : 'square-dashed'} size={16} />
+            <span class="card-toolbar-btn-label">{getCardGridBorderButtonLabel(cardGridBorderStyle)}</span>
           </button>
           <button
             class="sidebar-action-btn card-toolbar-btn"
@@ -966,7 +1051,7 @@
             </button>
           {/if}
         {/if}
-        {#if deckStudyView === 'kanban' && premiumGuard.canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, deckStudyFeatureContext)}
+        {#if premiumGuard.canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, deckStudyFeatureContext)}
           <button
             class="sidebar-action-btn deck-study-toolbar-btn"
             onclick={(evt) => {

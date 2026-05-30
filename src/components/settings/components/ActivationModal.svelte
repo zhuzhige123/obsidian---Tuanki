@@ -6,7 +6,12 @@
   
   import { ActivationModal } from './ActivationModalObsidian';
   import { tr } from '../../../utils/i18n';
-  import { getPluginEffectiveLicenseState } from '../../../utils/plugin-license';
+  import {
+    getPluginEffectiveLicenseState,
+    getPluginLicensedProduct,
+    getPluginLocalLicenses,
+  } from '../../../utils/plugin-license';
+  import { PremiumFeatureGuard } from '../../../services/premium/PremiumFeatureGuard';
   
   interface Props {
     plugin: any;
@@ -40,7 +45,11 @@
     licenseStateVersion += 1;
   }
 
-  function handleLicenseChanged() {
+  async function handleLicenseChanged() {
+    await PremiumFeatureGuard.getInstance().updateLicenseState({
+      product: getPluginLicensedProduct(plugin),
+      localLicenses: getPluginLocalLicenses(plugin),
+    });
     refreshLicenseState();
   }
   

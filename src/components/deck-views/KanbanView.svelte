@@ -37,6 +37,11 @@
   import { type MemoryDeckMenuAction } from '../../services/deck/MemoryDeckMenu';
   import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from '../../services/premium/PremiumFeatureGuard';
   import { saveMemoryDeck } from '../../services/weave-domain';
+  import {
+    addMenuRadioChoices,
+    addMenuSubmenuGroup,
+    addMenuToggle,
+  } from '../../utils/obsidian-menu';
   
   // 导入快速标签组创建器
   import QuickTagGroupCreator from './QuickTagGroupCreator.svelte';
@@ -61,7 +66,6 @@
     onOpenLoadForecast?: (deckId: string) => void;
     onEditDeck?: (deckId: string) => void;
     onDeleteDeck?: (deckId: string) => void;
-    onOpenKnowledgeGraph?: (deckId: string) => void;
     onBeforeOpenDeckMenu?: () => void;
     memoryDeckMenuActionHandler?: (action: MemoryDeckMenuAction, deckId: string) => void | Promise<void>;
     // 引用式牌组系统
@@ -98,7 +102,6 @@
     onOpenLoadForecast,
     onEditDeck,
     onDeleteDeck,
-    onOpenKnowledgeGraph,
     onBeforeOpenDeckMenu,
     memoryDeckMenuActionHandler,
     // 引用式牌组系统
@@ -520,18 +523,6 @@
     };
   }
 
-  function withSubmenu(item: unknown, builder: (submenu: Menu) => void): boolean {
-    const submenuFactory = (item as { setSubmenu?: () => Menu }).setSubmenu;
-    if (typeof submenuFactory !== 'function') {
-      return false;
-    }
-
-    const submenu = submenuFactory.call(item as { setSubmenu: () => Menu });
-    submenu.setUseNativeMenu(false);
-    builder(submenu);
-    return true;
-  }
-
   function closeActiveKanbanMenu() {
     if (!activeKanbanMenu) {
       return;
@@ -593,35 +584,36 @@
       item.setTitle(t('decks.kanban.viewOptions')).setIsLabel(true);
     });
 
-    menu.addItem((item) => {
-      item
-        .setTitle(`${t('decks.kanban.groupByLabel')}: ${currentGroupLabel}`)
-        .setIcon(currentGroupConfig.icon || DECK_GROUP_CONFIGS[groupBy].icon);
-      withSubmenu(item, buildKanbanNativeGroupBySubmenu);
-    });
+    addMenuSubmenuGroup(
+      menu,
+      {
+        title: `${t('decks.kanban.groupByLabel')}: ${currentGroupLabel}`,
+        icon: (currentGroupConfig.icon || DECK_GROUP_CONFIGS[groupBy].icon) as import('obsidian').IconName,
+      },
+      buildKanbanNativeGroupBySubmenu
+    );
 
     if (plugin) {
-      menu.addItem((item) => {
-        item
-          .setTitle(
-            selectedTagGroup
-              ? t('decks.kanban.tagGroupPrefix', { name: selectedTagGroup.name })
-              : t('decks.kanban.tagGroup')
-          )
-          .setIcon(selectedTagGroup?.icon || 'tags');
-        withSubmenu(item, buildKanbanNativeTagGroupSubmenu);
-      });
+      addMenuSubmenuGroup(
+        menu,
+        {
+          title: selectedTagGroup
+            ? t('decks.kanban.tagGroupPrefix', { name: selectedTagGroup.name })
+            : t('decks.kanban.tagGroup'),
+          icon: (selectedTagGroup?.icon || 'tags') as import('obsidian').IconName,
+        },
+        buildKanbanNativeTagGroupSubmenu
+      );
     }
 
-    menu.addItem((item) => {
-      item
-        .setTitle(t('decks.kanban.hideEmptyGroups'))
-        .setIcon(columnConfig.hideEmptyGroups ? 'check-square' : 'square')
-        .setChecked(columnConfig.hideEmptyGroups)
-        .onClick(() => {
-          handleToggleHideEmpty();
-          reopenKanbanNativeMenu();
-        });
+    addMenuToggle(menu, {
+      title: t('decks.kanban.hideEmptyGroups'),
+      icon: columnConfig.hideEmptyGroups ? 'check-square' : 'square',
+      getChecked: () => columnConfig.hideEmptyGroups,
+      onSetChecked: () => {
+        handleToggleHideEmpty();
+        reopenKanbanNativeMenu();
+      },
     });
 
     menu.addSeparator();
@@ -646,12 +638,11 @@
           reopenKanbanNativeMenu();
         });
     });
-    menu.addItem((item) => {
-      item
-        .setTitle(t('cardManagement.tools.columnSettings'))
-        .setIcon('list');
-      withSubmenu(item, buildKanbanNativeColumnSubmenu);
-    });
+    addMenuSubmenuGroup(
+      menu,
+      { title: t('cardManagement.tools.columnSettings'), icon: 'list' },
+      buildKanbanNativeColumnSubmenu
+    );
   }
 
   function buildKanbanNativeGroupBySubmenu(menu: Menu) {
@@ -664,21 +655,19 @@
       item.setTitle(t('decks.kanban.groupByLabel')).setIsLabel(true);
     });
 
-    for (const type of groupTypes) {
-      const config = DECK_GROUP_CONFIGS[type];
-      const disabled = type === 'tagGroup' && tagGroupUnavailable;
-
-      menu.addItem((item) => {
-        item
-          .setTitle(config.title)
-          .setIcon(config.icon)
-          .setChecked(groupBy === type)
-          .setDisabled(disabled)
-          .onClick(() => {
-            void applyKanbanNativeGroupByChange(type);
-          });
-      });
-    }
+    addMenuRadioChoices(
+      menu,
+      groupBy,
+      groupTypes.map((type) => ({
+        title: DECK_GROUP_CONFIGS[type].title,
+        icon: DECK_GROUP_CONFIGS[type].icon as import('obsidian').IconName,
+        value: type,
+        disabled: type === 'tagGroup' && tagGroupUnavailable,
+      })),
+      (type) => {
+        void applyKanbanNativeGroupByChange(type);
+      }
+    );
   }
 
   function buildKanbanNativeTagGroupSubmenu(menu: Menu) {
@@ -702,17 +691,18 @@
       return;
     }
 
-    for (const tagGroup of tagGroups) {
-      menu.addItem((item) => {
-        item
-          .setTitle(`${tagGroup.icon ? `${tagGroup.icon} ` : ''}${tagGroup.name}`)
-          .setChecked(selectedTagGroupId === tagGroup.id)
-          .onClick(() => {
-            setSelectedTagGroupId(tagGroup.id);
-            void applyKanbanNativeGroupByChange('tagGroup');
-          });
-      });
-    }
+    addMenuRadioChoices(
+      menu,
+      selectedTagGroupId ?? '',
+      tagGroups.map((tagGroup) => ({
+        title: `${tagGroup.icon ? `${tagGroup.icon} ` : ''}${tagGroup.name}`,
+        value: tagGroup.id,
+      })),
+      (tagGroupId) => {
+        setSelectedTagGroupId(tagGroupId);
+        void applyKanbanNativeGroupByChange('tagGroup');
+      }
+    );
 
     menu.addSeparator();
     menu.addItem((item) => {
@@ -762,15 +752,16 @@
       const hidden = columnConfig.hidden.includes(group.key);
       const count = groupedDecks[group.key]?.length || 0;
 
-      menu.addItem((item) => {
-        item
-          .setTitle(`${group.label} (${count})`)
-          .setIcon(hidden ? 'eye-off' : 'eye')
-          .setChecked(!hidden);
-        withSubmenu(item, (submenu) => {
+      addMenuSubmenuGroup(
+        menu,
+        {
+          title: `${group.label} (${count})`,
+          icon: hidden ? 'eye-off' : 'eye',
+        },
+        (submenu) => {
           buildKanbanNativeSingleColumnSubmenu(submenu, group, index, groups.length);
-        });
-      });
+        }
+      );
     }
   }
 
@@ -1018,13 +1009,6 @@
       );
     }
 
-    menu.addItem((item) =>
-      item
-        .setTitle(t('decks.menu.knowledgeGraph'))
-        .setIcon('git-fork')
-        .onClick(async () => await dispatchMemoryDeckMenuAction('knowledge-graph', deckId))
-    );
-
     return hasItems;
   }
 
@@ -1159,13 +1143,6 @@
             .onClick(async () => await dispatchMemoryDeckMenuAction('deck-analytics', deckId))
         );
       }
-
-      menu.addItem((item) =>
-        item
-          .setTitle(t('decks.menu.knowledgeGraph'))
-          .setIcon('git-fork')
-          .onClick(async () => await dispatchMemoryDeckMenuAction('knowledge-graph', deckId))
-      );
 
       menu.addSeparator();
 

@@ -455,7 +455,7 @@ export class SimplifiedCardParser implements ICardParser {
 
 		// 检测选择题 - 仅支持字母序 A./B./C./D. 格式
 		// GFM 复选框 - [ ] / - [x] 不作为选择题识别（复选框是 Markdown 通用语法）
-		const labeledOptions = content.match(/^[A-Z][\.\)．）、]\s*.+$/gim);
+		const labeledOptions = content.match(/^[A-Z][\.．、]\s*.+$/gim);
 		if (labeledOptions && labeledOptions.length >= 2) {
 			return CardType.Multiple;
 		}

@@ -21,10 +21,12 @@
   import {
     getPluginEffectiveLicenseState,
     getPluginLicensedProduct,
+    getPluginLocalLicenses,
     resetPluginLicenseActivation,
     syncPluginLicenseSettings,
     upsertPluginLocalLicense
   } from '../../../utils/plugin-license';
+  import { vaultStorage } from '../../../utils/vault-local-storage';
   import { emitWeaveLicenseChanged } from '../../../utils/license-sync-bridge';
 
   import { ActivationErrorCode } from '../../../utils/types/license-types';
@@ -181,18 +183,15 @@
         syncPluginLicenseSettings(plugin);
         await PremiumFeatureGuard.getInstance().updateLicenseState({
           product: getPluginLicensedProduct(plugin),
-          localLicenses: getPluginEffectiveLicenseState(plugin).localLicenses,
+          localLicenses: getPluginLocalLicenses(plugin),
         });
-        let callbackAlreadyUsedForSave = false;
         if (typeof plugin?.saveSettings === 'function') {
           await plugin.saveSettings();
+          await vaultStorage.flush();
         } else {
           await onSave();
-          callbackAlreadyUsedForSave = true;
         }
-        if (!callbackAlreadyUsedForSave) {
-          await onSave();
-        }
+        await onSave();
         emitWeaveLicenseChanged(plugin.app);
         
         // 显示成功状态
