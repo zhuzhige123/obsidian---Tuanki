@@ -6,21 +6,21 @@ import {
 	Scope,
 	TFile,
 	WorkspaceLeaf,
-	type WorkspaceSplit,
 } from "obsidian";
 import { isCallable, readUnknownProperty } from "../../utils/dynamic-access";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
-import {
-	getEditorCodeMirrorView,
-	getLeafContainerEl,
-} from "../../utils/obsidian-markdown-editor";
+import { getEditorCodeMirrorView } from "../../utils/obsidian-markdown-editor";
 import EditorContextManager from "./EditorContextManager";
 import {
 	buildDetachedEditorTempFilePath,
 	isDetachedEditorTempFilePath,
 	resolveDetachedEditorTempFolder,
 } from "./editor-temp-file-policy";
+import {
+	createHiddenWorkspaceLeaf,
+	waitForWorkspaceLayoutReady,
+} from "./workspace-hidden-leaf";
 import { applyStyleProps } from "../../utils/style-props";
 import { shouldHideDocumentPropertiesForVault } from "./document-properties-visibility";
 
@@ -154,25 +154,13 @@ export class DetachedLeafEditor extends Component {
 		void this.initialize();
 	}
 
-	private async waitForWorkspaceLayoutReady(): Promise<void> {
-		try {
-			await new Promise<void>((resolve) => {
-				try {
-					this.app.workspace.onLayoutReady(() => resolve());
-				} catch {
-					resolve();
-				}
-			});
-		} catch { /* no-op */ }
-	}
-
 	private async initialize() {
 		try {
 			logger.debug("[DetachedLeafEditor] 开始初始化...");
 
 			const activeLeafBeforeInit = this.getWorkspaceActiveLeaf();
 
-			await this.waitForWorkspaceLayoutReady();
+			await waitForWorkspaceLayoutReady(this.app);
 
 			// 1. 准备临时文件
 			await this.prepareTempFile();
@@ -181,11 +169,12 @@ export class DetachedLeafEditor extends Component {
 				throw new Error("无法创建临时文件");
 			}
 
-			// 2. 创建 detached leaf
-			this.createLeaf();
-
-			if (!this.leaf) {
-				throw new Error("无法创建 WorkspaceLeaf");
+			// 2. 创建 detached leaf（使用官方 Workspace API）
+			const hiddenLeaf = await createHiddenWorkspaceLeaf(this.app);
+			this.leaf = hiddenLeaf.leaf;
+			if (hiddenLeaf.leafEl) {
+				this.originalParent = hiddenLeaf.leafEl.parentElement;
+				this.originalNextSibling = hiddenLeaf.leafEl.nextSibling;
 			}
 
 			if (
@@ -276,69 +265,6 @@ export class DetachedLeafEditor extends Component {
 		throw lastError instanceof Error
 			? lastError
 			: new Error("无法创建 DetachedLeafEditor 临时文件");
-	}
-
-	private readWorkspaceSplit(key: string): WorkspaceSplit | undefined {
-		const split = readUnknownProperty(this.app.workspace, key);
-		if (!split || !isCallable(readUnknownProperty(split, "setDimension"))) {
-			return undefined;
-		}
-		return split as WorkspaceSplit;
-	}
-
-	private createLeaf() {
-		// 使用 createLeafInParent 创建一个位于 rootSplit 的 leaf
-		// 这允许我们创建一个"真正的"编辑器实例，但将其隐藏
-		const candidates = Platform.isMobile
-			? [
-					this.readWorkspaceSplit("rightSplit"),
-					this.readWorkspaceSplit("leftSplit"),
-					this.readWorkspaceSplit("rootSplit"),
-				]
-			: [this.readWorkspaceSplit("rootSplit")];
-
-		const parentSplit = candidates.find((split) => split !== undefined) ?? this.readWorkspaceSplit("rootSplit");
-		const rootSplit = this.readWorkspaceSplit("rootSplit");
-
-		try {
-			if (!parentSplit) {
-				throw new Error("No workspace split available");
-			}
-			this.leaf = this.app.workspace.createLeafInParent(parentSplit, 0);
-		} catch (e) {
-			logger.warn("[DetachedLeafEditor] createLeafInParent 失败，回退到 rootSplit:", e);
-			try {
-				if (rootSplit) {
-					this.leaf = this.app.workspace.createLeafInParent(rootSplit, 0);
-				} else {
-					this.leaf = null;
-				}
-			} catch {
-				this.leaf = null;
-			}
-		}
-
-		// 立即隐藏，防止闪烁
-		const leafEl = getLeafContainerEl(this.leaf);
-		if (leafEl) {
-			leafEl.dataset.weaveDetachedLeafEditor = "true";
-			this.originalParent = leafEl.parentElement;
-			this.originalNextSibling = leafEl.nextSibling;
-
-			// 关键：不要使用 display:none，否则 Obsidian 无法正确路由快捷键到 activeLeaf
-			// 改为移动到屏幕外，但保持在 DOM 中（参考 ModalEditorManager 的方案）
-			applyStyleProps(leafEl, {
-				position: "absolute",
-				left: "-9999px",
-				top: "-9999px",
-				width: "1px",
-				height: "1px",
-				overflow: "hidden",
-				"pointer-events": "none",
-				display: "block",
-				visibility: "visible",
-			});
-		}
 	}
 
 	private async openFileInLeaf() {

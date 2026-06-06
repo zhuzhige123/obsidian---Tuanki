@@ -10,6 +10,7 @@ import type { Card } from "../../data/types";
 import { logger } from "../../utils/logger";
 import { extractSourcePath } from "../../utils/source-path-matcher";
 import { DetachedLeafEditor } from "./DetachedLeafEditor";
+import { cleanupRestoredDetachedEditorLeaves } from "./workspace-hidden-leaf";
 
 /**
  * 编辑会话信息
@@ -32,6 +33,8 @@ export interface EmbeddableEditorSessionLookup {
  * 嵌入式编辑器管理器
  */
 export class EmbeddableEditorManager {
+	private static hasCleanedRestoredLeaves = false;
+
 	private app: App;
 	private sessions: Map<string, EditorSession> = new Map();
 	private editorFilePathToSessionId = new Map<string, string>();
@@ -42,6 +45,10 @@ export class EmbeddableEditorManager {
 
 	constructor(app: App) {
 		this.app = app;
+		if (!EmbeddableEditorManager.hasCleanedRestoredLeaves) {
+			EmbeddableEditorManager.hasCleanedRestoredLeaves = true;
+			cleanupRestoredDetachedEditorLeaves(app);
+		}
 		logger.debug("[EmbeddableEditorManager] 初始化");
 	}
 
