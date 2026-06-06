@@ -153,7 +153,7 @@ export function populateAssociatedNoteMenu(options: AssociatedNoteMenuOptions): 
 }
 
 function sanitizeAssociatedNoteBaseName(rawName: string): string {
-	const normalized = String(rawName || "").trim().replace(/[\\/:*?"<>|#^\[\]]+/g, " ");
+	const normalized = String(rawName || "").trim().replace(/[\\/:*?"<>|#^[\]]+/g, " ");
 	const compact = normalized.replace(/\s+/g, " ").trim();
 	return compact || untitledNoteLabel();
 }
@@ -246,7 +246,7 @@ export async function openAssociatedMarkdownNote(app: App, notePath: string): Pr
 	}
 
 	const leaf = app.workspace.getRightLeaf(false) || app.workspace.getLeaf("tab");
-	await leaf.openFile(file, { active: true, state: { mode: "source" } as any });
+	await leaf.openFile(file, { active: true, state: { mode: "source" } as unknown });
 	revealLeaf(app, leaf);
 	return file;
 }

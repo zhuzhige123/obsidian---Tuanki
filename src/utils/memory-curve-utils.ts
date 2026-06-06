@@ -303,13 +303,13 @@ export function generateDeckMemoryCurveData(
  */
 export function getRatingColor(rating: Rating): string {
 	switch (rating) {
-		case 1:
+		case Rating.Again:
 			return "#ef4444"; // Again - 红色
-		case 2:
+		case Rating.Hard:
 			return "#f59e0b"; // Hard - 橙色
-		case 3:
+		case Rating.Good:
 			return "#22c55e"; // Good - 绿色
-		case 4:
+		case Rating.Easy:
 			return "#3b82f6"; // Easy - 蓝色
 		default:
 			return "#6b7280"; // 灰色
@@ -324,13 +324,13 @@ export function getRatingColor(rating: Rating): string {
  */
 export function getRatingLabel(rating: Rating): string {
 	switch (rating) {
-		case 1:
+		case Rating.Again:
 			return "遗忘";
-		case 2:
+		case Rating.Hard:
 			return "困难";
-		case 3:
+		case Rating.Good:
 			return "良好";
-		case 4:
+		case Rating.Easy:
 			return "简单";
 		default:
 			return "未知";

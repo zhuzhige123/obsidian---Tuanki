@@ -71,8 +71,8 @@ export function getObsidianPlatformInfo(): {
 		isMobile: Platform.isMobile,
 		// Platform.isPhone 和 Platform.isTablet 在 Obsidian 1.4.0+ 可用
 		isPhone:
-			(Platform as any).isPhone ?? (Platform.isMobile && !((Platform as any).isTablet ?? false)),
-		isTablet: (Platform as any).isTablet ?? false,
+			(Platform as unknown).isPhone ?? (Platform.isMobile && !((Platform as unknown).isTablet ?? false)),
+		isTablet: (Platform as unknown).isTablet ?? false,
 		isIos: Platform.isIosApp,
 		isAndroid: Platform.isAndroidApp,
 		isDesktop: Platform.isDesktop || Platform.isDesktopApp,
@@ -450,7 +450,7 @@ export function createSidebarObserver(
 	});
 
 	// 观察整个 workspace 容器
-	const workspace = document.querySelector(".workspace");
+	const workspace = activeDocument.querySelector(".workspace");
 	if (workspace) {
 		observer.observe(workspace, {
 			childList: true,

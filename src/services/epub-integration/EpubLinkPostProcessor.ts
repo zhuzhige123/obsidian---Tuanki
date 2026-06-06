@@ -34,7 +34,8 @@ export function createEpubLinkPostProcessor(app: App) {
 		const sourcePath = String(ctx?.sourcePath || "").trim();
 		if (sourcePath && !migratedSourcePaths.has(sourcePath)) {
 			migratedSourcePaths.add(sourcePath);
-			queueMicrotask(async () => {
+			queueMicrotask(() => {
+				void (async () => {
 				try {
 					const sourceFile = app.vault.getAbstractFileByPath(sourcePath);
 					if (!(sourceFile instanceof TFile) || sourceFile.extension !== "md") {
@@ -55,6 +56,7 @@ export function createEpubLinkPostProcessor(app: App) {
 				} catch {
 					// ignore background enrichment failures
 				}
+				})();
 			});
 		}
 
@@ -101,20 +103,22 @@ export function createEpubLinkPostProcessor(app: App) {
 				);
 
 				boundLinkEl.__weaveEpubBoundHref = href;
-				boundLinkEl.__weaveEpubClickHandler = async (e: MouseEvent) => {
-					e.preventDefault();
-					e.stopImmediatePropagation();
-					const linkService = new EpubLinkService(app);
-					if (parsed.sourceId) {
-						await linkService.navigateToEpubLocation(
-							filePath,
-							parsed.cfi,
-							parsed.text,
-							parsed.sourceId
-						);
-						return;
-					}
-					await linkService.navigateToEpubLocation(filePath, parsed.cfi, parsed.text);
+				boundLinkEl.__weaveEpubClickHandler = (e: MouseEvent) => {
+					void (async () => {
+						e.preventDefault();
+						e.stopImmediatePropagation();
+						const linkService = new EpubLinkService(app);
+						if (parsed.sourceId) {
+							await linkService.navigateToEpubLocation(
+								filePath,
+								parsed.cfi,
+								parsed.text,
+								parsed.sourceId
+							);
+							return;
+						}
+						await linkService.navigateToEpubLocation(filePath, parsed.cfi, parsed.text);
+					})();
 				};
 				linkEl.addEventListener("click", boundLinkEl.__weaveEpubClickHandler);
 				return;

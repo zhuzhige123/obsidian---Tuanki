@@ -85,12 +85,12 @@
   // 监听点击外部
   $effect(() => {
     if (menuOpen) {
-      document.addEventListener('click', handleClickOutside);
-      document.addEventListener('keydown', handleKeyDown);
+      activeDocument.addEventListener('click', handleClickOutside);
+      activeDocument.addEventListener('keydown', handleKeyDown);
       
       return () => {
-        document.removeEventListener('click', handleClickOutside);
-        document.removeEventListener('keydown', handleKeyDown);
+        activeDocument.removeEventListener('click', handleClickOutside);
+        activeDocument.removeEventListener('keydown', handleKeyDown);
       };
     }
   });

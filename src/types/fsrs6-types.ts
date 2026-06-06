@@ -143,17 +143,17 @@ export interface FSRS6AlgorithmState {
  * 类型验证函数
  */
 export interface TypeValidator {
-	validateFSRS6Card(card: any): card is FSRS6Card;
-	validateFSRS6Parameters(params: any): params is FSRS6Parameters;
-	validatePersonalizationData(data: any): data is PersonalizationData;
-	validatePredictionResult(result: any): result is PredictionResult;
+	validateFSRS6Card(card: unknown): card is FSRS6Card;
+	validateFSRS6Parameters(params: unknown): params is FSRS6Parameters;
+	validatePersonalizationData(data: unknown): data is PersonalizationData;
+	validatePredictionResult(result: unknown): result is PredictionResult;
 }
 
 /**
  * FSRS6 错误类型
  */
 export class FSRS6Error extends Error {
-	constructor(message: string, public code: string, public context?: any) {
+	constructor(message: string, public code: string, public context?: unknown) {
 		super(message);
 		this.name = "FSRS6Error";
 	}
@@ -163,7 +163,7 @@ export class FSRS6Error extends Error {
  * FSRS6 参数验证错误
  */
 export class FSRS6ParameterError extends FSRS6Error {
-	constructor(message: string, public parameterName: string, public value: any) {
+	constructor(message: string, public parameterName: string, public value: unknown) {
 		super(message, "PARAMETER_ERROR", { parameterName, value });
 		this.name = "FSRS6ParameterError";
 	}
@@ -173,7 +173,7 @@ export class FSRS6ParameterError extends FSRS6Error {
  * FSRS6 计算错误
  */
 export class FSRS6ComputationError extends FSRS6Error {
-	constructor(message: string, public operation: string, public input: any) {
+	constructor(message: string, public operation: string, public input: unknown) {
 		super(message, "COMPUTATION_ERROR", { operation, input });
 		this.name = "FSRS6ComputationError";
 	}

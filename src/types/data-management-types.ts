@@ -355,9 +355,9 @@ export interface ConflictInfo {
 	/** 冲突描述 */
 	description: string;
 	/** 现有数据 */
-	existing: any;
+	existing: unknown;
 	/** 导入数据 */
-	incoming: any;
+	incoming: unknown;
 	/** 建议的解决方案 */
 	suggestedResolution: "skip" | "overwrite" | "merge";
 }

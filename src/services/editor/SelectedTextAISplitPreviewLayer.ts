@@ -36,12 +36,12 @@ export class SelectedTextAISplitPreviewLayer {
 			return;
 		}
 
-		const root = document.createElement("div");
+		const root = activeDocument.createElement("div");
 		root.className = "weave-global-ai-split-preview-layer";
 		root.setAttribute("data-weave-ai-split-preview-layer", "true");
 		root.setAttribute("aria-live", "polite");
 
-		const inner = document.createElement("div");
+		const inner = activeDocument.createElement("div");
 		inner.className = "weave-ai-card-panel-container weave-global-ai-split-preview-inner";
 
 		root.appendChild(inner);

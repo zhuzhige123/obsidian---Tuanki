@@ -21,7 +21,7 @@ export interface DataChangeEvent {
 	ids?: string[];
 
 	/** 附加元数据 */
-	metadata?: Record<string, any>;
+	metadata?: Record<string, unknown>;
 
 	/** 时间戳 */
 	timestamp: number;
@@ -120,7 +120,7 @@ export class DataSyncService {
 			// 清理防抖定时器
 			const subscription = subs[index];
 			if (subscription.debounceTimer) {
-				clearTimeout(subscription.debounceTimer);
+				window.clearTimeout(subscription.debounceTimer);
 			}
 
 			subs.splice(index, 1);
@@ -173,11 +173,11 @@ export class DataSyncService {
 		// 应用防抖
 		if (subscription.options.debounce) {
 			if (subscription.debounceTimer) {
-				clearTimeout(subscription.debounceTimer);
+				window.clearTimeout(subscription.debounceTimer);
 			}
 
-			subscription.debounceTimer = window.setTimeout(async () => {
-				await this.executeCallback(subscription, event);
+			subscription.debounceTimer = window.setTimeout(() => {
+				void this.executeCallback(subscription, event);
 				subscription.debounceTimer = undefined;
 			}, subscription.options.debounce);
 		} else {
@@ -218,7 +218,7 @@ export class DataSyncService {
 		this.subscriptions.forEach((_subs) => {
 			_subs.forEach((_sub) => {
 				if (_sub.debounceTimer) {
-					clearTimeout(_sub.debounceTimer);
+					window.clearTimeout(_sub.debounceTimer);
 				}
 			});
 		});

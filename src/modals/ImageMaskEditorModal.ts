@@ -116,7 +116,7 @@ export class ImageMaskEditorModal extends Modal {
 	/**
 	 * Modal 关闭时调用
 	 */
-	async onClose(): Promise<void> {
+	onClose(): void {
 		logger.debug("[ImageMaskEditorModal] 关闭模态窗");
 
 		//  清理事件监听器
@@ -124,6 +124,11 @@ export class ImageMaskEditorModal extends Modal {
 			this.eventCleanup();
 			this.eventCleanup = null;
 		}
+
+		void this.finalizeClose();
+	}
+
+	private async finalizeClose(): Promise<void> {
 
 		// 销毁 Svelte 组件
 		if (this.modalComponent) {

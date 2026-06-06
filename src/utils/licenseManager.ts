@@ -14,11 +14,9 @@ import {
 	normalizeLicenseInfo,
 } from "./license-state";
 import { vaultStorage } from "./vault-local-storage";
-import {
-	isCloudLicenseConfigured,
-	LICENSE_CLOUD_MAX_DEVICES,
-	LICENSE_CLOUD_REVALIDATION_DAYS,
-} from "../config/license-cloud-config";
+import { isCloudLicenseConfigured, LICENSE_CLOUD_REVALIDATION_DAYS } from "../config/license-cloud-config";
+import { isCallable, readUnknownProperty, readUnknownString } from "./dynamic-access";
+import { isRecord, parseJsonUnknown } from "./typed-json";
 import { normalizeLicenseMaxDevices } from "./license-max-devices";
 import { CloudLicenseValidator } from "./cloudLicenseValidator";
 import { assertSubmittedEmailMatchesActivationOwner } from "./license-owner-email";
@@ -75,16 +73,10 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 	 */
 	private async generateDeviceFingerprint(): Promise<string> {
 		if (!this.app) {
-			return this.generateDeviceFingerprintLegacy();
+			const components = await this.collectDeviceComponents();
+			return this.sha256(components.join("|"));
 		}
 		return generateStableDeviceFingerprint(this.app);
-	}
-
-	/** @deprecated 仅作 app 未注入时的兜底 */
-	private async generateDeviceFingerprintLegacy(): Promise<string> {
-		const components = await this.collectDeviceComponents();
-		const fingerprint = components.join("|");
-		return this.sha256(fingerprint);
 	}
 
 	/**
@@ -114,27 +106,39 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 		components.push(navigator.maxTouchPoints?.toString() || "0");
 
 		// 内存信息（如果可用）
-		const memory = (navigator as any).deviceMemory;
-		if (memory) {
+		const memory = readUnknownProperty(navigator, "deviceMemory");
+		if (typeof memory === "number") {
 			components.push(`${memory}GB`);
 		}
 
-		// 网络信息（如果可用）
-		const connection = (navigator as any).connection;
-		if (connection) {
-			components.push(connection.effectiveType || "unknown");
-			components.push(connection.downlink?.toString() || "unknown");
+		const connection = readUnknownProperty(navigator, "connection");
+		if (isRecord(connection)) {
+			components.push(readUnknownString(connection, "effectiveType") || "unknown");
+			const downlink = connection.downlink;
+			components.push(typeof downlink === "number" ? String(downlink) : "unknown");
 		}
 
 		// 不使用 app.appId（按库变化）；跨插件 ID 见 device-fingerprint.ts
 
 		// 系统信息（如果可用）
 		try {
-			const os = (window as any).require?.("os");
-			if (os) {
-				components.push(os.platform() || "unknown");
-				components.push(os.arch() || "unknown");
-				components.push(os.hostname() || "unknown");
+			const nodeRequire = readUnknownProperty(window, "require");
+			if (isCallable(nodeRequire)) {
+				const os = Reflect.apply(nodeRequire, window, ["os"]);
+				if (isRecord(os)) {
+					const platform = readUnknownProperty(os, "platform");
+					const arch = readUnknownProperty(os, "arch");
+					const hostname = readUnknownProperty(os, "hostname");
+					if (isCallable(platform)) {
+						components.push(String(Reflect.apply(platform, os, [])));
+					}
+					if (isCallable(arch)) {
+						components.push(String(Reflect.apply(arch, os, [])));
+					}
+					if (isCallable(hostname)) {
+						components.push(String(Reflect.apply(hostname, os, [])));
+					}
+				}
 			}
 		} catch {
 			components.push("no-os-info");
@@ -142,7 +146,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 
 		// Canvas指纹（轻量级）
 		try {
-			const canvas = document.createElement("canvas");
+			const canvas = activeDocument.createElement("canvas");
 			const ctx = canvas.getContext("2d");
 			if (ctx) {
 				ctx.textBaseline = "top";
@@ -156,13 +160,11 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 
 		// WebGL信息（如果可用）
 		try {
-			const canvas = document.createElement("canvas");
-			const gl = canvas.getContext("webgl") as WebGLRenderingContext | null;
+			const canvas = activeDocument.createElement("canvas");
+			const gl = canvas.getContext("webgl");
 			if (gl) {
-				const renderer = gl.getParameter(gl.RENDERER);
-				const vendor = gl.getParameter(gl.VENDOR);
-				components.push(renderer || "unknown-renderer");
-				components.push(vendor || "unknown-vendor");
+				components.push(String(gl.getParameter(gl.RENDERER) ?? "unknown-renderer"));
+				components.push(String(gl.getParameter(gl.VENDOR) ?? "unknown-vendor"));
 			}
 		} catch {
 			components.push("no-webgl");
@@ -170,7 +172,13 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 
 		// 音频上下文指纹（轻量级）
 		try {
-			const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+			const AudioContextCtor =
+				window.AudioContext ||
+				(readUnknownProperty(window, "webkitAudioContext") as typeof AudioContext | undefined);
+			if (!AudioContextCtor) {
+				throw new Error("AudioContext unavailable");
+			}
+			const audioContext = new AudioContextCtor();
 			const oscillator = audioContext.createOscillator();
 			const analyser = audioContext.createAnalyser();
 			const gainNode = audioContext.createGain();
@@ -186,12 +194,6 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 		} catch {
 			components.push("no-audio");
 		}
-
-		// 插件和扩展检测（基础）
-		const plugins = Array.from(navigator.plugins || [])
-			.map((p) => p.name)
-			.slice(0, 5);
-		components.push(plugins.join(",") || "no-plugins");
 
 		return components.filter((_c) => _c && _c !== "undefined");
 	}
@@ -981,7 +983,11 @@ export class ActivationAttemptLimiter {
 	private static getAttempts(): ActivationAttempt[] {
 		try {
 			const stored = vaultStorage.getItem(this.STORAGE_KEY);
-			return stored ? JSON.parse(stored) : [];
+			if (!stored) {
+				return [];
+			}
+			const parsed = parseJsonUnknown(stored);
+			return Array.isArray(parsed) ? (parsed as ActivationAttempt[]) : [];
 		} catch {
 			return [];
 		}
@@ -1087,10 +1093,15 @@ export class ActivationCodeValidator {
 		// 检查数据部分是否为有效JSON
 		try {
 			const dataString = atob(dataBase64);
-			const data = JSON.parse(dataString);
+			const data = parseJsonUnknown(dataString);
+			if (!isRecord(data)) {
+				return {
+					isValid: false,
+					error: "激活码数据格式无效",
+				};
+			}
 
-			// 检查必要字段
-			const requiredFields = ["userId", "productId", "licenseType", "expiresAt"];
+			const requiredFields = ["userId", "productId", "licenseType", "expiresAt"] as const;
 			for (const field of requiredFields) {
 				if (!data[field]) {
 					return {
@@ -1100,10 +1111,10 @@ export class ActivationCodeValidator {
 				}
 			}
 
-			// 检查产品ID（兼容更名前的旧产品ID）
+			const productId = readUnknownString(data, "productId");
 			if (
-				data.productId !== "weave-obsidian-plugin" &&
-				data.productId !== "tuanki-obsidian-plugin"
+				productId !== "weave-obsidian-plugin" &&
+				productId !== "tuanki-obsidian-plugin"
 			) {
 				return {
 					isValid: false,
@@ -1111,8 +1122,12 @@ export class ActivationCodeValidator {
 				};
 			}
 
-			// 检查过期时间格式
-			const expiresAt = new Date(data.expiresAt);
+			const expiresAtRaw = data.expiresAt;
+			const expiresAt = new Date(
+				typeof expiresAtRaw === "string" || typeof expiresAtRaw === "number"
+					? expiresAtRaw
+					: ""
+			);
 			if (Number.isNaN(expiresAt.getTime())) {
 				return {
 					isValid: false,

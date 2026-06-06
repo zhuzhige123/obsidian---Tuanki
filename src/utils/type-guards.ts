@@ -8,7 +8,7 @@
  * @param fields 字段数组
  * @returns 过滤后的字段
  */
-export function filterFields(fields: any[]): any[] {
+export function filterFields(fields: unknown[]): unknown[] {
 	if (!Array.isArray(fields)) {
 		return [];
 	}
@@ -22,7 +22,7 @@ export function filterFields(fields: any[]): any[] {
  * @param field 待检查的字段
  * @returns 是否为有效字段
  */
-export function isValidField(field: any): field is Record<string, any> {
+export function isValidField(field: unknown): field is Record<string, unknown> {
 	return typeof field === "object" && field !== null;
 }
 
@@ -31,7 +31,7 @@ export function isValidField(field: any): field is Record<string, any> {
  * @param value 待检查的值
  * @returns 是否为字符串
  */
-export function isString(value: any): value is string {
+export function isString(value: unknown): value is string {
 	return typeof value === "string";
 }
 
@@ -40,6 +40,6 @@ export function isString(value: any): value is string {
  * @param value 待检查的值
  * @returns 是否为数组
  */
-export function isArray(value: any): value is any[] {
+export function isArray(value: unknown): value is unknown[] {
 	return Array.isArray(value);
 }

@@ -16,6 +16,7 @@ import type { App, TFile } from "obsidian";
 import type { CommentLocation, Mask, MaskData, MaskTarget, ParseResult } from "../../types/image-mask-types";
 import { MASK_CONSTANTS } from "../../types/image-mask-types";
 import { getMaskTargetComparablePath } from "./image-mask-target";
+import { isRecord } from "../../utils/typed-json";
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set([
 	"png",
@@ -283,7 +284,7 @@ export class MaskDataParser {
 			return wikiMatch[0];
 		}
 
-		const mdMatch = line.match(/!\[[^\]]*\]\([^\)]*\)/);
+		const mdMatch = line.match(/!\[[^\]]*\]\([^)]*\)/);
 		if (mdMatch) {
 			return mdMatch[0];
 		}
@@ -344,9 +345,9 @@ export class MaskDataParser {
 	/**
 	 * 验证遮罩数据结构
 	 */
-	private validateMaskData(data: any): ParseResult {
+	private validateMaskData(data: unknown): ParseResult {
 		// 检查基本结构
-		if (!data || typeof data !== "object") {
+		if (!isRecord(data)) {
 			return {
 				success: false,
 				error: "遮罩数据格式错误",
@@ -354,15 +355,16 @@ export class MaskDataParser {
 		}
 
 		// 检查版本
-		if (!data.version || data.version !== MASK_CONSTANTS.CURRENT_VERSION) {
+		if (data.version !== MASK_CONSTANTS.CURRENT_VERSION) {
 			return {
 				success: false,
-				error: `不支持的数据版本: ${data.version}`,
+				error: `不支持的数据版本: ${String(data.version)}`,
 			};
 		}
 
 		// 检查 masks 数组
-		if (!Array.isArray(data.masks)) {
+		const masks = data.masks;
+		if (!Array.isArray(masks)) {
 			return {
 				success: false,
 				error: "masks 必须是数组",
@@ -370,9 +372,8 @@ export class MaskDataParser {
 		}
 
 		// 验证每个遮罩
-		for (let i = 0; i < data.masks.length; i++) {
-			const mask = data.masks[i];
-			const maskValidation = this.validateMask(mask, i);
+		for (let i = 0; i < masks.length; i++) {
+			const maskValidation = this.validateMask(masks[i], i);
 
 			if (!maskValidation.success) {
 				return maskValidation;
@@ -385,16 +386,24 @@ export class MaskDataParser {
 	/**
 	 * 验证单个遮罩数据
 	 */
-	private validateMask(mask: any, index: number): ParseResult {
+	private validateMask(mask: unknown, index: number): ParseResult {
+		if (!isRecord(mask)) {
+			return {
+				success: false,
+				error: `遮罩 #${index}: 格式错误`,
+			};
+		}
+
 		// 必需字段
-		if (!mask.id || typeof mask.id !== "string") {
+		if (typeof mask.id !== "string" || !mask.id) {
 			return {
 				success: false,
 				error: `遮罩 #${index}: 缺少 id 字段`,
 			};
 		}
 
-		if (!mask.type || !["rect", "circle"].includes(mask.type)) {
+		const maskType = mask.type;
+		if (typeof maskType !== "string" || !["rect", "circle"].includes(maskType)) {
 			return {
 				success: false,
 				error: `遮罩 #${index}: type 必须是 'rect' 或 'circle'`,
@@ -464,7 +473,7 @@ export class MaskDataParser {
 		}
 
 		// Markdown 链接格式: ![alt](path)
-		const mdMatch = link.match(/!\[[^\]]*\]\(([^\)]*)\)/);
+		const mdMatch = link.match(/!\[[^\]]*\]\(([^)]*)\)/);
 		if (mdMatch) {
 			let target = mdMatch[1].trim();
 			if (target.startsWith("<") && target.endsWith(">")) {

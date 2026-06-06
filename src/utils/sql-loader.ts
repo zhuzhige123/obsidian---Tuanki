@@ -8,7 +8,7 @@ import { logger } from "../utils/logger";
 export interface SqlDatabase {
 	exec(sql: string): Array<{
 		columns: string[];
-		values: any[][];
+		values: unknown[][];
 	}>;
 	close(): void;
 }
@@ -28,7 +28,7 @@ export async function loadSqlJs(wasmUrl?: string): Promise<SqlJs> {
 		logger.debug("🔧 正在加载 SQL.js 库...");
 
 		// 配置 SQL.js
-		const config: any = {};
+		const config: unknown = {};
 
 		if (wasmUrl) {
 			config.locateFile = (file: string) => {

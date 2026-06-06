@@ -74,7 +74,7 @@ export async function batchUpdateCards(
 			});
 
 			if (current % 10 === 0) {
-				await new Promise((resolve) => setTimeout(resolve, 0));
+				await new Promise((resolve) => window.setTimeout(resolve, 0));
 			}
 		}
 

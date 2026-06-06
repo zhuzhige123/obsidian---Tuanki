@@ -128,11 +128,7 @@ export class WeaveDataStorageAdapter implements IDataStorageAdapter {
 		onProgress?: (current: number, total: number, detail: string) => void
 	): Promise<void> {
 		try {
-			if (typeof (this.storage as any).saveCardsBatchWithProgress === "function") {
-				await (this.storage as any).saveCardsBatchWithProgress(cards, onProgress);
-			} else {
-				await this.storage.saveCardsBatch(cards);
-			}
+			await this.storage.saveCardsBatchWithProgress(cards, onProgress);
 			this.logger.info(`批量创建卡片: ${cards.length} 张`);
 		} catch (error) {
 			this.logger.error("批量创建卡片失败", error);

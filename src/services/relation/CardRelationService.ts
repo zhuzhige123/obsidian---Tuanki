@@ -9,7 +9,7 @@ import type { Card, Deck } from "../../data/types";
 import { generateId } from "../../utils/helpers";
 import { getCardDeckIds } from "../../utils/yaml-utils";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
-import type { CardRelationMetadata, ChildCardData } from "./types";
+import type { ChildCardData } from "./types";
 import { DerivationMethod } from "./types";
 
 export class CardRelationService {
@@ -194,18 +194,15 @@ export class CardRelationService {
 	 * @returns 子卡片数组
 	 */
 	async getChildCards(parentCardId: string): Promise<Card[]> {
-		const parentCard =
-			typeof (this.dataStorage as any).getCardByUUID === "function"
-				? await (this.dataStorage as any).getCardByUUID(parentCardId)
-				: null;
+		const parentCard = await this.dataStorage.getCardByUUID(parentCardId);
 		const childCardIds = Array.isArray(parentCard?.relationMetadata?.childCardIds)
-			? parentCard.relationMetadata.childCardIds.filter(Boolean)
+			? parentCard.relationMetadata.childCardIds.filter((id): id is string => Boolean(id))
 			: [];
 
 		let childCards: Card[] = [];
-		if (childCardIds.length > 0 && typeof (this.dataStorage as any).getCardsByUUIDs === "function") {
-			childCards = (await (this.dataStorage as any).getCardsByUUIDs(childCardIds)).filter(
-				(card: Card) => card?.parentCardId === parentCardId
+		if (childCardIds.length > 0) {
+			childCards = (await this.dataStorage.getCardsByUUIDs(childCardIds)).filter(
+				(card) => card?.parentCardId === parentCardId
 			);
 		} else {
 			const allCards = await this.dataStorage.getAllCards();

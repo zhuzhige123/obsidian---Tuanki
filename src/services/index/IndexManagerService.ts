@@ -301,7 +301,7 @@ export class IndexManagerService {
 				`Loaded card-by-source index (${Object.keys(this.cardBySourceIndex).length} files)`
 			);
 		} catch {
-			this.cardBySourceIndex = {};
+			this.cardBySourceIndex = { /* no-op */ };
 			logger.debug("No existing card-by-source index found");
 		}
 
@@ -315,7 +315,7 @@ export class IndexManagerService {
 				`Loaded media-by-hash index (${Object.keys(this.mediaByHashIndex).length} files)`
 			);
 		} catch {
-			this.mediaByHashIndex = {};
+			this.mediaByHashIndex = { /* no-op */ };
 			logger.debug("No existing media-by-hash index found");
 		}
 	}
@@ -323,7 +323,7 @@ export class IndexManagerService {
 	/**
 	 * 保存索引
 	 */
-	private async saveIndex(name: string, data: any): Promise<void> {
+	private async saveIndex(name: string, data: unknown): Promise<void> {
 		const filePath = `${this.basePath}/${name}.json`;
 		await this.plugin.app.vault.adapter.write(filePath, JSON.stringify(data, null, 2));
 	}

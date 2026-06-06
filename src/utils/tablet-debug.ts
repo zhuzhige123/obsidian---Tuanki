@@ -27,7 +27,7 @@ type TabletDebugApi = {
 };
 
 type TabletDebugWindow = Window &
-	typeof globalThis & {
+	typeof window & {
 		__weave_detectDevice?: (() => DeviceInfo) | undefined;
 		__weaveTabletDebugCleanup?: (() => void) | undefined;
 		weaveTabletDebug?: TabletDebugApi | undefined;
@@ -117,7 +117,7 @@ class TabletDebugger {
 		});
 
 		// 替换全局设备检测函数
-		(window as any).__weave_detectDevice = mockDetectDevice;
+		(window as unknown).__weave_detectDevice = mockDetectDevice;
 
 		logger.debug("[TabletDebugger] 设备模拟已启用", deviceInfo);
 		this.updateDebugOverlay();
@@ -154,11 +154,11 @@ class TabletDebugger {
 	private createDebugOverlay(): void {
 		if (this.debugOverlay) return;
 
-		this.debugOverlay = document.createElement("div");
+		this.debugOverlay = activeDocument.createElement("div");
 		this.debugOverlay.id = "weave-tablet-debug";
 		this.debugOverlay.className = "weave-tablet-debug";
 
-		document.body.appendChild(this.debugOverlay);
+		activeDocument.body.appendChild(this.debugOverlay);
 		this.updateDebugOverlay();
 	}
 
@@ -180,9 +180,9 @@ class TabletDebugger {
 			coarsePointer:
 				typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches,
 		};
-		const fragment = document.createDocumentFragment();
+		const fragment = activeDocument.createDocumentFragment();
 		const appendLine = (text: string, className?: string): void => {
-			const line = document.createElement("div");
+			const line = activeDocument.createElement("div");
 			if (className) {
 				line.className = className;
 			}
@@ -190,8 +190,8 @@ class TabletDebugger {
 			fragment.appendChild(line);
 		};
 		const appendTitle = (text: string): void => {
-			const line = document.createElement("div");
-			const strong = document.createElement("strong");
+			const line = activeDocument.createElement("div");
+			const strong = activeDocument.createElement("strong");
 			strong.textContent = text;
 			line.appendChild(strong);
 			fragment.appendChild(line);
@@ -309,7 +309,7 @@ class TabletDebugger {
 			e.target?.dispatchEvent(touchEvent);
 		};
 
-		document.addEventListener("mousedown", this.touchSimulationMouseDownHandler);
+		activeDocument.addEventListener("mousedown", this.touchSimulationMouseDownHandler);
 
 		logger.debug("[TabletDebugger] 触控模拟已启用");
 	}
@@ -319,7 +319,7 @@ class TabletDebugger {
 			return;
 		}
 
-		document.removeEventListener("mousedown", this.touchSimulationMouseDownHandler);
+		activeDocument.removeEventListener("mousedown", this.touchSimulationMouseDownHandler);
 		this.touchSimulationMouseDownHandler = null;
 	}
 
@@ -336,8 +336,8 @@ class TabletDebugger {
 	getStats(): {
 		currentDevice: DeviceInfo;
 		isMocked: boolean;
-		screenInfo: any;
-		capabilities: any;
+		screenInfo: unknown;
+		capabilities: unknown;
 	} {
 		const debugWindow = window as TabletDebugWindow;
 		return {

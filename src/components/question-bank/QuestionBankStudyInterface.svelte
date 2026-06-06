@@ -1358,8 +1358,8 @@
     initSession();
 
     // 与记忆学习一致：标记学习会话，保留 Obsidian 原生 view-header 布局
-    if (document.body.classList.contains('is-phone')) {
-      document.body.classList.add('weave-study-active');
+    if (activeDocument.body.classList.contains('is-phone')) {
+      activeDocument.body.classList.add('weave-study-active');
     }
     
     // 初始化EmbeddableEditorManager（旧嵌入式方案：embedRegistry，无文件池）
@@ -1397,7 +1397,7 @@
     if (viewInstance && typeof viewInstance.updateEditMode === 'function') {
       viewInstance.updateEditMode(false);
     }
-    document.body.classList.remove('weave-study-active', 'weave-edit-active');
+    activeDocument.body.classList.remove('weave-study-active', 'weave-edit-active');
     stopTimer();
   });
 
@@ -1418,18 +1418,18 @@
 
   // 移动端编辑：与记忆学习共用 weave-edit-active（隐藏插件内 study-header，保留 Obsidian view-header）
   $effect(() => {
-    if (typeof document === 'undefined') return;
+    if (typeof activeDocument === 'undefined') return;
 
     const isMobileDevice =
-      document.body.classList.contains('is-mobile')
-      || document.body.classList.contains('is-phone');
+      activeDocument.body.classList.contains('is-mobile')
+      || activeDocument.body.classList.contains('is-phone');
 
     if (isMobileDevice) {
-      document.body.classList.toggle('weave-edit-active', showEditModal);
+      activeDocument.body.classList.toggle('weave-edit-active', showEditModal);
     }
 
     return () => {
-      document.body.classList.remove('weave-edit-active');
+      activeDocument.body.classList.remove('weave-edit-active');
     };
   });
 

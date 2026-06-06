@@ -61,7 +61,7 @@ function inferExistingVaultPathKind(app: App, normalizedPath: string): "file" | 
 		const ctorName = (abstractFile as { constructor?: { name?: string } }).constructor?.name;
 		if (ctorName === "TFile") return "file";
 		if (ctorName === "TFolder") return "folder";
-	} catch {}
+	} catch { /* no-op */ }
 
 	return null;
 }
@@ -112,7 +112,7 @@ export function getPluginEditorTempDir(app: App): string {
 }
 
 export function getVaultEditorTempDir(app: App): string {
-	return normalizePath(`${getV2PathsFromApp(app as any).root}/editor`);
+	return normalizePath(`${getV2PathsFromApp(app as unknown).root}/editor`);
 }
 
 export function isDetachedEditorTempFileName(name: string): boolean {

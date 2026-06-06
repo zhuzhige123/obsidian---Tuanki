@@ -212,7 +212,7 @@ export class ProgressModal extends Modal {
 			actionLabel: "关闭",
 		}));
 
-		setTimeout(() => this.close(), 1200);
+		window.setTimeout(() => this.close(), 1200);
 	}
 
 	/** 设置错误状态 */

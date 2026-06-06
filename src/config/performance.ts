@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger";
+import { isDevBuild } from "../utils/build-env";
 /**
  * 性能优化配置
  * 提供可调节的性能参数和优化策略
@@ -146,7 +147,7 @@ export class PerformanceMonitor {
 		this.isMonitoring = false;
 
 		if (this.monitoringInterval) {
-			clearInterval(this.monitoringInterval);
+			window.clearInterval(this.monitoringInterval);
 			this.monitoringInterval = null;
 		}
 
@@ -299,7 +300,7 @@ export function debounce<T extends UnknownFn>(
 
 	return (...args: FnArgs<T>) => {
 		if (timeoutId) {
-			clearTimeout(timeoutId);
+			window.clearTimeout(timeoutId);
 		}
 
 		timeoutId = window.setTimeout(() => {
@@ -365,7 +366,7 @@ export class BatchProcessor<T> {
 	 */
 	flush(): void {
 		if (this.timeoutId) {
-			clearTimeout(this.timeoutId);
+			window.clearTimeout(this.timeoutId);
 			this.timeoutId = null;
 		}
 
@@ -406,7 +407,7 @@ function getOrCreatePerformanceMonitor(): PerformanceMonitor {
 	w.__weaveConfigPerformanceMonitorCleanup = () => {
 		try {
 			(w.__weaveConfigPerformanceMonitor as PerformanceMonitor | undefined)?.stopMonitoring();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			w.__weaveConfigPerformanceMonitor = undefined;
 			w.__weaveConfigPerformanceMonitorCleanup = undefined;
@@ -421,6 +422,6 @@ function getOrCreatePerformanceMonitor(): PerformanceMonitor {
 
 export const performanceMonitor = getOrCreatePerformanceMonitor();
 
-if (process.env.NODE_ENV === "development") {
+if (isDevBuild()) {
 	performanceMonitor.startMonitoring();
 }

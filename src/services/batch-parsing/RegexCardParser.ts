@@ -15,6 +15,7 @@ import { logger } from "../../utils/logger";
 
 import { App, TFile } from "obsidian";
 import { CardType } from "../../data/types";
+import type WeavePlugin from "../../main";
 import type { ParsedCard, RegexParsingConfig } from "../../types/newCardParsingTypes";
 import { logDebugWithTag } from "../../utils/logger";
 import type { CardWithPosition } from "../../utils/simplifiedParser/CardPositionTracker";
@@ -79,11 +80,20 @@ interface CardMatch {
  */
 export class RegexCardParser {
 	private frontmatterManager: FrontmatterManager;
-	private plugin: any; // 插件实例（用于访问全局配置）
 
-	constructor(private app: App, plugin?: any) {
+	constructor(
+		private app: App,
+		private plugin?: WeavePlugin
+	) {
 		this.frontmatterManager = new FrontmatterManager(app);
-		this.plugin = plugin;
+	}
+
+	private getConfiguredExcludeTags(): string[] {
+		const configured = this.plugin?.settings?.simplifiedParsing?.batchParsing?.excludeTags;
+		if (!Array.isArray(configured)) {
+			return [];
+		}
+		return configured.filter((tag): tag is string => typeof tag === "string");
 	}
 
 	/**
@@ -137,7 +147,7 @@ export class RegexCardParser {
 			const excludeTags = [
 				"#we_已删除",
 				"#we_deleted", // 系统保留标签（插件删除卡片时自动添加，使用 we_ 前缀避免冲突）
-				...(this.plugin?.settings?.simplifiedParsing?.batchParsing?.excludeTags || []), // 用户全局配置
+				...this.getConfiguredExcludeTags(),
 			];
 
 			const validMatches = cardMatches.filter((_match) => {
@@ -290,7 +300,7 @@ export class RegexCardParser {
 				"#we_已删除",
 				"#we_deleted",
 				...(config.excludeTags || []),
-				...(this.plugin?.settings?.simplifiedParsing?.batchParsing?.excludeTags || []),
+				...this.getConfiguredExcludeTags(),
 			];
 
 			const validMatches = cardMatches.filter((match) => {
@@ -625,7 +635,7 @@ export class RegexCardParser {
 		//  优先处理组合格式：UUID标识符 + 块链接在同一行
 		// 匹配格式如：<!-- tk-5vmqmfjfxthm --> ^we-3j2hjk
 		cleanedContent = cleanedContent.replace(
-			/<!--\s*(?:tk-[23456789abcdefghjkmnpqrstuvwxyz]{12}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\s*-->\s*\^[a-zA-Z0-9\-]+\s*$/gm,
+			/<!--\s*(?:tk-[23456789abcdefghjkmnpqrstuvwxyz]{12}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\s*-->\s*\^[a-zA-Z0-9-]+\s*$/gm,
 			""
 		);
 
@@ -644,7 +654,7 @@ export class RegexCardParser {
 
 		//  单独处理剩余的Obsidian块链接：^abc123
 		// 匹配行尾的块链接，包括前面可能的空格
-		cleanedContent = cleanedContent.replace(/\s*\^[a-zA-Z0-9\-]+\s*$/gm, "");
+		cleanedContent = cleanedContent.replace(/\s*\^[a-zA-Z0-9-]+\s*$/gm, "");
 
 		//  移除空行和多余的空白
 		// 替换多个连续换行为最多两个换行

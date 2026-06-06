@@ -1,6 +1,8 @@
 import { type App, TFile } from "obsidian";
 import { normalizePath } from "obsidian";
 import { logger } from "../../utils/logger";
+import { isCallable } from "../../utils/dynamic-access";
+import { getVaultAdapterWithDirOps, listVaultDirectory } from "../../utils/plugin-runtime";
 import {
 	getPluginEditorTempDir,
 	getVaultEditorTempDir,
@@ -200,7 +202,7 @@ export class EditorTempFileCleanupService {
 	}
 
 	private async cleanupLegacyTempDirectories(openPaths: Set<string>): Promise<void> {
-		const adapter: any = this.app.vault.adapter as any;
+		const adapter = getVaultAdapterWithDirOps(this.app.vault.adapter);
 		for (const dir of this.getLegacyTempDirectories()) {
 			let deletedInDir = 0;
 			for (const filePath of await this.collectFilesRecursively(dir)) {
@@ -245,7 +247,7 @@ export class EditorTempFileCleanupService {
 	}
 
 	private async collectFilesRecursively(dirPath: string): Promise<string[]> {
-		const adapter: any = this.app.vault.adapter as any;
+		const adapter = getVaultAdapterWithDirOps(this.app.vault.adapter);
 		const normalizedDirPath = normalizePath(dirPath);
 		if (!(await adapter.exists(normalizedDirPath))) {
 			return [];
@@ -254,18 +256,16 @@ export class EditorTempFileCleanupService {
 		const files: string[] = [];
 
 		const walk = async (currentDir: string): Promise<void> => {
-			let listing: any;
-			try {
-				listing = await adapter.list(currentDir);
-			} catch {
+			const listing = await listVaultDirectory(adapter, currentDir);
+			if (!listing) {
 				return;
 			}
 
-			for (const childDir of listing?.folders || []) {
+			for (const childDir of listing.folders) {
 				await walk(childDir);
 			}
 
-			for (const filePath of listing?.files || []) {
+			for (const filePath of listing.files) {
 				files.push(filePath);
 			}
 		};
@@ -275,43 +275,39 @@ export class EditorTempFileCleanupService {
 	}
 
 	private async removeEmptyDirectoriesDeep(dirPath: string): Promise<void> {
-		const adapter: any = this.app.vault.adapter as any;
+		const adapter = getVaultAdapterWithDirOps(this.app.vault.adapter);
 		const normalizedPath = normalizePath(dirPath);
 		if (!(await adapter.exists(normalizedPath))) {
 			return;
 		}
 
-		let listing: any;
-		try {
-			listing = await adapter.list(normalizedPath);
-		} catch {
+		const listing = await listVaultDirectory(adapter, normalizedPath);
+		if (!listing) {
 			return;
 		}
 
-		for (const childDir of listing?.folders || []) {
+		for (const childDir of listing.folders) {
 			await this.removeEmptyDirectoriesDeep(childDir);
 		}
 
-		let latestListing: any;
-		try {
-			latestListing = await adapter.list(normalizedPath);
-		} catch {
+		const latestListing = await listVaultDirectory(adapter, normalizedPath);
+		if (!latestListing) {
 			return;
 		}
 
-		const hasFiles = (latestListing?.files || []).length > 0;
-		const hasFolders = (latestListing?.folders || []).length > 0;
+		const hasFiles = latestListing.files.length > 0;
+		const hasFolders = latestListing.folders.length > 0;
 		if (hasFiles || hasFolders) {
 			return;
 		}
 
 		try {
-			if (typeof adapter.rmdir === "function") {
+			if (isCallable(adapter.rmdir)) {
 				await adapter.rmdir(normalizedPath, false);
 			} else {
 				await adapter.remove(normalizedPath);
 			}
-		} catch {}
+		} catch { /* no-op */ }
 	}
 
 	private getOpenMarkdownFilePaths(): Set<string> {
@@ -320,13 +316,13 @@ export class EditorTempFileCleanupService {
 			const leaves = this.app.workspace.getLeavesOfType("markdown");
 			for (const leaf of leaves) {
 				try {
-					const view = leaf.view as any;
+					const view = leaf.view as unknown;
 					const file = view?.file as TFile | null | undefined;
 					const p = file?.path;
 					if (p) open.add(normalizePath(p));
-				} catch {}
+				} catch { /* no-op */ }
 			}
-		} catch {}
+		} catch { /* no-op */ }
 		return open;
 	}
 }

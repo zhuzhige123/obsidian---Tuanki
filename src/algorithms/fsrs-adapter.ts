@@ -156,7 +156,7 @@ export function fromTsFsrsCard(card: TsCard, retrievability: number): FSRSCard {
 		due: card.due.toISOString(),
 		stability: card.stability,
 		difficulty: card.difficulty,
-		elapsedDays: card.elapsed_days,
+		elapsedDays: (card as Record<string, number>)["elapsed_days"],
 		scheduledDays: card.scheduled_days,
 		reps: card.reps,
 		lapses: card.lapses,

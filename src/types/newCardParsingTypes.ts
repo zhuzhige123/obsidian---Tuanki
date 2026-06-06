@@ -331,7 +331,7 @@ export interface ParsedCard {
 	sourceBlock?: string; // 块链接 (格式: ^blockId)
 
 	// 自定义字段（向后兼容）
-	customFields?: Record<string, any>;
+	customFields?: Record<string, unknown>;
 }
 
 /**

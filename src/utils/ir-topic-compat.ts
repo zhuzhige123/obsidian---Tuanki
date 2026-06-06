@@ -171,7 +171,7 @@ export function normalizeBookmarkTaskForRuntime<T extends { topicId?: string; de
 ): T {
 	const topicId = getTaskTopicId(task);
 	if (!topicId) {
-		return { ...task } as T;
+		return { ...task };
 	}
 
 	return {
@@ -317,7 +317,7 @@ export function serializeStudySessionForStorage<T extends Partial<IRStudySession
 export function normalizeIRSessionForRuntime<T extends Partial<IRSession>>(session: T): T {
 	const topicId = getTaskTopicId(session as { topicId?: string; deckId?: string });
 	if (!topicId) {
-		return { ...session } as T;
+		return { ...session };
 	}
 
 	return {

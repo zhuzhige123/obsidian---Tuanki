@@ -3,6 +3,8 @@ import { EpubStorageService } from "../services/epub-integration";
 import { EPUB_RUNTIME } from "../services/epub-integration/epub-runtime";
 import { isSupportedBookPath } from "../services/epub-integration/book-format";
 import { epubActiveDocumentStore } from "../stores/epub-active-document-store";
+import { isCallable, readUnknownProperty } from "./dynamic-access";
+import { isRecord } from "./typed-json";
 import { getLeafLocation } from "./view-location-utils";
 import { revealLeaf } from "./workspace-navigation";
 
@@ -18,40 +20,42 @@ function isCenterLeaf(leaf: WorkspaceLeaf | null | undefined): leaf is Workspace
 	return !!leaf && getLeafLocation(leaf) === "center";
 }
 
+function readRegistryMapValue(source: unknown, key: string): unknown {
+	if (!source) {
+		return undefined;
+	}
+	const getter = readUnknownProperty(source, "get");
+	if (isCallable(getter)) {
+		return Reflect.apply(getter, source, [key]);
+	}
+	if (isRecord(source)) {
+		return source[key];
+	}
+	return undefined;
+}
+
 function readRegisteredViewTypeForExtension(app: App, extension: string): string | null {
 	const normalizedExtension = String(extension || "").trim().toLowerCase();
 	if (!normalizedExtension) {
 		return null;
 	}
-	const typeByExtension = (app as any)?.viewRegistry?.typeByExtension;
-	if (!typeByExtension) {
-		return null;
-	}
-	if (typeof typeByExtension.get === "function") {
-		return typeByExtension.get(normalizedExtension) ?? null;
-	}
-	if (typeof typeByExtension === "object") {
-		return typeByExtension[normalizedExtension] ?? null;
-	}
-	return null;
+	const registry = readUnknownProperty(app, "viewRegistry");
+	const typeByExtension = readUnknownProperty(registry, "typeByExtension");
+	const viewType = readRegistryMapValue(typeByExtension, normalizedExtension);
+	return typeof viewType === "string" && viewType.trim().length > 0 ? viewType : null;
 }
 
 function isRegisteredViewType(app: App, viewType: string): boolean {
-	const registry = (app as any)?.viewRegistry;
+	const registry = readUnknownProperty(app, "viewRegistry");
 	if (!registry || !viewType) {
 		return false;
 	}
-	const creators = registry.viewByType ?? registry.viewCreators ?? registry.views;
-	if (!creators) {
-		return false;
-	}
-	if (typeof creators.get === "function") {
-		return Boolean(creators.get(viewType));
-	}
-	if (typeof creators === "object") {
-		return Boolean(creators[viewType]);
-	}
-	return false;
+	const creators =
+		readUnknownProperty(registry, "viewByType") ??
+		readUnknownProperty(registry, "viewCreators") ??
+		readUnknownProperty(registry, "views");
+	const creator = readRegistryMapValue(creators, viewType);
+	return creator !== undefined && creator !== null;
 }
 
 export function getAllOpenEpubLeaves(app: App): WorkspaceLeaf[] {

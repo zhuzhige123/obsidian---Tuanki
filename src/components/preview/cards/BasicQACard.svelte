@@ -105,18 +105,18 @@
     separatorEl.remove();
 
     // 插入真正的 <hr> 元素，自动继承 Obsidian 主题样式
-    const hrEl = document.createElement('hr');
+    const hrEl = activeDocument.createElement('hr');
     hrEl.className = 'weave-qa-divider';
     container.appendChild(hrEl);
     answerDividerEl = hrEl;
 
     // 插入答案标题
-    const titleEl = document.createElement('div');
+    const titleEl = activeDocument.createElement('div');
     titleEl.className = 'weave-qa-answer-title';
     /*
     titleEl.legacyHTML = '<span class="weave-qa-label weave-qa-label--answer">答案</span>';
     */
-    const labelEl = document.createElement('span');
+    const labelEl = activeDocument.createElement('span');
     labelEl.className = 'weave-qa-label weave-qa-label--answer';
     labelEl.textContent = '答案';
     titleEl.appendChild(labelEl);
@@ -124,7 +124,7 @@
     answerTitleEl = titleEl;
 
     // 创建答案内容容器
-    const answerWrapper = document.createElement('div');
+    const answerWrapper = activeDocument.createElement('div');
     answerWrapper.className = 'weave-qa-back-section';
     afterNodes.forEach(node => answerWrapper.appendChild(node));
     container.appendChild(answerWrapper);

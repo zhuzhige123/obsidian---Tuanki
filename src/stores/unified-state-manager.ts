@@ -1,5 +1,6 @@
 import { logger } from "../utils/logger";
 import { vaultStorage } from "../utils/vault-local-storage";
+import type { TimerHandle } from "../types/timer";
 /**
  * 统一状态管理系统
  * 使用Svelte 5 Runes提供全局状态管理和同步
@@ -12,6 +13,7 @@ import {
 	type SimplifiedParsingSettings,
 } from "../types/newCardParsingTypes";
 import { getGlobalPerformanceMonitor } from "../utils/parsing-performance-monitor";
+import { isRecord, parseJsonUnknown } from "../utils/typed-json";
 
 // 应用状态接口
 export interface AppState {
@@ -127,7 +129,7 @@ export class UnifiedStateManager {
 	private state: AppState = this.getInitialState();
 	private subscribers = new Set<(state: AppState) => void>();
 	private persistenceKey = "weave-app-state";
-	private autoSaveInterval: NodeJS.Timeout | null = null;
+	private autoSaveInterval: TimerHandle | null = null;
 	private performanceMonitorInterval: ReturnType<typeof setInterval> | null = null;
 
 	constructor() {
@@ -163,7 +165,7 @@ export class UnifiedStateManager {
 				showAnswer: false,
 			},
 			settings: {
-				parsing: structuredClone(DEFAULT_SIMPLIFIED_PARSING_SETTINGS) as SimplifiedParsingSettings,
+				parsing: structuredClone(DEFAULT_SIMPLIFIED_PARSING_SETTINGS),
 				ui: {
 					cardDisplayMode: "comfortable",
 					animationsEnabled: true,
@@ -391,13 +393,36 @@ export class UnifiedStateManager {
 		try {
 			const persistedData = vaultStorage.getItem(this.persistenceKey);
 			if (persistedData) {
-				const parsed = JSON.parse(persistedData);
+				const parsed = parseJsonUnknown(persistedData);
+				if (!isRecord(parsed)) {
+					return;
+				}
 
 				// 合并持久化状态，保留当前状态的结构
 				this.state = {
 					...this.state,
-					settings: { ...this.state.settings, ...parsed.settings },
-					ui: { ...this.state.ui, ...parsed.ui },
+					settings: isRecord(parsed.settings)
+						? { ...this.state.settings, ...(parsed.settings as Partial<AppState["settings"]>) }
+						: this.state.settings,
+					ui: isRecord(parsed.ui)
+						? {
+								...this.state.ui,
+								theme:
+									parsed.ui.theme === "light" ||
+									parsed.ui.theme === "dark" ||
+									parsed.ui.theme === "auto"
+										? parsed.ui.theme
+										: this.state.ui.theme,
+								language:
+									typeof parsed.ui.language === "string"
+										? parsed.ui.language
+										: this.state.ui.language,
+								sidebarCollapsed:
+									typeof parsed.ui.sidebarCollapsed === "boolean"
+										? parsed.ui.sidebarCollapsed
+										: this.state.ui.sidebarCollapsed,
+							}
+						: this.state.ui,
 				};
 			}
 		} catch (error) {
@@ -429,7 +454,7 @@ export class UnifiedStateManager {
 	 * 开始自动保存
 	 */
 	private startAutoSave(): void {
-		this.autoSaveInterval = setInterval(() => {
+		this.autoSaveInterval = window.setInterval(() => {
 			this.persistState();
 		}, 30000); // 每30秒保存一次
 	}
@@ -439,7 +464,7 @@ export class UnifiedStateManager {
 	 */
 	stopAutoSave(): void {
 		if (this.autoSaveInterval) {
-			clearInterval(this.autoSaveInterval);
+			window.clearInterval(this.autoSaveInterval);
 			this.autoSaveInterval = null;
 		}
 	}
@@ -449,7 +474,7 @@ export class UnifiedStateManager {
 	 */
 	private setupPerformanceMonitoring(): void {
 		if (this.performanceMonitorInterval) return;
-		this.performanceMonitorInterval = setInterval(() => {
+		this.performanceMonitorInterval = window.setInterval(() => {
 			const metrics = getGlobalPerformanceMonitor().getMetrics();
 			this.updatePerformance({
 				memoryUsage: metrics.memoryUsage,
@@ -464,7 +489,7 @@ export class UnifiedStateManager {
 	 * 记录状态变更日志
 	 */
 	private logStateChange(action: StateAction, _previousState: AppState, _newState: AppState): void {
-		if (process.env.NODE_ENV === "development") {
+		if (import.meta.env.DEV) {
 			const payload = "payload" in action ? action.payload : undefined;
 			logger.debug("🔄 [StateManager] 状态变更:", {
 				action: action.type,
@@ -478,7 +503,7 @@ export class UnifiedStateManager {
 	 * 获取状态快照
 	 */
 	getSnapshot(): AppState {
-		return JSON.parse(JSON.stringify(this.state));
+		return structuredClone(this.state);
 	}
 
 	/**
@@ -487,7 +512,7 @@ export class UnifiedStateManager {
 	destroy(): void {
 		this.stopAutoSave();
 		if (this.performanceMonitorInterval) {
-			clearInterval(this.performanceMonitorInterval);
+			window.clearInterval(this.performanceMonitorInterval);
 			this.performanceMonitorInterval = null;
 		}
 		this.persistState();
@@ -503,7 +528,7 @@ function getOrCreateGlobalStateManager(): UnifiedStateManager {
 
 	const w = window as WindowWithGlobalStateManager;
 	if (w.__weaveGlobalStateManager) {
-		return w.__weaveGlobalStateManager as UnifiedStateManager;
+		return w.__weaveGlobalStateManager;
 	}
 
 	const instance = new UnifiedStateManager();
@@ -511,11 +536,11 @@ function getOrCreateGlobalStateManager(): UnifiedStateManager {
 	w.__weaveGlobalStateManagerCleanup = () => {
 		try {
 			w.__weaveGlobalPersistenceManagerCleanup?.();
-		} catch {}
+		} catch { /* no-op */ }
 
 		try {
 			(w.__weaveGlobalStateManager as UnifiedStateManager | undefined)?.destroy();
-		} catch {}
+		} catch { /* no-op */ }
 
 		try {
 			w.__weaveGlobalStateManager = undefined;
@@ -536,7 +561,7 @@ export const globalStateManager = getOrCreateGlobalStateManager();
  */
 export class StatePersistenceManager {
 	private stateManager: UnifiedStateManager;
-	private syncInterval: NodeJS.Timeout | null = null;
+	private syncInterval: TimerHandle | null = null;
 	private lastSyncTime = 0;
 	private readonly SYNC_INTERVAL = 60000; // 1分钟
 
@@ -549,7 +574,7 @@ export class StatePersistenceManager {
 	 * 设置自动同步
 	 */
 	private setupAutoSync(): void {
-		this.syncInterval = setInterval(() => {
+		this.syncInterval = window.setInterval(() => {
 			void this.syncState();
 		}, this.SYNC_INTERVAL);
 	}
@@ -573,7 +598,7 @@ export class StatePersistenceManager {
 			});
 
 			// 模拟同步过程
-			await new Promise((resolve) => setTimeout(resolve, 1000));
+			await new Promise((resolve) => window.setTimeout(resolve, 1000));
 
 			this.lastSyncTime = Date.now();
 
@@ -626,7 +651,7 @@ export class StatePersistenceManager {
 	 */
 	stopSync(): void {
 		if (this.syncInterval) {
-			clearInterval(this.syncInterval);
+			window.clearInterval(this.syncInterval);
 			this.syncInterval = null;
 		}
 	}
@@ -648,7 +673,7 @@ function getOrCreateGlobalPersistenceManager(
 
 	const w = window as WindowWithGlobalStateManager;
 	if (w.__weaveGlobalPersistenceManager) {
-		return w.__weaveGlobalPersistenceManager as StatePersistenceManager;
+		return w.__weaveGlobalPersistenceManager;
 	}
 
 	const instance = new StatePersistenceManager(stateManager);
@@ -656,7 +681,7 @@ function getOrCreateGlobalPersistenceManager(
 	w.__weaveGlobalPersistenceManagerCleanup = () => {
 		try {
 			(w.__weaveGlobalPersistenceManager as StatePersistenceManager | undefined)?.destroy();
-		} catch {}
+		} catch { /* no-op */ }
 
 		try {
 			w.__weaveGlobalPersistenceManager = undefined;

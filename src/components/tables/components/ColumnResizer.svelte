@@ -16,7 +16,7 @@
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
     window.addEventListener('pointercancel', handlePointerUp);
-    document.body.classList.add('resizing-column');
+    activeDocument.body.classList.add('resizing-column');
   }
 
   function handlePointerMove(event: PointerEvent) {
@@ -34,7 +34,7 @@
     window.removeEventListener('pointermove', handlePointerMove);
     window.removeEventListener('pointerup', handlePointerUp);
     window.removeEventListener('pointercancel', handlePointerUp);
-    document.body.classList.remove('resizing-column');
+    activeDocument.body.classList.remove('resizing-column');
   }
 
   function handleKeyDown(event: KeyboardEvent) {

@@ -109,7 +109,7 @@ export class CelebrationSound {
 			shimmerOsc.stop(now + 1.0);
 
 			// 清理标志
-			setTimeout(() => {
+			window.setTimeout(() => {
 				this.isPlaying = false;
 			}, 1200);
 		} catch (error) {

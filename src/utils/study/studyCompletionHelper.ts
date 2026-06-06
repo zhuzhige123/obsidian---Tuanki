@@ -14,7 +14,6 @@ import type { Card } from "../../data/types";
 import { CardState, CardType } from "../../data/types";
 import {
 	type ProgressiveClozeChildCard,
-	isProgressiveClozeChild,
 	isProgressiveClozeParent,
 } from "../../types/progressive-cloze-v2";
 
@@ -318,7 +317,8 @@ export function getAdvanceStudyCards(cards: Card[], count = 20, maxDaysAhead = 7
 
 			// 普通卡片和子卡片实例：检查FSRS状态
 			if (!_card.fsrs) return false;
-			const isLearningOrReview = _card.fsrs.state === 1 || _card.fsrs.state === 2;
+			const isLearningOrReview =
+				_card.fsrs.state === CardState.Learning || _card.fsrs.state === CardState.Review;
 			const dueTime = parseDueTime(_card.fsrs.due);
 			const isNotDueYet = dueTime > now;
 			const withinMaxAdvance = dueTime <= maxAdvanceTime; //  不超过最大提前天数
@@ -356,10 +356,7 @@ export async function loadCardsByIds(
 			deckId,
 		});
 
-		const allCards: Card[] =
-			typeof (dataStorage as any).getCardsByUUIDs === "function"
-				? await (dataStorage as any).getCardsByUUIDs(cardIds)
-				: await dataStorage.getAllCards();
+		const allCards: Card[] = await dataStorage.getCardsByUUIDs(cardIds);
 
 		logger.debug("[loadCardsByIds] getCards结果:", {
 			totalCards: allCards.length,
@@ -474,13 +471,13 @@ export async function loadDeckCardsForStudy(
 			}
 
 			// 按FSRS状态分类（按父卡片计数）
-			if (fsrs.state === 0) {
+			if (fsrs.state === CardState.New) {
 				newCards.push(card);
-			} else if (fsrs.state === 1) {
+			} else if (fsrs.state === CardState.Learning) {
 				learningCards.push(card);
-			} else if (fsrs.state === 3) {
+			} else if (fsrs.state === CardState.Relearning) {
 				relearningCards.push(card);
-			} else if (fsrs.state === 2) {
+			} else if (fsrs.state === CardState.Review) {
 				reviewCards.push(card);
 			}
 		}
@@ -570,7 +567,7 @@ export async function loadAllDueCardsForStudy(
 			if (isProgressiveClozeParent(_card)) {
 				return false;
 			}
-			return _card.fsrs && _card.fsrs.state === 0;
+			return _card.fsrs?.state === CardState.New;
 		});
 
 		const learnedNewCardsToday = await getLearnedNewCardsCountToday(dataStorage);

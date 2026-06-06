@@ -5,7 +5,7 @@ export function extractReadingPointDisplayName(fullTitle: string): string {
 	}
 
 	const segments = normalized
-		.split(/\s+[\/／]\s+/)
+		.split(/\s+[／/]\s+/)
 		.map((segment) => segment.trim())
 		.filter(Boolean);
 

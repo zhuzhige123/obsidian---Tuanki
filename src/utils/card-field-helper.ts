@@ -19,21 +19,22 @@ import { logger } from "../utils/logger";
  */
 
 import type { Card } from "../data/types";
-import type { CardType } from "../parsers/MarkdownFieldsConverter";
+import type { CardType, MarkdownFieldsConverter } from "../parsers/MarkdownFieldsConverter";
 import { ChoiceCardParser } from "../parsers/card-type-parsers/ChoiceCardParser";
 import { ClozeCardParser } from "../parsers/card-type-parsers/ClozeCardParser";
 import { QACardParser } from "../parsers/card-type-parsers/QACardParser";
+import type { ParseResult } from "../types/metadata-types";
 import { resolveParserCardType } from "./card-type-utils";
 
 /**
  * Parser 缓存（避免重复创建）
  */
-const parserCache = new Map<CardType, any>();
+const parserCache = new Map<CardType, MarkdownFieldsConverter>();
 
 /**
  * 获取对应卡片类型的 Parser
  */
-function getParser(type: CardType) {
+function getParser(type: CardType): MarkdownFieldsConverter {
 	if (!parserCache.has(type)) {
 		switch (type) {
 			case "basic-qa":
@@ -59,6 +60,22 @@ function getParser(type: CardType) {
 	return fallbackParser;
 }
 
+function parseFieldsFromContent(
+	parser: MarkdownFieldsConverter,
+	content: string,
+	cardType: CardType
+): Record<string, string> | null {
+	try {
+		const result: ParseResult = parser.parseMarkdownToFields(content, cardType);
+		if (result.success && result.fields) {
+			return result.fields;
+		}
+	} catch (error) {
+		logger.warn("[CardFieldHelper] 解析 content 失败:", error);
+	}
+	return null;
+}
+
 /**
  * 从卡片获取单个字段
  *
@@ -76,15 +93,9 @@ export function getCardField(card: Card, fieldName: string): string {
 	// 1. 优先使用 content（权威数据源）
 	if (card.content?.trim()) {
 		const cardType = resolveParserCardType(card);
-		const parser = getParser(cardType);
-
-		try {
-			const result = parser.parseMarkdownToFields(card.content, cardType);
-			if (result.success && result.fields) {
-				return result.fields[fieldName] || "";
-			}
-		} catch (error) {
-			logger.warn("[CardFieldHelper] 解析 content 失败:", error);
+		const fields = parseFieldsFromContent(getParser(cardType), card.content, cardType);
+		if (fields) {
+			return fields[fieldName] || "";
 		}
 	}
 
@@ -115,15 +126,9 @@ export function getCardFields(card: Card): Record<string, string> {
 	// 1. 优先使用 content（权威数据源）
 	if (card.content?.trim()) {
 		const cardType = resolveParserCardType(card);
-		const parser = getParser(cardType);
-
-		try {
-			const result = parser.parseMarkdownToFields(card.content, cardType);
-			if (result.success && result.fields) {
-				return result.fields;
-			}
-		} catch (error) {
-			logger.warn("[CardFieldHelper] 解析 content 失败:", error);
+		const fields = parseFieldsFromContent(getParser(cardType), card.content, cardType);
+		if (fields) {
+			return fields;
 		}
 	}
 
@@ -137,15 +142,9 @@ export function getCardFields(card: Card): Record<string, string> {
 
 export function getCardFieldsByType(card: Card, type: CardType): Record<string, string> {
 	if (card.content?.trim()) {
-		const parser = getParser(type);
-
-		try {
-			const result = parser.parseMarkdownToFields(card.content, type);
-			if (result.success && result.fields) {
-				return result.fields;
-			}
-		} catch (error) {
-			logger.warn("[CardFieldHelper] 解析 content 失败:", error);
+		const fields = parseFieldsFromContent(getParser(type), card.content, type);
+		if (fields) {
+			return fields;
 		}
 	}
 

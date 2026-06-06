@@ -22,6 +22,7 @@ import type {
 } from "../../types/ankiconnect-types";
 import type { ObsidianToAnkiOptions } from "../../types/ankiconnect-types";
 import type { ParseTemplate } from "../../types/newCardParsingTypes";
+import { extractErrorMessage } from "../../types/utility-types";
 import { getCardFields } from "../../utils/card-field-helper";
 import { resolveAnkiExportCardType, resolveOfficialTemplateId } from "../../utils/card-type-utils";
 import { extractBodyContent, parseSourceInfo } from "../../utils/yaml-utils";
@@ -149,40 +150,6 @@ function parseChoiceAnswerLabels(correctAnswersText: string): string[] {
 		.map((entry) => normalizeChoiceLabel(entry).replace(/[.．、：:]+$/g, ""))
 		.map((entry) => entry.match(/[A-Z]/i)?.[0]?.toUpperCase() || entry)
 		.filter(Boolean);
-}
-
-function buildChoiceAnswerDisplay(optionsText: string, correctAnswersText: string): string {
-	const options = parseChoiceOptionsForExport(optionsText);
-	const answerLabels = parseChoiceAnswerLabels(correctAnswersText);
-
-	if (options.length === 0 || answerLabels.length === 0) {
-		return correctAnswersText.trim();
-	}
-
-	const optionMap = new Map(options.map((option) => [option.label, option.text]));
-	const rawOptionTextByLabel = new Map<string, string>();
-	for (const line of optionsText
-		.split("\n")
-		.map((entry) => entry.trim())
-		.filter(Boolean)) {
-		const fallbackMatch = line.match(/^([A-Z])\s*[.．、]\s*(.+)$/i);
-		if (!fallbackMatch) {
-			continue;
-		}
-
-		rawOptionTextByLabel.set(
-			fallbackMatch[1].trim().toUpperCase(),
-			fallbackMatch[2].replace(/\{(?:correct|\*)\}/gi, "").trim()
-		);
-	}
-	const answerLines = answerLabels
-		.map((_label) => {
-			const optionText = optionMap.get(_label) || rawOptionTextByLabel.get(_label);
-			return optionText ? `${_label}. ${optionText}` : _label;
-		})
-		.filter(Boolean);
-
-	return answerLines.join("\n").trim();
 }
 
 function buildChoiceOptionsPlainText(optionsText: string): string {
@@ -1009,9 +976,10 @@ export class CardExporter {
 			const noteId = await this.ankiConnect.addNote(ankiNote);
 
 			return noteId;
-		} catch (error: any) {
+		} catch (error: unknown) {
+			const errorMessage = extractErrorMessage(error);
 			// 检查是否是重复卡片错误
-			if (error.message?.includes("duplicate")) {
+			if (errorMessage.includes("duplicate")) {
 				logger.warn("⚠️ 卡片已存在于 Anki，跳过重复卡片:", {
 					modelName: note.modelName,
 					fields: note.fields,
@@ -1022,7 +990,7 @@ export class CardExporter {
 
 			// 其他错误需要详细记录
 			logger.error("❌ 上传卡片到 Anki 失败:", {
-				error: error.message,
+				error: errorMessage,
 				modelName: note.modelName,
 				fields: note.fields,
 			});
@@ -1137,7 +1105,7 @@ export class CardExporter {
 						100,
 						`已准备模型 ${index + 1}/${templates.length}`
 					);
-				} catch (error: any) {
+				} catch (error: unknown) {
 					result.errors.push({
 						type: "model_creation",
 						message: `创建/获取模型失败: ${error.message}`,
@@ -1178,7 +1146,7 @@ export class CardExporter {
 			result.summary = this.buildExportSummary(result);
 			onProgress?.(100, 100, "同步完成");
 			return result;
-		} catch (error: any) {
+		} catch (error: unknown) {
 			logger.error("增量导出卡片集失败:", error);
 			result.success = false;
 			result.errors.push({
@@ -1272,7 +1240,7 @@ export class CardExporter {
 			return error.reason;
 		}
 
-		const message = error instanceof Error ? error.message : String(error ?? "");
+		const message = extractErrorMessage(error);
 		const normalizedMessage = message.toLowerCase();
 
 		if (!message) {
@@ -1380,19 +1348,18 @@ export class CardExporter {
 		fields: Record<string, string>;
 		tags: string[];
 	}): string {
-		const normalizedFields = Object.fromEntries(
-			Object.entries(note.fields)
-				.map(([fieldName, fieldValue]) => [fieldName, normalizeTextValue(fieldValue)])
-				.sort(([left], [right]) => left.localeCompare(right))
-		);
+		const normalizedFields: Record<string, string> = {};
+		for (const [fieldName, fieldValue] of Object.entries(note.fields)) {
+			normalizedFields[fieldName] = normalizeTextValue(fieldValue);
+		}
 
-		return computeStableHash(
-			JSON.stringify({
-				modelName: note.modelName,
-				fields: normalizedFields,
-				tags: normalizeTags(note.tags),
-			})
-		);
+		const hashPayload = JSON.stringify({
+			modelName: note.modelName,
+			fields: normalizedFields,
+			tags: normalizeTags(note.tags),
+		});
+
+		return computeStableHash(hashPayload);
 	}
 
 	private haveTagsChanged(previous: string[] | undefined, next: string[]): boolean {
@@ -1588,14 +1555,15 @@ export class CardExporter {
 				outcome: "created",
 				warnings,
 			};
-		} catch (error: any) {
+		} catch (error: unknown) {
 			const reason = this.classifyFailureReason(error);
+			const errorMessage = extractErrorMessage(error);
 
 			this.syncTracker?.recordExportResult(card.uuid, {
 				outcome: "failed",
 				ankiDeckName,
 				modelName: modelInfo.name,
-				error: error.message,
+				error: errorMessage,
 			});
 
 			return {
@@ -1605,7 +1573,7 @@ export class CardExporter {
 				modelName: modelInfo.name,
 				outcome: "failed",
 				reason,
-				message: error.message,
+				message: errorMessage,
 				warnings,
 			};
 		}

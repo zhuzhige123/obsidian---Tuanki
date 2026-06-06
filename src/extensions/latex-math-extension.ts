@@ -61,7 +61,7 @@ class MathWidget extends WidgetType {
 	}
 
 	toDOM(): HTMLElement {
-		const container = document.createElement(this.type === "inline" ? "span" : "div");
+		const container = activeDocument.createElement(this.type === "inline" ? "span" : "div");
 		container.className = `cm-math-widget cm-math-${this.type}`;
 
 		if (!this.isValid) {
@@ -92,7 +92,7 @@ class MathWidget extends WidgetType {
 		try {
 			// 这里需要集成实际的LaTeX渲染库，如KaTeX或MathJax
 			// 为了演示，我们创建一个简单的占位符
-			const mathElement = document.createElement("span");
+			const mathElement = activeDocument.createElement("span");
 			mathElement.className = "cm-math-rendered";
 			mathElement.textContent = `[Math: ${this.content}]`;
 
@@ -102,7 +102,7 @@ class MathWidget extends WidgetType {
 			container.appendChild(mathElement);
 
 			// 添加源码显示功能
-			const sourceElement = document.createElement("span");
+			const sourceElement = activeDocument.createElement("span");
 			sourceElement.className = "cm-math-source";
 			sourceElement.textContent = this.content;
 			applyStyleProps(sourceElement, { display: "none" });
@@ -120,7 +120,7 @@ class MathWidget extends WidgetType {
 			logger.error("[LatexMath] 渲染失败:", error);
 			container.textContent = this.content;
 			container.className += " cm-math-error";
-			container.title = `Render error: ${error}`;
+			container.title = `Render error: ${error instanceof Error ? error.message : String(error)}`;
 		}
 	}
 

@@ -9,6 +9,9 @@ import type { WeaveDataStorage } from "../../data/storage";
 import type { MediaFile, MediaIndex } from "../../data/types";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
+import { readWeaveParentFolder } from "../../utils/weave-plugin-settings";
+import { isRecord, parseJsonUnknown } from "../../utils/typed-json";
+import type { WeavePlugin } from "../../main";
 
 /**
  * 媒体管理服务
@@ -30,7 +33,7 @@ export class MediaManagementService {
 		this.storage = storage;
 		this.hashCache = new Map();
 		// 使用统一的媒体文件夹路径
-		const parentFolder = (this.plugin as any).settings?.weaveParentFolder as string | undefined;
+		const parentFolder = readWeaveParentFolder(this.plugin as WeavePlugin);
 		this.mediaBasePath = getMediaFolder(parentFolder);
 	}
 
@@ -300,14 +303,27 @@ export class MediaManagementService {
 
 		try {
 			const content = await this.plugin.app.vault.adapter.read(indexPath);
-			return JSON.parse(content);
+			const parsed = parseJsonUnknown(content);
+			if (
+				isRecord(parsed) &&
+				typeof parsed.deckPath === "string" &&
+				Array.isArray(parsed.files) &&
+				typeof parsed.lastUpdated === "string"
+			) {
+				return {
+					deckPath: parsed.deckPath,
+					files: parsed.files.filter((file): file is MediaFile => isRecord(file)),
+					lastUpdated: parsed.lastUpdated,
+				};
+			}
 		} catch {
-			return {
-				deckPath,
-				files: [],
-				lastUpdated: new Date().toISOString(),
-			};
+			// fall through to default
 		}
+		return {
+			deckPath,
+			files: [],
+			lastUpdated: new Date().toISOString(),
+		};
 	}
 
 	/**
@@ -393,13 +409,21 @@ export class MediaManagementService {
 
 		try {
 			const content = await this.plugin.app.vault.adapter.read(indexPath);
-			const data = JSON.parse(content);
-			this.hashCache = new Map(Object.entries(data));
-			logger.debug(`Loaded ${this.hashCache.size} media file hashes`);
+			const parsed = parseJsonUnknown(content);
+			if (isRecord(parsed)) {
+				const entries = Object.entries(parsed).filter(
+					(entry): entry is [string, MediaFile] =>
+						typeof entry[0] === "string" && isRecord(entry[1]) && typeof entry[1].id === "string"
+				);
+				this.hashCache = new Map(entries);
+				logger.debug(`Loaded ${this.hashCache.size} media file hashes`);
+				return;
+			}
 		} catch {
-			this.hashCache = new Map();
-			logger.debug("No existing hash index found, starting fresh");
+			// fall through to empty cache
 		}
+		this.hashCache = new Map();
+		logger.debug("No existing hash index found, starting fresh");
 	}
 
 	/**

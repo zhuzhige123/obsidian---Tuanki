@@ -22,6 +22,7 @@ export class WikiLinkLayer extends BaseConversionLayer {
 	name = "WikiLinkLayer";
 	priority = 80; // 高优先级，在公式之后
 	description = "Wikilink 双链转换（[[link]] → 链接或文本）";
+	private mediaEmbeds: string[] = [];
 
 	convert(content: string, context: ConversionContext): LayerConversionResult {
 		const options = context.options.wikiLinkConversion;
@@ -71,7 +72,7 @@ export class WikiLinkLayer extends BaseConversionLayer {
 		});
 
 		// 存储到内部状态（实际实现中可能需要更好的机制）
-		(this as any)._mediaEmbeds = mediaEmbeds;
+		this.mediaEmbeds = mediaEmbeds;
 
 		return result;
 	}
@@ -80,11 +81,10 @@ export class WikiLinkLayer extends BaseConversionLayer {
 	 * 恢复媒体嵌入
 	 */
 	private restoreMediaEmbeds(content: string): string {
-		const mediaEmbeds = ((this as any)._mediaEmbeds as string[]) || [];
 		const placeholder = "___MEDIA_EMBED___";
 
-		return content.replace(new RegExp(`${placeholder}(\\d+)${placeholder}`, "g"), (_, index) => {
-			return mediaEmbeds[parseInt(index)] || "";
+		return content.replace(new RegExp(`${placeholder}(\\d+)${placeholder}`, "g"), (_match: string, index: string) => {
+			return this.mediaEmbeds[parseInt(index, 10)] || "";
 		});
 	}
 
@@ -97,7 +97,7 @@ export class WikiLinkLayer extends BaseConversionLayer {
 		let count = 0;
 
 		// 处理所有双链格式
-		const result = content.replace(/\[\[([^\]]+)\]\]/g, (match, _inner, offset) => {
+		const result = content.replace(/\[\[([^\]]+)\]\]/g, (match: string, _inner: string, offset: number) => {
 			// 检查是否在代码块中
 			if (BoundaryDetector.shouldSkipMatch(content, offset)) {
 				return match;
@@ -128,7 +128,7 @@ export class WikiLinkLayer extends BaseConversionLayer {
 		let count = 0;
 		const warnings: string[] = [];
 
-		const result = content.replace(/\[\[([^\]]+)\]\]/g, (match, _inner, offset) => {
+		const result = content.replace(/\[\[([^\]]+)\]\]/g, (match: string, _inner: string, offset: number) => {
 			// 检查是否在代码块中
 			if (BoundaryDetector.shouldSkipMatch(content, offset)) {
 				return match;

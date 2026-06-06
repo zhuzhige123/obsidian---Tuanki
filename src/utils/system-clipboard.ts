@@ -1,11 +1,11 @@
 import { applyStyleProps } from "./style-props";
 
 function writeWithExecCommand(text: string): boolean {
-	if (typeof document === "undefined" || !document.body) {
+	if (typeof activeDocument === "undefined" || !activeDocument.body) {
 		return false;
 	}
 
-	const textarea = document.createElement("textarea");
+	const textarea = activeDocument.createElement("textarea");
 	textarea.value = text;
 	textarea.setAttribute("readonly", "true");
 	applyStyleProps(textarea, {
@@ -13,12 +13,14 @@ function writeWithExecCommand(text: string): boolean {
 		opacity: "0",
 		pointerEvents: "none",
 	});
-	document.body.appendChild(textarea);
+	activeDocument.body.appendChild(textarea);
 	textarea.select();
 	textarea.setSelectionRange(0, text.length);
 
 	try {
-		return document.execCommand("copy");
+		// Fallback when async Clipboard API is unavailable (Obsidian community guideline pattern).
+		// eslint-disable-next-line @typescript-eslint/no-deprecated -- execCommand fallback for clipboard write
+		return activeDocument.execCommand("copy");
 	} finally {
 		textarea.remove();
 	}

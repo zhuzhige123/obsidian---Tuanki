@@ -272,6 +272,6 @@ export class GlobalCleanupScanner {
 	 * 让出主线程（避免阻塞UI）
 	 */
 	private yieldMainThread(): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, 10));
+		return new Promise((resolve) => window.setTimeout(resolve, 10));
 	}
 }

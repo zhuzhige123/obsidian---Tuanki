@@ -32,6 +32,9 @@ import type { WeavePlugin } from "../../main";
 import { AnkiConnectError, ConnectionErrorType, SyncStatus } from "../../types/ankiconnect-types";
 import type { ConnectionState, IncrementalSyncResult } from "../../types/ankiconnect-types";
 import { getCardBack, getCardFront } from "../../utils/card-field-helper";
+import { readUnknownProperty } from "../../utils/dynamic-access";
+import { isRecord, readNumber } from "../../utils/typed-json";
+import { extractErrorMessage } from "../../types/utility-types";
 import { AnkiConnectClient } from "./AnkiConnectClient";
 import { AnkiTemplateConverter } from "./AnkiTemplateConverter";
 import { AutoSyncScheduler } from "./AutoSyncScheduler";
@@ -62,7 +65,33 @@ function chunkItems<T>(items: T[], chunkSize: number): T[][] {
 }
 
 function normalizeNoteFieldValue(value: unknown): string {
-	return typeof value === "string" ? value.trim() : String(value ?? "").trim();
+	if (typeof value === "string") {
+		return value.trim();
+	}
+	if (typeof value === "number" && Number.isFinite(value)) {
+		return String(value);
+	}
+	if (typeof value === "boolean") {
+		return String(value);
+	}
+	return "";
+}
+
+function parseAnkiDeckStats(stats: unknown): {
+	id: number;
+	cardCount: number;
+	newCount: number;
+	learnCount: number;
+	reviewCount: number;
+} {
+	const record = isRecord(stats) ? stats : {};
+	return {
+		id: readNumber(record, "deck_id") ?? 0,
+		cardCount: readNumber(record, "total_in_deck") ?? 0,
+		newCount: readNumber(record, "new_count") ?? 0,
+		learnCount: readNumber(record, "learn_count") ?? 0,
+		reviewCount: readNumber(record, "review_count") ?? 0,
+	};
 }
 
 export class AnkiConnectService {
@@ -147,14 +176,17 @@ export class AnkiConnectService {
 				apiVersion: version,
 				ankiVersion: version.toString(),
 			};
-		} catch (error: any) {
+		} catch (error: unknown) {
 			this.connectionStatus = {
 				isConnected: false,
 				lastCheckTime: new Date().toISOString(),
 				error: {
-					type: error.type || ConnectionErrorType.UNKNOWN,
-					message: error.message,
-					suggestion: error.suggestion || "请检查 Anki 是否正在运行",
+					type: error instanceof AnkiConnectError ? error.type : ConnectionErrorType.UNKNOWN,
+					message: extractErrorMessage(error),
+					suggestion:
+						error instanceof AnkiConnectError
+							? error.suggestion || "请检查 Anki 是否正在运行"
+							: "请检查 Anki 是否正在运行",
 				},
 			};
 		}
@@ -178,15 +210,18 @@ export class AnkiConnectService {
 			}));
 
 			try {
-				const results = await this.client.multi<any>(actions);
+				const results = await this.client.multi<unknown>(actions);
 
 				for (let j = 0; j < chunk.length; j++) {
 					const name = chunk[j];
-					const entry = results?.[j];
-					const error = entry?.error;
-					const stats = entry?.result;
+					const entry = Array.isArray(results) && isRecord(results[j]) ? results[j] : null;
+					const hasError = entry
+						? readUnknownProperty(entry, "error") !== undefined &&
+							readUnknownProperty(entry, "error") !== null
+						: true;
+					const stats = entry ? readUnknownProperty(entry, "result") : undefined;
 
-					if (error || !stats) {
+					if (hasError || stats === undefined) {
 						decks.push({
 							id: 0,
 							name,
@@ -198,13 +233,14 @@ export class AnkiConnectService {
 						continue;
 					}
 
+					const parsedStats = parseAnkiDeckStats(stats);
 					decks.push({
-						id: stats.deck_id ?? 0,
+						id: parsedStats.id,
 						name,
-						cardCount: stats.total_in_deck ?? 0,
-						newCount: stats.new_count ?? 0,
-						learnCount: stats.learn_count ?? 0,
-						reviewCount: stats.review_count ?? 0,
+						cardCount: parsedStats.cardCount,
+						newCount: parsedStats.newCount,
+						learnCount: parsedStats.learnCount,
+						reviewCount: parsedStats.reviewCount,
 					});
 				}
 			} catch {
@@ -248,8 +284,8 @@ export class AnkiConnectService {
 				batch.map(async (name) => {
 					try {
 						return await this.client.getModelInfo(name);
-					} catch (error: any) {
-						errors.push({ name, error: error.message });
+					} catch (error: unknown) {
+						errors.push({ name, error: extractErrorMessage(error) });
 						return null;
 					}
 				})
@@ -322,14 +358,15 @@ export class AnkiConnectService {
 						cardTitle: getCardFront(card).substring(0, 50),
 						status: "success",
 					});
-				} catch (error: any) {
+				} catch (error: unknown) {
+					const message = extractErrorMessage(error);
 					logEntry.summary.failedCount++;
-					logEntry.errors?.push(`卡片 ${card.uuid}: ${error.message}`);
+					logEntry.errors?.push(`卡片 ${card.uuid}: ${message}`);
 					logEntry.details?.push({
 						cardId: card.uuid,
 						cardTitle: getCardFront(card).substring(0, 50),
 						status: "failed",
-						reason: error.message,
+						reason: message,
 					});
 				}
 
@@ -337,9 +374,10 @@ export class AnkiConnectService {
 			}
 
 			this.updateProgress(SyncStatus.COMPLETED, cardsToSync.length, cardsToSync.length);
-		} catch (error: any) {
-			this.updateProgress(SyncStatus.FAILED, 0, 0, error.message);
-			logEntry.errors?.push(`同步失败: ${error.message}`);
+		} catch (error: unknown) {
+			const message = extractErrorMessage(error);
+			this.updateProgress(SyncStatus.FAILED, 0, 0, message);
+			logEntry.errors?.push(`同步失败: ${message}`);
 		}
 
 		logEntry.duration = Date.now() - startTime;
@@ -479,7 +517,7 @@ export class AnkiConnectService {
 	/**
 	 * 获取同步统计
 	 */
-	getSyncStatistics(): any {
+	getSyncStatistics(): unknown {
 		return this.stateTracker.getStatistics();
 	}
 
@@ -620,7 +658,7 @@ export class AnkiConnectService {
 			await this.incrementalTracker.persist();
 
 			return result;
-		} catch (error: any) {
+		} catch (error: unknown) {
 			logger.error("导出牌组失败:", error);
 			throw new AnkiConnectError(`导出牌组失败: ${error.message}`, ConnectionErrorType.UNKNOWN);
 		}
@@ -752,7 +790,7 @@ export class AnkiConnectService {
 				const deckCards = cardsByDeck.get(deckName) ?? [];
 				deckCards.push(card);
 				cardsByDeck.set(deckName, deckCards);
-			} catch (error: any) {
+			} catch (error: unknown) {
 				repairItem.message = `归档旧卡失败：${error.message}`;
 				result.failedCards++;
 				result.errors.push(`${mismatchItem.cardId}: ${repairItem.message}`);
@@ -807,7 +845,7 @@ export class AnkiConnectService {
 						}）`
 					);
 				}
-			} catch (error: any) {
+			} catch (error: unknown) {
 				for (const card of deckCards) {
 					const repairEntry = repairEntries.get(card.uuid);
 					if (!repairEntry) {
@@ -886,7 +924,7 @@ export class AnkiConnectService {
 				}
 
 				onProgress?.(i + 1, modelNames.length);
-			} catch (error: any) {
+			} catch (error: unknown) {
 				errors.push(`${modelNames[i]}: ${error.message}`);
 			}
 		}

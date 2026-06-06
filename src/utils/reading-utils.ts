@@ -21,7 +21,7 @@ export function countWords(content: string): number {
 	const withoutAnchors = withoutYAML.replace(/\^weave-bookmark-\d+/g, "");
 	// 移除Markdown标记
 	const plainText = withoutAnchors
-		.replace(/[#*_`~\[\]()]/g, "")
+		.replace(/[#*_`~[\]()]/g, "")
 		.replace(/\n+/g, " ")
 		.trim();
 

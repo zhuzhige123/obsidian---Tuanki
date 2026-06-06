@@ -10,6 +10,7 @@ import type {
 	SystemPromptConfig,
 } from "../../types/ai-types";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
+import { extractOpenAIChoicePayload } from "./ai-response-parsers";
 import { AIService, type ChatRequest, type ChatResponse } from "./AIService";
 
 export class OpenAIService extends AIService {
@@ -47,24 +48,8 @@ export class OpenAIService extends AIService {
 		return body;
 	}
 
-	private extractChoicePayload(data: any): { content: string; usage: any } {
-		const choice = data?.choices?.[0];
-		const finishReason = choice?.finish_reason;
-
-		if (finishReason === "length") {
-			throw new Error("AI 返回内容被截断，请减少生成数量、缩短原文，或提高最大 tokens");
-		}
-
-		const content = this.extractMessageContent(choice?.message?.content);
-
-		if (!content) {
-			throw new Error("AI 返回为空，可能是模型在 JSON 模式下没有给出最终内容，请稍后重试或切换模型");
-		}
-
-		return {
-			content,
-			usage: data?.usage || {},
-		};
+	private extractChoicePayload(data: unknown): ReturnType<typeof extractOpenAIChoicePayload> {
+		return extractOpenAIChoicePayload(data, (content) => this.extractMessageContent(content));
 	}
 
 	async generateCards(
@@ -121,7 +106,7 @@ export class OpenAIService extends AIService {
 			});
 
 			if (progressInterval !== null) {
-				clearInterval(progressInterval);
+				window.clearInterval(progressInterval);
 				progressInterval = null;
 			}
 
@@ -185,7 +170,7 @@ export class OpenAIService extends AIService {
 			return this.handleError(error);
 		} finally {
 			if (progressInterval !== null) {
-				clearInterval(progressInterval);
+				window.clearInterval(progressInterval);
 			}
 		}
 	}

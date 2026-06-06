@@ -8,11 +8,11 @@ import './activation-modal.css';
  * 解决自定义模态框在Obsidian中的定位和层级问题
  */
 export class ActivationModal extends Modal {
-  private plugin: any;
+  private plugin: unknown;
   private onSave: () => void | Promise<void>;
-  private component: any;
+  private component: unknown;
   
-  constructor(app: App, plugin: any, onSave: () => void | Promise<void>) {
+  constructor(app: App, plugin: unknown, onSave: () => void | Promise<void>) {
     super(app);
     this.plugin = plugin;
     this.onSave = onSave;
@@ -34,9 +34,9 @@ export class ActivationModal extends Modal {
         plugin: this.plugin,
         onSave: this.onSave,
         standalone: false, // 在Modal中不显示容器装饰
-        onActivationSuccess: (licenseInfo: any) => {
+        onActivationSuccess: (_licenseInfo: unknown) => {
           // 激活成功后延迟关闭
-          setTimeout(() => {
+          window.setTimeout(() => {
             this.close();
           }, 2000);
         },

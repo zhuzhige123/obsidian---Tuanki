@@ -24,7 +24,7 @@ export interface CacheStats {
 /**
  * 估算对象内存大小
  */
-function estimateObjectSize(obj: any): number {
+function estimateObjectSize(obj: unknown): number {
 	if (obj === null || obj === undefined) return 0;
 
 	if (typeof obj === "string") return obj.length * 2; // UTF-16
@@ -200,7 +200,7 @@ export class LRUCache<T> {
  */
 export class CacheManager {
 	private static instance: CacheManager;
-	private caches = new Map<string, LRUCache<any>>();
+	private caches = new Map<string, LRUCache<unknown>>();
 	private cleanupInterval: number | null = null;
 
 	private constructor() {
@@ -212,7 +212,7 @@ export class CacheManager {
 
 	static getInstance(): CacheManager {
 		if (typeof window !== "undefined") {
-			const w = window as any;
+			const w = window as unknown;
 			if (w.__weaveCacheManager) {
 				CacheManager.instance = w.__weaveCacheManager as CacheManager;
 				return CacheManager.instance;
@@ -225,7 +225,7 @@ export class CacheManager {
 				w.__weaveCacheManagerCleanup = () => {
 					try {
 						(w.__weaveCacheManager as CacheManager | undefined)?.destroy();
-					} catch {}
+					} catch { /* no-op */ }
 
 					try {
 						w.__weaveCacheManager = undefined;
@@ -296,7 +296,7 @@ export class CacheManager {
 
 	destroy(): void {
 		if (this.cleanupInterval) {
-			clearInterval(this.cleanupInterval);
+			window.clearInterval(this.cleanupInterval);
 			this.cleanupInterval = null;
 		}
 		this.clearAll();

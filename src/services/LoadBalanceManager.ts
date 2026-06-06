@@ -230,7 +230,7 @@ export class LoadBalanceManager {
 
 			const scheduled = await this.getLoadAt(date);
 			const estimated = this.config.forecast.includeEstimated
-				? await this.estimateRecommendationImpact(date)
+				? this.estimateRecommendationImpact(date)
 				: 0;
 			const total = scheduled + estimated;
 

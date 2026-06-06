@@ -116,7 +116,7 @@ export class FocusManager implements IFocusManager {
 			this.requestCoalescer.setDebugMode(config.enableDebugMode);
 			this.focusTrapManager.setDebugMode(config.enableDebugMode);
 			this.keyboardMonitor?.setDebugMode(config.enableDebugMode);
-			(this.strategy as any).setDebugMode?.(config.enableDebugMode);
+			(this.strategy as unknown).setDebugMode?.(config.enableDebugMode);
 		}
 
 		// 自动恢复配置变化
@@ -138,10 +138,10 @@ export class FocusManager implements IFocusManager {
 	 * 保存当前焦点
 	 */
 	saveFocus(context: string): void {
-		const currentFocus = document.activeElement as HTMLElement;
+		const currentFocus = activeDocument.activeElement as HTMLElement;
 
 		const record: FocusRecord = {
-			element: currentFocus !== document.body ? currentFocus : null,
+			element: currentFocus !== activeDocument.body ? currentFocus : null,
 			timestamp: Date.now(),
 			context,
 		};
@@ -218,14 +218,14 @@ export class FocusManager implements IFocusManager {
 	 * 获取当前状态
 	 */
 	getState(): FocusManagerState {
-		const activeElement = document.activeElement as HTMLElement;
+		const activeElement = activeDocument.activeElement as HTMLElement;
 
 		return {
 			platform: this.platformDetector.detect(),
 			keyboard: this.keyboardMonitor?.getState() || null,
 			stackSize: this.focusStack.size(),
 			currentFocus:
-				activeElement && activeElement !== document.body
+				activeElement && activeElement !== activeDocument.body
 					? {
 							element: activeElement.tagName,
 							id: activeElement.id || "",
@@ -241,7 +241,7 @@ export class FocusManager implements IFocusManager {
 	 * 检查 leaf 是否已激活
 	 */
 	isLeafActive(leaf: WorkspaceLeaf): boolean {
-		const leafEl = (leaf as any).containerEl as HTMLElement;
+		const leafEl = (leaf as unknown).containerEl as HTMLElement;
 		if (!leafEl) return false;
 		return leafEl.classList.contains("mod-active");
 	}
@@ -297,13 +297,13 @@ export class FocusManager implements IFocusManager {
 		this.focusLostHandler = () => {
 			// 使用节流机制
 			this.requestCoalescer.schedule(() => {
-				if (document.activeElement === document.body) {
+				if (activeDocument.activeElement === activeDocument.body) {
 					this.strategy.onFocusLost(null);
 				}
 			}, "focus-lost");
 		};
 
-		document.addEventListener("focusout", this.focusLostHandler);
+		activeDocument.addEventListener("focusout", this.focusLostHandler);
 
 		if (this.config.enableDebugMode) {
 			logger.debug("[FocusManager] 焦点丢失监听器已设置");
@@ -315,7 +315,7 @@ export class FocusManager implements IFocusManager {
 	 */
 	private removeFocusLostListener(): void {
 		if (this.focusLostHandler) {
-			document.removeEventListener("focusout", this.focusLostHandler);
+			activeDocument.removeEventListener("focusout", this.focusLostHandler);
 			this.focusLostHandler = null;
 
 			if (this.config.enableDebugMode) {
@@ -329,17 +329,17 @@ export class FocusManager implements IFocusManager {
 	 */
 	private findDefaultFocusElement(): HTMLElement | null {
 		// 优先查找主内容区域
-		const mainContent = document.querySelector(
+		const mainContent = activeDocument.querySelector(
 			".workspace-leaf.mod-active .view-content"
 		) as HTMLElement;
 		if (mainContent) return mainContent;
 
 		// 查找任何激活的工作区
-		const activeLeaf = document.querySelector(".workspace-leaf.mod-active") as HTMLElement;
+		const activeLeaf = activeDocument.querySelector(".workspace-leaf.mod-active") as HTMLElement;
 		if (activeLeaf) return activeLeaf;
 
 		// 查找 CodeMirror 编辑器
-		const cmContent = document.querySelector(".cm-content") as HTMLElement;
+		const cmContent = activeDocument.querySelector(".cm-content") as HTMLElement;
 		if (cmContent) return cmContent;
 
 		return null;

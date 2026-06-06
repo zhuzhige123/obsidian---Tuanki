@@ -22,7 +22,7 @@ export class QuestionBankIntegrityService {
 
 			const allBanks = await this.plugin.questionBankService.getAllBanks();
 			const banksNeedingAudit = allBanks.filter((bank) => {
-				const pairedId = (bank.metadata as any)?.pairedMemoryDeckId;
+				const pairedId = (bank.metadata as unknown)?.pairedMemoryDeckId;
 				return !pairedId || pairedId === undefined || pairedId === null;
 			});
 

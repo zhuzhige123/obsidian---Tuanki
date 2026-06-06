@@ -19,6 +19,8 @@ import type { ConversionConfig } from "../../domain/apkg/types";
 import type { WeavePlugin } from "../../main";
 import type { AnkiModelInfo, AnkiNoteInfo } from "../../types/ankiconnect-types";
 import type { ParseTemplate } from "../../types/newCardParsingTypes";
+import { readAnkiConnectFieldValue } from "../../utils/anki-connect-field";
+import { isCallable, readUnknownProperty } from "../../utils/dynamic-access";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator"; // 统一 ID 系统
 import {
 	buildAnkiConnectDeckMediaFolderSegment,
@@ -109,7 +111,7 @@ export class AnkiImportAdapter {
 				throw new Error(`卡片构建失败: ${buildResult.warnings.join(", ")}`);
 			}
 
-			const card: Card = buildResult.card as Card;
+			const card: Card = buildResult.card;
 
 			// 4. 生成或复用UUID
 			const existingMapping = this.mappingManager.findByAnkiNoteId(ankiNote.noteId);
@@ -142,9 +144,10 @@ export class AnkiImportAdapter {
 			// 卡片转换完成（已优化：移除详细日志）
 
 			return card;
-		} catch (error: any) {
+		} catch (error: unknown) {
 			logger.error("[AnkiImportAdapter] 转换失败:", error);
-			throw new Error(`适配Anki Note失败: ${error?.message || String(error)}`);
+			const message = error instanceof Error ? error.message : String(error);
+			throw new Error(`适配Anki Note失败: ${message}`);
 		}
 	}
 
@@ -153,12 +156,9 @@ export class AnkiImportAdapter {
 	 */
 	private adaptAnkiNoteInfo(noteInfo: AnkiNoteInfo): AnkiNote {
 		// 提取字段值（处理AnkiConnect的对象形式字段）
-		const fieldValues = Object.values(noteInfo.fields).map((_field) => {
-			if (typeof _field === "object" && _field !== null && "value" in _field) {
-				return (_field as any).value || "";
-			}
-			return String(_field || "");
-		});
+		const fieldValues = Object.values(noteInfo.fields).map((field) =>
+			readAnkiConnectFieldValue(field)
+		);
 
 		return {
 			id: noteInfo.noteId,
@@ -207,16 +207,7 @@ export class AnkiImportAdapter {
 		const fields: Record<string, string> = {};
 
 		for (const [fieldName, fieldValue] of Object.entries(noteInfo.fields)) {
-			let value: string;
-
-			// 处理AnkiConnect的对象形式字段
-			if (typeof fieldValue === "object" && fieldValue !== null && "value" in fieldValue) {
-				value = (fieldValue as any).value || "";
-			} else {
-				value = String(fieldValue || "");
-			}
-
-			// 只保存非空字段
+			const value = readAnkiConnectFieldValue(fieldValue);
 			if (value.trim()) {
 				fields[fieldName] = value;
 			}
@@ -316,16 +307,11 @@ export class AnkiImportAdapter {
 	/**
 	 * 从 Anki 字段中提取媒体文件名
 	 */
-	extractMediaFilenames(fields: Record<string, any>): string[] {
+	extractMediaFilenames(fields: Record<string, unknown>): string[] {
 		const filenames = new Set<string>();
 
 		for (const fieldValue of Object.values(fields)) {
-			// 处理 AnkiConnect 对象格式字段
-			const value =
-				typeof fieldValue === "object" && fieldValue !== null && "value" in fieldValue
-					? (fieldValue as any).value
-					: String(fieldValue || "");
-
+			const value = readAnkiConnectFieldValue(fieldValue);
 			if (!value) continue;
 
 			// 提取图片：<img src="...">
@@ -428,9 +414,10 @@ export class AnkiImportAdapter {
 	 */
 	private base64ToArrayBuffer(base64: string): ArrayBuffer {
 		try {
-			const maybeBuffer = (globalThis as any)?.Buffer;
-			if (typeof maybeBuffer?.from === "function") {
-				const buf: Uint8Array = maybeBuffer.from(base64, "base64");
+			const maybeBuffer = readUnknownProperty(window, "Buffer");
+			const fromBuffer = readUnknownProperty(maybeBuffer, "from");
+			if (isCallable(fromBuffer)) {
+				const buf = Reflect.apply(fromBuffer, maybeBuffer, [base64, "base64"]) as Uint8Array;
 				const copy = new Uint8Array(buf.byteLength);
 				copy.set(buf);
 				return copy.buffer;

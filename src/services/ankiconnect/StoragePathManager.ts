@@ -9,6 +9,7 @@ import { logger } from "../../utils/logger";
 
 import type { Plugin } from "obsidian";
 import { getPluginPaths, getV2Paths } from "../../config/paths";
+import { readWeaveParentFolder } from "../../utils/weave-plugin-settings";
 
 export class StoragePathManager {
 	private plugin: Plugin;
@@ -16,12 +17,12 @@ export class StoragePathManager {
 
 	constructor(plugin: Plugin) {
 		this.plugin = plugin;
-		const parentFolder = (this.plugin as any).settings?.weaveParentFolder as string | undefined;
+		const parentFolder = readWeaveParentFolder(this.plugin);
 		this.v2Paths = getV2Paths(parentFolder);
 	}
 
 	private getDataRoot(): string {
-		const parentFolder = (this.plugin as any).settings?.weaveParentFolder as string | undefined;
+		const parentFolder = readWeaveParentFolder(this.plugin);
 		this.v2Paths = getV2Paths(parentFolder);
 		return this.v2Paths.root;
 	}
@@ -132,9 +133,10 @@ export class StoragePathManager {
 				await this.plugin.app.vault.createFolder(path);
 				logger.debug(`✅ 创建目录: ${path}`);
 			}
-		} catch (error) {
+		} catch (error: unknown) {
+			const message = error instanceof Error ? error.message : "";
 			// 忽略"已存在"错误
-			if (!(error as any).message?.includes("already exists")) {
+			if (!message.includes("already exists")) {
 				logger.error(`❌ 创建目录失败: ${path}`, error);
 				throw error;
 			}

@@ -7,7 +7,7 @@ const FOLIATE_CUSTOM_ELEMENT_NAMES = new Set([
 const PATCH_FLAG = "__weaveFoliateCustomElementGuardInstalled__";
 const ORIGINAL_DEFINE_KEY = "__weaveFoliateOriginalCustomElementDefine__";
 
-type GuardedGlobal = typeof globalThis & {
+type GuardedGlobal = typeof window & {
 	[PATCH_FLAG]?: boolean;
 	[ORIGINAL_DEFINE_KEY]?: CustomElementRegistry["define"];
 };
@@ -15,7 +15,7 @@ type GuardedGlobal = typeof globalThis & {
 export function installFoliateCustomElementGuard(
 	registry: CustomElementRegistry = customElements
 ): void {
-	const globalScope = globalThis as GuardedGlobal;
+	const globalScope = window as GuardedGlobal;
 	if (globalScope[PATCH_FLAG]) {
 		return;
 	}

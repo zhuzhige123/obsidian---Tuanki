@@ -3,12 +3,13 @@ import type { Card } from "../../data/types";
 import type {
 	IRBlock,
 	IRDeck,
-	IRSourceFileMeta,
 } from "../../types/ir-types";
 import type { IRPointSnapshot } from "../../types/ir-point-storage-types";
 import type { ReadingMaterial } from "../../types/incremental-reading-types";
 import { logger } from "../../utils/logger";
 import { INCREMENTAL_READING_PLUGIN_ID } from "../../utils/ir-plugin-integration";
+import { getPluginInstance } from "../../utils/plugin-runtime";
+import { isRecord } from "../../utils/typed-json";
 import { IRStorageService } from "./IRStorageService";
 import { IRPointDataReadService } from "./IRPointDataReadService";
 import { getSharedIRWorkspaceSnapshotService } from "./IRWorkspaceSnapshotService";
@@ -27,6 +28,22 @@ import {
 	type IRCardBuilderHelpers,
 } from "./IRCardManagementBuilders";
 import { createIRTagGroupNameResolver } from "./IRCardManagementAdapter";
+import type { IRPdfBookmarkTask } from "./IRPdfBookmarkTaskService";
+import type { IREpubBookmarkTask } from "./IREpubBookmarkTaskService";
+
+function asPdfBookmarkTask(raw: unknown): IRPdfBookmarkTask | null {
+	if (!isRecord(raw) || typeof raw.id !== "string") {
+		return null;
+	}
+	return raw as IRPdfBookmarkTask;
+}
+
+function asEpubBookmarkTask(raw: unknown): IREpubBookmarkTask | null {
+	if (!isRecord(raw) || typeof raw.id !== "string") {
+		return null;
+	}
+	return raw as IREpubBookmarkTask;
+}
 
 export interface IRCardManagementLoadResult {
 	irBlocks: Record<string, IRBlock>;
@@ -92,22 +109,23 @@ async function collectIRExtractCardIds(
 	}
 ): Promise<Set<string>> {
 	const extractCardIds = new Set<string>();
+	const irPlugin = plugin.app
+		? getPluginInstance<{
+				readingMaterialManager?: {
+					getAllMaterials?: () => ReadingMaterial[] | Promise<ReadingMaterial[]>;
+				};
+			}>(plugin.app, INCREMENTAL_READING_PLUGIN_ID)
+		: null;
 	const manager =
 		plugin?.readingMaterialManager?.getAllMaterials
 			? plugin.readingMaterialManager
-			: ((
-					plugin.app?.plugins?.getPlugin?.(INCREMENTAL_READING_PLUGIN_ID) as {
-						readingMaterialManager?: {
-							getAllMaterials?: () => ReadingMaterial[] | Promise<ReadingMaterial[]>;
-						};
-					} | null
-				)?.readingMaterialManager ?? null);
+			: irPlugin?.readingMaterialManager ?? null;
 	if (!manager?.getAllMaterials) {
 		return extractCardIds;
 	}
 
 	try {
-		const materials = (await Promise.resolve(manager.getAllMaterials())) as ReadingMaterial[];
+		const materials = (await Promise.resolve(manager.getAllMaterials()));
 		for (const material of materials || []) {
 			for (const cardId of material.extractedCards || []) {
 				if (cardId) {
@@ -153,7 +171,7 @@ export async function loadIRCardManagementData(options: {
 	const irExtractCardIds = await collectIRExtractCardIds(plugin);
 	const readingSecondsById = buildIRSessionTotalsByBlockId(history.sessions);
 	const chunkData = workspaceSnapshot.chunksRecord;
-	const sourcesData = workspaceSnapshot.sourcesRecord as Record<string, IRSourceFileMeta>;
+	const sourcesData = workspaceSnapshot.sourcesRecord;
 	const resolveTagGroupName = await createIRTagGroupNameResolver(app);
 	const builderHelpers: IRCardBuilderHelpers = {
 		...helpers,
@@ -248,7 +266,9 @@ export async function loadIRCardManagementData(options: {
 
 		const pdfTasks = workspaceSnapshot.pdfTasks;
 
-		for (const task of pdfTasks) {
+		for (const rawTask of pdfTasks) {
+			const task = asPdfBookmarkTask(rawTask);
+			if (!task) continue;
 			if (handledBookmarkIds.has(task.id)) continue;
 			if (task.status === "done" || task.status === "removed") continue;
 			const card = await buildIRPdfTaskCard({
@@ -294,7 +314,9 @@ export async function loadIRCardManagementData(options: {
 
 		const epubTasks = workspaceSnapshot.epubTasks;
 
-		for (const task of epubTasks) {
+		for (const rawTask of epubTasks) {
+			const task = asEpubBookmarkTask(rawTask);
+			if (!task) continue;
 			if (handledBookmarkIds.has(task.id)) continue;
 			if (task.status === "done" || task.status === "removed") continue;
 			const card = await buildIREpubTaskCard({

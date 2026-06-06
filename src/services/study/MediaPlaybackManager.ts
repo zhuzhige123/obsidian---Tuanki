@@ -77,7 +77,7 @@ export class MediaPlaybackManager {
 		value: boolean | PlayMode | PlayTiming | number
 	): Promise<void> {
 		// 更新内部设置
-		(this.settings as any)[setting] = value;
+		(this.settings as unknown)[setting] = value;
 
 		// 更新插件设置
 		this.plugin.settings.mediaAutoPlay = this.plugin.settings.mediaAutoPlay || {
@@ -87,7 +87,7 @@ export class MediaPlaybackManager {
 			playbackInterval: 2000,
 		};
 
-		(this.plugin.settings.mediaAutoPlay as any)[setting] = value;
+		(this.plugin.settings.mediaAutoPlay as unknown)[setting] = value;
 
 		// 保存设置
 		await this.plugin.saveSettings();
@@ -124,7 +124,7 @@ export class MediaPlaybackManager {
 		const RETRY_DELAY = 200; // 200ms 间隔
 
 		for (let i = 0; i < MAX_RETRIES; i++) {
-			await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+			await new Promise((resolve) => window.setTimeout(resolve, RETRY_DELAY));
 			mediaElements = this.findMediaElements();
 
 			if (mediaElements.length > 0) {
@@ -138,7 +138,7 @@ export class MediaPlaybackManager {
 
 		// 🔍 策略3: 深度调试查找（启用完整调试信息）
 		logger.debug("🔍 启动深度调试查找（支持 media-extended 等插件）");
-		await new Promise((resolve) => setTimeout(resolve, 300)); // 额外延迟
+		await new Promise((resolve) => window.setTimeout(resolve, 300)); // 额外延迟
 		mediaElements = this.findMediaElements(undefined, true); // 🔥 启用调试模式
 
 		if (mediaElements.length > 0) {
@@ -180,7 +180,7 @@ export class MediaPlaybackManager {
 					// ⏸️ 如果不是最后一个，等待间隔后再播放下一个
 					if (i < mediaElements.length - 1) {
 						logger.debug(`⏸️ 等待 ${this.settings.playbackInterval}ms 后播放下一个媒体`);
-						await new Promise((resolve) => setTimeout(resolve, this.settings.playbackInterval));
+						await new Promise((resolve) => window.setTimeout(resolve, this.settings.playbackInterval));
 					}
 				}
 			}
@@ -220,7 +220,7 @@ export class MediaPlaybackManager {
 			// 等待播放完成（15秒超时）
 			await new Promise<void>((resolve, _reject) => {
 				let resolved = false;
-				const timeout = setTimeout(() => {
+				const timeout = window.setTimeout(() => {
 					if (!resolved) {
 						resolved = true;
 						logger.debug(`⏰ ${logTag} 播放超时，强制结束`);
@@ -231,7 +231,7 @@ export class MediaPlaybackManager {
 				const onEnded = () => {
 					if (!resolved) {
 						resolved = true;
-						clearTimeout(timeout);
+						window.clearTimeout(timeout);
 						media.removeEventListener("ended", onEnded);
 						logger.debug(`🏁 ${logTag} 媒体播放完成`);
 						resolve();
@@ -279,7 +279,7 @@ export class MediaPlaybackManager {
 			// 尝试播放
 			await media.play();
 			logger.debug(`✅ ${logTag} 媒体播放成功`);
-		} catch (error: any) {
+		} catch (error: unknown) {
 			// 处理常见播放错误
 			if (error.name === "NotAllowedError") {
 				logger.debug(`🔇 ${logTag} 浏览器阻止自动播放（用户交互要求）`);
@@ -304,7 +304,7 @@ export class MediaPlaybackManager {
 			}
 
 			let resolved = false;
-			const timeoutId = setTimeout(() => {
+			const timeoutId = window.setTimeout(() => {
 				if (!resolved) {
 					resolved = true;
 					cleanup();
@@ -337,7 +337,7 @@ export class MediaPlaybackManager {
 			};
 
 			function cleanup() {
-				clearTimeout(timeoutId);
+				window.clearTimeout(timeoutId);
 				media.removeEventListener("loadeddata", onLoadedData);
 				media.removeEventListener("canplay", onCanPlay);
 				media.removeEventListener("error", onError);
@@ -361,7 +361,7 @@ export class MediaPlaybackManager {
 	 * 查找媒体元素，兼容更多插件和结构
 	 */
 	private findMediaElements(rootContainer?: HTMLElement, debug = false): HTMLMediaElement[] {
-		const container = rootContainer || document.body;
+		const container = rootContainer || activeDocument.body;
 		const elementsSet = new Set<HTMLMediaElement>();
 
 		if (debug) {
@@ -506,7 +506,7 @@ export class MediaPlaybackManager {
 	 */
 	private observeMediaElements(): Promise<void> {
 		return new Promise((resolve) => {
-			const container = document.querySelector(".main-study-area") || document.body;
+			const container = activeDocument.querySelector(".main-study-area") || activeDocument.body;
 			let resolved = false;
 			let checkCount = 0;
 
@@ -536,7 +536,7 @@ export class MediaPlaybackManager {
 			});
 
 			// 3秒后自动停止（避免永远等待）
-			setTimeout(() => {
+			window.setTimeout(() => {
 				if (!resolved) {
 					resolved = true;
 					observer.disconnect();

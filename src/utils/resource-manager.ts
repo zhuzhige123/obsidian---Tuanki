@@ -9,7 +9,7 @@ export interface ResourceCleanup {
 }
 
 export interface TimerResource {
-	id: ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>;
+	id: ReturnType<typeof setTimeout>  ;
 	type: "timeout" | "interval";
 	description?: string;
 }
@@ -23,13 +23,13 @@ export interface EventListenerResource {
 }
 
 export interface PromiseResource {
-	promise: Promise<any>;
+	promise: Promise<unknown>;
 	controller?: AbortController;
 	description?: string;
 }
 
 export interface ComponentResource {
-	component: any;
+	component: unknown;
 	cleanup: ResourceCleanup;
 	description?: string;
 }
@@ -56,7 +56,7 @@ export class EditorResourceManager {
 	 * 注册定时器资源
 	 */
 	registerTimer(
-		id: ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>,
+		id: ReturnType<typeof setTimeout>  ,
 		type: "timeout" | "interval",
 		description?: string
 	): string {
@@ -107,7 +107,7 @@ export class EditorResourceManager {
 	 * 注册Promise资源
 	 */
 	registerPromise(
-		promise: Promise<any>,
+		promise: Promise<unknown>,
 		controller?: AbortController,
 		description?: string
 	): string {
@@ -138,7 +138,7 @@ export class EditorResourceManager {
 	/**
 	 * 注册组件资源
 	 */
-	registerComponent(component: any, cleanup: ResourceCleanup, description?: string): string {
+	registerComponent(component: unknown, cleanup: ResourceCleanup, description?: string): string {
 		if (this.isDestroyed) {
 			logger.warn(`[ResourceManager] 编辑器已销毁，无法注册组件: ${this.editorId}`);
 			return "";
@@ -185,9 +185,9 @@ export class EditorResourceManager {
 		if (this.timers.has(resourceId)) {
 			const timer = this.timers.get(resourceId)!;
 			if (timer.type === "timeout") {
-				clearTimeout(timer.id);
+				window.clearTimeout(timer.id);
 			} else {
-				clearInterval(timer.id);
+				window.clearInterval(timer.id);
 			}
 			this.timers.delete(resourceId);
 			logger.debug(`[ResourceManager] 移除定时器 [${this.editorId}]: ${resourceId}`);
@@ -313,9 +313,9 @@ export class EditorResourceManager {
 		for (const [resourceId, timer] of this.timers) {
 			try {
 				if (timer.type === "timeout") {
-					clearTimeout(timer.id);
+					window.clearTimeout(timer.id);
 				} else {
-					clearInterval(timer.id);
+					window.clearInterval(timer.id);
 				}
 				logger.debug(
 					`[ResourceManager] 清理定时器 [${this.editorId}]: ${resourceId} (${

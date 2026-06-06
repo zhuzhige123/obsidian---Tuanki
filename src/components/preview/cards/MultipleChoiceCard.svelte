@@ -48,7 +48,7 @@
 
     // 触发动画反馈
     setTimeout(() => {
-      const optionEl = document.querySelector(`[data-option-id="${optionId}"]`);
+      const optionEl = activeDocument.querySelector(`[data-option-id="${optionId}"]`);
       if (optionEl) {
         if (optionId === correctOption) {
           optionEl.classList.add('weave-correct-feedback');

@@ -86,11 +86,11 @@
   let clozeTextMeasureCanvas: HTMLCanvasElement | null = null;
 
   function getClozeTextMeasureContext(): CanvasRenderingContext2D | null {
-    if (typeof document === 'undefined') {
+    if (typeof activeDocument === 'undefined') {
       return null;
     }
 
-    clozeTextMeasureCanvas ??= document.createElement('canvas');
+    clozeTextMeasureCanvas ??= activeDocument.createElement('canvas');
     return clozeTextMeasureCanvas.getContext('2d');
   }
 
@@ -205,7 +205,7 @@
     markEl.setAttribute('role', 'group');
     markEl.setAttribute('aria-label', getClozeAriaLabel(false, hint));
 
-    const inputEl = document.createElement('input');
+    const inputEl = activeDocument.createElement('input');
     inputEl.type = 'text';
     inputEl.className = 'weave-cloze-input';
     inputEl.value = userAnswer;
@@ -232,7 +232,7 @@
     const hint = markEl.getAttribute('data-hint');
 
     resetClozeStateClasses(markEl);
-    markEl.replaceChildren(document.createTextNode(answerText));
+    markEl.replaceChildren(activeDocument.createTextNode(answerText));
     markEl.setAttribute('tabindex', '0');
     markEl.setAttribute('role', 'button');
     markEl.setAttribute('aria-label', getClozeAriaLabel(shouldShow, hint));
@@ -254,7 +254,7 @@
 
     resetClozeStateClasses(markEl);
     markEl.classList.add('weave-cloze-revealed', isCorrect ? 'weave-cloze-correct' : 'weave-cloze-incorrect');
-    markEl.replaceChildren(document.createTextNode(answerText));
+    markEl.replaceChildren(activeDocument.createTextNode(answerText));
     applyStyleProps(markEl, { cursor: 'default' });
     markEl.setAttribute('tabindex', '0');
     markEl.setAttribute('role', 'status');
@@ -583,9 +583,9 @@
     clone.querySelectorAll('a.footnote-backref, a[href^="#fnref"]').forEach(el => el.remove());
     clone.removeAttribute('id');
 
-    const popover = document.createElement('div');
+    const popover = activeDocument.createElement('div');
     popover.className = 'weave-footnote-popover';
-    const contentDiv = document.createElement('div');
+    const contentDiv = activeDocument.createElement('div');
     contentDiv.className = 'weave-footnote-popover-content';
     contentDiv.innerHTML = clone.innerHTML;
     popover.appendChild(contentDiv);
@@ -593,7 +593,7 @@
     popover.addEventListener('mouseenter', cancelRemovePopover);
     popover.addEventListener('mouseleave', () => scheduleRemovePopover(300));
 
-    document.body.appendChild(popover);
+    activeDocument.body.appendChild(popover);
     activeFootnotePopover = popover;
 
     const rect = refEl.getBoundingClientRect();
@@ -692,7 +692,7 @@
       const parent = table.parentElement;
       if (!parent) continue;
 
-      const wrapper = document.createElement('div');
+      const wrapper = activeDocument.createElement('div');
       wrapper.className = 'weave-table-scroll';
 
       parent.insertBefore(wrapper, table);

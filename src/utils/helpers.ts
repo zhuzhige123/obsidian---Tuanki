@@ -1,10 +1,10 @@
+import type { TimerHandle } from "../types/timer";
 // Anki Plugin Helper Functions
 // Common utility functions and helper methods
 // Code cleanup completed 2025-01-25
 
-import type { App, TFile } from "obsidian";
 import { MAIN_SEPARATOR } from "../constants/markdown-delimiters";
-import type { Card, Deck } from "../data/types";
+import type { Card } from "../data/types";
 import { CardState, Rating } from "../data/types";
 import { getCardBack, getCardFront } from "./card-field-helper";
 
@@ -358,10 +358,15 @@ export function calculateDeckStats(cards: Card[]) {
 // Learning progress calculation functions removed - uses more precise FSRS algorithm implementation
 
 // Text processing
-export function truncateText(text: any, maxLength: number): string {
-	//  类型安全：确保text是字符串
+export function truncateText(text: unknown, maxLength: number): string {
 	if (text === null || text === undefined) return "";
-	const textStr = typeof text === "string" ? text : String(text);
+	const textStr =
+		typeof text === "string"
+			? text
+			: typeof text === "number" || typeof text === "boolean" || typeof text === "bigint"
+				? String(text)
+				: "";
+	if (!textStr) return "";
 	if (textStr.length <= maxLength) return textStr;
 	return `${textStr.substring(0, maxLength - 3)}...`;
 }
@@ -534,10 +539,10 @@ export function markdownToHtml(md: string): string {
 	if (!md) return "";
 	let out = md;
 	// Code blocks
-	out = out.replace(
-		/```([\s\S]*?)```/g,
-		(_m, p1) => `<pre><code>${p1.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>`
-	);
+	out = out.replace(/```([\s\S]*?)```/g, (_m, p1: string) => {
+		const escaped = p1.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+		return `<pre><code>${escaped}</code></pre>`;
+	});
 	// Headers
 	out = out
 		.replace(/^######\s+(.*)$/gm, "<h6>$1</h6>")
@@ -658,10 +663,25 @@ export function generateColorFromString(str: string): string {
 //  性能优化：添加内容缓存
 const cardContentCache = new Map<string, { front: string; back: string }>();
 
+type CardTemplateField = {
+	type: string;
+	side?: string;
+	key: string;
+};
+
+type CardTemplateLike = {
+	id: string;
+	fields?: CardTemplateField[];
+};
+
+function isTemplateField(item: CardTemplateField): boolean {
+	return item.type === "field";
+}
+
 export function getCardContentBySide(
 	card: Card,
 	side: "front" | "back",
-	allTemplates: any[],
+	allTemplates: CardTemplateLike[],
 	separator = "\n---\n"
 ): string {
 	// 输入验证：防止空值访问
@@ -724,24 +744,27 @@ export function getCardContentBySide(
 
 	// 使用模板系统解析
 	// Filter fields belonging to the correct "side"
-	const frontFields = template.fields.filter((item: any) => {
-		if (item.type !== "field") return false;
-		return item.side === "front" || item.side === "both";
-	});
+	const templateFields = Array.isArray(template.fields) ? template.fields : [];
+	const frontFields = templateFields.filter(
+		(item) => isTemplateField(item) && (item.side === "front" || item.side === "both")
+	);
+	const backFields = templateFields.filter(
+		(item) => isTemplateField(item) && (item.side === "back" || item.side === "both")
+	);
 
-	const backFields = template.fields.filter((item: any) => {
-		if (item.type !== "field") return false;
-		return item.side === "back" || item.side === "both";
-	});
-
-	// Extract content for both sides
 	frontContent = frontFields
-		.map((field: any) => card.fields?.[field.key])
+		.map((field) => {
+			const value = card.fields?.[field.key];
+			return typeof value === "string" ? value : "";
+		})
 		.filter(Boolean)
 		.join(separator);
 
 	backContent = backFields
-		.map((field: any) => card.fields?.[field.key])
+		.map((field) => {
+			const value = card.fields?.[field.key];
+			return typeof value === "string" ? value : "";
+		})
 		.filter(Boolean)
 		.join(separator);
 
@@ -761,7 +784,7 @@ export function getCardContentBySide(
 /**
  * 防抖函数类型定义
  */
-export interface DebouncedFunction<T extends (...args: any[]) => any> {
+export interface DebouncedFunction<T extends (...args: unknown[]) => unknown> {
 	(...args: Parameters<T>): void;
 	cancel(): void;
 }
@@ -770,22 +793,22 @@ export interface DebouncedFunction<T extends (...args: any[]) => any> {
  * 通用防抖函数
  * 从废弃的template-editor-performance-optimizer迁移而来
  */
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
 	func: T,
 	delay: number
 ): DebouncedFunction<T> {
-	let timeoutId: NodeJS.Timeout | null = null;
+	let timeoutId: TimerHandle | null = null;
 
 	const debouncedFn = (...args: Parameters<T>) => {
 		if (timeoutId) {
-			clearTimeout(timeoutId);
+			window.clearTimeout(timeoutId);
 		}
-		timeoutId = setTimeout(() => func(...args), delay);
+		timeoutId = window.setTimeout(() => func(...args), delay);
 	};
 
 	debouncedFn.cancel = () => {
 		if (timeoutId) {
-			clearTimeout(timeoutId);
+			window.clearTimeout(timeoutId);
 			timeoutId = null;
 		}
 	};

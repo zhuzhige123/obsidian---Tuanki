@@ -582,8 +582,8 @@
     // 1. Platform.isMobile - Obsidian 官方 API
     if (Platform.isMobile) return true;
     // 2. body classes
-    if (typeof document !== 'undefined') {
-      const body = document.body;
+    if (typeof activeDocument !== 'undefined') {
+      const body = activeDocument.body;
       if (body.classList.contains('is-mobile') || 
           body.classList.contains('is-phone') || 
           body.classList.contains('is-tablet')) {
@@ -1959,7 +1959,7 @@
     // 使用 tick().then() 确保 DOM 已渲染
     tick().then(() => {
       // 查找最近的 workspace-leaf-content（这是 Obsidian 控制宽度的容器）
-      const rootContainer = document.querySelector('.weave-card-management-page');
+      const rootContainer = activeDocument.querySelector('.weave-card-management-page');
       const leafContent = rootContainer?.closest('.workspace-leaf-content');
       const observeTarget = leafContent || rootContainer;
       
@@ -1970,7 +1970,7 @@
         resizeObserver.observe(observeTarget);
         
         // MutationObserver 监听 DOM 结构变化（视图移动到侧边栏）
-        const workspace = document.querySelector('.workspace');
+        const workspace = activeDocument.querySelector('.workspace');
         if (workspace) {
           mutationObserver = new MutationObserver(() => {
             // DOM 结构变化时重新检测
@@ -6545,12 +6545,12 @@
   function handleMobileSearchClick() {
     showMobileSearchInput = !showMobileSearchInput;
 
-    if (!showMobileSearchInput || typeof document === 'undefined') {
+    if (!showMobileSearchInput || typeof activeDocument === 'undefined') {
       return;
     }
 
     requestAnimationFrame(() => {
-      const input = document.querySelector(
+      const input = activeDocument.querySelector(
         '.weave-card-management-page .mobile-search-container .search-input'
       ) as HTMLInputElement | null;
       input?.focus();

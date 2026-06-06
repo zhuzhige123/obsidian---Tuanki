@@ -448,7 +448,7 @@ export class IRPlanGeneratorService {
 				? item.explanation.scoreBreakdown.fatiguePenalty + 1.2
 				: item.explanation.scoreBreakdown.fatiguePenalty
 		);
-		const baseUtility = this.profileService.computeUtility(item.explanation.scoreBreakdown as any, {
+		const baseUtility = this.profileService.computeUtility(item.explanation.scoreBreakdown as unknown, {
 			loadRatio,
 			fatiguePenalty,
 			volatilityPenalty,

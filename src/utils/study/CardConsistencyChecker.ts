@@ -12,6 +12,8 @@
 
 import { Card, CardType } from "../../data/types";
 import { hasAnyClozeSyntax } from "../cloze-syntax";
+import { readUnknownProperty } from "../dynamic-access";
+import { isRecord, readNumber } from "../typed-json";
 
 /**
  * 一致性问题类型
@@ -80,8 +82,9 @@ export class CardConsistencyChecker {
 		const clozeCount = this.getClozeCount(card.content || "");
 		// V2 架构：检查是否为渐进式挖空父卡片
 		const hasProgressiveCloze = card.type === CardType.ProgressiveParent;
-		const recordedClozeCount = hasProgressiveCloze
-			? (card as any).progressiveCloze?.totalClozes
+		const progressiveCloze = readUnknownProperty(card, "progressiveCloze");
+		const recordedClozeCount = hasProgressiveCloze && isRecord(progressiveCloze)
+			? readNumber(progressiveCloze, "totalClozes")
 			: undefined;
 
 		// 情况A: 内容是挖空，但type不是cloze

@@ -30,7 +30,7 @@ export interface CardMetadata {
 	customFields?: Record<string, string>;
 
 	/** 挖空分析数据（由ClozeCardParser附加） */
-	clozeAnalysis?: any;
+	clozeAnalysis?: unknown;
 }
 
 /**

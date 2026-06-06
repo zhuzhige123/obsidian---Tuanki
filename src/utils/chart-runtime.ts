@@ -134,7 +134,7 @@ export function createManagedChartRuntime<TPayload>(
 			themeObserver = new MutationObserver(() => {
 				renderLatest();
 			});
-			themeObserver.observe(document.body, {
+			themeObserver.observe(activeDocument.body, {
 				attributes: true,
 				attributeFilter: ["class"],
 			});

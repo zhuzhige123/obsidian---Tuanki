@@ -62,9 +62,9 @@
   
   const isCompactMobile =
     Platform.isMobile
-    || (typeof document !== 'undefined'
-      && (document.body.classList.contains('is-mobile')
-        || document.body.classList.contains('is-phone')));
+    || (typeof activeDocument !== 'undefined'
+      && (activeDocument.body.classList.contains('is-mobile')
+        || activeDocument.body.classList.contains('is-phone')));
   
   //  移动端：使用 Obsidian Menu API 显示牌组选择菜单
   function handleDeckSelectorClick(event: MouseEvent) {

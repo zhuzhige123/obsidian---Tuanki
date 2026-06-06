@@ -1,7 +1,16 @@
+import { getChromePerformanceMemory } from "./chrome-performance-memory";
+import { isCallable, readUnknownProperty } from "./dynamic-access";
 import { logger } from "../utils/logger";
 /**
  * 内存管理工具 - 防止内存泄露和监控内存使用
  */
+
+function callObserverMethod(observer: unknown, methodName: "disconnect" | "unobserve"): void {
+	const method = readUnknownProperty(observer, methodName);
+	if (isCallable(method)) {
+		Reflect.apply(method, observer, []);
+	}
+}
 
 /**
  * 内存使用信息
@@ -17,9 +26,9 @@ interface MemoryInfo {
  * 资源引用管理器
  */
 class ResourceReferenceManager {
-	private references = new Map<string, Set<any>>();
+	private references = new Map<string, Set<unknown>>();
 	private timers = new Set<number>();
-	private observers = new Set<any>();
+	private observers = new Set<unknown>();
 	private eventListeners = new Map<EventTarget, Map<string, EventListener>>();
 
 	/**
@@ -37,8 +46,8 @@ class ResourceReferenceManager {
 	 */
 	clearTimer(id: number): void {
 		if (this.timers.has(id)) {
-			clearTimeout(id);
-			clearInterval(id);
+			window.clearTimeout(id);
+			window.clearInterval(id);
 			this.timers.delete(id);
 			logger.debug(`[MemoryManager] 清理定时器: ${id}`);
 		}
@@ -49,8 +58,8 @@ class ResourceReferenceManager {
 	 */
 	clearAllTimers(): void {
 		this.timers.forEach((_id) => {
-			clearTimeout(_id);
-			clearInterval(_id);
+			window.clearTimeout(_id);
+			window.clearInterval(_id);
 		});
 		logger.debug(`[MemoryManager] 清理了 ${this.timers.size} 个定时器`);
 		this.timers.clear();
@@ -59,7 +68,7 @@ class ResourceReferenceManager {
 	/**
 	 * 注册观察者
 	 */
-	registerObserver(observer: any, description?: string): void {
+	registerObserver(observer: unknown, description?: string): void {
 		this.observers.add(observer);
 		if (description) {
 			logger.debug(`[MemoryManager] 注册观察者: ${description}`);
@@ -69,10 +78,10 @@ class ResourceReferenceManager {
 	/**
 	 * 清理观察者
 	 */
-	clearObserver(observer: any): void {
+	clearObserver(observer: unknown): void {
 		if (this.observers.has(observer)) {
-			if (observer.disconnect) observer.disconnect();
-			if (observer.unobserve) observer.unobserve();
+			callObserverMethod(observer, "disconnect");
+			callObserverMethod(observer, "unobserve");
 			this.observers.delete(observer);
 			logger.debug("[MemoryManager] 清理观察者");
 		}
@@ -84,8 +93,8 @@ class ResourceReferenceManager {
 	clearAllObservers(): void {
 		this.observers.forEach((_observer) => {
 			try {
-				if (_observer.disconnect) _observer.disconnect();
-				if (_observer.unobserve) _observer.unobserve();
+				callObserverMethod(_observer, "disconnect");
+				callObserverMethod(_observer, "unobserve");
 			} catch (e) {
 				logger.warn("[MemoryManager] 清理观察者失败:", e);
 			}
@@ -153,7 +162,7 @@ class ResourceReferenceManager {
 	/**
 	 * 添加引用
 	 */
-	addReference(category: string, reference: any): void {
+	addReference(category: string, reference: unknown): void {
 		if (!this.references.has(category)) {
 			this.references.set(category, new Set());
 		}
@@ -163,7 +172,7 @@ class ResourceReferenceManager {
 	/**
 	 * 移除引用
 	 */
-	removeReference(category: string, reference: any): void {
+	removeReference(category: string, reference: unknown): void {
 		const refs = this.references.get(category);
 		if (refs) {
 			refs.delete(reference);
@@ -239,7 +248,7 @@ class MemoryMonitor {
 
 		this.monitoring = false;
 		if (this.interval) {
-			clearInterval(this.interval);
+			window.clearInterval(this.interval);
 			this.interval = null;
 		}
 
@@ -249,7 +258,7 @@ class MemoryMonitor {
 	destroy(): void {
 		try {
 			this.stopMonitoring();
-		} catch {}
+		} catch { /* no-op */ }
 		this.callbacks = [];
 		this.history = [];
 	}
@@ -258,11 +267,11 @@ class MemoryMonitor {
 	 * 检查内存使用
 	 */
 	private checkMemory(): void {
-		if (typeof window === "undefined" || !(performance as any).memory) {
+		const memory = getChromePerformanceMemory();
+		if (!memory) {
 			return;
 		}
 
-		const memory = (performance as any).memory;
 		const info: MemoryInfo = {
 			used: memory.usedJSHeapSize,
 			total: memory.totalJSHeapSize,
@@ -319,11 +328,11 @@ class MemoryMonitor {
 	 * 获取当前内存信息
 	 */
 	getCurrentMemoryInfo(): MemoryInfo | null {
-		if (typeof window === "undefined" || !(performance as any).memory) {
+		const memory = getChromePerformanceMemory();
+		if (!memory) {
 			return null;
 		}
 
-		const memory = (performance as any).memory;
 		return {
 			used: memory.usedJSHeapSize,
 			total: memory.totalJSHeapSize,
@@ -336,13 +345,18 @@ class MemoryMonitor {
 	 * 触发垃圾回收（如果支持）
 	 */
 	private triggerGarbageCollection(): void {
-		if (typeof window !== "undefined" && (window as any).gc) {
-			try {
-				(window as any).gc();
-				logger.debug("[MemoryMonitor] 触发垃圾回收");
-			} catch (e) {
-				logger.warn("[MemoryMonitor] 垃圾回收失败:", e);
-			}
+		if (typeof window === "undefined") {
+			return;
+		}
+		const gc = readUnknownProperty(window, "gc");
+		if (!isCallable(gc)) {
+			return;
+		}
+		try {
+			Reflect.apply(gc, window, []);
+			logger.debug("[MemoryMonitor] 触发垃圾回收");
+		} catch (e) {
+			logger.warn("[MemoryMonitor] 垃圾回收失败:", e);
 		}
 	}
 }
@@ -355,7 +369,7 @@ function getOrCreateMemoryManager(): ResourceReferenceManager {
 		return new ResourceReferenceManager();
 	}
 
-	const w = window as any;
+	const w = window as unknown;
 	if (w.__weaveMemoryManager) {
 		return w.__weaveMemoryManager as ResourceReferenceManager;
 	}
@@ -370,7 +384,7 @@ function getOrCreateMemoryMonitor(): MemoryMonitor {
 		return new MemoryMonitor();
 	}
 
-	const w = window as any;
+	const w = window as unknown;
 	if (w.__weaveMemoryMonitor) {
 		return w.__weaveMemoryMonitor as MemoryMonitor;
 	}
@@ -382,11 +396,11 @@ function getOrCreateMemoryMonitor(): MemoryMonitor {
 		w.__weaveMemoryManagerCleanup = () => {
 			try {
 				(w.__weaveMemoryMonitor as MemoryMonitor | undefined)?.destroy();
-			} catch {}
+			} catch { /* no-op */ }
 
 			try {
 				(w.__weaveMemoryManager as ResourceReferenceManager | undefined)?.clearAll();
-			} catch {}
+			} catch { /* no-op */ }
 
 			try {
 				w.__weaveMemoryMonitor = undefined;
@@ -444,7 +458,7 @@ export function createCleanupManager() {
 		/**
 		 * 添加观察者清理
 		 */
-		addObserver(observer: any): void {
+		addObserver(observer: unknown): void {
 			memoryManager.registerObserver(observer);
 			cleanupFunctions.push(() => memoryManager.clearObserver(observer));
 		},

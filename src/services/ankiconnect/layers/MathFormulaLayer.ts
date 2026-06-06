@@ -76,7 +76,7 @@ export class MathFormulaLayer extends BaseConversionLayer {
 		let count = 0;
 
 		// 使用非贪婪匹配，支持多行
-		const result = content.replace(CONVERSION_REGEX.BLOCK_MATH, (match, formula, offset) => {
+		const result = content.replace(CONVERSION_REGEX.BLOCK_MATH, (match: string, formula: string, offset: number) => {
 			// 检查是否在代码块中
 			if (BoundaryDetector.shouldSkipMatch(content, offset)) {
 				this.debug("跳过代码块中的匹配", { match: match.substring(0, 30) });
@@ -114,7 +114,7 @@ export class MathFormulaLayer extends BaseConversionLayer {
 		const warnings: string[] = [];
 		let count = 0;
 
-		const result = content.replace(CONVERSION_REGEX.INLINE_MATH, (match, formula, offset) => {
+		const result = content.replace(CONVERSION_REGEX.INLINE_MATH, (match: string, formula: string, offset: number) => {
 			// 检查是否在代码块或行内代码中
 			if (BoundaryDetector.shouldSkipMatch(content, offset)) {
 				this.debug("跳过代码块/行内代码中的匹配", { match });
@@ -151,7 +151,7 @@ export class MathFormulaLayer extends BaseConversionLayer {
 	 */
 	private isAlreadyLatexFormat(formula: string): boolean {
 		// 检查是否包含 \( 或 \[ 标记
-		return /\\[\(\[]/.test(formula);
+		return /\\[([]/.test(formula);
 	}
 
 	/**

@@ -16,6 +16,12 @@
 import { App, Notice } from "obsidian";
 import { SCHEMA_VERSION, WEAVE_DATA, getPluginPaths, getV2PathsFromApp } from "../../config/paths";
 import { logger } from "../../utils/logger";
+import {
+	getVaultAdapterWithDirOps,
+	listVaultDirectory,
+	type VaultAdapterWithDirOps,
+} from "../../utils/plugin-runtime";
+import { isRecord, parseJsonUnknown } from "../../utils/typed-json";
 import { DataFileType, FileDetectionResult, FileTypeDetector } from "./FileTypeDetector";
 
 /**
@@ -75,16 +81,12 @@ export class SchemaV2MigrationService {
 		if (!trimmed) return trimmed;
 
 		try {
-			const parsed = JSON.parse(trimmed);
+			const parsed = parseJsonUnknown(trimmed);
 			if (typeof parsed === "string") {
 				return parsed.trim();
 			}
-			if (
-				parsed &&
-				typeof parsed === "object" &&
-				typeof (parsed as { version?: unknown }).version === "string"
-			) {
-				return (parsed as { version: string }).version.trim();
+			if (isRecord(parsed) && typeof parsed.version === "string") {
+				return parsed.version.trim();
 			}
 		} catch {
 			// 兼容旧版纯文本格式
@@ -189,34 +191,33 @@ export class SchemaV2MigrationService {
 		for (const filePath of this.getLegacyRootJsonCandidates()) {
 			try {
 				if (await adapter.exists(filePath)) return true;
-			} catch {}
+			} catch { /* no-op */ }
 		}
 
 		return false;
 	}
 
+	private getVaultAdapter(): VaultAdapterWithDirOps {
+		return getVaultAdapterWithDirOps(this.app.vault.adapter);
+	}
+
 	private async isNonEmptyDirectory(path: string): Promise<boolean> {
-		const adapterAny: any = this.app.vault.adapter as any;
-		if (!adapterAny?.list) {
+		const adapter = this.getVaultAdapter();
+		if (!adapter.list) {
 			return true;
 		}
 
 		const check = async (dir: string, depth: number): Promise<boolean> => {
 			if (depth <= 0) return false;
 
-			let listing: any;
-			try {
-				listing = await adapterAny.list(dir);
-			} catch {
+			const listing = await listVaultDirectory(adapter, dir);
+			if (!listing) {
 				return true;
 			}
 
-			const files: string[] = listing?.files || [];
-			const folders: string[] = listing?.folders || [];
+			if (listing.files.length > 0) return true;
 
-			if (files.length > 0) return true;
-
-			for (const folder of folders) {
+			for (const folder of listing.folders) {
 				if (await check(folder, depth - 1)) return true;
 			}
 
@@ -260,7 +261,7 @@ export class SchemaV2MigrationService {
 					if (!exists) continue;
 					const detected = await this.detector.detectFileType(candidate);
 					detectionResults.push(detected);
-				} catch {}
+				} catch { /* no-op */ }
 			}
 			logger.info(`[Migration] 扫描到 ${detectionResults.length} 个JSON文件`);
 
@@ -378,7 +379,7 @@ export class SchemaV2MigrationService {
 					}
 					return;
 				}
-			} catch {}
+			} catch { /* no-op */ }
 
 			const conflictDir = `${getPluginPaths(this.app).migration.root}/conflicts`;
 			await this.ensureDir(conflictDir);
@@ -428,7 +429,7 @@ export class SchemaV2MigrationService {
 	 * 清理旧目录（迁移完成后删除空目录）
 	 */
 	private async cleanupLegacyDirectories(): Promise<void> {
-		const adapter = this.app.vault.adapter;
+		const adapter = this.getVaultAdapter();
 
 		// 需要删除的旧目录（按深度从深到浅删除）
 		const legacyDirs = [
@@ -449,24 +450,15 @@ export class SchemaV2MigrationService {
 		];
 
 		const deepRemove = async (path: string): Promise<void> => {
-			const a: any = adapter as any;
 			if (!(await adapter.exists(path))) return;
 
-			let listing: any;
-			try {
-				listing = a.list ? await a.list(path) : null;
-			} catch {
-				listing = null;
-			}
+			const listing = await listVaultDirectory(adapter, path);
 
-			const files: string[] = listing?.files || [];
-			const folders: string[] = listing?.folders || [];
-
-			for (const folder of folders) {
+			for (const folder of listing?.folders ?? []) {
 				await deepRemove(folder);
 			}
 
-			for (const file of files) {
+			for (const file of listing?.files ?? []) {
 				try {
 					await adapter.remove(file);
 				} catch (error) {
@@ -475,8 +467,8 @@ export class SchemaV2MigrationService {
 			}
 
 			try {
-				if (a.rmdir) {
-					await a.rmdir(path, false);
+				if (adapter.rmdir) {
+					await adapter.rmdir(path, false);
 				} else {
 					await adapter.remove(path);
 				}
@@ -501,7 +493,7 @@ export class SchemaV2MigrationService {
 	 * 复制目录
 	 */
 	private async copyDirectory(source: string, target: string): Promise<void> {
-		const adapter = this.app.vault.adapter;
+		const adapter = this.getVaultAdapter();
 
 		if (!(await adapter.exists(source))) {
 			return;
@@ -509,11 +501,13 @@ export class SchemaV2MigrationService {
 
 		await this.ensureDir(target);
 
-		const listing = await (adapter as any).list(source);
+		const listing = await listVaultDirectory(adapter, source);
+		if (!listing) {
+			return;
+		}
 
-		// 复制文件
-		for (const file of listing.files || []) {
-			const fileName = file.split("/").pop();
+		for (const file of listing.files) {
+			const fileName = file.split("/").pop() ?? file;
 			const targetFilePath = `${target}/${fileName}`;
 			if (await adapter.exists(targetFilePath)) {
 				continue;
@@ -522,9 +516,8 @@ export class SchemaV2MigrationService {
 			await adapter.write(targetFilePath, content);
 		}
 
-		// 递归复制子目录
-		for (const folder of listing.folders || []) {
-			const folderName = folder.split("/").pop();
+		for (const folder of listing.folders) {
+			const folderName = folder.split("/").pop() ?? folder;
 			await this.copyDirectory(folder, `${target}/${folderName}`);
 		}
 	}
@@ -534,7 +527,7 @@ export class SchemaV2MigrationService {
 	 * 说明：Obsidian adapter 没有跨目录 rename 的统一保证，这里用 copy + remove 实现 move 语义。
 	 */
 	private async moveDirectory(source: string, target: string): Promise<void> {
-		const adapter = this.app.vault.adapter;
+		const adapter = this.getVaultAdapter();
 
 		if (!(await adapter.exists(source))) {
 			return;
@@ -542,17 +535,18 @@ export class SchemaV2MigrationService {
 
 		await this.ensureDir(target);
 
-		const listing = await (adapter as any).list(source);
+		const listing = await listVaultDirectory(adapter, source);
+		if (!listing) {
+			return;
+		}
 
-		// 先递归移动子目录
-		for (const folder of listing.folders || []) {
-			const folderName = folder.split("/").pop();
+		for (const folder of listing.folders) {
+			const folderName = folder.split("/").pop() ?? folder;
 			await this.moveDirectory(folder, `${target}/${folderName}`);
 		}
 
-		// 再移动文件
-		for (const file of listing.files || []) {
-			const fileName = file.split("/").pop();
+		for (const file of listing.files) {
+			const fileName = file.split("/").pop() ?? file;
 			const targetFilePath = `${target}/${fileName}`;
 			if (await adapter.exists(targetFilePath)) {
 				continue;
@@ -566,16 +560,14 @@ export class SchemaV2MigrationService {
 			}
 		}
 
-		// 尝试删除已清空的源目录
 		try {
-			const listingAfter = await (adapter as any).list(source);
-			const isEmpty =
-				(!listingAfter.files || listingAfter.files.length === 0) &&
-				(!listingAfter.folders || listingAfter.folders.length === 0);
-			if (isEmpty) {
-				await adapter.rmdir(source, false);
+			const listingAfter = await listVaultDirectory(adapter, source);
+			if (listingAfter && listingAfter.files.length === 0 && listingAfter.folders.length === 0) {
+				if (adapter.rmdir) {
+					await adapter.rmdir(source, false);
+				}
 			}
-		} catch {}
+		} catch { /* no-op */ }
 	}
 
 	/**
@@ -636,7 +628,7 @@ export class SchemaV2MigrationService {
 				if (!(await adapter.exists(candidate))) continue;
 				const content = await adapter.read(candidate);
 				await adapter.write(`${rootBackupDir}/${candidate}`, content);
-			} catch {}
+			} catch { /* no-op */ }
 		}
 
 		logger.info(`[Migration] 备份创建完成: ${backupPath}`);

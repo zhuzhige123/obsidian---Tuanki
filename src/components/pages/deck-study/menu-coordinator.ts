@@ -82,7 +82,6 @@ export function createDeckStudyMenuCoordinator(
 
   function showMoreActionsMenu(event: MouseEvent): void {
     const menu = new Menu();
-    const selectedFilter = options.getSelectedFilter();
 
     if (options.isAPKGImportEnabled()) {
       menu.addItem((item) => {

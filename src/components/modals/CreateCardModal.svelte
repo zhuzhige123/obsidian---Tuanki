@@ -172,7 +172,7 @@
       }
     });
 
-    menuObserver.observe(document.body, {
+    menuObserver.observe(activeDocument.body, {
       childList: true,
       subtree: true
     });

@@ -268,7 +268,7 @@
 
   function showMenuAtTrigger(menu: Menu, trigger: HTMLElement) {
     const rect = trigger.getBoundingClientRect();
-    const ownerDocument = trigger.ownerDocument ?? document;
+    const ownerDocument = trigger.ownerDocument ?? activeDocument;
     menu.showAtPosition(
       {
         x: Math.round(rect.left),

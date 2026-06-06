@@ -60,7 +60,7 @@ class ImageMaskRenderChild extends MarkdownRenderChild {
     this.scheduled = true;
 
     // 用 rAF 合并高频变化，避免编辑时卡顿（非强制，只是节流）。
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       this.scheduled = false;
       void this.tryApplyOnce();
     });
@@ -79,12 +79,12 @@ class ImageMaskRenderChild extends MarkdownRenderChild {
     // 等待图片完成加载（内部 embed 经常先插入占位，再异步补 src）
     await Promise.all(
       Array.from(imgs).map((node) => {
-        const img = node as HTMLImageElement;
+        const img = node;
         if (img.complete) return Promise.resolve();
         return new Promise<void>((resolve) => {
           img.addEventListener("load", () => resolve(), { once: true });
           img.addEventListener("error", () => resolve(), { once: true });
-          setTimeout(() => resolve(), 1000);
+          window.setTimeout(() => resolve(), 1000);
         });
       })
     );

@@ -12,6 +12,7 @@ import type {
 	ConversionResult,
 } from "../../types/converter-types";
 import type { CardType, ParsedCard } from "../../types/newCardParsingTypes";
+import { CardType as DataCardType } from "../../data/types";
 // 导入 YAML 工具函数
 import { createContentWithMetadata } from "../../utils/yaml-utils";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
@@ -21,9 +22,9 @@ import { generateCardUUID } from "../identifier/WeaveIDGenerator";
  */
 export class ParsedCardConverter {
 	private fsrs: FSRS;
-	private app: any;
+	private app: unknown;
 
-	constructor(app: any, fsrs: FSRS) {
+	constructor(app: unknown, fsrs: FSRS) {
 		this.app = app;
 		this.fsrs = fsrs;
 	}
@@ -52,7 +53,7 @@ export class ParsedCardConverter {
 			const fsrsCard = this.fsrs.createCard();
 
 			// 转换为 FSRSData 格式（兼容旧类型系统）
-			const fsrsData: any = {
+			const fsrsData: unknown = {
 				state: fsrsCard.state,
 				due: fsrsCard.due,
 				stability: fsrsCard.stability,
@@ -179,7 +180,7 @@ export class ParsedCardConverter {
 		}
 
 		// 构建 YAML 元数据
-		const yamlMetadata: Record<string, any> = {
+		const yamlMetadata: Record<string, unknown> = {
 			we_decks: [options.deckName],
 		};
 		if (tags.length > 0) {
@@ -221,16 +222,16 @@ export class ParsedCardConverter {
 	 * 转换卡片类型
 	 *  从 ParsedCard 的简化类型转换为 Card 的完整类型
 	 */
-	private convertCardType(type: CardType): import("../../data/types").CardType {
+	private convertCardType(type: CardType): DataCardType {
 		switch (type) {
-			case "basic":
-				return "basic" as any;
-			case "multiple":
-				return "multiple" as any;
-			case "cloze":
-				return "cloze" as any;
+			case DataCardType.Basic:
+				return DataCardType.Basic;
+			case DataCardType.Multiple:
+				return DataCardType.Multiple;
+			case DataCardType.Cloze:
+				return DataCardType.Cloze;
 			default:
-				return "basic" as any;
+				return DataCardType.Basic;
 		}
 	}
 

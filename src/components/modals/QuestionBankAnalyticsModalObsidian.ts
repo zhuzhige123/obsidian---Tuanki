@@ -13,7 +13,7 @@ export interface QuestionBankAnalyticsModalObsidianOptions {
 }
 
 export class QuestionBankAnalyticsModalObsidian extends Modal {
-	private component: any = null;
+	private component: unknown = null;
 	private readonly options: QuestionBankAnalyticsModalObsidianOptions;
 
 	constructor(app: App, options: QuestionBankAnalyticsModalObsidianOptions) {

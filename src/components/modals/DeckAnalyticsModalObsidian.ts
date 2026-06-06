@@ -14,7 +14,7 @@ export interface DeckAnalyticsModalObsidianOptions {
 }
 
 export class DeckAnalyticsModalObsidian extends Modal {
-	private component: any = null;
+	private component: unknown = null;
 	private readonly options: DeckAnalyticsModalObsidianOptions;
 
 	constructor(app: App, options: DeckAnalyticsModalObsidianOptions) {

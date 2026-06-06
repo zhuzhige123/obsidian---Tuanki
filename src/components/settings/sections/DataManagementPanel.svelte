@@ -422,7 +422,7 @@
 
   // 导入数据
   async function handleImportData() {
-    const input = document.createElement('input');
+    const input = activeDocument.createElement('input');
     input.type = 'file';
     input.accept = '.json';
     

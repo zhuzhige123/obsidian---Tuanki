@@ -124,7 +124,7 @@ export function mergeNormalizedMemorySchedulingSettings<T extends Record<string,
 		value: {
 			...source,
 			...settings,
-		} as T & MemorySchedulingSettings,
+		},
 		changed,
 	};
 }

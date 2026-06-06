@@ -473,9 +473,9 @@
 
   function mountPortal() {
     if (portalTarget) return;
-    portalTarget = document.createElement('div');
+    portalTarget = activeDocument.createElement('div');
     portalTarget.className = 'weave-auto-rules-portal';
-    document.body.appendChild(portalTarget);
+    activeDocument.body.appendChild(portalTarget);
   }
 
   function unmountPortal() {

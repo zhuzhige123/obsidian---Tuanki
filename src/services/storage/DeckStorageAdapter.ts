@@ -23,31 +23,21 @@ export class DeckStorageAdapter implements IDeckStorage {
 	 */
 	async getDecks(): Promise<DeckInfo[]> {
 		try {
-			const dataStorage = (this.plugin as any).dataStorage;
+			const dataStorage = this.plugin.dataStorage;
 			if (!dataStorage) {
 				logger.error("[DeckStorageAdapter] 数据存储服务不可用");
 				return [];
 			}
 
-			// 尝试从数据存储获取牌组列表
-			const response = await dataStorage.getDecks();
+			const decks = await dataStorage.getDecks();
+			const deckInfos: DeckInfo[] = decks.map((deck) => ({
+				id: deck.id,
+				name: deck.name,
+				description: deck.description || "",
+			}));
 
-			if (response?.success && Array.isArray(response.data)) {
-				const decks: DeckInfo[] = response.data.map((deck: any) => ({
-					id: deck.id || deck.deckId || String(deck.name),
-					name: deck.name || deck.deckName || "Unnamed Deck",
-					description: deck.description || deck.desc || "",
-				}));
-
-				// 更新缓存
-				decks.forEach((deck) => this.deckCache.set(deck.id, deck));
-
-				return decks;
-			}
-
-			// 如果没有牌组，返回空数组
-			logger.warn("[DeckStorageAdapter] 未找到牌组或格式不正确");
-			return [];
+			deckInfos.forEach((deck) => this.deckCache.set(deck.id, deck));
+			return deckInfos;
 		} catch (error) {
 			logger.error("[DeckStorageAdapter] 获取牌组列表失败:", error);
 			return [];
@@ -81,28 +71,21 @@ export class DeckStorageAdapter implements IDeckStorage {
 	 */
 	async createDeck(name: string, description?: string): Promise<DeckInfo> {
 		try {
-			const dataStorage = (this.plugin as any).dataStorage;
-			if (!dataStorage || typeof dataStorage.createDeck !== "function") {
+			const dataStorage = this.plugin.dataStorage;
+			if (!dataStorage) {
 				logger.error("[DeckStorageAdapter] 创建牌组功能不可用");
 				throw new Error("数据存储服务不支持创建牌组");
 			}
 
-			// 调用数据存储创建牌组
-			const result = await dataStorage.createDeck({
-				name,
-				description: description || "",
-			});
-
-			if (result?.success && result.data) {
+			const savedDeck = await dataStorage.createUserMemoryDeck(name);
+			if (savedDeck) {
 				const deck: DeckInfo = {
-					id: result.data.id || result.data.deckId || this.generateDeckId(),
-					name: result.data.name || name,
-					description: result.data.description || description || "",
+					id: savedDeck.id,
+					name: savedDeck.name,
+					description: description || savedDeck.description || "",
 				};
 
-				// 更新缓存
 				this.deckCache.set(deck.id, deck);
-
 				logger.debug(`[DeckStorageAdapter] ✅ 已创建牌组: ${deck.name} (${deck.id})`);
 				return deck;
 			}
@@ -111,7 +94,6 @@ export class DeckStorageAdapter implements IDeckStorage {
 		} catch (error) {
 			logger.error("[DeckStorageAdapter] 创建牌组失败:", error);
 
-			// 创建默认牌组对象
 			const tempDeck: DeckInfo = {
 				id: this.generateDeckId(),
 				name,

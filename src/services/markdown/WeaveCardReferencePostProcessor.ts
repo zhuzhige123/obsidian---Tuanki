@@ -7,12 +7,12 @@ import {
 
 export function createWeaveCardReferencePostProcessor(_app: App) {
 	return (el: HTMLElement, _ctx: MarkdownPostProcessorContext) => {
-		const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+		const walker = activeDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
 		const textNodes: Text[] = [];
 
 		while (walker.nextNode()) {
 			const node = walker.currentNode;
-			if (!(node instanceof Text)) {
+			if (!(node.instanceOf(Text))) {
 				continue;
 			}
 			if (!node.textContent || !node.textContent.includes("@_")) {
@@ -35,14 +35,14 @@ export function createWeaveCardReferencePostProcessor(_app: App) {
 				continue;
 			}
 
-			const fragment = document.createDocumentFragment();
+			const fragment = activeDocument.createDocumentFragment();
 			let cursor = 0;
 			for (const reference of references) {
 				if (reference.startIndex > cursor) {
-					fragment.appendChild(document.createTextNode(content.slice(cursor, reference.startIndex)));
+					fragment.appendChild(activeDocument.createTextNode(content.slice(cursor, reference.startIndex)));
 				}
 
-				const span = document.createElement("span");
+				const span = activeDocument.createElement("span");
 				span.className = "weave-card-reference-display";
 				span.setAttribute("data-weave-card-uuid", reference.uuid);
 				span.setAttribute("data-weave-card-alias", reference.alias || "");
@@ -52,7 +52,7 @@ export function createWeaveCardReferencePostProcessor(_app: App) {
 			}
 
 			if (cursor < content.length) {
-				fragment.appendChild(document.createTextNode(content.slice(cursor)));
+				fragment.appendChild(activeDocument.createTextNode(content.slice(cursor)));
 			}
 
 			textNode.parentNode?.replaceChild(fragment, textNode);

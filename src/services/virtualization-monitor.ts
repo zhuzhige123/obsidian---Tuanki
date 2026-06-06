@@ -400,10 +400,10 @@ export class VirtualizationMonitor {
 			if (!this.isActive) return;
 
 			this.fpsMeter.recordFrame();
-			this.rafHandle = requestAnimationFrame(measureFrame);
+			this.rafHandle = window.requestAnimationFrame(measureFrame);
 		};
 
-		this.rafHandle = requestAnimationFrame(measureFrame);
+		this.rafHandle = window.requestAnimationFrame(measureFrame);
 	}
 
 	/**

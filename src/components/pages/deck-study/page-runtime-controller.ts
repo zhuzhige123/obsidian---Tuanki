@@ -67,7 +67,7 @@ export function createDeckStudyPageRuntimeController(
   function mount(): () => void {
     const plugin = options.getPlugin();
     const unregisterEmergentRuleGroupPopoverBridge = options.registerEmergentRuleGroupPopoverBridge();
-    options.setIsMobile(Platform.isMobile || document.body.classList.contains("is-mobile"));
+    options.setIsMobile(Platform.isMobile || activeDocument.body.classList.contains("is-mobile"));
 
     let unsubscribeDecks: (() => void) | undefined;
     let unsubscribeSessions: (() => void) | undefined;
@@ -103,18 +103,18 @@ export function createDeckStudyPageRuntimeController(
       }
     })();
 
-    const handleCardCreated = async () => {
-      await options.refreshData(false);
+    const handleCardCreated = () => {
+      void options.refreshData(false);
     };
 
-    const handleCardUpdated = async () => {
+    const handleCardUpdated = () => {
       logger.debug("[DeckStudyPage] 接收到卡片更新事件，刷新数据");
-      await options.refreshData(false);
+      void options.refreshData(false);
     };
 
     const workspace = plugin.app.workspace as typeof plugin.app.workspace & {
-      on: (eventName: string, callback: (...args: any[]) => void) => void;
-      off: (eventName: string, callback: (...args: any[]) => void) => void;
+      on: (eventName: string, callback: (...args: unknown[]) => void) => void;
+      off: (eventName: string, callback: (...args: unknown[]) => void) => void;
     };
     workspace.on("Weave:card-created", handleCardCreated);
     workspace.on("Weave:card-updated", handleCardUpdated);

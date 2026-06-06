@@ -8,14 +8,38 @@ import { logger } from "../../../utils/logger";
  * - 大数据（>10MB）：增量备份 + Gzip 压缩
  */
 
-import * as pako from "pako";
+import { gzip, ungzip } from "pako";
 import type { Card } from "../../../data/types";
+import { parseJsonUnknown } from "../../../utils/typed-json";
 import {
 	type BackupData,
 	type CompressedBackup,
 	CompressionType,
 	type IncrementalBackup,
 } from "../../../types/backup-types";
+
+function toUint8Array(value: unknown): Uint8Array {
+	if (value instanceof Uint8Array) {
+		return value;
+	}
+	if (value instanceof ArrayBuffer) {
+		return new Uint8Array(value);
+	}
+	return new Uint8Array(value as ArrayBufferLike);
+}
+
+type PakoCompressFn = (data: Uint8Array) => Uint8Array;
+
+const gzipFn = gzip as PakoCompressFn;
+const ungzipFn = ungzip as PakoCompressFn;
+
+function compressWithGzip(input: Uint8Array): Uint8Array {
+	return toUint8Array(gzipFn(input));
+}
+
+function decompressWithGzip(input: Uint8Array): Uint8Array {
+	return toUint8Array(ungzipFn(input));
+}
 
 export class IntelligentBackupCompression {
 	// 压缩阈值配置
@@ -103,10 +127,10 @@ export class IntelligentBackupCompression {
 	 * @param data 要压缩的数据
 	 * @returns 压缩后的数据
 	 */
-	async gzipCompress(data: any): Promise<Uint8Array> {
+	async gzipCompress(data: unknown): Promise<Uint8Array> {
 		const jsonString = JSON.stringify(data);
 		const uint8Array = new TextEncoder().encode(jsonString);
-		return pako.gzip(uint8Array);
+		return compressWithGzip(uint8Array);
 	}
 
 	/**
@@ -114,10 +138,10 @@ export class IntelligentBackupCompression {
 	 * @param compressed 压缩的数据
 	 * @returns 解压后的数据
 	 */
-	async gzipDecompress(compressed: Uint8Array): Promise<any> {
-		const decompressed = pako.ungzip(compressed);
+	async gzipDecompress(compressed: Uint8Array): Promise<unknown> {
+		const decompressed = decompressWithGzip(compressed);
 		const jsonString = new TextDecoder().decode(decompressed);
-		return JSON.parse(jsonString);
+		return parseJsonUnknown(jsonString);
 	}
 
 	/**
@@ -309,7 +333,7 @@ export class IntelligentBackupCompression {
 	 * @param data 数据
 	 * @returns 字节数
 	 */
-	calculateSize(data: any): number {
+	calculateSize(data: unknown): number {
 		const jsonString = JSON.stringify(data);
 		return new TextEncoder().encode(jsonString).byteLength;
 	}

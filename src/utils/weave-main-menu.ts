@@ -18,16 +18,12 @@ import {
 	addMenuRadioChoices,
 	addMenuSubmenuGroup,
 	addMenuToggle,
-	getMenuSubmenu,
 } from "./obsidian-menu";
 import {
 	dispatchLegacyApkgImportRequest,
 	isLegacyApkgImportMenuVisible,
 	type LegacyApkgImportNavigationVisibility,
 } from "./legacy-apkg-import-action";
-
-const DECK_STUDY_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: "deck-study" };
-const CARD_MANAGEMENT_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: "weave-card-management" };
 
 export type WeaveCardDataSource = "memory" | "questionBank" | "incremental-reading";
 export type WeaveCardViewType = "table" | "grid" | "kanban";
@@ -88,11 +84,11 @@ function dispatchWindowEvent<T>(eventName: string, detail: T): void {
 
 function dispatchDocumentEvent<T>(eventName: string, detail?: T): void {
 	if (typeof detail === "undefined") {
-		document.dispatchEvent(new CustomEvent(eventName));
+		activeDocument.dispatchEvent(new CustomEvent(eventName));
 		return;
 	}
 
-	document.dispatchEvent(new CustomEvent(eventName, { detail }));
+	activeDocument.dispatchEvent(new CustomEvent(eventName, { detail }));
 }
 
 function getAnchorPosition(anchorEl?: HTMLElement | null): { x: number; y: number } | null {

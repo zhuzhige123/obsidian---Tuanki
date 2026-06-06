@@ -25,7 +25,6 @@ import {
 	type ConversionOptions,
 	type ProgressiveClozeChildCard,
 	type ProgressiveClozeParentCard,
-	hasProgressiveClozeContent,
 } from "../../types/progressive-cloze-v2";
 import { setCardProperty } from "../../utils/yaml-utils";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
@@ -177,7 +176,7 @@ export class ProgressiveClozeConverter {
 		const {
 			inheritFsrs = false,
 			inheritanceMode = "first-only",
-			keepParent = true,
+			keepParent: _keepParent = true,
 			createdAt = new Date().toISOString(),
 		} = options;
 
@@ -379,7 +378,7 @@ export class ProgressiveClozeConverter {
 				if (!this.canConvert(_card)) {
 					return {
 						sourceCard: _card,
-						parent: null as any,
+						parent: null as unknown,
 						children: [],
 						success: false,
 						error: "Card cannot be converted to progressive cloze",
@@ -397,7 +396,7 @@ export class ProgressiveClozeConverter {
 			} catch (error) {
 				return {
 					sourceCard: _card,
-					parent: null as any,
+					parent: null as unknown,
 					children: [],
 					success: false,
 					error: error instanceof Error ? error.message : String(error),

@@ -51,7 +51,7 @@ export class Logger {
 	 * @param message 日志消息
 	 * @param args 额外参数
 	 */
-	debug(message: string, ...args: any[]): void {
+	debug(message: string, ...args: unknown[]): void {
 		if (this.isVerboseLoggingEnabled() && typeof console !== "undefined" && console.debug) {
 			const prefix = this.formatPrefix("DEBUG");
 			console.debug(`${prefix} ${message}`, ...args);
@@ -63,7 +63,7 @@ export class Logger {
 	 * @param message 日志消息
 	 * @param args 额外参数
 	 */
-	info(message: string, ...args: any[]): void {
+	info(message: string, ...args: unknown[]): void {
 		if (this.isVerboseLoggingEnabled() && typeof console !== "undefined" && console.debug) {
 			const prefix = this.formatPrefix("INFO");
 			console.debug(`${prefix} ${message}`, ...args);
@@ -75,7 +75,7 @@ export class Logger {
 	 * @param message 日志消息
 	 * @param args 额外参数
 	 */
-	warn(message: string, ...args: any[]): void {
+	warn(message: string, ...args: unknown[]): void {
 		if (typeof console !== "undefined" && console.warn) {
 			const prefix = this.formatPrefix("WARN");
 			console.warn(`${prefix} ${message}`, ...args);
@@ -87,7 +87,7 @@ export class Logger {
 	 * @param message 日志消息
 	 * @param args 额外参数
 	 */
-	error(message: string, ...args: any[]): void {
+	error(message: string, ...args: unknown[]): void {
 		if (typeof console !== "undefined" && console.error) {
 			const prefix = this.formatPrefix("ERROR");
 			console.error(`${prefix} ${message}`, ...args);
@@ -100,7 +100,7 @@ export class Logger {
 	 * @param message 日志消息
 	 * @param args 额外参数
 	 */
-	debugWithTag(tag: string, message: string, ...args: any[]): void {
+	debugWithTag(tag: string, message: string, ...args: unknown[]): void {
 		if (this.isVerboseLoggingEnabled() && typeof console !== "undefined" && console.debug) {
 			const prefix = this.formatPrefix("DEBUG", tag);
 			console.debug(`${prefix} ${message}`, ...args);
@@ -113,7 +113,7 @@ export class Logger {
 	 * @param message 日志消息
 	 * @param args 额外参数
 	 */
-	infoWithTag(tag: string, message: string, ...args: any[]): void {
+	infoWithTag(tag: string, message: string, ...args: unknown[]): void {
 		if (this.isVerboseLoggingEnabled() && typeof console !== "undefined" && console.debug) {
 			const prefix = this.formatPrefix("INFO", tag);
 			console.debug(`${prefix} ${message}`, ...args);
@@ -182,13 +182,13 @@ const logger = Logger.getInstance();
 /**
  * 便捷的日志函数
  */
-export const logDebug = (message: string, ...args: any[]) => logger.debug(message, ...args);
-export const logInfo = (message: string, ...args: any[]) => logger.info(message, ...args);
-export const logWarn = (message: string, ...args: any[]) => logger.warn(message, ...args);
-export const logError = (message: string, ...args: any[]) => logger.error(message, ...args);
-export const logDebugWithTag = (tag: string, message: string, ...args: any[]) =>
+export const logDebug = (message: string, ...args: unknown[]) => logger.debug(message, ...args);
+export const logInfo = (message: string, ...args: unknown[]) => logger.info(message, ...args);
+export const logWarn = (message: string, ...args: unknown[]) => logger.warn(message, ...args);
+export const logError = (message: string, ...args: unknown[]) => logger.error(message, ...args);
+export const logDebugWithTag = (tag: string, message: string, ...args: unknown[]) =>
 	logger.debugWithTag(tag, message, ...args);
-export const logInfoWithTag = (tag: string, message: string, ...args: any[]) =>
+export const logInfoWithTag = (tag: string, message: string, ...args: unknown[]) =>
 	logger.infoWithTag(tag, message, ...args);
 
 /**

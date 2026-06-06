@@ -1,14 +1,8 @@
-import { ItemView, Notice, Platform, WorkspaceLeaf } from "obsidian";
+import { ItemView, Platform, WorkspaceLeaf } from "obsidian";
 import type { unmount } from "svelte";
 import type { WeavePlugin } from "../main";
 import { i18n } from "../utils/i18n";
 import { logger } from "../utils/logger";
-import {
-	addLocationToggleAction,
-	getLocationToggleIcon,
-	getLocationToggleTooltip,
-	toggleViewLocation,
-} from "../utils/view-location-utils";
 import { revealLeaf } from "../utils/workspace-navigation";
 
 export const VIEW_TYPE_CARD_STAGING = "weave-card-staging-view";
@@ -58,7 +52,7 @@ export class CardStagingView extends ItemView {
 		await super.setState(state, result);
 
 		if (!state?.sessionId) {
-			setTimeout(() => {
+			window.setTimeout(() => {
 				void this.leaf.detach();
 			}, 100);
 			return;

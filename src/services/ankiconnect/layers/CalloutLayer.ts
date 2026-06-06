@@ -66,12 +66,13 @@ export class CalloutLayer extends BaseConversionLayer {
 
 		const result = content.replace(
 			CONVERSION_REGEX.CALLOUT_BLOCK,
-			(match, type, title, contentLines) => {
+			(match: string, type: string, title: string, contentLines: string) => {
 				try {
 					count++;
 
+					const normalizedType = type.toLowerCase();
 					// 获取 callout 类型配置
-					const calloutConfig = CALLOUT_TYPES[type.toLowerCase() as keyof typeof CALLOUT_TYPES] || {
+					const calloutConfig = CALLOUT_TYPES[normalizedType as keyof typeof CALLOUT_TYPES] || {
 						icon: "📝",
 						color: "#6B7280",
 						label: type,
@@ -84,7 +85,7 @@ export class CalloutLayer extends BaseConversionLayer {
 					const parsedContent = this.parseCalloutContent(contentLines);
 
 					// 生成 HTML
-					const html = this.generateCalloutHtml(type, calloutConfig, trimmedTitle, parsedContent);
+					const html = this.generateCalloutHtml(normalizedType, calloutConfig, trimmedTitle, parsedContent);
 
 					return html;
 				} catch (_error) {

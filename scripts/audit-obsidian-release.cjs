@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("node:child_process");
 
 const root = process.cwd();
 const failures = [];
@@ -130,6 +131,15 @@ if (failures.length === 0) {
 
   expect(pkg.version === manifest.version, `package.json version (${pkg.version}) does not match manifest.json (${manifest.version})`);
 
+  expect(
+    compareSemver(manifest.minAppVersion, "1.13.0") >= 0,
+    `manifest.json minAppVersion (${manifest.minAppVersion}) must be >= 1.13.0 for getLanguage() and Plugin.settings`,
+  );
+  expect(
+    versions[manifest.version] === manifest.minAppVersion,
+    `versions.json entry for ${manifest.version} must match manifest.minAppVersion (${manifest.minAppVersion})`,
+  );
+
   const svelteLockVersion = lock.packages?.["node_modules/svelte"]?.version;
   const sveltePkgVersion = pkg.devDependencies?.svelte;
   const minimumSvelteVersion = "5.55.7";
@@ -203,6 +213,17 @@ if (failures.length === 0) {
     const relPath = path.relative(root, fullPath).replace(/\\/g, "/");
     const content = fs.readFileSync(fullPath, "utf8");
 
+    if (/eslint-disable(?:-next-line|-line)?\s+obsidianmd\/hardcoded-config-path/.test(content)) {
+      failures.push(
+        `Disabling obsidianmd/hardcoded-config-path is not allowed: ${relPath}`,
+      );
+    }
+    if (/["'`]\.obsidian(?![a-zA-Z_-])/.test(content)) {
+      failures.push(
+        `Hardcoded ".obsidian" config path literal is not allowed (use vault.configDir): ${relPath}`,
+      );
+    }
+
     if (/navigator\.clipboard/.test(content)) {
       sourceMatches.clipboardApis.push(relPath);
     }
@@ -225,6 +246,16 @@ if (failures.length === 0) {
   if (sourceMatches.vaultEnumerationApis.length > 0) {
     notes.push(`runtime source still contains vault enumeration APIs to review: ${sourceMatches.vaultEnumerationApis.join(", ")}`);
   }
+}
+
+const communityLint = spawnSync("node", ["scripts/lint-obsidian-community-errors.cjs"], {
+  cwd: root,
+  encoding: "utf8",
+});
+if (communityLint.status !== 0) {
+  failures.push("Obsidian community blocking ESLint failed (run npm run lint:obsidian:community:errors)");
+  if (communityLint.stdout) notes.push(communityLint.stdout.trim());
+  if (communityLint.stderr) notes.push(communityLint.stderr.trim());
 }
 
 if (failures.length > 0) {

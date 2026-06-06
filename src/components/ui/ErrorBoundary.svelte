@@ -80,8 +80,8 @@
         }
 
         // 清理可能的事件监听器
-        if (typeof document !== 'undefined') {
-          const elements = document.querySelectorAll('[data-svelte-error]');
+        if (typeof activeDocument !== 'undefined') {
+          const elements = activeDocument.querySelectorAll('[data-svelte-error]');
           elements.forEach(el => el.removeAttribute('data-svelte-error'));
         }
       } catch (cleanupError) {

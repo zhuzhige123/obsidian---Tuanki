@@ -12,12 +12,12 @@
 import { Notice } from "obsidian";
 import type { WeaveDataStorage } from "../../data/storage";
 import type { Card, Deck } from "../../data/types";
-import { CardState, CardType } from "../../data/types";
+import { CardState } from "../../data/types";
 import type { WeavePlugin } from "../../main";
 import type { AIAction, FormatPreviewResult, SplitCardRequest } from "../../types/ai-types";
 import type { ParseTemplate } from "../../types/newCardParsingTypes";
 import { getCardBack, getCardFront } from "../../utils/card-field-helper";
-import { cardToMarkdown, markdownToCard } from "../../utils/card-markdown-serializer";
+import { markdownToCard } from "../../utils/card-markdown-serializer";
 import { logger } from "../../utils/logger";
 import { getCardDeckIds } from "../../utils/yaml-utils";
 import { AIFormatterService } from "../ai/AIFormatterService";
@@ -317,7 +317,7 @@ export class StudyAICoordinator {
 
 			// 转换为临时卡片数据
 			const now = new Date().toISOString();
-			const tempChildCards: Card[] = response.childCards.map((child: any, index: number) => ({
+			const tempChildCards: Card[] = response.childCards.map((child: unknown, index: number) => ({
 				uuid: `temp-uuid-${Date.now()}-${index}`,
 				deckId: card.deckId,
 				templateId: card.templateId,

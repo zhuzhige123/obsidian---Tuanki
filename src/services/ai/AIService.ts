@@ -243,11 +243,11 @@ export abstract class AIService implements IAIService {
 			try {
 				return JSON.stringify(value);
 			} catch {
-				return String(value);
+				return "";
 			}
 		}
 
-		return String(value);
+		return "";
 	}
 
 	protected buildContentFromLegacyFields(front: unknown, back: unknown): string {

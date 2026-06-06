@@ -235,7 +235,7 @@ onMount(() => {
 });
 
 function portalToBody(node: HTMLElement) {
-  document.body.appendChild(node);
+  activeDocument.body.appendChild(node);
 
   return {
     destroy() {
@@ -316,8 +316,8 @@ $effect(() => {
 
   window.addEventListener('resize', updatePosition);
   window.addEventListener('scroll', updatePosition, true);
-  document.addEventListener('mousedown', handlePointerDown, true);
-  document.addEventListener('keydown', handleKeyDown);
+  activeDocument.addEventListener('mousedown', handlePointerDown, true);
+  activeDocument.addEventListener('keydown', handleKeyDown);
 
   void tick().then(() => {
     updateSettingsDropdownPosition();
@@ -326,8 +326,8 @@ $effect(() => {
   return () => {
     window.removeEventListener('resize', updatePosition);
     window.removeEventListener('scroll', updatePosition, true);
-    document.removeEventListener('mousedown', handlePointerDown, true);
-    document.removeEventListener('keydown', handleKeyDown);
+    activeDocument.removeEventListener('mousedown', handlePointerDown, true);
+    activeDocument.removeEventListener('keydown', handleKeyDown);
     resizeObserver?.disconnect();
   };
 });

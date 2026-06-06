@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger";
+import type { TimerHandle } from "../types/timer";
 /**
  * 实时格式检查器
  * 在用户编辑Markdown内容时提供实时的格式检查和提示
@@ -47,7 +48,7 @@ export interface FormatRule {
 export class RealTimeFormatChecker {
 	private rules: Map<string, FormatRule> = new Map();
 	private checkCache: Map<string, FormatCheckResult> = new Map();
-	private debounceTimer: NodeJS.Timeout | null = null;
+	private debounceTimer: TimerHandle | null = null;
 
 	constructor() {
 		this.initializeRules();
@@ -60,11 +61,11 @@ export class RealTimeFormatChecker {
 		return new Promise((resolve) => {
 			// 清除之前的定时器
 			if (this.debounceTimer) {
-				clearTimeout(this.debounceTimer);
+				window.clearTimeout(this.debounceTimer);
 			}
 
 			// 设置防抖
-			this.debounceTimer = setTimeout(() => {
+			this.debounceTimer = window.setTimeout(() => {
 				const result = this.performCheck(content);
 				resolve(result);
 			}, debounceMs);
@@ -565,7 +566,7 @@ export class RealTimeFormatChecker {
 	 */
 	destroy(): void {
 		if (this.debounceTimer) {
-			clearTimeout(this.debounceTimer);
+			window.clearTimeout(this.debounceTimer);
 		}
 		this.checkCache.clear();
 		logger.debug("🔍 [FormatChecker] 格式检查器已销毁");

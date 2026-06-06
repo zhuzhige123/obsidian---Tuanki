@@ -237,7 +237,7 @@ export class GeminiService extends AIService {
 	protected handleError(error: unknown): AIServiceResponse {
 		logger.error("Gemini API Error:", error);
 
-		const sourceMessage = error instanceof Error ? error.message : String(error ?? "");
+		const sourceMessage = error instanceof Error ? error.message : "";
 		let errorMessage = "Gemini API调用失败";
 
 		if (sourceMessage.includes("API_KEY_INVALID") || sourceMessage.includes("401")) {

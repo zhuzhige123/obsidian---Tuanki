@@ -200,7 +200,7 @@ export class CardAccessor {
 
 		const clozes = this.parseClozes();
 		// 类型断言：类型守卫后this.card确定是ProgressiveClozeChildCard
-		const childCard = this.card as ProgressiveClozeChildCard;
+		const childCard = this.card;
 		return clozes.find((c) => c.ord === childCard.clozeOrd) || null;
 	}
 
@@ -251,13 +251,13 @@ export class CardAccessor {
 		}
 
 		// 类型断言：类型守卫后this.card确定是ProgressiveClozeChildCard
-		const childCard = this.card as ProgressiveClozeChildCard;
+		const childCard = this.card;
 		const activeClozeOrd = childCard.clozeOrd;
 
 		// 替换挖空标记
 		return content.replace(
 			/\{\{c(\d+)::([^:}]+)(?:::([^}]+))?\}\}/g,
-			(_match, ordStr, text, hint) => {
+			(_match, ordStr: string, text: string, hint?: string) => {
 				const ord = parseInt(ordStr, 10) - 1; // 转换为0-based
 
 				if (ord === activeClozeOrd) {
@@ -287,11 +287,11 @@ export class CardAccessor {
 		}
 
 		// 类型断言：类型守卫后this.card确定是ProgressiveClozeChildCard
-		const childCard = this.card as ProgressiveClozeChildCard;
+		const childCard = this.card;
 		const activeClozeOrd = childCard.clozeOrd;
 
 		// 替换挖空标记，当前挖空用 **text** 标记
-		return content.replace(/\{\{c(\d+)::([^:}]+)(?:::([^}]+))?\}\}/g, (_match, ordStr, text) => {
+		return content.replace(/\{\{c(\d+)::([^:}]+)(?:::([^}]+))?\}\}/g, (_match, ordStr: string, text: string) => {
 			const ord = parseInt(ordStr, 10) - 1;
 
 			if (ord === activeClozeOrd) {

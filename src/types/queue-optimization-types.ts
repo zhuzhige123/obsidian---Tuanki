@@ -283,5 +283,5 @@ export type CardWithQueueOptimization = Card & {
 export type QueueOptimizationEvent =
 	| { type: "card-due"; cardId: string }
 	| { type: "intervention-needed"; cardId: string; level: number }
-	| { type: "session-ended"; statistics: any }
+	| { type: "session-ended"; statistics: unknown }
 	| { type: "queue-updated"; count: number };

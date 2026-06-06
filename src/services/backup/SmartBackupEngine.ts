@@ -18,6 +18,49 @@ import type {
 	ValidationResult,
 } from "../../types/data-management-types";
 import { BackupTrigger as BackupInfoTrigger, BackupType } from "../../types/data-management-types";
+import { isRecord, parseJsonUnknown, readString } from "../../utils/typed-json";
+
+function formatValidationIssue(
+	issue: string | import("../../types/data-management-types").ValidationIssue
+): string {
+	return typeof issue === "string" ? issue : issue.description;
+}
+
+function formatValidationIssues(issues: ValidationResult["issues"]): string {
+	if (!issues || issues.length === 0) {
+		return "未知错误";
+	}
+	return formatValidationIssue(issues[0]);
+}
+
+function formatValidationIssuesJoined(issues: ValidationResult["issues"]): string {
+	if (!issues || issues.length === 0) {
+		return "未知错误";
+	}
+	return issues.map((issue) => formatValidationIssue(issue)).join(", ");
+}
+
+function parseStoredBackupInfo(value: unknown): BackupInfo | null {
+	if (!isRecord(value)) {
+		return null;
+	}
+
+	const id = readString(value, "id");
+	const timestamp = readString(value, "timestamp");
+	const type = readString(value, "type");
+	const path = readString(value, "path");
+	const size = value.size;
+
+	if (!id || !timestamp || !path || typeof size !== "number") {
+		return null;
+	}
+
+	if (type !== BackupType.AUTO && type !== BackupType.MANUAL && type !== BackupType.PRE_OPERATION && type !== BackupType.SCHEDULED) {
+		return null;
+	}
+
+	return value as BackupInfo;
+}
 
 export interface ProgressCallback {
 	percentage: number;
@@ -126,7 +169,7 @@ export class SmartBackupEngine {
 			const validation = await this.validateBackup(metadata.id);
 
 			if (!validation.passed) {
-				throw new Error(`备份验证失败: ${validation.issues?.[0] || "未知错误"}`);
+				throw new Error(`备份验证失败: ${formatValidationIssues(validation.issues)}`);
 			}
 
 			this.emitProgress(90, "保存元数据...");
@@ -358,8 +401,8 @@ export class SmartBackupEngine {
 		const allBackups = await this.listBackups();
 
 		// 按类型分组
-		const autoBackups = allBackups.filter((b) => b.type === "auto");
-		const manualBackups = allBackups.filter((b) => b.type === "manual");
+		const autoBackups = allBackups.filter((b) => b.type === BackupType.AUTO);
+		const manualBackups = allBackups.filter((b) => b.type === BackupType.MANUAL);
 
 		// 清理自动备份
 		if (autoBackups.length > MAX_AUTO_BACKUPS) {
@@ -448,7 +491,7 @@ export class SmartBackupEngine {
 		try {
 			if (await adapter.exists(metadataPath)) {
 				const content = await adapter.read(metadataPath);
-				return JSON.parse(content);
+				return parseStoredBackupInfo(parseJsonUnknown(content));
 			}
 		} catch (error) {
 			logger.warn(`加载元数据失败: ${backupPath}`, error);
@@ -554,7 +597,7 @@ export class SmartBackupEngine {
 			//  第2层防护：先验证备份完整性
 			const validation = await this.validateBackup(backupId);
 			if (!validation.passed) {
-				const issues = validation.issues?.join(", ") || "未知错误";
+				const issues = formatValidationIssuesJoined(validation.issues);
 				throw new Error(`备份无效或已损坏: ${issues}`);
 			}
 

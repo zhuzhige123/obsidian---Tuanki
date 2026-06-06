@@ -77,7 +77,7 @@ export class CardContentMigrationService {
 			// 批量迁移
 			for (const card of cardsNeedingMigration) {
 				try {
-					const migrationResult = migrateSourceFields(card.content!);
+					const migrationResult = migrateSourceFields(card.content);
 
 					if (migrationResult.migrated) {
 						// 更新卡片内容

@@ -334,7 +334,7 @@
       showNotification(t('about.license.activation.deactivated'), 'success');
 
       setTimeout(() => {
-        const activationCodeInput = document.getElementById('activation-code');
+        const activationCodeInput = activeDocument.getElementById('activation-code');
         activationCodeInput?.focus();
       }, 100);
     } catch (error) {

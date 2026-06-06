@@ -53,7 +53,7 @@ export interface IDGenerationResult {
 	id: string;
 	type: IDType;
 	timestamp: number;
-	metadata?: Record<string, any>;
+	metadata?: Record<string, unknown>;
 }
 
 // ============================================================================

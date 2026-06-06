@@ -665,11 +665,11 @@ export class IREpubBookmarkTaskService {
 			updatedAt: task.updatedAt,
 		};
 
-		(block as any).contentPreview = task.title;
-		(block as any).epubBookmarkHref = task.tocHref;
-		(block as any).epubBookmarkTitle = task.title;
-		(block as any).epubBookmarkLevel = task.tocLevel;
-		(block as any).epubBookmarkResumeCfi = task.resumeCfi;
+		(block as unknown).contentPreview = task.title;
+		(block as unknown).epubBookmarkHref = task.tocHref;
+		(block as unknown).epubBookmarkTitle = task.title;
+		(block as unknown).epubBookmarkLevel = task.tocLevel;
+		(block as unknown).epubBookmarkResumeCfi = task.resumeCfi;
 
 		return block;
 	}

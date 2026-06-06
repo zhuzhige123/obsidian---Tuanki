@@ -16,6 +16,7 @@ import type {
 	ValidationResult,
 } from "../types/data-management-types";
 import { logger } from "../utils/logger";
+import { parseJsonUnknown } from "../utils/typed-json";
 
 import { getBackupPath, getPluginPaths, getV2PathsFromApp } from "../config/paths";
 // BackupPreview 类型定义
@@ -476,7 +477,7 @@ export class BackupManagementService {
 			}
 
 			const content = await adapter.read(infoPath);
-			return JSON.parse(content);
+			return parseJsonUnknown(content) as BackupInfo;
 		} catch (error) {
 			logger.warn(`加载备份信息失败: ${backupPath}`, error);
 			return null;
@@ -615,15 +616,15 @@ export class BackupManagementService {
 			// 读取各种数据文件并统计
 			try {
 				const decksContent = await adapter.read(`${backupPath}/decks.json`);
-				const decks = JSON.parse(decksContent);
+				const decks = parseJsonUnknown(decksContent);
 				stats.deckCount = Array.isArray(decks) ? decks.length : 0;
-			} catch {}
+			} catch { /* no-op */ }
 
 			try {
 				const cardsContent = await adapter.read(`${backupPath}/cards.json`);
-				const cards = JSON.parse(cardsContent);
+				const cards = parseJsonUnknown(cardsContent);
 				stats.cardCount = Array.isArray(cards) ? cards.length : 0;
-			} catch {}
+			} catch { /* no-op */ }
 
 			return stats;
 		} catch (error) {

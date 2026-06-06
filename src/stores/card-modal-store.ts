@@ -71,7 +71,7 @@ function createCardModalStore() {
 			}));
 
 			// 延迟清理状态，等待动画完成
-			setTimeout(() => {
+			window.setTimeout(() => {
 				set(initialState);
 			}, 300);
 		},

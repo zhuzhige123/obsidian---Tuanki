@@ -5,9 +5,10 @@ import { vaultStorage } from "../utils/vault-local-storage";
  * 管理跨视图的筛选状态同步
  */
 
+import { CardType } from "../data/types";
 import type { WeavePlugin } from "../main";
-import type { CardType } from "../types/newCardParsingTypes";
 import type { TimeFilterType } from "../types/time-filter-types";
+import { isRecord, parseJsonUnknown } from "../utils/typed-json";
 
 export interface FilterState {
 	selectedDeckId: string | null;
@@ -18,6 +19,81 @@ export interface FilterState {
 	activeDocumentFilter: string | null;
 	dataSource: "memory" | "questionBank" | "incremental-reading"; // 数据源类型
 	showOrphanCards: boolean; // 孤儿卡片筛选
+}
+
+const VALID_TIME_FILTERS = new Set<Exclude<TimeFilterType, null>>([
+	"today",
+	"due-today",
+	"added-today",
+	"edited-today",
+	"reviewed-today",
+	"first-review",
+	"retry-today",
+	"never-reviewed",
+]);
+
+const VALID_DATA_SOURCES = new Set<FilterState["dataSource"]>([
+	"memory",
+	"questionBank",
+	"incremental-reading",
+]);
+
+function parseStoredStringArray(value: unknown): string[] {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+	return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function parseStoredCardTypes(value: unknown): Set<CardType> {
+	const validTypes = new Set<string>(Object.values(CardType));
+	return new Set(
+		parseStoredStringArray(value).filter((item): item is CardType => validTypes.has(item))
+	);
+}
+
+function parseStoredTimeFilter(value: unknown): TimeFilterType {
+	if (value === null || value === undefined) {
+		return null;
+	}
+	return typeof value === "string" && VALID_TIME_FILTERS.has(value as Exclude<TimeFilterType, null>)
+		? (value as TimeFilterType)
+		: null;
+}
+
+function parseStoredDataSource(value: unknown): FilterState["dataSource"] {
+	return typeof value === "string" && VALID_DATA_SOURCES.has(value as FilterState["dataSource"])
+		? (value as FilterState["dataSource"])
+		: "memory";
+}
+
+function parseStoredFilterState(raw: unknown): FilterState | null {
+	if (!isRecord(raw)) {
+		return null;
+	}
+
+	const selectedDeckId =
+		typeof raw.selectedDeckId === "string" && raw.selectedDeckId.trim().length > 0
+			? raw.selectedDeckId
+			: null;
+	const selectedPriority =
+		typeof raw.selectedPriority === "number" && Number.isFinite(raw.selectedPriority)
+			? raw.selectedPriority
+			: null;
+
+	return {
+		selectedDeckId,
+		selectedCardTypes: parseStoredCardTypes(raw.selectedCardTypes),
+		selectedPriority,
+		selectedTags: new Set(parseStoredStringArray(raw.selectedTags)),
+		selectedTimeFilter: parseStoredTimeFilter(raw.selectedTimeFilter),
+		activeDocumentFilter:
+			typeof raw.activeDocumentFilter === "string" && raw.activeDocumentFilter.trim().length > 0
+				? raw.activeDocumentFilter
+				: null,
+		dataSource: parseStoredDataSource(raw.dataSource),
+		showOrphanCards: raw.showOrphanCards === true,
+	};
 }
 
 export class FilterStateService {
@@ -163,18 +239,12 @@ export class FilterStateService {
 			const saved = vaultStorage.getItem("weave-global-filter-state");
 			if (!saved) return;
 
-			const parsed = JSON.parse(saved);
+			const parsed = parseStoredFilterState(parseJsonUnknown(saved));
+			if (!parsed) {
+				return;
+			}
 
-			this.state = {
-				selectedDeckId: parsed.selectedDeckId || null,
-				selectedCardTypes: new Set(parsed.selectedCardTypes || []),
-				selectedPriority: parsed.selectedPriority ?? null,
-				selectedTags: new Set(parsed.selectedTags || []),
-				selectedTimeFilter: parsed.selectedTimeFilter || null, // 加载时间筛选
-				activeDocumentFilter: parsed.activeDocumentFilter || null,
-				dataSource: parsed.dataSource || "memory", // 加载数据源
-				showOrphanCards: parsed.showOrphanCards ?? false, // 加载孤儿卡片筛选
-			};
+			this.state = parsed;
 
 			logger.debug("[FilterStateService] State loaded from storage");
 		} catch (error) {

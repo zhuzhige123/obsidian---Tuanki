@@ -318,7 +318,7 @@ export class EditorLayoutManager {
 	/**
 	 * 调试日志
 	 */
-	private log(message: string, data?: any): void {
+	private log(message: string, data?: unknown): void {
 		if (this.debug) {
 			logger.debug(`[EditorLayoutManager] ${message}`, data || "");
 		}

@@ -13,7 +13,10 @@ import { logger } from "../../utils/logger";
  * - 快照是"版本对比基准"
  */
 
+import type { WeaveDataStorage } from "../../data/storage";
 import type { Card } from "../../data/types";
+import type WeavePlugin from "../../main";
+import type { DirectFileCardReader } from "../data/DirectFileCardReader";
 import { logDebugWithTag } from "../../utils/logger";
 
 /**
@@ -57,10 +60,10 @@ export interface MergeDecision {
  * 三方合并引擎
  */
 export class ThreeWayMergeEngine {
-	private dataStorage: any; // 数据存储服务
-	private plugin: any; // plugin引用
+	private dataStorage: WeaveDataStorage;
+	private plugin: WeavePlugin | undefined;
 
-	constructor(dataStorage: any, plugin?: any) {
+	constructor(dataStorage: WeaveDataStorage, plugin?: WeavePlugin) {
 		this.dataStorage = dataStorage;
 		this.plugin = plugin;
 	}
@@ -68,7 +71,7 @@ export class ThreeWayMergeEngine {
 	/**
 	 * 动态获取 DirectFileReader（解决初始化时序问题）
 	 */
-	private getDirectFileReader() {
+	private getDirectFileReader(): DirectFileCardReader | undefined {
 		return this.plugin?.directFileReader;
 	}
 

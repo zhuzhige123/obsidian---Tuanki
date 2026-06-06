@@ -15,7 +15,6 @@ import { logger } from "../../utils/logger";
 import type { WeaveDataStorage } from "../../data/storage";
 import type { Deck } from "../../data/types";
 import type { DeckTreeNode } from "../../services/deck/DeckHierarchyService";
-import { generateId } from "../../utils/helpers";
 import type { QuestionBankService } from "./QuestionBankService";
 
 /**

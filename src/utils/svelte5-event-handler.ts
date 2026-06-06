@@ -97,13 +97,13 @@ export function keyHandler(
 /**
  * 下拉菜单处理器
  */
-export function dropdownHandler(selectHandler: (value: any) => void) {
+export function dropdownHandler(selectHandler: (value: unknown) => void) {
 	return {
 		toggle: (e: MouseEvent) => {
 			e.preventDefault();
 			// 切换逻辑
 		},
-		select: (value: any) => (e: MouseEvent) => {
+		select: (value: unknown) => (e: MouseEvent) => {
 			e.preventDefault();
 			selectHandler(value);
 		},
@@ -212,14 +212,14 @@ export function debugEventPropagation(enabled = true) {
 		};
 
 		// 捕获阶段
-		document.addEventListener(_eventType, onCapture, true);
+		activeDocument.addEventListener(_eventType, onCapture, true);
 
 		// 冒泡阶段
-		document.addEventListener(_eventType, onBubble, false);
+		activeDocument.addEventListener(_eventType, onBubble, false);
 
 		cleanups.push(() => {
-			document.removeEventListener(_eventType, onCapture, true);
-			document.removeEventListener(_eventType, onBubble, false);
+			activeDocument.removeEventListener(_eventType, onCapture, true);
+			activeDocument.removeEventListener(_eventType, onBubble, false);
 		});
 	});
 
@@ -229,7 +229,7 @@ export function debugEventPropagation(enabled = true) {
 		cleanups.forEach((_fn) => {
 			try {
 				_fn();
-			} catch {}
+			} catch { /* no-op */ }
 		});
 	};
 }

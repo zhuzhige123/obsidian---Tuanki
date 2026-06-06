@@ -63,7 +63,7 @@ export interface CleanupTarget {
 	creationType: CardCreationType;
 
 	/** 额外元数据 */
-	metadata?: Record<string, any>;
+	metadata?: Record<string, unknown>;
 }
 
 /**

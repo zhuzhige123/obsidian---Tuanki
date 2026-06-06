@@ -459,11 +459,11 @@
   }
 
   function portalToBody(node: HTMLElement) {
-    document.body.appendChild(node);
+    activeDocument.body.appendChild(node);
     return {
       destroy() {
-        if (node.parentNode === document.body) {
-          document.body.removeChild(node);
+        if (node.parentNode === activeDocument.body) {
+          activeDocument.body.removeChild(node);
         }
       }
     };
@@ -865,13 +865,13 @@
     updateEmergentRuleGroupPopoverPosition();
 
     const hasEmergentChildPopupOpen = () => {
-      if (typeof document === "undefined") return false;
+      if (typeof activeDocument === "undefined") return false;
       return Boolean(
-        document.querySelector(".menu") ||
-        document.querySelector(".suggestion-container") ||
-        document.querySelector(".weave-vault-folder-suggest-popover") ||
-        document.querySelector(".weave-batch-tag-suggest-popover") ||
-        document.querySelector(".weave-ir-deck-suggest-popover")
+        activeDocument.querySelector(".menu") ||
+        activeDocument.querySelector(".suggestion-container") ||
+        activeDocument.querySelector(".weave-vault-folder-suggest-popover") ||
+        activeDocument.querySelector(".weave-batch-tag-suggest-popover") ||
+        activeDocument.querySelector(".weave-ir-deck-suggest-popover")
       );
     };
 
@@ -898,7 +898,7 @@
       updateEmergentRuleGroupPopoverPosition();
     };
 
-    document.addEventListener('mousedown', handlePointerDown, true);
+    activeDocument.addEventListener('mousedown', handlePointerDown, true);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('resize', handleViewportChange);
     window.addEventListener('scroll', handleViewportChange, true);
@@ -906,7 +906,7 @@
     window.visualViewport?.addEventListener('scroll', handleViewportChange);
 
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown, true);
+      activeDocument.removeEventListener('mousedown', handlePointerDown, true);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('resize', handleViewportChange);
       window.removeEventListener('scroll', handleViewportChange, true);
@@ -1550,12 +1550,12 @@
       const dataStr = JSON.stringify(data, null, 2);
       const blob = new Blob([dataStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = activeDocument.createElement('a');
       a.href = url;
       a.download = `anki-data-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
+      activeDocument.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
+      activeDocument.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
       logger.error(t('deckStudyPage.notices.exportFailed'), e);
@@ -2377,17 +2377,17 @@
       exportDeck();
     };
 
-    document.addEventListener('create-deck', handleCreateDeck);
-    document.addEventListener('create-question-bank', handleCreateDeck);
-    document.addEventListener('more-actions', handleMoreActions);
-    document.addEventListener('csv-import', handleCSVImport);
-    document.addEventListener('json-export', handleJSONExport);
+    activeDocument.addEventListener('create-deck', handleCreateDeck);
+    activeDocument.addEventListener('create-question-bank', handleCreateDeck);
+    activeDocument.addEventListener('more-actions', handleMoreActions);
+    activeDocument.addEventListener('csv-import', handleCSVImport);
+    activeDocument.addEventListener('json-export', handleJSONExport);
     return () => {
-      document.removeEventListener('create-deck', handleCreateDeck);
-      document.removeEventListener('create-question-bank', handleCreateDeck);
-      document.removeEventListener('more-actions', handleMoreActions);
-      document.removeEventListener('csv-import', handleCSVImport);
-      document.removeEventListener('json-export', handleJSONExport);
+      activeDocument.removeEventListener('create-deck', handleCreateDeck);
+      activeDocument.removeEventListener('create-question-bank', handleCreateDeck);
+      activeDocument.removeEventListener('more-actions', handleMoreActions);
+      activeDocument.removeEventListener('csv-import', handleCSVImport);
+      activeDocument.removeEventListener('json-export', handleJSONExport);
     };
   });
 

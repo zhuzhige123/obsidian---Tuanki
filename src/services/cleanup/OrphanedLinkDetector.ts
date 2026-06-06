@@ -12,6 +12,7 @@ import { logger } from "../../utils/logger";
 
 import { TFile, TFolder, Vault } from "obsidian";
 import { getV2PathsFromApp } from "../../config/paths";
+import { parseDeckFilePayload } from "../../utils/deck-file-payload";
 import { logDebugWithTag } from "../../utils/logger";
 import { BlockLinkMetadata, CardCreationType } from "./types";
 
@@ -29,7 +30,7 @@ interface CardFileLocation {
 
 export class OrphanedLinkDetector {
 	private vault: Vault;
-	private app: any;
+	private app: unknown;
 	private cardsRoot: string;
 
 	//  核心索引：直接文件读取建立的高速索引
@@ -44,7 +45,7 @@ export class OrphanedLinkDetector {
 
 	private readonly INDEX_CACHE_TTL = 30000; // 索引缓存30秒
 
-	constructor(vault: Vault, app?: any) {
+	constructor(vault: Vault, app?: unknown) {
 		this.vault = vault;
 		this.app = app;
 		this.cardsRoot = getV2PathsFromApp(app).memory.cards;
@@ -426,28 +427,18 @@ export class OrphanedLinkDetector {
 	private async indexCardsFromFile(file: TFile): Promise<void> {
 		try {
 			const content = await this.vault.read(file);
-			const deckData = JSON.parse(content);
-
-			// V2 分片文件可能不包含 deckId 概念；优先取内容字段，否则回退为 unknown
-			const deckId = deckData.deckId || "unknown";
-
-			// 遍历所有卡片
-			const cards = deckData.cards || [];
+			const { deckId, cards } = parseDeckFilePayload(content);
 
 			logDebugWithTag("OrphanedLinkDetector", `从 ${file.path} 读取 ${cards.length} 张卡片`);
 
 			for (const card of cards) {
-				// 建立UUID索引
-				if (card.uuid) {
-					this.uuidIndex.set(card.uuid, {
-						filePath: file.path,
-						cardId: card.uuid,
-						deckId,
-					});
-				}
+				this.uuidIndex.set(card.uuid, {
+					filePath: file.path,
+					cardId: card.uuid,
+					deckId,
+				});
 
-				// 建立块链接索引
-				if (card.sourceBlock) {
+				if (typeof card.sourceBlock === "string" && card.sourceBlock.length > 0) {
 					const blockId = card.sourceBlock.replace(/^\^/, "");
 					this.blockIdIndex.set(blockId, {
 						filePath: file.path,

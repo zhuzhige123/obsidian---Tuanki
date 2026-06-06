@@ -90,7 +90,7 @@
       onDragSelectStart(cardId);
       
       // 阻止页面滚动和文本选择
-      document.body.style.userSelect = 'none';
+      activeDocument.body.style.userSelect = 'none';
       
       // 触发后重置长按状态
       isLongPressing = false;
@@ -100,7 +100,7 @@
   // 拖拽模式结束时恢复页面状态
   $effect(() => {
     if (!isDragSelectActive) {
-      document.body.style.userSelect = '';
+      activeDocument.body.style.userSelect = '';
     }
   });
 </script>

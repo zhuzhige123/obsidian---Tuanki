@@ -53,7 +53,7 @@ export class EpubLinkService {
 		const protocolPattern = EPUB_RUNTIME.protocol.allNames
 			.map((name) => EpubLinkService.escapeRegex(name))
 			.join("|");
-		return new RegExp(`obsidian:\\/\\/(?:${protocolPattern})\\?[^\\s\"'<>]+`, "gi");
+		return new RegExp(`obsidian:\\/\\/(?:${protocolPattern})\\?[^\\s"'<>]+`, "gi");
 	}
 
 	private static matchesSupportedProtocolHref(value: string): boolean {

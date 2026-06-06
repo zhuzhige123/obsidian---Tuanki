@@ -117,7 +117,7 @@ export function parseEpubSourceInfo(content: string): {
  * YAML frontmatter 原始数据
  */
 export interface YAMLFrontmatter {
-	[key: string]: any;
+	[key: string]: unknown;
 }
 
 // ===== 核心解析函数 =====
@@ -210,7 +210,7 @@ function parseYAMLString(yaml: string): YAMLFrontmatter {
  * @param value 原始值字符串
  * @returns 解析后的值
  */
-function parseYAMLValue(value: string): any {
+function parseYAMLValue(value: string): unknown {
 	const normalizedValue = unquoteString(value);
 
 	// 处理带引号的字符串
@@ -276,7 +276,7 @@ function unquoteString(value: string): string {
  * @param key 属性名
  * @returns 属性值，不存在则返回 undefined
  */
-export function getCardProperty<T = any>(content: string, key: string): T | undefined {
+export function getCardProperty<T = unknown>(content: string, key: string): T | undefined {
 	const yaml = parseYAMLFromContent(content);
 	return yaml[key] as T | undefined;
 }
@@ -334,14 +334,28 @@ function normalizeLegacyCreatedField(yaml: YAMLFrontmatter): YAMLFrontmatter {
  * @param value 可能是数组或单个值
  * @returns 数组
  */
-function normalizeToArray(value: any): string[] | undefined {
+function yamlScalarToString(value: unknown): string {
+	if (typeof value === "string") {
+		return value;
+	}
+	if (typeof value === "number" || typeof value === "boolean") {
+		return String(value);
+	}
+	if (typeof value === "bigint") {
+		return value.toString();
+	}
+	return "";
+}
+
+function normalizeToArray(value: unknown): string[] | undefined {
 	if (value === undefined || value === null) {
 		return undefined;
 	}
 	if (Array.isArray(value)) {
-		return value.map((v) => String(v));
+		return value.map((item) => yamlScalarToString(item));
 	}
-	return [String(value)];
+	const scalar = yamlScalarToString(value);
+	return scalar ? [scalar] : undefined;
 }
 
 // ===== 属性写入函数 =====
@@ -353,7 +367,7 @@ function normalizeToArray(value: any): string[] | undefined {
  * @param value 属性值（undefined 表示删除该属性）
  * @returns 更新后的内容
  */
-export function setCardProperty(content: string, key: string, value: any): string {
+export function setCardProperty(content: string, key: string, value: unknown): string {
 	const yaml = parseYAMLFromContent(content);
 
 	if (value === undefined) {
@@ -470,7 +484,7 @@ function stringifyYAML(yaml: YAMLFrontmatter): string {
  * @param value 值
  * @returns 格式化的 YAML 行
  */
-function formatYAMLLine(key: string, value: any): string {
+function formatYAMLLine(key: string, value: unknown): string {
 	if (Array.isArray(value)) {
 		if (value.length === 0) {
 			return `${key}: []`;
@@ -586,8 +600,9 @@ export function createContentWithMetadata(metadata: CardYAMLMetadata, body: stri
 	if (metadata.we_priority !== undefined) yaml.we_priority = metadata.we_priority;
 	if (metadata.we_type) yaml.we_type = metadata.we_type;
 	if (metadata.we_difficulty) yaml.we_difficulty = metadata.we_difficulty;
-	if (metadata.created || metadata.we_created) {
-		yaml.created = metadata.created || metadata.we_created;
+	const legacyCreated = (metadata as Record<string, unknown>)["we_created"];
+	if (metadata.created || typeof legacyCreated === "string") {
+		yaml.created = metadata.created || (legacyCreated as string);
 	}
 	if (metadata.tags && metadata.tags.length > 0) yaml.tags = metadata.tags;
 
@@ -606,7 +621,7 @@ export function createContentWithMetadata(metadata: CardYAMLMetadata, body: stri
  * @param body 正文内容
  * @returns 完整内容（含YAML frontmatter）
  */
-export function buildContentWithYAML(yamlData: Record<string, any>, body: string): string {
+export function buildContentWithYAML(yamlData: Record<string, unknown>, body: string): string {
 	const filtered: YAMLFrontmatter = {};
 	for (const [key, value] of Object.entries(yamlData)) {
 		if (value !== undefined && value !== null && value !== "") {
@@ -725,7 +740,11 @@ export function parseSourceInfo(content: string): SourceInfo {
 
 		// 2. 兼容旧版：从 we_block 补充块ID（如果 we_source 中没有）
 		if (!sourceBlock && yaml.we_block) {
-			const blockValue = Array.isArray(yaml.we_block) ? yaml.we_block[0] : yaml.we_block;
+			const blockValue = Array.isArray(yaml.we_block)
+				? yaml.we_block.find((item): item is string => typeof item === "string" && item.trim().length > 0)
+				: typeof yaml.we_block === "string"
+					? yaml.we_block
+					: undefined;
 			if (blockValue) {
 				sourceBlock = parseBlockId(blockValue);
 
@@ -749,7 +768,7 @@ export function parseSourceInfo(content: string): SourceInfo {
 		return { sourceFile, sourceBlock, refs };
 	} catch (e) {
 		logger.warn("[yaml-utils] 解析来源信息失败:", e);
-		return {};
+		return { /* no-op */ };
 	}
 }
 
@@ -808,7 +827,7 @@ export function parseObsidianLink(link: string): string | undefined {
 
 		try {
 			docName = decodeURIComponent(docName);
-		} catch {}
+		} catch { /* no-op */ }
 
 		const hasKnownNonMarkdownExtension =
 			/\.(canvas|excalidraw(?:\.md)?|pdf|epub|png|jpe?g|gif|webp|svg|bmp|tiff|mp3|wav|ogg|flac|m4a|mp4|mov|avi|webm|txt|docx?)$/i.test(
@@ -871,14 +890,14 @@ export function migrateSourceFields(content: string): { content: string; migrate
 			return { content, migrated: false };
 		}
 
-		const sourceValues = Array.isArray(yaml.we_source)
-			? yaml.we_source
-			: yaml.we_source
-			? [yaml.we_source]
-			: [];
-		const firstSourceIndex = sourceValues.findIndex(
-			(value): value is string => typeof value === "string" && value.trim().length > 0
-		);
+		const sourceValues = (
+			Array.isArray(yaml.we_source)
+				? yaml.we_source
+				: yaml.we_source
+					? [yaml.we_source]
+					: []
+		).filter((value): value is string => typeof value === "string");
+		const firstSourceIndex = sourceValues.findIndex((value) => value.trim().length > 0);
 		const sourceValue = firstSourceIndex >= 0 ? sourceValues[firstSourceIndex] : undefined;
 		const blockValues = Array.isArray(yaml.we_block) ? yaml.we_block : [yaml.we_block];
 		const blockValue = blockValues.find(
@@ -887,9 +906,7 @@ export function migrateSourceFields(content: string): { content: string; migrate
 
 		// 如果任一 we_source 已包含块ID，只需删除 we_block
 		if (
-			sourceValues.some(
-				(value): value is string => typeof value === "string" && !!parseBlockId(value)
-			)
+			sourceValues.some((value) => !!parseBlockId(value))
 		) {
 			const { we_block: _removedWeBlock, ...newYaml } = yaml;
 			return { content: rebuildContent(content, newYaml), migrated: true };

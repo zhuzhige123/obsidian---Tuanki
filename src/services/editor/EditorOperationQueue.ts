@@ -13,7 +13,7 @@ import { logger } from "../../utils/logger";
  * - 支持操作优先级（可选）
  */
 
-export interface Operation<T = any> {
+export interface Operation<T = unknown> {
 	/** 操作执行函数 */
 	execute: () => Promise<T>;
 
@@ -24,7 +24,7 @@ export interface Operation<T = any> {
 	priority?: number;
 }
 
-export interface OperationResult<T = any> {
+export interface OperationResult<T = unknown> {
 	success: boolean;
 	data?: T;
 	error?: Error;
@@ -77,10 +77,10 @@ export class EditorOperationQueue {
 		// 等待该操作执行完成
 		return new Promise((resolve) => {
 			// 轮询等待该操作完成
-			const checkInterval = setInterval(() => {
+			const checkInterval = window.setInterval(() => {
 				// 如果队列中不再包含该操作，说明已执行完成
 				if (!this.operationQueue.includes(op)) {
-					clearInterval(checkInterval);
+					window.clearInterval(checkInterval);
 
 					// 注意：这里简化处理，实际中应该保存结果
 					// 在更完善的实现中，应该维护一个结果映射

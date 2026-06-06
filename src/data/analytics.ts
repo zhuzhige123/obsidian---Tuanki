@@ -15,7 +15,9 @@ import { isMasteredMemoryCard } from "../services/deck/MemoryDeckLevelService";
 import type { WeaveDataStorage } from "./storage";
 import type { StudySession } from "./study-types";
 import type { Card, Deck } from "./types";
-import { Rating } from "./types";
+import { CardState, Rating } from "./types";
+import { isActiveStudyState } from "../utils/card-state-utils";
+import type { TimerHandle } from "../types/timer";
 
 export interface TrendPoint {
 	key: string;
@@ -189,7 +191,7 @@ export class AnalyticsService {
 		defaultTTL: 2 * 60 * 1000, // 默认2分钟过期（从5分钟降低）
 		cleanupInterval: 30 * 1000, // 每30秒清理一次（从60秒降低，更激进）
 	};
-	private cleanupTimer: NodeJS.Timeout | null = null;
+	private cleanupTimer: TimerHandle | null = null;
 	private lastDataVersion = 0; // 数据版本号，用于检测数据变更
 
 	private static readonly ratingValues = [
@@ -209,10 +211,10 @@ export class AnalyticsService {
 	 */
 	private startCacheCleanup(): void {
 		if (this.cleanupTimer) {
-			clearInterval(this.cleanupTimer);
+			window.clearInterval(this.cleanupTimer);
 		}
 
-		this.cleanupTimer = setInterval(() => {
+		this.cleanupTimer = window.setInterval(() => {
 			this.cleanupExpiredCache();
 		}, this.cacheConfig.cleanupInterval);
 	}
@@ -293,7 +295,7 @@ export class AnalyticsService {
 	 */
 	public destroy(): void {
 		if (this.cleanupTimer) {
-			clearInterval(this.cleanupTimer);
+			window.clearInterval(this.cleanupTimer);
 			this.cleanupTimer = null;
 		}
 		this.cache.clear();
@@ -556,7 +558,7 @@ export class AnalyticsService {
 			for (const id of filter.deckIds) {
 				try {
 					cards.push(...(await this.storage.getDeckCards(id)));
-				} catch {}
+				} catch { /* no-op */ }
 			}
 		} else {
 			cards = await this.storage.getCards();
@@ -629,7 +631,7 @@ export class AnalyticsService {
 			for (const id of filter.deckIds) {
 				try {
 					cards.push(...(await this.storage.getDeckCards(id)));
-				} catch {}
+				} catch { /* no-op */ }
 			}
 		} else {
 			cards = await this.storage.getCards();
@@ -1011,12 +1013,12 @@ export class AnalyticsService {
 					continue;
 				}
 
-				const state = card.fsrs?.state ?? 0;
-				if (state === 0) {
+				const state = card.fsrs?.state ?? CardState.New;
+				if (state === CardState.New) {
 					newCount += 1;
 					continue;
 				}
-				if (state === 1 || state === 3) {
+				if (isActiveStudyState(state)) {
 					learningCount += 1;
 					continue;
 				}
@@ -1223,7 +1225,7 @@ export class AnalyticsService {
 
 				const group = intervalGroups.get(interval) || { total: 0, correct: 0 };
 				group.total++;
-				if (review.rating >= 2) group.correct++; // Hard以上算正确
+				if (review.rating >= Rating.Hard) group.correct++; // Hard以上算正确
 				intervalGroups.set(interval, group);
 			}
 		}
@@ -1482,7 +1484,7 @@ export class AnalyticsService {
 				if (card?.fsrs) {
 					total++;
 					// 简化的准确性判断
-					if (review.rating >= 2) correct++;
+					if (review.rating >= Rating.Hard) correct++;
 				}
 			}
 		}
@@ -1502,7 +1504,7 @@ export class AnalyticsService {
 		for (const session of sessions) {
 			for (const review of session.cardReviews || []) {
 				total++;
-				if (review.rating >= 2) correct++;
+				if (review.rating >= Rating.Hard) correct++;
 			}
 		}
 

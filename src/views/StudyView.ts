@@ -529,7 +529,7 @@ export class StudyView extends ItemView {
 
 		if (state) {
 			const oldDeckId = this.deckId;
-			const oldDeckName = this.deckName;
+			const _oldDeckName = this.deckName;
 			const oldMode = this.mode;
 			const oldCardIds = this.cardIds;
 			const oldCards = this.cards;
@@ -678,7 +678,7 @@ export class StudyView extends ItemView {
 					logger.debug(`[StudyView] dataStorage 已就绪（轮询 ${i * interval}ms）`);
 					return;
 				}
-				await new Promise((resolve) => setTimeout(resolve, interval));
+				await new Promise((resolve) => window.setTimeout(resolve, interval));
 			}
 
 			// 不抛出错误，记录警告
@@ -881,8 +881,8 @@ export class StudyView extends ItemView {
 			text: i18n.t("study.view.restoreSession"),
 			cls: "mod-cta weave-study-state-button",
 		});
-		restoreBtn.addEventListener("click", async () => {
-			await this.restoreSession();
+		restoreBtn.addEventListener("click", () => {
+			void this.restoreSession();
 		});
 
 		// 新建按钮
@@ -890,16 +890,18 @@ export class StudyView extends ItemView {
 			text: i18n.t("study.view.startNewSession"),
 			cls: "weave-study-state-button",
 		});
-		newBtn.addEventListener("click", async () => {
-			await this.plugin.clearPersistedStudySession(this.deckId);
-			//  传递学习参数
-			await this.createStudyComponent({
-				deckId: this.deckId,
-				deckName: this.deckName,
-				mode: this.mode,
-				cardIds: this.cardIds,
-				cards: this.cards,
-			});
+		newBtn.addEventListener("click", () => {
+			void (async () => {
+				await this.plugin.clearPersistedStudySession(this.deckId);
+				//  传递学习参数
+				await this.createStudyComponent({
+					deckId: this.deckId,
+					deckName: this.deckName,
+					mode: this.mode,
+					cardIds: this.cardIds,
+					cards: this.cards,
+				});
+			})();
 		});
 	}
 

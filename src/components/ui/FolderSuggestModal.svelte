@@ -101,11 +101,11 @@
       showContent = true;
     }, 50);
     
-    document.addEventListener('keydown', handleKeydown);
+    activeDocument.addEventListener('keydown', handleKeydown);
   });
 
   onDestroy(() => {
-    document.removeEventListener('keydown', handleKeydown);
+    activeDocument.removeEventListener('keydown', handleKeydown);
   });
 </script>
 

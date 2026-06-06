@@ -16,6 +16,7 @@ import type { App } from "obsidian";
 import { getPluginPaths, getV2PathsFromApp } from "../../config/paths";
 import type {
 	IRAdvancedScheduleSettings,
+	IRChunkFileData,
 	IRDocumentGroupMap,
 	IRDocumentGroupMapStore,
 	IRTagGroup,
@@ -32,6 +33,7 @@ import {
 } from "../../types/ir-types";
 import { logger } from "../../utils/logger";
 import { DirectoryUtils } from "../../utils/directory-utils";
+import { isRecord, parseJsonUnknown } from "../../utils/typed-json";
 import { IRPointStorageService } from "./IRPointStorageService";
 
 // ============================================
@@ -148,7 +150,7 @@ export class IRTagGroupService {
 	}
 
 	private getDocumentMapPath(): string {
-		return getPluginPaths(this.app as any).cache.incrementalReading.documentGroupMap;
+		return getPluginPaths(this.app as unknown).cache.incrementalReading.documentGroupMap;
 	}
 
 	private getLegacyDocumentMapPath(): string {
@@ -286,9 +288,9 @@ export class IRTagGroupService {
 			const groups =
 				parsed &&
 				typeof parsed === "object" &&
-				(parsed as any).groups &&
-				typeof (parsed as any).groups === "object"
-					? ((parsed as any).groups as Record<string, IRTagGroup>)
+				(parsed as unknown).groups &&
+				typeof (parsed as unknown).groups === "object"
+					? ((parsed as unknown).groups as Record<string, IRTagGroup>)
 					: {};
 			return {
 				exists: true,
@@ -306,7 +308,7 @@ export class IRTagGroupService {
 		} catch (error) {
 			return {
 				exists: true,
-				groups: {},
+				groups: { /* no-op */ },
 				error: error instanceof Error ? error.message : String(error),
 			};
 		}
@@ -328,9 +330,9 @@ export class IRTagGroupService {
 			const profiles =
 				parsed &&
 				typeof parsed === "object" &&
-				(parsed as any).profiles &&
-				typeof (parsed as any).profiles === "object"
-					? ((parsed as any).profiles as Record<string, IRTagGroupProfile>)
+				(parsed as unknown).profiles &&
+				typeof (parsed as unknown).profiles === "object"
+					? ((parsed as unknown).profiles as Record<string, IRTagGroupProfile>)
 					: {};
 			return {
 				exists: true,
@@ -348,7 +350,7 @@ export class IRTagGroupService {
 		} catch (error) {
 			return {
 				exists: true,
-				profiles: {},
+				profiles: { /* no-op */ },
 				error: error instanceof Error ? error.message : String(error),
 			};
 		}
@@ -597,14 +599,9 @@ export class IRTagGroupService {
 				}
 
 				const content = await adapter.read(pathToRead);
-				const parsed = JSON.parse(content) as IRDocumentGroupMapStore;
-				const map =
-					parsed &&
-					typeof parsed === "object" &&
-					(parsed as any).map &&
-					typeof (parsed as any).map === "object"
-						? (parsed as any).map
-						: {};
+				const parsed = parseJsonUnknown(content);
+				const mapRaw = isRecord(parsed) ? parsed.map : undefined;
+				const map = isRecord(mapRaw) ? mapRaw : {};
 				this.documentMapCache = map as Record<string, IRDocumentGroupMap>;
 				return;
 			} catch {
@@ -624,7 +621,7 @@ export class IRTagGroupService {
 			map: this.documentMapCache,
 		};
 
-		await DirectoryUtils.ensureDirForFile(adapter as any, filePath);
+		await DirectoryUtils.ensureDirForFile(adapter as unknown, filePath);
 		await adapter.write(filePath, JSON.stringify(store));
 	}
 
@@ -739,10 +736,10 @@ export class IRTagGroupService {
 		groupId: string,
 		options?: {
 			targetTopicIds?: string[];
-			getAllChunkData?: () => Promise<Record<string, any>>;
-			saveChunkData?: (data: any) => Promise<void>;
-			getAllSources?: () => Promise<Record<string, any>>;
-			saveSource?: (data: any) => Promise<void>;
+			getAllChunkData?: () => Promise<Record<string, IRChunkFileData>>;
+			saveChunkData?: (data: unknown) => Promise<void>;
+			getAllSources?: () => Promise<Record<string, unknown>>;
+			saveSource?: (data: unknown) => Promise<void>;
 		}
 	): Promise<void> {
 		await this.initialize();
@@ -982,7 +979,7 @@ export class IRTagGroupService {
 		if (filePath) {
 			delete this.documentMapCache[filePath];
 		} else {
-			this.documentMapCache = {};
+			this.documentMapCache = { /* no-op */ };
 		}
 
 		await this.saveDocumentMap();
@@ -1047,11 +1044,11 @@ export class IRTagGroupService {
 		sourceId: string | undefined,
 		newGroupId: string,
 		storageService: {
-			getChunkData: (id: string) => Promise<any>;
-			saveChunkData: (data: any) => Promise<void>;
-			getSource: (id: string) => Promise<any>;
-			saveSource: (data: any) => Promise<void>;
-			getAllChunkData?: () => Promise<Record<string, any>>;
+			getChunkData: (id: string) => Promise<unknown>;
+			saveChunkData: (data: unknown) => Promise<void>;
+			getSource: (id: string) => Promise<unknown>;
+			saveSource: (data: unknown) => Promise<void>;
+			getAllChunkData?: () => Promise<Record<string, IRChunkFileData>>;
 		}
 	): Promise<void> {
 		await this.initialize();

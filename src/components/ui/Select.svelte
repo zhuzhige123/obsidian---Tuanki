@@ -61,8 +61,8 @@
     }
 
     if (isOpen) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
+      activeDocument.addEventListener('click', handleClickOutside);
+      return () => activeDocument.removeEventListener('click', handleClickOutside);
     }
   });
 

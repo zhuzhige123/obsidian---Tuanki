@@ -253,7 +253,7 @@ export class FSRS6ServiceManager {
 
 	cleanup(): void {
 		if (this.cleanupTimer) {
-			clearInterval(this.cleanupTimer);
+			window.clearInterval(this.cleanupTimer);
 		}
 		this.algorithmPool.clear();
 		this.cache.clear();
@@ -363,7 +363,7 @@ export class FSRS6ServiceManager {
 	}
 
 	private startCleanupTimer(): void {
-		this.cleanupTimer = setInterval(() => {
+		this.cleanupTimer = window.setInterval(() => {
 			this.performPeriodicCleanup();
 		}, this.config.idleTimeout);
 	}

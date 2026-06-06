@@ -1,4 +1,5 @@
 import type { Card, Deck } from "../../data/types";
+import { readUnknownProperty } from "../../utils/dynamic-access";
 import {
 	getCardDeckIds,
 	setCardProperties,
@@ -69,12 +70,18 @@ export function applyDeckDragToCard(
 	return updatedCard;
 }
 
+function readQuestionBankDeckIds(metadata: unknown): string[] {
+	const raw: unknown = readUnknownProperty(metadata, "questionBankDeckIds");
+	if (!Array.isArray(raw)) {
+		return [];
+	}
+	return raw.filter(
+		(value: unknown): value is string => typeof value === "string" && value.trim().length > 0
+	);
+}
+
 export function getQuestionBankDeckIdsForCard(card: Card): string[] {
-	const metadataDeckIds = Array.isArray((card.metadata as any)?.questionBankDeckIds)
-		? (card.metadata as any).questionBankDeckIds.filter(
-				(value: unknown): value is string => typeof value === "string" && value.trim().length > 0
-		  )
-		: [];
+	const metadataDeckIds = readQuestionBankDeckIds(card.metadata);
 
 	if (metadataDeckIds.length > 0) {
 		return Array.from(new Set(metadataDeckIds));

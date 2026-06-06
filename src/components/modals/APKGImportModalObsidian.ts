@@ -18,7 +18,7 @@ export interface APKGImportModalObsidianOptions {
 }
 
 export class APKGImportModalObsidian extends Modal {
-	private component: any = null;
+	private component: unknown = null;
 	private readonly options: APKGImportModalObsidianOptions;
 
 	constructor(app: App, options: APKGImportModalObsidianOptions) {

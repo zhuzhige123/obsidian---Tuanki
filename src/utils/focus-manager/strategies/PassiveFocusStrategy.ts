@@ -48,12 +48,12 @@ export class PassiveFocusStrategy implements IFocusRestoreStrategy {
 						resolve(this.doRestore(element, context));
 					} else {
 						// 继续等待
-						setTimeout(checkAndRestore, 50);
+						window.setTimeout(checkAndRestore, 50);
 					}
 				};
 
 				// 最多等待 500ms
-				setTimeout(() => {
+				window.setTimeout(() => {
 					resolve(this.doRestore(element, context));
 				}, 500);
 
@@ -125,14 +125,14 @@ export class PassiveFocusStrategy implements IFocusRestoreStrategy {
 		if (!element) return false;
 
 		// 检查元素是否在文档中
-		if (!document.body.contains(element)) return false;
+		if (!activeDocument.body.contains(element)) return false;
 
 		// 检查元素是否可见
 		const style = window.getComputedStyle(element);
 		if (style.display === "none" || style.visibility === "hidden") return false;
 
 		// 检查元素是否被禁用
-		if ((element as any).disabled) return false;
+		if ((element as unknown).disabled) return false;
 
 		return true;
 	}

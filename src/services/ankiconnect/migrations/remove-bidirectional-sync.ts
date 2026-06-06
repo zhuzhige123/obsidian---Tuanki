@@ -40,10 +40,13 @@ export function migrateAnkiConnectSettings(
 	}
 
 	// 移除模板映射中的 isBidirectionalCapable
-	const migratedTemplateMappings: Record<string, any> = {};
+	const migratedTemplateMappings: Record<string, unknown> = {};
 
 	for (const [key, mapping] of Object.entries(rest.templateMappings || {})) {
-		const { isBidirectionalCapable, ...cleanMapping } = mapping as any;
+		const { isBidirectionalCapable: _isBidirectionalCapable, ...cleanMapping } = mapping as Record<
+			string,
+			unknown
+		>;
 		migratedTemplateMappings[key] = cleanMapping;
 	}
 
@@ -62,7 +65,7 @@ export function migrateAnkiConnectSettings(
 /**
  * 检查是否需要迁移
  */
-export function needsMigration(settings: any): boolean {
+export function needsMigration(settings: unknown): boolean {
 	return settings?.bidirectionalSync !== undefined;
 }
 

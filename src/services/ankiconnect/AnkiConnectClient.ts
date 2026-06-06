@@ -1,10 +1,5 @@
 import { requestUrl } from "obsidian";
 import { logger } from "../../utils/logger";
-/**
- * AnkiConnect API 客户端
- * 负责与 AnkiConnect 进行底层通信
- */
-
 import {
 	AnkiConnectError,
 	type AnkiConnectRequest,
@@ -18,6 +13,22 @@ import {
 } from "../../types/ankiconnect-types";
 import { ErrorCode, WeaveErrorFactory } from "../../types/error-types";
 import { extractErrorMessage } from "../../types/utility-types";
+import { isRecord } from "../../utils/typed-json";
+
+function parseAnkiConnectResponse<T>(raw: unknown): AnkiConnectResponse<T> {
+	if (!isRecord(raw)) {
+		throw new AnkiConnectError(
+			"Invalid AnkiConnect response",
+			ConnectionErrorType.UNKNOWN,
+			"请查看 Anki 错误日志获取详细信息"
+		);
+	}
+
+	return {
+		error: typeof raw.error === "string" ? raw.error : null,
+		result: (raw.result ?? null) as T | null,
+	};
+}
 
 export class AnkiConnectClient {
 	private readonly endpoint: string;
@@ -57,7 +68,7 @@ export class AnkiConnectClient {
 				);
 			}
 
-			const result: AnkiConnectResponse<T> = response.json;
+			const result = parseAnkiConnectResponse<T>(response.json as unknown);
 
 			if (result.error) {
 				throw new AnkiConnectError(
@@ -71,7 +82,7 @@ export class AnkiConnectClient {
 		} catch (error: unknown) {
 			// 处理 AbortError（超时）
 			if (error instanceof Error && error.name === "AbortError") {
-				throw WeaveErrorFactory.createAnkiConnectError(
+				const detail = WeaveErrorFactory.createAnkiConnectError(
 					ErrorCode.ANKICONNECT_CONNECTION_ERROR,
 					"请求超时",
 					action,
@@ -79,6 +90,7 @@ export class AnkiConnectClient {
 					undefined,
 					error
 				);
+				throw Object.assign(new Error(detail.message), detail);
 			}
 
 			// 如果已经是 AnkiConnectError，直接抛出
@@ -95,7 +107,7 @@ export class AnkiConnectClient {
 				errorMessage.includes("ERR_CONNECTION_REFUSED") ||
 				errorMessage.includes("ECONNREFUSED")
 			) {
-				throw WeaveErrorFactory.createAnkiConnectError(
+				const detail = WeaveErrorFactory.createAnkiConnectError(
 					ErrorCode.ANKICONNECT_CONNECTION_ERROR,
 					"请检查Anki软件是否正常启动且运行，并确认已安装AnkiConnect插件",
 					action,
@@ -103,10 +115,11 @@ export class AnkiConnectClient {
 					undefined,
 					error instanceof Error ? error : undefined
 				);
+				throw Object.assign(new Error(detail.message), detail);
 			}
 
 			// 其他未知错误
-			throw WeaveErrorFactory.createAnkiConnectError(
+			const detail = WeaveErrorFactory.createAnkiConnectError(
 				ErrorCode.ANKICONNECT_API_ERROR,
 				errorMessage || "未知错误",
 				action,
@@ -114,6 +127,7 @@ export class AnkiConnectClient {
 				undefined,
 				error instanceof Error ? error : undefined
 			);
+			throw Object.assign(new Error(detail.message), detail);
 		}
 	}
 

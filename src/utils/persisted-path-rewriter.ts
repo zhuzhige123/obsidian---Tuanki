@@ -1,4 +1,5 @@
-import { type App, normalizePath } from "obsidian";
+import { type App, normalizePath, type DataAdapter } from "obsidian";
+import { parseJsonUnknown } from "./typed-json";
 
 export async function renameVaultPath(app: App, oldPath: string, newPath: string): Promise<void> {
 	const normalizedOld = normalizePath(String(oldPath || "").trim());
@@ -162,7 +163,7 @@ export async function rewriteKnownPathReferences(
 	filePaths: Iterable<string>,
 	rules: Iterable<PathRewriteRule>
 ): Promise<number> {
-	const adapter = app.vault.adapter as any;
+	const adapter: DataAdapter = app.vault.adapter;
 	const normalizedRules = normalizeRewriteRules(rules);
 
 	if (normalizedRules.length === 0) return 0;
@@ -173,7 +174,7 @@ export async function rewriteKnownPathReferences(
 
 		try {
 			const raw = await adapter.read(filePath);
-			const parsed = JSON.parse(raw);
+			const parsed = parseJsonUnknown(raw);
 			const result = rewriteJsonWithRules(parsed, normalizedRules);
 			if (!result.changed) continue;
 

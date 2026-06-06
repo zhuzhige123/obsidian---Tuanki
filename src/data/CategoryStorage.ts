@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger";
+import { isRecord, parseJsonUnknown, readNumber, readString } from "../utils/typed-json";
 import { vaultStorage } from "../utils/vault-local-storage";
 import type { DeckCategory } from "./types";
 import { DEFAULT_CATEGORIES } from "./types";
@@ -22,7 +23,8 @@ export class CategoryStorage {
 		try {
 			const stored = vaultStorage.getItem(this.storageKey);
 			if (stored) {
-				this.categories = JSON.parse(stored);
+				const parsed = parseJsonUnknown(stored);
+				this.categories = this.parseStoredCategories(parsed);
 				logger.debug("[CategoryStorage] 已加载分类数据:", this.categories.length);
 			} else {
 				// 首次使用，初始化默认分类
@@ -171,6 +173,40 @@ export class CategoryStorage {
 		this.categories = [...DEFAULT_CATEGORIES];
 		await this.save();
 		logger.debug("[CategoryStorage] 已重置为默认分类");
+	}
+
+	private parseStoredCategories(parsed: unknown): DeckCategory[] {
+		if (!Array.isArray(parsed)) {
+			return [...DEFAULT_CATEGORIES];
+		}
+		const categories: DeckCategory[] = [];
+		for (const entry of parsed) {
+			if (!isRecord(entry)) {
+				continue;
+			}
+			const id = readString(entry, "id");
+			const name = readString(entry, "name");
+			const colorStart = readString(entry, "colorStart");
+			const colorEnd = readString(entry, "colorEnd");
+			const order = readNumber(entry, "order");
+			const created = readString(entry, "created");
+			const modified = readString(entry, "modified");
+			const isDefault = entry.isDefault === true;
+			if (!id || !name || !colorStart || !colorEnd || order === undefined || !created || !modified) {
+				continue;
+			}
+			categories.push({
+				id,
+				name,
+				colorStart,
+				colorEnd,
+				order,
+				isDefault,
+				created,
+				modified,
+			});
+		}
+		return categories.length > 0 ? categories : [...DEFAULT_CATEGORIES];
 	}
 }
 

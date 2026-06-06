@@ -153,7 +153,7 @@ export class BlockLinkManager {
 		const contentHash = content
 			.substring(0, 50)
 			.replace(/\s+/g, "-")
-			.replace(/[^\w\-]/g, "");
+			.replace(/[^\w-]/g, "");
 		const timestamp = Date.now().toString(36);
 		return `weave-${fileName}-${contentHash}-${timestamp}`;
 	}
@@ -696,8 +696,8 @@ export class BlockLinkManager {
 				// 匹配策略：
 				// 1. 检查源行是否包含选中文本的第一行内容（去除 Markdown 格式后）
 				// 2. 或者选中文本是否包含源行内容
-				const cleanLine = normalizedLine.replace(/[#*_`\[\]()]/g, "").trim();
-				const cleanFirstLine = firstContentLine.replace(/[#*_`\[\]()]/g, "").trim();
+				const cleanLine = normalizedLine.replace(/[#*_`[\]()]/g, "").trim();
+				const cleanFirstLine = firstContentLine.replace(/[#*_`[\]()]/g, "").trim();
 
 				let matchScore = 0;
 

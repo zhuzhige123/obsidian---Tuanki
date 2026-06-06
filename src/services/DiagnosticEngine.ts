@@ -31,7 +31,7 @@ export interface DiagnosticResult {
 	message: string;
 	suggestion?: string;
 	canAutoFix: boolean;
-	details?: Record<string, any>;
+	details?: Record<string, unknown>;
 }
 
 /**

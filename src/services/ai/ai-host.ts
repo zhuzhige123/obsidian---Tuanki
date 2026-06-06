@@ -22,7 +22,7 @@ export interface AISelectedTextPanelHost extends AISplitHost {
 }
 
 export function resolveAIConfig(host: AIConfigHost): AIConfig | undefined {
-	return host.settings.aiConfig as AIConfig | undefined;
+	return host.settings.aiConfig;
 }
 
 export function resolveDefaultAISplitInstruction(host: AIConfigHost): string | undefined {

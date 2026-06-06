@@ -124,7 +124,7 @@ export interface SyncDecision {
 	/** 决策的操作类型 */
 	action: SyncAction;
 	/** 卡片数据 */
-	card: any; // ParsedCard类型
+	card: unknown; // ParsedCard类型
 	/** 决策理由 */
 	reason: string;
 	/** Obsidian文件修改时间 */

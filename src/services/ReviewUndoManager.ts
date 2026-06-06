@@ -8,7 +8,7 @@
  * - 自动管理撤销栈大小
  */
 
-import type { Card, FSRSCard, Rating } from "../data/types";
+import type { FSRSCard, Rating } from "../data/types";
 import type { Review } from "../data/types";
 import { logger } from "../utils/logger";
 
@@ -93,9 +93,9 @@ export class ReviewUndoManager {
 				cardIndex: snapshot.cardIndex,
 				cardId: snapshot.cardId,
 				cardSnapshot: {
-					fsrs: JSON.parse(JSON.stringify(snapshot.cardSnapshot.fsrs)),
-					reviewHistory: JSON.parse(JSON.stringify(snapshot.cardSnapshot.reviewHistory || [])),
-					stats: JSON.parse(JSON.stringify(snapshot.cardSnapshot.stats)),
+					fsrs: structuredClone(snapshot.cardSnapshot.fsrs),
+					reviewHistory: structuredClone(snapshot.cardSnapshot.reviewHistory || []),
+					stats: structuredClone(snapshot.cardSnapshot.stats),
 					modified: snapshot.cardSnapshot.modified,
 				},
 				sessionSnapshot: {

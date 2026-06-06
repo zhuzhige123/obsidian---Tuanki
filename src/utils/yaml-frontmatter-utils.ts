@@ -14,17 +14,47 @@ import {
 	READING_TOPIC_YAML_KEY,
 	extractReadingTopicIdFromFrontmatter,
 } from "./ir-topic-compat";
+import { processFrontmatterRecord, type FrontmatterRecord } from "./frontmatter-record";
 import { logger } from "./logger";
+import { isRecord, readNumber, readString } from "./typed-json";
+
+function normalizeTagLabel(rawTag: unknown): string | undefined {
+	if (typeof rawTag === "string") {
+		const label = rawTag.trim();
+		return label || undefined;
+	}
+	if (typeof rawTag === "number" && Number.isFinite(rawTag)) {
+		return String(rawTag);
+	}
+	return undefined;
+}
 
 function normalizeWeaveTags(tags: unknown[]): string[] {
 	const ordered = new Map<string, string>();
 	for (const rawTag of Array.isArray(tags) ? tags : []) {
-		const label = String(rawTag || "").trim();
+		const label = normalizeTagLabel(rawTag);
+		if (!label) continue;
 		const key = label.toLowerCase();
-		if (!key || ordered.has(key)) continue;
+		if (ordered.has(key)) continue;
 		ordered.set(key, label);
 	}
 	return Array.from(ordered.values());
+}
+
+function readFrontmatterTags(frontmatter: FrontmatterRecord, key: string): string[] {
+	const rawTags = frontmatter[key];
+	if (Array.isArray(rawTags)) {
+		return normalizeWeaveTags(rawTags);
+	}
+	if (typeof rawTags === "string") {
+		return normalizeWeaveTags(
+			rawTags
+				.split(",")
+				.map((tag) => tag.trim())
+				.filter(Boolean)
+		);
+	}
+	return [];
 }
 
 /**
@@ -64,30 +94,26 @@ export class YAMLFrontmatterManager {
 			const cache = this.app.metadataCache.getFileCache(file);
 			const frontmatter = cache?.frontmatter;
 
-			if (!frontmatter) {
+			if (!isRecord(frontmatter)) {
 				return null;
 			}
 
 			const fields: Partial<ReadingYAMLFields> = {};
+			const readingId = readString(frontmatter, "weave-reading-id");
+			const readingCategory = readString(frontmatter, "weave-reading-category");
+			const readingPriority = readNumber(frontmatter, "weave-reading-priority");
 
-			if (frontmatter["weave-reading-id"]) {
-				fields["weave-reading-id"] = frontmatter["weave-reading-id"];
+			if (readingId) {
+				fields["weave-reading-id"] = readingId;
 			}
-			if (frontmatter["weave-reading-category"]) {
-				fields["weave-reading-category"] = frontmatter["weave-reading-category"];
+			if (readingCategory) {
+				fields["weave-reading-category"] = readingCategory as ReadingCategory;
 			}
-			if (frontmatter["weave-reading-priority"] !== undefined) {
-				fields["weave-reading-priority"] = frontmatter["weave-reading-priority"];
+			if (readingPriority !== undefined) {
+				fields["weave-reading-priority"] = readingPriority;
 			}
 			if (frontmatter["weave_tags"] !== undefined) {
-				const rawTags = Array.isArray(frontmatter["weave_tags"])
-					? frontmatter["weave_tags"]
-					: typeof frontmatter["weave_tags"] === "string"
-						? String(frontmatter["weave_tags"])
-								.split(",")
-								.map((tag) => tag.trim())
-						: [];
-				fields["weave_tags"] = normalizeWeaveTags(rawTags);
+				fields["weave_tags"] = readFrontmatterTags(frontmatter, "weave_tags");
 			}
 			const topicId = extractReadingTopicIdFromFrontmatter(frontmatter);
 			if (topicId) {
@@ -119,8 +145,7 @@ export class YAMLFrontmatterManager {
 	 */
 	async updateReadingFields(file: TFile, updates: Partial<ReadingYAMLFields>): Promise<void> {
 		try {
-			await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-				// 更新每个字段
+			await processFrontmatterRecord(this.app.fileManager, file, (frontmatter) => {
 				if (updates["weave-reading-id"] !== undefined) {
 					const readingId = String(updates["weave-reading-id"] || "").trim();
 					if (readingId) {
@@ -207,10 +232,10 @@ export class YAMLFrontmatterManager {
 	 */
 	async removeReadingFields(file: TFile): Promise<void> {
 		try {
-			await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-				frontmatter["weave-reading-id"] = undefined;
-				frontmatter["weave-reading-category"] = undefined;
-				frontmatter["weave-reading-priority"] = undefined;
+			await processFrontmatterRecord(this.app.fileManager, file, (frontmatter) => {
+				delete frontmatter["weave-reading-id"];
+				delete frontmatter["weave-reading-category"];
+				delete frontmatter["weave-reading-priority"];
 				delete frontmatter[READING_TOPIC_YAML_KEY];
 				delete frontmatter[READING_LEGACY_DECK_YAML_KEY];
 			});

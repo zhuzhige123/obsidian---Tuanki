@@ -73,13 +73,13 @@ export class MediaSyncService {
 				if (result.isBacklink && result.backlinkUrl) {
 					updatedContent = this.replaceMediaReference(updatedContent, ref, result.backlinkUrl);
 				}
-			} catch (error: any) {
+			} catch (error: unknown) {
 				results.push({
 					success: false,
 					filename: ref.filename,
 					size: 0,
 					isBacklink: false,
-					error: error.message,
+					error: error instanceof Error ? error.message : "Unknown error",
 				});
 			}
 		}
@@ -327,6 +327,7 @@ export class MediaSyncService {
 
 		for (const part of relativeParts) {
 			if (part === ".") {
+				continue;
 			} else if (part === "..") {
 				parts.pop();
 			} else {

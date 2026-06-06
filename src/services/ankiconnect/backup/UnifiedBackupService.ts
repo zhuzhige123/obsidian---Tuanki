@@ -154,7 +154,7 @@ export class UnifiedBackupService {
 	 * 列出所有备份
 	 * @returns 备份元数据列表
 	 */
-	async listBackups(): Promise<any[]> {
+	async listBackups(): Promise<unknown[]> {
 		return await this.metadataManager.listAll();
 	}
 
@@ -163,7 +163,7 @@ export class UnifiedBackupService {
 	 * @param backupId 备份ID
 	 * @returns 备份元数据
 	 */
-	async getBackup(backupId: string): Promise<any> {
+	async getBackup(backupId: string): Promise<unknown> {
 		return await this.metadataManager.get(backupId);
 	}
 
@@ -294,7 +294,7 @@ export class UnifiedBackupService {
 	 * 获取统计信息
 	 * @returns 统计数据
 	 */
-	async getStats(): Promise<any> {
+	async getStats(): Promise<unknown> {
 		return await this.metadataManager.getStats();
 	}
 
@@ -302,7 +302,7 @@ export class UnifiedBackupService {
 	 * 查找所有设备的备份
 	 * @returns 设备备份映射
 	 */
-	async findAllDeviceBackups(): Promise<any> {
+	async findAllDeviceBackups(): Promise<unknown> {
 		return await this.deviceManager.findAllDeviceBackups();
 	}
 

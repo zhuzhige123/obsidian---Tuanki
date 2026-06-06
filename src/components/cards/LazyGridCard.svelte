@@ -70,8 +70,8 @@
       return true;
     }
     // 3. body classes - Obsidian 移动端会添加这些类
-    if (typeof document !== 'undefined') {
-      const body = document.body;
+    if (typeof activeDocument !== 'undefined') {
+      const body = activeDocument.body;
       if (body.classList.contains('is-mobile') || 
           body.classList.contains('is-phone') || 
           body.classList.contains('is-tablet')) {

@@ -26,6 +26,18 @@ import { BatchParseSingleCleanupStrategy } from "./strategies/BatchParseSingleCl
 import { QuickCreateCleanupStrategy } from "./strategies/QuickCreateCleanupStrategy";
 import { CardCreationType, CleanupResult, CleanupTarget } from "./types";
 
+function readMetadataCreationType(card: Card): CardCreationType | undefined {
+	const creationType = card.metadata?.creationType;
+	if (
+		creationType === CardCreationType.QUICK_CREATE ||
+		creationType === CardCreationType.BATCH_PARSE_SINGLE ||
+		creationType === CardCreationType.BATCH_PARSE_MULTI
+	) {
+		return creationType;
+	}
+	return undefined;
+}
+
 /**
  * 清理服务依赖
  */
@@ -175,7 +187,7 @@ export class BlockLinkCleanupService {
 
 			// 获取对应策略并执行
 			const strategy = this.getStrategy(creationType);
-			const result = await strategy.execute(target, this.vault!);
+			const result = await strategy.execute(target, this.vault);
 
 			logDebugWithTag("CleanupService", `删除后清理完成: ${card.uuid} (${creationType})`);
 
@@ -478,9 +490,9 @@ export class BlockLinkCleanupService {
 	 */
 	private async inferCreationType(card: Card): Promise<CardCreationType> {
 		// 规则1: 检查 metadata.creationType（新卡片）
-		const metadataCreationType = (card as any).metadata?.creationType;
+		const metadataCreationType = readMetadataCreationType(card);
 		if (metadataCreationType) {
-			return metadataCreationType as CardCreationType;
+			return metadataCreationType;
 		}
 
 		if (card.isBatchScanned) {
@@ -536,9 +548,9 @@ export class BlockLinkCleanupService {
 		content: string,
 		card: Card
 	): Promise<CardCreationType> {
-		const metadataCreationType = (card as any).metadata?.creationType;
+		const metadataCreationType = readMetadataCreationType(card);
 		if (metadataCreationType) {
-			return metadataCreationType as CardCreationType;
+			return metadataCreationType;
 		}
 
 		if (card.isBatchScanned) {
@@ -561,13 +573,15 @@ export class BlockLinkCleanupService {
 				return this.applyBatchParseSingleCleanup(content, target);
 			case CardCreationType.BATCH_PARSE_MULTI:
 				return this.applyBatchParseMultiCleanup(content, target);
-			default:
+			default: {
+				const _unsupportedCreationType: never = target.creationType;
 				return {
 					content,
 					changed: false,
 					cleanedItems: [],
-					error: `不支持的清理类型: ${target.creationType}`,
+					error: `不支持的清理类型: ${String(_unsupportedCreationType)}`,
 				};
+			}
 		}
 	}
 
@@ -712,7 +726,7 @@ export class BlockLinkCleanupService {
 			} else if (typeof value === "object") {
 				yamlValue = JSON.stringify(value);
 			} else {
-				yamlValue = String(value);
+				yamlValue = "";
 			}
 
 			lines.push(`${key}: ${yamlValue}`);

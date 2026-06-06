@@ -16,7 +16,7 @@ export interface AIActionManagerObsidianOptions {
 }
 
 export class AIActionManagerObsidian extends Modal {
-	private component: any = null;
+	private component: unknown = null;
 	private readonly options: AIActionManagerObsidianOptions;
 	private hasUnsavedChanges = false;
 	private isForceClosing = false;

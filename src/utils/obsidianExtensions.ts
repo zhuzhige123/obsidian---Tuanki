@@ -3,11 +3,9 @@ import { logger } from "../utils/logger";
  * Obsidian 特有语法扩展
  */
 
-import { syntaxTree } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { RangeSet, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import type { WeavePlugin } from "../main";
 import { createImagePasteExtension } from "./imagePasteExtension";
 
 /**

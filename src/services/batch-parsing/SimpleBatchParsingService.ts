@@ -38,14 +38,11 @@ import {
 import type { IObsidianApp } from "../../types/plugin-interfaces";
 import { logDebugWithTag } from "../../utils/logger";
 import { SimplifiedCardParser } from "../../utils/simplifiedParser/SimplifiedCardParser";
-import { DeckMappingConfig, DeckMappingService, MappingResult } from "./DeckMappingService";
-import {
-	FileSelectorConfig,
-	ScanStats,
-	SimpleFileSelectorService,
-} from "./SimpleFileSelectorService";
+import type { DeckMappingConfig } from "./DeckMappingService";
+import { DeckMappingService } from "./DeckMappingService";
+import { type FileSelectorConfig, SimpleFileSelectorService } from "./SimpleFileSelectorService";
 import { ThreeWayMergeEngine } from "./ThreeWayMergeEngine";
-import { UUIDConfig, UUIDDetectionResult, UUIDManager } from "./UUIDManager";
+import { type UUIDConfig, UUIDManager } from "./UUIDManager";
 import { processUUIDsWithPosition } from "./processUUIDs-new";
 
 import type { WeaveDataStorage } from "../../data/storage";
@@ -53,7 +50,11 @@ import type { WeaveDataStorage } from "../../data/storage";
 import { SingleCardParser } from "./SingleCardParser";
 import { SingleCardSyncEngine } from "./SingleCardSyncEngine";
 
-import type { RegexParsingConfig } from "../../types/newCardParsingTypes";
+import type {
+	MultiCardsConfig,
+	RegexParsingConfig,
+	SingleCardConfig,
+} from "../../types/newCardParsingTypes";
 // 场景 1：单文件多卡片正则解析器
 import { RegexCardParser } from "./RegexCardParser";
 
@@ -92,6 +93,12 @@ export interface FolderDeckMapping {
 
 	/** 鏂囦欢瑙ｆ瀽妯″紡 */
 	fileMode: "single-card" | "multi-cards";
+
+	/** 场景 2 配置（单文件单卡片） */
+	singleCardConfig?: SingleCardConfig;
+
+	/** 场景 1 配置（单文件多卡片） */
+	multiCardsConfig?: MultiCardsConfig;
 
 	// 可选高级配置
 	/** 牌组命名策略 */
@@ -167,7 +174,7 @@ export interface BatchParseResult {
 	success: boolean;
 	totalCards: number;
 	successfulCards: number;
-	failedCards: Array<{ file: string; card: any; error: string }>; // 修改为数组类型以匹配实际使用
+	failedCards: Array<{ file: string; card: unknown; error: string }>; // 修改为数组类型以匹配实际使用
 	newDecks: string[];
 	duplicateUUIDs: string[];
 
@@ -185,13 +192,13 @@ export interface BatchParseResult {
 		file: string;
 		cardIndex: number;
 		uuid: string;
-		conflict: any; // ConflictInfo from ThreeWayMergeEngine
+		conflict: unknown; // ConflictInfo from ThreeWayMergeEngine
 	}>;
 
 	errors: Array<{
 		file: string;
 		message: string;
-		error?: any;
+		error?: unknown;
 	}>;
 	stats: {
 		filesProcessed: number;
@@ -256,7 +263,7 @@ export class SimpleBatchParsingService {
 		app: IObsidianApp,
 		dataStorage?: WeaveDataStorage, // 添加 dataStorage 参数（用于 ThreeWayMergeEngine 和 SingleCardSyncEngine）
 		cleanupService?: BlockLinkCleanupService, //  添加清理服务参数
-		plugin?: any // 添加 plugin 参数（用于 ThreeWayMergeEngine 访问 directFileReader）
+		plugin?: unknown // 添加 plugin 参数（用于 ThreeWayMergeEngine 访问 directFileReader）
 	) {
 		this.config = config;
 		this.fileSelector = fileSelector;
@@ -271,11 +278,11 @@ export class SimpleBatchParsingService {
 			this.mergeEngine = new ThreeWayMergeEngine(dataStorage, plugin); //  传递plugin参数
 
 			// 初始化单文件单卡片解析器和同步引擎
-			this.singleCardParser = new SingleCardParser(app as any);
+			this.singleCardParser = new SingleCardParser(app as unknown);
 			this.singleCardSyncEngine = new SingleCardSyncEngine(dataStorage, plugin); //  传递plugin参数
 
 			// 初始化单文件多卡片正则解析器
-			this.regexCardParser = new RegexCardParser(app as any, plugin); //  传递plugin参数
+			this.regexCardParser = new RegexCardParser(app as unknown, plugin); //  传递plugin参数
 
 			logDebugWithTag("SimpleBatchParsingService", "✅ 单文件单卡片解析器和正则解析器已初始化");
 		} else {
@@ -667,7 +674,7 @@ export class SimpleBatchParsingService {
 		parsedCards: ParsedCard[]; //  新增：返回解析的卡片
 		totalCards: number;
 		successfulCards: number;
-		failedCards: Array<{ file: string; card: any; error: string }>; // 修改为数组类型
+		failedCards: Array<{ file: string; card: unknown; error: string }>; // 修改为数组类型
 		newDecks: string[];
 		duplicateUUIDs: string[];
 		// 三方合并统计
@@ -679,14 +686,14 @@ export class SimpleBatchParsingService {
 			file: string;
 			cardIndex: number;
 			uuid: string;
-			conflict: any;
+			conflict: unknown;
 		}>;
 	}> {
 		const result = {
 			parsedCards: [] as ParsedCard[],
 			totalCards: 0,
 			successfulCards: 0,
-			failedCards: [] as Array<{ file: string; card: any; error: string }>,
+			failedCards: [] as Array<{ file: string; card: unknown; error: string }>,
 			newDecks: [] as string[],
 			duplicateUUIDs: [] as string[],
 			// 三方合并统计
@@ -698,7 +705,7 @@ export class SimpleBatchParsingService {
 				file: string;
 				cardIndex: number;
 				uuid: string;
-				conflict: any;
+				conflict: unknown;
 			}>,
 		};
 
@@ -711,7 +718,7 @@ export class SimpleBatchParsingService {
 
 		// 场景路由：根据 fileMode 选择不同的解析器
 		// 默认值为 'single-card'，与类型定义一致
-		const fileMode = (mapping as any).fileMode || "single-card"; // 默认单卡片模式
+		const fileMode = mapping.fileMode || "single-card"; // 默认单卡片模式
 
 		//  调试日志：追踪路由决策
 		logDebugWithTag(
@@ -741,7 +748,7 @@ export class SimpleBatchParsingService {
 
 		// 场景 1：单文件多卡片模式
 		if (fileMode === "multi-cards") {
-			const multiCardsConfig = (mapping as any).multiCardsConfig;
+			const multiCardsConfig = mapping.multiCardsConfig;
 
 			// 如果配置了正则解析，使用新的 RegexCardParser
 			if (multiCardsConfig?.parsingConfig && this.regexCardParser) {
@@ -923,7 +930,7 @@ export class SimpleBatchParsingService {
 				// 优先级1: 检查排除标签
 				const hasExcludeTag = this.hasAnyTagMatch(tags, excludeTags);
 				if (hasExcludeTag) {
-					result.skippedCards!++;
+					result.skippedCards++;
 					logDebugWithTag("BatchParsing", `跳过（包含排除标签）: ${uuid.substring(0, 8)}...`);
 					continue;
 				}
@@ -933,13 +940,13 @@ export class SimpleBatchParsingService {
 				if (hasForceSyncTag) {
 					// 强制同步：无论如何都标记为更新
 					if (uuid) {
-						result.updatedCards!++;
+						result.updatedCards++;
 						logDebugWithTag(
 							"BatchParsing",
 							`强制同步（包含#自动同步标签）: ${uuid.substring(0, 8)}...`
 						);
 					} else {
-						result.newCards!++;
+						result.newCards++;
 						logDebugWithTag("BatchParsing", "新卡片（包含#自动同步标签）");
 					}
 					result.successfulCards++;
@@ -952,13 +959,13 @@ export class SimpleBatchParsingService {
 
 				switch (syncResult.action) {
 					case "created":
-						result.newCards!++;
+						result.newCards++;
 						result.successfulCards++;
 						logDebugWithTag("BatchParsing", `新增卡片: ${uuid.substring(0, 8)}...`);
 						break;
 
 					case "updated":
-						result.updatedCards!++;
+						result.updatedCards++;
 						result.successfulCards++;
 						logDebugWithTag(
 							"BatchParsing",
@@ -968,7 +975,7 @@ export class SimpleBatchParsingService {
 
 					case "skipped":
 					case "kept":
-						result.skippedCards!++;
+						result.skippedCards++;
 						result.successfulCards++;
 						logDebugWithTag(
 							"BatchParsing",
@@ -977,7 +984,7 @@ export class SimpleBatchParsingService {
 						break;
 
 					case "conflict":
-						result.conflictCards!++;
+						result.conflictCards++;
 						if (syncResult.conflict) {
 							result.conflicts?.push({
 								file: file.path,
@@ -1205,8 +1212,8 @@ export class SimpleBatchParsingService {
 		const targetPath = mapping.path || mapping.folderPath || "";
 
 		// 确保 fileMode 有默认值，兼容旧数据
-		if (!(mapping as any).fileMode) {
-			(mapping as any).fileMode = "single-card";
+		if (!(mapping as unknown).fileMode) {
+			(mapping as unknown).fileMode = "single-card";
 			logDebugWithTag(
 				"SimpleBatchParsingService",
 				"⚠️ 检测到映射缺少fileMode，自动设置为single-card"
@@ -1217,7 +1224,7 @@ export class SimpleBatchParsingService {
 			type: mappingType,
 			path: targetPath,
 			targetDeckId: mapping.targetDeckId,
-			fileMode: (mapping as any).fileMode,
+			fileMode: mapping.fileMode,
 			includeSubfolders: mapping.includeSubfolders,
 		});
 
@@ -1457,7 +1464,7 @@ export class SimpleBatchParsingService {
 			parsedCards: ParsedCard[];
 			totalCards: number;
 			successfulCards: number;
-			failedCards: Array<{ file: string; card: any; error: string }>;
+			failedCards: Array<{ file: string; card: unknown; error: string }>;
 			newDecks: string[];
 			duplicateUUIDs: string[];
 			newCards?: number;
@@ -1468,14 +1475,14 @@ export class SimpleBatchParsingService {
 				file: string;
 				cardIndex: number;
 				uuid: string;
-				conflict: any;
+				conflict: unknown;
 			}>;
 		}
 	): Promise<{
 		parsedCards: ParsedCard[];
 		totalCards: number;
 		successfulCards: number;
-		failedCards: Array<{ file: string; card: any; error: string }>;
+		failedCards: Array<{ file: string; card: unknown; error: string }>;
 		newDecks: string[];
 		duplicateUUIDs: string[];
 		newCards?: number;
@@ -1486,14 +1493,14 @@ export class SimpleBatchParsingService {
 			file: string;
 			cardIndex: number;
 			uuid: string;
-			conflict: any;
+			conflict: unknown;
 		}>;
 	}> {
 		try {
 			logDebugWithTag("SimpleBatchParsingService", `场景2：单文件单卡片模式解析 ${file.path}`);
 
 			// 1. 获取单文件单卡片配置
-			const singleCardConfig = (mapping as any).singleCardConfig;
+			const singleCardConfig = mapping.singleCardConfig;
 			if (!singleCardConfig) {
 				logger.warn("[SimpleBatchParsingService] 映射缺少 singleCardConfig，跳过");
 				return result;
@@ -1626,7 +1633,7 @@ export class SimpleBatchParsingService {
 			parsedCards: ParsedCard[];
 			totalCards: number;
 			successfulCards: number;
-			failedCards: Array<{ file: string; card: any; error: string }>;
+			failedCards: Array<{ file: string; card: unknown; error: string }>;
 			newDecks: string[];
 			duplicateUUIDs: string[];
 			newCards?: number;
@@ -1637,14 +1644,14 @@ export class SimpleBatchParsingService {
 				file: string;
 				cardIndex: number;
 				uuid: string;
-				conflict: any;
+				conflict: unknown;
 			}>;
 		}
 	): Promise<{
 		parsedCards: ParsedCard[];
 		totalCards: number;
 		successfulCards: number;
-		failedCards: Array<{ file: string; card: any; error: string }>;
+		failedCards: Array<{ file: string; card: unknown; error: string }>;
 		newDecks: string[];
 		duplicateUUIDs: string[];
 		newCards?: number;
@@ -1655,14 +1662,14 @@ export class SimpleBatchParsingService {
 			file: string;
 			cardIndex: number;
 			uuid: string;
-			conflict: any;
+			conflict: unknown;
 		}>;
 	}> {
 		try {
 			logDebugWithTag("SimpleBatchParsingService", `场景1：多卡片正则模式解析 ${file.path}`);
 
 			// 1. 获取正则解析配置
-			const multiCardsConfig = (mapping as any).multiCardsConfig;
+			const multiCardsConfig = mapping.multiCardsConfig;
 			if (!multiCardsConfig?.parsingConfig) {
 				logger.warn("[SimpleBatchParsingService] 映射缺少 multiCardsConfig.parsingConfig，跳过");
 				return result;

@@ -285,10 +285,10 @@
     if (!textareaElement) return;
     const currentTextarea = textareaElement;
     window.requestAnimationFrame(() => {
-      const popovers = Array.from(document.querySelectorAll('.suggestion-container')) as HTMLElement[];
+      const popovers = Array.from(activeDocument.querySelectorAll('.suggestion-container')) as HTMLElement[];
       const activePopover = popovers.at(-1);
       if (!activePopover) return;
-      document
+      activeDocument
         .querySelectorAll('.weave-ai-prompt-suggest-popover')
         .forEach((el) => el.classList.remove('weave-ai-prompt-suggest-popover'));
       activePopover.classList.add('weave-ai-prompt-suggest-popover');
@@ -363,7 +363,7 @@
 
     const handleTemplatesUpdated = () => {
       window.requestAnimationFrame(() => {
-        if (document.activeElement === textareaElement) {
+        if (activeDocument.activeElement === textareaElement) {
           showPromptSuggestions();
         }
       });

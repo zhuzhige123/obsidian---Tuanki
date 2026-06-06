@@ -26,14 +26,11 @@ import {
 import { emitCardManagementToolbarAction } from "../utils/card-management-toolbar-contract";
 import { weaveMainInterfaceStore } from "../stores/weave-main-interface-store";
 import { computeMobileHeaderCenterTop } from "../utils/mobile-header-center";
-import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from "../services/premium/PremiumFeatureGuard";
 
 export const VIEW_TYPE_WEAVE = "weave-view";
 
-const DECK_STUDY_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: "deck-study" };
-
 export class WeaveView extends ItemView {
-	component: unknown | null = null;
+	component: object | null = null;
 	plugin: WeavePlugin;
 	private isClosing = false;
 	private currentPage = weaveMainInterfaceStore.getState().currentPage;
@@ -41,7 +38,7 @@ export class WeaveView extends ItemView {
 	private mainInterfaceUnsubscribe: (() => void) | null = null;
 	private layoutChangeRef: EventRef | null = null;
 	private surfaceLocationChangeHandler: EventListener | null = null;
-	private mobileHeaderCenterComponent: unknown | null = null;
+	private mobileHeaderCenterComponent: object | null = null;
 	private mobileHeaderCenterHost: HTMLElement | null = null;
 	private mobileHeaderCenterAlignmentCleanup: (() => void) | null = null;
 	private mobileHeaderCenterAlignmentRaf = 0;
@@ -141,7 +138,7 @@ export class WeaveView extends ItemView {
 		}
 		this.mobileHeaderCenterHost = null;
 
-		if (this.containerEl instanceof HTMLElement) {
+		if (this.containerEl.instanceOf(HTMLElement)) {
 			delete this.containerEl.dataset.weaveMobileNativeHeader;
 		}
 	}
@@ -150,7 +147,7 @@ export class WeaveView extends ItemView {
 		if (!Platform.isMobile) return;
 
 		if (this.usesMobileNativeHeader()) {
-			if (this.containerEl instanceof HTMLElement) {
+			if (this.containerEl.instanceOf(HTMLElement)) {
 				this.containerEl.dataset.weaveMobileNativeHeader = "true";
 			}
 			await this.mountMobileHeaderCenter();
@@ -405,7 +402,7 @@ export class WeaveView extends ItemView {
 	}
 
 	private resolveMobileHeaderHost(): HTMLElement | null {
-		if (!(this.containerEl instanceof HTMLElement)) {
+		if (!(this.containerEl.instanceOf(HTMLElement))) {
 			return null;
 		}
 
@@ -422,10 +419,10 @@ export class WeaveView extends ItemView {
 		let host =
 			this.mobileHeaderCenterHost instanceof HTMLElement
 				? this.mobileHeaderCenterHost
-				: (viewHeader.querySelector(".weave-mobile-header-center-host") as HTMLElement | null);
+				: (viewHeader.querySelector(".weave-mobile-header-center-host"));
 
 		if (!(host instanceof HTMLElement)) {
-			host = document.createElement("div");
+			host = activeDocument.createElement("div");
 			host.className = "weave-mobile-header-center-host";
 		}
 
@@ -448,7 +445,7 @@ export class WeaveView extends ItemView {
 
 		for (const selector of selectors) {
 			for (const node of viewHeader.querySelectorAll(selector)) {
-				if (!(node instanceof HTMLElement)) continue;
+				if (!(node.instanceOf(HTMLElement))) continue;
 				if (host.contains(node)) continue;
 				if (!node.isConnected) continue;
 
@@ -534,7 +531,7 @@ export class WeaveView extends ItemView {
 			attributes: true,
 			attributeFilter: ["class", "style", "hidden", "aria-hidden"],
 		});
-		mutationObserver?.observe(document.body, {
+		mutationObserver?.observe(activeDocument.body, {
 			attributes: true,
 			attributeFilter: ["class", "style"],
 		});
@@ -672,10 +669,10 @@ export class WeaveView extends ItemView {
 
 				// 继续等待，每秒检查一次
 				if (!this.pendingLoadRetryInterval) {
-					this.pendingLoadRetryInterval = setInterval(async () => {
+					this.pendingLoadRetryInterval = window.setInterval(async () => {
 						if (this.isClosing) {
 							if (this.pendingLoadRetryInterval) {
-								clearInterval(this.pendingLoadRetryInterval);
+								window.clearInterval(this.pendingLoadRetryInterval);
 								this.pendingLoadRetryInterval = null;
 							}
 							return;
@@ -683,7 +680,7 @@ export class WeaveView extends ItemView {
 
 						if (this.plugin.dataStorage) {
 							if (this.pendingLoadRetryInterval) {
-								clearInterval(this.pendingLoadRetryInterval);
+								window.clearInterval(this.pendingLoadRetryInterval);
 								this.pendingLoadRetryInterval = null;
 							}
 							await this.loadComponentAsync();
@@ -695,7 +692,7 @@ export class WeaveView extends ItemView {
 			}
 
 			if (this.pendingLoadRetryInterval) {
-				clearInterval(this.pendingLoadRetryInterval);
+				window.clearInterval(this.pendingLoadRetryInterval);
 				this.pendingLoadRetryInterval = null;
 			}
 
@@ -742,7 +739,7 @@ export class WeaveView extends ItemView {
 					logger.debug(`[WeaveView] allCoreServices 已就绪（轮询 ${i * interval}ms）`);
 					return;
 				}
-				await new Promise((resolve) => setTimeout(resolve, interval));
+				await new Promise((resolve) => window.setTimeout(resolve, interval));
 			}
 
 			logger.warn("[WeaveView] dataStorage 初始化超时，将显示加载状态");
@@ -781,7 +778,7 @@ export class WeaveView extends ItemView {
 		this.isClosing = true;
 
 		if (this.pendingLoadRetryInterval) {
-			clearInterval(this.pendingLoadRetryInterval);
+			window.clearInterval(this.pendingLoadRetryInterval);
 			this.pendingLoadRetryInterval = null;
 		}
 

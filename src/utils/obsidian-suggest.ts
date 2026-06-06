@@ -1,9 +1,3 @@
-import { CompletionContext, autocompletion, completionKeymap } from "@codemirror/autocomplete";
-import { markdown } from "@codemirror/lang-markdown";
-import { searchKeymap } from "@codemirror/search";
-import { EditorSelection, EditorState, Prec } from "@codemirror/state";
-import { Decoration, EditorView } from "@codemirror/view";
-import { keymap } from "@codemirror/view";
 import { App, Editor, EditorSuggest, MarkdownView, TFile } from "obsidian";
 import type { EditorPosition, EditorSuggestContext, EditorSuggestTriggerInfo } from "obsidian";
 import type { Card } from "../data/types";

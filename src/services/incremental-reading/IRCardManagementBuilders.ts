@@ -2,7 +2,13 @@ import { TFile, type App } from "obsidian";
 import type { Card } from "../../data/types";
 import { CardType } from "../../data/types";
 import type { IRMaterialRecord, IRPoint } from "../../types/ir-point-storage-types";
-import type { IRChunkFileData, IRDeck } from "../../types/ir-types";
+import type {
+	IRBlock,
+	IRBlockMeta,
+	IRChunkFileData,
+	IRDeck,
+	IRSourceFileMeta,
+} from "../../types/ir-types";
 import type { IRPdfBookmarkTask } from "./IRPdfBookmarkTaskService";
 import type { IREpubBookmarkTask } from "./IREpubBookmarkTaskService";
 import type { IRTraceSourceKind } from "./IRSourceTraceStats";
@@ -41,14 +47,14 @@ type BuildIRCardBase = (params: {
 	tags?: string[];
 	priority?: number;
 	suspended?: boolean;
-	metadata?: Record<string, any>;
+	metadata?: Record<string, unknown>;
 	sourceKind?: IRTraceSourceKind;
 	sourceDocumentKey?: string;
 	sourceSubunitKey?: string;
 	primaryAssociatedNotePath?: string;
 	associatedNotePath?: string;
 	associatedNotePaths?: string[];
-}) => Card & Record<string, any>;
+}) => Card & Record<string, unknown>;
 
 export interface IRCardBuilderHelpers {
 	buildIRCardBase: BuildIRCardBase;
@@ -67,19 +73,18 @@ export interface IRCardBuilderHelpers {
 	}) => Promise<string>;
 }
 
-type LegacyAssociatedNoteCarrier = {
-	primaryAssociatedNotePath?: string | null;
-	associatedNotePath?: string | null;
-	associatedNotePaths?: Array<string | null | undefined> | null;
-} | null | undefined;
+type AssociatedNoteCarrier = Pick<
+	IRBlockMeta,
+	"primaryAssociatedNotePath" | "associatedNotePath" | "associatedNotePaths"
+>;
 
 function resolveLegacyAssociatedNotePaths(
-	primary: LegacyAssociatedNoteCarrier,
-	fallback?: LegacyAssociatedNoteCarrier
+	primary: AssociatedNoteCarrier | null | undefined,
+	fallback?: AssociatedNoteCarrier | null
 ): string[] {
 	return resolveAssociatedNotePaths({
 		associatedNotePath:
-			resolveAssociatedNotePath(primary as any) || resolveAssociatedNotePath(fallback as any),
+			resolveAssociatedNotePath(primary) || resolveAssociatedNotePath(fallback),
 		associatedNotePaths: Array.isArray(primary?.associatedNotePaths)
 			? primary.associatedNotePaths
 			: Array.isArray(fallback?.associatedNotePaths)
@@ -102,13 +107,15 @@ export async function extractChunkTags(app: App, chunkFilePath: string): Promise
 	}
 }
 
+type LegacyIRBlock = IRBlock & { meta?: Partial<IRBlockMeta> | null };
+
 export async function buildLegacyIRBlockCard(options: {
-	block: any;
+	block: LegacyIRBlock;
 	irDecks: Record<string, IRDeck>;
 	chunkIds: Set<string>;
 	readingSecondsById: Map<string, number>;
 	helpers: IRCardBuilderHelpers;
-}): Promise<(Card & Record<string, any>) | null> {
+}): Promise<(Card & Record<string, unknown>) | null> {
 	const { block, irDecks, chunkIds, readingSecondsById, helpers } = options;
 	if (chunkIds.has(block.id)) {
 		return null;
@@ -134,7 +141,7 @@ export async function buildLegacyIRBlockCard(options: {
 	const sourceKind = detectTraceSourceKind(block.filePath);
 	const sourceDocumentKey = normalizeTraceDocumentKey(block.filePath, sourceKind) || block.filePath;
 	const priorityValue = getIRPriorityValue(block.priorityUi, block.priorityEff, block.priority);
-	const associatedNotePaths = resolveLegacyAssociatedNotePaths(block, (block.meta || null) as any);
+	const associatedNotePaths = resolveLegacyAssociatedNotePaths(block, (block.meta || null));
 	const primaryAssociatedNotePath = associatedNotePaths[0];
 	const tagGroupName = await helpers.resolveTagGroupName({
 		explicitGroupId: block.tagGroupId || block.meta?.tagGroup,
@@ -212,14 +219,14 @@ export async function buildLegacyIRBlockCard(options: {
 export async function buildIRChunkCard(options: {
 	app: App;
 	chunk: IRChunkFileData;
-	source: any;
+	source: IRSourceFileMeta | undefined;
 	readingSecondsById: Map<string, number>;
 	helpers: IRCardBuilderHelpers;
-}): Promise<Card & Record<string, any>> {
+}): Promise<Card & Record<string, unknown>> {
 	const { app, chunk, source, readingSecondsById, helpers } = options;
 	const fileName = chunk.filePath.replace(/^.*\//, "").replace(/\.md$/, "");
 	const title = fileName.replace(/^\d+_/, "");
-	const sourceTitle = source?.title || "未知来源";
+	const sourceTitle = source?.title ?? "未知来源";
 	const sourcePath = source?.originalPath || source?.rawFilePath || chunk.filePath;
 	const tags = await extractChunkTags(app, chunk.filePath);
 	const displayContent = `# ${title}\n\n来源: ${sourceTitle}\n文件: ${chunk.filePath}`;
@@ -230,8 +237,8 @@ export async function buildIRChunkCard(options: {
 	);
 	const sourceKind = detectTraceSourceKind(sourcePath);
 	const sourceDocumentKey = normalizeTraceDocumentKey(sourcePath, sourceKind) || sourcePath;
-	const priorityValue = getIRPriorityValue((chunk as any).priorityUi, chunk.priorityEff);
-	const associatedNotePaths = resolveLegacyAssociatedNotePaths((chunk.meta || null) as any);
+	const priorityValue = getIRPriorityValue(chunk.priorityUi, chunk.priorityEff);
+	const associatedNotePaths = resolveLegacyAssociatedNotePaths(chunk.meta);
 	const primaryAssociatedNotePath = associatedNotePaths[0];
 	const tagGroupName = await helpers.resolveTagGroupName({
 		explicitGroupId: chunk.meta?.tagGroup,
@@ -310,7 +317,7 @@ export async function buildIRPdfTaskCard(options: {
 	task: IRPdfBookmarkTask;
 	readingSecondsById: Map<string, number>;
 	helpers: IRCardBuilderHelpers;
-}): Promise<Card & Record<string, any>> {
+}): Promise<Card & Record<string, unknown>> {
 	const { task, readingSecondsById, helpers } = options;
 	const canonicalDeckId = helpers.resolveIRDeckId(getTaskTopicId(task));
 	const canonicalDeckIds = canonicalDeckId ? [canonicalDeckId] : [];
@@ -325,7 +332,7 @@ export async function buildIRPdfTaskCard(options: {
 	const sourceKind: IRTraceSourceKind = "pdf";
 	const sourceDocumentKey = normalizeTraceDocumentKey(task.pdfPath, sourceKind) || task.pdfPath;
 	const sourceSubunitKey = normalizeTraceSubunitKey(task.link) || undefined;
-	const associatedNotePaths = resolveLegacyAssociatedNotePaths(task.meta as any);
+	const associatedNotePaths = resolveLegacyAssociatedNotePaths(task.meta);
 	const primaryAssociatedNotePath = associatedNotePaths[0];
 	const tagGroupName = await helpers.resolveTagGroupName({
 		explicitGroupId: task.meta?.tagGroup,
@@ -447,7 +454,7 @@ export async function buildIRPdfPointCard(options: {
 	topicName: string;
 	readingSecondsById: Map<string, number>;
 	helpers: IRCardBuilderHelpers;
-}): Promise<Card & Record<string, any>> {
+}): Promise<Card & Record<string, unknown>> {
 	const { point, material, topicId, topicName, readingSecondsById, helpers } = options;
 	const topicIds = resolvePointTopicIds(point, topicId);
 	const canonicalDeckIds = helpers.resolveIRDeckIds(topicIds);
@@ -551,11 +558,11 @@ export async function buildIREpubTaskCard(options: {
 	task: IREpubBookmarkTask;
 	readingSecondsById: Map<string, number>;
 	helpers: IRCardBuilderHelpers;
-}): Promise<Card & Record<string, any>> {
+}): Promise<Card & Record<string, unknown>> {
 	const { task, readingSecondsById, helpers } = options;
-	const canonicalDeckId = helpers.resolveIRDeckId(getTaskTopicId(task as any));
+	const canonicalDeckId = helpers.resolveIRDeckId(getTaskTopicId(task));
 	const canonicalDeckIds = canonicalDeckId ? [canonicalDeckId] : [];
-	const deckName = helpers.getIRDeckName(canonicalDeckId || getTaskTopicId(task as any));
+	const deckName = helpers.getIRDeckName(canonicalDeckId || getTaskTopicId(task));
 	const priorityValue = getIRPriorityValue(task.priorityUi, task.priorityEff);
 	const readingSeconds = helpers.getIRReadingSeconds(
 		task.id,
@@ -565,7 +572,7 @@ export async function buildIREpubTaskCard(options: {
 	const sourceKind: IRTraceSourceKind = "epub";
 	const sourceDocumentKey = normalizeTraceDocumentKey(task.epubFilePath, sourceKind) || task.epubFilePath;
 	const sourceSubunitKey = normalizeTraceSubunitKey(task.tocHref || task.id) || undefined;
-	const associatedNotePaths = resolveLegacyAssociatedNotePaths(task.meta as any);
+	const associatedNotePaths = resolveLegacyAssociatedNotePaths(task.meta);
 	const primaryAssociatedNotePath = associatedNotePaths[0];
 	const tagGroupName = await helpers.resolveTagGroupName({
 		explicitGroupId: task.meta?.tagGroup,
@@ -646,7 +653,7 @@ export async function buildIREpubPointCard(options: {
 	topicName: string;
 	readingSecondsById: Map<string, number>;
 	helpers: IRCardBuilderHelpers;
-}): Promise<Card & Record<string, any>> {
+}): Promise<Card & Record<string, unknown>> {
 	const { point, material, topicId, topicName, readingSecondsById, helpers } = options;
 	const topicIds = resolvePointTopicIds(point, topicId);
 	const canonicalDeckIds = helpers.resolveIRDeckIds(topicIds);

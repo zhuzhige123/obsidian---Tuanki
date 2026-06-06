@@ -614,7 +614,7 @@ export class StudyToolbarMenuBuilder {
 						this.safeCallback(() => {
 							void Promise.resolve(this.callbacks.onChangeDeck(deck.id)).finally(() => {
 								if (pos) {
-									setTimeout(() => {
+									window.setTimeout(() => {
 										const newMenu = new Menu();
 										this.buildDeckSubmenu(newMenu);
 										newMenu.showAtPosition(pos);

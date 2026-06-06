@@ -414,7 +414,7 @@ export class EmbeddableEditorManager {
 				}
 
 				// 等待编辑器 DOM 更新（编辑器更新可能是异步的）
-				await new Promise((resolve) => setTimeout(resolve, 50));
+				await new Promise((resolve) => window.setTimeout(resolve, 50));
 
 				// 验证设置是否成功
 				const verifyValue = session.editor.value;

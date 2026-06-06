@@ -56,7 +56,7 @@ export class ActiveDocumentResolver {
 	}
 
 	resolve(app: App, activeLeaf?: WorkspaceLeaf | null): string | null {
-		const leaf = activeLeaf ?? app.workspace.activeLeaf;
+		const leaf = activeLeaf ?? app.workspace.getMostRecentLeaf?.() ?? null;
 		if (!leaf) {
 			return this.lastExternalActiveDocument;
 		}

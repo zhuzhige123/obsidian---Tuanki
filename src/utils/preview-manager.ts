@@ -50,8 +50,8 @@ export class PreviewManager {
 	private isRendering = false;
 	private renderQueue: Array<{
 		content: string;
-		resolve: (value: any) => void;
-		reject: (reason?: any) => void;
+		resolve: (value: unknown) => void;
+		reject: (reason?: unknown) => void;
 	}> = [];
 	private currentComponent: Component | null = null;
 	private abortController: AbortController | null = null;
@@ -116,10 +116,10 @@ export class PreviewManager {
 		// 防抖处理
 		return new Promise((resolve, reject) => {
 			if (this.debounceTimer) {
-				clearTimeout(this.debounceTimer);
+				window.clearTimeout(this.debounceTimer);
 			}
 
-			this.debounceTimer = setTimeout(async () => {
+			this.debounceTimer = window.setTimeout(async () => {
 				try {
 					const result = await this.performRender(content, container, contentHash);
 					resolve(result);
@@ -238,18 +238,18 @@ export class PreviewManager {
 	 */
 	private async renderWithTimeout(content: string, container: HTMLElement): Promise<void> {
 		return new Promise((resolve, reject) => {
-			const timeoutId = setTimeout(() => {
+			const timeoutId = window.setTimeout(() => {
 				reject(new Error(`渲染超时 (${this.options.renderTimeout}ms)`));
 			}, this.options.renderTimeout);
 
 			// 执行实际渲染
 			MarkdownRenderer.render(this.plugin.app, content, container, "", this.currentComponent!)
 				.then(() => {
-					clearTimeout(timeoutId);
+					window.clearTimeout(timeoutId);
 					resolve();
 				})
 				.catch((error) => {
-					clearTimeout(timeoutId);
+					window.clearTimeout(timeoutId);
 					reject(error);
 				});
 		});
@@ -296,28 +296,28 @@ export class PreviewManager {
 	}
 
 	private renderEmptyState(container: HTMLElement): void {
-		const empty = document.createElement("div");
+		const empty = activeDocument.createElement("div");
 		empty.className = "unified-preview-empty";
 		empty.textContent = "预览内容为空";
 		container.replaceChildren(empty);
 	}
 
 	private renderErrorState(container: HTMLElement, error: unknown): void {
-		const wrapper = document.createElement("div");
+		const wrapper = activeDocument.createElement("div");
 		wrapper.className = "unified-preview-error";
 
-		const title = document.createElement("div");
+		const title = activeDocument.createElement("div");
 		title.className = "error-title";
 		title.textContent = "预览渲染失败";
 
-		const message = document.createElement("div");
+		const message = activeDocument.createElement("div");
 		message.className = "error-message";
 		message.textContent = error instanceof Error ? error.message : "未知错误";
 
-		const actions = document.createElement("div");
+		const actions = activeDocument.createElement("div");
 		actions.className = "error-actions";
 
-		const button = document.createElement("button");
+		const button = activeDocument.createElement("button");
 		button.type = "button";
 		button.textContent = "隐藏错误";
 		button.addEventListener("click", () => {
@@ -395,7 +395,7 @@ export class PreviewManager {
 		}
 
 		if (this.debounceTimer) {
-			clearTimeout(this.debounceTimer);
+			window.clearTimeout(this.debounceTimer);
 			this.debounceTimer = null;
 		}
 	}

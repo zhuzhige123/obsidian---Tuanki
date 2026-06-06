@@ -265,7 +265,7 @@ export class ServiceInitializer {
 	 */
 	private timeout(ms: number, serviceName: string): Promise<never> {
 		return new Promise((_, reject) => {
-			setTimeout(() => {
+			window.setTimeout(() => {
 				reject(new Error(`服务 ${serviceName} 初始化超时 (${ms}ms)`));
 			}, ms);
 		});
@@ -298,7 +298,7 @@ export function createWeaveServiceConfigs(plugin: WeavePlugin): ServiceInitConfi
 			required: true,
 			init: async () => {
 				const { WeaveDataStorage } = await import("../data/storage");
-				plugin.dataStorage = new WeaveDataStorage(plugin as any);
+				plugin.dataStorage = new WeaveDataStorage(plugin as unknown);
 				await plugin.dataStorage.initialize();
 			},
 		},
@@ -356,7 +356,7 @@ export function createWeaveServiceConfigs(plugin: WeavePlugin): ServiceInitConfi
 			dependencies: ["DataStorage"],
 			init: async () => {
 				const { initDeckNameMapper } = await import("./DeckNameMapper");
-				plugin.deckNameMapper = await initDeckNameMapper(plugin as any);
+				plugin.deckNameMapper = await initDeckNameMapper(plugin as unknown);
 			},
 		},
 		{

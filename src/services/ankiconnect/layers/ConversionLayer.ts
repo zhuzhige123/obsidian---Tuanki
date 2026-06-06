@@ -69,7 +69,7 @@ export abstract class BaseConversionLayer implements IConversionLayer {
 	protected safeReplace(
 		content: string,
 		pattern: RegExp,
-		replacement: string | ((substring: string, ...args: any[]) => string),
+		replacement: string | ((substring: string, ...args: unknown[]) => string),
 		operationName = "替换操作"
 	): { content: string; count: number; error?: string } {
 		try {
@@ -111,7 +111,7 @@ export abstract class BaseConversionLayer implements IConversionLayer {
 	/**
 	 * 辅助方法：记录调试信息
 	 */
-	protected debug(message: string, data?: any): void {
+	protected debug(message: string, data?: unknown): void {
 		logger.debug(`[${this.name}] ${message}`, data || "");
 	}
 }

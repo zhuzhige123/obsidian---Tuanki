@@ -5,7 +5,7 @@ export type DeckAnalyticsText = ReturnType<typeof createDeckAnalyticsText>;
 
 function getText(language: SupportedLanguage, key: string): string {
   const keys = ['deckAnalytics', ...key.split('.')];
-  let current: any = deckAnalyticsTranslationOverrides[language];
+  let current: unknown = deckAnalyticsTranslationOverrides[language];
 
   for (const segment of keys) {
     current = current?.[segment];

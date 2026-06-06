@@ -270,7 +270,7 @@ export class SimpleFileSelectorService {
 					path: child.path,
 					name: child.name,
 					level: level + 1,
-					childCount: (child as any).children.length,
+					childCount: child.children.length,
 				});
 			}
 		}

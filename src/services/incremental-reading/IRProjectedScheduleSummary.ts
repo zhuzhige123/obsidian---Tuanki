@@ -13,6 +13,33 @@ import {
 } from "./IRScheduleKernel";
 import { resolveAssociatedNotePath, resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 import { IRStorageService } from "./IRStorageService";
+import { readUnknownProperty, readUnknownString } from "../../utils/dynamic-access";
+import { isRecord } from "../../utils/typed-json";
+
+function readLegacyAssociatedNotePaths(block: IRBlock): string[] | undefined {
+	const direct = readUnknownProperty(block, "associatedNotePaths");
+	if (Array.isArray(direct)) {
+		return direct.filter((path): path is string => typeof path === "string");
+	}
+	const meta = readUnknownProperty(block, "meta");
+	const fromMeta = isRecord(meta) ? meta.associatedNotePaths : undefined;
+	if (Array.isArray(fromMeta)) {
+		return fromMeta.filter((path): path is string => typeof path === "string");
+	}
+	return undefined;
+}
+
+function readLegacyAssociatedNoteMaterial(block: IRBlock): Parameters<typeof resolveAssociatedNotePath>[0] {
+	const meta = readUnknownProperty(block, "meta");
+	if (isRecord(meta)) {
+		return meta;
+	}
+	return {
+		associatedNotePath: readUnknownString(block, "associatedNotePath"),
+		primaryAssociatedNotePath: readUnknownString(block, "primaryAssociatedNotePath"),
+		associatedNotePaths: readLegacyAssociatedNotePaths(block),
+	};
+}
 
 type SessionLike = { blockId?: string; duration?: number };
 
@@ -131,7 +158,7 @@ function buildDeckIdentifierContext(decks: IRDeck[], requestedDeckIds: string[])
 
 	for (const deck of decks) {
 		const deckId = String(deck?.id || "").trim();
-		const deckPath = String((deck as any)?.path || "").trim();
+		const deckPath = String((deck as unknown)?.path || "").trim();
 		const identifiers = normalizeIdentifiers([deckId, deckPath]);
 		if (identifiers.length === 0) {
 			continue;
@@ -191,8 +218,8 @@ function buildLegacyBlockDeckIdsByBlockId(
 
 		const canonicalDeckId =
 			canonicalByIdentifier.get(String(deck.id || "").trim()) ||
-			canonicalByIdentifier.get(String((deck as any)?.path || "").trim()) ||
-			String(deck.id || (deck as any)?.path || "").trim();
+			canonicalByIdentifier.get(String((deck as unknown)?.path || "").trim()) ||
+			String(deck.id || (deck as unknown)?.path || "").trim();
 		if (!canonicalDeckId) continue;
 
 		for (const blockId of deck.blockIds || []) {
@@ -275,14 +302,8 @@ function mapLegacyBlockToProjectedItem(
 	const nextRepDate = Number(migrated.nextRepDate || 0);
 	const title = getLegacyBlockTitle(block);
 	const associatedNotePath = resolveAssociatedNotePaths({
-		associatedNotePath:
-			resolveAssociatedNotePath(block as any) ||
-			resolveAssociatedNotePath((((block as any).meta || null) as any) || null),
-		associatedNotePaths: Array.isArray((block as any).associatedNotePaths)
-			? (block as any).associatedNotePaths
-			: Array.isArray((block as any).meta?.associatedNotePaths)
-				? (block as any).meta.associatedNotePaths
-				: undefined,
+		associatedNotePath: resolveAssociatedNotePath(readLegacyAssociatedNoteMaterial(block)),
+		associatedNotePaths: readLegacyAssociatedNotePaths(block),
 	})[0];
 	let scheduleStatus: string = migrated.status;
 	if (scheduleStatus !== "new" && nextRepDate > 0 && nextRepDate <= todayEndMs) {
@@ -362,7 +383,7 @@ async function mergeLegacyBlocksIntoProjectedScheduleSummary(
 		}
 
 		const matchedDeckIds = new Set(blockDeckIdsById.get(String(block.id || "").trim()) || []);
-		const legacyDeckPath = String((block as any)?.deckPath || "").trim();
+		const legacyDeckPath = String((block as unknown)?.deckPath || "").trim();
 		if (legacyDeckPath && targetIdentifiers.has(legacyDeckPath)) {
 			matchedDeckIds.add(canonicalByIdentifier.get(legacyDeckPath) || legacyDeckPath);
 		}

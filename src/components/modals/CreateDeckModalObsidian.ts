@@ -20,7 +20,7 @@ export interface CreateDeckModalObsidianOptions {
 }
 
 export class CreateDeckModalObsidian extends Modal {
-	private component: any = null;
+	private component: unknown = null;
 	private readonly options: CreateDeckModalObsidianOptions;
 
 	constructor(app: App, options: CreateDeckModalObsidianOptions) {

@@ -301,7 +301,7 @@ class AIConfigStore {
 			this.plugin.settings.aiConfig = createDefaultPersistedAIConfig();
 		}
 
-		return this.plugin.settings.aiConfig as PersistedAIConfig;
+		return this.plugin.settings.aiConfig;
 	}
 
 	// ============================================================================
@@ -310,10 +310,10 @@ class AIConfigStore {
 
 	private scheduleSave() {
 		if (this.saveDebounceTimer) {
-			clearTimeout(this.saveDebounceTimer);
+			window.clearTimeout(this.saveDebounceTimer);
 		}
 
-		this.saveDebounceTimer = setTimeout(() => {
+		this.saveDebounceTimer = window.setTimeout(() => {
 			void this.saveToPlugin();
 		}, this.SAVE_DEBOUNCE_MS);
 	}
@@ -358,7 +358,7 @@ class AIConfigStore {
 	 */
 	async forceSave() {
 		if (this.saveDebounceTimer) {
-			clearTimeout(this.saveDebounceTimer);
+			window.clearTimeout(this.saveDebounceTimer);
 			this.saveDebounceTimer = null;
 		}
 		await this.saveToPlugin();
@@ -369,7 +369,7 @@ class AIConfigStore {
 	 */
 	destroy() {
 		if (this.saveDebounceTimer) {
-			clearTimeout(this.saveDebounceTimer);
+			window.clearTimeout(this.saveDebounceTimer);
 			this.saveDebounceTimer = null;
 		}
 	}

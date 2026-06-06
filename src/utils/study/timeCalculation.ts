@@ -4,8 +4,6 @@
  * 提供学习时间相关的计算和格式化功能
  */
 
-import type { ReviewLog } from "../../data/types";
-
 /**
  * 将分钟转换为天数
  *

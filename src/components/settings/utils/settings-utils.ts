@@ -262,35 +262,48 @@ export function getDetailedErrorMessage(error: string): string {
 /**
  * 安全的设置更新函数
  */
-export function updateSettings<T extends Record<string, any>>(
+export function updateSettings<T extends Record<string, unknown>>(
 	settings: T,
 	path: string,
-	value: any
+	value: unknown
 ): T {
 	const keys = path.split(".");
 	const result = { ...settings };
-	let current: any = result;
+	let current: Record<string, unknown> = result;
 
 	// 创建嵌套对象路径
 	for (let i = 0; i < keys.length - 1; i++) {
 		const key = keys[i];
-		if (!(key in current) || typeof current[key] !== "object") {
+		if (!key) {
+			continue;
+		}
+		const existing = current[key];
+		if (typeof existing !== "object" || existing === null) {
 			current[key] = {};
 		} else {
-			current[key] = { ...current[key] };
+			current[key] = { ...(existing as Record<string, unknown>) };
 		}
-		current = current[key];
+		const nested = current[key];
+		if (typeof nested !== "object" || nested === null) {
+			current[key] = {};
+			current = current[key] as Record<string, unknown>;
+		} else {
+			current = nested as Record<string, unknown>;
+		}
 	}
 
 	// 设置最终值
-	current[keys[keys.length - 1]] = value;
+	const leafKey = keys[keys.length - 1];
+	if (leafKey) {
+		current[leafKey] = value;
+	}
 	return result;
 }
 
 /**
  * 获取嵌套设置值
  */
-export function getSettingsValue<T>(settings: any, path: string, defaultValue?: T): T {
+export function getSettingsValue<T>(settings: unknown, path: string, defaultValue?: T): T {
 	const keys = path.split(".");
 	let current = settings;
 
@@ -308,22 +321,24 @@ export function getSettingsValue<T>(settings: any, path: string, defaultValue?: 
 /**
  * 防抖函数
  */
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
 	func: T,
 	wait: number
 ): (...args: Parameters<T>) => void {
-	let timeout: NodeJS.Timeout;
+	let timeout: ReturnType<typeof window.setTimeout> | undefined;
 
 	return (...args: Parameters<T>) => {
-		clearTimeout(timeout);
-		timeout = setTimeout(() => func(...args), wait);
+		if (timeout !== undefined) {
+			window.clearTimeout(timeout);
+		}
+		timeout = window.setTimeout(() => func(...args), wait);
 	};
 }
 
 /**
  * 节流函数
  */
-export function throttle<T extends (...args: any[]) => any>(
+export function throttle<T extends (...args: unknown[]) => unknown>(
 	func: T,
 	limit: number
 ): (...args: Parameters<T>) => void {
@@ -333,7 +348,7 @@ export function throttle<T extends (...args: any[]) => any>(
 		if (!inThrottle) {
 			func(...args);
 			inThrottle = true;
-			setTimeout(() => {
+			window.setTimeout(() => {
 				inThrottle = false;
 			}, limit);
 		}

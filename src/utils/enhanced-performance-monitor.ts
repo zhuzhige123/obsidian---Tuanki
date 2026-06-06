@@ -1,4 +1,8 @@
+import { getChromeMemoryUsageSnapshot } from "./chrome-performance-memory";
+import { isCallable, readUnknownProperty } from "./dynamic-access";
+import { extractErrorMessage } from "../types/utility-types";
 import { logger } from "../utils/logger";
+import type { TimerHandle } from "../types/timer";
 /**
  * 增强性能监控和日志系统
  * 监控解析性能，记录详细日志，帮助识别性能瓶颈和问题排查
@@ -17,7 +21,7 @@ export interface PerformanceMetric {
 	memoryBefore?: number;
 	memoryAfter?: number;
 	memoryDelta?: number;
-	metadata?: Record<string, any>;
+	metadata?: Record<string, unknown>;
 }
 
 export interface PerformanceStats {
@@ -41,13 +45,21 @@ export interface PerformanceStats {
 	};
 }
 
+type ActiveOperationMetadata = {
+	operation: string;
+	contentSize?: number;
+	templateName?: string;
+	method?: string;
+	[key: string]: unknown;
+};
+
 export interface LogEntry {
 	id: string;
 	timestamp: number;
 	level: "debug" | "info" | "warn" | "error";
 	category: string;
 	message: string;
-	data?: any;
+	data?: unknown;
 	performanceId?: string;
 	stackTrace?: string;
 }
@@ -76,8 +88,9 @@ export class EnhancedPerformanceMonitor {
 	private metrics: Map<string, PerformanceMetric> = new Map();
 	private logs: LogEntry[] = [];
 	private config: MonitorConfig;
-	private cleanupTimer: NodeJS.Timeout | null = null;
-	private activeOperations: Map<string, { startTime: number; metadata: any }> = new Map();
+	private cleanupTimer: TimerHandle | null = null;
+	private activeOperations: Map<string, { startTime: number; metadata: ActiveOperationMetadata }> =
+		new Map();
 
 	constructor(config?: Partial<MonitorConfig>) {
 		this.config = {
@@ -113,7 +126,7 @@ export class EnhancedPerformanceMonitor {
 			contentSize?: number;
 			templateName?: string;
 			method?: string;
-			[key: string]: any;
+			[key: string]: unknown;
 		} = {}
 	): string {
 		if (!this.config.enablePerformanceTracking) {
@@ -142,7 +155,7 @@ export class EnhancedPerformanceMonitor {
 	endOperation(
 		operationId: string,
 		success = true,
-		additionalData?: Record<string, any>
+		additionalData?: Record<string, unknown>
 	): PerformanceMetric | null {
 		if (!this.config.enablePerformanceTracking || !operationId) {
 			return null;
@@ -210,7 +223,7 @@ export class EnhancedPerformanceMonitor {
 		level: LogEntry["level"],
 		category: string,
 		message: string,
-		data?: any,
+		data?: unknown,
 		performanceId?: string
 	): void {
 		if (!this.config.enableDetailedLogging) {
@@ -251,24 +264,7 @@ export class EnhancedPerformanceMonitor {
 	 * 获取内存使用情况
 	 */
 	getMemoryUsage(): { used: number; total: number; percentage: number } {
-		if (typeof process !== "undefined" && process.memoryUsage) {
-			const usage = process.memoryUsage();
-			return {
-				used: usage.heapUsed,
-				total: usage.heapTotal,
-				percentage: (usage.heapUsed / usage.heapTotal) * 100,
-			};
-		} else if (typeof performance !== "undefined" && (performance as any).memory) {
-			const memory = (performance as any).memory;
-			return {
-				used: memory.usedJSHeapSize || 0,
-				total: memory.totalJSHeapSize || 0,
-				percentage:
-					memory.totalJSHeapSize > 0 ? (memory.usedJSHeapSize / memory.totalJSHeapSize) * 100 : 0,
-			};
-		} else {
-			return { used: 0, total: 0, percentage: 0 };
-		}
+		return getChromeMemoryUsageSnapshot();
 	}
 
 	/**
@@ -379,7 +375,7 @@ export class EnhancedPerformanceMonitor {
 	 */
 	destroy(): void {
 		if (this.cleanupTimer) {
-			clearInterval(this.cleanupTimer);
+			window.clearInterval(this.cleanupTimer);
 			this.cleanupTimer = null;
 		}
 
@@ -472,7 +468,7 @@ export class EnhancedPerformanceMonitor {
 	}
 
 	private startCleanupTimer(): void {
-		this.cleanupTimer = setInterval(() => {
+		this.cleanupTimer = window.setInterval(() => {
 			this.enforceHistoryLimits();
 		}, this.config.cleanupInterval);
 	}
@@ -497,7 +493,7 @@ function getOrCreateWindowEnhancedMonitor(
 		return globalEnhancedMonitor;
 	}
 
-	const w = window as any;
+	const w = window as unknown;
 	if (w.__weaveEnhancedPerformanceMonitor) {
 		return w.__weaveEnhancedPerformanceMonitor as EnhancedPerformanceMonitor;
 	}
@@ -507,7 +503,7 @@ function getOrCreateWindowEnhancedMonitor(
 	w.__weaveEnhancedPerformanceMonitorCleanup = () => {
 		try {
 			(w.__weaveEnhancedPerformanceMonitor as EnhancedPerformanceMonitor | undefined)?.destroy();
-		} catch {}
+		} catch { /* no-op */ }
 
 		try {
 			w.__weaveEnhancedPerformanceMonitor = undefined;
@@ -538,14 +534,14 @@ export function getGlobalEnhancedPerformanceMonitor(
 export function withPerformanceMonitoring(operation: string, monitor?: EnhancedPerformanceMonitor) {
 	const monitorInstance = monitor || getGlobalEnhancedPerformanceMonitor();
 
-	return function <T extends (...args: any[]) => any>(
-		_target: any,
+	return function <T extends (...args: unknown[]) => unknown>(
+		_target: unknown,
 		propertyName: string,
 		descriptor: TypedPropertyDescriptor<T>
 	) {
 		const method = descriptor.value!;
 
-		descriptor.value = function (this: any, ...args: any[]) {
+		descriptor.value = function (this: unknown, ...args: unknown[]) {
 			const operationId = monitorInstance.startOperation(operation, {
 				method: propertyName,
 				args: args.length,
@@ -554,17 +550,20 @@ export function withPerformanceMonitoring(operation: string, monitor?: EnhancedP
 			try {
 				const result = method.apply(this, args);
 
-				// 处理异步方法
-				if (result && typeof result.then === "function") {
-					return result
-						.then((value: any) => {
+				const thenFn = readUnknownProperty(result, "then");
+				if (isCallable(thenFn)) {
+					return Reflect.apply(thenFn, result, [
+						(value: unknown) => {
 							monitorInstance.endOperation(operationId, true);
 							return value;
-						})
-						.catch((error: any) => {
-							monitorInstance.endOperation(operationId, false, { error: error.message });
+						},
+						(error: unknown) => {
+							monitorInstance.endOperation(operationId, false, {
+								error: extractErrorMessage(error),
+							});
 							throw error;
-						});
+						},
+					]);
 				} else {
 					monitorInstance.endOperation(operationId, true);
 					return result;

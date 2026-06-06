@@ -16,6 +16,15 @@ import {
 	IRPointTagService,
 	normalizeReadingPointTags,
 } from "./IRPointTagService";
+import {
+	isIrBlockCard,
+	isIrChunkCard,
+	mutateIrBlock,
+	readCardMetaRecord,
+	resolveCardSourceDocumentPath,
+	resolveIrPointKindFromCard,
+} from "../../utils/ir-card-metadata";
+import { isRecord } from "../../utils/typed-json";
 import { IRStorageService } from "./IRStorageService";
 
 export type IRPointWriteKind = "block" | "chunk" | "pdf" | "epub";
@@ -70,19 +79,6 @@ export interface IRPointWriteTarget {
 	sourceDocumentPath?: string;
 }
 
-function resolveCardSourceDocumentPath(card: Card): string | undefined {
-	const cardLike = card as any;
-	const rawPath = String(
-		cardLike.ir_source_document_key ||
-			cardLike.sourceDocumentKey ||
-			cardLike.sourceFile ||
-			cardLike.ir_source_file ||
-			""
-	).trim();
-
-	return rawPath ? normalizePath(rawPath) : undefined;
-}
-
 function resolveLegacyPriority(priority: number): IRPriority {
 	if (priority >= 6) return 1;
 	if (priority >= 4) return 2;
@@ -111,7 +107,7 @@ function buildCardLikeTarget(target: IRPointWriteTarget): Card {
 		uuid: target.id,
 		metadata,
 		ir_source_document_key: target.sourceDocumentPath,
-	} as any;
+	} as Card;
 }
 
 export class IRPointWriteService {
@@ -193,11 +189,7 @@ export class IRPointWriteService {
 	async deleteCard(card: Card): Promise<boolean> {
 		return await this.deletePoint({
 			id: card.uuid,
-			kind: (card as any).metadata?.irBlock
-				? "block"
-				: (card as any).metadata?.irChunk
-					? "chunk"
-					: undefined,
+			kind: resolveIrPointKindFromCard(card),
 		});
 	}
 
@@ -284,7 +276,7 @@ export class IRPointWriteService {
 
 		await this.storage.initialize();
 
-		if ((card as any).metadata?.irChunk) {
+		if (isIrChunkCard(card)) {
 			const updatedChunk = await this.pointTagService.saveChunkTags(card.uuid, normalizedTags);
 			if (!updatedChunk) {
 				return null;
@@ -297,7 +289,7 @@ export class IRPointWriteService {
 			};
 		}
 
-		if ((card as any).metadata?.irBlock) {
+		if (isIrBlockCard(card)) {
 			const allBlocks = await this.storage.getAllBlocks();
 			const block = allBlocks[card.uuid];
 			if (!block) {
@@ -307,12 +299,15 @@ export class IRPointWriteService {
 			const nextGroupId = await this.pointTagService.matchGroupForTags(normalizedTags);
 			block.tags = normalizedTags;
 			block.tagGroupId = nextGroupId;
-			if ((block as any).meta && typeof (block as any).meta === "object") {
-				(block as any).meta = {
-					...(block as any).meta,
-					tagGroup: nextGroupId,
-				};
-			}
+			mutateIrBlock(block, (mutableBlock) => {
+				const meta = mutableBlock.meta;
+				if (isRecord(meta)) {
+					mutableBlock.meta = {
+						...meta,
+						tagGroup: nextGroupId,
+					};
+				}
+			});
 
 			await this.storage.saveBlock(block);
 			return {
@@ -360,7 +355,7 @@ export class IRPointWriteService {
 
 		await this.storage.initialize();
 
-		if ((card as any).metadata?.irChunk) {
+		if (isIrChunkCard(card)) {
 			const chunk = await this.storage.getChunkData(card.uuid);
 			if (!chunk) {
 				return null;
@@ -375,14 +370,16 @@ export class IRPointWriteService {
 			};
 		}
 
-		if ((card as any).metadata?.irBlock) {
+		if (isIrBlockCard(card)) {
 			const allBlocks = await this.storage.getAllBlocks();
 			const block = allBlocks[card.uuid];
 			if (!block) {
 				return null;
 			}
-			(block as any).priorityUi = priority;
-			(block as any).priorityEff = priority;
+			mutateIrBlock(block, (mutableBlock) => {
+				mutableBlock.priorityUi = priority;
+				mutableBlock.priorityEff = priority;
+			});
 			block.priority = resolveLegacyPriority(priority);
 			await this.storage.saveBlock(block);
 			return {
@@ -411,11 +408,11 @@ export class IRPointWriteService {
 			await this.pdfService.initialize();
 			const updatedTask = await this.pdfService.updateTask(card.uuid, {
 				meta: {
-					...((card as any).meta || (card as any).metadata?.meta || {}),
+					...readCardMetaRecord(card),
 					primaryAssociatedNotePath: primaryPath,
 					associatedNotePath: primaryPath,
 					associatedNotePaths: normalizedNotePaths,
-				} as any,
+				},
 			});
 			if (!updatedTask) {
 				return null;
@@ -431,11 +428,11 @@ export class IRPointWriteService {
 			await this.epubService.initialize();
 			const updatedTask = await this.epubService.updateTask(card.uuid, {
 				meta: {
-					...((card as any).meta || (card as any).metadata?.meta || {}),
+					...readCardMetaRecord(card),
 					primaryAssociatedNotePath: primaryPath,
 					associatedNotePath: primaryPath,
 					associatedNotePaths: normalizedNotePaths,
-				} as any,
+				},
 			});
 			if (!updatedTask) {
 				return null;
@@ -450,7 +447,7 @@ export class IRPointWriteService {
 
 		await this.storage.initialize();
 
-		if ((card as any).metadata?.irChunk) {
+		if (isIrChunkCard(card)) {
 			const chunk = await this.storage.getChunkData(card.uuid);
 			if (!chunk) {
 				return null;
@@ -469,23 +466,26 @@ export class IRPointWriteService {
 			};
 		}
 
-		if ((card as any).metadata?.irBlock) {
+		if (isIrBlockCard(card)) {
 			const allBlocks = await this.storage.getAllBlocks();
 			const block = allBlocks[card.uuid];
 			if (!block) {
 				return null;
 			}
-			(block as any).primaryAssociatedNotePath = primaryPath;
-			(block as any).associatedNotePath = primaryPath;
-			(block as any).associatedNotePaths = normalizedNotePaths;
-			if ((block as any).meta && typeof (block as any).meta === "object") {
-				(block as any).meta = {
-					...(block as any).meta,
-					primaryAssociatedNotePath: primaryPath,
-					associatedNotePath: primaryPath,
-					associatedNotePaths: normalizedNotePaths,
-				};
-			}
+			mutateIrBlock(block, (mutableBlock) => {
+				mutableBlock.primaryAssociatedNotePath = primaryPath;
+				mutableBlock.associatedNotePath = primaryPath;
+				mutableBlock.associatedNotePaths = normalizedNotePaths;
+				const meta = mutableBlock.meta;
+				if (isRecord(meta)) {
+					mutableBlock.meta = {
+						...meta,
+						primaryAssociatedNotePath: primaryPath,
+						associatedNotePath: primaryPath,
+						associatedNotePaths: normalizedNotePaths,
+					};
+				}
+			});
 			await this.storage.saveBlock(block);
 			return {
 				kind: "block",
@@ -558,7 +558,7 @@ export class IRPointWriteService {
 
 		await this.storage.initialize();
 
-		if ((card as any).metadata?.irChunk) {
+		if (isIrChunkCard(card)) {
 			await this.storage.updateChunkDecks(card.uuid, normalizedDeckIds);
 			const chunk = await this.storage.getChunkData(card.uuid);
 			return {
@@ -568,7 +568,7 @@ export class IRPointWriteService {
 			};
 		}
 
-		if ((card as any).metadata?.irBlock) {
+		if (isIrBlockCard(card)) {
 			const allDecks = await this.storage.getAllDecks();
 			const currentDeckIds = Object.values(allDecks)
 				.filter((deck) => Array.isArray(deck.blockIds) && deck.blockIds.includes(card.uuid))

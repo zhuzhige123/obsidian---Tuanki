@@ -146,9 +146,9 @@ export class SecurityConfigLoader {
 	 */
 	private loadFromEnvironment(): SecurityConfig | null {
 		try {
-			const rsaPublicKey = process.env.WEAVE_RSA_PUBLIC_KEY;
-			const productId = process.env.WEAVE_PRODUCT_ID;
-			const version = process.env.WEAVE_VERSION;
+			const rsaPublicKey = import.meta.env.WEAVE_RSA_PUBLIC_KEY;
+			const productId = import.meta.env.WEAVE_PRODUCT_ID;
+			const version = import.meta.env.WEAVE_VERSION;
 
 			if (!rsaPublicKey || !productId || !version) {
 				return null;

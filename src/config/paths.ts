@@ -36,7 +36,7 @@
  * └──────────────────────────────────────────────────┘
  *
  * ┌──────────────────────────────────────────────────┐
- * │ .obsidian/plugins/weave/   (插件目录 - 不同步)   │
+ * │ {configDir}/plugins/weave/ (插件目录 - 不同步)   │
  * │  ├── backups/              (备份文件)            │
  * │  ├── cache/                (可重建缓存/诊断)     │
  * │  │   ├── indices/          (索引文件)            │
@@ -65,7 +65,7 @@
  * - 不使用 _data/ 中间层，三模块直接在 weave/ 下平铺
  * - 每个数据文件只允许存在一份（单一事实源 SSOT）
  * - Vault数据（weave/）：用户数据+学习进度，跨设备同步
- * - 插件目录（.obsidian/plugins/weave/）：备份/缓存/本地状态，不污染文件列表
+ * - 插件目录（{configDir}/plugins/weave/）：备份/缓存/本地状态，不污染文件列表
  */
 
 import { type App, normalizePath } from "obsidian";
@@ -115,7 +115,7 @@ function requireVaultConfigDir(app?: { vault?: { configDir?: string } }): string
 }
 
 /**
- * 确保批量制卡排除列表包含当前库的 configDir，并移除历史硬编码 `.obsidian` 项。
+ * 确保批量制卡排除列表包含当前库的 configDir，并移除历史硬编码默认 configDir 项。
  */
 export function ensureBatchParsingExcludeFolders(
 	excludeFolders: string[] | undefined,
@@ -507,7 +507,7 @@ export const PATHS = {
  * 备份文件夹路径（独立于数据目录，防止误删）
  *
  * 安全设计：
- * - 备份放在插件配置目录（.obsidian/plugins/weave/）
+ * - 备份放在插件配置目录（{configDir}/plugins/weave/）
  * - 与数据文件夹（weave/）完全分离
  * - 删除数据文件夹不会影响备份
  * - 只有卸载插件时才会删除备份

@@ -43,11 +43,11 @@ export class MediaProcessor {
 		await Promise.resolve();
 		await new Promise<void>((resolve) => {
 			if (typeof requestAnimationFrame === "function") {
-				requestAnimationFrame(() => resolve());
+				window.requestAnimationFrame(() => resolve());
 				return;
 			}
 
-			setTimeout(resolve, 0);
+			window.setTimeout(resolve, 0);
 		});
 	}
 

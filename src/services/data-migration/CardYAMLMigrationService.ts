@@ -173,7 +173,7 @@ export class CardYAMLMigrationService {
 
 			// 迁移 type -> we_type
 			if (card.type) {
-				metadata.we_type = card.type as any;
+				metadata.we_type = card.type as unknown;
 			}
 
 			// 迁移 priority -> we_priority
@@ -418,7 +418,7 @@ export function migrateCardQuick(card: Card): Card {
 	}
 
 	if (card.type) {
-		metadata.we_type = card.type as any;
+		metadata.we_type = card.type as unknown;
 	}
 
 	if (card.priority !== undefined) {
@@ -464,7 +464,11 @@ export function fixWeDecksIdToName(
 		let needsFix = false;
 		const fixedDeckNames: string[] = [];
 
-		for (const value of yaml.we_decks) {
+		for (const rawValue of yaml.we_decks) {
+			if (typeof rawValue !== "string") {
+				continue;
+			}
+			const value = rawValue;
 			// 检测值是否是牌组ID格式（deck_开头）
 			if (value.startsWith("deck_")) {
 				needsFix = true;
@@ -498,7 +502,8 @@ export function fixWeDecksIdToName(
 			fixed: true,
 		};
 	} catch (e) {
-		logger.error(`[Migration] 修复 we_decks 失败: ${e}`);
+		const message = e instanceof Error ? e.message : "unknown error";
+		logger.error(`[Migration] 修复 we_decks 失败: ${message}`);
 		return { card, fixed: false };
 	}
 }

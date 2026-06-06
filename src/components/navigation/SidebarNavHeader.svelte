@@ -543,16 +543,16 @@
   }
 
   function focusSidebarSearchInput() {
-    if (typeof document === 'undefined') {
+    if (typeof activeDocument === 'undefined') {
       return;
     }
 
     requestAnimationFrame(() => {
-      if (typeof document === 'undefined') {
+      if (typeof activeDocument === 'undefined') {
         return;
       }
 
-      const input = document.querySelector('.sidebar-card-search-panel .search-input') as HTMLInputElement | null;
+      const input = activeDocument.querySelector('.sidebar-card-search-panel .search-input') as HTMLInputElement | null;
       input?.focus();
       input?.select();
     });

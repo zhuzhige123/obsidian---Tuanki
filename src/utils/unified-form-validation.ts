@@ -11,7 +11,7 @@ import { logger } from "./logger";
 
 export interface ValidationRule {
 	name: string;
-	validator: (value: any, context?: ValidationContext) => ValidationResult;
+	validator: (value: unknown, context?: ValidationContext) => ValidationResult;
 	message?: string;
 	priority?: number;
 }
@@ -25,16 +25,16 @@ export interface ValidationResult {
 
 export interface ValidationContext {
 	fieldName: string;
-	allFields: Record<string, any>;
-	formData: Record<string, any>;
-	metadata?: Record<string, any>;
+	allFields: Record<string, unknown>;
+	formData: Record<string, unknown>;
+	metadata?: Record<string, unknown>;
 }
 
 export interface FieldValidationConfig {
 	rules: ValidationRule[];
 	required?: boolean;
 	dependencies?: string[];
-	transform?: (value: any) => any;
+	transform?: (value: unknown) => unknown;
 }
 
 export interface FormValidationConfig {
@@ -53,6 +53,19 @@ export interface FormValidationState {
 	dirty: Record<string, boolean>;
 }
 
+function formatValidationValue(value: unknown): string {
+	if (value === null || value === undefined) {
+		return "";
+	}
+	if (typeof value === "string") {
+		return value;
+	}
+	if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+		return String(value);
+	}
+	return "";
+}
+
 // ============================================================================
 // 内置验证规则
 // ============================================================================
@@ -64,7 +77,7 @@ export const ValidationRules = {
 	required: (message = "此字段为必填项"): ValidationRule => ({
 		name: "required",
 		validator: (value) => ({
-			isValid: value !== null && value !== undefined && String(value).trim() !== "",
+			isValid: value !== null && value !== undefined && formatValidationValue(value).trim() !== "",
 			message,
 			severity: "error",
 		}),
@@ -77,7 +90,7 @@ export const ValidationRules = {
 	minLength: (min: number, message?: string): ValidationRule => ({
 		name: "minLength",
 		validator: (value) => {
-			const str = String(value || "");
+			const str = formatValidationValue(value);
 			return {
 				isValid: str.length >= min,
 				message: message || `最少需要${min}个字符`,
@@ -93,7 +106,7 @@ export const ValidationRules = {
 	maxLength: (max: number, message?: string): ValidationRule => ({
 		name: "maxLength",
 		validator: (value) => {
-			const str = String(value || "");
+			const str = formatValidationValue(value);
 			return {
 				isValid: str.length <= max,
 				message: message || `最多允许${max}个字符`,
@@ -109,7 +122,7 @@ export const ValidationRules = {
 	pattern: (regex: RegExp, message = "格式不正确"): ValidationRule => ({
 		name: "pattern",
 		validator: (value) => ({
-			isValid: !value || regex.test(String(value)),
+			isValid: !value || regex.test(formatValidationValue(value)),
 			message,
 			severity: "error",
 		}),
@@ -124,7 +137,7 @@ export const ValidationRules = {
 		validator: (value) => {
 			const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 			return {
-				isValid: !value || emailRegex.test(String(value)),
+				isValid: !value || emailRegex.test(formatValidationValue(value)),
 				message,
 				severity: "error",
 			};
@@ -165,7 +178,7 @@ export const ValidationRules = {
 	 * 自定义验证
 	 */
 	custom: (
-		validator: (value: any, context?: ValidationContext) => boolean | ValidationResult,
+		validator: (value: unknown, context?: ValidationContext) => boolean | ValidationResult,
 		message = "验证失败"
 	): ValidationRule => ({
 		name: "custom",
@@ -189,7 +202,7 @@ export const ValidationRules = {
 	cardField: (message = "卡片字段不能为空"): ValidationRule => ({
 		name: "cardField",
 		validator: (value) => {
-			const content = String(value || "").trim();
+			const content = formatValidationValue(value).trim();
 			return {
 				isValid: content.length > 0,
 				message,
@@ -205,7 +218,7 @@ export const ValidationRules = {
 	markdownContent: (message = "Markdown内容格式不正确"): ValidationRule => ({
 		name: "markdownContent",
 		validator: (value) => {
-			const content = String(value || "").trim();
+			const content = formatValidationValue(value).trim();
 			// 简单的Markdown格式检查
 			const hasValidStructure =
 				content.includes("##") || content.includes("**") || content.length > 10;
@@ -244,8 +257,8 @@ export class FormValidator {
 	 */
 	async validateField(
 		fieldName: string,
-		value: any,
-		allFields: Record<string, any> = {}
+		value: unknown,
+		allFields: Record<string, unknown> = {}
 	): Promise<ValidationResult> {
 		const fieldConfig = this.config.fields[fieldName];
 		if (!fieldConfig) {
@@ -317,7 +330,7 @@ export class FormValidator {
 	/**
 	 * 验证整个表单
 	 */
-	async validateForm(formData: Record<string, any>): Promise<FormValidationState> {
+	async validateForm(formData: Record<string, unknown>): Promise<FormValidationState> {
 		this.state.isValidating = true;
 
 		try {
@@ -432,7 +445,7 @@ export class FormValidator {
  * 快速验证卡片字段
  */
 export function validateCardFields(fields: Record<string, string>): ValidationResult {
-	const hasContent = Object.values(fields).some((value) => String(value || "").trim().length > 0);
+	const hasContent = Object.values(fields).some((value) => value.trim().length > 0);
 
 	return {
 		isValid: hasContent,
@@ -444,8 +457,8 @@ export function validateCardFields(fields: Record<string, string>): ValidationRe
 /**
  * 快速验证必填字段
  */
-export function validateRequired(value: any, fieldName = "字段"): ValidationResult {
-	const isValid = value !== null && value !== undefined && String(value).trim() !== "";
+export function validateRequired(value: unknown, fieldName = "字段"): ValidationResult {
+	const isValid = value !== null && value !== undefined && formatValidationValue(value).trim() !== "";
 
 	return {
 		isValid,
@@ -513,7 +526,7 @@ export function createSettingsFormValidator(): FormValidator {
 				rules: [
 					ValidationRules.custom((value) => {
 						if (!value) return true;
-						const steps = String(value)
+						const steps = formatValidationValue(value)
 							.split(/\s+/)
 							.map((s) => parseInt(s, 10));
 						return steps.every((step) => !Number.isNaN(step) && step > 0);

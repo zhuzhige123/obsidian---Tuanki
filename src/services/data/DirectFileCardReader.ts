@@ -16,8 +16,12 @@ import { logger } from "../../utils/logger";
  * 置信度: 95%
  */
 
-import { DataAdapter, TFile, TFolder, Vault } from "obsidian";
+import { DataAdapter, TFile, Vault } from "obsidian";
 import type { Card } from "../../data/types";
+import {
+	findCardInDeckPayload,
+	parseDeckFilePayload,
+} from "../../utils/deck-file-payload";
 
 /**
  * 卡片位置信息
@@ -71,7 +75,7 @@ export class DirectFileCardReader {
 	private indexRebuildCount = 0;
 
 	// 文件监听
-	private fileWatcherRefs: any[] = [];
+	private fileWatcherRefs: unknown[] = [];
 
 	constructor(vault: Vault, dataFolder = "weave") {
 		this.vault = vault;
@@ -127,8 +131,7 @@ export class DirectFileCardReader {
 				deckFiles.map(async (filePath) => {
 					try {
 						const content = await this.adapter.read(filePath);
-						const deckData = JSON.parse(content);
-						return (deckData.cards || []) as Card[];
+						return parseDeckFilePayload(content).cards;
 					} catch (error) {
 						logger.error(`[DirectFileCardReader] 读取文件失败: ${filePath}`, error);
 						return [];
@@ -303,23 +306,18 @@ export class DirectFileCardReader {
 		try {
 			// 使用 adapter.read() 读取文件（支持隐藏文件夹）
 			const content = await this.adapter.read(filePath);
-			const deckData = JSON.parse(content);
-			const cards = deckData.cards || [];
+			const { deckId, cards } = parseDeckFilePayload(content);
 
 			for (const card of cards) {
 				const location: CardLocation = {
 					filePath: filePath,
 					cardId: card.uuid,
-					deckId: deckData.id || card.deckId || "unknown",
+					deckId: deckId || card.deckId || "unknown",
 				};
 
-				// 建立UUID索引
-				if (card.uuid) {
-					this.uuidIndex.set(card.uuid, location);
-				}
+				this.uuidIndex.set(card.uuid, location);
 
-				// 建立块ID索引
-				if (card.sourceBlock) {
+				if (typeof card.sourceBlock === "string" && card.sourceBlock.length > 0) {
 					const blockId = card.sourceBlock.replace(/^\^/, "");
 					this.blockIdIndex.set(blockId, location);
 				}
@@ -449,10 +447,8 @@ export class DirectFileCardReader {
 		try {
 			// 使用 adapter.read() 读取文件（支持隐藏文件夹）
 			const content = await this.adapter.read(location.filePath);
-			const deckData = JSON.parse(content);
-			const cards = deckData.cards || [];
-
-			return cards.find((c: Card) => c.uuid === uuid) || null;
+			const { cards } = parseDeckFilePayload(content);
+			return findCardInDeckPayload(cards, uuid);
 		} catch (error) {
 			logger.error("[DirectFileCardReader] 读取卡片失败:", error);
 			return null;
@@ -487,7 +483,7 @@ export class DirectFileCardReader {
 	/**
 	 * 判断是否为牌组数据文件
 	 */
-	private isDeckFile(file: any): boolean {
+	private isDeckFile(file: unknown): boolean {
 		if (!(file instanceof TFile)) return false;
 		if (file.extension !== "json") return false;
 
@@ -549,7 +545,7 @@ export class DirectFileCardReader {
 		}
 
 		if (typeof field === "object" && field !== null && "text" in field) {
-			return (field as any).text as string;
+			return (field as unknown).text as string;
 		}
 
 		return "";

@@ -131,7 +131,7 @@ function detectObsidianLanguage(): SupportedLanguage {
 		}
 
 		// 方法3: 文档语言标签（备用）
-		const documentLang = window?.document?.documentElement?.lang;
+		const documentLang = window?.activeDocument?.documentElement?.lang;
 		if (documentLang) {
 			if (documentLang.startsWith("zh")) {
 				return "zh-CN";
@@ -286,7 +286,7 @@ export class I18nService {
 	 */
 	private getDirectTranslation(key: string, language: SupportedLanguage): string | null {
 		const keys = key.split(".");
-		let current: any = translationCatalog[language];
+		let current: unknown = translationCatalog[language];
 
 		for (const k of keys) {
 			if (current && typeof current === "object" && k in current) {

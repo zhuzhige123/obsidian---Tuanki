@@ -93,7 +93,7 @@ class ServiceReadyEventManager {
 
 		return new Promise((resolve, reject) => {
 			// 设置超时
-			const timeoutId = setTimeout(() => {
+			const timeoutId = window.setTimeout(() => {
 				// 从等待列表中移除
 				const listeners = this.pendingListeners.get(serviceType);
 				if (listeners) {
@@ -107,7 +107,7 @@ class ServiceReadyEventManager {
 
 			// 创建监听器
 			const listener = () => {
-				clearTimeout(timeoutId);
+				window.clearTimeout(timeoutId);
 				resolve();
 			};
 

@@ -72,11 +72,12 @@ export class IncrementalSyncTracker {
 		}
 
 		const normalizedEntries = Object.entries(savedState.timestamps ?? {}).map(
-			([cardId, value]) => [cardId, normalizeTimestamp(cardId, value)]
+			([cardId, value]) =>
+				[cardId, normalizeTimestamp(cardId, value as Partial<SyncTimestamp> | undefined)] as const
 		);
 
 		this.state = {
-			timestamps: Object.fromEntries(normalizedEntries),
+			timestamps: Object.fromEntries(normalizedEntries) as Record<string, SyncTimestamp>,
 			lastFullSync:
 				typeof savedState.lastFullSync === "number" && Number.isFinite(savedState.lastFullSync)
 					? savedState.lastFullSync

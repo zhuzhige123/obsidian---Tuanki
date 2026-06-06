@@ -6,6 +6,7 @@ import { logger } from "../../utils/logger";
  */
 
 import { SimplifiedParsingSettings } from "../../types/newCardParsingTypes";
+import { parseJsonUnknown } from "../../utils/typed-json";
 import { FolderDeckMapping, SimpleBatchParsingConfig, UUIDConfig } from "./index";
 
 //  已删除：旧的DEFAULT_FILE_SELECTOR_CONFIG和DEFAULT_DECK_MAPPING_CONFIG
@@ -219,17 +220,19 @@ export class BatchConfigSerializer {
 	 */
 	static deserialize(json: string): SimpleBatchParsingConfig | null {
 		try {
-			const parsed = JSON.parse(json);
+			const parsed = parseJsonUnknown(json);
 
 			// 验证配置
-			const validation = BatchConfigValidator.validateBatchConfig(parsed);
+			const validation = BatchConfigValidator.validateBatchConfig(
+				parsed as SimpleBatchParsingConfig
+			);
 
 			if (!validation.valid) {
 				logger.error("[BatchConfigSerializer] 配置验证失败:", validation.errors);
 				return null;
 			}
 
-			return parsed;
+			return parsed as SimpleBatchParsingConfig;
 		} catch (error) {
 			logger.error("[BatchConfigSerializer] 反序列化失败:", error);
 			return null;

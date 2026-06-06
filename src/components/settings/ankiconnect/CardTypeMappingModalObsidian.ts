@@ -16,7 +16,7 @@ export interface CardTypeMappingModalObsidianOptions {
 }
 
 export class CardTypeMappingModalObsidian extends Modal {
-	private component: any = null;
+	private component: unknown = null;
 	private readonly options: CardTypeMappingModalObsidianOptions;
 
 	constructor(app: App, options: CardTypeMappingModalObsidianOptions) {

@@ -90,7 +90,7 @@ export class CardImporter {
 				try {
 					// 获取现有牌组和卡片用于备份
 					const allDecks = await dataStorage.getAllDecks();
-					const existingDeck = allDecks.find((d: any) => d.id === targetWeaveDeckId);
+					const existingDeck = allDecks.find((d: unknown) => d.id === targetWeaveDeckId);
 
 					if (existingDeck) {
 						const existingCards = await dataStorage.getCardsByDeck(targetWeaveDeckId);
@@ -104,7 +104,7 @@ export class CardImporter {
 							logger.debug(`✓ 已创建导入前备份: ${backupId}，包含 ${existingCards.length} 张卡片`);
 						}
 					}
-				} catch (backupError: any) {
+				} catch (backupError: unknown) {
 					logger.warn("备份失败，但继续导入:", backupError);
 					errors.push({
 						type: "storage",
@@ -195,7 +195,7 @@ export class CardImporter {
 						100,
 						`已转换模板 ${i + 1}/${modelNames.length}`
 					);
-				} catch (error: any) {
+				} catch (error: unknown) {
 					errors.push({
 						type: "template_conversion",
 						message: `无法转换模板 ${modelName}: ${error.message}`,
@@ -279,7 +279,7 @@ export class CardImporter {
 							`已转换 ${i + 1}/${notes.length} 张卡片`
 						);
 					}
-				} catch (error: any) {
+				} catch (error: unknown) {
 					skippedCards++;
 					errors.push({
 						type: "card_conversion",
@@ -358,7 +358,7 @@ export class CardImporter {
 				templates: importedTemplates,
 				cards: importedCards,
 			};
-		} catch (error: any) {
+		} catch (error: unknown) {
 			logger.error("❌ 导入牌组失败:", error);
 
 			// 导入失败时，尝试回滚到最近的备份
@@ -372,7 +372,7 @@ export class CardImporter {
 						await dataStorage.saveDeckCards(targetWeaveDeckId, restoredCards);
 						logger.debug(`✓ 已回滚到备份: ${backupId}，恢复 ${restoredCards.length} 张卡片`);
 					}
-				} catch (rollbackError: any) {
+				} catch (rollbackError: unknown) {
 					logger.error("❌ 回滚失败:", rollbackError);
 					errors.push({
 						type: "storage",

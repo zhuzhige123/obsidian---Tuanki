@@ -133,9 +133,9 @@ export class ClozeCardParser extends MarkdownFieldsConverter {
 	 * 转换Anki风格挖空为Obsidian风格（用于Obsidian编辑）
 	 */
 	static convertAnkiToObsidianStyle(content: string): string {
-		return content.replace(CLOZE_PATTERNS.ANKI_STYLE, (_match, _num, text, hint) => {
-			const wrapped = wrapWithConfiguredCloze(text);
-			return hint ? `${wrapped}(${hint})` : wrapped;
+		return content.replace(CLOZE_PATTERNS.ANKI_STYLE, (_match, _num, text: string, hint?: string) => {
+			const wrapped = wrapWithConfiguredCloze(typeof text === "string" ? text : String(text));
+			return hint ? `${wrapped}(${typeof hint === "string" ? hint : String(hint)})` : wrapped;
 		});
 	}
 }

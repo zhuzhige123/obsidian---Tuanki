@@ -12,6 +12,7 @@
  */
 
 import { App, Editor, EventRef, MarkdownView, TFile, WorkspaceLeaf, normalizePath } from "obsidian";
+import { isCallable, readUnknownProperty, readUnknownString } from "../../utils/dynamic-access";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
 import {
@@ -22,9 +23,21 @@ import {
 import { applyStyleProps } from "../../utils/style-props";
 import { shouldHideDocumentPropertiesForVault } from "./document-properties-visibility";
 
+interface ModalEditorSessionCard {
+	uuid?: string;
+	content?: string;
+}
+
+interface ModalEditorSessionOptions {
+	isStudySession?: boolean;
+	sessionId?: string;
+	backingFilePath?: string;
+}
+
 export class ModalEditorManager {
 	private static instance: ModalEditorManager | null = null;
 	private app: App;
+	private slotKeydownHandlers = new Map<number, (e: KeyboardEvent) => void>();
 
 	private readonly INITIAL_POOL_SIZE = 5;
 	private hasCleanedRestoredLeaves = false;
@@ -126,13 +139,13 @@ export class ModalEditorManager {
 	): Promise<void> {
 		const start = Date.now();
 		while (Date.now() - start < maxWaitMs) {
-			const editor = (view as any)?.editor;
-			const contentEl = (view as any)?.contentEl as HTMLElement | undefined;
+			const editor = view.editor;
+			const contentEl = view.contentEl;
 			if (editor && contentEl) {
 				const cm = contentEl.querySelector(".cm-editor");
 				if (cm) return;
 			}
-			await new Promise<void>((resolve) => setTimeout(resolve, intervalMs));
+			await new Promise<void>((resolve) => window.setTimeout(resolve, intervalMs));
 		}
 	}
 
@@ -141,7 +154,7 @@ export class ModalEditorManager {
 	}
 
 	private isTFileLike(file: unknown): file is TFile {
-		const f = file as any;
+		const f = file;
 		return !!f && typeof f.path === "string" && typeof f.extension === "string";
 	}
 
@@ -153,7 +166,7 @@ export class ModalEditorManager {
 		for (let i = 0; i < retries; i++) {
 			const af = this.app.vault.getAbstractFileByPath(filePath);
 			if (this.isTFileLike(af)) return af;
-			await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+			await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
 		}
 		const af = this.app.vault.getAbstractFileByPath(filePath);
 		return this.isTFileLike(af) ? af : null;
@@ -172,19 +185,19 @@ export class ModalEditorManager {
 				const created = await this.app.vault.create(filePath, "");
 				return this.isTFileLike(created) ? created : null;
 			}
-		} catch {}
+		} catch { /* no-op */ }
 
 		const existing = await this.getTFileByPathWithRetry(filePath);
 		if (existing) return existing;
 
 		try {
 			await this.app.vault.adapter.remove(filePath);
-		} catch {}
+		} catch { /* no-op */ }
 
 		try {
 			const recreated = await this.app.vault.create(filePath, "");
 			if (this.isTFileLike(recreated)) return recreated;
-		} catch {}
+		} catch { /* no-op */ }
 
 		return await this.getTFileByPathWithRetry(filePath);
 	}
@@ -193,7 +206,7 @@ export class ModalEditorManager {
 	private sessions: Map<
 		string,
 		{
-			card: any;
+			card: ModalEditorSessionCard;
 			backingFile: TFile;
 			usePermanentBuffer: boolean;
 			slotIndex: number;
@@ -201,21 +214,31 @@ export class ModalEditorManager {
 	> = new Map();
 
 	private getWorkspaceActiveLeaf(): WorkspaceLeaf | null {
-		const ws: any = this.app.workspace as any;
-		if (typeof ws.getActiveLeaf === "function") {
-			return (ws.getActiveLeaf() as WorkspaceLeaf) || null;
+		const ws = this.app.workspace;
+		const getActiveLeaf = readUnknownProperty(ws, "getActiveLeaf");
+		if (isCallable(getActiveLeaf)) {
+			const leaf = Reflect.apply(getActiveLeaf, ws, []);
+			return (leaf as WorkspaceLeaf) || null;
 		}
-		if (typeof ws.getMostRecentLeaf === "function") {
-			return (ws.getMostRecentLeaf() as WorkspaceLeaf) || null;
+		const getMostRecentLeaf = readUnknownProperty(ws, "getMostRecentLeaf");
+		if (isCallable(getMostRecentLeaf)) {
+			const leaf = Reflect.apply(getMostRecentLeaf, ws, []);
+			return (leaf as WorkspaceLeaf) || null;
 		}
 		return null;
 	}
 
 	private setWorkspaceActiveLeaf(leaf: WorkspaceLeaf | null, focus: boolean): void {
 		if (!leaf) return;
-		const ws: any = this.app.workspace as any;
-		if (typeof ws.setActiveLeaf === "function") {
-			ws.setActiveLeaf(leaf, { focus });
+		const ws = this.app.workspace;
+		const setActiveLeaf = readUnknownProperty(ws, "setActiveLeaf");
+		if (!isCallable(setActiveLeaf)) {
+			return;
+		}
+		try {
+			Reflect.apply(setActiveLeaf, ws, [leaf, { focus }]);
+		} catch {
+			Reflect.apply(setActiveLeaf, ws, [leaf, focus]);
 		}
 	}
 
@@ -246,10 +269,21 @@ export class ModalEditorManager {
 		return -1;
 	}
 
+	private getLeafContainerEl(leaf: WorkspaceLeaf): HTMLElement | null {
+		const el = readUnknownProperty(leaf, "containerEl");
+		if (typeof el === "object" && el !== null && "instanceOf" in el) {
+			const domEl = el as HTMLElement;
+			if (domEl.instanceOf(HTMLElement)) {
+				return domEl;
+			}
+		}
+		return null;
+	}
+
 	private restoreLeafContainerToHome(slot: typeof this.pool[number]): void {
 		if (!slot.leaf) return;
 		if (!slot.leafHomeParent) return;
-		const leafEl = (slot.leaf as any).containerEl as HTMLElement | undefined;
+		const leafEl = this.getLeafContainerEl(slot.leaf);
 		if (!leafEl) return;
 		if (leafEl.parentElement === slot.leafHomeParent) return;
 
@@ -259,14 +293,14 @@ export class ModalEditorManager {
 			} else {
 				slot.leafHomeParent.appendChild(leafEl);
 			}
-		} catch {}
+		} catch { /* no-op */ }
 	}
 
 	private restoreAllLeafContainersToHome(): void {
 		for (const slot of this.pool) {
 			try {
 				this.restoreLeafContainerToHome(slot);
-			} catch {}
+			} catch { /* no-op */ }
 		}
 	}
 
@@ -282,7 +316,7 @@ export class ModalEditorManager {
 
 		slot.leaf = this.app.workspace.createLeafInParent(this.app.workspace.rootSplit, 0);
 
-		const leafEl = (slot.leaf as any).containerEl as HTMLElement;
+		const leafEl = this.getLeafContainerEl(slot.leaf);
 		if (leafEl) {
 			slot.leafHomeParent = leafEl.parentElement;
 			slot.leafHomeNextSibling = leafEl.nextSibling;
@@ -305,22 +339,25 @@ export class ModalEditorManager {
 			const view = slot.leaf.view as MarkdownView;
 			await this.waitForEditorReady(view, 5000, 100); // 等待 5 秒，间隔 100 毫秒
 
-			const contentEl = (view as any).contentEl as HTMLElement | undefined;
+			const contentEl = view.contentEl;
 			if (contentEl && !slot.contentHomeParent) {
 				slot.contentHomeParent = contentEl.parentElement;
 				slot.contentHomeNextSibling = contentEl.nextSibling;
 			}
 
-			this.hideLeafUiElements((slot.leaf as any).containerEl as HTMLElement);
-			const tabEl = (slot.leaf as any).tabHeaderEl as HTMLElement;
+			const leafContainer = this.getLeafContainerEl(slot.leaf);
+			if (leafContainer) {
+				this.hideLeafUiElements(leafContainer);
+			}
+			const tabEl = readUnknownProperty(slot.leaf, "tabHeaderEl") as HTMLElement | undefined;
 			if (tabEl) {
 				applyStyleProps(tabEl, { display: "none" });
 			}
-			const titleEl = (slot.leaf as any).titleEl as HTMLElement;
+			const titleEl = readUnknownProperty(slot.leaf, "titleEl") as HTMLElement | undefined;
 			if (titleEl) {
 				applyStyleProps(titleEl, { display: "none" });
 			}
-		} catch {}
+		} catch { /* no-op */ }
 	}
 
 	private constructor(app: App) {
@@ -360,8 +397,8 @@ export class ModalEditorManager {
 			const leaves = app.workspace.getLeavesOfType("markdown");
 			for (const leaf of leaves) {
 				try {
-					const view = leaf.view as any;
-					const file = view?.file as TFile | null | undefined;
+					const view = leaf.view;
+					const file = view instanceof MarkdownView ? view.file : null;
 					const p = file?.path ? normalizePath(file.path) : "";
 					if (!p) continue;
 					if (isPluginCacheModalEditorPermanentFilePath(app, p)) {
@@ -373,9 +410,9 @@ export class ModalEditorManager {
 					if (isLegacyModalEditorPermanentFilePath(p)) {
 						leaf.detach();
 					}
-				} catch {}
+				} catch { /* no-op */ }
 			}
-		} catch {}
+		} catch { /* no-op */ }
 	}
 
 	/**
@@ -407,8 +444,8 @@ export class ModalEditorManager {
 	 * 创建编辑会话（兼容EmbeddableEditorManager接口）
 	 */
 	async createEditorSession(
-		card: any,
-		options?: any
+		card: ModalEditorSessionCard,
+		options?: ModalEditorSessionOptions
 	): Promise<{
 		success: boolean;
 		sessionId?: string;
@@ -421,8 +458,8 @@ export class ModalEditorManager {
 
 			// 生成会话ID
 			const sessionId = options?.isStudySession
-				? options?.sessionId || this.STUDY_SESSION_CARD_ID
-				: options?.sessionId || card?.uuid || `modal-${Date.now()}`;
+				? options.sessionId || this.STUDY_SESSION_CARD_ID
+				: options?.sessionId || card.uuid || `modal-${Date.now()}`;
 
 			const existing = this.sessions.get(sessionId);
 			if (existing) {
@@ -446,7 +483,7 @@ export class ModalEditorManager {
 			slot.inUseSessionId = sessionId;
 			slot.lastUsedTs = Date.now();
 
-			const backingFilePath = options?.backingFilePath as string | undefined;
+			const backingFilePath = readUnknownString(options, "backingFilePath");
 			let backingFile: TFile;
 			let usePermanentBuffer = true;
 
@@ -472,7 +509,7 @@ export class ModalEditorManager {
 
 			// JSON/缓冲模式：更新缓冲文件内容
 			if (usePermanentBuffer) {
-				await this.app.vault.modify(backingFile, card.content || "");
+				await this.app.vault.modify(backingFile, card.content ?? "");
 			}
 
 			logger.debug("[ModalEditorManager] 创建编辑会话:", sessionId);
@@ -527,7 +564,7 @@ export class ModalEditorManager {
 			// 保存回调
 			slot.currentCallbacks = { onSave, onCancel, onChange };
 
-			const leafContainerEl = (slot.leaf as any).containerEl as HTMLElement;
+			const leafContainerEl = this.getLeafContainerEl(slot.leaf);
 			if (!leafContainerEl) {
 				throw new Error("无法获取Leaf容器");
 			}
@@ -542,7 +579,7 @@ export class ModalEditorManager {
 			// 获取MarkdownView
 			const view = slot.leaf.view as MarkdownView;
 
-			const contentEl = (view as any).contentEl as HTMLElement | undefined;
+			const contentEl = view.contentEl;
 			if (!contentEl) {
 				throw new Error("无法获取编辑器内容容器");
 			}
@@ -566,7 +603,7 @@ export class ModalEditorManager {
 				try {
 					if (view.editor) {
 						slot.isProgrammaticContentUpdate = true;
-						view.editor.setValue(session.card?.content || "");
+						view.editor.setValue(session.card.content ?? "");
 					}
 				} finally {
 					slot.isProgrammaticContentUpdate = false;
@@ -588,7 +625,7 @@ export class ModalEditorManager {
 				display: "block",
 				visibility: "visible",
 			});
-			(contentEl.style as any).zIndex = "auto";
+			applyStyleProps(contentEl, { zIndex: "auto" });
 
 			await this.waitForEditorReady(view);
 
@@ -609,7 +646,7 @@ export class ModalEditorManager {
 					this.setWorkspaceActiveLeaf(slot.leaf, true);
 					try {
 						view.editor?.focus();
-					} catch {}
+					} catch { /* no-op */ }
 				}
 			};
 
@@ -618,7 +655,7 @@ export class ModalEditorManager {
 			this.setWorkspaceActiveLeaf(slot.leaf, true);
 			try {
 				view.editor?.focus();
-			} catch {}
+			} catch { /* no-op */ }
 
 			logger.debug("[ModalEditorManager] 编辑器创建成功");
 
@@ -638,17 +675,17 @@ export class ModalEditorManager {
 							} else {
 								slot.contentHomeParent.appendChild(contentEl);
 							}
-						} catch {}
+						} catch { /* no-op */ }
 					}
 
-					slot.currentCallbacks = {};
+					slot.currentCallbacks = { /* no-op */ };
 
 					slot.activeChangeListenerFilePath = null;
 
 					if (slot.contentChangeEventRef) {
 						try {
 							this.app.workspace.offref(slot.contentChangeEventRef);
-						} catch {}
+						} catch { /* no-op */ }
 						slot.contentChangeEventRef = null;
 					}
 
@@ -675,7 +712,7 @@ export class ModalEditorManager {
 					}
 					this.sessions.delete(sessionId);
 				}
-			} catch {}
+			} catch { /* no-op */ }
 
 			return {
 				success: false,
@@ -691,10 +728,10 @@ export class ModalEditorManager {
 		sessionId: string,
 		_shouldSync = false,
 		// 兼容 InlineCardEditor 传入的第三个参数（当前不使用）
-		_options?: any
+		_options?: unknown
 	): Promise<{
 		success: boolean;
-		updatedCard?: any;
+		updatedCard?: unknown;
 		error?: string;
 	}> {
 		try {
@@ -722,7 +759,7 @@ export class ModalEditorManager {
 					slot.isProgrammaticContentUpdate = true;
 					try {
 						view?.editor?.setValue?.("");
-					} catch {}
+					} catch { /* no-op */ }
 					await this.app.vault.modify(session.backingFile, "");
 				} finally {
 					slot.isProgrammaticContentUpdate = false;
@@ -760,7 +797,7 @@ export class ModalEditorManager {
 				if (slot && slot.inUseSessionId === sessionId) {
 					slot.inUseSessionId = null;
 				}
-			} catch {}
+			} catch { /* no-op */ }
 		}
 
 		// 仅缓冲模式清空内容，避免误清空 IR 源文件
@@ -791,7 +828,7 @@ export class ModalEditorManager {
 					throw new Error("永久Leaf未初始化");
 				}
 				const view = slot.leaf.view as MarkdownView;
-				const contentEl = (view as any).contentEl as HTMLElement | undefined;
+				const contentEl = view.contentEl;
 				if (contentEl && contentEl.parentElement !== container) {
 					if (!slot.contentHomeParent) {
 						slot.contentHomeParent = contentEl.parentElement;
@@ -813,7 +850,7 @@ export class ModalEditorManager {
 						display: "block",
 						visibility: "visible",
 					});
-					(contentEl.style as any).zIndex = "auto";
+					applyStyleProps(contentEl, { zIndex: "auto" });
 				}
 			}
 
@@ -860,7 +897,7 @@ export class ModalEditorManager {
 	 */
 	async updateSessionCard(
 		sessionId: string,
-		newCard: any
+		newCard: ModalEditorSessionCard
 	): Promise<{ success: boolean; error?: string }> {
 		try {
 			const session = this.sessions.get(sessionId);
@@ -877,7 +914,7 @@ export class ModalEditorManager {
 				slotIndex: session.slotIndex,
 			});
 
-			await this.app.vault.modify(slot.file, newCard.content || "");
+			await this.app.vault.modify(slot.file, newCard.content ?? "");
 
 			logger.debug("[ModalEditorManager] 卡片对象已更新");
 
@@ -937,7 +974,7 @@ export class ModalEditorManager {
 				try {
 					const content = view?.editor?.getValue?.() ?? "";
 					slot.currentCallbacks.onSave?.(content);
-				} catch {}
+				} catch { /* no-op */ }
 				return;
 			}
 
@@ -951,14 +988,11 @@ export class ModalEditorManager {
 		};
 
 		// 避免重复绑定导致一次按键触发多次
-		try {
-			const prev = (slot as any).__weaveKeydownHandler as ((e: KeyboardEvent) => void) | undefined;
-			if (prev) {
-				editorEl.removeEventListener("keydown", prev, true);
-			}
-		} catch {}
-
-		(slot as any).__weaveKeydownHandler = handleKeydown;
+		const prev = this.slotKeydownHandlers.get(slot.index);
+		if (prev) {
+			editorEl.removeEventListener("keydown", prev, true);
+		}
+		this.slotKeydownHandlers.set(slot.index, handleKeydown);
 		editorEl.addEventListener("keydown", handleKeydown, true);
 	}
 
@@ -977,7 +1011,7 @@ export class ModalEditorManager {
 		if (slot.contentChangeEventRef) {
 			try {
 				this.app.workspace.offref(slot.contentChangeEventRef);
-			} catch {}
+			} catch { /* no-op */ }
 			slot.contentChangeEventRef = null;
 		}
 
@@ -988,11 +1022,11 @@ export class ModalEditorManager {
 				if (slot.isProgrammaticContentUpdate) return;
 
 				if (!(info instanceof MarkdownView)) return;
-				const view = info as MarkdownView;
+				const view = info;
 				if (!view.file) return;
 				if (view.file.path !== filePath) return;
 				onChange(editor.getValue());
-			} catch {}
+			} catch { /* no-op */ }
 		});
 	}
 
@@ -1006,18 +1040,18 @@ export class ModalEditorManager {
 			if (slot.contentChangeEventRef) {
 				try {
 					this.app.workspace.offref(slot.contentChangeEventRef);
-				} catch {}
+				} catch { /* no-op */ }
 				slot.contentChangeEventRef = null;
 			}
 
 			if (slot.leaf) {
 				try {
 					slot.leaf.detach();
-				} catch {}
+				} catch { /* no-op */ }
 				slot.leaf = null;
 			}
 
-			slot.currentCallbacks = {};
+			slot.currentCallbacks = { /* no-op */ };
 			slot.leafHomeParent = null;
 			slot.leafHomeNextSibling = null;
 			slot.activeChangeListenerFilePath = null;
@@ -1039,7 +1073,7 @@ export class ModalEditorManager {
 				this.app.fileManager.trashFile(slot.file).catch((_err) => {
 					logger.warn("[ModalEditorManager] 删除永久文件失败:", _err);
 				});
-			} catch {}
+			} catch { /* no-op */ }
 		}
 
 		this.pool = [];

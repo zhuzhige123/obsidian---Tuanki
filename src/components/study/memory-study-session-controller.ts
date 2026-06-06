@@ -308,7 +308,7 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 		if (prevState === CardState.New) {
 			session.newCardsLearned++;
 		}
-		if (rating >= 3) {
+		if (rating >= Rating.Good) {
 			session.correctAnswers++;
 		}
 		options.state.getSessionStudiedCards().add(cardToRate.uuid);

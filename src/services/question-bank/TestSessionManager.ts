@@ -26,6 +26,7 @@ import {
 import { accuracyCalculator } from "./AccuracyCalculator";
 import { isStagingBankId } from "../ai/card-staging-card-builder";
 import type { QuestionBankStorage } from "./QuestionBankStorage";
+import type { QuestionBankService } from "./QuestionBankService";
 
 export interface SessionConfig {
 	bankId: string;
@@ -44,12 +45,12 @@ export interface AnswerSubmission {
 
 export class TestSessionManager {
 	private storage: QuestionBankStorage;
-	private bankService: any; // 添加 bankService
+	private bankService: QuestionBankService | undefined;
 	private currentSession: TestSession | null = null;
 	private sessionStartTime = 0;
 	private questionStartTime = 0;
 
-	constructor(storage: QuestionBankStorage, bankService?: any) {
+	constructor(storage: QuestionBankStorage, bankService?: QuestionBankService) {
 		this.storage = storage;
 		this.bankService = bankService;
 	}
@@ -99,7 +100,7 @@ export class TestSessionManager {
 		// 获取题库名称
 		let bankName = "未知题库";
 		if (this.bankService) {
-			const bank = await this.bankService.getBankById(config.bankId);
+			const bank = this.bankService.getBankById(config.bankId);
 			bankName = bank?.name || "未知题库";
 		}
 
@@ -541,7 +542,7 @@ export class TestSessionManager {
 					const question = questionsMap.get(r.questionId);
 					return {
 						questionId: r.questionId,
-						question: question as any,
+						question: question as unknown,
 						userAnswer: r.userAnswer,
 						correctAnswer: r.correctAnswer,
 						isCorrect: r.isCorrect,
@@ -675,7 +676,7 @@ export class TestSessionManager {
 					? Math.round(((session.correctCount || 0) / session.totalQuestions) * 100)
 					: 0;
 			const durationSeconds = Math.round(
-				(session.totalTimeSpent || session.duration || 0) as number
+				(session.totalTimeSpent || session.duration || 0)
 			);
 
 			const entry: TestHistoryEntry = {
@@ -994,8 +995,8 @@ export class TestSessionManager {
 								uuid: r.question.uuid,
 								content: r.question.content,
 								tags: r.question.tags,
-								templateId: (r.question as any).templateId,
-								cardType: (r.question as any).cardType,
+								templateId: r.question.templateId,
+								cardType: r.question.type,
 								created: r.question.created,
 								modified: r.question.modified,
 						  }

@@ -2,7 +2,6 @@ import { logger } from "../utils/logger";
 /**
  * 统一管理 Weave 的主题检测、监听和主题变量注入。
  */
-import { untrack } from "svelte";
 
 export type ThemeMode = "light" | "dark" | "auto";
 
@@ -33,7 +32,7 @@ export class UnifiedThemeManager {
 	}
 
 	static getInstance(): UnifiedThemeManager {
-		const w = window as any;
+		const w = window as unknown;
 		// 将实例挂到 window 上，避免热更新或重复初始化时重复注册监听器。
 		if (w.__weaveThemeManager) {
 			return w.__weaveThemeManager as UnifiedThemeManager;
@@ -44,7 +43,7 @@ export class UnifiedThemeManager {
 			w.__weaveThemeManagerCleanup = () => {
 				try {
 					(w.__weaveThemeManager as UnifiedThemeManager | undefined)?.destroy();
-				} catch {}
+				} catch { /* no-op */ }
 				try {
 					w.__weaveThemeManager = undefined;
 					w.__weaveThemeManagerCleanup = undefined;
@@ -64,11 +63,11 @@ export class UnifiedThemeManager {
 			this.mediaQuery.addEventListener("change", this.mediaQueryChangeHandler);
 		}
 
-		this.domObserver.observe(document.documentElement, {
+		this.domObserver.observe(activeDocument.documentElement, {
 			attributes: true,
 			attributeFilter: ["class"],
 		});
-		this.domObserver.observe(document.body, {
+		this.domObserver.observe(activeDocument.body, {
 			attributes: true,
 			attributeFilter: ["class"],
 		});
@@ -77,7 +76,7 @@ export class UnifiedThemeManager {
 	}
 
 	private detectTheme(): ThemeDetectionResult {
-		if (document.documentElement.classList.contains("theme-dark")) {
+		if (activeDocument.documentElement.classList.contains("theme-dark")) {
 			return {
 				mode: "dark",
 				isDark: true,
@@ -86,7 +85,7 @@ export class UnifiedThemeManager {
 			};
 		}
 
-		if (document.documentElement.classList.contains("theme-light")) {
+		if (activeDocument.documentElement.classList.contains("theme-light")) {
 			return {
 				mode: "light",
 				isDark: false,
@@ -95,7 +94,7 @@ export class UnifiedThemeManager {
 			};
 		}
 
-		if (document.body.classList.contains("theme-dark")) {
+		if (activeDocument.body.classList.contains("theme-dark")) {
 			return {
 				mode: "dark",
 				isDark: true,
@@ -104,7 +103,7 @@ export class UnifiedThemeManager {
 			};
 		}
 
-		if (document.body.classList.contains("theme-light")) {
+		if (activeDocument.body.classList.contains("theme-light")) {
 			return {
 				mode: "light",
 				isDark: false,
@@ -189,13 +188,13 @@ export class UnifiedThemeManager {
 		this.isInitialized = false;
 
 		try {
-			const w = window as any;
+			const w = window as unknown;
 			if (w.__weaveThemeManager === this) {
 				w.__weaveThemeManager = undefined;
 			}
-		} catch {}
+		} catch { /* no-op */ }
 
-		UnifiedThemeManager.instance = null as any;
+		UnifiedThemeManager.instance = null as unknown;
 	}
 }
 

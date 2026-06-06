@@ -11,8 +11,10 @@ import { logger } from "../utils/logger";
 
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { TFile } from "obsidian";
+import type { App, Vault } from "obsidian";
+import { Notice } from "obsidian";
 import type { WeavePlugin } from "../main";
+import { readUnknownProperty, readUnknownString } from "./dynamic-access";
 
 /**
  * 媒体文件处理结果接口
@@ -97,6 +99,24 @@ const DEFAULT_CONFIG: Required<MediaPasteConfig> = {
 	useWikiLinks: true,
 	attachmentFolder: "attachments",
 };
+
+function getObsidianAppFromWindow(): App | undefined {
+	if (typeof window === "undefined") {
+		return undefined;
+	}
+	const app = readUnknownProperty(window, "app");
+	if (readUnknownProperty(app, "vault") === undefined) {
+		return undefined;
+	}
+	return app as App;
+}
+
+function resolveVault(plugin: WeavePlugin): Vault | undefined {
+	if (plugin.app?.vault) {
+		return plugin.app.vault;
+	}
+	return getObsidianAppFromWindow()?.vault;
+}
 
 /**
  * 媒体文件粘贴扩展类
@@ -384,11 +404,10 @@ export class MediaPasteExtension {
 				fileType,
 			});
 
-			// 使用与现有代码一致的方式访问vault
-			const vault = this.plugin.app.vault || (window as any).app?.vault;
+			const vault = resolveVault(this.plugin);
 			logger.debug("🏛️ Vault访问状态:", {
 				pluginVault: !!this.plugin.app.vault,
-				windowVault: !!(window as any).app?.vault,
+				windowVault: !!getObsidianAppFromWindow()?.vault,
 				finalVault: !!vault,
 			});
 
@@ -485,9 +504,11 @@ export class MediaPasteExtension {
 	private getAttachmentFolder(): string {
 		try {
 			// 优先使用Obsidian设置的附件文件夹
-			const vault = this.plugin.app.vault || (window as any).app?.vault;
-			const vaultConfig = (vault as any)?.config;
-			const obsidianAttachmentFolder = vaultConfig?.attachmentFolderPath;
+			const vault = resolveVault(this.plugin);
+			const obsidianAttachmentFolder = readUnknownString(
+				readUnknownProperty(vault, "config"),
+				"attachmentFolderPath"
+			);
 
 			if (obsidianAttachmentFolder && obsidianAttachmentFolder !== "/") {
 				logger.debug("📁 使用Obsidian配置的附件文件夹:", obsidianAttachmentFolder);
@@ -507,7 +528,7 @@ export class MediaPasteExtension {
 	 */
 	private async ensureFolder(folderPath: string): Promise<void> {
 		try {
-			const vault = this.plugin.app.vault || (window as any).app?.vault;
+			const vault = resolveVault(this.plugin);
 			if (!vault) {
 				throw new Error("无法访问vault");
 			}
@@ -529,7 +550,7 @@ export class MediaPasteExtension {
 	 * 获取唯一文件路径
 	 */
 	private async getUniqueFilePath(originalPath: string): Promise<string> {
-		const vault = this.plugin.app.vault || (window as any).app?.vault;
+		const vault = resolveVault(this.plugin);
 		if (!vault) {
 			return originalPath;
 		}
@@ -651,20 +672,8 @@ export class MediaPasteExtension {
 
 		// 使用Obsidian的Notice显示错误
 		try {
-			// 通过插件实例访问Obsidian API
 			if (this.plugin?.app) {
-				// 使用Obsidian的Notice API
-				const Notice = (window as any).Notice || (this.plugin.app as any).Notice;
-				if (Notice) {
-					new Notice(message, 5000);
-				} else {
-					// 备用方案：直接创建Notice
-					const notice = document.createElement("div");
-					notice.className = "notice";
-					notice.textContent = message;
-					document.body.appendChild(notice);
-					setTimeout(() => notice.remove(), 5000);
-				}
+				new Notice(message, 5000);
 			}
 		} catch (error) {
 			logger.error("显示错误通知失败:", error);

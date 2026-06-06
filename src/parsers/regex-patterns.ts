@@ -37,7 +37,7 @@ export const CHOICE_PATTERNS = {
 	 * 完整选择题格式（不含Hint）
 	 * 匹配: Q: 问题\n\n选项列表\n\n答案解析
 	 */
-	FULL_WITHOUT_HINT: /^Q:\s*(.+?)\n\n((?:[A-H][\.．、].+?\n)+)\s*(?:---\s*\n\n)?(.*)$/s,
+	FULL_WITHOUT_HINT: /^Q:\s*(.+?)\n\n((?:[A-H][.．、].+?\n)+)\s*(?:---\s*\n\n)?(.*)$/s,
 
 	/**
 	 * 问题部分
@@ -48,12 +48,12 @@ export const CHOICE_PATTERNS = {
 	/**
 	 * 单个选项（A. / A、）
 	 */
-	OPTION: /^([A-H])[\.．、]\s*(.+?)$/,
+	OPTION: /^([A-H])[.．、]\s*(.+?)$/,
 
 	/**
 	 * 选项列表（全局匹配）
 	 */
-	OPTIONS_LIST: /^([A-H])[\.．、]\s*(.+?)$/gm,
+	OPTIONS_LIST: /^([A-H])[.．、]\s*(.+?)$/gm,
 
 	/**
 	 * 解析部分（在---之后或选项列表之后）

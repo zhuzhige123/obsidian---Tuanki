@@ -52,7 +52,7 @@
 
   // 检测主题模式
   function detectTheme() {
-    const bodyClasses = document.body.classList;
+    const bodyClasses = activeDocument.body.classList;
     isDarkMode = bodyClasses.contains('theme-dark');
   }
 
@@ -62,7 +62,7 @@
       detectTheme();
     });
 
-    observer.observe(document.body, {
+    observer.observe(activeDocument.body, {
       attributes: true,
       attributeFilter: ['class']
     });
@@ -134,7 +134,7 @@
     const savedPosition = vaultStorage.getItem(POSITION_STORAGE_KEY);
     if (!savedPosition) {
       //  移动端需要考虑 Obsidian 底部栏高度（44px）
-      const isMobile = document.body.classList.contains('is-mobile');
+      const isMobile = activeDocument.body.classList.contains('is-mobile');
       const bottomOffset = isMobile ? 100 : 80; // 移动端留出更多空间
       position = {
         x: window.innerWidth - 80,
@@ -161,8 +161,8 @@
     }
 
     // 添加全局事件监听器，使用 passive: false 确保可以阻止默认行为
-    document.addEventListener('mousemove', handleMouseMove, { passive: false });
-    document.addEventListener('mouseup', handleMouseUp, { passive: false });
+    activeDocument.addEventListener('mousemove', handleMouseMove, { passive: false });
+    activeDocument.addEventListener('mouseup', handleMouseUp, { passive: false });
 
     // 防止默认行为，拖拽时只需要 preventDefault
     event.preventDefault();
@@ -190,8 +190,8 @@
       //  警告：修改全局 document.body 样式
       // 必须在 onDestroy 中清理，防止组件销毁时样式残留导致黑屏
       // 禁用页面滚动和选择
-      document.body.style.userSelect = 'none';
-      document.body.style.overflow = 'hidden';
+      activeDocument.body.style.userSelect = 'none';
+      activeDocument.body.style.overflow = 'hidden';
     }
 
     if (!isDragging) return;
@@ -227,13 +227,13 @@
       savePositionImmediate(); // 拖拽结束立即保存
 
       // 恢复页面的正常行为
-      document.body.style.userSelect = '';
-      document.body.style.overflow = '';
+      activeDocument.body.style.userSelect = '';
+      activeDocument.body.style.overflow = '';
     }
 
     // 移除全局事件监听器
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
+    activeDocument.removeEventListener('mousemove', handleMouseMove);
+    activeDocument.removeEventListener('mouseup', handleMouseUp);
 
     // 如果是点击（没有拖拽），触发新建卡片
     if (wasClicked) {
@@ -275,14 +275,14 @@
       }
 
       // 禁用页面滚动
-      document.body.style.overflow = 'hidden';
-      document.body.style.touchAction = 'none';
+      activeDocument.body.style.overflow = 'hidden';
+      activeDocument.body.style.touchAction = 'none';
     }, LONG_PRESS_DURATION);
 
     // 添加全局触摸事件监听器
-    document.addEventListener('touchmove', handleTouchMove, { passive: false });
-    document.addEventListener('touchend', handleTouchEnd, { passive: false });
-    document.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+    activeDocument.addEventListener('touchmove', handleTouchMove, { passive: false });
+    activeDocument.addEventListener('touchend', handleTouchEnd, { passive: false });
+    activeDocument.addEventListener('touchcancel', handleTouchEnd, { passive: false });
   }
 
   //  处理触摸移动事件
@@ -348,13 +348,13 @@
     }
 
     // 恢复页面正常行为
-    document.body.style.overflow = '';
-    document.body.style.touchAction = '';
+    activeDocument.body.style.overflow = '';
+    activeDocument.body.style.touchAction = '';
 
     // 移除全局触摸事件监听器
-    document.removeEventListener('touchmove', handleTouchMove);
-    document.removeEventListener('touchend', handleTouchEnd);
-    document.removeEventListener('touchcancel', handleTouchEnd);
+    activeDocument.removeEventListener('touchmove', handleTouchMove);
+    activeDocument.removeEventListener('touchend', handleTouchEnd);
+    activeDocument.removeEventListener('touchcancel', handleTouchEnd);
 
     // 重置状态
     isTouchDragging = false;
@@ -387,7 +387,7 @@
     const margin = 10;
     const buttonSize = 60;
     //  移动端需要考虑 Obsidian 底部栏高度（44px）
-    const isMobile = document.body.classList.contains('is-mobile');
+    const isMobile = activeDocument.body.classList.contains('is-mobile');
     const bottomMargin = isMobile ? 54 : margin; // 移动端底部留出更多空间
     const maxX = window.innerWidth - buttonSize - margin;
     const maxY = window.innerHeight - buttonSize - bottomMargin;
@@ -409,11 +409,11 @@
 
   // 清理事件监听器和全局状态
   onDestroy(() => {
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-    document.removeEventListener('touchmove', handleTouchMove);
-    document.removeEventListener('touchend', handleTouchEnd);
-    document.removeEventListener('touchcancel', handleTouchEnd);
+    activeDocument.removeEventListener('mousemove', handleMouseMove);
+    activeDocument.removeEventListener('mouseup', handleMouseUp);
+    activeDocument.removeEventListener('touchmove', handleTouchMove);
+    activeDocument.removeEventListener('touchend', handleTouchEnd);
+    activeDocument.removeEventListener('touchcancel', handleTouchEnd);
     window.removeEventListener('resize', handleResize);
 
     // 清理定时器
@@ -427,10 +427,10 @@
     //  关键修复：强制清理全局 document.body 样式
     // 防止组件在拖拽状态下被销毁时样式残留，导致黑屏和影响其他插件
     // 这是多层防御的最后一道保障，即使 handleMouseUp 未执行也能正确清理
-    document.body.style.overflow = '';
-    document.body.style.userSelect = '';
-    document.body.style.cursor = '';
-    document.body.style.touchAction = '';
+    activeDocument.body.style.overflow = '';
+    activeDocument.body.style.userSelect = '';
+    activeDocument.body.style.cursor = '';
+    activeDocument.body.style.touchAction = '';
   });
 
   // 计算按钮样式

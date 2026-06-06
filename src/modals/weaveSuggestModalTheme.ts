@@ -3,12 +3,12 @@ export function ensureWeaveSuggestModalTheme(): void {
 }
 
 export function markLatestSuggestionContainer(className: string): void {
-	if (typeof document === "undefined") {
+	if (typeof activeDocument === "undefined") {
 		return;
 	}
 
 	window.requestAnimationFrame(() => {
-		const containers = Array.from(document.querySelectorAll(".suggestion-container")) as HTMLElement[];
+		const containers = Array.from(activeDocument.querySelectorAll(".suggestion-container"));
 		const latest = containers.at(-1);
 		if (!latest) {
 			return;

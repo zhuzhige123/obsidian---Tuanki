@@ -45,9 +45,9 @@ export class SyncStateTracker {
 	 */
 	private calculateMediaHash(card: Card): string | undefined {
 		const mediaFields = [
-			(card.fields as any)?.front || (card.fields as any)?.question || "",
-			(card.fields as any)?.back || (card.fields as any)?.answer || "",
-			(card as any).extra || "",
+			(card.fields as unknown)?.front || (card.fields as unknown)?.question || "",
+			(card.fields as unknown)?.back || (card.fields as unknown)?.answer || "",
+			(card as unknown).extra || "",
 		].filter(Boolean) as string[];
 		const mediaReferences = mediaFields
 			.flatMap((field) => this.extractMediaReferences(field))

@@ -5,6 +5,7 @@ import { logger } from "../utils/logger";
  */
 
 import { MatchPattern } from "./multi-pattern-matcher";
+import { isRecord, parseJsonUnknown, readNumber, readString } from "./typed-json";
 
 export interface CustomPatternConfig {
 	name: string;
@@ -171,7 +172,7 @@ export class CustomPatternManager {
 				priority: config.priority,
 				fieldMapping: config.fieldMappings,
 				examples: config.examples,
-				category: config.category as any,
+				category: config.category as unknown,
 				confidence: 0.8, // 自定义模式的默认置信度
 			};
 		} catch (error) {
@@ -430,7 +431,7 @@ export class CustomPatternManager {
 		errors: string[];
 	} {
 		try {
-			const patterns = JSON.parse(jsonData);
+			const patterns = parseJsonUnknown(jsonData);
 			let imported = 0;
 			const errors: string[] = [];
 
@@ -444,7 +445,16 @@ export class CustomPatternManager {
 
 			for (const pattern of patterns) {
 				try {
-					const { id, ...config } = pattern;
+					if (!isRecord(pattern)) {
+						errors.push("导入模式失败: 条目不是对象");
+						continue;
+					}
+					const id = readString(pattern, "id");
+					const config = this.parseCustomPatternConfig(pattern);
+					if (!config) {
+						errors.push("导入模式失败: 缺少必要字段");
+						continue;
+					}
 					const validation = this.validatePatternConfig(config);
 
 					if (validation.isValid) {
@@ -476,6 +486,38 @@ export class CustomPatternManager {
 	}
 
 	// 私有辅助方法
+
+	private parseCustomPatternConfig(record: Record<string, unknown>): CustomPatternConfig | null {
+		const name = readString(record, "name");
+		const regex = readString(record, "regex");
+		const fieldMappingsRaw = record.fieldMappings;
+		if (!name || !regex || !isRecord(fieldMappingsRaw)) {
+			return null;
+		}
+		const fieldMappings: Record<string, number> = {};
+		for (const [key, value] of Object.entries(fieldMappingsRaw)) {
+			if (typeof value === "number" && Number.isFinite(value)) {
+				fieldMappings[key] = value;
+			}
+		}
+		if (Object.keys(fieldMappings).length === 0) {
+			return null;
+		}
+		const examplesRaw = record.examples;
+		const examples = Array.isArray(examplesRaw)
+			? examplesRaw.filter((item): item is string => typeof item === "string")
+			: [];
+		return {
+			name,
+			description: readString(record, "description") ?? "",
+			regex,
+			flags: readString(record, "flags") ?? "",
+			fieldMappings,
+			priority: readNumber(record, "priority") ?? 0,
+			category: readString(record, "category") ?? "custom",
+			examples,
+		};
+	}
 
 	private generatePatternId(name: string): string {
 		const timestamp = Date.now();

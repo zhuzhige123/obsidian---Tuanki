@@ -6,8 +6,11 @@ import { logger } from "../../utils/logger";
  */
 
 import type { WeavePlugin } from "../../main";
+import { callUnknownAsync, isCallable, readUnknownProperty } from "../dynamic-access";
 import { replaceConfiguredClozeSyntax } from "../cloze-syntax";
 import { applyStyleProps } from "../style-props";
+
+const hoverCleanupHandlers = new WeakMap<Element, () => void>();
 
 /**
  * 处理挖空文本
@@ -56,19 +59,19 @@ export function processClozeText(
 		processedText = processedText.replace(ankiClozeRegex, `<span class="cloze-answer">$2</span>`);
 	} else if (activeClozeOrdinal !== undefined) {
 		// 渐进式挖空模式：只隐藏当前激活的挖空，其他挖空显示内容但移除标记
-		processedText = processedText.replace(ankiClozeRegex, (_match, ordStr, content, hint) => {
-			const ord = parseInt(ordStr, 10);
+		processedText = processedText.replace(
+			ankiClozeRegex,
+			(_match: string, ordStr: string, content: string, hint?: string) => {
+				const ord = parseInt(ordStr, 10);
 
-			if (ord === activeClozeOrdinal) {
-				// 当前激活的挖空：显示为占位符
-				return hint
-					? `<span class="cloze-placeholder" title="${hint}">[${hint}]</span>`
-					: `<span class="cloze-placeholder">[...]</span>`;
-			} else {
-				// 其他挖空：显示内容，移除标记（但不高亮）
+				if (ord === activeClozeOrdinal) {
+					return hint
+						? `<span class="cloze-placeholder" title="${hint}">[${hint}]</span>`
+						: `<span class="cloze-placeholder">[...]</span>`;
+				}
 				return content;
 			}
-		});
+		);
 	} else {
 		// 传统模式：所有挖空都隐藏
 		processedText = processedText.replace(ankiClozeRegex, (_match, _ord, _content, hint) => {
@@ -168,13 +171,15 @@ export function findColumnIndex(headers: string[], possibleNames: string[]): num
  */
 export function clearHoverTooltips(plugin: WeavePlugin): void {
 	// 清理Obsidian的hover预览弹窗
-	const app = plugin.app as any;
-	if (app?.workspace?.hoverLink) {
-		app.workspace.hoverLink.hide();
+	const workspace = readUnknownProperty(plugin.app, "workspace");
+	const hoverLink = readUnknownProperty(workspace, "hoverLink");
+	const hide = readUnknownProperty(hoverLink, "hide");
+	if (isCallable(hide)) {
+		void callUnknownAsync(hoverLink, "hide");
 	}
 
 	// 精准清理常见 tooltip/hover 元素
-	const tooltips = document.querySelectorAll(
+	const tooltips = activeDocument.querySelectorAll(
 		".popover, .tooltip, .hover-editor, .popover-content, .mod-hover, .weave-hover-preview, .weave-hover-card, .suggestion-container, .mod-suggestion"
 	);
 	tooltips.forEach((_tooltip) => {
@@ -184,7 +189,7 @@ export function clearHoverTooltips(plugin: WeavePlugin): void {
 	});
 
 	// 清理悬停状态
-	const hoveredElements = document.querySelectorAll("[data-tooltip-visible], .is-hovered");
+	const hoveredElements = activeDocument.querySelectorAll("[data-tooltip-visible], .is-hovered");
 	hoveredElements.forEach((_el) => {
 		_el.removeAttribute("data-tooltip-visible");
 		_el.classList.remove("is-hovered");
@@ -203,14 +208,14 @@ export function attachHoverCleanup(container: HTMLElement, plugin: WeavePlugin):
 	const links = container.querySelectorAll("a[data-href], .internal-link");
 	links.forEach((_link) => {
 		const cleanupHandler = () => {
-			setTimeout(() => clearHoverTooltips(plugin), 100);
+			window.setTimeout(() => clearHoverTooltips(plugin), 100);
 		};
 
-		_link.addEventListener("mouseleave", cleanupHandler);
-		_link.addEventListener("blur", cleanupHandler);
+		const handler: EventListener = cleanupHandler;
+		_link.addEventListener("mouseleave", handler);
+		_link.addEventListener("blur", handler);
 
-		// 存储清理函数以便后续移除
-		(_link as any)._hoverCleanup = cleanupHandler;
+		hoverCleanupHandlers.set(_link, cleanupHandler);
 	});
 }
 
@@ -224,11 +229,12 @@ export function removeHoverCleanup(container: HTMLElement): void {
 
 	const links = container.querySelectorAll("a[data-href], .internal-link");
 	links.forEach((_link) => {
-		const cleanupHandler = (_link as any)._hoverCleanup;
+		const cleanupHandler = hoverCleanupHandlers.get(_link);
 		if (cleanupHandler) {
-			_link.removeEventListener("mouseleave", cleanupHandler);
-			_link.removeEventListener("blur", cleanupHandler);
-			(_link as any)._hoverCleanup = undefined;
+			const handler: EventListener = cleanupHandler;
+			_link.removeEventListener("mouseleave", handler);
+			_link.removeEventListener("blur", handler);
+			hoverCleanupHandlers.delete(_link);
 		}
 	});
 }

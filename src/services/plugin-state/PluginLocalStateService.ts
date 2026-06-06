@@ -14,7 +14,6 @@ import type { CardStagingSession } from "../../types/card-staging-types";
 import type { IRCalendarSidebarSettings } from "../../types/plugin-settings.d";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
-import { getEpubRuntime } from "../epub-integration/epub-runtime";
 
 interface PersistedStudySessionState {
 	persistedStudySession?: unknown;
@@ -139,34 +138,6 @@ export interface EditorModalSizeState {
 	preset: "small" | "medium" | "large" | "extra-large" | "custom";
 	customWidth?: number;
 	customHeight?: number;
-}
-
-interface LegacyPluginRuntimeData {
-	persistedStudySession?: unknown;
-	deckView?: unknown;
-	cardManagementViewPreferences?: unknown;
-	studyInterfaceViewPreferences?: unknown;
-	createCardPreferences?: unknown;
-	editorModalSize?: {
-		preset?: unknown;
-		customWidth?: unknown;
-		customHeight?: unknown;
-		rememberLastSize?: unknown;
-		enableResize?: unknown;
-		[key: string]: unknown;
-	};
-	aiConfig?: {
-		lastUsedProvider?: unknown;
-		lastUsedModel?: unknown;
-		savedGenerationConfig?: unknown;
-		generationHistory?: unknown;
-		[key: string]: unknown;
-	};
-	incrementalReading?: {
-		calendarSidebar?: unknown;
-		[key: string]: unknown;
-	};
-	[key: string]: unknown;
 }
 
 interface LegacyPluginRuntimeHost {

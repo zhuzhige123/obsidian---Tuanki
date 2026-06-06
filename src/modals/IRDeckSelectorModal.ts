@@ -57,7 +57,7 @@ export class IRDeckSelectorModal extends SuggestModal<IRDeck> {
 		const iconEl = row.createSpan({ cls: "weave-ir-deck-suggestion-icon" });
 		setIcon(iconEl, "folder");
 
-		const nameEl = row.createSpan({ text: deck.name, cls: "weave-ir-deck-suggestion-name" });
+		row.createSpan({ text: deck.name, cls: "weave-ir-deck-suggestion-name" });
 	}
 
 	onChooseSuggestion(deck: IRDeck, _evt: MouseEvent | KeyboardEvent): void {

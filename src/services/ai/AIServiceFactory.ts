@@ -124,8 +124,10 @@ function createService(
 				systemPromptConfig
 			);
 
-		default:
-			throw new Error(`不支持的AI服务提供商: ${provider}`);
+		default: {
+			const unsupportedProvider: never = provider;
+			throw new Error(`不支持的AI服务提供商: ${String(unsupportedProvider)}`);
+		}
 	}
 }
 

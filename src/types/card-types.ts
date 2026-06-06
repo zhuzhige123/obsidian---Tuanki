@@ -62,7 +62,7 @@ export interface CardMetadata {
 		originalSourceFile: string;
 		recoverable: boolean;
 	};
-	[key: string]: any;
+	[key: string]: unknown;
 }
 
 // Card 和 Deck 类型已移至 data/types.ts
@@ -222,7 +222,7 @@ export interface CardEvent {
 	type: CardEventType;
 	cardId: string;
 	timestamp: string;
-	data?: any;
+	data?: unknown;
 	source?: string;
 }
 

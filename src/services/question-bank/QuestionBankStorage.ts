@@ -34,6 +34,80 @@ import type {
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { accuracyCalculator } from "./AccuracyCalculator";
 import { safeReadJson, safeWriteJson } from "../../utils/safe-json-io";
+import {
+	readUnknownBoolean,
+	readUnknownNumber,
+	readUnknownProperty,
+	readUnknownString,
+} from "../../utils/dynamic-access";
+import { isRecord, parseJsonUnknown, readNumber, readString } from "../../utils/typed-json";
+import type { TestAttempt } from "../../types/question-bank-types";
+
+type QBankExtendedData = QBankFileData & {
+	refs?: QuestionRef[];
+	testHistory?: TestHistoryEntry[];
+	errorBook?: ErrorBookEntry[];
+};
+
+type StatsAttemptRecord = {
+	isCorrect: boolean;
+	timestamp: string;
+	score?: number;
+	timeSpent?: number;
+	sessionId?: string;
+};
+
+type SessionArchiveOverride = {
+	archive: Record<string, unknown> | null;
+	removedQuestions: number;
+};
+
+type SessionArchiveQuestionSummary = {
+	questionId?: string;
+	isCorrect?: boolean;
+	timeSpent?: number;
+};
+
+function readQBankField(
+	data: QBankFileData & Record<string, unknown>,
+	key: "testHistory" | "errorBook" | "refs" | "questions"
+): unknown {
+	return readUnknownProperty(data, key);
+}
+
+function writeQBankTestHistory(
+	data: QBankFileData & Record<string, unknown>,
+	entries: TestHistoryEntry[]
+): void {
+	(data as QBankExtendedData).testHistory = entries;
+}
+
+function writeQBankErrorBook(
+	data: QBankFileData & Record<string, unknown>,
+	entries: ErrorBookEntry[]
+): void {
+	(data as QBankExtendedData).errorBook = entries;
+}
+
+function readSessionArchiveQuestions(archive: Record<string, unknown>): SessionArchiveQuestionSummary[] {
+	const rawQuestions = readUnknownProperty(archive, "questions");
+	if (!Array.isArray(rawQuestions)) {
+		return [];
+	}
+
+	const questions: SessionArchiveQuestionSummary[] = [];
+	for (const item of rawQuestions) {
+		if (!isRecord(item)) {
+			continue;
+		}
+		questions.push({
+			questionId: readString(item, "questionId"),
+			isCorrect: readUnknownBoolean(item, "isCorrect"),
+			timeSpent: readUnknownNumber(item, "timeSpent"),
+		});
+	}
+	return questions;
+}
 
 function normalizeFileNameFromPath(path: string): string {
 	const normalized = String(path || "").replace(/\\/g, "/").trim();
@@ -102,8 +176,8 @@ export class QuestionBankStorage {
 			? typed.questions
 					.map((question) => this.normalizeQuestionInBank(question))
 					.filter((question): question is QuestionInBank => !!question)
-			: Array.isArray((raw as any).refs)
-				? this.normalizeQuestionRefs((raw as any).refs as any[]).map((ref) => ({
+			: Array.isArray(readUnknownProperty(raw, "refs"))
+				? this.normalizeQuestionRefs(readUnknownProperty(raw, "refs")).map((ref) => ({
 						cardUuid: ref.cardUuid,
 						addedAt: ref.addedAt,
 						testHistory: [],
@@ -172,8 +246,8 @@ export class QuestionBankStorage {
 			},
 			questions: normalizedQuestions,
 			stats: normalizedStats,
-			testHistory: this.normalizeTestHistoryEntries((raw as any).testHistory),
-			errorBook: this.normalizeErrorBookEntries((raw as any).errorBook),
+			testHistory: this.normalizeTestHistoryEntries(readUnknownProperty(raw, "testHistory")),
+			errorBook: this.normalizeErrorBookEntries(readUnknownProperty(raw, "errorBook")),
 		};
 	}
 
@@ -199,10 +273,10 @@ export class QuestionBankStorage {
 			filePath
 		);
 		await safeWriteJson(
-			this.app.vault.adapter as any,
+			this.app.vault.adapter as unknown,
 			filePath,
 			JSON.stringify(normalized, null, 2),
-			this.app as any
+			this.app as unknown
 		);
 	}
 
@@ -210,54 +284,17 @@ export class QuestionBankStorage {
 		filePath: string
 	): Promise<(QBankFileData & Record<string, unknown>) | null> {
 		return await safeReadJson<QBankFileData & Record<string, unknown>>(
-			this.app.vault.adapter as any,
+			this.app.vault.adapter as unknown,
 			filePath,
-			this.app as any
+			this.app as unknown
 		);
 	}
 
 	private async listQBankFilePaths(): Promise<string[]> {
-		const vaultAny = this.app.vault as any;
-		if (typeof vaultAny?.getFiles === "function") {
-			return vaultAny
-				.getFiles()
-				.filter((file: { extension?: string; path?: string }) => {
-					return (
-						file.extension === "qbank" &&
-						typeof file.path === "string" &&
-						file.path.startsWith(this.basePath)
-					);
-				})
-				.map((file: { path: string }) => file.path);
-		}
-
-		const adapter: any = this.app.vault.adapter as any;
-		if (!(await adapter.exists?.(this.basePath)) || typeof adapter.list !== "function") {
-			return [];
-		}
-
-		const filePaths: string[] = [];
-		const walk = async (dirPath: string): Promise<void> => {
-			let listing: any;
-			try {
-				listing = await adapter.list(dirPath);
-			} catch {
-				return;
-			}
-
-			for (const childDir of listing?.folders || []) {
-				await walk(childDir);
-			}
-
-			for (const filePath of listing?.files || []) {
-				if (typeof filePath === "string" && filePath.endsWith(".qbank")) {
-					filePaths.push(filePath);
-				}
-			}
-		};
-
-		await walk(this.basePath);
-		return filePaths;
+		return this.app.vault
+			.getFiles()
+			.filter((file) => file.extension === "qbank" && file.path.startsWith(this.basePath))
+			.map((file) => file.path);
 	}
 
 	/**
@@ -285,34 +322,28 @@ export class QuestionBankStorage {
 		}
 
 		return questions.flatMap((question): TestHistoryQuestionSummary[] => {
-			if (!question || typeof question !== "object") {
+			if (!isRecord(question)) {
 				return [];
 			}
 
-			const questionId =
-				typeof (question as any).questionId === "string" ? (question as any).questionId.trim() : "";
+			const questionId = readString(question, "questionId")?.trim() ?? "";
 			if (!questionId) {
 				return [];
 			}
 
+			const isCorrectRaw = readUnknownProperty(question, "isCorrect");
 			const isCorrect =
-				(question as any).isCorrect === true
-					? true
-					: (question as any).isCorrect === false
-					? false
-					: null;
+				isCorrectRaw === true ? true : isCorrectRaw === false ? false : null;
 			const answered =
-				typeof (question as any).answered === "boolean"
-					? (question as any).answered
-					: isCorrect !== null ||
-					  ((question as any).userAnswer !== null && (question as any).userAnswer !== undefined) ||
-					  Boolean((question as any).submittedAt);
+				readUnknownBoolean(question, "answered") ??
+				(isCorrect !== null ||
+					(readUnknownProperty(question, "userAnswer") !== null &&
+						readUnknownProperty(question, "userAnswer") !== undefined) ||
+					Boolean(readUnknownProperty(question, "submittedAt")));
 			const rawTimeSpent =
-				typeof (question as any).timeSpentSeconds === "number"
-					? (question as any).timeSpentSeconds
-					: typeof (question as any).timeSpent === "number"
-					? (question as any).timeSpent
-					: 0;
+				readUnknownNumber(question, "timeSpentSeconds") ??
+				readUnknownNumber(question, "timeSpent") ??
+				0;
 
 			return [
 				{
@@ -350,7 +381,7 @@ export class QuestionBankStorage {
 	private cleanupTestHistoryEntries(
 		entries: TestHistoryEntry[],
 		archiveOverrides:
-			| Record<string, { archive: unknown | null; removedQuestions: number }>
+			| Record<string, SessionArchiveOverride>
 			| undefined,
 		removedCardUuids: Set<string>
 	): { entries: TestHistoryEntry[]; updatedEntries: number; removedEntries: number } {
@@ -393,7 +424,7 @@ export class QuestionBankStorage {
 			}
 
 			const remainingSummaries = this.buildHistoryQuestionSummaries(
-				(override.archive as any)?.questions || []
+				readSessionArchiveQuestions(override.archive)
 			);
 			if (remainingSummaries.length === 0) {
 				removedEntries += 1;
@@ -490,15 +521,15 @@ export class QuestionBankStorage {
 			}
 		}
 
-		const history = sorted.map((a) => ({
+		const history: TestAttempt[] = sorted.map((a) => ({
 			isCorrect: !!a.isCorrect,
-			mode: "exam" as any,
+			mode: "exam",
 			timestamp: a.timestamp,
 			score: typeof a.score === "number" ? a.score : a.isCorrect ? 100 : 0,
 			timeSpent: typeof a.timeSpent === "number" ? a.timeSpent : 0,
 		}));
 
-		const masteryMetrics = accuracyCalculator.calculateMastery(history as any);
+		const masteryMetrics = accuracyCalculator.calculateMastery(history);
 
 		return {
 			totalAttempts,
@@ -515,20 +546,47 @@ export class QuestionBankStorage {
 			isInErrorBook,
 			consecutiveCorrect,
 			lastIncorrectDate,
-			attempts: history as any,
+			attempts: history,
 		};
+	}
+
+	private readStatsAttempts(attempts: unknown): StatsAttemptRecord[] {
+		if (!Array.isArray(attempts)) {
+			return [];
+		}
+
+		const result: StatsAttemptRecord[] = [];
+		for (const item of attempts) {
+			if (!isRecord(item)) {
+				continue;
+			}
+
+			const timestamp = readString(item, "timestamp");
+			if (!timestamp) {
+				continue;
+			}
+
+			result.push({
+				isCorrect: item.isCorrect === true,
+				timestamp,
+				score: readNumber(item, "score"),
+				timeSpent: readNumber(item, "timeSpent"),
+				sessionId: readString(item, "sessionId"),
+			});
+		}
+		return result;
 	}
 
 	private mergeQuestionTestStats(a?: QuestionTestStats, b?: QuestionTestStats): QuestionTestStats {
 		if (!a) return b as QuestionTestStats;
 		if (!b) return a;
 
-		const attemptsA = (a.attempts || []) as any[];
-		const attemptsB = (b.attempts || []) as any[];
+		const attemptsA = this.readStatsAttempts(a.attempts);
+		const attemptsB = this.readStatsAttempts(b.attempts);
 
-		const uniq = new Map<string, any>();
+		const uniq = new Map<string, StatsAttemptRecord>();
 		for (const it of [...attemptsA, ...attemptsB]) {
-			if (!it?.timestamp) continue;
+			if (!it.timestamp) continue;
 			uniq.set(it.timestamp, it);
 		}
 		const mergedAttempts = Array.from(uniq.values()).sort(
@@ -562,7 +620,7 @@ export class QuestionBankStorage {
 				if (uuids.length === 0) {
 					try {
 						await adapter.remove(filePath);
-					} catch {}
+					} catch { /* no-op */ }
 					continue;
 				}
 
@@ -573,7 +631,7 @@ export class QuestionBankStorage {
 
 				try {
 					await adapter.remove(filePath);
-				} catch {}
+				} catch { /* no-op */ }
 			}
 
 			if (changed) {
@@ -589,8 +647,8 @@ export class QuestionBankStorage {
 		for (const filePath of qbankFilePaths) {
 			try {
 				const raw = await this.app.vault.adapter.read(filePath);
-				const parsed = JSON.parse(raw) as Partial<QBankFileData>;
-				const bankId = typeof parsed?.id === "string" ? parsed.id.trim() : "";
+				const parsed = parseJsonUnknown(raw);
+				const bankId = readString(isRecord(parsed) ? parsed : {}, "id")?.trim() ?? "";
 				if (!bankId || retainedBankIds.has(bankId)) {
 					continue;
 				}
@@ -612,32 +670,31 @@ export class QuestionBankStorage {
 			const raw = await this.app.vault.adapter.read(legacyBanksPath);
 			if (!raw || raw.trim().length === 0) return [];
 
-			const parsed = JSON.parse(raw);
+			const parsed = parseJsonUnknown(raw);
 			if (!Array.isArray(parsed)) return [];
 
 			return parsed
-				.filter((item) => item && typeof item === "object" && typeof (item as any).id === "string")
-				.map((item) => {
-					const bank = item as Partial<Deck> & Record<string, unknown>;
+				.filter((item): item is Record<string, unknown> => isRecord(item) && typeof item.id === "string")
+				.map((bank) => {
 					return {
 						id: String(bank.id),
 						name: typeof bank.name === "string" ? bank.name : String(bank.id),
 						description: typeof bank.description === "string" ? bank.description : "",
 						category: typeof bank.category === "string" ? bank.category : "",
-						categoryIds: Array.isArray(bank.categoryIds) ? (bank.categoryIds as string[]) : [],
+						categoryIds: Array.isArray(bank.categoryIds) ? bank.categoryIds.filter((id): id is string => typeof id === "string") : [],
 						parentId: typeof bank.parentId === "string" ? bank.parentId : undefined,
 						path: typeof bank.path === "string" ? bank.path : (typeof bank.name === "string" ? bank.name : String(bank.id)),
 						level: typeof bank.level === "number" ? bank.level : 0,
 						order: typeof bank.order === "number" ? bank.order : 0,
 						created: typeof bank.created === "string" ? bank.created : new Date().toISOString(),
 						modified: typeof bank.modified === "string" ? bank.modified : new Date().toISOString(),
-						tags: Array.isArray(bank.tags) ? (bank.tags as string[]) : [],
-						settings: (bank.settings as any) || ({} as any),
-						stats: (bank.stats as any) || ({} as any),
-						inheritSettings: typeof bank.inheritSettings === "boolean" ? bank.inheritSettings : false,
-						metadata: (bank.metadata as Record<string, unknown>) || {},
-						deckType: (bank.deckType as any) || "question-bank",
-						includeSubdecks: typeof bank.includeSubdecks === "boolean" ? bank.includeSubdecks : false,
+						tags: Array.isArray(bank.tags) ? bank.tags.filter((tag): tag is string => typeof tag === "string") : [],
+						settings: isRecord(bank.settings) ? bank.settings : {},
+						stats: isRecord(bank.stats) ? bank.stats : {},
+						inheritSettings: bank.inheritSettings === true,
+						metadata: isRecord(bank.metadata) ? bank.metadata : {},
+						deckType: bank.deckType === "question-bank" ? "question-bank" : "question-bank",
+						includeSubdecks: bank.includeSubdecks === true,
 					} as Deck;
 				});
 		} catch (error) {
@@ -673,20 +730,24 @@ export class QuestionBankStorage {
 
 			const legacyHistory = this.normalizeTestHistoryEntries(legacyHistoryByBank[bank.id]);
 			if (legacyHistory.length > 0) {
-				const existingHistory = this.normalizeTestHistoryEntries((qbankRecord.data as any).testHistory);
-				(qbankRecord.data as any).testHistory = this.mergeTestHistoryEntries(
-					existingHistory,
-					legacyHistory
+				const existingHistory = this.normalizeTestHistoryEntries(
+					readQBankField(qbankRecord.data, "testHistory")
+				);
+				writeQBankTestHistory(
+					qbankRecord.data,
+					this.mergeTestHistoryEntries(existingHistory, legacyHistory)
 				);
 				changed = true;
 			}
 
 			const legacyErrorBook = this.normalizeErrorBookEntries(legacyErrorBookByBank[bank.id]);
 			if (legacyErrorBook.length > 0) {
-				const existingErrorBook = this.normalizeErrorBookEntries((qbankRecord.data as any).errorBook);
-				(qbankRecord.data as any).errorBook = this.mergeErrorBookEntries(
-					existingErrorBook,
-					legacyErrorBook
+				const existingErrorBook = this.normalizeErrorBookEntries(
+					readQBankField(qbankRecord.data, "errorBook")
+				);
+				writeQBankErrorBook(
+					qbankRecord.data,
+					this.mergeErrorBookEntries(existingErrorBook, legacyErrorBook)
 				);
 				changed = true;
 			}
@@ -755,10 +816,10 @@ export class QuestionBankStorage {
 			const bankId = bank.id;
 			const existingQbankRecord = await this.readQBankDataByBankId(bankId);
 			const existingTestHistory = this.normalizeTestHistoryEntries(
-				(existingQbankRecord?.data as any)?.testHistory
+				readQBankField(existingQbankRecord?.data ?? {}, "testHistory")
 			);
 			const existingErrorBook = this.normalizeErrorBookEntries(
-				(existingQbankRecord?.data as any)?.errorBook
+				readQBankField(existingQbankRecord?.data ?? {}, "errorBook")
 			);
 
 			// 1. 读取题目引用
@@ -768,23 +829,27 @@ export class QuestionBankStorage {
 			const globalStats = await this.loadGlobalQuestionStats();
 
 			// 3. 构建题目数据（包含统计信息）
-			const questions: QuestionInBank[] = refs.map(ref => {
+			const questions: QuestionInBank[] = refs.map((ref) => {
 				const stats = globalStats[ref.cardUuid];
 				const normalizedAttempts: QuestionInBank["testHistory"] = Array.isArray(stats?.attempts)
-					? stats.attempts.map((attempt: any, index: number) => ({
-							sessionId:
-								typeof attempt?.sessionId === "string" && attempt.sessionId.trim().length > 0
-									? attempt.sessionId
-									: `${ref.cardUuid}-${index + 1}`,
-							timestamp:
-								typeof attempt?.timestamp === "string" && attempt.timestamp.trim().length > 0
-									? attempt.timestamp
-									: new Date().toISOString(),
-							isCorrect: attempt?.isCorrect === true,
-							score: typeof attempt?.score === "number" ? attempt.score : 0,
-							timeSpent: typeof attempt?.timeSpent === "number" ? attempt.timeSpent : 0,
-							mode: "exam",
-					  }))
+					? stats.attempts.flatMap((attempt, index): QuestionInBank["testHistory"] => {
+							if (!isRecord(attempt)) {
+								return [];
+							}
+
+							const sessionId = readString(attempt, "sessionId")?.trim();
+							const timestamp = readString(attempt, "timestamp")?.trim();
+							return [
+								{
+									sessionId: sessionId && sessionId.length > 0 ? sessionId : `${ref.cardUuid}-${index + 1}`,
+									timestamp: timestamp && timestamp.length > 0 ? timestamp : new Date().toISOString(),
+									isCorrect: attempt.isCorrect === true,
+									score: readNumber(attempt, "score") ?? 0,
+									timeSpent: readNumber(attempt, "timeSpent") ?? 0,
+									mode: "exam",
+								},
+							];
+					  })
 					: [];
 				return {
 					cardUuid: ref.cardUuid,
@@ -814,13 +879,13 @@ export class QuestionBankStorage {
 			};
 
 			// 5. 构建 .qbank 文件数据
-			const qbankData: QBankFileData = {
+			const qbankData: QBankExtendedData = {
 				id: bankId,
 				name: bank.name,
 				description: bank.description || '',
 				deckType: 'question-bank',
 				metadata: {
-					pairedMemoryDeckId: (bank.metadata as any)?.pairedMemoryDeckId,
+					pairedMemoryDeckId: readUnknownString(bank.metadata, "pairedMemoryDeckId"),
 					tags: bank.tags || [],
 					createdAt: bank.created || new Date().toISOString(),
 					updatedAt: new Date().toISOString(),
@@ -834,9 +899,9 @@ export class QuestionBankStorage {
 				},
 				questions,
 				stats,
+				testHistory: existingTestHistory,
+				errorBook: existingErrorBook,
 			};
-			(qbankData as any).testHistory = existingTestHistory;
-			(qbankData as any).errorBook = existingErrorBook;
 
 			// 6. 生成文件路径（使用题组名称）
 			const filePath =
@@ -929,9 +994,9 @@ export class QuestionBankStorage {
 			if (!exists) return {};
 			const data = await this.app.vault.adapter.read(filePath);
 			if (!data || data.trim().length === 0) return {};
-			const parsed = JSON.parse(data);
-			const stats = parsed.statsByUuid;
-			return stats && typeof stats === "object" ? (stats as Record<string, QuestionTestStats>) : {};
+			const parsed = parseJsonUnknown(data);
+			const stats = isRecord(parsed) ? parsed.statsByUuid : undefined;
+			return isRecord(stats) ? (stats as Record<string, QuestionTestStats>) : {};
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 加载全局题目统计失败:", error);
 			return {};
@@ -983,8 +1048,8 @@ export class QuestionBankStorage {
 						level: 0,
 						order: 0,
 						inheritSettings: false,
-						settings: {} as any,
-						stats: {} as any,
+						settings: {},
+						stats: {},
 						includeSubdecks: false,
 					};
 
@@ -1041,11 +1106,11 @@ export class QuestionBankStorage {
 			if (!exists) return {};
 			const data = await this.app.vault.adapter.read(filePath);
 			if (!data || data.trim().length === 0) return {};
-			const parsed = JSON.parse(data);
-			const stats = parsed.statsByUuid;
-			return stats && typeof stats === "object" ? (stats as Record<string, QuestionTestStats>) : {};
+			const parsed = parseJsonUnknown(data);
+			const stats = isRecord(parsed) ? parsed.statsByUuid : undefined;
+			return isRecord(stats) ? (stats as Record<string, QuestionTestStats>) : {};
 		} catch {
-			return {};
+			return { /* no-op */ };
 		}
 	}
 
@@ -1066,7 +1131,7 @@ export class QuestionBankStorage {
 		}
 
 		return entries.filter((entry): entry is TestHistoryEntry => {
-			return !!entry && typeof (entry as any).sessionId === "string";
+			return isRecord(entry) && typeof entry.sessionId === "string";
 		});
 	}
 
@@ -1076,7 +1141,7 @@ export class QuestionBankStorage {
 		}
 
 		return entries.filter((entry): entry is ErrorBookEntry => {
-			return !!entry && typeof (entry as any).cardId === "string";
+			return isRecord(entry) && typeof entry.cardId === "string";
 		});
 	}
 
@@ -1177,10 +1242,13 @@ export class QuestionBankStorage {
 			if (!exists) return {};
 			const data = await this.app.vault.adapter.read(filePath);
 			if (!data || data.trim().length === 0) return {};
-			const parsed = JSON.parse(data);
-			return parsed.byBank || {};
+			const parsed = parseJsonUnknown(data);
+			if (!isRecord(parsed)) return {};
+			const byBank = parsed.byBank;
+			if (!isRecord(byBank)) return {};
+			return byBank as Record<string, T>;
 		} catch {
-			return {};
+			return { /* no-op */ };
 		}
 	}
 
@@ -1223,47 +1291,51 @@ export class QuestionBankStorage {
 	}
 
 	private normalizeQuestionInBank(question: unknown): QuestionInBank | null {
-		if (!question || typeof question !== "object") {
+		if (!isRecord(question)) {
 			return null;
 		}
 
 		const cardUuidSource =
-			typeof (question as any).cardUuid === "string"
-				? (question as any).cardUuid
-				: typeof (question as any).uuid === "string"
-				? (question as any).uuid
-				: "";
+			readString(question, "cardUuid") ??
+			readString(question, "uuid") ??
+			"";
 		const cardUuid = cardUuidSource.trim();
 		if (!cardUuid) {
 			return null;
 		}
 
+		const testHistory = readUnknownProperty(question, "testHistory");
+
 		return {
 			cardUuid,
-			addedAt: this.normalizeQuestionAddedAt((question as any).addedAt),
-			testHistory: Array.isArray((question as any).testHistory) ? (question as any).testHistory : [],
-			stats: this.normalizeQuestionStats((question as any).stats),
+			addedAt: this.normalizeQuestionAddedAt(readUnknownProperty(question, "addedAt")),
+			testHistory: Array.isArray(testHistory) ? (testHistory as QuestionInBank["testHistory"]) : [],
+			stats: this.normalizeQuestionStats(readUnknownProperty(question, "stats")),
 		};
 	}
 
-	private normalizeQuestionRefs(refs: QuestionRef[]): QuestionRef[] {
+	private normalizeQuestionRefs(refs: unknown): QuestionRef[] {
+		if (!Array.isArray(refs)) {
+			return [];
+		}
+
 		const normalized: QuestionRef[] = [];
 		const seen = new Set<string>();
 
 		for (const ref of refs) {
 			const cardUuid =
-				typeof (ref as any)?.cardUuid === "string"
-					? (ref as any).cardUuid.trim()
-					: typeof (ref as any)?.uuid === "string"
-						? (ref as any).uuid.trim()
-						: "";
+				readUnknownString(ref, "cardUuid")?.trim() ??
+				readUnknownString(ref, "uuid")?.trim() ??
+				"";
 			if (!cardUuid || seen.has(cardUuid)) {
 				continue;
 			}
 
+			const addedAtSource = isRecord(ref) ? readUnknownProperty(ref, "addedAt") : undefined;
+
 			normalized.push({
 				cardUuid,
-				addedAt: this.normalizeQuestionAddedAt(ref.addedAt),
+				addedAt: this.normalizeQuestionAddedAt(addedAtSource),
 			});
 			seen.add(cardUuid);
 		}
@@ -1291,7 +1363,8 @@ export class QuestionBankStorage {
 				throw new Error(`.qbank 文件读取失败: ${qbankFile}`);
 			}
 			const normalizedRefs = this.normalizeQuestionRefs(refs);
-			const isLegacyRefFile = Array.isArray((data as any).refs);
+			const legacyRefs = readUnknownProperty(data, "refs");
+			const isLegacyRefFile = Array.isArray(legacyRefs);
 
 			// 3. 更新题目引用（保留现有测试历史和统计）
 			const existingByUuid = new Map<string, QuestionInBank>();
@@ -1321,7 +1394,7 @@ export class QuestionBankStorage {
 			});
 
 			if (isLegacyRefFile) {
-				(data as any).refs = normalizedRefs;
+				(data as QBankExtendedData).refs = normalizedRefs;
 			}
 
 			if (!data.stats) {
@@ -1334,7 +1407,7 @@ export class QuestionBankStorage {
 			}
 
 			// 4. 写回文件
-			await this.writeQBankFileData(qbankFile, data as QBankFileData & Record<string, unknown>);
+			await this.writeQBankFileData(qbankFile, data);
 			logger.debug(
 				`[QuestionBankStorage] 已更新 .qbank 文件题目引用: ${bankId}, 数量: ${normalizedRefs.length}`
 			);
@@ -1361,17 +1434,18 @@ export class QuestionBankStorage {
 				logger.warn(`[QuestionBankStorage] 读取 .qbank 文件失败: ${qbankFile}`);
 				return [];
 			}
-			const legacyRefs = Array.isArray((qbankData as any).refs) ? (qbankData as any).refs : null;
-			if (legacyRefs) {
-				return this.normalizeQuestionRefs(legacyRefs as QuestionRef[]);
+			const legacyRefs = readQBankField(qbankData, "refs");
+			if (Array.isArray(legacyRefs)) {
+				return this.normalizeQuestionRefs(legacyRefs);
 			}
 
-			const rawQuestions = Array.isArray((qbankData as any).questions) ? (qbankData as any).questions : [];
+			const rawQuestions = readQBankField(qbankData, "questions");
+			const questionItems = Array.isArray(rawQuestions) ? rawQuestions : [];
 
 			const normalizedQuestions: QuestionInBank[] = [];
 			let hasLegacyShape = false;
 
-			for (const question of rawQuestions) {
+			for (const question of questionItems) {
 				const normalized = this.normalizeQuestionInBank(question);
 				if (!normalized) {
 					hasLegacyShape = true;
@@ -1379,10 +1453,11 @@ export class QuestionBankStorage {
 				}
 
 				if (
-					(question as any).cardUuid !== normalized.cardUuid ||
-					typeof (question as any).addedAt !== "string" ||
-					!Array.isArray((question as any).testHistory) ||
-					!(question as any).stats
+					!isRecord(question) ||
+					readString(question, "cardUuid") !== normalized.cardUuid ||
+					typeof readString(question, "addedAt") !== "string" ||
+					!Array.isArray(readUnknownProperty(question, "testHistory")) ||
+					!isRecord(readUnknownProperty(question, "stats"))
 				) {
 					hasLegacyShape = true;
 				}
@@ -1390,12 +1465,12 @@ export class QuestionBankStorage {
 				normalizedQuestions.push(normalized);
 			}
 
-			if (hasLegacyShape || normalizedQuestions.length !== rawQuestions.length) {
+			if (hasLegacyShape || normalizedQuestions.length !== questionItems.length) {
 				qbankData.questions = normalizedQuestions;
 				if (qbankData.stats) {
 					qbankData.stats.totalQuestions = normalizedQuestions.length;
 				}
-				await this.writeQBankFileData(qbankFile, qbankData as QBankFileData & Record<string, unknown>);
+				await this.writeQBankFileData(qbankFile, qbankData);
 				logger.info(`[QuestionBankStorage] 已自修复题库题目引用结构: ${bankId}`);
 			}
 
@@ -1425,7 +1500,7 @@ export class QuestionBankStorage {
 				if (data.id === bankId) {
 					return filePath;
 				}
-			} catch (error) {
+			} catch (_error) {
 				continue;
 			}
 		}
@@ -1435,7 +1510,7 @@ export class QuestionBankStorage {
 			if (await this.app.vault.adapter.exists(legacyRefsPath)) {
 				return legacyRefsPath;
 			}
-		} catch {}
+		} catch { /* no-op */ }
 
 		return null;
 	}
@@ -1485,9 +1560,9 @@ export class QuestionBankStorage {
 			if (!exists) return {};
 			const data = await this.app.vault.adapter.read(filePath);
 			if (!data || data.trim().length === 0) return {};
-			const parsed = JSON.parse(data);
-			const stats = parsed.statsByUuid;
-			return stats && typeof stats === "object" ? (stats as Record<string, QuestionTestStats>) : {};
+			const parsed = parseJsonUnknown(data);
+			const stats = isRecord(parsed) ? parsed.statsByUuid : undefined;
+			return isRecord(stats) ? (stats as Record<string, QuestionTestStats>) : {};
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 加载题库题目统计失败:", error);
 			return {};
@@ -1569,17 +1644,17 @@ export class QuestionBankStorage {
 				return [];
 			}
 
-			const parsed = JSON.parse(data);
+			const parsed = parseJsonUnknown(data);
 
-			// 确保返回的是数组
-			if (!Array.isArray(parsed.questions)) {
+			const questions = isRecord(parsed) ? parsed.questions : undefined;
+			if (!Array.isArray(questions)) {
 				logger.error(
-					`[QuestionBankStorage] 题目数据格式错误，期望数组但得到: ${typeof parsed.questions}`
+					`[QuestionBankStorage] 题目数据格式错误，期望数组但得到: ${typeof questions}`
 				);
 				return [];
 			}
 
-			return parsed.questions as Card[];
+			return questions.filter((item): item is Card => isRecord(item));
 		} catch (error) {
 			logger.error(`[QuestionBankStorage] 加载题库题目失败: ${bankId}`, error);
 			return [];
@@ -1633,7 +1708,7 @@ export class QuestionBankStorage {
 				return [];
 			}
 
-			return this.normalizeTestHistoryEntries((qbankRecord.data as any).testHistory);
+			return this.normalizeTestHistoryEntries(readQBankField(qbankRecord.data, "testHistory"));
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 加载测试历史失败:", error);
 			return [];
@@ -1650,7 +1725,7 @@ export class QuestionBankStorage {
 			throw new Error(`找不到题库 ${bankId} 的 .qbank 文件`);
 		}
 
-		const history = this.normalizeTestHistoryEntries((qbankRecord.data as any).testHistory);
+		const history = this.normalizeTestHistoryEntries(readQBankField(qbankRecord.data, "testHistory"));
 
 		const map = new Map<string, TestHistoryEntry>();
 		for (const it of history) {
@@ -1662,11 +1737,14 @@ export class QuestionBankStorage {
 			(a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
 		);
 
-		(qbankRecord.data as any).testHistory = merged.length > maxEntries ? merged.slice(-maxEntries) : merged;
+		writeQBankTestHistory(
+			qbankRecord.data,
+			merged.length > maxEntries ? merged.slice(-maxEntries) : merged
+		);
 		try {
 			await this.writeQBankFileData(
 				qbankRecord.filePath,
-				qbankRecord.data as QBankFileData & Record<string, unknown>
+				qbankRecord.data
 			);
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 保存历史分数失败:", error);
@@ -1689,11 +1767,11 @@ export class QuestionBankStorage {
 			throw new Error(`找不到题库 ${bankId} 的 .qbank 文件`);
 		}
 
-		(qbankRecord.data as any).errorBook = this.normalizeErrorBookEntries(errors);
+		writeQBankErrorBook(qbankRecord.data, this.normalizeErrorBookEntries(errors));
 		try {
 			await this.writeQBankFileData(
 				qbankRecord.filePath,
-				qbankRecord.data as QBankFileData & Record<string, unknown>
+				qbankRecord.data
 			);
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 保存错题本失败:", error);
@@ -1710,7 +1788,7 @@ export class QuestionBankStorage {
 				return [];
 			}
 
-			return this.normalizeErrorBookEntries((qbankRecord.data as any).errorBook);
+			return this.normalizeErrorBookEntries(readQBankField(qbankRecord.data, "errorBook"));
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 加载错题本失败:", error);
 			return [];
@@ -1723,11 +1801,11 @@ export class QuestionBankStorage {
 			return;
 		}
 
-		(qbankRecord.data as any).errorBook = [];
+		writeQBankErrorBook(qbankRecord.data, []);
 		try {
 			await this.writeQBankFileData(
 				qbankRecord.filePath,
-				qbankRecord.data as QBankFileData & Record<string, unknown>
+				qbankRecord.data
 			);
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 删除错题本失败:", error);
@@ -1744,11 +1822,11 @@ export class QuestionBankStorage {
 			return;
 		}
 
-		(qbankRecord.data as any).testHistory = [];
+		writeQBankTestHistory(qbankRecord.data, []);
 		try {
 			await this.writeQBankFileData(
 				qbankRecord.filePath,
-				qbankRecord.data as QBankFileData & Record<string, unknown>
+				qbankRecord.data
 			);
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 删除测试历史失败:", error);
@@ -1822,16 +1900,17 @@ export class QuestionBankStorage {
 				return;
 			}
 
-			const parsed = JSON.parse(raw);
+			const parsed = parseJsonUnknown(raw);
 			if (!Array.isArray(parsed)) {
 				return;
 			}
 
 			const filtered = parsed.filter((item) => {
-				if (!item || typeof item !== "object") {
+				if (!isRecord(item)) {
 					return true;
 				}
-				return String((item as Record<string, unknown>).id || "").trim() !== bankId;
+				const itemId = readString(item, "id")?.trim() ?? "";
+				return itemId !== bankId;
 			});
 
 			if (filtered.length === parsed.length) {
@@ -1853,10 +1932,7 @@ export class QuestionBankStorage {
 		const uniqueCardUuids = Array.from(new Set(cardUuids.filter(Boolean)));
 		const targetCardUuids = new Set(uniqueCardUuids);
 		const affectedBankIds = new Set<string>();
-		const historyArchiveOverrides = new Map<
-			string,
-			Record<string, { archive: unknown | null; removedQuestions: number }>
-		>();
+		const historyArchiveOverrides = new Map<string, Record<string, SessionArchiveOverride>>();
 		const result: QuestionCardCleanupResult = {
 			affectedBankIds: [],
 			removedRefs: 0,
@@ -1945,7 +2021,7 @@ export class QuestionBankStorage {
 			}
 
 			let bankChanged = false;
-			const nextArchiveMap = { ...(archiveMap as Record<string, unknown>) };
+			const nextArchiveMap = { ...(archiveMap) };
 			for (const [sessionId, archive] of Object.entries(nextArchiveMap)) {
 				const cleanup = this.cleanupSessionArchive(archive, targetCardUuids);
 				if (cleanup.removedQuestions === 0) {
@@ -2162,10 +2238,10 @@ export class QuestionBankStorage {
 			return;
 		}
 
-		(qbankRecord.data as any).testHistory = this.normalizeTestHistoryEntries(entries);
+		writeQBankTestHistory(qbankRecord.data, this.normalizeTestHistoryEntries(entries));
 		await this.writeQBankFileData(
 			qbankRecord.filePath,
-			qbankRecord.data as QBankFileData & Record<string, unknown>
+			qbankRecord.data
 		);
 	}
 
@@ -2230,18 +2306,18 @@ export class QuestionBankStorage {
 	private cleanupSessionArchive(
 		archive: unknown,
 		removedCardUuids: Set<string>
-	): { archive: unknown | null; removedQuestions: number } {
-		if (!archive || typeof archive !== "object") {
-			return { archive, removedQuestions: 0 };
+	): SessionArchiveOverride {
+		if (!isRecord(archive)) {
+			return { archive: null, removedQuestions: 0 };
 		}
 
-		const questions = Array.isArray((archive as any).questions) ? (archive as any).questions : null;
-		if (!questions || questions.length === 0) {
+		const questions = readSessionArchiveQuestions(archive);
+		if (questions.length === 0) {
 			return { archive, removedQuestions: 0 };
 		}
 
 		const remainingQuestions = questions.filter(
-			(question: any) => !removedCardUuids.has(question?.questionId)
+			(question) => !removedCardUuids.has(question.questionId ?? "")
 		);
 		const removedQuestions = questions.length - remainingQuestions.length;
 
@@ -2253,14 +2329,10 @@ export class QuestionBankStorage {
 			return { archive: null, removedQuestions };
 		}
 
-		const correctCount = remainingQuestions.filter(
-			(question: any) => question?.isCorrect === true
-		).length;
-		const wrongCount = remainingQuestions.filter(
-			(question: any) => question?.isCorrect === false
-		).length;
-		const totalTimeSpent = remainingQuestions.reduce((sum: number, question: any) => {
-			return sum + (typeof question?.timeSpent === "number" ? question.timeSpent : 0);
+		const correctCount = remainingQuestions.filter((question) => question.isCorrect === true).length;
+		const wrongCount = remainingQuestions.filter((question) => question.isCorrect === false).length;
+		const totalTimeSpent = remainingQuestions.reduce((sum, question) => {
+			return sum + (typeof question.timeSpent === "number" ? question.timeSpent : 0);
 		}, 0);
 		const totalQuestions = remainingQuestions.length;
 		const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
@@ -2268,7 +2340,7 @@ export class QuestionBankStorage {
 		return {
 			removedQuestions,
 			archive: {
-				...(archive as Record<string, unknown>),
+				...archive,
 				questions: remainingQuestions,
 				totalQuestions,
 				correctCount,
@@ -2353,7 +2425,7 @@ export class QuestionBankStorage {
 				if (listing.files.length === 0 && listing.folders.length === 0) {
 					try {
 						await adapter.rmdir(dirPath, false);
-					} catch {}
+					} catch { /* no-op */ }
 					continue;
 				}
 
@@ -2370,14 +2442,14 @@ export class QuestionBankStorage {
 								try {
 									const data = await adapter.read(file);
 									if (!consolidated[bankId]) consolidated[bankId] = {};
-									consolidated[bankId][sessionId] = JSON.parse(data);
+									consolidated[bankId][sessionId] = parseJsonUnknown(data);
 									await adapter.remove(file);
-								} catch {}
+								} catch { /* no-op */ }
 							}
 							try {
 								await adapter.rmdir(subFolder, false);
-							} catch {}
-						} catch {}
+							} catch { /* no-op */ }
+						} catch { /* no-op */ }
 					}
 					if (Object.keys(consolidated).length > 0) {
 						const existing = await this.loadConsolidatedMap<Record<string, unknown>>(targetPath);
@@ -2387,16 +2459,16 @@ export class QuestionBankStorage {
 						await this.saveConsolidatedMap(targetPath, existing);
 					}
 				} else {
-					const consolidated: Record<string, unknown> = {};
+					const consolidated: Record<string, unknown> = { /* no-op */ };
 					for (const file of listing.files) {
 						if (!file.endsWith(".json")) continue;
 						const bankId = file.split("/").pop()?.replace(".json", "") || "";
 						if (!bankId) continue;
 						try {
 							const data = await adapter.read(file);
-							consolidated[bankId] = JSON.parse(data);
+							consolidated[bankId] = parseJsonUnknown(data);
 							await adapter.remove(file);
-						} catch {}
+						} catch { /* no-op */ }
 					}
 					if (Object.keys(consolidated).length > 0) {
 						const existing = await this.loadConsolidatedMap<unknown>(targetPath);
@@ -2415,7 +2487,7 @@ export class QuestionBankStorage {
 					) {
 						await adapter.rmdir(dirPath, false);
 					}
-				} catch {}
+				} catch { /* no-op */ }
 			} catch (error) {
 				logger.error(`[QuestionBankStorage] 迁移 ${dirName} 到合并文件失败:`, error);
 			}
@@ -2450,7 +2522,7 @@ export class QuestionBankStorage {
 								? Math.round(((session.correctCount || 0) / session.totalQuestions) * 100)
 								: 0;
 						const durationSeconds = Math.round(
-							(session.totalTimeSpent || session.duration || 0) as number
+							(session.totalTimeSpent || session.duration || 0)
 						);
 
 						await this.appendTestHistoryEntry(session.bankId, {
@@ -2523,7 +2595,7 @@ export class QuestionBankStorage {
 				if ((after.files?.length || 0) === 0 && (after.folders?.length || 0) === 0) {
 					await adapter.rmdir(dirPath, false);
 				}
-			} catch {}
+			} catch { /* no-op */ }
 		} catch (error) {
 			logger.error("[QuestionBankStorage] 聚合迁移 test-sessions 失败:", error);
 		}

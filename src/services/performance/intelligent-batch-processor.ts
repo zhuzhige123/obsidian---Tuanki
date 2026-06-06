@@ -21,8 +21,8 @@ export interface BatchOptions {
 	timeout?: number;
 	retryOnFailure?: boolean;
 	onProgress?: (processed: number, total: number) => void;
-	onBatchComplete?: (batchIndex: number, results: any[]) => void;
-	onError?: (error: Error, item: any, batchIndex: number) => void;
+	onBatchComplete?: (batchIndex: number, results: unknown[]) => void;
+	onError?: (error: Error, item: unknown, batchIndex: number) => void;
 }
 
 // 性能指标
@@ -43,7 +43,7 @@ export interface PerformanceMetrics {
 export interface BatchResult<T> {
 	success: boolean;
 	results: T[];
-	errors: Array<{ item: any; error: Error; batchIndex: number }>;
+	errors: Array<{ item: unknown; error: Error; batchIndex: number }>;
 	metrics: PerformanceMetrics;
 	adaptations: AdaptationRecord[];
 }
@@ -287,7 +287,7 @@ export class IntelligentBatchProcessor {
 
 					// 指数退避
 					const delay = this.config.backoffMultiplier ** (attempts - 1) * 1000;
-					await new Promise((resolve) => setTimeout(resolve, delay));
+					await new Promise((resolve) => window.setTimeout(resolve, delay));
 				}
 			}
 		});
@@ -297,11 +297,11 @@ export class IntelligentBatchProcessor {
 		// 分离成功和失败的结果
 		for (const itemResult of itemResults) {
 			if (itemResult?.success) {
-				results.push((itemResult as any).result);
+				results.push((itemResult as unknown).result);
 			} else {
 				errors.push({
-					item: (itemResult as any).item,
-					error: (itemResult as any).error,
+					item: (itemResult as unknown).item,
+					error: (itemResult as unknown).error,
 					batchIndex,
 				});
 			}
@@ -383,7 +383,7 @@ export class IntelligentBatchProcessor {
 	/**
 	 * 检查性能是否在下降
 	 */
-	private isPerformanceDecreasing(history: any[]): boolean {
+	private isPerformanceDecreasing(history: unknown[]): boolean {
 		if (history.length < 2) return false;
 
 		const recent = history[history.length - 1];
@@ -472,7 +472,7 @@ export class IntelligentBatchProcessor {
 		return Promise.race([
 			promise,
 			new Promise<never>((_, reject) =>
-				setTimeout(() => reject(new Error(`操作超时 (${timeoutMs}ms)`)), timeoutMs)
+				window.setTimeout(() => reject(new Error(`操作超时 (${timeoutMs}ms)`)), timeoutMs)
 			),
 		]);
 	}

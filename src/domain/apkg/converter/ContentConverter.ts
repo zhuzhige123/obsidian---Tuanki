@@ -116,7 +116,7 @@ export class ContentConverter {
 		result = result.replace(
 			/(<img\b[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi,
 			(_match, prefix, src, suffix) => {
-				const filename = this.extractFilename(src);
+				const filename = this.extractFilename(this.regexGroup(src));
 				const path = mediaPathMap.get(filename);
 				return path ? `${prefix}${path}${suffix}` : _match;
 			}
@@ -125,7 +125,7 @@ export class ContentConverter {
 		result = result.replace(
 			/(<video\b[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi,
 			(_match, prefix, src, suffix) => {
-				const filename = this.extractFilename(src);
+				const filename = this.extractFilename(this.regexGroup(src));
 				const path = mediaPathMap.get(filename);
 				return path ? `${prefix}${path}${suffix}` : _match;
 			}
@@ -293,7 +293,7 @@ export class ContentConverter {
 
 		// 提取图片
 		result = result.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (_match, src) => {
-			const filename = this.extractFilename(src);
+			const filename = this.extractFilename(this.regexGroup(src));
 			const placeholder = `__MEDIA_${this.mediaCounter++}__`;
 
 			mediaRefs.push({
@@ -310,7 +310,7 @@ export class ContentConverter {
 			const placeholder = `__MEDIA_${this.mediaCounter++}__`;
 
 			mediaRefs.push({
-				originalName: filename.trim(),
+				originalName: this.regexGroup(filename).trim(),
 				placeholder,
 				type: "audio",
 			});
@@ -320,7 +320,7 @@ export class ContentConverter {
 
 		// 提取视频
 		result = result.replace(/<video[^>]+src=["']([^"']+)["'][^>]*>/gi, (_match, src) => {
-			const filename = this.extractFilename(src);
+			const filename = this.extractFilename(this.regexGroup(src));
 			const placeholder = `__MEDIA_${this.mediaCounter++}__`;
 
 			mediaRefs.push({
@@ -359,7 +359,7 @@ export class ContentConverter {
 		result = result.replace(
 			/(<img\b[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi,
 			(_match, prefix, src, suffix) => {
-				const filename = this.extractFilename(src);
+				const filename = this.extractFilename(this.regexGroup(src));
 				const path = mediaPathMap.get(filename);
 				return path ? `${prefix}${path}${suffix}` : _match;
 			}
@@ -369,7 +369,7 @@ export class ContentConverter {
 		result = result.replace(
 			/(<video\b[^>]*\bsrc=["'])([^"']+)(["'][^>]*>)/gi,
 			(_match, prefix, src, suffix) => {
-				const filename = this.extractFilename(src);
+				const filename = this.extractFilename(this.regexGroup(src));
 				const path = mediaPathMap.get(filename);
 				return path ? `${prefix}${path}${suffix}` : _match;
 			}
@@ -491,6 +491,19 @@ export class ContentConverter {
 		return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	}
 
+	private regexGroup(value: unknown): string {
+		if (typeof value === "string") {
+			return value;
+		}
+		if (value === null || value === undefined) {
+			return "";
+		}
+		if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+			return String(value);
+		}
+		return "";
+	}
+
 	/**
 	 * 提取媒体引用并替换为占位符
 	 */
@@ -500,7 +513,7 @@ export class ContentConverter {
 
 		// 提取图片
 		result = result.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (_match, src) => {
-			const filename = this.extractFilename(src);
+			const filename = this.extractFilename(this.regexGroup(src));
 			const placeholder = `__MEDIA_${this.mediaCounter++}__`;
 
 			mediaRefs.push({
@@ -517,7 +530,7 @@ export class ContentConverter {
 			const placeholder = `__MEDIA_${this.mediaCounter++}__`;
 
 			mediaRefs.push({
-				originalName: filename.trim(),
+				originalName: this.regexGroup(filename).trim(),
 				placeholder,
 				type: "audio",
 			});
@@ -527,7 +540,7 @@ export class ContentConverter {
 
 		// 提取视频
 		result = result.replace(/<video[^>]+src=["']([^"']+)["'][^>]*>/gi, (_match, src) => {
-			const filename = this.extractFilename(src);
+			const filename = this.extractFilename(this.regexGroup(src));
 			const placeholder = `__MEDIA_${this.mediaCounter++}__`;
 
 			mediaRefs.push({
@@ -563,11 +576,11 @@ export class ContentConverter {
 
 		if (this.config?.clozeFormat !== "{{c::}}") {
 			result = result.replace(/\{\{c\d+::([^}]+)\}\}/g, (_match, text) =>
-				wrapWithConfiguredCloze(text)
+				wrapWithConfiguredCloze(this.regexGroup(text))
 			);
 
 			result = result.replace(/\{\{c\d+::([^:}]+)::[^}]+\}\}/g, (_match, text) =>
-				wrapWithConfiguredCloze(text)
+				wrapWithConfiguredCloze(this.regexGroup(text))
 			);
 		}
 
@@ -616,17 +629,17 @@ export class ContentConverter {
 		// 代码块
 		result = result.replace(/<pre[^>]*>(.*?)<\/pre>/gis, (_match, content) => {
 			// 移除内部的<code>标签
-			const cleanContent = content.replace(/<\/?code[^>]*>/gi, "");
+			const cleanContent = this.regexGroup(content).replace(/<\/?code[^>]*>/gi, "");
 			return `\n\`\`\`\n${cleanContent.trim()}\n\`\`\`\n`;
 		});
 
 		// 链接处理，支持无引号 href，避免双方括号
 		result = result.replace(
-			/<a\s+href=(["\']?)([^"'\s>]+)\1[^>]*>(.*?)<\/a>/gi,
+			/<a\s+href=(["']?)([^"'\s>]+)\1[^>]*>(.*?)<\/a>/gi,
 			(_match, _quote, url, text) => {
 				// 去掉文本中已有的方括号，避免双重方括号（如 [P77] 不应变成 [[P77]]）
-				const cleanText = text.replace(/^\[/, "").replace(/\]$/, "");
-				return `[${cleanText}](${url})`;
+				const cleanText = this.regexGroup(text).replace(/^\[/, "").replace(/\]$/, "");
+				return `[${cleanText}](${this.regexGroup(url)})`;
 			}
 		);
 
@@ -656,7 +669,7 @@ export class ContentConverter {
 		result = result.replace(/<sub>(.*?)<\/sub>/gi, "~$1~");
 
 		result = result.replace(/<mark[^>]*>(.*?)<\/mark>/gi, (_match, text) =>
-			wrapWithConfiguredCloze(text)
+			wrapWithConfiguredCloze(this.regexGroup(text))
 		);
 
 		// 居中标签（移除标签保留内容，Obsidian 不支持居中）
@@ -671,7 +684,7 @@ export class ContentConverter {
 	private convertBlockquotes(html: string): string {
 		// 支持带属性的 blockquote 标签
 		return html.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gis, (_match, content) => {
-			const lines = content.trim().split("\n");
+			const lines = this.regexGroup(content).trim().split("\n");
 			return `${lines.map((_line: string) => `> ${_line}`).join("\n")}\n`;
 		});
 	}
@@ -685,10 +698,10 @@ export class ContentConverter {
 		// 有序列表
 		result = result.replace(/<ol[^>]*>(.*?)<\/ol>/gis, (_match, content) => {
 			let counter = 1;
-			const converted = content.replace(
+			const converted = this.regexGroup(content).replace(
 				/<li[^>]*>(.*?)<\/li>/gis,
 				(_liMatch: string, liContent: string) => {
-					return `${counter++}. ${liContent.trim()}\n`;
+					return `${counter++}. ${this.regexGroup(liContent).trim()}\n`;
 				}
 			);
 			return `\n${converted}\n`;
@@ -696,10 +709,10 @@ export class ContentConverter {
 
 		// 无序列表
 		result = result.replace(/<ul[^>]*>(.*?)<\/ul>/gis, (_match, content) => {
-			const converted = content.replace(
+			const converted = this.regexGroup(content).replace(
 				/<li[^>]*>(.*?)<\/li>/gis,
 				(_liMatch: string, liContent: string) => {
-					return `- ${liContent.trim()}\n`;
+					return `- ${this.regexGroup(liContent).trim()}\n`;
 				}
 			);
 			return `\n${converted}\n`;
@@ -721,31 +734,32 @@ export class ContentConverter {
 
 		// 简单表格转换（复杂表格保留HTML）
 		return html.replace(/<table[^>]*>(.*?)<\/table>/gis, (match, content) => {
+			const tableContent = this.regexGroup(content);
 			// 检查是否为简单表格（无嵌套、无复杂属性）
-			if (content.includes("<table")) {
+			if (tableContent.includes("<table")) {
 				// 嵌套表格，保留HTML
 				return match;
 			}
 
 			try {
 				// 提取表头
-				const theadMatch = content.match(/<thead[^>]*>(.*?)<\/thead>/is);
-				const tbodyMatch = content.match(/<tbody[^>]*>(.*?)<\/tbody>/is);
+				const theadMatch = tableContent.match(/<thead[^>]*>(.*?)<\/thead>/is);
+				const tbodyMatch = tableContent.match(/<tbody[^>]*>(.*?)<\/tbody>/is);
 
 				const rows: string[][] = [];
 
 				// 解析表头
-				if (theadMatch) {
+				if (theadMatch?.[1]) {
 					const headerRow = this.parseTableRow(theadMatch[1]);
 					if (headerRow) rows.push(headerRow);
 				}
 
 				// 解析表体
-				const bodyContent = tbodyMatch ? tbodyMatch[1] : content;
+				const bodyContent = tbodyMatch?.[1] ?? tableContent;
 				const rowMatches = bodyContent.matchAll(/<tr[^>]*>(.*?)<\/tr>/gis);
 
 				for (const rowMatch of rowMatches) {
-					const row = this.parseTableRow(rowMatch[1]);
+					const row = this.parseTableRow(this.regexGroup(rowMatch[1]));
 					if (row) rows.push(row);
 				}
 
@@ -780,7 +794,7 @@ export class ContentConverter {
 		const cellMatches = rowHtml.matchAll(/<t[hd][^>]*>(.*?)<\/t[hd]>/gis);
 
 		for (const cellMatch of cellMatches) {
-			cells.push(cellMatch[1].trim());
+			cells.push(this.regexGroup(cellMatch[1]).trim());
 		}
 
 		return cells.length > 0 ? cells : null;
@@ -795,7 +809,7 @@ export class ContentConverter {
 		// H1-H6
 		for (let level = 6; level >= 1; level--) {
 			const hashes = "#".repeat(level);
-			const regex = new RegExp(`<h${level}[^>]*>(.*?)<\/h${level}>`, "gi");
+			const regex = new RegExp(`<h${level}[^>]*>(.*?)</h${level}>`, "gi");
 			result = result.replace(regex, `\n${hashes} $1\n`);
 		}
 
@@ -868,12 +882,12 @@ export class ContentConverter {
 
 		// 解码数字实体 &#NNNN;
 		result = result.replace(/&#(\d+);/g, (_match, code) => {
-			return String.fromCharCode(parseInt(code, 10));
+			return String.fromCharCode(parseInt(this.regexGroup(code), 10));
 		});
 
 		// 解码十六进制实体 &#xHHHH;
 		result = result.replace(/&#x([0-9a-fA-F]+);/g, (_match, code) => {
-			return String.fromCharCode(parseInt(code, 16));
+			return String.fromCharCode(parseInt(this.regexGroup(code), 16));
 		});
 
 		return result;

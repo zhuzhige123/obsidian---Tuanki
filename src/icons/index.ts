@@ -184,7 +184,7 @@ const ICON_MAPPING: Record<string, string> = {
 	// === 新增缺少的图标映射 ===
 	obsidian: "cube",
 	folder: "folder",
-	document: "file",
+	activeDocument: "file",
 	square: "square",
 	"check-square": "check-square",
 	loading: "spinner",

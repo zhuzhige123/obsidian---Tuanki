@@ -1,4 +1,5 @@
 import { logger } from "../../utils/logger";
+import type { TimerHandle } from "../../types/timer";
 /**
  * 内存优化策略
  * 实现内存池管理、垃圾回收优化和内存泄漏防护
@@ -22,7 +23,7 @@ export interface MemoryBlock {
 	allocatedAt: number;
 	lastAccessed: number;
 	refCount: number;
-	metadata?: Record<string, any>;
+	metadata?: Record<string, unknown>;
 }
 
 // 内存使用统计
@@ -46,7 +47,7 @@ export interface MemoryLeak {
 	age: number; // 存活时间（毫秒）
 	refCount: number;
 	stackTrace?: string;
-	metadata?: Record<string, any>;
+	metadata?: Record<string, unknown>;
 }
 
 /**
@@ -57,8 +58,8 @@ export class MemoryPoolManager {
 	private pools = new Map<number, MemoryBlock[]>(); // 按大小分组的内存池
 	private activeBlocks = new Map<string, MemoryBlock>();
 	private stats: MemoryStats;
-	private gcTimer?: NodeJS.Timeout;
-	private monitorTimer?: NodeJS.Timeout;
+	private gcTimer?: TimerHandle;
+	private monitorTimer?: TimerHandle;
 	private leakDetector?: MemoryLeakDetector;
 
 	constructor(config?: Partial<MemoryPoolConfig>) {
@@ -94,7 +95,7 @@ export class MemoryPoolManager {
 	/**
 	 * 分配内存块
 	 */
-	allocate(size: number, metadata?: Record<string, any>): MemoryBlock | null {
+	allocate(size: number, metadata?: Record<string, unknown>): MemoryBlock | null {
 		const optimalSize = this.findOptimalBlockSize(size);
 		const pool = this.pools.get(optimalSize);
 
@@ -287,11 +288,11 @@ export class MemoryPoolManager {
 	 */
 	destroy(): void {
 		if (this.gcTimer) {
-			clearInterval(this.gcTimer);
+			window.clearInterval(this.gcTimer);
 		}
 
 		if (this.monitorTimer) {
-			clearInterval(this.monitorTimer);
+			window.clearInterval(this.monitorTimer);
 		}
 
 		// 释放所有内存块
@@ -326,7 +327,7 @@ export class MemoryPoolManager {
 		logger.debug(`🏗️ 内存池初始化完成: ${this.config.blockSizes.length} 个池`);
 	}
 
-	private createMemoryBlock(size: number, metadata?: Record<string, any>): MemoryBlock {
+	private createMemoryBlock(size: number, metadata?: Record<string, unknown>): MemoryBlock {
 		const id = `block-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 
 		return {
@@ -460,7 +461,7 @@ export class MemoryPoolManager {
 
 	private startMonitoring(): void {
 		// 定期垃圾回收
-		this.gcTimer = setInterval(() => {
+		this.gcTimer = window.setInterval(() => {
 			const usageRatio = this.stats.totalUsed / this.stats.totalAllocated;
 
 			if (usageRatio > this.config.gcThreshold) {
@@ -469,7 +470,7 @@ export class MemoryPoolManager {
 		}, this.config.monitoringInterval);
 
 		// 定期内存优化
-		this.monitorTimer = setInterval(() => {
+		this.monitorTimer = window.setInterval(() => {
 			this.optimizeMemoryLayout();
 		}, this.config.monitoringInterval * 2);
 	}
@@ -534,7 +535,7 @@ interface AllocationRecord {
 	size: number;
 	allocatedAt: number;
 	stackTrace: string;
-	metadata?: Record<string, any>;
+	metadata?: Record<string, unknown>;
 }
 
 /**
@@ -556,7 +557,7 @@ export class IntelligentMemoryManager {
 	async allocateIntelligent(
 		size: number,
 		priority: "low" | "medium" | "high" = "medium",
-		metadata?: Record<string, any>
+		metadata?: Record<string, unknown>
 	): Promise<MemoryBlock | null> {
 		// 根据优先级和当前内存状况决定分配策略
 		const stats = this.poolManager.getMemoryStats();

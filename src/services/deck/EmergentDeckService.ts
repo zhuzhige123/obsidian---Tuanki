@@ -1,5 +1,5 @@
 import type { App } from "obsidian";
-import { Notice, normalizePath } from "obsidian";
+import { normalizePath } from "obsidian";
 import { getV2PathsFromApp } from "../../config/paths";
 import { MEMORY_DECK_UI_TEXT } from "../../constants/memory-deck-ui-text";
 import type { Card, Deck } from "../../data/types";

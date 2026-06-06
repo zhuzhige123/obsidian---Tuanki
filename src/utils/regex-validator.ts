@@ -297,7 +297,7 @@ async function testRegexPerformanceAdvanced(
 				});
 
 				const timeoutPromise = new Promise<never>((_, reject) => {
-					setTimeout(() => reject(new Error("超时")), timeoutMs);
+					window.setTimeout(() => reject(new Error("超时")), timeoutMs);
 				});
 
 				// 等待测试完成或超时

@@ -1,31 +1,14 @@
 import { DELIMITER_PATTERNS } from "../../constants/markdown-delimiters";
 import type { Card } from "../../data/types";
 import type { WeavePlugin } from "../../main";
-import {
-	type ChoiceQuestion,
-	isChoiceQuestion,
-	parseChoiceQuestion,
-} from "../../parsing/choice-question-parser";
-import type {
-	DEFAULT_ANIMATION_CONFIG,
-	DEFAULT_INTERACTIVITY_CONFIG,
-	PreviewSectionType,
-	UnifiedPreviewData,
-	UnifiedPreviewSection,
-} from "../../types/preview-types";
-import {
-	CardTypeDetectionResult,
-	UnifiedCardType,
-	convertCardType,
-	getCardTypeMetadata,
-} from "../../types/unified-card-types";
+import { isChoiceQuestion, parseChoiceQuestion } from "../../parsing/choice-question-parser";
+import type { UnifiedPreviewSection } from "../../types/preview-types";
+import { UnifiedCardType } from "../../types/unified-card-types";
 import { getCardFieldsByType } from "../../utils/card-field-helper";
 import { hasAnyClozeSyntax } from "../../utils/cloze-syntax";
+import { readUnknownString } from "../../utils/dynamic-access";
 import { logger } from "../../utils/logger";
 import { ExtensiblePreviewManager } from "./types/ExtensiblePreview";
-
-//  导入CardAccessor用于获取子卡片内容
-import { CardAccessor } from "../../services/progressive-cloze/CardAccessor";
 
 /**
  * Compatibility note: 使用 UnifiedCardType 替代
@@ -58,7 +41,7 @@ export interface PreviewSection {
 	renderMode: "markdown" | "html" | "mixed";
 	animations: AnimationConfig[];
 	interactivity: InteractivityConfig;
-	metadata?: Record<string, any>; // 用于存储节特定的元数据
+	metadata?: Record<string, unknown>; // 用于存储节特定的元数据
 }
 
 /**
@@ -96,6 +79,7 @@ export interface PreviewMetadata {
 	confidence: number;
 	generatedAt: number;
 	renderingHints: RenderingHints;
+	sourcePath?: string;
 }
 
 /**
@@ -178,7 +162,7 @@ export class ContentPreviewEngine {
 	/**
 	 * 解析卡片内容并生成预览数据
 	 */
-	async parseCardContent(card: Card, template?: any): Promise<PreviewData> {
+	async parseCardContent(card: Card, template?: unknown): Promise<PreviewData> {
 		const startTime = performance.now();
 
 		// 预处理卡片数据
@@ -208,15 +192,13 @@ export class ContentPreviewEngine {
 		// 生成元数据
 		const metadata: PreviewMetadata = {
 			cardId: preprocessedCard.uuid,
-			templateId: effectiveTemplate?.id || "unknown",
+			templateId: this.resolveTemplateId(effectiveTemplate),
 			cardType,
 			confidence: this.calculateConfidence(card, cardType),
 			generatedAt: Date.now(),
 			renderingHints: this.generateRenderingHints(sections, cardType),
+			sourcePath: preprocessedCard.sourceFile || "",
 		};
-
-		// 为所有卡片类型添加 sourcePath，确保内部链接和 hover 功能正常
-		(metadata as any).sourcePath = preprocessedCard.sourceFile || "";
 
 		//  Content-Only: 选择题选项由 ObsidianRenderer 从 content 动态解析
 		// 不再需要在预览数据中预处理选项
@@ -406,7 +388,11 @@ export class ContentPreviewEngine {
 	 * 获取有效模板
 	 * Compatibility note: template lookup is no longer needed when content is the source of truth
 	 */
-	private getEffectiveTemplate(_card: Card): any | null {
+	private resolveTemplateId(template: unknown): string {
+		return readUnknownString(template, "id") || "unknown";
+	}
+
+	private getEffectiveTemplate(_card: Card): null {
 		// 不再需要模板系统
 		// 所有内容从 card.content 动态解析
 		return null;
@@ -418,7 +404,7 @@ export class ContentPreviewEngine {
 	private generatePreviewSections(
 		card: Card,
 		cardType: UnifiedCardType,
-		_template: any | null
+		_template: null
 	): PreviewSection[] {
 		const sections: PreviewSection[] = [];
 

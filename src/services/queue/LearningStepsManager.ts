@@ -1,3 +1,4 @@
+import type { TimerHandle } from "../../types/timer";
 /**
  * Learning Steps Manager
  *
@@ -14,19 +15,17 @@
  */
 
 import { CardState, Rating } from "../../data/types";
-import type { Card } from "../../data/types";
 import type {
 	CardWithQueueOptimization,
 	LearningStepsConfig,
-	LearningStepsData,
 	LearningStepsResult,
 } from "../../types/queue-optimization-types";
 import { logger } from "../../utils/logger";
 
 export class LearningStepsManager {
 	private config: LearningStepsConfig;
-	private timers: Map<string, NodeJS.Timeout> = new Map();
-	private eventListeners: Map<string, ((...args: any[]) => void)[]> = new Map();
+	private timers: Map<string, TimerHandle> = new Map();
+	private eventListeners: Map<string, ((...args: unknown[]) => void)[]> = new Map();
 
 	constructor(config: LearningStepsConfig) {
 		this.config = config;
@@ -255,7 +254,7 @@ export class LearningStepsManager {
 		const delay = Math.max(0, dueTime - now);
 
 		// 设置新定时器
-		const timer = setTimeout(() => {
+		const timer = window.setTimeout(() => {
 			logger.debug("[LearningSteps] Card is due", { cardId: card.uuid });
 			this.emit("card-due", card.uuid);
 			this.timers.delete(card.uuid);
@@ -270,7 +269,7 @@ export class LearningStepsManager {
 	private clearTimer(cardId: string): void {
 		const oldTimer = this.timers.get(cardId);
 		if (oldTimer) {
-			clearTimeout(oldTimer);
+			window.clearTimeout(oldTimer);
 			this.timers.delete(cardId);
 		}
 	}
@@ -298,7 +297,7 @@ export class LearningStepsManager {
 		logger.debug("[LearningSteps] Cleaning up", { timerCount: this.timers.size });
 
 		// 清除所有定时器
-		this.timers.forEach((timer) => clearTimeout(timer));
+		this.timers.forEach((timer) => window.clearTimeout(timer));
 		this.timers.clear();
 	}
 
@@ -324,7 +323,7 @@ export class LearningStepsManager {
 	/**
 	 * 添加事件监听器
 	 */
-	on(event: string, callback: (...args: any[]) => void): void {
+	on(event: string, callback: (...args: unknown[]) => void): void {
 		if (!this.eventListeners.has(event)) {
 			this.eventListeners.set(event, []);
 		}
@@ -334,7 +333,7 @@ export class LearningStepsManager {
 	/**
 	 * 移除事件监听器
 	 */
-	off(event: string, callback: (...args: any[]) => void): void {
+	off(event: string, callback: (...args: unknown[]) => void): void {
 		const listeners = this.eventListeners.get(event);
 		if (listeners) {
 			const index = listeners.indexOf(callback);
@@ -347,7 +346,7 @@ export class LearningStepsManager {
 	/**
 	 * 触发事件
 	 */
-	private emit(event: string, data?: any): void {
+	private emit(event: string, data?: unknown): void {
 		const listeners = this.eventListeners.get(event);
 		if (listeners) {
 			listeners.forEach((_callback) => {

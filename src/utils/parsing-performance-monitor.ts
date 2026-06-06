@@ -1,3 +1,4 @@
+import type { TimerHandle } from "../types/timer";
 /**
  * 解析性能监控器
  * 监控SimplifiedCardParser的性能指标和优化建议
@@ -354,7 +355,7 @@ export class ParsingPerformanceMonitor {
  * 扩展解析性能监控，提供全系统性能监控
  */
 export class SystemPerformanceMonitor extends ParsingPerformanceMonitor {
-	private memoryMonitor: NodeJS.Timeout | null = null;
+	private memoryMonitor: TimerHandle | null = null;
 	private performanceObserver: PerformanceObserver | null = null;
 	private originalFetch: typeof window.fetch | null = null;
 	private hasPatchedFetch = false;
@@ -384,9 +385,9 @@ export class SystemPerformanceMonitor extends ParsingPerformanceMonitor {
 	 * 设置内存监控
 	 */
 	private setupMemoryMonitoring(): void {
-		this.memoryMonitor = setInterval(() => {
+		this.memoryMonitor = window.setInterval(() => {
 			if ("memory" in performance) {
-				const memory = (performance as any).memory;
+				const memory = (performance as unknown).memory;
 				this.systemMetrics.memoryUsage = memory.usedJSHeapSize / 1024 / 1024; // MB
 			}
 		}, 5000);
@@ -421,16 +422,18 @@ export class SystemPerformanceMonitor extends ParsingPerformanceMonitor {
 		if (this.hasPatchedFetch) return;
 		this.originalFetch = window.fetch;
 		const originalFetch = this.originalFetch;
-		const self = this;
 
-		(window as any).fetch = async function (input: any, init?: RequestInit): Promise<Response> {
+		(window as unknown).fetch = async (
+			input: unknown,
+			init?: RequestInit
+		): Promise<Response> => {
 			const startTime = performance.now();
 
 			try {
 				const response = await originalFetch(input, init);
 				const endTime = performance.now();
 
-				self.recordOperation(
+				this.recordOperation(
 					"network_request",
 					endTime - startTime,
 					response.ok,
@@ -442,7 +445,7 @@ export class SystemPerformanceMonitor extends ParsingPerformanceMonitor {
 			} catch (error) {
 				const endTime = performance.now();
 
-				self.recordOperation("network_request", endTime - startTime, false, 0, false);
+				this.recordOperation("network_request", endTime - startTime, false, 0, false);
 
 				throw error;
 			}
@@ -571,7 +574,7 @@ export class SystemPerformanceMonitor extends ParsingPerformanceMonitor {
 
 		// 清理系统监控相关资源
 		if (this.memoryMonitor) {
-			clearInterval(this.memoryMonitor);
+			window.clearInterval(this.memoryMonitor);
 			this.memoryMonitor = null;
 		}
 
@@ -582,8 +585,8 @@ export class SystemPerformanceMonitor extends ParsingPerformanceMonitor {
 
 		if (this.hasPatchedFetch && this.originalFetch) {
 			try {
-				(window as any).fetch = this.originalFetch;
-			} catch {}
+				(window as unknown).fetch = this.originalFetch;
+			} catch { /* no-op */ }
 		}
 
 		this.originalFetch = null;
@@ -613,7 +616,7 @@ function getOrCreateGlobalPerformanceMonitor(): SystemPerformanceMonitor {
 		return new SystemPerformanceMonitor();
 	}
 
-	const w = window as any;
+	const w = window as unknown;
 	if (w.__weaveGlobalPerformanceMonitor) {
 		globalPerformanceMonitor = w.__weaveGlobalPerformanceMonitor as SystemPerformanceMonitor;
 		return globalPerformanceMonitor;
@@ -625,7 +628,7 @@ function getOrCreateGlobalPerformanceMonitor(): SystemPerformanceMonitor {
 	w.__weaveGlobalPerformanceMonitorCleanup = () => {
 		try {
 			(w.__weaveGlobalPerformanceMonitor as SystemPerformanceMonitor | undefined)?.destroy();
-		} catch {}
+		} catch { /* no-op */ }
 
 		globalPerformanceMonitor = undefined;
 

@@ -65,7 +65,7 @@ export function isWeaveError(error: unknown): error is WeaveError {
 export function isFileSystemError(error: unknown): error is FileSystemError {
 	if (!isWeaveError(error)) return false;
 
-	const code = (error as WeaveError).code;
+	const code = (error).code;
 	return (
 		code === ErrorCode.FILE_NOT_FOUND ||
 		code === ErrorCode.FILE_ALREADY_EXISTS ||
@@ -83,7 +83,7 @@ export function isFileSystemError(error: unknown): error is FileSystemError {
 export function isStorageError(error: unknown): error is StorageError {
 	if (!isWeaveError(error)) return false;
 
-	const code = (error as WeaveError).code;
+	const code = (error).code;
 	return (
 		code === ErrorCode.STORAGE_INIT_ERROR ||
 		code === ErrorCode.STORAGE_READ_ERROR ||
@@ -99,7 +99,7 @@ export function isStorageError(error: unknown): error is StorageError {
 export function isCardError(error: unknown): error is CardError {
 	if (!isWeaveError(error)) return false;
 
-	const code = (error as WeaveError).code;
+	const code = (error).code;
 	return (
 		code === ErrorCode.CARD_NOT_FOUND ||
 		code === ErrorCode.CARD_CREATE_ERROR ||
@@ -115,7 +115,7 @@ export function isCardError(error: unknown): error is CardError {
 export function isDeckError(error: unknown): error is DeckError {
 	if (!isWeaveError(error)) return false;
 
-	const code = (error as WeaveError).code;
+	const code = (error).code;
 	return (
 		code === ErrorCode.DECK_NOT_FOUND ||
 		code === ErrorCode.DECK_CREATE_ERROR ||
@@ -130,7 +130,7 @@ export function isDeckError(error: unknown): error is DeckError {
 export function isAnkiConnectError(error: unknown): error is AnkiConnectError {
 	if (!isWeaveError(error)) return false;
 
-	const code = (error as WeaveError).code;
+	const code = (error).code;
 	return (
 		code === ErrorCode.ANKICONNECT_CONNECTION_ERROR ||
 		code === ErrorCode.ANKICONNECT_API_ERROR ||
@@ -144,7 +144,7 @@ export function isAnkiConnectError(error: unknown): error is AnkiConnectError {
 export function isEditorError(error: unknown): error is EditorError {
 	if (!isWeaveError(error)) return false;
 
-	const code = (error as WeaveError).code;
+	const code = (error).code;
 	return (
 		code === ErrorCode.EDITOR_INIT_ERROR ||
 		code === ErrorCode.EDITOR_OPEN_ERROR ||
@@ -159,7 +159,7 @@ export function isEditorError(error: unknown): error is EditorError {
 export function isTemplateError(error: unknown): error is TemplateError {
 	if (!isWeaveError(error)) return false;
 
-	const code = (error as WeaveError).code;
+	const code = (error).code;
 	return (
 		code === ErrorCode.TEMPLATE_NOT_FOUND ||
 		code === ErrorCode.TEMPLATE_PARSE_ERROR ||
@@ -173,7 +173,7 @@ export function isTemplateError(error: unknown): error is TemplateError {
 export function isFSRSError(error: unknown): error is FSRSError {
 	if (!isWeaveError(error)) return false;
 
-	const code = (error as WeaveError).code;
+	const code = (error).code;
 	return code === ErrorCode.FSRS_CALCULATION_ERROR || code === ErrorCode.FSRS_PARAMETER_ERROR;
 }
 

@@ -208,7 +208,7 @@ export interface LicenseInfo {
   readonly features?: readonly string[]; // 可选：功能列表
   readonly maxDevices?: number; // 可选：最大设备数
   readonly boundEmail?: string; // 可选：绑定邮箱（本地模式不强制）
-  readonly cloudSync?: any; // 可选：云端同步信息（本地模式不使用）
+  readonly cloudSync?: unknown; // 可选：云端同步信息（本地模式不使用）
   readonly fingerprintVersion?: number; // 可选：指纹版本号
   readonly metadata?: Record<string, unknown>;
 }

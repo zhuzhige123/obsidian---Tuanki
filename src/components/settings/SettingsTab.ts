@@ -5,12 +5,16 @@ import type { PluginExtended } from "./types/settings-types";
 export class AnkiSettingsTab extends PluginSettingTab {
 	plugin: PluginExtended;
 
-	constructor(app: any, plugin: WeavePlugin) {
+	constructor(app: unknown, plugin: WeavePlugin) {
 		super(app, plugin);
-		this.plugin = plugin as PluginExtended;
+		this.plugin = plugin;
 	}
 
-	async display(): Promise<void> {
+	display(): void {
+		void this.renderDisplay();
+	}
+
+	private async renderDisplay(): Promise<void> {
 		const { containerEl } = this;
 		containerEl.empty();
 

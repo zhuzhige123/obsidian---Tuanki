@@ -255,7 +255,7 @@ export class CardConverter {
 
 				// 从front中提取选项和正确答案
 				if (front) {
-					const optionsMatch = front.match(/[A-D][\.．、][^\n]+/g);
+					const optionsMatch = front.match(/[A-D][.．、][^\n]+/g);
 					if (optionsMatch) {
 						fields.options = optionsMatch.join("\n");
 					}
@@ -406,7 +406,7 @@ export class CardConverter {
 						fields: {},
 						rawContent: content,
 						error: {
-							type: "unknown_card_type" as any,
+							type: "unknown_card_type" as unknown,
 							message: `未知的卡片类型: ${type}`,
 						},
 					};
@@ -419,7 +419,7 @@ export class CardConverter {
 				fields: {},
 				rawContent: content,
 				error: {
-					type: "invalid_format" as any,
+					type: "invalid_format" as unknown,
 					message: error instanceof Error ? error.message : "解析失败",
 				},
 			};

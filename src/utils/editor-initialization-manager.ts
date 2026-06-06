@@ -179,7 +179,7 @@ export class EditorInitializationManager {
 			};
 		} finally {
 			// 延迟清理进程信息，允许其他调用者检查状态
-			setTimeout(() => {
+			window.setTimeout(() => {
 				if (process.state !== InitializationState.INITIALIZING) {
 					this.processes.delete(editorId);
 				}
@@ -312,12 +312,12 @@ export class EditorInitializationManager {
 				return;
 			}
 
-			const timeoutId = setTimeout(() => {
+			const timeoutId = window.setTimeout(() => {
 				resolve();
 			}, ms);
 
 			signal.addEventListener("abort", () => {
-				clearTimeout(timeoutId);
+				window.clearTimeout(timeoutId);
 				reject(new Error("Aborted"));
 			});
 		});
@@ -328,12 +328,12 @@ export class EditorInitializationManager {
 	 */
 	private createTimeoutPromise(timeout: number, signal: AbortSignal): Promise<never> {
 		return new Promise((_, reject) => {
-			const timeoutId = setTimeout(() => {
+			const timeoutId = window.setTimeout(() => {
 				reject(new Error(`初始化超时 (${timeout}ms)`));
 			}, timeout);
 
 			signal.addEventListener("abort", () => {
-				clearTimeout(timeoutId);
+				window.clearTimeout(timeoutId);
 			});
 		});
 	}

@@ -84,9 +84,9 @@
   }
 
   function mountToBody() {
-    if (!menuElement || typeof document === 'undefined') return;
-    if (menuElement.parentNode === document.body) return;
-    document.body.appendChild(menuElement);
+    if (!menuElement || typeof activeDocument === 'undefined') return;
+    if (menuElement.parentNode === activeDocument.body) return;
+    activeDocument.body.appendChild(menuElement);
   }
 
   function stopAutoPositioning() {
@@ -164,14 +164,14 @@
   // 监听点击外部和键盘事件
   onMount(() => {
     // 添加全局事件监听
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeydown);
+    activeDocument.addEventListener('mousedown', handleClickOutside);
+    activeDocument.addEventListener('keydown', handleKeydown);
   });
 
   onDestroy(() => {
     // 清理事件监听
-    document.removeEventListener('mousedown', handleClickOutside);
-    document.removeEventListener('keydown', handleKeydown);
+    activeDocument.removeEventListener('mousedown', handleClickOutside);
+    activeDocument.removeEventListener('keydown', handleKeydown);
     stopAutoPositioning();
   });
 </script>

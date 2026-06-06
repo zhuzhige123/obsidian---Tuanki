@@ -3,8 +3,41 @@
  * 支持基于卡片数据的搜索语法
  */
 
+import { CardState, type Card } from "../data/types";
 import { TagExtractor } from "./tag-extractor";
 import { parseYAMLFromContent } from "./yaml-utils";
+
+type SearchMatchCard = Card & {
+	scheduleStatus?: string;
+};
+
+function getCardStatusString(state?: CardState): string {
+	switch (state) {
+		case CardState.New:
+			return "new";
+		case CardState.Learning:
+			return "learning";
+		case CardState.Review:
+			return "review";
+		case CardState.Relearning:
+			return "relearning";
+		default:
+			return "";
+	}
+}
+
+function formatYamlFilterValue(val: unknown): string {
+	if (val === null || val === undefined) {
+		return "";
+	}
+	if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+		return String(val);
+	}
+	if (Array.isArray(val)) {
+		return val.map(formatYamlFilterValue).join(" ");
+	}
+	return JSON.stringify(val);
+}
 
 /** 日期范围筛选 */
 export interface DateRange {
@@ -316,11 +349,11 @@ function matchesFolderToken(sourceFolder: string, tokenRaw: string): boolean {
  * @param getCardType 获取卡片题型的函数
  */
 export function matchSearchQuery(
-	card: any,
+	card: SearchMatchCard,
 	query: SearchQuery,
-	getCardContent: (card: any, side: "front" | "back") => string,
-	getCardDeckNames: (card: any) => string,
-	getCardType: (card: any) => string
+	getCardContent: (card: SearchMatchCard, side: "front" | "back") => string,
+	getCardDeckNames: (card: SearchMatchCard) => string,
+	getCardType: (card: SearchMatchCard) => string
 ): boolean {
 	// 如果查询为空，匹配所有
 	if (!query.raw.trim()) {
@@ -388,17 +421,7 @@ export function matchSearchQuery(
 	}
 
 	if (query.statuses.length > 0) {
-		const stateNum = card.fsrs?.state;
-		const statusString =
-			stateNum === 0
-				? "new"
-				: stateNum === 1
-				? "learning"
-				: stateNum === 2
-				? "review"
-				: stateNum === 3
-				? "relearning"
-				: "";
+		const statusString = getCardStatusString(card.fsrs?.state);
 		matches =
 			matches &&
 			query.statuses.some((status) => statusString.toLowerCase().includes(status.toLowerCase()));
@@ -502,7 +525,7 @@ export function matchSearchQuery(
 
 	// 匹配 YAML 属性
 	if (query.yamlFilters.length > 0) {
-		let yamlData: Record<string, any> = {};
+		let yamlData: Record<string, unknown> = {};
 		try {
 			if (typeof card.content === "string" && card.content) {
 				yamlData = parseYAMLFromContent(card.content);
@@ -516,7 +539,7 @@ export function matchSearchQuery(
 			query.yamlFilters.every((_filter) => {
 				const val = yamlData[_filter.key];
 				if (val === undefined || val === null) return false;
-				const valStr = Array.isArray(val) ? val.join(" ") : String(val);
+				const valStr = formatYamlFilterValue(val);
 				return valStr.toLowerCase().includes(_filter.value.toLowerCase());
 			});
 	}
@@ -562,17 +585,7 @@ export function matchSearchQuery(
 	}
 
 	if (query.excludeStatuses.length > 0) {
-		const stateNum = card.fsrs?.state;
-		const statusStr =
-			stateNum === 0
-				? "new"
-				: stateNum === 1
-				? "learning"
-				: stateNum === 2
-				? "review"
-				: stateNum === 3
-				? "relearning"
-				: "";
+		const statusStr = getCardStatusString(card.fsrs?.state);
 		matches =
 			matches &&
 			query.excludeStatuses.every((s) => !statusStr.toLowerCase().includes(s.toLowerCase()));

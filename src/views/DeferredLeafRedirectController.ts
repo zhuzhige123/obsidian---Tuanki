@@ -64,7 +64,7 @@ export class DeferredLeafRedirectController {
 
 					this.request();
 				});
-			} catch {}
+			} catch { /* no-op */ }
 		}
 
 		this.request();
@@ -90,7 +90,7 @@ export class DeferredLeafRedirectController {
 			return;
 		}
 
-		this.redirectTimer = setTimeout(() => {
+		this.redirectTimer = window.setTimeout(() => {
 			this.redirectTimer = null;
 			if (this.disposed || !this.shouldRedirect()) {
 				return;
@@ -109,7 +109,7 @@ export class DeferredLeafRedirectController {
 			return;
 		}
 
-		clearTimeout(this.redirectTimer);
+		window.clearTimeout(this.redirectTimer);
 		this.redirectTimer = null;
 	}
 

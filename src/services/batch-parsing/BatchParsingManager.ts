@@ -10,17 +10,16 @@ import { logger } from "../../utils/logger";
  * 4. 处理UI交互
  */
 
-import { App, Command, Modal, Notice, TFile } from "obsidian";
+import { App, Modal, Notice, TFile } from "obsidian";
 import { writable } from "svelte/store";
 import { CleanupProgressModal } from "../../components/modals/CleanupProgressModal";
-import { ParsedCard, SimplifiedParsingSettings } from "../../types/newCardParsingTypes";
+import { SimplifiedParsingSettings } from "../../types/newCardParsingTypes";
 import type { IWeavePlugin } from "../../types/plugin-interfaces";
 import { logDebugWithTag } from "../../utils/logger";
 import { SimplifiedCardParser } from "../../utils/simplifiedParser/SimplifiedCardParser";
 import { BlockLinkCleanupService } from "../cleanup/BlockLinkCleanupService";
 import { GlobalCleanupScanner } from "../cleanup/GlobalCleanupScanner";
 import {
-	BatchConfigMerger,
 	BatchParseResult,
 	DeckMappingService,
 	FolderDeckMapping,
@@ -52,7 +51,7 @@ export class BatchParsingManager {
 	private plugin: IWeavePlugin;
 
 	// 调试日志辅助函数
-	private logDebug(message: string, ...args: any[]): void {
+	private logDebug(message: string, ...args: unknown[]): void {
 		// 使用统一的日志管理器
 		logDebugWithTag("BatchParsingManager", message, ...args);
 	}
@@ -140,7 +139,7 @@ export class BatchParsingManager {
 	/**
 	 * 注册命令到插件
 	 */
-	registerCommands(_plugin: any): void {
+	registerCommands(_plugin: unknown): void {
 		//  已移除：命令1 - 执行批量解析（功能冗余，用户可以在设置面板手动触发）
 		//  已移除：命令3 - 选择文件并解析（功能冗余，使用批量解析当前文件代替）
 		//  已移除：命令4 - 清理孤立UUID和块链接（已统一到main.ts的两个清理命令中）
@@ -708,7 +707,11 @@ class BatchProgressModal extends Modal {
 		// 样式已迁移到 styles/dynamic-injected.css
 	}
 
-	async onClose() {
+	onClose(): void {
+		void this.finalizeOnClose();
+	}
+
+	private async finalizeOnClose(): Promise<void> {
 		if (this.modalComponent) {
 			try {
 				const { unmount } = await import("svelte");

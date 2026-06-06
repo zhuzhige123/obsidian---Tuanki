@@ -39,9 +39,9 @@ export function createGlobalOperationController(config: {
 	let clearTimer: ReturnType<typeof setTimeout> | null = null;
 	const clear = (clearDelayMs = 0) => {
 		if (clearTimer !== null) {
-			clearTimeout(clearTimer);
+			window.clearTimeout(clearTimer);
 		}
-		clearTimer = setTimeout(() => {
+		clearTimer = window.setTimeout(() => {
 			weaveMainInterfaceStore.clearGlobalOperation(operationId);
 			clearTimer = null;
 		}, Math.max(0, clearDelayMs));

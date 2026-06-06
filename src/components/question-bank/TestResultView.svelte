@@ -171,10 +171,10 @@
       }
     };
 
-    document.addEventListener('keydown', handleKeydown);
+    activeDocument.addEventListener('keydown', handleKeydown);
 
     return () => {
-      document.removeEventListener('keydown', handleKeydown);
+      activeDocument.removeEventListener('keydown', handleKeydown);
     };
   });
 </script>

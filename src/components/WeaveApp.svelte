@@ -269,7 +269,7 @@
 
   onMount(() => {
     // 检测移动端设备
-    isMobileDevice = Platform.isMobile || document.body.classList.contains('is-mobile');
+    isMobileDevice = Platform.isMobile || activeDocument.body.classList.contains('is-mobile');
     logger.debug('[WeaveApp] 移动端检测结果:', isMobileDevice);
 
     weaveMainInterfaceStore.setNavigationVisibility(plugin.settings.navigationVisibility);
@@ -317,7 +317,7 @@
         showPluginConfigModal = detail.pluginId;
       }
     };
-    document.addEventListener('Weave:open-plugin-config', handleOpenPluginConfig);
+    activeDocument.addEventListener('Weave:open-plugin-config', handleOpenPluginConfig);
     
     // 监听子页面状态变化（用于侧边栏导航同步）
     const handleDeckFilterChange = (e: CustomEvent<string>) => {
@@ -370,8 +370,8 @@
     const setupMobileViewportSync = () => {
       if (!appElement) return () => {};
       const isMobileLayout = Platform.isMobile
-        || document.body.classList.contains('is-mobile')
-        || document.body.classList.contains('is-phone');
+        || activeDocument.body.classList.contains('is-mobile')
+        || activeDocument.body.classList.contains('is-phone');
 
       if (!isMobileLayout) {
         appElement.style.removeProperty('--weave-mobile-viewport-height');
@@ -422,7 +422,7 @@
       window.removeEventListener("Weave:card-view-change", handleCardViewChange as EventListener);
       window.removeEventListener("Weave:deck-view-change", handleDeckViewChange as EventListener);
       unregisterLegacyApkgImport();
-      document.removeEventListener('Weave:open-plugin-config', handleOpenPluginConfig);
+      activeDocument.removeEventListener('Weave:open-plugin-config', handleOpenPluginConfig);
       plugin.app.workspace.offref(layoutChangeRef);
       if (mobileViewportCleanup) {
         mobileViewportCleanup();
@@ -459,8 +459,8 @@
       Platform.isMobile
       || responsive?.isMobile
       || responsive?.isTablet
-      || document.body.classList.contains('is-mobile')
-      || document.body.classList.contains('is-phone')}
+      || activeDocument.body.classList.contains('is-mobile')
+      || activeDocument.body.classList.contains('is-phone')}
     {@const showInPageToolbar = !isCompactLayout || isInSidebarMode}
     <div
       bind:this={appElement}

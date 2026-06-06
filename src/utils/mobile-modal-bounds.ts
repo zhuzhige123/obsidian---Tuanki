@@ -21,7 +21,7 @@ export interface WorkspaceBounds {
 type Edge = "top" | "bottom";
 
 type MobileBoundsWindow = Window &
-	typeof globalThis & {
+	typeof window & {
 		__weaveMobileBoundsInjected?: boolean;
 		__weaveMobileBoundsCleanup?: (() => void) | null;
 		__weaveMobileModalAdaptationCleanup?: (() => void) | null;
@@ -105,7 +105,7 @@ function parsePixelValue(value: string | null | undefined): number {
 }
 
 function measureSafeAreaInsets(): { top: number; bottom: number } {
-	if (!document.body) {
+	if (!activeDocument.body) {
 		return { top: 0, bottom: 0 };
 	}
 
@@ -114,7 +114,7 @@ function measureSafeAreaInsets(): { top: number; bottom: number } {
 		return cachedSafeAreaInsets;
 	}
 
-	const probe = document.createElement("div");
+	const probe = activeDocument.createElement("div");
 	probe.dataset.weaveSafeAreaProbe = "true";
 	probe.style.cssText = [
 		"position: fixed",
@@ -128,7 +128,7 @@ function measureSafeAreaInsets(): { top: number; bottom: number } {
 		"padding-bottom: env(safe-area-inset-bottom, 0px)",
 	].join(";");
 
-	document.body.appendChild(probe);
+	activeDocument.body.appendChild(probe);
 
 	const computedStyle = window.getComputedStyle(probe);
 	const insets = {
@@ -174,8 +174,8 @@ function collectUniqueElements(selectors: string[]): HTMLElement[] {
 	const elements = new Set<HTMLElement>();
 
 	for (const selector of selectors) {
-		for (const node of document.querySelectorAll(selector)) {
-			if (node instanceof HTMLElement) {
+		for (const node of activeDocument.querySelectorAll(selector)) {
+			if (node.instanceOf(HTMLElement)) {
 				elements.add(node);
 			}
 		}
@@ -333,8 +333,8 @@ export function getWorkspaceBounds(): WorkspaceBounds {
  */
 export function isMobileDevice(): boolean {
 	return Boolean(
-		document.body &&
-			(document.body.classList.contains("is-phone") || document.body.classList.contains("is-mobile"))
+		activeDocument.body &&
+			(activeDocument.body.classList.contains("is-phone") || activeDocument.body.classList.contains("is-mobile"))
 	);
 }
 
@@ -409,7 +409,7 @@ export function injectMobileBoundsCSSVariables(): void {
 	const updateVariables = () => {
 		animationFrameId = 0;
 		const bounds = getWorkspaceBounds();
-		const root = document.documentElement;
+		const root = activeDocument.documentElement;
 
 		root.style.setProperty("--weave-modal-top", `${bounds.top}px`);
 		root.style.setProperty("--weave-modal-bottom", `${bounds.bottom}px`);
@@ -442,17 +442,17 @@ export function injectMobileBoundsCSSVariables(): void {
 
 	window.addEventListener("resize", scheduleUpdate);
 	window.addEventListener("orientationchange", scheduleUpdate);
-	document.addEventListener("scroll", scheduleUpdate, true);
-	document.addEventListener("transitionend", scheduleUpdate, true);
-	document.addEventListener("animationend", scheduleUpdate, true);
+	activeDocument.addEventListener("scroll", scheduleUpdate, true);
+	activeDocument.addEventListener("transitionend", scheduleUpdate, true);
+	activeDocument.addEventListener("animationend", scheduleUpdate, true);
 
 	if (window.visualViewport) {
 		window.visualViewport.addEventListener("resize", scheduleUpdate);
 		window.visualViewport.addEventListener("scroll", scheduleUpdate);
 	}
 
-	if (document.body && mutationObserver) {
-		mutationObserver.observe(document.body, {
+	if (activeDocument.body && mutationObserver) {
+		mutationObserver.observe(activeDocument.body, {
 			subtree: true,
 			childList: true,
 			attributes: true,
@@ -460,8 +460,8 @@ export function injectMobileBoundsCSSVariables(): void {
 		});
 	}
 
-	if (resizeObserver && document.body) {
-		resizeObserver.observe(document.body);
+	if (resizeObserver && activeDocument.body) {
+		resizeObserver.observe(activeDocument.body);
 		refreshObservedElements();
 	}
 
@@ -473,9 +473,9 @@ export function injectMobileBoundsCSSVariables(): void {
 		try {
 			window.removeEventListener("resize", scheduleUpdate);
 			window.removeEventListener("orientationchange", scheduleUpdate);
-			document.removeEventListener("scroll", scheduleUpdate, true);
-			document.removeEventListener("transitionend", scheduleUpdate, true);
-			document.removeEventListener("animationend", scheduleUpdate, true);
+			activeDocument.removeEventListener("scroll", scheduleUpdate, true);
+			activeDocument.removeEventListener("transitionend", scheduleUpdate, true);
+			activeDocument.removeEventListener("animationend", scheduleUpdate, true);
 
 			if (window.visualViewport) {
 				window.visualViewport.removeEventListener("resize", scheduleUpdate);
@@ -495,14 +495,14 @@ export function injectMobileBoundsCSSVariables(): void {
 			resizeObserver?.disconnect();
 			observedElements.clear();
 
-			const root = document.documentElement;
+			const root = activeDocument.documentElement;
 			root.style.removeProperty("--weave-modal-top");
 			root.style.removeProperty("--weave-modal-bottom");
 			root.style.removeProperty("--weave-modal-height");
 			root.style.removeProperty("--weave-modal-max-height");
 			root.style.removeProperty("--weave-workspace-top-offset");
 			root.style.removeProperty("--weave-workspace-bottom-offset");
-		} catch {}
+		} catch { /* no-op */ }
 
 		try {
 			mobileWindow.__weaveMobileBoundsInjected = undefined;
@@ -520,13 +520,13 @@ export function destroyMobileModalAdaptation(): void {
 		if (typeof mobileWindow.__weaveMobileBoundsCleanup === "function") {
 			mobileWindow.__weaveMobileBoundsCleanup();
 		}
-	} catch {}
+	} catch { /* no-op */ }
 
 	try {
 		const styleId = "weave-mobile-modal-global-styles";
-		const style = document.getElementById(styleId);
+		const style = activeDocument.getElementById(styleId);
 		style?.remove();
-	} catch {}
+	} catch { /* no-op */ }
 
 	try {
 		mobileWindow.__weaveMobileModalAdaptationCleanup = undefined;
@@ -548,7 +548,7 @@ export function injectGlobalModalStyles(): void {
 
 	// 样式已迁移到 styles/dynamic-injected.css
 	// 此处仅设置 CSS 变量（动态值）
-	if (document.getElementById(styleId)) {
+	if (activeDocument.getElementById(styleId)) {
 		return;
 	}
 

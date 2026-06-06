@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger";
+import type { TimerHandle } from "../types/timer";
 /**
  * 智能缓存系统
  * 提供多层缓存、智能失效和预加载功能
@@ -39,8 +40,8 @@ export interface CacheStats {
 
 export interface PreloadStrategy {
 	name: string;
-	condition: (key: string, entry?: CacheEntry<any>) => boolean;
-	loader: (key: string) => Promise<any>;
+	condition: (key: string, entry?: CacheEntry<unknown>) => boolean;
+	loader: (key: string) => Promise<unknown>;
 	priority: number;
 }
 
@@ -50,14 +51,14 @@ export interface PreloadStrategy {
 
 export class SmartCacheService {
 	private static instance: SmartCacheService;
-	private cache = new Map<string, CacheEntry<any>>();
+	private cache = new Map<string, CacheEntry<unknown>>();
 	private config: CacheConfig;
 	private stats = {
 		hits: 0,
 		misses: 0,
 		evictions: 0,
 	};
-	private cleanupInterval: NodeJS.Timeout | null = null;
+	private cleanupInterval: TimerHandle | null = null;
 	private preloadStrategies: PreloadStrategy[] = [];
 
 	private constructor() {
@@ -74,7 +75,7 @@ export class SmartCacheService {
 
 	static getInstance(): SmartCacheService {
 		if (typeof window !== "undefined") {
-			const w = window as any;
+			const w = window as unknown;
 			if (w.__weaveSmartCacheService) {
 				SmartCacheService.instance = w.__weaveSmartCacheService as SmartCacheService;
 				return SmartCacheService.instance;
@@ -87,7 +88,7 @@ export class SmartCacheService {
 				w.__weaveSmartCacheServiceCleanup = () => {
 					try {
 						(w.__weaveSmartCacheService as SmartCacheService | undefined)?.destroy();
-					} catch {}
+					} catch { /* no-op */ }
 
 					try {
 						w.__weaveSmartCacheService = undefined;
@@ -324,7 +325,7 @@ export class SmartCacheService {
 	// 私有方法
 	// ============================================================================
 
-	private calculateSize(data: any): number {
+	private calculateSize(data: unknown): number {
 		try {
 			return JSON.stringify(data).length * 2; // 粗略估算字节数
 		} catch {
@@ -347,9 +348,9 @@ export class SmartCacheService {
 		}
 	}
 
-	private evictLeastUsed(): CacheEntry<any> | null {
+	private evictLeastUsed(): CacheEntry<unknown> | null {
 		let leastUsedKey: string | null = null;
-		let leastUsedEntry: CacheEntry<any> | null = null;
+		let leastUsedEntry: CacheEntry<unknown> | null = null;
 		let minScore = Infinity;
 
 		const now = Date.now();
@@ -392,14 +393,14 @@ export class SmartCacheService {
 	}
 
 	private startCleanupTimer(): void {
-		this.cleanupInterval = setInterval(() => {
+		this.cleanupInterval = window.setInterval(() => {
 			this.cleanup();
 		}, this.config.cleanupInterval);
 	}
 
-	private checkPreload(key: string, entry: CacheEntry<any>): void {
+	private checkPreload(key: string, entry: CacheEntry<unknown>): void {
 		// 异步执行预加载检查，不阻塞当前操作
-		setTimeout(() => {
+		window.setTimeout(() => {
 			for (const strategy of this.preloadStrategies) {
 				if (strategy.condition(key, entry)) {
 					strategy
@@ -421,7 +422,7 @@ export class SmartCacheService {
 	 */
 	destroy(): void {
 		if (this.cleanupInterval) {
-			clearInterval(this.cleanupInterval);
+			window.clearInterval(this.cleanupInterval);
 			this.cleanupInterval = null;
 		}
 		this.clear();
@@ -436,13 +437,21 @@ export const smartCache = SmartCacheService.getInstance();
 
 // 便捷的缓存装饰器
 export function withCache(ttl?: number, tags: string[] = []) {
-	return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-		const originalMethod = descriptor.value;
+	return function (_target: unknown, propertyKey: string, descriptor: PropertyDescriptor) {
+		const originalMethod: unknown = descriptor.value;
+		if (typeof originalMethod !== "function") {
+			return descriptor;
+		}
 
-		descriptor.value = async function (...args: any[]) {
-			const cacheKey = `${target.constructor.name}.${propertyKey}:${JSON.stringify(args)}`;
+		const invoke = originalMethod as (this: unknown, ...args: unknown[]) => Promise<unknown>;
+		descriptor.value = async function (this: unknown, ...args: unknown[]) {
+			const ownerName =
+				this && typeof this === "object" && "constructor" in this
+					? String((this as { constructor: { name?: string } }).constructor.name || "Unknown")
+					: "Unknown";
+			const cacheKey = `${ownerName}.${propertyKey}:${JSON.stringify(args)}`;
 
-			return smartCache.getOrSet(cacheKey, () => originalMethod.apply(this, args), ttl, tags);
+			return smartCache.getOrSet(cacheKey, () => Reflect.apply(invoke, this, args), ttl, tags);
 		};
 
 		return descriptor;

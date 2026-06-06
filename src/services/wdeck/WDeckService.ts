@@ -234,7 +234,7 @@ export class WDeckService {
 		const fileNameInfo = parseWDeckFileName(fileName || String(filePathOrName || "").trim());
 		const parsedDeck =
 			typedData.deck && typeof typedData.deck === "object"
-				? (typedData.deck as Partial<Deck>)
+				? (typedData.deck)
 				: {};
 		const logicalDeckName =
 			String(parsedDeck.name || typedData.logicalDeckName || "").trim() ||
@@ -361,9 +361,9 @@ export class WDeckService {
 			JSON.parse(raw);
 		} catch {
 			const recovered = await safeReadJson<WDeckFileData>(
-				this.plugin.app.vault.adapter as any,
+				this.plugin.app.vault.adapter as unknown,
 				normalizedPath,
-				this.plugin.app as any
+				this.plugin.app as unknown
 			);
 			if (!recovered) {
 				throw new WDeckFileLoadError(
@@ -675,9 +675,9 @@ export class WDeckService {
 		}
 
 		return await hasValidJsonBackup(
-			this.plugin.app.vault.adapter as any,
+			this.plugin.app.vault.adapter as unknown,
 			normalizedPath,
-			this.plugin.app as any
+			this.plugin.app as unknown
 		);
 	}
 
@@ -688,9 +688,9 @@ export class WDeckService {
 		}
 
 		const backupEntry = await readJsonBackup<WDeckFileData>(
-			this.plugin.app.vault.adapter as any,
+			this.plugin.app.vault.adapter as unknown,
 			normalizedPath,
-			this.plugin.app as any
+			this.plugin.app as unknown
 		);
 		if (!backupEntry) {
 			return false;
@@ -701,10 +701,10 @@ export class WDeckService {
 			normalizedPath
 		);
 		await safeWriteJson(
-			this.plugin.app.vault.adapter as any,
+			this.plugin.app.vault.adapter as unknown,
 			normalizedPath,
 			`${JSON.stringify(normalized, null, 2)}\n`,
-			this.plugin.app as any
+			this.plugin.app as unknown
 		);
 
 		await this.rebuildCache();
@@ -736,10 +736,10 @@ export class WDeckService {
 			}
 			const normalized = this.normalizeDeckFileDataForPersistence(parsed, normalizedPath);
 			await safeWriteJson(
-				this.plugin.app.vault.adapter as any,
+				this.plugin.app.vault.adapter as unknown,
 				normalizedPath,
 				`${JSON.stringify(normalized, null, 2)}\n`,
-				this.plugin.app as any
+				this.plugin.app as unknown
 			);
 			await this.rebuildCache();
 			return { repaired: true, usedBackup: false };
@@ -935,7 +935,7 @@ export class WDeckService {
 		const deckDefinitionSource =
 			existingFiles
 				.map((item) =>
-					item.data.deck && typeof item.data.deck === "object" ? (item.data.deck as Partial<Deck>) : null
+					item.data.deck && typeof item.data.deck === "object" ? (item.data.deck) : null
 				)
 				.find((item): item is Partial<Deck> => !!item) || {
 				id: logicalDeckId,
@@ -980,7 +980,7 @@ export class WDeckService {
 		const deckDefinitionSource =
 			existingFiles
 				.map((item) =>
-					item.data.deck && typeof item.data.deck === "object" ? (item.data.deck as Partial<Deck>) : null
+					item.data.deck && typeof item.data.deck === "object" ? (item.data.deck) : null
 				)
 				.find((item): item is Partial<Deck> => !!item) || {
 				id: logicalDeckId,
@@ -1084,7 +1084,7 @@ export class WDeckService {
 					existingFiles,
 					deckDefinition:
 						resolved.data.deck && typeof resolved.data.deck === "object"
-							? (resolved.data.deck as Partial<Deck>)
+							? (resolved.data.deck)
 							: {
 								id: resolved.logicalDeckId,
 								name: resolved.logicalDeckName,
@@ -1886,8 +1886,11 @@ export class WDeckService {
 			return null;
 		}
 
+		const readStoredString = (value: unknown): string =>
+			typeof value === "string" ? value.trim() : typeof value === "number" ? String(value) : "";
+
 		const entry = raw as Record<string, unknown>;
-		const path = String(entry.path || "").trim();
+		const path = readStoredString(entry.path);
 		if (!path) {
 			return null;
 		}
@@ -1902,9 +1905,9 @@ export class WDeckService {
 			return null;
 		}
 
-		const logicalDeckId = String(entry.logicalDeckId || legacyData?.logicalDeckId || "").trim();
-		const logicalDeckName = String(entry.logicalDeckName || legacyData?.logicalDeckName || "").trim();
-		const runtimeDeckId = String(entry.runtimeDeckId || "").trim();
+		const logicalDeckId = readStoredString(entry.logicalDeckId || legacyData?.logicalDeckId);
+		const logicalDeckName = readStoredString(entry.logicalDeckName || legacyData?.logicalDeckName);
+		const runtimeDeckId = readStoredString(entry.runtimeDeckId);
 		if (!logicalDeckId || !logicalDeckName || !runtimeDeckId) {
 			return null;
 		}
@@ -1913,7 +1916,7 @@ export class WDeckService {
 			entry.deck && typeof entry.deck === "object"
 				? (entry.deck as Partial<Deck>)
 				: legacyData?.deck && typeof legacyData.deck === "object"
-					? (legacyData.deck as Partial<Deck>)
+					? (legacyData.deck)
 					: undefined;
 
 		return {
@@ -1941,7 +1944,7 @@ export class WDeckService {
 		const cards = Array.isArray(file.data.cards) ? file.data.cards : [];
 		const deck =
 			file.data.deck && typeof file.data.deck === "object"
-				? ({ ...(file.data.deck as Partial<Deck>) } as Partial<Deck>)
+				? ({ ...(file.data.deck) } as Partial<Deck>)
 				: undefined;
 
 		return {
@@ -2025,7 +2028,7 @@ export class WDeckService {
 				segmentId: resolved.segmentId,
 				deck:
 					resolved.data.deck && typeof resolved.data.deck === "object"
-						? (resolved.data.deck as Partial<Deck>)
+						? (resolved.data.deck)
 						: undefined,
 				cardUUIDs: (resolved.data.cards || [])
 					.map((card) => String(card?.uuid || "").trim())
@@ -2407,7 +2410,7 @@ export class WDeckService {
 			return false;
 		}
 
-		const message = error instanceof Error ? error.message : String(error || "");
+		const message = error instanceof Error ? error.message : error == null ? "" : String(error);
 		return /ENOENT|not found|no such file or directory/i.test(message);
 	}
 
@@ -2435,9 +2438,9 @@ export class WDeckService {
 			parsed = JSON.parse(raw) as WDeckFileData;
 		} catch (error) {
 			parsed = await safeReadJson<WDeckFileData>(
-				this.plugin.app.vault.adapter as any,
+				this.plugin.app.vault.adapter as unknown,
 				file.path,
-				this.plugin.app as any
+				this.plugin.app as unknown
 			);
 			if (!parsed) {
 				if (this.isTransientMissingFile(file, error)) {
@@ -2452,7 +2455,7 @@ export class WDeckService {
 		try {
 			const fileNameInfo = parseWDeckFileName(file.basename);
 			const parsedDeck =
-				parsed?.deck && typeof parsed.deck === "object" ? (parsed.deck as Partial<Deck>) : null;
+				parsed?.deck && typeof parsed.deck === "object" ? (parsed.deck) : null;
 			const logicalDeckName =
 				String(parsedDeck?.name || parsed?.logicalDeckName || "").trim() ||
 				fileNameInfo.logicalDeckName ||
@@ -2493,7 +2496,7 @@ export class WDeckService {
 			sortedFiles
 				.map((resolved) =>
 					resolved.data.deck && typeof resolved.data.deck === "object"
-						? (resolved.data.deck as Partial<Deck>)
+						? (resolved.data.deck)
 						: null
 				)
 				.find((candidate): candidate is Partial<Deck> => !!candidate) || undefined;
@@ -2548,7 +2551,7 @@ export class WDeckService {
 		const now = new Date().toISOString();
 		const metadata =
 			deck.metadata && typeof deck.metadata === "object"
-				? { ...(deck.metadata as Record<string, unknown>) }
+				? { ...(deck.metadata) }
 				: {};
 
 		delete metadata.fileType;
@@ -2724,10 +2727,10 @@ export class WDeckService {
 		);
 		const serialized = JSON.stringify(normalized, null, 2);
 		await safeWriteJson(
-			this.plugin.app.vault.adapter as any,
+			this.plugin.app.vault.adapter as unknown,
 			file.path,
 			serialized + "\n",
-			this.plugin.app as any
+			this.plugin.app as unknown
 		);
 	}
 }

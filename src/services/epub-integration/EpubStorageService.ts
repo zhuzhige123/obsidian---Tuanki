@@ -7,7 +7,10 @@ import {
 	normalizeWeaveParentFolder,
 } from "../../config/paths";
 import { DirectoryUtils } from "../../utils/directory-utils";
+import { readUnknownProperty, readUnknownString } from "../../utils/dynamic-access";
 import { logger } from "../../utils/logger";
+import { getPluginInstance } from "../../utils/plugin-runtime";
+import { isRecord } from "../../utils/typed-json";
 import {
 	DEFAULT_MOBILE_READER_SETTINGS,
 	DEFAULT_READER_SETTINGS,
@@ -30,7 +33,6 @@ import type {
 	ReadingPosition,
 	ReadingStats,
 	EpubStrikethroughDisplayMode,
-	Highlight,
 } from "./types";
 import { getEpubRuntime } from "./epub-runtime";
 
@@ -130,9 +132,14 @@ export class EpubStorageService {
 		this.localPluginId = runtime.pluginDirName;
 		const pluginCandidates = [...runtime.collaboratorHostPluginIds, runtime.pluginId]
 			.filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index)
-			.map((pluginId) => (app as any)?.plugins?.getPlugin?.(pluginId));
+			.map((pluginId) => getPluginInstance(app, pluginId));
 		const parentFolder = normalizeWeaveParentFolder(
-			pluginCandidates.find((plugin) => plugin?.settings?.weaveParentFolder)?.settings?.weaveParentFolder
+			pluginCandidates
+				.map((plugin) => {
+					const settings = readUnknownProperty(plugin, "settings");
+					return isRecord(settings) ? readUnknownString(settings, "weaveParentFolder") : undefined;
+				})
+				.find((folder): folder is string => Boolean(folder))
 		);
 		this.basePath = getV2Paths(parentFolder).ir.epub;
 	}
@@ -159,7 +166,7 @@ export class EpubStorageService {
 		if (authoritative) {
 			this._booksCache = localBooks;
 			await this.hydrateBookStates(localBooks);
-			return this._booksCache!;
+			return this._booksCache;
 		}
 		const legacyBooks = await this.readLegacyBooks();
 		const books = {
@@ -170,7 +177,7 @@ export class EpubStorageService {
 		if (Object.keys(books).length > 0) {
 			this._booksCache = books;
 			await this.hydrateBookStates(books);
-			return this._booksCache!;
+			return this._booksCache;
 		}
 
 		this._booksCache = {};
@@ -218,19 +225,19 @@ export class EpubStorageService {
 
 	private getLocalReaderStateRoot(): string {
 		return normalizePath(
-			`${getPluginPathsById(this.app as any, this.localPluginId).state.incrementalReading.readerState}/epub`
+			`${getPluginPathsById(this.app as unknown, this.localPluginId).state.incrementalReading.readerState}/epub`
 		);
 	}
 
 	private getUnifiedLocalDataPath(): string {
 		return normalizePath(
-			`${getPluginPathsById(this.app as any, this.localPluginId).state.incrementalReading.epubReaderData}`
+			`${getPluginPathsById(this.app as unknown, this.localPluginId).state.incrementalReading.epubReaderData}`
 		);
 	}
 
 	private getLocalReaderArtifactsRoot(): string {
 		return normalizePath(
-			`${getPluginPathsById(this.app as any, this.localPluginId).cache.incrementalReading.readerArtifacts}/epub`
+			`${getPluginPathsById(this.app as unknown, this.localPluginId).cache.incrementalReading.readerArtifacts}/epub`
 		);
 	}
 
@@ -697,7 +704,10 @@ export class EpubStorageService {
 		if (record.canvasBindings && typeof record.canvasBindings === "object" && !Array.isArray(record.canvasBindings)) {
 			normalized.canvasBindings = Object.fromEntries(
 				Object.entries(record.canvasBindings as Record<string, unknown>)
-					.map(([bookId, canvasPath]) => [String(bookId || "").trim(), normalizePath(String(canvasPath || "").trim())] as const)
+					.map(([bookId, canvasPath]) => [
+						EpubStorageService.normalizeCanvasBindingKey(bookId),
+						EpubStorageService.normalizeCanvasBindingPath(canvasPath),
+					] as const)
 					.filter(([bookId, canvasPath]) => Boolean(bookId) && Boolean(canvasPath))
 			);
 		}
@@ -860,7 +870,15 @@ export class EpubStorageService {
 		}
 	}
 
-	private async readJsonObjectFromPath(path: string): Promise<unknown | null> {
+	private static normalizeCanvasBindingKey(value: unknown): string {
+		return typeof value === "string" || typeof value === "number" ? String(value).trim() : "";
+	}
+
+	private static normalizeCanvasBindingPath(value: unknown): string {
+		return typeof value === "string" ? normalizePath(value.trim()) : "";
+	}
+
+	private async readJsonObjectFromPath(path: string): Promise<unknown> {
 		const adapter = this.app.vault.adapter;
 		if (!(await adapter.exists(path))) {
 			return null;
@@ -966,8 +984,8 @@ export class EpubStorageService {
 			const normalized = Object.fromEntries(
 				Object.entries(parsed as Record<string, unknown>)
 					.map(([bookId, canvasPath]) => [
-						String(bookId || "").trim(),
-						normalizePath(String(canvasPath || "").trim()),
+						EpubStorageService.normalizeCanvasBindingKey(bookId),
+						EpubStorageService.normalizeCanvasBindingPath(canvasPath),
 					] as const)
 					.filter(([bookId, canvasPath]) => Boolean(bookId) && Boolean(canvasPath))
 			);
@@ -1599,7 +1617,7 @@ export class EpubStorageService {
 		try {
 			const binary = await adapter.readBinary(normalizedPath);
 			const input =
-				binary instanceof Uint8Array ? binary : new Uint8Array(binary as ArrayBuffer);
+				binary instanceof Uint8Array ? binary : new Uint8Array(binary);
 			const buffer = input.buffer.slice(
 				input.byteOffset,
 				input.byteOffset + input.byteLength
@@ -2141,10 +2159,10 @@ export class EpubStorageService {
 		}
 
 		await Promise.all([
-			DirectoryUtils.pruneEmptyDirsUnder(adapter as any, this.getLocalReaderStateRoot(), {
+			DirectoryUtils.pruneEmptyDirsUnder(adapter as unknown, this.getLocalReaderStateRoot(), {
 				preserveRoot: false,
 			}),
-			DirectoryUtils.pruneEmptyDirsUnder(adapter as any, this.getLocalReaderArtifactsRoot(), {
+			DirectoryUtils.pruneEmptyDirsUnder(adapter as unknown, this.getLocalReaderArtifactsRoot(), {
 				preserveRoot: false,
 			}),
 		]);
@@ -2279,30 +2297,15 @@ export class EpubStorageService {
 	async saveProgress(bookId: string, position: ReadingPosition): Promise<void> {
 		this._pendingProgress = { bookId, position };
 		if (this._progressDebounceTimer) return;
-		this._progressDebounceTimer = setTimeout(async () => {
+		this._progressDebounceTimer = window.setTimeout(() => {
 			this._progressDebounceTimer = null;
-			const pending = this._pendingProgress;
-			if (!pending) return;
-			this._pendingProgress = null;
-			try {
-				const book = await this.getBook(pending.bookId);
-				if (book) {
-					book.currentPosition = pending.position;
-					book.readingStats.lastReadTime = Date.now();
-					await this.writeBookState(book.id, {
-						currentPosition: book.currentPosition,
-						readingStats: book.readingStats,
-					});
-				}
-			} catch (e) {
-				logger.warn("[EpubStorageService] saveProgress failed:", e);
-			}
+			void this.flushPendingProgress();
 		}, 300);
 	}
 
 	async flushPendingProgress(): Promise<void> {
 		if (this._progressDebounceTimer) {
-			clearTimeout(this._progressDebounceTimer);
+			window.clearTimeout(this._progressDebounceTimer);
 			this._progressDebounceTimer = null;
 		}
 		const pending = this._pendingProgress;
@@ -2400,7 +2403,7 @@ export class EpubStorageService {
 			.filter((item): item is ConcealedText => Boolean(item && typeof item === "object"))
 			.map((item) => ({
 				...item,
-				mode: this.normalizeConcealedTextMode((item as ConcealedText).mode),
+				mode: this.normalizeConcealedTextMode((item).mode),
 			}));
 	}
 
@@ -3052,16 +3055,16 @@ export class EpubStorageService {
 			}
 
 			await Promise.all([
-				DirectoryUtils.pruneEmptyDirsUnder(this.app.vault.adapter as any, this.basePath, {
+				DirectoryUtils.pruneEmptyDirsUnder(this.app.vault.adapter as unknown, this.basePath, {
 					preserveRoot: false,
 				}),
 				DirectoryUtils.pruneEmptyDirsUnder(
-					this.app.vault.adapter as any,
+					this.app.vault.adapter as unknown,
 					this.getLocalReaderStateRoot(),
 					{ preserveRoot: false }
 				),
 				DirectoryUtils.pruneEmptyDirsUnder(
-					this.app.vault.adapter as any,
+					this.app.vault.adapter as unknown,
 					this.getLocalReaderArtifactsRoot(),
 					{ preserveRoot: false }
 				),

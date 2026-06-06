@@ -63,9 +63,11 @@ export function createDeckStudyModalCoordinator(
       plugin,
       dataStorage: options.getDataStorage(),
       mode: "create",
-      onDeckCreated: async () => {
-        await options.refreshData();
-        plugin.app.workspace.trigger("Weave:data-changed");
+      onDeckCreated: () => {
+        void (async () => {
+          await options.refreshData();
+          plugin.app.workspace.trigger("Weave:data-changed");
+        })();
       },
       onClose: () => {
         createDeckModalInstance = null;
@@ -97,9 +99,11 @@ export function createDeckStudyModalCoordinator(
       dataStorage: options.getDataStorage(),
       mode: "edit",
       initialDeck: deck,
-      onDeckUpdated: async () => {
-        await options.refreshData();
-        plugin.app.workspace.trigger("Weave:data-changed");
+      onDeckUpdated: () => {
+        void (async () => {
+          await options.refreshData();
+          plugin.app.workspace.trigger("Weave:data-changed");
+        })();
       },
       onClose: () => {
         editDeckModalInstance = null;

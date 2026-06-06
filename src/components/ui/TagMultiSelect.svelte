@@ -162,12 +162,12 @@
       if (isOpen) positionDropdown();
     }
     
-    document.addEventListener('mousedown', onDocClick);
+    activeDocument.addEventListener('mousedown', onDocClick);
     window.addEventListener('resize', onResize);
     window.addEventListener('scroll', onScroll, true);
     
     return () => {
-      document.removeEventListener('mousedown', onDocClick);
+      activeDocument.removeEventListener('mousedown', onDocClick);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', onScroll, true);
     };

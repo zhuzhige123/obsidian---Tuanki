@@ -12,7 +12,7 @@ export interface UsageRecord {
 	context: UsageContext;
 	sessionId: string;
 	userAction: string;
-	metadata?: Record<string, any>;
+	metadata?: Record<string, unknown>;
 }
 
 // 使用上下文
@@ -162,8 +162,8 @@ export class UsagePatternAnalyzer {
 			this.patterns.set(resourceId, {
 				resourceId,
 				totalAccess: 0,
-				timeDistribution: new Array(24).fill(0),
-				dayDistribution: new Array(7).fill(0),
+				timeDistribution: Array.from({ length: 24 }, () => 0),
+				dayDistribution: Array.from({ length: 7 }, () => 0),
 				sequencePatterns: new Map(),
 				averageInterval: 0,
 				lastAccess: 0,
@@ -207,8 +207,8 @@ export class UsagePatternAnalyzer {
 		const pattern: PatternData = {
 			resourceId,
 			totalAccess: records.length,
-			timeDistribution: new Array(24).fill(0),
-			dayDistribution: new Array(7).fill(0),
+			timeDistribution: Array.from({ length: 24 }, () => 0),
+			dayDistribution: Array.from({ length: 7 }, () => 0),
 			sequencePatterns: new Map(),
 			averageInterval: 0,
 			lastAccess: 0,
@@ -588,7 +588,9 @@ export class IntelligentPreloadManager {
 			}
 
 			// 继续循环
-			setTimeout(processQueue, 1000);
+			window.setTimeout(() => {
+				void processQueue();
+			}, 1000);
 		};
 
 		void processQueue();
@@ -607,7 +609,7 @@ export class IntelligentPreloadManager {
 			task.completionTime = Date.now();
 
 			logger.debug(
-				`✅ 预加载完成: ${task.resourceId} (${task.completionTime - task.startTime!}ms)`
+				`✅ 预加载完成: ${task.resourceId} (${task.completionTime - task.startTime}ms)`
 			);
 		} catch (error) {
 			task.status = "failed";
@@ -622,7 +624,7 @@ export class IntelligentPreloadManager {
 	private async simulateResourceLoad(_resourceId: string, _resourceType: string): Promise<void> {
 		// 模拟加载时间
 		const loadTime = 100 + Math.random() * 500;
-		await new Promise((resolve) => setTimeout(resolve, loadTime));
+		await new Promise((resolve) => window.setTimeout(resolve, loadTime));
 
 		// 模拟偶发失败
 		if (Math.random() < 0.05) {

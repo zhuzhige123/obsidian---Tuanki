@@ -12,6 +12,7 @@ import {
 	getMediaManifestPath,
 } from "../../../config/paths";
 import type { MediaManifest } from "../../../domain/apkg/types";
+import { parseJsonUnknown } from "../../../utils/typed-json";
 import {
 	buildApkgDeckMediaFolderSegment,
 	sanitizeMediaFilename,
@@ -148,7 +149,7 @@ export class ObsidianMediaStorageAdapter implements IMediaStorageAdapter {
 				}
 
 				const content = await this.plugin.app.vault.read(file);
-				return JSON.parse(content);
+				return parseJsonUnknown(content) as MediaManifest;
 			}
 
 			return null;

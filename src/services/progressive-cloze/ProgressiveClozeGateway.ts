@@ -15,7 +15,6 @@
  * @version 1.0.0
  */
 
-import { FSRS } from "../../algorithms/fsrs";
 import type { Card } from "../../data/types";
 import { CardType } from "../../data/types";
 import type {
@@ -448,7 +447,7 @@ export class ProgressiveClozeGateway {
 				content: setCardProperty(newContent, "we_type", CardType.Cloze),
 				modified: new Date().toISOString(),
 			};
-			(updatedCard as any).progressiveCloze = undefined;
+			(updatedCard as unknown).progressiveCloze = undefined;
 			return [updatedCard];
 		}
 
@@ -499,14 +498,14 @@ export class ProgressiveClozeGateway {
 			modified: new Date().toISOString(),
 		};
 
-		(updatedCard as any).progressiveCloze = undefined;
+		(updatedCard as unknown).progressiveCloze = undefined;
 
 		if (exitChoice.mode === "inherit-child" && inheritedChild) {
-			(updatedCard as any).fsrs = inheritedChild.fsrs;
-			(updatedCard as any).reviewHistory = inheritedChild.reviewHistory || [];
+			(updatedCard as unknown).fsrs = inheritedChild.fsrs;
+			(updatedCard as unknown).reviewHistory = inheritedChild.reviewHistory || [];
 		} else {
-			(updatedCard as any).fsrs = this.createNewFsrs();
-			(updatedCard as any).reviewHistory = [];
+			(updatedCard as unknown).fsrs = this.createNewFsrs();
+			(updatedCard as unknown).reviewHistory = [];
 		}
 
 		logger.info(
@@ -766,8 +765,8 @@ export class ProgressiveClozeGateway {
 		const childCardIds = Array.from(
 			new Set(
 				[
-					...(((parentCard as ProgressiveClozeParentCard).progressiveCloze?.childCardIds || []) as string[]),
-					...((parentCard.relationMetadata?.childCardIds || []) as string[]),
+					...(((parentCard as ProgressiveClozeParentCard).progressiveCloze?.childCardIds || [])),
+					...((parentCard.relationMetadata?.childCardIds || [])),
 				]
 					.map((uuid) => String(uuid || "").trim())
 					.filter(Boolean)

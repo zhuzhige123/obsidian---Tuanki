@@ -12,6 +12,60 @@ import { getPluginPaths } from "../../config/paths";
 import type { ImportMapping } from "../../data/types";
 import type { WeavePlugin } from "../../main";
 import { DirectoryUtils } from "../../utils/directory-utils";
+import { isRecord, parseJsonUnknown, readNumber, readString } from "../../utils/typed-json";
+
+function parseStoredImportMapping(value: unknown): ImportMapping | null {
+	if (!isRecord(value)) {
+		return null;
+	}
+
+	const id = readString(value, "id");
+	const weaveCardId = readString(value, "weaveCardId");
+	const uuid = readString(value, "uuid");
+	const lastSyncTime = readString(value, "lastSyncTime");
+	const lastModifiedInWeave = readString(value, "lastModifiedInWeave");
+	const lastModifiedInAnki = readString(value, "lastModifiedInAnki");
+	const ankiNoteId = readNumber(value, "ankiNoteId");
+	const syncVersion = readNumber(value, "syncVersion");
+	const contentHash = readString(value, "contentHash");
+
+	if (
+		!id ||
+		!weaveCardId ||
+		!uuid ||
+		!lastSyncTime ||
+		!lastModifiedInWeave ||
+		!lastModifiedInAnki ||
+		ankiNoteId === undefined ||
+		syncVersion === undefined ||
+		contentHash === undefined
+	) {
+		return null;
+	}
+
+	const syncStatus = readString(value, "syncStatus");
+	const ankiModelId = readNumber(value, "ankiModelId");
+	const ankiModelName = readString(value, "ankiModelName");
+
+	return {
+		id,
+		weaveCardId,
+		ankiNoteId,
+		uuid,
+		lastSyncTime,
+		lastModifiedInWeave,
+		lastModifiedInAnki,
+		syncVersion,
+		contentHash,
+		...(ankiModelId !== undefined ? { ankiModelId } : {}),
+		...(ankiModelName ? { ankiModelName } : {}),
+		...(syncStatus === "synced" ||
+		syncStatus === "weave_modified" ||
+		syncStatus === "anki_modified"
+			? { syncStatus }
+			: {}),
+	};
+}
 
 /**
  * 导入映射管理器
@@ -266,11 +320,15 @@ export class ImportMappingManager {
 			}
 
 			const content = await this.plugin.app.vault.adapter.read(filePath);
-			const data = JSON.parse(content);
+			const data = parseJsonUnknown(content);
 
 			// 加载映射
-			if (data.mappings && Array.isArray(data.mappings)) {
-				for (const mapping of data.mappings) {
+			if (isRecord(data) && Array.isArray(data.mappings)) {
+				for (const entry of data.mappings) {
+					const mapping = parseStoredImportMapping(entry);
+					if (!mapping) {
+						continue;
+					}
 					this.mappings.set(mapping.uuid, mapping);
 				}
 
@@ -297,7 +355,7 @@ export class ImportMappingManager {
 		return {
 			totalMappings: all.length,
 			syncedMappings: all.filter((m) => m.syncStatus === "synced").length,
-			conflictMappings: all.filter((m) => (m as any).syncStatus === "conflict").length,
+			conflictMappings: all.filter((m) => (m as unknown).syncStatus === "conflict").length,
 		};
 	}
 }

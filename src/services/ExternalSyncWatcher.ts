@@ -81,10 +81,10 @@ export class ExternalSyncWatcher {
 		this._isInternalWrite = true;
 
 		if (this._internalWriteCooldown) {
-			clearTimeout(this._internalWriteCooldown);
+			window.clearTimeout(this._internalWriteCooldown);
 		}
 
-		this._internalWriteCooldown = setTimeout(() => {
+		this._internalWriteCooldown = window.setTimeout(() => {
 			this._isInternalWrite = false;
 			this._internalWriteCooldown = null;
 		}, 3000);
@@ -109,10 +109,10 @@ export class ExternalSyncWatcher {
 
 		// 防抖：合并多个文件变更为一次通知
 		if (this.debounceTimer) {
-			clearTimeout(this.debounceTimer);
+			window.clearTimeout(this.debounceTimer);
 		}
 
-		this.debounceTimer = setTimeout(() => {
+		this.debounceTimer = window.setTimeout(() => {
 			void this.handleExternalChanges();
 		}, this.DEBOUNCE_DELAY);
 	}
@@ -239,12 +239,12 @@ export class ExternalSyncWatcher {
 		this.eventRefs = [];
 
 		if (this.debounceTimer) {
-			clearTimeout(this.debounceTimer);
+			window.clearTimeout(this.debounceTimer);
 			this.debounceTimer = null;
 		}
 
 		if (this._internalWriteCooldown) {
-			clearTimeout(this._internalWriteCooldown);
+			window.clearTimeout(this._internalWriteCooldown);
 			this._internalWriteCooldown = null;
 		}
 

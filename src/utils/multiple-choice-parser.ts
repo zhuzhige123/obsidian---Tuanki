@@ -51,7 +51,7 @@ export function parseChoiceOptions(optionsText: string): ParsedChoiceQuestion {
 
 	//  增强格式检测：支持Markdown复选框格式
 	const hasLabeledFormat = lines.some(
-		(line) => /^[A-E][\.\s]/.test(line) // A. 或 A 开头
+		(line) => /^[A-E][.\s]/.test(line) // A. 或 A 开头
 	);
 
 	const hasCheckboxFormat = lines.some(
@@ -83,7 +83,7 @@ export function parseChoiceOptions(optionsText: string): ParsedChoiceQuestion {
 			const line = lines[i];
 
 			// 匹配 A. 内容 或 A 内容
-			const match = line.match(/^([A-E])[\.\s]\s*(.+)$/);
+			const match = line.match(/^([A-E])[.\s]\s*(.+)$/);
 			if (match) {
 				const [, label, text] = match;
 				const index = labels.indexOf(label.toUpperCase());

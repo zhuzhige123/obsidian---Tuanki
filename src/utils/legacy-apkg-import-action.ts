@@ -114,10 +114,10 @@ export function registerLegacyApkgImportRequestListener(
 	};
 
 	window.addEventListener(LEGACY_APKG_IMPORT_REQUEST_EVENT, handleRequest);
-	document.addEventListener(LEGACY_APKG_IMPORT_DOCUMENT_EVENT, handleLegacyDocumentEvent);
+	activeDocument.addEventListener("apkg-import", handleLegacyDocumentEvent);
 
 	return () => {
 		window.removeEventListener(LEGACY_APKG_IMPORT_REQUEST_EVENT, handleRequest);
-		document.removeEventListener(LEGACY_APKG_IMPORT_DOCUMENT_EVENT, handleLegacyDocumentEvent);
+		activeDocument.removeEventListener("apkg-import", handleLegacyDocumentEvent);
 	};
 }

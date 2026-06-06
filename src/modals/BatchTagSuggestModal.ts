@@ -104,7 +104,7 @@ export class BatchTagSuggestModal extends SuggestModal<BatchTagSuggestItem> {
 	}
 
 	private hideOverlay(): void {
-		if (typeof document === "undefined") {
+		if (typeof activeDocument === "undefined") {
 			return;
 		}
 
@@ -113,9 +113,9 @@ export class BatchTagSuggestModal extends SuggestModal<BatchTagSuggestItem> {
 			.filter((element): element is HTMLElement => element instanceof HTMLElement)
 			.filter((element) => element.classList.contains("modal-bg"));
 
-		const fallbackModalBg = Array.from(document.querySelectorAll(".modal-bg"))
+		const fallbackModalBg = Array.from(activeDocument.querySelectorAll(".modal-bg"))
 			.reverse()
-			.find((element): element is HTMLElement => element instanceof HTMLElement);
+			.find((element): element is HTMLElement => element.instanceOf(HTMLElement));
 
 		const modalBg = siblingCandidates[0] ?? fallbackModalBg;
 		if (!modalBg) {

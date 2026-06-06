@@ -1,5 +1,6 @@
 import type { App } from "obsidian";
 import type { LicenseInfo } from "../../types/license";
+import { getPluginInstance } from "../../utils/plugin-runtime";
 import { getEpubRuntime } from "./epub-runtime";
 
 export interface EpubHostCreateCardInput {
@@ -177,7 +178,7 @@ function mergeEpubHosts(hosts: EpubHostCapabilities[]): EpubHostCapabilities {
 function resolveCollaboratorHosts(app: App): EpubHostCapabilities[] {
 	const runtime = getEpubRuntime();
 	return runtime.collaboratorHostPluginIds
-		.map((pluginId) => (app as any)?.plugins?.getPlugin?.(pluginId))
+		.map((pluginId) => getPluginInstance(app, pluginId))
 		.filter((plugin): plugin is EpubHostCapabilities => Boolean(plugin && typeof plugin === "object"));
 }
 
@@ -193,7 +194,7 @@ export function resolveEpubHost(app: App): EpubHostCapabilities | null {
 
 	if (!localHost && !collaboratorHost) {
 		const runtime = getEpubRuntime();
-		const plugin = (app as any)?.plugins?.getPlugin?.(runtime.pluginId);
+		const plugin = getPluginInstance(app, runtime.pluginId);
 		if (!plugin || typeof plugin !== "object") {
 			return null;
 		}

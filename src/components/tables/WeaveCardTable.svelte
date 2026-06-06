@@ -459,10 +459,10 @@
     // 开始拖拽批量选择
     
     // 阻止页面滚动
-    document.body.style.overflow = 'hidden';
+    activeDocument.body.style.overflow = 'hidden';
     
     // 监听全局鼠标释放事件
-    document.addEventListener('mouseup', handleGlobalMouseUp);
+    activeDocument.addEventListener('mouseup', handleGlobalMouseUp);
   }
   
   // 拖拽批量选择移动
@@ -517,10 +517,10 @@
       dragSelectStartCard = null;
       
       // 恢复页面滚动
-      document.body.style.overflow = '';
+      activeDocument.body.style.overflow = '';
       
       // 移除全局事件监听
-      document.removeEventListener('mouseup', handleGlobalMouseUp);
+      activeDocument.removeEventListener('mouseup', handleGlobalMouseUp);
       
       // 退出拖拽批量选择模式
     }

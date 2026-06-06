@@ -1,3 +1,4 @@
+import { isCallable, readUnknownProperty } from "./dynamic-access";
 import { logger } from "../utils/logger";
 /**
  * 统一错误处理器
@@ -43,7 +44,7 @@ export interface ErrorContext {
 	editorId?: string;
 	componentName?: string;
 	timestamp: number;
-	additionalInfo?: Record<string, any>;
+	additionalInfo?: Record<string, unknown>;
 	stackTrace?: string;
 }
 
@@ -110,7 +111,7 @@ export class UnifiedErrorHandler {
 	 */
 	static getInstance(): UnifiedErrorHandler {
 		if (typeof window !== "undefined") {
-			const w = window as any;
+			const w = window as unknown;
 			if (w.__weaveUnifiedErrorHandler) {
 				return w.__weaveUnifiedErrorHandler as UnifiedErrorHandler;
 			}
@@ -126,12 +127,12 @@ export class UnifiedErrorHandler {
 			}
 
 			if (typeof window !== "undefined") {
-				const w = window as any;
+				const w = window as unknown;
 				w.__weaveUnifiedErrorHandler = UnifiedErrorHandler.instance;
 				w.__weaveUnifiedErrorHandlerCleanup = () => {
 					try {
 						(w.__weaveUnifiedErrorHandler as UnifiedErrorHandler | undefined)?.destroy();
-					} catch {}
+					} catch { /* no-op */ }
 
 					try {
 						w.__weaveUnifiedErrorHandler = undefined;
@@ -150,18 +151,26 @@ export class UnifiedErrorHandler {
 	 * 创建后备实例（当正常初始化失败时使用）
 	 */
 	private static createFallbackInstance(): UnifiedErrorHandler {
-		const instance = Object.create(UnifiedErrorHandler.prototype);
-		instance.errorHistory = [];
-		instance.listeners = [];
-		instance.recoveryStrategies = new Map();
-		instance.errorCounter = 0;
-		instance.maxHistorySize = 100;
-		instance.errorFrequencyMap = new Map();
-		instance.maxErrorsPerMinute = 10;
-		instance.errorCooldownMs = 60000;
-
-		// 为后备实例提供基本的方法实现
-		// 注意：这些方法已经在类原型上定义，这里只是确保它们能正常工作
+		const instance = Object.create(UnifiedErrorHandler.prototype) as UnifiedErrorHandler;
+		(instance as UnifiedErrorHandler & {
+			errorHistory: unknown[];
+			listeners: unknown[];
+			recoveryStrategies: Map<string, unknown>;
+			errorCounter: number;
+			maxHistorySize: number;
+			errorFrequencyMap: Map<string, number>;
+			maxErrorsPerMinute: number;
+			errorCooldownMs: number;
+		}).errorHistory = [];
+		(instance as UnifiedErrorHandler & { listeners: unknown[] }).listeners = [];
+		(instance as UnifiedErrorHandler & { recoveryStrategies: Map<string, unknown> })
+			.recoveryStrategies = new Map();
+		(instance as UnifiedErrorHandler & { errorCounter: number }).errorCounter = 0;
+		(instance as UnifiedErrorHandler & { maxHistorySize: number }).maxHistorySize = 100;
+		(instance as UnifiedErrorHandler & { errorFrequencyMap: Map<string, number> })
+			.errorFrequencyMap = new Map();
+		(instance as UnifiedErrorHandler & { maxErrorsPerMinute: number }).maxErrorsPerMinute = 10;
+		(instance as UnifiedErrorHandler & { errorCooldownMs: number }).errorCooldownMs = 60000;
 
 		logger.warn("[UnifiedErrorHandler] Using fallback instance with limited functionality");
 		return instance;
@@ -231,7 +240,7 @@ export class UnifiedErrorHandler {
 
 				// 添加延迟避免无限循环和性能问题
 				await new Promise((resolve) =>
-					setTimeout(resolve, Math.min(1000 * editorError.retryCount, 5000))
+					window.setTimeout(resolve, Math.min(1000 * editorError.retryCount, 5000))
 				);
 
 				// 修复递归调用，传递正确的参数
@@ -539,7 +548,7 @@ export class UnifiedErrorHandler {
 						operation: error.context.operation,
 					},
 				});
-				document.dispatchEvent(event);
+				activeDocument.dispatchEvent(event);
 
 				return true; // 假设验证恢复总是成功的
 			},
@@ -569,7 +578,11 @@ export class UnifiedErrorHandler {
 
 		this.windowErrorHandler = (event: ErrorEvent) => {
 			try {
-				void this.handleError(event.error || new Error(event.message), {
+				const error =
+					event.error instanceof Error
+						? event.error
+						: new Error(typeof event.message === "string" ? event.message : "Global error");
+				void this.handleError(error, {
 					type: ErrorType.UNKNOWN,
 					operation: "global-error",
 					additionalInfo: {
@@ -622,14 +635,14 @@ export class UnifiedErrorHandler {
 
 		try {
 			if (typeof window !== "undefined") {
-				const w = window as any;
+				const w = window as unknown;
 				if (w.__weaveUnifiedErrorHandler === this) {
 					w.__weaveUnifiedErrorHandler = undefined;
 				}
 			}
-		} catch {}
+		} catch { /* no-op */ }
 
-		UnifiedErrorHandler.instance = null as any;
+		UnifiedErrorHandler.instance = null as unknown;
 	}
 
 	/**
@@ -880,23 +893,24 @@ export abstract class EditorRecoveryStrategies {
 			logger.debug(`[Recovery] 重新初始化编辑器: ${editorId}`);
 
 			// 尝试清理现有的编辑器实例
-			const editorElement = document.querySelector(`[data-editor-id="${editorId}"]`);
+			const editorElement = activeDocument.querySelector(`[data-editor-id="${editorId}"]`);
 			if (editorElement) {
 				// 清理现有的CodeMirror实例
-				const cmInstance = (editorElement as any).CodeMirror;
-				if (cmInstance) {
-					cmInstance.toTextArea?.();
+				const cmInstance = readUnknownProperty(editorElement, "CodeMirror");
+				const toTextArea = readUnknownProperty(cmInstance, "toTextArea");
+				if (isCallable(toTextArea)) {
+					Reflect.apply(toTextArea, cmInstance, []);
 				}
 			}
 
 			// 等待DOM清理完成
-			await new Promise((resolve) => setTimeout(resolve, 50));
+			await new Promise((resolve) => window.setTimeout(resolve, 50));
 
 			// 触发重新初始化事件
 			const event = new CustomEvent("editor-reinitialize", {
 				detail: { editorId, config: "basic" },
 			});
-			document.dispatchEvent(event);
+			activeDocument.dispatchEvent(event);
 
 			logger.debug(`[Recovery] 编辑器重新初始化完成: ${editorId}`);
 			return true;
@@ -928,7 +942,7 @@ export abstract class EditorRecoveryStrategies {
 				const event = new CustomEvent("editor-reset-extensions", {
 					detail: { editorId, action: "reset-all" },
 				});
-				document.dispatchEvent(event);
+				activeDocument.dispatchEvent(event);
 				return true;
 			}
 
@@ -936,7 +950,7 @@ export abstract class EditorRecoveryStrategies {
 			const event = new CustomEvent("editor-disable-extensions", {
 				detail: { editorId, extensions: problematicExtensions },
 			});
-			document.dispatchEvent(event);
+			activeDocument.dispatchEvent(event);
 
 			logger.debug("[Recovery] 已禁用扩展:", problematicExtensions);
 			return true;
@@ -954,7 +968,7 @@ export abstract class EditorRecoveryStrategies {
 			logger.debug(`[Recovery] 重置预览组件: ${editorId}`);
 
 			// 查找预览容器并清理
-			const previewElements = document.querySelectorAll(
+			const previewElements = activeDocument.querySelectorAll(
 				`[data-editor-id="${editorId}"] .unified-preview`
 			);
 			previewElements.forEach((_element) => {
@@ -967,7 +981,7 @@ export abstract class EditorRecoveryStrategies {
 			const event = new CustomEvent("editor-reset-preview", {
 				detail: { editorId },
 			});
-			document.dispatchEvent(event);
+			activeDocument.dispatchEvent(event);
 
 			logger.debug(`[Recovery] 预览组件重置完成: ${editorId}`);
 			return true;
@@ -985,7 +999,7 @@ export abstract class EditorRecoveryStrategies {
 			logger.debug(`[Recovery] 重置主题配置: ${editorId}`);
 
 			// 移除可能有问题的主题类
-			const editorElement = document.querySelector(`[data-editor-id="${editorId}"]`);
+			const editorElement = activeDocument.querySelector(`[data-editor-id="${editorId}"]`);
 			if (editorElement) {
 				// 移除所有主题相关的类
 				const themeClasses = Array.from(editorElement.classList).filter(
@@ -1005,7 +1019,7 @@ export abstract class EditorRecoveryStrategies {
 			const event = new CustomEvent("editor-reset-theme", {
 				detail: { editorId, theme: "default" },
 			});
-			document.dispatchEvent(event);
+			activeDocument.dispatchEvent(event);
 
 			logger.debug(`[Recovery] 主题配置重置完成: ${editorId}`);
 			return true;

@@ -355,7 +355,7 @@ export class QuestionBankView extends ItemView {
 		if (!state || !state.bankId) {
 			logger.debug("[QuestionBankView] 检测到空状态或无效 bankId，关闭视图");
 			// 延迟关闭，避免在 setState 期间关闭导致的问题
-			setTimeout(() => {
+			window.setTimeout(() => {
 				this.leaf.detach();
 			}, 100);
 			return;
@@ -418,7 +418,7 @@ export class QuestionBankView extends ItemView {
 					logger.debug(`[QuestionBankView] 题库服务已就绪（轮询 ${i * interval}ms）`);
 					return;
 				}
-				await new Promise((resolve) => setTimeout(resolve, interval));
+				await new Promise((resolve) => window.setTimeout(resolve, interval));
 			}
 
 			throw new Error(i18n.t("views.questionBank.serviceInitTimeout"));

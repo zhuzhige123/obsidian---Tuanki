@@ -1,4 +1,5 @@
 import { logger } from "../../../utils/logger";
+import { isRecord, parseJsonUnknown } from "../../../utils/typed-json";
 /**
  * 备份元数据索引系统
  *
@@ -13,6 +14,7 @@ import type {
 	BackupCleanupItem,
 	BackupIndexData,
 	BackupMetadata,
+	BackupTrigger,
 	CleanupRecommendation,
 	DeleteAssessment,
 } from "../../../types/backup-types";
@@ -55,10 +57,17 @@ export class BackupMetadataManager {
 			}
 
 			const content = await this.plugin.app.vault.adapter.read(indexPath);
-			const indexData: BackupIndexData = JSON.parse(content);
+			const indexData = parseJsonUnknown(content);
+			if (!isRecord(indexData) || !isRecord(indexData.backups)) {
+				await this.saveIndex();
+				this.indexLoaded = true;
+				return;
+			}
 
 			for (const [id, metadata] of Object.entries(indexData.backups)) {
-				this.index.set(id, metadata);
+				if (isRecord(metadata)) {
+					this.index.set(id, metadata as BackupMetadata);
+				}
 			}
 
 			logger.debug(`📊 已加载 ${this.index.size} 个备份元数据`);
@@ -196,7 +205,7 @@ export class BackupMetadataManager {
 
 		// 规则 5: 自动备份超过30天，可以删除
 		const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-		if (metadata.trigger === "auto_import" && age > thirtyDays) {
+		if (metadata.trigger === BackupTrigger.AUTO_IMPORT && age > thirtyDays) {
 			return {
 				canDelete: true,
 				reason: "自动备份已超过30天",

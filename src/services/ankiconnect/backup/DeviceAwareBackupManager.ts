@@ -17,6 +17,13 @@ import type {
 	DeviceAwareBackup,
 	DeviceBackupInfo,
 } from "../../../types/backup-types";
+import {
+	BackupTrigger,
+	BackupType,
+	CompressionType,
+} from "../../../types/backup-types";
+import { readUnknownString } from "../../../utils/dynamic-access";
+import { isRecord, parseJsonUnknown } from "../../../utils/typed-json";
 import { StoragePathManager } from "../StoragePathManager";
 import { IntelligentBackupCompression } from "./IntelligentBackupCompression";
 
@@ -49,7 +56,7 @@ export class DeviceAwareBackupManager {
 			? "ios"
 			: "unknown";
 		const factors = [
-			(this.plugin.app as any).appId, // Obsidian 应用ID
+			(this.plugin.app as unknown).appId, // Obsidian 应用ID
 			platformStr, // 平台信息
 		];
 
@@ -98,7 +105,7 @@ export class DeviceAwareBackupManager {
 				deviceName,
 
 				// 版本信息
-				obsidianVersion: (this.plugin.app as any).appVersion || "unknown",
+				obsidianVersion: readUnknownString(this.plugin.app, "appVersion") ?? "unknown",
 				pluginVersion: this.plugin.manifest.version,
 				vaultName: this.plugin.app.vault.getName(),
 
@@ -113,9 +120,9 @@ export class DeviceAwareBackupManager {
 				storagePath: "",
 				size: 0,
 				compressed: false,
-				compressionType: "none" as any,
+				compressionType: CompressionType.NONE,
 				encrypted: false,
-				type: "full" as any,
+				type: BackupType.FULL,
 
 				// 健康状态
 				isHealthy: true,
@@ -139,7 +146,7 @@ export class DeviceAwareBackupManager {
 			// 智能压缩
 			const compressed = await this.compression.createCompressedBackup(options.data as BackupData);
 
-			metadata.compressed = compressed.type !== "none";
+			metadata.compressed = compressed.type !== CompressionType.NONE;
 			metadata.compressionType = compressed.type;
 			metadata.size = compressed.size;
 			metadata.originalSize = compressed.originalSize;
@@ -149,13 +156,13 @@ export class DeviceAwareBackupManager {
 			let storagePath: string;
 
 			switch (options.trigger) {
-				case "auto_import":
+				case BackupTrigger.AUTO_IMPORT:
 					storagePath = this.pathManager.getImportBackupPath();
 					break;
-				case "scheduled":
+				case BackupTrigger.SCHEDULED:
 					storagePath = this.pathManager.getScheduledBackupPath();
 					break;
-				case "manual":
+				case BackupTrigger.MANUAL:
 					storagePath = this.pathManager.getManualBackupPath();
 					break;
 				default:
@@ -164,13 +171,13 @@ export class DeviceAwareBackupManager {
 
 			await this.pathManager.ensureFolder(storagePath);
 
-			const extension = compressed.type === "gzip" ? ".json.gz" : ".json";
+			const extension = compressed.type === CompressionType.GZIP ? ".json.gz" : ".json";
 			const filePath = `${storagePath}/${backupId}${extension}`;
 
 			metadata.storagePath = filePath;
 
 			// 写入备份文件
-			if (compressed.type === "gzip") {
+			if (compressed.type === CompressionType.GZIP) {
 				await this.plugin.app.vault.adapter.writeBinary(
 					filePath,
 					(compressed.data as Uint8Array).buffer as ArrayBuffer
@@ -286,7 +293,11 @@ export class DeviceAwareBackupManager {
 		} else {
 			// 未压缩备份
 			const content = await this.plugin.app.vault.adapter.read(filePath);
-			return JSON.parse(content);
+			const parsed = parseJsonUnknown(content);
+			if (!isRecord(parsed)) {
+				throw new Error(`备份文件格式无效: ${filePath}`);
+			}
+			return parsed as DeviceAwareBackup;
 		}
 	}
 
@@ -295,10 +306,10 @@ export class DeviceAwareBackupManager {
 	 * @param data 数据
 	 * @returns 转换后的数据
 	 */
-	private convertToRelativePaths(data: any): any {
+	private convertToRelativePaths(data: unknown): unknown {
 		const vaultName = this.plugin.app.vault.getName();
 
-		const convert = (obj: any): any => {
+		const convert = (obj: unknown): unknown => {
 			if (typeof obj === "string") {
 				// 检测并转换路径
 				if (obj.includes(vaultName)) {
@@ -316,7 +327,7 @@ export class DeviceAwareBackupManager {
 			}
 
 			if (obj && typeof obj === "object") {
-				const converted: any = {};
+				const converted: unknown = {};
 				for (const [key, value] of Object.entries(obj)) {
 					converted[key] = convert(value);
 				}
@@ -334,10 +345,10 @@ export class DeviceAwareBackupManager {
 	 * @param data 数据
 	 * @returns 转换后的数据
 	 */
-	restoreDevicePaths(data: any): any {
+	restoreDevicePaths(data: unknown): unknown {
 		const vaultName = this.plugin.app.vault.getName();
 
-		const restore = (obj: any): any => {
+		const restore = (obj: unknown): unknown => {
 			if (typeof obj === "string" && obj.includes("{{vault}}")) {
 				return obj.replace("{{vault}}", vaultName);
 			}
@@ -347,7 +358,7 @@ export class DeviceAwareBackupManager {
 			}
 
 			if (obj && typeof obj === "object") {
-				const restored: any = {};
+				const restored: unknown = {};
 				for (const [key, value] of Object.entries(obj)) {
 					restored[key] = restore(value);
 				}

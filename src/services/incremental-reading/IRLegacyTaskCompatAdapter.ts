@@ -252,11 +252,11 @@ export function buildLegacyBlockFromPointSnapshot(snapshot: IRPointSnapshot): IR
 
 	const metadata =
 		point.metadata && typeof point.metadata === "object"
-			? (point.metadata as Record<string, unknown>)
+			? (point.metadata)
 			: undefined;
 	const locator =
 		point.trace?.locator && typeof point.trace.locator === "object"
-			? (point.trace.locator as Record<string, unknown>)
+			? (point.trace.locator)
 			: undefined;
 	const filePath =
 		readStringRecordValue(metadata, "sourcePath") ||

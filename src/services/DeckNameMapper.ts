@@ -26,7 +26,7 @@ export class DeckNameMapper {
 		}
 
 		try {
-			const decks = await (this.plugin as any).dataStorage.getDecks();
+			const decks = await this.plugin.dataStorage.getDecks();
 			this.rebuildMaps(decks);
 			this.initialized = true;
 			logger.info(`[DeckNameMapper] ✅ 初始化完成，已映射 ${this.nameToIdMap.size} 个牌组`);
@@ -177,7 +177,7 @@ export class DeckNameMapper {
 
 	async refresh(): Promise<void> {
 		try {
-			const decks = await (this.plugin as any).dataStorage.getDecks();
+			const decks = await this.plugin.dataStorage.getDecks();
 			this.rebuildMaps(decks);
 			logger.debug("[DeckNameMapper] 映射表已刷新");
 		} catch (error) {

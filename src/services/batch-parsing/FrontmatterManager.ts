@@ -19,7 +19,7 @@ import { App, TFile } from "obsidian";
  * Frontmatter 数据类型
  */
 export interface FrontmatterData {
-	[key: string]: any;
+	[key: string]: unknown;
 }
 
 /**
@@ -297,7 +297,7 @@ export class FrontmatterManager {
 	 * @param file Obsidian 文件对象
 	 * @param fields 字段映射
 	 */
-	async batchUpdate(file: TFile, fields: Record<string, any>): Promise<void> {
+	async batchUpdate(file: TFile, fields: Record<string, unknown>): Promise<void> {
 		await this.updateFrontmatter(file, fields);
 	}
 

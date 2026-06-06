@@ -1,4 +1,6 @@
 import type { App, Plugin } from "obsidian";
+import { isCallable, readUnknownProperty } from "./dynamic-access";
+import { isRecord } from "./typed-json";
 import { logger } from "./logger";
 
 function getRegisteredViewTypeForExtension(app: App, extension: string): string | null {
@@ -7,18 +9,21 @@ function getRegisteredViewTypeForExtension(app: App, extension: string): string 
 		return null;
 	}
 
-	const viewRegistry = (app as any)?.viewRegistry;
-	const typeByExtension = viewRegistry?.typeByExtension;
+	const viewRegistry = readUnknownProperty(app, "viewRegistry");
+	const typeByExtension = readUnknownProperty(viewRegistry, "typeByExtension");
 	if (!typeByExtension) {
 		return null;
 	}
 
-	if (typeof typeByExtension.get === "function") {
-		return typeByExtension.get(normalizedExtension) ?? null;
+	const getMethod = readUnknownProperty(typeByExtension, "get");
+	if (isCallable(getMethod)) {
+		const result = Reflect.apply(getMethod, typeByExtension, [normalizedExtension]);
+		return typeof result === "string" ? result : null;
 	}
 
-	if (typeof typeByExtension === "object") {
-		return typeByExtension[normalizedExtension] ?? null;
+	if (isRecord(typeByExtension)) {
+		const bound = typeByExtension[normalizedExtension];
+		return typeof bound === "string" ? bound : null;
 	}
 
 	return null;

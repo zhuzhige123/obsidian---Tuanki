@@ -19,8 +19,8 @@ interface RetentionCurveOptionConfig {
 	axisXName: string;
 	axisYName: string;
 	series: NonNullable<EChartsOption["series"]>;
-	tooltipFormatter: (params: any) => string;
-	tooltipPosition?: any;
+	tooltipFormatter: (params: unknown) => string;
+	tooltipPosition?: unknown;
 }
 
 export function buildRetentionCurveOption({
@@ -101,6 +101,6 @@ export function buildRetentionCurveOption({
 		series,
 	};
 
-	applyRetentionChartLayout(option as any, colors, isMobile);
+	applyRetentionChartLayout(option as unknown, colors, isMobile);
 	return option;
 }

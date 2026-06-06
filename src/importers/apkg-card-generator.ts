@@ -92,7 +92,7 @@ export class WeaveCardGenerator {
 
 		let markdown = html;
 
-		markdown = markdown.replace(/\{\{c\d+::(.*?)\}\}/g, (_match, text) =>
+		markdown = markdown.replace(/\{\{c\d+::(.*?)\}\}/g, (_match: string, text: string) =>
 			wrapWithConfiguredCloze(text)
 		);
 
@@ -124,7 +124,7 @@ export class WeaveCardGenerator {
 
 		//  列表转换
 		// 无序列表
-		markdown = markdown.replace(/<ul>(.*?)<\/ul>/gis, (_match, content) => {
+		markdown = markdown.replace(/<ul>(.*?)<\/ul>/gis, (_match: string, content: string) => {
 			const items = content.match(/<li>(.*?)<\/li>/gis) || [];
 			return `${items
 				.map((item: string) => `- ${item.replace(/<\/?li>/gi, "").trim()}`)
@@ -132,7 +132,7 @@ export class WeaveCardGenerator {
 		});
 
 		// 有序列表
-		markdown = markdown.replace(/<ol>(.*?)<\/ol>/gis, (_match, content) => {
+		markdown = markdown.replace(/<ol>(.*?)<\/ol>/gis, (_match: string, content: string) => {
 			const items = content.match(/<li>(.*?)<\/li>/gis) || [];
 			return `${items
 				.map(
@@ -153,7 +153,7 @@ export class WeaveCardGenerator {
 		markdown = markdown.replace(/<h6>(.*?)<\/h6>/gi, "###### $1\n");
 
 		//  引用块
-		markdown = markdown.replace(/<blockquote>(.*?)<\/blockquote>/gis, (_match, content) => {
+		markdown = markdown.replace(/<blockquote>(.*?)<\/blockquote>/gis, (_match: string, content: string) => {
 			const lines = content.trim().split("\n");
 			return `${lines.map((line: string) => `> ${line.trim()}`).join("\n")}\n`;
 		});
@@ -162,10 +162,10 @@ export class WeaveCardGenerator {
 		markdown = markdown.replace(/<hr\s*\/?>/gi, "\n---\n");
 
 		// 代码块
-		markdown = markdown.replace(/<pre><code>(.*?)<\/code><\/pre>/gis, (_match, content) => {
+		markdown = markdown.replace(/<pre><code>(.*?)<\/code><\/pre>/gis, (_match: string, content: string) => {
 			return `\`\`\`\n${content.trim()}\n\`\`\`\n`;
 		});
-		markdown = markdown.replace(/<pre>(.*?)<\/pre>/gis, (_match, content) => {
+		markdown = markdown.replace(/<pre>(.*?)<\/pre>/gis, (_match: string, content: string) => {
 			return `\`\`\`\n${content.trim()}\n\`\`\`\n`;
 		});
 

@@ -405,7 +405,7 @@ export class CardQualityInboxService {
 							message: t("management.cardQuality.progress.analyzingSimilar", { current: pairCount, total: totalPairs }),
 						});
 						// 让出事件循环防止UI阻塞
-						await new Promise((resolve) => setTimeout(resolve, 0));
+						await new Promise((resolve) => window.setTimeout(resolve, 0));
 					}
 
 					const similarity = this.calculateSimilarity(

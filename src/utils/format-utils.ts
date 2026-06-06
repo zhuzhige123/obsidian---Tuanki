@@ -115,7 +115,7 @@ export function formatPercentage(value: number, total: number, decimals = 1): st
  * @param text 要截断的文本（自动转换为字符串）
  * @param maxLength 最大长度
  */
-export function truncateText(text: any, maxLength: number): string {
+export function truncateText(text: unknown, maxLength: number): string {
 	//  类型安全：确保text是字符串
 	if (text === null || text === undefined) return "";
 	const textStr = typeof text === "string" ? text : String(text);

@@ -182,7 +182,7 @@ export class DirectoryUtils {
 
 			let listing: { files?: string[]; folders?: string[] };
 			try {
-				listing = await adapterWithDirOps.list!(dir);
+				listing = await adapterWithDirOps.list(dir);
 			} catch {
 				return;
 			}
@@ -192,7 +192,7 @@ export class DirectoryUtils {
 			}
 
 			try {
-				listing = await adapterWithDirOps.list!(dir);
+				listing = await adapterWithDirOps.list(dir);
 			} catch {
 				return;
 			}

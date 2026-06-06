@@ -37,11 +37,6 @@ interface AIProviderConfig {
 	lastVerified?: string;
 }
 
-type AIConfigWithFormattingProvider = AIConfig & {
-	apiKeys?: Partial<Record<AIProvider, AIProviderConfig>>;
-	formattingProvider?: string;
-};
-
 type LegacyAIConfig = AIConfig & {
 	formattingProvider?: string;
 };
@@ -103,7 +98,7 @@ function validateChoiceFormat(content: string): {
 		return { isValid: false, reason: "缺少问题部分（Q:）" };
 	}
 
-	const optionsMatch = content.match(/^[A-Z][\)\.．、）]\s*/gm);
+	const optionsMatch = content.match(/^[A-Z][).．、）]\s*/gm);
 	if (!optionsMatch || optionsMatch.length < 2) {
 		return { isValid: false, reason: "选项数量不足（至少需要2个）" };
 	}

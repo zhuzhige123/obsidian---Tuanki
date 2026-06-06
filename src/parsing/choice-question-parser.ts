@@ -54,7 +54,7 @@ function findStemParenAnswer(stem: string): {
 	stemWithoutAnswer: string;
 	answer: ParsedAnswer | null;
 } {
-	const m = stem.match(/([\s\S]*?)(?:\(|（)\s*([^\)\）]+?)\s*(?:\)|）)\s*$/);
+	const m = stem.match(/([\s\S]*?)(?:\(|（)\s*([^)）]+?)\s*(?:\)|）)\s*$/);
 	if (!m) return { stemWithoutAnswer: stem, answer: null };
 	const answers = normalizeAnswerList(m[2]);
 	if (answers.length === 0) return { stemWithoutAnswer: stem, answer: null };
@@ -84,7 +84,7 @@ function extractExplanation(front: string, back: string): { front: string; expla
 }
 
 function isOptionStartLine(line: string): { label: string; content: string } | null {
-	const match = line.match(/^\s*([A-Z])\s*[\.．、]\s*(.*)$/);
+	const match = line.match(/^\s*([A-Z])\s*[.．、]\s*(.*)$/);
 	if (!match) return null;
 	return { label: match[1], content: match[2] ?? "" };
 }
@@ -300,7 +300,7 @@ export function isChoiceQuestion(markdown: string): boolean {
 	// 快速检测：至少 2 个选项（无答案也算选择题，UI 将提示“答案缺失”）
 	const body = extractBodyContent(markdown);
 	const hasOptions =
-		body.split("\n").filter((l) => /^\s*[A-Z]\s*[\.．、]\s*/.test(l)).length >= 2;
+		body.split("\n").filter((l) => /^\s*[A-Z]\s*[.．、]\s*/.test(l)).length >= 2;
 	if (!hasOptions) return false;
 
 	return true;

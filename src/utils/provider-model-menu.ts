@@ -40,8 +40,8 @@ const DEFAULT_PROVIDERS: AIProvider[] = [
 export function isCompactMobileDevice(): boolean {
 	return (
 		Platform.isMobile
-		|| document.body.classList.contains("is-mobile")
-		|| document.body.classList.contains("is-phone")
+		|| activeDocument.body.classList.contains("is-mobile")
+		|| activeDocument.body.classList.contains("is-phone")
 	);
 }
 

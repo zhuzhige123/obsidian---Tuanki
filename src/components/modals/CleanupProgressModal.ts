@@ -74,20 +74,29 @@ export class CleanupProgressModal extends Modal {
 		this.startTimer();
 	}
 
-	async onClose(): Promise<void> {
+	onClose(): void {
 		if (this.timerInterval) {
 			window.clearInterval(this.timerInterval);
 			this.timerInterval = undefined;
 		}
 
 		if (this.modalComponent) {
-			try {
-				const { unmount } = await import("svelte");
-				void unmount(this.modalComponent as never);
-				this.modalComponent = null;
-			} catch (error) {
-				logger.error("[CleanupProgressModal] 销毁组件失败:", error);
-			}
+			void this.teardownComponent();
+			return;
+		}
+
+		this.contentEl.empty();
+	}
+
+	private async teardownComponent(): Promise<void> {
+		const component = this.modalComponent;
+		this.modalComponent = null;
+
+		try {
+			const { unmount } = await import("svelte");
+			void unmount(component as never);
+		} catch (error) {
+			logger.error("[CleanupProgressModal] 销毁组件失败:", error);
 		}
 
 		this.contentEl.empty();
@@ -230,7 +239,7 @@ export class CleanupProgressModal extends Modal {
 				isCancelled: true,
 			}));
 
-			setTimeout(() => {
+			window.setTimeout(() => {
 				this.close();
 			}, 1500);
 		}

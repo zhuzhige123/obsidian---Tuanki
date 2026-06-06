@@ -76,8 +76,8 @@
   }
 
   onMount(() => {
-    if (document.body.classList.contains('is-phone')) {
-      document.body.classList.add('weave-study-active');
+    if (activeDocument.body.classList.contains('is-phone')) {
+      activeDocument.body.classList.add('weave-study-active');
     }
 
     session = stagingService.getSession(sessionId);
@@ -93,7 +93,7 @@
   });
 
   onDestroy(() => {
-    document.body.classList.remove('weave-study-active');
+    activeDocument.body.classList.remove('weave-study-active');
   });
 </script>
 

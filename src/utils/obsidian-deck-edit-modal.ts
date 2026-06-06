@@ -48,7 +48,7 @@ export function openObsidianDeckEditModal(options: ObsidianDeckEditModalOptions)
 		type: "text",
 		cls: "weave-deck-edit-input",
 		attr: { placeholder: options.namePlaceholder || "" },
-	}) as HTMLInputElement;
+	});
 	nameInputEl.value = draftName;
 
 	const tagFieldEl = formEl.createDiv({ cls: "weave-deck-edit-field" });
@@ -59,7 +59,7 @@ export function openObsidianDeckEditModal(options: ObsidianDeckEditModalOptions)
 		type: "text",
 		cls: "weave-deck-edit-tag-input",
 		attr: { placeholder: options.tagPlaceholder },
-	}) as HTMLInputElement;
+	});
 
 	let availableTagsListEl: HTMLDivElement | null = null;
 	if (availableTags.length > 0) {
@@ -81,12 +81,12 @@ export function openObsidianDeckEditModal(options: ObsidianDeckEditModalOptions)
 	const cancelButtonEl = footerEl.createEl("button", {
 		text: options.cancelText || "取消",
 		cls: "weave-deck-edit-btn",
-	}) as HTMLButtonElement;
+	});
 	cancelButtonEl.type = "button";
 	const confirmButtonEl = footerEl.createEl("button", {
 		text: options.confirmText,
 		cls: "weave-deck-edit-btn weave-deck-edit-btn-primary",
-	}) as HTMLButtonElement;
+	});
 	confirmButtonEl.type = "button";
 
 	function updateTagInputPlaceholder(): void {
@@ -105,7 +105,7 @@ export function openObsidianDeckEditModal(options: ObsidianDeckEditModalOptions)
 		const removeButtonEl = tagChipEl.createEl("button", {
 			text: "×",
 			cls: "weave-deck-edit-tag-chip-remove",
-		}) as HTMLButtonElement;
+		});
 		removeButtonEl.type = "button";
 		removeButtonEl.ariaLabel = "移除标签";
 		removeButtonEl.addEventListener("click", () => {
@@ -130,7 +130,7 @@ export function openObsidianDeckEditModal(options: ObsidianDeckEditModalOptions)
 			const tagButtonEl = availableTagsListEl.createEl("button", {
 				text: tag,
 				cls: buttonClassName,
-			}) as HTMLButtonElement;
+			});
 			tagButtonEl.type = "button";
 			tagButtonEl.addEventListener("click", () => {
 				selectedTag = selectedTag === tag ? "" : tag;

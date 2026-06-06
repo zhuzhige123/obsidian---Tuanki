@@ -22,7 +22,6 @@ import type { CardType } from "../data/types";
 import { logger } from "../utils/logger";
 import {
 	type CardYAMLDifficulty,
-	type CardYAMLMetadata,
 	type CardYAMLType,
 	extractAllTags,
 	getCardDeckIds,
@@ -384,7 +383,7 @@ export class CardMetadataCache {
 	 * @param type 卡片类型
 	 * @returns 筛选后的卡片数组
 	 */
-	filterByType(cards: Card[], type: string): Card[] {
+	filterByType(cards: Card[], type: CardType | CardYAMLType): Card[] {
 		return cards.filter((_card) => {
 			const metadata = this.getMetadata(_card);
 			return metadata.type === type;
@@ -579,7 +578,7 @@ export class CardMetadataCache {
 
 				// 延迟一下，避免阻塞主线程
 				if (this.prefetchState.queue.length > 0) {
-					await new Promise((resolve) => setTimeout(resolve, this.config.prefetchIntervalMs));
+					await new Promise((resolve) => window.setTimeout(resolve, this.config.prefetchIntervalMs));
 				}
 			}
 

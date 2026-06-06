@@ -3,15 +3,16 @@ import "./utils/group-by-compat";
 
 import {
 	Editor,
+	EventRef,
 	MarkdownFileInfo,
 	MarkdownView,
 	Menu,
 	Notice,
 	Platform,
 	Plugin,
-	SuggestModal,
 	TAbstractFile,
 	TFile,
+	Workspace,
 	WorkspaceLeaf,
 	normalizePath,
 } from "obsidian";
@@ -33,6 +34,7 @@ import {
 	getCardStagingSessionService,
 } from "./services/ai/CardStagingSessionService";
 import { filterPreviewItemsForStudyMode } from "./services/ai/card-staging-card-builder";
+import { isDevBuild } from "./utils/build-env";
 import { licenseManager } from "./utils/licenseManager";
 import { initMediaDebug } from "./utils/mediaDebugHelper";
 import { createSafeNotice, safeOpenSettings } from "./utils/obsidian-api-safe";
@@ -112,7 +114,6 @@ import { MaskDataParser } from "./services/image-mask/MaskDataParser";
 import { registerExtensionsSafely } from "./utils/register-extensions-safely";
 import {
 	generateUniqueVaultFilePath,
-	normalizeIRReadableMarkdownFolderPath,
 	resolveIRReadableMarkdownTargetFolder,
 } from "./services/incremental-reading/IRReadableMarkdownPathResolver";
 import { IRHostSharedService } from "./services/incremental-reading/IRHostSharedService";
@@ -120,7 +121,8 @@ import { replaceSelectionInMarkdownContent } from "./services/incremental-readin
 import { createWeaveDeckCodeBlockProcessor } from "./services/markdown/WeaveDeckCodeBlockProcessor";
 import { WEAVE_DECKS_CODE_BLOCK_LANGUAGE } from "./services/markdown/weaveDeckCodeBlock";
 import { ReadingCategory } from "./types/incremental-reading-types";
-import type { ParsedCard } from "./types/newCardParsingTypes";
+import type { FolderDeckMapping, ParsedCard } from "./types/newCardParsingTypes";
+import type { IRChunkFileData, IRDeck } from "./types/ir-types";
 import { registerMobileCanvasPaneMenuPatch } from "./utils/canvas-pane-menu-mobile";
 import { initI18n, syncI18nWithObsidianLanguage } from "./utils/i18n";
 import { logger } from "./utils/logger";
@@ -146,7 +148,15 @@ import { registerEpubHost, unregisterEpubHost, type EpubHostCapabilities } from 
 import { applyDeviceClasses, detectDevice } from "./utils/tablet-detection";
 import { vaultStorage } from "./utils/vault-local-storage";
 import { readSystemClipboardText, writeSystemClipboardText } from "./utils/system-clipboard";
-import { openFileWithExistingLeaf, openLinkWithExistingLeaf, revealLeaf } from "./utils/workspace-navigation";
+import { revealLeaf } from "./utils/workspace-navigation";
+import {
+	callUnknownAsync,
+	isCallable,
+	readUnknownBoolean,
+	readUnknownProperty,
+	readUnknownString,
+} from "./utils/dynamic-access";
+import { isRecord, readString } from "./utils/typed-json";
 
 import { get } from "svelte/store";
 // AI
@@ -184,7 +194,6 @@ import type { SupportedLanguage } from "./utils/i18n";
 
 // 🆕 学习模式类型
 import {
-	type PersistedStudySession,
 	type PersistedStudySessionStore,
 	type StudyMode,
 	isPersistedStudySession,
@@ -239,6 +248,41 @@ import "./styles/progressive-cloze.css"; // 渐进式挖空
 import "./styles/study-interface.css"; // 学习界面
 import "./styles/study-view-layout.css";
 import { applyStyleProps } from "./utils/style-props"; // 学习视图布局（三界面共享）
+
+function getCanvasNodeDataRecord(node: unknown): Record<string, unknown> | null {
+	const getData = readUnknownProperty(node, "getData");
+	const raw = isCallable(getData) ? Reflect.apply(getData, node, []) : node;
+	return isRecord(raw) ? raw : null;
+}
+
+function readMaterialDeckId(material: unknown): string {
+	if (!isRecord(material)) {
+		return "";
+	}
+	const readingDeckId = readString(material, "readingDeckId")?.trim() ?? "";
+	const topicId = readString(material, "topicId")?.trim() ?? "";
+	return readingDeckId || topicId;
+}
+
+function readDeckDisplayName(deck: unknown, fallback = "增量阅读"): string {
+	return readUnknownString(deck, "name")?.trim() || fallback;
+}
+
+function registerWorkspaceCustomEvent(
+	plugin: Plugin,
+	workspace: Workspace,
+	eventName: string,
+	callback: (...args: unknown[]) => void
+): void {
+	const onFn = readUnknownProperty(workspace, "on");
+	if (!isCallable(onFn)) {
+		return;
+	}
+	const eventRef = Reflect.apply(onFn, workspace, [eventName, callback]);
+	if (eventRef) {
+		plugin.registerEvent(eventRef as EventRef);
+	}
+}
 
 /**
  * ========================================
@@ -302,7 +346,7 @@ export interface WeaveSettings extends SettingsWithEditor {
 	studyConfig?: {
 		newCardsPerDay?: number;
 		reviewsPerDay?: number;
-		fsrs?: any;
+		fsrs?: unknown;
 		// 🆕 兄弟卡片分散配置（渐进式挖空优化）
 		siblingDispersion?: import("./types/plugin-settings").SiblingDispersionConfig;
 		showAnswerButtons?: boolean;
@@ -946,7 +990,7 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 	autoCheckDataConsistency: false, // 
 
 	// 
-	incrementalReading: buildDefaultIncrementalReadingSettings("") as any,
+	incrementalReading: buildDefaultIncrementalReadingSettings(""),
 
 	pinnedDecks: [],
 	timerAutoPauseSeconds: undefined,
@@ -1116,7 +1160,7 @@ export class WeavePlugin extends Plugin {
 	private legacyApkgRuntimePath: string | null = null;
 	private legacyApkgImportAvailable = false;
 	editorPoolManager!: EmbeddableEditorManager;
-	cardRelationService!: any; // 
+	cardRelationService!: unknown; // 
 	deckHierarchy!: DeckHierarchyService;
 	mediaManager!: MediaManagementService;
 	indexManager!: IndexManagerService;
@@ -1187,15 +1231,15 @@ export class WeavePlugin extends Plugin {
 	// 
 	// 
 	private currentCreateCardModal: {
-		instance: any;
+		instance: unknown;
 		container: HTMLElement;
-		updateContent: (content: string, metadata: any) => Promise<void>;
+		updateContent: (content: string, metadata: unknown) => Promise<void>;
 	} | null = null;
 
 	// 
 	// 
 	private currentEditCardModal: {
-		instance: any;
+		instance: unknown;
 		container: HTMLElement;
 	} | null = null;
 
@@ -1301,11 +1345,11 @@ export class WeavePlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		const loadedData = await this.loadData();
+		const loadedData: unknown = await this.loadData();
 		let needsSave = false;
 
 		// 深度合并设置，确保嵌套对象正确合并
-		this.settings = this.deepMerge(DEFAULT_SETTINGS, loadedData);
+		this.settings = this.deepMerge(DEFAULT_SETTINGS, loadedData) as WeaveSettings;
 		if (this.syncLicenseSettings()) {
 			needsSave = true;
 		}
@@ -1313,9 +1357,12 @@ export class WeavePlugin extends Plugin {
 		setGlobalClozeDelimiterSettings(this.settings.clozeSettings);
 
 		// 更名迁移：将旧字段名 tuankiParentFolder 映射到 weaveParentFolder
-		if ((loadedData as any)?.tuankiParentFolder && !this.settings.weaveParentFolder) {
-			this.settings.weaveParentFolder = (loadedData as any).tuankiParentFolder;
-			needsSave = true;
+		if (isRecord(loadedData)) {
+			const legacyParentFolder = readString(loadedData, "tuankiParentFolder");
+			if (legacyParentFolder && !this.settings.weaveParentFolder) {
+				this.settings.weaveParentFolder = legacyParentFolder;
+				needsSave = true;
+			}
 		}
 		if (this.cleanupLegacyParentFolderSetting(loadedData)) {
 			needsSave = true;
@@ -1328,11 +1375,13 @@ export class WeavePlugin extends Plugin {
 		}
 		const normalizedAnkiConnect = normalizeAnkiConnectSettings(this.settings.ankiConnect);
 		const hadLegacyAnkiConnectLogFields =
-			(normalizedAnkiConnect as any).syncLogs !== undefined ||
-			(normalizedAnkiConnect as any).maxLogEntries !== undefined;
+			readUnknownProperty(normalizedAnkiConnect, "syncLogs") !== undefined ||
+			readUnknownProperty(normalizedAnkiConnect, "maxLogEntries") !== undefined;
 		if (hadLegacyAnkiConnectLogFields) {
-			delete (normalizedAnkiConnect as any).syncLogs;
-			delete (normalizedAnkiConnect as any).maxLogEntries;
+			if (isRecord(normalizedAnkiConnect)) {
+				delete normalizedAnkiConnect.syncLogs;
+				delete normalizedAnkiConnect.maxLogEntries;
+			}
 			needsSave = true;
 		}
 		const shouldPersistAnkiConnect =
@@ -1402,7 +1451,7 @@ export class WeavePlugin extends Plugin {
 		if (!this.settings.incrementalReading) {
 			this.settings.incrementalReading = buildDefaultIncrementalReadingSettings(
 				this.settings.weaveParentFolder
-			) as any;
+			);
 			needsSave = true;
 		} else {
 			const resolvedImportFolder = resolveIRImportFolder(
@@ -1448,7 +1497,7 @@ export class WeavePlugin extends Plugin {
 		this.registerInterval(window.setInterval(() => {
 			try {
 				syncI18nWithObsidianLanguage();
-			} catch {}
+			} catch { /* no-op */ }
 		}, 1000));
 
 		// 注入学习视图间距 CSS 变量
@@ -1461,7 +1510,8 @@ export class WeavePlugin extends Plugin {
 	 */
 	private runMigrationsAsync(): void {
 		// 使用 setTimeout 确保不阻塞主线程
-		setTimeout(async () => {
+		window.setTimeout(() => {
+			void (async () => {
 			try {
 				// FSRS6参数迁移逻辑
 				await this.migrateFSRSParameters();
@@ -1479,6 +1529,7 @@ export class WeavePlugin extends Plugin {
 			} catch (error) {
 				logger.error("迁移操作失败（不影响插件启动）:", error);
 			}
+			})();
 		}, 100); // 延迟100ms执行，确保插件主流程先完成
 	}
 
@@ -1596,7 +1647,7 @@ export class WeavePlugin extends Plugin {
 
 				// 显示用户通知
 				if (this.settings.enableNotifications) {
-					setTimeout(() => {
+					window.setTimeout(() => {
 						new Notice(`FSRS6参数已自动修复（${migrationReason}）`, 5000);
 					}, 2000);
 				}
@@ -1699,7 +1750,7 @@ export class WeavePlugin extends Plugin {
 	 */
 	private async runUnifiedDataMigration(): Promise<void> {
 		try {
-			const migrationCheck = await new DataManagementService(this as any).checkSchemaMigration();
+			const migrationCheck = await new DataManagementService(this as unknown).checkSchemaMigration();
 			if (migrationCheck.count <= 0) {
 				return;
 			}
@@ -1713,7 +1764,7 @@ export class WeavePlugin extends Plugin {
 
 	private async recoverMigrationConflictsOnStartup(): Promise<void> {
 		try {
-			const dataManagementService = new DataManagementService(this as any);
+			const dataManagementService = new DataManagementService(this as unknown);
 			const inspection = await dataManagementService.inspectMigrationConflictFiles();
 			if (inspection.total > 0) {
 				logger.warn(
@@ -1722,7 +1773,7 @@ export class WeavePlugin extends Plugin {
 				const { MigrationConflictResolutionModal } = await import(
 					"./components/modals/MigrationConflictResolutionModal"
 				);
-				new MigrationConflictResolutionModal(this.app, this as any, inspection).open();
+				new MigrationConflictResolutionModal(this.app, this as unknown, inspection).open();
 			}
 		} catch (error) {
 			logger.error("[Migration] Failed to inspect migration conflicts on startup:", error);
@@ -1797,8 +1848,9 @@ export class WeavePlugin extends Plugin {
 					let mappingUpdated = false;
 
 					// 检查 multiCardsConfig 中的分隔符
-					if ((mapping as any).multiCardsConfig?.parsingConfig) {
-						const parsingConfig = (mapping as any).multiCardsConfig.parsingConfig;
+					const folderMapping = mapping as FolderDeckMapping;
+					if (folderMapping.multiCardsConfig?.parsingConfig) {
+						const parsingConfig = folderMapping.multiCardsConfig.parsingConfig;
 
 						if (parsingConfig.separatorMode?.cardSeparator === OLD_DELIMITER) {
 							parsingConfig.separatorMode.cardSeparator = NEW_DELIMITER;
@@ -1828,7 +1880,7 @@ export class WeavePlugin extends Plugin {
 
 				// 显示用户通知
 				if (this.settings.enableNotifications) {
-					setTimeout(() => {
+					window.setTimeout(() => {
 						new Notice(
 							`✅ 分隔符配置已自动迁移\n已将 ${migrationCount} 处 %%<->%% 更新为 <->`,
 							5000
@@ -1845,18 +1897,20 @@ export class WeavePlugin extends Plugin {
 	/**
 	 * 深度合并对象，确保嵌套对象正确合并
 	 */
-	private deepMerge(target: any, source: any): any {
-		const result = { ...target };
+	private deepMerge(target: unknown, source: unknown): unknown {
+		if (!isRecord(source)) {
+			return target;
+		}
 
-		for (const key in source) {
-			if (Object.hasOwn(source, key)) {
-				if (source[key] && typeof source[key] === "object" && !Array.isArray(source[key])) {
-					// 递归合并嵌套对象
-					result[key] = this.deepMerge(target[key] || {}, source[key]);
-				} else {
-					// 直接赋值
-					result[key] = source[key];
-				}
+		const result: Record<string, unknown> = isRecord(target) ? { ...target } : {};
+
+		for (const key of Object.keys(source)) {
+			const sourceValue = source[key];
+			const targetValue = result[key];
+			if (isRecord(sourceValue) && !Array.isArray(sourceValue)) {
+				result[key] = this.deepMerge(targetValue, sourceValue);
+			} else {
+				result[key] = sourceValue;
 			}
 		}
 
@@ -1873,7 +1927,7 @@ export class WeavePlugin extends Plugin {
 			comfortable: "20px",
 		};
 		const value = spacingMap[this.settings.studyViewSpacing ?? "compact"] ?? "12px";
-		document.documentElement.style.setProperty("--weave-study-view-spacing", value);
+		activeDocument.documentElement.style.setProperty("--weave-study-view-spacing", value);
 	}
 
 	refreshStudyViewSpacing(): void {
@@ -1905,7 +1959,7 @@ export class WeavePlugin extends Plugin {
 
 	openEpubPremiumSettings(): void {
 		safeOpenSettings(this.app, "weave");
-		setTimeout(() => {
+		window.setTimeout(() => {
 			window.dispatchEvent(
 				new CustomEvent("Weave:navigate", {
 					detail: { page: "settings", tab: "about" },
@@ -2075,9 +2129,9 @@ export class WeavePlugin extends Plugin {
 		const notice = createSafeNotice(`许可证失效: ${message}`, 0);
 
 		// 创建一个按钮来打开设置
-		const fragment = document.createDocumentFragment();
-		const text = document.createTextNode(`许可证失效: ${message} `);
-		const button = document.createElement("button");
+		const fragment = activeDocument.createDocumentFragment();
+		const text = activeDocument.createTextNode(`许可证失效: ${message} `);
+		const button = activeDocument.createElement("button");
 		button.textContent = "前往设置";
 		button.classList.add("weave-ml-sm");
 		button.onclick = () => {
@@ -2248,7 +2302,7 @@ export class WeavePlugin extends Plugin {
 			await this.recoverMigrationConflictsOnStartup();
 
 			// 1. 初始化数据存储
-			this.dataStorage = new WeaveDataStorage(this as any);
+			this.dataStorage = new WeaveDataStorage(this as unknown);
 			await this.dataStorage.initialize();
 			logger.info("✅ 数据存储初始化完成");
 			void this.dataStorage.promptCreateFirstDeckIfNeeded();
@@ -2383,7 +2437,8 @@ export class WeavePlugin extends Plugin {
 					logger.debug("[Services] Question Bank services initialized");
 
 					// 数据完整性检查（延迟执行，不阻塞启动）
-					setTimeout(async () => {
+					window.setTimeout(() => {
+						void (async () => {
 						try {
 							const banks = (await this.questionBankService?.getAllBanks()) ?? [];
 							const hasCorruptedData = banks.some((_bank) => typeof _bank === "string");
@@ -2400,6 +2455,7 @@ export class WeavePlugin extends Plugin {
 						} catch (dataCheckError) {
 							logger.warn("[QuestionBank] 数据检查失败（非致命错误）:", dataCheckError);
 						}
+						})();
 					}, 2000);
 				} catch (error) {
 					logger.error("[Services] Question Bank services initialization failed:", error);
@@ -2469,7 +2525,7 @@ export class WeavePlugin extends Plugin {
 		try {
 			await Promise.race([
 				Promise.all(parallelInitPromises),
-				new Promise((_, reject) => setTimeout(() => reject(new Error("并行初始化超时")), 8000)),
+				new Promise((_, reject) => window.setTimeout(() => reject(new Error("并行初始化超时")), 8000)),
 			]);
 		} catch (error) {
 			logger.warn("[Services] 部分服务初始化超时，继续启动:", error);
@@ -2480,7 +2536,7 @@ export class WeavePlugin extends Plugin {
 
 		// ========== 阶段3：延迟初始化非关键服务（完全异步，不等待）==========
 		// 这些服务不影响核心功能，可以在空闲时初始化
-		setTimeout(() => {
+		window.setTimeout(() => {
 			this.initializeDeferredServices().catch((_error) => {
 				logger.error("[Services] 延迟服务初始化失败:", _error);
 			});
@@ -2923,11 +2979,11 @@ export class WeavePlugin extends Plugin {
 		if (!PremiumFeatureGuard.getInstance().canUseFeature(PREMIUM_FEATURES.BATCH_PARSING)) {
 			try {
 				this.batchParsingWatcher?.destroy();
-			} catch {}
+			} catch { /* no-op */ }
 			this.batchParsingWatcher = undefined;
 			try {
 				this.batchParsingManager?.destroy();
-			} catch {}
+			} catch { /* no-op */ }
 			this.batchParsingManager = undefined;
 			return;
 		}
@@ -2944,7 +3000,7 @@ export class WeavePlugin extends Plugin {
 
 			try {
 				this.simplifiedCardParser?.destroy();
-			} catch {}
+			} catch { /* no-op */ }
 
 			const parser = new SimplifiedCardParser(this.settings.simplifiedParsing, this.app);
 			this.simplifiedCardParser = parser;
@@ -3094,7 +3150,7 @@ export class WeavePlugin extends Plugin {
 			}
 
 			// 2. 逐张转换 ParsedCard 到 Card（支持每张卡片的独立 deckId）
-			const convertedCards: any[] = [];
+			const convertedCards: unknown[] = [];
 
 			for (const parsedCard of parsedCards) {
 				// 🔒 二次验证：targetDeckId 必须存在（批量解析的强制要求）
@@ -3447,12 +3503,12 @@ export class WeavePlugin extends Plugin {
 								const irDoc = irActiveDocumentStore.getActiveDocument();
 								if (irDoc) sourceFile = irDoc;
 							}
-						} catch {}
+						} catch { /* no-op */ }
 					}
 
 					// 准备卡片内容（使用选中文本作为正面）
 					const cardContent = `${selection}\n\n---div---\n\n`;
-					const cardMetadata: any = {};
+					const cardMetadata: unknown = {};
 					if (sourceFile) {
 						cardMetadata.sourceFile = sourceFile;
 					}
@@ -3501,9 +3557,12 @@ export class WeavePlugin extends Plugin {
 
 	private syncObsidianLineNumberSettingToBodyClass(): void {
 		try {
-			const vaultAny = this.app.vault as any;
-			const enabled = !!vaultAny?.getConfig?.("showLineNumber");
-			document.body.classList.toggle("weave-line-numbers-on", enabled);
+			const getConfig = readUnknownProperty(this.app.vault, "getConfig");
+			const configValue = isCallable(getConfig)
+				? Reflect.apply(getConfig, this.app.vault, ["showLineNumber"])
+				: undefined;
+			const enabled = Boolean(configValue);
+			activeDocument.body.classList.toggle("weave-line-numbers-on", enabled);
 		} catch (error) {
 			logger.debug("[Plugin] 同步 showLineNumber 设置失败（可忽略）:", error);
 		}
@@ -3587,10 +3646,10 @@ export class WeavePlugin extends Plugin {
 					window.setInterval(() => {
 						try {
 							void this.editorTempFileCleanupService?.cleanupNow();
-						} catch {}
+						} catch { /* no-op */ }
 					}, 60 * 60 * 1000)
 				);
-			} catch {}
+			} catch { /* no-op */ }
 			this.syncObsidianLineNumberSettingToBodyClass();
 			this.registerEvent(
 				this.app.workspace.on("active-leaf-change", () => {
@@ -3626,16 +3685,16 @@ export class WeavePlugin extends Plugin {
 				async ({ createWeaveCardReferencePostProcessor }) => {
 					this.registerMarkdownPostProcessor(createWeaveCardReferencePostProcessor(this.app));
 				try {
-					document.querySelectorAll(".weave-ir-markdown-bottom-toolbar-container").forEach((el) => {
+					activeDocument.querySelectorAll(".weave-ir-markdown-bottom-toolbar-container").forEach((el) => {
 						try {
 							(el as HTMLElement).remove();
-						} catch {}
+						} catch { /* no-op */ }
 					});
-				} catch {}
+				} catch { /* no-op */ }
 
 				try {
 					await this.editorTempFileCleanupService?.aggressiveCleanup();
-				} catch {}
+				} catch { /* no-op */ }
 
 				await this.initializeDataStorage();
 			});
@@ -3674,10 +3733,10 @@ export class WeavePlugin extends Plugin {
 				});
 
 			// 监听激活提示事件
-			this.registerDomEvent(window, "Weave:open-activation" as any, () => {
+			this.registerDomEvent(window, "Weave:open-activation" as unknown, () => {
 				// 打开设置页面并导航到关于标签
 				void this.activateView(VIEW_TYPE_WEAVE);
-				setTimeout(() => {
+				window.setTimeout(() => {
 					window.dispatchEvent(
 						new CustomEvent("Weave:navigate", {
 							detail: { page: "settings", tab: "about" },
@@ -3736,16 +3795,16 @@ export class WeavePlugin extends Plugin {
 						return;
 					}
 
-					const errorStack = e.error?.stack || "";
+					const errorStack = readUnknownString(e.error, "stack") ?? "";
 					logger.error("[GLOBAL_ERROR]", e.message, errorStack || e);
 				});
 				this.registerDomEvent(window, "unhandledrejection", (e: PromiseRejectionEvent) => {
-					const reason = e.reason;
-					const message = reason?.message || reason;
-					const stack = reason?.stack || "";
+					const reason: unknown = e.reason;
+					const message = readUnknownString(reason, "message") ?? String(reason);
+					const stack = readUnknownString(reason, "stack") ?? "";
 					logger.error("[UNHANDLED_REJECTION]", message, stack || e);
 				});
-			} catch {}
+			} catch { /* no-op */ }
 
 			// 注册Ribbon图标（不依赖dataStorage）
 			this.addRibbonIcon("brain", "打开主界面", () => {
@@ -3966,7 +4025,7 @@ export class WeavePlugin extends Plugin {
 						const content = `${selectedText}\n\n---div---\n\n`;
 
 						// ✅ 步骤6：准备溯源信息（使用专用字段，不混入fields）
-						const cardMetadata: any = {};
+						const cardMetadata: unknown = {};
 						if (blockLinkInfo) {
 							// L1溯源：完整块链接
 							cardMetadata.sourceFile = sourceFile;
@@ -3983,7 +4042,7 @@ export class WeavePlugin extends Plugin {
 						await this.openCreateCardModal({
 							initialContent: content, // ✅ 传递标准格式的content
 							cardMetadata, // ✅ 传递溯源元数据
-							onSuccess: (card: any) => {
+							onSuccess: (card: unknown) => {
 								logger.debug("✅ [快捷键创建卡片] 卡片创建成功:", card.id);
 								new Notice("卡片创建成功", 2000);
 							},
@@ -4119,7 +4178,7 @@ export class WeavePlugin extends Plugin {
 						new Notice("摘录笔记已添加", 2000);
 
 						// 🆕 触发摘录添加事件，通知 ExtractListView 刷新
-						this.app.workspace.trigger("Weave:extract-added" as any, extractCard);
+						this.app.workspace.trigger("Weave:extract-added" as unknown, extractCard);
 						logger.debug("📢 [快捷键创建摘录] 已触发 Weave:extract-added 事件");
 					} catch (error) {
 						logger.error("❌ [快捷键创建摘录] 执行失败:", error);
@@ -4225,7 +4284,7 @@ export class WeavePlugin extends Plugin {
 
 						// 尽量校验文件类型（避免非md路径导致块链接创建失败）
 						const af = this.app.vault.getAbstractFileByPath(sourceFilePath);
-						const ext = (af as any)?.extension;
+						const ext = af instanceof TFile ? af.extension : undefined;
 						if (ext && ext !== "md") {
 							new Notice("当前源文件不是 Markdown 文件", 3000);
 							return;
@@ -4347,7 +4406,7 @@ export class WeavePlugin extends Plugin {
 
 						// 尽量校验文件类型（避免非md路径导致块链接创建失败）
 						const af = this.app.vault.getAbstractFileByPath(sourceFilePath);
-						const ext = (af as any)?.extension;
+						const ext = af instanceof TFile ? af.extension : undefined;
 						if (ext && ext !== "md") {
 							new Notice("当前源文件不是 Markdown 文件", 3000);
 							return;
@@ -4423,7 +4482,7 @@ export class WeavePlugin extends Plugin {
 			this.addSettingTab(new AnkiSettingsTab(this.app, this));
 
 			// 初始化媒体调试助手（开发模式）
-			if (process.env.NODE_ENV === "development") {
+			if (isDevBuild()) {
 				initMediaDebug(this);
 			}
 
@@ -4493,10 +4552,10 @@ export class WeavePlugin extends Plugin {
 		// 1. 刷写待处理数据
 		try {
 			void this.dataStorage?.flushPendingWrites();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			void vaultStorage.flush();
-		} catch {}
+		} catch { /* no-op */ }
 
 		// 2. 保存并清理AI配置Store
 		aiConfigStore
@@ -4511,60 +4570,60 @@ export class WeavePlugin extends Plugin {
 		// 3. 清理编辑器相关服务
 		try {
 			void this.editorTempFileCleanupService?.cleanupNow();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			this.selectedTextAISplitPreviewLayer?.dispose();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			this.editorPoolManager?.cleanup();
-		} catch {}
+		} catch { /* no-op */ }
 
 		// 4. 清理 DOM 残留
 		try {
-			document.querySelectorAll(".weave-ir-markdown-bottom-toolbar-container").forEach((el) => {
+			activeDocument.querySelectorAll(".weave-ir-markdown-bottom-toolbar-container").forEach((el) => {
 				try {
 					(el as HTMLElement).remove();
-				} catch {}
+				} catch { /* no-op */ }
 			});
-		} catch {}
+		} catch { /* no-op */ }
 
 		// 5. 清理核心服务
 		try {
 			resetDataManagementService();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			destroyCardQualityInboxService();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			if (this.sourceTraceNoticeTimer) {
-				clearTimeout(this.sourceTraceNoticeTimer);
+				window.clearTimeout(this.sourceTraceNoticeTimer);
 				this.sourceTraceNoticeTimer = null;
 			}
 			this.sourceTraceNotice?.destroy();
 			this.sourceTraceNotice = null;
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			this.uiManager?.destroyAll();
 			(this.uiManager?.constructor as { reset?: () => void } | undefined)?.reset?.();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			EditorContextManager.resetInstance();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			GlobalDataCache.destroyInstance();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			BlockLinkCleanupService.resetInstance();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			this.externalSyncWatcher?.stop();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			this.cardWeDecksPropertySyncService?.stop();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			this.dataSyncService?.destroy();
-		} catch {}
+		} catch { /* no-op */ }
 		this.cleanupAnkiConnect();
 		this.cleanupAutoBackup();
 
@@ -4572,21 +4631,21 @@ export class WeavePlugin extends Plugin {
 		try {
 			this.batchParsingWatcher?.destroy();
 			this.batchParsingWatcher = undefined;
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			this.batchParsingManager?.destroy();
 			this.batchParsingManager = undefined;
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			this.simplifiedCardParser?.destroy();
 			this.simplifiedCardParser = undefined;
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			StudySessionManager.destroyInstance();
-		} catch {}
+		} catch { /* no-op */ }
 		try {
 			this.directFileReader?.dispose();
-		} catch {}
+		} catch { /* no-op */ }
 		// 8. 清理全局 window 上注册的清理函数
 		const globalCleanupKeys = [
 			"__weaveTabletDebugCleanup",
@@ -4605,13 +4664,13 @@ export class WeavePlugin extends Plugin {
 			"__weaveGlobalPerformanceMonitorCleanup",
 			"__weaveGlobalStateManagerCleanup",
 		];
-		const w = window as any;
 		for (const key of globalCleanupKeys) {
 			try {
-				if (typeof w[key] === "function") {
-					w[key]();
+				const cleanupFn = readUnknownProperty(window, key);
+				if (isCallable(cleanupFn)) {
+					Reflect.apply(cleanupFn, window, []);
 				}
-			} catch {}
+			} catch { /* no-op */ }
 		}
 
 		logger.debug("[Weave] 插件卸载完成");
@@ -4662,7 +4721,7 @@ export class WeavePlugin extends Plugin {
 					// 轻微高亮提示（避免过度动画造成"重开"的感觉）
 					const container = this.currentCreateCardModal.container;
 					applyStyleProps(container, { "box-shadow": "0 0 20px rgba(88, 166, 255, 0.5)" });
-					setTimeout(() => {
+					window.setTimeout(() => {
 						applyStyleProps(container, { "box-shadow": "" });
 					}, 300);
 				}
@@ -4675,9 +4734,9 @@ export class WeavePlugin extends Plugin {
 			const {
 				initialContent = "",
 				parsedCard,
-				sourceInfo,
-				selectedTemplate,
-				contentMapping,
+				sourceInfo: _sourceInfo,
+				selectedTemplate: _selectedTemplate,
+				contentMapping: _contentMapping,
 				onSuccess,
 				onCancel,
 			} = params;
@@ -4699,7 +4758,7 @@ export class WeavePlugin extends Plugin {
 
 			// 模板数据获取已简化，不再从templateStore获取
 			// const { templateStore } = await import('./stores/TemplateStore');
-			const templates: any[] = [];
+			const templates: unknown[] = [];
 			// templateStore.state.subscribe(_state => {
 			// 	templates = _state.fieldTemplates || [];
 			// })();
@@ -4752,7 +4811,7 @@ export class WeavePlugin extends Plugin {
 					? [deckName]
 					: [];
 
-			const yamlMetadata: Record<string, any> = {};
+			const yamlMetadata: Record<string, unknown> = {};
 			// v3.1: 安全网 - 检测临时文件路径并解析为真实来源文档
 			if (params.cardMetadata?.sourceFile && /weave-editor-/.test(params.cardMetadata.sourceFile)) {
 				logger.warn(
@@ -4881,9 +4940,9 @@ export class WeavePlugin extends Plugin {
 			);
 
 			// ✅ 步骤5: 创建挂载容器（全局显示，在所有标签页上方）
-			const container = document.createElement("div");
+			const container = activeDocument.createElement("div");
 			container.className = "weave-create-card-modal-container";
-			document.body.appendChild(container);
+			activeDocument.body.appendChild(container);
 
 			// ✅ 步骤6: 挂载组件并传入预加载的数据
 			logger.debug("🎯 [openCreateCardModal] 挂载CreateCardModal组件到document.body...");
@@ -4903,7 +4962,7 @@ export class WeavePlugin extends Plugin {
 						// ✅ 清理单例引用
 						this.currentCreateCardModal = null;
 					},
-					onSave: (savedCard: any) => {
+					onSave: (savedCard: unknown) => {
 						// ✅ 只通知保存成功，不关闭模态窗
 						// 让 CreateCardModal 自己决定是否关闭（支持钉住模式）
 						logger.debug("🎯 [openCreateCardModal] 卡片保存成功，通知外部");
@@ -4921,9 +4980,10 @@ export class WeavePlugin extends Plugin {
 			});
 
 			// 🆕 创建方法引用包装器
-			const updateContentWrapper = async (content: string, metadata: any) => {
-				if (modalInstance?.updateContent) {
-					await modalInstance.updateContent(content, metadata);
+			const updateContentWrapper = async (content: string, metadata: unknown) => {
+				const updateContent = readUnknownProperty(modalInstance, "updateContent");
+				if (isCallable(updateContent)) {
+					await Reflect.apply(updateContent, modalInstance, [content, metadata]);
 				}
 			};
 
@@ -4974,7 +5034,7 @@ export class WeavePlugin extends Plugin {
 			}
 
 			// ⚠️ 强制清理所有残留的编辑器容器
-			const orphans = document.querySelectorAll(".weave-edit-card-modal-container");
+			const orphans = activeDocument.querySelectorAll(".weave-edit-card-modal-container");
 			if (orphans.length > 0) {
 				logger.warn(`🎯 [openEditCardModal] 发现${orphans.length}个残留容器，强制清理`);
 				orphans.forEach((el) => el.remove());
@@ -4998,9 +5058,9 @@ export class WeavePlugin extends Plugin {
 			const { default: EditCardModal } = await import("./components/modals/EditCardModal.svelte");
 
 			// ✅ 创建容器
-			const container = document.createElement("div");
+			const container = activeDocument.createElement("div");
 			container.className = "weave-edit-card-modal-container";
-			document.body.appendChild(container);
+			activeDocument.body.appendChild(container);
 
 			// ✅ 挂载组件
 			const modalInstance = mount(EditCardModal, {
@@ -5017,14 +5077,14 @@ export class WeavePlugin extends Plugin {
 						container.remove();
 						this.currentEditCardModal = null;
 					},
-					onSave: (savedCard: any) => {
+					onSave: (savedCard: unknown) => {
 						logger.debug("🎯 [openEditCardModal] 保存成功，立即关闭");
 						void unmount(modalInstance);
 						container.remove();
 						this.currentEditCardModal = null;
 
 						if (onSave) {
-							Promise.resolve(onSave(savedCard)).catch((e: any) => {
+							Promise.resolve(onSave(savedCard)).catch((e: unknown) => {
 								logger.error("[openEditCardModal] onSave失败:", e);
 							});
 						}
@@ -5153,9 +5213,9 @@ export class WeavePlugin extends Plugin {
 			.then(async ({ default: FloatingCreateCardButton }) => {
 				const { mount } = await import("svelte");
 				// 🔧 关键修复：创建专用容器，避免直接挂载到 document.body
-				const container = document.createElement("div");
+				const container = activeDocument.createElement("div");
 				container.className = "weave-floating-button-container";
-				document.body.appendChild(container);
+				activeDocument.body.appendChild(container);
 
 				// 创建组件实例，挂载到专用容器
 				const instance = mount(FloatingCreateCardButton, {
@@ -5268,21 +5328,6 @@ export class WeavePlugin extends Plugin {
 				});
 			}
 
-			try {
-				const ws = workspace as typeof workspace & {
-					setActiveLeaf?: (target: typeof leaf, focus?: boolean | { focus?: boolean }) => void;
-				};
-				if (typeof ws.setActiveLeaf === "function") {
-					try {
-						ws.setActiveLeaf(leaf, { focus: true });
-					} catch {
-						ws.setActiveLeaf(leaf, true);
-					}
-				}
-			} catch {
-				// ignore
-			}
-
 			revealLeaf(this.app, leaf);
 			logger.debug(`[WeavePlugin] 成功激活视图: ${viewType}`);
 
@@ -5325,17 +5370,6 @@ export class WeavePlugin extends Plugin {
 				});
 			}
 
-			try {
-				const ws: any = workspace as any;
-				if (typeof ws.setActiveLeaf === "function") {
-					try {
-						ws.setActiveLeaf(leaf, { focus: true });
-					} catch {
-						ws.setActiveLeaf(leaf, true);
-					}
-				}
-			} catch {}
-
 			revealLeaf(this.app, leaf);
 
 			const syncDeckStudyState = () => {
@@ -5360,8 +5394,13 @@ export class WeavePlugin extends Plugin {
 	}
 
 	private getStandaloneEpubHost(): EpubHostCapabilities | null {
-		const standalonePlugin = (this.app as any)?.plugins?.getPlugin?.(LICENSED_PRODUCTS.EPUB);
-		if (!standalonePlugin || typeof standalonePlugin !== "object") {
+		const plugins = readUnknownProperty(this.app, "plugins");
+		const getPlugin = readUnknownProperty(plugins, "getPlugin");
+		if (!isCallable(getPlugin)) {
+			return null;
+		}
+		const standalonePlugin = Reflect.apply(getPlugin, plugins, [LICENSED_PRODUCTS.EPUB]);
+		if (!isRecord(standalonePlugin)) {
 			return null;
 		}
 		return standalonePlugin as EpubHostCapabilities;
@@ -5371,8 +5410,13 @@ export class WeavePlugin extends Plugin {
 		if (!isIncrementalReadingPluginInstalled(this.app)) {
 			return null;
 		}
-		const host = this.app.plugins.getPlugin(INCREMENTAL_READING_PLUGIN_ID);
-		return host && typeof host === "object" ? (host as Record<string, unknown>) : null;
+		const plugins = readUnknownProperty(this.app, "plugins");
+		const getPlugin = readUnknownProperty(plugins, "getPlugin");
+		if (!isCallable(getPlugin)) {
+			return null;
+		}
+		const host = Reflect.apply(getPlugin, plugins, [INCREMENTAL_READING_PLUGIN_ID]);
+		return isRecord(host) ? host : null;
 	}
 
 	private requireIncrementalReadingPlugin(): boolean {
@@ -5581,17 +5625,17 @@ export class WeavePlugin extends Plugin {
 		this.pendingSourceTraceNotice.epubLinks += delta.epubLinks || 0;
 
 		if (this.sourceTraceNoticeTimer) {
-			clearTimeout(this.sourceTraceNoticeTimer);
+			window.clearTimeout(this.sourceTraceNoticeTimer);
 		}
 
-		this.sourceTraceNoticeTimer = setTimeout(() => {
+		this.sourceTraceNoticeTimer = window.setTimeout(() => {
 			this.flushSourceTraceNotice();
 		}, 600);
 	}
 
 	private flushSourceTraceNotice(): void {
 		if (this.sourceTraceNoticeTimer) {
-			clearTimeout(this.sourceTraceNoticeTimer);
+			window.clearTimeout(this.sourceTraceNoticeTimer);
 			this.sourceTraceNoticeTimer = null;
 		}
 
@@ -5633,10 +5677,10 @@ export class WeavePlugin extends Plugin {
 			return;
 		}
 		if (this.irDeckCatalogRefreshTimer) {
-			clearTimeout(this.irDeckCatalogRefreshTimer);
+			window.clearTimeout(this.irDeckCatalogRefreshTimer);
 		}
 
-		this.irDeckCatalogRefreshTimer = setTimeout(() => {
+		this.irDeckCatalogRefreshTimer = window.setTimeout(() => {
 			this.irDeckCatalogRefreshTimer = null;
 			let refreshPromise: Promise<void> | null = null;
 			refreshPromise = (async () => {
@@ -5676,7 +5720,7 @@ export class WeavePlugin extends Plugin {
 				await recomputeAndBroadcastIRData(this.app, reason, {
 					filePath,
 					tagSource: "weave_tags",
-				} as any);
+				} as unknown);
 			}
 		} catch (error) {
 			logger.warn(`[IR] markdown weave_tags ????: ${filePath}`, error);
@@ -5693,16 +5737,22 @@ export class WeavePlugin extends Plugin {
 		let changed = false;
 
 		try {
-			if (this.getIncrementalReadingMaterialStorage()) {
-				await this.getIncrementalReadingMaterialStorage().initialize();
-				const allMaterials = await this.getIncrementalReadingMaterialStorage().getAllMaterials();
-				const targets = allMaterials.filter((m) => m.filePath === oldPath);
+			const materialStorage = this.getIncrementalReadingMaterialStorage();
+			if (materialStorage) {
+				await callUnknownAsync(materialStorage, "initialize");
+				const allMaterialsRaw = await callUnknownAsync(materialStorage, "getAllMaterials");
+				const allMaterials = Array.isArray(allMaterialsRaw) ? allMaterialsRaw : [];
+				const targets = allMaterials.filter(
+					(material: unknown) => readUnknownString(material, "filePath") === oldPath
+				);
 				if (targets.length > 0) {
 					for (const material of targets) {
-						material.filePath = newPath;
-						material.title = file.basename;
+						if (isRecord(material)) {
+							material.filePath = newPath;
+							material.title = file.basename;
+						}
 					}
-					await this.getIncrementalReadingMaterialStorage().saveMaterials(targets);
+					await callUnknownAsync(materialStorage, "saveMaterials", targets);
 					changed = true;
 				}
 			}
@@ -5712,8 +5762,11 @@ export class WeavePlugin extends Plugin {
 
 		if (file.extension === "md") {
 			try {
-				const materialLinkedNoteUpdated =
-					(await this.getIncrementalReadingMaterialStorage()?.remapAssociatedNoteFileReferences(oldPath, newPath)) || 0;
+				const materialStorage = this.getIncrementalReadingMaterialStorage();
+				const remapResult = materialStorage
+					? await callUnknownAsync(materialStorage, "remapAssociatedNoteFileReferences", oldPath, newPath)
+					: undefined;
+				const materialLinkedNoteUpdated = typeof remapResult === "number" ? remapResult : 0;
 				if (materialLinkedNoteUpdated > 0) {
 					changed = true;
 					logger.info(`[IR] 重命名后更新 ${materialLinkedNoteUpdated} 个阅读材料的关联笔记路径`);
@@ -5746,9 +5799,9 @@ export class WeavePlugin extends Plugin {
 			const chunks = await storage.getAllChunkData();
 			const chunkUpdates: import("./types/ir-types").IRChunkFileData[] = [];
 			for (const chunk of Object.values(chunks)) {
-				if ((chunk as any)?.filePath === oldPath) {
-					(chunk as any).filePath = newPath;
-					(chunk as any).updatedAt = Date.now();
+				if ((chunk as unknown)?.filePath === oldPath) {
+					(chunk as unknown).filePath = newPath;
+					(chunk as unknown).updatedAt = Date.now();
 					chunkUpdates.push(chunk);
 				}
 			}
@@ -5761,16 +5814,16 @@ export class WeavePlugin extends Plugin {
 			let sourceUpdated = 0;
 			for (const src of Object.values(sources)) {
 				let srcChanged = false;
-				if ((src as any)?.originalPath === oldPath) {
-					(src as any).originalPath = newPath;
+				if ((src as unknown)?.originalPath === oldPath) {
+					(src as unknown).originalPath = newPath;
 					srcChanged = true;
 				}
-				if ((src as any)?.rawFilePath === oldPath) {
-					(src as any).rawFilePath = newPath;
+				if ((src as unknown)?.rawFilePath === oldPath) {
+					(src as unknown).rawFilePath = newPath;
 					srcChanged = true;
 				}
-				if ((src as any)?.indexFilePath === oldPath) {
-					(src as any).indexFilePath = newPath;
+				if ((src as unknown)?.indexFilePath === oldPath) {
+					(src as unknown).indexFilePath = newPath;
 					srcChanged = true;
 				}
 				if (srcChanged) {
@@ -5877,16 +5930,6 @@ export class WeavePlugin extends Plugin {
 			if (existingLeaves.length > 0) {
 				// 已有学习会话，激活并更新
 				const leaf = existingLeaves[0];
-				try {
-					const ws: any = workspace as any;
-					if (typeof ws.setActiveLeaf === "function") {
-						try {
-							ws.setActiveLeaf(leaf, { focus: true });
-						} catch {
-							ws.setActiveLeaf(leaf, true);
-						}
-					}
-				} catch {}
 				revealLeaf(this.app, leaf);
 
 				// 更新视图状态（传递新的学习模式和卡片列表）
@@ -5901,17 +5944,9 @@ export class WeavePlugin extends Plugin {
 				// 📱 移动端兜底：某些版本仅 revealLeaf 不会切换到 tab
 				if (Platform.isMobile) {
 					try {
-						const ws: any = workspace as any;
-						if (typeof ws.setActiveLeaf === "function") {
-							try {
-								ws.setActiveLeaf(leaf, { focus: true });
-							} catch {
-								ws.setActiveLeaf(leaf, true);
-							}
-						}
 						revealLeaf(this.app, leaf);
 						workspace.trigger("layout-change");
-					} catch {}
+					} catch { /* no-op */ }
 				}
 
 				logger.debug("[Plugin] ✅ 激活已存在的学习会话");
@@ -5929,17 +5964,6 @@ export class WeavePlugin extends Plugin {
 				state: { deckId, deckName, mode, cardIds, cards },
 			});
 
-			// 激活该标签页
-			try {
-				const ws: any = workspace as any;
-				if (typeof ws.setActiveLeaf === "function") {
-					try {
-						ws.setActiveLeaf(leaf, { focus: true });
-					} catch {
-						ws.setActiveLeaf(leaf, true);
-					}
-				}
-			} catch {}
 			revealLeaf(this.app, leaf);
 
 			logger.debug("[Plugin] ✅ 学习会话已打开");
@@ -6041,7 +6065,7 @@ export class WeavePlugin extends Plugin {
 	 * @param deckId 可选的牌组ID
 	 * @returns 待学习的卡片列表
 	 */
-	async loadStudyCards(deckId?: string): Promise<any[]> {
+	async loadStudyCards(deckId?: string): Promise<unknown[]> {
 		try {
 			const now = Date.now();
 			const limit = this.settings.reviewsPerDay || 20;
@@ -6970,15 +6994,18 @@ export class WeavePlugin extends Plugin {
 								});
 						});
 					}
-				} catch {}
+				} catch { /* no-op */ }
 			})
 		);
 
 		// Canvas 节点右键菜单：添加为 Weave 卡片（子菜单显示记忆牌组）
-		this.registerEvent(
-			(this.app.workspace as any).on("canvas:node-menu", (menu: Menu, node: any) => {
+		registerWorkspaceCustomEvent(
+			this,
+			this.app.workspace,
+			"canvas:node-menu",
+			(menu: unknown, node: unknown) => {
 				try {
-					if (!this.dataStorage) return;
+					if (!this.dataStorage || !(menu instanceof Menu)) return;
 
 					const nodeContent = this.getCanvasNodeContent(node);
 					if (!nodeContent) return;
@@ -7004,27 +7031,31 @@ export class WeavePlugin extends Plugin {
 							}
 						);
 					}
-				} catch {}
-			})
+				} catch { /* no-op */ }
+			}
 		);
 	}
 
 	/**
 	 * Canvas 节点添加为卡片 - 构建牌组子菜单
 	 */
-	private getCanvasNodeContent(node: any): string {
-		const nodeData = node?.getData?.() ?? node;
-		if (nodeData?.type === "text" && typeof nodeData?.text === "string") {
-			return nodeData.text.trim();
+	private getCanvasNodeContent(node: unknown): string {
+		const nodeData = getCanvasNodeDataRecord(node);
+		if (!nodeData) {
+			return "";
 		}
-		if (nodeData?.type === "file" && typeof nodeData?.file === "string") {
-			const filePath = nodeData.file.trim();
+		const type = readString(nodeData, "type");
+		if (type === "text") {
+			return readString(nodeData, "text")?.trim() ?? "";
+		}
+		if (type === "file") {
+			const filePath = readString(nodeData, "file")?.trim() ?? "";
 			return filePath ? `![[${filePath}]]` : "";
 		}
 		return "";
 	}
 
-	private buildCanvasNodeIRPointContext(node: any): {
+	private buildCanvasNodeIRPointContext(node: unknown): {
 		canvasFile: TFile;
 		nodeId: string;
 		selectedText: string;
@@ -7053,11 +7084,12 @@ export class WeavePlugin extends Plugin {
 			return null;
 		}
 
-		const nodeData = node?.getData?.() ?? node;
+		const nodeData = getCanvasNodeDataRecord(node);
 		let initialTitle = "";
-		if (nodeData?.type === "file" && typeof nodeData?.file === "string") {
+		if (nodeData && readString(nodeData, "type") === "file") {
+			const filePath = readString(nodeData, "file") ?? "";
 			const basename =
-				nodeData.file.split("/").pop()?.replace(/\.[^.]+$/u, "") || String(nodeData.file || "");
+				filePath.split("/").pop()?.replace(/\.[^.]+$/u, "") || filePath;
 			initialTitle = this.cleanIRReadingPointTitle(basename);
 		}
 		if (!initialTitle) {
@@ -7108,14 +7140,16 @@ export class WeavePlugin extends Plugin {
 		const chunks = await storage.getAllChunkData();
 		const normalizedCanvasPath = normalizePath(context.canvasFile.path);
 		const now = Date.now();
-		const existing = Object.values(chunks).find((chunk: any) => {
-			const chunkPath = normalizePath(String(chunk?.filePath || "").trim());
-			const chunkNodeId = String(chunk?.meta?.canvasNodeId || "").trim();
+		const existing = Object.values(chunks).find((chunk) => {
+			const chunkPath = normalizePath(String(chunk.filePath || "").trim());
+			const chunkNodeId = readUnknownString(chunk.meta, "canvasNodeId")?.trim() ?? "";
 			return chunkPath === normalizedCanvasPath && chunkNodeId === context.nodeId;
-		}) as any;
+		});
 
 		if (existing) {
-			const existingMeta = { ...(existing.meta || {}) };
+			const existingMeta: Record<string, unknown> = isRecord(existing.meta)
+				? { ...existing.meta }
+				: {};
 			const existingDeckIds = Array.isArray(existing.deckIds) ? existing.deckIds : [];
 			const existingTopicIds = Array.isArray(existing.topicIds) ? existing.topicIds : [];
 			const existingStatus = String(existing.scheduleStatus || "").trim();
@@ -7171,9 +7205,10 @@ export class WeavePlugin extends Plugin {
 				existingMeta.canvasNodeId = context.nodeId;
 				changed = true;
 			}
-			const existingCandidates = Array.isArray(existingMeta.canvasTextCandidates)
-				? (existingMeta.canvasTextCandidates as unknown[])
-					.map((value) => String(value || "").trim())
+			const rawCandidates = existingMeta.canvasTextCandidates;
+			const existingCandidates = Array.isArray(rawCandidates)
+				? rawCandidates
+					.map((value) => (typeof value === "string" ? value.trim() : ""))
 					.filter(Boolean)
 				: [];
 			if (JSON.stringify(existingCandidates) !== JSON.stringify(context.textCandidates)) {
@@ -7185,14 +7220,14 @@ export class WeavePlugin extends Plugin {
 			}
 
 			existing.updatedAt = now;
-			existing.meta = existingMeta;
+			existing.meta = existingMeta as IRChunkFileData["meta"];
 			await storage.saveChunkData(existing);
 			return "updated";
 		}
 
 		const chunkId = generateChunkId();
 		const sourceId = this.buildCanvasIRSourceId(context.canvasFile.path) || generateSourceId();
-		const chunk = createDefaultChunkFileData(chunkId, sourceId, context.canvasFile.path) as any;
+		const chunk = createDefaultChunkFileData(chunkId, sourceId, context.canvasFile.path);
 		chunk.topicIds = [deckId];
 		chunk.deckIds = [deckId];
 		chunk.topicTag = `#IR_deck_${deckName}`;
@@ -7200,13 +7235,15 @@ export class WeavePlugin extends Plugin {
 		chunk.updatedAt = now;
 		chunk.nextRepDate = now;
 		chunk.meta = {
-			...(chunk.meta || {}),
-			externalDocument: true,
-			pointTitle: context.initialTitle,
-			resumeLink: context.sourceLink,
-			canvasNodeId: context.nodeId,
-			canvasTextCandidates: context.textCandidates,
-		};
+			...chunk.meta,
+			...( {
+				externalDocument: true,
+				pointTitle: context.initialTitle,
+				resumeLink: context.sourceLink,
+				canvasNodeId: context.nodeId,
+				canvasTextCandidates: context.textCandidates,
+			} as Record<string, unknown>),
+		} as IRChunkFileData["meta"];
 		await storage.saveChunkData(chunk);
 		return "created";
 	}
@@ -7214,7 +7251,7 @@ export class WeavePlugin extends Plugin {
 	private async buildCanvasCardDeckSubmenu(
 		submenu: Menu,
 		content: string,
-		node: any
+		node: unknown
 	): Promise<void> {
 		try {
 			const allDecks = await this.dataStorage.getAllDecks();
@@ -7250,7 +7287,7 @@ export class WeavePlugin extends Plugin {
 	 * 入口暴露面已经由 `shouldExposeIncrementalReadingOwnedUiEntrypoints()` 统一关闭，
 	 * 因此这里不应再新增新的 Weave 调用点；后续应整体迁出或删除，而不是继续扩散。
 	 */
-	private async buildCanvasIRDeckSubmenu(submenu: Menu, node: any): Promise<void> {
+	private async buildCanvasIRDeckSubmenu(submenu: Menu, node: unknown): Promise<void> {
 		try {
 			const context = this.buildCanvasNodeIRPointContext(node);
 			if (!context) {
@@ -7334,7 +7371,7 @@ export class WeavePlugin extends Plugin {
 	/**
 	 * 将 Canvas 节点内容创建为卡片并保存到指定牌组
 	 */
-	private async addCanvasNodeAsCard(content: string, deck: Deck, node: any): Promise<void> {
+	private async addCanvasNodeAsCard(content: string, deck: Deck, node: unknown): Promise<void> {
 		try {
 			const { CardType } = await import("./data/types");
 			const { createContentWithMetadata } = await import("./utils/yaml-utils");
@@ -7408,32 +7445,35 @@ export class WeavePlugin extends Plugin {
 		}
 
 		const canvasLeaf = this.app.workspace.getLeavesOfType("canvas")[0];
-		const canvasPath = (canvasLeaf?.view as any)?.file?.path;
+		const canvasView = canvasLeaf?.view;
+		const canvasPath = isRecord(canvasView)
+			? readUnknownString(readUnknownProperty(canvasView, "file"), "path")
+			: undefined;
 		return typeof canvasPath === "string" && canvasPath.toLowerCase().endsWith(".canvas")
 			? canvasPath
 			: undefined;
 	}
 
-	private getCanvasNodeId(node: any): string | undefined {
-		const nodeData = node?.getData?.() ?? node;
-		const nodeId = typeof nodeData?.id === "string" ? nodeData.id.trim() : "";
+	private getCanvasNodeId(node: unknown): string | undefined {
+		const nodeData = getCanvasNodeDataRecord(node);
+		const nodeId = nodeData ? readString(nodeData, "id")?.trim() ?? "" : "";
 		return nodeId || undefined;
 	}
 
-	private buildCanvasNodeSourceLink(node: any): string | undefined {
+	private buildCanvasNodeSourceLink(node: unknown): string | undefined {
 		const canvasPath = this.getActiveCanvasPath();
 		if (!canvasPath) return undefined;
 
-		const nodeData = node?.getData?.() ?? node;
+		const nodeData = getCanvasNodeDataRecord(node);
 		const nodeId = this.getCanvasNodeId(node);
 		if (!nodeId) {
 			return `[[${canvasPath}]]`;
 		}
 
-		const x = Number(nodeData?.x);
-		const y = Number(nodeData?.y);
-		const width = Number(nodeData?.width);
-		const height = Number(nodeData?.height);
+		const x = Number(nodeData ? readUnknownProperty(nodeData, "x") : NaN);
+		const y = Number(nodeData ? readUnknownProperty(nodeData, "y") : NaN);
+		const width = Number(nodeData ? readUnknownProperty(nodeData, "width") : NaN);
+		const height = Number(nodeData ? readUnknownProperty(nodeData, "height") : NaN);
 		const params = new URLSearchParams();
 
 		if (Number.isFinite(x)) params.set("x", String(Math.round(x)));
@@ -7446,13 +7486,18 @@ export class WeavePlugin extends Plugin {
 	}
 
 	private registerPdfPlusContextMenuFeatures(): void {
-		this.registerEvent(
-			(this.app.workspace as any).on("pdf-menu", (menu: Menu, data: any) => {
+		registerWorkspaceCustomEvent(
+			this,
+			this.app.workspace,
+			"pdf-menu",
+			(menu: unknown, data: unknown) => {
 				try {
+					if (!(menu instanceof Menu)) return;
 					const activeFile = this.app.workspace.getActiveFile();
 					if (!activeFile || activeFile.extension !== "pdf") return;
 					if (!this.shouldExposeIncrementalReadingOwnedUiEntrypoints()) return;
 					if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)) return;
+					const pdfMenuData = isRecord(data) ? data : null;
 
 					menu.addItem((item) => {
 						item
@@ -7481,7 +7526,9 @@ export class WeavePlugin extends Plugin {
 							});
 					});
 
-					const selection = typeof data?.selection === "string" ? data.selection.trim() : "";
+					const selection = pdfMenuData
+						? readString(pdfMenuData, "selection")?.trim() ?? ""
+						: "";
 					if (selection) {
 						menu.addItem((item) => {
 							item
@@ -7493,8 +7540,9 @@ export class WeavePlugin extends Plugin {
 						});
 					}
 
-					if (data?.annot) {
-						const pageNumber = typeof data?.pageNumber === "number" ? data.pageNumber : null;
+					if (pdfMenuData && readUnknownProperty(pdfMenuData, "annot") !== undefined) {
+						const pageNumberRaw = readUnknownProperty(pdfMenuData, "pageNumber");
+						const pageNumber = typeof pageNumberRaw === "number" ? pageNumberRaw : null;
 						const title = pageNumber ? `PDF 标注 p.${pageNumber}` : "PDF 标注";
 						menu.addItem((item) => {
 							item
@@ -7505,8 +7553,8 @@ export class WeavePlugin extends Plugin {
 								});
 						});
 					}
-				} catch {}
-			})
+				} catch { /* no-op */ }
+			}
 		);
 	}
 
@@ -7518,13 +7566,13 @@ export class WeavePlugin extends Plugin {
 		if (!this.settings.incrementalReading) {
 			this.settings.incrementalReading = buildDefaultIncrementalReadingSettings(
 				this.settings.weaveParentFolder
-			) as any;
+			);
 		}
 
 		const irSettings = normalizeIncrementalReadingSettings(
 			this.settings.incrementalReading,
 			this.settings.weaveParentFolder
-		) as any;
+		);
 		this.settings.incrementalReading = irSettings;
 
 		return irSettings;
@@ -7593,7 +7641,7 @@ export class WeavePlugin extends Plugin {
 			if (weaveType.startsWith("ir-")) {
 				return false;
 			}
-		} catch {}
+		} catch { /* no-op */ }
 		return true;
 	}
 
@@ -7621,29 +7669,29 @@ export class WeavePlugin extends Plugin {
 	}
 
 	private doesIncrementalReadingFolderSubscriptionMaterialNeedUpdate(
-		material: any,
+		material: unknown,
 		deckId: string
 	): boolean {
 		if (!material) {
 			return true;
 		}
-		const currentDeckId = String(material?.readingDeckId || material?.topicId || "").trim();
-		return currentDeckId !== deckId;
+		return readMaterialDeckId(material) !== deckId;
 	}
 
-	private async getIncrementalReadingFolderSubscriptionExistingMaterial(file: TFile): Promise<any> {
-		if (!this.getIncrementalReadingMaterialManager()) {
+	private async getIncrementalReadingFolderSubscriptionExistingMaterial(file: TFile): Promise<unknown> {
+		const manager = this.getIncrementalReadingMaterialManager();
+		if (!manager) {
 			return null;
 		}
-		const byFile = await this.getIncrementalReadingMaterialManager().getMaterialByFile(file);
+		const byFile = await callUnknownAsync(manager, "getMaterialByFile", file);
 		if (byFile) {
 			return byFile;
 		}
-		return this.getIncrementalReadingMaterialManager().getMaterialByPath(file.path);
+		return callUnknownAsync(manager, "getMaterialByPath", file.path);
 	}
 
 	private doesIncrementalReadingFolderSubscriptionChunkNeedUpdate(
-		existing: any,
+		existing: IRChunkFileData | null,
 		deckId: string,
 		deckName: string,
 		autoSubscribedAt: string,
@@ -7665,7 +7713,9 @@ export class WeavePlugin extends Plugin {
 			existingStatus === "suspended" ||
 			!existingStatus ||
 			!Number(existing.nextRepDate || 0);
-		const existingMeta = { ...(existing.meta || {}) };
+		const existingMeta: Record<string, unknown> = isRecord(existing.meta)
+			? { ...existing.meta }
+			: {};
 		const existingNextRepDate = Number(existing.nextRepDate || 0);
 		const existingSourceSequenceLocked = existingMeta.sourceSequenceLocked === true;
 		const existingSourceSequenceAnchorDateKey =
@@ -7778,7 +7828,7 @@ export class WeavePlugin extends Plugin {
 
 		const storage = new IRStorageService(this.app);
 		await storage.initialize();
-		const deckById = new Map<string, any>();
+		const deckById = new Map<string, IRDeck>();
 		for (const deckId of [...new Set(activeRules.map((rule) => String(rule.deckId || "").trim()).filter(Boolean))]) {
 			const deck = await storage.getDeckById(deckId);
 			if (deck && !deck.archivedAt) {
@@ -7793,9 +7843,9 @@ export class WeavePlugin extends Plugin {
 		const trigger = options?.trigger || (options?.file ? "file-change" : "manual");
 		const candidateFiles = options?.file ? [options.file] : this.app.vault.getFiles();
 		const allChunks = await storage.getAllChunkData();
-		const chunkByFilePath = new Map<string, any>();
+		const chunkByFilePath = new Map<string, IRChunkFileData>();
 		for (const chunk of Object.values(allChunks)) {
-			const chunkFilePath = normalizePath(String((chunk as any)?.filePath || "").trim());
+			const chunkFilePath = normalizePath(String(chunk.filePath || "").trim());
 			if (chunkFilePath) {
 				chunkByFilePath.set(chunkFilePath, chunk);
 			}
@@ -7803,12 +7853,12 @@ export class WeavePlugin extends Plugin {
 
 		const pendingCandidates: Array<{
 			file: TFile;
-			existingMaterial: any;
-			existingChunk: any;
+			existingMaterial: unknown;
+			existingChunk: IRChunkFileData | null;
 			autoSubscribedAt: string;
 			needsMaterialCreation: boolean;
 			rule: IncrementalReadingFolderSubscriptionRule;
-			deck: any;
+			deck: IRDeck;
 		}> = [];
 		for (const candidate of candidateFiles) {
 			if (!(candidate instanceof TFile)) {
@@ -7831,14 +7881,12 @@ export class WeavePlugin extends Plugin {
 				}
 				const existingMaterial =
 					await this.getIncrementalReadingFolderSubscriptionExistingMaterial(candidate);
-				const existingChunk = chunkByFilePath.get(normalizePath(candidate.path)) || null;
+				const existingChunk = chunkByFilePath.get(normalizePath(candidate.path)) ?? null;
 				const needsMaterialCreation = !existingMaterial;
-				const autoSubscribedAt =
-					typeof existingChunk?.meta?.autoSubscribedAt === "string" && existingChunk.meta.autoSubscribedAt.trim()
-						? existingChunk.meta.autoSubscribedAt
-						: existingChunk
-							? ""
-							: new Date().toISOString();
+				const existingAutoSubscribedAt = existingChunk
+					? readUnknownString(existingChunk.meta, "autoSubscribedAt")?.trim() ?? ""
+					: "";
+				const autoSubscribedAt = existingAutoSubscribedAt || (existingChunk ? "" : new Date().toISOString());
 				const materialNeedsUpdate = this.doesIncrementalReadingFolderSubscriptionMaterialNeedUpdate(
 					existingMaterial,
 					deck.id
@@ -7926,10 +7974,19 @@ export class WeavePlugin extends Plugin {
 		const changedDeckIds = new Set<string>();
 		for (const pendingCandidate of candidatesToProcess) {
 			try {
-				const material = await this.getIncrementalReadingMaterialManager().getOrCreateMaterial(pendingCandidate.file, {
-					copyToImportFolder: false,
-					source: "auto",
-				});
+				const materialManager = this.getIncrementalReadingMaterialManager();
+				if (!materialManager) {
+					continue;
+				}
+				const material = await callUnknownAsync(
+					materialManager,
+					"getOrCreateMaterial",
+					pendingCandidate.file,
+					{
+						copyToImportFolder: false,
+						source: "auto",
+					}
+				);
 				let materialChanged = !pendingCandidate.existingMaterial;
 				const targetDeck = pendingCandidate.deck;
 				if (
@@ -7938,7 +7995,10 @@ export class WeavePlugin extends Plugin {
 						targetDeck.id
 					)
 				) {
-					await this.getIncrementalReadingMaterialManager().setReadingDeck(material.uuid, targetDeck.id);
+					const materialUuid = isRecord(material) ? readString(material, "uuid") : undefined;
+					if (materialUuid) {
+						await callUnknownAsync(materialManager, "setReadingDeck", materialUuid, targetDeck.id);
+					}
 					materialChanged = true;
 				}
 
@@ -7995,7 +8055,7 @@ export class WeavePlugin extends Plugin {
 		folderPath?: string;
 	}): Promise<void> {
 		Object.assign(
-			this.getIncrementalReadingSettings() as any,
+			this.getIncrementalReadingSettings(),
 			this.getIRHostSharedService().getUpdatedSelectionQuickCreatePreferences(
 				this.getIncrementalReadingSettings(),
 				update
@@ -8346,12 +8406,13 @@ export class WeavePlugin extends Plugin {
 	): Promise<{ id: string; name: string } | null> {
 		let deckId = "";
 
-		if (this.getIncrementalReadingMaterialManager()) {
-			const material = this.getIncrementalReadingMaterialManager().getMaterialByPath(file.path) as any;
-			const materialDeckId =
-				typeof material?.readingDeckId === "string" ? material.readingDeckId.trim() : "";
-			const materialTopicId = typeof material?.topicId === "string" ? material.topicId.trim() : "";
-			deckId = materialDeckId || materialTopicId;
+		const materialManager = this.getIncrementalReadingMaterialManager();
+		if (materialManager) {
+			const getMaterialByPath = readUnknownProperty(materialManager, "getMaterialByPath");
+			const material = isCallable(getMaterialByPath)
+				? Reflect.apply(getMaterialByPath, materialManager, [file.path])
+				: undefined;
+			deckId = readMaterialDeckId(material);
 		}
 
 		if (!deckId) {
@@ -8373,11 +8434,11 @@ export class WeavePlugin extends Plugin {
 			try {
 				const storage = new IRStorageService(this.app);
 				await storage.initialize();
-				const deck = await storage.getDeck(deckId);
+				const deck = await storage.getDeckById(deckId);
 				if (deck) {
 					return {
 						id: deckId,
-						name: String((deck as any).name || "").trim() || "增量阅读",
+						name: readDeckDisplayName(deck),
 					};
 				}
 			} catch (error) {
@@ -8437,7 +8498,7 @@ export class WeavePlugin extends Plugin {
 			throw new Error("selection-ir-plugin-unavailable");
 		}
 
-		const readingMaterialManager = this.getIncrementalReadingMaterialManager() as any;
+		const readingMaterialManager = this.getIncrementalReadingMaterialManager();
 		if (!readingMaterialManager) {
 			new Notice("增量阅读服务尚未初始化完成，请稍后再试", 3000);
 			throw new Error("selection-ir-manager-not-ready");
@@ -8451,9 +8512,9 @@ export class WeavePlugin extends Plugin {
 
 		const storage = new IRStorageService(this.app);
 		await storage.initialize();
-		const rawDeck = await storage.getDeck(deckId);
+		const rawDeck = await storage.getDeckById(deckId);
 		const deck = rawDeck
-			? { id: deckId, name: String((rawDeck as any).name || "").trim() || "增量阅读" }
+			? { id: deckId, name: readDeckDisplayName(rawDeck) }
 			: null;
 		if (!deck) {
 			new Notice("所选增量阅读专题不存在或已归档", 3000);
@@ -8482,13 +8543,16 @@ export class WeavePlugin extends Plugin {
 			const targetPath = await this.generateUniqueIRReadingPointPath(folderPath, title);
 			createdFile = await this.app.vault.create(targetPath, fileContent);
 
-			const material = await readingMaterialManager.getOrCreateMaterial(createdFile, {
+			const material = await callUnknownAsync(readingMaterialManager, "getOrCreateMaterial", createdFile, {
 				copyToImportFolder: false,
 				source: "manual",
 				category: ReadingCategory.Later,
 				tags: ["weave-incremental-reading"],
 			});
-			await readingMaterialManager.setReadingDeck(material.uuid, deck.id);
+			const materialUuid = isRecord(material) ? readString(material, "uuid") : undefined;
+			if (materialUuid) {
+				await callUnknownAsync(readingMaterialManager, "setReadingDeck", materialUuid, deck.id);
+			}
 
 			const { createYAMLFrontmatterManager } = await import("./utils/yaml-frontmatter-utils");
 			const yamlManager = createYAMLFrontmatterManager(this.app);
@@ -8597,14 +8661,14 @@ export class WeavePlugin extends Plugin {
 			return;
 		}
 
-		const readingMaterialManager = this.getIncrementalReadingMaterialManager() as any;
+		const readingMaterialManager = this.getIncrementalReadingMaterialManager();
 		if (!readingMaterialManager) {
 			new Notice("增量阅读服务未就绪");
 			return;
 		}
 
 		try {
-			await readingMaterialManager.getOrCreateMaterial(file, {
+			await callUnknownAsync(readingMaterialManager, "getOrCreateMaterial", file, {
 				copyToImportFolder: false,
 				source: "manual",
 			});
@@ -8641,7 +8705,7 @@ export class WeavePlugin extends Plugin {
 			autoSubscribedFolderPath?: string;
 			pinToToday?: boolean;
 			storage?: IRStorageService;
-			existingChunk?: any;
+			existingChunk?: unknown;
 		}
 	): Promise<boolean> {
 		return await this.getIRHostSharedService().ensureExternalDocumentChunkScheduled(
@@ -8696,18 +8760,19 @@ export class WeavePlugin extends Plugin {
 		}
 
 		const commandName = "PDF++: Copy link to current page view";
-		const commands = (this.app as any)?.commands?.commands as Record<string, any> | undefined;
-		const entries = commands ? Object.entries(commands) : [];
+		const appCommands = readUnknownProperty(this.app, "commands");
+		const commands = readUnknownProperty(appCommands, "commands");
+		const entries = isRecord(commands) ? Object.entries(commands) : [];
 		let pdfPlusCommandId: string | undefined;
 		for (const [id, cmd] of entries) {
-			if (cmd?.name === commandName) {
+			if (readUnknownString(cmd, "name") === commandName) {
 				pdfPlusCommandId = id;
 				break;
 			}
 		}
 		if (!pdfPlusCommandId) {
 			for (const [id, cmd] of entries) {
-				const n = String(cmd?.name || "");
+				const n = readUnknownString(cmd, "name") ?? "";
 				if (n.includes("Copy link to current page view") && n.startsWith("PDF++")) {
 					pdfPlusCommandId = id;
 					break;
@@ -8720,13 +8785,16 @@ export class WeavePlugin extends Plugin {
 			return null;
 		}
 
-		const executed = (this.app as any).commands.executeCommandById(pdfPlusCommandId);
+		const executeCommandById = readUnknownProperty(appCommands, "executeCommandById");
+		const executed = isCallable(executeCommandById)
+			? Reflect.apply(executeCommandById, appCommands, [pdfPlusCommandId])
+			: false;
 		if (!executed) {
 			new Notice("执行 PDF++ 命令失败");
 			return null;
 		}
 
-		await new Promise((resolve) => setTimeout(resolve, 120));
+		await new Promise((resolve) => window.setTimeout(resolve, 120));
 
 		const linkText = await this.readClipboardTextOrPrompt(
 			"无法读取剪贴板，请粘贴 PDF++ 生成的链接："
@@ -8767,7 +8835,7 @@ export class WeavePlugin extends Plugin {
 					}
 					resolved = true;
 					if (closeTimer) {
-						clearTimeout(closeTimer);
+						window.clearTimeout(closeTimer);
 						closeTimer = null;
 					}
 					resolve(value);
@@ -8775,15 +8843,15 @@ export class WeavePlugin extends Plugin {
 				const modal = new IRDeckSelectorModal(this.app, decks, (deck) => {
 					settle({ id: deck.id, name: deck.name });
 				});
-				const originalOnClose = (modal as any).onClose?.bind(modal);
-				(modal as any).onClose = () => {
+				const originalOnClose = modal.onClose.bind(modal);
+				modal.onClose = () => {
 					try {
 						originalOnClose?.();
-					} catch {}
+					} catch { /* no-op */ }
 					if (resolved || closeTimer) {
 						return;
 					}
-					closeTimer = setTimeout(() => {
+					closeTimer = window.setTimeout(() => {
 						closeTimer = null;
 						settle(null);
 					}, 0);
@@ -8853,14 +8921,14 @@ export class WeavePlugin extends Plugin {
 			return;
 		}
 
-		const readingMaterialManager = this.getIncrementalReadingMaterialManager() as any;
-		const readingMaterialStorage = this.getIncrementalReadingMaterialStorage() as any;
+		const readingMaterialManager = this.getIncrementalReadingMaterialManager();
+		const readingMaterialStorage = this.getIncrementalReadingMaterialStorage();
 		if (!readingMaterialManager || !readingMaterialStorage) {
 			new Notice("增量阅读服务未初始化");
 			return;
 		}
 
-		await readingMaterialStorage.initialize();
+		await callUnknownAsync(readingMaterialStorage, "initialize");
 		const linkText = await this.copyPdfPlusCurrentPageViewLinkFromActivePdf();
 		if (!linkText) return;
 
@@ -8869,37 +8937,46 @@ export class WeavePlugin extends Plugin {
 			return;
 		}
 
-		const material = await readingMaterialManager.getOrCreateMaterial(activeFile, {
+		const materialRaw = await callUnknownAsync(readingMaterialManager, "getOrCreateMaterial", activeFile, {
 			source: "manual",
 			copyToImportFolder: false,
 			category: ReadingCategory.Reading,
 			tags: ["weave-incremental-reading"],
 		});
+		if (!isRecord(materialRaw)) {
+			new Notice("增量阅读材料创建失败");
+			return;
+		}
+		const material = materialRaw;
 
 		if (material.category !== ReadingCategory.Reading) {
-			await readingMaterialManager.changeCategory(material.uuid, ReadingCategory.Reading);
+			const materialUuid = readString(material, "uuid");
+			if (materialUuid) {
+				await callUnknownAsync(
+					readingMaterialManager,
+					"changeCategory",
+					materialUuid,
+					ReadingCategory.Reading
+				);
+			}
 			material.category = ReadingCategory.Reading;
 		}
 
-		if (!Array.isArray(material.tags)) {
-			material.tags = [];
+		const tags = Array.isArray(material.tags) ? material.tags : [];
+		if (!tags.includes("weave-incremental-reading")) {
+			tags.push("weave-incremental-reading");
 		}
-		if (!material.tags.includes("weave-incremental-reading")) {
-			material.tags.push("weave-incremental-reading");
-		}
+		material.tags = tags;
 
 		let picked: { id: string; name: string } | null = null;
-		if (
-			typeof (material as any).readingDeckId === "string" &&
-			String((material as any).readingDeckId).trim()
-		) {
-			const deckId = String((material as any).readingDeckId).trim();
+		const materialDeckId = readString(material, "readingDeckId")?.trim() ?? "";
+		if (materialDeckId) {
 			try {
 				const storage = new IRStorageService(this.app);
 				await storage.initialize();
-				const deck = await storage.getDeck(deckId);
+				const deck = await storage.getDeckById(materialDeckId);
 				picked = deck
-					? { id: deckId, name: String((deck as any).name || "").trim() || "增量阅读" }
+					? { id: materialDeckId, name: readDeckDisplayName(deck) }
 					: null;
 			} catch {
 				picked = null;
@@ -8913,11 +8990,11 @@ export class WeavePlugin extends Plugin {
 		}
 
 		if (picked) {
-			(material as any).readingDeckId = picked.id;
+			material.readingDeckId = picked.id;
 		}
 		material.resumeLink = linkText;
 		material.resumeUpdatedAt = new Date().toISOString();
-		await readingMaterialStorage.saveMaterial(material);
+		await callUnknownAsync(readingMaterialStorage, "saveMaterial", material);
 
 		if (picked) {
 			try {
@@ -8927,8 +9004,8 @@ export class WeavePlugin extends Plugin {
 				);
 				const existingResume = existing.find(
 					(t) =>
-						String((t as any)?.pdfPath || "").trim() === activeFile.path &&
-						String((t as any)?.annotationId || "").trim() === "resume"
+						(readUnknownString(t, "pdfPath")?.trim() ?? "") === activeFile.path &&
+						(readUnknownString(t, "annotationId")?.trim() ?? "") === "resume"
 				);
 
 				if (existingResume) {
@@ -9030,8 +9107,8 @@ export class WeavePlugin extends Plugin {
 		const existing = await service.getTasksByDeckIdentifiers(await this.getIRDeckIdentifiers(picked));
 		const existingKeys = new Set<string>();
 		for (const t of existing) {
-			const link = String((t as any)?.link || "").trim();
-			const pdfPath = String((t as any)?.pdfPath || "").trim();
+			const link = String((t as unknown)?.link || "").trim();
+			const pdfPath = String((t as unknown)?.pdfPath || "").trim();
 			const m = link.match(/\bpage=(\d+)\b/i);
 			const pageNumber = m ? Number(m[1]) : 0;
 			if (pdfPath && pageNumber > 0) {
@@ -9085,7 +9162,8 @@ export class WeavePlugin extends Plugin {
 	private isIRSystemFile(file: TFile): boolean {
 		try {
 			const cache = this.app.metadataCache.getFileCache(file);
-			const fmType = cache?.frontmatter?.weave_type;
+			const frontmatter = cache?.frontmatter;
+			const fmType = isRecord(frontmatter) ? readString(frontmatter, "weave_type") : undefined;
 			return typeof fmType === "string" && fmType.startsWith("ir-");
 		} catch {
 			return false;
@@ -9122,27 +9200,29 @@ export class WeavePlugin extends Plugin {
 			try {
 				const { waitForServiceReady } = await import("./utils/service-ready-event");
 				await waitForServiceReady("readingMaterialManager", 15000);
-				if (this.getIncrementalReadingMaterialManager()) {
-					const material = await this.getIncrementalReadingMaterialManager().getMaterialByFile(file);
-					if (material) {
-						await this.getIncrementalReadingMaterialManager().removeMaterial(material.uuid);
+				const materialManager = this.getIncrementalReadingMaterialManager();
+				if (materialManager) {
+					const material = await callUnknownAsync(materialManager, "getMaterialByFile", file);
+					const materialUuid = isRecord(material) ? readString(material, "uuid") : undefined;
+					if (materialUuid) {
+						await callUnknownAsync(materialManager, "removeMaterial", materialUuid);
 					}
 				}
-			} catch {}
+			} catch { /* no-op */ }
 
 			try {
 				const storage = new IRStorageService(this.app);
 				await storage.initialize();
 				const chunks = await storage.getAllChunkData();
 				const relatedChunkIds = Object.values(chunks)
-					.filter((c: any) => (c as any)?.filePath === file.path)
-					.map((c: any) => (c as any)?.chunkId)
-					.filter(Boolean) as string[];
+					.filter((chunk) => chunk.filePath === file.path)
+					.map((chunk) => chunk.chunkId)
+					.filter(Boolean);
 				for (const chunkId of relatedChunkIds) {
 					await storage.deleteChunkData(chunkId);
 				}
 				await storage.deleteBlocksByFile(file.path);
-			} catch {}
+			} catch { /* no-op */ }
 
 			await recomputeAndBroadcastIRData(this.app, "ui_refresh");
 			new Notice("已从增量阅读中移除");
@@ -9411,20 +9491,22 @@ export class WeavePlugin extends Plugin {
 			}
 		}
 
-		const workspace = this.app.workspace as any;
-		if (typeof workspace?.iterateAllLeaves !== "function") {
+		const iterateAllLeaves = readUnknownProperty(this.app.workspace, "iterateAllLeaves");
+		if (!isCallable(iterateAllLeaves)) {
 			return views;
 		}
 
 		try {
-			workspace.iterateAllLeaves((leaf: { view?: MarkdownView }) => {
-				const view = leaf?.view;
-				if (!(view instanceof MarkdownView) || !view.file || !view.editor || seen.has(view)) {
-					return;
-				}
-				seen.add(view);
-				views.push(view);
-			});
+			Reflect.apply(iterateAllLeaves, this.app.workspace, [
+				(leaf: unknown) => {
+					const view = isRecord(leaf) ? readUnknownProperty(leaf, "view") : undefined;
+					if (!(view instanceof MarkdownView) || !view.file || !view.editor || seen.has(view)) {
+						return;
+					}
+					seen.add(view);
+					views.push(view);
+				},
+			]);
 		} catch (error) {
 			logger.warn("[Plugin] 枚举 Markdown 视图失败，图片遮罩将仅使用当前激活视图", error);
 		}
@@ -9651,7 +9733,7 @@ export class WeavePlugin extends Plugin {
 								});
 						});
 					});
-				} catch {}
+				} catch { /* no-op */ }
 			})
 		);
 	}
@@ -9728,8 +9810,8 @@ export class WeavePlugin extends Plugin {
 			const modal = new ImageMaskEditorModal(this.app, {
 				imageFile,
 				initialMaskData,
-				onSave: async (maskData) => {
-					await this.saveMaskData(editor, lineNumber, maskData, parser, sourceFilePath);
+				onSave: (maskData) => {
+					void this.saveMaskData(editor, lineNumber, maskData, parser, sourceFilePath);
 				},
 			});
 
@@ -9820,7 +9902,7 @@ export class WeavePlugin extends Plugin {
 			return parser.hasImageLink(line);
 		} catch {
 			const wikiPattern = /!\[\[.*?\]\]/;
-			const mdPattern = /!\[[^\]]*\]\([^\)]*\)/;
+			const mdPattern = /!\[[^\]]*\]\([^)]*\)/;
 			return wikiPattern.test(line) || mdPattern.test(line);
 		}
 	}
@@ -9906,38 +9988,38 @@ export class WeavePlugin extends Plugin {
 			// 🔧 关键修复：确保 Obsidian 原生设备类存在于 body 元素
 			// CSS 样式依赖 body.is-mobile 和 body.is-phone 类来控制移动端显示
 			// Obsidian 应该自动添加这些类，但为了确保兼容性，我们手动检查并添加
-			if (document.body) {
+			if (activeDocument.body) {
 				// 添加 Obsidian 原生设备类（如果不存在）
-				if (Platform.isMobile && !document.body.classList.contains("is-mobile")) {
-					document.body.classList.add("is-mobile");
+				if (Platform.isMobile && !activeDocument.body.classList.contains("is-mobile")) {
+					activeDocument.body.classList.add("is-mobile");
 					logger.info("[移动端适配] 已添加 is-mobile 类到 body");
 				}
 
 				// Platform.isPhone 在 Obsidian 1.4.0+ 可用
 				const isPhone =
-					(Platform as any).isPhone ??
-					(Platform.isMobile && !((Platform as any).isTablet ?? false));
-				if (isPhone && !document.body.classList.contains("is-phone")) {
-					document.body.classList.add("is-phone");
+					readUnknownBoolean(Platform, "isPhone") ??
+					(Platform.isMobile && !(readUnknownBoolean(Platform, "isTablet") ?? false));
+				if (isPhone && !activeDocument.body.classList.contains("is-phone")) {
+					activeDocument.body.classList.add("is-phone");
 					logger.info("[移动端适配] 已添加 is-phone 类到 body");
 				}
 
 				// Platform.isTablet 在 Obsidian 1.4.0+ 可用
-				const isTablet = (Platform as any).isTablet ?? false;
-				if (isTablet && !document.body.classList.contains("is-tablet")) {
-					document.body.classList.add("is-tablet");
+				const isTablet = readUnknownBoolean(Platform, "isTablet") ?? false;
+				if (isTablet && !activeDocument.body.classList.contains("is-tablet")) {
+					activeDocument.body.classList.add("is-tablet");
 					logger.info("[移动端适配] 已添加 is-tablet 类到 body");
 				}
 
 				// 添加自定义设备类型类名（用于更细粒度的控制）
-				applyDeviceClasses(document.body);
+				applyDeviceClasses(activeDocument.body);
 			}
 
 			// 为插件容器添加设备信息
 			this.app.workspace.onLayoutReady(() => {
-				const pluginContainers = document.querySelectorAll(".weave-app");
+				const pluginContainers = activeDocument.querySelectorAll(".weave-app");
 				pluginContainers.forEach((_container) => {
-					if (_container instanceof HTMLElement) {
+					if (_container.instanceOf(HTMLElement)) {
 						applyDeviceClasses(_container);
 					}
 				});
@@ -9947,7 +10029,7 @@ export class WeavePlugin extends Plugin {
 			});
 
 			// 在开发环境启用调试工具（不显示浮窗）
-			if (process.env.NODE_ENV === "development") {
+			if (isDevBuild()) {
 				void import("./utils/tablet-debug")
 					.then(({ tabletDebugger, initializeGlobalTabletDebugTools }) => {
 						initializeGlobalTabletDebugTools();
@@ -9962,7 +10044,7 @@ export class WeavePlugin extends Plugin {
 			}
 
 			// 添加全局设备信息到window（供其他组件使用）
-			(window as any).weaveDeviceInfo = deviceInfo;
+			(window as unknown).weaveDeviceInfo = deviceInfo;
 
 			logger.info("[平板端适配] 初始化完成", {
 				device: deviceInfo.isTablet ? "tablet" : deviceInfo.isMobile ? "mobile" : "desktop",
@@ -9991,9 +10073,9 @@ export class WeavePlugin extends Plugin {
 
 			// 为所有现有按钮添加触控优化类名
 			// 🔧 排除装饰性小圆点按钮（彩色圆点用于视图/模式切换，尺寸应保持16px）
-			const buttons = document.querySelectorAll(".weave-app button, .weave-app .clickable");
+			const buttons = activeDocument.querySelectorAll(".weave-app button, .weave-app .clickable");
 			buttons.forEach((_button) => {
-				if (_button instanceof HTMLElement) {
+				if (_button.instanceOf(HTMLElement)) {
 					// 🔧 排除装饰性圆点按钮，这些按钮有自己的触控区域（通过 ::before 伪元素扩展）
 					const isDecorativeDot =
 						_button.classList.contains("view-type-dot") ||
@@ -10018,11 +10100,11 @@ export class WeavePlugin extends Plugin {
 			});
 
 			// 为滚动容器添加触控优化
-			const scrollContainers = document.querySelectorAll(
+			const scrollContainers = activeDocument.querySelectorAll(
 				'.weave-app .scrollable, .weave-app [style*="overflow"]'
 			);
 			scrollContainers.forEach((_container) => {
-				if (_container instanceof HTMLElement) {
+				if (_container.instanceOf(HTMLElement)) {
 					applyStyleProps(_container, {
 						"-webkit-overflow-scrolling": "touch",
 						"overscroll-behavior": "contain",

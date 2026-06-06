@@ -32,7 +32,7 @@ export interface MenuAction {
 	/** 操作类型 */
 	type: "navigate" | "close" | "back" | "select" | "toggle" | "reset";
 	/** 操作数据 */
-	payload?: any;
+	payload?: unknown;
 }
 
 /**
@@ -179,7 +179,7 @@ export interface KanbanMenuSystemProps {
 	/** 当前分组方式 */
 	groupBy: GroupByType;
 	/** 列配置 */
-	columnConfig: any; // 从 column-types 导入时会更新
+	columnConfig: unknown; // 从 column-types 导入时会更新
 	/** 可用分组列表 */
 	availableGroups: ColumnGroup[];
 	/** 导航回调 */
@@ -189,5 +189,5 @@ export interface KanbanMenuSystemProps {
 	/** 分组方式变更回调 */
 	onGroupByChange: (groupBy: GroupByType) => void;
 	/** 列配置变更回调 */
-	onColumnConfigChange: (config: any) => void;
+	onColumnConfigChange: (config: unknown) => void;
 }

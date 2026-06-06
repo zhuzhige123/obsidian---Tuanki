@@ -7,9 +7,16 @@
  * - 正确的异步流程控制
  */
 
-import type { TFile, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, type Editor, type TFile, type WorkspaceLeaf } from "obsidian";
 import type { WeavePlugin } from "../../main";
 import type { EditorResult } from "../../types/editor-types";
+import {
+	asMarkdownEditorView,
+	focusEditorWithCursor,
+	getEditorText,
+	getLeafContainerEl,
+	setEditorText,
+} from "../../utils/obsidian-markdown-editor";
 import { logger } from "../../utils/logger";
 import { applyStyleProps } from "../../utils/style-props";
 
@@ -30,6 +37,18 @@ export class EditorLifecycleManager {
 
 	constructor(plugin: WeavePlugin) {
 		this.plugin = plugin;
+	}
+
+	private resolveMarkdownView(leaf: WorkspaceLeaf | null | undefined) {
+		const view = leaf?.view;
+		if (view instanceof MarkdownView) {
+			return view;
+		}
+		return asMarkdownEditorView(view);
+	}
+
+	private resolveEditor(leaf: WorkspaceLeaf | null | undefined): Editor | null {
+		return this.resolveMarkdownView(leaf)?.editor ?? null;
 	}
 
 	/**
@@ -91,21 +110,9 @@ export class EditorLifecycleManager {
 				cleanup: () => {
 					void this.dispose();
 				},
-				getContent: () => {
-					const view = this.leaf?.view as any;
-					const editor = view?.editor;
-					return editor?.getValue?.() ?? "";
-				},
-				setContent: (content: string) => {
-					const view = this.leaf?.view as any;
-					const editor = view?.editor;
-					editor?.setValue?.(content);
-				},
-				focus: () => {
-					const view = this.leaf?.view as any;
-					const editor = view?.editor;
-					editor?.focus?.();
-				},
+				getContent: () => getEditorText(this.resolveEditor(this.leaf)),
+				setContent: (content: string) => setEditorText(this.resolveEditor(this.leaf), content),
+				focus: () => focusEditorWithCursor(this.resolveEditor(this.leaf)),
 			};
 		} catch (error) {
 			this.state = "error";
@@ -151,11 +158,11 @@ export class EditorLifecycleManager {
 					return;
 				}
 
-				//  多重检测：确保编辑器完全就绪
-				const view = leaf.view as any;
-				const hasEditor = view?.editor;
-				const hasContentEl = view?.contentEl;
-				const hasDOM = hasContentEl?.querySelector(".cm-editor");
+				const markdownView = this.resolveMarkdownView(leaf);
+				const hasEditor = markdownView?.editor;
+				const contentEl = markdownView?.contentEl;
+				const hasDOM =
+					contentEl?.instanceOf(HTMLElement) ? contentEl.querySelector(".cm-editor") : null;
 				const hasContent = hasDOM?.querySelector(".cm-content");
 				const hasScroller = hasDOM?.querySelector(".cm-scroller");
 
@@ -172,7 +179,7 @@ export class EditorLifecycleManager {
 				}
 
 				// 继续检测（使用 requestAnimationFrame 而不是 setTimeout）
-				requestAnimationFrame(check);
+				window.requestAnimationFrame(check);
 			};
 
 			// 开始检测
@@ -209,13 +216,13 @@ export class EditorLifecycleManager {
 	private async extractEditorDOM(leaf: WorkspaceLeaf, signal: AbortSignal): Promise<HTMLElement> {
 		this.checkAborted(signal);
 
-		const markdownView = leaf.view as any;
-		if (!markdownView || !markdownView.editor) {
+		const markdownView = this.resolveMarkdownView(leaf);
+		if (!markdownView?.editor) {
 			throw new Error("无法获取 MarkdownView 或编辑器实例");
 		}
 
-		const editorEl = markdownView.contentEl as HTMLElement;
-		if (!editorEl) {
+		const editorEl = markdownView.contentEl;
+		if (!editorEl?.instanceOf(HTMLElement)) {
 			throw new Error("无法获取编辑器DOM元素");
 		}
 
@@ -241,14 +248,14 @@ export class EditorLifecycleManager {
 		container.appendChild(editorElement);
 
 		// 等待 DOM 更新
-		await new Promise((resolve) => requestAnimationFrame(resolve));
+		await new Promise((resolve) => window.requestAnimationFrame(resolve));
 	}
 
 	/**
 	 * 隐藏 Leaf
 	 */
 	private hideLeaf(leaf: WorkspaceLeaf): void {
-		const leafContainer = (leaf as any).containerEl as HTMLElement;
+		const leafContainer = getLeafContainerEl(leaf);
 		if (leafContainer) {
 			applyStyleProps(leafContainer, {
 				display: "none",

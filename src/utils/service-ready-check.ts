@@ -38,7 +38,7 @@ export async function waitForService<T>(
 			logger.debug(`[ServiceReady] ${serviceName} 已就绪（等待 ${waitTime}ms）`);
 			return service;
 		}
-		await new Promise((resolve) => setTimeout(resolve, checkInterval));
+		await new Promise((resolve) => window.setTimeout(resolve, checkInterval));
 	}
 
 	// 超时
@@ -106,7 +106,7 @@ export async function retryServiceCall<T, R>(
 			logger.warn(`[ServiceReady] ${serviceName} 调用失败 (尝试 ${attempt}/${maxRetries}):`, error);
 
 			if (attempt < maxRetries) {
-				await new Promise((resolve) => setTimeout(resolve, retryDelay));
+				await new Promise((resolve) => window.setTimeout(resolve, retryDelay));
 			}
 		}
 	}

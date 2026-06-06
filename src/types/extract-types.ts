@@ -8,9 +8,14 @@
 // ===== 摘录类型枚举 =====
 
 /**
- * 摘录类型（内置类型）
+ * 内置摘录类型
  */
-export type ExtractType = "note" | "important" | "todo" | "idea" | "capsule" | string;
+export type BuiltinExtractType = "note" | "important" | "todo" | "idea" | "capsule";
+
+/**
+ * 摘录类型（内置 + 自定义）
+ */
+export type ExtractType = BuiltinExtractType | (string & {});
 
 // ===== 自定义笔记类型配置 =====
 
@@ -101,7 +106,7 @@ export interface TypeColorConfig {
 /**
  * 类型颜色映射
  */
-export const TYPE_COLORS: Record<ExtractType, TypeColorConfig> = {
+export const TYPE_COLORS: Record<BuiltinExtractType, TypeColorConfig> = {
 	note: {
 		light: "#4299e1",
 		dark: "#63b3ed",
@@ -140,7 +145,7 @@ export const TYPE_COLORS: Record<ExtractType, TypeColorConfig> = {
  * 类型筛选配置
  */
 export interface ExtractTypeConfig {
-	key: ExtractType | "all";
+	key: BuiltinExtractType | "all";
 	label: string;
 	icon: string; // Obsidian 图标名称（lucide 图标库）
 	color: string;
@@ -198,18 +203,43 @@ export const EXTRACT_TYPE_OPTIONS: ExtractTypeConfig[] = [
 
 // ===== 工具函数 =====
 
+function getBuiltinTypeColors(type: ExtractType): TypeColorConfig | undefined {
+	switch (type) {
+		case "note":
+			return TYPE_COLORS.note;
+		case "important":
+			return TYPE_COLORS.important;
+		case "todo":
+			return TYPE_COLORS.todo;
+		case "idea":
+			return TYPE_COLORS.idea;
+		case "capsule":
+			return TYPE_COLORS.capsule;
+		default:
+			return undefined;
+	}
+}
+
 /**
  * 获取类型颜色
  */
 export function getTypeColor(type: ExtractType, isDark = false): string {
-	return isDark ? TYPE_COLORS[type].dark : TYPE_COLORS[type].light;
+	const colors = getBuiltinTypeColors(type);
+	if (!colors) {
+		return isDark ? "var(--text-muted)" : "var(--text-normal)";
+	}
+	return isDark ? colors.dark : colors.light;
 }
 
 /**
  * 获取类型背景色
  */
 export function getTypeBgColor(type: ExtractType, isDark = false): string {
-	return isDark ? TYPE_COLORS[type].bgDark : TYPE_COLORS[type].bg;
+	const colors = getBuiltinTypeColors(type);
+	if (!colors) {
+		return "var(--background-secondary)";
+	}
+	return isDark ? colors.bgDark : colors.bg;
 }
 
 /**

@@ -51,14 +51,14 @@ function resolveCssVar(style: CSSStyleDeclaration, name: string, fallback: strin
 }
 
 function detectDarkTheme(): boolean {
-	return document.body.classList.contains("theme-dark");
+	return activeDocument.body.classList.contains("theme-dark");
 }
 
 /**
  * 获取Obsidian主题颜色
  */
 export function getThemeColors(): ThemeColors {
-	const style = getComputedStyle(document.body);
+	const style = getComputedStyle(activeDocument.body);
 	const isDark = detectDarkTheme();
 	const text = resolveCssVar(style, "--text-normal", isDark ? "#e5e7eb" : "#1f2937");
 	const textMuted = resolveCssVar(style, "--text-muted", isDark ? "#9ca3af" : "#6b7280");
@@ -124,7 +124,7 @@ export function getThemeColors(): ThemeColors {
 /**
  * 生成ECharts通用配置
  */
-export function getBaseChartOption(colors: ThemeColors): any {
+export function getBaseChartOption(colors: ThemeColors): unknown {
 	return {
 		backgroundColor: "transparent",
 		textStyle: {
@@ -186,7 +186,7 @@ export function getBaseChartOption(colors: ThemeColors): any {
 /**
  * 生成渐变色配置（支持多种颜色格式）
  */
-export function createGradient(color: string, opacity1 = 0.25, opacity2 = 0.05): any {
+export function createGradient(color: string, opacity1 = 0.25, opacity2 = 0.05): unknown {
 	const safeOpacity1 = Math.max(0, Math.min(1, opacity1));
 	const safeOpacity2 = Math.max(0, Math.min(1, opacity2));
 
@@ -253,15 +253,15 @@ function parseRgbColor(colorStr: string): { r: number; g: number; b: number } | 
 }
 
 function resolveColorWithDom(colorStr: string): { r: number; g: number; b: number } | null {
-	if (typeof document === "undefined" || !document.body) {
+	if (typeof activeDocument === "undefined" || !activeDocument.body) {
 		return null;
 	}
 
-	const probe = document.createElement("span");
+	const probe = activeDocument.createElement("span");
 	const sentinelColor = "rgb(1, 2, 3)";
 	probe.hidden = true;
 	probe.setAttribute("style", `color: ${sentinelColor}; color: ${colorStr};`);
-	document.body.appendChild(probe);
+	activeDocument.body.appendChild(probe);
 
 	try {
 		const resolvedColor = getComputedStyle(probe).color.trim();
@@ -312,7 +312,7 @@ export function applyAlphaToColor(color: string, opacity = 1): string {
 /**
  * 数据验证和清理
  */
-export function validateChartData<T extends Record<string, any>>(
+export function validateChartData<T extends Record<string, unknown>>(
 	data: T[],
 	requiredFields: string[]
 ): T[] {

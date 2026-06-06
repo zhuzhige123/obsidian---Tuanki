@@ -3,6 +3,7 @@ import { getColorSchemeForDeck } from "../../config/card-color-schemes";
 import type { Deck, DeckStats } from "../../data/types";
 import type { WeavePlugin } from "../../main";
 import { waitForServiceReady } from "../../utils/service-ready-event";
+import { isRecord } from "../../utils/typed-json";
 
 export const WEAVE_DECKS_CODE_BLOCK_LANGUAGE = "weave-decks";
 
@@ -43,8 +44,9 @@ export function parseWeaveDeckCodeBlockSource(source: string): WeaveDeckCodeBloc
 	}
 
 	try {
-		const parsed = parseYaml(trimmed);
-		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+		const parsedYaml: unknown = parseYaml(trimmed);
+		if (isRecord(parsedYaml)) {
+			const parsed = parsedYaml;
 			const explicitDeckNames = normalizeStringList(parsed.deckNames);
 			const fallbackDeckNames = explicitDeckNames ?? normalizeStringList(parsed.deckIds);
 

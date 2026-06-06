@@ -4,12 +4,16 @@ import { logger } from "../utils/logger";
  * 提供数据概览、文件夹结构分析、数据导入导出等核心功能
  */
 
-import { Notice, TFile, TFolder } from "obsidian";
+import type { App } from "obsidian";
+import { Notice } from "obsidian";
 import { WEAVE_DATA, getPluginPaths, getV2PathsFromApp } from "../config/paths";
 import { revealVaultPathInExplorer } from "../utils/reveal-vault-folder";
 import { writeSystemClipboardText } from "../utils/system-clipboard";
 import type { WeaveDataStorage } from "../data/storage";
+import type { Card, Deck } from "../data/types";
+import type { WeavePlugin } from "../types/plugin-types";
 import type {
+	ConflictInfo,
 	DataOverview,
 	ExportOptions,
 	ExportResult,
@@ -20,15 +24,40 @@ import type {
 	ImportResult,
 	ResetResult,
 } from "../types/data-management-types";
-import { DataType, OperationType } from "../types/data-management-types";
+import { DataType } from "../types/data-management-types";
+import { readUnknownProperty } from "../utils/dynamic-access";
+import { isRecord } from "../utils/typed-json";
+
+type AdapterLike = App["vault"]["adapter"];
+
+interface ExportDataPayload {
+	decks?: Deck[];
+	cards?: Card[];
+	sessions?: unknown[];
+	profile?: unknown;
+	templates?: {
+		fieldTemplates: unknown[];
+	};
+}
+
+interface ImportExecutionResult {
+	imported: number;
+	skipped: number;
+	conflicts: number;
+	conflictDetails?: ConflictInfo[];
+}
 
 export class DataManagementService {
 	private dataStorage: WeaveDataStorage;
-	private plugin: any; // WeavePlugin type
+	private plugin: WeavePlugin;
 
-	constructor(dataStorage: WeaveDataStorage, plugin: any) {
+	constructor(dataStorage: WeaveDataStorage, plugin: WeavePlugin) {
 		this.dataStorage = dataStorage;
 		this.plugin = plugin;
+	}
+
+	private getAdapter(): AdapterLike {
+		return this.plugin.app.vault.adapter;
 	}
 
 	/**
@@ -79,7 +108,7 @@ export class DataManagementService {
 	async getFolderStructure(): Promise<FolderStructure> {
 		try {
 			const dataFolderPath = this.getDataFolderPath();
-			const adapter = this.plugin.app.vault.adapter;
+			const adapter = this.getAdapter();
 
 			// 检查数据文件夹是否存在
 			const exists = await adapter.exists(dataFolderPath);
@@ -122,7 +151,7 @@ export class DataManagementService {
 			const filePath = await this.writeExportFile(exportData, fileName, options);
 
 			// 计算文件大小
-			const adapter = this.plugin.app.vault.adapter;
+			const adapter = this.getAdapter();
 			const stat = await adapter.stat(filePath);
 			const fileSize = stat?.size || 0;
 
@@ -162,11 +191,11 @@ export class DataManagementService {
 
 			// 读取和解析文件
 			const fileContent = await this.readImportFile(file);
-			const parsedData = await this.parseImportData(fileContent, file.name);
+			const parsedData = this.parseImportData(fileContent, file.name);
 
 			// 验证数据
 			if (options.validateData) {
-				await this.validateImportData(parsedData);
+				this.validateImportData(parsedData);
 			}
 
 			// 执行导入
@@ -248,7 +277,7 @@ export class DataManagementService {
 	async openDataFolder(): Promise<void> {
 		try {
 			const dataFolderPath = this.getDataFolderPath();
-			const adapter = this.plugin.app.vault.adapter;
+			const adapter = this.getAdapter();
 
 			// 检查文件夹是否存在
 			const exists = await adapter.exists(dataFolderPath);
@@ -276,7 +305,7 @@ export class DataManagementService {
 	async calculateFolderSizes(): Promise<FolderSizeInfo> {
 		try {
 			const dataFolderPath = this.getDataFolderPath();
-			const adapter = this.plugin.app.vault.adapter;
+			const adapter = this.getAdapter();
 
 			const folderSizes: Record<string, number> = {};
 			const fileSizes: Record<string, number> = {};
@@ -313,7 +342,7 @@ export class DataManagementService {
 	}
 
 	private async buildFolderNode(path: string, folderSizes: FolderSizeInfo): Promise<FolderNode> {
-		const adapter = this.plugin.app.vault.adapter;
+		const adapter = this.getAdapter();
 		const listing = await adapter.list(path);
 
 		const name = path.split("/").pop() || path;
@@ -407,7 +436,7 @@ export class DataManagementService {
 		path: string,
 		folderSizes: Record<string, number>,
 		fileSizes: Record<string, number>,
-		adapter: any
+		adapter: AdapterLike
 	): Promise<number> {
 		try {
 			const listing = await adapter.list(path);
@@ -444,8 +473,8 @@ export class DataManagementService {
 		}
 	}
 
-	private async collectExportData(options: ExportOptions): Promise<any> {
-		const data: any = {};
+	private async collectExportData(options: ExportOptions): Promise<ExportDataPayload> {
+		const data: ExportDataPayload = {};
 
 		for (const dataType of options.dataTypes) {
 			switch (dataType) {
@@ -469,12 +498,13 @@ export class DataManagementService {
 						data.profile = null;
 					}
 					break;
-				case DataType.TEMPLATES:
+				case DataType.TEMPLATES: {
+					const fieldTemplates = readUnknownProperty(this.plugin.settings, "fieldTemplates");
 					data.templates = {
-						fieldTemplates: this.plugin.settings?.fieldTemplates || [],
-						// triadTemplates 已废弃，不再导出
+						fieldTemplates: Array.isArray(fieldTemplates) ? fieldTemplates : [],
 					};
 					break;
+				}
 			}
 		}
 
@@ -487,11 +517,11 @@ export class DataManagementService {
 	}
 
 	private async writeExportFile(
-		data: any,
+		data: ExportDataPayload,
 		fileName: string,
 		options: ExportOptions
 	): Promise<string> {
-		const adapter = this.plugin.app.vault.adapter;
+		const adapter = this.getAdapter();
 		let content: string;
 
 		switch (options.format) {
@@ -531,53 +561,63 @@ export class DataManagementService {
 		return filePath;
 	}
 
-	private convertToCSV(data: any): string {
+	private convertToCSV(data: ExportDataPayload): string {
 		// 简化的CSV转换实现
 		// 实际实现需要根据数据结构进行详细转换
 		return JSON.stringify(data);
 	}
 
-	private countExportRecords(data: any): number {
+	private countExportRecords(data: ExportDataPayload): number {
 		let count = 0;
-		if (data.decks) count += data.decks.length;
-		if (data.cards) count += data.cards.length;
-		if (data.sessions) count += data.sessions.length;
+		if (Array.isArray(data.decks)) count += data.decks.length;
+		if (Array.isArray(data.cards)) count += data.cards.length;
+		if (Array.isArray(data.sessions)) count += data.sessions.length;
 		return count;
 	}
 
 	private async readImportFile(file: File): Promise<string> {
 		return new Promise((resolve, reject) => {
 			const reader = new FileReader();
-			reader.onload = () => resolve(reader.result as string);
+			reader.onload = () => {
+				if (typeof reader.result === "string") {
+					resolve(reader.result);
+					return;
+				}
+				reject(new Error("文件读取失败"));
+			};
 			reader.onerror = () => reject(new Error("文件读取失败"));
 			reader.readAsText(file);
 		});
 	}
 
-	private parseImportData(content: string, fileName: string): any {
+	private parseImportData(content: string, fileName: string): ExportDataPayload {
 		try {
 			if (fileName.endsWith(".json")) {
-				return JSON.parse(content);
-			} else {
-				throw new Error(`不支持的文件格式: ${fileName}`);
+				const parsed: unknown = JSON.parse(content);
+				return isRecord(parsed) ? (parsed as ExportDataPayload) : {};
 			}
+
+			throw new Error(`不支持的文件格式: ${fileName}`);
 		} catch (error) {
 			throw new Error(`文件解析失败: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 
-	private validateImportData(data: any): void {
-		if (!data || typeof data !== "object") {
+	private validateImportData(data: unknown): void {
+		if (!isRecord(data)) {
 			throw new Error("导入数据格式无效");
 		}
 	}
 
-	private async executeImport(_data: any, _options: ImportOptions): Promise<any> {
+	private async executeImport(
+		_data: ExportDataPayload,
+		_options: ImportOptions
+	): Promise<ImportExecutionResult> {
 		// TODO: 实现实际的数据导入逻辑（牌组/卡片写入、冲突策略处理）
 		throw new Error("数据导入功能尚未实现，请使用备份恢复功能");
 	}
 
-	private detectDataTypes(data: any): DataType[] {
+	private detectDataTypes(data: ExportDataPayload): DataType[] {
 		const types: DataType[] = [];
 		if (data.decks) types.push(DataType.DECKS);
 		if (data.cards) types.push(DataType.CARDS);
@@ -588,30 +628,30 @@ export class DataManagementService {
 	}
 
 	private async executeReset(): Promise<void> {
-		const adapter = this.plugin.app.vault.adapter as any;
+		const adapter = this.getAdapter();
 
 		const removeRecursively = async (targetPath: string): Promise<void> => {
 			try {
 				if (!(await adapter.exists(targetPath))) return;
 
-				let stat: any = null;
+				let stat: Awaited<ReturnType<AdapterLike["stat"]>> | null = null;
 				try {
 					stat = await adapter.stat(targetPath);
-				} catch {}
+				} catch { /* no-op */ }
 
 				if (stat?.type === "file") {
 					await adapter.remove(targetPath);
 					return;
 				}
 
-				const listing = adapter.list ? await adapter.list(targetPath) : { files: [], folders: [] };
-				const files: string[] = Array.isArray(listing?.files) ? listing.files : [];
-				const folders: string[] = Array.isArray(listing?.folders) ? listing.folders : [];
+				const listing = await adapter.list(targetPath);
+				const files = listing.files || [];
+				const folders = listing.folders || [];
 
 				for (const file of files) {
 					try {
 						await adapter.remove(file);
-					} catch {}
+					} catch { /* no-op */ }
 				}
 
 				for (const folder of folders) {
@@ -619,13 +659,9 @@ export class DataManagementService {
 				}
 
 				try {
-					if (adapter.rmdir) {
-						await adapter.rmdir(targetPath, false);
-					} else {
-						await adapter.remove(targetPath);
-					}
-				} catch {}
-			} catch {}
+					await adapter.rmdir(targetPath, false);
+				} catch { /* no-op */ }
+			} catch { /* no-op */ }
 		};
 
 		await removeRecursively(getV2PathsFromApp(this.plugin.app).root);
@@ -635,15 +671,14 @@ export class DataManagementService {
 			if (await adapter.exists(pluginPaths.state.root)) {
 				await removeRecursively(pluginPaths.state.root);
 			}
-		} catch {}
+		} catch { /* no-op */ }
 
 		if (typeof this.dataStorage.initialize === "function") {
 			await this.dataStorage.initialize();
 		}
 	}
 
-	private extractBackupId(backupResult: any): string {
-		// 从备份结果中提取备份ID
-		return backupResult || new Date().toISOString();
+	private extractBackupId(backupResult: string): string {
+		return backupResult;
 	}
 }

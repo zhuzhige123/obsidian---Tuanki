@@ -43,15 +43,15 @@ export function detectDevice(): DeviceInfo {
 
 	// 平台检测 - 使用 Obsidian Platform API
 	let platform: DeviceInfo["platform"] = "unknown";
-	if ((Platform as any).isIosApp) {
+	if ((Platform as unknown).isIosApp) {
 		platform = "ios";
-	} else if ((Platform as any).isAndroidApp) {
+	} else if ((Platform as unknown).isAndroidApp) {
 		platform = "android";
-	} else if ((Platform as any).isWin) {
+	} else if ((Platform as unknown).isWin) {
 		platform = "windows";
-	} else if ((Platform as any).isMacOS) {
+	} else if ((Platform as unknown).isMacOS) {
 		platform = "macos";
-	} else if ((Platform as any).isLinux) {
+	} else if ((Platform as unknown).isLinux) {
 		platform = "linux";
 	}
 
@@ -204,7 +204,7 @@ export function getTabletCapabilities(): {
  */
 export function isObsidianMobile(): boolean {
 	// Obsidian移动端会有特定的API
-	return !!(window as any).app?.isMobile;
+	return !!(window as unknown).app?.isMobile;
 }
 
 /**
@@ -216,7 +216,7 @@ export function getSafeAreaInsets(): {
 	bottom: number;
 	left: number;
 } {
-	const computedStyle = getComputedStyle(document.documentElement);
+	const computedStyle = getComputedStyle(activeDocument.documentElement);
 
 	return {
 		top: parseInt(computedStyle.getPropertyValue("env(safe-area-inset-top)") || "0"),

@@ -36,6 +36,26 @@ export interface GestureEvent {
 
 export type GestureHandler = (event: GestureEvent) => void;
 
+export interface TouchState {
+	startPoint: TouchPoint | null;
+	currentPoint: TouchPoint | null;
+	isTracking: boolean;
+	startTime: number;
+	longPressTimer: ReturnType<typeof setTimeout> | null;
+	lastTap: TouchPoint | null;
+}
+
+type ElementGestureBinding = {
+	handlers: Map<string, GestureHandler>;
+	touchState: TouchState;
+	listeners: {
+		touchstart: EventListener;
+		touchmove: EventListener;
+		touchend: EventListener;
+		touchcancel: EventListener;
+	};
+};
+
 /**
  * 手势管理器类
  */
@@ -52,19 +72,7 @@ export class GestureManager {
 		doubleTapDistance: 30, // 30px位置容差
 	};
 
-	private elements: Map<
-		HTMLElement,
-		{
-			handlers: Map<string, GestureHandler>;
-			touchState: TouchState;
-			listeners: {
-				touchstart: EventListener;
-				touchmove: EventListener;
-				touchend: EventListener;
-				touchcancel: EventListener;
-			};
-		}
-	> = new Map();
+	private elements: Map<HTMLElement, ElementGestureBinding> = new Map();
 
 	private touchState: TouchState = {
 		startPoint: null,
@@ -171,7 +179,7 @@ export class GestureManager {
 
 		// 设置长按计时器
 		if (elementData.handlers.has("longpress")) {
-			state.longPressTimer = setTimeout(() => {
+			state.longPressTimer = window.setTimeout(() => {
 				if (state.isTracking) {
 					this.triggerLongPress(element, elementData);
 				}
@@ -205,7 +213,7 @@ export class GestureManager {
 		// 检查是否超出长按移动限制
 		const distance = this.calculateDistance(state.startPoint, state.currentPoint);
 		if (distance > this.config.longPressMoveLimit && state.longPressTimer) {
-			clearTimeout(state.longPressTimer);
+			window.clearTimeout(state.longPressTimer);
 			state.longPressTimer = null;
 		}
 
@@ -226,7 +234,7 @@ export class GestureManager {
 
 		// 清理长按计时器
 		if (state.longPressTimer) {
-			clearTimeout(state.longPressTimer);
+			window.clearTimeout(state.longPressTimer);
 			state.longPressTimer = null;
 		}
 
@@ -247,7 +255,7 @@ export class GestureManager {
 		const state = elementData.touchState;
 
 		if (state.longPressTimer) {
-			clearTimeout(state.longPressTimer);
+			window.clearTimeout(state.longPressTimer);
 			state.longPressTimer = null;
 		}
 
@@ -257,7 +265,7 @@ export class GestureManager {
 	/**
 	 * 检查滑动手势
 	 */
-	private checkSwipe(element: HTMLElement, elementData: any): void {
+	private checkSwipe(element: HTMLElement, elementData: ElementGestureBinding): void {
 		const state = elementData.touchState;
 		if (!state.startPoint || !state.currentPoint) return;
 
@@ -296,7 +304,7 @@ export class GestureManager {
 	/**
 	 * 触发长按手势
 	 */
-	private triggerLongPress(element: HTMLElement, elementData: any): void {
+	private triggerLongPress(element: HTMLElement, elementData: ElementGestureBinding): void {
 		const state = elementData.touchState;
 		const handler = elementData.handlers.get("longpress");
 
@@ -315,7 +323,11 @@ export class GestureManager {
 	/**
 	 * 检查双击手势
 	 */
-	private checkDoubleTap(element: HTMLElement, elementData: any, currentTap: TouchPoint): void {
+	private checkDoubleTap(
+		element: HTMLElement,
+		elementData: ElementGestureBinding,
+		currentTap: TouchPoint
+	): void {
 		const state = elementData.touchState;
 
 		if (state.lastTap) {
@@ -389,7 +401,7 @@ export class GestureManager {
 		state.isTracking = false;
 		state.startTime = 0;
 		if (state.longPressTimer) {
-			clearTimeout(state.longPressTimer);
+			window.clearTimeout(state.longPressTimer);
 			state.longPressTimer = null;
 		}
 	}
@@ -407,7 +419,7 @@ export class GestureManager {
 		element.removeEventListener("touchcancel", elementData.listeners.touchcancel);
 
 		if (elementData?.touchState.longPressTimer) {
-			clearTimeout(elementData.touchState.longPressTimer);
+			window.clearTimeout(elementData.touchState.longPressTimer);
 		}
 	}
 
@@ -421,15 +433,6 @@ export class GestureManager {
 
 		this.elements.clear();
 	}
-}
-
-export interface TouchState {
-	startPoint: TouchPoint | null;
-	currentPoint: TouchPoint | null;
-	isTracking: boolean;
-	startTime: number;
-	longPressTimer: ReturnType<typeof setTimeout> | null;
-	lastTap: TouchPoint | null;
 }
 
 // 全局手势管理器实例

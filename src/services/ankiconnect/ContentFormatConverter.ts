@@ -29,7 +29,7 @@ export class ContentFormatConverter {
 		let convertedContent = content;
 		const appliedLayers: string[] = [];
 		const warnings: string[] = [];
-		const conversionDetails: Record<string, any> = {};
+		const conversionDetails: Record<string, unknown> = {};
 
 		logger.debug("[ContentFormatConverter] 开始格式转换");
 		logger.debug("[ContentFormatConverter] 原始内容长度:", content.length);

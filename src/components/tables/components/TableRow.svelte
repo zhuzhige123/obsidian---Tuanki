@@ -669,11 +669,11 @@
     text-align: center;
   }
 
-  .weave-source-document-column {
+  .weave-source-activeDocument-column {
     background: transparent;
   }
 
-  .weave-source-document-column .weave-source-link {
+  .weave-source-activeDocument-column .weave-source-link {
     background: transparent !important;
     background-color: transparent !important;
     border: none !important;
@@ -687,7 +687,7 @@
     padding: 0;
   }
 
-  .weave-source-document-column .weave-source-link span {
+  .weave-source-activeDocument-column .weave-source-link span {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1070,7 +1070,7 @@
       gap: 3px;
     }
 
-    .weave-source-document-column .weave-source-link {
+    .weave-source-activeDocument-column .weave-source-link {
       gap: 3px;
     }
   }

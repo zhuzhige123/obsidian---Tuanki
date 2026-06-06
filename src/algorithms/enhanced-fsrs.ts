@@ -5,6 +5,7 @@
 
 import { forgetting_curve } from "ts-fsrs";
 import type { Card, ReviewLog } from "../data/types";
+import { Rating } from "../data/types";
 import { FSRS6_DEFAULTS } from "../types/fsrs6-types";
 import { FSRS } from "./fsrs";
 
@@ -74,7 +75,7 @@ export class EnhancedFSRS extends FSRS {
 	 * 分析用户表现模式
 	 */
 	private analyzeUserPerformance(): number[] {
-		const adjustments = new Array(21).fill(0);
+		const adjustments = Array.from({ length: 21 }, () => 0);
 
 		if (this.userHistory.length === 0) return adjustments;
 
@@ -122,7 +123,7 @@ export class EnhancedFSRS extends FSRS {
 		const recentReviews = this.userHistory.slice(-100);
 		if (recentReviews.length === 0) return 0.8;
 
-		const correctReviews = recentReviews.filter((review) => review.rating >= 3).length;
+		const correctReviews = recentReviews.filter((review) => review.rating >= Rating.Good).length;
 		return correctReviews / recentReviews.length;
 	}
 
@@ -149,7 +150,7 @@ export class EnhancedFSRS extends FSRS {
 
 		if (shortTermReviews.length === 0) return 0.8;
 
-		const correctReviews = shortTermReviews.filter((review) => review.rating >= 3).length;
+		const correctReviews = shortTermReviews.filter((review) => review.rating >= Rating.Good).length;
 		return correctReviews / shortTermReviews.length;
 	}
 
@@ -162,7 +163,7 @@ export class EnhancedFSRS extends FSRS {
 
 		if (longTermReviews.length === 0) return 0.75;
 
-		const correctReviews = longTermReviews.filter((review) => review.rating >= 3).length;
+		const correctReviews = longTermReviews.filter((review) => review.rating >= Rating.Good).length;
 		return correctReviews / longTermReviews.length;
 	}
 
@@ -428,7 +429,7 @@ export class EnhancedFSRS extends FSRS {
 		}
 
 		// 分析最佳学习时间
-		const hourCounts = new Array(24).fill(0);
+		const hourCounts: number[] = Array.from({ length: 24 }, () => 0);
 		for (const _review of this.userHistory) {
 			const hour = new Date(_review.review).getHours();
 			hourCounts[hour]++;
@@ -492,7 +493,7 @@ export class EnhancedFSRS extends FSRS {
 		// 添加最后一个会话
 		if (currentSessionStart && currentSessionEnd) {
 			sessions.push(
-				((currentSessionEnd as Date).getTime() - (currentSessionStart as Date).getTime()) /
+				((currentSessionEnd).getTime() - (currentSessionStart).getTime()) /
 					(1000 * 60)
 			);
 		}
@@ -509,8 +510,10 @@ export class EnhancedFSRS extends FSRS {
 		const recentHalf = this.userHistory.slice(-Math.floor(this.userHistory.length / 2));
 		const earlierHalf = this.userHistory.slice(0, Math.floor(this.userHistory.length / 2));
 
-		const recentAccuracy = recentHalf.filter((r) => r.rating >= 3).length / recentHalf.length;
-		const earlierAccuracy = earlierHalf.filter((r) => r.rating >= 3).length / earlierHalf.length;
+		const recentAccuracy =
+			recentHalf.filter((r) => r.rating >= Rating.Good).length / recentHalf.length;
+		const earlierAccuracy =
+			earlierHalf.filter((r) => r.rating >= Rating.Good).length / earlierHalf.length;
 
 		const difference = recentAccuracy - earlierAccuracy;
 

@@ -34,7 +34,7 @@ class WeaveCardReferenceAliasWidget extends WidgetType {
 	}
 
 	toDOM(): HTMLElement {
-		const element = document.createElement("span");
+		const element = activeDocument.createElement("span");
 		element.className = "cm-weave-card-reference-alias";
 		element.textContent = this.displayText;
 		element.setAttribute("data-weave-card-uuid", this.uuid);

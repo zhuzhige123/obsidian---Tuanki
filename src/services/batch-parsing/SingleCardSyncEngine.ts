@@ -15,6 +15,11 @@ import { logger } from "../../utils/logger";
 import type { WeaveDataStorage } from "../../data/storage";
 import type { Card } from "../../data/types";
 import type { ParsedCard } from "../../types/newCardParsingTypes";
+import type { DirectFileCardReader } from "../data/DirectFileCardReader";
+
+interface SingleCardSyncPluginHost {
+	directFileReader?: DirectFileCardReader;
+}
 
 /**
  * 同步动作类型
@@ -35,7 +40,7 @@ export interface SyncDecision {
  * 单文件单卡片同步决策引擎
  */
 export class SingleCardSyncEngine {
-	constructor(private dataStorage: WeaveDataStorage, private plugin?: any) {}
+	constructor(private dataStorage: WeaveDataStorage, private plugin?: SingleCardSyncPluginHost) {}
 
 	/**
 	 * 决策同步动作
@@ -111,7 +116,7 @@ export class SingleCardSyncEngine {
 	/**
 	 * 🆕 动态获取 DirectFileReader（解决初始化时序问题）
 	 */
-	private getDirectFileReader() {
+	private getDirectFileReader(): DirectFileCardReader | undefined {
 		return this.plugin?.directFileReader;
 	}
 

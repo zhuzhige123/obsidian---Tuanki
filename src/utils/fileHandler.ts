@@ -1,16 +1,31 @@
+import type { App } from "obsidian";
+import { TFile } from "obsidian";
+import type { WeavePlugin } from "../main";
 import { logger } from "../utils/logger";
 import { vaultStorage } from "../utils/vault-local-storage";
-/**
- * 安全的文件处理工具
- */
-
-import type { WeavePlugin } from "../main";
+import { readUnknownProperty, readUnknownString } from "./dynamic-access";
 import {
 	DEFAULT_FILE_CONFIG,
 	type FileValidationConfig,
 	generateSecureFileName,
 	validateFile,
 } from "./security";
+import { isRecord, parseJsonUnknown, readNumber, readString } from "./typed-json";
+
+/**
+ * 安全的文件处理工具
+ */
+
+function getObsidianAppFromWindow(): App | undefined {
+	if (typeof window === "undefined") {
+		return undefined;
+	}
+	const app = readUnknownProperty(window, "app");
+	if (readUnknownProperty(app, "vault") === undefined) {
+		return undefined;
+	}
+	return app as App;
+}
 
 /**
  * 文件处理结果
@@ -72,7 +87,7 @@ export class SecureFileHandler {
 	private async saveFile(file: File, fileName: string): Promise<string> {
 		try {
 			// 方法 1: Obsidian 插件环境
-			if (typeof window !== "undefined" && (window as any).app && (window as any).app.vault) {
+			if (getObsidianAppFromWindow()) {
 				return await this.saveToObsidianVault(file, fileName);
 			}
 
@@ -88,9 +103,15 @@ export class SecureFileHandler {
 	 * 保存到 Obsidian 库
 	 */
 	private async saveToObsidianVault(file: File, fileName: string): Promise<string> {
+		const app = getObsidianAppFromWindow();
+		if (!app) {
+			throw new Error("Obsidian vault is unavailable");
+		}
+
 		const arrayBuffer = await file.arrayBuffer();
-		const vault = (window as any).app.vault;
-		const attachmentFolder = vault.config?.attachmentFolderPath || "attachments";
+		const vault = app.vault;
+		const attachmentFolder =
+			readUnknownString(readUnknownProperty(vault, "config"), "attachmentFolderPath") || "attachments";
 
 		// 确保附件文件夹存在
 		try {
@@ -135,11 +156,12 @@ export class SecureFileHandler {
 	 */
 	getFileUrl(fileName: string): string {
 		// Obsidian 环境
-		if (typeof window !== "undefined" && (window as any).app && (window as any).app.vault) {
-			const vault = (window as any).app.vault;
+		const app = getObsidianAppFromWindow();
+		if (app) {
+			const vault = app.vault;
 			try {
 				const file = vault.getAbstractFileByPath(fileName);
-				if (file) {
+				if (file instanceof TFile) {
 					return vault.getResourcePath(file);
 				}
 			} catch (e) {
@@ -151,8 +173,10 @@ export class SecureFileHandler {
 		try {
 			const stored = vaultStorage.getItem(`attachment_${fileName}`);
 			if (stored) {
-				const fileInfo = JSON.parse(stored);
-				return fileInfo.url || fileName;
+				const parsed = parseJsonUnknown(stored);
+				if (isRecord(parsed)) {
+					return readString(parsed, "url") || fileName;
+				}
 			}
 		} catch (e) {
 			logger.warn("无法从 localStorage 获取文件:", fileName, e);
@@ -196,12 +220,15 @@ export class SecureFileHandler {
 					try {
 						const stored = vaultStorage.getItem(key);
 						if (stored) {
-							const fileInfo = JSON.parse(stored);
-							if (now - fileInfo.timestamp > maxAge) {
-								keysToRemove.push(key);
-								// 释放 blob URL
-								if (fileInfo.url?.startsWith("blob:")) {
-									URL.revokeObjectURL(fileInfo.url);
+							const parsed = parseJsonUnknown(stored);
+							if (isRecord(parsed)) {
+								const timestamp = readNumber(parsed, "timestamp") ?? 0;
+								const url = readString(parsed, "url");
+								if (now - timestamp > maxAge) {
+									keysToRemove.push(key);
+									if (url?.startsWith("blob:")) {
+										URL.revokeObjectURL(url);
+									}
 								}
 							}
 						}
@@ -232,7 +259,7 @@ export const defaultFileHandler = new SecureFileHandler();
  * CodeMirror 拖放功能 Hook
  */
 export function useFileDrop(options: { onFileUrl: (url: string) => void; plugin: WeavePlugin }) {
-	const { onFileUrl, plugin } = options;
+	const { onFileUrl } = options;
 
 	const handleDragOver = (event: DragEvent) => {
 		event.preventDefault();

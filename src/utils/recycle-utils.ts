@@ -54,7 +54,7 @@ export function isRecycled(card: Card): boolean {
 	// 方法2：检查 card.tags 数组
 	if (card.tags && Array.isArray(card.tags)) {
 		const hasRecycleTag = card.tags.some((tag: string) =>
-			recycleTags.includes(removeHashPrefix(tag) as string)
+			recycleTags.includes(removeHashPrefix(tag))
 		);
 		if (hasRecycleTag) return true;
 	}
@@ -62,7 +62,7 @@ export function isRecycled(card: Card): boolean {
 	// 方法3：检查 card.content（双重保障）
 	if (card.content && typeof card.content === "string") {
 		const contentTags = TagExtractor.extractTags(card.content);
-		const hasRecycleTag = contentTags.some((tag: string) => recycleTags.includes(tag as string));
+		const hasRecycleTag = contentTags.some((tag: string) => recycleTags.includes(tag));
 		if (hasRecycleTag) return true;
 	}
 

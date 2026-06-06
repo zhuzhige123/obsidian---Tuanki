@@ -1,5 +1,7 @@
 import type { App } from "obsidian";
 import { getV2Paths, normalizeWeaveParentFolder } from "../config/paths";
+import { readUnknownProperty } from "./dynamic-access";
+import { parseJsonUnknown } from "./typed-json";
 
 function normalizeJsonFile(path: string): string {
 	return String(path || "").replace(/\\/g, "/").toLowerCase();
@@ -79,10 +81,10 @@ async function inspectLegacyCardsDir(
 
 			try {
 				const raw = await adapter.read(file);
-				const parsed = JSON.parse(raw);
-				if (Array.isArray(parsed?.cards)) {
+				const cards = readUnknownProperty(parseJsonUnknown(raw), "cards");
+				if (Array.isArray(cards)) {
 					if (
-						parsed.cards.some(
+						cards.some(
 							(card: unknown) =>
 								card &&
 								typeof card === "object" &&
@@ -159,9 +161,9 @@ async function inspectLegacyDeckCardsDir(
 
 			try {
 				const raw = await adapter.read(file);
-				const parsed = JSON.parse(raw);
-				if (Array.isArray(parsed?.cardUUIDs)) {
-					if (parsed.cardUUIDs.some((uuid: unknown) => typeof uuid === "string" && uuid.trim())) {
+				const cardUUIDs = readUnknownProperty(parseJsonUnknown(raw), "cardUUIDs");
+				if (Array.isArray(cardUUIDs)) {
+					if (cardUUIDs.some((uuid: unknown) => typeof uuid === "string" && uuid.trim())) {
 						hasMeaningfulData = true;
 						break;
 					}

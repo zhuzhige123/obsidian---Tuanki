@@ -446,10 +446,10 @@ export class IRPdfBookmarkTaskService {
 			updatedAt: task.updatedAt,
 		};
 
-		(block as any).contentPreview = task.title;
-		(block as any).pdfBookmarkLink = task.link;
-		(block as any).pdfBookmarkTitle = task.title;
-		(block as any).pdfBookmarkAnnotationId = task.annotationId;
+		(block as unknown).contentPreview = task.title;
+		(block as unknown).pdfBookmarkLink = task.link;
+		(block as unknown).pdfBookmarkTitle = task.title;
+		(block as unknown).pdfBookmarkAnnotationId = task.annotationId;
 
 		return block;
 	}

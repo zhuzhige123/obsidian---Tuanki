@@ -5,7 +5,7 @@
  */
 
 import { logger } from "../../logger";
-import type { FOCUSABLE_SELECTORS, FocusRecord, IFocusRestoreStrategy } from "../types";
+import type { FocusRecord, IFocusRestoreStrategy } from "../types";
 
 /**
  * 主动焦点恢复策略实现
@@ -83,12 +83,12 @@ export class ActiveFocusStrategy implements IFocusRestoreStrategy {
 	 */
 	onFocusLost(currentElement: HTMLElement | null): void {
 		// 如果焦点丢失到 body，尝试恢复到合理的元素
-		if (!currentElement || currentElement === document.body) {
+		if (!currentElement || currentElement === activeDocument.body) {
 			const fallback = this.findFallbackElement();
 			if (fallback) {
 				// 使用 requestAnimationFrame 延迟执行，避免干扰正常操作
-				requestAnimationFrame(() => {
-					if (document.activeElement === document.body) {
+				window.requestAnimationFrame(() => {
+					if (activeDocument.activeElement === activeDocument.body) {
 						fallback.focus();
 
 						if (this.debugMode) {
@@ -107,14 +107,14 @@ export class ActiveFocusStrategy implements IFocusRestoreStrategy {
 		if (!element) return false;
 
 		// 检查元素是否在文档中
-		if (!document.body.contains(element)) return false;
+		if (!activeDocument.body.contains(element)) return false;
 
 		// 检查元素是否可见
 		const style = window.getComputedStyle(element);
 		if (style.display === "none" || style.visibility === "hidden") return false;
 
 		// 检查元素是否被禁用
-		if ((element as any).disabled) return false;
+		if ((element as unknown).disabled) return false;
 
 		// 检查 tabindex
 		const tabindex = element.getAttribute("tabindex");
@@ -128,21 +128,21 @@ export class ActiveFocusStrategy implements IFocusRestoreStrategy {
 	 */
 	private findFallbackElement(): HTMLElement | null {
 		// 优先查找主内容区域
-		const mainContent = document.querySelector(
+		const mainContent = activeDocument.querySelector(
 			".workspace-leaf.mod-active .view-content"
 		) as HTMLElement;
 		if (mainContent && this.isElementFocusable(mainContent)) return mainContent;
 
 		// 查找任何激活的工作区
-		const activeLeaf = document.querySelector(".workspace-leaf.mod-active") as HTMLElement;
+		const activeLeaf = activeDocument.querySelector(".workspace-leaf.mod-active") as HTMLElement;
 		if (activeLeaf && this.isElementFocusable(activeLeaf)) return activeLeaf;
 
 		// 查找 CodeMirror 编辑器
-		const cmContent = document.querySelector(".cm-content") as HTMLElement;
+		const cmContent = activeDocument.querySelector(".cm-content") as HTMLElement;
 		if (cmContent && this.isElementFocusable(cmContent)) return cmContent;
 
 		// 查找主要的输入框
-		const primaryInput = document.querySelector(
+		const primaryInput = activeDocument.querySelector(
 			"input:not([disabled]), textarea:not([disabled])"
 		) as HTMLElement;
 		if (primaryInput && this.isElementFocusable(primaryInput)) return primaryInput;

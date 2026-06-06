@@ -3,7 +3,6 @@ import { logger } from "../utils/logger";
  * CodeMirror 编辑器命令系统
  */
 
-import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 // 定义CodeMirror Commands模块的实际导出结构
@@ -22,7 +21,7 @@ interface CodeMirrorCommandsModule {
  * 编辑器命令接口
  */
 export interface EditorCommand {
-	execute(view: EditorView, ...args: any[]): Promise<boolean>;
+	execute(view: EditorView, ...args: unknown[]): Promise<boolean>;
 }
 
 /**
@@ -65,7 +64,7 @@ export class CommandManager {
 	/**
 	 * 执行命令
 	 */
-	async execute(commandName: string, ...args: any[]): Promise<boolean> {
+	async execute(commandName: string, ...args: unknown[]): Promise<boolean> {
 		const command = this.commands.get(commandName);
 		if (!command) {
 			logger.warn(`Command not found: ${commandName}`);

@@ -15,18 +15,28 @@ import { logger } from "../../utils/logger";
  * - 使用新的 FocusManager 进行平台感知的焦点管理
  */
 
-import { Platform, TFile, WorkspaceLeaf } from "obsidian";
+import { TFile, WorkspaceLeaf } from "obsidian";
 import type { WeavePlugin } from "../../main";
 import type { EditorOptions, EditorResult } from "../../types/editor-types";
 import { EditorLayoutManager } from "./editor-layout-manager";
 import { KeyboardEventHandler } from "./keyboard-event-handler";
+import {
+	asMarkdownEditorView,
+	focusEditorWithCursor,
+	getEditorCodeMirrorView,
+	getEditorText,
+	getLeafContainerEl,
+	getLeafTabHeaderEl,
+	setEditorText,
+	type ObsidianMarkdownEditor,
+} from "../../utils/obsidian-markdown-editor";
 import { applyStyleProps } from "../../utils/style-props";
 import { shouldHideDocumentPropertiesForVault } from "./document-properties-visibility";
 
 export class EmbeddedEditorManager {
 	private plugin: WeavePlugin;
 	private leaf: WorkspaceLeaf | null = null;
-	private editor: any = null;
+	private editor: ObsidianMarkdownEditor | null = null;
 	private editorElement: HTMLElement | null = null;
 	private container: HTMLElement | null = null;
 	private keyboardHandler: KeyboardEventHandler | null = null;
@@ -120,7 +130,7 @@ export class EmbeddedEditorManager {
 		this.plugin.app.workspace.setActiveLeaf(leaf, { focus: true });
 
 		// 等待快捷键系统注册完成
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		await new Promise((resolve) => window.setTimeout(resolve, 100));
 
 		// 等待 CodeMirror 编辑器完全初始化
 		// 不要立即隐藏leaf，等待编辑器DOM提取并确认就绪后再隐藏
@@ -149,11 +159,11 @@ export class EmbeddedEditorManager {
 
 		return new Promise<void>((resolve) => {
 			const checkCodeMirror = () => {
-				const view = leaf.view as any;
-				if (!view || !view.editor) {
+				const view = asMarkdownEditorView(leaf.view);
+				if (!view?.editor) {
 					// 编辑器还未创建，继续等待
 					if (Date.now() - startTime < maxWaitTime) {
-						setTimeout(checkCodeMirror, checkInterval);
+						window.setTimeout(checkCodeMirror, checkInterval);
 						return;
 					}
 					// 超时，但继续执行（可能是其他编辑器类型）
@@ -163,11 +173,10 @@ export class EmbeddedEditorManager {
 				}
 
 				const editor = view.editor;
-				const contentEl = view.contentEl as HTMLElement;
+				const contentEl = view.contentEl;
 
-				// 检查CodeMirror实例是否存在
-				const cm = (editor as any).cm;
-				if (cm?.dom) {
+				const cm = getEditorCodeMirrorView(editor);
+				if (cm?.dom && contentEl) {
 					// CodeMirror 6 实例存在
 					// 检查DOM元素是否已渲染
 					const cmEditor = contentEl?.querySelector(".cm-editor");
@@ -189,7 +198,7 @@ export class EmbeddedEditorManager {
 
 				// 继续等待
 				if (Date.now() - startTime < maxWaitTime) {
-					setTimeout(checkCodeMirror, checkInterval);
+					window.setTimeout(checkCodeMirror, checkInterval);
 				} else {
 					this.log("CodeMirror initialization timeout, forcing resolve");
 					resolve();
@@ -208,7 +217,7 @@ export class EmbeddedEditorManager {
 	 */
 	private hideLeafUI(leaf: WorkspaceLeaf): void {
 		// 移动leaf容器到屏幕外（保持可见性）
-		const leafEl = (leaf as any).containerEl as HTMLElement;
+		const leafEl = getLeafContainerEl(leaf);
 		if (leafEl) {
 			// 不设置 display:none 和 visibility:hidden
 			// 这样 Obsidian 才能认为这是一个“活跃”的编辑器
@@ -229,7 +238,7 @@ export class EmbeddedEditorManager {
 		}
 
 		// 隐藏标签页标题
-		const tabHeaderEl = (leaf as any).tabHeaderEl as HTMLElement;
+		const tabHeaderEl = getLeafTabHeaderEl(leaf);
 		if (tabHeaderEl) {
 			applyStyleProps(tabHeaderEl, { display: "none" });
 			this.log("Tab header hidden");
@@ -243,8 +252,8 @@ export class EmbeddedEditorManager {
 	 * 隐藏文件名显示元素
 	 */
 	private hideFileNameElements(leaf: WorkspaceLeaf): void {
-		const view = (leaf as any).view;
-		if (!view || !view.containerEl) return;
+		const view = asMarkdownEditorView(leaf.view);
+		if (!view?.containerEl) return;
 
 		//  扩展选择器列表，完全隐藏编辑器标题栏相关元素
 		const selectors = [
@@ -284,14 +293,14 @@ export class EmbeddedEditorManager {
 	private extractEditorDOM(leaf: WorkspaceLeaf): HTMLElement | null {
 		this.log("Extracting editor DOM");
 
-		const markdownView = leaf.view as any;
-		if (!markdownView || !markdownView.editor) {
+		const markdownView = asMarkdownEditorView(leaf.view);
+		if (!markdownView?.editor || !markdownView.contentEl) {
 			this.log("Error: MarkdownView or editor not found");
 			return null;
 		}
 
 		this.editor = markdownView.editor;
-		const editorEl = markdownView.contentEl as HTMLElement;
+		const editorEl = markdownView.contentEl;
 
 		if (!editorEl) {
 			this.log("Error: Editor element not found");
@@ -389,7 +398,7 @@ export class EmbeddedEditorManager {
 
 		// 检查CodeMirror实例是否存在
 		if (this.editor) {
-			const cm = (this.editor as any).cm;
+			const cm = getEditorCodeMirrorView(this.editor);
 			if (cm?.dom && contentEl && cmContent && cmContent.clientHeight > 0) {
 				this.log("Editor already ready with CodeMirror instance");
 				return; // 已就绪，立即返回
@@ -418,7 +427,7 @@ export class EmbeddedEditorManager {
 				// 多层检查：
 				// 1. CodeMirror实例检查（最可靠）
 				if (this.editor) {
-					const cm = (this.editor as any).cm;
+					const cm = getEditorCodeMirrorView(this.editor);
 					if (cm?.dom && cmContent && cmContent.clientHeight > 0) {
 						observer.disconnect();
 						resolved = true;
@@ -463,18 +472,18 @@ export class EmbeddedEditorManager {
 			checkReady();
 
 			// 定期检查（作为MutationObserver的补充）
-			const intervalId = setInterval(() => {
+			const intervalId = window.setInterval(() => {
 				if (resolved) {
-					clearInterval(intervalId);
+					window.clearInterval(intervalId);
 					return;
 				}
 				checkReady();
 			}, 50); // 每50ms检查一次
 
 			// 确保在超时后清理
-			setTimeout(() => {
+			window.setTimeout(() => {
 				if (!resolved) {
-					clearInterval(intervalId);
+					window.clearInterval(intervalId);
 				}
 			}, maxWaitTime + 100);
 		});
@@ -613,7 +622,7 @@ export class EmbeddedEditorManager {
 		this.menuObserver = new MutationObserver((mutations) => {
 			for (const mutation of mutations) {
 				mutation.addedNodes.forEach((_node) => {
-					if (_node instanceof HTMLElement) {
+					if (_node.instanceOf(HTMLElement)) {
 						this.fixMenuZIndex(_node);
 					}
 				});
@@ -626,7 +635,7 @@ export class EmbeddedEditorManager {
 		});
 
 		// 也监听document.body，因为某些菜单可能添加到body
-		this.menuObserver.observe(document.body, {
+		this.menuObserver.observe(activeDocument.body, {
 			childList: true,
 			subtree: true,
 		});
@@ -642,22 +651,9 @@ export class EmbeddedEditorManager {
 	public focusEditor(cursorPosition?: "start" | "end"): void {
 		if (!this.editor) return;
 
-		//  焦点管理重构：不再调用 setActiveLeaf，避免移动端键盘闪烁
-		// setActiveLeaf 仅在 createLeaf() 初始化时调用一次
-
-		setTimeout(() => {
+		window.setTimeout(() => {
 			try {
-				this.editor.focus();
-
-				// 设置光标位置
-				if (cursorPosition === "start") {
-					this.editor.setCursor({ line: 0, ch: 0 });
-				} else if (cursorPosition === "end") {
-					const lastLine = this.editor.lastLine();
-					const lastLineLength = this.editor.getLine(lastLine).length;
-					this.editor.setCursor({ line: lastLine, ch: lastLineLength });
-				}
-
+				focusEditorWithCursor(this.editor, cursorPosition);
 				this.log("Editor focused");
 			} catch (error) {
 				this.log("Error focusing editor", error);
@@ -684,54 +680,10 @@ export class EmbeddedEditorManager {
 		}
 
 		try {
-			//  方案0：尝试多种 CodeMirror 6 API（最全面）
-			const cm = (this.editor as any).cm;
-			if (cm) {
-				// 子方案0.1: 从 state.doc 获取（标准方式）
-				if (cm.state?.doc) {
-					const content = cm.state.doc.toString();
-					//  已禁用：频繁触发的调试日志
-					// logger.debug('[EmbeddedEditorManager]  从 CodeMirror state.doc 获取内容:', {
-					//   length: content.length,
-					//   preview: content.substring(0, 100),
-					//   method: 'cm.state.doc.toString()'
-					// });
-					//  更新内部缓存
-					this.lastKnownContent = content;
-					//  静默模式：不输出频繁的内容获取日志（每500ms调用一次）
-					// this.log('Content retrieved from CodeMirror state', { length: content.length });
-					return content;
-				}
-
-				// 子方案0.2: 从 state.sliceDoc 获取（替代方式）
-				if (cm.state && typeof cm.state.sliceDoc === "function") {
-					const content = cm.state.sliceDoc();
-					//  已禁用：频繁触发的调试日志
-					// logger.debug('[EmbeddedEditorManager]  从 CodeMirror sliceDoc 获取内容:', {
-					//   length: content.length,
-					//   preview: content.substring(0, 100),
-					//   method: 'cm.state.sliceDoc()'
-					// });
-					//  更新内部缓存
-					this.lastKnownContent = content;
-					return content;
-				}
-			}
-
-			//  方案1：从 Obsidian Editor API 获取
-			if (this.editor && typeof this.editor.getValue === "function") {
-				const content = this.editor.getValue();
-				if (content && content.trim().length > 0) {
-					//  已禁用：频繁触发的调试日志
-					// logger.debug('[EmbeddedEditorManager]  从 Editor.getValue() 获取内容:', {
-					//   length: content.length,
-					//   preview: content.substring(0, 100),
-					//   method: 'editor.getValue()'
-					// });
-					//  更新内部缓存
-					this.lastKnownContent = content;
-					return content;
-				}
+			const editorContent = getEditorText(this.editor);
+			if (editorContent.trim().length > 0) {
+				this.lastKnownContent = editorContent;
+				return editorContent;
 			}
 
 			//  方案2：从编辑器 DOM 直接读取文本（回退方案）
@@ -787,7 +739,7 @@ export class EmbeddedEditorManager {
 		}
 
 		try {
-			this.editor.setValue(content);
+			setEditorText(this.editor, content);
 			this.lastKnownContent = content;
 			this.log("Content set", { length: content.length });
 		} catch (error) {
@@ -848,7 +800,7 @@ export class EmbeddedEditorManager {
 	 */
 	private stopContentChangeMonitoring(): void {
 		if (this.contentChangeInterval) {
-			clearInterval(this.contentChangeInterval);
+			window.clearInterval(this.contentChangeInterval);
 			this.contentChangeInterval = null;
 			this.log("Content change monitoring stopped");
 		}
@@ -914,7 +866,7 @@ export class EmbeddedEditorManager {
 
 			// 恢复leaf显示（虽然即将关闭）
 			if (this.leaf) {
-				const leafEl = (this.leaf as any).containerEl as HTMLElement;
+				const leafEl = getLeafContainerEl(this.leaf);
 				if (leafEl) {
 					applyStyleProps(leafEl, {
 						display: "",
@@ -948,7 +900,7 @@ export class EmbeddedEditorManager {
 	/**
 	 * 调试日志
 	 */
-	private log(message: string, data?: any): void {
+	private log(message: string, data?: unknown): void {
 		if (this.debug) {
 			logger.debug(`[EmbeddedEditorManager] ${message}`, data || "");
 		}

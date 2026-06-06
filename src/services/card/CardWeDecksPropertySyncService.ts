@@ -48,7 +48,7 @@ export class CardWeDecksPropertySyncService {
 			this.eventRef = null;
 		}
 		for (const timer of this.debounceTimers.values()) {
-			clearTimeout(timer);
+			window.clearTimeout(timer);
 		}
 		this.debounceTimers.clear();
 		this.lastWeDecksByFile.clear();
@@ -57,12 +57,12 @@ export class CardWeDecksPropertySyncService {
 	private scheduleHandleFile(file: TFile): void {
 		const existing = this.debounceTimers.get(file.path);
 		if (existing) {
-			clearTimeout(existing);
+			window.clearTimeout(existing);
 		}
 
 		this.debounceTimers.set(
 			file.path,
-			setTimeout(() => {
+			window.setTimeout(() => {
 				this.debounceTimers.delete(file.path);
 				void this.handleFile(file);
 			}, this.debounceMs)

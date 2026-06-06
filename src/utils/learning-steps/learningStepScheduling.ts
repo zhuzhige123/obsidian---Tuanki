@@ -41,12 +41,6 @@ function setDueAfterMinutes(card: FSRSCard, minutes: number, now: Date): void {
 	card.due = new Date(now.getTime() + Math.round(safeMinutes * 60 * 1000)).toISOString();
 }
 
-function setDueAfterDays(card: FSRSCard, days: number, now: Date): void {
-	const safeDays = Math.max(0, days);
-	card.scheduledDays = safeDays;
-	card.due = new Date(now.getTime() + Math.round(safeDays * 24 * 60 * 60 * 1000)).toISOString();
-}
-
 function getFirstStepHardMinutes(steps: number[]): number {
 	if (steps.length === 0) {
 		return 0;

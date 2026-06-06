@@ -14,7 +14,6 @@ import type {
 	BatchParseConfig,
 	ICardParser,
 	ParseConfig,
-	ParseError,
 	ParseResult,
 	ParseStats,
 	ParseTemplate,
@@ -36,7 +35,6 @@ import { getAnkiClozeMatches, getConfiguredClozeMatches, hasAnyClozeSyntax } fro
 import { getGlobalPerformanceMonitor } from "../parsing-performance-monitor";
 import { TagExtractor } from "../tag-extractor";
 import { CardPositionTracker, CardWithPosition } from "./CardPositionTracker";
-import { EnhancedDelimiterDetector } from "./EnhancedDelimiterDetector";
 
 export class SimplifiedCardParser implements ICardParser {
 	private settings: SimplifiedParsingSettings;
@@ -50,7 +48,7 @@ export class SimplifiedCardParser implements ICardParser {
 	private readonly CACHE_TTL = 5 * 60 * 1000; // 5分钟
 	private cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
-	constructor(settings: SimplifiedParsingSettings, app?: any) {
+	constructor(settings: SimplifiedParsingSettings, app?: unknown) {
 		this.settings = settings;
 
 		// 初始化 LRU 缓存
@@ -83,7 +81,7 @@ export class SimplifiedCardParser implements ICardParser {
 		});
 
 		// 定期清理过期缓存
-		this.cacheCleanupInterval = setInterval(() => {
+		this.cacheCleanupInterval = window.setInterval(() => {
 			this.parseCache.cleanup();
 			this.templateCache.cleanup();
 		}, this.CACHE_TTL);
@@ -141,7 +139,7 @@ export class SimplifiedCardParser implements ICardParser {
 
 	destroy(): void {
 		if (this.cacheCleanupInterval) {
-			clearInterval(this.cacheCleanupInterval);
+			window.clearInterval(this.cacheCleanupInterval);
 			this.cacheCleanupInterval = null;
 		}
 		this.clearCache();
@@ -455,7 +453,7 @@ export class SimplifiedCardParser implements ICardParser {
 
 		// 检测选择题 - 仅支持字母序 A./B./C./D. 格式
 		// GFM 复选框 - [ ] / - [x] 不作为选择题识别（复选框是 Markdown 通用语法）
-		const labeledOptions = content.match(/^[A-Z][\.．、]\s*.+$/gim);
+		const labeledOptions = content.match(/^[A-Z][.．、]\s*.+$/gim);
 		if (labeledOptions && labeledOptions.length >= 2) {
 			return CardType.Multiple;
 		}
@@ -702,7 +700,7 @@ export class SimplifiedCardParser implements ICardParser {
 		//  优先处理组合格式：UUID标识符 + 块链接在同一行
 		// 匹配格式如：<!-- tk-5vmqmfjfxthm --> ^we-3j2hjk
 		cleanedContent = cleanedContent.replace(
-			/<!--\s*(?:tk-[23456789abcdefghjkmnpqrstuvwxyz]{12}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\s*-->\s*\^[a-zA-Z0-9\-]+\s*$/gm,
+			/<!--\s*(?:tk-[23456789abcdefghjkmnpqrstuvwxyz]{12}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\s*-->\s*\^[a-zA-Z0-9-]+\s*$/gm,
 			""
 		);
 
@@ -721,7 +719,7 @@ export class SimplifiedCardParser implements ICardParser {
 
 		//  单独处理剩余的Obsidian块链接：^abc123
 		// 匹配行尾的块链接，包括前面可能的空格
-		cleanedContent = cleanedContent.replace(/\s*\^[a-zA-Z0-9\-]+\s*$/gm, "");
+		cleanedContent = cleanedContent.replace(/\s*\^[a-zA-Z0-9-]+\s*$/gm, "");
 
 		// 移除标签
 		cleanedContent = cleanedContent.replace(/#[\w\u4e00-\u9fa5]+/g, "");

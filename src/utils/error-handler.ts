@@ -10,7 +10,7 @@ export type ErrorLevel = "info" | "warning" | "error" | "success";
 export interface ErrorContext {
 	component?: string;
 	action?: string;
-	details?: Record<string, any>;
+	details?: Record<string, unknown>;
 }
 
 export interface NotificationOptions {
@@ -111,7 +111,7 @@ export class ErrorHandler {
 		}
 
 		if (error && typeof error === "object" && "message" in error) {
-			return String((error as any).message);
+			return String((error as unknown).message);
 		}
 
 		return "未知错误";

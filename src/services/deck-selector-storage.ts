@@ -1,5 +1,6 @@
 import { logger } from "../utils/logger";
 import { vaultStorage } from "../utils/vault-local-storage";
+import { parseJsonUnknown } from "../utils/typed-json";
 /**
  * 牌组选择器持久化服务
  *
@@ -32,8 +33,10 @@ export class DeckSelectorStorage {
 			const stored = vaultStorage.getItem(STORAGE_KEY);
 			if (!stored) return [];
 
-			const parsed = JSON.parse(stored);
-			return Array.isArray(parsed) ? parsed : [];
+			const parsed = parseJsonUnknown(stored);
+			return Array.isArray(parsed)
+				? parsed.filter((item): item is string => typeof item === "string")
+				: [];
 		} catch (error) {
 			logger.error("[DeckSelectorStorage] 加载选择失败:", error);
 			return [];
@@ -70,8 +73,10 @@ export class DeckSelectorStorage {
 			const stored = vaultStorage.getItem(EXPANDED_KEY);
 			if (!stored) return [];
 
-			const parsed = JSON.parse(stored);
-			return Array.isArray(parsed) ? parsed : [];
+			const parsed = parseJsonUnknown(stored);
+			return Array.isArray(parsed)
+				? parsed.filter((item): item is string => typeof item === "string")
+				: [];
 		} catch (error) {
 			logger.error("[DeckSelectorStorage] 加载展开状态失败:", error);
 			return [];

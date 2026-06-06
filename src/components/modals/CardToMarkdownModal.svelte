@@ -93,11 +93,11 @@
   }
 
   function portalToBody(node: HTMLElement) {
-    if (typeof document === "undefined" || !document.body) {
+    if (typeof activeDocument === "undefined" || !activeDocument.body) {
       return;
     }
 
-    document.body.appendChild(node);
+    activeDocument.body.appendChild(node);
 
     return {
       destroy() {
@@ -190,15 +190,15 @@
   });
 
   $effect(() => {
-    if (!open || typeof document === "undefined" || !document.body) {
+    if (!open || typeof activeDocument === "undefined" || !activeDocument.body) {
       return;
     }
 
-    const previousOverflow = document.body.style.overflow;
-    applyStyleProps(document.body, { overflow: "hidden" });
+    const previousOverflow = activeDocument.body.style.overflow;
+    applyStyleProps(activeDocument.body, { overflow: "hidden" });
 
     return () => {
-      applyStyleProps(document.body, {
+      applyStyleProps(activeDocument.body, {
         overflow: previousOverflow || null
       });
     };

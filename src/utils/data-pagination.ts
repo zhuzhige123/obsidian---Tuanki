@@ -359,7 +359,7 @@ export class DataPaginationService {
 	}
 
 	private delay(ms: number): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, ms));
+		return new Promise((resolve) => window.setTimeout(resolve, ms));
 	}
 }
 
@@ -371,21 +371,29 @@ export const dataPagination = DataPaginationService.getInstance();
 
 // 便捷的批量处理装饰器
 export function withBatchProcessing(config?: Partial<BatchProcessConfig>) {
-	return function (_target: any, _propertyKey: string, descriptor: PropertyDescriptor) {
-		const originalMethod = descriptor.value;
+	return function (_target: unknown, _propertyKey: string, descriptor: PropertyDescriptor) {
+		const originalMethod: unknown = descriptor.value;
+		if (typeof originalMethod !== "function") {
+			return descriptor;
+		}
+		const invokeOriginal = originalMethod as (
+			this: unknown,
+			item: unknown,
+			...args: unknown[]
+		) => Promise<unknown>;
 
-		descriptor.value = async function <T>(data: T[], ...args: unknown[]) {
+		descriptor.value = async function (this: unknown, data: unknown, ...args: unknown[]) {
 			if (!Array.isArray(data)) {
-				return originalMethod.apply(this, [data, ...args]);
+				return Reflect.apply(invokeOriginal, this, [data, ...args]);
 			}
 
 			const result = await dataPagination.processBatches(
 				data,
 				async (batch) => {
-					const batchResults = [];
+					const batchResults: unknown[] = [];
 					for (const item of batch) {
-						const result = await originalMethod.apply(this, [item, ...args]);
-						batchResults.push(result);
+						const itemResult = await Reflect.apply(invokeOriginal, this, [item, ...args]);
+						batchResults.push(itemResult);
 					}
 					return batchResults;
 				},

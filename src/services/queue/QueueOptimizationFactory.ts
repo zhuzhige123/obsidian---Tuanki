@@ -99,7 +99,7 @@ export class QueueOptimizationFactory {
 	 *
 	 * @param pluginSettings 插件的完整设置对象
 	 */
-	static createFromPluginSettings(pluginSettings: any): QueueOptimizationSystem {
+	static createFromPluginSettings(pluginSettings: unknown): QueueOptimizationSystem {
 		// 从插件设置中提取队列优化配置
 		const queueSettings = pluginSettings?.queueOptimization;
 

@@ -11,6 +11,7 @@ import type {
 	GenerationProgress,
 	SystemPromptConfig,
 } from "../../types/ai-types";
+import { parseAnthropicMessagePayload } from "./ai-response-parsers";
 import { AIService } from "./AIService";
 
 function getErrorMessage(error: unknown): string | undefined {
@@ -95,15 +96,8 @@ export class AnthropicService extends AIService {
 				message: "解析生成结果...",
 			});
 
-			const data = response.json;
-
-			// Claude 响应格式
-			if (!data.content || data.content.length === 0) {
-				throw new Error("Claude未返回有效内容");
-			}
-
-			const content_text = data.content[0].text;
-			let parsedCards = this.parseResponse(content_text);
+			const { contentText, usage } = parseAnthropicMessagePayload(response.json);
+			let parsedCards = this.parseResponse(contentText);
 
 			// 截断：AI返回数量可能超出请求，只取需要的数量
 			if (parsedCards.length > config.cardCount) {
@@ -144,13 +138,10 @@ export class AnthropicService extends AIService {
 				success: true,
 				cards,
 				usage: {
-					promptTokens: data.usage?.input_tokens || 0,
-					completionTokens: data.usage?.output_tokens || 0,
-					totalTokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
-					estimatedCost: this.estimateCost(
-						data.usage?.input_tokens || 0,
-						data.usage?.output_tokens || 0
-					),
+					promptTokens: usage.input_tokens,
+					completionTokens: usage.output_tokens,
+					totalTokens: usage.input_tokens + usage.output_tokens,
+					estimatedCost: this.estimateCost(usage.input_tokens, usage.output_tokens),
 				},
 			};
 		} catch (error) {
@@ -234,18 +225,13 @@ export class AnthropicService extends AIService {
 				}),
 			});
 
-			const data = response.json;
-			const content = data.content?.[0]?.text;
-
-			if (!content) {
-				throw new Error("Claude未返回有效内容");
-			}
+			const { contentText, usage } = parseAnthropicMessagePayload(response.json);
 
 			return {
 				success: true,
-				content: content.trim(),
+				content: contentText.trim(),
 				model: this.model,
-				tokensUsed: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
+				tokensUsed: usage.input_tokens + usage.output_tokens,
 			};
 		} catch (error) {
 			logger.error("Anthropic chat error:", error);

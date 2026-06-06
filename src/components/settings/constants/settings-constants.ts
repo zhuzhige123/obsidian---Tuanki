@@ -120,7 +120,7 @@ export const CSS_CLASSES = {
 export const VALIDATION_RULES = {
 	ACTIVATION_CODE: {
 		MIN_LENGTH: 10,
-		PATTERN: /^[A-Za-z0-9\-\.]+$/,
+		PATTERN: /^[A-Za-z0-9\-.]+$/,
 		REQUIRED: true,
 	},
 	RETENTION_RATE: {

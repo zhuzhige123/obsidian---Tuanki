@@ -9,7 +9,7 @@
  * @returns 主题颜色对象
  */
 export function getObsidianThemeColors() {
-	const style = getComputedStyle(document.body);
+	const style = getComputedStyle(activeDocument.body);
 
 	return {
 		// 背景色
@@ -105,7 +105,7 @@ export function truncateText(text: string, maxLength: number): string {
  * @returns 文件名
  */
 export function getFileName(filePath: string): string {
-	const parts = filePath.split(/[\/\\]/);
+	const parts = filePath.split(/[/\\]/);
 	return parts[parts.length - 1];
 }
 
@@ -128,16 +128,16 @@ export function formatFileSize(bytes: number): string {
  * @param wait 等待时间（毫秒）
  * @returns 防抖后的函数
  */
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
 	func: T,
 	wait: number
 ): (...args: Parameters<T>) => void {
 	let timeout: ReturnType<typeof setTimeout> | null = null;
 
-	return function (this: any, ...args: Parameters<T>) {
-		if (timeout) clearTimeout(timeout);
+	return function (this: unknown, ...args: Parameters<T>) {
+		if (timeout) window.clearTimeout(timeout);
 
-		timeout = setTimeout(() => {
+		timeout = window.setTimeout(() => {
 			func.apply(this, args);
 		}, wait);
 	};
@@ -149,18 +149,18 @@ export function debounce<T extends (...args: any[]) => any>(
  * @param limit 时间限制（毫秒）
  * @returns 节流后的函数
  */
-export function throttle<T extends (...args: any[]) => any>(
+export function throttle<T extends (...args: unknown[]) => unknown>(
 	func: T,
 	limit: number
 ): (...args: Parameters<T>) => void {
 	let inThrottle = false;
 
-	return function (this: any, ...args: Parameters<T>) {
+	return function (this: unknown, ...args: Parameters<T>) {
 		if (!inThrottle) {
 			func.apply(this, args);
 			inThrottle = true;
 
-			setTimeout(() => {
+			window.setTimeout(() => {
 				inThrottle = false;
 			}, limit);
 		}
@@ -190,7 +190,7 @@ export function deepClone<T>(obj: T): T {
  * @returns 是否为暗色主题
  */
 export function isDarkTheme(): boolean {
-	return document.body.classList.contains("theme-dark");
+	return activeDocument.body.classList.contains("theme-dark");
 }
 
 /**

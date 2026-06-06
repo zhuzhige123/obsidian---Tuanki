@@ -246,7 +246,7 @@ export class SmartRetryService {
 	 * 延迟函数
 	 */
 	private delay(ms: number): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, ms));
+		return new Promise((resolve) => window.setTimeout(resolve, ms));
 	}
 
 	/**
@@ -312,11 +312,21 @@ export const smartRetry = SmartRetryService.getInstance();
 
 // 便捷的重试装饰器
 export function withRetry(config?: Partial<RetryConfig>) {
-	return function (_target: any, _propertyKey: string, descriptor: PropertyDescriptor) {
-		const originalMethod = descriptor.value;
+	return function (_target: unknown, _propertyKey: string, descriptor: PropertyDescriptor) {
+		const originalMethod: unknown = descriptor.value;
+		if (typeof originalMethod !== "function") {
+			return descriptor;
+		}
+		const invokeOriginal = originalMethod as (
+			this: unknown,
+			...args: unknown[]
+		) => Promise<unknown>;
 
-		descriptor.value = async function (...args: any[]) {
-			return smartRetry.executeWithRetry(() => originalMethod.apply(this, args), config);
+		descriptor.value = async function (this: unknown, ...args: unknown[]) {
+			return smartRetry.executeWithRetry(
+				() => Reflect.apply(invokeOriginal, this, args),
+				config
+			);
 		};
 
 		return descriptor;
@@ -328,18 +338,26 @@ export function withFallback<T>(
 	fallbackStrategies: FallbackStrategy<T>[],
 	config?: Partial<RetryConfig>
 ) {
-	return function (_target: any, _propertyKey: string, descriptor: PropertyDescriptor) {
-		const originalMethod = descriptor.value;
+	return function (_target: unknown, _propertyKey: string, descriptor: PropertyDescriptor) {
+		const originalMethod: unknown = descriptor.value;
+		if (typeof originalMethod !== "function") {
+			return descriptor;
+		}
+		const invokeOriginal = originalMethod as (
+			this: unknown,
+			...args: unknown[]
+		) => Promise<unknown>;
 
-		descriptor.value = async function (...args: any[]) {
+		descriptor.value = async function (this: unknown, ...args: unknown[]) {
 			const result = await smartRetry.executeWithFallback(
-				() => originalMethod.apply(this, args),
+				() => Reflect.apply(invokeOriginal, this, args),
 				fallbackStrategies,
 				config
 			);
 
 			if (!result.success) {
-				throw result.error;
+				const failure = result.error;
+				throw failure instanceof Error ? failure : new Error(String(failure));
 			}
 
 			return result.data;

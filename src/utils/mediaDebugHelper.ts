@@ -5,8 +5,9 @@ import { logger } from "../utils/logger";
  * 用于调试和测试媒体文件路径转换问题
  */
 
-import type { Plugin } from "obsidian";
+import { TFile, TFolder, type Plugin } from "obsidian";
 import { MediaFileHandler } from "./mediaFileHandler";
+import { readWeaveDebugEnabled, readWeaveParentFolder } from "./weave-plugin-settings";
 
 export class MediaDebugHelper {
 	private plugin: Plugin;
@@ -155,19 +156,19 @@ export class MediaDebugHelper {
 	 */
 	async generateMediaReport(deckId: string): Promise<string[]> {
 		const report: string[] = [];
-		const parentFolder = (this.plugin as any).settings?.weaveParentFolder as string | undefined;
+		const parentFolder = readWeaveParentFolder(this.plugin);
 		const mediaPath = `${getMediaFolder(parentFolder)}/decks/${deckId}`;
 
 		try {
 			const folder = this.plugin.app.vault.getAbstractFileByPath(mediaPath);
-			if (folder && "children" in folder && folder.children) {
+			if (folder instanceof TFolder) {
 				report.push(`📁 牌组 ${deckId} 媒体文件报告`);
 				report.push(`路径: ${mediaPath}`);
-				report.push(`文件数量: ${(folder as any).children.length}`);
+				report.push(`文件数量: ${folder.children.length}`);
 				report.push("文件列表:");
 
-				(folder as any).children.forEach((file: any, index: number) => {
-					const size = file.stat?.size || 0;
+				folder.children.forEach((file, index) => {
+					const size = file instanceof TFile ? file.stat.size : 0;
 					const sizeStr = this.formatFileSize(size);
 					report.push(`  ${index + 1}. ${file.name} (${sizeStr})`);
 				});
@@ -176,7 +177,8 @@ export class MediaDebugHelper {
 				report.push(`预期路径: ${mediaPath}`);
 			}
 		} catch (error) {
-			report.push(`❌ 生成媒体报告时出错: ${error}`);
+			const message = error instanceof Error ? error.message : String(error);
+			report.push(`❌ 生成媒体报告时出错: ${message}`);
 		}
 
 		return report;
@@ -208,7 +210,7 @@ export function initMediaDebug(plugin: Plugin): void {
 	if (typeof window !== "undefined") {
 		window.weaveMediaDebug = debugHelper;
 		// 仅在调试模式输出初始化通知
-		if ((plugin as any).settings?.enableDebugMode) {
+		if (readWeaveDebugEnabled(plugin)) {
 			logger.debug("[MediaDebug] 已初始化");
 		}
 	}

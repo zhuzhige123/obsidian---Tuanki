@@ -1,6 +1,6 @@
 import type WeavePlugin from "../../../main";
 import type { WeaveDataStorage } from "../../../data/storage";
-import type { Deck, DeckStats } from "../../../data/types";
+import type { DeckStats } from "../../../data/types";
 import type { StudySession } from "../../../data/study-types";
 import type { DeckTreeNode } from "../../../services/deck/DeckHierarchyService";
 import type { MemoryDeckMenuAction } from "../../../services/deck/MemoryDeckMenu";

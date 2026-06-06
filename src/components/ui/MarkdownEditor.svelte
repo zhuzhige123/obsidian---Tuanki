@@ -68,8 +68,8 @@
     { id: 'list-ul', icon: 'list-ul', title: '无序列表', action: () => insertLinePrefix('- ') },
     { id: 'list-ol', icon: 'list-ol', title: '有序列表', action: () => insertLinePrefix('1. ') },
     { id: 'separator4', type: 'separator' },
-    { id: 'undo', icon: 'undo', title: '撤销 (Ctrl+Z)', action: () => document.execCommand('undo') },
-    { id: 'redo', icon: 'redo', title: '重做 (Ctrl+Y)', action: () => document.execCommand('redo') }
+    { id: 'undo', icon: 'undo', title: '撤销 (Ctrl+Z)', action: () => activeDocument.execCommand('undo') },
+    { id: 'redo', icon: 'redo', title: '重做 (Ctrl+Y)', action: () => activeDocument.execCommand('redo') }
   ];
 
   // 计算编辑器类名
@@ -88,11 +88,11 @@
     }
     
     // 添加键盘快捷键监听
-    document.addEventListener('keydown', handleKeyboardShortcuts);
+    activeDocument.addEventListener('keydown', handleKeyboardShortcuts);
   });
 
   onDestroy(() => {
-    document.removeEventListener('keydown', handleKeyboardShortcuts);
+    activeDocument.removeEventListener('keydown', handleKeyboardShortcuts);
   });
 
   // 处理输入变化
@@ -106,7 +106,7 @@
 
   // 键盘快捷键处理
   function handleKeyboardShortcuts(event: KeyboardEvent) {
-    if (!textareaRef || document.activeElement !== textareaRef) return;
+    if (!textareaRef || activeDocument.activeElement !== textareaRef) return;
     
     if (event.ctrlKey || event.metaKey) {
       switch (event.key) {

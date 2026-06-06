@@ -2,7 +2,7 @@ import { logger } from "../utils/logger";
 /**
  * 题库数据迁移工具
  *
- * 将题库数据从错误位置 '.obsidian/plugins/weave/question-bank'
+ * 将题库数据从错误位置 '{configDir}/plugins/weave/question-bank'
  * 迁移到正确位置 'weave/question-bank'
  */
 
@@ -252,9 +252,9 @@ export class QuestionBankMigration {
 		try {
 			logger.debug("[Migration] 更新QuestionBankStorage配置...");
 
-			const questionBankStorage = (this.plugin as any).questionBankStorage;
+			const questionBankStorage = (this.plugin as unknown).questionBankStorage;
 			if (questionBankStorage) {
-				(questionBankStorage as any).basePath = this.newBasePath;
+				(questionBankStorage).basePath = this.newBasePath;
 				logger.debug(`[Migration] QuestionBankStorage basePath updated to: ${this.newBasePath}`);
 			}
 		} catch (error) {
@@ -285,7 +285,7 @@ export class QuestionBankMigration {
 
 			// 筛选出缺少 pairedMemoryDeckId 的考试牌组
 			const banksNeedingFix = allBanks.filter((_bank) => {
-				const pairedId = (_bank.metadata as any)?.pairedMemoryDeckId;
+				const pairedId = (_bank.metadata as unknown)?.pairedMemoryDeckId;
 				return !pairedId || pairedId === undefined || pairedId === null;
 			});
 

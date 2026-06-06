@@ -1,8 +1,8 @@
 import { focusManager } from "./focus-manager";
 
 type ModalLike = {
-	open: (...args: any[]) => any;
-	onClose?: (...args: any[]) => any;
+	open: (...args: unknown[]) => unknown;
+	onClose?: (...args: unknown[]) => unknown;
 };
 
 /**
@@ -11,7 +11,7 @@ type ModalLike = {
  */
 export function attachModalFocusRestore<T extends ModalLike>(modal: T): T {
 	const originalOpen = modal.open.bind(modal);
-	modal.open = ((...args: any[]) => {
+	modal.open = ((...args: unknown[]) => {
 		focusManager.saveFocus();
 		return originalOpen(...args);
 	}) as T["open"];
@@ -19,7 +19,7 @@ export function attachModalFocusRestore<T extends ModalLike>(modal: T): T {
 	const originalOnClose =
 		typeof modal.onClose === "function" ? modal.onClose.bind(modal) : undefined;
 
-	modal.onClose = ((...args: any[]) => {
+	modal.onClose = ((...args: unknown[]) => {
 		try {
 			const result = originalOnClose?.(...args);
 			if (result && typeof (result as Promise<unknown>).finally === "function") {

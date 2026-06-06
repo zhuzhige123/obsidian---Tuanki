@@ -1,6 +1,6 @@
 // Anki Plugin Data Storage
 // 使用 Obsidian 的 API 进行数据持久化存储
-import { TFile } from "obsidian";
+import { type DataAdapter, TFile } from "obsidian";
 import { Notice } from "obsidian";
 import {
 	LEGACY_PATHS,
@@ -21,8 +21,11 @@ import {
 	normalizeWDeckLogicalDeckId,
 	toWDeckRuntimeDeckId,
 } from "../services/wdeck/WDeckService";
+import {
+	hasProgressiveClozeContent,
+	isProgressiveClozeChild,
+} from "../types/progressive-cloze-v2";
 import type { ProgressiveClozeChildCard } from "../types/progressive-cloze-v2";
-import { hasProgressiveClozeContent } from "../types/progressive-cloze-v2";
 import { extractErrorMessage } from "../types/utility-types";
 import {
 	buildBodyFingerprintIndex,
@@ -41,6 +44,7 @@ import { logger } from "../utils/logger";
 import { showObsidianChoice, showObsidianInput } from "../utils/obsidian-confirm";
 import { keepSingleMemoryFormalDeck } from "../utils/memory-deck-membership";
 import { safeReadJson, safeWriteJson } from "../utils/safe-json-io";
+import { isRecord, parseJsonUnknown } from "../utils/typed-json";
 import { ensureWeaveDataReadmesForPath } from "../utils/weave-data-readme";
 import {
 	type CardYAMLMetadata,
@@ -60,6 +64,7 @@ import type {
 	AnkiExportData,
 	ApiResponse,
 	Card,
+	CardState,
 	DataQuery,
 	Deck,
 	DeckSettings,
@@ -94,6 +99,14 @@ type PluginAugment = {
 	};
 };
 
+type VaultDirListing = { files: string[]; folders: string[] };
+
+type VaultAdapterWithDirOps = DataAdapter & {
+	list?: (path: string) => Promise<VaultDirListing>;
+	rmdir?: (path: string, recursive: boolean) => Promise<void>;
+	stat?: (path: string) => Promise<{ mtime: number } | null>;
+};
+
 export class WeaveDataStorage {
 	private plugin: WeavePlugin;
 	/** 启动时检测到无记忆牌组，等待用户确认后再创建 */
@@ -120,6 +133,38 @@ export class WeaveDataStorage {
 
 	private get pluginCompat(): WeavePlugin & PluginAugment {
 		return this.plugin as WeavePlugin & PluginAugment;
+	}
+
+	private getVaultAdapterWithDirOps(): VaultAdapterWithDirOps {
+		return this.plugin.app.vault.adapter as VaultAdapterWithDirOps;
+	}
+
+	private async listVaultDir(dir: string): Promise<VaultDirListing> {
+		const adapter = this.getVaultAdapterWithDirOps();
+		if (typeof adapter.list !== "function") {
+			return { files: [], folders: [] };
+		}
+		const listing = await adapter.list(dir);
+		return {
+			files: listing.files || [],
+			folders: listing.folders || [],
+		};
+	}
+
+	private isUserProfile(value: unknown): value is UserProfile {
+		return isRecord(value) && typeof value.id === "string" && typeof value.name === "string";
+	}
+
+	private readStudySessionsFromChunk(chunk: unknown): StudySession[] {
+		if (!isRecord(chunk) || !Array.isArray(chunk.sessions)) {
+			return [];
+		}
+		return chunk.sessions.filter(
+			(session): session is StudySession =>
+				isRecord(session) &&
+				typeof session.id === "string" &&
+				typeof session.deckId === "string"
+		);
 	}
 
 	private getDataChangeContext(): WeaveDataChangeContext | undefined {
@@ -293,7 +338,7 @@ export class WeaveDataStorage {
 		options: { includeLegacyCards?: boolean } = {}
 	): Promise<Card[]> {
 		const cardsByUUID = new Map<string, Card>();
-		const includeLegacyCards = options.includeLegacyCards ?? false;
+		void options.includeLegacyCards;
 
 		if (this.plugin.wdeckService) {
 			try {
@@ -394,7 +439,7 @@ export class WeaveDataStorage {
 				: {};
 		const metadata =
 			deckDefinition.metadata && typeof deckDefinition.metadata === "object"
-				? { ...(deckDefinition.metadata as Record<string, unknown>) }
+				? { ...(deckDefinition.metadata) }
 				: {};
 		delete metadata.fileType;
 		delete metadata.logicalDeckId;
@@ -459,7 +504,7 @@ export class WeaveDataStorage {
 		if (!deck) return false;
 		const metadata =
 			deck.metadata && typeof deck.metadata === "object"
-				? (deck.metadata as Record<string, unknown>)
+				? (deck.metadata)
 				: null;
 
 		return (
@@ -471,7 +516,7 @@ export class WeaveDataStorage {
 	private isDeckMigratedToWDeck(deck: Deck): boolean {
 		const metadata =
 			deck.metadata && typeof deck.metadata === "object"
-				? (deck.metadata as Record<string, unknown>)
+				? (deck.metadata)
 				: null;
 		const migration =
 			metadata?.wdeckMigration && typeof metadata.wdeckMigration === "object"
@@ -619,7 +664,7 @@ export class WeaveDataStorage {
 	private buildWDeckMigrationMetadata(deck: Deck, filePath: string): Record<string, unknown> {
 		const metadata =
 			deck.metadata && typeof deck.metadata === "object"
-				? { ...(deck.metadata as Record<string, unknown>) }
+				? { ...(deck.metadata) }
 				: {};
 		metadata.wdeckMigration = {
 			status: "migrated",
@@ -964,26 +1009,16 @@ export class WeaveDataStorage {
 	private async getExistingCardUUIDSet(uuids: string[]): Promise<Set<string>> {
 		const uniqueUUIDs = Array.from(new Set(uuids.filter(Boolean)));
 		const existingCardUUIDs = new Set<string>();
-		const uniqueUUIDSet = new Set(uniqueUUIDs);
 		if (uniqueUUIDs.length === 0) {
 			return existingCardUUIDs;
 		}
 
 		if (this.plugin.wdeckService) {
 			try {
-				if (typeof (this.plugin.wdeckService as any).getCardsByUUIDs === "function") {
-					const locatedCards = await (this.plugin.wdeckService as any).getCardsByUUIDs(uniqueUUIDs);
-					for (const card of locatedCards) {
-						if (card?.uuid) {
-							existingCardUUIDs.add(card.uuid);
-						}
-					}
-				} else {
-					const wdeckCards = await this.plugin.wdeckService.getAllCards();
-					for (const card of wdeckCards) {
-						if (card?.uuid && uniqueUUIDSet.has(card.uuid)) {
-							existingCardUUIDs.add(card.uuid);
-						}
+				const locatedCards = await this.plugin.wdeckService.getCardsByUUIDs(uniqueUUIDs);
+				for (const card of locatedCards) {
+					if (card?.uuid) {
+						existingCardUUIDs.add(card.uuid);
 					}
 				}
 
@@ -1035,14 +1070,13 @@ export class WeaveDataStorage {
 		};
 
 		const wdeckService = this.plugin.wdeckService;
-		const indexService = (this.plugin as any).deckMembershipIndexService;
+		const indexService = this.pluginCompat.deckMembershipIndexService;
 
 		if (
 			!hasFormalBindings &&
 			!isEmergentDeckId &&
 			indexService &&
-			wdeckService &&
-			typeof (wdeckService as any).getCardsByUUIDs === "function"
+			wdeckService
 		) {
 			try {
 				const deckState = await indexService.getDeckState(deckId);
@@ -1397,7 +1431,7 @@ export class WeaveDataStorage {
 	}
 
 	// 获取默认数据
-	private getDefaultData(fileName: string): any {
+	private getDefaultData(fileName: string): unknown {
 		switch (fileName) {
 			case "decks.json":
 				return { decks: [] };
@@ -1495,20 +1529,7 @@ export class WeaveDataStorage {
 			}> = [];
 			if (this.plugin.wdeckService) {
 				try {
-					if (typeof (this.plugin.wdeckService as any).getAllDeckSummaries === "function") {
-						wdeckSummaries = await (this.plugin.wdeckService as any).getAllDeckSummaries();
-					} else {
-						const wdeckAggregates = await this.plugin.wdeckService.getAllDeckAggregates();
-						wdeckSummaries = wdeckAggregates.map((aggregate) => ({
-							runtimeDeckId: aggregate.runtimeDeckId,
-							logicalDeckId: aggregate.logicalDeckId,
-							logicalDeckName: aggregate.logicalDeckName,
-							filePaths: aggregate.files.map((file: { path: string }) => file.path),
-							segmentIndices: aggregate.segmentIndices,
-							cardUUIDs: aggregate.cards.map((card: Card) => card.uuid).filter(Boolean),
-							deck: aggregate.deck,
-						}));
-					}
+					wdeckSummaries = await this.plugin.wdeckService.getAllDeckSummaries();
 				} catch (error) {
 					logger.warn("[Storage] WDeck 聚合牌组读取失败:", error);
 				}
@@ -1556,12 +1577,7 @@ export class WeaveDataStorage {
 			}
 
 			if (this.plugin.wdeckService) {
-				const aggregate =
-					typeof (this.plugin.wdeckService as any).getDeckAggregateByAnyDeckId === "function"
-						? await (this.plugin.wdeckService as any).getDeckAggregateByAnyDeckId(deckId)
-						: this.plugin.wdeckService.isWDeckDeckId(deckId)
-							? await this.plugin.wdeckService.getDeckAggregateByDeckId(deckId)
-							: null;
+				const aggregate = await this.plugin.wdeckService.getDeckAggregateByAnyDeckId(deckId);
 				if (aggregate) {
 					return this.createVirtualWDeckDeck({
 						deckId: aggregate.runtimeDeckId,
@@ -1674,7 +1690,7 @@ export class WeaveDataStorage {
 					}
 				}
 
-				await new Promise((resolve) => setTimeout(resolve, 50));
+				await new Promise((resolve) => window.setTimeout(resolve, 50));
 
 				const dataChangeContext = this.getDataChangeContext();
 				await this.notifyDataChange(
@@ -1745,7 +1761,7 @@ export class WeaveDataStorage {
 				}
 			}
 
-			await new Promise((resolve) => setTimeout(resolve, 50));
+			await new Promise((resolve) => window.setTimeout(resolve, 50));
 
 			const dataChangeContext = this.getDataChangeContext();
 			await this.notifyDataChange(
@@ -1802,7 +1818,7 @@ export class WeaveDataStorage {
 					this.plugin.cardMetadataCache.clear();
 				}
 
-				await new Promise((resolve) => setTimeout(resolve, 50));
+				await new Promise((resolve) => window.setTimeout(resolve, 50));
 
 				await this.notifyDataChange(
 					{
@@ -1883,7 +1899,7 @@ export class WeaveDataStorage {
 			logger.info(`🎉 牌组删除完成: ${deckId}`);
 
 			// 等待写入稳定后再通知变更
-			await new Promise((resolve) => setTimeout(resolve, 50));
+			await new Promise((resolve) => window.setTimeout(resolve, 50));
 
 			// 通知数据同步服务
 			await this.notifyDataChange(
@@ -2030,7 +2046,7 @@ export class WeaveDataStorage {
 			}
 
 			// 第二道门：更新卡片，渐进式父卡统一走 Gateway
-			if (existingCard.type === "progressive-parent") {
+			if (existingCard.type === CardType.ProgressiveParent) {
 				logger.info("[Storage] 检测到渐进式父卡保存，开始同步...");
 
 				const onConfirmNeeded = async (message: string, title?: string): Promise<boolean> => {
@@ -2251,7 +2267,7 @@ export class WeaveDataStorage {
 				hydrated.type = yaml.we_type;
 			} else if (!hydrated.type) {
 				const body = extractBodyContent(hydrated.content || "") || hydrated.content || "";
-				hydrated.type = (detectCardTypeFromContent(body) || CardType.Basic) as any;
+				hydrated.type = (detectCardTypeFromContent(body) || CardType.Basic) as unknown;
 			}
 
 			// 5. we_priority -> priority
@@ -2337,11 +2353,11 @@ export class WeaveDataStorage {
 						: undefined;
 			}
 			if (card.type) {
-				metadata.we_type = card.type as any;
+				metadata.we_type = card.type as unknown;
 			} else {
 				const body = extractBodyContent(card.content || "") || card.content || "";
 				const detected = detectCardTypeFromContent(body);
-				metadata.we_type = (detected || CardType.Basic) as any;
+				metadata.we_type = (detected || CardType.Basic) as unknown;
 				logger.debug(
 					"[Storage] syncCardMetadataToYAML: 根据当前内容自动检测 we_type 为",
 					metadata.we_type
@@ -2360,7 +2376,7 @@ export class WeaveDataStorage {
 			if (canonicalCreated) {
 				metadata.created = canonicalCreated;
 			}
-			metadata.we_created = undefined;
+			delete (metadata as Record<string, unknown>)["we_created"];
 
 			const newContent = setCardProperties(card.content || "", metadata);
 
@@ -2640,7 +2656,7 @@ export class WeaveDataStorage {
 			}
 
 			for (const entry of deckBoundWDeckCards.values()) {
-				await this.plugin.wdeckService!.saveCardsToDeck(entry.deck, entry.cards);
+				await this.plugin.wdeckService.saveCardsToDeck(entry.deck, entry.cards);
 			}
 
 			const savedDeckBoundCards = Array.from(deckBoundWDeckCards.values()).flatMap((entry) => entry.cards);
@@ -3001,14 +3017,15 @@ export class WeaveDataStorage {
 				cardToDelete = allCardsInDeck.find((c) => c.uuid === cardUuid) ?? null;
 			}
 
-			if (cardToDelete && cardToDelete.type === "progressive-parent") {
+			if (cardToDelete && cardToDelete.type === CardType.ProgressiveParent) {
 				logger.info(`[Storage] 检测到渐进式挖空父卡片: ${cardUuid}，开始级联删除子卡片`);
 
 				const childCards = allCardsInDeck.filter(
-					(c) =>
-						c.type === "progressive-child" &&
-						(c as ProgressiveClozeChildCard).parentCardId === cardUuid
-				) as ProgressiveClozeChildCard[];
+					(c): c is ProgressiveClozeChildCard =>
+						c.type === CardType.ProgressiveChild &&
+						isProgressiveClozeChild(c) &&
+						c.parentCardId === cardUuid
+				);
 
 				for (const childCard of childCards) {
 					const childIndex = allCardsInDeck.findIndex((c) => c.uuid === childCard.uuid);
@@ -3031,7 +3048,7 @@ export class WeaveDataStorage {
 
 			if (deletedDeckId) {
 				// 等待写入稳定后再通知变更
-				await new Promise((resolve) => setTimeout(resolve, 50));
+				await new Promise((resolve) => window.setTimeout(resolve, 50));
 
 				await this.notifyDataChange(
 					{
@@ -3300,26 +3317,15 @@ export class WeaveDataStorage {
 
 			if (this.plugin.wdeckService) {
 				try {
-					if (typeof (this.plugin.wdeckService as any).getCardsByUUIDs === "function") {
-						const wdeckCards = await (this.plugin.wdeckService as any).getCardsByUUIDs(normalizedUUIDs);
-						for (const card of wdeckCards) {
-							if (!card?.uuid || !uuidSet.has(card.uuid) || foundCards.has(card.uuid)) {
-								continue;
-							}
-							foundCards.set(card.uuid, this.hydrateCardFromYAML(card));
-							uuidSet.delete(card.uuid);
+					const wdeckCards = await this.plugin.wdeckService.getCardsByUUIDs(normalizedUUIDs);
+					for (const card of wdeckCards) {
+						if (!card?.uuid || !uuidSet.has(card.uuid) || foundCards.has(card.uuid)) {
+							continue;
 						}
-					} else {
-						const wdeckCards = await this.plugin.wdeckService.getAllCards();
-						for (const card of wdeckCards) {
-							if (!card?.uuid || !uuidSet.has(card.uuid) || foundCards.has(card.uuid)) {
-								continue;
-							}
-							foundCards.set(card.uuid, this.hydrateCardFromYAML(card));
-							uuidSet.delete(card.uuid);
-							if (uuidSet.size === 0) {
-								break;
-							}
+						foundCards.set(card.uuid, this.hydrateCardFromYAML(card));
+						uuidSet.delete(card.uuid);
+						if (uuidSet.size === 0) {
+							break;
 						}
 					}
 				} catch (error) {
@@ -3479,9 +3485,8 @@ export class WeaveDataStorage {
 	private async cleanupStudySessionsByDeck(deckId: string): Promise<void> {
 		try {
 			const sessionsDir = this.v2Paths.memory.learning.sessions;
-			const adapter = this.plugin.app.vault.adapter as any;
-			const listing = adapter.list ? await adapter.list(sessionsDir) : { files: [], folders: [] };
-			const files: string[] = listing?.files || [];
+			const listing = await this.listVaultDir(sessionsDir);
+			const files = listing.files;
 			const jsonFiles = files.filter(
 				(p) => p.startsWith(sessionsDir) && /\d{4}-\d{2}\.json$/.test(p)
 			);
@@ -3491,19 +3496,17 @@ export class WeaveDataStorage {
 			for (const filePath of jsonFiles) {
 				try {
 					const raw = await this.plugin.app.vault.adapter.read(filePath);
-					const data = JSON.parse(raw);
-					const sessions: StudySession[] = data?.sessions || [];
+					const data = parseJsonUnknown(raw);
+					const sessions = this.readStudySessionsFromChunk(data);
 
 					const beforeCount = sessions.length;
 					const filteredSessions = sessions.filter((session) => session.deckId !== deckId);
 					const cleanedCount = beforeCount - filteredSessions.length;
 
 					if (cleanedCount > 0) {
-						// 更新文件
-						const updatedData = {
-							...data,
-							sessions: filteredSessions,
-						};
+						const updatedData = isRecord(data)
+							? { ...data, sessions: filteredSessions }
+							: { sessions: filteredSessions };
 						await this.plugin.app.vault.adapter.write(filePath, JSON.stringify(updatedData));
 						totalCleaned += cleanedCount;
 					}
@@ -3523,8 +3526,8 @@ export class WeaveDataStorage {
 	 */
 	private async cleanupDeckMediaFiles(deckId: string): Promise<void> {
 		try {
-			const mediaHandler = (this.plugin as any).mediaFileHandler;
-			if (mediaHandler && typeof mediaHandler.cleanupDeckMedia === "function") {
+			const mediaHandler = this.pluginCompat.mediaFileHandler;
+			if (mediaHandler?.cleanupDeckMedia) {
 				await mediaHandler.cleanupDeckMedia(deckId);
 			}
 		} catch (error) {
@@ -3537,16 +3540,11 @@ export class WeaveDataStorage {
 	 */
 	private async notifyDeckDeletion(deckId: string): Promise<void> {
 		try {
-			// Notify analytics and other deck-related services
-			const analyticsService = (this.plugin as any).analyticsService;
-			if (analyticsService && typeof analyticsService.onDeckDeleted === "function") {
-				analyticsService.onDeckDeleted(deckId);
-			}
+			const analyticsService = this.pluginCompat.analyticsService;
+			analyticsService?.onDeckDeleted?.(deckId);
 
-			const autoSyncManager = (this.plugin as any).autoSyncManager;
-			if (autoSyncManager && typeof autoSyncManager.onDeckDeleted === "function") {
-				autoSyncManager.onDeckDeleted(deckId);
-			}
+			const autoSyncManager = this.pluginCompat.autoSyncManager;
+			autoSyncManager?.onDeckDeleted?.(deckId);
 		} catch (error) {
 			logger.warn(`⚠️ 通知服务失败: ${deckId}`, error);
 		}
@@ -3562,16 +3560,16 @@ export class WeaveDataStorage {
 			// 确保目录存在
 			try {
 				await this.ensureFolder(this.v2Paths.memory.learning.root);
-			} catch {}
+			} catch { /* no-op */ }
 			try {
 				await this.ensureFolder(this.v2Paths.memory.learning.sessions);
-			} catch {}
+			} catch { /* no-op */ }
 			// 读现有分片（若不存在则新建）
-			let chunk: any = { _schemaVersion: "1.0.0", yearMonth: ym, sessions: [] };
+			let chunk: unknown = { _schemaVersion: "1.0.0", yearMonth: ym, sessions: [] };
 			try {
 				chunk = await this.readJsonFile(rel);
-			} catch {}
-			const arr: StudySession[] = Array.isArray(chunk.sessions) ? chunk.sessions : [];
+			} catch { /* no-op */ }
+			const arr = this.readStudySessionsFromChunk(chunk);
 			const idx = arr.findIndex((s) => s.id === session.id);
 			const isNew = idx < 0;
 			if (idx >= 0) arr[idx] = session;
@@ -3582,7 +3580,7 @@ export class WeaveDataStorage {
 			await this.writeJsonFile(rel, { _schemaVersion: "1.0.0", yearMonth: ym, sessions: arr });
 
 			// 等待写入稳定后再通知变更
-			await new Promise((resolve) => setTimeout(resolve, 50));
+			await new Promise((resolve) => window.setTimeout(resolve, 50));
 
 			// 通知数据同步服务
 			await this.notifyDataChange(
@@ -3616,8 +3614,10 @@ export class WeaveDataStorage {
 			const pluginPaths = getPluginPaths(this.plugin.app);
 			if (await adapter.exists(pluginPaths.state.userProfile)) {
 				const content = await adapter.read(pluginPaths.state.userProfile);
-				const data = JSON.parse(content);
-				return data.profile;
+				const data = parseJsonUnknown(content);
+				if (isRecord(data) && this.isUserProfile(data.profile)) {
+					return data.profile;
+				}
 			}
 			return this.createDefaultUserProfile().profile;
 		} catch (error) {
@@ -3738,9 +3738,9 @@ export class WeaveDataStorage {
 	}
 
 	// 瀵煎嚭涓?Anki revlog 椋庢牸鐨?JSON锛堝熀鏈槧灏勶級
-	async exportAsAnkiRevlog(): Promise<any[]> {
+	async exportAsAnkiRevlog(): Promise<unknown[]> {
 		const cards = await this.getCards();
-		const rows: any[] = [];
+		const rows: unknown[] = [];
 		for (const c of cards) {
 			for (const log of c.reviewHistory || []) {
 				rows.push({
@@ -3752,13 +3752,13 @@ export class WeaveDataStorage {
 					time: 0,
 					type: ((): number => {
 						switch (log.state) {
-							case 0:
+							case CardState.New:
 								return 0; // learn
-							case 1:
+							case CardState.Learning:
 								return 0; // learn
-							case 2:
+							case CardState.Review:
 								return 1; // review
-							case 3:
+							case CardState.Relearning:
 								return 2; // relearn
 							default:
 								return 1;
@@ -3796,9 +3796,8 @@ export class WeaveDataStorage {
 			return;
 		}
 		try {
-			const adapter = this.plugin.app.vault.adapter as any;
-			const listing = adapter.list ? await adapter.list(parent) : { files: [], folders: [] };
-			const folders: string[] = listing?.folders ?? [];
+			const listing = await this.listVaultDir(parent);
+			const folders = listing.folders;
 			if (!Array.isArray(folders) || folders.length <= retention) return;
 			const sorted = folders.slice().sort(); const toDelete = sorted.slice(0, Math.max(0, folders.length - retention));
 			for (const folder of toDelete) {
@@ -3810,13 +3809,13 @@ export class WeaveDataStorage {
 					}
 				}
 				// 删除空文件夹
-				const adapter = this.plugin.app.vault.adapter as any;
+				const adapter = this.getVaultAdapterWithDirOps();
 				if (adapter.rmdir) {
 					await adapter.rmdir(folder, true);
 				} else {
 					try {
 						await this.plugin.app.vault.adapter.remove(folder);
-					} catch {}
+					} catch { /* no-op */ }
 				}
 			}
 		} catch (e) {
@@ -3826,7 +3825,7 @@ export class WeaveDataStorage {
 
 	private async exists(path: string): Promise<boolean> {
 		try {
-			const adapter = this.plugin.app.vault.adapter as any;
+			const adapter = this.getVaultAdapterWithDirOps();
 			if (adapter.stat) {
 				const stat = await adapter.stat(path);
 				return !!stat;
@@ -3838,12 +3837,12 @@ export class WeaveDataStorage {
 	}
 
 	// 工具方法
-	private async readJsonFile(fileName: string): Promise<any> {
+	private async readJsonFile(fileName: string): Promise<unknown> {
 		const content = await this.readFileContent(fileName);
-		return JSON.parse(content);
+		return parseJsonUnknown(content);
 	}
 
-	private async writeJsonFile(fileName: string, data: any): Promise<void> {
+	private async writeJsonFile(fileName: string, data: unknown): Promise<void> {
 		const content = JSON.stringify(data);
 		const filePath = this.isAbsoluteVaultPath(fileName)
 			? fileName
@@ -3862,7 +3861,7 @@ export class WeaveDataStorage {
 	/**
 	 * 新增：直接更新已存在文件的内容
 	 */
-	private async updateExistingDeckFile(fileName: string, data: any): Promise<void> {
+	private async updateExistingDeckFile(fileName: string, data: unknown): Promise<void> {
 		const filePath = this.isAbsoluteVaultPath(fileName)
 			? fileName
 			: `${this.dataFolder}/${fileName}`;
@@ -3885,21 +3884,20 @@ export class WeaveDataStorage {
 		const sessionsDir = this.v2Paths.memory.learning.sessions;
 		let items: StudySession[] = [];
 		try {
-			const adapter = this.plugin.app.vault.adapter as any;
-			const listing = adapter.list ? await adapter.list(sessionsDir) : { files: [], folders: [] };
-			const files: string[] = listing?.files || [];
+			const listing = await this.listVaultDir(sessionsDir);
+			const files = listing.files;
 			const jsonFiles = files.filter(
 				(p) => p.startsWith(sessionsDir) && /\d{4}-\d{2}\.json$/.test(p)
 			);
 			for (const p of jsonFiles) {
 				try {
 					const raw = await this.plugin.app.vault.adapter.read(p);
-					const data = JSON.parse(raw);
-					const chunk: StudySession[] = data?.sessions || [];
+					const data = parseJsonUnknown(raw);
+					const chunk = this.readStudySessionsFromChunk(data);
 					items.push(...chunk);
-				} catch {}
+				} catch { /* no-op */ }
 			}
-		} catch {}
+		} catch { /* no-op */ }
 		if (range?.since || range?.until) {
 			items = items.filter((s) => {
 				const t = new Date(s.startTime).getTime();
@@ -3923,13 +3921,23 @@ export class WeaveDataStorage {
 	private normalizeCardData(card: Card): Card {
 		if (card.tags) {
 			if (typeof card.tags === "string") {
-				const tagsString = card.tags as unknown as string;
+				const tagsString = card.tags;
 				try {
-					const parsed = JSON.parse(tagsString);
-					card.tags = Array.isArray(parsed) ? parsed : [];
+					const parsed = parseJsonUnknown(tagsString);
+					if (Array.isArray(parsed)) {
+						const tags: string[] = [];
+						for (const tag of parsed) {
+							if (typeof tag === "string") {
+								tags.push(tag);
+							}
+						}
+						card.tags = tags;
+					} else {
+						throw new Error("tags payload is not a JSON array");
+					}
 				} catch {
 					// 如果不是 JSON，则按分隔符拆分
-					card.tags = tagsString.split(/[,;\s]+/).filter((tag: string) => tag.length > 0);
+					card.tags = this.splitTagString(tagsString);
 				}
 			} else if (!Array.isArray(card.tags)) {
 				// 如果既不是字符串也不是数组，则重置为空数组
@@ -3951,6 +3959,10 @@ export class WeaveDataStorage {
 
 		syncCardStatsToCanonicalFormat(card);
 		return card;
+	}
+
+	private splitTagString(tagsString: string): string[] {
+		return tagsString.split(/[,;\s]+/).filter((tag) => tag.length > 0);
 	}
 
 	private resolveCardTypeBeforeSave(card: Card): CardType {
@@ -4129,8 +4141,10 @@ export class WeaveDataStorage {
 			const filePath = `${this.v2Paths.memory.deckCards}/${deckId}.json`;
 			if (await adapter.exists(filePath)) {
 				const raw = await adapter.read(filePath);
-				const data = JSON.parse(raw);
-				return Array.isArray(data?.cardUUIDs) ? data.cardUUIDs : [];
+				const data = parseJsonUnknown(raw);
+				if (isRecord(data) && Array.isArray(data.cardUUIDs)) {
+					return data.cardUUIDs.filter((uuid): uuid is string => typeof uuid === "string");
+				}
 			}
 		} catch (e) {
 			logger.warn(`[Storage] readDeckCardUUIDs(${deckId}) failed:`, e);
@@ -4180,9 +4194,9 @@ export class WeaveDataStorage {
 		set.add(cardUUID);
 
 		if (this._deckCardUUIDsFlushTimer) {
-			clearTimeout(this._deckCardUUIDsFlushTimer);
+			window.clearTimeout(this._deckCardUUIDsFlushTimer);
 		}
-		this._deckCardUUIDsFlushTimer = setTimeout(() => {
+		this._deckCardUUIDsFlushTimer = window.setTimeout(() => {
 			void this._flushPendingDeckCardUUIDs();
 		}, WeaveDataStorage.DECK_CARD_UUIDS_FLUSH_DELAY);
 	}
@@ -4238,7 +4252,7 @@ export class WeaveDataStorage {
 	 */
 	async flushPendingWrites(): Promise<void> {
 		if (this._deckCardUUIDsFlushTimer) {
-			clearTimeout(this._deckCardUUIDsFlushTimer);
+			window.clearTimeout(this._deckCardUUIDsFlushTimer);
 		}
 		await this._flushPendingDeckCardUUIDs();
 	}
@@ -4246,12 +4260,7 @@ export class WeaveDataStorage {
 	async saveDeckCards(deckId: string, cards: Card[]): Promise<void> {
 		if (this.plugin.wdeckService) {
 			const runtimeDeckId = String(deckId || "").trim();
-			const existingWDeckInfo =
-				typeof (this.plugin.wdeckService as any).getDeckInfoByAnyDeckId === "function"
-					? await (this.plugin.wdeckService as any).getDeckInfoByAnyDeckId(runtimeDeckId)
-					: this.plugin.wdeckService.isWDeckDeckId(runtimeDeckId)
-						? await this.plugin.wdeckService.getDeckInfoByDeckId(runtimeDeckId)
-						: null;
+			const existingWDeckInfo = await this.plugin.wdeckService.getDeckInfoByAnyDeckId(runtimeDeckId);
 			const persistedDeck =
 				existingWDeckInfo || this.plugin.wdeckService.isWDeckDeckId(runtimeDeckId)
 					? null
@@ -4369,8 +4378,13 @@ export class WeaveDataStorage {
 				if (_card.content) {
 					try {
 						const yaml = parseYAMLFromContent(_card.content);
-						const source = Array.isArray(yaml.we_source) ? yaml.we_source[0] : yaml.we_source;
-						if (typeof source === "string" && source.includes(filePath)) return true;
+						const sourceValue = yaml.we_source;
+						const source = Array.isArray(sourceValue)
+							? sourceValue.find((item): item is string => typeof item === "string")
+							: typeof sourceValue === "string"
+								? sourceValue
+								: undefined;
+						if (source && source.includes(filePath)) return true;
 					} catch {
 						/* ignore */
 					}
@@ -4639,7 +4653,7 @@ export class WeaveDataStorage {
 	}
 
 	private async loadCardsForSourceStatusRefresh(targetPath: string): Promise<Card[]> {
-		const indexManager = (this.plugin as WeavePlugin).indexManager;
+		const indexManager = (this.plugin).indexManager;
 		const batchSize = 120;
 
 		if (targetPath && indexManager) {
@@ -4710,9 +4724,7 @@ export class WeaveDataStorage {
 		const abstractFile = this.plugin.app.vault.getAbstractFileByPath(sourcePath);
 		const sourceFile = abstractFile instanceof TFile ? abstractFile : null;
 		const nextExists = !!sourceFile;
-		const nextMtime = sourceFile
-			? ((sourceFile as any).stat?.mtime as number | undefined)
-			: undefined;
+		const nextMtime = sourceFile?.stat.mtime;
 
 		const shouldUpdateExists = card.sourceExists !== nextExists;
 		const shouldUpdateMtime = card.sourceFileMtime !== nextMtime;

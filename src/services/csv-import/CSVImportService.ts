@@ -7,7 +7,6 @@
  * - 批量卡片生成
  */
 
-import { logger } from "../../utils/logger";
 import { parseYAMLFromContent } from "../../utils/yaml-utils";
 
 // ============================================================================

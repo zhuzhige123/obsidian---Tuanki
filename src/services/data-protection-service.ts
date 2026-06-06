@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger";
+import type { TimerHandle } from "../types/timer";
 /**
  * 数据保护服务
  * 确保用户内容永不丢失，提供完整的数据保护和恢复机制
@@ -64,7 +65,7 @@ export interface RecoveryOption {
 export class DataProtectionService {
 	private config: DataProtectionConfig;
 	private snapshots: Map<string, DataSnapshot[]> = new Map();
-	private integrityCheckInterval: NodeJS.Timeout | null = null;
+	private integrityCheckInterval: TimerHandle | null = null;
 
 	constructor(config?: Partial<DataProtectionConfig>) {
 		this.config = {
@@ -416,10 +417,10 @@ export class DataProtectionService {
 
 	private startIntegrityChecking(): void {
 		if (this.integrityCheckInterval) {
-			clearInterval(this.integrityCheckInterval);
+			window.clearInterval(this.integrityCheckInterval);
 		}
 
-		this.integrityCheckInterval = setInterval(() => {
+		this.integrityCheckInterval = window.setInterval(() => {
 			this.performPeriodicIntegrityCheck();
 		}, this.config.backupInterval);
 	}
@@ -483,7 +484,7 @@ export class DataProtectionService {
 	 */
 	destroy(): void {
 		if (this.integrityCheckInterval) {
-			clearInterval(this.integrityCheckInterval);
+			window.clearInterval(this.integrityCheckInterval);
 			this.integrityCheckInterval = null;
 		}
 

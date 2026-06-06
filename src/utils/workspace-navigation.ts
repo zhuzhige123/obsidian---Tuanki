@@ -68,25 +68,15 @@ export function findLeafByFile(app: App, file: TFile): WorkspaceLeaf | null {
 	return null;
 }
 
-export function revealLeaf(app: App, leaf: WorkspaceLeaf, focus = true): void {
+export function revealLeaf(app: App, leaf: WorkspaceLeaf, _focus = true): void {
 	const workspace = app.workspace as WorkspaceCompat;
-
-	try {
-		if (typeof workspace.setActiveLeaf === "function") {
-			try {
-				workspace.setActiveLeaf(leaf, { focus });
-			} catch {
-				workspace.setActiveLeaf(leaf, focus);
-			}
-		}
-	} catch {}
 
 	try {
 		const maybeRevealLeaf = workspace?.["revealLeaf"];
 		if (typeof maybeRevealLeaf === "function") {
 			void maybeRevealLeaf.call(workspace, leaf);
 		}
-	} catch {}
+	} catch { /* no-op */ }
 }
 
 function resolveLinkFile(app: App, linkText: string, contextPath: string): TFile | null {

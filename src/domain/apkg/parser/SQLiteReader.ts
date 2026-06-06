@@ -95,7 +95,7 @@ export class SQLiteReader {
 		const initPromise = Promise.race([
 			this.loadSqlJsRuntime(),
 			new Promise<never>((_, reject) => {
-				timeoutHandle = setTimeout(() => {
+				timeoutHandle = window.setTimeout(() => {
 					reject(
 						new Error(
 							`加载 SQLite 解析器超时（>${this.sqlInitTimeoutMs}ms），资源路径: ${this.wasmUrl}`
@@ -105,7 +105,7 @@ export class SQLiteReader {
 			}),
 		]).finally(() => {
 			if (timeoutHandle !== null) {
-				clearTimeout(timeoutHandle);
+				window.clearTimeout(timeoutHandle);
 			}
 		});
 
@@ -325,7 +325,10 @@ export class SQLiteReader {
 				return {
 					created: (row[0] as number) * 1000, // 转换为毫秒
 					modified: (row[1] as number) * 1000,
-					ankiVersion: String(row[2] || "unknown"),
+					ankiVersion:
+						typeof row[2] === "string" || typeof row[2] === "number"
+							? String(row[2])
+							: "unknown",
 					totalCards: 0, // 暂不统计
 					totalNotes,
 				};

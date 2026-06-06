@@ -203,7 +203,7 @@ export class DataConsistencyService {
 				continue;
 			}
 
-			await this.plugin.wdeckService!.replaceDeckCardsForDeck(
+			await this.plugin.wdeckService.replaceDeckCardsForDeck(
 				{ id: deck.id, name: deck.name },
 				bucketCards
 			);

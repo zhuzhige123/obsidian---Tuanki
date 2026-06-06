@@ -1,6 +1,8 @@
 import { Plugin, TFile } from "obsidian";
 import { getMediaFolder } from "../config/paths";
 import { logger } from "../utils/logger";
+import { extractErrorMessage } from "../types/utility-types";
+import { readWeaveParentFolder } from "./weave-plugin-settings";
 
 export interface MediaFileResult {
 	success: boolean;
@@ -25,7 +27,7 @@ export class MediaFileHandler {
 		this.plugin = plugin;
 
 		// 🆕 使用统一的媒体文件夹路径
-		const parentFolder = (this.plugin as any).settings?.weaveParentFolder as string | undefined;
+		const parentFolder = readWeaveParentFolder(this.plugin);
 		const mediaFolder = getMediaFolder(parentFolder);
 
 		// 如果有deckId，则存储在{mediaFolder}/decks/{deckId}/下
@@ -154,7 +156,7 @@ export class MediaFileHandler {
 					}
 				} catch (error) {
 					// 文件夹可能已存在，忽略错误
-					if (!error || !(error as any).message?.includes("already exists")) {
+					if (!error || !extractErrorMessage(error).includes("already exists")) {
 						logger.warn(`创建文件夹警告: ${currentPath}`, error);
 					}
 				}
@@ -272,14 +274,17 @@ export class MediaFileHandler {
 				`<img([^>]*?)src=["']${this.escapeRegex(originalFilename)}["']([^>]*?)>`,
 				"gi"
 			);
-			convertedContent = convertedContent.replace(imgRegex, (_match, before, after) => {
+			convertedContent = convertedContent.replace(
+				imgRegex,
+				(_match: string, before: string, after: string) => {
+				const attrs = `${before}${after}`;
 				// 提取 alt 属性
-				const altMatch = (before + after).match(/alt=["']([^"']*?)["']/i);
-				const altText = altMatch ? altMatch[1] : "";
+				const altMatch = attrs.match(/alt=["']([^"']*?)["']/i);
+				const altText = altMatch?.[1] ?? "";
 
 				// 提取宽度
-				const widthMatch = (before + after).match(/width=["']?(\d+)["']?/i);
-				const width = widthMatch ? widthMatch[1] : "";
+				const widthMatch = attrs.match(/width=["']?(\d+)["']?/i);
+				const width = widthMatch?.[1] ?? "";
 
 				// 生成 Obsidian 嵌入语法
 				if (width && altText) {
@@ -291,7 +296,8 @@ export class MediaFileHandler {
 				} else {
 					return `![[${savedPath}]]`;
 				}
-			});
+			}
+			);
 
 			//  Phase 2.2: HTML <audio> → Obsidian WikiLink
 			const audioRegex = new RegExp(
@@ -348,7 +354,7 @@ export class MediaFileHandler {
 	async cleanupDeckMedia(deckId: string): Promise<void> {
 		try {
 			// 🆕 使用统一的媒体文件夹路径
-			const parentFolder = (this.plugin as any).settings?.weaveParentFolder as string | undefined;
+			const parentFolder = readWeaveParentFolder(this.plugin);
 			const mediaFolder = getMediaFolder(parentFolder);
 			const deckMediaPath = `${mediaFolder}/decks/${deckId}`;
 			const folder = this.plugin.app.vault.getAbstractFileByPath(deckMediaPath);

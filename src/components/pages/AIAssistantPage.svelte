@@ -865,8 +865,8 @@
       historyOpen = false;
     };
 
-    document.addEventListener('pointerdown', handleDown, true);
-    return () => document.removeEventListener('pointerdown', handleDown, true);
+    activeDocument.addEventListener('pointerdown', handleDown, true);
+    return () => activeDocument.removeEventListener('pointerdown', handleDown, true);
   });
 
   onMount(() => {

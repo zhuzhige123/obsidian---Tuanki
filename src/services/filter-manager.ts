@@ -377,7 +377,7 @@ export class FilterManager {
 	/**
 	 * 应用筛选器到卡片列表
 	 */
-	applyFilter(cards: Card[], config: FilterConfig, allFieldTemplates: any[] = []): Card[] {
+	applyFilter(cards: Card[], config: FilterConfig, allFieldTemplates: unknown[] = []): Card[] {
 		if (!config.groups || config.groups.length === 0) {
 			return cards;
 		}
@@ -391,7 +391,7 @@ export class FilterManager {
 	private evaluateFilterConfig(
 		card: Card,
 		config: FilterConfig,
-		allFieldTemplates: any[] = []
+		allFieldTemplates: unknown[] = []
 	): boolean {
 		if (config.groups.length === 0) return true;
 
@@ -410,7 +410,7 @@ export class FilterManager {
 	private evaluateFilterGroup(
 		card: Card,
 		group: FilterGroup,
-		allFieldTemplates: any[] = []
+		allFieldTemplates: unknown[] = []
 	): boolean {
 		const enabledConditions = group.conditions.filter((c) => c.enabled);
 		if (enabledConditions.length === 0) return true;
@@ -430,7 +430,7 @@ export class FilterManager {
 	private evaluateCondition(
 		card: Card,
 		condition: FilterCondition,
-		allFieldTemplates: any[] = []
+		allFieldTemplates: unknown[] = []
 	): boolean {
 		const fieldValue = this.getFieldValue(card, condition.field, allFieldTemplates);
 		const targetValue = condition.value;
@@ -499,7 +499,7 @@ export class FilterManager {
 	/**
 	 * 获取卡片字段值
 	 */
-	private getFieldValue(card: Card, field: FilterField, allFieldTemplates: any[] = []): any {
+	private getFieldValue(card: Card, field: FilterField, allFieldTemplates: unknown[] = []): unknown {
 		switch (field) {
 			case "status":
 				return this.getStatusString(card.fsrs?.state ?? 0);

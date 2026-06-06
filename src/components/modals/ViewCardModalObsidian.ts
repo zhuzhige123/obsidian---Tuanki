@@ -53,7 +53,7 @@ function resolveModalVariant(
 }
 
 export class ViewCardModalObsidian extends Modal {
-	private component: any = null;
+	private component: unknown = null;
 	private readonly options: ViewCardModalObsidianOptions;
 
 	constructor(app: App, options: ViewCardModalObsidianOptions) {

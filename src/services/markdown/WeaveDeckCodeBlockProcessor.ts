@@ -4,7 +4,7 @@ import WeaveDeckCodeBlock from "../../components/markdown/WeaveDeckCodeBlock.sve
 import type { WeavePlugin } from "../../main";
 
 class WeaveDeckCodeBlockRenderChild extends MarkdownRenderChild {
-	private component: any = null;
+	private component: unknown = null;
 
 	constructor(containerEl: HTMLElement, private plugin: WeavePlugin, private source: string) {
 		super(containerEl);

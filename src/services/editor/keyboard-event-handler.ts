@@ -243,7 +243,7 @@ export class KeyboardEventHandler {
 	 */
 	private getEventContext(event: KeyboardEvent): KeyboardEventContext {
 		const target = event.target as HTMLElement;
-		const activeElement = document.activeElement as HTMLElement;
+		const activeElement = activeDocument.activeElement as HTMLElement;
 
 		// 检查事件是否发生在编辑器内
 		const isInEditor = this.editorElement ? this.editorElement.contains(target) : false;
@@ -278,7 +278,7 @@ export class KeyboardEventHandler {
 	/**
 	 * 调试日志
 	 */
-	private log(message: string, data?: any): void {
+	private log(message: string, data?: unknown): void {
 		if (this.options.debug) {
 			logger.debug(`[KeyboardEventHandler] ${message}`, data || "");
 		}

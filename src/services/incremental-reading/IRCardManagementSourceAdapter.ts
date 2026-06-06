@@ -1,5 +1,13 @@
 import type { Card } from "../../data/types";
-import { resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
+import {
+	readCardAssociatedNotePaths,
+	readCardIrPriorityValue,
+	readCardIrTagGroup,
+	readCardSourceDocumentKey,
+	readCardSourceFilePath,
+	readCardSourceKind,
+	readCardSourceSubunitKey,
+} from "../../utils/ir-card-metadata";
 import {
 	buildIRCardManagementSourceStats,
 	type IRCardManagementSourceUnit,
@@ -13,22 +21,6 @@ import {
 	getIRTagGroupLabel,
 } from "./IRCardManagementAdapter";
 
-function getCardAssociatedNotePaths(card: Card): string[] {
-	return resolveAssociatedNotePaths({
-		associatedNotePath:
-			(card as any).primaryAssociatedNotePath ||
-			(card as any).associatedNotePath ||
-			(card as any).ir_primary_associated_note_path ||
-			(card as any).ir_associated_note_primary_path,
-		associatedNotePaths: [
-			...(Array.isArray((card as any).associatedNotePaths) ? (card as any).associatedNotePaths : []),
-			...(Array.isArray((card as any).ir_associated_note_paths)
-				? (card as any).ir_associated_note_paths
-				: []),
-		],
-	});
-}
-
 export function applyIRCardManagementSourceStats(options: {
 	rows: Card[];
 	allCards: Card[];
@@ -36,11 +28,12 @@ export function applyIRCardManagementSourceStats(options: {
 }): Card[] {
 	const units: IRCardManagementSourceUnit[] = options.rows
 		.map((card) => {
-			const associatedNotePaths = getCardAssociatedNotePaths(card);
+			const associatedNotePaths = readCardAssociatedNotePaths(card);
+			const sourceDocumentKey = readCardSourceDocumentKey(card);
 			return {
-				sourceDocumentKey: String((card as any).sourceDocumentKey || ""),
-				sourceKind: (((card as any).sourceKind || "unknown") as IRTraceSourceKind),
-				sourceSubunitKey: (card as any).sourceSubunitKey || undefined,
+				sourceDocumentKey,
+				sourceKind: readCardSourceKind(card) as IRTraceSourceKind,
+				sourceSubunitKey: readCardSourceSubunitKey(card),
 				associatedNotePath: associatedNotePaths[0],
 				associatedNotePaths,
 			};
@@ -54,19 +47,20 @@ export function applyIRCardManagementSourceStats(options: {
 	});
 
 	return options.rows.map((card) => {
-		const sourceDocumentKey = String((card as any).sourceDocumentKey || "");
-		const sourceKind = (((card as any).sourceKind || "unknown") as IRTraceSourceKind);
+		const sourceDocumentKey = readCardSourceDocumentKey(card);
+		const sourceKind = readCardSourceKind(card) as IRTraceSourceKind;
 		const sourceStat = sourceDocumentKey ? sourceStats.get(sourceDocumentKey) : undefined;
-		const rowAssociatedNotePaths = getCardAssociatedNotePaths(card);
+		const rowAssociatedNotePaths = readCardAssociatedNotePaths(card);
+		const sourceFilePath = readCardSourceFilePath(card);
 		return {
 			...card,
 			ir_source_kind: sourceKind,
 			ir_source_document_label: getIRSourceDocumentLabel(
-				(card as any).sourceFile || (card as any).ir_source_file || sourceDocumentKey,
+				sourceFilePath || sourceDocumentKey,
 				sourceDocumentKey
 			),
 			ir_source_subunit: getIRSourceSubunitLabel(
-				(card as any).sourceSubunitKey || undefined,
+				readCardSourceSubunitKey(card),
 				sourceKind
 			),
 			ir_notes: rowAssociatedNotePaths.length,
@@ -75,8 +69,8 @@ export function applyIRCardManagementSourceStats(options: {
 			ir_associated_note_paths: rowAssociatedNotePaths,
 			ir_extract_cards: sourceStat?.extractCardCount ?? 0,
 			ir_memory_cards: sourceStat?.memoryCardCount ?? 0,
-			ir_priority_value: (card as any).ir_priority_value ?? (card as any).ir_priority ?? 5,
-			ir_tag_group: getIRTagGroupLabel((card as any).ir_tag_group),
+			ir_priority_value: readCardIrPriorityValue(card),
+			ir_tag_group: getIRTagGroupLabel(readCardIrTagGroup(card)),
 		};
 	});
 }

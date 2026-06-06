@@ -9,6 +9,7 @@
 import JSZip from "jszip";
 import { APKGLogger } from "../../../infrastructure/logger/APKGLogger";
 import { runTasksWithConcurrency } from "../../../utils/async-pool";
+import { isRecord, parseJsonUnknown } from "../../../utils/typed-json";
 import { throwIfImportAborted } from "../ImportTaskControl";
 import type { APKGData, APKGFormat } from "../types";
 import { SQLiteReader } from "./SQLiteReader";
@@ -43,11 +44,11 @@ export class APKGParser {
     await Promise.resolve();
     await new Promise<void>((resolve) => {
       if (typeof requestAnimationFrame === "function") {
-        requestAnimationFrame(() => resolve());
+        window.requestAnimationFrame(() => resolve());
         return;
       }
 
-      setTimeout(resolve, 0);
+      window.setTimeout(resolve, 0);
     });
   }
 
@@ -263,8 +264,17 @@ export class APKGParser {
     await this.emitProgressAndYield(onProgress, "media", 5, "正在读取媒体映射...");
     const mediaJsonText = await mediaFile.async("text");
     throwIfImportAborted(options?.signal);
-    const mediaMapping: Record<string, string> = JSON.parse(mediaJsonText);
-    const mediaEntries = Object.entries(mediaMapping);
+    const parsedMapping = parseJsonUnknown(mediaJsonText);
+    if (!isRecord(parsedMapping)) {
+      await this.emitProgressAndYield(onProgress, "media", 100, "媒体映射格式无效");
+      return media;
+    }
+    const mediaEntries: Array<[string, string]> = [];
+    for (const [index, value] of Object.entries(parsedMapping)) {
+      if (typeof value === "string") {
+        mediaEntries.push([index, value]);
+      }
+    }
 
     if (mediaEntries.length === 0) {
       await this.emitProgressAndYield(onProgress, "media", 100, "未检测到媒体文件");

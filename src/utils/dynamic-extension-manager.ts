@@ -37,7 +37,7 @@ export interface ExtensionConfig {
 	lazy?: boolean;
 	priority?: number;
 	enabled?: boolean;
-	config?: Record<string, any>;
+	config?: Record<string, unknown>;
 }
 
 /**
@@ -70,7 +70,7 @@ export interface ExtensionEvent {
 	type: "loaded" | "unloaded" | "activated" | "deactivated" | "error" | "configured";
 	extensionId: string;
 	timestamp: number;
-	data?: any;
+	data?: unknown;
 }
 
 /**

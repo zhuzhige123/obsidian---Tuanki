@@ -14,8 +14,6 @@ import type { WeavePlugin } from "../../main";
 import { WeaveIDGenerator } from "./WeaveIDGenerator";
 import {
 	BLOCK_ID_WRITE_FORMAT,
-	ERROR_MESSAGES,
-	UNIQUENESS_CONFIG,
 	UUID_WRITE_FORMAT,
 } from "./constants";
 
@@ -24,10 +22,9 @@ import type {
 	ConflictDetectionResult,
 	IdentifierGenerationContext,
 	IdentifierStatistics,
-	IdentifierWriteOptions,
 	LinkToDocumentOptions,
 } from "./types";
-import { CardCreationMode, ConflictResolution, UUIDWriteFormat, WritePosition } from "./types";
+import { CardCreationMode, ConflictResolution } from "./types";
 
 /**
  * Weave标识符服务类

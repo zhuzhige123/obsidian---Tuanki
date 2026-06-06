@@ -347,10 +347,10 @@ export class DeckAggregationService {
 	 * @param deckTree 牌组树节点数组
 	 * @returns 扁平化的牌组列表
 	 */
-	flattenDeckTree(deckTree: any[]): Deck[] {
+	flattenDeckTree(deckTree: unknown[]): Deck[] {
 		const result: Deck[] = [];
 
-		const flatten = (nodes: any[]) => {
+		const flatten = (nodes: unknown[]) => {
 			for (const node of nodes) {
 				result.push(node.deck);
 				if (node.children && node.children.length > 0) {

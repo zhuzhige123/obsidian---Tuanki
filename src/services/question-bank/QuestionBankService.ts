@@ -23,10 +23,10 @@ import type { Card, Deck, DeckSettings, DeckStats } from "../../data/types";
 import type {
 	QuestionBankFilter,
 	QuestionBankStats,
-	QuestionRef,
-	QuestionTestStats,
 } from "../../types/question-bank-types";
+import { readUnknownProperty, readUnknownString } from "../../utils/dynamic-access";
 import { generateId } from "../../utils/helpers";
+import { isRecord } from "../../utils/typed-json";
 import { computeQuestionBankDisplayStats } from "../../utils/question-bank/question-bank-display-stats";
 import { QuestionBankStorage } from "./QuestionBankStorage";
 
@@ -81,7 +81,7 @@ export class QuestionBankService {
 			this.banks.map((b) => ({
 				id: b.id,
 				name: b.name,
-				pairedMemoryDeckId: (b.metadata as any)?.pairedMemoryDeckId,
+				pairedMemoryDeckId: readUnknownString(b.metadata, "pairedMemoryDeckId"),
 			}))
 		);
 
@@ -115,7 +115,7 @@ export class QuestionBankService {
 	async createQuestionBank(
 		name: string,
 		description = "",
-		initialMetadata?: Record<string, any>
+		initialMetadata?: Record<string, unknown>
 	): Promise<Deck> {
 		const now = new Date().toISOString();
 
@@ -147,7 +147,7 @@ export class QuestionBankService {
 		logger.debug("[QuestionBankService] createQuestionBank 完成:", {
 			bankId: bank.id,
 			bankName: bank.name,
-			pairedMemoryDeckId: (bank.metadata as any)?.pairedMemoryDeckId,
+			pairedMemoryDeckId: readUnknownString(bank.metadata, "pairedMemoryDeckId"),
 		});
 
 		return bank;
@@ -190,17 +190,17 @@ export class QuestionBankService {
 
 		for (const bank of this.banks) {
 			const metadata = (bank.metadata ??= {});
-			const pairedId = (metadata as any).pairedMemoryDeckId;
+			const pairedId = readUnknownString(metadata, "pairedMemoryDeckId");
 			if (bank.id !== bankId && pairedId === memoryDeckId) {
-				delete (metadata as any).pairedMemoryDeckId;
+				delete metadata.pairedMemoryDeckId;
 				bank.modified = now;
 				changed = true;
 			}
 		}
 
 		const targetMetadata = (targetBank.metadata ??= {});
-		if ((targetMetadata as any).pairedMemoryDeckId !== memoryDeckId) {
-			(targetMetadata as any).pairedMemoryDeckId = memoryDeckId;
+		if (readUnknownString(targetMetadata, "pairedMemoryDeckId") !== memoryDeckId) {
+			targetMetadata.pairedMemoryDeckId = memoryDeckId;
 			targetBank.modified = now;
 			changed = true;
 		}
@@ -226,14 +226,14 @@ export class QuestionBankService {
 		const allBanks = this.getAllQuestionBanks();
 
 		const pairedBanks = allBanks.filter(
-			(b) => b.metadata && (b.metadata as any).pairedMemoryDeckId === memoryDeckId
+			(b) => b.metadata && (b.metadata as unknown).pairedMemoryDeckId === memoryDeckId
 		);
 		if (pairedBanks.length > 0) {
 			return pairedBanks.map((bank) => ({
 				bank,
 				matchType: "pairedMemoryDeckId",
 				overlapCount: Number.MAX_SAFE_INTEGER,
-				totalRefs: Number((bank.metadata as any)?.questionCount || 0),
+				totalRefs: Number((bank.metadata as unknown)?.questionCount || 0),
 			}));
 		}
 
@@ -283,7 +283,7 @@ export class QuestionBankService {
 		const allBanks = this.getAllQuestionBanks();
 
 		const pairedBank = allBanks.find(
-			(b) => b.metadata && (b.metadata as any).pairedMemoryDeckId === memoryDeckId
+			(b) => b.metadata && (b.metadata as unknown).pairedMemoryDeckId === memoryDeckId
 		);
 
 		if (pairedBank) {
@@ -388,7 +388,10 @@ export class QuestionBankService {
 		// 构建其他更新（不包括 metadata，因为已经在创建时设置）
 		const updates: Partial<Deck> = {};
 
-		if ((bank as any).difficulty) (updates as any).difficulty = (bank as any).difficulty;
+		const difficulty = readUnknownProperty(bank, "difficulty");
+		if (difficulty !== undefined) {
+			Object.assign(updates, { difficulty } as Partial<Deck>);
+		}
 		if (bank.tags) updates.tags = bank.tags;
 		if (bank.category) updates.category = bank.category;
 		if (bank.parentId !== undefined) updates.parentId = bank.parentId;
@@ -438,7 +441,7 @@ export class QuestionBankService {
 			};
 
 			// 从 updates 中移除 metadata，避免 Object.assign 覆盖
-			const { metadata, ...restUpdates } = updates;
+			const { metadata: _metadata, ...restUpdates } = updates;
 			Object.assign(bank, restUpdates);
 		} else {
 			Object.assign(bank, updates);
@@ -458,10 +461,21 @@ export class QuestionBankService {
 		await this.deleteQuestionBank(bankId);
 	}
 
+	private getOrCreateMetadataConfig(metadata: Record<string, unknown>): Record<string, unknown> {
+		const existingConfig = metadata.config;
+		if (isRecord(existingConfig)) {
+			return existingConfig;
+		}
+
+		const nextConfig: Record<string, unknown> = {};
+		metadata.config = nextConfig;
+		return nextConfig;
+	}
+
 	/**
 	 * 更新题库配置
 	 */
-	async updateBankConfig(bankId: string, config: any): Promise<void> {
+	async updateBankConfig(bankId: string, config: unknown): Promise<void> {
 		const bank = this.banks.find((b) => b.id === bankId);
 		if (!bank) {
 			throw new Error(`题库不存在: ${bankId}`);
@@ -472,13 +486,10 @@ export class QuestionBankService {
 			bank.metadata = {};
 		}
 
-		// 确保config存在
-		if (!(bank.metadata as any).config) {
-			(bank.metadata as any).config = {};
-		}
+		const metadataConfig = this.getOrCreateMetadataConfig(bank.metadata);
 
 		// 更新modeConfig
-		(bank.metadata as any).config.modeConfig = config;
+		metadataConfig.modeConfig = config;
 
 		bank.modified = new Date().toISOString();
 
@@ -629,7 +640,12 @@ export class QuestionBankService {
 			throw new Error(`题目不存在: ${questionId}`);
 		}
 
-		const { stats, deckId, cardPurpose, ...rest } = updates as any;
+		const {
+			stats: _stats,
+			deckId: _deckId,
+			cardPurpose: _cardPurpose,
+			...rest
+		} = updates;
 		Object.assign(card, rest);
 		card.modified = new Date().toISOString();
 		await this.dataStorage.saveCard(card);
@@ -715,10 +731,10 @@ export class QuestionBankService {
 
 		const statsByUuid = await this.storage.loadGlobalQuestionStats();
 		const merged = cards.map((c) => {
-			const clone: Card = { ...c, deckId: bankId, cardPurpose: "test" as any };
+			const clone: Card = { ...c, deckId: bankId, cardPurpose: "test" as unknown };
 			const testStats = statsByUuid[c.uuid];
 			if (testStats) {
-				clone.stats = clone.stats ? { ...clone.stats, testStats } : ({ testStats } as any);
+				clone.stats = clone.stats ? { ...clone.stats, testStats } : ({ testStats } as unknown);
 			}
 			return clone;
 		});

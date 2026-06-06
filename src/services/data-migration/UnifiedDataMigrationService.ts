@@ -10,6 +10,11 @@ import {
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
 import {
+	getVaultAdapterWithDirOps,
+	listVaultDirectory,
+	type VaultAdapterWithDirOps,
+} from "../../utils/plugin-runtime";
+import {
 	type PathRewriteRule,
 	buildKnownPathReferenceFiles,
 	rewriteKnownPathReferences,
@@ -237,7 +242,7 @@ export async function verifyDataMigration(
 	result: DataMigrationReport,
 	app: App
 ): Promise<DataMigrationVerification> {
-	const adapter = app.vault.adapter as any;
+	const adapter = getVaultAdapterWithDirOps(app.vault.adapter);
 	const expectedDirs = [
 		result.plan.layout.v2Paths.memory.root,
 		result.plan.layout.v2Paths.memory.learning.root,
@@ -263,8 +268,8 @@ export async function verifyDataMigration(
 	let conflictsCount = 0;
 	if (await adapter.exists(result.plan.conflictsRoot)) {
 		try {
-			const listing = await adapter.list(result.plan.conflictsRoot);
-			conflictsCount = (listing?.files || []).length;
+			const listing = await listVaultDirectory(adapter, result.plan.conflictsRoot);
+			conflictsCount = listing?.files.length ?? 0;
 		} catch {
 			conflictsCount = result.conflictFiles.length;
 		}
@@ -377,7 +382,7 @@ async function internalExecuteDataMigration(
 		throw new Error("UnifiedDataMigrationService requires app instance");
 	}
 
-	const adapter: any = app.vault.adapter as any;
+	const adapter = getVaultAdapterWithDirOps(app.vault.adapter);
 	const report: DataMigrationReport = {
 		plan,
 		startedAt: new Date().toISOString(),
@@ -507,7 +512,7 @@ async function writeReport(app: App, report: DataMigrationReport): Promise<void>
 }
 
 async function mergeFolderTo(
-	adapter: any,
+	adapter: VaultAdapterWithDirOps,
 	fromRoot: string,
 	toRoot: string,
 	conflictsRoot: string,
@@ -518,13 +523,16 @@ async function mergeFolderTo(
 	let conflicts = 0;
 
 	const walk = async (dir: string): Promise<void> => {
-		const listing = await adapter.list(dir);
+		const listing = await listVaultDirectory(adapter, dir);
+		if (!listing) {
+			return;
+		}
 
-		for (const folder of listing?.folders || []) {
+		for (const folder of listing.folders) {
 			await walk(folder);
 		}
 
-		for (const file of listing?.files || []) {
+		for (const file of listing.files) {
 			const relative = file.startsWith(fromRoot)
 				? file.slice(fromRoot.length).replace(/^\//, "")
 				: file;
@@ -548,7 +556,7 @@ async function mergeFolderTo(
 }
 
 async function moveFileWithConflict(
-	adapter: any,
+	adapter: VaultAdapterWithDirOps,
 	fromPath: string,
 	toPath: string,
 	conflictsRoot: string,
@@ -559,7 +567,7 @@ async function moveFileWithConflict(
 		await safeCopyFile(adapter, fromPath, toPath);
 		try {
 			await adapter.remove(fromPath);
-		} catch {}
+		} catch { /* no-op */ }
 		return "moved";
 	}
 
@@ -572,7 +580,7 @@ async function moveFileWithConflict(
 		await safeCopyFile(adapter, fromPath, toPath);
 		try {
 			await adapter.remove(fromPath);
-		} catch {}
+		} catch { /* no-op */ }
 		report.conflictFiles.push(archivedPath);
 		return "moved";
 	}
@@ -580,13 +588,17 @@ async function moveFileWithConflict(
 	await safeCopyFile(adapter, fromPath, archivedPath);
 	try {
 		await adapter.remove(fromPath);
-	} catch {}
+	} catch { /* no-op */ }
 	report.conflictFiles.push(archivedPath);
 	return "conflict";
 }
 
-async function safeCopyFile(adapter: any, fromPath: string, toPath: string): Promise<void> {
-	if (typeof adapter.readBinary === "function" && typeof adapter.writeBinary === "function") {
+async function safeCopyFile(
+	adapter: VaultAdapterWithDirOps,
+	fromPath: string,
+	toPath: string
+): Promise<void> {
+	if (adapter.readBinary && adapter.writeBinary) {
 		const binary = await adapter.readBinary(fromPath);
 		await ensureDirForFile(adapter, toPath);
 		await adapter.writeBinary(toPath, binary);
@@ -598,34 +610,35 @@ async function safeCopyFile(adapter: any, fromPath: string, toPath: string): Pro
 	await adapter.write(toPath, text);
 }
 
-async function ensureDirForFile(adapter: any, filePath: string): Promise<void> {
+async function ensureDirForFile(adapter: VaultAdapterWithDirOps, filePath: string): Promise<void> {
 	const slash = filePath.lastIndexOf("/");
 	if (slash <= 0) return;
 	await DirectoryUtils.ensureDirRecursive(adapter, filePath.slice(0, slash));
 }
 
-async function tryRemoveEmptyFolderDeep(adapter: any, dir: string): Promise<void> {
-	let listing: any;
-	try {
-		listing = await adapter.list(dir);
-	} catch {
+async function tryRemoveEmptyFolderDeep(adapter: VaultAdapterWithDirOps, dir: string): Promise<void> {
+	const listing = await listVaultDirectory(adapter, dir);
+	if (!listing) {
 		return;
 	}
 
-	for (const folder of listing?.folders || []) {
+	for (const folder of listing.folders) {
 		await tryRemoveEmptyFolderDeep(adapter, folder);
 	}
 
 	try {
-		const after = await adapter.list(dir);
-		if ((after?.files || []).length === 0 && (after?.folders || []).length === 0) {
-			if (typeof adapter.rmdir === "function") await adapter.rmdir(dir, false);
-			else if (typeof adapter.remove === "function") await adapter.remove(dir);
+		const after = await listVaultDirectory(adapter, dir);
+		if (after && after.files.length === 0 && after.folders.length === 0) {
+			if (adapter.rmdir) {
+				await adapter.rmdir(dir, false);
+			} else {
+				await adapter.remove(dir);
+			}
 		}
-	} catch {}
+	} catch { /* no-op */ }
 }
 
-async function renameLegacyMarkers(adapter: any, targetRoot: string): Promise<number> {
+async function renameLegacyMarkers(adapter: VaultAdapterWithDirOps, targetRoot: string): Promise<number> {
 	const renames: Array<[string, string]> = [
 		[`${targetRoot}/.schema-version`, `${targetRoot}/schema-version.json`],
 		[`${targetRoot}/schema-version`, `${targetRoot}/schema-version.json`],
@@ -710,7 +723,10 @@ function buildRewriteRules(
 	return rules;
 }
 
-async function findRemainingRoots(adapter: any, roots: LegacyDataRoot[]): Promise<string[]> {
+async function findRemainingRoots(
+	adapter: VaultAdapterWithDirOps,
+	roots: LegacyDataRoot[]
+): Promise<string[]> {
 	const remaining: string[] = [];
 	for (const root of roots) {
 		if (!(await adapter.exists(root.path))) continue;
@@ -721,21 +737,17 @@ async function findRemainingRoots(adapter: any, roots: LegacyDataRoot[]): Promis
 	return remaining;
 }
 
-async function hasAnyFiles(adapter: any, dir: string, depth = 5): Promise<boolean> {
+async function hasAnyFiles(adapter: VaultAdapterWithDirOps, dir: string, depth = 5): Promise<boolean> {
 	if (depth <= 0) return false;
 
-	let listing: any;
-	try {
-		listing = await adapter.list(dir);
-	} catch {
+	const listing = await listVaultDirectory(adapter, dir);
+	if (!listing) {
 		return false;
 	}
 
-	const files: string[] = listing?.files || [];
-	const folders: string[] = listing?.folders || [];
-	if (files.length > 0) return true;
+	if (listing.files.length > 0) return true;
 
-	for (const folder of folders) {
+	for (const folder of listing.folders) {
 		if (await hasAnyFiles(adapter, folder, depth - 1)) return true;
 	}
 

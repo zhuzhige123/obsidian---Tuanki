@@ -88,7 +88,7 @@ class VaultLocalStorage {
 
 	async flush(): Promise<void> {
 		if (this.persistTimer !== null) {
-			clearTimeout(this.persistTimer);
+			window.clearTimeout(this.persistTimer);
 			this.persistTimer = null;
 		}
 		await this.persistPendingEntries();
@@ -99,7 +99,7 @@ class VaultLocalStorage {
 	 */
 	resetForTests(): void {
 		if (this.persistTimer !== null) {
-			clearTimeout(this.persistTimer);
+			window.clearTimeout(this.persistTimer);
 			this.persistTimer = null;
 		}
 		this.app = null;
@@ -120,7 +120,7 @@ class VaultLocalStorage {
 			return;
 		}
 
-		this.persistTimer = setTimeout(() => {
+		this.persistTimer = window.setTimeout(() => {
 			this.persistTimer = null;
 			void this.persistPendingEntries();
 		}, PERSIST_DELAY_MS);

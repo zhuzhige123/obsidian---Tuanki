@@ -30,7 +30,7 @@ export class MarkdownLayer implements IConversionLayer {
 
 		try {
 			// 1. 标题转换（## → <h2>，### → <h3>，等等）
-			converted = converted.replace(/^(#{1,6})\s+(.+)$/gm, (_match, hashes, text) => {
+			converted = converted.replace(/^(#{1,6})\s+(.+)$/gm, (_match, hashes: string, text: string) => {
 				const level = hashes.length;
 				changeCount++;
 				return `<h${level}>${text.trim()}</h${level}>`;

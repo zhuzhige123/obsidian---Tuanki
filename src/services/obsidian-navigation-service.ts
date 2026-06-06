@@ -201,16 +201,15 @@ export class ObsidianNavigationService {
 	private async navigateToPosition(leaf: WorkspaceLeaf, target: NavigationTarget): Promise<void> {
 		try {
 			//  性能优化：使用 requestAnimationFrame 等待编辑器就绪，而不是固定延迟
-			await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+			await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
 
 			const view = leaf.view;
-			if (!view || view.getViewType() !== "markdown") {
+			if (!(view instanceof MarkdownView)) {
 				logger.warn("⚠️ [NavigationService] 不是Markdown视图，无法定位到具体位置");
 				return;
 			}
 
-			// 获取编辑器
-			const editor = (view as any).editor;
+			const editor = view.editor;
 			if (!editor) {
 				logger.warn("⚠️ [NavigationService] 无法获取编辑器实例");
 				return;
@@ -259,7 +258,7 @@ export class ObsidianNavigationService {
 						const endPos = { line: targetLine, ch: Math.max(0, lineText.length) };
 						editor.setSelection(startPos, endPos);
 
-						setTimeout(() => {
+						window.setTimeout(() => {
 							try {
 								editor.setCursor(cursorPos);
 							} catch (e) {
@@ -353,33 +352,34 @@ export class ObsidianNavigationService {
 		target: NavigationTarget,
 		options: NavigationOptions & { text?: string; icon?: string } = {}
 	): HTMLElement {
-		const button = document.createElement("button");
+		const button = activeDocument.createElement("button");
 		button.className = "weave-nav-button weave-nav-button--action";
 
 		// 设置按钮内容
 		const text = options.text || "跳转到Obsidian";
 		const icon = options.icon || "🔗";
 
-		const iconSpan = document.createElement("span");
+		const iconSpan = activeDocument.createElement("span");
 		iconSpan.className = "nav-icon";
 		iconSpan.textContent = icon;
 		button.appendChild(iconSpan);
 
-		const textSpan = document.createElement("span");
+		const textSpan = activeDocument.createElement("span");
 		textSpan.className = "nav-text";
 		textSpan.textContent = text;
 		button.appendChild(textSpan);
 
 		// 添加点击事件
-		button.addEventListener("click", async (e) => {
+		button.addEventListener("click", (e) => {
 			e.preventDefault();
 			e.stopPropagation();
 
-			const result = await this.navigateToFile(target, options);
-
-			if (!result.success) {
-				logger.error("导航失败:", result.error);
-			}
+			void (async () => {
+				const result = await this.navigateToFile(target, options);
+				if (!result.success) {
+					logger.error("导航失败:", result.error);
+				}
+			})();
 		});
 
 		// 添加样式
@@ -418,7 +418,7 @@ export class ObsidianNavigationService {
 				}
 
 				// 添加小延迟
-				await new Promise((resolve) => setTimeout(resolve, 100));
+				await new Promise((resolve) => window.setTimeout(resolve, 100));
 			} catch (error) {
 				const errorResult: NavigationResult = {
 					success: false,

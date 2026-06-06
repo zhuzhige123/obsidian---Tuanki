@@ -155,7 +155,7 @@
 
   // ===== Step 1: 文件选择 =====
   async function handleFileSelect() {
-    const input = document.createElement('input');
+    const input = activeDocument.createElement('input');
     input.type = 'file';
     input.accept = '.csv,.tsv,.txt';
     input.onchange = async (e) => {

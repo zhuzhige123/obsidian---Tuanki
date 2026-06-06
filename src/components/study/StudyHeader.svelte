@@ -54,7 +54,7 @@
   let isMobile = $state(false);
   
   onMount(() => {
-    isMobile = document.body.classList.contains('is-phone') || document.body.classList.contains('is-mobile');
+    isMobile = activeDocument.body.classList.contains('is-phone') || activeDocument.body.classList.contains('is-mobile');
   });
 </script>
 

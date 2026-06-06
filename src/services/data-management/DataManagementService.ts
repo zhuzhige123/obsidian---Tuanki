@@ -7,7 +7,7 @@
  * @version 1.0.0
  */
 
-import { normalizePath, TFile } from "obsidian";
+import { normalizePath, type DataAdapter } from "obsidian";
 import {
 	LEGACY_DOT_TUANKI,
 	getMediaManifestPath,
@@ -45,7 +45,6 @@ import {
 	renameVaultPath,
 	normalizeRewriteRules,
 	rewriteKnownPathReferences,
-	rewriteJsonWithRules,
 } from "../../utils/persisted-path-rewriter";
 import {
 	type SyncIssueType,
@@ -61,7 +60,8 @@ import {
 	setCardProperties,
 } from "../../utils/yaml-utils";
 import { safeReadJson, safeWriteJson } from "../../utils/safe-json-io";
-import { getDeckNameById } from "../DeckNameMapper";
+import { isRecord, parseJsonUnknown, readString } from "../../utils/typed-json";
+import { isCallable, readUnknownProperty, readUnknownString } from "../../utils/dynamic-access";
 import {
 	type DataMigrationPlan,
 	type DataMigrationReport,
@@ -413,6 +413,17 @@ type StructuredDataFormatIssue = {
 	repairStrategy?: "rewrite" | "restore_backup";
 };
 
+type DeckStorePayload = { decks?: Deck[] };
+type CardFilesIndexEntry = {
+	fileName?: string;
+	cardCount?: number;
+	isDefault?: boolean;
+};
+type CardFilesIndexPayload = {
+	files?: CardFilesIndexEntry[];
+	cardLocations?: Record<string, string>;
+};
+
 const WDECK_MIGRATION_DIR_NAME = "deck-files";
 
 export const DEFAULT_CHECK_TYPES: CheckType[] = [
@@ -510,6 +521,70 @@ export class DataManagementService {
 		}
 
 		return this.buildBlockedFixResult(type, t("management.dataCheckService.messages.highRiskBlocked"));
+	}
+
+	private readCardsFromPayload(value: unknown): Card[] {
+		if (!isRecord(value) || !Array.isArray(value.cards)) {
+			return [];
+		}
+		return value.cards.filter(
+			(card): card is Card => isRecord(card) && typeof card.uuid === "string"
+		);
+	}
+
+	private readDecksFromPayload(value: unknown): Deck[] {
+		if (!isRecord(value) || !Array.isArray(value.decks)) {
+			return [];
+		}
+		return value.decks.filter(
+			(deck): deck is Deck => isRecord(deck) && typeof deck.id === "string"
+		);
+	}
+
+	private readCardUUIDsFromPayload(value: unknown): string[] {
+		if (!isRecord(value) || !Array.isArray(value.cardUUIDs)) {
+			return [];
+		}
+		return value.cardUUIDs.filter((uuid): uuid is string => typeof uuid === "string");
+	}
+
+	private toMigrationString(value: unknown): string {
+		if (typeof value === "string") {
+			return value;
+		}
+		if (typeof value === "number" && Number.isFinite(value)) {
+			return String(value);
+		}
+		return "";
+	}
+
+	private parseCardFilesIndex(value: unknown): CardFilesIndexPayload {
+		if (!isRecord(value)) {
+			return {};
+		}
+
+		const files = Array.isArray(value.files)
+			? value.files.filter((entry): entry is CardFilesIndexEntry => isRecord(entry))
+			: undefined;
+
+		const cardLocations = isRecord(value.cardLocations)
+			? Object.fromEntries(
+					Object.entries(value.cardLocations).filter(
+						(entry): entry is [string, string] => typeof entry[1] === "string"
+					)
+				)
+			: undefined;
+
+		return { files, cardLocations };
+	}
+
+	private getVaultAdapterBasePath(adapter: DataAdapter): string | undefined {
+		const getBasePath = readUnknownProperty(adapter, "getBasePath");
+		if (isCallable(getBasePath)) {
+			const result = Reflect.apply(getBasePath, adapter, []);
+			return typeof result === "string" && result.length > 0 ? result : undefined;
+		}
+		return readUnknownString(adapter, "basePath");
 	}
 
 	async recoverMigrationConflictData(): Promise<{
@@ -1165,7 +1240,7 @@ export class DataManagementService {
 		const issues: string[] = [];
 
 		try {
-			const adapter = this.plugin.app.vault.adapter as any;
+			const adapter = this.plugin.app.vault.adapter;
 			const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
 			const v2Paths = getV2Paths(parentFolder);
 			const root = v2Paths.root;
@@ -1315,7 +1390,7 @@ export class DataManagementService {
 		const appliedRules: PathRewriteRule[] = [];
 
 		try {
-			const adapter = this.plugin.app.vault.adapter as any;
+			const adapter = this.plugin.app.vault.adapter;
 			const parentFolder = normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder);
 			const v2Paths = getV2Paths(parentFolder);
 			const root = v2Paths.root;
@@ -1764,21 +1839,17 @@ export class DataManagementService {
 	}
 
 	private async pathExistsOrHasEntries(path: string): Promise<boolean> {
-		const adapter: any = this.plugin.app.vault.adapter as any;
+		const adapter = this.plugin.app.vault.adapter;
 
 		try {
-			if (await adapter.exists?.(path)) {
+			if (await adapter.exists(path)) {
 				return true;
 			}
-		} catch {}
-
-		if (typeof adapter.list !== "function") {
-			return false;
-		}
+		} catch { /* no-op */ }
 
 		try {
 			const listing = await adapter.list(path);
-			return Boolean((listing?.files?.length || 0) > 0 || (listing?.folders?.length || 0) > 0);
+			return Boolean((listing.files?.length || 0) > 0 || (listing.folders?.length || 0) > 0);
 		} catch {
 			return false;
 		}
@@ -1975,11 +2046,11 @@ export class DataManagementService {
 			for (const path of qbankFiles) {
 				try {
 					const content = await adapter.read(path);
-					const data = JSON.parse(content);
+					const data = parseJsonUnknown(content);
 					results.push({
 						path,
-						bankId: data.id || "",
-						bankName: data.name || "",
+						bankId: isRecord(data) ? readString(data, "id") || "" : "",
+						bankName: isRecord(data) ? readString(data, "name") || "" : "",
 					});
 				} catch (error) {
 					logger.warn(`[DataManagement] 读取 QBank 文件失败: ${path}`, error);
@@ -2005,8 +2076,11 @@ export class DataManagementService {
 			}
 
 			const content = await adapter.read(questionsFile);
-			const data = JSON.parse(content);
-			return Array.isArray(data.refs) ? data.refs.length : 0;
+			const data = parseJsonUnknown(content);
+			if (isRecord(data) && Array.isArray(data.refs)) {
+				return data.refs.length;
+			}
+			return 0;
 		} catch (error) {
 			logger.warn(`[DataManagement] 读取题目数量失败: ${bankId}`, error);
 			return 0;
@@ -2028,8 +2102,12 @@ export class DataManagementService {
 		}
 
 		// 2. 读取旧数据
-		const banksData = JSON.parse(await adapter.read(oldBanksFile));
-		const banks: Deck[] = Array.isArray(banksData) ? banksData : (banksData.decks || []);
+		const banksData = parseJsonUnknown(await adapter.read(oldBanksFile));
+		const banks: Deck[] = Array.isArray(banksData)
+			? banksData.filter((bank): bank is Deck => isRecord(bank) && typeof bank.id === "string")
+			: isRecord(banksData)
+				? this.readDecksFromPayload(banksData)
+				: [];
 
 		// 3. 检测已迁移的 .qbank 文件
 		const existingQBankFiles = await this.getExistingQBankFiles(basePath);
@@ -2314,7 +2392,7 @@ export class DataManagementService {
 
 			const metadata =
 				deck.metadata && typeof deck.metadata === "object"
-					? { ...(deck.metadata as Record<string, unknown>) }
+					? { ...(deck.metadata) }
 					: {};
 			metadata.wdeckMigration = {
 				status: "migrated",
@@ -2733,14 +2811,14 @@ export class DataManagementService {
 					// 迁移进行中会话到插件目录
 					const inProgress = inProgressMap.get(candidate.bank.id);
 					if (inProgress) {
-						const inProgressPath = `${pluginCacheDir}/in-progress/${candidate.bank.name}.json`;
+						const inProgressPath = `${questionBankCache.inProgress}/${candidate.bank.name}.json`;
 						await adapter.write(inProgressPath, JSON.stringify(inProgress, null, 2));
 					}
 
 					// 迁移会话归档到插件目录
 					const sessionArchives = sessionArchivesMap.get(candidate.bank.id);
 					if (sessionArchives && sessionArchives.length > 0) {
-						const archivePath = `${pluginCacheDir}/session-archives/${candidate.bank.name}.json`;
+						const archivePath = `${questionBankCache.sessionArchives}/${candidate.bank.name}.json`;
 						await adapter.write(archivePath, JSON.stringify(sessionArchives, null, 2));
 					}
 
@@ -3669,7 +3747,7 @@ export class DataManagementService {
 					if (!issue.normalizedContent) {
 						throw new Error(t("management.dataCheckService.messages.normalizedContentMissing"));
 					}
-					await safeWriteJson(adapter as any, issue.path, issue.normalizedContent, this.plugin.app as any);
+					await safeWriteJson(adapter as unknown, issue.path, issue.normalizedContent, this.plugin.app as unknown);
 				}
 				success += 1;
 			} catch (error) {
@@ -3881,7 +3959,7 @@ export class DataManagementService {
 			try {
 				if (!(await adapter.exists(dir))) return true;
 
-				const listing = await (adapter as any).list(dir);
+				const listing = await adapter.list(dir);
 				const files: string[] = listing?.files || [];
 				const folders: string[] = listing?.folders || [];
 
@@ -3987,7 +4065,7 @@ export class DataManagementService {
 		let keepConflictsDir = false;
 		if (await adapter.exists(conflictsDir)) {
 			try {
-				const listing = await (adapter as any).list(conflictsDir);
+				const listing = await adapter.list(conflictsDir);
 				keepConflictsDir = (listing?.files || []).length > 0 || (listing?.folders || []).length > 0;
 			} catch {
 				keepConflictsDir = true;
@@ -4005,7 +4083,7 @@ export class DataManagementService {
 						const { DirectoryUtils } = await import("../../utils/directory-utils");
 						await DirectoryUtils.ensureDirRecursive(adapter, newMediaDir);
 					}
-					const listing = await (adapter as any).list(oldMediaDir);
+					const listing = await adapter.list(oldMediaDir);
 					const items = [...(listing.files || []), ...(listing.folders || [])];
 					for (const item of items) {
 						const name = item.split("/").pop() || "";
@@ -4013,7 +4091,7 @@ export class DataManagementService {
 						const dest = `${newMediaDir}/${name}`;
 						if (!(await adapter.exists(dest))) {
 							try {
-								await (adapter as any).rename(item, dest);
+								await adapter.rename(item, dest);
 								success++;
 								logger.info(`[DataManagement] 迁移媒体: ${item} → ${dest}`);
 							} catch (e) {
@@ -4124,18 +4202,16 @@ export class DataManagementService {
 	private async importMigrationConflicts(
 		v2Paths: ReturnType<typeof getV2Paths>
 	): Promise<{ importedCards: number; importedDecks: number; errors: string[] }> {
-		const adapter = this.plugin.app.vault.adapter as any;
+		const vaultAdapter = this.plugin.app.vault.adapter;
 		const conflictDir = `${v2Paths.root}/_migration_conflicts`;
 
 		const result = { importedCards: 0, importedDecks: 0, errors: [] as string[] };
 
-		const basePath: string | undefined = adapter?.basePath;
+		const basePath = this.getVaultAdapterBasePath(vaultAdapter);
 		if (!basePath) {
 			result.errors.push(t("management.dataCheckService.messages.migrationConflictImportBasePathMissing"));
 			return result;
 		}
-
-		const vaultAdapter = this.plugin.app.vault.adapter;
 
 		if (!(await vaultAdapter.exists(conflictDir))) {
 			return result;
@@ -4169,16 +4245,15 @@ export class DataManagementService {
 		const deckNameById = new Map<string, string>();
 		const importedDecksById = new Map<string, Deck>();
 
-		let currentDeckStore: any = { decks: [] as Deck[] };
+		let currentDeckStore: DeckStorePayload = { decks: [] };
 		try {
-			if (await this.plugin.app.vault.adapter.exists(v2Paths.memory.decks)) {
-				const raw = await this.plugin.app.vault.adapter.read(v2Paths.memory.decks);
-				currentDeckStore = JSON.parse(raw);
+			if (await vaultAdapter.exists(v2Paths.memory.decks)) {
+				const raw = await vaultAdapter.read(v2Paths.memory.decks);
+				const parsedStore = parseJsonUnknown(raw);
+				currentDeckStore = isRecord(parsedStore) ? parsedStore : { decks: [] };
 			}
-		} catch {}
-		const currentDecks: Deck[] = Array.isArray(currentDeckStore?.decks)
-			? currentDeckStore.decks
-			: [];
+		} catch { /* no-op */ }
+		const currentDecks = this.readDecksFromPayload(currentDeckStore);
 		const currentDeckById = new Map<string, Deck>();
 		const currentDeckIdByName = new Map<string, string>();
 		for (const d of currentDecks) {
@@ -4196,8 +4271,8 @@ export class DataManagementService {
 			try {
 				const raw = await readConflictFile(deckFileName);
 				if (!raw) continue;
-				const parsed = JSON.parse(raw);
-				const decks = Array.isArray(parsed?.decks) ? (parsed.decks as Deck[]) : [];
+				const parsed = parseJsonUnknown(raw);
+				const decks = this.readDecksFromPayload(parsed);
 				for (const d of decks) {
 					if (!d?.id) continue;
 					importedDecksById.set(d.id, d);
@@ -4219,12 +4294,12 @@ export class DataManagementService {
 			try {
 				const raw = await readConflictFile(cardFileName);
 				if (!raw) continue;
-				const parsed = JSON.parse(raw);
-				const cards = Array.isArray(parsed?.cards) ? (parsed.cards as Card[]) : [];
+				const parsed = parseJsonUnknown(raw);
+				const cards = this.readCardsFromPayload(parsed);
 				for (const c of cards) {
-					if (!c?.uuid || typeof c.uuid !== "string") continue;
+					if (!c.uuid) continue;
 
-					const originalDeckId = (c as any).deckId as string | undefined;
+					const originalDeckId = c.deckId;
 					const deckId = originalDeckId
 						? deckIdRemap.get(originalDeckId) || originalDeckId
 						: undefined;
@@ -4236,14 +4311,14 @@ export class DataManagementService {
 					if (deckName) {
 						try {
 							const yaml = parseYAMLFromContent(nextContent);
-							const existing = Array.isArray((yaml as any)?.we_decks) ? (yaml as any).we_decks : [];
-							if (!existing || existing.length === 0) {
+							const existingDecks = Array.isArray(yaml.we_decks) ? yaml.we_decks : [];
+							if (existingDecks.length === 0) {
 								nextContent = setCardProperties(nextContent, { we_decks: [deckName] });
 							}
-						} catch {}
+						} catch { /* no-op */ }
 					}
 
-					importedCardsByUuid.set(c.uuid, { ...(c as any), deckId, content: nextContent } as any);
+					importedCardsByUuid.set(c.uuid, { ...c, deckId, content: nextContent });
 				}
 			} catch (e) {
 				result.errors.push(t("management.dataCheckService.messages.migrationConflictImportParseCardFailed", { fileName: cardFileName, message: String(e) }));
@@ -4260,17 +4335,17 @@ export class DataManagementService {
 					await this.plugin.dataStorage.saveCardsBatch(importedCards);
 				} else {
 					const fallbackPath = `${v2Paths.memory.cards}/default.json`;
-					let existing: any = { cards: [] as Card[] };
+					let existingCards: Card[] = [];
 					try {
-						if (await this.plugin.app.vault.adapter.exists(fallbackPath)) {
-							const raw = await this.plugin.app.vault.adapter.read(fallbackPath);
-							existing = JSON.parse(raw);
+						if (await vaultAdapter.exists(fallbackPath)) {
+							const raw = await vaultAdapter.read(fallbackPath);
+							existingCards = this.readCardsFromPayload(parseJsonUnknown(raw));
 						}
-					} catch {}
+					} catch { /* no-op */ }
 
 					const map = new Map<string, Card>();
-					for (const c of existing?.cards || []) {
-						if (c?.uuid) map.set(c.uuid, c);
+					for (const c of existingCards) {
+						if (c.uuid) map.set(c.uuid, c);
 					}
 					for (const c of importedCards) {
 						map.set(c.uuid, c);
@@ -4293,7 +4368,7 @@ export class DataManagementService {
 
 			const uuidsByDeckId = new Map<string, Set<string>>();
 			for (const c of importedCards) {
-				const deckId = (c as any).deckId as string | undefined;
+				const deckId = c.deckId;
 				if (!deckId) continue;
 				const set = uuidsByDeckId.get(deckId) || new Set<string>();
 				set.add(c.uuid);
@@ -4355,11 +4430,11 @@ export class DataManagementService {
 							memoryRate: 0,
 							averageEase: 0,
 							forecastDays: {},
-						} as any,
+						} as unknown,
 						tags: [],
 						metadata: {},
 						cardUUIDs: [],
-					} as any);
+					} as unknown);
 				}
 
 				const deck = deckById.get(deckId)!;
@@ -4382,10 +4457,7 @@ export class DataManagementService {
 				}
 			}
 			// decks.json 中剥离 cardUUIDs
-			const strippedDecks = mergedDecks.map((_d) => {
-				const { cardUUIDs, ...rest } = _d;
-				return rest;
-			});
+			const strippedDecks = mergedDecks.map(({ cardUUIDs: _cardUUIDs, ...rest }) => rest);
 			await this.plugin.app.vault.adapter.write(
 				decksPath,
 				JSON.stringify({ decks: strippedDecks })
@@ -4416,7 +4488,7 @@ export class DataManagementService {
 					if (await adapter.exists(conflictPath)) {
 						await adapter.remove(conflictPath);
 					}
-				} catch {}
+				} catch { /* no-op */ }
 			}
 		}
 
@@ -4642,7 +4714,9 @@ export class DataManagementService {
 		let lastScore = 0;
 		let totalTime = 0;
 		let fastestTime = 0;
-		let lastTestDate = String(attempts[attempts.length - 1]?.timestamp || record.lastTestDate || "");
+		let lastTestDate = this.toMigrationString(
+			attempts[attempts.length - 1]?.timestamp ?? record.lastTestDate ?? ""
+		);
 		let lastIncorrectDate =
 			typeof record.lastIncorrectDate === "string" ? record.lastIncorrectDate : undefined;
 		let consecutiveCorrect = 0;
@@ -4675,16 +4749,16 @@ export class DataManagementService {
 				incorrectAttempts += 1;
 				currentStreak = 0;
 				isInErrorBook = true;
-				lastIncorrectDate = String(attempt.timestamp || lastIncorrectDate || "");
+				lastIncorrectDate = this.toMigrationString(attempt.timestamp || lastIncorrectDate || "");
 			}
 		}
 
 		consecutiveCorrect = currentStreak;
 		const totalAttempts = attempts.length;
-		const normalizedAttempts = attempts.map((attempt) => ({
+		const normalizedAttempts: TestAttempt[] = attempts.map((attempt) => ({
 			isCorrect: attempt.isCorrect === true,
 			mode: "exam" as const,
-			timestamp: String(attempt.timestamp),
+			timestamp: this.toMigrationString(attempt.timestamp),
 			score:
 				typeof attempt.score === "number"
 					? attempt.score
@@ -4700,7 +4774,7 @@ export class DataManagementService {
 			correctAttempts,
 			incorrectAttempts,
 			accuracy: totalAttempts > 0 ? correctAttempts / totalAttempts : 0,
-			masteryMetrics: accuracyCalculator.calculateMastery(normalizedAttempts as any),
+			masteryMetrics: accuracyCalculator.calculateMastery(normalizedAttempts),
 			bestScore,
 			averageScore: totalAttempts > 0 ? totalScore / totalAttempts : 0,
 			lastScore,
@@ -4934,7 +5008,7 @@ export class DataManagementService {
 		}
 
 		const record = entry as Record<string, unknown>;
-		return fields.map((field) => String(record[field] ?? "")).join("::");
+		return fields.map((field) => this.toMigrationString(record[field])).join("::");
 	}
 
 	private mergeUniqueIRMonitoringEntries<T>(
@@ -4986,11 +5060,11 @@ export class DataManagementService {
 
 		type MonitoringLike = {
 			version?: string;
-			dailyStats?: any[];
-			priorityChanges?: any[];
-			groupParamChanges?: any[];
-			decisionEvents?: any[];
-			decisionOutcomes?: any[];
+			dailyStats?: unknown[];
+			priorityChanges?: unknown[];
+			groupParamChanges?: unknown[];
+			decisionEvents?: unknown[];
+			decisionOutcomes?: unknown[];
 			lastUpdated?: string;
 		};
 
@@ -5000,8 +5074,8 @@ export class DataManagementService {
 				if (!raw.trim()) {
 					return null;
 				}
-				const parsed = JSON.parse(raw);
-				if (!parsed || typeof parsed !== "object") {
+				const parsed = parseJsonUnknown(raw);
+				if (!isRecord(parsed)) {
 					return null;
 				}
 				return parsed as MonitoringLike;
@@ -5045,23 +5119,23 @@ export class DataManagementService {
 			dailyStats: this.mergeUniqueIRMonitoringEntries(
 				newestFirst.map((item) => (Array.isArray(item.dailyStats) ? item.dailyStats : [])),
 				(entry) => this.buildIRMonitoringConflictSignature(entry, ["date"])
-			).sort((a: any, b: any) => String(a?.date || "").localeCompare(String(b?.date || ""))),
+			).sort((a: unknown, b: unknown) => String(a?.date || "").localeCompare(String(b?.date || ""))),
 			priorityChanges: this.mergeUniqueIRMonitoringEntries(
 				newestFirst.map((item) => (Array.isArray(item.priorityChanges) ? item.priorityChanges : [])),
 				(entry) => this.buildIRMonitoringConflictSignature(entry, ["blockId", "timestamp"])
-			).sort((a: any, b: any) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
+			).sort((a: unknown, b: unknown) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
 			groupParamChanges: this.mergeUniqueIRMonitoringEntries(
 				newestFirst.map((item) => (Array.isArray(item.groupParamChanges) ? item.groupParamChanges : [])),
 				(entry) => this.buildIRMonitoringConflictSignature(entry, ["groupId", "timestamp"])
-			).sort((a: any, b: any) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
+			).sort((a: unknown, b: unknown) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
 			decisionEvents: this.mergeUniqueIRMonitoringEntries(
 				newestFirst.map((item) => (Array.isArray(item.decisionEvents) ? item.decisionEvents : [])),
 				(entry) => this.buildIRMonitoringConflictSignature(entry, ["itemId", "action", "timestamp"])
-			).sort((a: any, b: any) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
+			).sort((a: unknown, b: unknown) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
 			decisionOutcomes: this.mergeUniqueIRMonitoringEntries(
 				newestFirst.map((item) => (Array.isArray(item.decisionOutcomes) ? item.decisionOutcomes : [])),
 				(entry) => this.buildIRMonitoringConflictSignature(entry, ["itemId", "outcomeType", "timestamp"])
-			).sort((a: any, b: any) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
+			).sort((a: unknown, b: unknown) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
 			lastUpdated:
 				newestFirst
 					.map((item) => String(item.lastUpdated || "").trim())
@@ -5097,11 +5171,9 @@ export class DataManagementService {
 		const result = { deleted: 0, merged: 0, errors: [] as string[] };
 
 		try {
-			const adapter = this.plugin.app.vault.adapter as any;
-			const basePath: string | undefined = adapter?.basePath;
-			if (!basePath) return result;
-
 			const vaultAdapter = this.plugin.app.vault.adapter;
+			if (!this.getVaultAdapterBasePath(vaultAdapter)) return result;
+
 			const cardsDir = v2Paths.memory.cards;
 
 			if (!(await vaultAdapter.exists(cardsDir))) return result;
@@ -5123,8 +5195,7 @@ export class DataManagementService {
 				let cards: Card[] = [];
 				try {
 					const raw = await vaultAdapter.read(`${cardsDir}/${f}`);
-					const parsed = JSON.parse(raw);
-					cards = Array.isArray(parsed?.cards) ? parsed.cards : [];
+					cards = this.readCardsFromPayload(parseJsonUnknown(raw));
 				} catch {
 					continue;
 				}
@@ -5144,22 +5215,22 @@ export class DataManagementService {
 
 			if (toMergeIntoDefault.length > 0) {
 				const defaultPath = `${cardsDir}/${defaultFileName}`;
-				let existing: any = { cards: [] };
+				let existingCards: Card[] = [];
 				try {
-					if (await this.plugin.app.vault.adapter.exists(defaultPath)) {
-						const raw = await this.plugin.app.vault.adapter.read(defaultPath);
-						existing = JSON.parse(raw);
+					if (await vaultAdapter.exists(defaultPath)) {
+						const raw = await vaultAdapter.read(defaultPath);
+						existingCards = this.readCardsFromPayload(parseJsonUnknown(raw));
 					}
-				} catch {}
+				} catch { /* no-op */ }
 
 				const map = new Map<string, Card>();
-				for (const c of existing?.cards || []) {
-					if (c?.uuid) map.set(c.uuid, c);
+				for (const c of existingCards) {
+					if (c.uuid) map.set(c.uuid, c);
 				}
 				for (const c of toMergeIntoDefault) {
 					map.set(c.uuid, c);
 				}
-				await this.plugin.app.vault.adapter.write(
+				await vaultAdapter.write(
 					defaultPath,
 					JSON.stringify({ cards: Array.from(map.values()) })
 				);
@@ -5181,36 +5252,37 @@ export class DataManagementService {
 			// 总是尝试清理索引（包括删除的文件条目和 cardCount=0 的僵尸条目）
 			try {
 				const indexPath = `${cardsDir}/${indexFileName}`;
-				if (await this.plugin.app.vault.adapter.exists(indexPath)) {
-					const raw = await this.plugin.app.vault.adapter.read(indexPath);
-					const index = JSON.parse(raw);
+				if (await vaultAdapter.exists(indexPath)) {
+					const raw = await vaultAdapter.read(indexPath);
+					const index = this.parseCardFilesIndex(parseJsonUnknown(raw));
 					let indexChanged = false;
+					const files = index.files ? [...index.files] : [];
 
-					if (Array.isArray(index?.files)) {
+					if (files.length > 0) {
 						const deletedSet = new Set(toDelete.map((f) => f.replace(/\.json$/, "")));
-						const beforeLen = index.files.length;
+						const beforeLen = files.length;
 
-						// 移除已删除文件的条目 + cardCount=0 的僵尸条目（非 default）
-						index.files = index.files.filter((entry: any) => {
-							if (deletedSet.has(entry?.fileName)) return false;
-							if (entry?.cardCount === 0 && entry?.fileName !== "default" && !entry?.isDefault)
+						index.files = files.filter((entry) => {
+							if (!entry.fileName || deletedSet.has(entry.fileName)) return false;
+							if (entry.cardCount === 0 && entry.fileName !== "default" && !entry.isDefault) {
 								return false;
+							}
 							return true;
 						});
 
 						if (index.files.length !== beforeLen) indexChanged = true;
 
-						const defaultEntry = index.files.find((entry: any) => entry?.fileName === "default");
+						const defaultEntry = index.files.find((entry) => entry.fileName === "default");
 						if (defaultEntry && result.merged > 0) {
 							defaultEntry.cardCount = (defaultEntry.cardCount || 0) + result.merged;
 							indexChanged = true;
 						}
 					}
 
-					if (index?.cardLocations) {
+					if (index.cardLocations) {
 						const deletedSet = new Set(toDelete.map((f) => f.replace(/\.json$/, "")));
 						for (const [uuid, loc] of Object.entries(index.cardLocations)) {
-							if (deletedSet.has(loc as string)) {
+							if (deletedSet.has(loc)) {
 								index.cardLocations[uuid] = "default";
 								indexChanged = true;
 							}
@@ -5218,7 +5290,7 @@ export class DataManagementService {
 					}
 
 					if (indexChanged) {
-						await this.plugin.app.vault.adapter.write(indexPath, JSON.stringify(index));
+						await vaultAdapter.write(indexPath, JSON.stringify(index));
 					}
 				}
 			} catch (e) {
@@ -5261,7 +5333,7 @@ export class DataManagementService {
 				await vaultAdapter.remove(legacyManifest);
 				migrated++;
 			}
-		} catch {}
+		} catch { /* no-op */ }
 		return migrated;
 	}
 	// ===== 云同步冲突副本检测 =====
@@ -5288,18 +5360,18 @@ export class DataManagementService {
 	 * 递归扫描目录下的所有 JSON 文件
 	 */
 	private async listJsonFilesRecursive(dir: string): Promise<string[]> {
-		const adapter = this.plugin.app.vault.adapter as any;
+		const adapter = this.plugin.app.vault.adapter;
 		const result: string[] = [];
 		try {
-			const listing = adapter.list ? await adapter.list(dir) : { files: [], folders: [] };
-			for (const f of listing.files || []) {
+			const listing = await adapter.list(dir);
+			for (const f of listing.files) {
 				if (f.endsWith(".json")) result.push(f);
 			}
-			for (const sub of listing.folders || []) {
+			for (const sub of listing.folders) {
 				const subFiles = await this.listJsonFilesRecursive(sub);
 				result.push(...subFiles);
 			}
-		} catch {}
+		} catch { /* no-op */ }
 		return result;
 	}
 
@@ -5362,7 +5434,7 @@ export class DataManagementService {
 			const v2Paths = getV2Paths(
 				normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder)
 			);
-			const adapter = this.plugin.app.vault.adapter as any;
+			const adapter = this.plugin.app.vault.adapter;
 			const allFiles = await this.listJsonFilesRecursive(v2Paths.root);
 			const pluginPaths = getPluginPaths(this.plugin.app);
 			const archiveRoot = `${pluginPaths.backups}/sync-conflicts/${new Date()
@@ -5406,7 +5478,7 @@ export class DataManagementService {
 					for (const pattern of DataManagementService.CONFLICT_PATTERNS) {
 						const match = fileName.match(pattern);
 						if (match) {
-							originalName = `${fileName.substring(0, match.index!)}.json`;
+							originalName = `${fileName.substring(0, match.index)}.json`;
 							break;
 						}
 					}
@@ -5424,22 +5496,30 @@ export class DataManagementService {
 					if (dir.includes("/cards")) {
 						try {
 							const conflictRaw = await adapter.read(conflictPath);
-							const conflictData = JSON.parse(conflictRaw);
 							const originalRaw = await adapter.read(originalPath);
-							const originalData = JSON.parse(originalRaw);
+							const conflictData = parseJsonUnknown(conflictRaw);
+							const originalData = parseJsonUnknown(originalRaw);
+							const conflictCards = this.readCardsFromPayload(conflictData);
+							const originalCards = this.readCardsFromPayload(originalData);
 
-							if (Array.isArray(conflictData?.cards) && Array.isArray(originalData?.cards)) {
-								const mergedMap = new Map<string, any>();
-								for (const card of originalData.cards) {
-									if (card?.uuid) mergedMap.set(card.uuid, card);
+							if (
+								isRecord(conflictData) &&
+								Array.isArray(conflictData.cards) &&
+								isRecord(originalData) &&
+								Array.isArray(originalData.cards)
+							) {
+								const mergedMap = new Map<string, Card>();
+								for (const card of originalCards) {
+									mergedMap.set(card.uuid, card);
 								}
 								let _newCards = 0;
-								for (const card of conflictData.cards) {
-									if (!card?.uuid) continue;
+								for (const card of conflictCards) {
 									const existing = mergedMap.get(card.uuid);
 									if (
 										!existing ||
-										(card.modified && existing.modified && card.modified > existing.modified)
+										(card.modified &&
+											existing.modified &&
+											card.modified > existing.modified)
 									) {
 										mergedMap.set(card.uuid, card);
 										if (!existing) _newCards++;
@@ -5463,15 +5543,19 @@ export class DataManagementService {
 					if (!merged && dir.includes("/deck-cards")) {
 						try {
 							const conflictRaw = await adapter.read(conflictPath);
-							const conflictData = JSON.parse(conflictRaw);
 							const originalRaw = await adapter.read(originalPath);
-							const originalData = JSON.parse(originalRaw);
+							const conflictData = parseJsonUnknown(conflictRaw);
+							const originalData = parseJsonUnknown(originalRaw);
+							const conflictUUIDs = this.readCardUUIDsFromPayload(conflictData);
+							const originalUUIDs = this.readCardUUIDsFromPayload(originalData);
 
 							if (
-								Array.isArray(conflictData?.cardUUIDs) &&
-								Array.isArray(originalData?.cardUUIDs)
+								isRecord(conflictData) &&
+								Array.isArray(conflictData.cardUUIDs) &&
+								isRecord(originalData) &&
+								Array.isArray(originalData.cardUUIDs)
 							) {
-								const mergedUUIDs = new Set([...originalData.cardUUIDs, ...conflictData.cardUUIDs]);
+								const mergedUUIDs = new Set([...originalUUIDs, ...conflictUUIDs]);
 								await adapter.write(
 									originalPath,
 									JSON.stringify({ cardUUIDs: Array.from(mergedUUIDs) })
@@ -5722,7 +5806,7 @@ export class DataManagementService {
 			if (!childrenByParent.has(card.parentCardId)) {
 				childrenByParent.set(card.parentCardId, new Set());
 			}
-			childrenByParent.get(card.parentCardId)?.add((card as any).clozeOrd);
+			childrenByParent.get(card.parentCardId)?.add(card.clozeOrd);
 		}
 
 		const clozeRegex = /\{\{c(\d+)::/g;
@@ -5786,7 +5870,7 @@ export class DataManagementService {
 			}
 			clozeRegex.lastIndex = 0;
 
-			if (!contentOrds.has((card as any).clozeOrd)) {
+			if (!contentOrds.has(card.clozeOrd)) {
 				extras.push(card.uuid);
 			}
 		}

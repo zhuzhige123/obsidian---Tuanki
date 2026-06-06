@@ -53,7 +53,7 @@ export class FocusTrapManager implements IFocusTrapManager {
 
 			const firstElement = currentFocusables[0];
 			const lastElement = currentFocusables[currentFocusables.length - 1];
-			const activeElement = document.activeElement as HTMLElement;
+			const activeElement = activeDocument.activeElement as HTMLElement;
 
 			if (e.shiftKey) {
 				// Shift+Tab：向后导航
@@ -81,7 +81,7 @@ export class FocusTrapManager implements IFocusTrapManager {
 		});
 
 		// 设置初始焦点
-		requestAnimationFrame(() => {
+		window.requestAnimationFrame(() => {
 			if (initialFocus && container.contains(initialFocus)) {
 				initialFocus.focus();
 			} else if (focusableElements.length > 0) {
@@ -126,7 +126,7 @@ export class FocusTrapManager implements IFocusTrapManager {
 	 */
 	private getFocusableElements(container: HTMLElement): HTMLElement[] {
 		const selector = FOCUSABLE_SELECTORS.join(", ");
-		const elements = Array.from(container.querySelectorAll(selector)) as HTMLElement[];
+		const elements = Array.from(container.querySelectorAll(selector));
 
 		// 过滤掉不可见和禁用的元素
 		return elements.filter((el) => this.isElementFocusable(el));
@@ -143,7 +143,7 @@ export class FocusTrapManager implements IFocusTrapManager {
 		if (style.display === "none" || style.visibility === "hidden") return false;
 
 		// 检查元素是否被禁用
-		if ((element as any).disabled) return false;
+		if ((element as unknown).disabled) return false;
 
 		// 检查 tabindex
 		const tabindex = element.getAttribute("tabindex");

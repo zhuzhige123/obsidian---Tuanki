@@ -36,7 +36,7 @@ export class BatchCardSaver {
 			if (response.success && response.data) {
 				// v2.2: 优先从 content YAML 的 we_decks 获取牌组ID
 				const primaryDeckId = getCardMetadataService().getCardDeckIds(card)[0];
-				await this.globalCache.invalidateCardCache(primaryDeckId || card.deckId || "");
+				this.globalCache.invalidateCardCache(primaryDeckId || card.deckId || "");
 
 				return {
 					success: true,

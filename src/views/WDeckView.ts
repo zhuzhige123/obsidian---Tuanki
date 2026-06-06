@@ -22,7 +22,7 @@ export class WDeckView extends ItemView {
 		super(leaf);
 		this.plugin = plugin;
 		this.redirectController = new DeferredLeafRedirectController({
-			workspace: plugin.app.workspace as any,
+			workspace: plugin.app.workspace as unknown,
 			leaf,
 			shouldRedirect: () => this.isOpen && !!this.filePath && !this.redirecting,
 			onRedirect: () => {

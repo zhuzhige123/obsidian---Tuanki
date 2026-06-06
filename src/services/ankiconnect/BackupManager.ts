@@ -9,6 +9,7 @@ import { logger } from "../../utils/logger";
 import type { Card } from "../../data/types";
 import type { WeavePlugin } from "../../main";
 import type { BackupLevel, BackupTrigger } from "../../types/backup-types";
+import { isRecord } from "../../utils/typed-json";
 import { BackupMigrationService } from "./backup/BackupMigrationService";
 import { UnifiedBackupService } from "./backup/UnifiedBackupService";
 
@@ -186,12 +187,22 @@ export class BackupManager {
 		await this.ensureInitialized();
 
 		const stats = await this.unifiedService.getStats();
+		const statsRecord = isRecord(stats) ? stats : {};
+		const totalBackups = typeof statsRecord.totalBackups === "number" ? statsRecord.totalBackups : 0;
+		const oldest =
+			typeof statsRecord.oldest === "number" || typeof statsRecord.oldest === "string"
+				? statsRecord.oldest
+				: undefined;
+		const newest =
+			typeof statsRecord.newest === "number" || typeof statsRecord.newest === "string"
+				? statsRecord.newest
+				: undefined;
 
 		return {
-			totalBackups: stats.totalBackups,
+			totalBackups,
 			totalCards: 0, // TODO: 从元数据中计算
-			oldestBackup: stats.oldest ? new Date(stats.oldest).toISOString() : undefined,
-			newestBackup: stats.newest ? new Date(stats.newest).toISOString() : undefined,
+			oldestBackup: oldest !== undefined ? new Date(oldest).toISOString() : undefined,
+			newestBackup: newest !== undefined ? new Date(newest).toISOString() : undefined,
 		};
 	}
 

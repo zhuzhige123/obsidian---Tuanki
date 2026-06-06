@@ -19,7 +19,12 @@ import { getQuestionBankDeckIdsForCard } from "../pages/kanban-card-update";
  */
 
 import type { WeaveDataStorage } from "../../data/storage";
-import type { Card, CardState, Deck } from "../../data/types";
+import { CardState, type Card, type Deck } from "../../data/types";
+import {
+	readUnknownNumber,
+	readUnknownProperty,
+	readUnknownString,
+} from "../../utils/dynamic-access";
 
 export interface CardStateUpdate {
   cardId: string;
@@ -63,18 +68,19 @@ export class CardStateManager {
     this.dataSourceType = dataSourceType;
   }
 
+  private readStringArrayProperty(source: unknown, key: string): string[] {
+    const raw = readUnknownProperty(source, key);
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    return raw.filter(
+      (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
+    );
+  }
+
   private getIRDeckGroupKeys(card: Card): string[] {
-    const cardLike = card as any;
-    const metadataDeckIds = Array.isArray(cardLike?.metadata?.deckIds)
-      ? cardLike.metadata.deckIds.filter(
-          (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
-        )
-      : [];
-    const irDeckIds = Array.isArray(cardLike?.ir_deck_ids)
-      ? cardLike.ir_deck_ids.filter(
-          (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
-        )
-      : [];
+    const metadataDeckIds = this.readStringArrayProperty(card.metadata, "deckIds");
+    const irDeckIds = this.readStringArrayProperty(card, "ir_deck_ids");
     const deckIds = metadataDeckIds.length > 0 ? metadataDeckIds : irDeckIds;
     if (deckIds.length > 0) {
       return Array.from(new Set(deckIds));
@@ -86,12 +92,11 @@ export class CardStateManager {
   }
 
   private getIRPriorityValue(card: Card): number {
-    const cardLike = card as any;
     const candidates = [
-      cardLike?.ir_priority_value,
-      cardLike?.ir_priority,
-      cardLike?.metadata?.priorityUi,
-      cardLike?.metadata?.priorityEff,
+      readUnknownNumber(card, "ir_priority_value"),
+      readUnknownNumber(card, "ir_priority"),
+      readUnknownNumber(card.metadata, "priorityUi"),
+      readUnknownNumber(card.metadata, "priorityEff"),
       card.priority,
     ];
     for (const value of candidates) {
@@ -103,8 +108,8 @@ export class CardStateManager {
   }
 
   private getIRTagGroupValue(card: Card): string {
-    const value = String((card as any)?.ir_tag_group || "").trim();
-    return value || "_default";
+    const value = readUnknownString(card, "ir_tag_group") || "";
+    return value.trim() || "_default";
   }
 
   private getTagGroupValues(card: Card): string[] {
@@ -201,7 +206,7 @@ export class CardStateManager {
 		const nowISO = now.toISOString();
 
 		switch (newState) {
-			case 0: // 新卡片
+			case CardState.New:
 				card.fsrs.due = nowISO;
 				card.fsrs.stability = 0;
 				card.fsrs.difficulty = 5; // 默认难度
@@ -211,12 +216,12 @@ export class CardStateManager {
 				card.fsrs.lapses = 0;
 				break;
 
-			case 1: // 学习中
+			case CardState.Learning:
 				card.fsrs.due = new Date(now.getTime() + 10 * 60 * 1000).toISOString();
 				card.fsrs.scheduledDays = 0;
 				break;
 
-			case 2: // 复习
+			case CardState.Review:
 				if (card.fsrs.stability > 0) {
 					const nextReviewDays = Math.max(1, Math.round(card.fsrs.stability));
 					card.fsrs.due = new Date(
@@ -229,7 +234,7 @@ export class CardStateManager {
 				}
 				break;
 
-			case 3: // 重新学习
+			case CardState.Relearning:
 				card.fsrs.due = nowISO;
 				card.fsrs.lapses = (card.fsrs.lapses || 0) + 1;
 				card.fsrs.scheduledDays = 0;
@@ -423,7 +428,7 @@ export class CardStateManager {
 					const matchedDeck = this.decks.find((deck) => deck.id === cardDeckId);
 					const fallbackLabel =
 						this.dataSourceType === "incremental-reading"
-							? String((_card as any)?.ir_deck || "").trim() || this.t("cards.kanban.fallback.unassignedTopic")
+							? String((_card as unknown)?.ir_deck || "").trim() || this.t("cards.kanban.fallback.unassignedTopic")
 							: cardDeckId;
 					deckGroups.push({
 						key: cardDeckId,
@@ -783,7 +788,7 @@ export class CardStateManager {
 				case "status":
 					return _card.fsrs?.state.toString() === groupKey;
 				case "type":
-					return _card.type === groupKey;
+					return String(_card.type ?? "") === groupKey;
 				case "priority":
 					return (_card.priority || 1).toString() === groupKey;
 				default:
@@ -793,9 +798,9 @@ export class CardStateManager {
 
 		const total = groupCards.length;
 		const due = groupCards.filter((card) => this.isCardDue(card)).length;
-		const newCards = groupCards.filter((card) => card.fsrs?.state === 0).length;
-		const learning = groupCards.filter((card) => card.fsrs?.state === 1).length;
-		const review = groupCards.filter((card) => card.fsrs?.state === 2).length;
+		const newCards = groupCards.filter((card) => card.fsrs?.state === CardState.New).length;
+		const learning = groupCards.filter((card) => card.fsrs?.state === CardState.Learning).length;
+		const review = groupCards.filter((card) => card.fsrs?.state === CardState.Review).length;
 
 		return {
 			total,

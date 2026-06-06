@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger";
+import type { TimerHandle } from "../types/timer";
 /**
  * 数据完整性检查器
  * 定期验证字段数据与原始内容的一致性，及时发现数据丢失问题
@@ -67,7 +68,7 @@ export interface IntegrityReport {
 export class DataIntegrityChecker {
 	private config: IntegrityCheckConfig;
 	private checkHistory: Map<string, IntegrityCheckResult[]> = new Map();
-	private periodicCheckInterval: NodeJS.Timeout | null = null;
+	private periodicCheckInterval: TimerHandle | null = null;
 	private isChecking = false;
 
 	constructor(config?: Partial<IntegrityCheckConfig>) {
@@ -263,10 +264,10 @@ export class DataIntegrityChecker {
 	 */
 	startPeriodicCheck(): void {
 		if (this.periodicCheckInterval) {
-			clearInterval(this.periodicCheckInterval);
+			window.clearInterval(this.periodicCheckInterval);
 		}
 
-		this.periodicCheckInterval = setInterval(() => {
+		this.periodicCheckInterval = window.setInterval(() => {
 			if (!this.isChecking) {
 				void this.performPeriodicCheck();
 			}
@@ -280,7 +281,7 @@ export class DataIntegrityChecker {
 	 */
 	stopPeriodicCheck(): void {
 		if (this.periodicCheckInterval) {
-			clearInterval(this.periodicCheckInterval);
+			window.clearInterval(this.periodicCheckInterval);
 			this.periodicCheckInterval = null;
 			logger.debug("⏹️ [DataIntegrityChecker] 停止定期检查");
 		}

@@ -1013,7 +1013,7 @@
     if (menuReorderItemEl) {
       menuReorderItemEl.style.transform = '';
     }
-    document.body.style.userSelect = '';
+    activeDocument.body.style.userSelect = '';
   }
 
   function finishMenuReorder() {
@@ -1076,7 +1076,7 @@
     menuReorderTimer = setTimeout(() => {
       menuReorderTimer = null;
       menuReorderActive = true;
-      document.body.style.userSelect = 'none';
+      activeDocument.body.style.userSelect = 'none';
       if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
         navigator.vibrate(30);
       }
@@ -1849,12 +1849,12 @@
       }
     };
 
-    document.addEventListener('pointerdown', handleDocumentPointerDown, true);
-    document.addEventListener('keydown', handleDocumentKeyDown, true);
+    activeDocument.addEventListener('pointerdown', handleDocumentPointerDown, true);
+    activeDocument.addEventListener('keydown', handleDocumentKeyDown, true);
 
     return () => {
-      document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
-      document.removeEventListener('keydown', handleDocumentKeyDown, true);
+      activeDocument.removeEventListener('pointerdown', handleDocumentPointerDown, true);
+      activeDocument.removeEventListener('keydown', handleDocumentKeyDown, true);
     };
   });
 

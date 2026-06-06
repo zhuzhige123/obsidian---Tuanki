@@ -7,6 +7,7 @@ import { logger } from "../utils/logger";
 
 import type { Card } from "../data/types";
 import { CardType } from "../data/types";
+import { parseCardStateValue } from "./card-state-utils";
 import { ChoiceCardParser } from "../parsers/card-type-parsers/ChoiceCardParser";
 import { ClozeCardParser } from "../parsers/card-type-parsers/ClozeCardParser";
 import { QACardParser } from "../parsers/card-type-parsers/QACardParser";
@@ -14,6 +15,7 @@ import { getCardMetadataService } from "../services/CardMetadataService";
 import { hasProgressiveClozeContent } from "../types/progressive-cloze-v2";
 import { hasAnyClozeSyntax } from "./cloze-syntax";
 import { TagExtractor } from "./tag-extractor";
+import { isRecord, readNumber, readString } from "./typed-json";
 
 /**
  * 将卡片数据转换为Obsidian兼容的Markdown格式（遵循卡片数据结构规范 v1.0）
@@ -107,7 +109,7 @@ export function cardToMarkdown(card: Card): string {
  * 分离YAML frontmatter和Markdown内容
  */
 export function parseFrontmatterAndContent(content: string): {
-	frontmatter: Record<string, any>;
+	frontmatter: Record<string, unknown>;
 	markdownContent: string;
 } {
 	const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
@@ -125,11 +127,11 @@ export function parseFrontmatterAndContent(content: string): {
 
 	try {
 		// 简单的YAML解析（支持基本格式和一层嵌套对象）
-		const frontmatter: Record<string, any> = {};
+		const frontmatter: Record<string, unknown> = {};
 		const lines = frontmatterText.split("\n");
 
 		let currentKey = "";
-		let currentObject: Record<string, any> | null = null;
+		let currentObject: Record<string, unknown> | null = null;
 		let isArray = false;
 		let arrayItems: string[] = [];
 
@@ -162,7 +164,7 @@ export function parseFrontmatterAndContent(content: string): {
 							currentObject[key] = "";
 						} else {
 							// 移除引号并转换类型
-							let cleanValue: any = value.replace(/^["']|["']$/g, "");
+							let cleanValue: unknown = value.replace(/^["']|["']$/g, "");
 
 							// 尝试转换数字
 							if (/^\d+$/.test(cleanValue)) {
@@ -201,7 +203,7 @@ export function parseFrontmatterAndContent(content: string): {
 						isArray = false;
 						currentObject = null;
 						// 移除引号并转换类型
-						let cleanValue: any = value.replace(/^["']|["']$/g, "");
+						let cleanValue: unknown = value.replace(/^["']|["']$/g, "");
 
 						// 尝试转换数字
 						if (/^\d+$/.test(cleanValue)) {
@@ -247,7 +249,13 @@ export function parseMarkdownSections(content: string): {
 	tags?: string[];
 	otherFields?: Record<string, string>;
 } {
-	const sections: any = { otherFields: {} };
+	const sections: {
+		front?: string;
+		back?: string;
+		notes?: string;
+		tags?: string[];
+		otherFields: Record<string, string>;
+	} = { otherFields: {} };
 
 	//  优先检测 ---div--- 分隔符
 	if (content.includes("---div---")) {
@@ -306,7 +314,7 @@ export function parseMarkdownSections(content: string): {
 				currentContent.push(line);
 			}
 		} else if (line.startsWith("#") && !line.startsWith("##")) {
-		} else {
+		/* no-op */} else {
 			currentContent.push(line);
 		}
 	}
@@ -335,7 +343,17 @@ export function parseMarkdownSections(content: string): {
 /**
  * 分配部分内容到对应字段
  */
-function assignSectionContent(sections: any, sectionName: string, content: string): void {
+function assignSectionContent(
+	sections: {
+		front?: string;
+		back?: string;
+		notes?: string;
+		tags?: string[];
+		otherFields: Record<string, string>;
+	},
+	sectionName: string,
+	content: string
+): void {
 	switch (sectionName) {
 		case "正面":
 			sections.front = content;
@@ -365,6 +383,17 @@ function assignSectionContent(sections: any, sectionName: string, content: strin
  *
  *  与 CardCreationBridge.detectCardTypeFromContent 保持一致
  */
+function mapDetectedTypeToCardType(detected: "basic" | "cloze" | "multiple"): CardType {
+	switch (detected) {
+		case "cloze":
+			return CardType.Cloze;
+		case "multiple":
+			return CardType.Multiple;
+		default:
+			return CardType.Basic;
+	}
+}
+
 export function detectCardTypeFromContent(content: string): "basic" | "cloze" | "multiple" {
 	if (!content || !content.trim()) {
 		return "basic";
@@ -399,7 +428,7 @@ export function detectCardTypeFromContent(content: string): "basic" | "cloze" | 
 /**
  * 根据卡片类型获取对应的解析器
  */
-function getParserForDetectedType(cardType: "basic" | "cloze" | "multiple"): any {
+function getParserForDetectedType(cardType: "basic" | "cloze" | "multiple"): unknown {
 	switch (cardType) {
 		case "cloze":
 			return new ClozeCardParser();
@@ -449,8 +478,9 @@ export function markdownToCard(content: string, originalCard: Card): Card {
 			hasProgressiveClozeContent(markdownContent);
 
 		// 内容已不再是渐进式时，允许题型跟随内容自动切换
-		if (!isStillProgressive && updatedCard.type !== detectedType) {
-			updatedCard.type = detectedType as any;
+		const mappedType = mapDetectedTypeToCardType(detectedType);
+		if (!isStillProgressive && updatedCard.type !== mappedType) {
+			updatedCard.type = mappedType;
 			logger.debug(
 				`[CardMarkdownSerializer] ✅ 自动检测并更新type: ${originalCard.type} → ${detectedType}`
 			);
@@ -466,28 +496,40 @@ export function markdownToCard(content: string, originalCard: Card): Card {
 		}
 
 		//  从frontmatter解析FSRS数据（修复属性访问问题）
-		if (frontmatter.weave_fsrs && typeof frontmatter.weave_fsrs === "object" && updatedCard.fsrs) {
+		if (isRecord(frontmatter.weave_fsrs) && updatedCard.fsrs) {
 			const fsrsData = frontmatter.weave_fsrs;
-			if (fsrsData.due) updatedCard.fsrs.due = fsrsData.due;
-			if (fsrsData.stability !== undefined) updatedCard.fsrs.stability = fsrsData.stability;
-			if (fsrsData.difficulty !== undefined) updatedCard.fsrs.difficulty = fsrsData.difficulty;
-			if (fsrsData.state !== undefined) updatedCard.fsrs.state = fsrsData.state;
-			if (fsrsData.reps !== undefined) updatedCard.fsrs.reps = fsrsData.reps;
-			if (fsrsData.lapses !== undefined) updatedCard.fsrs.lapses = fsrsData.lapses;
-			if (fsrsData.elapsed_days !== undefined) updatedCard.fsrs.elapsedDays = fsrsData.elapsed_days; // 映射到 camelCase 属性
-			if (fsrsData.scheduled_days !== undefined)
-				updatedCard.fsrs.scheduledDays = fsrsData.scheduled_days; // 映射到 camelCase 属性
-			if (fsrsData.last_review) updatedCard.fsrs.lastReview = fsrsData.last_review; // 映射到 lastReview 属性
+			const due = readString(fsrsData, "due");
+			if (due) updatedCard.fsrs.due = due;
+			const stability = readNumber(fsrsData, "stability");
+			if (stability !== undefined) updatedCard.fsrs.stability = stability;
+			const difficulty = readNumber(fsrsData, "difficulty");
+			if (difficulty !== undefined) updatedCard.fsrs.difficulty = difficulty;
+			const parsedState = parseCardStateValue(readNumber(fsrsData, "state"));
+			if (parsedState !== undefined) {
+				updatedCard.fsrs.state = parsedState;
+			}
+			const reps = readNumber(fsrsData, "reps");
+			if (reps !== undefined) updatedCard.fsrs.reps = reps;
+			const lapses = readNumber(fsrsData, "lapses");
+			if (lapses !== undefined) updatedCard.fsrs.lapses = lapses;
+			const elapsedDays = readNumber(fsrsData, "elapsed_days");
+			if (elapsedDays !== undefined) updatedCard.fsrs.elapsedDays = elapsedDays;
+			const scheduledDays = readNumber(fsrsData, "scheduled_days");
+			if (scheduledDays !== undefined) updatedCard.fsrs.scheduledDays = scheduledDays;
+			const lastReview = readString(fsrsData, "last_review");
+			if (lastReview) updatedCard.fsrs.lastReview = lastReview;
 		}
 
 		//  从frontmatter解析来源追踪数据（保存到专用字段）
-		if (frontmatter.weave_source && typeof frontmatter.weave_source === "object") {
+		if (isRecord(frontmatter.weave_source)) {
 			const sourceData = frontmatter.weave_source;
-			if (sourceData.block_link) {
-				updatedCard.sourceBlock = sourceData.block_link; //  专用字段
+			const blockLink = readString(sourceData, "block_link");
+			if (blockLink) {
+				updatedCard.sourceBlock = blockLink;
 			}
-			if (sourceData.file_path) {
-				updatedCard.sourceFile = sourceData.file_path; //  专用字段
+			const filePath = readString(sourceData, "file_path");
+			if (filePath) {
+				updatedCard.sourceFile = filePath;
 			}
 			// document和unique_id是旧版字段，不再使用
 		}

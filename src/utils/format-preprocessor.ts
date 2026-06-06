@@ -232,7 +232,7 @@ export class FormatPreprocessor {
 		let changed = false;
 
 		// 标准化标题：确保#后有空格，移除多余空格
-		const normalizedContent = content.replace(/^(#{1,6})\s*(.+?)\s*$/gm, (match, hashes, title) => {
+		const normalizedContent = content.replace(/^(#{1,6})\s*(.+?)\s*$/gm, (match, hashes: string, title: string) => {
 			const normalized = `${hashes} ${title.trim()}`;
 			if (normalized !== match) {
 				changed = true;

@@ -1,6 +1,6 @@
-import { Notice, TFile, type App, normalizePath } from "obsidian";
+import { Notice, TFile, type App } from "obsidian";
 import { IRDeckSelectorModal } from "../../modals/IRDeckSelectorModal";
-import type { IRDeck, IRChunkFileData } from "../../types/ir-types";
+import type { IRChunkFileData } from "../../types/ir-types";
 import { createDefaultChunkFileData, generateChunkId, generateSourceId } from "../../types/ir-types";
 import { logger } from "../../utils/logger";
 import { EpubStorageService } from "../epub-integration/EpubStorageService";
@@ -159,7 +159,7 @@ export class IRHostSharedService {
 		try {
 			const storage = new IRStorageService(this.app);
 			await storage.initialize();
-			const deck = await storage.getDeck(normalizedDeckId);
+			const deck = await storage.getDeckById(normalizedDeckId);
 			if (!deck || deck.archivedAt) {
 				return null;
 			}
@@ -191,12 +191,12 @@ export class IRHostSharedService {
 		try {
 			const storage = new IRStorageService(this.app);
 			await storage.initialize();
-			const storedDeck = await storage.getDeck(deckId);
+			const storedDeck = await storage.getDeckById(deckId);
 			const legacyPath = String(storedDeck?.path || "").trim();
 			if (legacyPath) {
 				identifiers.add(legacyPath);
 			}
-		} catch {}
+		} catch { /* no-op */ }
 
 		return Array.from(identifiers);
 	}
@@ -220,24 +220,24 @@ export class IRHostSharedService {
 					if (resolved) return;
 					resolved = true;
 					if (closeTimer) {
-						clearTimeout(closeTimer);
+						window.clearTimeout(closeTimer);
 						closeTimer = null;
 					}
 					resolve(value);
 				};
 
-				const modal = new IRDeckSelectorModal(this.app, decks as IRDeck[], (deck) => {
+				const modal = new IRDeckSelectorModal(this.app, decks, (deck) => {
 					settle({ id: deck.id, name: deck.name, path: deck.path });
 				});
 				const originalOnClose = (modal as { onClose?: () => void }).onClose?.bind(modal);
 				(modal as { onClose?: () => void }).onClose = () => {
 					try {
 						originalOnClose?.();
-					} catch {}
+					} catch { /* no-op */ }
 					if (resolved || closeTimer) {
 						return;
 					}
-					closeTimer = setTimeout(() => {
+					closeTimer = window.setTimeout(() => {
 						closeTimer = null;
 						settle(null);
 					}, 0);
@@ -363,7 +363,7 @@ export class IRHostSharedService {
 		const existing =
 			(options?.existingChunk ??
 				Object.values(chunks || {}).find((chunk) => String(chunk.filePath || "").trim() === file.path) ??
-				null) as IRChunkFileData | null;
+				null);
 		const now = Date.now();
 		const nextAutoSubscribedAt = String(options?.autoSubscribedAt || "").trim();
 		const nextAutoSubscribedFolderPath = String(options?.autoSubscribedFolderPath || "").trim();
@@ -456,7 +456,7 @@ export class IRHostSharedService {
 			}
 
 			existing.updatedAt = now;
-			existing.meta = existingMeta as any;
+			existing.meta = existingMeta as unknown;
 			await storage.saveChunkData(existing);
 			return true;
 		}
@@ -486,7 +486,7 @@ export class IRHostSharedService {
 						).toISOString(),
 				  }
 				: {}),
-		} as any;
+		} as unknown;
 		await storage.saveChunkData(chunk);
 		return true;
 	}

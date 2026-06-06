@@ -251,13 +251,13 @@
 
   // 生命周期
   onMount(() => {
-    document.addEventListener('keydown', handleKeydown);
+    activeDocument.addEventListener('keydown', handleKeydown);
     window.addEventListener('resize', handleResize);
     window.addEventListener('scroll', handleResize, true);
   });
 
   onDestroy(() => {
-    document.removeEventListener('keydown', handleKeydown);
+    activeDocument.removeEventListener('keydown', handleKeydown);
     window.removeEventListener('resize', handleResize);
     window.removeEventListener('scroll', handleResize, true);
     

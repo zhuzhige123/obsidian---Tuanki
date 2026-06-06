@@ -12,7 +12,7 @@ export interface IRCardManagementMutationResult {
 }
 
 function resolveCardSourceDocumentPath(card: Card): string | undefined {
-	const cardLike = card as any;
+	const cardLike = card as unknown;
 	const rawPath = String(
 		cardLike.ir_source_document_key ||
 			cardLike.sourceDocumentKey ||

@@ -270,8 +270,8 @@
 
   // 获取当前主题颜色
   function getThemeColors() {
-    const isDark = document.body.classList.contains('theme-dark');
-    const accentColor = getComputedStyle(document.body).getPropertyValue('--interactive-accent').trim();
+    const isDark = activeDocument.body.classList.contains('theme-dark');
+    const accentColor = getComputedStyle(activeDocument.body).getPropertyValue('--interactive-accent').trim();
     return {
       textColor: isDark ? '#e0e0e0' : '#2c3e50',
       axisLineColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)',
@@ -1855,7 +1855,7 @@
     });
 
     // 监听body的class变化
-    themeObserver.observe(document.body, {
+    themeObserver.observe(activeDocument.body, {
       attributes: true,
       attributeFilter: ['class']
     });

@@ -48,6 +48,18 @@ interface APKGImportServiceOptions {
 const UI_YIELD_BATCH_SIZE = 20;
 const CARD_BUILD_BATCH_SIZE = 48;
 
+type WeaveDataChangeContext = {
+  source?: string;
+  deckIds?: string[];
+  suppressDeckNotifications?: boolean;
+  suppressCardNotifications?: boolean;
+  suppressSessionNotifications?: boolean;
+};
+
+type PluginWithDataChangeContext = WeavePlugin & {
+  __weaveDataChangeContext?: WeaveDataChangeContext;
+};
+
 type ImportStorageProgressCallback = (current: number, total: number, detail: string) => void;
 
 /**
@@ -110,11 +122,11 @@ export class APKGImportService {
     await Promise.resolve();
     await new Promise<void>((resolve) => {
       if (typeof requestAnimationFrame === "function") {
-        requestAnimationFrame(() => resolve());
+        window.requestAnimationFrame(() => resolve());
         return;
       }
 
-      setTimeout(resolve, 0);
+      window.setTimeout(resolve, 0);
     });
   }
 
@@ -273,8 +285,9 @@ export class APKGImportService {
       mediaTotalSize: 0,
     };
 
-    const previousDataChangeContext = (plugin as any).__weaveDataChangeContext;
-    (plugin as any).__weaveDataChangeContext = {
+    const pluginContext = plugin as PluginWithDataChangeContext;
+    const previousDataChangeContext = pluginContext.__weaveDataChangeContext;
+    pluginContext.__weaveDataChangeContext = {
       source: "apkg_import",
       suppressDeckNotifications: true,
       deckIds: [],
@@ -351,8 +364,8 @@ export class APKGImportService {
       await this.updateProgressAndYield("building", 60, "正在准备 Weave 牌组...");
       throwIfImportAborted(signal);
       const deck = await this.getOrCreateDeck(deckName);
-      (plugin as any).__weaveDataChangeContext = {
-        ...(plugin as any).__weaveDataChangeContext,
+      pluginContext.__weaveDataChangeContext = {
+        ...pluginContext.__weaveDataChangeContext,
         source: "apkg_import",
         suppressDeckNotifications: true,
         deckIds: [deck.id],
@@ -400,7 +413,7 @@ export class APKGImportService {
           });
 
           if (result.success && result.card) {
-            cards.push(result.card as Card);
+            cards.push(result.card);
             stats.importedCards++;
           } else {
             stats.failedCards++;
@@ -465,7 +478,7 @@ export class APKGImportService {
         duration: Date.now() - startTime,
       };
     } finally {
-      (plugin as any).__weaveDataChangeContext = previousDataChangeContext;
+      pluginContext.__weaveDataChangeContext = previousDataChangeContext;
     }
   }
 

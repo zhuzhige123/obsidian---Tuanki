@@ -335,7 +335,10 @@ export class AICardGenerationService {
 		if (value === null || value === undefined) {
 			return "";
 		}
-		return String(value).trim();
+		if (typeof value === "number" || typeof value === "boolean") {
+			return String(value).trim();
+		}
+		return "";
 	}
 
 	private normalizeTags(value: unknown): string[] {
@@ -694,7 +697,7 @@ export class AICardGenerationService {
 
 		let nextItems = this.markItemsAsNew(items, true);
 		callbacks.onItemsUpdate(nextItems);
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		await new Promise((resolve) => window.setTimeout(resolve, 100));
 		nextItems = this.markItemsAsNew(items, false);
 		callbacks.onItemsUpdate(nextItems);
 
@@ -820,7 +823,7 @@ export class AICardGenerationService {
 			isNew: true,
 		}));
 		callbacks.onCardsUpdate(cardsWithNewFlag);
-		await new Promise((resolve) => setTimeout(resolve, 100));
+		await new Promise((resolve) => window.setTimeout(resolve, 100));
 		cardsWithNewFlag = cardsWithNewFlag.map((card) => ({
 			...card,
 			isNew: false,

@@ -168,8 +168,3 @@ function sortMenuNodes(nodes: AIAssistantSourceFileMenuNode[]): void {
 		}
 	}
 }
-
-function getParentPathLabel(path: string): string {
-	const lastSlash = path.lastIndexOf("/");
-	return lastSlash === -1 ? ROOT_FOLDER_LABEL : path.slice(0, lastSlash);
-}

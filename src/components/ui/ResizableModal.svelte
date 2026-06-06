@@ -242,10 +242,10 @@
     startWidth = currentWidth;
     startHeight = currentHeight;
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = getCursorForHandle(handle);
-    document.body.style.userSelect = 'none';
+    activeDocument.addEventListener('mousemove', handleMouseMove);
+    activeDocument.addEventListener('mouseup', handleMouseUp);
+    activeDocument.body.style.cursor = getCursorForHandle(handle);
+    activeDocument.body.style.userSelect = 'none';
   }
 
   // 处理键盘事件
@@ -332,10 +332,10 @@
       justFinishedDragging = false;
     }, 100);
 
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
+    activeDocument.removeEventListener('mousemove', handleMouseMove);
+    activeDocument.removeEventListener('mouseup', handleMouseUp);
+    activeDocument.body.style.cursor = '';
+    activeDocument.body.style.userSelect = '';
 
     //  拖拽结束后自动保存尺寸
     saveCurrentSize();
@@ -406,10 +406,10 @@
       }));
     }
     
-    document.addEventListener('mousemove', handleHeaderDragMove);
-    document.addEventListener('mouseup', handleHeaderDragEnd);
-    document.body.style.cursor = 'move';
-    document.body.style.userSelect = 'none';
+    activeDocument.addEventListener('mousemove', handleHeaderDragMove);
+    activeDocument.addEventListener('mouseup', handleHeaderDragEnd);
+    activeDocument.body.style.cursor = 'move';
+    activeDocument.body.style.userSelect = 'none';
   }
 
   // 处理标题栏拖拽移动
@@ -437,10 +437,10 @@
     
     isDraggingWindow = false;
     
-    document.removeEventListener('mousemove', handleHeaderDragMove);
-    document.removeEventListener('mouseup', handleHeaderDragEnd);
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
+    activeDocument.removeEventListener('mousemove', handleHeaderDragMove);
+    activeDocument.removeEventListener('mouseup', handleHeaderDragEnd);
+    activeDocument.body.style.cursor = '';
+    activeDocument.body.style.userSelect = '';
   }
 
   // 获取拖拽手柄对应的鼠标样式
@@ -465,11 +465,11 @@
 
 
   function portalToBody(node: HTMLElement) {
-    if (typeof document === 'undefined' || !document.body) {
+    if (typeof activeDocument === 'undefined' || !activeDocument.body) {
       return;
     }
 
-    document.body.appendChild(node);
+    activeDocument.body.appendChild(node);
 
     return {
       destroy() {
@@ -483,10 +483,10 @@
 
   // 清理事件监听器
   onDestroy(() => {
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
+    activeDocument.removeEventListener('mousemove', handleMouseMove);
+    activeDocument.removeEventListener('mouseup', handleMouseUp);
+    activeDocument.body.style.cursor = '';
+    activeDocument.body.style.userSelect = '';
 
     if (mobileBoundsCleanup) {
       mobileBoundsCleanup();

@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger";
+import type { TimerHandle } from "../types/timer";
 /**
  * 自适应缓存策略系统
  * 基于内存使用情况和数据访问模式动态调整缓存策略
@@ -69,7 +70,7 @@ export class AdaptiveCacheService {
 	private currentStrategy: CacheStrategy;
 	private memoryHistory: number[] = [];
 	private accessPatterns = new Map<string, AccessPattern>();
-	private monitoringInterval: NodeJS.Timeout | null = null;
+	private monitoringInterval: TimerHandle | null = null;
 	private isEnabled = true;
 
 	private constructor() {
@@ -93,7 +94,7 @@ export class AdaptiveCacheService {
 				w.__weaveAdaptiveCacheServiceCleanup = () => {
 					try {
 						(w.__weaveAdaptiveCacheService as AdaptiveCacheService | undefined)?.destroy();
-					} catch {}
+					} catch { /* no-op */ }
 
 					try {
 						w.__weaveAdaptiveCacheService = undefined;
@@ -271,7 +272,7 @@ export class AdaptiveCacheService {
 	setEnabled(enabled: boolean): void {
 		this.isEnabled = enabled;
 		if (!enabled && this.monitoringInterval) {
-			clearInterval(this.monitoringInterval);
+			window.clearInterval(this.monitoringInterval);
 			this.monitoringInterval = null;
 		} else if (enabled && !this.monitoringInterval) {
 			this.startMemoryMonitoring();
@@ -409,7 +410,7 @@ export class AdaptiveCacheService {
 	}
 
 	private startMemoryMonitoring(): void {
-		this.monitoringInterval = setInterval(() => {
+		this.monitoringInterval = window.setInterval(() => {
 			if (!this.isEnabled) return;
 
 			const memoryPressure = this.getMemoryPressure();
@@ -430,7 +431,7 @@ export class AdaptiveCacheService {
 	 */
 	destroy(): void {
 		if (this.monitoringInterval) {
-			clearInterval(this.monitoringInterval);
+			window.clearInterval(this.monitoringInterval);
 			this.monitoringInterval = null;
 		}
 		this.accessPatterns.clear();

@@ -1,7 +1,6 @@
 import type { Card } from "../../../data/types";
 import type WeavePlugin from "../../../main";
 import { getCardBack, getCardFront } from "../../../utils/card-field-helper";
-import type { PreviewData, PreviewOptions, PreviewSection } from "../ContentPreviewEngine";
 import { applyStyleProps } from "../../../utils/style-props";
 
 /**
@@ -48,23 +47,23 @@ export class BasicQAPreview {
 	 * 渲染问题内容
 	 */
 	renderQuestion(content: string, options: QARenderOptions): HTMLElement {
-		const container = document.createElement("div");
+		const container = activeDocument.createElement("div");
 		container.className = "weave-qa-question";
 
 		// 处理内容长度
 		const processedContent = this.processContentLength(content, options.maxQuestionLength);
 
 		// 创建问题标题
-		const titleElement = document.createElement("div");
+		const titleElement = activeDocument.createElement("div");
 		titleElement.className = "weave-qa-question-title";
-		const qLabel = document.createElement("span");
+		const qLabel = activeDocument.createElement("span");
 		qLabel.className = "weave-qa-label";
 		qLabel.textContent = "问题";
 		titleElement.appendChild(qLabel);
 		container.appendChild(titleElement);
 
 		// 创建问题内容
-		const contentElement = document.createElement("div");
+		const contentElement = activeDocument.createElement("div");
 		contentElement.className = "weave-qa-question-content";
 
 		if (options.highlightKeywords) {
@@ -78,7 +77,7 @@ export class BasicQAPreview {
 
 		// 添加溢出指示器
 		if (processedContent.length < content.length) {
-			const overflowIndicator = document.createElement("div");
+			const overflowIndicator = activeDocument.createElement("div");
 			overflowIndicator.className = "weave-qa-overflow-indicator";
 			overflowIndicator.textContent = "...";
 			container.appendChild(overflowIndicator);
@@ -96,7 +95,7 @@ export class BasicQAPreview {
 	 * 渲染答案内容
 	 */
 	renderAnswer(content: string, options: QARenderOptions): HTMLElement {
-		const container = document.createElement("div");
+		const container = activeDocument.createElement("div");
 		container.className = "weave-qa-answer";
 
 		if (!options.showAnswer) {
@@ -108,16 +107,16 @@ export class BasicQAPreview {
 		const processedContent = this.processContentLength(content, options.maxAnswerLength);
 
 		// 创建答案标题
-		const titleElement = document.createElement("div");
+		const titleElement = activeDocument.createElement("div");
 		titleElement.className = "weave-qa-answer-title";
-		const aLabel = document.createElement("span");
+		const aLabel = activeDocument.createElement("span");
 		aLabel.className = "weave-qa-label";
 		aLabel.textContent = "答案";
 		titleElement.appendChild(aLabel);
 		container.appendChild(titleElement);
 
 		// 创建答案内容
-		const contentElement = document.createElement("div");
+		const contentElement = activeDocument.createElement("div");
 		contentElement.className = "weave-qa-answer-content";
 
 		// 处理答案格式（支持列表、段落等）
@@ -127,7 +126,7 @@ export class BasicQAPreview {
 
 		// 添加溢出指示器
 		if (processedContent.length < content.length) {
-			const overflowIndicator = document.createElement("div");
+			const overflowIndicator = activeDocument.createElement("div");
 			overflowIndicator.className = "weave-qa-overflow-indicator";
 			overflowIndicator.textContent = "...";
 			container.appendChild(overflowIndicator);
@@ -228,7 +227,7 @@ export class BasicQAPreview {
 	 * 高亮关键词
 	 */
 	private createHighlightedFragment(content: string): DocumentFragment {
-		const fragment = document.createDocumentFragment();
+		const fragment = activeDocument.createDocumentFragment();
 		const matches: Array<{ start: number; end: number; text: string }> = [];
 
 		for (const pattern of BasicQAPreview.KEYWORD_PATTERNS) {
@@ -257,10 +256,10 @@ export class BasicQAPreview {
 			}
 
 			if (match.start > cursor) {
-				fragment.appendChild(document.createTextNode(content.slice(cursor, match.start)));
+				fragment.appendChild(activeDocument.createTextNode(content.slice(cursor, match.start)));
 			}
 
-			const keyword = document.createElement("span");
+			const keyword = activeDocument.createElement("span");
 			keyword.className = "weave-qa-keyword";
 			keyword.textContent = match.text;
 			fragment.appendChild(keyword);
@@ -268,7 +267,7 @@ export class BasicQAPreview {
 		}
 
 		if (cursor < content.length) {
-			fragment.appendChild(document.createTextNode(content.slice(cursor)));
+			fragment.appendChild(activeDocument.createTextNode(content.slice(cursor)));
 		}
 
 		return fragment;
@@ -297,7 +296,7 @@ export class BasicQAPreview {
 
 		if (paragraphs.length > 1) {
 			for (const paragraph of paragraphs) {
-				const element = document.createElement("p");
+				const element = activeDocument.createElement("p");
 				element.textContent = paragraph;
 				container.appendChild(element);
 			}
@@ -330,9 +329,9 @@ export class BasicQAPreview {
 	}
 
 	private appendList(container: HTMLElement, tagName: "ul" | "ol", items: string[]): void {
-		const list = document.createElement(tagName);
+		const list = activeDocument.createElement(tagName);
 		for (const itemText of items) {
-			const item = document.createElement("li");
+			const item = activeDocument.createElement("li");
 			item.textContent = itemText;
 			list.appendChild(item);
 		}
@@ -375,7 +374,7 @@ export class BasicQAPreview {
 		});
 
 		// 使用requestAnimationFrame确保样式已应用
-		requestAnimationFrame(() => {
+		window.requestAnimationFrame(() => {
 			applyStyleProps(element, {
 				transition: "opacity 0.3s ease-out, transform 0.3s ease-out",
 				opacity: "1",
@@ -393,7 +392,7 @@ export class BasicQAPreview {
 			transform: "translateY(10px)",
 		});
 
-		requestAnimationFrame(() => {
+		window.requestAnimationFrame(() => {
 			applyStyleProps(element, {
 				transition: "opacity 0.4s ease-out 0.1s, transform 0.4s ease-out 0.1s",
 				opacity: "1",
@@ -411,7 +410,7 @@ export class BasicQAPreview {
 			transform: "scale(0.95)",
 		});
 
-		requestAnimationFrame(() => {
+		window.requestAnimationFrame(() => {
 			applyStyleProps(element, {
 				transition: "opacity 0.25s ease-out, transform 0.25s ease-out",
 				opacity: "1",

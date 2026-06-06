@@ -162,7 +162,7 @@ export interface ThemeConfig {
 
 export const applyTheme = (config: ThemeConfig) => {
 	// 应用主题配置
-	const root = document.documentElement;
+	const root = activeDocument.documentElement;
 
 	if (config.primaryColor) {
 		root.style.setProperty("--weave-primary", config.primaryColor);

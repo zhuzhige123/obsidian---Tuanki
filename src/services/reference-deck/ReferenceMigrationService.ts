@@ -13,7 +13,9 @@ import { LEGACY_PATHS, getBackupPath, getV2PathsFromApp } from "../../config/pat
 import type { Card, DataMigrationResult, Deck } from "../../data/types";
 import type { WeavePlugin } from "../../main";
 import { logger } from "../../utils/logger";
+import { isRecord, parseJsonUnknown } from "../../utils/typed-json";
 import { setCardProperties } from "../../utils/yaml-utils";
+import { getVaultAdapterWithDirOps, listVaultDirectory } from "../../utils/plugin-runtime";
 
 export interface MigrationOptions {
 	/** 是否创建备份 */
@@ -22,6 +24,28 @@ export interface MigrationOptions {
 	validate?: boolean;
 	/** 是否为试运行（不实际修改数据） */
 	dryRun?: boolean;
+}
+
+function isLegacyCardRecord(card: unknown): card is Card {
+	return isRecord(card) && typeof card.uuid === "string" && card.uuid.trim().length > 0;
+}
+
+function parseLegacyDeckCardsPayload(content: string): Card[] {
+	const parsed = parseJsonUnknown(content);
+	if (!isRecord(parsed) || !Array.isArray(parsed.cards)) {
+		return [];
+	}
+	return parsed.cards.filter((card): card is Card => isLegacyCardRecord(card));
+}
+
+function parseLegacyDecksPayload(content: string): Deck[] {
+	const parsed = parseJsonUnknown(content);
+	if (!isRecord(parsed) || !Array.isArray(parsed.decks)) {
+		return [];
+	}
+	return parsed.decks.filter(
+		(deck): deck is Deck => isRecord(deck) && typeof deck.id === "string" && deck.id.length > 0
+	);
 }
 
 export class ReferenceMigrationService {
@@ -58,7 +82,7 @@ export class ReferenceMigrationService {
 	 */
 	private async scanForOrphanedCardFiles(): Promise<string[]> {
 		const orphanedFiles: string[] = [];
-		const adapter = this.plugin.app.vault.adapter;
+		const adapter = getVaultAdapterWithDirOps(this.plugin.app.vault.adapter);
 
 		try {
 			const decksFolder = LEGACY_PATHS.decks;
@@ -67,7 +91,10 @@ export class ReferenceMigrationService {
 				return [];
 			}
 
-			const listing = await adapter.list(decksFolder);
+			const listing = await listVaultDirectory(adapter, decksFolder);
+			if (!listing) {
+				return [];
+			}
 
 			for (const folder of listing.folders) {
 				const folderName = folder.split("/").pop();
@@ -82,19 +109,12 @@ export class ReferenceMigrationService {
 
 				try {
 					const content = await adapter.read(cardsFilePath);
-					const data = JSON.parse(content);
-
-					if (data.cards && Array.isArray(data.cards) && data.cards.length > 0) {
-						const hasValidCards = data.cards.some(
-							(card: any) => card.uuid && typeof card.uuid === "string"
+					const cards = parseLegacyDeckCardsPayload(content);
+					if (cards.length > 0) {
+						orphanedFiles.push(cardsFilePath);
+						logger.debug(
+							`[Migration] 发现需要迁移的卡片文件: ${cardsFilePath} (${cards.length} 张卡片)`
 						);
-
-						if (hasValidCards) {
-							orphanedFiles.push(cardsFilePath);
-							logger.debug(
-								`[Migration] 发现需要迁移的卡片文件: ${cardsFilePath} (${data.cards.length} 张卡片)`
-							);
-						}
 					}
 				} catch {
 					logger.debug(`[Migration] 跳过无效文件: ${cardsFilePath}`);
@@ -141,7 +161,7 @@ export class ReferenceMigrationService {
 			for (const filePath of orphanedCardFiles) {
 				try {
 					const content = await adapter.read(filePath);
-					const data = JSON.parse(content);
+					const cards = parseLegacyDeckCardsPayload(content);
 
 					const pathParts = filePath.split("/");
 					const deckId = pathParts[pathParts.length - 2];
@@ -150,8 +170,8 @@ export class ReferenceMigrationService {
 						deckCardMappings[deckId] = [];
 					}
 
-					for (const card of data.cards) {
-						if (!card.uuid || processedUUIDs.has(card.uuid)) {
+					for (const card of cards) {
+						if (processedUUIDs.has(card.uuid)) {
 							continue;
 						}
 
@@ -168,7 +188,7 @@ export class ReferenceMigrationService {
 						}
 					}
 
-					logger.debug(`[Migration] 从 ${filePath} 收集了 ${data.cards.length} 张卡片`);
+					logger.debug(`[Migration] 从 ${filePath} 收集了 ${cards.length} 张卡片`);
 				} catch (error) {
 					logger.warn(`[Migration] 读取文件失败: ${filePath}`, error);
 				}
@@ -349,8 +369,7 @@ export class ReferenceMigrationService {
 			let decks: Deck[] = [];
 			if (await adapter.exists(backupDecksPath)) {
 				const decksData = await adapter.read(backupDecksPath);
-				const parsed = JSON.parse(decksData);
-				decks = Array.isArray(parsed?.decks) ? parsed.decks : [];
+				decks = parseLegacyDecksPayload(decksData);
 				await adapter.write(v2Paths.memory.decks, JSON.stringify({ decks }, null, 2));
 			}
 
@@ -359,10 +378,7 @@ export class ReferenceMigrationService {
 				const backupCardsPath = `${backupPath}/${deck.id}/cards.json`;
 				if (await adapter.exists(backupCardsPath)) {
 					const cardsData = await adapter.read(backupCardsPath);
-					const parsed = JSON.parse(cardsData);
-					if (Array.isArray(parsed?.cards)) {
-						cardsToRestore.push(...(parsed.cards as Card[]));
-					}
+					cardsToRestore.push(...parseLegacyDeckCardsPayload(cardsData));
 				}
 			}
 

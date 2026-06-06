@@ -18,10 +18,10 @@ export function createDebouncer(config: DebouncerConfig | number) {
 	let lastTime = 0;
 	let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-	return function debounce<T extends (...args: any[]) => any>(
+	return function debounce<T extends (...args: unknown[]) => unknown>(
 		callback: T
 	): (...args: Parameters<T>) => void {
-		return function (this: any, ...args: Parameters<T>) {
+		return function (this: unknown, ...args: Parameters<T>) {
 			const now = Date.now();
 
 			const later = () => {
@@ -36,13 +36,13 @@ export function createDebouncer(config: DebouncerConfig | number) {
 			}
 
 			if (timeoutId) {
-				clearTimeout(timeoutId);
+				window.clearTimeout(timeoutId);
 			}
 
 			if (now - lastTime >= delay) {
 				later();
 			} else {
-				timeoutId = setTimeout(later, delay - (now - lastTime));
+				timeoutId = window.setTimeout(later, delay - (now - lastTime));
 			}
 		};
 	};
@@ -97,18 +97,18 @@ export function createTimestampDebouncer(delay: number): TimebasedDebouncer {
  * @param delay 延迟时间（毫秒）
  * @returns 防抖后的函数
  */
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
 	fn: T,
 	delay: number
 ): (...args: Parameters<T>) => void {
 	let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-	return function (this: any, ...args: Parameters<T>) {
+	return function (this: unknown, ...args: Parameters<T>) {
 		if (timeoutId) {
-			clearTimeout(timeoutId);
+			window.clearTimeout(timeoutId);
 		}
 
-		timeoutId = setTimeout(() => {
+		timeoutId = window.setTimeout(() => {
 			fn.apply(this, args);
 		}, delay);
 	};

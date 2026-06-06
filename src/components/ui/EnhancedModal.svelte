@@ -242,14 +242,14 @@
       //  更新移动端边界
       updateMobileBounds();
       // 添加键盘监听
-      document.addEventListener('keydown', handleKeydown);
+      activeDocument.addEventListener('keydown', handleKeydown);
       // 防止背景滚动
-      document.body.style.overflow = 'hidden';
+      activeDocument.body.style.overflow = 'hidden';
     } else {
       // 移除键盘监听
-      document.removeEventListener('keydown', handleKeydown);
+      activeDocument.removeEventListener('keydown', handleKeydown);
       // 恢复背景滚动
-      document.body.style.overflow = '';
+      activeDocument.body.style.overflow = '';
       
       // 统一使用 shouldRender 控制挂载/卸载，避免嵌套条件渲染导致的 reconciliation 错误
       if (destroyOnClose) {
@@ -267,8 +267,8 @@
 
   // 组件销毁时清理
   onDestroy(() => {
-    document.removeEventListener('keydown', handleKeydown);
-    document.body.style.overflow = '';
+    activeDocument.removeEventListener('keydown', handleKeydown);
+    activeDocument.body.style.overflow = '';
   });
 </script>
 

@@ -181,12 +181,12 @@ function handleGlobalMouseUp(e: MouseEvent) {
 // 添加全局事件监听
 $effect(() => {
   if (isDragging || isResizing) {
-    document.addEventListener('mousemove', handleGlobalMouseMove);
-    document.addEventListener('mouseup', handleGlobalMouseUp);
+    activeDocument.addEventListener('mousemove', handleGlobalMouseMove);
+    activeDocument.addEventListener('mouseup', handleGlobalMouseUp);
     
     return () => {
-      document.removeEventListener('mousemove', handleGlobalMouseMove);
-      document.removeEventListener('mouseup', handleGlobalMouseUp);
+      activeDocument.removeEventListener('mousemove', handleGlobalMouseMove);
+      activeDocument.removeEventListener('mouseup', handleGlobalMouseUp);
     };
   }
 });

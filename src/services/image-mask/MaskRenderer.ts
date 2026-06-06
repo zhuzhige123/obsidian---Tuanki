@@ -124,7 +124,7 @@ export class MaskRenderer {
 		});
 
 		// 动画结束后隐藏元素
-		setTimeout(() => {
+		window.setTimeout(() => {
 			applyStyleProps(container, { display: "none" });
 		}, duration);
 	}
@@ -138,7 +138,7 @@ export class MaskRenderer {
 	toggleMask(
 		maskId: string,
 		duration: number = MASK_CONSTANTS.DEFAULT_ANIMATION_DURATION,
-		root: ParentNode = document
+		root: ParentNode = activeDocument
 	): void {
 		const maskElement = this.findMaskShape(maskId, root);
 		if (!maskElement) return;
@@ -170,10 +170,10 @@ export class MaskRenderer {
 	 * 使遮罩可交互（添加点击事件）
 	 */
 	private makeMaskInteractive(maskGroup: SVGGElement, maskId: string): void {
-		const maskElement = maskGroup.querySelector(".weave-mask") as SVGElement | null;
+		const maskElement = maskGroup.querySelector(".weave-mask");
 		if (!maskElement) return;
 
-		const maskRoot = maskGroup.closest(".weave-mask-overlay") ?? document;
+		const maskRoot = maskGroup.closest(".weave-mask-overlay") ?? activeDocument;
 
 		applyStyleProps(maskElement, {
 			"pointer-events": "auto",
@@ -278,10 +278,10 @@ export class MaskRenderer {
 
 	// ===== 私有方法 =====
 
-	private findMaskShape(maskId: string, root: ParentNode = document): SVGElement | null {
+	private findMaskShape(maskId: string, root: ParentNode = activeDocument): SVGElement | null {
 		const group = root.querySelector(`g[data-mask-id="${maskId}"]`);
 		if (!group) return null;
-		return group.querySelector(".weave-mask") as SVGElement | null;
+		return group.querySelector(".weave-mask");
 	}
 
 	private applyMaskVisibility(
@@ -317,7 +317,7 @@ export class MaskRenderer {
 		let wrapper = imgElement.parentElement;
 		if (!wrapper || !wrapper.classList.contains("weave-image-with-masks")) {
 			// 创建包装器
-			wrapper = document.createElement("div");
+			wrapper = activeDocument.createElement("div");
 			wrapper.className = "weave-image-with-masks";
 
 			// 替换图片位置
@@ -349,7 +349,7 @@ export class MaskRenderer {
 		});
 
 		// 创建 SVG 遮罩层
-		const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+		const svg = activeDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
 		svg.setAttribute(
 			"class",
 			interactive ? "weave-mask-overlay interactive" : "weave-mask-overlay"
@@ -409,7 +409,7 @@ export class MaskRenderer {
 		this.applyMaskStyle(shapeElement, mask);
 
 		// 创建组合元素，包含形状和编号
-		const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+		const group = activeDocument.createElementNS("http://www.w3.org/2000/svg", "g");
 		group.setAttribute("data-mask-id", mask.id);
 		group.appendChild(shapeElement);
 
@@ -431,7 +431,7 @@ export class MaskRenderer {
 	 * 创建角标式编号徽章（左上角）
 	 */
 	private createMaskIndexText(mask: Mask, imgWidth: number, imgHeight: number): SVGGElement {
-		const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+		const group = activeDocument.createElementNS("http://www.w3.org/2000/svg", "g");
 		group.setAttribute("class", "weave-mask-badge");
 		group.setAttribute("pointer-events", "none");
 
@@ -451,7 +451,7 @@ export class MaskRenderer {
 		}
 
 		// 徽章背景（圆角矩形）
-		const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+		const bg = activeDocument.createElementNS("http://www.w3.org/2000/svg", "rect");
 		bg.setAttribute("x", String(badgeX - badgeSize / 2));
 		bg.setAttribute("y", String(badgeY - badgeSize / 2));
 		bg.setAttribute("width", String(badgeSize));
@@ -461,7 +461,7 @@ export class MaskRenderer {
 		group.appendChild(bg);
 
 		// 编号文字
-		const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+		const text = activeDocument.createElementNS("http://www.w3.org/2000/svg", "text");
 		text.setAttribute("x", String(badgeX));
 		text.setAttribute("y", String(badgeY));
 		text.setAttribute("text-anchor", "middle");
@@ -484,7 +484,7 @@ export class MaskRenderer {
 	 * 创建矩形遮罩
 	 */
 	private createRectMask(mask: Mask, imgWidth: number, imgHeight: number): SVGRectElement {
-		const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+		const rect = activeDocument.createElementNS("http://www.w3.org/2000/svg", "rect");
 
 		//  创新方案：坐标乘以图片实际尺寸（而不是固定的10）
 		// 这样 viewBox 和坐标都使用图片实际像素，确保精确对齐
@@ -502,7 +502,7 @@ export class MaskRenderer {
 	 *  创新方案：使用图片实际尺寸计算坐标
 	 */
 	private createCircleMask(mask: Mask, imgWidth: number, imgHeight: number): SVGCircleElement {
-		const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+		const circle = activeDocument.createElementNS("http://www.w3.org/2000/svg", "circle");
 
 		//  创新方案：坐标乘以图片实际尺寸
 		circle.setAttribute("cx", `${mask.x * imgWidth}`);
@@ -545,7 +545,7 @@ export class MaskRenderer {
 			if (svg) {
 				let defs = svg.querySelector("defs");
 				if (!defs) {
-					defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+					defs = activeDocument.createElementNS("http://www.w3.org/2000/svg", "defs");
 					svg.insertBefore(defs, svg.firstChild);
 				}
 				defs.appendChild(filter);
@@ -570,10 +570,10 @@ export class MaskRenderer {
 	 * 创建模糊滤镜
 	 */
 	private createBlurFilter(id: string, radius: number): SVGFilterElement {
-		const filter = document.createElementNS("http://www.w3.org/2000/svg", "filter");
+		const filter = activeDocument.createElementNS("http://www.w3.org/2000/svg", "filter");
 		filter.setAttribute("id", id);
 
-		const blur = document.createElementNS("http://www.w3.org/2000/svg", "feGaussianBlur");
+		const blur = activeDocument.createElementNS("http://www.w3.org/2000/svg", "feGaussianBlur");
 		blur.setAttribute("in", "SourceGraphic");
 		blur.setAttribute("stdDeviation", `${radius}`);
 
@@ -590,7 +590,7 @@ export class MaskRenderer {
  * @returns 带遮罩的图片包装器数组
  */
 export function findMaskedImages(container: HTMLElement): HTMLElement[] {
-	return Array.from(container.querySelectorAll(".weave-image-with-masks")) as HTMLElement[];
+	return Array.from(container.querySelectorAll(".weave-image-with-masks"));
 }
 
 /**

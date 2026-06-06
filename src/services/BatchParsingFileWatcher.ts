@@ -81,10 +81,10 @@ export class BatchParsingFileWatcher {
 
 	private debounceFileChange(file: TFile): void {
 		if (this.debounceTimers.has(file.path)) {
-			clearTimeout(this.debounceTimers.get(file.path)!);
+			window.clearTimeout(this.debounceTimers.get(file.path));
 		}
 
-		const timer = setTimeout(() => {
+		const timer = window.setTimeout(() => {
 			void this.processFile(file);
 			this.debounceTimers.delete(file.path);
 		}, this.options.debounceDelay);
@@ -153,7 +153,7 @@ export class BatchParsingFileWatcher {
 		this.eventRefs = [];
 
 		for (const timer of this.debounceTimers.values()) {
-			clearTimeout(timer);
+			window.clearTimeout(timer);
 		}
 		this.debounceTimers.clear();
 		this.isProcessing.clear();

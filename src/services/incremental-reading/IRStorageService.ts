@@ -13,7 +13,6 @@ import type {
 	FileSyncState,
 	IRBlock,
 	IRDeck,
-	IRDecksStore,
 	IRHistoryStore,
 	IRSession,
 	IRSourceFileMeta,
@@ -26,7 +25,6 @@ import {
 	READING_LEGACY_DECK_YAML_KEY,
 	READING_TOPIC_YAML_KEY,
 	extractReadingTopicIdFromFrontmatter,
-	getTaskTopicId,
 	normalizeChunkForRuntime,
 	normalizeIRSessionForRuntime,
 	normalizeStudySessionForRuntime,
@@ -35,18 +33,19 @@ import {
 } from "../../utils/ir-topic-compat";
 import { logger } from "../../utils/logger";
 import { parseYAMLFromContent, setCardProperty } from "../../utils/yaml-utils";
-import { IREpubBookmarkTaskService } from "./IREpubBookmarkTaskService";
 import {
 	buildLegacyBlockFromPointSnapshot,
 	buildLegacyChunkFromPointSnapshot,
 	getStoredPointKind,
 	isLegacyBlockPointSnapshot,
 } from "./IRLegacyTaskCompatAdapter";
-import { IRPdfBookmarkTaskService } from "./IRPdfBookmarkTaskService";
 import { IRPointStorageService } from "./IRPointStorageService";
 import { resolveAssociatedNotePath, resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 import { getSharedIRWorkspaceSnapshotService } from "./IRWorkspaceSnapshotService";
 import { DirectoryUtils } from "../../utils/directory-utils";
+import { processFrontmatterRecord } from "../../utils/frontmatter-record";
+import { isRecord, parseJsonUnknown } from "../../utils/typed-json";
+import { readUnknownProperty } from "../../utils/dynamic-access";
 
 const HISTORY_FILE = "history.json";
 const SYNC_STATE_FILE = "sync-state.json";
@@ -72,7 +71,7 @@ export class IRStorageService {
 	}
 
 	private getSyncStateStoragePath(): string {
-		return normalizePath(getPluginPaths(this.app as any).cache.incrementalReading.syncState);
+		return normalizePath(getPluginPaths(this.app as unknown).cache.incrementalReading.syncState);
 	}
 
 	private getLegacySyncStateStoragePath(): string {
@@ -80,15 +79,15 @@ export class IRStorageService {
 	}
 
 	private getHistoryStoragePath(): string {
-		return normalizePath(getPluginPaths(this.app as any).state.incrementalReading.history);
+		return normalizePath(getPluginPaths(this.app as unknown).state.incrementalReading.history);
 	}
 
 	private getCalendarProgressStoragePath(): string {
-		return normalizePath(getPluginPaths(this.app as any).state.incrementalReading.calendarProgress);
+		return normalizePath(getPluginPaths(this.app as unknown).state.incrementalReading.calendarProgress);
 	}
 
 	private getStudySessionsStoragePath(): string {
-		return normalizePath(getPluginPaths(this.app as any).state.incrementalReading.studySessions);
+		return normalizePath(getPluginPaths(this.app as unknown).state.incrementalReading.studySessions);
 	}
 
 	private collectLegacyIncrementalReadingStatePaths(fileName: string): string[] {
@@ -176,7 +175,7 @@ export class IRStorageService {
 		decks: Record<string, IRDeck>
 	): string[] {
 		const topicIds = new Set<string>();
-		const directDeckPath = String((block as any)?.deckPath || "").trim();
+		const directDeckPath = String((block as unknown)?.deckPath || "").trim();
 		if (directDeckPath) {
 			topicIds.add(directDeckPath);
 		}
@@ -303,12 +302,12 @@ export class IRStorageService {
 				isStarred: Boolean(block.favorite),
 				linkedNotePaths: resolveAssociatedNotePaths({
 					associatedNotePath:
-						resolveAssociatedNotePath(block as any) ||
-						resolveAssociatedNotePath(((block as any).meta || null) as any),
-					associatedNotePaths: Array.isArray((block as any).associatedNotePaths)
-						? (block as any).associatedNotePaths
-						: Array.isArray((block as any).meta?.associatedNotePaths)
-							? (block as any).meta.associatedNotePaths
+						resolveAssociatedNotePath(block) ||
+						resolveAssociatedNotePath(readUnknownProperty(block, "meta")),
+					associatedNotePaths: Array.isArray(readUnknownProperty(block, "associatedNotePaths"))
+						? (readUnknownProperty(block, "associatedNotePaths") as string[])
+						: Array.isArray(readUnknownProperty(readUnknownProperty(block, "meta"), "associatedNotePaths"))
+							? (readUnknownProperty(readUnknownProperty(block, "meta"), "associatedNotePaths") as string[])
 							: undefined,
 				}),
 				explicitTagGroupId:
@@ -532,12 +531,25 @@ export class IRStorageService {
 
 	private getReadableRoots(): { legacyRoot: string; currentRoot: string } | null {
 		try {
-			const plugin: any = (this.app as any)?.plugins?.getPlugin?.("weave");
-			const parentFolder = normalizeWeaveParentFolder(plugin?.settings?.weaveParentFolder);
+			const pluginsContainer = readUnknownProperty(this.app, "plugins");
+			const pluginsMap = readUnknownProperty(pluginsContainer, "plugins");
+			const plugin = isRecord(pluginsMap) ? pluginsMap.weave : undefined;
+			if (!isRecord(plugin)) return null;
+			const settings = readUnknownProperty(plugin, "settings");
+			const parentFolder = normalizeWeaveParentFolder(
+				isRecord(settings) && typeof settings.weaveParentFolder === "string"
+					? settings.weaveParentFolder
+					: undefined
+			);
 			let currentRoot = normalizePath(getReadableWeaveRoot(parentFolder));
 
 			if (!parentFolder) {
-				const importFolder = plugin?.settings?.incrementalReading?.importFolder;
+				const incrementalReading = isRecord(settings)
+					? readUnknownProperty(settings, "incrementalReading")
+					: undefined;
+				const importFolder = isRecord(incrementalReading)
+					? incrementalReading.importFolder
+					: undefined;
 				if (typeof importFolder === "string" && importFolder.trim()) {
 					const normalizedImport = normalizePath(importFolder);
 					if (normalizedImport.endsWith("/IR")) {
@@ -593,7 +605,7 @@ export class IRStorageService {
 	}
 
 	private sleep(ms: number): Promise<void> {
-		return new Promise((resolve) => setTimeout(resolve, ms));
+		return new Promise((resolve) => window.setTimeout(resolve, ms));
 	}
 
 	/**
@@ -1191,7 +1203,7 @@ export class IRStorageService {
 			removeExternalDocumentFields = false,
 		} = options;
 
-		await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+		await processFrontmatterRecord(this.app.fileManager, file, (frontmatter) => {
 			const readingDeckId = extractReadingTopicIdFromFrontmatter(frontmatter) || "";
 			const hasPluginFields =
 				frontmatter["weave-reading-id"] !== undefined ||
@@ -1450,22 +1462,17 @@ export class IRStorageService {
 			label: "阅读历史",
 		});
 		try {
-			const data = JSON.parse(content);
-
-			// 版本化结构
-			if (data.version && data.sessions) {
-				return {
-					sessions: (data.sessions as IRSession[]).map((session) =>
-						normalizeIRSessionForRuntime(session)
-					),
-				};
+			const data = parseJsonUnknown(content);
+			if (!isRecord(data)) {
+				return { sessions: [] };
 			}
+			const sessionsRaw = data.sessions;
+			const sessions = Array.isArray(sessionsRaw)
+				? sessionsRaw.filter((session): session is IRSession => isRecord(session))
+				: [];
 
-			// v1.0 兼容
 			return {
-				sessions: (data.sessions || []).map((session: IRSession) =>
-					normalizeIRSessionForRuntime(session)
-				),
+				sessions: sessions.map((session) => normalizeIRSessionForRuntime(session)),
 			};
 		} catch (error) {
 			logger.error("[IRStorageService] 解析历史JSON失败:", error);
@@ -1727,10 +1734,14 @@ export class IRStorageService {
 		}
 
 		try {
-			const store: IRSyncStateStore = JSON.parse(content);
-			return store.files || {};
+			const parsed = parseJsonUnknown(content);
+			if (!isRecord(parsed)) {
+				return {};
+			}
+			const files = parsed.files;
+			return isRecord(files) ? (files as IRSyncStateStore["files"]) : {};
 		} catch {
-			return {};
+			return { /* no-op */ };
 		}
 	}
 
@@ -2471,7 +2482,7 @@ export class IRStorageService {
 		chunk.updatedAt = Date.now();
 
 		const deckNames = validIds.map((id) => validDecks[id]?.name).filter(Boolean);
-		await this.updateChunkFileYAMLDeckNames(chunk.filePath, deckNames as string[]);
+		await this.updateChunkFileYAMLDeckNames(chunk.filePath, deckNames);
 		await this.syncChunkPointToNewStorage(chunk, validDecks);
 
 		logger.info(`[IRStorageService] 更新块牌组: ${chunkId}, 牌组数: ${validIds.length}`);
@@ -2500,7 +2511,7 @@ export class IRStorageService {
 
 		const content = await adapter.read(filePath);
 		const yaml = parseYAMLFromContent(content);
-		if ((yaml as any).weave_type !== "ir-chunk") {
+		if (!isRecord(yaml) || yaml.weave_type !== "ir-chunk") {
 			return;
 		}
 
@@ -2523,9 +2534,9 @@ export class IRStorageService {
 		nextContent = setCardProperty(nextContent, "topic_names", names.length > 0 ? names : undefined);
 		nextContent = setCardProperty(nextContent, "deck_names", undefined);
 
-		const rawTags = (yaml as any).tags;
+		const rawTags = isRecord(yaml) ? yaml.tags : undefined;
 		const tagsArr = Array.isArray(rawTags)
-			? rawTags.map((t: any) => String(t).trim()).filter(Boolean)
+			? rawTags.map((t: unknown) => String(t).trim()).filter(Boolean)
 			: typeof rawTags === "string" && rawTags.trim()
 			? [rawTags.trim()]
 			: [];
@@ -2603,7 +2614,7 @@ export class IRStorageService {
 		for (const [chunkId, chunk] of Object.entries(chunks)) {
 			if (typeof chunk.filePath !== "string" || chunk.filePath.trim() === "") {
 				invalidChunkIds.push(chunkId);
-				invalidPaths.push(String((chunk as any).filePath));
+				invalidPaths.push(String((chunk as unknown).filePath));
 				continue;
 			}
 
@@ -2701,7 +2712,7 @@ export class IRStorageService {
 			try {
 				await adapter.write(filePath, newContent);
 				updated++;
-			} catch {}
+			} catch { /* no-op */ }
 		}
 
 		return { updated, scanned };
@@ -2743,7 +2754,7 @@ export class IRStorageService {
 					try {
 						await adapter.remove(filePath);
 						removed++;
-					} catch {}
+					} catch { /* no-op */ }
 				}
 			} else if (yaml.includes("weave_type: ir-index")) {
 				const idMatch = yaml.match(/^source_id:\s*(["']?)([^\n"']+)\1\s*$/m);
@@ -2754,7 +2765,7 @@ export class IRStorageService {
 					try {
 						await adapter.remove(filePath);
 						removed++;
-					} catch {}
+					} catch { /* no-op */ }
 				}
 			}
 		}
@@ -2842,13 +2853,13 @@ export class IRStorageService {
 				for (const key of ["sourcePath", "chunkFilePath", "filePath", "rawFilePath", "indexFilePath"]) {
 					this.addMarkdownReferencePath(
 						referencedPaths,
-						(metadata as Record<string, unknown>)[key]
+						(metadata)[key]
 					);
 				}
 
 				const locator =
 					point.trace?.locator && typeof point.trace.locator === "object"
-						? (point.trace.locator as Record<string, unknown>)
+						? (point.trace.locator)
 						: {};
 				for (const key of ["sourcePath", "chunkFilePath", "filePath", "rawFilePath", "indexFilePath"]) {
 					this.addMarkdownReferencePath(referencedPaths, locator[key]);
@@ -2926,7 +2937,7 @@ export class IRStorageService {
 
 		// 默认旧 IR 导入目录已经属于弃用结构，清空后应一并删除；
 		// 若调用方显式传入自定义扫描根，则保留根目录，避免误删用户自定义容器目录。
-		await DirectoryUtils.pruneEmptyDirsUnder(adapter as any, root, {
+		await DirectoryUtils.pruneEmptyDirsUnder(adapter as unknown, root, {
 			preserveRoot: Boolean(scanRoot && String(scanRoot).trim()),
 		});
 
@@ -2948,11 +2959,11 @@ export class IRStorageService {
 
 		for (const [blockId, block] of Object.entries(blocks)) {
 			if (
-				typeof (block as any).filePath !== "string" ||
-				String((block as any).filePath).trim() === ""
+				typeof (block as unknown).filePath !== "string" ||
+				String((block as unknown).filePath).trim() === ""
 			) {
 				invalidBlockIds.push(blockId);
-				invalidPaths.push(String((block as any).filePath));
+				invalidPaths.push(String((block as unknown).filePath));
 				continue;
 			}
 

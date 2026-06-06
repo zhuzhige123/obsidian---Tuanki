@@ -54,7 +54,7 @@ export interface PreviewSectionMetadata {
 	/** 渲染优先级 */
 	priority?: number;
 	/** 自定义属性 */
-	customAttributes?: Record<string, any>;
+	customAttributes?: Record<string, unknown>;
 }
 
 /**
@@ -104,7 +104,7 @@ export interface UnifiedPreviewData {
 		/** 预览版本 */
 		version: string;
 		/** 自定义元数据 */
-		custom?: Record<string, any>;
+		custom?: Record<string, unknown>;
 	};
 	/** 渲染选项 */
 	renderOptions?: {
@@ -222,7 +222,7 @@ export interface PreviewSystemEventData {
 	/** 事件时间戳 */
 	timestamp: number;
 	/** 事件数据 */
-	data?: any;
+	data?: unknown;
 }
 
 /**

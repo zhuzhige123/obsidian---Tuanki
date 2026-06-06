@@ -6,19 +6,19 @@
 import type { Card } from "../data/types";
 
 export class CachedChoiceStatistics {
-	private cache = new Map<string, any>();
+	private cache = new Map<string, unknown>();
 
 	/**
 	 * 获取缓存的统计数据
 	 */
-	get(cardId: string): any {
+	get(cardId: string): unknown {
 		return this.cache.get(cardId);
 	}
 
 	/**
 	 * 设置缓存的统计数据
 	 */
-	set(cardId: string, stats: any): void {
+	set(cardId: string, stats: unknown): void {
 		this.cache.set(cardId, stats);
 	}
 
@@ -36,7 +36,7 @@ export class CachedChoiceStatistics {
 	/**
 	 * 计算选择题统计
 	 */
-	calculate(card: Card): any {
+	calculate(card: Card): unknown {
 		const cached = this.cache.get(card.uuid);
 		if (cached) {
 			return cached;

@@ -43,7 +43,7 @@ export class RequestCoalescer implements IRequestCoalescer {
 
 		// 使用 debounce + 单次批量 flush
 		// timeout 负责合并频繁请求，flush 再统一安排到下一帧执行
-		const timeoutId = setTimeout(() => {
+		const timeoutId = window.setTimeout(() => {
 			const request = this.pendingRequests.get(key);
 			if (request) {
 				request.timeoutId = null;
@@ -65,7 +65,7 @@ export class RequestCoalescer implements IRequestCoalescer {
 		const request = this.pendingRequests.get(key);
 		if (request) {
 			if (request.timeoutId !== null) {
-				clearTimeout(request.timeoutId);
+				window.clearTimeout(request.timeoutId);
 			}
 			this.pendingRequests.delete(key);
 			this.readyKeys.delete(key);
@@ -90,7 +90,7 @@ export class RequestCoalescer implements IRequestCoalescer {
 		// 先清理所有定时器
 		for (const [_key, request] of requests) {
 			if (request.timeoutId !== null) {
-				clearTimeout(request.timeoutId);
+				window.clearTimeout(request.timeoutId);
 			}
 		}
 
@@ -139,7 +139,7 @@ export class RequestCoalescer implements IRequestCoalescer {
 	clear(): void {
 		for (const [, request] of this.pendingRequests) {
 			if (request.timeoutId !== null) {
-				clearTimeout(request.timeoutId);
+				window.clearTimeout(request.timeoutId);
 			}
 		}
 		this.pendingRequests.clear();
@@ -163,11 +163,11 @@ export class RequestCoalescer implements IRequestCoalescer {
 		};
 
 		if (typeof requestAnimationFrame === "function") {
-			this.flushRafId = requestAnimationFrame(flushNow);
+			this.flushRafId = window.requestAnimationFrame(flushNow);
 			return;
 		}
 
-		this.flushTimeoutId = setTimeout(flushNow, 0);
+		this.flushTimeoutId = window.setTimeout(flushNow, 0);
 	}
 
 	private runReadyRequests(): void {
@@ -204,7 +204,7 @@ export class RequestCoalescer implements IRequestCoalescer {
 			this.flushRafId = null;
 		}
 		if (this.flushTimeoutId !== null) {
-			clearTimeout(this.flushTimeoutId);
+			window.clearTimeout(this.flushTimeoutId);
 			this.flushTimeoutId = null;
 		}
 	}

@@ -33,8 +33,8 @@ export interface IRWorkspaceDataSnapshot {
 	chunksRecord: Record<string, IRChunkFileData>;
 	sourcesRecord: Record<string, IRSourceFileMeta>;
 	history: { sessions?: IRSession[] };
-	pdfTasks: any[];
-	epubTasks: any[];
+	pdfTasks: unknown[];
+	epubTasks: unknown[];
 }
 
 export interface IRDeckOverviewSnapshot {
@@ -427,7 +427,7 @@ export class IRWorkspaceSnapshotService {
 				}
 				continue;
 			}
-			for (const deckKey of deckKeysByIdentifier.get(String((block as any).deckPath || "").trim()) || []) {
+			for (const deckKey of deckKeysByIdentifier.get(String((block as unknown).deckPath || "").trim()) || []) {
 				map.get(deckKey)?.push(block);
 			}
 		}
@@ -466,12 +466,12 @@ export class IRWorkspaceSnapshotService {
 		for (const chunk of chunks) {
 			if (this.hasIgnoreTagInFile(chunk.filePath, ignoreTagByFile)) continue;
 			const matchedDeckKeys = new Set<string>();
-			for (const identifier of this.normalizeIdentifiers((chunk as any).deckIds || [])) {
+			for (const identifier of this.normalizeIdentifiers((chunk as unknown).deckIds || [])) {
 				for (const deckKey of deckKeysByIdentifier.get(identifier) || []) {
 					matchedDeckKeys.add(deckKey);
 				}
 			}
-			const deckTag = String((chunk as any).deckTag || "").trim();
+			const deckTag = String((chunk as unknown).deckTag || "").trim();
 			if (deckTag && deckKeysByTag.has(deckTag)) {
 				matchedDeckKeys.add(deckKeysByTag.get(deckTag)!);
 			}
@@ -494,7 +494,7 @@ export class IRWorkspaceSnapshotService {
 		}
 
 		for (const task of tasks) {
-			const identifier = String(getTaskTopicId(task as any) || (task as any)?.deckId || "").trim();
+			const identifier = String(getTaskTopicId(task as unknown) || (task as unknown)?.deckId || "").trim();
 			if (!identifier) continue;
 			for (const deckKey of deckKeysByIdentifier.get(identifier) || []) {
 				map.get(deckKey)?.push(task);
@@ -523,7 +523,7 @@ export class IRWorkspaceSnapshotService {
 		if (file instanceof TFile) {
 			const fileCache = this.app.metadataCache.getFileCache(file);
 			const inlineTags = fileCache?.tags?.map((tag) => String(tag.tag || "").replace(/^#/, "").toLowerCase()) || [];
-			const frontmatterTagsRaw = (fileCache?.frontmatter as any)?.tags;
+			const frontmatterTagsRaw = (fileCache?.frontmatter as unknown)?.tags;
 			const frontmatterTags = Array.isArray(frontmatterTagsRaw)
 				? frontmatterTagsRaw.map((tag) => String(tag || "").trim().toLowerCase())
 				: typeof frontmatterTagsRaw === "string"

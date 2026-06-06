@@ -173,30 +173,32 @@ export class ConnectionManager {
 		}
 
 		// 设置重连定时器
-		this.reconnectTimer = window.setTimeout(async () => {
-			logger.debug(
-				`[AnkiConnect] 正在尝试重连 (${this.state.reconnectAttempts}/${this.maxReconnectAttempts})...`
-			);
+		this.reconnectTimer = window.setTimeout(() => {
+			void (async () => {
+				logger.debug(
+					`[AnkiConnect] 正在尝试重连 (${this.state.reconnectAttempts}/${this.maxReconnectAttempts})...`
+				);
 
-			try {
-				const isAlive = await this.client.testConnection();
+				try {
+					const isAlive = await this.client.testConnection();
 
-				if (isAlive) {
-					logger.debug("[AnkiConnect] ✅ 重连成功！");
-					this.state = {
-						status: "connected",
-						lastHeartbeat: Date.now(),
-						reconnectAttempts: 0,
-						error: undefined,
-					};
-					this.notifyStateChange();
-				} else {
-					// 重连失败，继续尝试
-					this.handleConnectionLost("重连失败");
+					if (isAlive) {
+						logger.debug("[AnkiConnect] ✅ 重连成功！");
+						this.state = {
+							status: "connected",
+							lastHeartbeat: Date.now(),
+							reconnectAttempts: 0,
+							error: undefined,
+						};
+						this.notifyStateChange();
+					} else {
+						// 重连失败，继续尝试
+						this.handleConnectionLost("重连失败");
+					}
+				} catch (error) {
+					this.handleConnectionLost(error instanceof Error ? error.message : "重连出错");
 				}
-			} catch (error) {
-				this.handleConnectionLost(error instanceof Error ? error.message : "重连出错");
-			}
+			})();
 		}, delay);
 	}
 

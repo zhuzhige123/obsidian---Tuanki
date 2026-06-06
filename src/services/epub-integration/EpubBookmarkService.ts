@@ -1,6 +1,7 @@
 import { App, TFile, normalizePath, parseYaml } from "obsidian";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
+import { isRecord, readString } from "../../utils/typed-json";
 import { sanitizeForSync } from "../../utils/sync-safe-filename";
 import { EpubLinkService } from "./EpubLinkService";
 import { getEpubRuntime } from "./epub-runtime";
@@ -53,7 +54,7 @@ interface EpubBookmarkFileFrontmatter {
 }
 
 export function normalizeEpubBookmarkFolderPath(value: unknown): string {
-	const normalized = String(value ?? "")
+	const normalized = (typeof value === "string" ? value : "")
 		.trim()
 		.replace(/\\/g, "/")
 		.replace(/^\/+|\/+$/g, "");
@@ -311,11 +312,11 @@ export class EpubBookmarkService {
 			return null;
 		}
 		try {
-			const parsed = parseYaml(match[1]);
-			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			const parsed: unknown = parseYaml(match[1]);
+			if (!isRecord(parsed)) {
 				return null;
 			}
-			return this.normalizeBookmarkFileFrontmatter(parsed as Record<string, unknown>);
+			return this.normalizeBookmarkFileFrontmatter(parsed);
 		} catch (error) {
 			logger.warn("[EpubBookmarkService] Failed to parse bookmark frontmatter:", error);
 			return null;
@@ -323,11 +324,11 @@ export class EpubBookmarkService {
 	}
 
 	private normalizeBookmarkFileFrontmatter(value: Record<string, unknown>): EpubBookmarkFileFrontmatter | null {
-		const format = String(value.format || "").trim();
-		const stableKey = String(value.stableKey || "").trim();
-		const bookId = String(value.bookId || "").trim();
-		const bookPath = normalizePath(String(value.bookPath || "").trim());
-		const bookTitle = String(value.bookTitle || "").trim();
+		const format = readString(value, "format")?.trim() ?? "";
+		const stableKey = readString(value, "stableKey")?.trim() ?? "";
+		const bookId = readString(value, "bookId")?.trim() ?? "";
+		const bookPath = normalizePath(readString(value, "bookPath")?.trim() ?? "");
+		const bookTitle = readString(value, "bookTitle")?.trim() ?? "";
 		if ((format && format !== EPUB_BOOKMARK_FILE_FORMAT) || !stableKey || !bookPath) {
 			return null;
 		}
@@ -362,12 +363,12 @@ export class EpubBookmarkService {
 			return null;
 		}
 		const record = value as Record<string, unknown>;
-		const cfi = EpubLinkService.normalizeCfi(String(record.cfi || "").trim());
+		const cfi = EpubLinkService.normalizeCfi(readString(record, "cfi")?.trim() ?? "");
 		if (!cfi) {
 			return null;
 		}
 		const createdAt = typeof record.createdAt === "number" ? record.createdAt : Date.now();
-		const chapterTitle = String(record.chapterTitle || "").trim();
+		const chapterTitle = readString(record, "chapterTitle")?.trim() ?? "";
 		return {
 			id:
 				typeof record.id === "string" && record.id.trim().length > 0
@@ -581,6 +582,9 @@ export class EpubBookmarkService {
 		if (value == null) {
 			return "null";
 		}
-		return JSON.stringify(String(value));
+		if (typeof value === "string") {
+			return JSON.stringify(value);
+		}
+		return JSON.stringify("");
 	}
 }

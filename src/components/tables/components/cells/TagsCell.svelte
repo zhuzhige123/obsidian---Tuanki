@@ -265,11 +265,11 @@
     };
 
     setTimeout(() => {
-      document.addEventListener('mousedown', handlePointerDown);
+      activeDocument.addEventListener('mousedown', handlePointerDown);
     }, 0);
 
     return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
+      activeDocument.removeEventListener('mousedown', handlePointerDown);
     };
   });
 </script>

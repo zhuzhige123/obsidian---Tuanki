@@ -8,6 +8,7 @@
 import type { Card } from "../../data/types";
 import type { AIAction, AIProvider } from "../../types/ai-types";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
+import { parseJsonUnknown } from "../../utils/typed-json";
 import { DerivationMethod } from "../relation/types";
 import { PromptVariableResolver } from "./PromptVariableResolver";
 import { resolveAIConfig, type AISplitHost } from "./ai-host";
@@ -263,7 +264,7 @@ export class AISplitService {
 			const jsonMatch = cleaned.match(/\[[\s\S]*\]/) || cleaned.match(/\{[\s\S]*"cards"[\s\S]*\}/);
 			if (jsonMatch) {
 				try {
-					const parsed = JSON.parse(jsonMatch[0]);
+					const parsed = parseJsonUnknown(jsonMatch[0]);
 					return this.parseJSONResponse(parsed, parentCard);
 				} catch {
 					// 静默失败，尝试纯文本解析

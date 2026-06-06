@@ -41,7 +41,7 @@ class ImageMaskLivePreviewViewPlugin {
 		if (this.scheduled) return;
 		this.scheduled = true;
 
-		requestAnimationFrame(() => {
+		window.requestAnimationFrame(() => {
 			this.scheduled = false;
 			this.applyMasksIfNeeded();
 		});
@@ -52,7 +52,7 @@ class ImageMaskLivePreviewViewPlugin {
 			return;
 		}
 
-		const container = this.view.dom as HTMLElement;
+		const container = this.view.dom;
 		const images = container.querySelectorAll("img");
 		if (images.length === 0) {
 			return;

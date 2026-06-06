@@ -1,13 +1,20 @@
 import type { App } from "obsidian";
+import type { Card } from "../../data/types";
 import type { ReadingMaterial } from "../../types/incremental-reading-types";
 import {
 	DEFAULT_ADVANCED_SCHEDULE_SETTINGS,
 	type IRAdvancedScheduleSettings,
+	type IRBlockMeta,
 	type IRChunkFileData,
 	type IRDeck,
 } from "../../types/ir-types";
 import { getChunkTopicIds, getTaskTopicId } from "../../utils/ir-topic-compat";
+import { isCallable, readUnknownNumber, readUnknownProperty, readUnknownString } from "../../utils/dynamic-access";
+import { getPluginInstance } from "../../utils/plugin-runtime";
+import { isRecord } from "../../utils/typed-json";
 import { logger } from "../../utils/logger";
+import type { IRPdfBookmarkTask } from "./IRPdfBookmarkTaskService";
+import type { IREpubBookmarkTask } from "./IREpubBookmarkTaskService";
 import {
 	type IRAssociatedNoteSignalIndex,
 	buildAssociatedNoteSignalIndex,
@@ -146,44 +153,32 @@ function extractChunkTitle(filePath: string, fallback: string): string {
 	return cleaned || stem || String(fallback || "").trim() || "Untitled";
 }
 
-function extractChunkTitleWithMeta(
-	filePath: string,
-	fallback: string,
-	meta: Record<string, unknown> | null | undefined
-): string {
-	const pointTitle =
-		typeof meta?.pointTitle === "string" && meta.pointTitle.trim() ? meta.pointTitle.trim() : "";
-	if (pointTitle) {
-		return pointTitle;
+function extractChunkTitleWithMeta(filePath: string, fallback: string, meta: unknown): string {
+	const pointTitle = readUnknownString(meta, "pointTitle");
+	if (pointTitle?.trim()) {
+		return pointTitle.trim();
 	}
 	return extractChunkTitle(filePath, fallback);
 }
 
-function readSequenceMeta(record: Record<string, unknown> | null | undefined): {
+function readSequenceMeta(record: unknown): {
 	sourceSequenceGroup?: string;
 	sourceSequenceOrder?: number;
 	sourceSequenceLocked?: boolean;
 	sourceSequenceAnchorDateKey?: string;
 } {
-	const sourceSequenceGroup =
-		typeof record?.sourceSequenceGroup === "string" && record.sourceSequenceGroup.trim()
-			? record.sourceSequenceGroup.trim()
-			: undefined;
-	const sourceSequenceOrder =
-		typeof record?.sourceSequenceOrder === "number" && Number.isFinite(record.sourceSequenceOrder)
-			? record.sourceSequenceOrder
-			: undefined;
+	const sourceSequenceGroup = readUnknownString(record, "sourceSequenceGroup");
+	const sourceSequenceOrder = readUnknownNumber(record, "sourceSequenceOrder");
 	const sourceSequenceLocked =
-		typeof record?.sourceSequenceLocked === "boolean" ? record.sourceSequenceLocked : undefined;
-	const sourceSequenceAnchorDateKey =
-		typeof record?.sourceSequenceAnchorDateKey === "string" && record.sourceSequenceAnchorDateKey.trim()
-			? record.sourceSequenceAnchorDateKey.trim()
+		isRecord(record) && typeof record.sourceSequenceLocked === "boolean"
+			? record.sourceSequenceLocked
 			: undefined;
+	const sourceSequenceAnchorDateKey = readUnknownString(record, "sourceSequenceAnchorDateKey");
 	return {
-		sourceSequenceGroup,
+		sourceSequenceGroup: sourceSequenceGroup?.trim() || undefined,
 		sourceSequenceOrder,
 		sourceSequenceLocked,
-		sourceSequenceAnchorDateKey,
+		sourceSequenceAnchorDateKey: sourceSequenceAnchorDateKey?.trim() || undefined,
 	};
 }
 
@@ -299,16 +294,25 @@ export class IRScheduleKernel {
 		const defaults = DEFAULT_ADVANCED_SCHEDULE_SETTINGS;
 
 		try {
-			const plugin: any = (this.app as any)?.plugins?.getPlugin?.("weave");
-			const ir = plugin?.settings?.incrementalReading;
+			const plugin = getPluginInstance(this.app, "weave");
+			const settings = readUnknownProperty(plugin, "settings");
+			const ir = readUnknownProperty(settings, "incrementalReading");
 			return {
 				...defaults,
-				dailyTimeBudgetMinutes: ir?.dailyTimeBudgetMinutes ?? defaults.dailyTimeBudgetMinutes,
-				interleaveMode: ir?.interleaveMode ?? defaults.interleaveMode,
-				enableTagGroupPrior: ir?.enableTagGroupPrior ?? defaults.enableTagGroupPrior,
-				defaultIntervalFactor: ir?.defaultIntervalFactor ?? defaults.defaultIntervalFactor,
+				dailyTimeBudgetMinutes:
+					readUnknownNumber(ir, "dailyTimeBudgetMinutes") ?? defaults.dailyTimeBudgetMinutes,
+				interleaveMode:
+					isRecord(ir) && typeof ir.interleaveMode === "boolean"
+						? ir.interleaveMode
+						: defaults.interleaveMode,
+				enableTagGroupPrior:
+					isRecord(ir) && typeof ir.enableTagGroupPrior === "boolean"
+						? ir.enableTagGroupPrior
+						: defaults.enableTagGroupPrior,
+				defaultIntervalFactor:
+					readUnknownNumber(ir, "defaultIntervalFactor") ?? defaults.defaultIntervalFactor,
 				maxConsecutiveSameTopic:
-					ir?.maxConsecutiveSameTopic ?? defaults.maxConsecutiveSameTopic,
+					readUnknownNumber(ir, "maxConsecutiveSameTopic") ?? defaults.maxConsecutiveSameTopic,
 			};
 		} catch {
 			return defaults;
@@ -345,7 +349,7 @@ export class IRScheduleKernel {
 
 		for (const deck of decks) {
 			const deckId = String(deck?.id || "").trim();
-			const deckPath = String((deck as any)?.path || "").trim();
+			const deckPath = String(readUnknownString(deck, "path") || "").trim();
 			const identifiers = this.normalizeIdentifiers([deckId, deckPath]);
 			if (identifiers.length === 0) {
 				continue;
@@ -431,7 +435,7 @@ export class IRScheduleKernel {
 		await this.storage.initialize();
 		await this.pdfService.initialize();
 		await this.epubService.initialize();
-		if ((this.app as any)?.vault?.adapter) {
+		if (this.app.vault.adapter) {
 			await this.tagGroupService.initialize();
 		}
 
@@ -625,13 +629,14 @@ export class IRScheduleKernel {
 	}
 
 	private async getReadingMaterials(): Promise<ReadingMaterial[]> {
-		const weavePlugin: any = (this.app as any)?.plugins?.getPlugin?.("weave");
-		const irPlugin: any =
-			(this.app as any)?.plugins?.getPlugin?.("weave-incremental-reading") ?? weavePlugin;
-		const manager = irPlugin?.readingMaterialManager;
-		if (manager?.getAllMaterials) {
+		const weavePlugin = getPluginInstance(this.app, "weave");
+		const irPlugin = getPluginInstance(this.app, "weave-incremental-reading") ?? weavePlugin;
+		const manager = readUnknownProperty(irPlugin, "readingMaterialManager");
+		const getAllMaterials = readUnknownProperty(manager, "getAllMaterials");
+		if (isCallable(getAllMaterials)) {
 			try {
-				return await manager.getAllMaterials();
+				const materials = await Reflect.apply(getAllMaterials, manager, []);
+				return Array.isArray(materials) ? (materials as ReadingMaterial[]) : [];
 			} catch (error) {
 				logger.warn("[IRScheduleKernel] 读取阅读材料失败:", error);
 			}
@@ -644,11 +649,13 @@ export class IRScheduleKernel {
 	}
 
 	private async getAssociatedNoteSignalIndex(): Promise<IRAssociatedNoteSignalIndex> {
-		const plugin: any = (this.app as any)?.plugins?.getPlugin?.("weave");
-		if (plugin?.dataStorage?.getAllCards) {
+		const plugin = getPluginInstance(this.app, "weave");
+		const dataStorage = readUnknownProperty(plugin, "dataStorage");
+		const getAllCards = readUnknownProperty(dataStorage, "getAllCards");
+		if (isCallable(getAllCards)) {
 			try {
-				const cards = await plugin.dataStorage.getAllCards();
-				return buildAssociatedNoteSignalIndex(cards);
+				const cards = await Reflect.apply(getAllCards, dataStorage, []);
+				return buildAssociatedNoteSignalIndex(Array.isArray(cards) ? (cards as Card[]) : []);
 			} catch (error) {
 				logger.warn("[IRScheduleKernel] 读取关联记忆卡片失败:", error);
 			}
@@ -769,7 +776,7 @@ export class IRScheduleKernel {
 		const nextRepDate = Number(chunk.nextRepDate || 0);
 		const nextReviewDate = nextRepDate > 0 ? new Date(nextRepDate) : null;
 		const filePath = String(chunk.filePath || "");
-		const chunkMeta = (chunk.meta || {}) as unknown as Record<string, unknown>;
+		const chunkMeta: IRBlockMeta = chunk.meta;
 		const title = extractChunkTitleWithMeta(filePath, chunk.chunkId, chunkMeta);
 		const material = readingMaterialByPath.get(filePath);
 		const associationMeta = this.getAssociatedNoteMeta(
@@ -782,6 +789,7 @@ export class IRScheduleKernel {
 		const manualPriority = typeof chunk.priorityUi === "number" ? chunk.priorityUi : undefined;
 		const effectivePriority = typeof chunk.priorityEff === "number" ? chunk.priorityEff : manualPriority;
 		const sequenceMeta = readSequenceMeta(chunkMeta);
+		const resumeLink = readUnknownString(chunkMeta, "resumeLink")?.trim();
 		const memoryPrioritySignal =
 			(associationMeta.linkedCardCount ?? 0) > 0
 				? associationMeta.linkedCardPrioritySignal
@@ -791,20 +799,13 @@ export class IRScheduleKernel {
 			id: chunk.chunkId,
 			title,
 			sourceFile: filePath,
-			autoSubscribedAt:
-				typeof chunkMeta.autoSubscribedAt === "string" ? chunkMeta.autoSubscribedAt : undefined,
-			autoSubscribedBadgeUntil:
-				typeof chunkMeta.autoSubscribedBadgeUntil === "string"
-					? chunkMeta.autoSubscribedBadgeUntil
-					: undefined,
+			autoSubscribedAt: readUnknownString(chunkMeta, "autoSubscribedAt"),
+			autoSubscribedBadgeUntil: readUnknownString(chunkMeta, "autoSubscribedBadgeUntil"),
 			topicKey: this.resolveTopicKey(filePath, chunk.meta?.tagGroup),
 			tagGroupId: String(chunk.meta?.tagGroup || "default").trim() || "default",
 			...associationMeta,
-			resumeLink:
-				typeof chunkMeta.resumeLink === "string" && chunkMeta.resumeLink.trim()
-					? chunkMeta.resumeLink.trim()
-					: material?.resumeLink,
-			priority: (chunk.priorityUi as number | undefined) ?? chunk.priorityEff ?? 5,
+			resumeLink: resumeLink || material?.resumeLink,
+			priority: (chunk.priorityUi) ?? chunk.priorityEff ?? 5,
 			intervalDays: Number(chunk.intervalDays ?? 1),
 			scheduleStatus,
 			nextRepDate,
@@ -879,7 +880,7 @@ export class IRScheduleKernel {
 	}
 
 	private mapPdfTaskToPlannedItem(
-		task: any,
+		task: IRPdfBookmarkTask,
 		readingMaterialByPath: Map<string, ReadingMaterial>,
 		associatedNoteSignalIndex: IRAssociatedNoteSignalIndex,
 		nowMs: number,
@@ -903,7 +904,7 @@ export class IRScheduleKernel {
 			associatedNoteSignalIndex,
 			(task.meta || null) as Pick<ReadingMaterial, "associatedNotePath" | "associatedNotePaths">
 		);
-		const sequenceMeta = readSequenceMeta((task.meta || {}) as unknown as Record<string, unknown>);
+		const sequenceMeta = readSequenceMeta(task.meta);
 		const memoryPrioritySignal =
 			(associationMeta.linkedCardCount ?? 0) > 0
 				? associationMeta.linkedCardPrioritySignal
@@ -945,7 +946,7 @@ export class IRScheduleKernel {
 	}
 
 	private mapEpubTaskToPlannedItem(
-		task: any,
+		task: IREpubBookmarkTask,
 		readingMaterialByPath: Map<string, ReadingMaterial>,
 		associatedNoteSignalIndex: IRAssociatedNoteSignalIndex,
 		nowMs: number,
@@ -969,7 +970,7 @@ export class IRScheduleKernel {
 			associatedNoteSignalIndex,
 			(task.meta || null) as Pick<ReadingMaterial, "associatedNotePath" | "associatedNotePaths">
 		);
-		const sequenceMeta = readSequenceMeta((task.meta || {}) as unknown as Record<string, unknown>);
+		const sequenceMeta = readSequenceMeta(task.meta);
 		const memoryPrioritySignal =
 			(associationMeta.linkedCardCount ?? 0) > 0
 				? associationMeta.linkedCardPrioritySignal
@@ -1017,7 +1018,7 @@ export class IRScheduleKernel {
 		const chunks = (await this.storage.getAllChunkDataWithSync()) || {};
 		const chunk =
 			(chunks[itemId] as IRChunkFileData | undefined) ||
-			(Object.values(chunks).find((entry) => entry?.chunkId === itemId) as IRChunkFileData | undefined);
+			(Object.values(chunks).find((entry) => entry?.chunkId === itemId));
 		if (chunk) {
 			return this.mapChunkToPlannedItem(
 				chunk,

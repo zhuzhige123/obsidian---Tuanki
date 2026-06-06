@@ -87,7 +87,7 @@ export class HighlightLayer extends BaseConversionLayer {
 	private convertStrikethrough(content: string): { content: string; count: number } {
 		let count = 0;
 
-		const result = content.replace(CONVERSION_REGEX.STRIKETHROUGH, (match, text, offset) => {
+		const result = content.replace(CONVERSION_REGEX.STRIKETHROUGH, (match: string, text: string, offset: number) => {
 			// 检查是否在代码块中
 			if (BoundaryDetector.shouldSkipMatch(content, offset)) {
 				return match;

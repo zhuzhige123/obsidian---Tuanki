@@ -68,17 +68,27 @@ export function createDeckStudyRefreshCoordinator(
     }
   }
 
+  function normalizeDeckIdValue(value: unknown): string {
+    if (typeof value === "string") {
+      return value.trim();
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+    return "";
+  }
+
   function getBackgroundRefreshDeckIds(event?: DataChangeEvent): string[] {
     const metadata = event?.metadata as { deckId?: unknown; deckIds?: unknown } | undefined;
     const normalizedDeckIds = Array.isArray(metadata?.deckIds)
-      ? metadata.deckIds.map((deckId) => String(deckId || "").trim()).filter(Boolean)
+      ? metadata.deckIds.map((deckId) => normalizeDeckIdValue(deckId)).filter(Boolean)
       : [];
 
     if (normalizedDeckIds.length > 0) {
       return Array.from(new Set(normalizedDeckIds));
     }
 
-    const singleDeckId = String(metadata?.deckId || "").trim();
+    const singleDeckId = normalizeDeckIdValue(metadata?.deckId);
     return singleDeckId ? [singleDeckId] : [];
   }
 
@@ -114,10 +124,10 @@ export function createDeckStudyRefreshCoordinator(
 
   function scheduleDeferredMemoryStudyRefresh(): void {
     if (deferredMemoryStudyRefreshTimer) {
-      clearTimeout(deferredMemoryStudyRefreshTimer);
+      window.clearTimeout(deferredMemoryStudyRefreshTimer);
     }
 
-    deferredMemoryStudyRefreshTimer = setTimeout(() => {
+    deferredMemoryStudyRefreshTimer = window.setTimeout(() => {
       deferredMemoryStudyRefreshTimer = null;
       const targetDeckIds = Array.from(deferredMemoryStudyRefreshDeckIds);
       deferredMemoryStudyRefreshDeckIds = new Set<string>();
@@ -196,7 +206,7 @@ export function createDeckStudyRefreshCoordinator(
 
   function dispose(): void {
     if (deferredMemoryStudyRefreshTimer) {
-      clearTimeout(deferredMemoryStudyRefreshTimer);
+      window.clearTimeout(deferredMemoryStudyRefreshTimer);
       deferredMemoryStudyRefreshTimer = null;
     }
     deferredMemoryStudyRefreshDeckIds = new Set<string>();

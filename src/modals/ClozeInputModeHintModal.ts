@@ -31,6 +31,7 @@ export class ClozeInputModeHintModal extends Modal {
 
 		const contentTagItem = list.createEl("li");
 		contentTagItem.appendText("正文添加 ");
+		// eslint-disable-next-line obsidianmd/ui/sentence-case -- literal card tag identifier
 		contentTagItem.createEl("code", { text: "#we_input" });
 
 		const yamlFieldItem = list.createEl("li");

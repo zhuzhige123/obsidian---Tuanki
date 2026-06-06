@@ -19,6 +19,8 @@
 import { App } from "obsidian";
 import { getPluginPaths, getV2PathsFromApp } from "../../config/paths";
 import { logger } from "../../utils/logger";
+import { getVaultAdapterWithDirOps, listVaultDirectory } from "../../utils/plugin-runtime";
+import { isRecord, parseJsonUnknown } from "../../utils/typed-json";
 
 /**
  * 数据文件类型枚举
@@ -95,7 +97,9 @@ export class FileTypeDetector {
 			};
 
 			const getLegacyDeckCardsTarget = (): string => {
-				const deckId = content.deckId || getLegacyDeckIdFromPath();
+				const deckId =
+					(isRecord(content) && typeof content.deckId === "string" ? content.deckId : null) ||
+					getLegacyDeckIdFromPath();
 				if (deckId) {
 					return `${v2Paths.memory.cards}/legacy-${deckId}.json`;
 				}
@@ -215,7 +219,10 @@ export class FileTypeDetector {
 					type: "questions",
 					confidence: "high",
 					getTarget: () => {
-						const bankId = content.bankId || "unknown";
+						const bankId =
+							isRecord(content) && typeof content.bankId === "string"
+								? content.bankId
+								: "unknown";
 						return `${v2Paths.questionBank.root}/banks/${bankId}/questions.json`;
 					},
 				},
@@ -264,17 +271,20 @@ export class FileTypeDetector {
 	 */
 	async detectDirectory(dirPath: string): Promise<FileDetectionResult[]> {
 		const results: FileDetectionResult[] = [];
-		const adapter = this.app.vault.adapter;
+		const adapter = getVaultAdapterWithDirOps(this.app.vault.adapter);
 
 		try {
 			if (!(await adapter.exists(dirPath))) {
 				return results;
 			}
 
-			const listing = await (adapter as any).list(dirPath);
+			const listing = await listVaultDirectory(adapter, dirPath);
+			if (!listing) {
+				return results;
+			}
 
 			// 检测文件
-			for (const file of listing.files || []) {
+			for (const file of listing.files) {
 				if (file.endsWith(".json")) {
 					const result = await this.detectFileType(file);
 					results.push(result);
@@ -282,7 +292,7 @@ export class FileTypeDetector {
 			}
 
 			// 递归检测子目录
-			for (const folder of listing.folders || []) {
+			for (const folder of listing.folders) {
 				const subResults = await this.detectDirectory(folder);
 				results.push(...subResults);
 			}
@@ -301,11 +311,15 @@ export class FileTypeDetector {
 	 * 检测记忆牌组 decks.json
 	 * 特征：{ decks: [{ id: "deck_*", cardUUIDs: [...], settings: { fsrsParams: {...} } }] }
 	 */
-	private isMemoryDecksFile(content: any): boolean {
-		if (!content?.decks || !Array.isArray(content.decks)) return false;
-		if (content.decks.length === 0) return true; // 空数组也算
+	private isMemoryDecksFile(content: unknown): boolean {
+		if (!isRecord(content)) return false;
+		const decks = content.decks;
+		if (!Array.isArray(decks)) return false;
+		if (decks.length === 0) return true;
 
-		return content.decks.some((d: any) => d.id?.startsWith("deck_"));
+		return decks.some(
+			(d) => isRecord(d) && typeof d.id === "string" && d.id.startsWith("deck_")
+		);
 	}
 
 	/**
@@ -313,57 +327,62 @@ export class FileTypeDetector {
 	 * 特征：{ cards: [{ uuid: "tk-*", fsrs: {...}, reviewHistory: [...] }] }
 	 * 注意：不含 cardPurpose: "test" 才是记忆卡片
 	 */
-	private isMemoryCardsFile(content: any): boolean {
-		if (!content?.cards || !Array.isArray(content.cards)) return false;
-		if (content.cards.length === 0) return true;
+	private isMemoryCardsFile(content: unknown): boolean {
+		if (!isRecord(content)) return false;
+		const cards = content.cards;
+		if (!Array.isArray(cards)) return false;
+		if (cards.length === 0) return true;
 
-		// 必须有 tk- 前缀的 uuid、fsrs 对象、reviewHistory 数组
-		// 且不是测试卡片（无 cardPurpose: "test"）
-		return content.cards.some(
-			(c: any) =>
-				c.uuid?.startsWith("tk-") &&
-				c.fsrs &&
-				typeof c.fsrs.stability === "number" &&
+		return cards.some((c) => {
+			if (!isRecord(c) || typeof c.uuid !== "string" || !c.uuid.startsWith("tk-")) {
+				return false;
+			}
+			const fsrs = c.fsrs;
+			return (
+				isRecord(fsrs) &&
+				typeof fsrs.stability === "number" &&
 				Array.isArray(c.reviewHistory) &&
 				c.cardPurpose !== "test"
-		);
+			);
+		});
 	}
 
 	/**
 	 * 检测牌组特定卡片文件（旧格式）
 	 * 特征：{ _schemaVersion: "1.0.0", deckId: "deck_*", cards: [...] }
 	 */
-	private isMemoryDeckCardsFile(content: any): boolean {
-		return !!(content?.deckId?.startsWith("deck_") && Array.isArray(content?.cards));
+	private isMemoryDeckCardsFile(content: unknown): boolean {
+		return (
+			isRecord(content) &&
+			typeof content.deckId === "string" &&
+			content.deckId.startsWith("deck_") &&
+			Array.isArray(content.cards)
+		);
 	}
 
 	/**
 	 * 检测学习会话文件
 	 * 特征：{ yearMonth: "YYYY-MM", sessions: [{ cardReviews: [...] }] }
 	 */
-	private isMemorySessionFile(content: any): boolean {
-		if (!content?.yearMonth || !content?.sessions) return false;
+	private isMemorySessionFile(content: unknown): boolean {
+		if (!isRecord(content)) return false;
+		if (typeof content.yearMonth !== "string" || !content.sessions) return false;
 		if (!Array.isArray(content.sessions)) return false;
-
-		// yearMonth 格式检查
 		if (!/^\d{4}-\d{2}$/.test(content.yearMonth)) return false;
-
-		// 空会话也算
 		if (content.sessions.length === 0) return true;
 
-		// 会话中必须有 cardReviews
-		return content.sessions.some((s: any) => Array.isArray(s.cardReviews));
+		return content.sessions.some((s) => isRecord(s) && Array.isArray(s.cardReviews));
 	}
 
 	/**
 	 * 检测卡片文件索引
 	 * 特征：{ files: [...], cardLocations: {...}, lastUpdated: number }
 	 */
-	private isCardFilesIndexFile(content: any): boolean {
-		return !!(
-			Array.isArray(content?.files) &&
-			content?.cardLocations &&
-			typeof content.cardLocations === "object"
+	private isCardFilesIndexFile(content: unknown): boolean {
+		return (
+			isRecord(content) &&
+			Array.isArray(content.files) &&
+			isRecord(content.cardLocations)
 		);
 	}
 
@@ -376,21 +395,21 @@ export class FileTypeDetector {
 	 * 特征：{ version: "4.0", decks: { "deck-*": { blockIds: [], settings: { splitMode: "..." } } } }
 	 * 注意：decks 是对象（非数组），键以 deck- 开头
 	 */
-	private isIRDecksFile(content: any): boolean {
-		if (content?.version !== "4.0") return false;
-		if (!content?.decks || typeof content.decks !== "object") return false;
-		if (Array.isArray(content.decks)) return false; // 必须是对象，不是数组
+	private isIRDecksFile(content: unknown): boolean {
+		if (!isRecord(content) || content.version !== "4.0") return false;
+		const decks = content.decks;
+		if (!isRecord(decks)) return false;
 
-		// 空对象也算
-		const keys = Object.keys(content.decks);
+		const keys = Object.keys(decks);
 		if (keys.length === 0) return true;
 
-		// 键必须以 deck- 开头，且有 blockIds 或 settings.splitMode
 		return (
 			keys.some((k) => k.startsWith("deck-")) &&
-			Object.values(content.decks).some(
-				(d: any) => Array.isArray(d.blockIds) || d.settings?.splitMode
-			)
+			Object.values(decks).some((d) => {
+				if (!isRecord(d)) return false;
+				const settings = d.settings;
+				return Array.isArray(d.blockIds) || (isRecord(settings) && settings.splitMode !== undefined);
+			})
 		);
 	}
 
@@ -398,12 +417,12 @@ export class FileTypeDetector {
 	 * 检测 IR blocks.json
 	 * 特征：{ version: "4.0", blocks: {...} }
 	 */
-	private isIRBlocksFile(content: any): boolean {
+	private isIRBlocksFile(content: unknown): boolean {
 		return (
-			content?.version === "4.0" &&
-			content?.blocks !== undefined &&
-			typeof content.blocks === "object" &&
-			!Array.isArray(content.blocks)
+			isRecord(content) &&
+			content.version === "4.0" &&
+			content.blocks !== undefined &&
+			isRecord(content.blocks)
 		);
 	}
 
@@ -412,70 +431,69 @@ export class FileTypeDetector {
 	 * 特征：{ version: "4.0", sessions: [...] }
 	 * 注意：sessions 是数组（与记忆会话不同，没有 yearMonth）
 	 */
-	private isIRHistoryFile(content: any): boolean {
-		return content?.version === "4.0" && Array.isArray(content?.sessions) && !content?.yearMonth; // 区分记忆会话
+	private isIRHistoryFile(content: unknown): boolean {
+		return (
+			isRecord(content) &&
+			content.version === "4.0" &&
+			Array.isArray(content.sessions) &&
+			content.yearMonth === undefined
+		);
 	}
 
 	/**
 	 * 检测 IR sources.json
 	 * 特征：{ version: "4.0", sources: {...} }
 	 */
-	private isIRSourcesFile(content: any): boolean {
-		return (
-			content?.version === "4.0" &&
-			content?.sources !== undefined &&
-			typeof content.sources === "object"
-		);
+	private isIRSourcesFile(content: unknown): boolean {
+		return isRecord(content) && content.version === "4.0" && isRecord(content.sources);
 	}
 
 	/**
 	 * 检测 IR chunks.json
 	 * 特征：{ version: "4.0", chunks: {...} }
 	 */
-	private isIRChunksFile(content: any): boolean {
-		return (
-			content?.version === "4.0" &&
-			content?.chunks !== undefined &&
-			typeof content.chunks === "object"
-		);
+	private isIRChunksFile(content: unknown): boolean {
+		return isRecord(content) && content.version === "4.0" && isRecord(content.chunks);
 	}
 
 	/**
 	 * 检测标签组文件
 	 * 特征：{ version: "4.0", groups: { "*": { matchAnyTags: [...] } } }
 	 */
-	private isIRTagGroupsFile(content: any): boolean {
-		if (content?.version !== "4.0") return false;
-		if (!content?.groups || typeof content.groups !== "object") return false;
+	private isIRTagGroupsFile(content: unknown): boolean {
+		if (!isRecord(content) || content.version !== "4.0") return false;
+		const groups = content.groups;
+		if (!isRecord(groups)) return false;
 
-		// 空对象也算
-		const groups = Object.values(content.groups);
-		if (groups.length === 0) return true;
+		const values = Object.values(groups);
+		if (values.length === 0) return true;
 
-		return groups.some((g: any) => Array.isArray(g.matchAnyTags));
+		return values.some((g) => isRecord(g) && Array.isArray(g.matchAnyTags));
 	}
 
 	/**
 	 * 检测标签组配置文件
 	 * 特征：{ version: "4.0", profiles: { "*": { groupId: "...", intervalFactorBase: ... } } }
 	 */
-	private isIRTagGroupProfilesFile(content: any): boolean {
-		if (content?.version !== "4.0") return false;
-		if (!content?.profiles || typeof content.profiles !== "object") return false;
+	private isIRTagGroupProfilesFile(content: unknown): boolean {
+		if (!isRecord(content) || content.version !== "4.0") return false;
+		const profiles = content.profiles;
+		if (!isRecord(profiles)) return false;
 
-		// 空对象也算
-		const profiles = Object.values(content.profiles);
-		if (profiles.length === 0) return true;
+		const values = Object.values(profiles);
+		if (values.length === 0) return true;
 
-		return profiles.some((p: any) => p.groupId && p.intervalFactorBase !== undefined);
+		return values.some(
+			(p) => isRecord(p) && p.groupId !== undefined && p.intervalFactorBase !== undefined
+		);
 	}
 
 	/**
 	 * 检测阅读材料索引
 	 * 特征：{ version: "1.0.0", materials: {...}, lastUpdated: "..." }
 	 */
-	private isIRMaterialsFile(content: any): boolean {
-		return !!(content?.materials && typeof content.materials === "object" && content?.lastUpdated);
+	private isIRMaterialsFile(content: unknown): boolean {
+		return isRecord(content) && isRecord(content.materials) && content.lastUpdated !== undefined;
 	}
 
 	// ============================================================================
@@ -486,28 +504,34 @@ export class FileTypeDetector {
 	 * 检测题库列表
 	 * 特征：顶层为数组 + deckType: "question-bank" + metadata.questionBankStats
 	 */
-	private isQuestionBanksFile(content: any): boolean {
+	private isQuestionBanksFile(content: unknown): boolean {
 		// 必须是顶层数组
 		if (!Array.isArray(content)) return false;
 		if (content.length === 0) return false;
 
 		// 数组元素必须有 deckType: "question-bank"
-		return content.some(
-			(b: any) => b.deckType === "question-bank" && b.metadata?.questionBankStats
-		);
+		return content.some((b) => {
+			if (!isRecord(b) || b.deckType !== "question-bank") return false;
+			const metadata = b.metadata;
+			return isRecord(metadata) && metadata.questionBankStats !== undefined;
+		});
 	}
 
 	/**
 	 * 检测题目文件
 	 * 特征：{ bankId: "...", questions: [{ cardPurpose: "test", stats.testStats: {...} }] }
 	 */
-	private isQuestionsFile(content: any): boolean {
-		if (!content?.bankId) return false;
-		if (!content?.questions || !Array.isArray(content.questions)) return false;
-		if (content.questions.length === 0) return true;
+	private isQuestionsFile(content: unknown): boolean {
+		if (!isRecord(content) || !content.bankId) return false;
+		const questions = content.questions;
+		if (!Array.isArray(questions)) return false;
+		if (questions.length === 0) return true;
 
-		// 必须有 cardPurpose: "test"
-		return content.questions.some((q: any) => q.cardPurpose === "test" && q.stats?.testStats);
+		return questions.some((q) => {
+			if (!isRecord(q) || q.cardPurpose !== "test") return false;
+			const stats = q.stats;
+			return isRecord(stats) && stats.testStats !== undefined;
+		});
 	}
 
 	// ============================================================================
@@ -518,8 +542,16 @@ export class FileTypeDetector {
 	 * 检测用户配置文件
 	 * 特征：{ profile: { globalSettings: { defaultDeckSettings: {...} }, overallStats: {...} } }
 	 */
-	private isUserProfileFile(content: any): boolean {
-		return !!(content.profile?.globalSettings?.defaultDeckSettings && content.profile.overallStats);
+	private isUserProfileFile(content: unknown): boolean {
+		if (!isRecord(content)) return false;
+		const profile = content.profile;
+		if (!isRecord(profile)) return false;
+		const globalSettings = profile.globalSettings;
+		return (
+			isRecord(globalSettings) &&
+			isRecord(globalSettings.defaultDeckSettings) &&
+			isRecord(profile.overallStats)
+		);
 	}
 
 	// ============================================================================
@@ -529,17 +561,17 @@ export class FileTypeDetector {
 	/**
 	 * 读取 JSON 文件
 	 */
-	private async readJsonFile(filePath: string): Promise<any | null> {
+	private async readJsonFile(filePath: string): Promise<unknown> {
 		try {
 			const adapter = this.app.vault.adapter;
 			if (!(await adapter.exists(filePath))) {
-				return null;
+				return undefined;
 			}
 			const content = await adapter.read(filePath);
-			return JSON.parse(content);
+			return parseJsonUnknown(content);
 		} catch (error) {
 			logger.debug(`[FileTypeDetector] 读取JSON失败: ${filePath}`, error);
-			return null;
+			return undefined;
 		}
 	}
 }

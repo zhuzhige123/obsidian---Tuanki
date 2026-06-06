@@ -1,3 +1,4 @@
+import type { TimerHandle } from "../types/timer";
 /**
  * 学习会话管理器
  * 管理运行时学习状态，避免污染卡片数据
@@ -51,7 +52,7 @@ export class StudySessionManager {
 	private readonly SESSION_TIMEOUT = 2 * 60 * 60 * 1000;
 
 	// 自动清理定时器
-	private cleanupTimer: NodeJS.Timeout | null = null;
+	private cleanupTimer: TimerHandle | null = null;
 
 	// 按牌组保存的持久化会话状态
 	private persistedSessions = new Map<string, PersistedStudySession>();
@@ -239,7 +240,7 @@ export class StudySessionManager {
 	 */
 	private startAutoCleanup(): void {
 		// 每30分钟检查一次
-		this.cleanupTimer = setInterval(() => {
+		this.cleanupTimer = window.setInterval(() => {
 			this.cleanupExpiredSessions();
 		}, 30 * 60 * 1000);
 	}
@@ -270,7 +271,7 @@ export class StudySessionManager {
 	 */
 	public stopAutoCleanup(): void {
 		if (this.cleanupTimer) {
-			clearInterval(this.cleanupTimer);
+			window.clearInterval(this.cleanupTimer);
 			this.cleanupTimer = null;
 		}
 	}

@@ -1,6 +1,20 @@
-import { App, Component, MarkdownView, Platform, Scope, TFile, WorkspaceLeaf } from "obsidian";
+import {
+	App,
+	Component,
+	MarkdownView,
+	Platform,
+	Scope,
+	TFile,
+	WorkspaceLeaf,
+	type WorkspaceSplit,
+} from "obsidian";
+import { isCallable, readUnknownProperty } from "../../utils/dynamic-access";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
+import {
+	getEditorCodeMirrorView,
+	getLeafContainerEl,
+} from "../../utils/obsidian-markdown-editor";
 import EditorContextManager from "./EditorContextManager";
 import {
 	buildDetachedEditorTempFilePath,
@@ -68,12 +82,16 @@ export class DetachedLeafEditor extends Component {
 
 	private getWorkspaceActiveLeaf(): WorkspaceLeaf | null {
 		try {
-			const ws: any = this.app.workspace as any;
-			if (typeof ws.getActiveLeaf === "function") {
-				return (ws.getActiveLeaf() as WorkspaceLeaf) || null;
+			const ws = this.app.workspace;
+			const getActiveLeaf = readUnknownProperty(ws, "getActiveLeaf");
+			if (isCallable(getActiveLeaf)) {
+				const leaf = Reflect.apply(getActiveLeaf, ws, []);
+				return (leaf as WorkspaceLeaf) || null;
 			}
-			if (typeof ws.getMostRecentLeaf === "function") {
-				return (ws.getMostRecentLeaf() as WorkspaceLeaf) || null;
+			const getMostRecentLeaf = readUnknownProperty(ws, "getMostRecentLeaf");
+			if (isCallable(getMostRecentLeaf)) {
+				const leaf = Reflect.apply(getMostRecentLeaf, ws, []);
+				return (leaf as WorkspaceLeaf) || null;
 			}
 			return null;
 		} catch {
@@ -84,56 +102,56 @@ export class DetachedLeafEditor extends Component {
 	private setWorkspaceActiveLeaf(leaf: WorkspaceLeaf | null, focus: boolean): void {
 		if (!leaf) return;
 		try {
-			const ws: any = this.app.workspace as any;
-			if (typeof ws.setActiveLeaf === "function") {
-				try {
-					const current = this.getWorkspaceActiveLeaf();
-					if (current === leaf) return;
-				} catch {}
-
-				try {
-					ws.setActiveLeaf(leaf, { focus });
-				} catch {
-					ws.setActiveLeaf(leaf, focus);
-				}
+			const ws = this.app.workspace;
+			const setActiveLeaf = readUnknownProperty(ws, "setActiveLeaf");
+			if (!isCallable(setActiveLeaf)) {
+				return;
 			}
-		} catch {}
+
+			try {
+				const current = this.getWorkspaceActiveLeaf();
+				if (current === leaf) return;
+			} catch { /* no-op */ }
+
+			try {
+				Reflect.apply(setActiveLeaf, ws, [leaf, { focus }]);
+			} catch {
+				Reflect.apply(setActiveLeaf, ws, [leaf, focus]);
+			}
+		} catch { /* no-op */ }
 	}
 
 	private pushViewScope(): void {
 		if (this.viewScopePushed) return;
-		const scope = (this.editorView as any)?.scope as Scope | undefined;
-		const keymap: any = (this.app as any)?.keymap;
-		if (!scope || !keymap) return;
-		if (typeof keymap.pushScope !== "function") return;
+		const scope = readUnknownProperty(this.editorView, "scope") as Scope | undefined;
+		const keymap = readUnknownProperty(this.app, "keymap");
+		const pushScope = readUnknownProperty(keymap, "pushScope");
+		if (!scope || !isCallable(pushScope)) return;
 
 		try {
-			keymap.pushScope(scope);
+			Reflect.apply(pushScope, keymap, [scope]);
 			this.viewScopePushed = true;
-		} catch {}
+		} catch { /* no-op */ }
 	}
 
 	private popViewScope(): void {
 		if (!this.viewScopePushed) return;
-		const scope = (this.editorView as any)?.scope as Scope | undefined;
-		const keymap: any = (this.app as any)?.keymap;
-		if (!scope || !keymap) {
-			this.viewScopePushed = false;
-			return;
-		}
-		if (typeof keymap.popScope !== "function") {
+		const scope = readUnknownProperty(this.editorView, "scope") as Scope | undefined;
+		const keymap = readUnknownProperty(this.app, "keymap");
+		const popScope = readUnknownProperty(keymap, "popScope");
+		if (!scope || !isCallable(popScope)) {
 			this.viewScopePushed = false;
 			return;
 		}
 
 		try {
-			keymap.popScope(scope);
-		} catch {}
+			Reflect.apply(popScope, keymap, [scope]);
+		} catch { /* no-op */ }
 		this.viewScopePushed = false;
 	}
 
-	async onload() {
-		await this.initialize();
+	onload(): void {
+		void this.initialize();
 	}
 
 	private async waitForWorkspaceLayoutReady(): Promise<void> {
@@ -145,7 +163,7 @@ export class DetachedLeafEditor extends Component {
 					resolve();
 				}
 			});
-		} catch {}
+		} catch { /* no-op */ }
 	}
 
 	private async initialize() {
@@ -178,7 +196,7 @@ export class DetachedLeafEditor extends Component {
 			) {
 				try {
 					this.setWorkspaceActiveLeaf(activeLeafBeforeInit, false);
-				} catch {}
+				} catch { /* no-op */ }
 			}
 
 			// 3. 打开文件
@@ -198,7 +216,7 @@ export class DetachedLeafEditor extends Component {
 			) {
 				try {
 					this.setWorkspaceActiveLeaf(activeLeafBeforeInit, false);
-				} catch {}
+				} catch { /* no-op */ }
 			}
 
 			logger.debug("[DetachedLeafEditor] 初始化完成");
@@ -210,7 +228,7 @@ export class DetachedLeafEditor extends Component {
 			if (this.readyResolve) {
 				try {
 					this.readyResolve();
-				} catch {}
+				} catch { /* no-op */ }
 				this.readyResolve = null;
 			}
 		}
@@ -260,38 +278,48 @@ export class DetachedLeafEditor extends Component {
 			: new Error("无法创建 DetachedLeafEditor 临时文件");
 	}
 
+	private readWorkspaceSplit(key: string): WorkspaceSplit | undefined {
+		const split = readUnknownProperty(this.app.workspace, key);
+		if (!split || !isCallable(readUnknownProperty(split, "setDimension"))) {
+			return undefined;
+		}
+		return split as WorkspaceSplit;
+	}
+
 	private createLeaf() {
 		// 使用 createLeafInParent 创建一个位于 rootSplit 的 leaf
 		// 这允许我们创建一个"真正的"编辑器实例，但将其隐藏
-		// @ts-ignore - 使用私有/高级 API
-		const ws: any = this.app.workspace as any;
 		const candidates = Platform.isMobile
-			? [ws.rightSplit, ws.leftSplit, ws.rootSplit]
-			: [ws.rootSplit];
+			? [
+					this.readWorkspaceSplit("rightSplit"),
+					this.readWorkspaceSplit("leftSplit"),
+					this.readWorkspaceSplit("rootSplit"),
+				]
+			: [this.readWorkspaceSplit("rootSplit")];
 
-		const canUseSplit = (split: any) => {
-			try {
-				return !!split && typeof split.setDimension === "function";
-			} catch {
-				return false;
-			}
-		};
-
-		const parentSplit = candidates.find(canUseSplit) || ws.rootSplit;
+		const parentSplit = candidates.find((split) => split !== undefined) ?? this.readWorkspaceSplit("rootSplit");
+		const rootSplit = this.readWorkspaceSplit("rootSplit");
 
 		try {
+			if (!parentSplit) {
+				throw new Error("No workspace split available");
+			}
 			this.leaf = this.app.workspace.createLeafInParent(parentSplit, 0);
 		} catch (e) {
 			logger.warn("[DetachedLeafEditor] createLeafInParent 失败，回退到 rootSplit:", e);
 			try {
-				this.leaf = this.app.workspace.createLeafInParent(ws.rootSplit, 0);
+				if (rootSplit) {
+					this.leaf = this.app.workspace.createLeafInParent(rootSplit, 0);
+				} else {
+					this.leaf = null;
+				}
 			} catch {
 				this.leaf = null;
 			}
 		}
 
 		// 立即隐藏，防止闪烁
-		const leafEl = (this.leaf as any).containerEl as HTMLElement;
+		const leafEl = getLeafContainerEl(this.leaf);
 		if (leafEl) {
 			leafEl.dataset.weaveDetachedLeafEditor = "true";
 			this.originalParent = leafEl.parentElement;
@@ -336,15 +364,15 @@ export class DetachedLeafEditor extends Component {
 
 		const view = this.editorView;
 		const contentEl = view.contentEl; // 这是包含编辑器的主要元素
-		(contentEl as HTMLElement).dataset.weaveDetachedLeafEditor = "true";
+		(contentEl).dataset.weaveDetachedLeafEditor = "true";
 
 		try {
 			contentEl.querySelectorAll(".weave-ir-markdown-bottom-toolbar-container").forEach((el) => {
 				try {
 					(el as HTMLElement).remove();
-				} catch {}
+				} catch { /* no-op */ }
 			});
-		} catch {}
+		} catch { /* no-op */ }
 
 		// 清空容器
 		this.containerEl.empty();
@@ -379,7 +407,7 @@ export class DetachedLeafEditor extends Component {
 						padding: "0",
 						border: "0",
 					});
-				} catch {}
+				} catch { /* no-op */ }
 			}
 		};
 
@@ -407,7 +435,7 @@ export class DetachedLeafEditor extends Component {
 						border: "",
 					});
 				}
-			} catch {}
+			} catch { /* no-op */ }
 		};
 
 		const applyHideChrome = () => {
@@ -463,7 +491,7 @@ export class DetachedLeafEditor extends Component {
 						}
 					});
 				}
-			} catch {}
+			} catch { /* no-op */ }
 		};
 
 		applyHideChrome();
@@ -480,7 +508,7 @@ export class DetachedLeafEditor extends Component {
 				subtree: true,
 				attributes: true,
 			});
-		} catch {}
+		} catch { /* no-op */ }
 
 		// 隐藏 header 等不需要的元素（如果有）
 		// 通常 MarkdownView 的 contentEl 只包含编辑器内容，header 在 view.containerEl 中
@@ -498,7 +526,7 @@ export class DetachedLeafEditor extends Component {
 			if (this.editorView?.editor) {
 				return;
 			}
-			await new Promise((resolve) => setTimeout(resolve, 50));
+			await new Promise((resolve) => window.setTimeout(resolve, 50));
 		}
 		logger.warn("[DetachedLeafEditor] 等待编辑器就绪超时");
 	}
@@ -506,28 +534,35 @@ export class DetachedLeafEditor extends Component {
 	private syncWithPreferredEditorMode(): void {
 		if (!this.editorView) return;
 
-		const globalLivePreview = (this.app.vault as any).getConfig?.("livePreview");
+		const getConfig = readUnknownProperty(this.app.vault, "getConfig");
+		const globalLivePreview = isCallable(getConfig)
+			? Reflect.apply(getConfig, this.app.vault, ["livePreview"])
+			: undefined;
 		if (!globalLivePreview) return;
 
 		try {
-			if (typeof this.editorView.getMode !== "function" || this.editorView.getMode() !== "source") {
+			const getMode = readUnknownProperty(this.editorView, "getMode");
+			if (!isCallable(getMode) || Reflect.apply(getMode, this.editorView, []) !== "source") {
 				return;
 			}
 
 			// Obsidian 公开 API 只能区分 preview/source，无法直接区分
 			// source 模式下的 Live Preview 与纯源码模式，这里仅在内部状态明确表示
 			// 当前是纯源码模式时，才谨慎地切回 Live Preview。
-			const currentMode = (this.editorView as any)?.currentMode;
-			if (!currentMode || currentMode.type !== "source" || currentMode.sourceMode !== true) {
+			const currentMode = readUnknownProperty(this.editorView, "currentMode");
+			const modeType = readUnknownProperty(currentMode, "type");
+			const sourceMode = readUnknownProperty(currentMode, "sourceMode");
+			if (modeType !== "source" || sourceMode !== true) {
 				return;
 			}
 
-			if (typeof currentMode.toggleSource !== "function") {
+			const toggleSource = readUnknownProperty(currentMode, "toggleSource");
+			if (!isCallable(toggleSource)) {
 				logger.debug("[DetachedLeafEditor] 当前版本未暴露 toggleSource，跳过 Live Preview 同步");
 				return;
 			}
 
-			currentMode.toggleSource();
+			Reflect.apply(toggleSource, currentMode, []);
 			this.editorView.editor?.refresh?.();
 		} catch (error) {
 			logger.warn("[DetachedLeafEditor] Live Preview 同步失败，保留当前编辑模式:", error);
@@ -566,8 +601,7 @@ export class DetachedLeafEditor extends Component {
 			if (target instanceof HTMLElement) {
 				el = target;
 			} else {
-				const maybeNode = target as any;
-				const parentEl = maybeNode?.parentElement;
+				const parentEl = readUnknownProperty(target, "parentElement");
 				if (parentEl instanceof HTMLElement) {
 					el = parentEl;
 				}
@@ -606,7 +640,7 @@ export class DetachedLeafEditor extends Component {
 
 					try {
 						EditorContextManager.getInstance().registerActive(this);
-					} catch {}
+					} catch { /* no-op */ }
 
 					this.pushViewScope();
 
@@ -616,11 +650,11 @@ export class DetachedLeafEditor extends Component {
 					}
 					this.activateLeafForHotkeys();
 
-					const fromProps = this.isEventFromPropertiesUI((ev as any)?.target ?? null);
+					const fromProps = this.isEventFromPropertiesUI(ev.target);
 					if (!fromProps) {
 						try {
 							this.editorView?.editor?.focus();
-						} catch {}
+						} catch { /* no-op */ }
 					}
 				};
 			}
@@ -651,7 +685,7 @@ export class DetachedLeafEditor extends Component {
 				this.focusInHandler = (ev) => {
 					try {
 						EditorContextManager.getInstance().registerActive(this);
-					} catch {}
+					} catch { /* no-op */ }
 
 					this.pushViewScope();
 
@@ -660,15 +694,15 @@ export class DetachedLeafEditor extends Component {
 					}
 
 					this.activateLeafForHotkeys();
-					requestAnimationFrame(() => {
+					window.requestAnimationFrame(() => {
 						this.activateLeafForHotkeys();
 					});
 
-					const fromProps = this.isEventFromPropertiesUI((ev as any)?.target ?? null);
+					const fromProps = this.isEventFromPropertiesUI(ev.target);
 					if (!fromProps) {
 						try {
 							this.editorView?.editor?.focus();
-						} catch {}
+						} catch { /* no-op */ }
 					}
 				};
 			}
@@ -680,11 +714,11 @@ export class DetachedLeafEditor extends Component {
 						if (next && this.editorView?.contentEl?.contains(next)) {
 							return;
 						}
-					} catch {}
+					} catch { /* no-op */ }
 
 					try {
 						EditorContextManager.getInstance().unregisterActive(this);
-					} catch {}
+					} catch { /* no-op */ }
 
 					this.popViewScope();
 
@@ -751,8 +785,7 @@ export class DetachedLeafEditor extends Component {
 
 	// 兼容旧 API
 	getCM() {
-		// @ts-ignore
-		return this.editorView?.editor?.cm;
+		return getEditorCodeMirrorView(this.editorView?.editor);
 	}
 
 	onunload() {
@@ -767,13 +800,13 @@ export class DetachedLeafEditor extends Component {
 		if (this.readyResolve) {
 			try {
 				this.readyResolve();
-			} catch {}
+			} catch { /* no-op */ }
 			this.readyResolve = null;
 		}
 
 		try {
 			EditorContextManager.getInstance().unregisterActive(this);
-		} catch {}
+		} catch { /* no-op */ }
 
 		this.popViewScope();
 
@@ -808,7 +841,7 @@ export class DetachedLeafEditor extends Component {
 			if (this.editorView?.contentEl && this.keydownCaptureHandler) {
 				this.editorView.contentEl.removeEventListener("keydown", this.keydownCaptureHandler, true);
 			}
-		} catch {}
+		} catch { /* no-op */ }
 
 		this.contentChromeObserver = null;
 		this.pointerDownCaptureHandler = null;

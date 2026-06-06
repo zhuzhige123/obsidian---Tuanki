@@ -105,7 +105,7 @@
   // 初始化组件
   onMount(() => {
     const updateIsMobile = () => {
-      const cls = document.body?.classList;
+      const cls = activeDocument.body?.classList;
       isMobile = !!cls && (cls.contains('is-mobile') || cls.contains('is-phone') || cls.contains('is-tablet'));
 
       if (isMobile && activeTab === 'anki-connect') {

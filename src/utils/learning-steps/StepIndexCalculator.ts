@@ -11,7 +11,7 @@
  */
 
 import type { Card, Rating } from "../../data/types";
-import { CardState } from "../../data/types";
+import { CardState, Rating as RatingEnum } from "../../data/types";
 import { logger } from "../logger";
 
 /**
@@ -147,23 +147,22 @@ export class StepIndexCalculator {
 	 */
 	public static calculateNext(currentStepIndex: number, rating: Rating, steps: number[]): number {
 		switch (rating) {
-			case 1: // Again
+			case RatingEnum.Again:
 				// 重置到第一步
 				return 0;
 
-			case 2: // Hard
+			case RatingEnum.Hard:
 				// 保持当前步骤（重复当前步）
 				return currentStepIndex;
 
-			case 3: {
-				// Good
+			case RatingEnum.Good: {
 				// 进入下一步
 				const nextIndex = currentStepIndex + 1;
 				// 如果超出步骤数组，返回-1表示毕业
 				return nextIndex < steps.length ? nextIndex : -1;
 			}
 
-			case 4: // Easy
+			case RatingEnum.Easy:
 				// 直接毕业
 				return -1;
 

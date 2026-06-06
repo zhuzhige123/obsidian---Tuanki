@@ -117,7 +117,7 @@ export class KeyboardMonitor implements IKeyboardMonitor {
 		}
 
 		if (this.animationTimer) {
-			clearTimeout(this.animationTimer);
+			window.clearTimeout(this.animationTimer);
 			this.animationTimer = null;
 		}
 
@@ -156,11 +156,11 @@ export class KeyboardMonitor implements IKeyboardMonitor {
 
 			// 清除之前的动画计时器
 			if (this.animationTimer) {
-				clearTimeout(this.animationTimer);
+				window.clearTimeout(this.animationTimer);
 			}
 
 			// 动画结束后清除标记
-			this.animationTimer = setTimeout(() => {
+			this.animationTimer = window.setTimeout(() => {
 				this.state.isAnimating = false;
 				this.notifyListeners();
 
@@ -202,10 +202,10 @@ export class KeyboardMonitor implements IKeyboardMonitor {
 			this.state.isAnimating = true;
 
 			if (this.animationTimer) {
-				clearTimeout(this.animationTimer);
+				window.clearTimeout(this.animationTimer);
 			}
 
-			this.animationTimer = setTimeout(() => {
+			this.animationTimer = window.setTimeout(() => {
 				this.state.isAnimating = false;
 				this.notifyListeners();
 			}, this.ANIMATION_DURATION);

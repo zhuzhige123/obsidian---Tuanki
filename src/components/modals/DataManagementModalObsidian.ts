@@ -15,7 +15,7 @@ export interface DataManagementModalObsidianOptions {
 }
 
 export class DataManagementModalObsidian extends Modal {
-	private component: any = null;
+	private component: unknown = null;
 	private readonly options: DataManagementModalObsidianOptions;
 
 	constructor(app: App, options: DataManagementModalObsidianOptions) {
