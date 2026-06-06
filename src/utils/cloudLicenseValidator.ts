@@ -237,7 +237,24 @@ export class CloudLicenseValidator {
 	private getCache(): { result: CloudValidationResult; cached_at: number } | null {
 		try {
 			const cached = vaultStorage.getItem(this.cacheKey);
-			return cached ? JSON.parse(cached) : null;
+			if (!cached) {
+				return null;
+			}
+
+			const parsed: unknown = JSON.parse(cached);
+			if (!parsed || typeof parsed !== "object") {
+				return null;
+			}
+
+			const record = parsed as Record<string, unknown>;
+			if (typeof record.cached_at !== "number" || !record.result || typeof record.result !== "object") {
+				return null;
+			}
+
+			return {
+				result: record.result as CloudValidationResult,
+				cached_at: record.cached_at,
+			};
 		} catch {
 			return null;
 		}

@@ -317,14 +317,26 @@ export class StudyAICoordinator {
 
 			// 转换为临时卡片数据
 			const now = new Date().toISOString();
-			const tempChildCards: Card[] = response.childCards.map((child: unknown, index: number) => ({
+			const tempChildCards: Card[] = response.childCards.flatMap((child: unknown, index: number) => {
+				if (!child || typeof child !== "object") {
+					return [];
+				}
+				const record = child as Record<string, unknown>;
+				if (typeof record.front !== "string" || typeof record.back !== "string") {
+					return [];
+				}
+				const childTags = Array.isArray(record.tags)
+					? record.tags.filter((tag): tag is string => typeof tag === "string")
+					: card.tags || [];
+
+				return [{
 				uuid: `temp-uuid-${Date.now()}-${index}`,
 				deckId: card.deckId,
 				templateId: card.templateId,
 				type: card.type,
 				cardPurpose: "memory",
-				content: `${child.front}\n\n---div---\n\n${child.back}`,
-				tags: child.tags || card.tags || [],
+				content: `${record.front}\n\n---div---\n\n${record.back}`,
+				tags: childTags,
 				priority: 0,
 				fsrs: {
 					due: now,
@@ -355,7 +367,8 @@ export class StudyAICoordinator {
 					isParent: false,
 					level: 1,
 				},
-			}));
+			}];
+			});
 
 			if (!isRegeneration) {
 				new Notice(`成功拆分为${tempChildCards.length}张子卡片`);

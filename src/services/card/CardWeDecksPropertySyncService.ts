@@ -76,7 +76,10 @@ export class CardWeDecksPropertySyncService {
 		}
 
 		const frontmatter = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter;
-		const rawWeDecks = frontmatter?.we_decks;
+		const rawWeDecks =
+			frontmatter && typeof frontmatter === "object"
+				? (frontmatter as Record<string, unknown>).we_decks
+				: undefined;
 		const serialized = JSON.stringify(rawWeDecks ?? null);
 		if (this.lastWeDecksByFile.get(file.path) === serialized) {
 			return;

@@ -55,7 +55,7 @@ function loadFromStorage(): VirtualizationStorageConfig | null {
 			return null;
 		}
 
-		const parsed = JSON.parse(stored);
+		const parsed: unknown = JSON.parse(stored);
 		if (!parsed || typeof parsed !== "object") {
 			return null;
 		}

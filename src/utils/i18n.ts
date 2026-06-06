@@ -305,8 +305,9 @@ export class I18nService {
 	private interpolate(text: string, params?: Record<string, string | number>): string {
 		if (!params) return text;
 
-		return text.replace(/\{(\w+)\}/g, (match, key) => {
-			return params[key]?.toString() || match;
+		return text.replace(/\{(\w+)\}/g, (match, key: string) => {
+			const value = params[key];
+			return value !== undefined ? String(value) : match;
 		});
 	}
 

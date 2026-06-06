@@ -100,35 +100,45 @@ function dedupeCardsByUuid(cards: Card[]): Card[] {
         return Array.from(deduped.values());
 }
 
+type ReadingMaterialManagerLike = {
+	getAllMaterials?: () => ReadingMaterial[] | Promise<ReadingMaterial[]>;
+};
+
+function readReadingMaterialManager(source: unknown): ReadingMaterialManagerLike | null {
+	if (!isRecord(source)) {
+		return null;
+	}
+
+	const manager = source.readingMaterialManager;
+	if (!isRecord(manager) || typeof manager.getAllMaterials !== "function") {
+		return null;
+	}
+
+	return manager as ReadingMaterialManagerLike;
+}
+
 async function collectIRExtractCardIds(
 	plugin: {
 		app?: App;
-		readingMaterialManager?: {
-			getAllMaterials?: () => ReadingMaterial[] | Promise<ReadingMaterial[]>;
-		};
+		readingMaterialManager?: ReadingMaterialManagerLike;
 	}
 ): Promise<Set<string>> {
 	const extractCardIds = new Set<string>();
-	const irPlugin = plugin.app
-		? getPluginInstance<{
-				readingMaterialManager?: {
-					getAllMaterials?: () => ReadingMaterial[] | Promise<ReadingMaterial[]>;
-				};
-			}>(plugin.app, INCREMENTAL_READING_PLUGIN_ID)
-		: null;
 	const manager =
-		plugin?.readingMaterialManager?.getAllMaterials
-			? plugin.readingMaterialManager
-			: irPlugin?.readingMaterialManager ?? null;
-	if (!manager?.getAllMaterials) {
+		readReadingMaterialManager(plugin) ??
+		(plugin.app
+			? readReadingMaterialManager(getPluginInstance(plugin.app, INCREMENTAL_READING_PLUGIN_ID))
+			: null);
+	const getAllMaterials = manager?.getAllMaterials;
+	if (!getAllMaterials) {
 		return extractCardIds;
 	}
 
 	try {
-		const materials = (await Promise.resolve(manager.getAllMaterials()));
+		const materials = await Promise.resolve(getAllMaterials());
 		for (const material of materials || []) {
 			for (const cardId of material.extractedCards || []) {
-				if (cardId) {
+				if (typeof cardId === "string" && cardId) {
 					extractCardIds.add(cardId);
 				}
 			}

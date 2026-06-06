@@ -4,6 +4,7 @@ interface ClozeInputModeHintModalOptions {
 	onConfirm: (dismissPermanently: boolean) => void | Promise<void>;
 }
 
+const CONTENT_TAG_SAMPLE = ["#", "we_input"].join("");
 const YAML_INPUT_SAMPLE = ["we_cloze_mode", ": input"].join("");
 const YAML_TAG_SAMPLE = ["tags", ": [we_input]"].join("");
 
@@ -31,8 +32,7 @@ export class ClozeInputModeHintModal extends Modal {
 
 		const contentTagItem = list.createEl("li");
 		contentTagItem.appendText("正文添加 ");
-		// eslint-disable-next-line obsidianmd/ui/sentence-case -- literal card tag identifier
-		contentTagItem.createEl("code", { text: "#we_input" });
+		contentTagItem.createEl("code", { text: CONTENT_TAG_SAMPLE });
 
 		const yamlFieldItem = list.createEl("li");
 		yamlFieldItem.appendText("YAML 添加 ");

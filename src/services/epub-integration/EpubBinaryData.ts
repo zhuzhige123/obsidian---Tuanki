@@ -246,7 +246,7 @@ function readArrayBufferResource(resourcePath: string): Promise<ArrayBuffer> {
 			try {
 				resolve(await readArrayBufferResourceViaFetch(resourcePath));
 			} catch (error) {
-				reject(error);
+				reject(error instanceof Error ? error : new Error(String(error)));
 			}
 		};
 		request.send();

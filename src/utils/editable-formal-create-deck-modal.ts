@@ -18,8 +18,8 @@ export function openEditableFormalCreateDeckModal(params: {
 		plugin,
 		dataStorage: plugin.dataStorage,
 		mode: "create",
-		onDeckCreated: async (deck) => {
-			await onDeckCreated(deck);
+		onDeckCreated: (deck) => {
+			void Promise.resolve(onDeckCreated(deck));
 		},
 		onClose: () => {
 			activeCreateDeckModal = null;

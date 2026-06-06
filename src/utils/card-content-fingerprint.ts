@@ -1,5 +1,4 @@
-import type { Card } from "../data/types";
-import { CardType } from "../data/types";
+import { CardState, CardType, type Card } from "../data/types";
 import { parseYAMLFromContent, setCardProperties } from "./yaml-utils";
 
 type CardFingerprintInput =
@@ -59,20 +58,24 @@ function hashBodyFingerprint(normalized: string): string {
 	return `${(hash1 >>> 0).toString(36)}_${(hash2 >>> 0).toString(36)}_${normalized.length}`;
 }
 
+function readDeckNameList(value: unknown): string[] {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+	return value.filter((item): item is string => typeof item === "string");
+}
+
 /** 评估卡片保留优先分数（分数越高越应保留） */
 export function getCardRetentionScore(card: Card): number {
 	let score = 0;
-	const cardAny = card as Card & {
-		fsrs?: { state?: number };
-		reviewLog?: unknown[];
-	};
 
-	if (cardAny.fsrs && cardAny.fsrs.state !== undefined && cardAny.fsrs.state > 0) {
+	if (card.fsrs?.state !== undefined && card.fsrs.state > CardState.New) {
 		score += 10000;
 	}
 
-	if (Array.isArray(cardAny.reviewLog) && cardAny.reviewLog.length > 0) {
-		score += 5000 + cardAny.reviewLog.length;
+	const reviewCount = card.reviewHistory?.length ?? 0;
+	if (reviewCount > 0) {
+		score += 5000 + reviewCount;
 	}
 
 	const content = card.content || "";
@@ -134,11 +137,8 @@ export function mergeDuplicateCreateOntoExisting(existing: Card, incoming: Card)
 	const incomingYaml = parseYAMLFromContent(incoming.content || "");
 	const mergedDeckNames = Array.from(
 		new Set(
-			[
-				...(Array.isArray(existingYaml.we_decks) ? existingYaml.we_decks : []),
-				...(Array.isArray(incomingYaml.we_decks) ? incomingYaml.we_decks : []),
-			]
-				.map((name) => String(name || "").trim())
+			[...readDeckNameList(existingYaml.we_decks), ...readDeckNameList(incomingYaml.we_decks)]
+				.map((name) => name.trim())
 				.filter(Boolean)
 		)
 	);

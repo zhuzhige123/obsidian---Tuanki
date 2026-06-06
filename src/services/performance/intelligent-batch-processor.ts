@@ -265,7 +265,11 @@ export class IntelligentBatchProcessor {
 		const errors: Array<{ item: T; error: Error; batchIndex: number }> = [];
 
 		// 并行处理批次内的项目
-		const itemPromises = batch.map(async (item, _itemIndex) => {
+		type BatchItemOutcome =
+			| { success: true; result: R; item: T }
+			| { success: false; error: Error; item: T };
+
+		const itemPromises = batch.map(async (item, _itemIndex): Promise<BatchItemOutcome | undefined> => {
 			let attempts = 0;
 			const maxAttempts = options.retryOnFailure ? this.config.retryAttempts : 1;
 
@@ -296,12 +300,15 @@ export class IntelligentBatchProcessor {
 
 		// 分离成功和失败的结果
 		for (const itemResult of itemResults) {
-			if (itemResult?.success) {
-				results.push((itemResult as unknown).result);
+			if (!itemResult) {
+				continue;
+			}
+			if (itemResult.success) {
+				results.push(itemResult.result);
 			} else {
 				errors.push({
-					item: (itemResult as unknown).item,
-					error: (itemResult as unknown).error,
+					item: itemResult.item,
+					error: itemResult.error,
 					batchIndex,
 				});
 			}

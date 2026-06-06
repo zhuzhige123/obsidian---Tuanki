@@ -1,5 +1,6 @@
 import { Notice } from "obsidian";
 import type { WeavePlugin } from "../../main";
+import { readUnknownProperty } from "../../utils/dynamic-access";
 import { logger } from "../../utils/logger";
 
 /**
@@ -22,8 +23,8 @@ export class QuestionBankIntegrityService {
 
 			const allBanks = await this.plugin.questionBankService.getAllBanks();
 			const banksNeedingAudit = allBanks.filter((bank) => {
-				const pairedId = (bank.metadata as unknown)?.pairedMemoryDeckId;
-				return !pairedId || pairedId === undefined || pairedId === null;
+				const pairedId = readUnknownProperty(bank.metadata, "pairedMemoryDeckId");
+				return typeof pairedId !== "string" || pairedId.trim().length === 0;
 			});
 
 			if (banksNeedingAudit.length === 0) {

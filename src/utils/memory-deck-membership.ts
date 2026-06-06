@@ -11,7 +11,9 @@ export interface NormalizedDeckEntry {
 }
 
 function normalizeLookupValue(value: unknown): string {
-	return String(value || "").trim();
+	if (typeof value === "string") return value.trim();
+	if (typeof value === "number" || typeof value === "boolean") return String(value).trim();
+	return "";
 }
 
 function buildLookupMaps(decks?: DeckIdentifierLookup[]) {

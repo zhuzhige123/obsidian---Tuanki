@@ -89,6 +89,30 @@ function normalizePersistedCustomActions(
 		.filter((action): action is AIAction => Boolean(action));
 }
 
+function normalizePersistedApiKeys(
+	value: unknown
+): Record<string, { apiKey: string; model?: string }> {
+	if (!value || typeof value !== "object") {
+		return {};
+	}
+
+	const result: Record<string, { apiKey: string; model?: string }> = {};
+	for (const [provider, rawEntry] of Object.entries(value as Record<string, unknown>)) {
+		if (!rawEntry || typeof rawEntry !== "object") {
+			continue;
+		}
+		const entry = rawEntry as Record<string, unknown>;
+		if (typeof entry.apiKey !== "string") {
+			continue;
+		}
+		result[provider] = {
+			apiKey: entry.apiKey,
+			model: typeof entry.model === "string" ? entry.model : undefined,
+		};
+	}
+	return result;
+}
+
 // ============================================================================
 // Type Definitions
 // ============================================================================
@@ -170,14 +194,16 @@ class AIConfigStore {
 		} catch (error) {
 			logger.warn("[AIConfigStore] 加载时structuredClone失败，使用JSON fallback:", error);
 			this.store.set({
-				customFormatActions: JSON.parse(
-					JSON.stringify(normalizePersistedCustomActions(aiConfig.customFormatActions, "format"))
+				customFormatActions: normalizePersistedCustomActions(
+					JSON.parse(JSON.stringify(aiConfig.customFormatActions ?? [])),
+					"format"
 				),
-				customSplitActions: JSON.parse(
-					JSON.stringify(normalizePersistedCustomActions(aiConfig.customSplitActions, "split"))
+				customSplitActions: normalizePersistedCustomActions(
+					JSON.parse(JSON.stringify(aiConfig.customSplitActions ?? [])),
+					"split"
 				),
 				defaultProvider: normalizeDefaultProvider(aiConfig.defaultProvider),
-				apiKeys: JSON.parse(JSON.stringify(aiConfig.apiKeys || {})),
+				apiKeys: normalizePersistedApiKeys(JSON.parse(JSON.stringify(aiConfig.apiKeys ?? {}))),
 				lastModified: Date.now(),
 				version: 0,
 			});

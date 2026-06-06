@@ -15,7 +15,6 @@ export interface AIAssistantSourceFileMenuNode {
 	children?: AIAssistantSourceFileMenuNode[];
 }
 
-const ROOT_FOLDER_LABEL = "\u6839\u76ee\u5f55";
 const EMPTY_MENU_LABEL = "\u5f53\u524d\u4ed3\u5e93\u91cc\u8fd8\u6ca1\u6709 Markdown \u6587\u4ef6";
 const CURRENT_FILE_LABEL_PREFIX = "\u5f53\u524d\u6587\u4ef6\uff1a";
 const ALL_FILES_LABEL = "\u5168\u90e8 Markdown \u6587\u4ef6";

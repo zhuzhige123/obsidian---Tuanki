@@ -119,13 +119,15 @@ export class PreviewManager {
 				window.clearTimeout(this.debounceTimer);
 			}
 
-			this.debounceTimer = window.setTimeout(async () => {
-				try {
-					const result = await this.performRender(content, container, contentHash);
-					resolve(result);
-				} catch (error) {
-					reject(error);
-				}
+			this.debounceTimer = window.setTimeout(() => {
+				void (async () => {
+					try {
+						const result = await this.performRender(content, container, contentHash);
+						resolve(result);
+					} catch (error) {
+						reject(error instanceof Error ? error : new Error(String(error)));
+					}
+				})();
 			}, this.options.debounceDelay);
 
 			// 注册定时器到资源管理器
@@ -250,7 +252,7 @@ export class PreviewManager {
 				})
 				.catch((error) => {
 					window.clearTimeout(timeoutId);
-					reject(error);
+					reject(error instanceof Error ? error : new Error(String(error)));
 				});
 		});
 	}

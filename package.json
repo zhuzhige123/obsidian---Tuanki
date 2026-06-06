@@ -33,6 +33,8 @@
     "lint:obsidian": "eslint -c eslint.obsidian.config.mjs src --max-warnings 9999",
     "lint:obsidian:community": "eslint -c eslint.community.config.mjs src --max-warnings 99999",
     "lint:obsidian:community:errors": "node scripts/lint-obsidian-community-errors.cjs",
+    "lint:obsidian:disallowed-disables": "node scripts/check-disallowed-disables.cjs",
+    "lint:obsidian:warnings": "node scripts/list-community-warnings.cjs",
     "lint:obsidian:score": "node scripts/lint-obsidian-score.cjs",
     "lint:obsidian:strict": "node scripts/lint-obsidian-strict.cjs",
     "codemod:prefer-active-document": "node scripts/codemods/prefer-active-document.cjs",

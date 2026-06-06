@@ -197,15 +197,17 @@ export function rewriteEpubReferences(
 
 	nextContent = nextContent.replace(
 		SUPPORTED_BOOK_WIKILINK_PATTERN,
-		(fullMatch, filePath: string, hash = "", alias = "") => {
+		(fullMatch, filePath: string, hash?: string, alias?: string) => {
 			const remapped = remapEpubPath(filePath, oldPath, newPath);
 			if (!remapped || remapped === filePath) {
 				return fullMatch;
 			}
-			const rewrittenAlias = rewriteAlias(alias || "", filePath, remapped);
+			const safeHash = typeof hash === "string" ? hash : "";
+			const safeAlias = typeof alias === "string" ? alias : "";
+			const rewrittenAlias = rewriteAlias(safeAlias, filePath, remapped);
 			changed = true;
 			updatedLinks += 1;
-			return `[[${remapped}${hash || ""}${rewrittenAlias}]]`;
+			return `[[${remapped}${safeHash}${rewrittenAlias}]]`;
 		}
 	);
 

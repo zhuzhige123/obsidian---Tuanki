@@ -103,7 +103,9 @@ export class FileScanner {
 					result.files.push(fileInfo);
 					result.stats.totalSize += fileInfo.size;
 				} catch (error) {
-					result.errors.push(`处理文件 ${file.path} 时出错: ${error}`);
+					result.errors.push(
+						`处理文件 ${file.path} 时出错: ${error instanceof Error ? error.message : "Unknown error"}`
+					);
 				}
 			}
 
@@ -114,7 +116,9 @@ export class FileScanner {
 				`📁 [FileScanner] 扫描完成: ${result.stats.totalFiles} 个文件, ${result.stats.totalSize} 字节, 耗时 ${result.stats.scanTime}ms`
 			);
 		} catch (error) {
-			result.errors.push(`扫描过程中出错: ${error}`);
+			result.errors.push(
+				`扫描过程中出错: ${error instanceof Error ? error.message : "Unknown error"}`
+			);
 		}
 
 		return result;

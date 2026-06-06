@@ -2,7 +2,7 @@
  * 复习数据统计工具函数
  */
 
-import type { Card, Rating, ReviewLog } from "../data/types";
+import { Rating, type Card, type ReviewLog } from "../data/types";
 import type { FSRSMetrics, ReviewStatsData } from "../types/view-card-modal-types";
 
 /**
@@ -15,7 +15,7 @@ export function aggregateReviewStats(card: Card): ReviewStatsData {
 	const reviews = card.reviewHistory || [];
 
 	// 计算成功率（Good和Easy的比例）
-	const successfulReviews = reviews.filter((r) => r.rating >= 3).length;
+	const successfulReviews = reviews.filter((r) => r.rating >= Rating.Good).length;
 	const successRate = reviews.length > 0 ? successfulReviews / reviews.length : 0;
 
 	// 计算平均间隔
@@ -53,7 +53,7 @@ export function calculateAverageInterval(reviews: ReviewLog[]): number {
 export function calculateSuccessRate(reviews: ReviewLog[]): number {
 	if (reviews.length === 0) return 0;
 
-	const successfulReviews = reviews.filter((r) => r.rating >= 3).length;
+	const successfulReviews = reviews.filter((r) => r.rating >= Rating.Good).length;
 	return successfulReviews / reviews.length;
 }
 

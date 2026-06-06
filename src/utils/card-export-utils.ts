@@ -124,7 +124,12 @@ export function cardsToCSV(cards: Card[], allDecks: Deck[]): string {
 				const yaml = parseYAMLFromContent(card.content);
 				for (const key of customKeys) {
 					const val = yaml[key];
-					row[key] = val !== undefined && val !== null ? String(val) : "";
+					row[key] =
+						typeof val === "string"
+							? val
+							: typeof val === "number" || typeof val === "boolean"
+								? String(val)
+								: "";
 				}
 			} catch {
 				for (const key of customKeys) {

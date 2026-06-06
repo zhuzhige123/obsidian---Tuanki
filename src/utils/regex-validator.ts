@@ -292,7 +292,7 @@ async function testRegexPerformanceAdvanced(
 						const result = regex.test(testCase.value);
 						resolve(result);
 					} catch (error) {
-						reject(error);
+						reject(error instanceof Error ? error : new Error(String(error)));
 					}
 				});
 
@@ -705,7 +705,7 @@ export function sanitizeRegex(pattern: string): string {
 	cleaned = cleaned.replace(/\(([^|()]*)\)/g, "$1");
 
 	// 移除多余的转义
-	cleaned = cleaned.replace(/\\(.)/g, (match, char) => {
+	cleaned = cleaned.replace(/\\(.)/g, (match: string, char: string) => {
 		const needsEscape = /[.*+?^${}()|[\]\\]/.test(char);
 		return needsEscape ? match : char;
 	});

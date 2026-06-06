@@ -32,12 +32,13 @@ function estimateObjectSize(obj: unknown): number {
 	if (typeof obj === "boolean") return 4;
 
 	if (Array.isArray(obj)) {
-		return obj.reduce((size, item) => size + estimateObjectSize(item), 0);
+		return obj.reduce<number>((size, item) => size + estimateObjectSize(item), 0);
 	}
 
 	if (typeof obj === "object") {
-		return Object.keys(obj).reduce((size, key) => {
-			return size + key.length * 2 + estimateObjectSize(obj[key]);
+		const record = obj as Record<string, unknown>;
+		return Object.keys(record).reduce<number>((size, key) => {
+			return size + key.length * 2 + estimateObjectSize(record[key]);
 		}, 0);
 	}
 

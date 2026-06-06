@@ -101,8 +101,15 @@ export class QueueOptimizationFactory {
 	 */
 	static createFromPluginSettings(pluginSettings: unknown): QueueOptimizationSystem {
 		// 从插件设置中提取队列优化配置
-		const queueSettings = pluginSettings?.queueOptimization;
+		const queueSettings =
+			pluginSettings && typeof pluginSettings === "object"
+				? (pluginSettings as Record<string, unknown>).queueOptimization
+				: undefined;
 
-		return this.create(queueSettings);
+		return this.create(
+			queueSettings && typeof queueSettings === "object"
+				? (queueSettings as Partial<QueueOptimizationSettings>)
+				: undefined
+		);
 	}
 }

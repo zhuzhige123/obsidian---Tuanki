@@ -203,8 +203,8 @@ export function getTabletCapabilities(): {
  * Obsidian移动端API检测
  */
 export function isObsidianMobile(): boolean {
-	// Obsidian移动端会有特定的API
-	return !!(window as unknown).app?.isMobile;
+	const app = (window as Window & { app?: { isMobile?: boolean } }).app;
+	return app?.isMobile === true;
 }
 
 /**

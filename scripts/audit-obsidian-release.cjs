@@ -248,6 +248,18 @@ if (failures.length === 0) {
   }
 }
 
+const disallowedDisables = spawnSync("node", ["scripts/check-disallowed-disables.cjs"], {
+  cwd: root,
+  encoding: "utf8",
+});
+if (disallowedDisables.status !== 0) {
+  failures.push(
+    "Disallowed eslint-disable directives found (run node scripts/check-disallowed-disables.cjs)",
+  );
+  if (disallowedDisables.stdout) notes.push(disallowedDisables.stdout.trim());
+  if (disallowedDisables.stderr) notes.push(disallowedDisables.stderr.trim());
+}
+
 const communityLint = spawnSync("node", ["scripts/lint-obsidian-community-errors.cjs"], {
   cwd: root,
   encoding: "utf8",

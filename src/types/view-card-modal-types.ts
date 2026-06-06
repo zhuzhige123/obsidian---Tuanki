@@ -13,7 +13,7 @@ export type TabId = "info" | "stats" | "curve";
  * 标签页定义
  */
 export interface TabDefinition {
-	id: TabId | string;
+	id: TabId;
 	label: string;
 	icon: string;
 	disabled?: boolean;

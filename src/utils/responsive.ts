@@ -67,12 +67,16 @@ export function getObsidianPlatformInfo(): {
 	isAndroid: boolean;
 	isDesktop: boolean;
 } {
+	const platform = Platform as typeof Platform & {
+		isPhone?: boolean;
+		isTablet?: boolean;
+	};
+
 	return {
 		isMobile: Platform.isMobile,
 		// Platform.isPhone 和 Platform.isTablet 在 Obsidian 1.4.0+ 可用
-		isPhone:
-			(Platform as unknown).isPhone ?? (Platform.isMobile && !((Platform as unknown).isTablet ?? false)),
-		isTablet: (Platform as unknown).isTablet ?? false,
+		isPhone: platform.isPhone ?? (Platform.isMobile && !(platform.isTablet ?? false)),
+		isTablet: platform.isTablet ?? false,
 		isIos: Platform.isIosApp,
 		isAndroid: Platform.isAndroidApp,
 		isDesktop: Platform.isDesktop || Platform.isDesktopApp,

@@ -197,7 +197,7 @@ export class FormatPreprocessor {
 	 * 保护匹配模式的内容
 	 */
 	private preservePattern(content: string, pattern: RegExp, type: PreservedBlock["type"]): string {
-		return content.replace(pattern, (match, offset) => {
+		return content.replace(pattern, (match: string, offset: number) => {
 			const placeholder = `__PRESERVED_${type.toUpperCase()}_${this.placeholderCounter++}__`;
 
 			this.preservedBlocks.push({

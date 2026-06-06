@@ -48,6 +48,15 @@ interface PersistedInboxData {
 	savedAt: string;
 }
 
+function isPersistedInboxData(value: unknown): value is PersistedInboxData {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+
+	const record = value as Record<string, unknown>;
+	return Array.isArray(record.issues);
+}
+
 export class CardQualityInboxService {
 	private plugin: WeavePlugin;
 	private issues: QualityIssue[] = [];
@@ -597,10 +606,13 @@ export class CardQualityInboxService {
 
 			if (await this.plugin.app.vault.adapter.exists(filePath)) {
 				const content = await this.plugin.app.vault.adapter.read(filePath);
-				const data: PersistedInboxData = JSON.parse(content);
+				const parsed: unknown = JSON.parse(content);
+				if (!isPersistedInboxData(parsed)) {
+					return;
+				}
 
-				this.issues = data.issues || [];
-				this.lastScanResult = data.lastScanResult;
+				this.issues = parsed.issues || [];
+				this.lastScanResult = parsed.lastScanResult;
 
 				logger.info(`[CardQualityInbox] 已加载 ${this.issues.length} 个问题`);
 			}

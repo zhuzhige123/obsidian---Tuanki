@@ -1,3 +1,4 @@
+import { CardState } from "../../data/types";
 import { logger } from "../../utils/logger";
 /**
  * 卡片学习实例提供者 V2
@@ -115,7 +116,7 @@ export class CardInstanceProvider {
 		// 到期检查
 		if (onlyDue) {
 			// 新卡片（state=0）不检查到期时间
-			if (card.fsrs.state !== 0) {
+			if (card.fsrs.state !== CardState.New) {
 				const dueTime = this.parseDueTime(card.fsrs.due);
 				if (dueTime > now) {
 					return [];
@@ -143,7 +144,7 @@ export class CardInstanceProvider {
 		// 如果只要到期的，检查是否到期
 		if (onlyDue) {
 			// 新卡片（state=0）不检查到期时间
-			if (card.fsrs.state !== 0) {
+			if (card.fsrs.state !== CardState.New) {
 				const dueTime = this.parseDueTime(card.fsrs.due);
 				if (dueTime > now) {
 					// 未到期

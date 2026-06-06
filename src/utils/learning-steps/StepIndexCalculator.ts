@@ -166,9 +166,11 @@ export class StepIndexCalculator {
 				// 直接毕业
 				return -1;
 
-			default:
-				logger.warn(`[StepIndexCalculator] 未知评分: ${rating}`);
+			default: {
+				const unknownRating = rating as Rating;
+				logger.warn(`[StepIndexCalculator] 未知评分: ${String(unknownRating)}`);
 				return currentStepIndex;
+			}
 		}
 	}
 

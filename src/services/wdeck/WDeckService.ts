@@ -2410,7 +2410,8 @@ export class WDeckService {
 			return false;
 		}
 
-		const message = error instanceof Error ? error.message : error == null ? "" : String(error);
+		const message =
+			error instanceof Error ? error.message : typeof error === "string" ? error : "";
 		return /ENOENT|not found|no such file or directory/i.test(message);
 	}
 

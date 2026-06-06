@@ -386,8 +386,8 @@ export class SystemPerformanceMonitor extends ParsingPerformanceMonitor {
 	 */
 	private setupMemoryMonitoring(): void {
 		this.memoryMonitor = window.setInterval(() => {
-			if ("memory" in performance) {
-				const memory = (performance as unknown).memory;
+			const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+			if (memory) {
 				this.systemMetrics.memoryUsage = memory.usedJSHeapSize / 1024 / 1024; // MB
 			}
 		}, 5000);

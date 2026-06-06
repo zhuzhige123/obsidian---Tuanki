@@ -1,11 +1,11 @@
 # Weave
 
-[中文](#中文文档) | [English](#english-documentation)
+[简体中文](README.zh-CN.md) | [中文](#中文文档) | [English](#english-documentation)
 
 <div align="center">
 
 ![Weave](https://img.shields.io/badge/Obsidian-Weave-8a5cf6?style=for-the-badge)
-![Min Obsidian](https://img.shields.io/badge/Obsidian-1.7.0+-purple?style=for-the-badge)
+![Min Obsidian](https://img.shields.io/badge/Obsidian-1.13.0+-purple?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-GPL--3.0-orange?style=for-the-badge)
 
 **在 Obsidian 中完成「摘录 → 制卡 → 复习 → 测试」的学习闭环**

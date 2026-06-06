@@ -78,7 +78,9 @@ export class RegionParser {
 					result.regions.push(parsedRegion);
 					result.totalCards += parsedRegion.cards.length;
 				} catch (error) {
-					result.errors.push(`解析区间时出错: ${error}`);
+					result.errors.push(
+						`解析区间时出错: ${error instanceof Error ? error.message : "Unknown error"}`
+					);
 				}
 			}
 
@@ -89,7 +91,9 @@ export class RegionParser {
 				`🔍 [RegionParser] 解析完成: ${result.stats.totalRegions} 个区间, ${result.totalCards} 张卡片, 耗时 ${result.stats.parseTime}ms`
 			);
 		} catch (error) {
-			result.errors.push(`解析过程中出错: ${error}`);
+			result.errors.push(
+				`解析过程中出错: ${error instanceof Error ? error.message : "Unknown error"}`
+			);
 		}
 
 		return result;

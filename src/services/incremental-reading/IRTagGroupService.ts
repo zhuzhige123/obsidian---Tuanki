@@ -17,6 +17,7 @@ import { getPluginPaths, getV2PathsFromApp } from "../../config/paths";
 import type {
 	IRAdvancedScheduleSettings,
 	IRChunkFileData,
+	IRSourceFileMeta,
 	IRDocumentGroupMap,
 	IRDocumentGroupMapStore,
 	IRTagGroup,
@@ -1044,10 +1045,10 @@ export class IRTagGroupService {
 		sourceId: string | undefined,
 		newGroupId: string,
 		storageService: {
-			getChunkData: (id: string) => Promise<unknown>;
-			saveChunkData: (data: unknown) => Promise<void>;
-			getSource: (id: string) => Promise<unknown>;
-			saveSource: (data: unknown) => Promise<void>;
+			getChunkData: (id: string) => Promise<IRChunkFileData | null>;
+			saveChunkData: (data: IRChunkFileData) => Promise<void>;
+			getSource: (id: string) => Promise<IRSourceFileMeta | null>;
+			saveSource: (data: IRSourceFileMeta) => Promise<void>;
 			getAllChunkData?: () => Promise<Record<string, IRChunkFileData>>;
 		}
 	): Promise<void> {
@@ -1079,8 +1080,10 @@ export class IRTagGroupService {
 			try {
 				const chunkData = await storageService.getChunkData(chunkId);
 				if (chunkData) {
-					chunkData.meta = chunkData.meta || {};
-					chunkData.meta.tagGroup = newGroupId;
+					chunkData.meta = {
+						...chunkData.meta,
+						tagGroup: newGroupId,
+					};
 					chunkData.updatedAt = Date.now();
 					await storageService.saveChunkData(chunkData);
 					updatedCount = 1;

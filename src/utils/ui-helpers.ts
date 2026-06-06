@@ -182,7 +182,7 @@ export function generateUniqueId(prefix = "id"): string {
  * @returns 克隆后的对象
  */
 export function deepClone<T>(obj: T): T {
-	return JSON.parse(JSON.stringify(obj));
+	return JSON.parse(JSON.stringify(obj)) as T;
 }
 
 /**

@@ -252,9 +252,9 @@ export class QuestionBankMigration {
 		try {
 			logger.debug("[Migration] 更新QuestionBankStorage配置...");
 
-			const questionBankStorage = (this.plugin as unknown).questionBankStorage;
+			const questionBankStorage = this.plugin.questionBankStorage;
 			if (questionBankStorage) {
-				(questionBankStorage).basePath = this.newBasePath;
+				questionBankStorage.basePath = this.newBasePath;
 				logger.debug(`[Migration] QuestionBankStorage basePath updated to: ${this.newBasePath}`);
 			}
 		} catch (error) {
@@ -284,9 +284,9 @@ export class QuestionBankMigration {
 			const allBanks = await this.plugin.questionBankService.getAllBanks();
 
 			// 筛选出缺少 pairedMemoryDeckId 的考试牌组
-			const banksNeedingFix = allBanks.filter((_bank) => {
-				const pairedId = (_bank.metadata as unknown)?.pairedMemoryDeckId;
-				return !pairedId || pairedId === undefined || pairedId === null;
+			const banksNeedingFix = allBanks.filter((bank) => {
+				const pairedId = bank.metadata?.pairedMemoryDeckId;
+				return typeof pairedId !== "string" || pairedId.trim().length === 0;
 			});
 
 			if (banksNeedingFix.length === 0) {

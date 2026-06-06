@@ -65,7 +65,8 @@ export class WDeckView extends ItemView {
 	async setState(state: Record<string, unknown>, result: ViewStateResult): Promise<void> {
 		await super.setState(state, result);
 
-		const incomingPath = String(state?.filePath || state?.file || "").trim();
+		const pathCandidate = state.filePath ?? state.file;
+		const incomingPath = typeof pathCandidate === "string" ? pathCandidate.trim() : "";
 		if (incomingPath) {
 			this.filePath = incomingPath;
 		}

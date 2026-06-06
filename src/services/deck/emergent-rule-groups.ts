@@ -62,7 +62,7 @@ function normalizeNullableNumber(input: unknown): number | null {
 }
 
 function normalizeNullableDate(input: unknown): string | null {
-	const value = String(input || "").trim();
+	const value = typeof input === "string" ? input.trim() : "";
 	if (!value) {
 		return null;
 	}

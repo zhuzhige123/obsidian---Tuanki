@@ -29,6 +29,11 @@ interface DeckStats {
 	memoryRate: number;
 }
 
+interface DeckTreeNode {
+	deck: Deck;
+	children?: DeckTreeNode[];
+}
+
 /**
  * 牌组聚合服务类
  */
@@ -347,10 +352,10 @@ export class DeckAggregationService {
 	 * @param deckTree 牌组树节点数组
 	 * @returns 扁平化的牌组列表
 	 */
-	flattenDeckTree(deckTree: unknown[]): Deck[] {
+	flattenDeckTree(deckTree: DeckTreeNode[]): Deck[] {
 		const result: Deck[] = [];
 
-		const flatten = (nodes: unknown[]) => {
+		const flatten = (nodes: DeckTreeNode[]) => {
 			for (const node of nodes) {
 				result.push(node.deck);
 				if (node.children && node.children.length > 0) {

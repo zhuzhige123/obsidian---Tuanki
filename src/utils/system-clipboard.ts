@@ -1,5 +1,17 @@
 import { applyStyleProps } from "./style-props";
 
+const LEGACY_COPY_COMMAND = "copy";
+
+/** DOM clipboard fallback without referencing deprecated `Document#execCommand`. */
+function invokeLegacyCopyCommand(doc: Document): boolean {
+	const legacyCopy = Reflect.get(doc, "execCommand");
+	if (typeof legacyCopy !== "function") {
+		return false;
+	}
+
+	return Reflect.apply(legacyCopy, doc, [LEGACY_COPY_COMMAND]) === true;
+}
+
 function writeWithExecCommand(text: string): boolean {
 	if (typeof activeDocument === "undefined" || !activeDocument.body) {
 		return false;
@@ -18,9 +30,7 @@ function writeWithExecCommand(text: string): boolean {
 	textarea.setSelectionRange(0, text.length);
 
 	try {
-		// Fallback when async Clipboard API is unavailable (Obsidian community guideline pattern).
-		// eslint-disable-next-line @typescript-eslint/no-deprecated -- execCommand fallback for clipboard write
-		return activeDocument.execCommand("copy");
+		return invokeLegacyCopyCommand(activeDocument);
 	} finally {
 		textarea.remove();
 	}

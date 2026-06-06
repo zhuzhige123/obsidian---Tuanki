@@ -196,8 +196,7 @@ export class MaskRenderer {
 		maskElement.addEventListener("mouseenter", () => {
 			const isVisible = this.maskStates.get(maskId) ?? true;
 			if (isVisible && !maskElement.classList.contains("mask-revealed")) {
-				const currentOpacity =
-					maskElement.style.fillOpacity || maskElement.getAttribute("fill-opacity") || "0.7";
+				const currentOpacity = maskElement.getAttribute("fill-opacity") || "0.7";
 				maskElement.setAttribute("data-hover-backup-opacity", currentOpacity);
 				applyStyleProps(maskElement, {
 					transition: "fill-opacity 150ms ease",

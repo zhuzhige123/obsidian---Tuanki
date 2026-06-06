@@ -669,22 +669,24 @@ export class WeaveView extends ItemView {
 
 				// 继续等待，每秒检查一次
 				if (!this.pendingLoadRetryInterval) {
-					this.pendingLoadRetryInterval = window.setInterval(async () => {
-						if (this.isClosing) {
-							if (this.pendingLoadRetryInterval) {
-								window.clearInterval(this.pendingLoadRetryInterval);
-								this.pendingLoadRetryInterval = null;
+					this.pendingLoadRetryInterval = window.setInterval(() => {
+						void (async () => {
+							if (this.isClosing) {
+								if (this.pendingLoadRetryInterval) {
+									window.clearInterval(this.pendingLoadRetryInterval);
+									this.pendingLoadRetryInterval = null;
+								}
+								return;
 							}
-							return;
-						}
 
-						if (this.plugin.dataStorage) {
-							if (this.pendingLoadRetryInterval) {
-								window.clearInterval(this.pendingLoadRetryInterval);
-								this.pendingLoadRetryInterval = null;
+							if (this.plugin.dataStorage) {
+								if (this.pendingLoadRetryInterval) {
+									window.clearInterval(this.pendingLoadRetryInterval);
+									this.pendingLoadRetryInterval = null;
+								}
+								await this.loadComponentAsync();
 							}
-							await this.loadComponentAsync();
-						}
+						})();
 					}, 1000);
 				}
 

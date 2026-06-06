@@ -126,11 +126,15 @@ function collectVaultTagCounts(app: App): Map<string, number> {
 	for (const markdownFile of listVaultMarkdownFiles(app)) {
 		const cache = metadataCache?.getFileCache?.(markdownFile) ?? null;
 		const tagsInFile = new Set<string>();
-		const frontmatterTags = cache?.frontmatter?.tags;
+		const frontmatterTags =
+			cache?.frontmatter && typeof cache.frontmatter === "object"
+				? (cache.frontmatter as Record<string, unknown>).tags
+				: undefined;
 
 		if (Array.isArray(frontmatterTags)) {
 			frontmatterTags
-				.map((tag) => normalizeTagSuggestionValue(String(tag || "")))
+				.filter((tag): tag is string => typeof tag === "string")
+				.map((tag) => normalizeTagSuggestionValue(tag))
 				.filter(Boolean)
 				.forEach((tag) => tagsInFile.add(tag));
 		} else if (typeof frontmatterTags === "string") {

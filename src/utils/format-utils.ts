@@ -118,7 +118,12 @@ export function formatPercentage(value: number, total: number, decimals = 1): st
 export function truncateText(text: unknown, maxLength: number): string {
 	//  类型安全：确保text是字符串
 	if (text === null || text === undefined) return "";
-	const textStr = typeof text === "string" ? text : String(text);
+	const textStr =
+		typeof text === "string"
+			? text
+			: typeof text === "number" || typeof text === "boolean"
+				? String(text)
+				: "";
 	if (textStr.length <= maxLength) return textStr;
 	return `${textStr.substring(0, maxLength - 3)}...`;
 }

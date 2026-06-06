@@ -18,6 +18,19 @@ import { extractSourcePath } from "../utils/source-path-matcher";
 import { vaultStorage } from "../utils/vault-local-storage";
 import { getCardDeckIds } from "../utils/yaml-utils";
 
+function isFilterStorage(value: unknown): value is FilterStorage {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+
+	const record = value as Record<string, unknown>;
+	return (
+		typeof record.version === "string" &&
+		Array.isArray(record.savedFilters) &&
+		Array.isArray(record.recentFilterIds)
+	);
+}
+
 export class FilterManager {
 	private storage: FilterStorage;
 	private storageKey = "weave-saved-filters";
@@ -582,9 +595,11 @@ export class FilterManager {
 		try {
 			const stored = vaultStorage.getItem(this.storageKey);
 			if (stored) {
-				const parsed = JSON.parse(stored);
-				logger.debug("[FilterManager] 已加载筛选器存储:", parsed.savedFilters.length, "个筛选器");
-				return parsed;
+				const parsed: unknown = JSON.parse(stored);
+				if (isFilterStorage(parsed)) {
+					logger.debug("[FilterManager] 已加载筛选器存储:", parsed.savedFilters.length, "个筛选器");
+					return parsed;
+				}
 			}
 		} catch (error) {
 			logger.error("[FilterManager] 加载筛选器存储失败:", error);

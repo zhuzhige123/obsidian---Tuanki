@@ -4,6 +4,7 @@ import { logger } from "../../utils/logger";
  * 完全替代旧的三位一体模板系统
  */
 
+import type { App } from "obsidian";
 import { CardType } from "../../data/types";
 import { BatchDocumentWriter } from "../../services/BatchDocumentWriter";
 import {
@@ -48,7 +49,7 @@ export class SimplifiedCardParser implements ICardParser {
 	private readonly CACHE_TTL = 5 * 60 * 1000; // 5分钟
 	private cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
-	constructor(settings: SimplifiedParsingSettings, app?: unknown) {
+	constructor(settings: SimplifiedParsingSettings, app?: App) {
 		this.settings = settings;
 
 		// 初始化 LRU 缓存
@@ -850,7 +851,9 @@ export class SimplifiedCardParser implements ICardParser {
 						try {
 							new RegExp(field.pattern, field.flags);
 						} catch (error) {
-							result.errors.push(`字段 ${index + 1} 正则表达式语法错误: ${error}`);
+							result.errors.push(
+								`字段 ${index + 1} 正则表达式语法错误: ${error instanceof Error ? error.message : "Unknown error"}`
+							);
 						}
 					}
 				});

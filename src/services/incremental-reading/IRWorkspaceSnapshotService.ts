@@ -466,12 +466,12 @@ export class IRWorkspaceSnapshotService {
 		for (const chunk of chunks) {
 			if (this.hasIgnoreTagInFile(chunk.filePath, ignoreTagByFile)) continue;
 			const matchedDeckKeys = new Set<string>();
-			for (const identifier of this.normalizeIdentifiers((chunk as unknown).deckIds || [])) {
+			for (const identifier of this.normalizeIdentifiers(chunk.deckIds || [])) {
 				for (const deckKey of deckKeysByIdentifier.get(identifier) || []) {
 					matchedDeckKeys.add(deckKey);
 				}
 			}
-			const deckTag = String((chunk as unknown).deckTag || "").trim();
+			const deckTag = String(chunk.deckTag || "").trim();
 			if (deckTag && deckKeysByTag.has(deckTag)) {
 				matchedDeckKeys.add(deckKeysByTag.get(deckTag)!);
 			}
@@ -523,7 +523,10 @@ export class IRWorkspaceSnapshotService {
 		if (file instanceof TFile) {
 			const fileCache = this.app.metadataCache.getFileCache(file);
 			const inlineTags = fileCache?.tags?.map((tag) => String(tag.tag || "").replace(/^#/, "").toLowerCase()) || [];
-			const frontmatterTagsRaw = (fileCache?.frontmatter as unknown)?.tags;
+			const frontmatterTagsRaw =
+				fileCache?.frontmatter && typeof fileCache.frontmatter === "object"
+					? (fileCache.frontmatter as Record<string, unknown>).tags
+					: undefined;
 			const frontmatterTags = Array.isArray(frontmatterTagsRaw)
 				? frontmatterTagsRaw.map((tag) => String(tag || "").trim().toLowerCase())
 				: typeof frontmatterTagsRaw === "string"

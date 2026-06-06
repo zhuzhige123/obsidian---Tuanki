@@ -189,12 +189,21 @@ export class EpubLinkService {
 			if (!compressed) {
 				return null;
 			}
-			const decompressed = inflateRaw(compressed);
-			const payload = JSON.parse(
-				new TextDecoder().decode(
-					decompressed instanceof Uint8Array ? decompressed : Uint8Array.from(decompressed)
-				)
-			) as unknown;
+			const decompressed: unknown = (inflateRaw as (data: Uint8Array) => Uint8Array)(compressed);
+			const bytes =
+				decompressed instanceof Uint8Array
+					? decompressed
+					: decompressed instanceof ArrayBuffer
+						? new Uint8Array(decompressed)
+						: Array.isArray(decompressed)
+							? Uint8Array.from(
+									decompressed.filter((byte): byte is number => typeof byte === "number")
+								)
+							: null;
+			if (!bytes) {
+				return null;
+			}
+			const payload: unknown = JSON.parse(new TextDecoder().decode(bytes));
 			if (!Array.isArray(payload) || typeof payload[0] !== "string") {
 				return null;
 			}

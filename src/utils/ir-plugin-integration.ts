@@ -1,6 +1,7 @@
 import { Notice } from "obsidian";
 import type { App } from "obsidian";
 import { t } from "./i18n";
+import { getPluginInstance } from "./plugin-runtime";
 
 /** 独立增量阅读插件 ID（与 `ir-runtime.ts` standalone 构建一致） */
 export const INCREMENTAL_READING_PLUGIN_ID = "weave-incremental-reading";
@@ -15,7 +16,7 @@ const SPLIT_PLUGIN_IR_CHECK_PREFIX = "ir_";
 const SPLIT_PLUGIN_EPUB_CHECK_PREFIX = "epub_";
 
 function getInstalledPlugin(app: App, pluginId: string): unknown {
-	return app.plugins?.getPlugin?.(pluginId) ?? null;
+	return getPluginInstance(app, pluginId) ?? null;
 }
 
 function getPluginManifest(app: App, pluginId: string): unknown {

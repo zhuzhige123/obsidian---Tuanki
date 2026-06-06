@@ -137,21 +137,27 @@ export class ProgressModal extends Modal {
 		}));
 	}
 
-	async onClose() {
+	onClose(): void {
 		// 如果操作仍在进行，阻止关闭（回滚）
 		if (!this.allowClose) {
 			// Modal 已经执行了 close，无法阻止；标记取消
 			this.cancelled = true;
 		}
 
-		if (this.modalComponent) {
-			try {
-				const { unmount } = await import("svelte");
-				void unmount(this.modalComponent as never);
-				this.modalComponent = null;
-			} catch (error) {
-				logger.error("[ProgressModal] 销毁组件失败:", error);
-			}
+		void this.destroyModalComponent();
+	}
+
+	private async destroyModalComponent(): Promise<void> {
+		if (!this.modalComponent) {
+			return;
+		}
+
+		try {
+			const { unmount } = await import("svelte");
+			void unmount(this.modalComponent as never);
+			this.modalComponent = null;
+		} catch (error) {
+			logger.error("[ProgressModal] 销毁组件失败:", error);
 		}
 	}
 

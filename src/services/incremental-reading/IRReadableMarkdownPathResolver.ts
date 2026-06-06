@@ -29,6 +29,13 @@ function readVaultConfigValue(app: App, key: string): unknown {
 	}
 }
 
+function readVaultConfigString(app: App, key: string): string {
+	const value = readVaultConfigValue(app, key);
+	if (typeof value === "string") return value;
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	return "";
+}
+
 function getParentFolder(path: string): string {
 	const normalizedPath = normalizePath(path);
 	const lastSlash = normalizedPath.lastIndexOf("/");
@@ -115,17 +122,15 @@ export function resolveObsidianDefaultNewNoteFolder(
 		allowActiveFileFallback?: boolean;
 	} = {}
 ): string | null {
-	const locationValue = String(
-		readVaultConfigValue(app, "newFileLocation") ??
-			readVaultConfigValue(app, "newFileDestination") ??
-			""
+	const locationValue = (
+		readVaultConfigString(app, "newFileLocation") ||
+		readVaultConfigString(app, "newFileDestination")
 	)
 		.trim()
 		.toLowerCase();
-	const configuredFolderPath = String(
-		readVaultConfigValue(app, "newFileFolderPath") ??
-			readVaultConfigValue(app, "newFileFolder") ??
-			""
+	const configuredFolderPath = (
+		readVaultConfigString(app, "newFileFolderPath") ||
+		readVaultConfigString(app, "newFileFolder")
 	).trim();
 	const contextFolder =
 		resolveContextFolder(app, options.contextPath) ||

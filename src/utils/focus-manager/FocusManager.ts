@@ -116,7 +116,10 @@ export class FocusManager implements IFocusManager {
 			this.requestCoalescer.setDebugMode(config.enableDebugMode);
 			this.focusTrapManager.setDebugMode(config.enableDebugMode);
 			this.keyboardMonitor?.setDebugMode(config.enableDebugMode);
-			(this.strategy as unknown).setDebugMode?.(config.enableDebugMode);
+			const setDebugMode: unknown = Reflect.get(this.strategy as object, "setDebugMode");
+			if (typeof setDebugMode === "function") {
+				(setDebugMode as (enabled: boolean) => void).call(this.strategy, config.enableDebugMode);
+			}
 		}
 
 		// 自动恢复配置变化
@@ -181,21 +184,23 @@ export class FocusManager implements IFocusManager {
 
 		// 使用请求合并器延迟执行
 		return new Promise((resolve) => {
-			this.requestCoalescer.schedule(async () => {
-				const success = await this.strategy.restore(record);
+			this.requestCoalescer.schedule(() => {
+				void (async () => {
+					const success = await this.strategy.restore(record);
 
-				// 如果恢复失败且有 fallback，尝试使用 fallback
-				if (!success && fallback) {
-					try {
-						fallback.focus();
-						resolve(true);
-						return;
-					} catch {
-						// ignore
+					// 如果恢复失败且有 fallback，尝试使用 fallback
+					if (!success && fallback) {
+						try {
+							fallback.focus();
+							resolve(true);
+							return;
+						} catch {
+							// ignore
+						}
 					}
-				}
 
-				resolve(success);
+					resolve(success);
+				})();
 			}, "restore-focus");
 		});
 	}

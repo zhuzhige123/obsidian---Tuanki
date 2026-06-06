@@ -141,7 +141,13 @@ export function detectCardQuestionType(card: Card): UnifiedCardType {
 		const officialTemplate = getOfficialTemplateById(card.templateId);
 		if (officialTemplate) {
 			// 官方模板可能有 cardType 字段指示题型
-			const cardType = (officialTemplate as unknown).cardType;
+			const cardType =
+				typeof officialTemplate === "object" &&
+				officialTemplate !== null &&
+				"cardType" in officialTemplate &&
+				typeof (officialTemplate as { cardType?: unknown }).cardType === "string"
+					? (officialTemplate as { cardType: string }).cardType
+					: undefined;
 			if (cardType) {
 				const mapping = CARD_TYPE_MAPPINGS.find((m) => m.from === cardType);
 				if (mapping) {

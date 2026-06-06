@@ -20,6 +20,14 @@ interface MediaByHashIndex {
 	[hash: string]: string; // mediaId
 }
 
+function isCardBySourceIndex(value: unknown): value is CardBySourceIndex {
+	return typeof value === "object" && value !== null;
+}
+
+function isMediaByHashIndex(value: unknown): value is MediaByHashIndex {
+	return typeof value === "object" && value !== null;
+}
+
 /**
  * 索引管理服务
  *
@@ -296,7 +304,8 @@ export class IndexManagerService {
 			const cardBySourceContent = await this.plugin.app.vault.adapter.read(
 				`${this.basePath}/card-by-source.json`
 			);
-			this.cardBySourceIndex = JSON.parse(cardBySourceContent);
+			const parsedCardIndex: unknown = JSON.parse(cardBySourceContent);
+			this.cardBySourceIndex = isCardBySourceIndex(parsedCardIndex) ? parsedCardIndex : {};
 			logger.debug(
 				`Loaded card-by-source index (${Object.keys(this.cardBySourceIndex).length} files)`
 			);
@@ -310,7 +319,8 @@ export class IndexManagerService {
 			const mediaByHashContent = await this.plugin.app.vault.adapter.read(
 				`${this.basePath}/media-by-hash.json`
 			);
-			this.mediaByHashIndex = JSON.parse(mediaByHashContent);
+			const parsedMediaIndex: unknown = JSON.parse(mediaByHashContent);
+			this.mediaByHashIndex = isMediaByHashIndex(parsedMediaIndex) ? parsedMediaIndex : {};
 			logger.debug(
 				`Loaded media-by-hash index (${Object.keys(this.mediaByHashIndex).length} files)`
 			);

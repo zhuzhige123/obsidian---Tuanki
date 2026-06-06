@@ -62,7 +62,7 @@ export function normalizeClozeNumbers(content: string): ClozeNormalizationResult
 	originalCount = Array.from(originalMatches).length;
 
 	// 规范化处理
-	const normalized = content.replace(/\{\{c(\d*)::/g, (match, num) => {
+	const normalized = content.replace(/\{\{c(\d*)::/g, (match, num: string) => {
 		if (!num || num === "") {
 			// 无序号的挖空
 			issues.push(`第${counter}个挖空无序号，已自动分配为 c${counter}`);

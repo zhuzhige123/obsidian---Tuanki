@@ -3,7 +3,7 @@
  * 用于根据时间条件筛选卡片
  */
 
-import type { Card } from "../data/types";
+import { CardState, type Card } from "../data/types";
 import type { TimeFilterType } from "../types/time-filter-types";
 
 /**
@@ -79,7 +79,7 @@ function isReviewedToday(card: Card): boolean {
  * FSRS state: 0=New, 1=Learning, 2=Review, 3=Relearning
  */
 function isFirstReview(card: Card): boolean {
-	return card.fsrs?.state === 1; // Learning state
+	return card.fsrs?.state === CardState.Learning;
 }
 
 /**
@@ -87,7 +87,7 @@ function isFirstReview(card: Card): boolean {
  */
 function isRetryToday(card: Card): boolean {
 	// 检查是否为Relearning状态
-	if (card.fsrs?.state !== 3) return false;
+	if (card.fsrs?.state !== CardState.Relearning) return false;
 
 	// 检查最后一次复习是否在今天
 	return isReviewedToday(card);

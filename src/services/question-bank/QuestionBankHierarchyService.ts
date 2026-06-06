@@ -200,7 +200,7 @@ export class QuestionBankHierarchyService {
 
 		// 更新路径
 		if (questionBank.parentId) {
-			const parentBank = await this.questionBankService.getBankById(questionBank.parentId);
+			const parentBank = this.questionBankService.getBankById(questionBank.parentId);
 			if (parentBank) {
 				questionBank.path = `${parentBank.path}::${questionBank.name}`;
 			}

@@ -96,7 +96,7 @@ export interface AIAssistantSavedGenerationConfig {
 export type AIAssistantSubView = "generate" | "parse-preview";
 
 export interface AIAssistantLocalPreferences {
-	lastUsedProvider?: AIProvider | string;
+	lastUsedProvider?: AIProvider;
 	lastUsedModel?: string;
 	savedGenerationConfig?: AIAssistantSavedGenerationConfig;
 	importAutoTags?: string[];
