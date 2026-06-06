@@ -373,15 +373,17 @@ logger.info('[兄弟分散设置] 配置已保存:', siblingConfig);
   .setting-label {
     font-weight: 500;
     color: var(--text-normal);
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
+    line-height: 1.4;
     display: flex;
     align-items: center;
     gap: 8px;
   }
 
   .setting-description {
-    font-size: 12px;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     color: var(--text-muted);
-    line-height: 1.4;
+    line-height: 1.55;
   }
 
   /* ===== 控制元素 ===== */

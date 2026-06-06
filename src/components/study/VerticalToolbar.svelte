@@ -9,9 +9,11 @@
   import FloatingMenu from "../ui/FloatingMenu.svelte";
   import ObsidianDropdown from "../ui/ObsidianDropdown.svelte";
   import ObsidianIcon from "../ui/ObsidianIcon.svelte";
+  import RatingLabelStyleSettingDropdown from "./RatingLabelStyleSettingDropdown.svelte";
   import {
-    getRatingLabelStyleOptions,
+    DEFAULT_RATING_LABEL_STYLE,
     normalizeRatingLabelStyle,
+    shouldShowRatingIntervalOnButtons,
     type RatingLabelStyle
   } from "./rating-label-style";
   import type { ChoiceOptionOrder } from '../../utils/study/choiceOptionOrder';
@@ -87,8 +89,6 @@
     isPremium?: boolean;
     timerAutoPauseSeconds?: number;
     onTimerAutoPauseChange?: (seconds: number) => void;
-    hintMaxUses?: number;
-    onHintMaxUsesChange?: (value: number) => void;
     onPanelOpen?: () => void;
   }
 
@@ -135,9 +135,9 @@
     onCardOrderChange,
     choiceOptionOrder = 'sequential',
     onChoiceOptionOrderChange,
-    ratingLabelStyle = 'classic',
+    ratingLabelStyle = DEFAULT_RATING_LABEL_STYLE,
     onRatingLabelStyleChange,
-    showRatingIntervalOnButtons = false,
+    showRatingIntervalOnButtons = shouldShowRatingIntervalOnButtons(DEFAULT_RATING_LABEL_STYLE),
     onRatingIntervalButtonsToggle,
     // 图谱联动
     isGraphLinked = false,
@@ -147,14 +147,11 @@
     isPremium = false,
     timerAutoPauseSeconds = 60,
     onTimerAutoPauseChange,
-    hintMaxUses = 5,
-    onHintMaxUsesChange,
     onPanelOpen,
   }: Props = $props();
 
   //  响应式翻译函数
   let t = $derived($tr);
-  let ratingLabelStyleOptions = $derived(getRatingLabelStyleOptions(t));
   let normalizedRatingLabelStyle = $derived(normalizeRatingLabelStyle(ratingLabelStyle));
 	let currentLocale = $derived($currentLanguage === 'zh-CN' ? 'zh-CN' : 'en-US');
 
@@ -162,17 +159,11 @@
     return getDerivationMethodName(method, (key) => t(key));
   }
 
-  // 格式化学习时间
   function formatTime(ms: number): string {
     const totalSeconds = Math.floor(ms / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-  }
-
-  // 格式化提示次数
-  function formatHintMaxUsesLabel(value: number): string {
-    return t('study.menu.settings.hintMaxUses.value', { count: value });
   }
 
   // 格式化播放间隔
@@ -957,13 +948,11 @@
 <div class="weave-vertical-toolbar vertical-toolbar" class:compact={compactMode}>
   <!-- 计时器区域（始终显示） -->
   <div class="toolbar-section timer-section">
-    <!-- 当前卡片计时 -->
     <div class="timer-display card-timer">
       <span class="timer-text">{formatTime(currentCardTime)}</span>
       <div class="timer-label" title={t('toolbar.currentCard')}>{t('toolbar.currentCard')}</div>
     </div>
 
-    <!-- 平均用时 -->
     <div class="timer-display avg-timer">
       <span class="timer-text">{formatTime(averageTime)}</span>
       <div class="timer-label" title={t('toolbar.avgTime')}>{t('toolbar.avgTime')}</div>
@@ -1546,33 +1535,17 @@
               </div>
             </div>
 
-              <div class="setting-section">
-                <div class="setting-item">
-                  <div class="setting-label">{t('studyInterface.ratingLabelStyle.label')}</div>
-                  <ObsidianDropdown
-                    className="setting-select"
-                  options={ratingLabelStyleOptions}
-                  value={normalizedRatingLabelStyle}
-                  onchange={(value) => onRatingLabelStyleChange?.(normalizeRatingLabelStyle(value))}
-                  />
-                </div>
+            <div class="setting-section">
+              <div class="setting-item">
+                <div class="setting-label">{t('study.menu.settings.ratingLabelStyle')}</div>
+                <RatingLabelStyleSettingDropdown
+                  className="setting-select"
+                  style={normalizedRatingLabelStyle}
+                  translate={t}
+                  onStyleChange={(value) => onRatingLabelStyleChange?.(normalizeRatingLabelStyle(value))}
+                />
               </div>
-
-              <div class="setting-section">
-                <div class="setting-item toggle-item">
-                  <div class="setting-label">
-                    <span>{t('study.menu.settings.showRatingIntervalOnButtons')}</span>
-                  </div>
-                  <label class="toggle-switch">
-                    <input
-                      type="checkbox"
-                      checked={showRatingIntervalOnButtons}
-                      onchange={(e) => onRatingIntervalButtonsToggle?.((e.target as HTMLInputElement).checked)}
-                    />
-                    <span class="slider"></span>
-                  </label>
-                </div>
-              </div>
+            </div>
 
               <div class="setting-section">
                 <div class="setting-item interval-item">
@@ -1588,24 +1561,6 @@
                   step="30"
                   value={timerAutoPauseSeconds}
                   oninput={(e) => onTimerAutoPauseChange?.(parseInt((e.target as HTMLInputElement).value))}
-                />
-              </div>
-            </div>
-
-            <div class="setting-section">
-              <div class="setting-item interval-item">
-                <div class="setting-label">
-                  {t('study.menu.settings.hintMaxUses.label')}
-                  <span class="interval-value">{hintMaxUses}</span>
-                </div>
-                <input
-                  type="range"
-                  class="setting-slider"
-                  min="1"
-                  max="20"
-                  step="1"
-                  value={hintMaxUses}
-                  oninput={(e) => onHintMaxUsesChange?.(parseInt((e.target as HTMLInputElement).value))}
                 />
               </div>
             </div>
@@ -1699,7 +1654,6 @@
     gap: 1rem;
   }
 
-  /* 计时器区域 */
   .timer-section {
     width: 100%;
     box-sizing: border-box;
@@ -1749,7 +1703,6 @@
     text-overflow: ellipsis;
   }
 
-  /* 单卡计时器样式 */
   .card-timer {
     border-color: var(--color-accent);
     background: color-mix(in srgb, var(--color-accent) 5%, var(--background-primary));
@@ -1759,7 +1712,6 @@
     color: var(--color-accent);
   }
 
-  /* 平均用时样式 */
   .avg-timer {
     border-color: var(--text-success);
     background: color-mix(in srgb, var(--text-success) 5%, var(--background-primary));
@@ -1768,7 +1720,6 @@
   .avg-timer .timer-text {
     color: var(--text-success);
   }
-
 
   /* 功能按钮 */
   .actions-section {
@@ -1875,7 +1826,6 @@
     margin-top: 0.25rem;
   }
 
-  /* 紧凑模式下计时器也缩小 */
   .vertical-toolbar.compact .timer-display {
     width: 100%;
     min-width: 0;
@@ -1911,6 +1861,19 @@
     .timer-label {
       font-size: 0.5rem;
       letter-spacing: 0.1px;
+    }
+  }
+
+  .timer-display {
+    animation: subtle-pulse 3s ease-in-out infinite;
+  }
+
+  @keyframes subtle-pulse {
+    0%, 100% {
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    50% {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
   }
 
@@ -1954,32 +1917,6 @@
 
   /* 桌面端不进行布局重排，工具栏始终保持垂直方向 */
   /* 移动端布局由 :global(body.is-phone) 控制 */
-
-  /* 微妙的动画效果 */
-  .timer-display {
-    animation: subtle-pulse 3s ease-in-out infinite;
-  }
-
-  @keyframes subtle-pulse {
-    0%, 100% {
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    50% {
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-  }
-
-  /*  计时器淡出动画 */
-  @keyframes fadeOutTimer {
-    from {
-      opacity: 1;
-      transform: translateY(0);
-    }
-    to {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-  }
 
   /* FloatingMenu 容器样式 */
   :global(.deck-menu-container),
@@ -2414,6 +2351,13 @@
     padding-bottom: 4px;
   }
 
+  .more-settings-menu-content .setting-item,
+  .more-settings-menu-content .suspend-item {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+    background: color-mix(in srgb, var(--background-secondary) 40%, var(--background-primary));
+  }
+
   .setting-item {
     display: flex;
     justify-content: space-between;
@@ -2425,10 +2369,17 @@
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .setting-item:hover {
+  .more-settings-menu-content .setting-item:hover,
+  .more-settings-menu-content .suspend-item:hover {
     background: var(--background-modifier-hover);
     border-color: color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border));
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  }
+
+  .more-settings-menu-content :global(.obsidian-dropdown-trigger.appearance-field) {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+    background: color-mix(in srgb, var(--background-secondary) 25%, var(--background-modifier-form-field));
   }
 
   .setting-item.toggle-item {

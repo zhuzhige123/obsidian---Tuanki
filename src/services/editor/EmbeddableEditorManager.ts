@@ -15,10 +15,17 @@ import { DetachedLeafEditor } from "./DetachedLeafEditor";
  * 编辑会话信息
  */
 interface EditorSession {
+	sessionId: string;
 	editor: DetachedLeafEditor | null;
 	card: Card;
 	container: HTMLElement | null;
 	sourcePath?: string; // 显式指定的源路径（用于解析相对资源）
+	editorFilePath?: string;
+}
+
+export interface EmbeddableEditorSessionLookup {
+	sessionId: string;
+	card: Card;
 }
 
 /**
@@ -27,6 +34,7 @@ interface EditorSession {
 export class EmbeddableEditorManager {
 	private app: App;
 	private sessions: Map<string, EditorSession> = new Map();
+	private editorFilePathToSessionId = new Map<string, string>();
 
 	// 学习会话专用ID（固定标识符，用于学习界面的编辑器复用）
 	private readonly STUDY_SESSION_CARD_ID = "weave-study-session-editor";
@@ -99,6 +107,7 @@ export class EmbeddableEditorManager {
 
 			// 保存会话信息（编辑器稍后创建）
 			this.sessions.set(sessionId, {
+				sessionId,
 				editor: null,
 				card: { ...card },
 				container: null,
@@ -181,6 +190,12 @@ export class EmbeddableEditorManager {
 
 			// 手动加载组件 (DetachedLeafEditor extends Component)
 			editor.load();
+			await editor.whenReady();
+			const editorFilePath = editor.getTempFilePath();
+			if (editorFilePath) {
+				session.editorFilePath = editorFilePath;
+				this.editorFilePathToSessionId.set(editorFilePath, sessionId);
+			}
 
 			// 保存编辑器实例
 			session.editor = editor;
@@ -191,6 +206,10 @@ export class EmbeddableEditorManager {
 				success: true,
 				cleanup: () => {
 					logger.debug("[EmbeddableEditorManager] 清理编辑器:", sessionId);
+					if (session.editorFilePath) {
+						this.editorFilePathToSessionId.delete(session.editorFilePath);
+						session.editorFilePath = undefined;
+					}
 					if (session.editor) {
 						session.editor.destroy();
 						session.editor = null;
@@ -290,11 +309,37 @@ export class EmbeddableEditorManager {
 
 		const session = this.sessions.get(sessionId);
 		if (session) {
+			if (session.editorFilePath) {
+				this.editorFilePathToSessionId.delete(session.editorFilePath);
+			}
 			if (session.editor) {
 				session.editor.destroy();
 			}
 			this.sessions.delete(sessionId);
 		}
+	}
+
+	getSessionByEditorFilePath(filePath: string): EmbeddableEditorSessionLookup | null {
+		const normalized = String(filePath || "").trim();
+		if (!normalized) {
+			return null;
+		}
+
+		const sessionId = this.editorFilePathToSessionId.get(normalized);
+		if (!sessionId) {
+			return null;
+		}
+
+		const session = this.sessions.get(sessionId);
+		if (!session) {
+			this.editorFilePathToSessionId.delete(normalized);
+			return null;
+		}
+
+		return {
+			sessionId: session.sessionId,
+			card: session.card,
+		};
 	}
 
 	/**
@@ -410,6 +455,7 @@ export class EmbeddableEditorManager {
 			}
 		}
 
+		this.editorFilePathToSessionId.clear();
 		this.sessions.clear();
 	}
 }

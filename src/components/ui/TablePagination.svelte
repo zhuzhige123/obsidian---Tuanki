@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Menu, Platform } from "obsidian";
   import { tr } from "../../utils/i18n";
-  import ObsidianDropdown from "./ObsidianDropdown.svelte";
+  import ObsidianIcon from "./ObsidianIcon.svelte";
 
   interface Props {
     currentPage: number;
@@ -22,9 +22,9 @@
   let t = $derived($tr);
 
   const isMobile = Platform.isMobile;
-  const pageSizes = [20, 50, 100, 200, 500];
+  const pageSizes = [20, 25, 50, 100, 200, 500];
 
-  let totalPages = $derived(Math.ceil(totalItems / itemsPerPage));
+  let totalPages = $derived(Math.max(1, Math.ceil(totalItems / itemsPerPage)));
   let isTransitioning = $state(false);
 
   function goToPage(page: number) {
@@ -42,12 +42,13 @@
 
     pageSizes.forEach((size) => {
       menu.addItem((item) => {
-        item
-          .setTitle(`${size} per page`)
-          .setIcon(size === itemsPerPage ? 'check' : 'list')
-          .onClick(() => {
-            onItemsPerPageChange(size);
-          });
+        item.setTitle(String(size));
+        if (size === itemsPerPage) {
+          item.setIcon("check");
+        }
+        item.onClick(() => {
+          onItemsPerPageChange(size);
+        });
       });
     });
 
@@ -56,203 +57,210 @@
 
 </script>
 
-<div class="table-pagination" class:transitioning={isTransitioning} class:mobile={isMobile}>
-  {#if isMobile}
-    <div class="mobile-pagination-row">
+<div
+  class="table-pagination weave-bottom-toolbar"
+  class:transitioning={isTransitioning}
+  class:mobile={isMobile}
+>
+  <div class="toolbar-row">
+    <div class="toolbar-group toolbar-group--start">
       <button
-        class="mobile-page-size-btn"
-        onclick={showPageSizeMenu}
         type="button"
-        aria-label="Items per page"
+        class="weave-toolbar-tab"
+        onclick={showPageSizeMenu}
+        aria-label={t("ui.pagination.itemsPerPage")}
       >
-        {itemsPerPage}
+        <span class="weave-toolbar-tab-label">{itemsPerPage}</span>
+        <ObsidianIcon name="chevron-down" size={12} class="weave-toolbar-tab-icon" />
       </button>
-
-      <div class="mobile-pagination-controls">
-        <button onclick={() => goToPage(1)} disabled={currentPage === 1} class="mobile-nav-btn" aria-label="First page">&laquo;</button>
-        <button onclick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} class="mobile-nav-btn" aria-label="Previous page">&lsaquo;</button>
-        <span class="mobile-page-info">{currentPage}/{totalPages}</span>
-        <button onclick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages} class="mobile-nav-btn" aria-label="Next page">&rsaquo;</button>
-        <button onclick={() => goToPage(totalPages)} disabled={currentPage === totalPages} class="mobile-nav-btn" aria-label="Last page">&raquo;</button>
-      </div>
-
-      <span class="mobile-total">{totalItems}</span>
     </div>
-  {:else}
-    <div class="desktop-pagination-row">
-      <div class="items-per-page">
-        <ObsidianDropdown
-          options={pageSizes.map((size) => ({ id: String(size), label: String(size) }))}
-          value={String(itemsPerPage)}
-          onchange={(value) => onItemsPerPageChange(parseInt(value, 10))}
-        />
-      </div>
-      <div class="pagination-controls">
-        <button onclick={() => goToPage(1)} disabled={currentPage === 1} title={t('ui.pagination.previous')}>&laquo;</button>
-        <button onclick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} title={t('ui.pagination.previous')}>&lsaquo;</button>
-        <span class="page-info">
-          {t('ui.pagination.page').replace('{n}', `${currentPage}/${totalPages}`)}
-        </span>
-        <button onclick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages} title={t('ui.pagination.next')}>&rsaquo;</button>
-        <button onclick={() => goToPage(totalPages)} disabled={currentPage === totalPages} title={t('ui.pagination.next')}>&raquo;</button>
-      </div>
-      <div class="total-items">
-        {t('ui.pagination.total').replace('{n}', String(totalItems))}
-      </div>
+
+    <div class="toolbar-group toolbar-group--center">
+      <button
+        type="button"
+        class="weave-toolbar-tab"
+        disabled={currentPage === 1}
+        onclick={() => goToPage(1)}
+        title={t("ui.pagination.first")}
+        aria-label={t("ui.pagination.first")}
+      >
+        &laquo;
+      </button>
+      <button
+        type="button"
+        class="weave-toolbar-tab"
+        disabled={currentPage === 1}
+        onclick={() => goToPage(currentPage - 1)}
+        title={t("ui.pagination.previous")}
+        aria-label={t("ui.pagination.previous")}
+      >
+        &lsaquo;
+      </button>
+      <span class="weave-toolbar-tab weave-toolbar-tab--static">
+        {t("ui.pagination.page").replace("{n}", `${currentPage}/${totalPages}`)}
+      </span>
+      <button
+        type="button"
+        class="weave-toolbar-tab"
+        disabled={currentPage === totalPages}
+        onclick={() => goToPage(currentPage + 1)}
+        title={t("ui.pagination.next")}
+        aria-label={t("ui.pagination.next")}
+      >
+        &rsaquo;
+      </button>
+      <button
+        type="button"
+        class="weave-toolbar-tab"
+        disabled={currentPage === totalPages}
+        onclick={() => goToPage(totalPages)}
+        title={t("ui.pagination.last")}
+        aria-label={t("ui.pagination.last")}
+      >
+        &raquo;
+      </button>
     </div>
-  {/if}
+
+    <div class="toolbar-group toolbar-group--end">
+      <span class="weave-toolbar-tab weave-toolbar-tab--static weave-toolbar-tab--meta">
+        {t("ui.pagination.total").replace("{n}", String(totalItems))}
+      </span>
+    </div>
+  </div>
 </div>
 
 <style>
   .table-pagination {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 10px;
-    padding: 0.75rem 1rem;
+    flex-shrink: 0;
+    padding: 0.5rem 0.75rem;
     background: transparent;
-    font-size: 0.875rem;
+    font-size: var(--font-ui-small);
     color: var(--text-muted);
   }
 
   .table-pagination.mobile {
-    padding: 10px 12px;
-    background: transparent;
+    padding: 0.5rem 0.625rem;
   }
 
-  .mobile-pagination-row,
-  .desktop-pagination-row {
+  .toolbar-row {
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 100%;
-  }
-
-  .mobile-pagination-row {
-    gap: 8px;
-  }
-
-  .desktop-pagination-row {
     justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+    min-width: 0;
   }
 
-  .mobile-page-size-btn {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    padding: 6px 8px;
-    font-size: 12px;
-    cursor: pointer;
-    min-width: 32px;
-    min-height: 28px;
-    border-radius: 4px;
-  }
-
-  .mobile-page-size-btn:active {
-    background: var(--background-modifier-hover);
-  }
-
-  .mobile-pagination-controls,
-  .items-per-page,
-  .pagination-controls {
+  .toolbar-group {
     display: flex;
     align-items: center;
+    gap: 0.125rem;
+    min-width: 0;
   }
 
-  .mobile-pagination-controls {
-    gap: 4px;
+  .toolbar-group .weave-toolbar-tab + .weave-toolbar-tab {
+    margin-left: 0;
   }
 
-  .mobile-nav-btn {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 6px 10px;
-    min-width: 32px;
-    min-height: 28px;
-    font-size: 16px;
-    display: flex;
+  .toolbar-group--center {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .toolbar-group--end {
+    flex-shrink: 0;
+    justify-content: flex-end;
+  }
+
+  /* 类 VS Code 底栏：纯文本片段，无边框无阴影 */
+  .weave-toolbar-tab {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
+    gap: 0.25rem;
+    min-height: var(--clickable-icon-size, 28px);
+    padding: 0.25rem 0.5rem;
+    margin: 0;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    background: transparent;
+    background-image: none;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
+    color: var(--text-muted);
+    font-family: var(--font-interface);
+    font-size: var(--font-ui-small);
+    font-weight: var(--font-normal);
+    line-height: 1.2;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: color 0.15s ease, background-color 0.15s ease;
   }
 
-  .mobile-nav-btn:active:not(:disabled) {
+  .weave-toolbar-tab:hover:not(:disabled):not(.weave-toolbar-tab--static) {
+    color: var(--text-normal);
     background: var(--background-modifier-hover);
+    border: none;
+    box-shadow: none;
   }
 
-  .mobile-nav-btn:disabled {
-    opacity: 0.3;
+  .weave-toolbar-tab:active:not(:disabled):not(.weave-toolbar-tab--static) {
+    color: var(--text-normal);
+    background: var(--background-modifier-active-hover);
+    transform: none;
+    opacity: 1;
+    border: none;
+    box-shadow: none;
+  }
+
+  .weave-toolbar-tab:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+  }
+
+  .weave-toolbar-tab:disabled {
+    opacity: 0.35;
     cursor: not-allowed;
   }
 
-  .mobile-page-info {
-    font-size: 13px;
-    color: var(--text-muted);
-    padding: 0 8px;
-    min-width: 50px;
-    text-align: center;
-  }
-
-  .mobile-total {
-    font-size: 12px;
-    color: var(--text-faint);
+  .weave-toolbar-tab--static {
+    cursor: default;
+    user-select: none;
     white-space: nowrap;
   }
 
-  .items-per-page,
-  .pagination-controls {
-    gap: 0.5rem;
+  .weave-toolbar-tab--meta {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
   }
 
-  button {
-    background: none;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s);
-    color: var(--text-normal);
-    cursor: pointer;
-    padding: 0.25rem 0.75rem;
-    transition: all 0.2s ease;
-    transform: scale(1);
+  .weave-toolbar-tab-label {
+    white-space: nowrap;
   }
 
-  button:hover:not(:disabled) {
-    background: var(--background-modifier-hover);
-    border-color: var(--text-muted);
-    transform: scale(1.05);
-  }
-
-  button:active:not(:disabled) {
-    transform: scale(0.95);
-  }
-
-  button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  .weave-toolbar-tab :global(.weave-toolbar-tab-icon) {
+    flex-shrink: 0;
+    color: var(--text-faint);
   }
 
   .table-pagination.transitioning {
-    opacity: 0.8;
-  }
-
-  .pagination-controls {
-    position: relative;
-  }
-
-  .pagination-controls button:not(:disabled):active {
-    animation: pageChangeClick 0.3s ease;
-  }
-
-  @keyframes pageChangeClick {
-    0% { transform: scale(1); }
-    50% { transform: scale(0.9); }
-    100% { transform: scale(1); }
+    opacity: 0.85;
   }
 
   @media (max-width: 768px) {
-    .table-pagination {
-      gap: 8px;
+    .toolbar-row {
+      gap: 0.375rem;
+    }
+
+    .toolbar-group--end {
+      display: none;
+    }
+
+    .weave-toolbar-tab--static:not(.weave-toolbar-tab--meta) {
+      padding-inline: 0.375rem;
+      min-width: 3.25rem;
+      text-align: center;
     }
   }
 </style>

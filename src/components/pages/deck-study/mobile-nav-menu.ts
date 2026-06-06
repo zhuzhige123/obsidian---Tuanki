@@ -1,14 +1,13 @@
 import { Menu } from "obsidian";
+import { addMenuToggle } from "../../../utils/obsidian-menu";
 import { PREMIUM_FEATURES } from "../../../services/premium/PremiumFeatureGuard";
 
-interface MobileNavMenuOptions {
-  evt: MouseEvent;
+export interface DeckStudyMobileNavMenuOptions {
+  evt?: MouseEvent;
   selectedFilter: string;
-  currentView: "grid" | "kanban";
   memoryDeckDisplayMode: "formal" | "emergent";
   tr: (key: string, vars?: Record<string, string>) => string;
   getCreateEntryTitle: () => string;
-  showViewSwitcher: (evt: MouseEvent) => void;
   handleCreateDeckForCurrentFilter: () => Promise<void>;
   setMemoryDeckDisplayMode: (mode: "formal" | "emergent") => void;
   showEmergentRuleGroupMenu: () => void;
@@ -21,9 +20,11 @@ interface MobileNavMenuOptions {
   getPremiumEntryTitle: (baseTitle: string, featureId: string) => string;
 }
 
-export function showDeckStudyMobileNavMenu(options: MobileNavMenuOptions): void {
-  const menu = new Menu();
-
+/** 将牌组学习移动菜单项写入已有 Menu（用于 Obsidian 官方 onPaneMenu） */
+export function populateDeckStudyMobileNavMenu(
+  menu: Menu,
+  options: DeckStudyMobileNavMenuOptions
+): void {
   menu.addItem((item) => {
     item
       .setTitle(options.tr("navigation.deckStudy"))
@@ -62,20 +63,6 @@ export function showDeckStudyMobileNavMenu(options: MobileNavMenuOptions): void 
 
   menu.addItem((item) => {
     item
-      .setTitle(options.tr("navigation.switchView"))
-      .setIcon("layout-grid")
-      .onClick(() => {
-        const viewEvent = new MouseEvent("click", {
-          bubbles: true,
-          clientX: options.evt.clientX,
-          clientY: options.evt.clientY,
-        });
-        options.showViewSwitcher(viewEvent);
-      });
-  });
-
-  menu.addItem((item) => {
-    item
       .setTitle(options.getCreateEntryTitle())
       .setIcon("folder-plus")
       .onClick(() => {
@@ -83,39 +70,19 @@ export function showDeckStudyMobileNavMenu(options: MobileNavMenuOptions): void 
       });
   });
 
-  if (options.currentView === "kanban") {
-    menu.addItem((item) => {
-      item
-        .setTitle(options.tr("study.mobileHeader.kanbanColumnSettings"))
-        .setIcon("sliders")
-        .onClick(() => {
-          window.dispatchEvent(
-            new CustomEvent("Weave:open-deck-kanban-menu", {
-              detail: {
-                x: options.evt.clientX,
-                y: options.evt.clientY,
-                filter: options.selectedFilter,
-              },
-            })
-          );
-        });
-    });
-  }
-
   if (options.selectedFilter === "memory" && options.shouldShowPremiumEntry(PREMIUM_FEATURES.EMERGENT_DECKS)) {
     const nextMode = options.memoryDeckDisplayMode === "formal" ? "emergent" : "formal";
     const toggleTitle = nextMode === "emergent"
       ? options.getPremiumEntryTitle("切换到涌现牌组", PREMIUM_FEATURES.EMERGENT_DECKS)
       : "切换到正式牌组";
 
-    menu.addItem((item) => {
-      item
-        .setTitle(toggleTitle)
-        .setIcon(nextMode === "emergent" ? "sparkles" : "folder")
-        .setChecked(options.memoryDeckDisplayMode === "emergent")
-        .onClick(() => {
-          options.setMemoryDeckDisplayMode(nextMode);
-        });
+    addMenuToggle(menu, {
+      title: toggleTitle,
+      icon: nextMode === "emergent" ? "sparkles" : "folder",
+      getChecked: () => options.memoryDeckDisplayMode === "emergent",
+      onSetChecked: () => {
+        options.setMemoryDeckDisplayMode(nextMode);
+      },
     });
 
     if (
@@ -160,5 +127,10 @@ export function showDeckStudyMobileNavMenu(options: MobileNavMenuOptions): void 
     });
   }
 
+}
+
+export function showDeckStudyMobileNavMenu(options: DeckStudyMobileNavMenuOptions & { evt: MouseEvent }): void {
+  const menu = new Menu();
+  populateDeckStudyMobileNavMenu(menu, options);
   menu.showAtMouseEvent(options.evt);
 }

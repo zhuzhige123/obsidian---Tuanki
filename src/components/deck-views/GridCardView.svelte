@@ -47,11 +47,6 @@
     onEditDeck?: (deckId: string) => void;
     onDeleteDeck?: (deckId: string) => void;
     onRefreshData?: () => Promise<void>;
-    onOpenKnowledgeGraph?: (deckId: string) => void;
-    onAssociateQuestionBank?: (deckId: string, bankId?: string) => void | Promise<void>;
-    getQuestionBankSubmenuData?: (deckId: string) => Promise<{
-      banks: Array<{ id: string; name: string; isCurrent: boolean }>;
-    } | null>;
     onBeforeOpenDeckMenu?: () => void;
     onDissolveDeck?: (deckId: string) => void;
     onPromoteEmergentDeck?: (candidate: EmergentDeckCandidate, event: MouseEvent) => void | Promise<void>;
@@ -95,9 +90,6 @@
     onEditDeck,
     onDeleteDeck,
     onRefreshData,
-    onOpenKnowledgeGraph,
-    onAssociateQuestionBank,
-    getQuestionBankSubmenuData,
     onBeforeOpenDeckMenu,
     onDissolveDeck,
     onPromoteEmergentDeck,
@@ -219,20 +211,6 @@
       hasItems = true;
     }
 
-    if (onOpenKnowledgeGraph) {
-      if (hasItems) {
-        menu.addSeparator();
-      }
-
-      menu.addItem((item) =>
-        item
-          .setTitle(t('decks.menu.knowledgeGraph'))
-          .setIcon("git-fork")
-          .onClick(() => onOpenKnowledgeGraph(deckId))
-      );
-      hasItems = true;
-    }
-
     return hasItems;
   }
 
@@ -257,18 +235,6 @@
       [...deckAnalyticsEntryFeatures],
       deckStudyFeatureContext
     );
-  }
-
-  function withSubmenu(item: unknown, builder: (submenu: Menu) => void): boolean {
-    const submenuFactory = (item as { setSubmenu?: () => Menu }).setSubmenu;
-    if (typeof submenuFactory !== 'function') {
-      return false;
-    }
-
-    const submenu = submenuFactory.call(item as { setSubmenu: () => Menu });
-    submenu.setUseNativeMenu(false);
-    builder(submenu);
-    return true;
   }
 
   function closeActiveGridMenu() {
@@ -304,53 +270,6 @@
     const isSubdeck = deck?.parentId != null;
 
     addSharedDeckStudyMenuItems(menu, deckId);
-
-    if (onAssociateQuestionBank) {
-      const canUseQuestionBank = premiumGuard.canUseFeature(PREMIUM_FEATURES.QUESTION_BANK);
-
-      if (!canUseQuestionBank) {
-        menu.addItem((item) =>
-          item
-            .setTitle(`${t('decks.menu.linkQuestionBank')} (高级)`)
-            .setIcon('link-2')
-            .onClick(async () => await onAssociateQuestionBank?.(deckId))
-        );
-      } else {
-        const submenuData = getQuestionBankSubmenuData
-          ? await getQuestionBankSubmenuData(deckId)
-          : null;
-
-        if (submenuData && submenuData.banks.length > 0) {
-          menu.addItem((item) => {
-            item
-              .setTitle(t('decks.menu.linkQuestionBank'))
-              .setIcon('link-2');
-
-            const hasSubmenu = withSubmenu(item, (submenu) => {
-              submenuData.banks.forEach((bank) => {
-                submenu.addItem((subItem) => {
-                  subItem
-                    .setTitle(bank.name)
-                    .setIcon(bank.isCurrent ? 'check' : 'gallery-vertical')
-                    .onClick(async () => await onAssociateQuestionBank?.(deckId, bank.id));
-                });
-              });
-            });
-
-            if (!hasSubmenu) {
-              item.onClick(async () => await onAssociateQuestionBank?.(deckId));
-            }
-          });
-        } else {
-          menu.addItem((item) =>
-            item
-              .setTitle(t('decks.menu.linkQuestionBank'))
-              .setIcon('link-2')
-              .onClick(async () => await onAssociateQuestionBank?.(deckId))
-          );
-        }
-      }
-    }
 
     // 创建子牌组和移动牌组功能已移除，不再支持父子牌组层级结构
 

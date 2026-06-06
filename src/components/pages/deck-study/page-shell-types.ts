@@ -12,14 +12,10 @@ import type {
 } from "../../../types/emergent-deck-types";
 import type { CelebrationStats } from "../../../types/celebration-types";
 
-export type DeckStudyActiveDeckView = "kanban" | "grid";
+export type DeckStudyActiveDeckView = "kanban";
 export type DeckStudyActiveDeckFilter = "memory" | "question-bank";
 export type DeckStudyMemoryDeckDisplayMode = "formal" | "emergent";
 export type DeckStudyFilterInput = DeckStudyActiveDeckFilter | "reading" | "parent" | "child" | "all";
-
-export interface DeckStudyQuestionBankSubmenuData {
-  banks: Array<{ id: string; name: string; isCurrent: boolean }>;
-}
 
 export interface DeckStudyNoCardsStats {
   totalCards: number;
@@ -31,7 +27,6 @@ export interface DeckStudyNoCardsStats {
 }
 
 export interface DeckStudyContentAreaProps {
-  currentView: DeckStudyActiveDeckView;
   selectedFilter: DeckStudyActiveDeckFilter;
   dataStorage: WeaveDataStorage;
   plugin: WeavePlugin;
@@ -49,17 +44,13 @@ export interface DeckStudyContentAreaProps {
   formalDeckBindingSummary: Record<string, FormalDeckBindingSummary>;
   memoryDeckDisplayMode?: DeckStudyMemoryDeckDisplayMode;
   canShowMemoryDeckLevels?: boolean;
-  showQuestionBankAssociationEntry?: boolean;
   onFilterSelect: (filter: DeckStudyFilterInput) => void;
   onStartStudy: (deckId: string, deckNameOverride?: string) => Promise<void>;
   onContinueStudy: () => Promise<void>;
   onAdvanceStudy: (deckId: string) => Promise<void>;
   onOpenDeckAnalytics: (deckId: string) => Promise<void>;
-  onAssociateQuestionBank?: (deckId: string) => Promise<void>;
-  getQuestionBankSubmenuData?: (deckId: string) => Promise<DeckStudyQuestionBankSubmenuData | null>;
   onEditDeck: (deckId: string) => Promise<void>;
   onDeleteDeck: (deckId: string) => Promise<void>;
-  onOpenKnowledgeGraph: (deckId: string) => Promise<void>;
   onDissolveDeck: (deckId: string) => Promise<void>;
   onRefreshData: (showLoading?: boolean) => Promise<void>;
   onPromoteEmergentDeck: (candidate: EmergentDeckCandidate, event: MouseEvent) => Promise<void>;
@@ -90,10 +81,8 @@ export interface DeckStudyModalHostProps {
   onLoadQBDeckTree: () => Promise<void>;
   onRefreshData: () => Promise<void>;
   onCloseCelebration: () => void;
-  onStartPractice: () => Promise<void>;
   onCloseNoCardsModal: () => void;
   onAdvanceStudy: () => Promise<void>;
   onViewStats: () => void;
-  onStartPracticeFromNoCards: () => Promise<void>;
   onCloseActivationPrompt: () => void;
 }

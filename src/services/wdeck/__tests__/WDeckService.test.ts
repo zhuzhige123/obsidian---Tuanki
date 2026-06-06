@@ -168,6 +168,10 @@ function createPlugin(initialFiles: Record<string, string>, persistedDecks: Reco
 		modify: async (file: TFile, content: string) => {
 			writeText(file.path, content);
 		},
+		create: async (path: string, content: string) => {
+			writeText(path, content);
+			return createMockTFile(path, fileMtimes.get(normalizeTestPath(path)) || 0);
+		},
 	};
 
 	const plugin = {

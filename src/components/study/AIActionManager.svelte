@@ -16,6 +16,7 @@
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
   import { Menu, Notice } from 'obsidian';
   import { tr } from '../../utils/i18n';
+  import { showProviderModelMenuAt } from '../../utils/provider-model-menu';
 
   interface Props {
     show: boolean;
@@ -237,67 +238,26 @@
   function openActionProviderModelMenu(event: MouseEvent) {
     if (!selectedAction) return;
 
-    const menu = new Menu();
     const apiKeys = (plugin.settings.aiConfig?.apiKeys || {}) as Record<string, { model?: string } | undefined>;
 
-    menu.addItem((item) => {
-      item
-        .setTitle(t('study.aiActionManager.useDefaultConfig'))
-        .setIcon(!selectedAction.provider ? 'check' : '')
-        .onClick(() => {
+    showProviderModelMenuAt(event, {
+      apiKeys,
+      selection: {
+        provider: selectedAction.provider,
+        model: selectedAction.model,
+      },
+      preferredProvider: getPreferredProvider(),
+      providers,
+      includeDefaultOption: true,
+      defaultOptionTitle: t('study.aiActionManager.useDefaultConfig'),
+      onSelect: (next) => {
+        if (!next.provider) {
           updateSelectedAction({ provider: undefined, model: undefined });
-        });
-    });
-
-    menu.addSeparator();
-
-    providers.forEach((provider) => {
-      const models = AI_MODEL_OPTIONS[provider] || [];
-      menu.addItem((item) => {
-        item
-          .setTitle(AI_PROVIDER_LABELS[provider])
-          .setIcon((selectedAction.provider || getPreferredProvider()) === provider ? 'check' : '');
-
-        const submenu = (item as any).setSubmenu();
-        const configuredModel = apiKeys[provider]?.model?.trim();
-        const staticModelIds: string[] = models.map((model) => model.id);
-
-        if (configuredModel && !staticModelIds.includes(configuredModel)) {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(configuredModel)
-              .setIcon(
-                (selectedAction.provider || getPreferredProvider()) === provider &&
-                (selectedAction.model || getDefaultModelForProvider(provider)) === configuredModel
-                  ? 'check'
-                  : ''
-              )
-              .onClick(() => {
-                updateSelectedAction({ provider, model: configuredModel });
-              });
-          });
-          submenu.addSeparator();
+          return;
         }
-
-        models.forEach((model) => {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(model.label)
-              .setIcon(
-                (selectedAction.provider || getPreferredProvider()) === provider &&
-                (selectedAction.model || getDefaultModelForProvider(provider)) === model.id
-                  ? 'check'
-                  : ''
-              )
-              .onClick(() => {
-                updateSelectedAction({ provider, model: model.id });
-              });
-          });
-        });
-      });
+        updateSelectedAction({ provider: next.provider, model: next.model });
+      },
     });
-
-    menu.showAtMouseEvent(event);
   }
 
   $effect(() => {
@@ -622,7 +582,7 @@
 
               <button
                 type="button"
-                class="toolbar-btn obsidian-action-btn action-menu-btn"
+                class="clickable-icon toolbar-btn obsidian-action-btn action-menu-btn"
                 onclick={(event) => showActionOperationsMenu(event)}
                 title={t('study.aiActionManager.actionMenuTitle')}
               >
@@ -1033,28 +993,27 @@
     justify-content: center;
     gap: 8px;
     min-height: 40px;
-    padding: 10px 14px;
-    border-radius: 12px;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-primary);
-    color: var(--text-normal);
+    padding: 0 12px;
+    border-radius: var(--clickable-icon-radius, 12px);
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    color: var(--text-muted);
     font-size: 0.84rem;
     font-weight: 600;
     cursor: pointer;
-    transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    transition: background-color 0.15s ease, color 0.15s ease;
     white-space: nowrap;
   }
 
   .toolbar-btn.obsidian-action-btn:hover:not(:disabled) {
-    transform: translateY(-1px);
-    border-color: var(--interactive-accent);
+    transform: none;
     background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
   .toolbar-btn.obsidian-action-btn:focus-visible {
     outline: none;
-    border-color: var(--interactive-accent);
     box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
   }
 

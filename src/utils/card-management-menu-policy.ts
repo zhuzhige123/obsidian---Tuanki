@@ -27,6 +27,8 @@ export type CardManagementToolbarActionKey =
 	| "grid-layout-fixed"
 	| "grid-layout-masonry"
 	| "grid-layout-timeline"
+	| "grid-border-style-solid"
+	| "grid-border-style-dashed"
 	| "kanban-layout-compact"
 	| "kanban-layout-comfortable"
 	| "kanban-layout-spacious"
@@ -116,6 +118,8 @@ export function getCardManagementToolbarMirrorActions(options: {
 		visibleActions.add("grid-layout-fixed");
 		visibleActions.add("grid-layout-masonry");
 		visibleActions.add("grid-layout-timeline");
+		visibleActions.add("grid-border-style-solid");
+		visibleActions.add("grid-border-style-dashed");
 		visibleActions.add("open-grid-attribute-menu");
 		visibleActions.add("toggle-card-relation-filter");
 	}

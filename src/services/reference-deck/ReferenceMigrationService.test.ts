@@ -125,7 +125,6 @@ describe('ReferenceMigrationService', () => {
       migratedDecks: 1,
     });
     expect(plugin.dataStorage.saveCardsBatch).toHaveBeenCalledTimes(1);
-    expect(plugin.cardFileService).toBeUndefined();
     expect(folders.has(v2Paths.memory.cards)).toBe(false);
 
     const migratedLegacyFile = JSON.parse(files.get('weave/decks/deck-1/cards.json') || '{}');

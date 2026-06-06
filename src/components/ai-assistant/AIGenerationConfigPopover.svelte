@@ -2,6 +2,7 @@
   import type { GenerationConfig } from '../../types/ai-types';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import AIGenerationConfigForm from './AIGenerationConfigForm.svelte';
+  import { isMobileDevice } from '../../utils/mobile-modal-bounds';
   import { tr } from '../../utils/i18n';
 
   interface Props {
@@ -14,17 +15,37 @@
 
   let { isOpen, config, style = '', onClose, onSave }: Props = $props();
   let t = $derived($tr);
+  let useMobileShell = $state(false);
+
+  $effect(() => {
+    if (!isOpen) {
+      useMobileShell = false;
+      return;
+    }
+    useMobileShell = isMobileDevice();
+  });
+
+  const popoverStyle = $derived(useMobileShell ? '' : style);
 </script>
 
 {#if isOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="ai-config-popover-backdrop" onclick={(event) => event.target === event.currentTarget && onClose()}>
-    <div class="ai-config-popover" style={style} role="dialog" aria-label={t('aiAssistant.generationConfig.title')}>
+  <div
+    class="ai-config-popover-backdrop weave-mobile-safe-overlay"
+    class:is-mobile-shell={useMobileShell}
+    onclick={(event) => event.target === event.currentTarget && onClose()}
+  >
+    <div
+      class="ai-config-popover"
+      class:is-mobile-shell={useMobileShell}
+      style={popoverStyle}
+      role="dialog"
+      aria-label={t('aiAssistant.generationConfig.title')}
+    >
       <div class="modal-header">
         <div class="header-title-group">
           <h2 class="modal-title">{t('aiAssistant.generationConfig.title')}</h2>
-          <div class="modal-subtitle">{t('aiAssistant.generationConfig.subtitle')}</div>
         </div>
         <button class="close-btn clickable-icon" type="button" onclick={onClose} title={t('ui.close')} aria-label={t('ui.close')}>
           <ObsidianIcon name="x" size={18} />
@@ -71,9 +92,6 @@
   }
 
   .header-title-group {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
     min-width: 0;
   }
 
@@ -82,11 +100,6 @@
     font-size: 1.3em;
     font-weight: 600;
     color: var(--text-normal);
-  }
-
-  .modal-subtitle {
-    font-size: 0.82rem;
-    color: var(--text-muted);
   }
 
   .close-btn {

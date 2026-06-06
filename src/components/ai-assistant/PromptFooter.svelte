@@ -4,10 +4,12 @@
   import type { WeavePlugin } from '../../main';
   import type { PromptTemplate, AIProvider } from '../../types/ai-types';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
-  import { AI_PROVIDER_LABELS, AI_MODEL_OPTIONS } from '../settings/constants/settings-constants';
+  import { AI_PROVIDER_LABELS } from '../settings/constants/settings-constants';
   import { addWeaveNavigationItems, type WeavePageId } from '../../utils/weave-navigation-menu';
   import { applyStyleProps } from '../../utils/style-props';
   import { i18n, tr } from '../../utils/i18n';
+  import { addMenuRadioChoices } from '../../utils/obsidian-menu';
+  import { showProviderModelMenuAt, type ProviderModelMenuSelect } from '../../utils/provider-model-menu';
 
   type PromptSuggestionItem = PromptTemplate & {
     category: 'official' | 'custom';
@@ -142,107 +144,64 @@
   // 打开提示词选择菜单（使用 Obsidian Menu API）
   function openPromptMenu(event: MouseEvent) {
     const menu = new Menu();
+    const promptChoices = [
+      ...officialPrompts.map((prompt) => ({
+        title: prompt.name,
+        icon: 'message-square' as const,
+        value: prompt,
+      })),
+      ...customPrompts.map((prompt) => ({
+        title: prompt.name,
+        icon: 'file-text' as const,
+        value: prompt,
+      })),
+    ];
 
-    // 官方模板分组
-    if (officialPrompts.length > 0) {
-      officialPrompts.forEach(prompt => {
-        menu.addItem((item) => {
-          item
-            .setTitle(prompt.name)
-            .setIcon('message-square')
-            .setChecked(selectedPrompt?.id === prompt.id)
-            .onClick(() => {
-              selectedPrompt = prompt;
-              onPromptSelect(prompt);
-            });
-        });
-      });
-    }
-
-    // 分隔线
-    if (officialPrompts.length > 0 && customPrompts.length > 0) {
-      menu.addSeparator();
-    }
-
-    // 自定义模板分组
-    if (customPrompts.length > 0) {
-      customPrompts.forEach(prompt => {
-        menu.addItem((item) => {
-          item
-            .setTitle(prompt.name)
-            .setIcon('file-text')
-            .setChecked(selectedPrompt?.id === prompt.id)
-            .onClick(() => {
-              selectedPrompt = prompt;
-              onPromptSelect(prompt);
-            });
-        });
-      });
-    }
-
-    // 如果没有模板，显示提示
-    if (officialPrompts.length === 0 && customPrompts.length === 0) {
+    if (promptChoices.length === 0) {
       menu.addItem((item) => {
         item
           .setTitle(i18n.t('aiAssistant.toolbar.noTemplates'))
           .setDisabled(true);
       });
+    } else {
+      addMenuRadioChoices(
+        menu,
+        selectedPrompt?.id ?? '',
+        promptChoices.map((choice) => ({
+          title: choice.title,
+          icon: choice.icon,
+          value: choice.value.id,
+        })),
+        (promptId) => {
+          const prompt = promptChoices.find((choice) => choice.value.id === promptId)?.value ?? null;
+          selectedPrompt = prompt;
+          onPromptSelect(prompt);
+        }
+      );
     }
-
-    // 所有提示词管理现已整合到AIConfigModal中
 
     menu.showAtMouseEvent(event);
   }
 
   // 打开AI服务商/模型选择菜单（悬停展开子菜单）
   function openProviderMenu(event: MouseEvent) {
-    const menu = new Menu();
-    
-    // 获取settings中各provider的当前配置模型
     const aiConfig = plugin.settings.aiConfig;
     const apiKeys = (aiConfig?.apiKeys || {}) as Record<string, { model?: string } | undefined>;
-    
-    // 遍历所有AI服务商
-    Object.entries(AI_MODEL_OPTIONS).forEach(([providerKey, models]) => {
-      const provider = providerKey as AIProvider;
-      menu.addItem((item) => {
-        // 设置服务商标题，当前选中的显示勾选图标
-        item
-          .setTitle(AI_PROVIDER_LABELS[provider])
-          .setIcon(selectedProvider === provider ? 'check' : '');
-        
-        // 使用setSubmenu实现悬停展开子菜单
-        const submenu = (item as any).setSubmenu();
-        
-        // 检查settings中是否有自定义模型（不在静态列表中）
-        const configuredModel = apiKeys[provider]?.model;
-        const staticModelIds: string[] = models.map(m => m.id);
-        if (configuredModel && !staticModelIds.includes(configuredModel)) {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(configuredModel)
-              .setIcon(selectedProvider === provider && selectedModel === configuredModel ? 'check' : '')
-              .onClick(() => {
-                onProviderModelChange(provider, configuredModel);
-              });
-          });
-          submenu.addSeparator();
+
+    showProviderModelMenuAt(event, {
+      apiKeys,
+      selection: {
+        provider: selectedProvider,
+        model: selectedModel,
+      },
+      preferredProvider: selectedProvider,
+      onSelect: (next: ProviderModelMenuSelect) => {
+        if (!next.provider || !next.model) {
+          return;
         }
-        
-        models.forEach(model => {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(model.label)
-              .setIcon(selectedProvider === provider && selectedModel === model.id ? 'check' : '')
-              .onClick(() => {
-                onProviderModelChange(provider, model.id);
-              });
-          });
-        });
-      });
+        onProviderModelChange(next.provider, next.model);
+      },
     });
-    
-    menu.showAtMouseEvent(event);
   }
 
   // 处理自定义提示词输入
@@ -285,7 +244,7 @@
           .onClick(() => {
             window.dispatchEvent(
               new CustomEvent('Weave:ai-toolbar-action', {
-                detail: { action: 'provider' }
+                detail: { action: 'model' }
               })
             );
           });
@@ -431,7 +390,7 @@
   <!-- 提示词选择按钮 -->
   {#if showPromptSelector}
     <button
-      class="prompt-selector-btn"
+      class="clickable-icon weave-toolbar-tab prompt-selector-btn"
       onclick={openPromptMenu}
       title={t('aiAssistant.toolbar.selectPromptTemplate')}
     >
@@ -446,7 +405,7 @@
   <!-- AI服务商/模型选择按钮 -->
   {#if showProviderSelector}
     <button
-      class="ai-provider-selector-btn"
+      class="clickable-icon weave-toolbar-tab ai-provider-selector-btn"
       onclick={openProviderMenu}
       title={t('aiAssistant.toolbar.selectProviderModel')}
     >
@@ -463,7 +422,7 @@
     <div class="prompt-input-shell">
       {#if showPluginMenuButton}
         <button
-          class="plugin-menu-btn"
+          class="clickable-icon plugin-menu-btn"
           onclick={openPluginMenu}
           aria-label={t('aiAssistant.promptFooter.openPluginMenu')}
           title={t('aiAssistant.promptFooter.openPluginMenu')}
@@ -488,7 +447,7 @@
   <!-- 生成按钮 -->
   {#if showGenerateButton}
     <button
-      class="generate-btn"
+      class="clickable-icon weave-toolbar-tab generate-btn"
       onclick={onGenerate}
       disabled={disabled || isGenerating}
       title={disabled ? t('aiAssistant.promptFooter.inputContentFirst') : t('aiAssistant.toolbar.generateCards')}
@@ -533,32 +492,34 @@
 
   .prompt-selector-btn,
   .ai-provider-selector-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
     min-height: var(--prompt-footer-height);
     padding: 0 12px;
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--prompt-footer-radius);
-    color: var(--text-normal);
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: var(--clickable-icon-radius, var(--prompt-footer-radius));
+    color: var(--text-muted);
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .prompt-selector-btn:hover,
   .ai-provider-selector-btn:hover {
-    background: var(--background-primary-alt);
-    border-color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
   .prompt-selector-btn:active,
   .ai-provider-selector-btn:active {
-    transform: scale(0.98);
+    background: var(--background-modifier-active-hover);
+    transform: none;
   }
 
   .prompt-selector-text,
@@ -598,28 +559,30 @@
 
   .plugin-menu-btn {
     flex: 0 0 auto;
-    width: 36px;
+    width: 40px;
+    min-width: 40px;
     min-height: var(--prompt-footer-height);
-    border-radius: var(--prompt-footer-radius);
-    border: 1px solid var(--background-modifier-border);
-    background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
+    padding: 0;
+    border-radius: var(--clickable-icon-radius, var(--prompt-footer-radius));
+    border: none;
+    box-shadow: none;
+    background: transparent;
     color: var(--text-muted);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--background-primary) 72%, transparent);
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .plugin-menu-btn:hover {
     color: var(--text-normal);
-    border-color: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
-    background: var(--background-primary-alt);
+    background: var(--background-modifier-hover);
   }
 
   .plugin-menu-btn:active {
-    transform: scale(0.98);
+    background: var(--background-modifier-active-hover);
+    transform: none;
   }
 
   .prompt-textarea:hover {
@@ -636,23 +599,23 @@
   }
 
   .generate-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
     min-height: var(--prompt-footer-height);
-    padding: 0 20px;
-    background: var(--interactive-accent);
+    padding: 0 12px;
+    background: transparent;
     border: none;
-    border-radius: var(--prompt-footer-radius);
-    color: var(--text-on-accent);
+    box-shadow: none;
+    border-radius: var(--clickable-icon-radius, var(--prompt-footer-radius));
+    color: var(--text-normal);
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
     white-space: nowrap;
     flex-shrink: 0;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
 
   .compact .prompt-selector-btn,
@@ -660,18 +623,20 @@
   .compact .generate-btn {
     min-height: 34px;
     padding: 0 12px;
-    border-radius: 8px;
+    border-radius: var(--clickable-icon-radius, 8px);
     box-shadow: none;
   }
 
   .generate-btn:hover:not(:disabled) {
-    background: var(--interactive-accent-hover);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    transform: none;
+    box-shadow: none;
   }
 
   .generate-btn:active:not(:disabled) {
-    transform: translateY(0);
+    background: var(--background-modifier-active-hover);
+    transform: none;
   }
 
   .generate-btn:disabled {

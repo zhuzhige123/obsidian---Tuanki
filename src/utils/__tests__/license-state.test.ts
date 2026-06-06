@@ -2,6 +2,7 @@ import type { LicenseInfo } from "../../types/license";
 import {
   LICENSED_PRODUCTS,
   cloneLicenseAsInherited,
+  enrichLicenseFromActivationCode,
   licenseAppliesToProduct,
   mapProductIdToEntitlements,
   resolveEffectiveLicenseState,
@@ -42,6 +43,43 @@ describe("license-state dual product rules", () => {
       "epub-premium",
       "ir-premium",
     ]);
+    expect(mapProductIdToEntitlements("Weave-Obsidian-Plugin")).toEqual([
+      "weave-premium",
+      "epub-premium",
+      "ir-premium",
+    ]);
+  });
+
+  it("rehydrates weave-premium from activation code when persisted entitlements are empty", () => {
+    const payload = {
+      userId: "user@example.com",
+      productId: "weave-obsidian-plugin",
+      licenseType: "lifetime" as const,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      maxDevices: 5,
+      features: [],
+      issuedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const dataBase64 = btoa(JSON.stringify(payload));
+    const activationCode = `${dataBase64}.dGVzdA==`;
+
+    const repaired = enrichLicenseFromActivationCode(
+      createLicense({
+        activationCode,
+        isActivated: true,
+        entitlements: [],
+        issuedProductId: undefined,
+      })
+    );
+
+    expect(repaired.entitlements).toContain("weave-premium");
+    expect(repaired.issuedProductId).toBe("weave-obsidian-plugin");
+    expect(
+      resolveEffectiveLicenseState({
+        product: LICENSED_PRODUCTS.WEAVE,
+        localLicenses: [repaired],
+      }).isPremiumActive
+    ).toBe(true);
   });
 
   it("maps standalone EPUB product id to EPUB entitlement only", () => {

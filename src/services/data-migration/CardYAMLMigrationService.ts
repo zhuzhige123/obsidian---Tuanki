@@ -13,7 +13,7 @@ import type { WeavePlugin } from "../../main";
 import { logger } from "../../utils/logger";
 import {
 	type CardYAMLMetadata,
-	hasYAMLFrontmatter,
+	needsSourceMigration,
 	parseYAMLFromContent,
 	setCardProperties,
 } from "../../utils/yaml-utils";
@@ -96,40 +96,7 @@ export class CardYAMLMigrationService {
 	 * @returns 是否需要迁移
 	 */
 	needsMigration(card: Card): boolean {
-		// 检查是否存在旧格式字段
-		const hasOldFields = !!(
-			card.sourceFile ||
-			card.sourceBlock ||
-			card.deckId ||
-			card.referencedByDecks?.length ||
-			card.tags?.length ||
-			card.type ||
-			card.priority !== undefined
-		);
-
-		// 检查 content 中是否已有 YAML frontmatter
-		const hasYAML = hasYAMLFrontmatter(card.content);
-
-		// 如果有旧字段且 YAML 中没有对应的 we_ 字段，则需要迁移
-		if (!hasOldFields) {
-			return false;
-		}
-
-		if (!hasYAML) {
-			return true;
-		}
-
-		// 检查 YAML 中是否已有 we_ 字段
-		const yaml = parseYAMLFromContent(card.content);
-		const hasWeFields = !!(
-			yaml.we_source ||
-			yaml.we_block ||
-			yaml.we_decks ||
-			yaml.we_type ||
-			yaml.we_priority !== undefined
-		);
-
-		return !hasWeFields;
+		return cardNeedsMigration(card);
 	}
 
 	/**
@@ -230,11 +197,13 @@ export class CardYAMLMigrationService {
 
 			// 如果配置要求删除旧字段
 			if (this.config.removeOldFields) {
-				(migratedCard as any).sourceFile = undefined;
-				(migratedCard as any).sourceBlock = undefined;
-				(migratedCard as any).tags = undefined;
-				(migratedCard as any).priority = undefined;
-				// deckId 和 referencedByDecks 暂时保留，因为其他地方可能还在使用
+				(migratedCard as Partial<Card>).sourceFile = undefined;
+				(migratedCard as Partial<Card>).sourceBlock = undefined;
+				(migratedCard as Partial<Card>).tags = undefined;
+				(migratedCard as Partial<Card>).priority = undefined;
+				(migratedCard as Partial<Card>).type = undefined;
+				(migratedCard as Partial<Card>).deckId = undefined;
+				migratedCard.referencedByDecks = undefined;
 			}
 
 			if (this.config.verbose) {
@@ -333,8 +302,7 @@ export class CardYAMLMigrationService {
 	 */
 	async runFullMigration(): Promise<MigrationResult> {
 		try {
-			// 加载所有卡片
-			const allCards = await this.plugin.dataStorage.getAllCards();
+			const allCards = await this.loadCardsForMigration();
 			logger.info(`[Migration] 加载了 ${allCards.length} 张卡片`);
 
 			// 找出需要迁移的卡片
@@ -369,6 +337,27 @@ export class CardYAMLMigrationService {
 			};
 		}
 	}
+
+	private async loadCardsForMigration(): Promise<Card[]> {
+		if (this.plugin.wdeckService) {
+			const summaries = await this.plugin.wdeckService.getAllDeckSummaries();
+			const seen = new Set<string>();
+			const uuids: string[] = [];
+			for (const summary of summaries) {
+				for (const uuid of summary.cardUUIDs || []) {
+					if (uuid && !seen.has(uuid)) {
+						seen.add(uuid);
+						uuids.push(uuid);
+					}
+				}
+			}
+			if (uuids.length > 0) {
+				return this.plugin.wdeckService.getCardsByUUIDs(uuids);
+			}
+		}
+
+		return this.plugin.dataStorage.getAllCards();
+	}
 }
 
 // ===== 便捷函数 =====
@@ -379,28 +368,26 @@ export class CardYAMLMigrationService {
  * @returns 是否需要迁移
  */
 export function cardNeedsMigration(card: Card): boolean {
-	// 检查是否存在旧格式字段
-	const hasOldFields = !!(
-		card.sourceFile ||
-		card.sourceBlock ||
-		card.deckId ||
-		card.referencedByDecks?.length ||
-		card.tags?.length ||
-		card.type ||
-		card.priority !== undefined
-	);
-
-	if (!hasOldFields) {
-		return false;
-	}
-
-	// 检查 YAML 中是否已有 we_ 字段
-	if (!hasYAMLFrontmatter(card.content)) {
+	const content = card.content || "";
+	if (needsSourceMigration(content)) {
 		return true;
 	}
 
-	const yaml = parseYAMLFromContent(card.content);
-	return !(yaml.we_source || yaml.we_block || yaml.we_decks || yaml.we_type);
+	const yaml = parseYAMLFromContent(content);
+	if (!yaml.we_source && (card.sourceFile || card.sourceBlock)) {
+		return true;
+	}
+	if (!yaml.we_decks?.length && (card.deckId || card.referencedByDecks?.length)) {
+		return true;
+	}
+	if (!yaml.we_type && card.type) {
+		return true;
+	}
+	if (yaml.we_priority === undefined && card.priority !== undefined) {
+		return true;
+	}
+
+	return false;
 }
 
 /**

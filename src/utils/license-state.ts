@@ -55,8 +55,68 @@ export function normalizeEntitlements(values: Array<string | null | undefined>):
   );
 }
 
+/**
+ * 从已保存的激活码解析内嵌 JSON（不验签；仅用于补全本地持久化字段）。
+ */
+export function parseActivationCodePayloadUnsafe(
+  activationCode: string
+): ActivationCodeData | null {
+  const normalized = String(activationCode || "").replace(/\s+/g, "").trim();
+  const parts = normalized.split(".");
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  try {
+    const data = JSON.parse(atob(parts[0])) as ActivationCodeData;
+    if (!data || typeof data !== "object") {
+      return null;
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 用激活码内嵌数据补全 entitlements / issuedProductId 等，避免重启后权限集合丢失。
+ */
+export function enrichLicenseFromActivationCode(license: LicenseInfo): LicenseInfo {
+  if (!license.activationCode) {
+    return license;
+  }
+
+  const payload = parseActivationCodePayloadUnsafe(license.activationCode);
+  if (!payload) {
+    return license;
+  }
+
+  const entitlements = normalizeEntitlements([
+    ...(license.entitlements ?? []),
+    ...mapActivationDataToEntitlements(payload),
+  ]);
+
+  return {
+    ...license,
+    entitlements,
+    issuedProductId: license.issuedProductId || payload.productId,
+    expiresAt: license.expiresAt || payload.expiresAt,
+    userId: license.userId || payload.userId,
+    licenseType:
+      license.licenseType === "subscription" || license.licenseType === "lifetime"
+        ? license.licenseType
+        : payload.licenseType === "subscription"
+          ? "subscription"
+          : "lifetime",
+    maxDevices: license.maxDevices ?? payload.maxDevices,
+    features: license.features ?? (Array.isArray(payload.features) ? dedupeStrings(payload.features) : undefined),
+  };
+}
+
 export function mapProductIdToEntitlements(productId: string | undefined): LicenseEntitlement[] {
-  const normalized = String(productId || "").trim();
+  const normalized = String(productId || "")
+    .trim()
+    .toLowerCase();
   if (!normalized) {
     return [];
   }
@@ -95,13 +155,7 @@ export function normalizeLicenseInfo(
   const activationCode = typeof raw.activationCode === "string" ? raw.activationCode.trim() : "";
   const source = options?.source ?? raw.source ?? "local";
   const sourcePluginId = options?.sourcePluginId ?? raw.sourcePluginId;
-  const entitlements = normalizeEntitlements([
-    ...(Array.isArray(raw.entitlements) ? raw.entitlements : []),
-    ...(Array.isArray(raw.features) ? raw.features : []),
-    ...mapProductIdToEntitlements(raw.issuedProductId),
-  ]);
-
-  return {
+  const baseLicense: LicenseInfo = {
     ...DEFAULT_LICENSE_INFO,
     ...raw,
     activationCode,
@@ -117,12 +171,18 @@ export function normalizeLicenseInfo(
     userId: typeof raw.userId === "string" ? raw.userId : undefined,
     maxDevices: typeof raw.maxDevices === "number" ? raw.maxDevices : undefined,
     features: Array.isArray(raw.features) ? dedupeStrings(raw.features) : undefined,
-    entitlements,
+    entitlements: normalizeEntitlements([
+      ...(Array.isArray(raw.entitlements) ? raw.entitlements : []),
+      ...(Array.isArray(raw.features) ? raw.features : []),
+      ...mapProductIdToEntitlements(raw.issuedProductId),
+    ]),
     issuedProductId: typeof raw.issuedProductId === "string" ? raw.issuedProductId : undefined,
     source,
     sourcePluginId: typeof sourcePluginId === "string" ? sourcePluginId : undefined,
     metadata: raw.metadata && typeof raw.metadata === "object" ? raw.metadata : undefined,
   };
+
+  return activationCode ? enrichLicenseFromActivationCode(baseLicense) : baseLicense;
 }
 
 export function hasMeaningfulLicense(value: Partial<LicenseInfo> | null | undefined): boolean {

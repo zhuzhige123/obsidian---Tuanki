@@ -1,4 +1,5 @@
 import type { FSRS } from "../../algorithms/fsrs";
+import { sanitizeFsrsCardForScheduling } from "../../algorithms/fsrs-adapter";
 import type { StudySession } from "../../data/study-types";
 import { CardState, Rating, type Card } from "../../data/types";
 import type { StudyQueueState, StudySessionSnapshot } from "../../types/study-types";
@@ -18,6 +19,7 @@ export interface MemoryStudySessionStateBridge {
 	setCurrentCardIndex: (value: number) => void;
 	getCardStartTime: () => number;
 	setCardStartTime: (value: number) => void;
+	getResponseTimeMs?: () => number;
 	getStudyQueue: () => Card[];
 	setStudyQueue: (queue: Card[]) => void;
 	getQueueInitialized?: () => boolean;
@@ -72,6 +74,7 @@ export interface CreateMemoryStudySessionControllerOptions {
 		pendingNextDueAt?: string
 	) => void;
 	onFinishSession: (session: StudySession) => Promise<void> | void;
+	shouldSkipLearningStepsInsertion?: () => boolean;
 }
 
 function ensureCardStats(card: Card): void {
@@ -153,6 +156,10 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 		rating: Rating,
 		prevState: CardState
 	): Promise<void> {
+		if (options.shouldSkipLearningStepsInsertion?.()) {
+			return;
+		}
+
 		const memoryScheduling = options.getLearningConfigForCard(card);
 		const queueInsertionPlan = getSessionQueueInsertionPlan(prevState, rating, memoryScheduling);
 		let shouldInsert = queueInsertionPlan.shouldInsert;
@@ -257,7 +264,9 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 
 		const currentCardIndex = options.state.getCurrentCardIndex();
 		const session = options.state.getSession();
-		const responseTime = Date.now() - options.state.getCardStartTime();
+		const responseTime =
+			options.state.getResponseTimeMs?.() ??
+			Date.now() - options.state.getCardStartTime();
 
 		options.saveReviewSnapshot?.({
 			card: cardToRate,
@@ -268,7 +277,8 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 		});
 
 		const prevState = cardToRate.fsrs.state;
-		const { card: updatedCard, log } = options.getFsrs().review(cardToRate.fsrs, rating);
+		const fsrsInput = sanitizeFsrsCardForScheduling(cardToRate.fsrs);
+		const { card: updatedCard, log } = options.getFsrs().review(fsrsInput, rating);
 		options.applyLearningScheduling(prevState, rating, updatedCard, cardToRate);
 		cardToRate.fsrs = updatedCard;
 

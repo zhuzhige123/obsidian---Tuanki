@@ -24,6 +24,7 @@ import {
 	isInputClozeQuestionContent,
 } from "../../utils/question-bank/input-cloze-utils";
 import { accuracyCalculator } from "./AccuracyCalculator";
+import { isStagingBankId } from "../ai/card-staging-card-builder";
 import type { QuestionBankStorage } from "./QuestionBankStorage";
 
 export interface SessionConfig {
@@ -360,20 +361,22 @@ export class TestSessionManager {
 			this.currentSession.totalQuestions > 0 ? 100 / this.currentSession.totalQuestions : 0;
 		this.currentSession.score = Math.round(this.currentSession.correctCount * pointsPerQuestion);
 
-		// 持久化会话
-		await this.saveSession(this.currentSession);
+		if (!isStagingBankId(this.currentSession.bankId)) {
+			// 持久化会话
+			await this.saveSession(this.currentSession);
 
-		// 更新题目的测试统计（题库侧 stats，不修改卡片本体）
-		await this.updateQuestionStats();
+			// 更新题目的测试统计（题库侧 stats，不修改卡片本体）
+			await this.updateQuestionStats();
 
-		// 保存题目内容快照（历史回顾用）
-		await this.saveSessionArchiveFromCompletedSession(this.currentSession);
+			// 保存题目内容快照（历史回顾用）
+			await this.saveSessionArchiveFromCompletedSession(this.currentSession);
 
-		// 写入题库级历史分数（用于趋势图）
-		await this.appendHistoryFromCompletedSession(this.currentSession);
+			// 写入题库级历史分数（用于趋势图）
+			await this.appendHistoryFromCompletedSession(this.currentSession);
 
-		// 清理进行中恢复文件
-		await this.storage.clearInProgressSession(this.currentSession.bankId);
+			// 清理进行中恢复文件
+			await this.storage.clearInProgressSession(this.currentSession.bankId);
+		}
 
 		const completedSession = { ...this.currentSession };
 		this.currentSession = null;
@@ -612,6 +615,10 @@ export class TestSessionManager {
 	 * 保存会话到存储
 	 */
 	private async saveSession(session: TestSession): Promise<void> {
+		if (isStagingBankId(session.bankId)) {
+			return;
+		}
+
 		try {
 			await this.storage.saveInProgressSession(session.bankId, this.toPersistedSession(session));
 		} catch (error) {
@@ -708,7 +715,7 @@ export class TestSessionManager {
 		}
 
 		if (availableOptions.length === 0) {
-			throw new Error("无法识别选项格式。请确保选项格式为：A) 选项内容\\nB) 选项内容\\n...");
+			throw new Error("无法识别选项格式。请使用 A. 选项内容\\nB. 选项内容 等标准格式");
 		}
 
 		const parsed = this.parseAnswerFromContent(card.content);
@@ -722,7 +729,7 @@ export class TestSessionManager {
 					validation.reason
 				}\\n可用选项: [${availableOptions.join(
 					", "
-				)}]\\n请在选项中使用 {✓} 标记正确答案，例如：\\nA) 选项1\\nB) 选项2 {✓}\\nC) 选项3`
+				)}]\\n请在题干末尾用（B）标明答案，或使用 Answer: B / Answer: A,C`
 			);
 		}
 
@@ -741,8 +748,8 @@ export class TestSessionManager {
 		const options: string[] = [];
 
 		for (const line of lines) {
-			// 匹配选项格式：A) 或 A. 或 A、
-			const match = line.match(/^\s*([A-Z])[.、)]/);
+			// 匹配选项格式：A. 或 A、
+			const match = line.match(/^\s*([A-Z])[.．、]/);
 			if (match) {
 				const optionId = match[1];
 				if (!options.includes(optionId)) {
@@ -765,7 +772,7 @@ export class TestSessionManager {
 		if (!answer || (Array.isArray(answer) && answer.length === 0)) {
 			return {
 				valid: false,
-				reason: "未找到{✓}标记。请在正确选项后添加 {✓}",
+				reason: "未找到正确答案。请在题干末尾写（B）或使用 Answer: 行",
 			};
 		}
 
@@ -802,10 +809,7 @@ export class TestSessionManager {
 		return { valid: true };
 	}
 
-	/**
-	 * 从卡片内容解析答案（通过 {} 标记）
-	 *  严格限制：只扫描 ---div--- 之前的选项区域
-	 */
+	/** 从卡片内容解析答案（题干括号 / Answer: 行） */
 	private parseAnswerFromContent(content: string): string | string[] {
 		const parsed = parseChoiceQuestion(content);
 		if (parsed?.correctAnswers?.length) {
@@ -813,24 +817,7 @@ export class TestSessionManager {
 			return answers.length === 1 ? answers[0] : answers;
 		}
 
-		const dividerIndex = content.indexOf("---div---");
-		const optionsArea = dividerIndex > -1 ? content.substring(0, dividerIndex) : content;
-		const lines = optionsArea.split("\n");
-		const correctAnswers: string[] = [];
-
-		for (const line of lines) {
-			if (line.includes("{✓}")) {
-				const match = line.match(/^\s*([A-Z])[.、)]/);
-				if (match) {
-					const optionId = match[1];
-					if (!correctAnswers.includes(optionId)) {
-						correctAnswers.push(optionId);
-					}
-				}
-			}
-		}
-
-		return correctAnswers.length === 1 ? correctAnswers[0] : correctAnswers;
+		return [];
 	}
 
 	/**

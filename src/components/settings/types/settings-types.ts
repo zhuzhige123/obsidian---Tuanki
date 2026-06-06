@@ -36,6 +36,8 @@ export interface StudyInterfaceViewPreferences {
 	ratingLabelStyle: RatingLabelStyle;
 	/** 是否在评分按钮内部直接显示下次复习时间 */
 	showRatingIntervalOnButtons?: boolean;
+	/** 学习界面侧边栏：图谱联动默认开关 */
+	graphLinkEnabled?: boolean;
 }
 
 // 卡片管理界面视图偏好设置
@@ -44,6 +46,8 @@ export interface CardManagementViewPreferences {
 	currentView: "table" | "grid" | "kanban" | "basic" | "review" | "questionBank";
 	/** 网格布局模式 */
 	gridLayout: "fixed" | "masonry" | "timeline";
+	/** 网格卡片边框显示风格 */
+	gridCardBorderStyle?: "solid" | "dashed";
 	/** 网格卡片显示属性 */
 	gridCardAttribute:
 		| "none"
@@ -142,9 +146,6 @@ export interface SettingsWithEditor {
 	};
 	// AnkiConnect 同步设置
 	ankiConnect?: AnkiConnectSettings;
-	// FSRS6 个性化优化设置
-	enablePersonalization?: boolean; // 启用个性化算法优化
-	personalizationSettings?: PersonalizationSettings;
 	// 卡片管理界面视图偏好设置
 	cardManagementViewPreferences?: CardManagementViewPreferences;
 	// 学习界面视图偏好设置
@@ -153,16 +154,6 @@ export interface SettingsWithEditor {
 	noteTypeConfig?: NoteTypeConfig;
 	showClozeModeSwitchButton?: boolean;
 	tutorialHints?: import("../../../services/tutorial/GlobalTutorialHints").GlobalTutorialHintState;
-}
-
-// FSRS6个性化优化设置
-export interface PersonalizationSettings {
-	enabled: boolean; // 总开关
-	minDataPoints: number; // 最小数据点要求（默认50）
-	enableBacktracking: boolean; // 启用回溯策略
-	checkpointInterval: number; // 检查点间隔（默认50次复习）
-	performanceThreshold: number; // 性能下降阈值（默认10%）
-	autoOptimization: boolean; // 自动优化（无需用户干预）
 }
 
 // FSRS相关类型已移至 src/data/types.ts 统一管理

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { Notice, Menu } from 'obsidian';
   import { logger } from '../../utils/logger';
 
   import type { WeavePlugin } from '../../main';
@@ -15,8 +16,8 @@
   import ObsidianDropdown from '../ui/ObsidianDropdown.svelte';
   import PreviewContainer from '../preview/PreviewContainer.svelte';
   import { CardConverter } from '../../services/ai/CardConverter';
-  import { Notice } from 'obsidian';
   import { tr } from '../../utils/i18n';
+  import type { CardStagingStudyMode } from '../../types/card-staging-types';
 
   interface Props {
     plugin: WeavePlugin;
@@ -27,6 +28,8 @@
     totalCards?: number;
     mode?: 'test' | 'split';
     variant?: 'generate' | 'parse';
+    canStartStaging?: boolean;
+    onStartStaging?: (mode: CardStagingStudyMode) => void;
     emptyTitle?: string;
     emptyDescription?: string;
     busyTitle?: string;
@@ -59,6 +62,8 @@
     previewSubtitle = '',
     showCurrentIndexLabel = false,
     navigationHint,
+    canStartStaging = false,
+    onStartStaging,
     onImport
   }: Props = $props();
 
@@ -69,8 +74,6 @@
   let isImporting = $state(false);
   let availableDecks = $state<Array<{ id: string; name: string }>>([]);
   let selectedDeckId = $state('');
-  let committedImportTags = $state<string[]>([]);
-  let importAutoTagsText = $state('');
   let previewCard = $state<Card | null>(null);
   let showPreviewAnswer = $state(true);
   let lastImportSummary = $state<AIPreviewImportResult | null>(null);
@@ -118,14 +121,6 @@
         : t('aiAssistant.previewWorkspace.emptyGeneratingDescription')
     )
   );
-  let resolvedNavigationHint = $derived(
-    navigationHint ?? (
-      enableSelection
-        ? t('aiAssistant.previewWorkspace.navigationHintSelectable')
-        : t('aiAssistant.previewWorkspace.navigationHintReadonly')
-    )
-  );
-  let importAutoTags = $derived.by(() => normalizeTagList(committedImportTags));
   let importSummaryText = $derived.by(() => {
     if (!lastImportSummary || lastImportSummary.importedCount <= 0) return '';
     const deckName = lastImportSummary.targetDeckName || t('aiAssistant.previewWorkspace.defaultTargetDeck');
@@ -138,56 +133,6 @@
       failedPart
     });
   });
-
-  function normalizeTagList(tags: string[] | undefined): string[] {
-    return Array.from(new Set((tags ?? []).map((tag) => String(tag || '').trim().replace(/^#+/, '')).filter(Boolean)));
-  }
-
-  function normalizeTagListFromText(value: string): string[] {
-    return normalizeTagList(value.split(/[\n,，]/).map((item) => item.trim()));
-  }
-
-  async function persistImportAutoTags(nextTags: string[]): Promise<void> {
-    await plugin.saveAIAssistantPreferences({
-      ...plugin.getAIAssistantPreferences(),
-      importAutoTags: nextTags
-    });
-  }
-
-  async function setCommittedImportTags(nextTags: string[]): Promise<void> {
-    const normalized = normalizeTagList(nextTags);
-    committedImportTags = normalized;
-    await persistImportAutoTags(normalized);
-  }
-
-  async function commitDraftImportTags(): Promise<string[]> {
-    const draftTags = normalizeTagListFromText(importAutoTagsText);
-    const nextTags = normalizeTagList([...(committedImportTags ?? []), ...draftTags]);
-
-    if (draftTags.length > 0 || nextTags.length !== committedImportTags.length) {
-      await setCommittedImportTags(nextTags);
-    }
-
-    importAutoTagsText = '';
-    return nextTags;
-  }
-
-  async function removeCommittedImportTag(tagToRemove: string): Promise<void> {
-    await setCommittedImportTags(committedImportTags.filter((tag) => tag !== tagToRemove));
-  }
-
-  async function handleImportTagKeydown(event: KeyboardEvent): Promise<void> {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      await commitDraftImportTags();
-      return;
-    }
-
-    if (event.key === 'Backspace' && !importAutoTagsText.trim() && committedImportTags.length > 0) {
-      event.preventDefault();
-      await removeCommittedImportTag(committedImportTags[committedImportTags.length - 1]);
-    }
-  }
 
   function dispatchSelectionState() {
     if (typeof window === 'undefined') return;
@@ -265,18 +210,6 @@
     mode;
     config.targetDeck;
     void loadDecks();
-  });
-
-  $effect(() => {
-    if (!showImportControls || !onImport) {
-      committedImportTags = [];
-      importAutoTagsText = '';
-      return;
-    }
-
-    const savedTags = plugin.getAIAssistantPreferences().importAutoTags;
-    committedImportTags = normalizeTagList(savedTags);
-    importAutoTagsText = '';
   });
 
   $effect(() => {
@@ -412,6 +345,30 @@
     }
   }
 
+  function openStudyModeMenu(event: MouseEvent) {
+    if (!canStartStaging || !onStartStaging) return;
+
+    const target = event.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const menu = new Menu();
+
+    menu.addItem((item) => {
+      item
+        .setTitle(t('aiAssistant.staging.modeMemory'))
+        .setIcon('brain')
+        .onClick(() => onStartStaging('memory'));
+    });
+
+    menu.addItem((item) => {
+      item
+        .setTitle(t('aiAssistant.staging.modeExam'))
+        .setIcon('clipboard-list')
+        .onClick(() => onStartStaging('exam'));
+    });
+
+    menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
+  }
+
   async function handleImportCards() {
     if (!showImportControls || !onImport) return;
 
@@ -428,14 +385,11 @@
     try {
       isImporting = true;
       const selectedItems = items.filter((item) => selectedCardIds.has(item.id));
-      const finalAutoTags = importAutoTagsText.trim()
-        ? await commitDraftImportTags()
-        : [...committedImportTags];
       const result = await onImport(
         selectedItems,
         {
           targetDeckId: selectedDeckId,
-          autoTags: finalAutoTags
+          autoTags: []
         }
       );
 
@@ -473,6 +427,8 @@
     <div class="preview-main-content">
       {#if currentCard}
         <div class="card-display">
+          <div class="preview-dashed-divider" role="presentation"></div>
+
           {#if previewTitle || previewSubtitle || showCurrentIndexLabel}
             <div class="preview-context-header">
               <div class="preview-context-copy">
@@ -488,14 +444,6 @@
               {/if}
             </div>
           {/if}
-
-          <div class="card-meta">
-            <div class="card-meta-left">
-              {#if currentCard.metadata.difficulty}
-                <span class="difficulty-badge">{currentCard.metadata.difficulty}</span>
-              {/if}
-            </div>
-          </div>
 
           {#if previewCard}
             <div class="card-preview-wrapper">
@@ -583,7 +531,6 @@
             {/each}
           {/if}
         </div>
-        <div class="thumbnail-hint">{resolvedNavigationHint}</div>
       </div>
 
       {#if showImportControls}
@@ -594,78 +541,43 @@
               <span>{importSummaryText}</span>
             </div>
           {/if}
+
           <div class="preview-actions-row">
-            <div class="import-config-fields">
-              <div class="deck-selector compact">
-                <ObsidianDropdown
-                  className="target-deck-select"
-                  value={selectedDeckId}
-                  disabled={isImporting}
-                  iconPosition="left"
-                  options={availableDecks.map((deck) => ({
-                    id: deck.id,
-                    label: truncateDeckName(deck.name),
-                    description: deck.id === selectedDeckId ? deck.name : undefined
-                  }))}
-                  onchange={(value) => {
-                    selectedDeckId = value;
-                  }}
-                />
-              </div>
-
-              <label class="import-tags-field">
-                <div class="import-tags-editor" class:is-empty={committedImportTags.length === 0 && !importAutoTagsText.trim()}>
-                  {#each committedImportTags as tag (tag)}
-                    <span class="import-tag-chip">
-                      <span class="import-tag-chip-text">{tag}</span>
-                      <button
-                        type="button"
-                        class="import-tag-chip-remove"
-                        aria-label={t('aiAssistant.previewWorkspace.removeTag', { tag })}
-                        disabled={isImporting}
-                        onclick={() => {
-                          void removeCommittedImportTag(tag);
-                        }}
-                      >
-                        <ObsidianIcon name="x" size={12} />
-                      </button>
-                    </span>
-                  {/each}
-
-                  <input
-                    type="text"
-                    class="import-tags-input"
-                    value={importAutoTagsText}
-                    placeholder={committedImportTags.length > 0
-                      ? t('aiAssistant.previewWorkspace.tagPlaceholderContinue')
-                      : t('aiAssistant.previewWorkspace.tagPlaceholderFirst')}
-                    aria-label={t('aiAssistant.previewWorkspace.autoTags')}
-                    disabled={isImporting}
-                    oninput={(event) => {
-                      importAutoTagsText = (event.currentTarget as HTMLInputElement).value;
-                    }}
-                    onkeydown={(event) => {
-                      void handleImportTagKeydown(event);
-                    }}
-                    onblur={() => {
-                      if (importAutoTagsText.trim()) {
-                        void commitDraftImportTags();
-                      }
-                    }}
-                  />
-                </div>
-              </label>
+            <div class="deck-selector compact">
+              <ObsidianDropdown
+                className="target-deck-select"
+                value={selectedDeckId}
+                disabled={isImporting}
+                iconPosition="left"
+                options={availableDecks.map((deck) => ({
+                  id: deck.id,
+                  label: truncateDeckName(deck.name),
+                  description: deck.id === selectedDeckId ? deck.name : undefined
+                }))}
+                onchange={(value) => {
+                  selectedDeckId = value;
+                }}
+              />
             </div>
 
             <button
+              type="button"
+              class="study-now-btn compact"
+              disabled={!canStartStaging}
+              onclick={openStudyModeMenu}
+            >
+              {t('aiAssistant.staging.studyNow')}
+            </button>
+
+            <button
+              type="button"
               class="import-btn compact"
               onclick={handleImportCards}
               disabled={selectedCount === 0 || isImporting || !selectedDeckId || !onImport}
             >
-              <ObsidianIcon name="download" size={16} />
-              <span>{isImporting
+              {isImporting
                 ? t('aiAssistant.previewWorkspace.importing')
-                : t('aiAssistant.previewWorkspace.importButton', { count: selectedCount })}</span>
+                : t('aiAssistant.previewWorkspace.importButton', { count: selectedCount })}
             </button>
           </div>
         </div>
@@ -702,6 +614,13 @@
     margin-bottom: 16px;
   }
 
+  .preview-dashed-divider {
+    height: 0;
+    margin: 0 -20px 14px;
+    border: none;
+    border-top: 1px dashed color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+  }
+
   .preview-context-header {
     display: flex;
     align-items: flex-start;
@@ -733,31 +652,6 @@
     margin-top: 0;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
-  }
-
-  .card-meta {
-    display: flex;
-    align-items: center;
-    margin-bottom: 12px;
-    gap: 12px;
-  }
-
-  .card-meta-left {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .difficulty-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1;
-    background: rgba(255, 166, 77, 0.1);
-    color: #ff922b;
   }
 
   .card-preview-wrapper {
@@ -894,8 +788,7 @@
   }
 
   .card-navigation {
-    display: flex;
-    align-items: stretch;
+    display: block;
     margin-bottom: 16px;
   }
 
@@ -987,14 +880,6 @@
     justify-content: center;
   }
 
-  .thumbnail-hint {
-    margin-top: 2px;
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--text-faint);
-    text-align: center;
-  }
-
   .preview-actions {
     display: flex;
     flex-direction: column;
@@ -1021,29 +906,25 @@
 
   .preview-actions-row {
     display: flex;
-    align-items: stretch;
-    gap: 10px;
+    align-items: center;
+    gap: 8px;
     min-width: 0;
     flex-wrap: nowrap;
-  }
-
-  .import-config-fields {
-    flex: 0 1 auto;
-    display: flex;
-    align-items: stretch;
-    gap: 10px;
   }
 
   .deck-selector {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .deck-selector.compact {
-    flex: 0 0 220px;
-    width: 220px;
-    min-width: 220px;
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    max-width: none;
   }
 
   :global(.deck-selector .obsidian-dropdown-trigger.target-deck-select) {
@@ -1084,95 +965,6 @@
     cursor: not-allowed;
   }
 
-  .import-tags-field {
-    flex: 0 0 180px;
-    width: 180px;
-    min-width: 180px;
-    display: flex;
-    align-items: stretch;
-  }
-
-  .import-tags-editor {
-    width: 100%;
-    min-height: 36px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    padding: 4px 8px;
-    border-radius: 8px;
-    border: 1px solid var(--background-modifier-border);
-    background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
-    box-shadow: none;
-  }
-
-  .import-tags-editor:focus-within {
-    border-color: var(--interactive-accent);
-  }
-
-  .import-tag-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    max-width: 100%;
-    min-height: 22px;
-    padding: 0 8px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--interactive-accent) 14%, var(--background-secondary));
-    color: var(--text-normal);
-    font-size: 12px;
-    line-height: 1;
-  }
-
-  .import-tag-chip-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .import-tag-chip-remove {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-    border-radius: 999px;
-  }
-
-  .import-tag-chip-remove:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .import-tags-input {
-    flex: 1 1 72px;
-    width: auto;
-    min-width: 72px;
-    min-height: 22px;
-    padding: 0;
-    border-radius: 0;
-    border: none;
-    background: transparent;
-    color: var(--text-normal);
-    font-size: 12px;
-    box-shadow: none;
-  }
-
-  .import-tags-input:focus {
-    outline: none;
-    box-shadow: none;
-  }
-
-  .import-tags-input:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
   .import-btn {
     display: flex;
     align-items: center;
@@ -1197,6 +989,28 @@
     width: auto;
     min-width: 92px;
     flex: 0 0 auto;
+  }
+
+  .study-now-btn.compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+    color: var(--text-normal);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+
+  .study-now-btn.compact:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .import-btn:hover:not(:disabled) {
@@ -1288,7 +1102,13 @@
       bottom: 0;
       z-index: 12;
       padding-top: 10px;
-      padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+      padding-bottom: var(
+        --weave-ai-preview-footer-bottom,
+        calc(
+          72px + var(--weave-workspace-bottom-offset, var(--weave-modal-bottom, env(safe-area-inset-bottom, 0px)))
+          + var(--weave-mobile-fixed-bottom-gap, 4px)
+        )
+      );
       background:
         linear-gradient(
           180deg,
@@ -1318,14 +1138,9 @@
       border-radius: 12px;
     }
 
-    .thumbnail-hint {
-      margin-top: 4px;
-      font-size: 11px;
-    }
-
     .preview-actions {
-      padding: 10px;
-      border-radius: 18px;
+      padding: 8px 10px;
+      border-radius: 14px;
       border: none;
       background: color-mix(in srgb, var(--background-primary) 88%, transparent);
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.1);
@@ -1334,35 +1149,18 @@
     }
 
     .preview-actions-row {
-      align-items: stretch;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .import-config-fields {
-      width: 100%;
-      flex-direction: column;
-      flex: 1 1 100%;
-    }
-
-    .import-tags-field {
-      width: 100%;
-      min-width: 0;
-    }
-
-    .import-tags-editor {
-      min-height: 44px;
-      padding: 6px 10px;
-      border-radius: 14px;
-    }
-
-    .import-tags-input {
-      min-height: 24px;
-      font-size: 13px;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: nowrap;
     }
 
     .card-display {
       margin-bottom: 8px;
+    }
+
+    .preview-dashed-divider {
+      margin-inline: -10px;
+      margin-bottom: 10px;
     }
 
     .preview-context-header {
@@ -1375,37 +1173,24 @@
       font-size: 18px;
     }
 
-    .card-meta {
-      margin-bottom: 8px;
-    }
-
-    .difficulty-badge {
-      padding: 5px 11px;
-      font-size: 11px;
-    }
-
-    .deck-selector.compact {
-      width: 100%;
-      min-width: 0;
-      flex: 1 1 auto;
-    }
-
     :global(.deck-selector.compact .obsidian-dropdown-trigger.target-deck-select) {
-      min-height: 44px;
-      padding: 0 14px;
-      border-radius: 14px;
+      min-height: 40px;
+      padding: 0 12px;
+      border-radius: 12px;
       box-shadow: none;
       font-size: 13px;
     }
 
     .import-btn.compact {
-      min-width: 104px;
+      min-width: 88px;
       width: auto;
       flex: 0 0 auto;
-      min-height: 44px;
-      padding: 0 16px;
-      border-radius: 14px;
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 12px;
       box-shadow: none;
+      font-size: 13px;
     }
+
   }
 </style>

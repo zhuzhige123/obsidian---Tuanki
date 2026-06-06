@@ -3,7 +3,7 @@
  *
  * 监听 weave 数据文件夹中的 JSON 文件变更（来自 Remotely Save 等第三方云同步插件），
  * 当检测到外部变更时：
- * 1. 清除 CardFileService 的索引缓存
+ * 1. 重建 WDeck 缓存
  * 2. 通过 DataSyncService 通知所有 UI 组件刷新数据
  *
  * 关键设计：
@@ -152,14 +152,18 @@ export class ExternalSyncWatcher {
 			}
 		}
 
-		// 1. 清除 CardFileService 索引缓存
-		if (hasCardChanges && this.plugin.cardFileService) {
-			logger.info("[ExternalSyncWatcher] 清除 CardFileService 索引缓存");
-			this.plugin.cardFileService.invalidateCache();
+		if (hasCardChanges && this.plugin.wdeckService) {
+			logger.info("[ExternalSyncWatcher] 重建 WDeck 缓存");
+			await this.plugin.wdeckService.rebuildCache();
 		}
 
-		if ((hasCardChanges || hasDeckChanges) && this.plugin.deckMembershipIndexService) {
-			await this.plugin.deckMembershipIndexService.markFullRebuildRequired();
+		if (hasCardChanges || hasDeckChanges) {
+			if (this.plugin.deckMembershipIndexService) {
+				await this.plugin.deckMembershipIndexService.markFullRebuildRequired();
+			}
+			if (this.plugin.studyDueIndexService) {
+				await this.plugin.studyDueIndexService.markFullRebuildRequired();
+			}
 		}
 
 		// 2. 通过 DataSyncService 通知 UI 刷新

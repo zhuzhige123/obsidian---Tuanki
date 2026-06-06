@@ -15,6 +15,8 @@
     HIGH_RISK_FIX_TYPES,
     MAIN_PLUGIN_HIGH_RISK_FIX_TYPES,
     isHighRiskFixType,
+    isSplitPluginResidueCheckType,
+    isHiddenRescueCheckType,
     isTemporaryCheckType,
     getDataCheckLifecycleKind,
     getDataCheckLifecycleLabel,
@@ -39,6 +41,15 @@
   import EnhancedButton from '../ui/EnhancedButton.svelte';
   import { tr, t } from '../../utils/i18n';
   import { showDangerConfirm } from '../../utils/obsidian-confirm';
+  import {
+    getEpubReaderPluginAvailability,
+    getIncrementalReadingPluginAvailability,
+    getSplitPluginUnavailableMessage,
+    INCREMENTAL_READING_PLUGIN_ID,
+    EPUB_READER_PLUGIN_ID,
+    openEpubReaderDataManagement,
+    openIncrementalReadingDataManagement,
+  } from '../../utils/ir-plugin-integration';
 
   // ===== Props =====
   interface Props {
@@ -458,7 +469,7 @@
 				updateSharedProgress(i + 1, activeFixableTypes.length, t('management.dataManagementModal.progress.fixingType', { name: getTypeName(type) }));
 				const result = await dataService.fix(type);
 				results.push(result);
-				plugin.cardFileService?.clearCache?.();
+				await plugin.wdeckService?.rebuildCache();
 			}
 
 			fixResults = results;
@@ -549,8 +560,42 @@
     }
   }
 
-  function supportsDirectFix(_type: CheckType): boolean {
-    return true;
+  function supportsDirectFix(type: CheckType): boolean {
+    return !isSplitPluginResidueCheckType(type) && !isHiddenRescueCheckType(type);
+  }
+
+  const incrementalReadingPluginAvailability = $derived(
+    getIncrementalReadingPluginAvailability(plugin.app)
+  );
+
+  const epubReaderPluginAvailability = $derived(getEpubReaderPluginAvailability(plugin.app));
+
+  const incrementalReadingPluginHint = $derived(
+    incrementalReadingPluginAvailability === 'available'
+      ? ''
+      : getSplitPluginUnavailableMessage(plugin.app, INCREMENTAL_READING_PLUGIN_ID)
+  );
+
+  const epubReaderPluginHint = $derived(
+    epubReaderPluginAvailability === 'available'
+      ? ''
+      : getSplitPluginUnavailableMessage(plugin.app, EPUB_READER_PLUGIN_ID)
+  );
+
+  function handleOpenIncrementalReadingDataManagement() {
+    if (!openIncrementalReadingDataManagement(plugin.app)) {
+      return;
+    }
+
+    addLog(t('management.dataManagementModal.openIncrementalReadingDataManagement'));
+  }
+
+  function handleOpenEpubReaderDataManagement() {
+    if (!openEpubReaderDataManagement(plugin.app)) {
+      return;
+    }
+
+    addLog(t('management.dataManagementModal.openEpubReaderDataManagement'));
   }
 
   // ===== 迁移检测方法 =====
@@ -581,6 +626,37 @@
     }
   }
 
+  async function handleExecuteConsolidatedFormatMigration() {
+    const confirmed = await showDangerConfirm(
+      plugin.app,
+      t('management.dataCheckService.messages.consolidatedFormatMigrationConfirm'),
+      t('management.dataManagementModal.migrateLegacyFormats')
+    );
+    if (!confirmed) {
+      addLog(t('management.dataManagementModal.logs.cancelConsolidatedFormatMigration'));
+      return;
+    }
+
+    const migrationCheckCount = MIGRATION_CHECK_TYPES.length;
+    await executeTrackedMigrationTask({
+      title: t('management.dataManagementModal.migrateLegacyFormats'),
+      startLog: t('management.dataManagementModal.actions.consolidatedFormatMigrationStartLog'),
+      initialDetail: t('management.dataManagementModal.actions.consolidatedFormatMigrationInitialDetail'),
+      totalSteps: 1 + migrationCheckCount,
+      run: () => dataService.executeConsolidatedFormatMigration({ confirmed: true }),
+      postRunDetail: t('management.dataManagementModal.actions.consolidatedFormatMigrationPostRunDetail'),
+      afterRun: async () => {
+        migrationResults = await runMigrationChecks((current, total, message) => {
+          updateSharedProgress(1 + current, 1 + total, message);
+        });
+      },
+      successLog: (result) => t('management.dataManagementModal.actions.consolidatedFormatMigrationSuccessLog', { success: result.success, failed: result.failed }),
+      successDetail: (result) => t('management.dataManagementModal.actions.consolidatedFormatMigrationSuccessDetail', { success: result.success, failed: result.failed }),
+      errorLogPrefix: t('management.dataManagementModal.actions.consolidatedFormatMigrationErrorLogPrefix'),
+      errorDetailPrefix: t('management.dataManagementModal.actions.consolidatedFormatMigrationErrorDetailPrefix')
+    });
+  }
+
   async function handleExecuteMigration() {
     const confirmed = await showDangerConfirm(
       plugin.app,
@@ -609,37 +685,6 @@
       successDetail: (result) => t('management.dataManagementModal.actions.schemaMigrationSuccessDetail', { success: result.success, failed: result.failed }),
       errorLogPrefix: t('management.dataManagementModal.actions.schemaMigrationErrorLogPrefix'),
       errorDetailPrefix: t('management.dataManagementModal.actions.schemaMigrationErrorDetailPrefix')
-    });
-  }
-
-  async function handleExecuteIRPointMigration() {
-    const confirmed = await showDangerConfirm(
-      plugin.app,
-      t('management.dataManagementModal.actions.irPointMigrationConfirm'),
-      t('management.dataManagementModal.actions.irPointMigrationConfirmTitle')
-    );
-    if (!confirmed) {
-      addLog(t('management.dataManagementModal.logs.cancelIrPointMigration'));
-      return;
-    }
-
-    const migrationCheckCount = MIGRATION_CHECK_TYPES.length;
-    await executeTrackedMigrationTask({
-      title: t('management.dataManagementModal.actions.irPointMigrationTitle'),
-      startLog: t('management.dataManagementModal.actions.irPointMigrationStartLog'),
-      initialDetail: t('management.dataManagementModal.actions.irPointMigrationInitialDetail'),
-      totalSteps: 1 + migrationCheckCount,
-      run: () => dataService.executeIRPointStorageMigration({ confirmed: true }),
-      postRunDetail: t('management.dataManagementModal.actions.irPointMigrationPostRunDetail'),
-      afterRun: async () => {
-        migrationResults = await runMigrationChecks((current, total, message) => {
-          updateSharedProgress(1 + current, 1 + total, message);
-        });
-      },
-      successLog: (result) => t('management.dataManagementModal.actions.irPointMigrationSuccessLog', { success: result.success, failed: result.failed }),
-      successDetail: (result) => t('management.dataManagementModal.actions.irPointMigrationSuccessDetail', { success: result.success, failed: result.failed }),
-      errorLogPrefix: t('management.dataManagementModal.actions.irPointMigrationErrorLogPrefix'),
-      errorDetailPrefix: t('management.dataManagementModal.actions.irPointMigrationErrorDetailPrefix')
     });
   }
 
@@ -1048,6 +1093,33 @@
           <!-- 数据迁移与结构核对 -->
           <section class="section">
             <h3 class="section-title">{activeMigrationSectionTitle}</h3>
+            <p class="split-plugin-residue-notice">{$tr('management.dataManagementModal.splitPluginResidueNotice')}</p>
+            <div class="migration-actions split-plugin-actions">
+              <EnhancedButton
+                variant="secondary"
+                size="sm"
+                onclick={handleOpenIncrementalReadingDataManagement}
+                disabled={isMigrating || isChecking || isFixing}
+              >
+                <EnhancedIcon name="bookmark" size={14} />
+                {$tr('management.dataManagementModal.openIncrementalReadingDataManagement')}
+              </EnhancedButton>
+              <EnhancedButton
+                variant="secondary"
+                size="sm"
+                onclick={handleOpenEpubReaderDataManagement}
+                disabled={isMigrating || isChecking || isFixing}
+              >
+                <EnhancedIcon name="book-open" size={14} />
+                {$tr('management.dataManagementModal.openEpubReaderDataManagement')}
+              </EnhancedButton>
+            </div>
+            {#if incrementalReadingPluginHint}
+              <p class="split-plugin-status-hint">{incrementalReadingPluginHint}</p>
+            {/if}
+            {#if epubReaderPluginHint}
+              <p class="split-plugin-status-hint">{epubReaderPluginHint}</p>
+            {/if}
             <div class="migration-actions">
               <EnhancedButton
                 variant="secondary"
@@ -1061,6 +1133,16 @@
                   <EnhancedIcon name="folder-search" size={14} />
                 {/if}
                 {activeMigrationActionLabel}
+              </EnhancedButton>
+              <EnhancedButton
+                variant="primary"
+                size="sm"
+                onclick={handleExecuteConsolidatedFormatMigration}
+                disabled={isMigrating || isChecking || isFixing}
+                tooltip={$tr('management.dataManagementModal.migrateLegacyFormats')}
+              >
+                <EnhancedIcon name="database" size={14} />
+                {$tr('management.dataManagementModal.migrateLegacyFormats')}
               </EnhancedButton>
             </div>
             {#if latestMigrationSummary}
@@ -1123,30 +1205,6 @@
                         {$tr('management.dataManagementModal.runMigration')}
                       </EnhancedButton>
                     {/if}
-                    {#if result.type === 'ir_point_storage_migration' && result.count > 0}
-                      <EnhancedButton
-                        variant="primary"
-                        size="sm"
-                        onclick={handleExecuteIRPointMigration}
-                        disabled={isMigrating}
-                        tooltip={$tr('management.dataManagementModal.migrateIrPointStorage')}
-                      >
-                        <EnhancedIcon name="play" size={14} />
-                        {$tr('management.dataManagementModal.migrateIrPointStorage')}
-                      </EnhancedButton>
-                    {/if}
-                    {#if result.type === 'ir_legacy_readable_markdown_migration' && result.count > 0}
-                      <EnhancedButton
-                        variant="primary"
-                        size="sm"
-                        onclick={() => handleFix(result.type)}
-                        disabled={isMigrating || isFixing}
-                        tooltip={$tr('management.dataManagementModal.migrateLegacyIrMarkdown')}
-                      >
-                        <EnhancedIcon name="folder-output" size={14} />
-                        {$tr('management.dataManagementModal.migrateLegacyIrMarkdown')}
-                      </EnhancedButton>
-                    {/if}
                     {#if result.type === 'qbank_migration' && result.status !== 'error' && result.count > 0}
                       <EnhancedButton
                         variant="primary"
@@ -1169,17 +1227,6 @@
                       >
                         <EnhancedIcon name="trash-2" size={14} />
                         {$tr('management.dataManagementModal.cleanupLegacyQbank')}
-                      </EnhancedButton>
-                    {/if}
-                    {#if result.type === 'ir_local_state_relocation' && result.count > 0}
-                      <EnhancedButton
-                        variant="ghost"
-                        size="sm"
-                        onclick={() => handleFix(result.type)}
-                        disabled={isMigrating || isFixing}
-                        tooltip={$tr('management.dataManagementModal.migrateIrLocalState')}
-                      >
-                        <EnhancedIcon name="folder-output" size={14} />
                       </EnhancedButton>
                     {/if}
                     {#if result.type === 'structure_check' && result.count > 0}
@@ -1963,6 +2010,24 @@
 
   .action-spacer {
     flex: 1;
+  }
+
+  .split-plugin-residue-notice {
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    background: var(--background-modifier-form-field);
+    border: 1px solid var(--background-modifier-border);
+  }
+
+  .split-plugin-status-hint {
+    margin: 0 0 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-warning);
   }
 
   /* 迁移相关样式 */

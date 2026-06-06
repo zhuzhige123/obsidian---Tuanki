@@ -19,6 +19,7 @@
     | 'ir_priority';
 
   type DocumentFilterMode = 'all' | 'current';
+  type GridCardBorderStyle = 'solid' | 'dashed';
 
   interface Props {
     cards: Card[];
@@ -26,6 +27,7 @@
     focusedCards?: Set<string>;
     plugin: WeavePlugin;
     attributeType?: GridCardAttributeType;
+    borderStyle?: GridCardBorderStyle;
     isMobile?: boolean;
     documentFilterMode?: DocumentFilterMode;
     activeDocumentName?: string | null;
@@ -83,6 +85,7 @@
     focusedCards = new Set<string>(),
     plugin,
     attributeType = 'uuid',
+    borderStyle = 'solid',
     isMobile = false,
     documentFilterMode = 'all',
     activeDocumentName = null,
@@ -467,6 +470,7 @@
                       {plugin}
                       layoutMode="masonry"
                       {attributeType}
+                      {borderStyle}
                       {isMobile}
                       onClick={onCardClick}
                        onEdit={onCardEdit}

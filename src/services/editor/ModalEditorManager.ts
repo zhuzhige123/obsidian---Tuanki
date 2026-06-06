@@ -20,6 +20,7 @@ import {
 	isPluginCacheModalEditorPermanentFilePath,
 } from "./editor-temp-file-policy";
 import { applyStyleProps } from "../../utils/style-props";
+import { shouldHideDocumentPropertiesForVault } from "./document-properties-visibility";
 
 export class ModalEditorManager {
 	private static instance: ModalEditorManager | null = null;
@@ -62,8 +63,11 @@ export class ModalEditorManager {
 			".view-header-nav-buttons",
 			".inline-title",
 			".view-header-title-wrapper",
-			".metadata-container",
 		];
+
+		if (shouldHideDocumentPropertiesForVault(this.app.vault)) {
+			selectors.push(".metadata-container");
+		}
 
 		for (const selector of selectors) {
 			const els = rootEl.querySelectorAll(selector);

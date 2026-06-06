@@ -50,7 +50,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					cardDeckConsistency:
 						"对比卡片 YAML 中的 we_decks 与 .wdeck 牌组文件里的实际卡片列表。若仍反复出现，可先执行「记忆卡单正式归属收口」，再执行本项修复。",
 					wdeckConflicts:
-						"扫描 .wdeck 分卷重复、同一 UUID 跨文件、疑似复制副本等问题。修复键仅可自动处理「UUID 跨文件冲突」和空无效文件；其余类型需人工核对或配合「重复卡片」等项。",
+						"扫描 .wdeck 分卷重复、同一 UUID 跨文件、疑似复制副本等问题。修复会自动处理重复分卷、完全重复副本、UUID 跨文件冲突和空无效文件；若仍反复出现，请先执行「重复卡片」与「牌组缓存一致性」。",
 				},
 				progress: {
 					checking: "检测 {name}...",
@@ -137,6 +137,14 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					wdeckMigrationNone: "当前没有需要迁移到 .wdeck 的记忆牌组",
 					wdeckMigrationFound: "发现 {count} 个记忆牌组可迁移到 {targetFolder}",
 					wdeckMigrationConfirm: ".wdeck 迁移会在 vault 中写入新的牌组文件，必须在明确确认后执行。",
+					consolidatedFormatMigrationConfirm:
+						"这会把旧记忆 JSON、顶层废弃字段和 we_block 等旧格式统一迁移到 content YAML + .wdeck 新格式，并清理已迁移的旧 JSON 残留。\n建议先完成检查；迁移过程会修改真实数据。",
+					splitPluginDelegatedFix:
+						"该检测项属于拆分插件「{pluginId}」的数据域。请在对应插件的设置或数据管理中执行迁移/修复，Weave 主插件不再维护此类旧格式。",
+					splitPluginDelegatedCheck:
+						"已检测到独立插件「{pluginId}」。此类增量阅读/EPUB 残留检测已交由对应插件负责，Weave 不再重复扫描。",
+					splitPluginResidueInstallRequired:
+						"此类检测/迁移已归属独立插件「{pluginId}」。请安装并启用该插件，在其数据管理中执行。",
 					qbankMigrationConflictFound: "发现 {count} 个冲突，需要手动处理",
 					qbankMigrationAlreadyMigrated: "所有题库已迁移到 .qbank 格式",
 					qbankMigrationNone: "当前没有需要迁移的题库",
@@ -198,6 +206,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					progressiveClozeMissingChildrenFound:
 						"发现 {count} 张父卡片缺少对应序号的子卡片",
 					progressiveClozeMissingChildrenOk: "所有父卡片的子卡片完整",
+					progressiveClozeParentNotFound: "找不到对应的渐进式挖空父卡片",
 					progressiveClozeExtraChildrenFound:
 						"发现 {count} 张子卡片的序号在父卡片内容中不存在",
 					progressiveClozeExtraChildrenOk: "无多余子卡片",
@@ -461,7 +470,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				builtinFields: {
 					question: "问题/正面",
 					answer: "答案/背面",
-					hint: "提示（>hint:）",
+					hint: "提示（附加正文）",
 					explanation: "解析",
 					optionA: "选项A",
 					optionB: "选项B",
@@ -512,7 +521,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				},
 				columnMapping: {
 					title: "列映射",
-					hintBlock: "将 CSV 的提示列映射到这里后，导入时会自动写入卡片内容中的 >hint: 引用提示块。",
+					hintBlock: "将 CSV 的提示列映射到这里后，导入时会追加到卡片正文末尾；也可在 CSV 中直接使用 Obsidian 脚注 [^id] 与 [^id]: 内容。",
 					missingRequired: "缺少必填字段: {fields}",
 				},
 				importStats: {
@@ -552,6 +561,10 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 			apkgImportModal: {
 				invalidFile: "请选择 .apkg 文件",
 				runtimeMissing: "当前安装包未包含旧版 APKG 导入运行时",
+				runtimeUnavailable:
+					"未检测到旧版 APKG 导入运行时。请将 sql-wasm.wasm 放入插件安装目录后重试；社区市场版需手动补充该文件。",
+				runtimeRestartRequired:
+					"已在插件目录检测到 sql-wasm.wasm，但尚未加载。请重启 Obsidian 后再次使用「导入旧版卡包」。",
 				stages: {
 					parsing: "解析中",
 					analyzing: "分析中",
@@ -574,7 +587,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					title: "导入旧版 APKG 到 Weave",
 					description: "导入后会自动转换为 Weave 卡片格式，并将内容标准化为 Obsidian 兼容格式。",
 					runtimeWarningTitle: "当前安装包未包含旧版 APKG 导入运行时",
-					runtimeWarningDescription: "社区市场版默认只包含上架所需核心文件。若你需要导入旧版 APKG，请改用手动增强安装包并补充 sql-wasm.wasm。",
+					runtimeWarningDescription:
+						"社区市场版默认不包含 sql-wasm.wasm。请将该文件放入插件安装目录；若已放入但仍不可用，请重启 Obsidian 后重试。",
 					dropzoneTitle: "选择或拖拽 APKG 文件",
 					dropzoneHintEnabled: "支持 Anki 标准导出格式",
 					dropzoneHintDisabled: "当前安装包未启用该导入运行时",
@@ -633,6 +647,15 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				remainingLegacyRoots: "剩余旧路径 {count}",
 				reportTime: "时间 {time}",
 				runMigration: "执行迁移",
+				migrateLegacyFormats: "迁移全部旧格式",
+				splitPluginResidueNotice:
+					"增量阅读（weave-incremental-reading）与 EPUB 阅读器（weave-epub-reader）已拆分为独立插件。其旧格式迁移请在对应插件中执行；Weave 仅保留卡片关联与宿主协作能力。",
+				openIncrementalReadingDataManagement: "打开增量阅读数据管理",
+				openIncrementalReadingDataManagementUnavailable:
+					"未检测到 weave-incremental-reading 插件，或其版本尚未提供数据管理入口。",
+				openEpubReaderDataManagement: "打开 EPUB 数据管理",
+				openEpubReaderDataManagementUnavailable:
+					"未检测到 weave-epub-reader 插件，或其版本尚未提供数据管理入口。",
 				migrateIrPointStorage: "迁移增量阅读新存储结构",
 				migrateLegacyIrMarkdown: "迁移旧 IR 正文到 Obsidian 默认新建笔记目录",
 				migrateQbank: "迁移到 .qbank",
@@ -688,6 +711,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					startMigrationCheck: "开始迁移相关检测...",
 					migrationCheckDone: "迁移检测完成，发现 {count} 个问题",
 					migrationCheckFailed: "迁移检测失败: {message}",
+					cancelConsolidatedFormatMigration: "已取消旧格式统一迁移",
 					cancelSchemaMigration: "已取消 Schema V2 数据迁移",
 					cancelIrPointMigration: "已取消增量阅读数据迁移",
 					cancelLegacyCleanup: "已取消旧目录清理",
@@ -713,6 +737,13 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					checkMigrationFailed: "迁移检测失败：{message}",
 					confirmFixTitle: "确认执行 {name}",
 					confirmFixBody: "{name} 将直接修改真实数据。\n{warning}\n建议先完成检查并确认结果无误。",
+					consolidatedFormatMigrationStartLog: "开始统一迁移旧卡片/记忆 JSON 格式...",
+					consolidatedFormatMigrationInitialDetail: "正在迁移到 content YAML + .wdeck",
+					consolidatedFormatMigrationPostRunDetail: "旧格式迁移完成，正在重新检测迁移状态",
+					consolidatedFormatMigrationSuccessLog: "旧格式迁移完成：成功 {success}，失败 {failed}",
+					consolidatedFormatMigrationSuccessDetail: "旧格式统一迁移完成：成功 {success}，失败 {failed}",
+					consolidatedFormatMigrationErrorLogPrefix: "旧格式统一迁移失败",
+					consolidatedFormatMigrationErrorDetailPrefix: "旧格式统一迁移失败",
 					schemaMigrationConfirm: "这会移动真实数据到当前标准目录，并重写内部路径引用。\n迁移过程中会保留冲突副本并生成迁移报告。",
 					schemaMigrationConfirmTitle: "确认执行数据迁移",
 					schemaMigrationTitle: "正在执行 Schema V2 数据迁移",
@@ -788,6 +819,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					filenameCompatibility: "这会重命名真实文件和文件夹，并同步回写内部路径引用。",
 					syncConflictFiles: "这会处理云同步冲突副本：能恢复或合并的会恢复，不能自动合并的会转存到插件备份目录。",
 					progressiveClozeUnconverted: "这会把符合渐进挖空格式的卡片转换成父子卡片结构。",
+					progressiveClozeMissingChildren:
+						"按父卡正文中的挖空序号补建缺失子卡。若此前执行过「重复卡片」修复，子卡可能被误删。",
 					legacyCleanup: "这会删除旧版数据目录，只应在迁移完成并核对无误后执行。",
 				},
 			},
@@ -847,7 +880,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					cardDeckConsistency:
 						"Compares we_decks in card YAML with the actual card list inside .wdeck deck files. If it keeps reappearing, run Memory Card Formal Membership Consolidation first, then run this fix.",
 					wdeckConflicts:
-						"Scans duplicate .wdeck segments, cross-file UUID conflicts, suspected duplicate copies, and similar issues. Fix only auto-handles cross-file UUID conflicts and empty invalid files; other types need manual review or Duplicate Cards.",
+						"Scans duplicate .wdeck segments, cross-file UUID conflicts, suspected duplicate copies, and similar issues. Fix auto-handles duplicate segments, exact duplicate copies, cross-file UUID conflicts, and empty invalid files. If issues keep returning, run Duplicate Cards and Deck Cache Consistency first.",
 				},
 				progress: {
 					checking: "Checking {name}...",
@@ -934,6 +967,14 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					wdeckMigrationNone: "There are currently no memory decks that need to be migrated to .wdeck",
 					wdeckMigrationFound: "Found {count} memory decks that can be migrated to {targetFolder}",
 					wdeckMigrationConfirm: ".wdeck migration writes new deck files into the vault and must only be executed after explicit confirmation.",
+					consolidatedFormatMigrationConfirm:
+						"This will migrate legacy memory JSON, deprecated top-level card fields, and legacy we_block data into the content YAML + .wdeck format, then clean up migrated legacy JSON residue.\nWe recommend running checks first because this modifies real data.",
+					splitPluginDelegatedFix:
+						"This check belongs to the split plugin \"{pluginId}\". Run migration/repair in that plugin's settings or data management UI. The main Weave plugin no longer maintains this legacy format.",
+					splitPluginDelegatedCheck:
+						"Standalone plugin \"{pluginId}\" is installed. Weave no longer scans this incremental-reading/EPUB residue category and delegates it to that plugin.",
+					splitPluginResidueInstallRequired:
+						"This check/migration belongs to the standalone plugin \"{pluginId}\". Install and enable it, then run data management there.",
 					qbankMigrationConflictFound: "Found {count} conflicts that require manual handling",
 					qbankMigrationAlreadyMigrated: "All question banks have already been migrated to .qbank format",
 					qbankMigrationNone: "There are currently no question banks that need migration",
@@ -1004,6 +1045,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					progressiveClozeMissingChildrenFound:
 						"Found {count} parent cards that are missing child cards for expected cloze ordinals",
 					progressiveClozeMissingChildrenOk: "All parent cards have complete child cards",
+					progressiveClozeParentNotFound: "The progressive cloze parent card could not be found",
 					progressiveClozeExtraChildrenFound:
 						"Found {count} child cards whose ordinals no longer exist in their parent card content",
 					progressiveClozeExtraChildrenOk: "No extra child cards",
@@ -1271,7 +1313,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				builtinFields: {
 					question: "Question / Front",
 					answer: "Answer / Back",
-					hint: "Hint (>hint:)",
+					hint: "Hint (append to body)",
 					explanation: "Explanation",
 					optionA: "Option A",
 					optionB: "Option B",
@@ -1322,7 +1364,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				},
 				columnMapping: {
 					title: "Column Mapping",
-					hintBlock: "If you map a CSV hint column here, the imported content will automatically write it into the card as a >hint: callout block.",
+					hintBlock: "If you map a CSV hint column here, the text is appended to the card body. You can also use Obsidian footnotes [^id] and [^id]: text directly in CSV.",
 					missingRequired: "Missing required fields: {fields}",
 				},
 				importStats: {
@@ -1362,6 +1404,10 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 			apkgImportModal: {
 				invalidFile: "Please select an .apkg file",
 				runtimeMissing: "This installation package does not include the legacy APKG import runtime",
+				runtimeUnavailable:
+					"Legacy APKG import runtime not found. Place sql-wasm.wasm in the plugin folder and try again. Community marketplace builds require adding this file manually.",
+				runtimeRestartRequired:
+					"sql-wasm.wasm was found in the plugin folder but is not loaded yet. Restart Obsidian, then use Import Legacy Package again.",
 				stages: {
 					parsing: "Parsing",
 					analyzing: "Analyzing",
@@ -1384,7 +1430,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					title: "Import Legacy APKG into Weave",
 					description: "Imported content will be converted into Weave card format and standardized for Obsidian compatibility.",
 					runtimeWarningTitle: "This installation package does not include the legacy APKG import runtime",
-					runtimeWarningDescription: "The community marketplace package only ships core files required for distribution. If you need legacy APKG import, use the enhanced manual package and add sql-wasm.wasm.",
+					runtimeWarningDescription:
+						"The community marketplace package does not include sql-wasm.wasm by default. Place that file in the plugin folder. If it is already there but import still fails, restart Obsidian and try again.",
 					dropzoneTitle: "Choose or drop an APKG file",
 					dropzoneHintEnabled: "Supports the standard Anki export format",
 					dropzoneHintDisabled: "This installation package does not enable the import runtime",
@@ -1443,6 +1490,15 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				remainingLegacyRoots: "Remaining legacy paths {count}",
 				reportTime: "Time {time}",
 				runMigration: "Run migration",
+				migrateLegacyFormats: "Migrate all legacy formats",
+				splitPluginResidueNotice:
+					"Incremental Reading (weave-incremental-reading) and the EPUB reader (weave-epub-reader) are separate plugins. Run their legacy-format migrations in those plugins. Weave only keeps card linkage and host collaboration.",
+				openIncrementalReadingDataManagement: "Open incremental reading data management",
+				openIncrementalReadingDataManagementUnavailable:
+					"The weave-incremental-reading plugin is not installed, or this version does not expose the data management entry yet.",
+				openEpubReaderDataManagement: "Open EPUB data management",
+				openEpubReaderDataManagementUnavailable:
+					"The weave-epub-reader plugin is not installed, or this version does not expose the data management entry yet.",
 				migrateIrPointStorage: "Migrate incremental reading to the new storage structure",
 				migrateLegacyIrMarkdown: "Migrate legacy IR markdown into Obsidian's default new-note folder",
 				migrateQbank: "Migrate to .qbank",
@@ -1498,6 +1554,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					startMigrationCheck: "Starting migration-related checks...",
 					migrationCheckDone: "Migration check complete, found {count} issues",
 					migrationCheckFailed: "Migration check failed: {message}",
+					cancelConsolidatedFormatMigration: "Cancelled consolidated legacy format migration",
 					cancelSchemaMigration: "Cancelled Schema V2 data migration",
 					cancelIrPointMigration: "Cancelled incremental reading data migration",
 					cancelLegacyCleanup: "Cancelled legacy directory cleanup",
@@ -1523,6 +1580,13 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					checkMigrationFailed: "Migration check failed: {message}",
 					confirmFixTitle: "Confirm running {name}",
 					confirmFixBody: "{name} will directly modify real data.\n{warning}\nWe recommend checking the results first before continuing.",
+					consolidatedFormatMigrationStartLog: "Starting consolidated legacy card/memory JSON migration...",
+					consolidatedFormatMigrationInitialDetail: "Migrating to content YAML + .wdeck",
+					consolidatedFormatMigrationPostRunDetail: "Legacy format migration finished. Rechecking migration status...",
+					consolidatedFormatMigrationSuccessLog: "Legacy format migration complete: succeeded {success}, failed {failed}",
+					consolidatedFormatMigrationSuccessDetail: "Consolidated legacy format migration complete: succeeded {success}, failed {failed}",
+					consolidatedFormatMigrationErrorLogPrefix: "Consolidated legacy format migration failed",
+					consolidatedFormatMigrationErrorDetailPrefix: "Consolidated legacy format migration failed",
 					schemaMigrationConfirm: "This will move real data into the current standard directory and rewrite internal path references.\nConflict copies will be preserved and a migration report will be generated during the migration.",
 					schemaMigrationConfirmTitle: "Confirm data migration",
 					schemaMigrationTitle: "Running Schema V2 data migration",
@@ -1598,6 +1662,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					filenameCompatibility: "This will rename real files and folders and rewrite internal path references accordingly.",
 					syncConflictFiles: "This will handle sync conflict copies: recover or merge what can be resolved automatically, and archive unresolved copies into the plugin backup directory.",
 					progressiveClozeUnconverted: "This will convert cards that match the progressive cloze format into a parent-child card structure.",
+					progressiveClozeMissingChildren:
+						"Rebuilds missing child cards from the parent card's cloze ordinals. If you previously ran Duplicate Cards repair, children may have been deleted by mistake.",
 					legacyCleanup: "This will delete legacy data directories and should only be run after migration has been completed and verified.",
 				},
 			},

@@ -8,6 +8,7 @@
 
 import type { IMediaStorageAdapter } from "../../../infrastructure/adapters/MediaStorageAdapter";
 import { APKGLogger } from "../../../infrastructure/logger/APKGLogger";
+import { runTasksWithConcurrency } from "../../../utils/async-pool";
 import { generateId } from "../../../utils/helpers";
 import { isImportAbortError, throwIfImportAborted } from "../ImportTaskControl";
 import type {
@@ -19,6 +20,7 @@ import type {
 } from "../types";
 
 const UI_YIELD_BATCH_SIZE = 20;
+const MEDIA_SAVE_CONCURRENCY = 4;
 
 export interface MediaProcessingProgress {
 	progress: number;
@@ -120,58 +122,93 @@ export class MediaProcessor {
 			const basePath = await this.storage.createDeckMediaFolder(deckName);
 			this.logger.debug(`媒体文件夹创建: ${basePath}`);
 
-			for (let index = 0; index < mediaEntries.length; index++) {
-				throwIfImportAborted(options?.signal);
-				const [filename, data] = mediaEntries[index];
-				try {
-					totalSize += data.length;
+			let completedSaves = 0;
+			const taskResults = await runTasksWithConcurrency(
+				mediaEntries.map(([filename, data]) => async () => {
+					throwIfImportAborted(options?.signal);
+					try {
+						const obsidianPath = this.storage.generateObsidianPath(filename, basePath);
+						const exists = await this.storage.mediaFileExists(obsidianPath);
 
-					const hash = await this.storage.calculateHash(data);
+						if (exists) {
+							this.logger.debug(`文件已存在，跳过: ${filename}`);
+							return {
+								status: "skipped" as const,
+								filename,
+								size: data.length,
+								obsidianPath,
+							};
+						}
 
-					const obsidianPath = this.storage.generateObsidianPath(filename, basePath);
-					const exists = await this.storage.mediaFileExists(obsidianPath);
-
-					if (exists) {
-						this.logger.debug(`文件已存在，跳过: ${filename}`);
-						savedFiles.set(filename, obsidianPath);
-						skippedCount++;
-					} else {
 						throwIfImportAborted(options?.signal);
 						const savedPath = await this.storage.saveMediaFile(filename, data, basePath);
-						savedFiles.set(filename, savedPath);
-
-						const entry: MediaFileEntry = {
-							id: generateId(),
-							originalName: filename,
-							savedPath,
-							type: this.detectMediaType(filename),
-							size: data.length,
-							hash,
-							usedByCards: [],
-							created: new Date().toISOString(),
-						};
-						entries.push(entry);
-
-						savedCount++;
+						const hash = await this.storage.calculateHash(data);
 						this.logger.debug(`保存成功: ${filename} → ${savedPath}`);
-					}
 
-					this.emitProgress(onProgress, mediaEntries.length === 0 ? 90 : 10 + ((index + 1) / mediaEntries.length) * 80, "正在保存媒体文件...", {
-						totalItems: mediaEntries.length,
-						completedItems: index + 1,
-						currentItem: filename,
-					});
-					await this.maybeYieldDuringLoop(index + 1, mediaEntries.length);
-				} catch (error) {
+						return {
+							status: "saved" as const,
+							filename,
+							size: data.length,
+							savedPath,
+							entry: {
+								id: generateId(),
+								originalName: filename,
+								savedPath,
+								type: this.detectMediaType(filename),
+								size: data.length,
+								hash,
+								usedByCards: [],
+								created: new Date().toISOString(),
+							} satisfies MediaFileEntry,
+						};
+					} catch (error) {
+						const errorMsg = `保存失败: ${filename}`;
+						this.logger.error(errorMsg, error);
+						return {
+							status: "failed" as const,
+							filename,
+							size: data.length,
+							error: error instanceof Error ? error.message : String(error),
+						};
+					}
+				}),
+				MEDIA_SAVE_CONCURRENCY
+			);
+
+			for (const result of taskResults) {
+				totalSize += result.size;
+				completedSaves += 1;
+
+				if (result.status === "skipped") {
+					savedFiles.set(result.filename, result.obsidianPath);
+					skippedCount++;
+				} else if (result.status === "saved") {
+					savedFiles.set(result.filename, result.savedPath);
+					entries.push(result.entry);
+					savedCount++;
+				} else {
 					failedCount++;
-					const errorMsg = `保存失败: ${filename}`;
-					this.logger.error(errorMsg, error);
 					errors.push({
-						file: filename,
-						error: error instanceof Error ? error.message : String(error),
+						file: result.filename,
+						error: result.error,
 						severity: "error",
 						code: "SAVE_FAILED",
 					});
+				}
+
+				this.emitProgress(
+					onProgress,
+					mediaEntries.length === 0 ? 90 : 10 + (completedSaves / mediaEntries.length) * 80,
+					"正在保存媒体文件...",
+					{
+						totalItems: mediaEntries.length,
+						completedItems: completedSaves,
+						currentItem: result.filename,
+					}
+				);
+
+				if (completedSaves % UI_YIELD_BATCH_SIZE === 0) {
+					await this.yieldToUI();
 				}
 			}
 

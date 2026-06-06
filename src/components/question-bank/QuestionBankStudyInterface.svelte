@@ -9,7 +9,7 @@
   import ObsidianIcon from "../ui/ObsidianIcon.svelte";
   import EnhancedIcon from "../ui/EnhancedIcon.svelte";
   import { showObsidianChoice, showObsidianConfirm } from "../../utils/obsidian-confirm";
-  import FloatingMenu from "../ui/FloatingMenu.svelte";
+  import PriorityPickerPopover from "../shared/PriorityPickerPopover.svelte";
   import QuestionBankHeader from "./QuestionBankHeader.svelte";
   import QuestionBankStatsCards from "./QuestionBankStatsCards.svelte";
   import QuestionBankActionSection from "./QuestionBankActionSection.svelte";
@@ -36,7 +36,8 @@
   
   //  移动端组件
   import MobileQuestionStatsBar from "./MobileQuestionStatsBar.svelte";
-  import { QuestionBankMenuBuilder, type QuestionBankMenuConfig, type QuestionBankMenuCallbacks } from "../../services/menu/QuestionBankMenuBuilder";
+  import type { QuestionBankMenuCallbacks } from "../../services/menu/QuestionBankMenuBuilder";
+  import { populateQuestionBankMenuSession } from "../../services/menu/question-bank-menu-session";
   import { tr } from "../../utils/i18n";
 
   //  移动端视图实例类型
@@ -51,13 +52,34 @@
     config?: import("../../types/question-bank-types").QuestionBankModeConfig;
     resumeBehavior?: QuestionBankResumeBehavior;
     viewInstance?: QuestionBankView; //  视图实例用于移动端回调
+    isStagingSession?: boolean;
+    onStagingQuestionReviewed?: (card: Card) => void;
+    onStagingDiscard?: (cardUuid: string) => void;
+    onStagingSessionComplete?: () => void;
+    onStagingCardEdited?: (card: Card) => void;
     onComplete?: (session: TestSession) => void;
     onExit?: () => void;
   }
 
   const editorSessionId = `weave-question-bank-session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-  let { bankId, bankName = "", plugin, questions, mode = 'exam', config, resumeBehavior = 'prompt', viewInstance, onComplete, onExit }: Props = $props();
+  let {
+    bankId,
+    bankName = "",
+    plugin,
+    questions,
+    mode = 'exam',
+    config,
+    resumeBehavior = 'prompt',
+    viewInstance,
+    isStagingSession = false,
+    onStagingQuestionReviewed,
+    onStagingDiscard,
+    onStagingSessionComplete,
+    onStagingCardEdited,
+    onComplete,
+    onExit
+  }: Props = $props();
   let t = $derived($tr);
   $effect(() => {
     if (!bankName) bankName = t('study.questionBankUI.studyInterface.defaultBankName');
@@ -116,22 +138,19 @@
   //  移动端状态
   const isMobile = Platform.isMobile;
   let showMobileStatsBar = $state(true); // 答题情况信息栏是否展开
-  let showMobileMenu = $state(false); // 移动端多功能菜单
 
-  let isKeyboardVisible = $state(false);
-  let mobileViewportHeight = $state<number | null>(null);
-  let mobileViewportCleanup: (() => void) | null = null;
+  let questionBankOverlayEl = $state<HTMLDivElement | null>(null);
+  let modalRef = $state<HTMLDivElement | null>(null);
 
   // 计时器
   let elapsedSeconds = $state(0);
   let timerInterval: number | null = null;
 
-  // 考试倒计时（FlipClock）
+  // 考试倒计时
   let examDuration = $state(60 * 60 * 1000);  // 默认60分钟
   let examStartTime = $state(0);
   let remainingTime = $state(0);
   let isPaused = $state(false);
-  let isTimeWarning = $derived(remainingTime > 0 && remainingTime < 5 * 60 * 1000);  // 最后5分钟警告
   const isPureExamMode = $derived(!!config?.options?.pureExamMode);
 
   function getExamTimeLimitMinutes() {
@@ -458,6 +477,10 @@
       // 更新当前会话
       currentSession = sessionManager.getCurrentSession();
 
+      if (isStagingSession && currentQuestion?.question) {
+        onStagingQuestionReviewed?.(currentQuestion.question);
+      }
+
       if (isPureExamMode) {
         const isLastQuestion = (currentSession?.currentQuestionIndex ?? 0) >= ((currentSession?.totalQuestions ?? questions.length) - 1);
         if (isLastQuestion) {
@@ -530,6 +553,11 @@
     try {
       const completedSession = await sessionManager.completeSession();
       stopTimer();
+
+      if (isStagingSession) {
+        onStagingSessionComplete?.();
+        return;
+      }
       
       if (onComplete) {
         onComplete(completedSession);
@@ -690,12 +718,40 @@
   }
 
   // 编辑器完成回调
+  function syncEditedQuestionInMemory(updatedCard: Card) {
+    const globalIndex = questions.findIndex((q) => q.uuid === updatedCard.uuid);
+    if (globalIndex !== -1) {
+      questions[globalIndex] = updatedCard;
+      questions = [...questions];
+    }
+
+    if (sessionManager && currentSession) {
+      const questionIndex = currentSession.questions.findIndex(
+        (q) => q.questionId === updatedCard.uuid
+      );
+      if (questionIndex !== -1) {
+        currentSession.questions[questionIndex].question = updatedCard;
+      }
+    }
+
+    if (currentQuestion) {
+      currentQuestion = {
+        ...currentQuestion,
+        question: updatedCard
+      };
+    }
+  }
+
   async function handleEditorComplete(updatedCard: Card) {
     // Notice提示由调用者显示，避免重复
     
     // 四层数据同步，修正时序问题
     
     try {
+      if (isStagingSession) {
+        onStagingCardEdited?.(updatedCard);
+        syncEditedQuestionInMemory(updatedCard);
+      } else {
       // 0. 先保存到数据库
       const saveResult = await saveMemoryCard(plugin, updatedCard, 'update');
       if (!saveResult.success) {
@@ -750,6 +806,7 @@
           question: updatedCard  // 使用最新的卡片数据
         };
       }
+      }
       
     } catch (error) {
       logger.error('[QuestionBankStudyInterface] 保存卡片到数据库失败:', error);
@@ -790,6 +847,27 @@
 
     try {
       const deletedCardId = currentQuestion.question.uuid;
+
+      if (isStagingSession) {
+        onStagingDiscard?.(deletedCardId);
+
+        if (showEditModal) {
+          showEditModal = false;
+          tempFileUnavailable = false;
+          isClozeMode = false;
+        }
+
+        questions = questions.filter((q) => q.uuid !== deletedCardId);
+
+        if (questions.length === 0) {
+          onStagingSessionComplete?.();
+          return;
+        }
+
+        await handleNextQuestion();
+        new Notice(t('study.questionBankUI.studyInterface.cardDeleted'));
+        return;
+      }
       
       // 使用题库专用删除方法（更新Service缓存）
       if (!plugin.questionBankService) {
@@ -841,9 +919,19 @@
     deleteConfirmCardId = '';
   }
 
+  function isValidPriority(value: unknown): value is 1 | 2 | 3 | 4 {
+    return value === 1 || value === 2 || value === 3 || value === 4;
+  }
+
   // 重要程度功能
-  function handleChangePriority() {
+  function handleChangePriority(priority?: 1 | 2 | 3 | 4) {
     if (!currentQuestion) return;
+
+    if (isValidPriority(priority)) {
+      void confirmChangePriority(priority);
+      return;
+    }
+
     const currentPriority = (currentQuestion.question.priority || 2) as 1 | 2 | 3 | 4;
     selectedPriority = currentPriority;
 
@@ -855,10 +943,10 @@
         label: string;
         icon: string;
       }> = [
-        { value: 1, label: t('study.questionBankUI.studyInterface.priorityLow'), icon: 'chevrons-down' },
-        { value: 2, label: t('study.questionBankUI.studyInterface.priorityMedium'), icon: 'minus' },
-        { value: 3, label: t('study.questionBankUI.studyInterface.priorityHigh'), icon: 'chevrons-up' },
-        { value: 4, label: t('study.questionBankUI.studyInterface.priorityVeryHigh'), icon: 'flame' }
+        { value: 1, label: t('study.questionBankUI.studyInterface.importanceLow'), icon: 'chevrons-down' },
+        { value: 2, label: t('study.questionBankUI.studyInterface.importanceMedium'), icon: 'minus' },
+        { value: 3, label: t('study.questionBankUI.studyInterface.importanceHigh'), icon: 'chevrons-up' },
+        { value: 4, label: t('study.questionBankUI.studyInterface.importanceVeryHigh'), icon: 'flame' }
       ];
 
       priorityOptions.forEach((option) => {
@@ -908,11 +996,11 @@
 
         const priorityText = [
           '',
-          t('study.questionBankUI.studyInterface.priorityLow'),
-          t('study.questionBankUI.studyInterface.priorityMedium'),
-          t('study.questionBankUI.studyInterface.priorityHigh'),
-          t('study.questionBankUI.studyInterface.priorityVeryHigh')
-        ][priority] || t('study.questionBankUI.studyInterface.priorityMedium');
+          t('study.questionBankUI.studyInterface.importanceLow'),
+          t('study.questionBankUI.studyInterface.importanceMedium'),
+          t('study.questionBankUI.studyInterface.importanceHigh'),
+          t('study.questionBankUI.studyInterface.importanceVeryHigh')
+        ][priority] || t('study.questionBankUI.studyInterface.importanceMedium');
         new Notice(t('study.questionBankUI.studyInterface.priorityUpdated', { label: priorityText }));
         showPriorityModal = false;
       }
@@ -1268,6 +1356,11 @@
   // 初始化
   onMount(async () => {
     initSession();
+
+    // 与记忆学习一致：标记学习会话，保留 Obsidian 原生 view-header 布局
+    if (document.body.classList.contains('is-phone')) {
+      document.body.classList.add('weave-study-active');
+    }
     
     // 初始化EmbeddableEditorManager（旧嵌入式方案：embedRegistry，无文件池）
     try {
@@ -1278,9 +1371,12 @@
       tempFileUnavailable = true;
     }
     
-    //  设置移动端回调
     if (isMobile && viewInstance) {
-      viewInstance.setMobileMenuCallback(handleShowMobileMenu);
+      viewInstance.setPopulatePaneMenuCallback(populateQuestionBankPaneMenu);
+      viewInstance.setMobilePanelStateGetter(() => ({
+        showStatsBar: showMobileStatsBar,
+        showNavigator,
+      }));
       viewInstance.setToggleStatsBarCallback(toggleMobileStatsBar);
       viewInstance.setToggleNavigatorCallback(toggleNavigatorPanel);
       logger.debug('[QuestionBankStudyInterface] 移动端回调已设置');
@@ -1289,56 +1385,51 @@
 
   // 清理
   onDestroy(() => {
+    if (viewInstance && typeof viewInstance.setPopulatePaneMenuCallback === 'function') {
+      viewInstance.setPopulatePaneMenuCallback(null);
+    }
+    if (viewInstance && typeof viewInstance.setMobilePanelStateGetter === 'function') {
+      viewInstance.setMobilePanelStateGetter(null);
+    }
+    if (viewInstance && typeof viewInstance.setSaveCallback === 'function') {
+      viewInstance.setSaveCallback(async () => {});
+    }
+    if (viewInstance && typeof viewInstance.updateEditMode === 'function') {
+      viewInstance.updateEditMode(false);
+    }
+    document.body.classList.remove('weave-study-active', 'weave-edit-active');
     stopTimer();
   });
 
+  // 同步编辑模式到 QuestionBankView（移动端顶栏「保存并返回」）
   $effect(() => {
-    if (!(Platform.isMobile && showEditModal)) {
-      if (mobileViewportCleanup) {
-        mobileViewportCleanup();
-        mobileViewportCleanup = null;
-      }
-      mobileViewportHeight = null;
-      isKeyboardVisible = false;
-      return;
+    if (viewInstance && typeof viewInstance.updateEditMode === 'function') {
+      viewInstance.updateEditMode(showEditModal);
     }
-
-    const viewport = window.visualViewport;
-    if (!viewport) {
-      return;
-    }
-
-    const updateViewportHeight = () => {
-      mobileViewportHeight = Math.max(200, viewport.height);
-
-      const keyboardHeight = Math.max(0, window.innerHeight - viewport.height);
-      isKeyboardVisible = keyboardHeight > 150;
-    };
-
-    updateViewportHeight();
-
-    viewport.addEventListener('resize', updateViewportHeight);
-    viewport.addEventListener('scroll', updateViewportHeight);
-
-    mobileViewportCleanup = () => {
-      viewport.removeEventListener('resize', updateViewportHeight);
-      viewport.removeEventListener('scroll', updateViewportHeight);
-    };
-
-    return () => {
-      mobileViewportCleanup?.();
-      mobileViewportCleanup = null;
-    };
   });
 
   $effect(() => {
+    if (viewInstance && typeof viewInstance.setSaveCallback === 'function') {
+      viewInstance.setSaveCallback(async () => {
+        await handleToggleEdit();
+      });
+    }
+  });
+
+  // 移动端编辑：与记忆学习共用 weave-edit-active（隐藏插件内 study-header，保留 Obsidian view-header）
+  $effect(() => {
     if (typeof document === 'undefined') return;
 
-    const isEditActive = Platform.isMobile && showEditModal;
-    document.body.classList.toggle('weave-question-bank-edit-active', isEditActive);
+    const isMobileDevice =
+      document.body.classList.contains('is-mobile')
+      || document.body.classList.contains('is-phone');
+
+    if (isMobileDevice) {
+      document.body.classList.toggle('weave-edit-active', showEditModal);
+    }
 
     return () => {
-      document.body.classList.remove('weave-question-bank-edit-active');
+      document.body.classList.remove('weave-edit-active');
     };
   });
 
@@ -1362,24 +1453,11 @@
     }
   }
 
-  //  显示移动端多功能菜单
-  function handleShowMobileMenu() {
-    if (!currentQuestion) return;
-    
-    // 构建菜单配置
-    const menuConfig: QuestionBankMenuConfig = {
-      card: currentQuestion.question,
-      hasSourceFile: !!currentQuestion.question.sourceFile,
-      currentPriority: currentQuestion.question.priority || 2,
-      enableDirectDelete,
-      showStatsBar: showMobileStatsBar,
-      questionOrder,
-      choiceOptionOrder,
-      navColumnMode,
-      showNavigator // 题目导航栏状态
-    };
+  function populateQuestionBankPaneMenu(menu: Menu): void {
+    if (!currentQuestion) {
+      return;
+    }
 
-    // 构建回调函数
     const menuCallbacks: QuestionBankMenuCallbacks = {
       onToggleEdit: handleToggleEdit,
       onDelete: handleDeleteCard,
@@ -1387,28 +1465,38 @@
       onChangePriority: handleChangePriority,
       onOpenDetailedView: handleOpenDetailedView,
       onToggleStatsBar: toggleMobileStatsBar,
-      onToggleNavigator: toggleNavigatorPanel, // 切换题目导航栏
+      onToggleNavigator: toggleNavigatorPanel,
       onQuestionOrderChange: handleQuestionOrderChange,
       onChoiceOptionOrderChange: handleChoiceOptionOrderChange,
       onNavColumnModeChange: handleNavColumnModeChange,
-      onDirectDeleteToggle: (enabled) => { enableDirectDelete = enabled; }
+      onDirectDeleteToggle: (enabled) => {
+        enableDirectDelete = enabled;
+      },
     };
 
-    // 创建菜单构建器并显示
-    const menuBuilder = new QuestionBankMenuBuilder(menuConfig, menuCallbacks);
-    menuBuilder.showMenu({ x: window.innerWidth / 2, y: window.innerHeight / 3 });
+    populateQuestionBankMenuSession(menu, {
+      card: currentQuestion.question,
+      isEditing: showEditModal,
+      hasSourceFile: !!currentQuestion.question.sourceFile,
+      currentPriority: currentQuestion.question.priority || 2,
+      enableDirectDelete,
+      showStatsBar: showMobileStatsBar,
+      questionOrder,
+      choiceOptionOrder,
+      navColumnMode,
+      showNavigator,
+      callbacks: menuCallbacks,
+    });
   }
 </script>
 
 <div
   class="question-bank-study-interface-overlay"
+  bind:this={questionBankOverlayEl}
   class:edit-active={showEditModal}
-  class:keyboard-visible={isKeyboardVisible}
-  style={Platform.isMobile && showEditModal && mobileViewportHeight
-    ? `height: ${mobileViewportHeight}px; --weave-viewport-height: ${mobileViewportHeight}px;`
-    : ''}
+  class:mobile-edit-mode={Platform.isMobile && showEditModal}
 >
-  <div class="question-bank-study-interface-content">
+  <div class="question-bank-study-interface-content" bind:this={modalRef}>
     {#if isLoading}
       <!-- 加载状态 -->
       <div class="loading-state">
@@ -1416,7 +1504,7 @@
         <p>{t('study.questionBankUI.studyInterface.loadingPreparing')}</p>
       </div>
     {:else if currentSession && currentQuestion}
-      <!-- 头部工具栏 -->
+      <!-- 头部工具栏（移动端编辑时由 weave-edit-active 隐藏 .study-header，Obsidian 顶栏单独保留） -->
       <QuestionBankHeader
         {bankName}
         currentIndex={progress.current}
@@ -1435,13 +1523,13 @@
         onToggleNavigator={isPureExamMode ? undefined : toggleNavigatorPanel}
         mode={currentSession.mode}
         {remainingTime}
+        {examDuration}
         {isPaused}
-        {isTimeWarning}
         onTogglePause={handleTogglePause}
       />
 
       <!--  移动端答题情况信息栏 -->
-      {#if isMobile && !isPureExamMode}
+      {#if isMobile && !isPureExamMode && !showEditModal}
         <MobileQuestionStatsBar
           expanded={showMobileStatsBar}
           correctCount={currentSession.correctCount}
@@ -1507,9 +1595,9 @@
 
         <!-- 题目学习区域 -->
         <div class="card-study-container">
-          <div class="card-container">
+          <div class="card-container" class:editing={showEditModal}>
             <!-- 重要程度贴纸 - 显示在右上角 -->
-            {#if currentQuestion?.question?.priority}
+            {#if currentQuestion?.question?.priority && !showEditModal}
               <ImportanceIndicator 
                 importance={currentQuestion.question.priority}
                 sticky={true}
@@ -1528,8 +1616,8 @@
                 isClozeMode={isClozeMode}
                 editorPoolManager={editorPoolManager}
                 dataStorage={plugin.dataStorage}
-                modalRef={null}
-                statsCollapsed={false}
+                {modalRef}
+                statsCollapsed={statsCollapsed}
                 onEditComplete={handleEditorComplete}
                 onEditCancel={handleEditorCancel}
                 onToggleCloze={handleToggleCloze}
@@ -1704,7 +1792,7 @@
       </div>
 
       <!-- 右侧垂直工具栏 -->
-      {#if showSidebar && !isPureExamMode}
+      {#if showSidebar && !isPureExamMode && !(Platform.isMobile && showEditModal)}
         <div class="sidebar-content" bind:this={sidebarContentEl}>
           <QuestionBankVerticalToolbar
             card={currentQuestion.question}
@@ -1733,102 +1821,62 @@
         </div>
       {/if}
 
-      <!-- 底部功能栏 -->
-      <div class="study-footer">
-        <div class="footer-actions">
-          <div class="footer-left-actions">
-            <!-- 题目导航折叠按钮 -->
-            <button
-              class="nav-toggle-btn"
-              onclick={toggleNavigatorPanel}
-              title={showNavigator ? t('study.questionBankUI.header.hideNavigator') : t('study.questionBankUI.header.showNavigator')}
-            >
-              <EnhancedIcon name={showNavigator ? 'panel-left-close' : 'panel-left-open'} size={20} />
-            </button>
+      <!-- 底部功能栏（编辑模式隐藏，与记忆学习一致） -->
+      {#if !showEditModal}
+        <div class="study-footer">
+          <div class="footer-actions">
+            <div class="footer-left-actions">
+              <!-- 题目导航折叠按钮 -->
+              <button
+                class="nav-toggle-btn"
+                onclick={toggleNavigatorPanel}
+                title={showNavigator ? t('study.questionBankUI.header.hideNavigator') : t('study.questionBankUI.header.showNavigator')}
+              >
+                <EnhancedIcon name={showNavigator ? 'panel-left-close' : 'panel-left-open'} size={20} />
+              </button>
 
-            <!-- 撤销按钮 -->
-            <button
-              class="undo-btn"
-              onclick={handleUndoAnswer}
-              disabled={!canUndo}
-              title={canUndo ? t('study.questionBankUI.studyInterface.undoRemainingTitle', { count: maxUndoCount - undoCount }) : t('study.questionBankUI.studyInterface.cannotUndoPlain')}
-            >
-              <EnhancedIcon name="undo" size={20} />
-              {#if maxUndoCount > 0 && (maxUndoCount - undoCount) > 0}
-                <span class="undo-badge">{maxUndoCount - undoCount}</span>
-              {/if}
-            </button>
-          </div>
+              <!-- 撤销按钮 -->
+              <button
+                class="undo-btn"
+                onclick={handleUndoAnswer}
+                disabled={!canUndo}
+                title={canUndo ? t('study.questionBankUI.studyInterface.undoRemainingTitle', { count: maxUndoCount - undoCount }) : t('study.questionBankUI.studyInterface.cannotUndoPlain')}
+              >
+                <EnhancedIcon name="undo" size={20} />
+                {#if maxUndoCount > 0 && (maxUndoCount - undoCount) > 0}
+                  <span class="undo-badge">{maxUndoCount - undoCount}</span>
+                {/if}
+              </button>
+            </div>
 
-          <div class="footer-center-actions">
-            <QuestionBankActionSection
-              hasSubmitted={hasSubmitted}
-              hasAnswer={hasAnswerForSubmit}
-              isLastQuestion={progress.current === progress.total}
-              onSubmit={handleSubmitAnswer}
-              onNext={handleNextQuestion}
-              canUndo={canUndo}
-              undoRemaining={maxUndoCount - undoCount}
-              onUndo={handleUndoAnswer}
-            />
+            <div class="footer-center-actions">
+              <QuestionBankActionSection
+                hasSubmitted={hasSubmitted}
+                hasAnswer={hasAnswerForSubmit}
+                isLastQuestion={progress.current === progress.total}
+                onSubmit={handleSubmitAnswer}
+                onNext={handleNextQuestion}
+                canUndo={canUndo}
+                undoRemaining={maxUndoCount - undoCount}
+                onUndo={handleUndoAnswer}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      {/if}
       </div>
     {/if}
     </div>
   </div>
 
-<FloatingMenu
+<PriorityPickerPopover
   bind:show={showPriorityModal}
   anchor={priorityAnchorElement}
-  placement="left-start"
+  currentPriority={selectedPriority}
+  variant="importance"
+  onSelect={(priority) => void confirmChangePriority(priority)}
   onClose={() => showPriorityModal = false}
-  class="study-side-panel-menu"
->
-  {#snippet children()}
-    <div class="study-side-panel priority-modal" role="dialog" aria-modal="true" tabindex="-1">
-      <div class="modal-header">
-        <h3>{t('study.questionBankUI.studyInterface.setPriority')}</h3>
-        <button class="modal-close" onclick={() => showPriorityModal = false}>×</button>
-      </div>
-      <div class="modal-body">
-        <p class="modal-description">{t('study.questionBankUI.studyInterface.choosePriority')}</p>
-        <div class="priority-options">
-          {#each [1, 2, 3, 4] as priority}
-            <button
-              class="priority-option"
-              class:selected={selectedPriority === priority}
-              onclick={() => { selectedPriority = priority as 1 | 2 | 3 | 4; }}
-            >
-              <div class="priority-stars">
-                {#each Array(priority) as _}
-                  <EnhancedIcon name="starFilled" size="16" />
-                {/each}
-                {#each Array(4 - priority) as _}
-                  <EnhancedIcon name="star" size="16" />
-                {/each}
-              </div>
-              <span class="priority-label">
-                {[
-                  '',
-                  t('study.questionBankUI.studyInterface.priorityLow'),
-                  t('study.questionBankUI.studyInterface.priorityMedium'),
-                  t('study.questionBankUI.studyInterface.priorityHigh'),
-                  t('study.questionBankUI.studyInterface.priorityVeryHigh')
-                ][priority]}
-              </span>
-            </button>
-          {/each}
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-secondary" onclick={() => showPriorityModal = false}>{t('study.questionBankUI.studyInterface.cancel')}</button>
-        <button class="btn-primary" onclick={() => confirmChangePriority(selectedPriority as 1 | 2 | 3 | 4)}>{t('study.questionBankUI.studyInterface.confirmPriority')}</button>
-      </div>
-    </div>
-  {/snippet}
-</FloatingMenu>
+/>
 
 <style>
   .question-bank-study-interface-overlay {
@@ -1994,6 +2042,11 @@
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+  }
+
+  .card-container.editing {
+    padding: 0;
+    overflow: hidden;
   }
 
   /* 题目区域 */
@@ -2649,7 +2702,6 @@
   }
 
   :global(body.is-mobile) .question-bank-study-interface-overlay {
-    /* 与记忆学习界面一致：通过容器底部避让 Obsidian 底栏 */
     position: absolute;
     top: 0;
     left: 0;
@@ -2661,11 +2713,20 @@
     width: 100%;
     height: auto;
     padding: 0;
-    /* 移除背景遮罩，避免覆盖 Obsidian UI */
     background: transparent;
     backdrop-filter: none;
     z-index: 1;
     overflow: hidden;
+  }
+
+  :global(body.is-mobile.weave-edit-active) .question-bank-study-interface-overlay,
+  :global(body.is-phone.weave-edit-active) .question-bank-study-interface-overlay {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 100%;
+    max-height: none;
   }
 
   :global(body.is-mobile) .question-bank-study-interface-content {
@@ -2686,6 +2747,12 @@
     padding: var(--weave-mobile-spacing-sm, 0.5rem);
     border: none;
     box-shadow: none;
+  }
+
+  :global(body.is-mobile) .question-bank-study-interface-overlay.edit-active .card-container.editing,
+  :global(body.is-phone) .question-bank-study-interface-overlay.edit-active .card-container.editing {
+    padding: 0;
+    overflow: hidden;
   }
 
   :global(body.is-mobile) .study-footer {
@@ -2856,30 +2923,6 @@
   /*  考试界面整体底部安全区域 */
   :global(body.is-phone) .question-bank-study-interface-content {
     padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-
-  :global(body.is-phone) .question-bank-study-interface-overlay.edit-active,
-  :global(body.is-mobile) .question-bank-study-interface-overlay.edit-active {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: var(--weave-viewport-height, 100%);
-    overflow: hidden;
-    padding: 0;
-  }
-
-  :global(body.is-phone.weave-question-bank-edit-active) .workspace-tab-header-container,
-  :global(body.is-phone.weave-question-bank-edit-active) .workspace-tab-header,
-  :global(body.is-phone.weave-question-bank-edit-active) .view-header,
-  :global(body.is-mobile.weave-question-bank-edit-active) .workspace-tab-header-container,
-  :global(body.is-mobile.weave-question-bank-edit-active) .workspace-tab-header,
-  :global(body.is-mobile.weave-question-bank-edit-active) .view-header {
-    background: transparent;
-    border-bottom-color: transparent;
-    box-shadow: none;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
   }
 
   :global(body.is-phone) .question-bank-study-interface-overlay.edit-active .question-bank-study-interface-content,

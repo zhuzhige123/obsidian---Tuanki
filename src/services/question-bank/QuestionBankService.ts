@@ -27,6 +27,7 @@ import type {
 	QuestionTestStats,
 } from "../../types/question-bank-types";
 import { generateId } from "../../utils/helpers";
+import { computeQuestionBankDisplayStats } from "../../utils/question-bank/question-bank-display-stats";
 import { QuestionBankStorage } from "./QuestionBankStorage";
 
 export interface QuestionBankMatchCandidate {
@@ -792,30 +793,14 @@ export class QuestionBankService {
 
 		const questions = await this.getQuestionsByBank(bankId);
 
-		// 统计基础信息
-		const totalQuestions = questions.length;
-		const testedQuestions = questions.filter(
-			(q) => q.stats?.testStats && q.stats.testStats.totalAttempts > 0
-		).length;
+		const displayStats = computeQuestionBankDisplayStats(questions);
+		const totalQuestions = displayStats.total;
+		const testedQuestions = displayStats.completed;
+		const averageAccuracy = displayStats.accuracy / 100;
 
-		// 统计平均正确率和分数
 		const testedQuestionsWithStats = questions.filter(
 			(q) => q.stats?.testStats && q.stats.testStats.totalAttempts > 0
 		);
-
-		const averageAccuracy =
-			testedQuestionsWithStats.length > 0
-				? testedQuestionsWithStats.reduce((sum, q) => {
-						// 优先使用EWMA算法计算的当前掌握度
-						const currentAccuracy = q.stats.testStats?.masteryMetrics?.currentAccuracy;
-						// 如果没有掌握度指标，回退到旧的简单平均
-						const accuracy =
-							currentAccuracy !== undefined
-								? currentAccuracy / 100
-								: q.stats.testStats?.accuracy || 0;
-						return sum + accuracy;
-				  }, 0) / testedQuestionsWithStats.length
-				: 0;
 
 		const averageScore =
 			testedQuestionsWithStats.length > 0

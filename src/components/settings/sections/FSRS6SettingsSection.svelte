@@ -5,25 +5,18 @@
 <script lang="ts">
   import { logger } from '../../../utils/logger';
   import { FSRS6_DEFAULTS } from '../../../types/fsrs6-types';
-  import { Notice, Modal } from 'obsidian';
+  import { Notice } from 'obsidian';
   import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
   import type WeavePlugin from '../../../main';
   import EnhancedIcon from '../../ui/EnhancedIcon.svelte';
-  import EnhancedButton from '../../ui/EnhancedButton.svelte';
   import SiblingDispersionSettings from './SiblingDispersionSettings.svelte';
 
   import { tr as trStore } from '../../../utils/i18n';
   
   // 子组件
   import BasicParametersPanel from './fsrs/components/BasicParametersPanel.svelte';
-  import OptimizationResultModal from '../../modals/OptimizationResultModal.svelte';
   
-  // Svelte mount
-  import { mount, untrack } from 'svelte';
-  
-  // 真实优化服务
-  import { PersonalizationManager } from '../../../algorithms/optimization/PersonalizationManager';
-  import type { PersonalizationData } from '../../../algorithms/optimization/PersonalizationManager';
+  import { untrack } from 'svelte';
 
   interface Props {
     plugin: WeavePlugin;
@@ -34,27 +27,8 @@
   // 直接引用 plugin.settings，避免 $state 代理导致修改无法同步回 plugin.settings
   let settings = untrack(() => plugin.settings);
   
-  // 响应式历史记录引用，用于触发UI更新
-  let optimizationHistory = $state(settings.fsrsParams.optimizationHistory || []);
-  
   // 响应式翻译函数
   let t = $derived($trStore);
-
-  // 优化服务实例
-  let personalizationManager: PersonalizationManager | null = $state(null);
-  
-  // 真实优化数据
-  let optimizationData = $state<{
-    dataPoints: number;
-    accuracy: number;
-    state: string;
-    isLoading: boolean;
-  }>({
-    dataPoints: 0,
-    accuracy: 0,
-    state: 'baseline',
-    isLoading: true
-  });
 
   // FSRS6状态管理 - 统一在主组件中管理
   let fsrs6State = $state({
@@ -67,61 +41,8 @@
     weights: Array.from(settings.fsrsParams.w || FSRS6_DEFAULTS.DEFAULT_WEIGHTS),
 
     // 界面状态
-    isOptimizing: false,
     enableWeightEditing: false // 权重参数编辑开关
   });
-
-  // 初始化优化服务 - 使用$effect.root避免无限循环
-  let isInitialized = $state(false);
-  
-  $effect(() => {
-    if (plugin && plugin.dataStorage && !isInitialized) {
-      isInitialized = true;
-      
-      try {
-        personalizationManager = new PersonalizationManager(plugin as any, plugin.dataStorage);
-        
-        // 延迟加载优化数据避免无限循环
-        setTimeout(() => loadOptimizationData(), 100);
-      } catch (error) {
-        logger.error('PersonalizationManager 初始化失败:', error);
-        isInitialized = false;
-      }
-    }
-  });
-  
-  // 权重编辑开关状态变化监听已移除
-
-  // 加载优化数据
-  async function loadOptimizationData() {
-    if (!personalizationManager) return;
-    
-    try {
-      optimizationData.isLoading = true;
-      
-      // 使用正确的方法名
-      const data = await personalizationManager.loadPersonalizationData();
-      
-      // 从 StudySession 获取复习数据
-      const sessions = await plugin.dataStorage.getStudySessions();
-      
-      // 计算总复习次数
-      let totalReviews = 0;
-      for (const session of sessions) {
-        if (session.cardReviews) {
-          totalReviews += session.cardReviews.length;
-        }
-      }
-      
-      optimizationData.dataPoints = totalReviews;
-      optimizationData.accuracy = data.baseline?.accuracy || 0;
-      optimizationData.state = data.state;
-    } catch (error) {
-      logger.error('加载优化数据失败:', error);
-    } finally {
-      optimizationData.isLoading = false;
-    }
-  }
 
   // 保存设置的统一方法
   async function saveSettings() {
@@ -133,7 +54,12 @@
       settings.fsrsParams.w = [...fsrs6State.weights];
       
       await plugin.saveSettings();
-      
+      plugin.fsrs?.updateParameters({
+        w: [...fsrs6State.weights],
+        requestRetention: fsrs6State.retention,
+        maximumInterval: fsrs6State.maxInterval,
+        enableFuzz: fsrs6State.enableFuzz,
+      });
 } catch (error) {
       logger.error('保存FSRS6设置失败:', error);
 }
@@ -194,211 +120,6 @@
       saveSettings();
     }
   }
-
-
-  // 手动触发参数优化（显示模态框）
-  async function startOptimization() {
-    if (!personalizationManager) {
-      new Notice(
-        t('fsrs6Notices.serviceNotReady'),
-        4000
-      );
-      return;
-    }
-    
-    fsrs6State.isOptimizing = true;
-    
-    try {
-      // 从 StudySession 收集复习数据
-      const sessions = await plugin.dataStorage.getStudySessions();
-      const allReviews: any[] = [];
-      
-      for (const session of sessions) {
-        if (session.cardReviews && Array.isArray(session.cardReviews)) {
-          allReviews.push(...session.cardReviews);
-        }
-      }
-      
-      // 检查数据量是否足够
-      if (allReviews.length < 50) {
-        new Notice(
-          t('fsrs6Notices.insufficientData', { count: allReviews.length }),
-          8000
-        );
-        fsrs6State.isOptimizing = false;
-        return;
-      }
-      
-      // 执行优化计算
-      await personalizationManager.updateAfterReview(
-        allReviews[allReviews.length - 1],
-        allReviews
-      );
-      
-      // 获取优化建议
-      const suggestedWeights = await personalizationManager.loadOptimizedWeights();
-      
-      // 获取真实的优化对比数据
-      const comparisonData = await personalizationManager.getOptimizationComparison(allReviews);
-      
-      // 准备优化结果数据
-      const optimizationResult = {
-        reviewCount: allReviews.length,
-        phase: optimizationData.state,
-        oldWeights: [...FSRS6_DEFAULTS.DEFAULT_WEIGHTS],  // 使用默认权重作为对比基准
-        newWeights: suggestedWeights,
-        metrics: {
-          oldAccuracy: comparisonData.baselineAccuracy,
-          newAccuracy: comparisonData.optimizedAccuracy,
-          improvement: comparisonData.improvement
-        },
-        timestamp: Date.now()
-      };
-      
-      // 保存为待确认的优化建议
-      settings.fsrsParams.pendingOptimization = {
-        suggestedWeights,
-        timestamp: optimizationResult.timestamp,
-        reviewCount: allReviews.length,
-        phase: optimizationData.state,
-        metrics: {
-          improvement: comparisonData.improvement
-        }
-      };
-      
-      await plugin.saveSettings();
-      
-      // 显示优化结果模态框
-      showOptimizationResultModal(optimizationResult);
-      
-    } catch (error) {
-      logger.error('参数优化失败:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      
-      new Notice(
-        t('fsrs6Notices.optimizationFailed') + errorMessage,
-        6000
-      );
-    } finally {
-      fsrs6State.isOptimizing = false;
-    }
-  }
-  
-  // 显示优化结果模态框
-  function showOptimizationResultModal(optimizationResult: any) {
-    const modal = new Modal(plugin.app);
-    modal.titleEl.remove(); // 移除默认标题
-    
-    // 渲染 Svelte 组件
-    mount(OptimizationResultModal, {
-      target: modal.contentEl,
-      props: {
-        app: plugin.app,
-        optimizationResult,
-        onAccept: async () => {
-          await acceptOptimization();
-          modal.close();
-        },
-        onReject: async () => {
-          await rejectOptimization();
-          modal.close();
-        }
-      }
-    });
-    
-    modal.open();
-  }
-
-  // 接受优化建议
-  async function acceptOptimization() {
-    if (!settings.fsrsParams.pendingOptimization) return;
-    
-    const { suggestedWeights, timestamp, reviewCount, phase, metrics } = settings.fsrsParams.pendingOptimization;
-    
-    // 保存到历史记录
-    if (!settings.fsrsParams.optimizationHistory) {
-      settings.fsrsParams.optimizationHistory = [];
-    }
-    
-    settings.fsrsParams.optimizationHistory.push({
-      timestamp,
-      reviewCount,
-      phase: phase as any,
-      oldWeights: [...FSRS6_DEFAULTS.DEFAULT_WEIGHTS],
-      newWeights: suggestedWeights,
-      metrics,
-      accepted: true
-    });
-    
-    // 限制历史记录数量
-    if (settings.fsrsParams.optimizationHistory.length > 50) {
-      settings.fsrsParams.optimizationHistory = 
-        settings.fsrsParams.optimizationHistory.slice(-50);
-    }
-    
-    // 应用新参数
-    fsrs6State.weights = suggestedWeights;
-    settings.fsrsParams.w = suggestedWeights;
-    
-    // 清除待确认状态
-    settings.fsrsParams.pendingOptimization = undefined;
-    
-    await plugin.saveSettings();
-    
-    //  更新响应式引用，触发UI刷新
-    optimizationHistory = [...settings.fsrsParams.optimizationHistory];
-    
-    new Notice(t('fsrs6Notices.optimizationApplied'), 3000);
-  }
-  
-  // 拒绝优化建议
-  async function rejectOptimization() {
-    if (!settings.fsrsParams.pendingOptimization) return;
-    
-    const { suggestedWeights, timestamp, reviewCount, phase, metrics } = settings.fsrsParams.pendingOptimization;
-    
-    // 记录到历史（标记为拒绝）
-    if (!settings.fsrsParams.optimizationHistory) {
-      settings.fsrsParams.optimizationHistory = [];
-    }
-    
-    settings.fsrsParams.optimizationHistory.push({
-      timestamp,
-      reviewCount,
-      phase: phase as any,
-      oldWeights: [...FSRS6_DEFAULTS.DEFAULT_WEIGHTS],
-      newWeights: suggestedWeights,
-      metrics,
-      accepted: false,
-      note: '用户拒绝'
-    });
-    
-    // 限制历史记录数量
-    if (settings.fsrsParams.optimizationHistory.length > 50) {
-      settings.fsrsParams.optimizationHistory = 
-        settings.fsrsParams.optimizationHistory.slice(-50);
-    }
-    
-    // 清除待确认状态
-    settings.fsrsParams.pendingOptimization = undefined;
-    
-    await plugin.saveSettings();
-    
-    //  更新响应式引用，触发UI刷新
-    optimizationHistory = [...settings.fsrsParams.optimizationHistory];
-    
-    new Notice(t('fsrs6Notices.optimizationRejected'), 3000);
-  }
-  
-  // 刷新性能指标（重新加载优化数据）
-  async function refreshMetrics() {
-    await loadOptimizationData();
-    
-    new Notice(
-      t('fsrs6Notices.dataRefreshed', { count: optimizationData.dataPoints }),
-      2000
-    );
-  }
 </script>
 
 <div class="weave-settings settings-section fsrs6-settings">
@@ -408,6 +129,7 @@
       <h4 class="group-title with-accent-bar accent-blue">{t('fsrs.basicParams.title')}</h4>
       <span class="version-badge">v6.1.1</span>
     </div>
+    <p class="group-description">{t('settings.memoryLearning.fsrsShortTermNote')}</p>
     <div class="group-content">
       <BasicParametersPanel
         parameters={{
@@ -497,160 +219,6 @@
     </div>
   </div>
 
-  <!-- 智能优化 -->
-  <div class="settings-group">
-    <div class="group-title-row">
-      <div>
-        <h4 class="group-title with-accent-bar accent-green">{t('fsrs.optimization.title')}</h4>
-        <p class="group-description">{t('fsrs.optimization.description')}</p>
-      </div>
-      <EnhancedButton
-        variant="primary"
-        onclick={startOptimization}
-        disabled={fsrs6State.isOptimizing}
-      >
-        {#if fsrs6State.isOptimizing}
-          {t('fsrs.optimization.optimizingButton')}
-        {:else}
-          {t('fsrs.optimization.startButton')}
-        {/if}
-      </EnhancedButton>
-    </div>
-
-    <div class="optimization-content">
-      {#if optimizationData.isLoading}
-        <div class="optimization-loading">
-          <EnhancedIcon name="loader" size="20" />
-          <span>{t('fsrs6Notices.loadingData')}</span>
-        </div>
-      {:else}
-        <div class="optimization-status">
-          <div class="status-item">
-            <span class="status-label">{t('fsrs.optimization.dataPoints')}:</span>
-            <span class="status-value">{optimizationData.dataPoints}</span>
-          </div>
-          <div class="status-item">
-            <span class="status-label">{t('fsrs.optimization.accuracy')}:</span>
-            <span class="status-value">{optimizationData.accuracy > 0 ? `${(optimizationData.accuracy * 100).toFixed(1)}%` : '--'}</span>
-          </div>
-          <div class="status-item">
-            <span class="status-label">{t('fsrs.optimization.status')}:</span>
-            <span class="status-value" class:optimizing={fsrs6State.isOptimizing}>
-              {fsrs6State.isOptimizing ? t('fsrs.optimization.statusOptimizing') : t('fsrs.optimization.statusReady')}
-            </span>
-          </div>
-        </div>
-      {/if}
-
-      <!-- 优化历史记录 -->
-      {#if optimizationHistory && optimizationHistory.length > 0}
-        <div class="history-section">
-          <h4 class="history-title with-accent-bar accent-purple">
-            {t('fsrs6Notices.historyTitle')}
-            <span class="history-count-badge">{t('fsrs6Notices.historyCount', { count: optimizationHistory.length })}</span>
-          </h4>
-
-          <div class="history-table-container">
-              <table class="history-table">
-                <thead>
-                  <tr>
-                    <th class="th-status">{t('fsrs6Notices.colStatus')}</th>
-                    <th class="th-time">{t('fsrs6Notices.colTime')}</th>
-                    <th class="th-phase">{t('fsrs6Notices.colPhase')}</th>
-                    <th class="th-reviews">{t('fsrs6Notices.colReviews')}</th>
-                    <th class="th-accuracy">{t('fsrs6Notices.colAccuracy')}</th>
-                    <th class="th-changes">{t('fsrs6Notices.colChanges')}</th>
-                    <th class="th-note">{t('fsrs6Notices.colNote')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each optimizationHistory.slice().reverse() as entry}
-                    <tr>
-                      <!-- 状态 -->
-                      <td class="td-status">
-                        <span class="status-badge" class:success={entry.accepted} class:muted={!entry.accepted}>
-                          {entry.accepted ? t('fsrs6Notices.statusAccepted') : t('fsrs6Notices.statusRejected')}
-                        </span>
-                      </td>
-                      
-                      <!-- 优化时间 -->
-                      <td class="td-time">
-                        <span class="time-text">{new Date(entry.timestamp).toLocaleString('zh-CN', { 
-                          year: 'numeric',
-                          month: '2-digit',
-                          day: '2-digit',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}</span>
-                      </td>
-                      
-                      <!-- 阶段 -->
-                      <td class="td-phase">
-                        <span class="phase-text">
-                          {#if entry.phase === 'baseline'}基准收集
-                          {:else if entry.phase === 'phase1'}阶段1
-                          {:else if entry.phase === 'phase2'}阶段2
-                          {:else if entry.phase === 'optimized'}已优化
-                          {:else}{entry.phase}
-                          {/if}
-                        </span>
-                      </td>
-                      
-                      <!-- 复习记录 -->
-                      <td class="td-reviews">
-                        <span class="review-count">{entry.reviewCount} 次</span>
-                      </td>
-                      
-                      <!-- 准确性 -->
-                      <td class="td-accuracy">
-                        {#if entry.metrics.accuracy}
-                          <span class="accuracy-value">{entry.metrics.accuracy.toFixed(1)}%</span>
-                        {:else}
-                          <span class="na-text">—</span>
-                        {/if}
-                      </td>
-                      
-                      <!-- 参数变化 -->
-                      <td class="td-changes">
-                        {#each [entry.newWeights.map((w: number, i: number) => ({
-                          index: i,
-                          old: entry.oldWeights[i],
-                          new: w,
-                          diff: w - entry.oldWeights[i]
-                        })).filter(p => Math.abs(p.diff) > 0.01)] as changedParams}
-                          {#if changedParams.length > 0}
-                            <span 
-                              class="changes-count clickable" 
-                              title={changedParams.map(p => 
-                                `w${p.index}: ${p.old.toFixed(4)} → ${p.new.toFixed(4)} (${p.diff > 0 ? '+' : ''}${p.diff.toFixed(4)})`
-                              ).join('\n')}
-                            >
-                              {t('fsrs6Notices.paramCount', { count: changedParams.length })}
-                            </span>
-                          {:else}
-                            <span class="na-text">{t('fsrs6Notices.noChanges')}</span>
-                          {/if}
-                        {/each}
-                      </td>
-                      
-                      <!-- 备注 -->
-                      <td class="td-note">
-                        {#if entry.note}
-                          <span class="note-text" title={entry.note}>{entry.note}</span>
-                        {:else}
-                          <span class="na-text">—</span>
-                        {/if}
-                      </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-        </div>
-      {/if}
-    </div>
-  </div>
-
 </div>
 
 <style>
@@ -664,9 +232,9 @@
 
   .group-description {
     margin: 0 0 1rem 0;
-    font-size: 0.85rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     color: var(--text-muted);
-    line-height: 1.4;
+    line-height: 1.55;
   }
 
   .version-badge {
@@ -740,15 +308,17 @@
 
   .panel-title {
     margin: 0;
-    font-size: 0.95rem;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     font-weight: 600;
     color: var(--text-normal);
+    line-height: 1.4;
   }
 
   .panel-subtitle {
     margin: 0;
-    font-size: 0.8rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     color: var(--text-muted);
+    line-height: 1.55;
   }
 
   /* 面板控制区域 */
@@ -858,256 +428,9 @@
     color: var(--text-normal);
   }
 
-  /* 优化面板样式 */
-  .optimization-content {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-
-  .optimization-loading {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
-    padding: 2rem;
-    color: var(--text-muted);
-    font-size: 0.9rem;
-  }
-
-  .optimization-status {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 1rem;
-    padding: 1rem 0;
-  }
-
-  .status-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .status-label {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-  }
-
-  .status-value {
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-normal);
-  }
-
-  .status-value.optimizing {
-    color: var(--weave-accent-color);
-  }
-
-  /* 优化历史记录区域样式 */
-  .history-section {
-    margin-top: 1.5rem;
-    border-top: 1px solid var(--background-modifier-border);
-    padding-top: 1rem;
-  }
-
-  .history-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin: 0 0 1rem 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-normal);
-  }
-
-  .history-count-badge {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    padding: 0.25rem 0.5rem;
-    background: var(--background-secondary);
-    border-radius: var(--radius-s);
-    font-weight: 500;
-  }
-
-  .history-table-container {
-    overflow-x: auto;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-m);
-  }
-
-  .history-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9rem;
-  }
-
-  .history-table thead {
-    background: var(--background-secondary);
-    border-bottom: 2px solid var(--background-modifier-border);
-  }
-
-  .history-table th {
-    padding: 0.75rem 1rem;
-    text-align: left;
-    font-weight: 600;
-    font-size: 0.85rem;
-    color: var(--text-muted);
-    white-space: nowrap;
-  }
-
-  .history-table th.th-status {
-    width: 90px;
-  }
-
-  .history-table th.th-time {
-    width: 150px;
-  }
-
-  .history-table th.th-phase {
-    width: 100px;
-  }
-
-  .history-table th.th-reviews {
-    width: 100px;
-  }
-
-  .history-table th.th-accuracy {
-    width: 90px;
-  }
-
-  .history-table th.th-changes {
-    width: 100px;
-  }
-
-  .history-table th.th-note {
-    width: auto;
-    min-width: 120px;
-  }
-
-  .history-table tbody tr {
-    border-bottom: 1px solid var(--background-modifier-border);
-    transition: background-color 0.2s;
-  }
-
-  .history-table tbody tr:hover {
-    background: var(--background-secondary-alt);
-  }
-
-  .history-table tbody tr:last-child {
-    border-bottom: none;
-  }
-
-  .history-table td {
-    padding: 0.75rem 1rem;
-    vertical-align: middle;
-  }
-
-  /* 状态列 */
-  .td-status .status-badge {
-    display: inline-block;
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    border-radius: var(--radius-s);
-    white-space: nowrap;
-  }
-
-  .status-badge.success {
-    background: rgba(34, 197, 94, 0.1);
-    color: var(--text-success);
-  }
-
-  .status-badge.muted {
-    background: var(--background-secondary);
-    color: var(--text-muted);
-  }
-
-  /* 时间列 */
-  .td-time .time-text {
-    font-family: var(--font-monospace);
-    font-size: 0.85rem;
-    color: var(--text-muted);
-  }
-
-  /* 阶段列 */
-  .td-phase .phase-text {
-    color: var(--text-accent);
-    font-weight: 500;
-  }
-
-  /* 复习记录列 */
-  .td-reviews .review-count {
-    color: var(--text-normal);
-  }
-
-  /* 准确性列 */
-  .td-accuracy .accuracy-value {
-    color: var(--text-normal);
-    font-weight: 500;
-  }
-
-  /* 参数变化列 */
-  .td-changes .changes-count {
-    color: var(--text-normal);
-    font-weight: 500;
-  }
-
-  .td-changes .changes-count.clickable {
-    color: var(--text-accent);
-    cursor: help;
-    text-decoration: underline;
-    text-decoration-style: dotted;
-    text-underline-offset: 2px;
-  }
-
-  .td-changes .changes-count.clickable:hover {
-    color: var(--text-accent-hover);
-  }
-
-  /* 备注列 */
-  .td-note .note-text {
-    color: var(--text-muted);
-    max-width: 200px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    display: inline-block;
-  }
-
-  /* 空值标识 */
-  .na-text {
-    color: var(--text-faint);
-    font-style: italic;
-  }
-
-  /* 响应式设计 */
   @media (max-width: 768px) {
     .weights-grid {
       grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-    }
-
-    .optimization-status {
-      grid-template-columns: 1fr;
-    }
-
-    /* 表格响应式 */
-    .history-table {
-      font-size: 0.8rem;
-    }
-
-    .history-table th,
-    .history-table td {
-      padding: 0.5rem;
-    }
-
-    .history-table th.th-time,
-    .history-table th.th-note {
-      display: none;
-    }
-
-    .history-table td.td-time,
-    .history-table td.td-note {
-      display: none;
     }
   }
 </style>

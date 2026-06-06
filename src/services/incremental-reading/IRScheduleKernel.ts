@@ -625,10 +625,13 @@ export class IRScheduleKernel {
 	}
 
 	private async getReadingMaterials(): Promise<ReadingMaterial[]> {
-		const plugin: any = (this.app as any)?.plugins?.getPlugin?.("weave");
-		if (plugin?.readingMaterialManager) {
+		const weavePlugin: any = (this.app as any)?.plugins?.getPlugin?.("weave");
+		const irPlugin: any =
+			(this.app as any)?.plugins?.getPlugin?.("weave-incremental-reading") ?? weavePlugin;
+		const manager = irPlugin?.readingMaterialManager;
+		if (manager?.getAllMaterials) {
 			try {
-				return await plugin.readingMaterialManager.getAllMaterials();
+				return await manager.getAllMaterials();
 			} catch (error) {
 				logger.warn("[IRScheduleKernel] 读取阅读材料失败:", error);
 			}

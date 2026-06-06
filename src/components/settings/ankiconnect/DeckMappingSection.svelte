@@ -191,8 +191,8 @@
 <div class="deck-mapping-section settings-group">
   <div class="group-header">
     <div class="header-content">
-      <h4 class="section-title with-accent-bar accent-purple">{t('ankiConnect.deckSync.title')}</h4>
-      <p>{t('ankiConnect.deckSync.description')}</p>
+      <div class="group-title with-accent-bar accent-purple">{t('ankiConnect.deckSync.title')}</div>
+      <p class="group-description">{t('ankiConnect.deckSync.description')}</p>
     </div>
     <div class="header-actions">
       {#if mappingList.length > 0}

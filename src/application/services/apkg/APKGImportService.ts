@@ -46,6 +46,7 @@ interface APKGImportServiceOptions {
 }
 
 const UI_YIELD_BATCH_SIZE = 20;
+const CARD_BUILD_BATCH_SIZE = 48;
 
 type ImportStorageProgressCallback = (current: number, total: number, detail: string) => void;
 
@@ -308,7 +309,12 @@ export class APKGImportService {
 
       currentStage = "analyzing";
       await this.updateProgressAndYield("analyzing", 40, "正在转换模板映射...");
-      const importedTemplates = await this.createTemplates(parsedData.models, fieldSideMap, plugin, signal);
+      const { templateMap: importedTemplates, hasNewTemplates } = await this.createTemplates(
+        parsedData.models,
+        fieldSideMap,
+        plugin,
+        signal
+      );
 
       currentStage = "media";
       await this.updateProgressAndYield("media", 45, "正在提取媒体资源...");
@@ -360,26 +366,29 @@ export class APKGImportService {
 
       const modelMap = new Map(parsedData.models.map((model) => [model.id, model]));
       const cards: Card[] = [];
+      const totalNotes = parsedData.notes.length;
 
-      for (let i = 0; i < parsedData.notes.length; i++) {
+      for (let batchStart = 0; batchStart < totalNotes; batchStart += CARD_BUILD_BATCH_SIZE) {
         throwIfImportAborted(signal);
-        const note = parsedData.notes[i];
-        const model = modelMap.get(note.mid);
+        const batchEnd = Math.min(batchStart + CARD_BUILD_BATCH_SIZE, totalNotes);
 
-        if (!model) {
-          errors.push({
-            noteId: note.id,
-            stage: "building",
-            message: `未找到模型: ${note.mid}`,
-            code: "MODEL_NOT_FOUND",
-          });
-          stats.failedCards++;
-          continue;
-        }
+        for (let i = batchStart; i < batchEnd; i++) {
+          const note = parsedData.notes[i];
+          const model = modelMap.get(note.mid);
 
-        const template = importedTemplates.get(model.id);
-        const result = await this.cardBuilder.buildAsync(
-          {
+          if (!model) {
+            errors.push({
+              noteId: note.id,
+              stage: "building",
+              message: `未找到模型: ${note.mid}`,
+              code: "MODEL_NOT_FOUND",
+            });
+            stats.failedCards++;
+            continue;
+          }
+
+          const template = importedTemplates.get(model.id);
+          const result = this.cardBuilder.build({
             note,
             model,
             deckId: deck.id,
@@ -388,44 +397,43 @@ export class APKGImportService {
             fieldSideMap: fieldSideMap[model.id],
             mediaPathMap: mediaResult.savedFiles,
             conversionConfig: config.conversion,
-          },
+          });
+
+          if (result.success && result.card) {
+            cards.push(result.card as Card);
+            stats.importedCards++;
+          } else {
+            stats.failedCards++;
+            errors.push({
+              noteId: note.id,
+              stage: "building",
+              message: result.warnings.join("; "),
+              code: "BUILD_FAILED",
+            });
+          }
+        }
+
+        this.updateProgress(
+          "converting",
+          65 + (batchEnd / Math.max(1, totalNotes)) * 24,
+          "正在标准化卡片内容...",
           {
-            signal,
+            totalItems: totalNotes,
+            completedItems: batchEnd,
           }
         );
-
-        if (result.success && result.card) {
-          cards.push(result.card as Card);
-          stats.importedCards++;
-        } else {
-          stats.failedCards++;
-          errors.push({
-            noteId: note.id,
-            stage: "building",
-            message: result.warnings.join("; "),
-            code: "BUILD_FAILED",
-          });
-        }
-
-        if (i % 10 === 0) {
-          this.updateProgress(
-            "converting",
-            65 + ((i + 1) / Math.max(1, parsedData.notes.length)) * 24,
-            "正在标准化卡片内容...",
-            {
-              totalItems: parsedData.notes.length,
-              completedItems: i + 1,
-            }
-          );
-        }
-
-        await this.maybeYieldDuringLoop(i + 1, parsedData.notes.length);
+        await this.yieldToUI();
       }
 
       currentStage = "saving";
       await this.updateProgressAndYield("saving", 90, "正在写入 Weave 卡片数据...");
       await this.saveCardsWithProgress(cards, signal);
       await this.dataStorage.saveAll();
+
+      if (hasNewTemplates) {
+        throwIfImportAborted(signal);
+        await plugin.saveSettings();
+      }
 
       await this.updateProgressAndYield("saving", 100, "导入完成");
       const duration = Date.now() - startTime;
@@ -533,7 +541,7 @@ export class APKGImportService {
     fieldSideMap: import("../../../domain/apkg/types").FieldSideMap,
     plugin: WeavePlugin,
     signal?: AbortSignal
-  ): Promise<Map<number, ParseTemplate>> {
+  ): Promise<{ templateMap: Map<number, ParseTemplate>; hasNewTemplates: boolean }> {
     const templateMap = new Map<number, ParseTemplate>();
     let hasNewTemplates = false;
 
@@ -590,12 +598,7 @@ export class APKGImportService {
       await this.maybeYieldDuringLoop(index + 1, models.length);
     }
 
-    if (hasNewTemplates) {
-      throwIfImportAborted(signal);
-      await plugin.saveSettings();
-    }
-
     this.logger.info(`模板创建完成: ${templateMap.size} 个模板`);
-    return templateMap;
+    return { templateMap, hasNewTemplates };
   }
 }

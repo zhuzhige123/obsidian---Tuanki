@@ -5,6 +5,7 @@ export const settingsTranslations: Record<SupportedLanguage, TranslationKey> = {
 
 		settings: {
 			title: "设置",
+			subtitle: "统一管理学习入口、调度策略与系统能力开关，确保长期使用中的体验一致与可维护性。",
 			categories: {
 				basic: "基础",
 				memoryLearning: "记忆学习",
@@ -13,9 +14,10 @@ export const settingsTranslations: Record<SupportedLanguage, TranslationKey> = {
 				aiConfig: "AI服务",
 				incrementalReading: "增量阅读",
 				virtualization: "性能优化",
-				dataManagement: "备份与维护",
+				dataManagement: "数据备份",
 				ankiConnect: "Anki配置",
 				pluginSystem: "插件",
+				license: "授权",
 				about: "关于",
 			},
 			basic: {
@@ -43,8 +45,12 @@ export const settingsTranslations: Record<SupportedLanguage, TranslationKey> = {
 					label: "启用键盘快捷键",
 					description: "学习模式的键盘快捷键（1-4评分，空格显示答案）",
 				},
+				debugGroup: {
+					title: "调试",
+					description: "开发者调试选项，一般用户无需修改。",
+				},
 				debugMode: {
-					label: "调试模式",
+					label: "启用调试模式",
 					description: "启用后将在浏览器控制台输出详细的调试日志信息",
 					enabled: "调试模式已启用，控制台将输出详细日志",
 					disabled: "调试模式已关闭",
@@ -302,6 +308,60 @@ export const settingsTranslations: Record<SupportedLanguage, TranslationKey> = {
 					addMapping: "添加映射",
 				},
 			},
+			license: {
+				title: "授权与激活",
+				purchaseLink: "购买永久授权码",
+				description: "管理 Weave 高级功能许可证，查看激活状态与设备绑定。",
+				noSavableCode: "当前授权未提供可保存的激活码",
+				codeCopied: "激活码已复制到剪贴板，请妥善保存",
+				codeCopyFailed: "复制激活码失败，请稍后重试",
+				noActivationToRemove: "当前没有可移除的激活记录",
+				confirmRemove: "确定要移除当前 Weave 激活状态吗？",
+				confirmRemoveTitle: "确认移除激活",
+				removeAbnormal: "移除激活后状态仍异常，请稍后重试",
+				removed: "Weave 激活已移除，当前插件已变为未激活状态",
+				removeFailed: "移除激活失败，请稍后重试",
+				statusCard: {
+					source: {
+						weave: "Weave",
+						reader: "EPUB 阅读器",
+						related: "关联产品",
+						unactivated: "未激活",
+						sharedFrom: "共享授权（来自 {product}）",
+						shared: "共享授权",
+						weavePrimaryCode: "Weave 主激活码",
+						weaveActivationCode: "Weave 激活码",
+					},
+					sharedActive: "共享授权生效",
+					activated: "许可证已激活",
+					licenseType: {
+						unknown: "未知",
+						lifetime: "永久授权",
+						subscription: "订阅许可",
+						default: "许可证",
+					},
+					expiry: {
+						expired: "已过期",
+						inDays: "{days}天后过期",
+						longTerm: "长期有效",
+					},
+					labels: {
+						licenseType: "许可证类型",
+						source: "授权来源",
+						localCount: "当前产品授权数",
+						inheritedCount: "共享授权数",
+						deviceUsage: "激活设备",
+						activatedAt: "激活时间",
+						expiresAt: "到期时间",
+					},
+					inheritedNote:
+						"当前激活状态来自其他插件的共享授权。如需完全取消激活，请在对应插件中移除授权。",
+					saveCode: "保存激活码",
+					removeActivation: "移除激活",
+					notActivated: "许可证未激活",
+					freeOnlyMessage: "当前仅可使用免费功能，激活许可证后可解锁所有高级功能。",
+				},
+			},
 			actions: {
 				save: "保存",
 				saved: "设置已保存",
@@ -317,6 +377,7 @@ export const settingsTranslations: Record<SupportedLanguage, TranslationKey> = {
 
 		settings: {
 			title: "Settings",
+			subtitle: "Manage study entry points, scheduling controls, and system capabilities with a consistent long-term configuration surface.",
 			categories: {
 				basic: "Basic",
 				memoryLearning: "Memory Learning",
@@ -325,9 +386,10 @@ export const settingsTranslations: Record<SupportedLanguage, TranslationKey> = {
 				aiConfig: "AI Card Creation",
 				incrementalReading: "Incremental Reading",
 				virtualization: "Performance",
-				dataManagement: "Backup & Maintenance",
+				dataManagement: "Data Backup",
 				ankiConnect: "Anki Config",
 				pluginSystem: "Plugins",
+				license: "License",
 				about: "About",
 			},
 			basic: {
@@ -355,8 +417,12 @@ export const settingsTranslations: Record<SupportedLanguage, TranslationKey> = {
 					label: "Enable Keyboard Shortcuts",
 					description: "Keyboard shortcuts for study mode (1-4 for rating, Space to show answer)",
 				},
+				debugGroup: {
+					title: "Debug",
+					description: "Developer options. Most users can leave these unchanged.",
+				},
 				debugMode: {
-					label: "Debug Mode",
+					label: "Enable debug mode",
 					description: "Output detailed debug logs to browser console",
 					enabled: "Debug mode enabled, detailed logs will be shown in console",
 					disabled: "Debug mode disabled",
@@ -621,6 +687,60 @@ export const settingsTranslations: Record<SupportedLanguage, TranslationKey> = {
 					addMapping: "Add Mapping",
 				},
 			},
+			license: {
+				title: "License & Activation",
+				purchaseLink: "Buy lifetime license",
+				description: "Manage your Weave premium license, activation status, and device bindings.",
+				noSavableCode: "No savable activation code is available for the current license",
+				codeCopied: "Activation code copied to clipboard. Keep it in a safe place.",
+				codeCopyFailed: "Failed to copy the activation code. Please try again.",
+				noActivationToRemove: "There is no activation record to remove",
+				confirmRemove: "Remove the current Weave activation state?",
+				confirmRemoveTitle: "Confirm removal",
+				removeAbnormal: "Activation state is still abnormal after removal. Please try again later.",
+				removed: "Weave activation removed. This plugin is now inactive.",
+				removeFailed: "Failed to remove activation. Please try again.",
+				statusCard: {
+					source: {
+						weave: "Weave",
+						reader: "EPUB Reader",
+						related: "Related product",
+						unactivated: "Not activated",
+						sharedFrom: "Shared license (from {product})",
+						shared: "Shared license",
+						weavePrimaryCode: "Weave primary activation code",
+						weaveActivationCode: "Weave activation code",
+					},
+					sharedActive: "Shared license active",
+					activated: "License activated",
+					licenseType: {
+						unknown: "Unknown",
+						lifetime: "Lifetime license",
+						subscription: "Subscription license",
+						default: "License",
+					},
+					expiry: {
+						expired: "Expired",
+						inDays: "Expires in {days} days",
+						longTerm: "Long-term valid",
+					},
+					labels: {
+						licenseType: "License type",
+						source: "License source",
+						localCount: "Current product licenses",
+						inheritedCount: "Shared licenses",
+						deviceUsage: "Activated devices",
+						activatedAt: "Activated at",
+						expiresAt: "Expires at",
+					},
+					inheritedNote:
+						"This activation comes from a shared license in another plugin. Remove it there to fully deactivate.",
+					saveCode: "Save activation code",
+					removeActivation: "Remove activation",
+					notActivated: "License not activated",
+					freeOnlyMessage: "Only free features are available until a license is activated.",
+				},
+			},
 			actions: {
 				save: "Save",
 				saved: "Settings saved",
@@ -654,13 +774,20 @@ export const settingsTranslationOverrides: Record<SupportedLanguage, Translation
 				},
 				floatingButton: {
 					label: "显示悬浮新建按钮",
+					description: "在界面右下角显示快速新建按钮",
 				},
 				mainInterfaceOpenLocation: {
 					content: "主区域",
+					description: "控制启动主界面时默认在主区域或侧边栏打开。",
 					label: "主界面默认打开位置",
 					sidebar: "侧边栏",
 				},
+				deckStudyAutoViewByLocation: {
+					label: "按位置自动切换牌组学习视图",
+					description: "开启后，主界面在侧边栏时显示网格卡片视图，在主内容区时显示牌组看板视图。",
+				},
 				premiumFeaturesPreview: {
+					description: "开启后会显示锁定状态的高级功能入口，便于了解功能分层。",
 					label: "显示高级功能预览",
 				},
 				progressiveCloze: {
@@ -679,9 +806,11 @@ export const settingsTranslationOverrides: Record<SupportedLanguage, Translation
 					comfortable: "宽松",
 					compact: "紧凑",
 					default: "标准",
+					description: "调整学习界面内容密度，适配不同屏幕大小与阅读习惯。",
 					label: "学习界面间距",
 				},
 				title: "基础设置",
+				sectionDescription: "配置主界面入口与常用行为，保证日常学习流程稳定可控。",
 			},
 			memoryLearning: {
 				clozeDelimiters: {
@@ -711,6 +840,7 @@ export const settingsTranslationOverrides: Record<SupportedLanguage, Translation
 				fsrsShortTermNote:
 					"说明：记忆牌组使用 FSRS6。推荐混合模式遵循 Anki 官方“少量、短于 1 天的学习步骤”建议，同时让长期与毕业后的间隔完全交给 FSRS6 计算。",
 				maxAdvanceDays: {
+					description: "允许提前学习未来卡片的最大天数，避免一次性透支后续负荷。",
 					label: "最远提前学习天数",
 					unit: "天",
 				},
@@ -729,7 +859,7 @@ export const settingsTranslationOverrides: Record<SupportedLanguage, Translation
 					description: "现代间隔重复算法的重要实现，为插件中的记忆调度与参数优化提供了关键参考。",
 					name: "fsrs6",
 				},
-				obsidian: {
+				obsidianApp: {
 					description: "感谢 Obsidian 提供开放而灵活的平台基础，让插件可以服务于全平台知识工作流。",
 					name: "Obsidian",
 				},
@@ -806,13 +936,20 @@ export const settingsTranslationOverrides: Record<SupportedLanguage, Translation
 				},
 				floatingButton: {
 					label: "Show floating create button",
+					description: "Display a quick-create button at the lower-right corner.",
 				},
 				mainInterfaceOpenLocation: {
 					content: "Main area",
+					description: "Choose whether the main interface opens in the content area or sidebar by default.",
 					label: "Default place to open the main interface",
 					sidebar: "Sidebar",
 				},
+				deckStudyAutoViewByLocation: {
+					label: "Auto-switch deck study view by location",
+					description: "When enabled, grid cards appear in the sidebar and the deck kanban board appears in the main content area.",
+				},
 				premiumFeaturesPreview: {
+					description: "Show locked premium entries so users can understand feature tiers before activation.",
 					label: "Show premium feature preview",
 				},
 				progressiveCloze: {
@@ -831,9 +968,11 @@ export const settingsTranslationOverrides: Record<SupportedLanguage, Translation
 					comfortable: "Comfortable",
 					compact: "Compact",
 					default: "Default",
+					description: "Adjust study layout density for different screen sizes and reading preferences.",
 					label: "Study view spacing",
 				},
 				title: "Basic settings",
+				sectionDescription: "Configure entry behaviors and common options for a stable daily workflow.",
 			},
 			memoryLearning: {
 				clozeDelimiters: {
@@ -866,6 +1005,7 @@ export const settingsTranslationOverrides: Record<SupportedLanguage, Translation
 				fsrsShortTermNote:
 					"Note: memory decks use FSRS6. The recommended hybrid mode follows Anki’s guidance to keep (re)learning steps few and under 1 day, while letting FSRS6 fully control long-term intervals after graduation.",
 				maxAdvanceDays: {
+					description: "Maximum days to study ahead, helping avoid over-consuming future workload in one session.",
 					label: "Max advance-study days",
 					unit: "days",
 				},
@@ -886,7 +1026,7 @@ export const settingsTranslationOverrides: Record<SupportedLanguage, Translation
 						"A modern spaced-repetition implementation that informed the plugin’s scheduling and optimization design.",
 					name: "fsrs6",
 				},
-				obsidian: {
+				obsidianApp: {
 					description:
 						"Thanks to Obsidian for the open and flexible platform foundation that makes this cross-platform learning workflow possible.",
 					name: "Obsidian",

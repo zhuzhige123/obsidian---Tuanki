@@ -1,10 +1,13 @@
 import { get } from 'svelte/store';
+import { getLanguage } from 'obsidian';
 
 import { i18n, initI18n, resetI18nDetectionStateForTests, syncI18nWithObsidianLanguage, trArray } from '../i18n';
 
+const mockedGetLanguage = vi.mocked(getLanguage);
+
 describe('i18n runtime fallbacks', () => {
   beforeEach(() => {
-    window.localStorage.removeItem('language');
+    mockedGetLanguage.mockReturnValue('en');
     resetI18nDetectionStateForTests();
     i18n.setLanguage('en-US');
   });
@@ -50,7 +53,7 @@ describe('i18n runtime fallbacks', () => {
   });
 
   it('applies detected Obsidian language only after stable consecutive detections', () => {
-    window.localStorage.setItem('language', 'zh');
+    mockedGetLanguage.mockReturnValue('zh');
 
     syncI18nWithObsidianLanguage();
     expect(i18n.getCurrentLanguage()).toBe('en-US');
@@ -60,7 +63,7 @@ describe('i18n runtime fallbacks', () => {
   });
 
   it('initializes to the detected Obsidian language immediately', () => {
-    window.localStorage.setItem('language', 'en');
+    mockedGetLanguage.mockReturnValue('en');
     i18n.setLanguage('zh-CN');
 
     initI18n();

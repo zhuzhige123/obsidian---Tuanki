@@ -15,6 +15,7 @@ import type {
 	QuestionBankResumeBehavior,
 	TestMode,
 } from "../types/question-bank-types";
+import { addMenuSubmenuGroup, addMenuToggle } from "../utils/obsidian-menu";
 import {
 	addLocationToggleAction,
 	getLocationToggleIcon,
@@ -34,6 +35,7 @@ type QuestionBankViewState = {
 
 type ItemViewSetStateResult = Parameters<ItemView["setState"]>[1];
 type MountedQuestionBankComponent = Parameters<typeof unmount>[0];
+type WorkspaceLeafWithUpdateHeader = WorkspaceLeaf & { updateHeader?: () => void };
 
 export class QuestionBankView extends ItemView {
 	private component: MountedQuestionBankComponent | null = null;
@@ -50,7 +52,11 @@ export class QuestionBankView extends ItemView {
 	private resumeBehavior: QuestionBankResumeBehavior = "prompt";
 
 	// 📱 移动端菜单回调（由 Svelte 组件设置）
-	private mobileMenuCallback: (() => void) | null = null;
+	private populatePaneMenuCallback: ((menu: Menu) => void) | null = null;
+	private mobilePanelStateGetter: (() => {
+		showStatsBar: boolean;
+		showNavigator: boolean;
+	}) | null = null;
 	private toggleStatsBarCallback: (() => void) | null = null;
 	private toggleNavigatorCallback: (() => void) | null = null; // 📱 题目导航栏折叠回调
 
@@ -76,6 +82,26 @@ export class QuestionBankView extends ItemView {
 
 		if (!Platform.isMobile) return;
 
+		if (this.isEditMode) {
+			menu.addItem((item) => {
+				item
+					.setTitle(i18n.t("views.questionBank.saveAndReturn"))
+					.setIcon("check")
+					.onClick(() => {
+						void this.handleSaveFromHeader();
+					});
+			});
+			menu.addSeparator();
+		} else {
+			menu.addSeparator();
+			this.populateMobileDisplayPanelsSubmenu(menu);
+
+			if (this.populatePaneMenuCallback) {
+				menu.addSeparator();
+				this.populatePaneMenuCallback(menu);
+			}
+		}
+
 		menu.addSeparator();
 		menu.addItem((item) => {
 			item
@@ -90,11 +116,49 @@ export class QuestionBankView extends ItemView {
 	// ==================== 📱 移动端回调设置方法 ====================
 
 	/**
-	 * 📱 设置移动端菜单回调（由 Svelte 组件调用）
+	 * 📱 设置移动端官方更多菜单填充回调（由 Svelte 组件调用）
 	 */
-	public setMobileMenuCallback(callback: () => void): void {
-		this.mobileMenuCallback = callback;
-		logger.debug("[QuestionBankView] 移动端菜单回调已设置");
+	public setPopulatePaneMenuCallback(callback: ((menu: Menu) => void) | null): void {
+		this.populatePaneMenuCallback = callback;
+		logger.debug("[QuestionBankView] 移动端官方更多菜单回调已设置");
+	}
+
+	public setMobilePanelStateGetter(
+		getter: (() => { showStatsBar: boolean; showNavigator: boolean }) | null
+	): void {
+		this.mobilePanelStateGetter = getter;
+	}
+
+	private populateMobileDisplayPanelsSubmenu(menu: Menu): void {
+		const readPanelState = () =>
+			this.mobilePanelStateGetter?.() ?? {
+				showStatsBar: false,
+				showNavigator: true,
+			};
+
+		addMenuSubmenuGroup(
+			menu,
+			{ title: i18n.t("views.questionBank.displayPanels"), icon: "panel-top" },
+			(submenu) => {
+				addMenuToggle(submenu, {
+					title: i18n.t("views.questionBank.stats"),
+					icon: "activity",
+					getChecked: () => readPanelState().showStatsBar,
+					onSetChecked: () => {
+						this.toggleStatsBarCallback?.();
+					},
+				});
+
+				addMenuToggle(submenu, {
+					title: i18n.t("views.questionBank.navigator"),
+					icon: "list",
+					getChecked: () => readPanelState().showNavigator,
+					onSetChecked: () => {
+						this.toggleNavigatorCallback?.();
+					},
+				});
+			}
+		);
 	}
 
 	/**
@@ -127,13 +191,24 @@ export class QuestionBankView extends ItemView {
 	 * 📱 更新编辑模式状态（由 Svelte 组件调用）
 	 */
 	public updateEditMode(isEdit: boolean): void {
-		if (this.isEditMode === isEdit) return;
-
 		this.isEditMode = isEdit;
 		logger.debug("[QuestionBankView] 编辑模式状态已更新:", isEdit);
 
 		if (Platform.isMobile) {
 			this.updateMobileActions();
+			this.refreshMobileHeader();
+		}
+	}
+
+	private refreshMobileHeader(): void {
+		try {
+			const leaf = this.leaf as WorkspaceLeafWithUpdateHeader;
+			if (typeof leaf.updateHeader === "function") {
+				leaf.updateHeader();
+			}
+			this.app.workspace.trigger("layout-change");
+		} catch (error) {
+			logger.warn("[QuestionBankView] 刷新顶栏失败:", error);
 		}
 	}
 
@@ -180,9 +255,11 @@ export class QuestionBankView extends ItemView {
 
 		if (saveAction) {
 			this.mobileActionElements.push(saveAction);
+			logger.debug("[QuestionBankView] 📱 编辑模式保存按钮已添加");
+			return;
 		}
 
-		logger.debug("[QuestionBankView] 📱 编辑模式按钮已添加");
+		logger.warn("[QuestionBankView] 📱 编辑模式保存按钮添加失败，请使用更多菜单中的保存项");
 	}
 
 	/**
@@ -198,54 +275,8 @@ export class QuestionBankView extends ItemView {
 			return;
 		}
 
-		try {
-			// 📱 注意：addAction 添加的按钮会从右到左排列
-			// 所以先添加菜单按钮（显示在最右），再添加答题情况按钮（显示在菜单左边）
-
-			// 1. 菜单按钮（最右边）
-			const menuAction = this.addAction("menu", i18n.t("views.questionBank.openMenu"), () => {
-				logger.debug("[QuestionBankView] 移动端菜单按钮被点击");
-				if (this.mobileMenuCallback) {
-					this.mobileMenuCallback();
-				} else {
-					logger.warn("[QuestionBankView] mobileMenuCallback 未设置");
-				}
-			});
-			logger.debug("[QuestionBankView] 📱 菜单按钮:", menuAction ? "已添加" : "添加失败");
-			if (menuAction) this.mobileActionElements.push(menuAction);
-
-			// 2. 答题情况按钮（菜单按钮左边）- 使用 activity 图标（与 StudyView 一致）
-			const statsAction = this.addAction("activity", i18n.t("views.questionBank.stats"), () => {
-				logger.debug("[QuestionBankView] 移动端答题情况按钮被点击");
-				if (this.toggleStatsBarCallback) {
-					this.toggleStatsBarCallback();
-				} else {
-					logger.warn("[QuestionBankView] toggleStatsBarCallback 未设置");
-				}
-			});
-			logger.debug("[QuestionBankView] 📱 答题情况按钮:", statsAction ? "已添加" : "添加失败");
-			if (statsAction) this.mobileActionElements.push(statsAction);
-
-			// 3. 题目导航栏按钮（答题情况按钮左边）- 使用 list 图标
-			const navigatorAction = this.addAction("list", i18n.t("views.questionBank.navigator"), () => {
-				logger.debug("[QuestionBankView] 移动端题目导航按钮被点击");
-				if (this.toggleNavigatorCallback) {
-					this.toggleNavigatorCallback();
-				} else {
-					logger.warn("[QuestionBankView] toggleNavigatorCallback 未设置");
-				}
-			});
-			logger.debug("[QuestionBankView] 📱 题目导航按钮:", navigatorAction ? "已添加" : "添加失败");
-			if (navigatorAction) this.mobileActionElements.push(navigatorAction);
-
-			logger.debug(
-				"[QuestionBankView] 📱 学习模式按钮添加完成，共",
-				this.mobileActionElements.length,
-				"个按钮"
-			);
-		} catch (error) {
-			logger.error("[QuestionBankView] 📱 添加学习模式按钮失败:", error);
-		}
+		// 学习模式：答题情况/题目导航已并入官方更多菜单「显示面板」子菜单
+		logger.debug("[QuestionBankView] 📱 学习模式顶栏按钮已收敛到官方更多菜单");
 	}
 
 	/**
@@ -511,8 +542,10 @@ export class QuestionBankView extends ItemView {
 			this.addLocationToggleButton();
 		}
 
-		// 📱 初始化移动端顶部栏按钮
-		this.initMobileActions();
+		// 📱 初始化移动端顶部栏按钮（与 StudyView 一致，使用 updateMobileActions）
+		if (Platform.isMobile) {
+			this.updateMobileActions();
+		}
 
 		// 显示加载占位符
 		this.showLoadingState();

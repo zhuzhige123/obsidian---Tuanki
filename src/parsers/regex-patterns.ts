@@ -17,13 +17,6 @@ export const QA_PATTERNS = {
 	FULL_WITHOUT_HINT: /^Q:\s*(.+?)\n+\s*---\s*\n+(?:A:\s*)?(.+)$/s,
 
 	/**
-	 * 完整问答题格式（含Hint）
-	 * 匹配: Q: 问题\n Hint: 提示\n---\nA: 答案
-	 * 注意：支持单换行或双换行，更加灵活
-	 */
-	FULL_WITH_HINT: /^Q:\s*(.+?)\n+(?:\uD83D\uDCA1\s*)?Hint:\s*(.+?)\n+\s*---\s*\n+(?:A:\s*)?(.+)$/s,
-
-	/**
 	 * 问题部分
 	 * 匹配: Q: 内容
 	 */
@@ -34,12 +27,6 @@ export const QA_PATTERNS = {
 	 * 匹配: A: 内容 或 直接内容（在---之后）
 	 */
 	ANSWER: /^(?:A:\s*)?(.+)$/s,
-
-	/**
-	 * Hint部分
-	 * 匹配:  Hint: 内容
-	 */
-	HINT: /(?:\uD83D\uDCA1\s*)?Hint:\s*(.+?)(?=\n\n|$)/s,
 } as const;
 
 /**
@@ -50,14 +37,7 @@ export const CHOICE_PATTERNS = {
 	 * 完整选择题格式（不含Hint）
 	 * 匹配: Q: 问题\n\n选项列表\n\n答案解析
 	 */
-	FULL_WITHOUT_HINT: /^Q:\s*(.+?)\n\n((?:[A-H]\).+?\n)+)\s*(?:---\s*\n\n)?(.*)$/s,
-
-	/**
-	 * 完整选择题格式（含Hint）
-	 * 匹配: Q: 问题\n Hint: 提示\n\n选项列表\n\n解析
-	 */
-	FULL_WITH_HINT:
-		/^Q:\s*(.+?)\n\n(?:\uD83D\uDCA1\s*)?Hint:\s*(.+?)\n\n((?:[A-H]\).+?\n)+)\s*(?:---\s*\n\n)?(.*)$/s,
+	FULL_WITHOUT_HINT: /^Q:\s*(.+?)\n\n((?:[A-H][\.．、].+?\n)+)\s*(?:---\s*\n\n)?(.*)$/s,
 
 	/**
 	 * 问题部分
@@ -66,27 +46,14 @@ export const CHOICE_PATTERNS = {
 	QUESTION: /^Q:\s*(.+?)$/m,
 
 	/**
-	 * 单个选项
-	 * 匹配: A) 选项内容 {}
+	 * 单个选项（A. / A、）
 	 */
-	OPTION: /^([A-H])\)\s*(.+?)(\s*\{[✓✔]\})?$/,
+	OPTION: /^([A-H])[\.．、]\s*(.+?)$/,
 
 	/**
 	 * 选项列表（全局匹配）
-	 * 匹配所有 A) B) C) 格式的选项
 	 */
-	OPTIONS_LIST: /^([A-H])\)\s*(.+?)(\s*\{[✓✔]\})?$/gm,
-
-	/**
-	 * 正确答案标记
-	 * 匹配: {} 或 {} 或其他变体
-	 */
-	CORRECT_MARKER: /\{[✓✔]\}|(?:^|\s)[✓✔](?:\s|$)/,
-
-	/**
-	 * Hint部分
-	 */
-	HINT: /(?:\uD83D\uDCA1\s*)?Hint:\s*(.+?)(?=\n\n|$)/s,
+	OPTIONS_LIST: /^([A-H])[\.．、]\s*(.+?)$/gm,
 
 	/**
 	 * 解析部分（在---之后或选项列表之后）
@@ -178,32 +145,18 @@ export const METADATA_PATTERNS = {
  */
 export function extractQAParts(content: string): {
 	question: string | null;
-	hint: string | null;
 	answer: string | null;
 } {
-	// 尝试匹配含Hint的格式
-	let match = content.match(QA_PATTERNS.FULL_WITH_HINT);
+	const match = content.match(QA_PATTERNS.FULL_WITHOUT_HINT);
 	if (match) {
 		return {
 			question: match[1].trim(),
-			hint: match[2].trim(),
-			answer: match[3].trim(),
-		};
-	}
-
-	// 尝试匹配不含Hint的格式
-	match = content.match(QA_PATTERNS.FULL_WITHOUT_HINT);
-	if (match) {
-		return {
-			question: match[1].trim(),
-			hint: null,
 			answer: match[2].trim(),
 		};
 	}
 
 	return {
 		question: null,
-		hint: null,
 		answer: null,
 	};
 }
@@ -214,28 +167,21 @@ export function extractQAParts(content: string): {
 export function extractChoiceOptions(optionsText: string): Array<{
 	label: string;
 	text: string;
-	isCorrect: boolean;
 }> {
 	const options: Array<{
 		label: string;
 		text: string;
-		isCorrect: boolean;
 	}> = [];
 
 	const matches = optionsText.matchAll(CHOICE_PATTERNS.OPTIONS_LIST);
 
 	for (const match of matches) {
-		const label = match[1]; // A, B, C, D...
+		const label = match[1];
 		const text = match[2].trim();
-		const hasMarker = !!match[3];
-
-		// 移除文本中的正确标记
-		const cleanText = text.replace(CHOICE_PATTERNS.CORRECT_MARKER, "").trim();
 
 		options.push({
-			label: `${label})`,
-			text: cleanText,
-			isCorrect: hasMarker,
+			label: `${label}.`,
+			text,
 		});
 	}
 

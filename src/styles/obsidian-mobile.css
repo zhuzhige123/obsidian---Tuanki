@@ -140,7 +140,7 @@ body.is-tablet .weave-app {
 /* 所有按钮保持最小 44px 触控目标（Apple HIG 标准） */
 body.is-mobile .weave-app .weave-button,
 body.is-mobile .weave-app .weave-card-action,
-body.is-mobile .weave-app button:not(.clickable-icon):not(.category-dot):not(.view-dot):not(.view-type-dot):not(.sidebar-dot):not(.list-item-indicator):not(.action-menu-item):not(.mobile-menu-trigger):not(.mobile-search-btn) {
+body.is-mobile .weave-app button:not(.clickable-icon):not(.category-dot):not(.view-dot):not(.view-type-dot):not(.sidebar-dot):not(.list-item-indicator):not(.action-menu-item):not(.mobile-menu-trigger):not(.mobile-search-btn):not(.weave-toolbar-control):not(.weave-toolbar-tab) {
   min-height: var(--weave-touch-target-min);
   min-width: var(--weave-touch-target-min);
 }
@@ -179,8 +179,6 @@ body.is-mobile .weave-app .study-btn {
 }
 
 /* ==================== 全局显示/隐藏规则 ==================== */
-/* ✅ 保留 !important：响应式隐藏/显示是合理的工具类使用场景 */
-/* 参考：.augment/rules/core/04-anti-force-methods.md */
 
 body.is-mobile .weave-app .weave-hide-mobile,
 body.is-mobile .weave-app .hide-on-mobile {
@@ -571,7 +569,7 @@ body.is-mobile .weave-app button + button {
 }
 
 body.is-mobile .weave-app .weave-button:active,
-body.is-mobile .weave-app button:active {
+body.is-mobile .weave-app button:not(.weave-toolbar-control):not(.weave-toolbar-tab):active {
   transform: scale(0.95);
   opacity: 0.9;
 }
@@ -591,8 +589,6 @@ body.is-mobile .weave-app .scrollable {
 }
 
 /* ==================== 减少动画模式 ==================== */
-/* ✅ 保留 !important：无障碍功能，需要强制覆盖所有动画 */
-/* 参考：.augment/rules/core/04-anti-force-methods.md - 无障碍功能是合理的 !important 使用场景 */
 
 @media (prefers-reduced-motion: reduce) {
   body.is-mobile .weave-app *,
@@ -696,59 +692,22 @@ body.is-tablet .weave-app .study-btn {
 */
 
 /* 📱 手机端学习界面：让内容区域适应顶部栏 */
-/* ✅ 移除 !important：body.is-phone 选择器已有足够优先级 */
 :global(body.is-phone.weave-study-active) .workspace-leaf-content,
 :global(body.is-mobile.weave-study-active) .workspace-leaf-content {
   height: 100%;
 }
 
 /* 📱 手机端编辑模式：沉浸式体验 - 隐藏头部和统计栏 */
-/* ✅ 保留 !important：需要强制隐藏，避免被其他样式覆盖 */
-/* 参考：.augment/rules/core/04-anti-force-methods.md - 响应式隐藏是合理场景 */
 :global(body.is-phone.weave-edit-active) .study-header,
 :global(body.is-mobile.weave-edit-active) .study-header,
 :global(body.is-phone.weave-edit-active) .stats-cards,
-:global(body.is-mobile.weave-edit-active) .stats-cards {
+:global(body.is-mobile.weave-edit-active) .stats-cards,
+:global(body.is-phone.weave-edit-active) .mobile-question-stats-bar,
+:global(body.is-mobile.weave-edit-active) .mobile-question-stats-bar {
   display: none;
 }
 
-/* 📱 手机端编辑模式：防止键盘弹出时内容区域缩小 */
-/* 使用 visual viewport 而非 layout viewport */
-/* ✅ 保留 !important：关键的移动端键盘适配，需要强制覆盖 */
-/* 这些样式处理虚拟键盘弹出时的复杂布局问题 */
-/* 📱 手机端：防止键盘闪烁 - 只有点击输入框时才显示键盘 */
-/* 通过禁用自动聚焦来实现 */
-:global(body.is-phone) .weave-app input:not(:focus),
-:global(body.is-phone) .weave-app textarea:not(:focus),
-:global(body.is-phone) .weave-app [contenteditable]:not(:focus),
-:global(body.is-phone) .weave-app .cm-content:not(:focus) {
-  /* 不自动获取焦点 */
-  caret-color: transparent;
-}
-
-:global(body.is-phone) .weave-app input:focus,
-:global(body.is-phone) .weave-app textarea:focus,
-:global(body.is-phone) .weave-app [contenteditable]:focus,
-:global(body.is-phone) .weave-app .cm-content:focus {
-  /* 聚焦时显示光标 */
-  caret-color: var(--text-accent);
-}
-
-/* 📱 手机端：CodeMirror 编辑器不自动聚焦 */
-/* 防止进入编辑模式时键盘自动弹出 */
-:global(body.is-phone) .weave-app .cm-editor {
-  /* 禁用自动聚焦行为 */
-  touch-action: manipulation;
-}
-
-:global(body.is-phone) .weave-app .inline-editor-container .cm-editor:not(:focus-within) {
-  /* 编辑器未聚焦时隐藏光标 */
-  caret-color: transparent;
-}
-
 /* 手机端：隐藏桌面端侧边工具栏 */
-/* ✅ 保留 !important：响应式隐藏，需要强制覆盖 */
-/* 参考：.augment/rules/core/04-anti-force-methods.md */
 :global(body.is-phone) .weave-app .vertical-toolbar {
   display: none;
 }
@@ -918,8 +877,6 @@ body.is-tablet .weave-app .study-btn {
 }
 
 /* 手机端：移动端菜单按钮（显示在头部右侧） */
-/* ✅ 保留 !important：响应式显示，需要强制覆盖默认的 display: none */
-/* 参考：.augment/rules/core/04-anti-force-methods.md */
 :global(body.is-phone) .weave-app .mobile-menu-btn {
   display: flex;
 }
@@ -1390,8 +1347,6 @@ body.is-mobile .weave-app .weave-table .col-accuracy,
 body.is-mobile .weave-app .weave-table .col-test_attempts,
 body.is-mobile .weave-app .weave-table .col-last_test,
 body.is-mobile .weave-app .weave-table .col-error_level {
-  /* ✅ 保留 !important：响应式隐藏表格列，需要强制覆盖 */
-  /* 参考：.augment/rules/core/04-anti-force-methods.md */
   display: none;
 }
 
@@ -1479,9 +1434,7 @@ body.is-mobile .weave-app .grid-view {
   padding-bottom: var(--weave-mobile-content-bottom-padding, 60px);
 }
 
-/* 移动端网格容器 - 强制2列布局 */
-/* ✅ 保留 !important：移动端需要强制覆盖桌面端的多列布局 */
-/* 参考：.augment/rules/core/04-anti-force-methods.md - 响应式布局是合理场景 */
+/* 移动端网格容器 - 2 列布局（body.is-mobile 选择器优先级高于桌面端变量） */
 body.is-mobile .weave-app .grid-container {
   --column-count: var(--weave-mobile-grid-columns, 2);
   grid-template-columns: repeat(var(--weave-mobile-grid-columns, 2), 1fr);
@@ -1756,178 +1709,6 @@ body.is-mobile .weave-app :is(.mobile-top-header, .mobile-fab, .mobile-kanban-sc
   display: flex;
 }
 
-/* ==================== 移动端键盘弹出时的样式优化 ==================== */
-
-/* 键盘可见时的容器样式 */
-/* ✅ 保留 !important：移动端键盘适配的关键样式，必须强制覆盖 */
-/* 这些样式处理虚拟键盘弹出时的复杂布局问题，是移动端体验的核心 */
-body.is-mobile .weave-app .keyboard-visible {
-  /* 禁用父容器滚动，防止页面整体滚动 */
-  overflow: hidden;
-}
-
-/* 🆕 iOS Safari CSS 动画 Hack - 帮助正确处理 viewport */
-/* 通过微小的 CSS 动画打断 Safari 的自动 viewport 管理 */
-@keyframes weave-ios-keyboard-fix {
-  from { opacity: 0.999; }
-  to { opacity: 1; }
-}
-
-body.is-mobile .weave-app input:focus,
-body.is-mobile .weave-app textarea:focus,
-body.is-mobile .weave-app [contenteditable]:focus,
-body.is-mobile .weave-app .cm-content:focus {
-  animation: weave-ios-keyboard-fix 0.1s forwards;
-}
-
-/* 键盘可见时的编辑器容器 */
-body.is-mobile .weave-app .keyboard-visible .inline-editor-container {
-  /* 高度由 JavaScript 动态设置 */
-  position: relative;
-}
-
-/* 键盘可见时的 CodeMirror 编辑器 */
-/* ✅ 保留 !important：确保编辑器在键盘弹出时可以正确滚动 */
-body.is-mobile .weave-app .keyboard-visible .cm-editor {
-  /* 确保编辑器内部可滚动 */
-  overflow-y: auto;
-}
-
-body.is-mobile .weave-app .keyboard-visible .cm-scroller {
-  /* 确保滚动区域正确 */
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-/* 📱 编辑模式下的学习界面容器 - 核心修复 */
-/* 🔑 关键：使用 visualViewport.height 作为高度基准，由 JavaScript 动态设置 */
-/* ✅ 保留 !important：移动端键盘适配的核心样式，必须强制覆盖 */
-/* 这些样式处理虚拟键盘弹出时的复杂定位和高度问题 */
-body.is-phone.weave-edit-active .study-interface-overlay,
-body.is-mobile.weave-edit-active .study-interface-overlay {
-  /* 高度由 JavaScript 通过 style 属性动态设置为 visualViewport.height */
-  /* 这里只设置 fallback 值 */
-  height: var(--weave-viewport-height, 100%);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  padding: 0;
-  /* 关键：保持在 view-content 内，避免默认态正文跑进 Obsidian 顶部栏 */
-  position: absolute;
-  /* 继续从当前 view-content 顶部开始，由 JavaScript 计算真实可见高度 */
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: auto;
-  /* height 使用前面定义的 --weave-viewport-height */
-}
-
-body.is-phone.weave-edit-active .study-interface-content,
-body.is-mobile.weave-edit-active .study-interface-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  height: 100%;
-  width: 100%;
-  max-width: 100%;
-  border-radius: 0;
-}
-
-body.is-phone.weave-edit-active .workspace-tab-header-container,
-body.is-phone.weave-edit-active .workspace-tab-header,
-body.is-phone.weave-edit-active .view-header,
-body.is-mobile.weave-edit-active .workspace-tab-header-container,
-body.is-mobile.weave-edit-active .workspace-tab-header,
-body.is-mobile.weave-edit-active .view-header {
-  background: transparent;
-  border-bottom-color: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-/* 编辑模式下的内容区域 */
-body.is-phone.weave-edit-active .card-study-container,
-body.is-mobile.weave-edit-active .card-study-container {
-  overflow: hidden;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: 0;
-}
-
-/* 编辑模式下的卡片容器 */
-body.is-phone.weave-edit-active .card-container,
-body.is-mobile.weave-edit-active .card-container {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  width: 100%;
-  max-width: 100%;
-  padding: 0;
-}
-
-/* 📱 编辑模式下的编辑器容器 - 使用 flex 布局填满父容器 */
-/* 🔑 关键：父容器 study-interface-overlay 的高度已由 JavaScript 设置为 visualViewport.height */
-/* ✅ 保留 !important：确保编辑器容器的 margin 不被其他样式覆盖 */
-body.is-phone.weave-edit-active .inline-editor-container,
-body.is-mobile.weave-edit-active .inline-editor-container {
-  /* 使用 flex 布局填满父容器 */
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  margin: 0;
-  overflow: hidden;
-}
-
-/* 编辑模式下的 CodeMirror 编辑器 */
-/* 🔑 关键修复：移除 height: 100% !important，让 JavaScript 动态设置的高度生效 */
-body.is-phone.weave-edit-active .cm-editor,
-body.is-mobile.weave-edit-active .cm-editor {
-  flex: 1;
-  min-height: 0;
-  /* height 由 JavaScript 通过 visualViewport 动态设置 */
-}
-
-/* ✅ 保留 !important：确保编辑器滚动区域正确 */
-body.is-phone.weave-edit-active .cm-scroller,
-body.is-mobile.weave-edit-active .cm-scroller {
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  /* height 由父容器 flex 布局决定 */
-  flex: 1;
-  min-height: 0;
-}
-
-/* 编辑模式下隐藏不必要的元素 */
-/* ✅ 保留 !important：响应式隐藏，需要强制覆盖 */
-body.is-phone.weave-edit-active .study-footer,
-body.is-mobile.weave-edit-active .study-footer,
-body.is-phone.weave-edit-active .rating-section,
-body.is-mobile.weave-edit-active .rating-section {
-  display: none;
-}
-
-/* 📱 编辑模式下的主学习区域 */
-/* ✅ 保留 !important：确保编辑模式下的 padding 不被其他样式覆盖 */
-body.is-phone.weave-edit-active .main-study-area,
-body.is-mobile.weave-edit-active .main-study-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  padding: 0;
-}
-
 body.is-phone .weave-app,
 body.is-mobile .weave-app {
   --weave-editor-padding-x: 12px;
@@ -1980,27 +1761,6 @@ body.is-phone .preset-editor-overlay .editor-footer .btn-cancel,
 body.is-phone .preset-editor-overlay .editor-footer .btn-save {
   flex: 1;
   min-width: 0;
-}
-
-/* ==================== 滚动禁用样式类 ==================== */
-
-/* 用于在键盘弹出时禁用父容器滚动 */
-/* ✅ 保留 !important：工具类设计意图是强制覆盖所有滚动和定位样式 */
-/* 参考：.augment/rules/core/04-anti-force-methods.md - 工具类覆盖是合理场景 */
-/* 这是处理移动端键盘弹出的关键工具类 */
-.weave-scroll-disabled {
-  overflow: hidden;
-  touch-action: none;
-  position: fixed;
-  width: 100%;
-  height: 100%;
-}
-
-/* 仅允许编辑器内部滚动 */
-/* ✅ 保留 !important：确保编辑器内部可以正确滚动 */
-.weave-scroll-disabled .inline-editor-container {
-  overflow-y: auto;
-  touch-action: pan-y;
 }
 
 /* ==================== AI助手页面移动端优化 ==================== */

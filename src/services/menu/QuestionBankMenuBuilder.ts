@@ -1,6 +1,12 @@
 import { Menu } from "obsidian";
+import {
+	addMenuRadioChoices,
+	addMenuSubmenuGroup,
+	addMenuToggle,
+} from "../../utils/obsidian-menu";
 import type { Card } from "../../data/types";
 import type { ChoiceOptionOrder } from "../../utils/study/choiceOptionOrder";
+import { i18n } from "../../utils/i18n";
 import { logger } from "../../utils/logger";
 
 /**
@@ -8,6 +14,7 @@ import { logger } from "../../utils/logger";
  */
 export interface QuestionBankMenuConfig {
 	card: Card;
+	isEditing?: boolean;
 	hasSourceFile: boolean;
 	currentPriority: number;
 	enableDirectDelete: boolean;
@@ -25,7 +32,7 @@ export interface QuestionBankMenuCallbacks {
 	onToggleEdit: () => void;
 	onDelete: (skipConfirm?: boolean) => void;
 	onToggleFavorite: () => void;
-	onChangePriority: () => void;
+	onChangePriority: (priority?: number) => void;
 	onOpenDetailedView: () => void;
 	onOpenSourceBlock?: () => void;
 	onToggleStatsBar?: () => void; // 切换答题情况信息栏
@@ -50,22 +57,21 @@ export class QuestionBankMenuBuilder {
 	/**
 	 * 构建并显示完整菜单
 	 */
+	/**
+	 * 将考试学习多功能菜单项填入已有 Menu（用于 Obsidian 官方 leaf 更多菜单）
+	 */
+	populateMenu(menu: Menu): void {
+		this.buildCardActionsSection(menu);
+		menu.addSeparator();
+		this.buildDisplaySection(menu);
+		menu.addSeparator();
+		this.buildMoreSection(menu);
+	}
+
 	showMenu(position: { x: number; y: number }): void {
 		try {
 			const menu = new Menu();
-
-			// 1. 卡片操作分类
-			this.buildCardActionsSection(menu);
-
-			// 2. 显示设置分类
-			menu.addSeparator();
-			this.buildDisplaySection(menu);
-
-			// 3. 更多功能分类
-			menu.addSeparator();
-			this.buildMoreSection(menu);
-
-			// 显示菜单
+			this.populateMenu(menu);
 			menu.showAtPosition(position);
 
 			logger.debug("[QuestionBankMenuBuilder] 菜单已显示");
@@ -83,11 +89,15 @@ export class QuestionBankMenuBuilder {
 			item.setTitle("卡片操作").setDisabled(true);
 		});
 
-		// 1. 编辑卡片
+		// 1. 编辑 / 保存并预览
 		menu.addItem((item) => {
 			item
-				.setTitle("编辑卡片")
-				.setIcon("edit")
+				.setTitle(
+					this.config.isEditing
+						? i18n.t("toolbar.saveAndPreview")
+						: i18n.t("study.menu.editCard")
+				)
+				.setIcon(this.config.isEditing ? "eye" : "edit")
 				.onClick(() => {
 					this.safeCallback(() => this.callbacks.onToggleEdit());
 				});
@@ -115,9 +125,7 @@ export class QuestionBankMenuBuilder {
 		});
 
 		// 4. 设置重要程度
-		menu.addItem((item) => {
-			item.setTitle("设置重要程度").setIcon("flag");
-			const submenu = (item as any).setSubmenu();
+		addMenuSubmenuGroup(menu, { title: "设置重要程度", icon: "flag" }, (submenu) => {
 			this.buildPrioritySubmenu(submenu);
 		});
 	}
@@ -133,52 +141,41 @@ export class QuestionBankMenuBuilder {
 
 		// 答题情况信息栏开关
 		if (this.callbacks.onToggleStatsBar) {
-			menu.addItem((item) => {
-				item
-					.setTitle("答题情况")
-					.setIcon("bar-chart-2")
-					.setChecked(this.config.showStatsBar ?? false)
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onToggleStatsBar?.());
-					});
+			addMenuToggle(menu, {
+				title: "答题情况",
+				icon: "bar-chart-2",
+				getChecked: () => Boolean(this.config.showStatsBar),
+				onSetChecked: () => {
+					this.safeCallback(() => this.callbacks.onToggleStatsBar?.());
+				},
 			});
 		}
 
-		// 📱 题目导航栏开关
 		if (this.callbacks.onToggleNavigator) {
-			menu.addItem((item) => {
-				item
-					.setTitle("题目导航")
-					.setIcon("list-ordered")
-					.setChecked(this.config.showNavigator ?? false)
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onToggleNavigator?.());
-					});
+			addMenuToggle(menu, {
+				title: "题目导航",
+				icon: "list-ordered",
+				getChecked: () => Boolean(this.config.showNavigator),
+				onSetChecked: () => {
+					this.safeCallback(() => this.callbacks.onToggleNavigator?.());
+				},
 			});
 		}
 
-		// 题目顺序
 		if (this.callbacks.onQuestionOrderChange) {
-			menu.addItem((item) => {
-				item.setTitle("题目顺序").setIcon("shuffle");
-				const submenu = (item as any).setSubmenu();
+			addMenuSubmenuGroup(menu, { title: "题目顺序", icon: "shuffle" }, (submenu) => {
 				this.buildQuestionOrderSubmenu(submenu);
 			});
 		}
 
 		if (this.callbacks.onChoiceOptionOrderChange) {
-			menu.addItem((item) => {
-				item.setTitle("选项顺序").setIcon("list-ordered");
-				const submenu = (item as any).setSubmenu();
+			addMenuSubmenuGroup(menu, { title: "选项顺序", icon: "list-ordered" }, (submenu) => {
 				this.buildChoiceOptionOrderSubmenu(submenu);
 			});
 		}
 
-		// 导航列数
 		if (this.callbacks.onNavColumnModeChange) {
-			menu.addItem((item) => {
-				item.setTitle("导航列数").setIcon("layout-grid");
-				const submenu = (item as any).setSubmenu();
+			addMenuSubmenuGroup(menu, { title: "导航列数", icon: "layout-grid" }, (submenu) => {
 				this.buildNavColumnSubmenu(submenu);
 			});
 		}
@@ -220,16 +217,13 @@ export class QuestionBankMenuBuilder {
 
 		// 直接删除开关
 		if (this.callbacks.onDirectDeleteToggle) {
-			menu.addItem((item) => {
-				item
-					.setTitle("启用直接删除")
-					.setIcon("zap")
-					.setChecked(this.config.enableDirectDelete)
-					.onClick(() => {
-						this.safeCallback(() =>
-							this.callbacks.onDirectDeleteToggle?.(!this.config.enableDirectDelete)
-						);
-					});
+			addMenuToggle(menu, {
+				title: "启用直接删除",
+				icon: "zap",
+				getChecked: () => Boolean(this.config.enableDirectDelete),
+				onSetChecked: (enabled) => {
+					this.safeCallback(() => this.callbacks.onDirectDeleteToggle?.(enabled));
+				},
 			});
 		}
 	}
@@ -238,86 +232,61 @@ export class QuestionBankMenuBuilder {
 	 * 构建优先级子菜单
 	 */
 	private buildPrioritySubmenu(submenu: Menu): void {
-		const priorities = [
-			{ value: 1, label: "低", icon: "!" },
-			{ value: 2, label: "中", icon: "!!" },
-			{ value: 3, label: "高", icon: "!!!" },
-			{ value: 4, label: "极高", icon: "!!!!" },
-		];
-
-		priorities.forEach(({ value, label }) => {
-			submenu.addItem((item) => {
-				item
-					.setTitle(label)
-					.setChecked(this.config.currentPriority === value)
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onChangePriority());
-					});
-			});
-		});
+		addMenuRadioChoices(
+			submenu,
+			this.config.currentPriority,
+			[
+				{ value: 1, title: "低" },
+				{ value: 2, title: "中" },
+				{ value: 3, title: "高" },
+				{ value: 4, title: "极高" },
+			],
+			(value) => {
+				this.safeCallback(() => this.callbacks.onChangePriority(value));
+			}
+		);
 	}
 
-	/**
-	 * 构建题目顺序子菜单
-	 */
 	private buildQuestionOrderSubmenu(submenu: Menu): void {
-		const options = [
-			{ value: "sequential" as const, label: "正序学习" },
-			{ value: "random" as const, label: "乱序学习" },
-		];
-
-		options.forEach(({ value, label }) => {
-			submenu.addItem((item) => {
-				item
-					.setTitle(label)
-					.setChecked(this.config.questionOrder === value)
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onQuestionOrderChange?.(value));
-					});
-			});
-		});
+		addMenuRadioChoices<"sequential" | "random">(
+			submenu,
+			this.config.questionOrder ?? "sequential",
+			[
+				{ value: "sequential", title: "正序学习" },
+				{ value: "random", title: "乱序学习" },
+			],
+			(value) => {
+				this.safeCallback(() => this.callbacks.onQuestionOrderChange?.(value));
+			}
+		);
 	}
 
-	/**
-	 * 构建选项顺序子菜单
-	 */
 	private buildChoiceOptionOrderSubmenu(submenu: Menu): void {
-		const options = [
-			{ value: "sequential" as const, label: "正序" },
-			{ value: "random" as const, label: "乱序" },
-		];
-
-		options.forEach(({ value, label }) => {
-			submenu.addItem((item) => {
-				item
-					.setTitle(label)
-					.setChecked(this.config.choiceOptionOrder === value)
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onChoiceOptionOrderChange?.(value));
-					});
-			});
-		});
+		addMenuRadioChoices<ChoiceOptionOrder>(
+			submenu,
+			this.config.choiceOptionOrder ?? "sequential",
+			[
+				{ value: "sequential", title: "正序" },
+				{ value: "random", title: "乱序" },
+			],
+			(value) => {
+				this.safeCallback(() => this.callbacks.onChoiceOptionOrderChange?.(value));
+			}
+		);
 	}
 
-	/**
-	 * 构建导航列数子菜单
-	 */
 	private buildNavColumnSubmenu(submenu: Menu): void {
-		const options = [
-			{ value: 1 as const, label: "单列显示" },
-			{ value: 3 as const, label: "三列显示" },
-		];
-
-		options.forEach(({ value, label }) => {
-			submenu.addItem((item) => {
-				item
-					.setTitle(label)
-					.setChecked(this.config.navColumnMode === value)
-					.onClick(() => {
-						this.safeCallback(() => this.callbacks.onNavColumnModeChange?.(value));
-					});
-			});
-		});
+		addMenuRadioChoices<1 | 3>(
+			submenu,
+			this.config.navColumnMode ?? 1,
+			[
+				{ value: 1, title: "单列显示" },
+				{ value: 3, title: "三列显示" },
+			],
+			(value) => {
+				this.safeCallback(() => this.callbacks.onNavColumnModeChange?.(value));
+			}
+		);
 	}
 
 	/**

@@ -8,8 +8,11 @@
   "scripts": {
     "dev": "node scripts/dev-watch.cjs",
     "dev:fresh": "npm run clean:cache && npm run dev",
-    "predev:mobile": "node scripts/kill-vite.cjs",
-    "predev:mobile:watch": "node scripts/kill-vite.cjs",
+    "predev:mobile": "node scripts/kill-vite.cjs --target=mobile",
+    "predev:mobile:watch": "node scripts/kill-vite.cjs --target=mobile",
+    "kill:vite": "node scripts/kill-vite.cjs",
+    "kill:vite:desktop": "node scripts/kill-vite.cjs --target=desktop",
+    "kill:vite:mobile": "node scripts/kill-vite.cjs --target=mobile",
     "prebuild": "node scripts/kill-vite.cjs",
     "build": "npm run check:encoding && node --max-old-space-size=4096 node_modules/vite/bin/vite.js build --mode production",
     "build:mobile": "npm run build && node scripts/deploy-mobile.cjs",
@@ -30,6 +33,8 @@
     "lint:obsidian": "eslint -c eslint.obsidian.config.mjs src --max-warnings 9999",
     "lint:obsidian:strict": "node scripts/lint-obsidian-strict.cjs",
     "audit:obsidian-release": "node scripts/audit-obsidian-release.cjs",
+    "sync:public-versions": "node scripts/sync-public-versions.cjs",
+    "sync:obsidian-version": "node scripts/sync-obsidian-community-version.cjs",
     "lint:promises": "eslint -c eslint.config.mjs src/**/*.ts --max-warnings 9999",
     "lint:svelte5": "node scripts/check-svelte5-compliance.js",
     "audit:todos": "node scripts/audit-todos.cjs",
@@ -117,7 +122,8 @@
     "jszip": "3.10.1",
     "monkey-around": "3.0.0",
     "pako": "^2.1.0",
-    "sql.js": "1.13.0"
+    "sql.js": "1.13.0",
+    "ts-fsrs": "5.4.0"
   },
   "overrides": {
     "svelte": "5.55.10"

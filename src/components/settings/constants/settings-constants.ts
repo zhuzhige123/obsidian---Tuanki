@@ -15,6 +15,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
 	{ id: "ai-config", label: "settings.categories.aiConfig" },
 	{ id: "anki-connect", label: "settings.categories.ankiConnect" },
 	{ id: "data-management", label: "settings.categories.dataManagement" },
+	{ id: "license", label: "settings.categories.license" },
 	{ id: "about", label: "settings.categories.about" },
 ];
 
@@ -490,10 +491,10 @@ export function getAcknowledgments() {
 			url: "https://github.com/open-spaced-repetition/fsrs4anki",
 		},
 		{
-			id: "obsidian",
-			name: t("settingsConstants.acknowledgments.obsidian.name"),
+			id: "obsidian-app",
+			name: t("settingsConstants.acknowledgments.obsidianApp.name"),
 			icon: "",
-			description: t("settingsConstants.acknowledgments.obsidian.description"),
+			description: t("settingsConstants.acknowledgments.obsidianApp.description"),
 			url: "https://obsidian.md/",
 		},
 		{

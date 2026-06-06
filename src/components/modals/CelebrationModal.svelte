@@ -18,7 +18,7 @@
     soundEnabled?: boolean;
     soundVolume?: number;
     onClose: () => void;
-    onStartPractice?: () => void;
+    onStartPractice?: (event: MouseEvent) => void;
   }
   
   let { 
@@ -129,7 +129,7 @@
               {t('celebration.footer.closeButton')}
             </button>
             {#if onStartPractice}
-              <button class="btn-primary" onclick={onStartPractice}>
+              <button class="btn-primary" onclick={(event) => onStartPractice?.(event)}>
                 {t('celebration.footer.startPracticeButton')}
               </button>
             {/if}

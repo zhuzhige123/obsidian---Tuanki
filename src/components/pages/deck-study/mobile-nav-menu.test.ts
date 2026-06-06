@@ -40,11 +40,9 @@ describe('showDeckStudyMobileNavMenu', () => {
     return {
       evt: new MouseEvent('click', { clientX: 40, clientY: 60 }),
       selectedFilter: 'memory',
-      currentView: 'grid' as const,
       memoryDeckDisplayMode: 'formal' as const,
       tr: (key: string) => key,
       getCreateEntryTitle: () => '创建记忆牌组',
-      showViewSwitcher: vi.fn(),
       handleCreateDeckForCurrentFilter: vi.fn(),
       setMemoryDeckDisplayMode: vi.fn(),
       showEmergentRuleGroupMenu: vi.fn(),
@@ -70,6 +68,23 @@ describe('showDeckStudyMobileNavMenu', () => {
 
     toggleItem?.trigger();
     expect(options.setMemoryDeckDisplayMode).toHaveBeenCalledWith('emergent');
+  });
+
+  it('在启用旧版 APKG 导入时显示导入入口', () => {
+    const openAPKGImport = vi.fn();
+    const options = buildOptions({
+      isAPKGImportEnabled: vi.fn(() => true),
+      openAPKGImport,
+    });
+
+    showDeckStudyMobileNavMenu(options);
+
+    const menu = menuInstances[0];
+    const importItem = menu.findItemByTitle('mainMenu.deckStudy.importLegacyPackage');
+    expect(importItem).toBeTruthy();
+
+    importItem?.trigger();
+    expect(openAPKGImport).toHaveBeenCalledTimes(1);
   });
 
   it('在已进入涌现牌组时显示涌现筛选入口', () => {

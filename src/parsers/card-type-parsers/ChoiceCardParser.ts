@@ -3,11 +3,10 @@
  * 遵循卡片数据结构规范 v1.0
  */
 
-import { CARD_TYPE_MARKERS, MAIN_SEPARATOR } from "../../constants/markdown-delimiters";
+import { MAIN_SEPARATOR } from "../../constants/markdown-delimiters";
 import { parseChoiceQuestion } from "../../parsing/choice-question-parser";
 import type { ParseResult } from "../../types/metadata-types";
 import { ParseErrorType } from "../../types/metadata-types";
-import { stripHintBlock } from "../../utils/hint-block-utils";
 import { extractBodyContent } from "../../utils/yaml-utils";
 import { CardType, MarkdownFieldsConverter } from "../MarkdownFieldsConverter";
 
@@ -15,17 +14,10 @@ import { CardType, MarkdownFieldsConverter } from "../MarkdownFieldsConverter";
  * 选择题解析器
  *
  * 支持格式：
- * Q: 问题
- * A) / A. / A、 选项1
- * B) / B. / B、 选项2 {✓}
- * C) / C. / C、 选项3
- * ---div---
- * 解析内容（可选）
- *
- * 兼容答案表达：
- * - 选项后的 {✓} / {correct} / {*}
- * - 题干末尾的 (B) / （AC）
- * - Answer: B / Answer: A,C
+ * 题干（可选 Q: 前缀），末尾（B）/（AC）标明答案
+ * A. / A、 选项
+ * ---div--- 解析（可选）
+ * 或 Answer: A,C 声明多选答案
  *
  *  标准字段：只生成 { front, back, options, correctAnswers }
  *  禁止添加元数据字段到fields（hint/explanation等）
@@ -40,7 +32,7 @@ export class ChoiceCardParser extends MarkdownFieldsConverter {
 		try {
 			//  v2.2: 先剥离 YAML frontmatter，只保留正文（Anki 导出不需要元数据）
 			const bodyContent = extractBodyContent(content);
-			const cleanContent = stripHintBlock(bodyContent).trim();
+			const cleanContent = bodyContent.trim();
 
 			if (!cleanContent) {
 				return this.createErrorResult(
@@ -58,7 +50,7 @@ export class ChoiceCardParser extends MarkdownFieldsConverter {
 					ParseErrorType.INVALID_FORMAT,
 					"未找到问题部分或选项",
 					content,
-					"选择题需要包含题干和至少2个选项（支持 A) / A. / A、 等格式）"
+					"选择题需要包含题干和至少 2 个选项（A. / A、 格式，答案写在题干末尾括号或 Answer: 行）"
 				);
 			}
 
@@ -107,33 +99,33 @@ export class ChoiceCardParser extends MarkdownFieldsConverter {
 	private serializeOptions(
 		options: Array<{ label: string; content: string; isCorrect: boolean }>
 	): string {
-		return options
-			.map((opt) => `${opt.label}) ${opt.content}${opt.isCorrect ? " {✓}" : ""}`)
-			.join("\n");
+		return options.map((opt) => `${opt.label}. ${opt.content}`).join("\n");
 	}
 
 	private serializeCorrectAnswers(correctAnswers: string[]): string {
-		return correctAnswers.map((answer) => `${answer})`).join(",");
+		return correctAnswers.join(",");
 	}
 
 	/**
 	 * 从fields重建Markdown
 	 *
-	 * 重建规则：
-	 * - Q: 问题
-	 * - A) B) C) 选项
-	 * - 如果有back，添加---div---和解析
+	 * 重建规则：题干 + 末尾答案括号 + A. 选项 + ---div--- 解析
 	 */
 	buildMarkdownFromFields(fields: Record<string, string>, _type: CardType): string {
 		let markdown = "";
 
-		// 1. 构建问题部分
-		const question = fields.front || fields.Front || "";
-		markdown += `${CARD_TYPE_MARKERS.CHOICE.QUESTION} ${question}\n\n`;
+		const question = (fields.front || fields.Front || "").trim();
+		const correctRaw = (fields.correctAnswers || fields.CorrectAnswers || "").trim();
+		const answerLabels = correctRaw
+			.split(/[,，]/)
+			.map((entry) => entry.replace(/[^A-Za-z]/g, "").toUpperCase())
+			.filter((entry) => /^[A-Z]$/.test(entry));
+		const answerSuffix = answerLabels.length > 0 ? `（${answerLabels.join(",")}）` : "";
 
-		// 2. 构建选项部分
+		markdown += `${question}${answerSuffix}\n\n`;
+
 		if (fields.options) {
-			markdown += `${fields.options}\n\n`;
+			markdown += `${fields.options.trim()}\n`;
 		}
 
 		// 3. 如果有解析，添加分隔符和解析

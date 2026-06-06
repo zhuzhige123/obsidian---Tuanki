@@ -3,6 +3,7 @@
  * 完全替代旧的三位一体模板系统
  */
 
+import { STATIC_BATCH_PARSE_EXCLUDE_FOLDERS } from "../config/paths";
 import { CardType } from "../data/types";
 import { CardWithPosition } from "../utils/simplifiedParser/CardPositionTracker";
 
@@ -47,6 +48,11 @@ export interface RegexParsingConfig {
 
 		// 正反面分隔符
 		frontBackSeparator?: string; // 例如：'^---$'
+
+		/**
+		 * 无正反面分隔符时：首行作为正面，其余行作为背面（标题分隔格式）
+		 */
+		firstLineAsFront?: boolean;
 
 		// 是否多行匹配
 		multiline: boolean;
@@ -475,10 +481,6 @@ export interface ICardParser {
 /**
  * 默认设置
  */
-/** Fallback exclude folder name when no Vault context exists yet. */
-// eslint-disable-next-line obsidianmd/hardcoded-config-path -- default parsing exclude list only
-const DEFAULT_OBSIDIAN_CONFIG_FOLDER = ".obsidian";
-
 export const DEFAULT_SIMPLIFIED_PARSING_SETTINGS: SimplifiedParsingSettings = {
 	enableTagTrigger: true,
 	triggerTag: "#weave",
@@ -500,13 +502,7 @@ export const DEFAULT_SIMPLIFIED_PARSING_SETTINGS: SimplifiedParsingSettings = {
 
 		// 扫描范围配置默认值
 		includeFolders: [], // 默认空（扫描全部）
-		excludeFolders: [
-			// 默认排除这些文件夹
-			DEFAULT_OBSIDIAN_CONFIG_FOLDER,
-			".trash",
-			"node_modules",
-			".git",
-		],
+		excludeFolders: [...STATIC_BATCH_PARSE_EXCLUDE_FOLDERS],
 		maxFilesPerBatch: 50, // 一次最多处理50个文件
 
 		// 卡片保存配置默认值
@@ -624,10 +620,10 @@ export const DEFAULT_TEMPLATES: ParseTemplate[] = [
 				flags: "m",
 				required: true,
 			},
-			// 选项：支持 A./A) 格式的多行块
+			// 选项：A. / A、 格式多行块
 			{
 				name: "options",
-				pattern: "^(?:[A-E][\\.|\\)]\\s.*(?:\\n|$))+",
+				pattern: "^(?:[A-E][\\.．、]\\s.*(?:\\n|$))+",
 				isRegex: true,
 				flags: "m",
 				required: true,

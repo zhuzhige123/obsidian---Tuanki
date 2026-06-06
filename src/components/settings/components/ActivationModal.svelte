@@ -6,7 +6,13 @@
   
   import { ActivationModal } from './ActivationModalObsidian';
   import { tr } from '../../../utils/i18n';
-  import { getPluginEffectiveLicenseState } from '../../../utils/plugin-license';
+  import {
+    getPluginEffectiveLicenseState,
+    getPluginLicensedProduct,
+    getPluginLocalLicenses,
+  } from '../../../utils/plugin-license';
+  import { PremiumFeatureGuard } from '../../../services/premium/PremiumFeatureGuard';
+  import { LIFETIME_LICENSE_PURCHASE_URL } from '../../../config/plugin-runtime';
   
   interface Props {
     plugin: any;
@@ -17,7 +23,7 @@
   let { 
     plugin, 
     onSave,
-    purchaseUrl = 'https://pay.ldxp.cn/item/ned9pw' 
+    purchaseUrl = LIFETIME_LICENSE_PURCHASE_URL
   }: Props = $props();
 
   // 响应式翻译
@@ -40,7 +46,11 @@
     licenseStateVersion += 1;
   }
 
-  function handleLicenseChanged() {
+  async function handleLicenseChanged() {
+    await PremiumFeatureGuard.getInstance().updateLicenseState({
+      product: getPluginLicensedProduct(plugin),
+      localLicenses: getPluginLocalLicenses(plugin),
+    });
     refreshLicenseState();
   }
   
@@ -63,7 +73,7 @@
             {#if currentLicenseInfo.boundEmail}
               {t('license.boundEmail')}: {currentLicenseInfo.boundEmail}
             {/if}
-            {#if currentLicenseInfo.cloudSync?.devicesUsed}
+            {#if currentLicenseInfo.cloudSync?.devicesUsed !== undefined}
               · {t('license.activatedDevices')}: {currentLicenseInfo.cloudSync.devicesUsed}/{currentLicenseInfo.cloudSync.devicesMax || 5}
             {/if}
           </p>

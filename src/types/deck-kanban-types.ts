@@ -92,6 +92,7 @@ export type DeckGroupByType =
 	| "completion" // 完成情况（默认）
 	| "timeRange" // 时间范围
 	| "priority" // 优先级
+	| "accuracy" // 正确率（考试题组）
 	| "tag" // 标签分组（所有标签）
 	| "tagGroup"; // 标签组分组（选定的标签组）
 
@@ -168,6 +169,16 @@ export const DECK_GROUP_CONFIGS: Record<DeckGroupByType, GroupConfig> = {
 			{ key: "none", label: "无优先级", color: "#6b7280", icon: "circle" },
 		],
 	},
+	accuracy: {
+		title: "正确率",
+		icon: "percent",
+		groups: [
+			{ key: "untested", label: "未练习", color: "#6b7280", icon: "circle-dashed" },
+			{ key: "excellent", label: "＞90分", color: "#10b981", icon: "award" },
+			{ key: "good", label: "＞75分", color: "#3b82f6", icon: "trending-up" },
+			{ key: "poor", label: "＜60分", color: "#ef4444", icon: "alert-circle" },
+		],
+	},
 	tag: {
 		title: "标签分组",
 		icon: "tag",
@@ -193,6 +204,7 @@ export const DECK_GROUP_BY_LABELS: Record<DeckGroupByType, string> = {
 	completion: "完成情况",
 	timeRange: "时间范围",
 	priority: "优先级",
+	accuracy: "正确率",
 	tag: "标签分组",
 	tagGroup: "标签组分组",
 };

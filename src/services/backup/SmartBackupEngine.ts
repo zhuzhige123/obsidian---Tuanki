@@ -72,7 +72,7 @@ export class SmartBackupEngine {
 	 *  使用独立备份路径（防止误删）
 	 */
 	private getBackupsPath(): string {
-		return getBackupPath();
+		return getBackupPath(this.plugin.app);
 	}
 
 	/**

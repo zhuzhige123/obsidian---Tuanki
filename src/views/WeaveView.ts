@@ -7,8 +7,10 @@ import {
 	getLocationToggleIcon,
 	getLocationToggleTooltip,
 	getViewSurfaceTokens,
+	isInSidebar,
 	toggleViewLocation,
 } from "../utils/view-location-utils";
+import { resolveDeckStudyViewMode } from "../services/deck/deck-study-view-by-location";
 import {
 	type WeaveCardDataSource,
 	type WeaveCardViewType,
@@ -17,8 +19,11 @@ import {
 	type WeaveIRTypeFilter,
 	type WeaveKanbanLayoutMode,
 	type WeaveTableViewMode,
-	openWeaveMainMenu,
+	populateWeaveMainMenu,
+	type WeaveMainMenuOptions,
+	type WeavePopulateMainInterfaceMenuDetail,
 } from "../utils/weave-main-menu";
+import { emitCardManagementToolbarAction } from "../utils/card-management-toolbar-contract";
 import { weaveMainInterfaceStore } from "../stores/weave-main-interface-store";
 import { computeMobileHeaderCenterTop } from "../utils/mobile-header-center";
 import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from "../services/premium/PremiumFeatureGuard";
@@ -35,16 +40,12 @@ export class WeaveView extends ItemView {
 	private aiSelectionStateHandler: ((event: Event) => void) | null = null;
 	private mainInterfaceUnsubscribe: (() => void) | null = null;
 	private layoutChangeRef: EventRef | null = null;
+	private surfaceLocationChangeHandler: EventListener | null = null;
 	private mobileHeaderCenterComponent: unknown | null = null;
 	private mobileHeaderCenterHost: HTMLElement | null = null;
 	private mobileHeaderCenterAlignmentCleanup: (() => void) | null = null;
 	private mobileHeaderCenterAlignmentRaf = 0;
-	private mainMenuAction: HTMLElement | null = null;
-	private aiFileAction: HTMLElement | null = null;
-	private aiPromptAction: HTMLElement | null = null;
-	private aiGenerateAction: HTMLElement | null = null;
-	private aiSubViewToggleAction: HTMLElement | null = null;
-	private currentAISubView: "generate" | "parse-preview" = weaveMainInterfaceStore.getState().aiToolbar.subView;
+	private cardManagementSearchAction: HTMLElement | null = null;
 	private cardViewChangeHandler: ((event: Event) => void) | null = null;
 	private deckViewChangeHandler: ((event: Event) => void) | null = null;
 	private deckFilterChangeHandler: ((event: Event) => void) | null = null;
@@ -58,12 +59,13 @@ export class WeaveView extends ItemView {
 		isAllSelected: false,
 	};
 	private currentCardView: WeaveCardViewType = "table";
-	private currentDeckStudyView: "grid" | "kanban" = "grid";
+	private currentDeckStudyView = "kanban" as const;
 	private currentDeckStudyFilter: WeaveDeckStudyFilter = "memory";
 	private currentCardDataSource: WeaveCardDataSource = "memory";
 	private cardToolbarState: {
 		tableViewMode: WeaveTableViewMode;
 		gridLayoutMode: WeaveGridLayoutMode;
+		gridCardBorderStyle: "solid" | "dashed";
 		kanbanLayoutMode: WeaveKanbanLayoutMode;
 		irTypeFilter: WeaveIRTypeFilter;
 		documentFilterMode: "all" | "current";
@@ -73,6 +75,7 @@ export class WeaveView extends ItemView {
 	} = {
 		tableViewMode: "basic",
 		gridLayoutMode: "fixed",
+		gridCardBorderStyle: "solid",
 		kanbanLayoutMode: "comfortable",
 		irTypeFilter: "all",
 		documentFilterMode: "all",
@@ -84,11 +87,7 @@ export class WeaveView extends ItemView {
 	constructor(leaf: WorkspaceLeaf, plugin: WeavePlugin) {
 		super(leaf);
 		this.plugin = plugin;
-		const cachedDeckStudyView = plugin.getCachedDeckViewPreference() === "kanban" ? "kanban" : "grid";
-		this.currentDeckStudyView = cachedDeckStudyView === "kanban"
-			&& !PremiumFeatureGuard.getInstance().canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, DECK_STUDY_FEATURE_CONTEXT)
-			? "grid"
-			: cachedDeckStudyView;
+		this.currentDeckStudyView = resolveDeckStudyViewMode();
 	}
 
 	getViewType() {
@@ -111,6 +110,55 @@ export class WeaveView extends ItemView {
 	// 设置导航类型
 	getNavigationType() {
 		return "tab";
+	}
+
+	private usesMobileNativeHeader(): boolean {
+		return Platform.isMobile && !isInSidebar(this.leaf);
+	}
+
+	private async unmountMobileHeaderCenter(): Promise<void> {
+		if (this.mobileHeaderCenterComponent) {
+			try {
+				const { unmount } = await import("svelte");
+				await unmount(this.mobileHeaderCenterComponent);
+			} catch (error) {
+				logger.error("[WeaveView] 移动端顶栏圆点组件销毁失败:", error);
+			}
+			this.mobileHeaderCenterComponent = null;
+		}
+
+		if (this.mobileHeaderCenterAlignmentCleanup) {
+			this.mobileHeaderCenterAlignmentCleanup();
+			this.mobileHeaderCenterAlignmentCleanup = null;
+		}
+		if (this.mobileHeaderCenterAlignmentRaf !== 0) {
+			window.cancelAnimationFrame(this.mobileHeaderCenterAlignmentRaf);
+			this.mobileHeaderCenterAlignmentRaf = 0;
+		}
+
+		if (this.mobileHeaderCenterHost?.parentNode) {
+			this.mobileHeaderCenterHost.parentNode.removeChild(this.mobileHeaderCenterHost);
+		}
+		this.mobileHeaderCenterHost = null;
+
+		if (this.containerEl instanceof HTMLElement) {
+			delete this.containerEl.dataset.weaveMobileNativeHeader;
+		}
+	}
+
+	private async syncMobileHeaderMode(): Promise<void> {
+		if (!Platform.isMobile) return;
+
+		if (this.usesMobileNativeHeader()) {
+			if (this.containerEl instanceof HTMLElement) {
+				this.containerEl.dataset.weaveMobileNativeHeader = "true";
+			}
+			await this.mountMobileHeaderCenter();
+		} else {
+			await this.unmountMobileHeaderCenter();
+		}
+
+		this.updateMobileHeaderActionsVisibility();
 	}
 
 	private applySurfaceContext(): void {
@@ -137,8 +185,17 @@ export class WeaveView extends ItemView {
 		this.applySurfaceContext();
 		this.layoutChangeRef = this.app.workspace.on("layout-change", () => {
 			this.applySurfaceContext();
-			void this.mountMobileHeaderCenter();
+			void this.syncMobileHeaderMode();
 		});
+
+		const handleSurfaceLocationChange = () => {
+			void this.syncMobileHeaderMode();
+		};
+		window.addEventListener(
+			"Weave:surface-location-change",
+			handleSurfaceLocationChange as EventListener
+		);
+		this.surfaceLocationChangeHandler = handleSurfaceLocationChange;
 
 		//  性能优化：异步非阻塞加载
 		// 先显示加载占位符，不阻塞 Obsidian 主界面
@@ -152,22 +209,10 @@ export class WeaveView extends ItemView {
 	private setupMobileHeaderActions(): void {
 		if (!Platform.isMobile) return;
 
-		void this.mountMobileHeaderCenter();
+		void this.syncMobileHeaderMode();
 
-		this.mainMenuAction = this.addAction("menu", i18n.t("views.weave.mobileOpenMenu"), () => {
-			this.openMobileMainMenu();
-		});
-		this.aiFileAction = this.addAction("folder-open", i18n.t("views.weave.mobileChooseFile"), () => {
-			this.dispatchAIToolbarAction("file", this.aiFileAction);
-		});
-		this.aiPromptAction = this.addAction("edit-3", i18n.t("views.weave.mobilePrompt"), () => {
-			this.dispatchAIToolbarAction("prompt-file", this.aiPromptAction);
-		});
-		this.aiGenerateAction = this.addAction("sparkles", i18n.t("views.weave.mobileGenerate"), () => {
-			this.dispatchAIToolbarAction("generate", this.aiGenerateAction);
-		});
-		this.aiSubViewToggleAction = this.addAction("sparkles", i18n.t("views.weave.mobileAiCard"), () => {
-			this.toggleAISubView();
+		this.cardManagementSearchAction = this.addAction("search", i18n.t("cardManagement.search"), () => {
+			emitCardManagementToolbarAction("toggle-search", this.cardManagementSearchAction);
 		});
 		this.mainInterfaceUnsubscribe = weaveMainInterfaceStore.subscribe((state) => {
 			if (this.currentPage !== state.currentPage) {
@@ -175,10 +220,6 @@ export class WeaveView extends ItemView {
 				this.updateMobileHeaderActionsVisibility();
 			}
 
-			if (this.currentAISubView !== state.aiToolbar.subView) {
-				this.currentAISubView = state.aiToolbar.subView;
-				this.updateAISubViewToggle();
-			}
 		});
 		this.aiSelectionStateHandler = (event: Event) => {
 			const detail = (
@@ -206,14 +247,8 @@ export class WeaveView extends ItemView {
 		};
 		this.deckViewChangeHandler = (event: Event) => {
 			const view = (event as CustomEvent<string>).detail;
-			if (view === "grid" || view === "kanban") {
-				this.currentDeckStudyView = view === "kanban"
-					&& !PremiumFeatureGuard.getInstance().canUseFeature(
-						PREMIUM_FEATURES.KANBAN_VIEW,
-						DECK_STUDY_FEATURE_CONTEXT
-					)
-					? "grid"
-					: view;
+			if (view === "kanban") {
+				this.currentDeckStudyView = "kanban";
 			}
 		};
 		this.deckFilterChangeHandler = (event: Event) => {
@@ -239,6 +274,7 @@ export class WeaveView extends ItemView {
 				event as CustomEvent<{
 					tableViewMode?: WeaveTableViewMode;
 					gridLayout?: WeaveGridLayoutMode;
+					gridCardBorderStyle?: "solid" | "dashed";
 					kanbanLayoutMode?: WeaveKanbanLayoutMode;
 					irTypeFilter?: WeaveIRTypeFilter;
 					documentFilterMode?: "all" | "current";
@@ -255,6 +291,9 @@ export class WeaveView extends ItemView {
 			}
 			if (detail.gridLayout) {
 				this.cardToolbarState.gridLayoutMode = detail.gridLayout;
+			}
+			if (detail.gridCardBorderStyle === "solid" || detail.gridCardBorderStyle === "dashed") {
+				this.cardToolbarState.gridCardBorderStyle = detail.gridCardBorderStyle;
 			}
 			if (detail.kanbanLayoutMode) {
 				this.cardToolbarState.kanbanLayoutMode = detail.kanbanLayoutMode;
@@ -302,148 +341,75 @@ export class WeaveView extends ItemView {
 		this.updateMobileHeaderActionsVisibility();
 	}
 
-	private openMobileMainMenu(): void {
-		const menuEvent = this.createHeaderMenuMouseEvent(this.mainMenuAction);
-		const pageMenuRequest = new CustomEvent<{
-			page: string;
-			event: MouseEvent;
-			source: "native-header";
-		}>("Weave:request-main-interface-menu", {
-			cancelable: true,
-			detail: {
-				page: this.currentPage,
-				event: menuEvent,
-				source: "native-header",
+	private buildWeaveMainMenuOptions(): WeaveMainMenuOptions {
+		return {
+			currentPage: this.currentPage,
+			leaf: this.leaf,
+			isMobile: Platform.isMobile,
+			navigationVisibility: weaveMainInterfaceStore.getState().navigationVisibility,
+			deckStudyView: this.currentDeckStudyView,
+			deckStudyFilter: this.currentDeckStudyFilter,
+			cardDataSource: this.currentCardDataSource,
+			currentView: this.currentCardView,
+			tableViewMode: this.cardToolbarState.tableViewMode,
+			gridLayoutMode: this.cardToolbarState.gridLayoutMode,
+			gridCardBorderStyle: this.cardToolbarState.gridCardBorderStyle,
+			kanbanLayoutMode: this.cardToolbarState.kanbanLayoutMode,
+			irTypeFilter: this.cardToolbarState.irTypeFilter,
+			documentFilterMode: this.cardToolbarState.documentFilterMode,
+			currentActiveDocument: this.cardToolbarState.currentActiveDocument,
+			enableCardLocationJump: this.cardToolbarState.enableCardLocationJump,
+			showTableGridBorders: this.cardToolbarState.showTableGridBorders,
+			onNavigate: (pageId) => {
+				weaveMainInterfaceStore.setCurrentPage(pageId);
+				window.dispatchEvent(new CustomEvent("Weave:navigate", { detail: pageId }));
 			},
-		});
-		const handledByPage = !window.dispatchEvent(pageMenuRequest);
-		if (handledByPage) {
-			return;
+			onCardDataSourceChange: (source) => {
+				this.currentCardDataSource = source;
+			},
+			onViewChange: (view) => {
+				this.currentCardView = view;
+			},
+		};
+	}
+
+	private populateMobileMainInterfaceMenu(menu: Menu): void {
+		const populateRequest = new CustomEvent<WeavePopulateMainInterfaceMenuDetail>(
+			"Weave:populate-main-interface-menu",
+			{
+				cancelable: true,
+				detail: {
+					menu,
+					page: this.currentPage,
+					source: "pane-menu",
+				},
+			}
+		);
+		const handledByPage = !window.dispatchEvent(populateRequest);
+		if (!handledByPage) {
+			populateWeaveMainMenu(menu, this.buildWeaveMainMenuOptions());
 		}
-
-                openWeaveMainMenu({
-                        currentPage: this.currentPage,
-                        leaf: this.leaf,
-                        isMobile: Platform.isMobile,
-                        navigationVisibility: weaveMainInterfaceStore.getState().navigationVisibility,
-                        deckStudyView: this.currentDeckStudyView,
-                        deckStudyFilter: this.currentDeckStudyFilter,
-                        cardDataSource: this.currentCardDataSource,
-                        currentView: this.currentCardView,
-                        tableViewMode: this.cardToolbarState.tableViewMode,
-                        gridLayoutMode: this.cardToolbarState.gridLayoutMode,
-                        kanbanLayoutMode: this.cardToolbarState.kanbanLayoutMode,
-                        irTypeFilter: this.cardToolbarState.irTypeFilter,
-                        documentFilterMode: this.cardToolbarState.documentFilterMode,
-                        currentActiveDocument: this.cardToolbarState.currentActiveDocument,
-                        enableCardLocationJump: this.cardToolbarState.enableCardLocationJump,
-                        showTableGridBorders: this.cardToolbarState.showTableGridBorders,
-                        event: menuEvent,
-                        anchorEl: this.mainMenuAction,
-                        onNavigate: (pageId) => {
-                            weaveMainInterfaceStore.setCurrentPage(pageId);
-                            window.dispatchEvent(new CustomEvent("Weave:navigate", { detail: pageId }));
-                        },
-                        onCardDataSourceChange: (source) => {
-                            this.currentCardDataSource = source;
-                        },
-                        onViewChange: (view) => {
-                            this.currentCardView = view;
-                        },
-                });
-	}
-
-	private createHeaderMenuMouseEvent(anchorEl: HTMLElement | null): MouseEvent {
-		const rect = anchorEl?.getBoundingClientRect();
-		const clientX = rect
-			? Math.round(rect.left + rect.width / 2)
-			: Math.round(window.innerWidth / 2);
-		const clientY = rect
-			? Math.round(rect.bottom + 8)
-			: Math.max(96, Math.round(window.innerHeight / 2));
-
-		return new MouseEvent("click", {
-			bubbles: true,
-			cancelable: true,
-			clientX,
-			clientY,
-			screenX: clientX,
-			screenY: clientY,
-		});
-	}
-
-	private dispatchAIToolbarAction(
-		action: "file" | "prompt-file" | "config" | "generate" | "model",
-		el: HTMLElement | null
-	): void {
-		const rect = el?.getBoundingClientRect();
-		window.dispatchEvent(
-			new CustomEvent("Weave:ai-toolbar-action", {
-				detail: {
-					action,
-					x: rect ? Math.round(rect.left + rect.width / 2) : undefined,
-					y: rect ? Math.round(rect.bottom + 8) : undefined,
-					rect: rect
-						? {
-								left: rect.left,
-								top: rect.top,
-								right: rect.right,
-								bottom: rect.bottom,
-								width: rect.width,
-								height: rect.height,
-						  }
-						: undefined,
-				},
-			})
-		);
-	}
-
-	private toggleAISubView(): void {
-		const nextSubView = this.currentAISubView === "generate" ? "parse-preview" : "generate";
-		window.dispatchEvent(
-			new CustomEvent("Weave:ai-toolbar-action", {
-				detail: {
-					action: "sub-view",
-					value: nextSubView,
-				},
-			})
-		);
 	}
 
 	private updateMobileHeaderActionsVisibility(): void {
-		const visible = Platform.isMobile && this.currentPage === "ai-assistant";
-		const actions = [this.aiFileAction, this.aiPromptAction, this.aiGenerateAction, this.aiSubViewToggleAction];
+		const cardSearchVisible =
+			this.usesMobileNativeHeader() && this.currentPage === "weave-card-management";
 
-		for (const action of actions) {
-			if (!action) continue;
-			action.style.display = visible ? "" : "none";
+		if (this.cardManagementSearchAction) {
+			this.cardManagementSearchAction.style.display = cardSearchVisible ? "" : "none";
 		}
 
-		this.scheduleMobileHeaderCenterAlignment();
-	}
-
-	private updateAISubViewToggle(): void {
-		if (!this.aiSubViewToggleAction) return;
-
-		const icon = this.aiSubViewToggleAction.querySelector('.view-action') as HTMLElement;
-		if (!icon) return;
-
-		icon.setAttribute(
-			'aria-label',
-			this.currentAISubView === 'generate'
-				? i18n.t('views.weave.mobileAiCard')
-				: i18n.t('views.weave.mobileParsePreview')
-		);
-
-		const svgUse = icon.querySelector('use');
-		if (svgUse) {
-			const iconId = this.currentAISubView === 'generate' ? 'sparkles' : 'file-search';
-			svgUse.setAttribute('href', `#lucide-${iconId}`);
+		if (this.usesMobileNativeHeader()) {
+			this.scheduleMobileHeaderCenterAlignment();
 		}
 	}
 
 	private resolveMobileHeaderHost(): HTMLElement | null {
 		if (!(this.containerEl instanceof HTMLElement)) {
+			return null;
+		}
+
+		if (!this.usesMobileNativeHeader()) {
 			return null;
 		}
 
@@ -591,6 +557,8 @@ export class WeaveView extends ItemView {
 	}
 
 	private async mountMobileHeaderCenter(): Promise<void> {
+		if (!this.usesMobileNativeHeader()) return;
+
 		const host = this.resolveMobileHeaderHost();
 		if (!host) return;
 		if (!Platform.isMobile || this.mobileHeaderCenterComponent) return;
@@ -616,24 +584,25 @@ export class WeaveView extends ItemView {
 
 		if (!Platform.isMobile) return;
 
-		if (this.currentPage === "ai-assistant") {
-			if (this.aiSelectionState.hasCards) {
-				menu.addSeparator();
-				menu.addItem((item) => {
-					const shouldDeselect = this.aiSelectionState.isAllSelected;
-					item
-						.setTitle(shouldDeselect ? i18n.t("views.weave.deselectAll") : i18n.t("views.weave.selectAllCards"))
-						.setIcon(shouldDeselect ? "square" : "check-square")
-						.onClick(() => {
-							window.dispatchEvent(
-								new CustomEvent("Weave:ai-selection-action", {
-									detail: { action: shouldDeselect ? "deselect-all" : "select-all" },
-								})
-							);
-						});
-				});
-			}
+		if (this.currentPage === "ai-assistant" && this.aiSelectionState.hasCards) {
+			menu.addSeparator();
+			menu.addItem((item) => {
+				const shouldDeselect = this.aiSelectionState.isAllSelected;
+				item
+					.setTitle(shouldDeselect ? i18n.t("views.weave.deselectAll") : i18n.t("views.weave.selectAllCards"))
+					.setIcon(shouldDeselect ? "square" : "check-square")
+					.onClick(() => {
+						window.dispatchEvent(
+							new CustomEvent("Weave:ai-selection-action", {
+								detail: { action: shouldDeselect ? "deselect-all" : "select-all" },
+							})
+						);
+					});
+			});
 		}
+
+		menu.addSeparator();
+		this.populateMobileMainInterfaceMenu(menu);
 
 		menu.addSeparator();
 		menu.addItem((item) => {
@@ -752,35 +721,30 @@ export class WeaveView extends ItemView {
 	 * 使用事件驱动方式，比轮询更高效
 	 */
 	private async waitForDataStorage(): Promise<void> {
-		// 如果已初始化（检查 dataStorage 和 cardFileService），直接返回
-		if (this.plugin.dataStorage && this.plugin.cardFileService) {
+		if (this.plugin.dataStorage) {
 			return;
 		}
 
 		logger.debug("[WeaveView] 等待 allCoreServices 初始化...");
 
 		try {
-			//  关键修复：等待所有核心服务就绪（包括 cardFileService）
-			// getCards() 依赖 cardFileService，必须等待 allCoreServices
 			const { waitForServiceReady } = await import("../utils/service-ready-event");
 			await waitForServiceReady("allCoreServices", 15000);
 			logger.debug("[WeaveView] allCoreServices 已就绪（事件通知）");
 		} catch (_error) {
-			// 事件等待超时，回退到轮询检查
 			logger.warn("[WeaveView] 事件等待超时，回退到轮询检查");
 
-			const maxAttempts = 20; // 额外等待 2 秒
+			const maxAttempts = 20;
 			const interval = 100;
 
 			for (let i = 0; i < maxAttempts; i++) {
-				if (this.plugin.dataStorage && this.plugin.cardFileService) {
+				if (this.plugin.dataStorage) {
 					logger.debug(`[WeaveView] allCoreServices 已就绪（轮询 ${i * interval}ms）`);
 					return;
 				}
 				await new Promise((resolve) => setTimeout(resolve, interval));
 			}
 
-			// 不抛出错误，而是记录警告
 			logger.warn("[WeaveView] dataStorage 初始化超时，将显示加载状态");
 		}
 	}
@@ -800,6 +764,8 @@ export class WeaveView extends ItemView {
 					currentLeaf: this.leaf,
 				},
 			});
+
+			void this.syncMobileHeaderMode();
 		} catch (error) {
 			logger.error("Failed to create WeaveView component:", error);
 			this.contentEl.createDiv({ cls: "error", text: i18n.t("views.weave.loadFailed") });
@@ -822,6 +788,14 @@ export class WeaveView extends ItemView {
 		if (this.layoutChangeRef) {
 			this.app.workspace.offref(this.layoutChangeRef);
 			this.layoutChangeRef = null;
+		}
+
+		if (this.surfaceLocationChangeHandler) {
+			window.removeEventListener(
+				"Weave:surface-location-change",
+				this.surfaceLocationChangeHandler
+			);
+			this.surfaceLocationChangeHandler = null;
 		}
 
 		if (this.mobileHeaderCenterComponent) {
@@ -848,10 +822,7 @@ export class WeaveView extends ItemView {
 		}
 		this.mobileHeaderCenterHost = null;
 		delete this.containerEl.dataset.weaveMobileNativeHeader;
-		this.mainMenuAction = null;
-		this.aiFileAction = null;
-		this.aiPromptAction = null;
-		this.aiGenerateAction = null;
+		this.cardManagementSearchAction = null;
 
 		//  安全销毁组件
 		if (this.component) {

@@ -3,6 +3,7 @@
   import type { ColorScheme, CardState } from '../../config/card-color-schemes';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import { tr } from '../../utils/i18n';
+  import { formatQuestionBankAccuracyScore } from '../../utils/question-bank/question-bank-display-stats';
 
   interface QuestionBankStats {
     total: number;      // 总题数
@@ -97,7 +98,7 @@
     name: bank.name,
     total: stats.total,
     completed: stats.completed,
-    accuracy: stats.accuracy.toFixed(0)
+    accuracy: formatQuestionBankAccuracyScore(stats.accuracy)
   })}
 >
   <!-- 上方主区域：题库名 -->
@@ -130,7 +131,7 @@
     <div class="qb-grid-info-left">
       {#if stats.completed > 0}
         <div class="qb-grid-accuracy">
-          {stats.accuracy.toFixed(0)}%
+          {formatQuestionBankAccuracyScore(stats.accuracy)}
         </div>
       {/if}
     </div>

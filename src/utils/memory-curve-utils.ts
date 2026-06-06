@@ -2,6 +2,8 @@
  * 记忆曲线计算工具函数
  */
 
+import { forgetting_curve } from "ts-fsrs";
+import { FSRS6_DEFAULTS } from "../types/fsrs6-types";
 import { CardState, type Card, Rating, type ReviewLog } from "../data/types";
 import type { MemoryCurveData, MemoryCurvePoint, TimeRange } from "../types/view-card-modal-types";
 
@@ -16,26 +18,27 @@ export interface DeckMemoryCurvePoint {
 }
 
 /**
- * 计算预测记忆曲线
- * 基于FSRS算法的遗忘曲线公式: R(t) = e^(-t/S)
+ * 计算预测记忆曲线（FSRS-6 官方遗忘曲线）
  *
  * @param stability 稳定性（天）
  * @param days 时间跨度（天）
  * @param pointCount 数据点数量
+ * @param weights FSRS 权重（默认官方 FSRS-6）
  * @returns 预测曲线数据点数组
  */
 export function calculatePredictedCurve(
 	stability: number,
 	days = 60,
-	pointCount = 100
+	pointCount = 100,
+	weights: number[] = [...FSRS6_DEFAULTS.DEFAULT_WEIGHTS]
 ): MemoryCurvePoint[] {
 	const points: MemoryCurvePoint[] = [];
 	const step = days / pointCount;
+	const safeStability = Math.max(stability, 0.01);
 
 	for (let i = 0; i <= pointCount; i++) {
 		const day = i * step;
-		// FSRS遗忘曲线公式: R(t) = e^(-t/S)
-		const retrievability = Math.exp(-day / Math.max(stability, 0.01));
+		const retrievability = forgetting_curve(weights, day, safeStability);
 
 		points.push({
 			day: Math.round(day * 10) / 10, // 保留1位小数

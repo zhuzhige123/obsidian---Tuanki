@@ -1,0 +1,72 @@
+/**
+ * Weave 统一侧边颜色条
+ * 与设置界面「基础设置」等标题规范一致，供设置页、模态窗及全插件复用。
+ *
+ * 规格：宽 4px · 高为容器 80% · 圆角 2px · 左内边距 16px · 垂直居中
+ */
+
+.with-accent-bar {
+  position: relative;
+  padding-left: 16px;
+}
+
+.with-accent-bar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 80%;
+  border-radius: 2px;
+}
+
+.accent-purple::before {
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.8), rgba(147, 51, 234, 0.6));
+}
+
+.accent-pink::before {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.8), rgba(219, 39, 119, 0.6));
+}
+
+.accent-blue::before {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.8), rgba(37, 99, 235, 0.6));
+}
+
+.accent-cyan::before {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.8), rgba(14, 165, 233, 0.6));
+}
+
+.accent-green::before {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.8), rgba(22, 163, 74, 0.6));
+}
+
+.accent-orange::before {
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.8), rgba(234, 88, 12, 0.6));
+}
+
+.accent-yellow::before {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.8), rgba(202, 138, 4, 0.6));
+}
+
+.accent-red::before {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.8), rgba(220, 38, 38, 0.6));
+}
+
+.with-accent-bar.mobile {
+  padding-left: 12px;
+}
+
+/* 标题行：文字标题 + 右侧操作（避免 flex 标题行拉高颜色条） */
+.weave-section-header-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2, 0.5rem);
+  margin-bottom: var(--size-4-4, 1rem);
+}
+
+.weave-section-header-row > .with-accent-bar {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}

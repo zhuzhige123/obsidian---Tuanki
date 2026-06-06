@@ -26,14 +26,33 @@
     listUserPromptFiles,
     resolveUserPromptFile
   } from '../../services/ai/UserPromptFileService';
+  import { ParsedCardConverter } from '../../services/converter/ParsedCardConverter';
   import { RegexCardParser } from '../../services/batch-parsing/RegexCardParser';
+  import { normalizeRegexParsingConfig } from '../../services/batch-parsing/RegexPresets';
   import { MarkdownFileSuggestModal } from '../../modals/MarkdownFileSuggestModal';
+  import { populateProviderModelMenu, showProviderModelMenuAt } from '../../utils/provider-model-menu';
   import { AI_MODEL_OPTIONS, AI_PROVIDER_LABELS, getDefaultAIModel } from '../settings/constants/settings-constants';
   import { weaveMainInterfaceStore } from '../../stores/weave-main-interface-store';
+  import AIAssistantMobileToolbar from '../ai-assistant/AIAssistantMobileToolbar.svelte';
   import AICardPreviewWorkspace from '../ai-assistant/AICardPreviewWorkspace.svelte';
   import AIParsePreviewWorkspace from '../ai-assistant/AIParsePreviewWorkspace.svelte';
   import AIGenerationConfigPopover from '../ai-assistant/AIGenerationConfigPopover.svelte';
   import { AIConfigModalObsidian } from '../ai-assistant/AIConfigModalObsidian';
+  import { generatedCardToPreviewItem } from '../../utils/ai-preview-items';
+  import {
+    getActiveDocumentFileName,
+    getSharedActiveDocumentResolver,
+    resolveCurrentActiveDocument,
+  } from '../../utils/active-document-resolver';
+  import type { CardStagingStudyMode } from '../../types/card-staging-types';
+  import { splitCardFrontBack } from '../../constants/markdown-delimiters';
+  import { filterPreviewItemsForStudyMode } from '../../services/ai/card-staging-card-builder';
+  import {
+    resolveDefaultStagingQuestionBank,
+    resolveStagingMemoryDeck,
+  } from '../../services/ai/card-staging-target-resolver';
+  import { tr } from '../../utils/i18n';
+  import CardStagingStudyShell from '../ai-assistant/CardStagingStudyShell.svelte';
 
   interface Props {
     plugin: WeavePlugin;
@@ -67,6 +86,11 @@
     subView: AIAssistantSubView;
     selectedFileName: string;
     selectedFilePath: string;
+    activeDocumentPath: string;
+    activeDocumentName: string;
+    followActiveDocument: boolean;
+    stagingStudyMode: CardStagingStudyMode;
+    canStartStaging: boolean;
     promptFileName: string;
     promptFilePath: string;
     modelLabel: string;
@@ -82,6 +106,7 @@
 
   let { plugin, dataStorage, fsrs }: Props = $props();
 
+  let t = $derived($tr);
   let pageEl = $state<HTMLDivElement | null>(null);
   let historyEl = $state<HTMLDivElement | null>(null);
 
@@ -97,6 +122,13 @@
   let isGenerating = $state(false);
   let isParsing = $state(false);
   let generationProgress = $state<GenerationProgress | null>(null);
+
+  let followActiveDocument = $state(true);
+  let stagingStudyMode = $state<CardStagingStudyMode>('memory');
+  let previewViewMode = $state<'preview' | 'study'>('preview');
+  let activeDocumentPath = $state<string | null>(null);
+  let inlineStagingSessionId = $state<string | null>(null);
+  const activeDocumentResolver = getSharedActiveDocumentResolver();
 
   let historyOpen = $state(false);
   let historyAnchor = $state<AnchorRect | null>(null);
@@ -248,26 +280,8 @@
     await selectSourceFile(fileToInfo(selected));
   }
 
-  function splitContent(value: string): { front: string; back: string } {
-    const match = value.split(/(?:\n\n|\n)?---div---(?:\n\n|\n)?/);
-    return { front: (match[0] ?? '').trim(), back: match.slice(1).join('---div---').trim() };
-  }
-
   function toPreviewItem(card: GeneratedCard): AICardPreviewItem {
-    const { front, back } = splitContent(card.content || '');
-
-    return {
-      id: `history-${card.uuid}`,
-      draft: card.type === 'choice'
-        ? { type: 'choice', question: front, options: [], answers: [], back: back || undefined, tags: [...(card.tags || [])] }
-        : card.type === 'cloze'
-          ? { type: 'cloze', text: front, back: back || undefined, tags: [...(card.tags || [])] }
-          : { type: 'qa', front, back, tags: [...(card.tags || [])] },
-      status: 'valid',
-      issues: [],
-      generatedContent: card.content || '',
-      generatedCard: { ...card, tags: [...(card.tags || [])], metadata: { ...card.metadata } }
-    };
+    return generatedCardToPreviewItem(card, { idPrefix: 'history' });
   }
 
   async function findFile(path?: string): Promise<ObsidianFileInfo | null> {
@@ -292,6 +306,9 @@
       lastSelectedSourceFilePath: selectedFile?.path,
       lastSelectedPromptFilePath: selectedPromptFile?.path,
       lastSelectedParsePresetId: selectedParsePreset?.id || selectedParsePreset?.name,
+      followActiveDocument,
+      stagingStudyMode,
+      previewViewMode,
       savedGenerationConfig: {
         cardCount: normalizedConfig.cardCount,
         difficulty: normalizedConfig.difficulty,
@@ -329,8 +346,109 @@
 
   async function selectSourceFile(file: ObsidianFileInfo) {
     selectedFile = file;
+    followActiveDocument = false;
     content = await plugin.app.vault.read(file.file);
     await persistPreferences();
+    syncToolbarState();
+  }
+
+  async function bindActiveDocument(path: string | null) {
+    activeDocumentPath = path;
+
+    if (!path || !followActiveDocument) {
+      syncToolbarState();
+      return;
+    }
+
+    const file = await findFile(path);
+    if (!file) {
+      syncToolbarState();
+      return;
+    }
+
+    selectedFile = file;
+    content = await plugin.app.vault.read(file.file);
+    await persistPreferences();
+    syncToolbarState();
+  }
+
+  async function toggleFollowActiveDocument() {
+    followActiveDocument = !followActiveDocument;
+    if (followActiveDocument) {
+      await bindActiveDocument(resolveCurrentActiveDocument(plugin.app, plugin.app.workspace.activeLeaf));
+    }
+    await persistPreferences();
+    syncToolbarState();
+  }
+
+  async function resolveTargetMemoryDeckForStaging(): Promise<{ id: string; name: string } | null> {
+    return resolveStagingMemoryDeck(dataStorage, generationConfig.targetDeck);
+  }
+
+  async function resolveTargetQuestionBankForStaging(
+    memoryDeckId?: string
+  ): Promise<{ id: string; name: string } | null> {
+    return resolveDefaultStagingQuestionBank(plugin, memoryDeckId);
+  }
+
+  async function startStagingStudy(openInTab = true, mode?: CardStagingStudyMode) {
+    if (generatedItems.length === 0) {
+      new Notice(t('aiAssistant.staging.generateCardsFirst'));
+      return;
+    }
+
+    const targetDeck = await resolveTargetMemoryDeckForStaging();
+    if (!targetDeck) {
+      new Notice(t('aiAssistant.staging.createMemoryDeckFirst'));
+      return;
+    }
+
+    const studyMode = mode ?? stagingStudyMode;
+    if (mode && mode !== stagingStudyMode) {
+      stagingStudyMode = mode;
+      await persistPreferences();
+      syncToolbarState();
+    }
+
+    const filtered = filterPreviewItemsForStudyMode(generatedItems, studyMode);
+    if (filtered.length === 0) {
+      new Notice(
+        studyMode === 'exam'
+          ? t('aiAssistant.staging.noExamChoiceCards')
+          : t('aiAssistant.staging.noMemoryStudyCards')
+      );
+      return;
+    }
+
+    const targetQuestionBank =
+      studyMode === 'exam' ? await resolveTargetQuestionBankForStaging(targetDeck.id) : null;
+
+    const sessionId = await plugin.openCardStagingSession({
+      sourceFilePath: selectedFile?.path ?? activeDocumentPath,
+      sourceFileName: selectedFile?.name || getActiveDocumentFileName(activeDocumentPath) || '未命名内容',
+      studyMode,
+      targetDeckId: targetDeck.id,
+      targetDeckName: targetDeck.name,
+      targetQuestionBankId: targetQuestionBank?.id,
+      targetQuestionBankName: targetQuestionBank?.name,
+      generationConfig,
+      importAutoTags: plugin.getAIAssistantPreferences().importAutoTags,
+      items: generatedItems,
+      viewMode: 'study',
+      openInTab,
+    });
+
+    if (!sessionId) {
+      return;
+    }
+
+    if (openInTab) {
+      previewViewMode = 'preview';
+      inlineStagingSessionId = null;
+    } else {
+      inlineStagingSessionId = sessionId;
+      previewViewMode = 'study';
+    }
     syncToolbarState();
   }
 
@@ -414,50 +532,58 @@
   }
 
   function openModelMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
-    const menu = new Menu();
     const apiKeys = (plugin.settings.aiConfig?.apiKeys || {}) as Record<string, { model?: string } | undefined>;
+    const preferredProvider = resolveProvider(
+      plugin.getAIAssistantPreferences().lastUsedProvider || plugin.settings.aiConfig?.defaultProvider
+    );
 
-    Object.entries(AI_MODEL_OPTIONS).forEach(([providerKey, models]) => {
-      const provider = providerKey as AIProvider;
-      menu.addItem((item) => {
-        item
-          .setTitle(AI_PROVIDER_LABELS[provider])
-          .setIcon(generationConfig.provider === provider ? 'check' : '');
-
-        const submenu = (item as any).setSubmenu();
-        const configuredModel = apiKeys[provider]?.model?.trim();
-        const staticModelIds: string[] = models.map((model) => model.id as string);
-
-        if (configuredModel && !staticModelIds.includes(configuredModel)) {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(configuredModel)
-              .setIcon(generationConfig.provider === provider && generationConfig.model === configuredModel ? 'check' : '')
-              .onClick(() => {
-                generationConfig = normalizeGenerationConfig({ ...generationConfig, provider, model: configuredModel });
-                void persistPreferences();
-                syncToolbarState();
-              });
-          });
-          submenu.addSeparator();
-        }
-
-        models.forEach((model) => {
-          submenu.addItem((modelItem: any) => {
-            modelItem
-              .setTitle(model.label)
-              .setIcon(generationConfig.provider === provider && generationConfig.model === model.id ? 'check' : '')
-              .onClick(() => {
-                generationConfig = normalizeGenerationConfig({ ...generationConfig, provider, model: model.id });
-                void persistPreferences();
-                syncToolbarState();
-              });
-          });
-        });
+    const applySelection = (next: { provider: AIProvider; model: string }) => {
+      generationConfig = normalizeGenerationConfig({
+        ...generationConfig,
+        provider: next.provider,
+        model: next.model,
       });
-    });
+      void persistPreferences();
+      syncToolbarState();
+    };
 
-    showMenuAtAnchor(menu, detail, { x: 120, y: 80 });
+    const anchor = normalizeAnchor(detail);
+    if (anchor) {
+      const menu = new Menu();
+      populateProviderModelMenu(menu, {
+        apiKeys,
+        selection: {
+          provider: generationConfig.provider,
+          model: generationConfig.model,
+        },
+        preferredProvider,
+        onSelect: (next) => {
+          if (!next.provider) return;
+          applySelection(next);
+        },
+      });
+      showMenuAtAnchor(menu, detail, { x: 120, y: 80 });
+      return;
+    }
+
+    const fallbackEvent = {
+      clientX: detail?.x ?? 120,
+      clientY: detail?.y ?? 80,
+      button: 0,
+    } as MouseEvent;
+
+    showProviderModelMenuAt(fallbackEvent, {
+      apiKeys,
+      selection: {
+        provider: generationConfig.provider,
+        model: generationConfig.model,
+      },
+      preferredProvider,
+      onSelect: (next) => {
+        if (!next.provider) return;
+        applySelection(next);
+      },
+    });
   }
 
   function openParsePresetMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
@@ -547,12 +673,12 @@
     try {
       isParsing = true;
       syncToolbarState();
-      const preset = selectedParsePreset;
+      const preset = normalizeRegexParsingConfig(selectedParsePreset);
       const result = await createRegexParser().parseFile(selectedFile.file, preset, 'preview');
       if (!result.success) throw new Error(result.errors[0] || '\u89e3\u6790\u5931\u8d25');
 
       parseItems = result.cards.map((card, index) => {
-        const { front, back } = splitContent(card.content || '');
+        const { front, back } = splitCardFrontBack(card.content || '');
         return {
           id: `${index + 1}`,
           index: index + 1,
@@ -570,6 +696,7 @@
       });
 
       subView = 'parse-preview';
+      new Notice(`\u5df2\u89e3\u6790 ${parseItems.length} \u5f20\u5361\u7247`);
       await persistPreferences();
       syncToolbarState();
     } catch (error) {
@@ -647,35 +774,74 @@
       throw new Error('目标牌组不存在，请重新选择');
     }
 
-    const parsedCards: ParsedCard[] = selectedItems.map((item) => ({
-      ...item.parsedCard,
-      tags: mergeTagLists(item.parsedCard.tags || [], autoTags),
-      metadata: {
-        ...(item.parsedCard.metadata || {}),
-        targetDeckId,
-        sourceFile: item.parsedCard.metadata?.sourceFile || selectedFile?.path || item.parsedCard.sourceFile
-      }
-    }));
+    const converter = new ParsedCardConverter(plugin.app, fsrs);
+    const conversionOptions = {
+      deckId: targetDeckId,
+      deckName: targetDeck.name,
+      preserveSourceInfo: true,
+      priority: plugin.settings.simplifiedParsing?.batchParsing?.defaultPriority ?? 0,
+    };
 
-    await plugin.addCardsToDB(parsedCards);
+    let importedCount = 0;
+    let failedCount = 0;
+    const importedItemIds: string[] = [];
+
+    for (const item of selectedItems) {
+      const parsedCard: ParsedCard = {
+        ...item.parsedCard,
+        tags: mergeTagLists(item.parsedCard.tags || [], autoTags),
+        metadata: {
+          ...(item.parsedCard.metadata || {}),
+          targetDeckId,
+          sourceFile: item.parsedCard.metadata?.sourceFile || selectedFile?.path || item.parsedCard.sourceFile
+        }
+      };
+
+      const result = converter.convertToCard(parsedCard, conversionOptions);
+      if (!result.success || !result.card) {
+        failedCount += 1;
+        logger.error('Parse preview import conversion failed:', result.error);
+        continue;
+      }
+
+      const saveResult = await saveMemoryCard(plugin, result.card, 'create');
+      if (!saveResult.success) {
+        failedCount += 1;
+        logger.error('Parse preview import save failed:', saveResult.error);
+        continue;
+      }
+
+      importedCount += 1;
+      importedItemIds.push(item.id);
+    }
+
+    if (importedCount === 0) {
+      throw new Error('没有可导入的卡片，请检查目标牌组或卡片内容');
+    }
 
     return {
-      importedCount: parsedCards.length,
-      failedCount: 0,
+      importedCount,
+      failedCount,
       selectedCount: selectedItems.length,
       targetDeckId,
       targetDeckName: targetDeck.name,
-      importedItemIds: selectedItems.map((item) => item.id)
+      importedItemIds: failedCount === 0 ? importedItemIds : undefined
     };
   }
 
   function createAIToolbarStateDetail(): AIToolbarStateDetail {
     const modelLabel = getModelDisplayLabel();
+    const activeName = getActiveDocumentFileName(activeDocumentPath);
 
     return {
       subView,
       selectedFileName: selectedFile?.name ?? '',
       selectedFilePath: selectedFile?.path ?? '',
+      activeDocumentPath: activeDocumentPath ?? '',
+      activeDocumentName: activeName,
+      followActiveDocument,
+      stagingStudyMode,
+      canStartStaging: generatedItems.length > 0 && !isGenerating,
       promptFileName: selectedPromptFile?.name ?? '',
       promptFilePath: selectedPromptFile?.path ?? '',
       modelLabel,
@@ -717,6 +883,18 @@
       if (detail.action === 'parse-template') openParsePresetMenu(detail);
       if (detail.action === 'generate' && !isGenerating) void handleGenerate();
       if (detail.action === 'parse' && !isParsing) void handleParse();
+      if (detail.action === 'toggle-follow-document') void toggleFollowActiveDocument();
+      if (detail.action === 'start-staging') void startStagingStudy(true);
+      if (detail.action === 'toggle-preview-view') {
+        previewViewMode = previewViewMode === 'preview' ? 'study' : 'preview';
+        if (previewViewMode === 'study') {
+          void startStagingStudy(false);
+        } else {
+          inlineStagingSessionId = null;
+        }
+        void persistPreferences();
+        syncToolbarState();
+      }
       if (detail.action === 'sub-view') {
         const nextSubView = detail.value === 'parse-preview' ? 'parse-preview' : 'generate';
         if (subView !== nextSubView) {
@@ -758,11 +936,26 @@
     window.addEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
     window.addEventListener('Weave:ai-user-prompt-files-changed', handleUserPromptFilesChanged as EventListener);
 
+    const updateActiveDocument = () => {
+      const nextPath = activeDocumentResolver.resolve(
+        plugin.app,
+        plugin.app.workspace.activeLeaf
+      );
+      void bindActiveDocument(nextPath);
+    };
+
+    updateActiveDocument();
+    plugin.app.workspace.on('active-leaf-change', updateActiveDocument);
+    plugin.app.workspace.on('file-open', updateActiveDocument);
+
     void (async () => {
       generationHistory = plugin.getAIGenerationHistory().slice(0, 5) as HistoryEntry[];
       lastGenerationHistorySignature = JSON.stringify(generationHistory);
       const preferences = plugin.getAIAssistantPreferences();
       subView = preferences.subView ?? 'generate';
+      followActiveDocument = preferences.followActiveDocument ?? true;
+      stagingStudyMode = preferences.stagingStudyMode ?? 'memory';
+      previewViewMode = preferences.previewViewMode ?? 'preview';
       selectedFile = await findFile(preferences.lastSelectedSourceFilePath);
       selectedPromptFile = findUserPromptFile(preferences.lastSelectedPromptFilePath);
 
@@ -774,7 +967,12 @@
         new Notice('\u6700\u8fd1\u9009\u62e9\u7684\u63d0\u793a\u8bcd\u6587\u4ef6\u4e0d\u5b58\u5728\uff0c\u5df2\u6e05\u7a7a');
       }
 
-      if (selectedFile) {
+      if (followActiveDocument) {
+        const activePath = resolveCurrentActiveDocument(plugin.app, plugin.app.workspace.activeLeaf);
+        if (activePath) {
+          await bindActiveDocument(activePath);
+        }
+      } else if (selectedFile) {
         content = await plugin.app.vault.read(selectedFile.file);
       }
 
@@ -792,6 +990,8 @@
     })();
 
     return () => {
+      plugin.app.workspace.off('active-leaf-change', updateActiveDocument);
+      plugin.app.workspace.off('file-open', updateActiveDocument);
       window.removeEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
       window.removeEventListener('Weave:ai-user-prompt-files-changed', handleUserPromptFilesChanged as EventListener);
     };
@@ -799,6 +999,8 @@
 </script>
 
 <div class="ai-page" bind:this={pageEl}>
+  <AIAssistantMobileToolbar />
+
   {#if historyOpen}
     <div class="panel" style={historyStyle} bind:this={historyEl}>
       <div class="panel-head"><div>{'\u6700\u8fd1 5 \u6b21\u751f\u6210\u8bb0\u5f55'}</div></div>
@@ -830,6 +1032,19 @@
   />
 
   {#if subView === 'generate'}
+    {#if previewViewMode === 'study' && inlineStagingSessionId}
+      <CardStagingStudyShell
+        {plugin}
+        {dataStorage}
+        {fsrs}
+        sessionId={inlineStagingSessionId}
+        onClose={() => {
+          inlineStagingSessionId = null;
+          previewViewMode = 'preview';
+          syncToolbarState();
+        }}
+      />
+    {:else}
     <AICardPreviewWorkspace
       {plugin}
       items={generatedItems}
@@ -838,8 +1053,11 @@
       progress={generationProgress}
       totalCards={generationConfig.maxGenerationLimit ?? generationConfig.cardCount}
       mode="split"
+      canStartStaging={generatedItems.length > 0 && !isGenerating}
+      onStartStaging={(mode) => void startStagingStudy(true, mode)}
       onImport={importCards}
     />
+    {/if}
   {:else}
     <AIParsePreviewWorkspace
       {plugin}
@@ -868,6 +1086,14 @@
     position: relative;
     overflow: hidden;
     background: var(--weave-ai-page-bg);
+  }
+
+  :global(body.is-mobile) .ai-page,
+  :global(body.is-phone) .ai-page {
+    --weave-ai-preview-footer-bottom: calc(
+      56px + var(--weave-workspace-bottom-offset, var(--weave-modal-bottom, env(safe-area-inset-bottom, 0px)))
+      + var(--weave-mobile-fixed-bottom-gap, 4px)
+    );
   }
 
   .panel {

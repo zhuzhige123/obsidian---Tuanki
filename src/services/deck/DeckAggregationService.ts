@@ -17,6 +17,7 @@ import {
 	type DeckGroupByType,
 	type DeckTagGroup,
 } from "../../types/deck-kanban-types";
+import { getQuestionBankAccuracyGroupKeyFromDeckStats } from "../../utils/question-bank/question-bank-display-stats";
 
 /**
  * 牌组统计数据接口
@@ -107,6 +108,14 @@ export class DeckAggregationService {
 	public clearCache(): void {
 		this.deckCardsCache.clear();
 		this.cacheTimestamp = 0;
+	}
+
+	/**
+	 * 分析考试题组的正确率档位（需 deckStats.memoryRate 存题组 EWMA 正确率）
+	 */
+	analyzeQuestionBankAccuracy(deck: Deck): string {
+		const stats = this.deckStats?.[deck.id];
+		return getQuestionBankAccuracyGroupKeyFromDeckStats(stats);
 	}
 
 	/**
@@ -304,13 +313,16 @@ export class DeckAggregationService {
 				grouped[groupKey].push(deck);
 			}
 		} else {
-			// 同步分组方式（completion）
+			// 同步分组方式（completion / accuracy）
 			for (const deck of decks) {
 				let groupKey: string;
 
 				switch (groupBy) {
 					case "completion":
 						groupKey = this.analyzeCompletion(deck);
+						break;
+					case "accuracy":
+						groupKey = this.analyzeQuestionBankAccuracy(deck);
 						break;
 					default:
 						groupKey = "unknown";

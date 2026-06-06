@@ -7,6 +7,7 @@
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   //  导入国际化
   import { tr } from '../../utils/i18n';
+  import { formatQuestionBankAccuracyScore } from '../../utils/question-bank/question-bank-display-stats';
 
   interface Props {
     deck: Deck;
@@ -44,6 +45,12 @@
 
   // 获取当前状态的配色
   const currentColorConfig = $derived(colorScheme[cardState]);
+
+  const questionBankAccuracyScore = $derived(
+    deckMode === 'question-bank' && stats.learningCards > 0
+      ? formatQuestionBankAccuracyScore(stats.memoryRate)
+      : null
+  );
 
   // 生成卡片主区域样式
   const mainStyle = $derived(() => {
@@ -168,6 +175,11 @@
 
   <!-- 下方信息条 -->
   <div class="card-info-bar" style={infoBarStyle()}>
+    {#if questionBankAccuracyScore !== null}
+      <div class="deck-card-info-left">
+        <div class="deck-card-accuracy-badge">{questionBankAccuracyScore}</div>
+      </div>
+    {/if}
     <!-- 中间：统计数字 -->
     <!-- 类名使用 deck-card-stat-* 前缀，避免被全局 .stat-number / .stat-label（如 APKG 样式）污染 -->
     <div class="deck-card-stats">
@@ -184,7 +196,9 @@
         <span class="deck-card-stat-lbl">{statLabels.third}</span>
       </div>
     </div>
-
+    {#if questionBankAccuracyScore !== null}
+      <div class="deck-card-info-right" aria-hidden="true"></div>
+    {/if}
   </div>
 </div>
 
@@ -345,6 +359,36 @@
     overflow: hidden;
   }
 
+  .deck-card-info-left,
+  .deck-card-info-right {
+    flex: 0 0 auto;
+    min-width: min(60px, 18%);
+  }
+
+  .deck-card-info-left {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .deck-card-info-right {
+    width: min(60px, 18%);
+  }
+
+  .deck-card-accuracy-badge {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: rgba(0, 0, 0, 0.12);
+    color: inherit;
+    opacity: 0.95;
+    white-space: nowrap;
+    flex-shrink: 0;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+
   /* 下方信息条 */
   .card-info-bar {
     min-height: 52px;
@@ -353,7 +397,8 @@
     backdrop-filter: blur(10px);
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: space-between;
+    gap: 10px;
     padding: 10px 20px;
     font-size: 13px;
     font-weight: 500;
@@ -368,7 +413,7 @@
     justify-content: center;
     gap: 14px;
     flex-wrap: nowrap;
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
   }
 

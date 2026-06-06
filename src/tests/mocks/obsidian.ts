@@ -487,7 +487,21 @@ export class Menu {
   }
 
   findItemByTitle(title: string): MenuItem | undefined {
-    return this.items.find(item => item.getTitle() === title);
+    for (const item of this.items) {
+      if (item.getTitle() === title) {
+        return item;
+      }
+
+      const submenu = item.getSubmenu();
+      if (submenu) {
+        const nested = submenu.findItemByTitle(title);
+        if (nested) {
+          return nested;
+        }
+      }
+    }
+
+    return undefined;
   }
 }
 
@@ -534,6 +548,7 @@ export const setIcon = vi.fn((element: HTMLElement, iconName: string) => {
 });
 
 export const requestUrl = vi.fn();
+export const getLanguage = vi.fn(() => "en");
 
 // Mock constants
 export const Platform = {
@@ -572,6 +587,7 @@ export default {
   sanitizeHTMLToDom,
   setIcon,
   requestUrl,
+  getLanguage,
   Platform,
   mockApp,
   abstractInputSuggestInstances

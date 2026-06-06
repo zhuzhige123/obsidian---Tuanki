@@ -106,9 +106,17 @@ export default defineConfig(({ mode }) => {
 	const displayOutputDir =
 		isDesktopHotReloadBuild && !isMobileHotReloadBuild ? resolvedPluginDir : buildOutDir;
 	let buildWatchAnnounced = false;
+	const viteCacheProfile = isMobileHotReloadBuild
+		? "mobile"
+		: isDesktopHotReloadBuild
+			? "desktop"
+			: "default";
 
 	return {
-		cacheDir: path.resolve(process.cwd(), `node_modules/.vite-${svelteCacheFingerprint}`),
+		cacheDir: path.resolve(
+			process.cwd(),
+			`node_modules/.vite-${viteCacheProfile}-${svelteCacheFingerprint}`,
+		),
 		resolve: {
 			conditions: ["browser", "import", "module", "default"],
 		},

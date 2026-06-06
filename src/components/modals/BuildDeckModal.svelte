@@ -15,6 +15,7 @@
   import { saveMemoryDeck } from "../../services/weave-domain";
   import type { Deck } from "../../data/types";
   import { Menu, Notice } from "obsidian";
+  import { addMenuRadioChoices } from '../../utils/obsidian-menu';
   import { get } from 'svelte/store';
   import { tr } from '../../utils/i18n';
   import { generateId } from '../../utils/helpers';
@@ -229,25 +230,27 @@
     const menu = new Menu();
     menu.setUseNativeMenu?.(false);
 
-    menu.addItem((item) => {
-      item
-        .setTitle(t('study.questionBankUI.buildDeckModal.buildDeck'))
-        .setIcon('brain')
-        .setChecked(buildTarget === 'memory')
-        .onClick(() => {
-          setBuildTarget('memory');
-        });
-    });
-
-    menu.addItem((item) => {
-      item
-        .setTitle(canUseQuestionBankBuildTarget ? t('study.questionBankUI.buildDeckModal.buildExamSet') : t('study.questionBankUI.buildDeckModal.buildExamSetPremium'))
-        .setIcon('list')
-        .setChecked(buildTarget === 'question-bank')
-        .onClick(() => {
-          setBuildTarget('question-bank');
-        });
-    });
+    addMenuRadioChoices(
+      menu,
+      buildTarget,
+      [
+        {
+          title: t('study.questionBankUI.buildDeckModal.buildDeck'),
+          icon: 'brain',
+          value: 'memory' as const,
+        },
+        {
+          title: canUseQuestionBankBuildTarget
+            ? t('study.questionBankUI.buildDeckModal.buildExamSet')
+            : t('study.questionBankUI.buildDeckModal.buildExamSetPremium'),
+          icon: 'list',
+          value: 'question-bank' as const,
+        },
+      ],
+      (target) => {
+        setBuildTarget(target);
+      }
+    );
 
     const trigger =
       event?.currentTarget instanceof HTMLElement

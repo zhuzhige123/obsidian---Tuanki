@@ -21,6 +21,7 @@
   import { currentLanguage, tr } from '../../utils/i18n';
 
   type GridCardAttributeType = 'none' | 'uuid' | 'source' | 'priority' | 'retention' | 'modified' | 'accuracy' | 'question_type' | 'ir_state' | 'ir_priority';
+  type GridCardBorderStyle = 'solid' | 'dashed';
   
   interface Props {
     card: Card;
@@ -29,6 +30,7 @@
     plugin: WeavePlugin;
     layoutMode?: 'fixed' | 'masonry';
     attributeType?: GridCardAttributeType;
+    borderStyle?: GridCardBorderStyle;
     isMobile?: boolean; // 从父组件传递移动端状态
     onClick?: (card: Card) => void;
     onEdit?: (card: Card) => void;
@@ -46,6 +48,7 @@
     plugin,
     layoutMode = 'fixed',
     attributeType = 'uuid',
+    borderStyle = 'solid',
     isMobile: isMobileProp = false, // 接收父组件传递的移动端状态
     onClick,
     onEdit,
@@ -723,6 +726,7 @@
 <div
   bind:this={cardElement}
   class="lazy-grid-card"
+  class:border-style-dashed={borderStyle === 'dashed'}
   class:selected
   class:emphasized
   class:hovered={isHovered}
@@ -874,6 +878,11 @@
     box-shadow: inset 0 0 0 1px var(--weave-grid-card-border-color);
   }
 
+  .lazy-grid-card.border-style-dashed {
+    border: 1px dashed var(--weave-grid-card-border-color);
+    box-shadow: none;
+  }
+
   /* 固定高度模式 */
   .lazy-grid-card.fixed-height {
     height: 280px;
@@ -927,6 +936,12 @@
     transform: translateY(-1px);
   }
 
+  .lazy-grid-card.border-style-dashed:hover,
+  .lazy-grid-card.border-style-dashed.hovered {
+    border-color: var(--interactive-accent);
+    box-shadow: var(--weave-grid-card-hover-shadow);
+  }
+
   /* 移动端禁用 hover 效果 - 避免触摸时触发浮动动画 */
   :global(body.is-mobile) .lazy-grid-card:hover,
   :global(body.is-phone) .lazy-grid-card:hover,
@@ -949,6 +964,12 @@
       0 0 0 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
   }
 
+  :global(body.theme-dark) .lazy-grid-card.border-style-dashed.selected,
+  :global(body.theme-light) .lazy-grid-card.border-style-dashed.selected {
+    border: 2px dashed var(--interactive-accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+  }
+
   .lazy-grid-card.emphasized {
     animation: weave-card-focus-pulse 1.6s ease-out;
   }
@@ -957,6 +978,14 @@
   :global(body.theme-light) .lazy-grid-card.emphasized {
     box-shadow:
       inset 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 88%, white 12%),
+      0 0 0 3px color-mix(in srgb, var(--interactive-accent) 30%, transparent),
+      0 0 22px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
+  }
+
+  :global(body.theme-dark) .lazy-grid-card.border-style-dashed.emphasized,
+  :global(body.theme-light) .lazy-grid-card.border-style-dashed.emphasized {
+    border: 2px dashed color-mix(in srgb, var(--interactive-accent) 88%, white 12%);
+    box-shadow:
       0 0 0 3px color-mix(in srgb, var(--interactive-accent) 30%, transparent),
       0 0 22px color-mix(in srgb, var(--interactive-accent) 28%, transparent);
   }

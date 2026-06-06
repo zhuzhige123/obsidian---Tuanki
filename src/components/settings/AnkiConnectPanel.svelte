@@ -737,7 +737,7 @@
 <div class="weave-settings settings-section anki-connect-section">
   <div class="settings-group sync-overview-group">
     <div class="section-header section-header-inline">
-      <h3 class="section-title with-accent-bar accent-red">{t('ankiConnect.title')}</h3>
+      <div class="group-title with-accent-bar accent-red">{t('ankiConnect.title')}</div>
       <div class="section-tools">
         {#if settings.enabled}
           <button
@@ -897,6 +897,17 @@
 
 <style>
   .anki-connect-section {
+    --weave-settings-gap-xs: var(--size-2-1, 0.25rem);
+    --weave-settings-gap-sm: var(--size-2-2, 0.5rem);
+    --weave-settings-gap-md: var(--size-4-2, 0.75rem);
+    --weave-settings-gap-lg: var(--size-4-3, 1rem);
+    --weave-settings-gap-xl: var(--size-4-5, 1.5rem);
+    --weave-settings-radius-sm: var(--radius-s, 6px);
+    --weave-settings-radius-md: var(--radius-m, 10px);
+    --weave-settings-radius-lg: var(--radius-l, 14px);
+  }
+
+  .anki-connect-section {
     position: relative;
     z-index: 1;
     pointer-events: auto;
@@ -919,7 +930,7 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--weave-settings-gap-xl);
     margin-bottom: 0;
   }
 
@@ -930,7 +941,7 @@
   .section-tools {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--weave-settings-gap-sm);
     flex-shrink: 0;
   }
 
@@ -941,7 +952,7 @@
   .config-shell {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: var(--weave-settings-gap-lg);
   }
 
   .config-shell :global(.connection-manager),
@@ -949,13 +960,13 @@
   .config-shell :global(.advanced-settings) {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--weave-settings-gap-md);
   }
 
   .secondary-action-btn,
   .primary-action-btn,
   .floating-panel-close {
-    border-radius: 14px;
+    border-radius: var(--weave-settings-radius-lg);
     border: 1px solid var(--background-modifier-border);
     cursor: pointer;
     transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
@@ -969,8 +980,8 @@
 
   .secondary-action-btn,
   .primary-action-btn {
-    padding: 8px 14px;
-    font-size: 13px;
+    padding: var(--weave-settings-gap-sm) calc(var(--weave-settings-gap-md) + var(--weave-settings-gap-sm));
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     font-weight: 600;
   }
 
@@ -984,7 +995,7 @@
     width: 34px;
     height: 34px;
     padding: 0;
-    font-size: 20px;
+    font-size: 1.25rem;
     line-height: 1;
   }
 
@@ -1007,14 +1018,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: var(--weave-settings-gap-xl);
     background: rgba(0, 0, 0, 0.48);
     backdrop-filter: blur(2px);
   }
 
   .floating-panel {
     width: min(620px, 100%);
-    border-radius: 18px;
+    border-radius: calc(var(--weave-settings-radius-lg) + var(--weave-settings-gap-xs));
     border: 1px solid var(--background-modifier-border);
     background: var(--background-primary);
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.26);
@@ -1026,8 +1037,9 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 16px;
-    padding: 18px 20px;
+    gap: var(--weave-settings-gap-xl);
+    padding: calc(var(--weave-settings-gap-lg) + var(--weave-settings-gap-xs))
+      calc(var(--weave-settings-gap-xl) - var(--weave-settings-gap-xs));
   }
 
   .floating-panel-header {
@@ -1044,31 +1056,32 @@
   }
 
   .floating-panel-copy h3 {
-    font-size: 18px;
+    font-size: var(--weave-settings-font-size-title, 1rem);
     font-weight: 700;
     color: var(--text-normal);
   }
 
   .floating-panel-copy p {
-    margin-top: 6px;
+    margin-top: var(--weave-settings-gap-sm);
     color: var(--text-muted);
     line-height: 1.6;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
   }
 
   .floating-panel-body {
-    padding: 20px;
+    padding: calc(var(--weave-settings-gap-xl) - var(--weave-settings-gap-xs));
   }
 
   .cors-code-block {
     background: color-mix(in srgb, var(--background-secondary) 92%, transparent);
     border: 1px solid var(--background-modifier-border);
-    border-radius: 14px;
+    border-radius: var(--weave-settings-radius-lg);
     overflow: hidden;
   }
 
   .cors-code-block pre {
     margin: 0;
-    padding: 18px;
+    padding: calc(var(--weave-settings-gap-lg) + var(--weave-settings-gap-xs));
     font-family: var(--font-monospace);
     font-size: 12px;
     line-height: 1.65;
@@ -1087,7 +1100,7 @@
     border-collapse: separate;
     border-spacing: 0;
     border: 1px solid var(--background-modifier-border);
-    border-radius: 8px;
+    border-radius: var(--weave-settings-radius-sm);
     overflow: hidden;
   }
 
@@ -1096,10 +1109,10 @@
   }
 
   .anki-connect-section :global(.anki-table th) {
-    padding: 12px 16px;
+    padding: var(--weave-settings-gap-md) var(--weave-settings-gap-xl);
     text-align: left;
     font-weight: 600;
-    font-size: 13px;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: var(--text-muted);
@@ -1125,8 +1138,8 @@
   }
 
   .anki-connect-section :global(.anki-table td) {
-    padding: 12px 16px;
-    font-size: 14px;
+    padding: var(--weave-settings-gap-md) var(--weave-settings-gap-xl);
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     border-right: 1px solid var(--background-modifier-border-hover);
   }
 
@@ -1138,8 +1151,8 @@
   .anki-connect-section :global(.log-table-container) {
     width: 100%;
     overflow-x: auto;
-    margin-top: 16px;
-    border-radius: 8px;
+    margin-top: var(--weave-settings-gap-xl);
+    border-radius: var(--weave-settings-radius-sm);
     -webkit-overflow-scrolling: touch;
   }
 
@@ -1162,7 +1175,7 @@
     }
 
     .floating-panel-overlay {
-      padding: 16px;
+      padding: var(--weave-settings-gap-xl);
     }
 
     .floating-panel-close {

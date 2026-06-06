@@ -116,8 +116,9 @@
 
 <style>
   .autosync-config {
+    --weave-settings-gap-lg: var(--size-4-3, 1rem);
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--weave-settings-gap-lg);
   }
 </style>

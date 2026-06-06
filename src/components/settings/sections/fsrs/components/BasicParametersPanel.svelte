@@ -132,7 +132,7 @@
   .basic-parameters-panel {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 1rem;
   }
 
   .row {
@@ -144,10 +144,11 @@
   }
 
   label {
-    font-size: 14px;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     font-weight: 500;
     color: var(--text-normal);
     margin: 0;
+    line-height: 1.4;
   }
 
   .row-label-section {
@@ -158,9 +159,9 @@
   }
 
   .param-hint {
-    font-size: 0.75rem;
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
     color: var(--text-muted);
-    line-height: 1.3;
+    line-height: 1.55;
   }
 
   .slider-container {
@@ -213,7 +214,7 @@
   .slider-value {
     min-width: 60px;
     text-align: right;
-    font-size: 14px;
+    font-size: var(--weave-settings-font-size-label, 0.95rem);
     font-weight: 600;
     color: var(--text-accent);
   }

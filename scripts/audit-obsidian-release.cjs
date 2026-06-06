@@ -43,6 +43,17 @@ function expect(condition, message) {
   if (!condition) failures.push(message);
 }
 
+function compareSemver(left, right) {
+  const leftParts = String(left).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const rightParts = String(right).split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const delta = (leftParts[index] || 0) - (rightParts[index] || 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
+}
+
 function descriptionViolatesObsidianRule(value) {
   const text = String(value || "").trim();
   if (!text) return false;
@@ -63,6 +74,7 @@ requireFile(".github/workflows/release.yml");
 if (failures.length === 0) {
   const manifest = readJson("manifest.json");
   const pkg = readJson("package.json");
+  const lock = readJson("package-lock.json");
   const versions = readJson("versions.json");
   const publicVersions = readJson("public/versions.json");
   const workflow = readText(".github/workflows/release.yml");
@@ -117,12 +129,37 @@ if (failures.length === 0) {
   }
 
   expect(pkg.version === manifest.version, `package.json version (${pkg.version}) does not match manifest.json (${manifest.version})`);
+
+  const svelteLockVersion = lock.packages?.["node_modules/svelte"]?.version;
+  const sveltePkgVersion = pkg.devDependencies?.svelte;
+  const minimumSvelteVersion = "5.55.7";
+  if (svelteLockVersion) {
+    expect(
+      compareSemver(svelteLockVersion, minimumSvelteVersion) >= 0,
+      `package-lock.json svelte (${svelteLockVersion}) is below ${minimumSvelteVersion}; Obsidian dependency review flags GHSA advisories through @tanstack/svelte-virtual`,
+    );
+  } else {
+    notes.push("package-lock.json missing node_modules/svelte entry; run npm install before release.");
+  }
+  if (sveltePkgVersion && sveltePkgVersion !== svelteLockVersion) {
+    notes.push(
+      `package.json svelte (${sveltePkgVersion}) differs from lockfile (${svelteLockVersion}); run npm install to sync.`,
+    );
+  }
   expect(versions[manifest.version] != null, `versions.json missing current version ${manifest.version}`);
   expect(publicVersions[manifest.version] != null, `public/versions.json missing current version ${manifest.version}`);
   expect(JSON.stringify(versions) === JSON.stringify(publicVersions), "versions.json and public/versions.json are not synchronized");
 
   expect(/attestations:\s*write/.test(workflow), "release.yml missing attestations: write permission");
   expect(/id-token:\s*write/.test(workflow), "release.yml missing id-token: write permission");
+  expect(
+    /name:\s*\$\{\{\s*steps\.version\.outputs\.tag\s*\}\}/.test(workflow),
+    "release.yml GitHub release title must equal the tag/manifest version (Obsidian review bot checks release name includes manifest version)",
+  );
+  expect(
+    !/name:\s*Weave\s+\$\{\{/.test(workflow),
+    "release.yml GitHub release title should not prefix the plugin name; use the exact version number",
+  );
 
   const requiredUploadPaths = ["dist/main.js", "dist/manifest.json", "dist/styles.css"];
   for (const relPath of requiredUploadPaths) {

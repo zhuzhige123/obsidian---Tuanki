@@ -18,7 +18,6 @@
     type KanbanCardUpdateContext,
     type KanbanDeckDragMode
   } from '../pages/kanban-card-update';
-  import { generateUUID } from '../../utils/helpers';
   import { detectCardQuestionType } from '../../utils/card-type-utils';
   import { UnifiedCardType } from '../../types/unified-card-types';
   import { getCardMetadataService } from '../../services/CardMetadataService';
@@ -1376,22 +1375,6 @@
     hoveredCardId = null;
   }
 
-  // 复制卡片
-  function duplicateCard(card: Card) {
-    // 使用新 ID 生成器
-    const newCard: Card = {
-      ...card,
-      // id字段已废弃，移除
-      uuid: generateUUID(), // 使用新格式 UUID
-      created: new Date().toISOString(),
-      modified: new Date().toISOString()
-    };
-    
-    if (onCardUpdate) {
-      onCardUpdate(newCard);
-    }
-  }
-
   // 删除卡片（调用父组件处理，父组件会处理确认逻辑）
   function deleteCard(card: Card) {
     if (onCardDelete) {
@@ -2459,9 +2442,11 @@
                   <span class="weave-due-badge weave-due-badge--header">{stats.due} {t('cards.kanban.cards.due')}</span>
                 {/if}
                 <button
-                  class="weave-column-action weave-select-all"
+                  type="button"
+                  class="clickable-icon weave-column-action weave-select-all weave-toolbar-tab"
                   onclick={() => selectGroup(group.key)}
                   title={t('cards.kanban.cards.selectAll')}
+                  aria-label={t('cards.kanban.cards.selectAll')}
                 >
                   <EnhancedIcon name="check-square" size="14" />
                 </button>
@@ -2685,28 +2670,49 @@
     color: var(--interactive-accent);
   }
 
-  .weave-select-all {
-    opacity: 0.7;
-    transition: opacity 0.2s ease;
+  .weave-column-action.weave-select-all {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--clickable-icon-size, 28px);
+    min-height: var(--clickable-icon-size, 28px);
+    padding: 0.25rem;
+    margin: 0;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    background: transparent;
+    background-image: none;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
+    color: var(--text-muted);
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    opacity: 0.85;
+    transition: color 0.15s ease, background-color 0.15s ease, opacity 0.15s ease;
   }
 
-  .weave-select-all:hover {
+  .weave-column-action.weave-select-all:hover {
+    opacity: 1;
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+    border: none;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .weave-column-action.weave-select-all:active {
+    color: var(--text-normal);
+    background: var(--background-modifier-active-hover);
+    border: none;
+    box-shadow: none;
+    transform: none;
     opacity: 1;
   }
 
-  .weave-column-action {
-    padding: 0.25rem;
-    background: none;
-    border: none;
-    border-radius: 4px;
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: all 0.2s ease;
-  }
-
-  .weave-column-action:hover {
-    background: var(--background-modifier-hover);
-    color: var(--text-normal);
+  .weave-column-action.weave-select-all:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
   }
 
   .weave-column-content {

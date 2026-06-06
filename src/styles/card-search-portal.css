@@ -1,0 +1,47 @@
+/**
+ * 卡片管理搜索下拉（FloatingMenu portal 到 body）
+ * 不可依赖 Svelte scoped：外层壳透明时，内层必须有全局实底。
+ */
+
+body > .floating-menu.card-search-floating-menu {
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  overflow: visible;
+  animation: none;
+  z-index: var(--weave-z-dropdown, 1600);
+}
+
+body > .floating-menu.card-search-floating-menu .weave-card-search-dropdown-panel {
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m, 8px);
+  box-shadow: var(--shadow-l, 0 8px 24px rgba(0, 0, 0, 0.16));
+  max-width: calc(100vw - 16px);
+  max-height: min(360px, calc(100vh - 16px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  isolation: isolate;
+  animation: weave-card-search-dropdown-in 0.15s ease;
+}
+
+body > .floating-menu.card-search-floating-menu .weave-card-search-dropdown-panel.search-suggestion-panel {
+  border-radius: var(--radius-l, 16px);
+  max-height: min(420px, calc(100vh - 16px));
+  padding: 6px 0;
+}
+
+@keyframes weave-card-search-dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

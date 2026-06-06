@@ -3,7 +3,9 @@
  * 提供准确的记忆曲线预测和个性化学习分析
  */
 
+import { forgetting_curve } from "ts-fsrs";
 import type { Card, ReviewLog } from "../data/types";
+import { FSRS6_DEFAULTS } from "../types/fsrs6-types";
 import { FSRS } from "./fsrs";
 
 export interface MemoryCurvePoint {
@@ -216,12 +218,12 @@ export class EnhancedFSRS extends FSRS {
 	/**
 	 * 计算FSRS标准预测
 	 */
-	private calculateFSRSPrediction(cards: Card[], day: number, _weights: number[]): number {
+	private calculateFSRSPrediction(cards: Card[], day: number, weights: number[]): number {
 		const avgStability =
 			cards.reduce((sum, card) => sum + (card.fsrs?.stability || 1), 0) / cards.length;
-
-		// 使用标准FSRS公式
-		const retention = Math.exp(-day / avgStability);
+		const w =
+			weights.length === 21 ? weights : [...FSRS6_DEFAULTS.DEFAULT_WEIGHTS];
+		const retention = forgetting_curve(w, day, Math.max(avgStability, 0.01));
 		return retention * 100;
 	}
 

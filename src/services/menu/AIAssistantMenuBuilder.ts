@@ -1,4 +1,5 @@
 import { Menu } from "obsidian";
+import { addMenuSubmenuGroup } from "../../utils/obsidian-menu";
 import { get } from "svelte/store";
 import type { Card } from "../../data/types";
 import { customActionsForMenu } from "../../stores/ai-config.store";
@@ -50,9 +51,7 @@ export class AIAssistantMenuBuilder {
 	showMainMenu(evt: MouseEvent): void {
 		const menu = new Menu();
 
-		menu.addItem((item) => {
-			item.setTitle("AI拆分");
-			const splitSubmenu = (item as any).setSubmenu();
+		addMenuSubmenuGroup(menu, { title: "AI拆分" }, (splitSubmenu) => {
 			this.buildSplitSubmenu(splitSubmenu);
 		});
 

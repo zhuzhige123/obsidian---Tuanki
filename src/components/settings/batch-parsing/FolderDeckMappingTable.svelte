@@ -13,6 +13,7 @@
 import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
   import BatchScanStats from './BatchScanStats.svelte';
   import RegexPresetManager from './RegexPresetManager.svelte';
+  import { normalizeRegexParsingPresets } from '../../../services/batch-parsing/RegexPresets';
   import ObsidianDropdown from '../../ui/ObsidianDropdown.svelte';
 
   // Props
@@ -143,16 +144,19 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
    * 从 plugin settings 加载正则预设
    */
   onMount(() => {
-    if (plugin?.settings?.simplifiedParsing?.regexPresets) {
-      const loaded = plugin.settings.simplifiedParsing.regexPresets;
-      const normalized = normalizePresetIds(loaded);
-      regexPresets = normalized.presets;
-      if (normalized.changed) {
-        plugin.settings.simplifiedParsing.regexPresets = normalized.presets;
-        plugin.saveSettings().catch(() => {});
-      }
-      migrateMappingPresetRefs(normalized.presets);
+    const loaded = plugin?.settings?.simplifiedParsing?.regexPresets ?? [];
+    const normalizedPresets = normalizeRegexParsingPresets(loaded);
+    const normalized = normalizePresetIds(normalizedPresets.presets);
+    regexPresets = normalized.presets;
+
+    const shouldPersist =
+      normalizedPresets.changed || normalized.changed || loaded.length !== normalized.presets.length;
+
+    if (shouldPersist && plugin?.settings?.simplifiedParsing) {
+      plugin.settings.simplifiedParsing.regexPresets = normalized.presets;
+      plugin.saveSettings().catch(() => {});
     }
+    migrateMappingPresetRefs(normalized.presets);
   });
   
   /**
@@ -418,6 +422,7 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
   <RegexPresetManager 
     presets={regexPresets}
     onPresetsChange={saveRegexPresets}
+    app={plugin?.app}
   />
 </div>
 

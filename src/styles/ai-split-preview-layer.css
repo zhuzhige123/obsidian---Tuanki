@@ -9,8 +9,25 @@
 	bottom: 0;
 	z-index: calc(var(--z-index-modal, 400) - 30);
 	pointer-events: none;
-	padding-bottom: env(safe-area-inset-bottom, 0px);
 	box-sizing: border-box;
+	/*
+	 * 避让 Obsidian 底栏（status-bar / 移动工具栏；由 mobile-modal-bounds 写入 --weave-workspace-bottom-offset）
+	 * 并留出与底栏的视觉间距，避免 AI 拆分底栏与系统状态栏贴在一起。
+	 */
+	padding-bottom: calc(
+		var(--weave-workspace-bottom-offset, var(--weave-modal-bottom, env(safe-area-inset-bottom, 0px)))
+		+ var(--weave-ai-split-preview-bottom-gap, 10px)
+	);
+}
+
+/* 移动/平板：在通用避让基础上叠加与其它底栏浮层一致的额外间距 */
+:global(body.is-mobile) .weave-global-ai-split-preview-layer,
+:global(body.is-phone) .weave-global-ai-split-preview-layer {
+	padding-bottom: calc(
+		var(--weave-workspace-bottom-offset, var(--weave-modal-bottom, env(safe-area-inset-bottom, 0px)))
+		+ var(--weave-mobile-fixed-bottom-gap, 4px)
+		+ var(--weave-ai-split-preview-bottom-gap, 10px)
+	);
 }
 
 .weave-global-ai-split-preview-layer .weave-global-ai-split-preview-inner {

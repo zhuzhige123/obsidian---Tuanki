@@ -1,4 +1,28 @@
 import { type App, normalizePath } from "obsidian";
+
+export async function renameVaultPath(app: App, oldPath: string, newPath: string): Promise<void> {
+	const normalizedOld = normalizePath(String(oldPath || "").trim());
+	const normalizedNew = normalizePath(String(newPath || "").trim());
+	if (!normalizedOld || !normalizedNew || normalizedOld === normalizedNew) {
+		return;
+	}
+
+	const abstractFile = app.vault.getAbstractFileByPath(normalizedOld);
+	const fileManager = app.fileManager as { renameFile?: (file: unknown, newPath: string) => Promise<void> };
+
+	if (abstractFile && typeof fileManager?.renameFile === "function") {
+		await fileManager.renameFile(abstractFile, normalizedNew);
+		return;
+	}
+
+	const vault = app.vault as { rename?: (file: unknown, newPath: string) => Promise<void> };
+	if (abstractFile && typeof vault.rename === "function") {
+		await vault.rename(abstractFile, normalizedNew);
+		return;
+	}
+
+	await app.vault.adapter.rename(normalizedOld, normalizedNew);
+}
 import { getPluginPaths, getV2Paths } from "../config/paths";
 import { logger } from "./logger";
 

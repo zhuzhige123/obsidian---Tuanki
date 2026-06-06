@@ -24,6 +24,7 @@ import {
 	getLocationToggleTooltip,
 	toggleViewLocation,
 } from "../utils/view-location-utils";
+import { addMenuSubmenuGroup, addMenuToggle } from "../utils/obsidian-menu";
 
 export const VIEW_TYPE_STUDY = "weave-study-view";
 
@@ -126,8 +127,12 @@ export class StudyView extends ItemView {
 	private cardIds: string[] | undefined; // 卡片 ID 列表
 	private cards: Card[] | undefined; // 卡片对象数组
 
-	//  移动端菜单回调（由 Svelte 组件设置）
-	private mobileMenuCallback: (() => void) | null = null;
+	//  移动端官方更多菜单填充回调（由 Svelte 组件设置）
+	private populatePaneMenuCallback: ((menu: Menu) => void) | null = null;
+	private mobilePanelStateGetter: (() => {
+		showProficiencyStats: boolean;
+		statsExpanded: boolean;
+	}) | null = null;
 	private toggleStatsCallback: (() => void) | null = null;
 	private toggleProficiencyStatsCallback: (() => void) | null = null; // 学习进度统计栏回调
 
@@ -199,6 +204,16 @@ export class StudyView extends ItemView {
 
 		if (!Platform.isMobile) return;
 
+		if (!this.isEditMode) {
+			menu.addSeparator();
+			this.populateMobileInfoPanelsSubmenu(menu);
+
+			if (this.populatePaneMenuCallback) {
+				menu.addSeparator();
+				this.populatePaneMenuCallback(menu);
+			}
+		}
+
 		menu.addSeparator();
 		menu.addItem((item) => {
 			item
@@ -220,11 +235,54 @@ export class StudyView extends ItemView {
 	}
 
 	/**
-	 *  设置移动端菜单回调（由 Svelte 组件调用）
+	 *  设置移动端官方更多菜单填充回调（由 Svelte 组件调用）
 	 */
-	public setMobileMenuCallback(callback: () => void): void {
-		this.mobileMenuCallback = callback;
-		logger.debug("[StudyView] 移动端菜单回调已设置");
+	public setPopulatePaneMenuCallback(callback: ((menu: Menu) => void) | null): void {
+		this.populatePaneMenuCallback = callback;
+		logger.debug("[StudyView] 移动端官方更多菜单回调已设置");
+	}
+
+	public setMobilePanelStateGetter(
+		getter: (() => { showProficiencyStats: boolean; statsExpanded: boolean }) | null
+	): void {
+		this.mobilePanelStateGetter = getter;
+	}
+
+	private populateMobileInfoPanelsSubmenu(menu: Menu): void {
+		const readPanelState = () =>
+			this.mobilePanelStateGetter?.() ?? {
+				showProficiencyStats: false,
+				statsExpanded: false,
+			};
+
+		addMenuSubmenuGroup(menu, { title: i18n.t("study.view.infoPanels"), icon: "panel-top" }, (submenu) => {
+			submenu.addItem((subItem) => {
+				subItem
+					.setTitle(i18n.t("study.view.graphLink"))
+					.setIcon("git-branch")
+					.onClick(() => {
+						this.openLocalGraph();
+					});
+			});
+
+			addMenuToggle(submenu, {
+				title: i18n.t("study.view.queueStats"),
+				icon: "bar-chart-2",
+				getChecked: () => readPanelState().showProficiencyStats,
+				onSetChecked: () => {
+					this.toggleProficiencyStatsCallback?.();
+				},
+			});
+
+			addMenuToggle(submenu, {
+				title: i18n.t("study.view.memoryParams"),
+				icon: "activity",
+				getChecked: () => readPanelState().statsExpanded,
+				onSetChecked: () => {
+					this.toggleStatsCallback?.();
+				},
+			});
+		});
 	}
 
 	/**
@@ -381,71 +439,8 @@ export class StudyView extends ItemView {
 	 *  添加学习模式按钮
 	 */
 	private addStudyModeActions(): void {
-		logger.debug("[StudyView] 📱 开始添加学习模式按钮...");
-
-		//  检查视图状态
-		if (!this.containerEl) {
-			logger.warn("[StudyView] 📱 containerEl 不存在，无法添加按钮");
-			return;
-		}
-
-		try {
-			// 1. 图谱联动按钮
-			const graphAction = this.addAction("git-branch", i18n.t("study.view.graphLink"), () => {
-				logger.debug("[StudyView] 移动端图谱联动按钮被点击");
-				this.openLocalGraph();
-			});
-			logger.debug("[StudyView] 📱 图谱联动按钮:", graphAction ? "已添加" : "添加失败");
-			if (graphAction) this.mobileActionElements.push(graphAction);
-
-			// 2. 队列统计按钮（展开/折叠队列统计栏）
-			const proficiencyAction = this.addAction(
-				"bar-chart-2",
-				i18n.t("study.view.queueStats"),
-				() => {
-					logger.debug("[StudyView] 移动端队列统计按钮被点击");
-					if (this.toggleProficiencyStatsCallback) {
-						this.toggleProficiencyStatsCallback();
-					} else {
-						logger.warn("[StudyView] toggleProficiencyStatsCallback 未设置");
-					}
-				}
-			);
-			logger.debug("[StudyView] 📱 队列统计按钮:", proficiencyAction ? "已添加" : "添加失败");
-			if (proficiencyAction) this.mobileActionElements.push(proficiencyAction);
-
-			// 3. 记忆参数按钮（展开/折叠FSRS信息栏）
-			const statsAction = this.addAction("activity", i18n.t("study.view.memoryParams"), () => {
-				logger.debug("[StudyView] 移动端记忆参数按钮被点击");
-				if (this.toggleStatsCallback) {
-					this.toggleStatsCallback();
-				} else {
-					logger.warn("[StudyView] toggleStatsCallback 未设置");
-				}
-			});
-			logger.debug("[StudyView] 📱 记忆参数按钮:", statsAction ? "已添加" : "添加失败");
-			if (statsAction) this.mobileActionElements.push(statsAction);
-
-			// 4. 菜单按钮
-			const menuAction = this.addAction("menu", i18n.t("study.view.openMenu"), () => {
-				logger.debug("[StudyView] 移动端菜单按钮被点击");
-				if (this.mobileMenuCallback) {
-					this.mobileMenuCallback();
-				} else {
-					logger.warn("[StudyView] mobileMenuCallback 未设置");
-				}
-			});
-			logger.debug("[StudyView] 📱 菜单按钮:", menuAction ? "已添加" : "添加失败");
-			if (menuAction) this.mobileActionElements.push(menuAction);
-
-			logger.debug(
-				"[StudyView] 📱 学习模式按钮添加完成，共",
-				this.mobileActionElements.length,
-				"个按钮"
-			);
-		} catch (error) {
-			logger.error("[StudyView] 📱 添加学习模式按钮失败:", error);
-		}
+		// 学习模式：图谱/统计/记忆参数已并入官方更多菜单「信息面板」子菜单，顶栏不再单独占位
+		logger.debug("[StudyView] 📱 学习模式顶栏按钮已收敛到官方更多菜单");
 	}
 
 	/**
@@ -1227,9 +1222,9 @@ export class StudyView extends ItemView {
 	/**
 	 * 手动关闭视图（供外部调用）
 	 */
-	public close(): void {
+	public close(options?: { force?: boolean }): void {
 		//  防止递归调用（特别是与其他插件如 Excalidraw 冲突时）
-		if (this.isClosing) {
+		if (this.isClosing && !options?.force) {
 			logger.debug("[StudyView] 防止重入：视图正在关闭中");
 			return;
 		}

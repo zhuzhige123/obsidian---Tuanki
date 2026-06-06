@@ -77,17 +77,16 @@ function createCard({
 }
 
 describe('CardExporter', () => {
-  it('rejects hint-only QA cards before upload when the Anki primary field is empty', async () => {
+  it('rejects empty QA cards before upload when the Anki primary field is empty', async () => {
     const { exporter } = createExporter();
     await expect(
       exporter.convertCardToAnkiNote(
         createCard({
-          uuid: 'tk-hint-only',
+          uuid: 'tk-empty-qa',
           type: 'basic-qa',
           content: `---
 we_type: basic
 ---
->hint: 只剩提示也应保留
 `,
           tags: []
         }),
@@ -103,11 +102,11 @@ we_type: basic
       createCard({
         uuid: 'tk-choice',
         type: 'multiple',
-        content: `Q: 2 + 2 = ?
+        content: `Q: 2 + 2 = ?（B）
 
-A) 3
-B) 4 {✓}
-C) 5
+A. 3
+B. 4
+C. 5
 
 ---div---
 
@@ -119,12 +118,12 @@ C) 5
     );
 
     expect(note.fields?.front).toBe('2 + 2 = ?');
-    expect(note.fields?.back).toBe('B) 4');
+    expect(note.fields?.back).toBe('B. 4');
     expect(note.fields?.explanation).toBe('因为 2 + 2 = 4');
     expect(note.fields?.tags).toBe('math');
     expect(note.fields?.options).not.toContain('✓');
     expect(note.fields?.options).toContain('choice-option-label');
-    expect(note.fields?.options).toContain('B)');
+    expect(note.fields?.options).toContain('B.');
   });
 
   it('exports dot-style choice cards with stem answers into the native choice model', async () => {
@@ -150,7 +149,7 @@ Working Copy 提供 Git 仓库管理能力。`,
     );
 
     expect(note.fields?.front).toBe('在 iOS 上用于 Git 仓库管理的应用是哪个？');
-    expect(note.fields?.back).toBe('B) Working Copy');
+    expect(note.fields?.back).toBe('B. Working Copy');
     expect(note.fields?.explanation).toBe('Working Copy 提供 Git 仓库管理能力。');
     expect(note.fields?.tags).toBe('ios');
     expect(note.fields?.options).not.toContain('✓');
@@ -162,7 +161,7 @@ Working Copy 提供 Git 仓库管理能力。`,
     const templateId = (exporter as any).getTemplateIdForExport(createCard({
       uuid: 'tk-legacy-multiple',
       type: 'multiple',
-      content: '题目\n\nA) 选项一\nB) 选项二 {✓}'
+      content: '题目（B）\n\nA. 选项一\nB. 选项二\nC. 选项三'
     }));
 
     expect(templateId).toBe('official-choice');
@@ -182,8 +181,6 @@ we_type: cloze
 ---div---
 
 这是额外说明。
-
->hint: 想想太阳系的中心天体
 `,
         tags: []
       }),
@@ -193,7 +190,6 @@ we_type: cloze
 
     expect(note.fields).toMatchObject({
       text: '地球绕着 {{c1::太阳}} 公转。',
-      hint: '想想太阳系的中心天体',
       explanation: '这是额外说明。'
     });
     expect(note.fields).not.toHaveProperty('cloze');

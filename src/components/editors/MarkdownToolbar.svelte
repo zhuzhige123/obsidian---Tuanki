@@ -215,7 +215,7 @@
   <div class="toolbar-group">
     {#each formatButtons as button (button.id)}
       <button
-        class="toolbar-btn"
+        class="clickable-icon toolbar-btn"
         title={button.title}
         onclick={() => executeCommand(button.command)}
         disabled={readonly}
@@ -232,7 +232,7 @@
     {#each insertButtons as button (button.id)}
       <div class="toolbar-btn-container">
         <button
-          class="toolbar-btn"
+          class="clickable-icon toolbar-btn"
           class:has-dropdown={button.hasDropdown}
           class:active={activeDropdown === button.id}
           title={button.title}
@@ -267,7 +267,7 @@
   <div class="toolbar-group">
     {#each listButtons as button (button.id)}
       <button
-        class="toolbar-btn"
+        class="clickable-icon toolbar-btn"
         title={button.title}
         onclick={() => executeCommand(button.command)}
         disabled={readonly}
@@ -284,7 +284,7 @@
     {#each obsidianButtons as button (button.id)}
       <div class="toolbar-btn-container">
         <button
-          class="toolbar-btn"
+          class="clickable-icon toolbar-btn"
           class:has-dropdown={button.hasDropdown}
           class:active={activeDropdown === button.id}
           title={button.title}
@@ -318,7 +318,7 @@
   
   <div class="toolbar-group">
     <button
-      class="toolbar-btn preview-btn"
+      class="clickable-icon toolbar-btn preview-btn"
       class:active={isPreviewMode}
       title={isPreviewMode ? '切换到编辑模式' : '切换到预览模式'}
       onclick={handleTogglePreview}
@@ -380,8 +380,8 @@
   }
 
   .toolbar-btn.active {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
   .toolbar-btn.has-dropdown {

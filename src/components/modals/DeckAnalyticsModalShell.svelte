@@ -9,6 +9,7 @@
   import { PremiumFeatureGuard, PREMIUM_FEATURES, type PremiumFeatureAccessContext } from '../../services/premium/PremiumFeatureGuard';
   import { currentLanguage } from '../../utils/i18n';
   import type { SupportedLanguage } from '../../utils/i18n';
+  import DeckCalibrationChart from './deck-analytics/DeckCalibrationChart.svelte';
   import DeckDifficultyChart from './deck-analytics/DeckDifficultyChart.svelte';
   import DeckLoadForecastChart from './deck-analytics/DeckLoadForecastChart.svelte';
   import DeckQuantityChart from './deck-analytics/DeckQuantityChart.svelte';
@@ -18,7 +19,7 @@
   import ActivationPrompt from '../premium/ActivationPrompt.svelte';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
 
-  type AnalyticsTab = 'retention' | 'quantity' | 'timing' | 'difficulty' | 'loadForecast';
+  type AnalyticsTab = 'retention' | 'calibration' | 'quantity' | 'timing' | 'difficulty' | 'loadForecast';
 
   interface Props {
     plugin: WeavePlugin;
@@ -39,12 +40,13 @@
   const deckAnalyticsFeatureContext: PremiumFeatureAccessContext = { page: 'deck-analytics' };
   const analyticsTabFeatureIds: Record<AnalyticsTab, string> = {
     retention: PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION,
+    calibration: PREMIUM_FEATURES.DECK_ANALYTICS,
     quantity: PREMIUM_FEATURES.DECK_ANALYTICS,
     timing: PREMIUM_FEATURES.DECK_ANALYTICS_TIMING,
     difficulty: PREMIUM_FEATURES.DECK_ANALYTICS,
     loadForecast: PREMIUM_FEATURES.DECK_ANALYTICS,
   };
-  const allAnalyticsTabs: AnalyticsTab[] = ['retention', 'quantity', 'timing', 'difficulty', 'loadForecast'];
+  const allAnalyticsTabs: AnalyticsTab[] = ['retention', 'calibration', 'quantity', 'timing', 'difficulty', 'loadForecast'];
   const uiLanguage = $derived(($currentLanguage ?? 'zh-CN') as SupportedLanguage);
   const uiText = $derived.by(() => createDeckAnalyticsText(uiLanguage));
 
@@ -441,27 +443,32 @@
   <div class="tabs-header" class:mobile={isMobile}>
     <div class="tabs-nav weave-toolbar-tabs">
       {#if visibleTabs.includes('retention')}
-        <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'retention'} onclick={() => switchTab('retention')} title={getTabTitle('retention', uiText.tab.retention.title)}>
+        <button type="button" class="clickable-icon tab-btn weave-toolbar-tab" class:active={activeTab === 'retention'} onclick={() => switchTab('retention')} title={getTabTitle('retention', uiText.tab.retention.title)}>
           {isMobile ? uiText.tab.retention.mobile : uiText.tab.retention.title}
         </button>
       {/if}
+      {#if visibleTabs.includes('calibration')}
+        <button type="button" class="clickable-icon tab-btn weave-toolbar-tab" class:active={activeTab === 'calibration'} onclick={() => switchTab('calibration')} title={getTabTitle('calibration', uiText.tab.calibration.title)}>
+          {isMobile ? uiText.tab.calibration.mobile : uiText.tab.calibration.title}
+        </button>
+      {/if}
       {#if visibleTabs.includes('quantity')}
-        <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'quantity'} onclick={() => switchTab('quantity')} title={getTabTitle('quantity', uiText.tab.quantity.title)}>
+        <button type="button" class="clickable-icon tab-btn weave-toolbar-tab" class:active={activeTab === 'quantity'} onclick={() => switchTab('quantity')} title={getTabTitle('quantity', uiText.tab.quantity.title)}>
           {isMobile ? uiText.tab.quantity.mobile : uiText.tab.quantity.title}
         </button>
       {/if}
       {#if visibleTabs.includes('timing')}
-        <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'timing'} onclick={() => switchTab('timing')} title={getTabTitle('timing', uiText.tab.timing.title)}>
+        <button type="button" class="clickable-icon tab-btn weave-toolbar-tab" class:active={activeTab === 'timing'} onclick={() => switchTab('timing')} title={getTabTitle('timing', uiText.tab.timing.title)}>
           {isMobile ? uiText.tab.timing.mobile : uiText.tab.timing.title}
         </button>
       {/if}
       {#if visibleTabs.includes('difficulty')}
-        <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'difficulty'} onclick={() => switchTab('difficulty')} title={getTabTitle('difficulty', uiText.tab.difficulty.title)}>
+        <button type="button" class="clickable-icon tab-btn weave-toolbar-tab" class:active={activeTab === 'difficulty'} onclick={() => switchTab('difficulty')} title={getTabTitle('difficulty', uiText.tab.difficulty.title)}>
           {isMobile ? uiText.tab.difficulty.mobile : uiText.tab.difficulty.title}
         </button>
       {/if}
       {#if visibleTabs.includes('loadForecast')}
-        <button type="button" class="tab-btn weave-toolbar-tab" class:active={activeTab === 'loadForecast'} onclick={() => switchTab('loadForecast')} title={getTabTitle('loadForecast', uiText.tab.loadForecast.title)}>
+        <button type="button" class="clickable-icon tab-btn weave-toolbar-tab" class:active={activeTab === 'loadForecast'} onclick={() => switchTab('loadForecast')} title={getTabTitle('loadForecast', uiText.tab.loadForecast.title)}>
           {isMobile ? uiText.tab.loadForecast.mobile : uiText.tab.loadForecast.title}
         </button>
       {/if}
@@ -471,21 +478,21 @@
   <div class="toolbar" class:mobile={isMobile}>
     <div class="filter-summary-row">
       {#if allDecks.length > 1}
-        <button class="summary-btn" onclick={(event) => showDeckMenu(event)}>
+        <button type="button" class="clickable-icon summary-btn" onclick={(event) => showDeckMenu(event)}>
           <span class="summary-label">{uiText.toolbar.decks}</span>
           <span class="summary-value">{selectedDeckIds.size}/{allDecks.length}</span>
           <ObsidianIcon name="chevron-down" size={12} />
         </button>
       {/if}
 
-      <button class="summary-btn" onclick={() => toggleRangeEditor()}>
+      <button type="button" class="clickable-icon summary-btn" onclick={() => toggleRangeEditor()}>
         <span class="summary-label">{uiText.toolbar.range}</span>
         <span class="summary-value">{rangeSummaryText}</span>
         <ObsidianIcon name={filterPanelOpen ? 'chevron-up' : 'chevron-down'} size={12} />
       </button>
 
       {#if activeTab === 'loadForecast'}
-        <button class="summary-btn" onclick={(event) => showDataSourceMenu(event)}>
+        <button type="button" class="clickable-icon summary-btn" onclick={(event) => showDataSourceMenu(event)}>
           <span class="summary-label">{uiText.toolbar.dataSource}</span>
           <span class="summary-value">{showGlobalLoad ? uiText.toolbar.globalShort : uiText.toolbar.deckShort}</span>
           <ObsidianIcon name="chevron-down" size={12} />
@@ -496,10 +503,10 @@
     {#if filterPanelOpen}
       <div class="filter-panel">
         <div class="range-toggle-buttons">
-          <button class="range-toggle-btn" class:active={expandedRange === 'quick'} onclick={() => toggleRangePanel('quick')}>
+          <button type="button" class="clickable-icon range-toggle-btn" class:active={expandedRange === 'quick'} onclick={() => toggleRangePanel('quick')}>
             <span>{uiText.toolbar.quickRange}</span>
           </button>
-          <button class="range-toggle-btn" class:active={expandedRange === 'custom'} onclick={() => toggleRangePanel('custom')}>
+          <button type="button" class="clickable-icon range-toggle-btn" class:active={expandedRange === 'custom'} onclick={() => toggleRangePanel('custom')}>
             <span>{uiText.toolbar.customRange}</span>
           </button>
         </div>
@@ -508,7 +515,7 @@
           <div class="range-panel">
             <div class="quick-range-buttons">
               {#each quickRangeOptions as option}
-                <button class="time-range-btn" class:active={rangeSelectionMode === 'quick' && selectedDays === option.value} onclick={() => handleQuickRangeChange(option.value)}>
+                <button type="button" class="clickable-icon time-range-btn" class:active={rangeSelectionMode === 'quick' && selectedDays === option.value} onclick={() => handleQuickRangeChange(option.value)}>
                   {isMobile ? option.mobileLabel : option.label}
                 </button>
               {/each}
@@ -565,6 +572,8 @@
     <div class="chart-section">
       {#if activeTab === 'retention'}
         <DeckRetentionChart snapshot={snapshot.retention} {uiText} {uiLanguage} onRangeStep={updateQuickRangeByStep} />
+      {:else if activeTab === 'calibration'}
+        <DeckCalibrationChart snapshot={snapshot.calibration} {uiText} {uiLanguage} onRangeStep={updateQuickRangeByStep} />
       {:else if activeTab === 'quantity'}
         <DeckQuantityChart snapshot={snapshot.quantity} {uiText} {uiLanguage} onRangeStep={updateQuickRangeByStep} />
       {:else if activeTab === 'timing'}
@@ -614,6 +623,8 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
+    overflow: hidden;
     background: linear-gradient(
       180deg,
       var(--background-primary) 0%,
@@ -623,6 +634,12 @@
     padding: 12px;
     gap: 6px;
     position: relative;
+  }
+
+  .tabs-header,
+  .toolbar,
+  .scroll-hint {
+    flex-shrink: 0;
   }
 
   .tabs-header {
@@ -649,9 +666,9 @@
     flex-direction: column;
     gap: 10px;
     margin-bottom: 4px;
-    padding: 12px 14px;
-    background: var(--background-primary);
-    border-radius: 12px;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
   }
 
   .filter-summary-row {
@@ -665,21 +682,23 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    min-height: 32px;
-    padding: 6px 10px;
+    min-height: 40px;
+    padding: 0 10px;
     max-width: 100%;
     border: none;
-    border-radius: 8px;
-    background: var(--background-secondary);
+    box-shadow: none;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
+    background: transparent;
     color: var(--text-muted);
     font-size: 12px;
     cursor: pointer;
-    transition: all 0.16s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .summary-btn:hover {
     color: var(--text-normal);
     background: var(--background-modifier-hover);
+    box-shadow: none;
   }
 
   .summary-label {
@@ -716,22 +735,30 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 7px 11px;
-    min-height: 34px;
+    padding: 0 10px;
+    min-height: 40px;
     font-size: 12.5px;
     font-weight: 500;
-    background: var(--background-primary);
+    background: transparent;
     color: var(--text-muted);
     border: none;
-    border-radius: 6px;
+    box-shadow: none;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
     cursor: pointer;
-    transition: all 0.16s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .range-toggle-btn:hover,
+  .time-range-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
   .range-toggle-btn.active,
   .time-range-btn.active {
-    color: var(--interactive-accent);
+    color: var(--text-normal);
     font-weight: 600;
+    background: var(--background-modifier-hover);
   }
 
   .quick-range-buttons,
@@ -787,6 +814,13 @@
     margin-top: 2px;
     padding-top: 8px;
     border-top: 1px solid var(--background-modifier-border);
+  }
+
+  .chart-section {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-bottom: 12px;
   }
 
   .empty-panel {

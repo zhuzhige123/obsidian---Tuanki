@@ -9,18 +9,41 @@
    * @version 1.1.0
    * 🔧 v1.1.0 - 移除移动端特殊样式，与 CategoryFilter 完全统一
    */
+  import { get } from 'svelte/store';
   import { tr } from '../../utils/i18n';
+  import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
 
   export type ViewType = 'table' | 'grid' | 'kanban';
 
   interface Props {
     currentView: ViewType;
     onViewChange: (view: ViewType) => void;
+    /** 未开通会员时隐藏网格/看板圆点 */
+    respectPremiumGates?: boolean;
   }
 
-  let { currentView, onViewChange }: Props = $props();
+  let { currentView, onViewChange, respectPremiumGates = false }: Props = $props();
 
   let t = $derived($tr);
+
+  const premiumGuard = PremiumFeatureGuard.getInstance();
+  const featureContext = { page: 'weave-card-management' };
+  let isPremium = $state(get(premiumGuard.isPremiumActive));
+  let showPremiumFeaturesPreview = $state(get(premiumGuard.premiumFeaturesPreviewEnabled));
+
+  $effect(() => {
+    const unsubscribePremium = premiumGuard.isPremiumActive.subscribe((value) => {
+      isPremium = value;
+    });
+    const unsubscribePreview = premiumGuard.premiumFeaturesPreviewEnabled.subscribe((value) => {
+      showPremiumFeaturesPreview = value;
+    });
+
+    return () => {
+      unsubscribePremium();
+      unsubscribePreview();
+    };
+  });
 
   const viewDefs: Array<{ id: ViewType; nameKey: string; colorStart: string; colorEnd: string }> = [
     {
@@ -45,13 +68,35 @@
 
   const views = $derived(viewDefs.map(v => ({ ...v, name: t(v.nameKey) })));
 
+  const visibleViews = $derived(
+    respectPremiumGates
+      ? views.filter((view) => {
+          if (view.id === 'grid') {
+            return premiumGuard.shouldShowFeatureEntry(
+              PREMIUM_FEATURES.GRID_VIEW,
+              { isPremium, showPremiumPreview: showPremiumFeaturesPreview },
+              featureContext
+            );
+          }
+          if (view.id === 'kanban') {
+            return premiumGuard.shouldShowFeatureEntry(
+              PREMIUM_FEATURES.KANBAN_VIEW,
+              { isPremium, showPremiumPreview: showPremiumFeaturesPreview },
+              featureContext
+            );
+          }
+          return true;
+        })
+      : views
+  );
+
   function getGradientStyle(view: typeof views[0]): string {
     return `background: linear-gradient(135deg, ${view.colorStart}, ${view.colorEnd})`;
   }
 </script>
 
 <div class="view-switcher">
-  {#each views as view}
+  {#each visibleViews as view}
     <button
       class="view-dot"
       class:selected={currentView === view.id}

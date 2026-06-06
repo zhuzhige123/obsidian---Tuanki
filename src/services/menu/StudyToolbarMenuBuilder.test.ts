@@ -55,7 +55,6 @@ describe('StudyToolbarMenuBuilder', () => {
       onChoiceOptionOrderChange: vi.fn(),
       onRatingLabelStyleChange: vi.fn(),
       onTimerAutoPauseChange: vi.fn(),
-      onHintMaxUsesChange: vi.fn(),
       onClozeModeSwitchButtonToggle: vi.fn(),
     };
 
@@ -76,7 +75,6 @@ describe('StudyToolbarMenuBuilder', () => {
         choiceOptionOrder: 'sequential',
         ratingLabelStyle: 'classic',
         timerAutoPauseSeconds: 60,
-        hintMaxUses: 5,
         showClozeModeSwitchButton: true,
         aiActions: {
           split: [],

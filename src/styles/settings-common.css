@@ -6,6 +6,9 @@
 /* ===== 设置页面容器 ===== */
 .weave-settings.settings-section,
 .weave-settings .settings-section {
+  --weave-settings-font-size-title: var(--font-ui-medium, 1rem);
+  --weave-settings-font-size-label: var(--font-ui-small, 0.95rem);
+  --weave-settings-font-size-desc: var(--font-ui-smaller, 0.85rem);
   width: 100%;
   margin-bottom: 0;
   display: flex;
@@ -25,69 +28,21 @@
 
 .weave-settings .section-title {
   margin: 0 0 0.5rem 0;
-  font-size: 1.3rem;
+  font-size: var(--weave-settings-font-size-title);
   font-weight: 600;
   color: var(--text-normal);
   text-align: left;
+  line-height: 1.4;
 }
 
 .weave-settings .section-description {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: var(--weave-settings-font-size-desc);
   color: var(--text-muted);
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
-/* ===== 侧边颜色条样式 ===== */
-.weave-settings .section-title.with-accent-bar,
-.weave-settings .group-title.with-accent-bar {
-  position: relative;
-  padding-left: 16px;
-}
-
-.weave-settings .section-title.with-accent-bar::before,
-.weave-settings .group-title.with-accent-bar::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 4px;
-  height: 80%;
-  border-radius: 2px;
-}
-
-/* 颜色定义 */
-.weave-settings .section-title.accent-purple::before,
-.weave-settings .group-title.accent-purple::before {
-  background: linear-gradient(135deg, rgba(168, 85, 247, 0.8), rgba(147, 51, 234, 0.6));
-}
-
-.weave-settings .section-title.accent-pink::before,
-.weave-settings .group-title.accent-pink::before {
-  background: linear-gradient(135deg, rgba(236, 72, 153, 0.8), rgba(219, 39, 119, 0.6));
-}
-
-.weave-settings .group-title.accent-blue::before {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.8), rgba(37, 99, 235, 0.6));
-}
-
-.weave-settings .group-title.accent-cyan::before {
-  background: linear-gradient(135deg, rgba(6, 182, 212, 0.8), rgba(14, 165, 233, 0.6));
-}
-
-.weave-settings .group-title.accent-green::before {
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.8), rgba(22, 163, 74, 0.6));
-}
-
-.weave-settings .group-title.accent-orange::before {
-  background: linear-gradient(135deg, rgba(249, 115, 22, 0.8), rgba(234, 88, 12, 0.6));
-}
-
-.weave-settings .section-title.accent-red::before,
-.weave-settings .group-title.accent-red::before {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.8), rgba(220, 38, 38, 0.6));
-}
+/* 侧边颜色条见 accent-bar.css（.with-accent-bar / .accent-*） */
 
 /* ===== 设置组样式 ===== */
 .weave-settings .settings-group {
@@ -117,7 +72,7 @@
 
 .weave-settings.settings-layout-flat .group-title {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--weave-settings-font-size-title);
 }
 
 .weave-settings.settings-layout-flat .group-header {
@@ -138,10 +93,11 @@
 
 .weave-settings .group-title {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--weave-settings-font-size-title);
   font-weight: 600;
   color: var(--text-normal);
   text-align: left;
+  line-height: 1.4;
 }
 
 .weave-settings .group-header {
@@ -154,14 +110,15 @@
 
 .weave-settings .group-header h3 {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--weave-settings-font-size-title);
   font-weight: 600;
   color: var(--text-normal);
+  line-height: 1.4;
 }
 
 .weave-settings .group-description {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--weave-settings-font-size-desc);
   color: var(--text-muted);
   line-height: 1.55;
 }
@@ -196,17 +153,29 @@
 .weave-settings .setting-label {
   display: block;
   margin-bottom: 0.25rem;
-  font-size: 0.95rem;
+  font-size: var(--weave-settings-font-size-label);
   font-weight: 500;
   color: var(--text-normal);
-  line-height: 1.3;
+  line-height: 1.4;
 }
 
 .weave-settings .setting-description {
-  font-size: 0.85rem;
+  font-size: var(--weave-settings-font-size-desc);
   color: var(--text-muted);
-  line-height: 1.4;
+  line-height: 1.55;
   margin: 0;
+}
+
+.weave-settings .setting-item-name {
+  font-size: var(--weave-settings-font-size-label);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.weave-settings .setting-item-description {
+  font-size: var(--weave-settings-font-size-desc);
+  line-height: 1.55;
+  color: var(--text-muted);
 }
 
 .weave-settings .setting-control {
@@ -300,8 +269,32 @@
   width: 180px;
   color: var(--text-normal);
   font-weight: 500;
+  font-size: var(--weave-settings-font-size-label);
   flex-shrink: 0;
-  line-height: 1.5;
+  line-height: 1.4;
+}
+
+.weave-settings .label-with-desc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.weave-settings .label-with-desc > label {
+  margin: 0;
+  font-size: var(--weave-settings-font-size-label);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--text-normal);
+}
+
+.weave-settings .label-with-desc > .desc {
+  margin: 0;
+  font-size: var(--weave-settings-font-size-desc);
+  line-height: 1.55;
+  color: var(--text-muted);
 }
 
 /* 现代输入框样式 - 统一所有输入框 */

@@ -36,9 +36,15 @@ function parentPath(path: string): string {
 	return idx > 0 ? normalized.slice(0, idx) : "";
 }
 
-function createWDeckPlugin(initialFiles: Record<string, string> = {}) {
+type WDeckPluginTestOptions = {
+	adapterOnlyWrites?: boolean;
+};
+
+function createWDeckPlugin(initialFiles: Record<string, string> = {}, options: WDeckPluginTestOptions = {}) {
 	const files = new Map<string, string>();
+	const indexedPaths = new Set<string>();
 	const folders = new Set<string>(["", "weave", "weave/memory", "weave/memory/deck-files"]);
+	const adapterOnlyWrites = options.adapterOnlyWrites === true;
 
 	const ensureDir = (dir: string) => {
 		const normalized = normalizeTestPath(dir);
@@ -71,6 +77,9 @@ function createWDeckPlugin(initialFiles: Record<string, string> = {}) {
 
 	for (const [path, content] of Object.entries(initialFiles)) {
 		writeText(path, content);
+		if (!adapterOnlyWrites) {
+			indexedPaths.add(normalizeTestPath(path));
+		}
 	}
 
 	const adapter = {
@@ -139,15 +148,21 @@ function createWDeckPlugin(initialFiles: Record<string, string> = {}) {
 				configDir: ".obsidian",
 				adapter,
 				getFiles: () =>
-					Array.from(files.keys())
+					Array.from(adapterOnlyWrites ? indexedPaths : files.keys())
 						.filter((path) => path.toLowerCase().endsWith(".wdeck"))
 						.map((path) => getTFile(path)),
 				getAbstractFileByPath: (path: string) => {
 					const normalized = normalizeTestPath(path);
-					if (files.has(normalized) && normalized.toLowerCase().endsWith(".wdeck")) {
+					const isIndexed = adapterOnlyWrites ? indexedPaths.has(normalized) : files.has(normalized);
+					if (isIndexed && normalized.toLowerCase().endsWith(".wdeck")) {
 						return getTFile(normalized);
 					}
 					return folders.has(normalized) ? ({ path: normalized } as any) : null;
+				},
+				create: async (path: string, content: string) => {
+					writeText(path, content);
+					indexedPaths.add(normalizeTestPath(path));
+					return getTFile(path);
 				},
 				cachedRead: async (file: TFile) => adapter.read(file.path),
 				modify: async (file: TFile, content: string) => adapter.write(file.path, content),
@@ -334,6 +349,75 @@ describe("WDeckService deck file actions", () => {
 		expect(targetData.cards.find((card: any) => card.uuid === "card-1")?.customFields?.wdeck).toBeUndefined();
 	});
 
+	test("repairStructuralConflicts removes exact duplicate .wdeck copies", async () => {
+		const payload = JSON.stringify({
+			fileType: "wdeck",
+			logicalDeckId: "demo",
+			logicalDeckName: "demo",
+			segmentIndex: 1,
+			cards: [{ uuid: "card-1", content: "a" }],
+		});
+		const { plugin, files } = createWDeckPlugin({
+			"weave/memory/deck-files/demo_01.wdeck": payload,
+			"weave/memory/backup/demo_01.wdeck": payload,
+		});
+		const service = new WDeckService(plugin);
+
+		const before = await service.getConflictReport(true);
+		expect(before.issues.some((issue) => issue.type === "suspected_duplicate_copy")).toBe(true);
+
+		const result = await service.repairStructuralConflicts();
+
+		expect(result.repaired).toBeGreaterThan(0);
+		expect(result.errors).toEqual([]);
+		expect(files.has("weave/memory/deck-files/demo_01.wdeck")).toBe(true);
+		expect(files.has("weave/memory/backup/demo_01.wdeck")).toBe(false);
+
+		const after = await service.getConflictReport(true);
+		expect(after.issues.some((issue) => issue.type === "suspected_duplicate_copy")).toBe(false);
+	});
+
+	test("repairStructuralConflicts merges duplicate segment files", async () => {
+		const { plugin, files } = createWDeckPlugin({
+			"weave/memory/deck-files/demo_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "demo",
+				logicalDeckName: "demo",
+				segmentIndex: 1,
+				cards: [{ uuid: "card-1", content: "a" }],
+			}),
+			"weave/memory/deck-files/demo_extra_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "demo",
+				logicalDeckName: "demo",
+				segmentIndex: 1,
+				cards: [{ uuid: "card-2", content: "b" }],
+			}),
+		});
+		const service = new WDeckService(plugin);
+
+		const before = await service.getConflictReport(true);
+		expect(before.issues.some((issue) => issue.type === "duplicate_segment")).toBe(true);
+
+		const result = await service.repairStructuralConflicts();
+
+		expect(result.repaired).toBeGreaterThan(0);
+		expect(result.errors).toEqual([]);
+
+		const after = await service.getConflictReport(true);
+		expect(after.issues.some((issue) => issue.type === "duplicate_segment")).toBe(false);
+
+		const remainingPaths = Array.from(files.keys()).filter(
+			(path) => path.startsWith("weave/memory/deck-files/demo") && path.endsWith(".wdeck")
+		);
+		const mergedCardUUIDs = remainingPaths.flatMap((path) => {
+			const payload = JSON.parse(files.get(path) || "{}");
+			return Array.isArray(payload.cards) ? payload.cards.map((card: { uuid?: string }) => card.uuid) : [];
+		});
+		expect(mergedCardUUIDs).toEqual(expect.arrayContaining(["card-1", "card-2"]));
+		expect(files.has("weave/memory/deck-files/demo_extra_01.wdeck")).toBe(false);
+	});
+
 	test("rebuilds private cache and reports uuid conflicts", async () => {
 		const { plugin, files } = createWDeckPlugin({
 			"weave/memory/deck-files/循环系统_01.wdeck": JSON.stringify({
@@ -361,6 +445,27 @@ describe("WDeckService deck file actions", () => {
 	expect(files.has(".obsidian/plugins/weave/cache/wdeck-index.json")).toBe(true);
 	expect(files.has(".obsidian/plugins/weave/cache/wdeck-conflicts.json")).toBe(true);
 	expect(report.issues.some((issue) => issue.type === "uuid_conflict")).toBe(true);
+	});
+
+	test("persists locator-only wdeck index without embedding card bodies", async () => {
+		const { plugin, files } = createWDeckPlugin({
+			"weave/memory/deck-files/demo_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "demo-deck",
+				logicalDeckName: "demo",
+				segmentIndex: 1,
+				cards: [{ uuid: "card-heavy", content: "x".repeat(2048) }],
+			}),
+		});
+		const service = new WDeckService(plugin);
+		await service.rebuildCache();
+
+		const cachePath = ".obsidian/plugins/weave/cache/wdeck-index.json";
+		const cache = JSON.parse(files.get(cachePath) || "{}");
+		expect(cache.version).toBe(3);
+		expect(cache.files[0]?.cardUUIDs).toEqual(["card-heavy"]);
+		expect(cache.files[0]?.data).toBeUndefined();
+		expect(JSON.stringify(cache).includes("x".repeat(2048))).toBe(false);
 	});
 
 	test("loads the full logical deck aggregate from any matching .wdeck file path", async () => {
@@ -557,6 +662,73 @@ describe("WDeckService deck file actions", () => {
 				description: "bio"
 			})
 		});
+	});
+
+	test("detects .wdeck artifacts on disk even before vault indexes them", async () => {
+		const { plugin, files } = createWDeckPlugin({}, { adapterOnlyWrites: true });
+		const service = new WDeckService(plugin);
+
+		files.set("weave/memory/deck-files/existing_01.wdeck", "{}");
+		expect(await service.hasAnyDeckFileArtifacts()).toBe(true);
+	});
+
+	test("creates a new default deck file through the vault index when no .wdeck exists", async () => {
+		const { plugin, files } = createWDeckPlugin({}, { adapterOnlyWrites: true });
+		const service = new WDeckService(plugin);
+
+		const aggregate = await service.saveDeckDefinition({
+			id: "deck-default",
+			name: "默认牌组",
+			description: "",
+			category: "默认",
+			cardUUIDs: [],
+			path: "默认牌组",
+			level: 0,
+			order: 0,
+			inheritSettings: false,
+			settings: {
+				newCardsPerDay: 20,
+				maxReviewsPerDay: 100,
+				enableAutoAdvance: true,
+				showAnswerTime: 0,
+				fsrsParams: {
+					w: [],
+					requestRetention: 0.9,
+					maximumInterval: 36500,
+					enableFuzz: true,
+				},
+				learningSteps: [1, 10],
+				relearningSteps: [10],
+				graduatingInterval: 1,
+				easyInterval: 4,
+			},
+			stats: {
+				totalCards: 0,
+				newCards: 0,
+				learningCards: 0,
+				reviewCards: 0,
+				todayNew: 0,
+				todayReview: 0,
+				todayTime: 0,
+				totalReviews: 0,
+				totalTime: 0,
+				memoryRate: 0,
+				averageEase: 0,
+				forecastDays: {},
+			},
+			includeSubdecks: false,
+			purpose: "memory",
+			created: "2026-05-21T00:00:00.000Z",
+			modified: "2026-05-21T00:00:00.000Z",
+			tags: [],
+			metadata: {},
+		} as any);
+
+		expect(aggregate.logicalDeckName).toBe("默认牌组");
+		expect(files.has("weave/memory/deck-files/默认牌组_01.wdeck")).toBe(true);
+		expect(plugin.app.vault.getFiles().map((file: TFile) => file.path)).toEqual([
+			"weave/memory/deck-files/默认牌组_01.wdeck",
+		]);
 	});
 
 	test("reuses an existing .wdeck file when the stable deck id stays the same", async () => {

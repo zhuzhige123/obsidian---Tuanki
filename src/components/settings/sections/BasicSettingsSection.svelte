@@ -6,7 +6,6 @@
   import { untrack } from 'svelte';
   import { logger } from '../../../utils/logger';
   import ObsidianDropdown from '../../ui/ObsidianDropdown.svelte';
-  import VirtualizationSettingsSection from './VirtualizationSettingsSection.svelte';
   import type WeavePlugin from '../../../main';
   import { PremiumFeatureGuard } from '../../../services/premium/PremiumFeatureGuard';
   import { weaveMainInterfaceStore } from '../../../stores/weave-main-interface-store';
@@ -65,14 +64,6 @@
     saveSettings();
   }
 
-  // 处理性能优化设置显示变更
-  function handleShowPerformanceSettingsChange(event: Event) {
-    const checked = (event.target as HTMLInputElement).checked;
-    settings.showPerformanceSettings = checked;
-    plugin.settings.showPerformanceSettings = checked;
-    saveSettings();
-  }
-  
   // 处理显示高级功能预览变更
   function handleShowPremiumFeaturesPreviewChange(event: Event) {
     const checked = (event.target as HTMLInputElement).checked;
@@ -101,12 +92,18 @@
 
 <div class="weave-settings settings-section basic-settings">
   <div class="settings-group">
-    <h4 class="group-title with-accent-bar accent-blue">{t('settings.basic.title')}</h4>
+    <div class="group-header">
+      <h4 class="group-title with-accent-bar accent-blue">{t('settings.basic.title')}</h4>
+      <p class="group-description">{t('settings.basic.sectionDescription')}</p>
+    </div>
   
     <div class="group-content">
     <!-- 显示悬浮新建卡片按钮 -->
     <div class="row weave-setting-row--toggle">
-      <label for="showFloatingCreateButton">{t('settings.basic.floatingButton.label')}</label>
+      <div class="label-with-desc">
+        <label for="showFloatingCreateButton">{t('settings.basic.floatingButton.label')}</label>
+        <p class="desc">{t('settings.basic.floatingButton.description')}</p>
+      </div>
       <label class="modern-switch">
         <input
           id="showFloatingCreateButton"
@@ -120,7 +117,10 @@
 
     <!-- 主界面默认显示位置 -->
     <div class="row weave-setting-row--dropdown">
-      <label for="mainInterfaceOpenLocation">{t('settings.basic.mainInterfaceOpenLocation.label')}</label>
+      <div class="label-with-desc">
+        <label for="mainInterfaceOpenLocation">{t('settings.basic.mainInterfaceOpenLocation.label')}</label>
+        <p class="desc">{t('settings.basic.mainInterfaceOpenLocation.description')}</p>
+      </div>
       <div class="settings-dropdown-compact">
         <ObsidianDropdown
           options={[
@@ -136,23 +136,12 @@
       </div>
     </div>
 
-    <!-- 性能优化界面 -->
-    <div class="row weave-setting-row--toggle">
-      <label for="showPerformanceSettings">{t('settings.basic.showPerformanceSettings.label')}</label>
-      <label class="modern-switch">
-        <input
-          id="showPerformanceSettings"
-          type="checkbox"
-          checked={settings.showPerformanceSettings ?? false}
-          onchange={handleShowPerformanceSettingsChange}
-        />
-        <span class="switch-slider"></span>
-      </label>
-    </div>
-
     <!-- 高级功能预览 -->
     <div class="row weave-setting-row--toggle">
-      <label for="showPremiumFeaturesPreview">{t('settings.basic.premiumFeaturesPreview.label')}</label>
+      <div class="label-with-desc">
+        <label for="showPremiumFeaturesPreview">{t('settings.basic.premiumFeaturesPreview.label')}</label>
+        <p class="desc">{t('settings.basic.premiumFeaturesPreview.description')}</p>
+      </div>
       <label class="modern-switch">
         <input
           id="showPremiumFeaturesPreview"
@@ -166,7 +155,10 @@
 
     <!-- 启用编辑器拖拽调整 -->
     <div class="row weave-setting-row--toggle">
-      <label for="enable-resize-switch">{t('settings.editor.window.enableResize.label')}</label>
+      <div class="label-with-desc">
+        <label for="enable-resize-switch">{t('settings.editor.window.enableResize.label')}</label>
+        <p class="desc">{t('settings.editor.window.enableResize.description')}</p>
+      </div>
       <label class="modern-switch">
         <input
           id="enable-resize-switch"
@@ -178,29 +170,15 @@
       </label>
     </div>
 
-    <!-- 调试模式 -->
-    <div class="row weave-setting-row--toggle">
-      <label for="enableDebugMode">{t('settings.basic.debugMode.label')}</label>
-      <label class="modern-switch">
-        <input
-          id="enableDebugMode"
-          type="checkbox"
-          checked={settings.enableDebugMode ?? false}
-          onchange={handleDebugModeChange}
-        />
-        <span class="switch-slider"></span>
-      </label>
-    </div>
   </div>
   </div>
-
-  {#if settings.showPerformanceSettings}
-    <VirtualizationSettingsSection app={plugin.app} />
-  {/if}
 
   <!-- 导航项显示 -->
   <div class="settings-group">
-    <h4 class="group-title with-accent-bar accent-purple">{t('settings.navigation.title')}</h4>
+    <div class="group-header">
+      <h4 class="group-title with-accent-bar accent-purple">{t('settings.navigation.title')}</h4>
+      <p class="group-description">{t('settings.navigation.description')}</p>
+    </div>
   
     <div class="group-content">
     <div class="row weave-setting-row--toggle">
@@ -230,6 +208,32 @@
     </div>
 
   </div>
+  </div>
+
+  <!-- 调试 -->
+  <div class="settings-group">
+    <div class="group-header">
+      <h4 class="group-title with-accent-bar accent-orange">{t('settings.basic.debugGroup.title')}</h4>
+      <p class="group-description">{t('settings.basic.debugGroup.description')}</p>
+    </div>
+
+    <div class="group-content">
+      <div class="row weave-setting-row--toggle">
+        <div class="label-with-desc">
+          <label for="enableDebugMode">{t('settings.basic.debugMode.label')}</label>
+          <p class="desc">{t('settings.basic.debugMode.description')}</p>
+        </div>
+        <label class="modern-switch">
+          <input
+            id="enableDebugMode"
+            type="checkbox"
+            checked={settings.enableDebugMode ?? false}
+            onchange={handleDebugModeChange}
+          />
+          <span class="switch-slider"></span>
+        </label>
+      </div>
+    </div>
   </div>
 </div>
 

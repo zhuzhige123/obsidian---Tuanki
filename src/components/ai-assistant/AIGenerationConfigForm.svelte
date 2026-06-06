@@ -327,17 +327,17 @@
   </div>
 
   <div class="modal-footer">
-    <button class="reset-btn obsidian-action-btn" type="button" onclick={resetToDefaults}>
+    <button class="clickable-icon reset-btn" type="button" onclick={resetToDefaults}>
       <ObsidianIcon name="rotate-ccw" size={14} />
       <span class="btn-label">{t('aiAssistant.generationConfig.resetDefaults')}</span>
     </button>
     <div class="footer-actions setting-item-control">
       {#if onCancel}
-        <button class="cancel-btn obsidian-action-btn" type="button" onclick={onCancel}>
+        <button class="clickable-icon cancel-btn" type="button" onclick={onCancel}>
           <span class="btn-label">{t('ui.cancel')}</span>
         </button>
       {/if}
-      <button class="save-btn obsidian-action-btn mod-cta" type="button" onclick={handleSave}>
+      <button class="clickable-icon save-btn save-btn--primary" type="button" onclick={handleSave}>
         <ObsidianIcon name="check" size={16} />
         <span class="btn-label">{saveLabel || t('aiAssistant.generationConfig.saveAndApply')}</span>
       </button>
@@ -464,16 +464,17 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 16px;
-    background: var(--background-primary);
-    border: 1px solid var(--weave-border-visible);
-    border-radius: 8px;
+    min-height: 40px;
+    padding: 0 12px;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .radio-item:hover {
-    border-color: var(--interactive-accent);
     background: var(--background-modifier-hover);
   }
 
@@ -507,8 +508,9 @@
   }
 
   .radio-item.selected {
-    border-color: var(--interactive-accent);
-    background: rgba(124, 58, 237, 0.1);
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    font-weight: 600;
   }
 
   .radio-label {
@@ -686,6 +688,29 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    min-height: 40px;
+    padding: 0 12px;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .reset-btn:hover,
+  .cancel-btn:hover,
+  .save-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    box-shadow: none;
+    transform: none;
+  }
+
+  .save-btn--primary {
+    color: var(--text-normal);
+    font-weight: 600;
   }
 
   .visually-hidden {

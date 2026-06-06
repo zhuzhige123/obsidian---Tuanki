@@ -7,7 +7,6 @@
  * - 批量卡片生成
  */
 
-import { appendHintBlock } from "../../utils/hint-block-utils";
 import { logger } from "../../utils/logger";
 import { parseYAMLFromContent } from "../../utils/yaml-utils";
 
@@ -602,7 +601,10 @@ export function generateCardContent(
 	}
 
 	if (!content.trim()) return null;
-	content = appendHintBlock(content, fields.hint || "");
+	const hintText = (fields.hint || "").trim();
+	if (hintText) {
+		content = `${content.trim()}\n\n${hintText}`;
+	}
 
 	// 将CardType映射到data/types的CardType值
 	let dataCardType = "basic";

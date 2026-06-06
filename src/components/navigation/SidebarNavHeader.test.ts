@@ -1,6 +1,6 @@
 import { render, fireEvent } from '@testing-library/svelte';
 import SidebarNavHeader from './SidebarNavHeader.svelte';
-import { Menu } from 'obsidian';
+import { App, Menu } from 'obsidian';
 import type { MenuItem as MockMenuItem } from '../../tests/mocks/obsidian';
 
 type TrackingMenuInstance = Menu & {
@@ -43,14 +43,23 @@ const translationMap = vi.hoisted(() => ({
   'mainMenu.cardManagement.incrementalReadingPremium': '增量阅读（高级）',
   'mainMenu.cardManagement.questionBank': '考试题组',
   'mainMenu.cardManagement.questionBankPremium': '考试题组（高级）',
-  'mainMenu.cardManagement.timeline': '时间线视图'
+  'mainMenu.cardManagement.timeline': '时间线视图',
+  'mainMenu.cardManagement.fixedShort': '固高',
+  'mainMenu.cardManagement.masonryShort': '瀑布',
+  'mainMenu.cardManagement.timelineShort': '时间线',
+  'mainMenu.cardManagement.gridLayout': '网格布局',
+  'mainMenu.cardManagement.gridBorderStyle': '显示风格',
+  'mainMenu.cardManagement.gridFixed': '固定布局',
+  'mainMenu.cardManagement.gridMasonry': '瀑布流布局',
+  'mainMenu.cardManagement.gridBorderSolid': '实线边框',
+  'mainMenu.cardManagement.gridBorderDashed': '虚线边框',
+  'mainMenu.cardManagement.gridBorderSolidShort': '实线',
+  'mainMenu.cardManagement.gridBorderDashedShort': '虚线',
+  'aiAssistant.staging.followActiveDocument': '跟随当前文档',
+  'mainMenu.aiAssistant.fileList': '文件列表'
 }));
 
 const mockPremiumGuard = vi.hoisted(() => {
-  const isDeckStudyLimitedTimeFeature = (featureId: string, context?: { page?: string }) => {
-    return context?.page === 'deck-study' && (featureId === 'kanban-view' || featureId === 'emergent-decks');
-  };
-
   const createStore = <T, K extends 'isPremium' | 'showPreview'>(key: K) => ({
     subscribe: vi.fn((callback: (value: T) => void) => {
       callback(premiumMockState[key] as T);
@@ -64,11 +73,7 @@ const mockPremiumGuard = vi.hoisted(() => {
     })
   });
 
-  const canUseFeature = vi.fn((featureId: string, context?: { page?: string }) => {
-    if (isDeckStudyLimitedTimeFeature(featureId, context)) {
-      return true;
-    }
-
+  const canUseFeature = vi.fn((featureId: string) => {
     if (!premiumFeatureIds.has(featureId)) {
       return true;
     }
@@ -78,34 +83,22 @@ const mockPremiumGuard = vi.hoisted(() => {
 
   return {
     canUseFeature,
-    isFeatureRestricted: vi.fn((featureId: string, context?: { page?: string }) => {
-      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
-        return false;
-      }
-
+    isFeatureRestricted: vi.fn((featureId: string) => {
       if (!premiumFeatureIds.has(featureId)) {
         return false;
       }
 
-      return !canUseFeature(featureId, context);
+      return !canUseFeature(featureId);
     }),
-    shouldShowFeatureEntry: vi.fn((featureId: string, _options?: unknown, context?: { page?: string }) => {
-      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
-        return true;
-      }
-
+    shouldShowFeatureEntry: vi.fn((featureId: string) => {
       if (!premiumFeatureIds.has(featureId)) {
         return true;
       }
 
       return premiumMockState.isPremium || premiumMockState.showPreview;
     }),
-    getFeatureEntryTitle: vi.fn((baseTitle: string, featureId: string, context?: { page?: string }) => {
-      if (isDeckStudyLimitedTimeFeature(featureId, context)) {
-        return `${baseTitle} (限时开放)`;
-      }
-
-      return canUseFeature(featureId, context) ? baseTitle : `${baseTitle} (高级)`;
+    getFeatureEntryTitle: vi.fn((baseTitle: string, featureId: string) => {
+      return canUseFeature(featureId) ? baseTitle : `${baseTitle} (高级)`;
     }),
     isPremiumActive: createStore<boolean, 'isPremium'>('isPremium'),
     premiumFeaturesPreviewEnabled: createStore<boolean, 'showPreview'>('showPreview'),
@@ -161,6 +154,7 @@ vi.mock('../../utils/i18n', () => ({
 }));
 
 describe('SidebarNavHeader', () => {
+  const mockApp = new App();
   const mockOnNavigate = vi.fn();
   const mockOnViewChange = vi.fn();
   const mockOnCardDataSourceChange = vi.fn();
@@ -265,7 +259,7 @@ describe('SidebarNavHeader', () => {
     const { container } = render(SidebarNavHeader, {
       props: {
         currentPage: 'weave-card-management',
-        currentView: 'table',
+        currentView: 'grid',
         cardDataSource: 'memory',
         isInSidebarMode: true,
         onNavigate: mockOnNavigate,
@@ -281,7 +275,7 @@ describe('SidebarNavHeader', () => {
     expect(timelineItem).toBeTruthy();
   });
 
-  it('在牌组学习页面显示切换视图和新建牌组菜单项', async () => {
+  it('在牌组学习页面显示新建牌组菜单项', async () => {
     const { container } = render(SidebarNavHeader, {
       props: {
         currentPage: 'deck-study',
@@ -294,35 +288,14 @@ describe('SidebarNavHeader', () => {
     await fireEvent.click(container.querySelector('.sidebar-menu-trigger')!);
 
     const menu = menuInstances[0];
-    expect(menu.findItemByTitle('切换视图')?.getIcon()).toBe('layout-grid');
+    expect(menu.findItemByTitle('切换视图')).toBeUndefined();
     expect(menu.findItemByTitle('创建记忆牌组')?.getIcon()).toBe('folder-plus');
   });
 
-  it('在牌组学习页面点击切换视图时派发菜单事件', async () => {
-    const eventListener = vi.fn();
-    window.addEventListener('show-view-menu', eventListener);
+  it('牌组学习页在已激活高级功能时在顶栏显示看板列设置', async () => {
+    premiumMockState.isPremium = true;
 
-    const { container } = render(SidebarNavHeader, {
-      props: {
-        currentPage: 'deck-study',
-        selectedFilter: 'memory',
-        onNavigate: mockOnNavigate,
-        onFilterSelect: mockOnFilterSelect
-      }
-    });
-
-    await fireEvent.click(container.querySelector('.sidebar-menu-trigger')!);
-
-    const menu = menuInstances[0];
-    menu.findItemByTitle('切换视图')?.trigger();
-
-    expect(eventListener).toHaveBeenCalled();
-
-    window.removeEventListener('show-view-menu', eventListener);
-  });
-
-  it('牌组学习页看板视图在限时开放期间显示看板列设置', async () => {
-    const { container } = render(SidebarNavHeader, {
+    const { container, getByLabelText } = render(SidebarNavHeader, {
       props: {
         currentPage: 'deck-study',
         selectedFilter: 'memory',
@@ -335,7 +308,40 @@ describe('SidebarNavHeader', () => {
     await fireEvent.click(container.querySelector('.sidebar-menu-trigger')!);
 
     const menu = menuInstances[0];
-    expect(menu.findItemByTitle('看板列设置')).toBeTruthy();
+    expect(menu.findItemByTitle('看板列设置')).toBeUndefined();
+    expect(getByLabelText('看板列设置')).toBeTruthy();
+  });
+
+  it('AI 制卡文件按钮：侧边栏切换跟随文档，内容区打开文件列表', async () => {
+    const toolbarListener = vi.fn();
+    window.addEventListener('Weave:ai-toolbar-action', toolbarListener);
+
+    const { getByLabelText, unmount } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'ai-assistant',
+        isInSidebarMode: false,
+        onNavigate: mockOnNavigate
+      }
+    });
+
+    await fireEvent.click(getByLabelText('文件列表'));
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('file');
+
+    toolbarListener.mockClear();
+    unmount();
+
+    render(SidebarNavHeader, {
+      props: {
+        currentPage: 'ai-assistant',
+        isInSidebarMode: true,
+        onNavigate: mockOnNavigate
+      }
+    });
+
+    await fireEvent.click(getByLabelText('跟随当前文档'));
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('toggle-follow-document');
+
+    window.removeEventListener('Weave:ai-toolbar-action', toolbarListener);
   });
 
   it('在 AI 助手页面不显示无效功能入口', async () => {
@@ -391,7 +397,7 @@ describe('SidebarNavHeader', () => {
     const { container } = render(SidebarNavHeader, {
       props: {
         currentPage: 'weave-card-management',
-        currentView: 'table',
+        currentView: 'grid',
         cardDataSource: 'memory',
         isInSidebarMode: true,
         onNavigate: mockOnNavigate,
@@ -409,7 +415,7 @@ describe('SidebarNavHeader', () => {
 
     timelineItem?.trigger();
 
-    expect(mockOnViewChange).toHaveBeenCalledWith('grid');
+    expect(mockOnViewChange).not.toHaveBeenCalled();
     expect(toolbarListener).toHaveBeenCalled();
     expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('grid-layout-timeline');
 
@@ -478,6 +484,107 @@ describe('SidebarNavHeader', () => {
     expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('grid-layout-fixed');
 
     window.removeEventListener('Weave:card-management-toolbar-action', toolbarListener);
+  });
+
+  it('桌面网格视图顶部布局按钮会打开菜单并在选择后切换布局', async () => {
+    premiumMockState.isPremium = true;
+
+    const toolbarListener = vi.fn();
+    window.addEventListener('Weave:card-management-toolbar-action', toolbarListener);
+
+    const { container } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'weave-card-management',
+        currentView: 'grid',
+        cardDataSource: 'memory',
+        isInSidebarMode: false,
+        app: mockApp,
+        onNavigate: mockOnNavigate,
+        onViewChange: mockOnViewChange,
+        onCardDataSourceChange: mockOnCardDataSourceChange
+      }
+    });
+
+    window.dispatchEvent(new CustomEvent('Weave:card-management-toolbar-state', {
+      detail: { gridLayout: 'fixed' }
+    }));
+
+    const layoutButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('固高')
+    );
+    expect(layoutButton).toBeTruthy();
+
+    await fireEvent.click(layoutButton as HTMLButtonElement);
+
+    const menu = menuInstances[menuInstances.length - 1];
+    const masonryItem = menu.findItemByTitle('瀑布流布局');
+    expect(masonryItem).toBeTruthy();
+    masonryItem?.trigger();
+
+    expect(toolbarListener).toHaveBeenCalledTimes(1);
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('grid-layout-masonry');
+
+    window.removeEventListener('Weave:card-management-toolbar-action', toolbarListener);
+  });
+
+  it('桌面网格视图顶部边框按钮会打开菜单并在选择后切换样式', async () => {
+    premiumMockState.isPremium = true;
+
+    const toolbarListener = vi.fn();
+    window.addEventListener('Weave:card-management-toolbar-action', toolbarListener);
+
+    const { container } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'weave-card-management',
+        currentView: 'grid',
+        cardDataSource: 'memory',
+        isInSidebarMode: false,
+        app: mockApp,
+        onNavigate: mockOnNavigate,
+        onViewChange: mockOnViewChange,
+        onCardDataSourceChange: mockOnCardDataSourceChange
+      }
+    });
+
+    window.dispatchEvent(new CustomEvent('Weave:card-management-toolbar-state', {
+      detail: { gridCardBorderStyle: 'solid' }
+    }));
+
+    const borderButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('实线')
+    );
+    expect(borderButton).toBeTruthy();
+
+    await fireEvent.click(borderButton as HTMLButtonElement);
+
+    const menu = menuInstances[menuInstances.length - 1];
+    const dashedItem = menu.findItemByTitle('虚线边框');
+    expect(dashedItem).toBeTruthy();
+    dashedItem?.trigger();
+
+    expect(toolbarListener).toHaveBeenCalledTimes(1);
+    expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('grid-border-style-dashed');
+
+    window.removeEventListener('Weave:card-management-toolbar-action', toolbarListener);
+  });
+
+  it('桌面卡片管理顶栏数据源按钮直接显示当前数据源名称', () => {
+    premiumMockState.isPremium = true;
+
+    const { getByLabelText, queryByLabelText } = render(SidebarNavHeader, {
+      props: {
+        currentPage: 'weave-card-management',
+        currentView: 'table',
+        cardDataSource: 'memory',
+        isInSidebarMode: false,
+        onNavigate: mockOnNavigate,
+        onViewChange: mockOnViewChange,
+        onCardDataSourceChange: mockOnCardDataSourceChange
+      }
+    });
+
+    expect(getByLabelText('记忆牌组')).toBeTruthy();
+    expect(queryByLabelText('数据源切换')).toBeNull();
   });
 
   it('看板视图顶部密度按钮会按当前模式循环切换到下一种布局', async () => {

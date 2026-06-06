@@ -68,6 +68,42 @@ describe("DeckAggregationService tag grouping", () => {
 		expect(grouped[DECK_TAG_GROUP_OTHER_KEY]).toHaveLength(1);
 	});
 
+	it("groups question banks by accuracy tier using deckStats.memoryRate", async () => {
+		const service = new DeckAggregationService({ getCards: vi.fn() } as any, {
+			"bank-untested": {
+				newCards: 10,
+				learningCards: 0,
+				reviewCards: 0,
+				memoryRate: 0,
+			} as any,
+			"bank-excellent": {
+				newCards: 10,
+				learningCards: 8,
+				reviewCards: 2,
+				memoryRate: 91,
+			} as any,
+			"bank-poor": {
+				newCards: 10,
+				learningCards: 5,
+				reviewCards: 3,
+				memoryRate: 45,
+			} as any,
+		});
+
+		const grouped = await service.groupDecks(
+			[
+				{ id: "bank-untested" },
+				{ id: "bank-excellent" },
+				{ id: "bank-poor" },
+			] as any,
+			"accuracy"
+		);
+
+		expect(grouped.untested?.map((deck) => deck.id)).toEqual(["bank-untested"]);
+		expect(grouped.excellent?.map((deck) => deck.id)).toEqual(["bank-excellent"]);
+		expect(grouped.poor?.map((deck) => deck.id)).toEqual(["bank-poor"]);
+	});
+
 	it("uses card content tags instead of deck.tags when grouping by tag", async () => {
 		const getCards = vi.fn(async (query?: { deckId?: string }) => {
 			if (query?.deckId === "deck-content-tag") {

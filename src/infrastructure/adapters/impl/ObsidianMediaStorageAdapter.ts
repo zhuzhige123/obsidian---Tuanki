@@ -7,8 +7,15 @@
  */
 
 import { type Plugin, TFile } from "obsidian";
-import { getMediaFolder } from "../../../config/paths";
+import {
+	getMediaFolder,
+	getMediaManifestPath,
+} from "../../../config/paths";
 import type { MediaManifest } from "../../../domain/apkg/types";
+import {
+	buildApkgDeckMediaFolderSegment,
+	sanitizeMediaFilename,
+} from "../../../utils/sync-safe-filename";
 import { APKGLogger } from "../../logger/APKGLogger";
 import type { IMediaStorageAdapter } from "../MediaStorageAdapter";
 
@@ -17,6 +24,18 @@ type PluginWithFolderSettings = Plugin & {
 		weaveParentFolder?: string;
 	};
 };
+
+function toArrayBuffer(data: Uint8Array): ArrayBuffer {
+	if (
+		data.byteOffset === 0 &&
+		data.byteLength === data.buffer.byteLength &&
+		data.buffer instanceof ArrayBuffer
+	) {
+		return data.buffer;
+	}
+
+	return data.slice().buffer;
+}
 
 /**
  * Obsidian媒体存储适配器
@@ -38,9 +57,9 @@ export class ObsidianMediaStorageAdapter implements IMediaStorageAdapter {
 	 * 创建牌组媒体文件夹
 	 */
 	async createDeckMediaFolder(deckName: string): Promise<string> {
-		//  规范路径: weave/memory/media/[APKG] DeckName/
-		const safeDeckName = this.sanitizeFilename(deckName);
-		const folderPath = `${this.baseMediaPath}/[APKG] ${safeDeckName}`;
+		// 规范路径: weave/memory/media/APKG_DeckName/（导入时即满足云同步命名规则）
+		const folderSegment = buildApkgDeckMediaFolderSegment(deckName);
+		const folderPath = `${this.baseMediaPath}/${folderSegment}`;
 
 		await this.ensureFolder(folderPath);
 		this.logger.debug(`创建牌组媒体文件夹: ${folderPath}`);
@@ -52,18 +71,14 @@ export class ObsidianMediaStorageAdapter implements IMediaStorageAdapter {
 	 * 保存媒体文件
 	 */
 	async saveMediaFile(filename: string, data: Uint8Array, basePath: string): Promise<string> {
-		const safeFilename = this.sanitizeFilename(filename);
+		const safeFilename = sanitizeMediaFilename(filename);
 		const filePath = `${basePath}/${safeFilename}`;
 
 		// 如果文件已存在，生成唯一路径
 		const uniquePath = await this.getUniqueFilePath(filePath);
 
 		try {
-			// 保存文件
-			// 创建新的ArrayBuffer以确保类型兼容性
-			const arrayBuffer = new ArrayBuffer(data.byteLength);
-			const uint8View = new Uint8Array(arrayBuffer);
-			uint8View.set(data);
+			const arrayBuffer = toArrayBuffer(data);
 
 			await this.plugin.app.vault.createBinary(uniquePath, arrayBuffer);
 
@@ -76,11 +91,7 @@ export class ObsidianMediaStorageAdapter implements IMediaStorageAdapter {
 
 				// 重新生成唯一路径并重试
 				const retryPath = await this.getUniqueFilePath(filePath);
-				const retryArrayBuffer = new ArrayBuffer(data.byteLength);
-				const retryUint8View = new Uint8Array(retryArrayBuffer);
-				retryUint8View.set(data);
-
-				await this.plugin.app.vault.createBinary(retryPath, retryArrayBuffer);
+				await this.plugin.app.vault.createBinary(retryPath, toArrayBuffer(data));
 
 				this.logger.debug(`重试保存成功: ${filename} → ${retryPath}`);
 				return retryPath;
@@ -95,12 +106,7 @@ export class ObsidianMediaStorageAdapter implements IMediaStorageAdapter {
 	 * 计算文件哈希（SHA-256）
 	 */
 	async calculateHash(data: Uint8Array): Promise<string> {
-		// 创建新的ArrayBuffer以避免类型问题
-		const inputBuffer = new ArrayBuffer(data.byteLength);
-		const inputView = new Uint8Array(inputBuffer);
-		inputView.set(data);
-
-		const hashBuffer = await crypto.subtle.digest("SHA-256", inputBuffer);
+		const hashBuffer = await crypto.subtle.digest("SHA-256", toArrayBuffer(data));
 		const hashArray = Array.from(new Uint8Array(hashBuffer));
 		const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 		return hashHex;
@@ -129,20 +135,23 @@ export class ObsidianMediaStorageAdapter implements IMediaStorageAdapter {
 	 * 读取媒体清单
 	 */
 	async loadManifest(basePath: string): Promise<MediaManifest | null> {
-		const manifestPath = `${basePath}/manifest.json`;
-		const legacyManifestPath = `${basePath}/.manifest.json`;
+		const manifestPaths = [
+			getMediaManifestPath(basePath),
+			getMediaManifestPath(basePath, true),
+		];
 
 		try {
-			let file = this.plugin.app.vault.getAbstractFileByPath(manifestPath);
-			if (!file) {
-				file = this.plugin.app.vault.getAbstractFileByPath(legacyManifestPath);
-			}
-			if (!(file instanceof TFile)) {
-				return null;
+			for (const manifestPath of manifestPaths) {
+				const file = this.plugin.app.vault.getAbstractFileByPath(manifestPath);
+				if (!(file instanceof TFile)) {
+					continue;
+				}
+
+				const content = await this.plugin.app.vault.read(file);
+				return JSON.parse(content);
 			}
 
-			const content = await this.plugin.app.vault.read(file);
-			return JSON.parse(content);
+			return null;
 		} catch (error) {
 			this.logger.error("读取媒体清单失败:", error);
 			return null;
@@ -153,7 +162,7 @@ export class ObsidianMediaStorageAdapter implements IMediaStorageAdapter {
 	 * 生成Obsidian路径
 	 */
 	generateObsidianPath(filename: string, basePath: string): string {
-		const safeFilename = this.sanitizeFilename(filename);
+		const safeFilename = sanitizeMediaFilename(filename);
 		return `${basePath}/${safeFilename}`;
 	}
 
@@ -161,24 +170,31 @@ export class ObsidianMediaStorageAdapter implements IMediaStorageAdapter {
 	 * 保存媒体清单
 	 */
 	async saveManifest(manifest: MediaManifest): Promise<void> {
-		const manifestPath = `${manifest.basePath}/manifest.json`;
+		const manifestPath = getMediaManifestPath(manifest.basePath);
+		const legacyManifestPath = getMediaManifestPath(manifest.basePath, true);
 		const manifestJson = JSON.stringify(manifest, null, 2);
 
 		try {
-			// 检查文件是否已存在
-			const existingFile = this.plugin.app.vault.getAbstractFileByPath(manifestPath);
-
-			if (existingFile instanceof TFile) {
-				// 如果存在，修改文件内容
-				await this.plugin.app.vault.modify(existingFile, manifestJson);
+			const canonicalFile = this.plugin.app.vault.getAbstractFileByPath(manifestPath);
+			if (canonicalFile instanceof TFile) {
+				await this.plugin.app.vault.modify(canonicalFile, manifestJson);
 				this.logger.debug(`更新媒体清单: ${manifestPath}`);
 			} else {
-				// 如果不存在，创建新文件
-				await this.plugin.app.vault.create(manifestPath, manifestJson);
-				this.logger.debug(`创建媒体清单: ${manifestPath}`);
+				const legacyFile = this.plugin.app.vault.getAbstractFileByPath(legacyManifestPath);
+				if (legacyFile instanceof TFile) {
+					await this.plugin.app.vault.create(manifestPath, manifestJson);
+					await this.plugin.app.vault.adapter.remove(legacyManifestPath);
+					this.logger.debug(`迁移媒体清单到: ${manifestPath}`);
+				} else {
+					await this.plugin.app.vault.create(manifestPath, manifestJson);
+					this.logger.debug(`创建媒体清单: ${manifestPath}`);
+				}
+			}
+
+			if (await this.plugin.app.vault.adapter.exists(legacyManifestPath)) {
+				await this.plugin.app.vault.adapter.remove(legacyManifestPath);
 			}
 		} catch (error) {
-			// 处理文件已存在的竞态条件
 			if (error instanceof Error && error.message.includes("already exists")) {
 				this.logger.debug(`清单文件已存在，尝试修改: ${manifestPath}`);
 
@@ -188,7 +204,6 @@ export class ObsidianMediaStorageAdapter implements IMediaStorageAdapter {
 					this.logger.debug(`重试修改清单成功: ${manifestPath}`);
 				}
 			} else {
-				// 其他错误直接抛出
 				throw error;
 			}
 		}
@@ -216,17 +231,6 @@ export class ObsidianMediaStorageAdapter implements IMediaStorageAdapter {
 				}
 			}
 		}
-	}
-
-	/**
-	 * 清理文件名
-	 */
-	private sanitizeFilename(filename: string): string {
-		return filename
-			.replace(/[<>:"/\\|?*]/g, "_") // 替换不安全字符
-			.replace(/\s+/g, "_") // 替换空格
-			.replace(/_{2,}/g, "_") // 合并多个下划线
-			.replace(/^_+|_+$/g, ""); // 移除首尾下划线
 	}
 
 	/**

@@ -4,6 +4,17 @@
  */
 
 /**
+ * 嵌入式 Markdown 编辑器对外契约（DetachedLeafEditor 等实现）
+ */
+export interface EmbeddableMarkdownEditor {
+	readonly value: string;
+	setValue(content: string): void;
+	whenReady(): Promise<void>;
+	getTempFilePath(): string | null;
+	destroy(): void;
+}
+
+/**
  * 键盘事件处理器配置选项
  */
 export interface KeyboardEventHandlerOptions {

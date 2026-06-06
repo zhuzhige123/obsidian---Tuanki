@@ -88,40 +88,14 @@ import { logger } from '../../utils/logger';
   async function loadBankStats() {
     if (!plugin.questionBankService) return;
 
+    const { computeQuestionBankDisplayStats } = await import(
+      '../../utils/question-bank/question-bank-display-stats'
+    );
     const allBanks = await plugin.questionBankService.getAllBanks();
-    
+
     for (const bank of allBanks) {
       const questions = await plugin.questionBankService.getQuestionsByBank(bank.id);
-      const total = questions.length;
-      
-      // 计算完成度、正确率和错题数
-      let completed = 0;
-      let correctCount = 0;
-      let errorCount = 0;
-      
-      for (const question of questions) {
-        if (question.stats?.testStats && question.stats.testStats.totalAttempts > 0) {
-          completed++;
-          const currentAccuracy = question.stats.testStats.masteryMetrics?.currentAccuracy;
-          if (currentAccuracy !== undefined) {
-            correctCount += currentAccuracy;
-          } else {
-            correctCount += (question.stats.testStats.accuracy || 0) * 100;
-          }
-          
-          // 统计错题数
-          errorCount += question.stats.testStats.incorrectAttempts;
-        }
-      }
-      
-      const accuracy = completed > 0 ? correctCount / completed : 0;
-      
-      bankStats[bank.id] = {
-        total,
-        completed,
-        accuracy,
-        errorCount
-      };
+      bankStats[bank.id] = computeQuestionBankDisplayStats(questions);
     }
   }
 

@@ -2,6 +2,14 @@ import type { SupportedLanguage, TranslationKey } from '../types';
 
 export const integrationsTranslations: Record<SupportedLanguage, TranslationKey> = {
 	'zh-CN': {
+		splitPlugins: {
+			incrementalReadingName: "Weave 增量阅读",
+			epubReaderName: "Weave EPUB 阅读器",
+			unavailableMissing:
+				"未检测到 {pluginName}（{pluginId}）。请在 Obsidian 设置 → 社区插件中安装并启用。",
+			unavailableDisabled:
+				"{pluginName}（{pluginId}）已安装但未启用。请在 Obsidian 设置 → 社区插件中启用。",
+		},
 
 		//  AI制卡配置
 		aiConfig: {
@@ -318,12 +326,26 @@ export const integrationsTranslations: Record<SupportedLanguage, TranslationKey>
 		license: {
 			boundEmail: "绑定邮箱",
 			activatedDevices: "已激活设备",
+			activatedVaults: "本机已授权库",
 			activationPrompt: "激活后解锁更多强大功能",
 			getActivationCode: "获取激活码",
 			activatePremium: "激活高级功能",
 		},
+
+		premium: {
+			entryTitlePremiumSuffix: " (高级)",
+			entryTitleLimitedTimeSuffix: " (限时开放)",
+		},
 	},
 	'en-US': {
+		splitPlugins: {
+			incrementalReadingName: "Weave Incremental Reading",
+			epubReaderName: "Weave EPUB Reader",
+			unavailableMissing:
+				"{pluginName} ({pluginId}) was not detected. Install and enable it in Settings → Community plugins.",
+			unavailableDisabled:
+				"{pluginName} ({pluginId}) is installed but disabled. Enable it in Settings → Community plugins.",
+		},
 
 		//  AI Card Creation
 		aiConfig: {
@@ -649,9 +671,15 @@ Output Format (JSON):
 		license: {
 			boundEmail: "Bound Email",
 			activatedDevices: "Activated Devices",
+			activatedVaults: "Vaults on This Device",
 			activationPrompt: "Unlock more powerful features after activation",
 			getActivationCode: "Get Activation Code",
 			activatePremium: "Activate Premium Features",
+		},
+
+		premium: {
+			entryTitlePremiumSuffix: " (Premium)",
+			entryTitleLimitedTimeSuffix: " (Limited-time access)",
 		},
 	},
 };
@@ -923,6 +951,8 @@ export const integrationsTranslationOverrides: Record<SupportedLanguage, Transla
 					deactivateFailed: "移除激活码失败",
 					deactivated: "激活状态已移除，插件已恢复为未激活",
 					deviceReplaced: "已自动替换一台旧设备的激活记录",
+					vaultReplaced: "本机已有 3 个库在使用此激活码，已自动移除最久未用的库授权",
+					deviceAlreadyRegistered: "本机设备已登记，当前库授权已更新（不占用新的设备名额）",
 					emailHint: "请输入购买许可证时使用的邮箱",
 					emailInvalid: "邮箱格式不正确",
 					emailLabel: "邮箱",
@@ -1250,6 +1280,10 @@ export const integrationsTranslationOverrides: Record<SupportedLanguage, Transla
 					deactivateFailed: "Failed to remove the activation code",
 					deactivated: "Activation removed. The plugin is now inactive.",
 					deviceReplaced: "An older device activation was replaced automatically",
+					vaultReplaced:
+						"This device already has 3 vaults on this license; the least recently used vault was removed",
+					deviceAlreadyRegistered:
+						"This device is already registered; the current vault was updated without using a new device slot",
 					emailHint: "Enter the email used when purchasing the license",
 					emailInvalid: "Invalid email format",
 					emailLabel: "Email",

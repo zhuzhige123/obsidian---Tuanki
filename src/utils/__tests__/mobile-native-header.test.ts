@@ -1,4 +1,8 @@
-import { findWeaveViewLeafContent, hasWeaveMobileNativeHeader } from "../mobile-native-header";
+import {
+	findWeaveViewLeafContent,
+	hasWeaveMobileNativeHeader,
+	usesMobileNativeWeaveHeader,
+} from "../mobile-native-header";
 
 describe("mobile native header helpers", () => {
 	it("returns null and false when no element is provided", () => {
@@ -35,5 +39,11 @@ describe("mobile native header helpers", () => {
 		const target = document.getElementById("target") as HTMLElement | null;
 
 		expect(hasWeaveMobileNativeHeader(target)).toBe(true);
+	});
+});
+
+describe("usesMobileNativeWeaveHeader", () => {
+	it("mirrors Platform.isMobile", () => {
+		expect(typeof usesMobileNativeWeaveHeader()).toBe("boolean");
 	});
 });

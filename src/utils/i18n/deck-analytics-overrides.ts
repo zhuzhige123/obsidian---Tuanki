@@ -10,7 +10,8 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 				quantity: { title: "卡片数量", mobile: "数量" },
 				timing: { title: "复习时机", mobile: "时机" },
 				difficulty: { title: "标签难度", mobile: "难度" },
-				loadForecast: { title: "负荷预测", mobile: "负荷" }
+				loadForecast: { title: "负荷预测", mobile: "负荷" },
+				calibration: { title: "学习校准", mobile: "校准" }
 			},
 			toolbar: {
 				decks: "牌组",
@@ -63,6 +64,14 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 				axisX: "日期",
 				axisY: "百分比 (%)"
 			},
+			calibration: {
+				performanceTitle: "复习表现趋势",
+				performanceDesc: "Again 率偏高通常表示间隔偏长或材料过难；通过率（Good/Easy）可与目标保持率对照诊断调度是否过松或过紧。",
+				againRate: "Again 率",
+				passRate: "通过率 (Good/Easy)",
+				axisX: "日期",
+				axisY: "百分比 (%)"
+			},
 			load: {
 				low: "负荷低",
 				normal: "正常",
@@ -83,7 +92,8 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 				quantity: { title: "Card Quantity", mobile: "Cards" },
 				timing: { title: "Review Timing", mobile: "Timing" },
 				difficulty: { title: "Difficulty by Tag", mobile: "Tag Diff" },
-				loadForecast: { title: "Load Forecast", mobile: "Load" }
+				loadForecast: { title: "Load Forecast", mobile: "Load" },
+				calibration: { title: "Learning Calibration", mobile: "Calib." }
 			},
 			toolbar: {
 				decks: "Decks",
@@ -133,6 +143,14 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 				early: "Early",
 				onTime: "On Time",
 				late: "Late",
+				axisX: "Date",
+				axisY: "Percent (%)"
+			},
+			calibration: {
+				performanceTitle: "Review Performance Trend",
+				performanceDesc: "Elevated Again rate often signals intervals that are too long or material that is too hard. Pass rate (Good/Easy) can be compared with your FSRS target retention to judge whether scheduling is too loose or too tight.",
+				againRate: "Again Rate",
+				passRate: "Pass Rate (Good/Easy)",
 				axisX: "Date",
 				axisY: "Percent (%)"
 			},

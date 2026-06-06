@@ -109,7 +109,7 @@
   data-responsive-width={responsive?.width || 0}
   data-responsive-breakpoint={responsive?.breakpoint || 'desktop'}
 >
-  {#if children}
+  {#if responsive && children}
     {@render children(responsive)}
   {/if}
 </div>

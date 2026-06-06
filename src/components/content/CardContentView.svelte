@@ -9,7 +9,6 @@
 
   import { parseCardContent } from '../../parsing/card-content-parser';
   import type { ChoiceQuestion } from '../../parsing/choice-question-parser';
-  import { stripHintBlock } from '../../utils/hint-block-utils';
   import {
     applyChoiceQuestionOptionOrder,
     type ChoiceOptionOrder,
@@ -57,15 +56,15 @@
     choiceOptionOrder = 'sequential'
   }: Props = $props();
 
-  const sanitizedContent = $derived(stripHintBlock(content || ''));
-  const parsed = $derived(parseCardContent(sanitizedContent));
+  const cardContent = $derived((content || '').trim());
+  const parsed = $derived(parseCardContent(cardContent));
   const clozeMode = $derived.by(() => resolveClozeModeForRender(card?.content, content));
   const orderedChoiceQuestion = $derived.by<ChoiceQuestion | null>(() => {
     if (parsed.kind !== 'choice') {
       return null;
     }
 
-    const seedSource = `${card?.uuid || sourcePath || sanitizedContent}::${parsed.choice.question}`;
+    const seedSource = `${card?.uuid || sourcePath || cardContent}::${parsed.choice.question}`;
     return applyChoiceQuestionOptionOrder(
       parsed.choice,
       choiceOptionOrder,

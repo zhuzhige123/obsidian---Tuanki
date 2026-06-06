@@ -1,7 +1,8 @@
-import { Platform } from "obsidian";
+import { Menu, Platform } from "obsidian";
 import type WeavePlugin from "../../../main";
 import type { DataChangeEvent } from "../../../services/DataSyncService";
 import type { MemoryDeckMenuAction } from "../../../services/deck/MemoryDeckMenu";
+import { DECK_STUDY_VIEW_MODE } from "../../../services/deck/deck-study-view-by-location";
 import { logger } from "../../../utils/logger";
 
 interface MemoryDeckActionRequestDetail {
@@ -9,9 +10,9 @@ interface MemoryDeckActionRequestDetail {
   deckId: string;
 }
 
-interface MainInterfaceMenuRequestDetail {
+interface PopulateMainInterfaceMenuDetail {
   page?: string;
-  event?: MouseEvent;
+  menu?: Menu;
   source?: string;
 }
 
@@ -24,16 +25,13 @@ interface ToolbarActionDetail {
 interface DeckStudyPageRuntimeControllerOptions {
   getPlugin: () => WeavePlugin;
   getSelectedFilter: () => string;
-  normalizeDeckStudyView: (value: string | null | undefined) => string;
-  setCurrentView: (value: string) => void;
   setIsMobile: (value: boolean) => void;
   registerEmergentRuleGroupPopoverBridge: () => () => void;
   refreshData: (showLoading?: boolean) => Promise<void>;
   scheduleBackgroundRefresh: (event?: DataChangeEvent) => void;
   handleFilterSelect: (filter: string) => void;
   handleMemoryDeckMenuAction: (action: MemoryDeckMenuAction, deckId: string) => Promise<void>;
-  showViewSwitcher: (event: MouseEvent) => void;
-  showMobileNavMenu: (event: MouseEvent) => Promise<void> | void;
+  populateMobileNavMenu: (menu: Menu) => void;
   showEmergentRuleGroupMenu: (anchor?: HTMLElement | null) => void;
   setMemoryDeckDisplayMode: (mode: string | null | undefined) => void;
 }
@@ -45,8 +43,19 @@ export interface DeckStudyPageRuntimeController {
 export function createDeckStudyPageRuntimeController(
   options: DeckStudyPageRuntimeControllerOptions
 ): DeckStudyPageRuntimeController {
-  function dispatchDeckViewChange(view: string): void {
-    window.dispatchEvent(new CustomEvent("Weave:deck-view-change", { detail: view }));
+  function dispatchDeckViewChange(): void {
+    window.dispatchEvent(
+      new CustomEvent("Weave:deck-view-change", { detail: DECK_STUDY_VIEW_MODE })
+    );
+  }
+
+  async function persistDeckStudyViewPreference(): Promise<void> {
+    dispatchDeckViewChange();
+    try {
+      await options.getPlugin().saveDeckViewPreference(DECK_STUDY_VIEW_MODE);
+    } catch (error) {
+      logger.warn("保存牌组视图偏好失败:", error);
+    }
   }
 
   function dispatchDeckFilterChange(): void {
@@ -64,25 +73,9 @@ export function createDeckStudyPageRuntimeController(
     let unsubscribeSessions: (() => void) | undefined;
     let unsubscribeCards: (() => void) | undefined;
 
-    void (async () => {
-      try {
-        const savedView = await plugin.loadDeckViewPreference();
-        if (savedView && ["kanban", "grid"].includes(savedView)) {
-          const normalizedView = options.normalizeDeckStudyView(savedView);
-          options.setCurrentView(normalizedView);
-          dispatchDeckViewChange(normalizedView);
-        } else {
-          const normalizedView = options.normalizeDeckStudyView(null);
-          options.setCurrentView(normalizedView);
-          dispatchDeckViewChange(normalizedView);
-        }
-      } catch (error) {
-        logger.warn("加载视图偏好失败:", error);
-        const normalizedView = options.normalizeDeckStudyView(null);
-        options.setCurrentView(normalizedView);
-        dispatchDeckViewChange(normalizedView);
-      }
+    void persistDeckStudyViewPreference();
 
+    void (async () => {
       if (plugin.dataSyncService) {
         unsubscribeDecks = plugin.dataSyncService.subscribe(
           "decks",
@@ -128,14 +121,6 @@ export function createDeckStudyPageRuntimeController(
 
     void options.refreshData();
 
-    const handleShowViewMenu = (event: Event) => {
-      const detail = (event as CustomEvent<{ event?: MouseEvent }>).detail;
-      if (detail?.event instanceof MouseEvent) {
-        options.showViewSwitcher(detail.event);
-      }
-    };
-    window.addEventListener("show-view-menu", handleShowViewMenu as EventListener);
-
     const handleSidebarFilterSelect = (event: Event) => {
       const detail = (event as CustomEvent<string>).detail;
       if (typeof detail === "string") {
@@ -159,20 +144,20 @@ export function createDeckStudyPageRuntimeController(
       handleExternalDeckMenuAction as EventListener
     );
 
-    const handleMainInterfaceMenuRequest = (event: Event) => {
-      const detail = (event as CustomEvent<MainInterfaceMenuRequestDetail>).detail;
+    const handlePopulateMainInterfaceMenu = (event: Event) => {
+      const detail = (event as CustomEvent<PopulateMainInterfaceMenuDetail>).detail;
       if (detail?.page !== "deck-study") {
         return;
       }
-      if (!(detail.event instanceof MouseEvent)) {
+      if (!(detail.menu instanceof Menu)) {
         return;
       }
       event.preventDefault();
-      void options.showMobileNavMenu(detail.event);
+      options.populateMobileNavMenu(detail.menu);
     };
     window.addEventListener(
-      "Weave:request-main-interface-menu",
-      handleMainInterfaceMenuRequest as EventListener
+      "Weave:populate-main-interface-menu",
+      handlePopulateMainInterfaceMenu as EventListener
     );
 
     const handleDeckStudyToolbarAction = (event: Event) => {
@@ -199,7 +184,6 @@ export function createDeckStudyPageRuntimeController(
       unsubscribeCards?.();
       workspace.off("Weave:card-created", handleCardCreated);
       workspace.off("Weave:card-updated", handleCardUpdated);
-      window.removeEventListener("show-view-menu", handleShowViewMenu as EventListener);
       window.removeEventListener(
         "Weave:sidebar-filter-select",
         handleSidebarFilterSelect as EventListener
@@ -209,8 +193,8 @@ export function createDeckStudyPageRuntimeController(
         handleExternalDeckMenuAction as EventListener
       );
       window.removeEventListener(
-        "Weave:request-main-interface-menu",
-        handleMainInterfaceMenuRequest as EventListener
+        "Weave:populate-main-interface-menu",
+        handlePopulateMainInterfaceMenu as EventListener
       );
       window.removeEventListener(
         "Weave:deck-study-toolbar-action",

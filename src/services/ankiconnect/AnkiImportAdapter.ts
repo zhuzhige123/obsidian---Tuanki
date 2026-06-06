@@ -20,6 +20,10 @@ import type { WeavePlugin } from "../../main";
 import type { AnkiModelInfo, AnkiNoteInfo } from "../../types/ankiconnect-types";
 import type { ParseTemplate } from "../../types/newCardParsingTypes";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator"; // 统一 ID 系统
+import {
+	buildAnkiConnectDeckMediaFolderSegment,
+	sanitizeMediaFilename,
+} from "../../utils/sync-safe-filename";
 import type { AnkiConnectClient } from "./AnkiConnectClient";
 import { ImportMappingManager } from "./ImportMappingManager";
 
@@ -366,8 +370,7 @@ export class AnkiImportAdapter {
 		try {
 			// 使用统一的媒体文件夹路径
 			const mediaFolderBase = getMediaFolder(this.plugin.settings?.weaveParentFolder);
-			const safeDeckName = this.sanitizeFilename(deckName);
-			const mediaFolder = `${mediaFolderBase}/[AnkiConnect] ${safeDeckName}`;
+			const mediaFolder = `${mediaFolderBase}/${buildAnkiConnectDeckMediaFolderSegment(deckName)}`;
 			await this.ensureFolder(mediaFolder);
 
 			// 开始下载 ${filenames.length} 个媒体文件到 ${mediaFolder}
@@ -377,7 +380,7 @@ export class AnkiImportAdapter {
 				const batch = filenames.slice(i, i + concurrencyLimit);
 				const downloadPromises = batch.map(async (filename) => {
 					try {
-						const filePath = `${mediaFolder}/${filename}`;
+						const filePath = `${mediaFolder}/${sanitizeMediaFilename(filename)}`;
 						const exists = await this.plugin.app.vault.adapter.exists(filePath);
 						if (exists) {
 							mediaPathMap.set(filename, filePath);
@@ -418,13 +421,6 @@ export class AnkiImportAdapter {
 			await this.plugin.app.vault.createFolder(path);
 			// 文件夹创建成功
 		}
-	}
-
-	/**
-	 * 清理文件名（移除不安全字符）
-	 */
-	private sanitizeFilename(name: string): string {
-		return name.replace(/[\\/:*?"<>|]/g, "_");
 	}
 
 	/**

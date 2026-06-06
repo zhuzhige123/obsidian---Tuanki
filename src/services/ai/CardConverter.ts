@@ -10,6 +10,7 @@ import type { CardType as ParserCardType } from "../../parsers/MarkdownFieldsCon
 import { ChoiceCardParser } from "../../parsers/card-type-parsers/ChoiceCardParser";
 import { ClozeCardParser } from "../../parsers/card-type-parsers/ClozeCardParser";
 import { QACardParser } from "../../parsers/card-type-parsers/QACardParser";
+import { splitCardFrontBack } from "../../constants/markdown-delimiters";
 import type { CardConversionResult, GeneratedCard, GenerationConfig } from "../../types/ai-types";
 import { setCardProperties } from "../../utils/yaml-utils";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
@@ -237,7 +238,7 @@ export class CardConverter {
 		content: string,
 		type: GeneratedCard["type"]
 	): Record<string, string> {
-		const { front, back } = this.splitContent(content);
+		const { front, back } = splitCardFrontBack(content);
 
 		switch (type) {
 			case "qa":
@@ -254,17 +255,17 @@ export class CardConverter {
 
 				// 从front中提取选项和正确答案
 				if (front) {
-					const optionsMatch = front.match(/[A-D]\)[^\n]+/g);
+					const optionsMatch = front.match(/[A-D][\.．、][^\n]+/g);
 					if (optionsMatch) {
 						fields.options = optionsMatch.join("\n");
+					}
 
-						// 提取正确答案（带{}标记的选项）
-						const correctOptions = optionsMatch.filter(
-							(opt) => opt.includes("{✓}") || opt.includes("{√}")
-						);
-						if (correctOptions.length > 0) {
-							fields.correctAnswers = correctOptions.map((opt) => opt.charAt(0)).join(",");
-						}
+					const stemAnswerMatch = front.match(/[（(]\s*([A-D](?:\s*[,，]\s*[A-D])*)\s*[）)]\s*$/);
+					if (stemAnswerMatch) {
+						fields.correctAnswers = stemAnswerMatch[1]
+							.replace(/\s+/g, "")
+							.split(/[,，]/)
+							.join(",");
 					}
 				}
 
@@ -458,28 +459,4 @@ export class CardConverter {
 		}
 	}
 
-	private static splitContent(content: string): { front: string; back: string } {
-		const separator = "\n\n---div---\n\n";
-		if (content.includes(separator)) {
-			const parts = content.split(separator);
-			return {
-				front: parts[0] || "",
-				back: parts.slice(1).join(separator),
-			};
-		}
-
-		const fallbackSeparator = "\n---div---\n";
-		if (content.includes(fallbackSeparator)) {
-			const parts = content.split(fallbackSeparator);
-			return {
-				front: parts[0] || "",
-				back: parts.slice(1).join(fallbackSeparator),
-			};
-		}
-
-		return {
-			front: content,
-			back: "",
-		};
-	}
 }

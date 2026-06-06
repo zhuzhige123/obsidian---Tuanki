@@ -249,6 +249,68 @@ describe("createMemoryStudySessionController", () => {
 		expect(finishSession).toHaveBeenCalledWith(session);
 	});
 
+	it("uses getResponseTimeMs when rating a card", async () => {
+		const queue = [createCard({ uuid: "current" })];
+		let showAnswer = true;
+		let currentCardIndex = 0;
+		const session = createSession();
+		const sessionStudiedCards = new Set<string>();
+		const saveReviewSnapshot = vi.fn();
+		const updateReviewStats = vi.fn();
+
+		const controller = createMemoryStudySessionController({
+			getFsrs: () => ({
+				review: () => ({
+					card: {
+						...queue[0].fsrs,
+						state: CardState.Review,
+						due: new Date(Date.now() + 86_400_000).toISOString(),
+					},
+					log: { rating: Rating.Good },
+				}),
+			}) as unknown as FSRS,
+			getMode: () => "normal",
+			state: {
+				getCurrentCard: () => queue[currentCardIndex],
+				getShowAnswer: () => showAnswer,
+				setShowAnswer: (value) => {
+					showAnswer = value;
+				},
+				getCurrentCardIndex: () => currentCardIndex,
+				setCurrentCardIndex: (value) => {
+					currentCardIndex = value;
+				},
+				getCardStartTime: () => Date.now() - 120_000,
+				setCardStartTime: () => undefined,
+				getResponseTimeMs: () => 45_000,
+				getStudyQueue: () => queue,
+				setStudyQueue: (nextQueue) => {
+					queue.splice(0, queue.length, ...nextQueue);
+				},
+				getSession: () => session,
+				getSessionStudiedCards: () => sessionStudiedCards,
+			},
+			getLearningConfigForCard: () => ({ learningSteps: [], relearningSteps: [] }),
+			applyLearningScheduling: () => undefined,
+			saveReviewSnapshot,
+			updateReviewStats,
+			persistRatedCard: async () => undefined,
+			setSessionCompletionStatus: () => undefined,
+			onFinishSession: async () => undefined,
+		});
+
+		await controller.rateCurrentCard(Rating.Good);
+
+		expect(saveReviewSnapshot).toHaveBeenCalledWith(
+			expect.objectContaining({ responseTime: 45_000 })
+		);
+		expect(updateReviewStats).toHaveBeenCalledWith(
+			queue[0],
+			Rating.Good,
+			45_000
+		);
+	});
+
 	it("exports authoritative queue/session snapshots for persistence", () => {
 		const queue = [createCard({ uuid: "card-a" }), createCard({ uuid: "card-b" })];
 		let showAnswer = false;

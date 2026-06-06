@@ -20,6 +20,7 @@
   import { addThemeClasses, UnifiedThemeManager } from "../utils/theme-detection";
   import AutoRulesConfigModal from "./modals/AutoRulesConfigModal.svelte";
   import { weaveMainInterfaceStore } from "../stores/weave-main-interface-store";
+  import { registerLegacyApkgImportRequestListener } from "../utils/legacy-apkg-import-action";
   import type {
     WeaveGlobalOperationProgressState,
     WeaveNavigationVisibilityState,
@@ -44,21 +45,9 @@
 
   let { plugin, dataStorage, fsrs, currentLeaf }: Props = $props();
   let activePage = $state<string>(weaveMainInterfaceStore.getState().currentPage);
+  let deckStudyPageMounted = $state(activePage === "deck-study");
 
-  function normalizeDeckStudyView(view: string | null | undefined): 'grid' | 'kanban' {
-    return view === 'kanban' ? 'kanban' : 'grid';
-  }
-
-  function getInitialDeckStudyView(): 'grid' | 'kanban' {
-    const initialView = normalizeDeckStudyView(plugin.getCachedDeckViewPreference());
-    if (
-      initialView === 'kanban'
-      && !PremiumFeatureGuard.getInstance().canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, deckStudyFeatureContext)
-    ) {
-      return 'grid';
-    }
-    return initialView;
-  }
+  let sidebarDeckStudyView = $state<'kanban'>('kanban');
 
   // 移动端检测状态
   let isMobileDevice = $state(false);
@@ -69,7 +58,6 @@
   // 侧边栏导航状态（用于与子页面同步）
   let sidebarDeckFilter = $state<'memory' | 'question-bank'>('memory');
   let sidebarCardView = $state<'table' | 'grid' | 'kanban'>('table');
-  let sidebarDeckStudyView = $state<'grid' | 'kanban'>(getInitialDeckStudyView());
   // 卡片管理页面的数据源状态
   let cardDataSource = $state<'memory' | 'questionBank' | 'incremental-reading'>('memory');
   let globalOperationProgress = $state<WeaveGlobalOperationProgressState>(
@@ -219,6 +207,11 @@
       appElement.style.setProperty('--weave-secondary-bg', surfaceTokens.elevatedBackground);
       appElement.style.setProperty('--weave-surface-secondary', surfaceTokens.elevatedBackground);
       logger.debug('[WeaveApp] 侧边栏模式:', isInSidebarMode);
+      window.dispatchEvent(
+        new CustomEvent("Weave:surface-location-change", {
+          detail: { isInSidebar: isInSidebarMode },
+        })
+      );
     } catch (error) {
       logger.error('[WeaveApp] 侧边栏检测失败:', error);
       isInSidebarMode = false;
@@ -285,6 +278,9 @@
       if (activePage !== state.currentPage) {
         activePage = state.currentPage;
       }
+      if (state.currentPage === "deck-study") {
+        deckStudyPageMounted = true;
+      }
 
       const nextVisibility = state.navigationVisibility;
       if (getNavigationVisibilitySignature(navigationVisibility) !== getNavigationVisibilitySignature(nextVisibility)) {
@@ -333,15 +329,30 @@
       logger.debug('[WeaveApp] 卡片视图变化:', sidebarCardView);
     };
     const handleDeckViewChange = (e: CustomEvent<string>) => {
-      const view = e.detail as 'grid' | 'kanban' | string;
-      if (view === 'grid' || view === 'kanban') {
-        sidebarDeckStudyView = view;
-        logger.debug('[WeaveApp] 牌组学习视图变化:', sidebarDeckStudyView);
+      if (e.detail === 'kanban') {
+        sidebarDeckStudyView = 'kanban';
+        void plugin.saveDeckViewPreference('kanban').catch((error) => {
+          logger.warn('[WeaveApp] 保存牌组视图偏好失败:', error);
+        });
       }
     };
     window.addEventListener("Weave:deck-filter-change", handleDeckFilterChange as EventListener);
     window.addEventListener("Weave:card-view-change", handleCardViewChange as EventListener);
     window.addEventListener("Weave:deck-view-change", handleDeckViewChange as EventListener);
+
+    const unregisterLegacyApkgImport = registerLegacyApkgImportRequestListener(
+      plugin,
+      () => dataStorage,
+      {
+        onImportComplete: async (result) => {
+          if (!result.success) {
+            return;
+          }
+
+          plugin.app.workspace.trigger("Weave:data-changed");
+        },
+      }
+    );
 
     // 应用主题类到应用容器
     if (appElement) {
@@ -410,6 +421,7 @@
       window.removeEventListener("Weave:deck-filter-change", handleDeckFilterChange as EventListener);
       window.removeEventListener("Weave:card-view-change", handleCardViewChange as EventListener);
       window.removeEventListener("Weave:deck-view-change", handleDeckViewChange as EventListener);
+      unregisterLegacyApkgImport();
       document.removeEventListener('Weave:open-plugin-config', handleOpenPluginConfig);
       plugin.app.workspace.offref(layoutChangeRef);
       if (mobileViewportCleanup) {
@@ -443,20 +455,31 @@
 
 <ResponsiveContainer classPrefix="weave">
   {#snippet children(responsive: ResponsiveState)}
+    {@const isCompactLayout =
+      Platform.isMobile
+      || responsive?.isMobile
+      || responsive?.isTablet
+      || document.body.classList.contains('is-mobile')
+      || document.body.classList.contains('is-phone')}
+    {@const showInPageToolbar = !isCompactLayout || isInSidebarMode}
     <div
       bind:this={appElement}
       class="weave-app weave-app-inner"
       class:is-in-sidebar={isInSidebarMode}
       class:is-in-main-area={!isInSidebarMode}
+      class:compact-layout={isCompactLayout}
       role="application"
     >
-      {#if !isMobileDevice}
-        <div class="weave-main-toolbar">
+      {#if showInPageToolbar}
+        <div
+          class="weave-main-toolbar"
+          class:compact-sidebar-toolbar={isCompactLayout && isInSidebarMode}
+        >
           <SidebarNavHeader
             currentPage={activePage}
             {navigationVisibility}
             selectedFilter={sidebarDeckFilter}
-            deckStudyView={activePage === 'deck-study' ? sidebarDeckStudyView : 'grid'}
+            deckStudyView={activePage === 'deck-study' ? sidebarDeckStudyView : 'kanban'}
             currentView={sidebarCardView}
             cardDataSource={cardDataSource}
             app={plugin.app}
@@ -489,9 +512,16 @@
         class:mobile={isMobileDevice}
         class:ai-assistant-active={isMobileDevice && activePage === 'ai-assistant'}
       >
-        {#if activePage === "deck-study"}
-          <DeckStudyPage {dataStorage} {plugin} />
-        {:else if activePage === "weave-card-management"}
+        {#if deckStudyPageMounted}
+          <div
+            class="weave-page-host weave-page-host--deck-study"
+            class:is-active={activePage === "deck-study"}
+            aria-hidden={activePage !== "deck-study"}
+          >
+            <DeckStudyPage {dataStorage} {plugin} />
+          </div>
+        {/if}
+        {#if activePage === "weave-card-management"}
           <WeaveCardManagementPage {dataStorage} {fsrs} {plugin} {currentLeaf} />
         {:else if activePage === "ai-assistant"}
           <AIAssistantPage
@@ -570,11 +600,32 @@
     transition: padding-top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
+  .weave-page-host {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .weave-page-host:not(.is-active) {
+    display: none;
+  }
+
   .weave-main-toolbar {
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
     border-bottom: 1px solid var(--background-modifier-border);
+    background: var(--weave-surface-background, var(--background-primary));
+  }
+
+  .weave-main-toolbar.compact-sidebar-toolbar {
+    z-index: 4;
+  }
+
+  :global(body.is-mobile) .weave-app.is-in-sidebar .weave-main-toolbar .sidebar-nav-header,
+  :global(body.is-phone) .weave-app.is-in-sidebar .weave-main-toolbar .sidebar-nav-header {
+    min-height: 40px;
   }
 
   .weave-main-content.mobile {
@@ -587,6 +638,10 @@
   .weave-main-content.mobile.ai-assistant-active {
     overflow: hidden;
     min-height: 0;
+  }
+
+  :global(.weave-app.is-in-sidebar .ai-mobile-toolbar) {
+    display: none;
   }
 
   :global(body.is-mobile .workspace-leaf-content[data-type="weave-view"][data-weave-mobile-native-header="true"] .view-header-title-container),

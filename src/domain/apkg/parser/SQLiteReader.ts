@@ -56,6 +56,9 @@ interface SqlJsRuntime {
 	Database: new (data: Uint8Array) => SqlDatabase;
 }
 
+let cachedSqlJsRuntime: Promise<SqlJsRuntime> | null = null;
+let cachedSqlJsWasmUrl: string | null = null;
+
 /**
  * SQLite 数据库读取器
  */
@@ -83,25 +86,40 @@ export class SQLiteReader {
 	}
 
 	private async initializeSqlJs(): Promise<SqlJsRuntime> {
+		if (cachedSqlJsRuntime && cachedSqlJsWasmUrl === this.wasmUrl) {
+			return cachedSqlJsRuntime;
+		}
+
 		let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
-		try {
-			return await Promise.race([
-				this.loadSqlJsRuntime(),
-				new Promise<never>((_, reject) => {
-					timeoutHandle = setTimeout(() => {
-						reject(
-							new Error(
-								`加载 SQLite 解析器超时（>${this.sqlInitTimeoutMs}ms），资源路径: ${this.wasmUrl}`
-							)
-						);
-					}, this.sqlInitTimeoutMs);
-				}),
-			]);
-		} finally {
+		const initPromise = Promise.race([
+			this.loadSqlJsRuntime(),
+			new Promise<never>((_, reject) => {
+				timeoutHandle = setTimeout(() => {
+					reject(
+						new Error(
+							`加载 SQLite 解析器超时（>${this.sqlInitTimeoutMs}ms），资源路径: ${this.wasmUrl}`
+						)
+					);
+				}, this.sqlInitTimeoutMs);
+			}),
+		]).finally(() => {
 			if (timeoutHandle !== null) {
 				clearTimeout(timeoutHandle);
 			}
+		});
+
+		cachedSqlJsWasmUrl = this.wasmUrl;
+		cachedSqlJsRuntime = initPromise;
+
+		try {
+			return await initPromise;
+		} catch (error) {
+			if (cachedSqlJsRuntime === initPromise) {
+				cachedSqlJsRuntime = null;
+				cachedSqlJsWasmUrl = null;
+			}
+			throw error;
 		}
 	}
 
@@ -150,7 +168,7 @@ export class SQLiteReader {
 					totalItems: noteCount,
 					completedItems: 0,
 				});
-				const notes = await this.readNotes(db, options);
+				const notes = await this.readNotes(db, noteCount, options);
 				await yieldImportTask(options?.signal);
 				options?.onProgress?.({ progress: 95, message: "正在整理数据库元信息..." });
 				const metadata = this.readMetadata(db, notes.length);
@@ -245,17 +263,20 @@ export class SQLiteReader {
 	/**
 	 * 读取笔记数据
 	 */
-	private async readNotes(db: SqlDatabase, options?: {
-		signal?: AbortSignal;
-		onProgress?: (progress: {
-			progress: number;
-			message: string;
-			totalItems?: number;
-			completedItems?: number;
-		}) => void;
-	}): Promise<AnkiNote[]> {
+	private async readNotes(
+		db: SqlDatabase,
+		totalNotes: number,
+		options?: {
+			signal?: AbortSignal;
+			onProgress?: (progress: {
+				progress: number;
+				message: string;
+				totalItems?: number;
+				completedItems?: number;
+			}) => void;
+		}
+	): Promise<AnkiNote[]> {
 		const notes: AnkiNote[] = [];
-		const totalNotes = this.readNoteCount(db);
 		const statement = db.prepare("SELECT id, mid, flds, tags, mod, guid, sfld FROM notes");
 
 		try {

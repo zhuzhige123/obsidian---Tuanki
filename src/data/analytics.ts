@@ -142,8 +142,16 @@ export interface DeckAnalyticsRetentionSnapshot {
 	}>;
 }
 
+export interface DeckAnalyticsCalibrationSnapshot {
+	dates: string[];
+	againRate: number[];
+	passRate: number[];
+	reviewCounts: number[];
+}
+
 export interface DeckAnalyticsSnapshot {
 	retention: DeckAnalyticsRetentionSnapshot;
+	calibration: DeckAnalyticsCalibrationSnapshot;
 	quantity: DeckAnalyticsQuantitySnapshot;
 	timing: DeckAnalyticsTimingSnapshot;
 	difficulty: DeckAnalyticsDifficultyPoint[];
@@ -706,6 +714,7 @@ export class AnalyticsService {
 				comparisonLabels: Array.from({ length: days + 1 }, (_, index) => String(index)),
 				comparisonSeries,
 			},
+			calibration: this.buildDeckCalibrationSnapshot(filteredCards, datePoints),
 			quantity: this.buildDeckQuantitySnapshot(filteredCards, datePoints),
 			timing: this.buildDeckTimingSnapshot(filteredCards, datePoints),
 			difficulty: this.buildDeckDifficultySnapshot(filteredCards),
@@ -1073,6 +1082,52 @@ export class AnalyticsService {
 			snapshot.early.push(total > 0 ? Math.round((earlyCount / total) * 100) : 0);
 			snapshot.ontime.push(total > 0 ? Math.round((ontimeCount / total) * 100) : 0);
 			snapshot.late.push(total > 0 ? Math.round((lateCount / total) * 100) : 0);
+		}
+
+		return snapshot;
+	}
+
+	private buildDeckCalibrationSnapshot(
+		cards: Card[],
+		datePoints: DeckAnalyticsDatePoint[]
+	): DeckAnalyticsCalibrationSnapshot {
+		const snapshot: DeckAnalyticsCalibrationSnapshot = {
+			dates: [],
+			againRate: [],
+			passRate: [],
+			reviewCounts: [],
+		};
+
+		for (const point of datePoints) {
+			snapshot.dates.push(point.dateKey);
+			let againCount = 0;
+			let passCount = 0;
+			let totalReviews = 0;
+
+			for (const card of cards) {
+				for (const review of card.reviewHistory || []) {
+					const reviewDate = new Date(review.review);
+					if (this.toLocalDateKey(reviewDate) !== point.dateKey) {
+						continue;
+					}
+
+					totalReviews += 1;
+					if (review.rating === Rating.Again) {
+						againCount += 1;
+					}
+					if (review.rating === Rating.Good || review.rating === Rating.Easy) {
+						passCount += 1;
+					}
+				}
+			}
+
+			snapshot.reviewCounts.push(totalReviews);
+			snapshot.againRate.push(
+				totalReviews > 0 ? Number(((againCount / totalReviews) * 100).toFixed(1)) : 0
+			);
+			snapshot.passRate.push(
+				totalReviews > 0 ? Number(((passCount / totalReviews) * 100).toFixed(1)) : 0
+			);
 		}
 
 		return snapshot;

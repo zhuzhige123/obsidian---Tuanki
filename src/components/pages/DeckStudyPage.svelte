@@ -22,13 +22,12 @@
   import { isProgressiveClozeParent, isProgressiveClozeChild } from '../../types/progressive-cloze-v2';
   import CSVImportModal from "../modals/CSVImportModal.svelte";
   import CreateQuestionBankModal from "../modals/CreateQuestionBankModal.svelte";
-  import { QuestionBankAssociationModal } from "../../modals/QuestionBankAssociationModal";
-  import { QuestionBankSelectorModal } from "../../modals/QuestionBankSelectorModal";
   import { VaultFolderSuggestModal } from "../../modals/VaultFolderSuggestModal";
   import { BatchTagSuggestModal, type BatchTagSuggestItem } from "../../modals/BatchTagSuggestModal";
   import { Menu, Modal, Notice, Setting, TFile, normalizePath } from "obsidian";
+  import { addMenuSubmenuGroup } from "../../utils/obsidian-menu";
   import type { DeckTreeNode } from "../../services/deck/DeckHierarchyService";
-  import { buildMemoryDeckMenu, type MemoryDeckMenuAction } from "../../services/deck/MemoryDeckMenu";
+  import { type MemoryDeckMenuAction } from "../../services/deck/MemoryDeckMenu";
   import { openFileWithExistingLeaf } from "../../utils/workspace-navigation";
   import {
     buildTagSuggestionOptions,
@@ -107,14 +106,10 @@
   import { tr } from '../../utils/i18n';
   
   //  导入移动端组件
-  import MobileDeckStudyHeader from "../study/MobileDeckStudyHeader.svelte";
-  import { DirectoryUtils } from '../../utils/directory-utils';
   import { extractAllTags, getCardDeckIds, parseSourceInfo } from '../../utils/yaml-utils';
-  import { sanitizeFileName } from '../../utils/card-export-utils';
-  import { getV2Paths, getReadableWeaveRoot } from '../../config/paths';
-  import { migrateLegacyDirectory } from '../../services/data-migration/LegacyWeaveFolderMigration';
   import { resolveDeckNoCardsReason } from '../../utils/study/noCardsReason';
   import { applyStyleProps } from '../../utils/style-props';
+  import { isLegacyApkgImportMenuVisible } from '../../utils/legacy-apkg-import-action';
 
   interface Props {
     dataStorage: WeaveDataStorage;
@@ -189,7 +184,6 @@
   let irDeckTree = $state<DeckTreeNode[]>([]);
   let irDeckStats = $state<Record<string, DeckStats>>({});
   
-  type ActiveDeckView = 'kanban' | 'grid';
   type ActiveDeckFilter = 'memory' | 'question-bank';
   type MemoryDeckDisplayMode = 'formal' | 'emergent';
   type DeckFilterInput = ActiveDeckFilter | 'reading' | 'parent' | 'child' | 'all';
@@ -210,15 +204,12 @@
     return 'memory';
   }
 
-  function normalizeDeckStudyView(value: string | null | undefined): ActiveDeckView {
-    return value === 'kanban' && premiumGuard.canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, deckStudyFeatureContext)
-      ? 'kanban'
-      : 'grid';
-  }
-
-  function getInitialDeckStudyView(): ActiveDeckView {
-    return normalizeDeckStudyView(plugin.getCachedDeckViewPreference());
-  }
+  let selectedFilter = $state<ActiveDeckFilter>((() => {
+    try {
+      return parseStoredDeckFilter(vaultStorage.getItem('weave-deck-mode-filter'));
+    } catch {}
+    return 'memory';
+  })());
 
   function normalizeMemoryDeckDisplayMode(value: string | null | undefined): MemoryDeckDisplayMode {
     return value === 'emergent' && premiumGuard.canUseFeature(PREMIUM_FEATURES.EMERGENT_DECKS, deckStudyFeatureContext)
@@ -226,21 +217,11 @@
       : 'formal';
   }
 
-  let currentView = $state<ActiveDeckView>(getInitialDeckStudyView());
   let memoryDeckDisplayMode = $state<MemoryDeckDisplayMode>((() => {
     try {
       return normalizeMemoryDeckDisplayMode(vaultStorage.getItem('weave-memory-deck-display-mode'));
     } catch {}
     return 'formal';
-  })());
-  
-  // 牌组模式筛选状态
-  // 只保留当前仍可用的筛选值；旧筛选值在读取阶段统一映射到 memory
-  let selectedFilter = $state<ActiveDeckFilter>((() => {
-    try {
-      return parseStoredDeckFilter(vaultStorage.getItem('weave-deck-mode-filter'));
-    } catch {}
-    return 'memory';
   })());
   
   let isPremium = $state(get(premiumGuard.isPremiumActive));
@@ -275,7 +256,7 @@
   }
 
   function isAPKGImportEnabled(): boolean {
-    return __WEAVE_LEGACY_APKG_RUNTIME__ && plugin.settings.navigationVisibility?.apkgImport !== false;
+    return isLegacyApkgImportMenuVisible(plugin.settings.navigationVisibility);
   }
 
   function isCSVImportEnabled(): boolean {
@@ -317,10 +298,6 @@
   const menuCoordinator = createDeckStudyMenuCoordinator({
     getPlugin: () => plugin,
     getDeckCount: () => decks.length,
-    getCurrentView: () => currentView,
-    setCurrentView: (view) => {
-      currentView = view;
-    },
     getSelectedFilter: () => selectedFilter,
     setSelectedFilter: (filter) => {
       selectedFilter = filter;
@@ -832,10 +809,6 @@
   const pageRuntimeController = createDeckStudyPageRuntimeController({
     getPlugin: () => plugin,
     getSelectedFilter: () => selectedFilter,
-    normalizeDeckStudyView,
-    setCurrentView: (value: string) => {
-      currentView = normalizeDeckStudyView(value);
-    },
     setIsMobile: (value: boolean) => {
       isMobile = value;
     },
@@ -846,8 +819,7 @@
       handleFilterSelect(filter as DeckFilterInput);
     },
     handleMemoryDeckMenuAction,
-    showViewSwitcher,
-    showMobileNavMenu: showMobileNavMenuWithObsidianAPI,
+    populateMobileNavMenu: (menu) => menuCoordinator.populateMobileNavMenu(menu),
     showEmergentRuleGroupMenu,
     setMemoryDeckDisplayMode: (mode: string | null | undefined) => {
       applyMemoryDeckDisplayMode(mode);
@@ -943,11 +915,6 @@
     };
   });
   
-// 视图切换逻辑（使用 Obsidian Menu API）
-  function showViewSwitcher(evt: MouseEvent) {
-    menuCoordinator.showViewSwitcher(evt);
-  }
-
   function showEmergentRuleGroupMenu(anchor?: HTMLElement | null): void {
     if (showEmergentRuleGroupPopover) {
       closeEmergentRuleGroupPopover();
@@ -1010,14 +977,11 @@
     refreshCoordinator.scheduleBackgroundRefresh(event);
   }
   
-  // 当切换到kanban视图或切换模式时，加载对应的牌组树数据
+  // 当切换到考试题组筛选时，加载对应的牌组树数据
   $effect(() => {
-    const view = currentView;
     const filter = selectedFilter;
-    if (view === 'kanban') {
-      if (filter === 'question-bank') {
-        loadQBDeckTree();
-      }
+    if (filter === 'question-bank') {
+      loadQBDeckTree();
     }
   });
 
@@ -1027,26 +991,17 @@
       if (!plugin.questionBankService || !plugin.questionBankHierarchy || !plugin.deckHierarchy) return;
       const memoryTree = await plugin.deckHierarchy.getDeckTree();
       qbDeckTree = await plugin.questionBankHierarchy.buildQuestionBankTree(memoryTree);
-      // 构建统计
-      // 映射QB统计到DeckStats格式，与QuestionBankGridCard显示一致:
-      // newCards → 总题(total), learningCards → 已练(completed), reviewCards → 错题(errorCount)
       const stats: Record<string, DeckStats> = {};
+      const { computeQuestionBankDisplayStats, mapQuestionBankDisplayStatsToDeckStats } =
+        await import('../../utils/question-bank/question-bank-display-stats');
       for (const node of qbDeckTree) {
         const bank = node.deck;
-        const questions = plugin.questionBankService ? await plugin.questionBankService.getQuestionsByBank(bank.id) : [];
-        const total = questions.length;
-        let completed = 0;
-        let errorCount = 0;
-        for (const q of questions) {
-          if ((q as any).stats?.testStats?.attempts > 0) {
-            completed++;
-            errorCount += (q as any).stats?.testStats?.incorrectAttempts || 0;
-          }
-        }
-        stats[bank.id] = {
-          totalCards: total, newCards: total, learningCards: completed, reviewCards: errorCount,
-          todayNew: 0, todayReview: 0, todayTime: 0, totalReviews: 0, totalTime: 0, memoryRate: 0, averageEase: 0, forecastDays: {}
-        };
+        const questions = plugin.questionBankService
+          ? await plugin.questionBankService.getQuestionsByBank(bank.id)
+          : [];
+        stats[bank.id] = mapQuestionBankDisplayStatsToDeckStats(
+          computeQuestionBankDisplayStats(questions)
+        );
       }
       qbDeckStats = stats;
     } catch (e) {
@@ -1066,12 +1021,7 @@
     menuCoordinator.handleFilterSelect(filter);
   }
   
-  //  移动端菜单按钮点击处理 - 使用 Obsidian Menu API
-  function handleMobileMenuClick(evt: MouseEvent) {
-    showMobileNavMenuWithObsidianAPI(evt);
-  }
-  
-  //  使用 Obsidian 原生 Menu API 显示移动端导航菜单
+  //  使用 Obsidian 原生 Menu API 显示移动端导航菜单（由 view-header 菜单触发）
   function showMobileNavMenuWithObsidianAPI(evt: MouseEvent) {
     menuCoordinator.showMobileNavMenu(evt);
   }
@@ -1565,8 +1515,6 @@
     deleteDeck,
     dissolveDeck,
     openDeckAnalytics,
-    openKnowledgeGraph,
-    associateQuestionBank,
     loadQBDeckTree,
     promptPremiumFeature: (featureId: string) => {
       promptFeatureId = featureId;
@@ -1864,55 +1812,6 @@
     }
   }
 
-  async function pickQuestionBankForDeck(deckId: string): Promise<Deck | null> {
-    const currentDeck = await dataStorage.getDeck(deckId);
-    logger.info('[DeckStudyPage] 当前牌组信息:', currentDeck ? {
-      id: currentDeck.id,
-      name: currentDeck.name,
-      deckType: currentDeck.deckType,
-      pairedMemoryDeckId: (currentDeck.metadata as any)?.pairedMemoryDeckId
-    } : '未找到');
-
-    if (currentDeck && currentDeck.deckType === 'question-bank') {
-      logger.info('[DeckStudyPage] 当前牌组本身就是考试题组，直接使用');
-      return currentDeck;
-    }
-
-    const candidates = await plugin.questionBankService!.getBankCandidatesByMemoryDeckId(deckId);
-    logger.info('[DeckStudyPage] 候选考试题组:', candidates.map((candidate) => ({
-      id: candidate.bank.id,
-      name: candidate.bank.name,
-      pairedMemoryDeckId: (candidate.bank.metadata as any)?.pairedMemoryDeckId,
-      matchType: candidate.matchType,
-      overlapCount: candidate.overlapCount
-    })));
-
-    if (candidates.length === 0) {
-      return null;
-    }
-
-    if (candidates.length === 1) {
-      return candidates[0].bank;
-    }
-
-    new Notice(t('deckStudyPage.wdeck.multipleBanksFound'));
-    return await new Promise<Deck | null>((resolve) => {
-      let settled = false;
-      const modal = new QuestionBankSelectorModal(plugin.app, candidates, (candidate) => {
-        settled = true;
-        resolve(candidate.bank);
-      });
-      const originalOnClose = modal.onClose.bind(modal);
-      modal.onClose = () => {
-        originalOnClose();
-        if (!settled) {
-          resolve(null);
-        }
-      };
-      modal.open();
-    });
-  }
-  
   //  关闭庆祝模态窗
   function handleCloseCelebration() {
     showCelebrationModal = false;
@@ -1920,198 +1819,9 @@
     celebrationDeckId = '';
   }
   
-  //  开始考试模式
-  async function handleStartPractice() {
-    // 关闭庆祝模态窗
-    showCelebrationModal = false;
-    const deckId = celebrationDeckId;
-    celebrationStats = null;
-    celebrationDeckId = '';
-    
-    if (!deckId) {
-      logger.error('[DeckStudyPage] 无法开始考试：缺少牌组ID');
-      new Notice(t('deckStudyPage.exam.missingDeckInfo'));
-      return;
-    }
-    
-    try {
-      logger.info('[DeckStudyPage] Starting exam mode from celebration modal, deckId:', deckId);
-      
-      // Check if question bank service is available
-      if (!plugin.questionBankService) {
-        logger.error('[DeckStudyPage] Question bank service not initialized');
-        new Notice(t('deckStudyPage.exam.qbNotEnabled'));
-        return;
-      }
-      
-      //  调试日志：查看所有题库
-      const allBanks = await plugin.questionBankService.getAllBanks();
-      logger.info('[DeckStudyPage] 当前所有题库:', allBanks.map(b => ({
-        id: b.id,
-        name: b.name,
-        deckType: b.deckType,
-        pairedMemoryDeckId: (b.metadata as any)?.pairedMemoryDeckId
-      })));
-      
-      logger.info('[DeckStudyPage] 🔍 详细匹配信息 (handleStartPractice):', {
-        searchingForMemoryDeckId: deckId,
-        searchingForMemoryDeckIdType: typeof deckId,
-        allBanksWithPairing: allBanks.map(b => ({
-          bankId: b.id,
-          bankName: b.name,
-          pairedMemoryDeckId: (b.metadata as any)?.pairedMemoryDeckId,
-          pairedMemoryDeckIdType: typeof (b.metadata as any)?.pairedMemoryDeckId,
-          strictEquals: (b.metadata as any)?.pairedMemoryDeckId === deckId,
-          looseEquals: (b.metadata as any)?.pairedMemoryDeckId == deckId
-        }))
-      });
-      
-      logger.info('[DeckStudyPage] 当前牌组是记忆牌组，查找对应的考试题组');
-      const questionBank = await pickQuestionBankForDeck(deckId);
-      
-      if (!questionBank) {
-        logger.info('[DeckStudyPage] 暂无该记忆牌组对应的考试题组');
-        new Notice(t('deckStudyPage.exam.noPairedBank'));
-        return;
-      }
-      
-      // Open exam session
-      logger.info('[DeckStudyPage] Opening question bank:', questionBank.id, questionBank.name);
-      await plugin.openQuestionBankSession({
-        bankId: questionBank.id,
-        bankName: questionBank.name
-      });
-      
-    } catch (error) {
-      logger.error('[DeckStudyPage] Failed to start exam:', error);
-      new Notice(t('deckStudyPage.exam.startFailed'));
-    }
-  }
-  
   // Close no-cards modal
   function handleCloseNoCardsModal() {
     showNoCardsModal = false;
-  }
-  
-  // Start exam from no-cards modal
-  async function handleStartPracticeFromNoCards() {
-    showNoCardsModal = false;
-    const deckId = noCardsCurrentDeckId;
-    
-    if (!deckId) {
-      logger.error('[DeckStudyPage] Cannot start exam: missing deck ID');
-      new Notice(t('deckStudyPage.exam.missingDeckInfo'));
-      return;
-    }
-    
-    try {
-      logger.info('[DeckStudyPage] 从无卡片模态窗开始考试模式，牌组ID:', deckId);
-      
-      // 检查题库服务是否可用
-      if (!plugin.questionBankService) {
-        logger.error('[DeckStudyPage] 题库服务未初始化');
-        new Notice(t('deckStudyPage.exam.qbNotEnabled'));
-        return;
-      }
-      
-      //  调试日志：查看所有题库
-      const allBanks = await plugin.questionBankService.getAllBanks();
-      logger.info('[DeckStudyPage] 当前所有题库:', allBanks.map(b => ({
-        id: b.id,
-        name: b.name,
-        deckType: b.deckType,
-        pairedMemoryDeckId: (b.metadata as any)?.pairedMemoryDeckId
-      })));
-      
-      logger.info('[DeckStudyPage] 🔍 详细匹配信息 (handleStartPracticeFromNoCards):', {
-        searchingForMemoryDeckId: deckId,
-        searchingForMemoryDeckIdType: typeof deckId,
-        allBanksWithPairing: allBanks.map(b => ({
-          bankId: b.id,
-          bankName: b.name,
-          pairedMemoryDeckId: (b.metadata as any)?.pairedMemoryDeckId,
-          pairedMemoryDeckIdType: typeof (b.metadata as any)?.pairedMemoryDeckId,
-          strictEquals: (b.metadata as any)?.pairedMemoryDeckId === deckId,
-          looseEquals: (b.metadata as any)?.pairedMemoryDeckId == deckId
-        }))
-      });
-      
-      logger.info('[DeckStudyPage] 当前牌组是记忆牌组，查找对应的考试题组');
-      const questionBank = await pickQuestionBankForDeck(deckId);
-      
-      if (!questionBank) {
-        logger.info('[DeckStudyPage] 暂无该记忆牌组对应的考试题组');
-        new Notice(t('deckStudyPage.exam.noPairedBank'));
-        return;
-      }
-      
-      // Open exam session
-      logger.info('[DeckStudyPage] Opening question bank:', questionBank.id, questionBank.name);
-      await plugin.openQuestionBankSession({
-        bankId: questionBank.id,
-        bankName: questionBank.name
-      });
-      
-    } catch (error) {
-      logger.error('[DeckStudyPage] Failed to start exam:', error);
-      new Notice(t('deckStudyPage.exam.startFailed'));
-    }
-  }
-
-  async function associateQuestionBank(deckId: string): Promise<void> {
-    try {
-      if (!plugin.questionBankService) {
-        new Notice(t('deckStudyPage.exam.qbNotEnabled'));
-        return;
-      }
-
-      const memoryDeck = decks.find((deck) => deck.id === deckId) ?? await dataStorage.getDeck(deckId);
-      if (!memoryDeck) {
-        new Notice(t('deckStudyPage.notices.deckNotFound'));
-        return;
-      }
-
-      const allBanks = (await plugin.questionBankService.getAllBanks())
-        .filter((bank) => bank.deckType === 'question-bank')
-        .sort((a, b) => {
-          const orderDiff = (a.order || 0) - (b.order || 0);
-          if (orderDiff !== 0) return orderDiff;
-          return (a.name || '').localeCompare(b.name || '', 'zh-Hans-CN');
-        });
-
-      if (allBanks.length === 0) {
-        new Notice(t('deckStudyPage.exam.noBanksAvailable'));
-        return;
-      }
-
-      const currentBank =
-        allBanks.find((bank) => (bank.metadata as any)?.pairedMemoryDeckId === deckId) ?? null;
-
-      const modal = new QuestionBankAssociationModal(
-        plugin.app,
-        allBanks,
-        currentBank?.id ?? null,
-        async (bank) => {
-          try {
-            await plugin.questionBankService!.pairBankWithMemoryDeck(bank.id, deckId);
-            await refreshData();
-            plugin.app.workspace.trigger('Weave:data-changed');
-            new Notice(t('deckStudyPage.exam.linkSuccess', {
-              bank: bank.name || t('deckStudyPage.fallback.unknownBank'),
-              deck: memoryDeck.name || t('deckStudyPage.fallback.deck')
-            }));
-          } catch (error) {
-            logger.error('[DeckStudyPage] 关联考试题组失败:', error);
-            new Notice(t('deckStudyPage.exam.linkFailed'));
-          }
-        }
-      );
-
-      modal.open();
-    } catch (error) {
-      logger.error('[DeckStudyPage] 打开考试题组关联选择器失败:', error);
-      new Notice(t('deckStudyPage.exam.linkFailed'));
-    }
   }
   
 // 提前学习回调
@@ -2213,21 +1923,25 @@
     );
 
     if (filePaths.length > 1) {
-      menu.addItem((item) => {
-        item.setTitle(t('deckStudyPage.wdeck.editSpecificFile', { count: String(filePaths.length) })).setIcon('files');
-        const submenu = (item as any).setSubmenu();
-
-        filePaths.forEach((filePath, index) => {
-          submenu.addItem((subItem: any) => {
-            subItem
-              .setTitle(`${String(index + 1).padStart(2, '0')} · ${getWDeckFileLabel(filePath)}`)
-              .setIcon('file')
-              .onClick(async () => {
-                await openWDeckSegmentFile(filePath);
-              });
+      addMenuSubmenuGroup(
+        menu,
+        {
+          title: t('deckStudyPage.wdeck.editSpecificFile', { count: String(filePaths.length) }),
+          icon: 'files',
+        },
+        (submenu) => {
+          filePaths.forEach((filePath, index) => {
+            submenu.addItem((subItem) => {
+              subItem
+                .setTitle(`${String(index + 1).padStart(2, '0')} · ${getWDeckFileLabel(filePath)}`)
+                .setIcon('file')
+                .onClick(async () => {
+                  await openWDeckSegmentFile(filePath);
+                });
+            });
           });
-        });
-      });
+        }
+      );
     }
 
     menu.addItem((item) =>
@@ -2488,296 +2202,6 @@
 
   type RowMenuItem = { id: string; label: string; icon?: string; onClick: () => void };
 
-  type DeckGraphSource = {
-    filePath: string;
-    blockId?: string;
-  };
-
-  function stripMarkdownExtension(path: string): string {
-    return path.replace(/\.md$/i, '');
-  }
-
-  function extractDeckKnowledgeGraphIdentityFromContent(content: string): {
-    weaveType?: string;
-    deckId?: string;
-  } {
-    const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
-    if (!frontmatterMatch) return {};
-
-    const frontmatter = frontmatterMatch[1];
-    const readField = (fieldName: string): string | undefined => {
-      const fieldMatch = frontmatter.match(
-        new RegExp(`(?:^|\\r?\\n)${fieldName}:\\s*(.+?)\\s*(?=\\r?\\n|$)`)
-      );
-      if (!fieldMatch) return undefined;
-
-      return fieldMatch[1].trim().replace(/^['"]|['"]$/g, '');
-    };
-
-    return {
-      weaveType: readField('weave_type'),
-      deckId: readField('deck_id'),
-    };
-  }
-
-  async function isMatchingDeckKnowledgeGraphFile(file: TFile, deckId: string): Promise<boolean> {
-    const cachedFrontmatter = plugin.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
-    const cachedWeaveType = typeof cachedFrontmatter?.weave_type === 'string'
-      ? cachedFrontmatter.weave_type.trim()
-      : undefined;
-    const cachedDeckId = cachedFrontmatter?.deck_id != null
-      ? String(cachedFrontmatter.deck_id).trim()
-      : undefined;
-
-    if (cachedWeaveType || cachedDeckId) {
-      return cachedWeaveType === 'deck_knowledge_graph' && cachedDeckId === deckId;
-    }
-
-    try {
-      const content = await plugin.app.vault.cachedRead(file);
-      const parsed = extractDeckKnowledgeGraphIdentityFromContent(content);
-      return parsed.weaveType === 'deck_knowledge_graph' && parsed.deckId === deckId;
-    } catch (error) {
-      logger.warn('[DeckStudyPage] 读取牌组知识图谱 frontmatter 失败:', file.path, error);
-      return false;
-    }
-  }
-
-  async function resolveDeckKnowledgeGraphPath(deck: Deck, graphDir: string): Promise<string> {
-    const preferredPath = normalizePath(`${graphDir}/${sanitizeFileName(deck.name || deck.id)}.md`);
-    const graphDirPrefix = `${graphDir}/`;
-    const graphFiles = plugin.app.vault.getMarkdownFiles().filter((file) =>
-      normalizePath(file.path).startsWith(graphDirPrefix)
-    );
-
-    const matches: TFile[] = [];
-    for (const file of graphFiles) {
-      if (await isMatchingDeckKnowledgeGraphFile(file, deck.id)) {
-        matches.push(file);
-      }
-    }
-
-    if (matches.length > 0) {
-      matches.sort((a, b) => {
-        const normalizedA = normalizePath(a.path);
-        const normalizedB = normalizePath(b.path);
-        if (normalizedA === preferredPath) return -1;
-        if (normalizedB === preferredPath) return 1;
-        return normalizedA.localeCompare(normalizedB, 'zh-Hans-CN');
-      });
-      return normalizePath(matches[0].path);
-    }
-
-    const existingPreferredFile = plugin.app.vault.getAbstractFileByPath(preferredPath);
-    if (existingPreferredFile instanceof TFile) {
-      return preferredPath;
-    }
-
-    return preferredPath;
-  }
-
-  function buildDeckKnowledgeGraphContent(
-    deck: Deck,
-    cards: Card[],
-    sources: DeckGraphSource[],
-    skippedNonMarkdownCount: number
-  ): string {
-    const lines = sources.map((source) => {
-      const target = stripMarkdownExtension(source.filePath);
-      return source.blockId
-        ? `- [[${target}#^${source.blockId}]]`
-        : `- [[${target}]]`;
-    });
-
-    const skippedSection = skippedNonMarkdownCount > 0
-      ? [
-          '',
-          `## ${t('deckStudyPage.knowledgeGraph.notesHeading')}`,
-          t('deckStudyPage.knowledgeGraph.skippedNonMarkdownNote', {
-            count: String(skippedNonMarkdownCount),
-          })
-        ]
-      : [];
-
-    return [
-      '---',
-      'weave_type: deck_knowledge_graph',
-      `deck_id: ${deck.id}`,
-      `deck_name: ${JSON.stringify(deck.name)}`,
-      `generated_at: ${new Date().toISOString()}`,
-      `source_count: ${sources.length}`,
-      `card_count: ${cards.length}`,
-      '---',
-      '',
-      `# ${t('deckStudyPage.knowledgeGraph.documentTitle', { name: deck.name })}`,
-      '',
-      `## ${t('deckStudyPage.knowledgeGraph.sourcesHeading')}`,
-      ...lines,
-      ...skippedSection,
-      '',
-      `> ${t('deckStudyPage.knowledgeGraph.generatedNote')}`
-    ].join('\n');
-  }
-
-  async function migrateLegacyKnowledgeGraphDirIfNeeded(targetDir: string): Promise<void> {
-    const adapter = plugin.app.vault.adapter as any;
-    const rawSettings = plugin.settings as any;
-    const parentFolder = rawSettings?.weaveParentFolder as string | undefined;
-    const legacyDir = normalizePath(`${getReadableWeaveRoot(parentFolder)}/deck-graphs`);
-    if (legacyDir === targetDir) return;
-
-    const legacyExists = await adapter.exists?.(legacyDir);
-    if (!legacyExists) return;
-
-    await DirectoryUtils.ensureDirRecursive(adapter, targetDir);
-
-    let targetHasContent = false;
-    if (typeof adapter.list === 'function') {
-      try {
-        const listed = await adapter.list(targetDir);
-        targetHasContent = (listed?.files?.length || 0) > 0 || (listed?.folders?.length || 0) > 0;
-      } catch {
-        targetHasContent = false;
-      }
-    }
-    if (targetHasContent) return;
-
-    if (typeof adapter.list !== 'function') return;
-
-    const listed = await adapter.list(legacyDir);
-    for (const file of listed?.files || []) {
-      const fileName = String(file).split('/').pop();
-      if (!fileName) continue;
-      const content = await adapter.read(String(file));
-      await adapter.write(`${targetDir}/${fileName}`, content);
-    }
-
-    if (typeof adapter.rmdir === 'function') {
-      try {
-        await adapter.rmdir(legacyDir, true);
-      } catch (error) {
-        logger.warn('[DeckStudyPage] 旧牌组图谱目录清理失败:', error);
-      }
-    }
-  }
-
-  async function openKnowledgeGraph(deckId: string) {
-    try {
-      const deck = decks.find(d => d.id === deckId) || await dataStorage.getDeck(deckId);
-      if (!deck) {
-        new Notice(t('deckStudyPage.notices.deckNotFound'));
-        return;
-      }
-
-      const deckCards = filterRecycledCards(await dataStorage.getDeckCards(deckId));
-      if (deckCards.length === 0) {
-        new Notice(t('deckStudyPage.knowledgeGraph.emptyDeck'));
-        return;
-      }
-
-      const sourceMap = new Map<string, DeckGraphSource>();
-      let skippedNonMarkdownCount = 0;
-
-      for (const card of deckCards) {
-        const parsedSource = parseSourceInfo(card.content || '');
-        const sourceFile = parsedSource.sourceFile || card.sourceFile;
-        const sourceBlock = (parsedSource.sourceBlock || card.sourceBlock || '').replace(/^\^/, '');
-
-        if (!sourceFile) continue;
-        if (!sourceFile.toLowerCase().endsWith('.md')) {
-          skippedNonMarkdownCount++;
-          continue;
-        }
-
-        const normalizedFilePath = normalizePath(sourceFile);
-        const sourceKey = `${normalizedFilePath}#${sourceBlock}`;
-        if (!sourceMap.has(sourceKey)) {
-          sourceMap.set(sourceKey, {
-            filePath: normalizedFilePath,
-            blockId: sourceBlock || undefined
-          });
-        }
-      }
-
-      const sources = Array.from(sourceMap.values()).sort((a, b) => {
-        const aKey = `${a.filePath}#${a.blockId || ''}`;
-        const bKey = `${b.filePath}#${b.blockId || ''}`;
-        return aKey.localeCompare(bKey, 'zh-Hans-CN');
-      });
-
-      if (sources.length === 0) {
-        new Notice(t('deckStudyPage.knowledgeGraph.noSources'));
-        return;
-      }
-
-      const rawSettings = plugin.settings as any;
-      const parentFolder = rawSettings?.weaveParentFolder as string | undefined;
-      const graphDir = normalizePath(getV2Paths(parentFolder).memory.knowledgeGraphs);
-      const adapter = plugin.app.vault.adapter;
-      await migrateLegacyDirectory(plugin.app, {
-        legacyPath: normalizePath(`${getV2Paths(parentFolder).root}/deck-graphs`),
-        targetPath: graphDir,
-        label: 'deck-graphs',
-      });
-      await DirectoryUtils.ensureDirRecursive(adapter, graphDir);
-      const graphPath = await resolveDeckKnowledgeGraphPath(deck, graphDir);
-
-      const content = buildDeckKnowledgeGraphContent(deck, deckCards, sources, skippedNonMarkdownCount);
-      if (await adapter.exists(graphPath)) {
-        await adapter.write(graphPath, content);
-      } else {
-        await plugin.app.vault.create(graphPath, content);
-      }
-
-      const graphFile = plugin.app.vault.getAbstractFileByPath(graphPath);
-      if (!graphFile) {
-        throw new Error(`Knowledge graph source file not found: ${graphPath}`);
-      }
-
-      // 先在当前标签页体系中创建一个后台 markdown 宿主 leaf，
-      // 让 localgraph 始终跟随该索引 md，而不是被当前活动文档抢走上下文。
-      const sourceLeaf = plugin.app.workspace.getLeaf('tab');
-      await sourceLeaf.openFile(graphFile as any, { active: false });
-
-      const graphLeaf = plugin.app.workspace.getLeaf('tab');
-      if (typeof (graphLeaf as any).setGroupMember === 'function') {
-        (graphLeaf as any).setGroupMember(sourceLeaf);
-      }
-      await graphLeaf.setViewState({
-        type: 'localgraph',
-        state: { file: graphPath }
-      });
-
-      plugin.app.workspace.setActiveLeaf(graphLeaf, { focus: true });
-
-      const view = graphLeaf.view;
-      if (view) {
-        if (typeof (view as any).update === 'function') (view as any).update();
-        if (typeof (view as any).render === 'function') (view as any).render();
-        if (typeof view.onResize === 'function') view.onResize();
-      }
-      plugin.app.workspace.trigger('layout-change');
-
-      setTimeout(async () => {
-        if (graphLeaf && !(graphLeaf as any).detached) {
-          try {
-            await graphLeaf.setViewState({
-              type: 'localgraph',
-              state: { file: graphPath }
-            });
-          } catch {
-            // 忽略局部图谱延迟刷新失败
-          }
-        }
-      }, 150);
-
-      new Notice(t('deckStudyPage.knowledgeGraph.opened', { name: deck.name, count: String(sources.length) }));
-    } catch (error) {
-      logger.error('[DeckStudyPage] 打开牌组知识图谱失败:', error);
-      new Notice(t('deckStudyPage.knowledgeGraph.openFailed'));
-    }
-  }
-
 // 解散牌组
   async function dissolveDeck(deckId: string) {
     try {
@@ -2879,11 +2303,7 @@
       }
 
       const deckCards = await dataStorage.getDeckCards(deckId);
-      const initialAnalyticsTab = premiumGuard.canUseFeature(PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION, deckStudyFeatureContext)
-        ? 'retention'
-        : premiumGuard.canUseFeature(PREMIUM_FEATURES.DECK_ANALYTICS_TIMING, deckStudyFeatureContext)
-          ? 'timing'
-          : 'quantity';
+      const initialAnalyticsTab = 'retention';
       
       deckAnalyticsModalInstance?.close();
       deckAnalyticsModalInstance = new DeckAnalyticsModalObsidian(plugin.app, {
@@ -2941,15 +2361,6 @@
       }
     };
 
-// 处理 APKG 导入
-    const handleAPKGImport = () => {
-      if (!isAPKGImportEnabled()) {
-        return;
-      }
-
-      showAPKGImportModalWithObsidianAPI();
-    };
-
 // 处理 CSV 导入（使用 CSVImportModal 向导）
     const handleCSVImport = () => {
       if (!isCSVImportEnabled()) {
@@ -2969,14 +2380,12 @@
     document.addEventListener('create-deck', handleCreateDeck);
     document.addEventListener('create-question-bank', handleCreateDeck);
     document.addEventListener('more-actions', handleMoreActions);
-    document.addEventListener('apkg-import', handleAPKGImport);
     document.addEventListener('csv-import', handleCSVImport);
     document.addEventListener('json-export', handleJSONExport);
     return () => {
       document.removeEventListener('create-deck', handleCreateDeck);
       document.removeEventListener('create-question-bank', handleCreateDeck);
       document.removeEventListener('more-actions', handleMoreActions);
-      document.removeEventListener('apkg-import', handleAPKGImport);
       document.removeEventListener('csv-import', handleCSVImport);
       document.removeEventListener('json-export', handleJSONExport);
     };
@@ -2985,7 +2394,6 @@
 
 
   let contentAreaProps = $derived({
-    currentView,
     selectedFilter,
     dataStorage,
     plugin,
@@ -3008,10 +2416,8 @@
     onContinueStudy: handleContinueStudy,
     onAdvanceStudy: startAdvanceStudy,
     onOpenDeckAnalytics: openDeckAnalytics,
-    onAssociateQuestionBank: associateQuestionBank,
     onEditDeck: editDeck,
     onDeleteDeck: deleteDeck,
-    onOpenKnowledgeGraph: openKnowledgeGraph,
     onDissolveDeck: dissolveDeck,
     onRefreshData: refreshData,
     onPromoteEmergentDeck: handlePromoteEmergentDeck,
@@ -3047,11 +2453,9 @@
       await refreshData();
     },
     onCloseCelebration: handleCloseCelebration,
-    onStartPractice: handleStartPractice,
     onCloseNoCardsModal: handleCloseNoCardsModal,
     onAdvanceStudy: handleAdvanceStudy,
     onViewStats: handleViewStats,
-    onStartPracticeFromNoCards: handleStartPracticeFromNoCards,
     onCloseActivationPrompt: () => {
       showActivationPrompt = false;
     },
@@ -3059,14 +2463,7 @@
 </script>
 
 <div class="anki-app deck-study-page">
-  <!--  移动端头部组件 -->
-  {#if isMobile}
-    <MobileDeckStudyHeader
-      {selectedFilter}
-      onMenuClick={handleMobileMenuClick}
-      onFilterSelect={handleFilterSelect}
-    />
-  {/if}
+  <!-- 移动端：菜单与分类圆点由 WeaveView 原生 view-header + WeaveMobileHeaderCenter 提供 -->
 
   <!--  加载动画 - 全屏显示 -->
   {#if isLoading}

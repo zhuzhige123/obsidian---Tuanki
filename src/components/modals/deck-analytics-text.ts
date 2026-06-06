@@ -26,7 +26,8 @@ export function createDeckAnalyticsText(language: SupportedLanguage) {
       quantity: { title: tx('tab.quantity.title'), mobile: tx('tab.quantity.mobile') },
       timing: { title: tx('tab.timing.title'), mobile: tx('tab.timing.mobile') },
       difficulty: { title: tx('tab.difficulty.title'), mobile: tx('tab.difficulty.mobile') },
-      loadForecast: { title: tx('tab.loadForecast.title'), mobile: tx('tab.loadForecast.mobile') }
+      loadForecast: { title: tx('tab.loadForecast.title'), mobile: tx('tab.loadForecast.mobile') },
+      calibration: { title: tx('tab.calibration.title'), mobile: tx('tab.calibration.mobile') }
     },
     toolbar: {
       decks: tx('toolbar.decks'),
@@ -83,6 +84,14 @@ export function createDeckAnalyticsText(language: SupportedLanguage) {
       late: tx('timing.late'),
       axisX: tx('timing.axisX'),
       axisY: tx('timing.axisY')
+    },
+    calibration: {
+      performanceTitle: tx('calibration.performanceTitle'),
+      performanceDesc: tx('calibration.performanceDesc'),
+      againRate: tx('calibration.againRate'),
+      passRate: tx('calibration.passRate'),
+      axisX: tx('calibration.axisX'),
+      axisY: tx('calibration.axisY')
     },
     load: {
       low: tx('load.low'),

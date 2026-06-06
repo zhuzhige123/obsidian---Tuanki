@@ -1,4 +1,5 @@
 import { Menu, TFile } from "obsidian";
+import { addMenuRadioChoice, addMenuSubmenuGroup } from "../../utils/obsidian-menu";
 
 export interface AIAssistantSourceFileMenuOptions {
 	files: TFile[];
@@ -85,13 +86,7 @@ function populateAIAssistantSourceFileTreeMenu(
 ): void {
 	for (const node of nodes) {
 		if (node.kind === "folder") {
-			menu.addItem((item) => {
-				item.setTitle(node.name).setIcon("folder-open");
-				const submenuOwner = item as unknown as { setSubmenu?: () => Menu };
-				const submenu = submenuOwner.setSubmenu?.call(submenuOwner);
-				if (!submenu) {
-					return;
-				}
+			addMenuSubmenuGroup(menu, { title: node.name, icon: "folder-open" }, (submenu) => {
 				populateAIAssistantSourceFileTreeMenu(
 					submenu,
 					node.children ?? [],
@@ -107,15 +102,14 @@ function populateAIAssistantSourceFileTreeMenu(
 		}
 		const file = node.file;
 
-		menu.addItem((item) => {
-			item
-				.setTitle(node.name)
-				.setIcon("file-text")
-				.setChecked(currentFilePath === file.path)
-				.onClick(() => {
-					void onSelect(file);
-				});
-		});
+		addMenuRadioChoice(
+			menu,
+			{ title: node.name, icon: "file-text", value: file },
+			currentFilePath === file.path,
+			(selectedFile) => {
+				void onSelect(selectedFile);
+			}
+		);
 	}
 }
 

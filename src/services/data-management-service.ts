@@ -4,8 +4,10 @@ import { logger } from "../utils/logger";
  * 提供数据概览、文件夹结构分析、数据导入导出等核心功能
  */
 
-import { TFile, TFolder } from "obsidian";
+import { Notice, TFile, TFolder } from "obsidian";
 import { WEAVE_DATA, getPluginPaths, getV2PathsFromApp } from "../config/paths";
+import { revealVaultPathInExplorer } from "../utils/reveal-vault-folder";
+import { writeSystemClipboardText } from "../utils/system-clipboard";
 import type { WeaveDataStorage } from "../data/storage";
 import type {
 	DataOverview,
@@ -254,20 +256,12 @@ export class DataManagementService {
 				throw new Error(`数据文件夹不存在: ${dataFolderPath}`);
 			}
 
-			// 获取绝对路径并用 Electron shell 打开
-			const absolutePath = (adapter as any).basePath
-				? `${(adapter as any).basePath}/${dataFolderPath}`.replace(/\//g, "\\")
-				: dataFolderPath;
-
-			const electron = (window as any).require?.("electron");
-			if (electron?.remote?.shell) {
-				electron.remote.shell.openPath(absolutePath);
-			} else {
-				const remoteModule = (window as any).require?.("@electron/remote");
-				if (remoteModule?.shell) {
-					remoteModule.shell.openPath(absolutePath);
-				}
+			if (revealVaultPathInExplorer(this.plugin.app, dataFolderPath)) {
+				return;
 			}
+
+			await writeSystemClipboardText(dataFolderPath);
+			new Notice(`数据文件夹: ${dataFolderPath}（路径已复制到剪贴板）`);
 		} catch (error) {
 			logger.error("打开数据文件夹失败:", error);
 			throw new Error(

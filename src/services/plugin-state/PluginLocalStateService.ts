@@ -10,6 +10,7 @@ import type {
 	GenerationConfig,
 	PromptTemplate,
 } from "../../types/ai-types";
+import type { CardStagingSession } from "../../types/card-staging-types";
 import type { IRCalendarSidebarSettings } from "../../types/plugin-settings.d";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
@@ -104,6 +105,9 @@ export interface AIAssistantLocalPreferences {
 	lastSelectedSourceFilePath?: string;
 	lastSelectedPromptFilePath?: string;
 	lastSelectedParsePresetId?: string;
+	followActiveDocument?: boolean;
+	stagingStudyMode?: "memory" | "exam";
+	previewViewMode?: "preview" | "study";
 }
 
 export interface AIGenerationHistoryEntry {
@@ -176,10 +180,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const DECK_VIEW_STORAGE_KEY = "weave-deck-view";
+const DECK_VIEW_INSERT_SELECTION_KEY = "weave-deck-view-insert-selection";
 const CARD_MANAGEMENT_VIEW_PREFERENCES_KEY = "weave-card-management-view-preferences";
 const STUDY_INTERFACE_VIEW_PREFERENCES_KEY = "weave-study-interface-view-preferences";
 const IR_CALENDAR_SIDEBAR_SETTINGS_KEY = "weave-ir-calendar-sidebar-settings";
 const AI_ASSISTANT_PREFERENCES_KEY = "weave-ai-assistant-preferences";
+const CARD_STAGING_SESSION_KEY = "weave-card-staging-session";
 const CREATE_CARD_PREFERENCES_KEY = "weave-create-card-preferences";
 const EDITOR_MODAL_SIZE_STATE_KEY = "weave-editor-modal-size-state";
 const PLUGIN_DATA_RECOVERY_DIR_NAME = "config-recovery";
@@ -404,6 +410,24 @@ export class PluginLocalStateService {
 		await this.setManagedLocalStorageEntry(DECK_VIEW_STORAGE_KEY, deckView);
 	}
 
+	async loadDeckViewInsertSelection(): Promise<string[]> {
+		const raw = await this.loadManagedJsonEntry<unknown>(DECK_VIEW_INSERT_SELECTION_KEY);
+		if (!Array.isArray(raw)) {
+			return [];
+		}
+		return raw
+			.filter((item): item is string => typeof item === "string")
+			.map((item) => item.trim())
+			.filter(Boolean);
+	}
+
+	async saveDeckViewInsertSelection(deckIds: string[]): Promise<void> {
+		const normalized = Array.from(
+			new Set(deckIds.map((id) => String(id || "").trim()).filter(Boolean))
+		);
+		await this.saveManagedJsonEntry(DECK_VIEW_INSERT_SELECTION_KEY, normalized);
+	}
+
 	async loadManagedLocalStorageEntries(): Promise<Record<string, string>> {
 		const data = await this.readStateFile<unknown>(getPluginPaths(this.app).state.localStorage);
 		return this.normalizeStringMap(data);
@@ -492,6 +516,19 @@ export class PluginLocalStateService {
 			AI_ASSISTANT_PREFERENCES_KEY,
 			this.normalizeAIAssistantPreferences(preferences)
 		);
+	}
+
+	async loadCardStagingSession(): Promise<CardStagingSession | null> {
+		const session = await this.loadManagedJsonEntry<CardStagingSession>(CARD_STAGING_SESSION_KEY);
+		return session ?? null;
+	}
+
+	async saveCardStagingSession(session: CardStagingSession): Promise<void> {
+		await this.saveManagedJsonEntry(CARD_STAGING_SESSION_KEY, session);
+	}
+
+	async clearCardStagingSession(): Promise<void> {
+		await this.setManagedLocalStorageEntry(CARD_STAGING_SESSION_KEY, null);
 	}
 
 	async loadCreateCardPreferences(): Promise<CreateCardPreferencesState | null> {
@@ -626,6 +663,15 @@ export class PluginLocalStateService {
 		}
 		if (typeof value.lastSelectedParsePresetId === "string") {
 			normalized.lastSelectedParsePresetId = value.lastSelectedParsePresetId;
+		}
+		if (typeof value.followActiveDocument === "boolean") {
+			normalized.followActiveDocument = value.followActiveDocument;
+		}
+		if (value.stagingStudyMode === "memory" || value.stagingStudyMode === "exam") {
+			normalized.stagingStudyMode = value.stagingStudyMode;
+		}
+		if (value.previewViewMode === "preview" || value.previewViewMode === "study") {
+			normalized.previewViewMode = value.previewViewMode;
 		}
 		return normalized;
 	}
