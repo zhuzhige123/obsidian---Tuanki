@@ -71,7 +71,16 @@ let showCelebrationModal = $state(false);
 let celebrationDeckName = $state<string>('');
 let celebrationDeckId = $state<string>('');
 let celebrationStats = $state<CelebrationStats | null>(null);
-let shouldCloseAfterCelebration = $state(false); //  标记是否需要在庆祝后关闭
+/** 庆祝窗关闭后是否应关闭记忆学习标签页（AI 暂存学习不走此路径） */
+let shouldCloseAfterCelebration = $state(false);
+
+function closeStudyView(options?: { force?: boolean }) {
+  if (viewInstance && typeof viewInstance.close === "function") {
+    viewInstance.close(options);
+    return;
+  }
+  onClose();
+}
 
 // 状态监控
 let currentDeckId = $state(untrack(() => deckId || ''));
@@ -560,6 +569,7 @@ function handleStudyComplete(session: StudySession) {
         ? t('deckStudyPage.notices.shortTermResumeAt', { time: nextDueTime })
         : t('deckStudyPage.notices.shortTermResumeSoon')
     );
+    closeStudyView();
     return;
   }
   
@@ -602,7 +612,7 @@ function handleStudyComplete(session: StudySession) {
     })();
   } else {
     // 没有学习卡片，直接关闭
-    onClose();
+    closeStudyView();
   }
 }
 
@@ -616,7 +626,7 @@ function handleCloseRequest() {
     shouldCloseAfterCelebration = true;
   } else {
     // 没有庆祝界面，直接关闭
-    onClose();
+    closeStudyView();
   }
 }
 
@@ -624,24 +634,24 @@ function handleCloseRequest() {
  *  关闭庆祝模态窗
  */
 async function handleCloseCelebration() {
+  const shouldCloseStudyView = shouldCloseAfterCelebration;
+
   showCelebrationModal = false;
   celebrationStats = null;
   celebrationDeckId = '';
-  
-  // 如果学习已完成（shouldCloseAfterCelebration = true），关闭整个学习视图
-  if (shouldCloseAfterCelebration) {
-    try {
-      await plugin.returnToDeckStudyView('memory');
-    } finally {
-      // 延迟一点让动画完成
-      setTimeout(() => {
-        onClose();
-      }, 100);
-    }
-  }
-  
-  // 重置标志
   shouldCloseAfterCelebration = false;
+
+  if (!shouldCloseStudyView) {
+    return;
+  }
+
+  try {
+    await plugin.returnToDeckStudyView('memory');
+  } finally {
+    setTimeout(() => {
+      closeStudyView({ force: true });
+    }, 100);
+  }
 }
 
 let showCelebrationExamConfigModal = $state(false);
@@ -666,7 +676,6 @@ function dismissCelebrationModal() {
 
 async function handleStartPractice(event: MouseEvent) {
   const shouldCloseStudyView = shouldCloseAfterCelebration;
-  shouldCloseAfterCelebration = false;
 
   try {
     const selection = await showCelebrationQuestionBankPicker(
@@ -679,10 +688,12 @@ async function handleStartPractice(event: MouseEvent) {
       return;
     }
 
+    shouldCloseAfterCelebration = false;
+
     if (selection === 'resumed') {
       dismissCelebrationModal();
       if (shouldCloseStudyView) {
-        setTimeout(() => onClose(), 100);
+        setTimeout(() => closeStudyView({ force: true }), 100);
       }
       return;
     }
@@ -712,7 +723,7 @@ async function handleCelebrationExamModeSelected(mode: TestMode, config?: Questi
 
   try {
     await openQuestionBankSessionWithModeConfig(plugin, bankId, bankName, questions, mode, config);
-    setTimeout(() => onClose(), 100);
+    setTimeout(() => closeStudyView({ force: true }), 100);
   } catch (error) {
     logger.error('[StudyViewWrapper] 开始考试失败:', error);
     new Notice(t('deckStudyPage.exam.startFailed'));

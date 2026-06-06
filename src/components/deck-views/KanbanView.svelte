@@ -408,11 +408,11 @@
     const saved = vaultStorage.getItem('weave-deck-kanban-groupby');
     const validTypes = deckMode === 'memory'
       ? ['completion', 'timeRange', 'priority', 'tag', 'tagGroup']
-      : ['tag', 'tagGroup'];
+      : ['accuracy', 'tag', 'tagGroup'];
     if (saved && validTypes.includes(saved)) {
       groupBy = saved as DeckGroupByType;
     } else if (deckMode !== 'memory') {
-      groupBy = 'tag';
+      groupBy = 'accuracy';
     }
     
     // 加载选定的标签组
@@ -648,7 +648,7 @@
   function buildKanbanNativeGroupBySubmenu(menu: Menu) {
     const groupTypes: DeckGroupByType[] = deckMode === 'memory'
       ? ['completion', 'timeRange', 'priority', 'tag', 'tagGroup']
-      : ['tag', 'tagGroup'];
+      : ['accuracy', 'tag', 'tagGroup'];
     const tagGroupUnavailable = !plugin?.settings.deckTagGroups || plugin.settings.deckTagGroups.length === 0;
 
     menu.addItem((item) => {

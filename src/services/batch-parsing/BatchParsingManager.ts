@@ -295,6 +295,27 @@ export class BatchParsingManager {
 	 * 解析单个文件（使用映射逻辑）
 	 * 替代旧的 main.batchParseCurrentFile()
 	 */
+	/**
+	 * 自动监听路径：走与手动批量解析相同的映射、UUID 与三方合并逻辑，但不弹通知。
+	 */
+	async syncSingleFileFromWatcher(file: TFile): Promise<void> {
+		try {
+			const result = await this.batchService.parseSingleFileWithMapping(file);
+			if (!result.success) {
+				this.logDebug(result.message || `自动批量解析跳过: ${file.path}`);
+				return;
+			}
+			if (!result.parsedCards || result.parsedCards.length === 0) {
+				return;
+			}
+
+			await this.plugin.addCardsToDB(result.parsedCards);
+			this.logDebug(`自动批量解析已同步 ${result.parsedCards.length} 张卡片: ${file.path}`);
+		} catch (error) {
+			logger.error("[BatchParsingManager] 自动批量解析失败:", error);
+		}
+	}
+
 	async parseSingleFile(file: TFile): Promise<void> {
 		try {
 			const result = await this.batchService.parseSingleFileWithMapping(file);

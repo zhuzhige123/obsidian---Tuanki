@@ -1,4 +1,5 @@
-export const DEFAULT_RATING_LABEL_STYLE = "classic" as const;
+/** 新用户默认：难度文案 + 下次复习间隔（设置项「经典 + 时间」） */
+export const DEFAULT_RATING_LABEL_STYLE = "classicTime" as const;
 
 export type RatingLabelStyle = "classic" | "classicTime" | "mood" | "moodTime" | "spoken";
 

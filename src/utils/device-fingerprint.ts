@@ -18,10 +18,10 @@ function getRuntimePlatformLabel(): string {
 /**
  * 仅收集跨库、跨插件稳定的特征。禁止 app.appId、vault 路径。
  */
-export function collectStableDeviceComponents(_app: App): string[] {
+export async function collectStableDeviceComponents(app: App): Promise<string[]> {
 	const components: string[] = [];
 
-	const crossPluginId = getOrCreateCrossPluginDeviceId();
+	const crossPluginId = await getOrCreateCrossPluginDeviceId(app);
 	if (crossPluginId) {
 		components.push(`weave-install:${crossPluginId}`);
 	}
@@ -31,19 +31,6 @@ export function collectStableDeviceComponents(_app: App): string[] {
 	components.push(Intl.DateTimeFormat().resolvedOptions().timeZone || "unknown");
 	components.push(String(navigator.hardwareConcurrency || 0));
 	components.push(String(navigator.maxTouchPoints || 0));
-
-	try {
-		const os = (window as unknown as { require?: (id: string) => unknown }).require?.("os") as
-			| { platform?: () => string; arch?: () => string; hostname?: () => string }
-			| undefined;
-		if (os) {
-			components.push(os.platform?.() || "unknown");
-			components.push(os.arch?.() || "unknown");
-			components.push(os.hostname?.() || "unknown");
-		}
-	} catch {
-		components.push("no-os-info");
-	}
 
 	return components.filter((value) => value && value !== "undefined");
 }
@@ -56,6 +43,6 @@ export async function sha256Hex(message: string): Promise<string> {
 }
 
 export async function generateStableDeviceFingerprint(app: App): Promise<string> {
-	const fingerprint = collectStableDeviceComponents(app).join("|");
+	const fingerprint = (await collectStableDeviceComponents(app)).join("|");
 	return sha256Hex(fingerprint);
 }

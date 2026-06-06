@@ -8,6 +8,7 @@ import type {
 import type { IRPointSnapshot } from "../../types/ir-point-storage-types";
 import type { ReadingMaterial } from "../../types/incremental-reading-types";
 import { logger } from "../../utils/logger";
+import { INCREMENTAL_READING_PLUGIN_ID } from "../../utils/ir-plugin-integration";
 import { IRStorageService } from "./IRStorageService";
 import { IRPointDataReadService } from "./IRPointDataReadService";
 import { getSharedIRWorkspaceSnapshotService } from "./IRWorkspaceSnapshotService";
@@ -83,14 +84,24 @@ function dedupeCardsByUuid(cards: Card[]): Card[] {
 }
 
 async function collectIRExtractCardIds(
-        plugin: {
-                readingMaterialManager?: {
-                        getAllMaterials?: () => ReadingMaterial[] | Promise<ReadingMaterial[]>;
-                };
+	plugin: {
+		app?: App;
+		readingMaterialManager?: {
+			getAllMaterials?: () => ReadingMaterial[] | Promise<ReadingMaterial[]>;
+		};
 	}
 ): Promise<Set<string>> {
 	const extractCardIds = new Set<string>();
-	const manager = plugin?.readingMaterialManager;
+	const manager =
+		plugin?.readingMaterialManager?.getAllMaterials
+			? plugin.readingMaterialManager
+			: ((
+					plugin.app?.plugins?.getPlugin?.(INCREMENTAL_READING_PLUGIN_ID) as {
+						readingMaterialManager?: {
+							getAllMaterials?: () => ReadingMaterial[] | Promise<ReadingMaterial[]>;
+						};
+					} | null
+				)?.readingMaterialManager ?? null);
 	if (!manager?.getAllMaterials) {
 		return extractCardIds;
 	}
@@ -114,6 +125,7 @@ async function collectIRExtractCardIds(
 export async function loadIRCardManagementData(options: {
 	app: App;
 	plugin: {
+		app: App;
 		settings?: {
 			incrementalReading?: { importFolder?: string };
 			weaveParentFolder?: string;

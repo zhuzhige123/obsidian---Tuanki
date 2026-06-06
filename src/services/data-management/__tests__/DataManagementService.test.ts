@@ -37,6 +37,7 @@ import {
   SPLIT_PLUGIN_RESIDUE_CHECK_TYPES,
 } from '../DataManagementService';
 import { WDeckService } from '../../wdeck/WDeckService';
+import { DataConsistencyService } from '../../reference-deck/DataConsistencyService';
 import { extractBodyContent, parseYAMLFromContent } from '../../../utils/yaml-utils';
 
 function normalizeTestPath(path: string): string {
@@ -181,6 +182,9 @@ function createMemoryPlugin(initialFiles: Record<string, string> = {}, initialDi
   const clearCache = vi.fn();
   const plugin = {
     app: {
+      plugins: {
+        getPlugin: vi.fn(() => null),
+      },
       fileManager: {
         processFrontMatter: vi.fn(async (file: { path: string }, handler: (frontmatter: Record<string, unknown>) => void) => {
           const normalized = normalizeTestPath(file.path);
@@ -232,16 +236,19 @@ function createMemoryPlugin(initialFiles: Record<string, string> = {}, initialDi
       getDecks: vi.fn().mockResolvedValue([]),
       saveCard: vi.fn().mockResolvedValue({ success: true }),
     },
-    cardFileService: {
-      clearCache,
+    wdeckService: {
+      rebuildCache: vi.fn().mockResolvedValue(undefined),
     },
     saveSettings: vi.fn().mockResolvedValue(undefined),
   } as any;
+
+  plugin.wdeckService = new WDeckService(plugin);
 
   return {
     plugin,
     files,
     folders,
+    rebuildCache: plugin.wdeckService.rebuildCache,
     clearCache,
   };
 }
@@ -253,7 +260,8 @@ afterEach(() => {
 
 describe('DataManagementService', () => {
   it('fixAll only executes the default safe fix set', async () => {
-    const { plugin, clearCache } = createMemoryPlugin();
+    const { plugin } = createMemoryPlugin();
+    const rebuildCacheSpy = vi.spyOn(plugin.wdeckService, 'rebuildCache');
     const service = new DataManagementService(plugin);
     const fixSpy = vi
       .spyOn(service, 'fix')
@@ -271,7 +279,7 @@ describe('DataManagementService', () => {
 
     expect(fixSpy.mock.calls.map(([type]) => type)).toEqual(DEFAULT_BATCH_FIX_TYPES);
     expect(results.map((result) => result.type)).toEqual(DEFAULT_BATCH_FIX_TYPES);
-    expect(clearCache).toHaveBeenCalledTimes(DEFAULT_BATCH_FIX_TYPES.length);
+    expect(rebuildCacheSpy).toHaveBeenCalledTimes(DEFAULT_BATCH_FIX_TYPES.length);
   });
 
   it('checks orphan cards from authoritative card membership instead of deck cache', async () => {
@@ -369,12 +377,15 @@ describe('DataManagementService', () => {
     plugin.dataStorage.deleteCards = vi.fn(async (uuids: string[]) => {
       cards = cards.filter((card) => !uuids.includes(card.uuid));
       return {
-        deleted: ['card-dup'],
+        deleted: uuids,
         failed: []
       };
     });
     plugin.dataStorage.saveDeck = vi.fn(async () => ({ success: true }));
-    plugin.cardFileService.deleteCard = vi.fn(async () => true);
+
+    const repairConsistencySpy = vi
+      .spyOn(DataConsistencyService.prototype, 'repairConsistency')
+      .mockResolvedValue({ success: true });
 
     const service = new DataManagementService(plugin);
     const result = await service.fix('duplicate_cards', { allowHighRisk: true });
@@ -385,7 +396,7 @@ describe('DataManagementService', () => {
       failed: 0
     });
     expect(plugin.dataStorage.deleteCards).toHaveBeenCalledWith(['card-dup']);
-    expect(plugin.cardFileService.deleteCard).not.toHaveBeenCalled();
+    repairConsistencySpy.mockRestore();
   });
 
 	it('detects repairable structured data file format issues across wdeck irdeck and qbank files', async () => {
@@ -903,7 +914,7 @@ describe('DataManagementService', () => {
     );
   });
 
-  it('detects legacy incremental-reading frontmatter residue as a temporary standalone check item', async () => {
+  it('delegates split-plugin residue checks instead of scanning in Weave', async () => {
     const { plugin } = createMemoryPlugin({
       'notes/ir-source.md': [
         '---',
@@ -915,14 +926,6 @@ describe('DataManagementService', () => {
         '---',
         '正文内容'
       ].join('\n'),
-      'notes/normal.md': [
-        '---',
-        'title: 正常',
-        'tags:',
-        '  - keep',
-        '---',
-        '正常正文'
-      ].join('\n')
     });
     const service = new DataManagementService(plugin);
 
@@ -930,13 +933,10 @@ describe('DataManagementService', () => {
 
     expect(result).toMatchObject({
       type: 'ir_redundant_frontmatter_cleanup',
-      status: 'warning',
-      count: 1,
+      status: 'ok',
+      count: 0,
     });
-    expect(result.message).toContain('临时批量处理项');
-    expect(result.items[0]).toContain('notes/ir-source.md');
-    expect(result.items[0]).toContain('weave-reading-category');
-    expect(result.items[0]).toContain('weave-reading-topic-id');
+    expect(result.message).toContain('weave-incremental-reading');
   });
 
   it('filters out resolved temporary check results but keeps long-term and failing temporary results', () => {
@@ -978,49 +978,6 @@ describe('DataManagementService', () => {
     expect(getDataCheckLifecycleNote('card_deck_consistency')).toContain('we_decks');
   });
 
-  it('removes only targeted incremental-reading legacy frontmatter fields while preserving normal data', async () => {
-    const original = [
-      '---',
-      'title: 测试',
-      'tags:',
-      '  - keep',
-      'weave-reading-id: reading-1',
-      'weave-reading-category: later',
-      'weave-reading-priority: 50',
-      'weave-reading-topic-id: deck-1',
-      'weave-reading-ir-deck-id: legacy-deck-1',
-      'custom_field: keep-me',
-      '---',
-      '正文第一行',
-      '',
-      '正文第二行'
-    ].join('\n');
-    const { plugin, files } = createMemoryPlugin({
-      'notes/ir-source.md': original
-    });
-    const service = new DataManagementService(plugin);
-
-    const result = await service.fix('ir_redundant_frontmatter_cleanup', { allowHighRisk: true });
-
-    expect(result).toEqual({
-      type: 'ir_redundant_frontmatter_cleanup',
-      success: 1,
-      failed: 0,
-      errors: [],
-    });
-
-    const updated = files.get('notes/ir-source.md') || '';
-    const yaml = parseYAMLFromContent(updated);
-    expect(yaml.title).toBe('测试');
-    expect(yaml.tags).toEqual(['keep']);
-    expect(yaml['weave-reading-id']).toBe('reading-1');
-    expect(yaml['custom_field']).toBe('keep-me');
-    expect(yaml['weave-reading-category']).toBeUndefined();
-    expect(yaml['weave-reading-priority']).toBeUndefined();
-    expect(yaml['weave-reading-topic-id']).toBeUndefined();
-    expect(yaml['weave-reading-ir-deck-id']).toBeUndefined();
-    expect(extractBodyContent(updated)).toBe('正文第一行\n\n正文第二行');
-  });
 
   it('recovers nested question-bank migration conflict JSON back into the canonical file', async () => {
     const v2Paths = getV2Paths('');
@@ -1217,6 +1174,43 @@ describe('DataManagementService', () => {
     expect(isHiddenRescueCheckType('wdeck_migration')).toBe(true);
   });
 
+  it('delegates split-plugin residue checks to the owning standalone plugin', async () => {
+    const { plugin } = createMemoryPlugin({});
+    const service = new DataManagementService(plugin);
+
+    const notInstalled = await service.check('ir_point_storage_migration');
+    expect(notInstalled.status).toBe('ok');
+    expect(notInstalled.count).toBe(0);
+    expect(notInstalled.message).toContain('weave-incremental-reading');
+    expect(notInstalled.message).toContain('安装');
+
+    vi.mocked(plugin.app.plugins.getPlugin).mockImplementation((id: string) =>
+      id === 'weave-incremental-reading' ? {} : null
+    );
+
+    const installed = await service.check('ir_point_storage_migration');
+    expect(installed.status).toBe('ok');
+    expect(installed.count).toBe(0);
+    expect(installed.message).toContain('weave-incremental-reading');
+    expect(installed.message).not.toContain('安装');
+  });
+
+  it('delegates split-plugin residue fixes to standalone IR/EPUB plugins', async () => {
+    const { plugin } = createMemoryPlugin({});
+    const service = new DataManagementService(plugin);
+
+    for (const type of SPLIT_PLUGIN_RESIDUE_CHECK_TYPES) {
+      const result = await service.fix(type, { allowHighRisk: true });
+      expect(result.type).toBe(type);
+      expect(result.success).toBe(0);
+      expect(result.failed).toBe(1);
+      expect(result.errors[0]?.uuid).toBe(type);
+      expect(result.errors[0]?.error).toContain(
+        type.startsWith('ir_') ? 'weave-incremental-reading' : 'weave-epub-reader'
+      );
+    }
+  });
+
   it('clears the current retirement candidate set after the remaining history items are demoted to hidden rescue', () => {
     expect(RETIREMENT_CANDIDATE_CHECK_TYPES).toEqual([]);
 
@@ -1323,10 +1317,8 @@ describe('DataManagementService', () => {
       }),
     });
     const saveCardsBatch = vi.fn().mockResolvedValue(undefined);
-    const fallbackSaveCardsBatch = vi.fn().mockResolvedValue(true);
     const markFullRebuildRequired = vi.fn().mockResolvedValue(undefined);
     plugin.dataStorage.saveCardsBatch = saveCardsBatch;
-    plugin.cardFileService.saveCardsBatch = fallbackSaveCardsBatch;
     plugin.deckMembershipIndexService = { markFullRebuildRequired };
 
     const service = new DataManagementService(plugin);
@@ -1336,7 +1328,6 @@ describe('DataManagementService', () => {
     expect(result.importedCards).toBe(1);
     expect(result.importedDecks).toBe(1);
     expect(saveCardsBatch).toHaveBeenCalledTimes(1);
-    expect(fallbackSaveCardsBatch).not.toHaveBeenCalled();
     expect(markFullRebuildRequired).toHaveBeenCalledTimes(1);
     expect(saveCardsBatch).toHaveBeenCalledWith([
       expect.objectContaining({
@@ -1417,16 +1408,12 @@ describe('DataManagementService', () => {
     expect(files.has(monitoringConflictPath)).toBe(true);
   });
 
-  it('detects cards that still use legacy epub source link formats', async () => {
+  it('delegates legacy epub source link checks to the EPUB reader plugin', async () => {
     const { plugin } = createMemoryPlugin();
     plugin.dataStorage.getCards.mockResolvedValue([
       {
         uuid: 'card-1',
         content: '[[Books/demo.epub#weave-cfi=readium%3Aabc&chapter=3&text=Hello%20world|Old]]',
-      },
-      {
-        uuid: 'card-2',
-        content: '[[Books/demo.epub#weave-cfi=readium:xyz|demo]]',
       },
     ]);
     const service = new DataManagementService(plugin);
@@ -1435,71 +1422,13 @@ describe('DataManagementService', () => {
 
     expect(result).toMatchObject({
       type: 'epub_source_link_migration',
-      status: 'warning',
-      count: 1,
-      items: ['card-1'],
+      status: 'ok',
+      count: 0,
     });
+    expect(result.message).toContain('weave-epub-reader');
   });
 
-  it('migrates legacy epub source links to the new cfi-only format', async () => {
-    const { plugin } = createMemoryPlugin();
-    plugin.dataStorage.getCards.mockResolvedValue([
-      {
-        uuid: 'card-1',
-        content:
-          '鍓嶆枃 [[Books/demo.epub#weave-cfi=readium%3Aabc&chapter=3&text=Hello%20world|Old]] 鍚庢枃',
-      },
-    ]);
-    const service = new DataManagementService(plugin);
 
-    const result = await service.fix('epub_source_link_migration');
-
-    expect(result).toEqual({
-      type: 'epub_source_link_migration',
-      success: 1,
-      failed: 0,
-      errors: [],
-    });
-    expect(plugin.dataStorage.saveCard).toHaveBeenCalledWith(
-      expect.objectContaining({
-        uuid: 'card-1',
-        content: expect.stringContaining('[[Books/demo.epub#weave-cfi=readium:abc|demo]]'),
-        modified: expect.any(String),
-      })
-    );
-  });
-
-	it('detects and backfills missing sourceId in markdown epub links', async () => {
-		const { plugin, files } = createMemoryPlugin({
-			'Books/demo.epub': 'fake epub binary',
-			'notes/epub-link.md': '前文 [[Books/demo.epub#weave-cfi=readium:abc|demo]] 后文',
-		});
-		const service = new DataManagementService(plugin);
-
-		const checkResult = await service.check('epub_markdown_source_id_backfill');
-		expect(checkResult).toMatchObject({
-			type: 'epub_markdown_source_id_backfill',
-			status: 'warning',
-			count: 1,
-			items: ['notes/epub-link.md'],
-		});
-
-		const fixResult = await service.fix('epub_markdown_source_id_backfill', { allowHighRisk: true });
-		expect(fixResult).toMatchObject({
-			type: 'epub_markdown_source_id_backfill',
-			success: 1,
-			failed: 0,
-		});
-
-		expect(files.get('notes/epub-link.md')).toContain('&sid=');
-
-		const recheckResult = await service.check('epub_markdown_source_id_backfill');
-		expect(recheckResult).toMatchObject({
-			type: 'epub_markdown_source_id_backfill',
-			status: 'ok',
-			count: 0,
-		});
-	});
 
   it('detects memory decks that can be migrated to .wdeck files', async () => {
     const { plugin } = createMemoryPlugin();
@@ -1561,9 +1490,6 @@ describe('DataManagementService', () => {
         created: '2026-04-14T00:00:00.000Z',
         modified: '2026-04-14T00:00:00.000Z',
         customFields: {
-          wdeck: {
-            runtimeDeckId: 'wdeck:deck-1',
-          },
           tag: 'keep',
         },
       },
@@ -1682,7 +1608,6 @@ describe('DataManagementService', () => {
     expect(files.has(`${v2Paths.memory.deckCards}/deck-1.json`)).toBe(false);
     await expect(plugin.app.vault.adapter.exists(v2Paths.memory.cards)).resolves.toBe(false);
     await expect(plugin.app.vault.adapter.exists(v2Paths.memory.deckCards)).resolves.toBe(false);
-    expect(plugin.cardFileService).toBeUndefined();
   });
 
   it('removes empty invalid .wdeck files during wdeck conflict repair', async () => {
@@ -1693,6 +1618,7 @@ describe('DataManagementService', () => {
     });
     let scanCount = 0;
     plugin.wdeckService = {
+      repairStructuralConflicts: vi.fn(async () => ({ repaired: 0, errors: [] })),
       getConflictReport: vi.fn(async () => {
         scanCount += 1;
         return scanCount === 1
@@ -1727,6 +1653,7 @@ describe('DataManagementService', () => {
     const saveCardsToDeck = vi.fn(async () => []);
     let conflictScan = 0;
     plugin.wdeckService = {
+      repairStructuralConflicts: vi.fn(async () => ({ repaired: 0, errors: [] })),
       getConflictReport: vi.fn(async () => {
         conflictScan += 1;
         return conflictScan === 1
@@ -1868,1077 +1795,16 @@ describe('DataManagementService', () => {
     expect(checkedTypes).not.toContain('legacy_memory_files');
   });
 
-  it('detects and executes IR point storage migration through data management', async () => {
-    const v2Paths = getV2Paths('');
-    const { plugin, files } = createMemoryPlugin({
-      [v2Paths.ir.legacyTopics]: JSON.stringify({
-        topics: {
-          'topic-1': { name: 'Topic One' },
-        },
-      }),
-      [v2Paths.ir.pdfBookmarkTasks]: JSON.stringify({
-        version: 1,
-        tasks: {
-          'pdfbm-1': {
-            id: 'pdfbm-1',
-            topicId: 'topic-1',
-            pdfPath: 'Docs/Test.pdf',
-            title: 'Selection 1',
-            link: 'obsidian://pdf',
-            status: 'new',
-          },
-        },
-      }),
-    });
-    const service = new DataManagementService(plugin);
 
-    const checkResult = await service.check('ir_point_storage_migration');
-    const fixResult = await service.fix('ir_point_storage_migration', { allowHighRisk: true });
-    const recheckResult = await service.check('ir_point_storage_migration');
 
-    expect(checkResult).toMatchObject({
-      type: 'ir_point_storage_migration',
-      status: 'warning',
-      count: 1,
-    });
-    expect(fixResult.type).toBe('ir_point_storage_migration');
-    expect(fixResult.failed).toBe(0);
-    expect(fixResult.success).toBeGreaterThan(0);
-    expect(files.has(`${v2Paths.ir.root}/points/Topic One.irdeck`)).toBe(true);
-    expect(recheckResult).toMatchObject({
-      type: 'ir_point_storage_migration',
-      status: 'ok',
-      count: 0,
-    });
-  });
 
-  it('keeps warning about residual legacy chunks and sources files after data has been migrated', async () => {
-    const v2Paths = getV2Paths('');
-    const { plugin, files } = createMemoryPlugin({
-      [v2Paths.ir.legacyTopics]: JSON.stringify({
-        topics: {
-          'topic-1': { name: 'Topic One' },
-        },
-      }),
-      [v2Paths.ir.sources]: JSON.stringify({
-        version: '1.0.0',
-        sources: {
-          'source-1': {
-            sourceId: 'source-1',
-            originalPath: 'Docs/Source.md',
-            rawFilePath: 'Docs/Source.md',
-            indexFilePath: 'Docs/Source.index.md',
-            chunkIds: ['chunk-1'],
-            title: 'Source 1',
-            tagGroup: 'default',
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        },
-      }),
-      [v2Paths.ir.chunks]: JSON.stringify({
-        version: '1.0.0',
-        chunks: {
-          'chunk-1': {
-            chunkId: 'chunk-1',
-            sourceId: 'source-1',
-            filePath: 'Docs/Chunk-1.md',
-            topicIds: ['topic-1'],
-            deckIds: ['topic-1'],
-            priorityUi: 5,
-            priorityEff: 5,
-            intervalDays: 1,
-            nextRepDate: 1,
-            scheduleStatus: 'queued',
-            stats: {
-              impressions: 0,
-              totalReadingTimeSec: 0,
-              effectiveReadingTimeSec: 0,
-              extracts: 0,
-              cardsCreated: 0,
-              notesWritten: 0,
-              lastInteraction: 0,
-              lastShownAt: 0,
-            },
-            meta: {},
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        },
-      }),
-    });
-    const service = new DataManagementService(plugin);
 
-    await service.fix('ir_point_storage_migration', { allowHighRisk: true });
-    files.set(
-      v2Paths.ir.sources,
-      JSON.stringify({
-        version: '1.0.0',
-        sources: {
-          'source-1': {
-            sourceId: 'source-1',
-            originalPath: 'Docs/Source.md',
-            rawFilePath: 'Docs/Source.md',
-            indexFilePath: 'Docs/Source.index.md',
-            chunkIds: ['chunk-1'],
-            title: 'Source 1',
-            tagGroup: 'default',
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        },
-      })
-    );
-    files.set(
-      v2Paths.ir.chunks,
-      JSON.stringify({
-        version: '1.0.0',
-        chunks: {
-          'chunk-1': {
-            chunkId: 'chunk-1',
-            sourceId: 'source-1',
-            filePath: 'Docs/Chunk-1.md',
-            topicIds: ['topic-1'],
-            deckIds: ['topic-1'],
-            priorityUi: 5,
-            priorityEff: 5,
-            intervalDays: 1,
-            nextRepDate: 1,
-            scheduleStatus: 'queued',
-            stats: {
-              impressions: 0,
-              totalReadingTimeSec: 0,
-              effectiveReadingTimeSec: 0,
-              extracts: 0,
-              cardsCreated: 0,
-              notesWritten: 0,
-              lastInteraction: 0,
-              lastShownAt: 0,
-            },
-            meta: {},
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        },
-      })
-    );
 
-    const recheckResult = await service.check('ir_point_storage_migration');
 
-    expect(recheckResult).toMatchObject({
-      type: 'ir_point_storage_migration',
-      status: 'warning',
-      count: 2,
-    });
-    expect(recheckResult.items).toContain(
-      '旧 chunks/sources 文件 2 个已退出真源但仍残留在同步目录'
-    );
-  });
 
-  it('detects and removes deleted legacy IR markdown residue through point storage migration', async () => {
-    const v2Paths = getV2Paths('');
-    const deletedMarkdownPath = `${v2Paths.root}/incremental-reading/IR/legacy/01_deleted.md`;
-    const { plugin, files } = createMemoryPlugin({
-      [deletedMarkdownPath]: `---
-tags:
-  - we_已删除
----
-# legacy deleted markdown`,
-    });
-    const service = new DataManagementService(plugin);
 
-    const checkResult = await service.check('ir_point_storage_migration');
-    const fixResult = await service.fix('ir_point_storage_migration', { allowHighRisk: true });
-    const recheckResult = await service.check('ir_point_storage_migration');
 
-    expect(checkResult).toMatchObject({
-      type: 'ir_point_storage_migration',
-      status: 'warning',
-      count: 1,
-    });
-    expect(checkResult.items).toContain('旧 IR 已标记删除的 Markdown 残留 1 个可安全清理');
-    expect(checkResult.items).toContain(deletedMarkdownPath);
-    expect(fixResult.type).toBe('ir_point_storage_migration');
-    expect(fixResult.failed).toBe(0);
-    expect(fixResult.success).toBeGreaterThan(0);
-    expect(files.has(deletedMarkdownPath)).toBe(false);
-    expect(recheckResult).toMatchObject({
-      type: 'ir_point_storage_migration',
-      status: 'ok',
-      count: 0,
-    });
-  });
 
-  it('blocks legacy IR readable markdown migration when Obsidian default new note folder still points into the legacy IR root', async () => {
-    const v2Paths = getV2Paths('');
-    const legacyReadablePath = `${v2Paths.root}/incremental-reading/IR/legacy/article.md`;
-    const { plugin } = createMemoryPlugin({
-      [legacyReadablePath]: '# legacy article',
-    });
-    plugin.app.vault.getConfig = vi.fn((key: string) => {
-      if (key === 'newFileLocation') return 'folder';
-      if (key === 'newFileFolderPath') {
-        return `${v2Paths.root}/incremental-reading/IR/migrated`;
-      }
-      return undefined;
-    });
-    const service = new DataManagementService(plugin);
 
-    const checkResult = await service.check('ir_legacy_readable_markdown_migration');
-    const fixResult = await service.fix('ir_legacy_readable_markdown_migration', {
-      allowHighRisk: true,
-    });
 
-    expect(checkResult).toMatchObject({
-      type: 'ir_legacy_readable_markdown_migration',
-      status: 'error',
-      count: 1,
-    });
-    expect(checkResult.message).toContain('当前 Obsidian 默认新建笔记位置仍指向旧 IR 目录');
-    expect(fixResult.failed).toBe(1);
-    expect(fixResult.errors[0]?.error).toContain('当前 Obsidian 默认新建笔记位置仍指向旧 IR 目录');
-  });
-
-  it('migrates legacy IR readable markdown to the current Obsidian default note folder and rewrites stored references', async () => {
-    const v2Paths = getV2Paths('');
-    const pluginPaths = getPluginPaths({ vault: { configDir: '.obsidian' } } as any);
-    const legacyReadablePath = `${v2Paths.root}/incremental-reading/IR/legacy/topic/article.md`;
-    const legacySystemPath = `${v2Paths.root}/incremental-reading/IR/raw/system.md`;
-    const pointRelativePath = 'points/topic-1.irdeck';
-    const pointAbsolutePath = `${v2Paths.ir.root}/${pointRelativePath}`;
-    const targetReadablePath = 'Inbox/Readable/legacy/topic/article.md';
-    const { plugin, files } = createMemoryPlugin({
-      [legacyReadablePath]: '# legacy article\n\nbody',
-      [legacySystemPath]: '# legacy system file',
-      [v2Paths.ir.pointFilesIndex]: JSON.stringify({
-        files: [{ file: pointRelativePath }],
-      }),
-      [pointAbsolutePath]: JSON.stringify({
-        id: 'topic-1',
-        storagePath: legacyReadablePath,
-        sourcePath: legacyReadablePath,
-      }),
-      [pluginPaths.state.incrementalReading.readingMaterialsRuntime]: JSON.stringify({
-        materials: [{ id: 'mat-1', storagePath: legacyReadablePath }],
-      }),
-    });
-    plugin.app.vault.getConfig = vi.fn((key: string) => {
-      if (key === 'newFileLocation') return 'folder';
-      if (key === 'newFileFolderPath') return 'Inbox/Readable';
-      return undefined;
-    });
-    const service = new DataManagementService(plugin);
-
-    const checkResult = await service.check('ir_legacy_readable_markdown_migration');
-    const fixResult = await service.fix('ir_legacy_readable_markdown_migration', {
-      allowHighRisk: true,
-    });
-    const recheckResult = await service.check('ir_legacy_readable_markdown_migration');
-
-    expect(checkResult).toMatchObject({
-      type: 'ir_legacy_readable_markdown_migration',
-      status: 'warning',
-      count: 1,
-    });
-    expect(checkResult.items).toContain(`迁移目标: Inbox/Readable`);
-    expect(checkResult.items).toContain(legacyReadablePath);
-    expect(fixResult.failed).toBe(0);
-    expect(fixResult.success).toBeGreaterThan(0);
-    expect(files.has(targetReadablePath)).toBe(true);
-    expect(files.has(legacyReadablePath)).toBe(false);
-    expect(files.has(legacySystemPath)).toBe(true);
-    expect(JSON.parse(files.get(pointAbsolutePath)!)).toMatchObject({
-      storagePath: targetReadablePath,
-      sourcePath: targetReadablePath,
-    });
-    expect(
-      JSON.parse(files.get(pluginPaths.state.incrementalReading.readingMaterialsRuntime)!)
-    ).toMatchObject({
-      materials: [{ id: 'mat-1', storagePath: targetReadablePath }],
-    });
-    expect(recheckResult).toMatchObject({
-      type: 'ir_legacy_readable_markdown_migration',
-      status: 'ok',
-      count: 0,
-    });
-  });
-
-  it('detects and consolidates legacy epub local data through data management', async () => {
-    const v2Paths = getV2Paths('');
-    const pluginPaths = getPluginPaths({ vault: { configDir: '.obsidian' } } as any);
-    const { plugin, files } = createMemoryPlugin({
-      [`${v2Paths.ir.epub}/books.json`]: JSON.stringify({
-        'book-1': {
-          id: 'book-1',
-          filePath: 'Books/demo.epub',
-          metadata: {
-            title: 'Demo',
-            author: 'Author',
-            chapterCount: 3,
-          },
-          currentPosition: { chapterIndex: 0, cfi: '/6/2', percent: 10 },
-          readingStats: {
-            totalReadTime: 0,
-            lastReadTime: 100,
-            createdTime: 50,
-          },
-        },
-      }),
-      [`${v2Paths.ir.epub}/book-1/state.json`]: JSON.stringify({
-        currentPosition: { chapterIndex: 1, cfi: '/6/6', percent: 42 },
-      }),
-      [`${v2Paths.ir.epub}/reader-settings.desktop.json`]: JSON.stringify({
-        lineHeight: 1.8,
-        widthMode: 'standard',
-        layoutMode: 'paginated',
-        flowMode: 'paginated',
-        showScrolledSideNav: true,
-      }),
-      [`${v2Paths.ir.epub}/book-1/highlights.json`]: JSON.stringify([
-        {
-          id: 'legacy-highlight',
-          text: 'legacy highlight',
-          color: 'yellow',
-          chapterIndex: 1,
-          cfiRange: 'epubcfi(/6/6!/4/2/2)',
-          createdTime: 1,
-        },
-      ]),
-      [`${v2Paths.ir.epub}/book-1/notes.json`]: JSON.stringify([
-        {
-          id: 'legacy-note',
-          content: 'legacy note',
-          quotedText: 'legacy quote',
-          chapterIndex: 1,
-          cfi: 'epubcfi(/6/6!/4/2/2)',
-          createdTime: 1,
-          modifiedTime: 1,
-        },
-      ]),
-      [`${v2Paths.ir.root}/sync-state.json`]: JSON.stringify({
-        version: '3.0.0',
-        files: {
-          'notes/demo.md': {
-            filePath: 'notes/demo.md',
-            mtime: 1,
-            size: 2,
-            uuidListHash: 'abc',
-            lastSynced: '2026-04-17T00:00:00.000Z',
-          },
-        },
-      }),
-      [v2Paths.ir.documentGroupMap]: JSON.stringify({
-        version: '3.0.0',
-        map: {
-          'notes/demo.md': {
-            filePath: 'notes/demo.md',
-            groupId: 'default',
-            tagsSnapshot: ['demo'],
-            updatedAt: '2026-04-17T00:00:00.000Z',
-          },
-        },
-      }),
-      [`${v2Paths.ir.root}/monitoring.json`]: JSON.stringify({
-        version: '3.0.0',
-        dailyStats: [{ date: '2026-04-16', dueCount: 2 }],
-        priorityChanges: [],
-        groupParamChanges: [],
-        decisionEvents: [],
-        decisionOutcomes: [],
-        lastUpdated: '2026-04-16T09:00:00.000Z',
-      }),
-      [v2Paths.ir.history]: JSON.stringify({
-        version: '4.0',
-        sessions: [
-          {
-            id: 'legacy-history-1',
-            blockId: 'chunk-1',
-            deckId: 'topic-1',
-            topicId: 'topic-1',
-            startTime: '2026-04-16T08:00:00.000Z',
-            endTime: '2026-04-16T08:05:00.000Z',
-            duration: 300,
-            action: 'completed',
-            rating: 3,
-          },
-        ],
-      }),
-      [v2Paths.ir.studySessions]: JSON.stringify({
-        version: '1.0',
-        sessions: [
-          {
-            id: 'legacy-study-1',
-            deckId: 'topic-1',
-            topicId: 'topic-1',
-            deckName: 'Topic One',
-            topicName: 'Topic One',
-            startTime: '2026-04-16T08:00:00.000Z',
-            endTime: '2026-04-16T08:20:00.000Z',
-            autoRecordedDuration: 1200,
-            confirmedDuration: 1200,
-            blocksCompleted: 2,
-            cardsCreated: 1,
-          },
-        ],
-      }),
-      [v2Paths.ir.calendarProgress]: JSON.stringify({
-        version: '4.0',
-        byDate: {
-          '2026-04-16': ['chunk-1'],
-        },
-      }),
-    });
-    const service = new DataManagementService(plugin);
-
-    const checkResult = await service.check('ir_local_state_relocation');
-    const fixResult = await service.fix('ir_local_state_relocation');
-    const recheckResult = await service.check('ir_local_state_relocation');
-
-    expect(checkResult).toMatchObject({
-      type: 'ir_local_state_relocation',
-      status: 'warning',
-      count: 11,
-    });
-    expect(fixResult).toMatchObject({
-      type: 'ir_local_state_relocation',
-      failed: 0,
-      success: 20,
-    });
-    expect(files.has(pluginPaths.state.incrementalReading.epubReaderData)).toBe(true);
-    expect(files.has(pluginPaths.cache.incrementalReading.syncState)).toBe(true);
-    expect(files.has(pluginPaths.cache.incrementalReading.documentGroupMap)).toBe(true);
-    expect(files.has(pluginPaths.state.incrementalReading.monitoring)).toBe(true);
-    expect(files.has(pluginPaths.state.incrementalReading.history)).toBe(true);
-    expect(files.has(pluginPaths.state.incrementalReading.studySessions)).toBe(true);
-    expect(files.has(pluginPaths.state.incrementalReading.calendarProgress)).toBe(true);
-    expect(
-      JSON.parse(files.get(pluginPaths.state.incrementalReading.epubReaderData) || '{}')
-    ).toMatchObject({
-      books: {
-        'book-1': {
-          descriptor: {
-            id: 'book-1',
-            filePath: 'Books/demo.epub',
-            metadata: {
-              title: 'Demo',
-              author: 'Author',
-            },
-          },
-          state: {
-            currentPosition: { chapterIndex: 1, cfi: '/6/6', percent: 42 },
-          },
-        },
-      },
-      readerSettings: {
-        desktop: {
-          lineHeight: 1.8,
-        },
-      },
-    });
-    expect(JSON.parse(files.get(pluginPaths.cache.incrementalReading.syncState) || '{}')).toMatchObject({
-      files: {
-        'notes/demo.md': expect.objectContaining({
-          filePath: 'notes/demo.md',
-          uuidListHash: 'abc',
-        }),
-      },
-    });
-    expect(
-      JSON.parse(files.get(pluginPaths.cache.incrementalReading.documentGroupMap) || '{}')
-    ).toMatchObject({
-      map: {
-        'notes/demo.md': expect.objectContaining({
-          groupId: 'default',
-        }),
-      },
-    });
-    expect(JSON.parse(files.get(pluginPaths.state.incrementalReading.monitoring) || '{}')).toMatchObject({
-      dailyStats: [expect.objectContaining({ date: '2026-04-16', dueCount: 2 })],
-    });
-    expect(JSON.parse(files.get(pluginPaths.state.incrementalReading.history) || '{}')).toMatchObject({
-      sessions: [expect.objectContaining({ id: 'legacy-history-1' })],
-    });
-    expect(
-      JSON.parse(files.get(pluginPaths.state.incrementalReading.studySessions) || '{}')
-    ).toMatchObject({
-      sessions: [expect.objectContaining({ id: 'legacy-study-1' })],
-    });
-    expect(
-      JSON.parse(files.get(pluginPaths.state.incrementalReading.calendarProgress) || '{}')
-    ).toMatchObject({
-      byDate: {
-        '2026-04-16': ['chunk-1'],
-      },
-    });
-    expect(files.has(`${v2Paths.ir.epub}/books.json`)).toBe(false);
-    expect(files.has(`${v2Paths.ir.epub}/book-1/state.json`)).toBe(false);
-    expect(files.has(`${v2Paths.ir.epub}/reader-settings.desktop.json`)).toBe(false);
-    expect(files.has(`${v2Paths.ir.epub}/book-1/highlights.json`)).toBe(false);
-    expect(files.has(`${v2Paths.ir.epub}/book-1/notes.json`)).toBe(false);
-    expect(files.has(`${v2Paths.ir.root}/sync-state.json`)).toBe(false);
-    expect(files.has(v2Paths.ir.documentGroupMap)).toBe(false);
-    expect(files.has(`${v2Paths.ir.root}/monitoring.json`)).toBe(false);
-    expect(files.has(v2Paths.ir.history)).toBe(false);
-    expect(files.has(v2Paths.ir.studySessions)).toBe(false);
-    expect(files.has(v2Paths.ir.calendarProgress)).toBe(false);
-    expect(recheckResult).toMatchObject({
-      type: 'ir_local_state_relocation',
-      status: 'ok',
-      count: 0,
-    });
-  });
-
-  it('fully migrates IR data through data management without keeping legacy bookmark files', async () => {
-    const v2Paths = getV2Paths('');
-    const { plugin, files } = createMemoryPlugin({
-      [v2Paths.ir.legacyTopics]: JSON.stringify({
-        topics: {
-          'topic-1': { name: 'Topic One' },
-        },
-      }),
-      [v2Paths.ir.pdfBookmarkTasks]: JSON.stringify({
-        version: 1,
-        tasks: {
-          'pdfbm-1': {
-            id: 'pdfbm-1',
-            topicId: 'topic-1',
-            pdfPath: 'Docs/Test.pdf',
-            title: 'Selection 1',
-            link: 'obsidian://pdf',
-            status: 'new',
-          },
-        },
-      }),
-      [v2Paths.ir.sources]: JSON.stringify({
-        version: '1.0.0',
-        sources: {
-          'source-1': {
-            sourceId: 'source-1',
-            originalPath: 'Docs/Source.md',
-            rawFilePath: 'Docs/Source.md',
-            indexFilePath: 'Docs/Source.index.md',
-            chunkIds: ['chunk-1'],
-            title: 'Source 1',
-            tagGroup: 'default',
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        },
-      }),
-      [v2Paths.ir.chunks]: JSON.stringify({
-        version: '1.0.0',
-        chunks: {
-          'chunk-1': {
-            chunkId: 'chunk-1',
-            sourceId: 'source-1',
-            filePath: 'Docs/Chunk-1.md',
-            topicIds: ['topic-1'],
-            deckIds: ['topic-1'],
-            priorityUi: 5,
-            priorityEff: 5,
-            intervalDays: 1,
-            nextRepDate: 1,
-            scheduleStatus: 'queued',
-            stats: {
-              impressions: 0,
-              totalReadingTimeSec: 0,
-              effectiveReadingTimeSec: 0,
-              extracts: 0,
-              cardsCreated: 0,
-              notesWritten: 0,
-              lastInteraction: 0,
-              lastShownAt: 0,
-            },
-            meta: {},
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        },
-      }),
-    });
-    const service = new DataManagementService(plugin);
-
-    const migrationResult = await service.fix('ir_point_storage_migration', { allowHighRisk: true });
-    expect(migrationResult).toMatchObject({
-      type: 'ir_point_storage_migration',
-      failed: 0,
-    });
-    expect(files.has(v2Paths.ir.pdfBookmarkTasks)).toBe(false);
-    expect(files.has(v2Paths.ir.chunks)).toBe(false);
-    expect(files.has(v2Paths.ir.sources)).toBe(false);
-
-    const cleanupResult = await service.check('ir_legacy_bookmark_cleanup');
-    expect(cleanupResult).toMatchObject({
-      type: 'ir_legacy_bookmark_cleanup',
-      status: 'ok',
-      count: 0,
-    });
-  });
-
-  it('cleans duplicate IR materials and removes legacy materials.json through material consistency fix', async () => {
-    const v2Paths = getV2Paths('');
-    const { plugin, files, folders } = createMemoryPlugin(
-      {
-        [v2Paths.ir.pointFilesIndex]: JSON.stringify({
-          schemaVersion: 1,
-          updatedAt: '2026-04-16T10:00:00.000Z',
-          files: [
-            {
-              topicId: 'topic-1',
-              topicName: 'Topic One',
-              file: 'points/Topic One.irdeck',
-              pointCount: 1,
-              updatedAt: '2026-04-16T10:00:00.000Z',
-            },
-          ],
-        }),
-        [`${v2Paths.ir.root}/points/Topic One.irdeck`]: JSON.stringify({
-          schemaVersion: 1,
-          topicId: 'topic-1',
-          topicName: 'Topic One',
-          updatedAt: '2026-04-16T10:00:00.000Z',
-          points: [{ id: 'point-1', materialId: 'src-active' }],
-        }),
-        [v2Paths.ir.materialsIndex]: JSON.stringify({
-          schemaVersion: 1,
-          updatedAt: '2026-04-16T10:00:00.000Z',
-          materials: [
-            {
-              id: 'src-active',
-              type: 'file',
-              file: 'materials/src-active.material.json',
-              status: 'active',
-            },
-            {
-              id: 'tk-ir-legacy',
-              type: 'file',
-              file: 'materials/tk-ir-legacy.material.json',
-              status: 'active',
-            },
-          ],
-        }),
-        [`${v2Paths.ir.root}/materials/src-active.material.json`]: JSON.stringify({
-          schemaVersion: 1,
-          id: 'src-active',
-          createdAt: '2026-04-16T10:00:00.000Z',
-          updatedAt: '2026-04-16T10:00:00.000Z',
-          source: { type: 'file', path: 'Docs/Source.md' },
-          bibliography: { title: 'Source' },
-          contentStorage: { mode: 'external-source', ownedByPlugin: false },
-          defaultParameterContext: {
-            materialClass: 'reference-note',
-            scheduleProfileRef: 'profile-reference-note',
-            classificationSource: 'inherited-from-material',
-            isOverride: false,
-          },
-          metadata: { status: 'active' },
-        }),
-        [`${v2Paths.ir.root}/materials/tk-ir-legacy.material.json`]: JSON.stringify({
-          schemaVersion: 1,
-          id: 'tk-ir-legacy',
-          createdAt: '2026-04-16T10:00:00.000Z',
-          updatedAt: '2026-04-16T10:00:00.000Z',
-          source: { type: 'file', path: 'Docs/Source.md' },
-          bibliography: { title: 'Source' },
-          contentStorage: { mode: 'external-source', ownedByPlugin: false },
-          defaultParameterContext: {
-            materialClass: 'reference-note',
-            scheduleProfileRef: 'profile-reference-note',
-            classificationSource: 'inherited-from-material',
-            isOverride: false,
-          },
-          metadata: { status: 'active' },
-        }),
-        [v2Paths.ir.materials.index]: JSON.stringify({
-          version: '1.0.0',
-          lastUpdated: '2026-04-16T10:00:00.000Z',
-          materials: {
-            'tk-ir-legacy': {
-              uuid: 'tk-ir-legacy',
-              title: 'Source',
-              filePath: 'Docs/Source.md',
-            },
-          },
-        }),
-        'Docs/Source.md': '# Source',
-      },
-      [v2Paths.ir.materials.sessions]
-    );
-    const service = new DataManagementService(plugin);
-
-    const checkResult = await service.check('ir_material_consistency');
-    const fixResult = await service.fix('ir_material_consistency', { allowHighRisk: true });
-    const recheckResult = await service.check('ir_material_consistency');
-
-    expect(checkResult).toMatchObject({
-      type: 'ir_material_consistency',
-      status: 'warning',
-    });
-    expect(fixResult).toMatchObject({
-      type: 'ir_material_consistency',
-      failed: 0,
-    });
-    expect(fixResult.success).toBeGreaterThan(0);
-    expect(files.has(`${v2Paths.ir.root}/materials/tk-ir-legacy.material.json`)).toBe(false);
-    expect(files.has(v2Paths.ir.materialsIndex)).toBe(false);
-    expect(files.has(v2Paths.ir.materials.index)).toBe(false);
-    expect(folders.has(v2Paths.ir.materials.sessions)).toBe(false);
-    expect(recheckResult).toMatchObject({
-      type: 'ir_material_consistency',
-      status: 'ok',
-      count: 0,
-    });
-  });
-
-  it('checks and fixes orphaned legacy block points after blocks.json has already been removed', async () => {
-    const v2Paths = getV2Paths('');
-    const { plugin, files } = createMemoryPlugin({
-      [v2Paths.ir.legacyTopics]: JSON.stringify({
-        topics: {
-          'topic-1': {
-            name: 'Topic One',
-            blockIds: ['legacy-block-1'],
-            sourceFiles: ['Docs/Missing.md'],
-          },
-        },
-      }),
-      [v2Paths.ir.pointFilesIndex]: JSON.stringify({
-        schemaVersion: 1,
-        updatedAt: '2026-04-17T00:00:00.000Z',
-        files: [
-          {
-            topicId: 'topic-1',
-            topicName: 'Topic One',
-            file: 'points/Topic One.irdeck',
-            pointCount: 1,
-            updatedAt: '2026-04-17T00:00:00.000Z',
-          },
-        ],
-      }),
-      [`${v2Paths.ir.root}/points/Topic One.irdeck`]: JSON.stringify({
-        schemaVersion: 1,
-        topicId: 'topic-1',
-        topicName: 'Topic One',
-        updatedAt: '2026-04-17T00:00:00.000Z',
-        points: [
-          {
-            id: 'legacy-block-1',
-            pointType: 'legacy-block-entry',
-            materialId: 'legacy-src-1',
-            source: {
-              id: 'legacy-src-1',
-              type: 'markdown',
-              path: 'Docs/Missing.md',
-              title: 'Legacy Source',
-            },
-            timestamps: {
-              createdAt: '2026-04-16T10:00:00.000Z',
-              updatedAt: '2026-04-16T11:00:00.000Z',
-            },
-            trace: {
-              locatorType: 'markdown-block',
-              locator: {
-                sourcePath: 'Docs/Missing.md',
-                headingPath: ['第一章', '第一节'],
-                headingText: '第一节',
-                startLine: 12,
-                endLine: 18,
-                headingLevel: 2,
-              },
-              traceState: 'broken',
-              traceConfidence: 0.4,
-              fallbackLocators: [],
-            },
-            parameterContext: {
-              materialClass: 'reference-note',
-              scheduleProfileRef: 'profile-reference-note',
-              classificationSource: 'point',
-              isOverride: false,
-            },
-            schedule: {
-              status: 'active',
-              dueAt: '2026-04-17T00:00:00.000Z',
-              intervalDays: 3,
-            },
-            relations: {
-              topicIds: ['topic-1'],
-              linkedNotePaths: [],
-              derivedCardIds: ['card-1'],
-              blockIds: [],
-            },
-            userData: {
-              title: '第一节',
-              tags: ['focus'],
-              starred: true,
-            },
-            stats: {
-              reviewCount: 2,
-              totalReadingTimeMs: 90000,
-            },
-            audit: {
-              createdAt: '2026-04-16T10:00:00.000Z',
-              updatedAt: '2026-04-16T11:00:00.000Z',
-              origin: {
-                type: 'legacy-block',
-                id: 'legacy-block-1',
-              },
-            },
-            metadata: {
-              sourcePath: 'Docs/Missing.md',
-              headingPath: ['第一章', '第一节'],
-              headingText: '第一节',
-              startLine: 12,
-              endLine: 18,
-              headingLevel: 2,
-            },
-          },
-        ],
-      }),
-    });
-    const service = new DataManagementService(plugin);
-
-    const checkResult = await service.check('ir_material_consistency');
-    const fixResult = await service.fix('ir_material_consistency', { allowHighRisk: true });
-    const recheckResult = await service.check('ir_material_consistency');
-
-    expect(checkResult).toMatchObject({
-      type: 'ir_material_consistency',
-      status: 'warning',
-    });
-    expect(checkResult.items).toContain('孤立内容块: 1 个');
-    expect(fixResult).toMatchObject({
-      type: 'ir_material_consistency',
-      failed: 0,
-    });
-
-    const pointFile = JSON.parse(files.get(`${v2Paths.ir.root}/points/Topic One.irdeck`) || '{}');
-    expect(pointFile.points).toEqual([]);
-
-    expect(files.has(v2Paths.ir.legacyTopics)).toBe(false);
-    expect(recheckResult).toMatchObject({
-      type: 'ir_material_consistency',
-      status: 'ok',
-      count: 0,
-    });
-  });
-
-  it('prunes empty incremental-reading folders after migration without removing non-empty book folders', async () => {
-    const v2Paths = getV2Paths('');
-    const emptyBookDir = `${v2Paths.ir.epub}/epub-empty`;
-    const keepBookDir = `${v2Paths.ir.epub}/epub-keep`;
-    const { plugin, folders, files } = createMemoryPlugin(
-      {
-        [v2Paths.ir.legacyTopics]: JSON.stringify({
-          topics: {
-            'topic-1': { name: 'Topic One' },
-          },
-        }),
-        [v2Paths.ir.pdfBookmarkTasks]: JSON.stringify({
-          version: 1,
-          tasks: {
-            'pdfbm-1': {
-              id: 'pdfbm-1',
-              topicId: 'topic-1',
-              pdfPath: 'Docs/Test.pdf',
-              title: 'Selection 1',
-              link: 'obsidian://pdf',
-              status: 'new',
-            },
-          },
-        }),
-        [`${keepBookDir}/bookmarks.json`]: JSON.stringify([]),
-      },
-      [emptyBookDir, keepBookDir]
-    );
-    const service = new DataManagementService(plugin);
-
-    const migrationResult = await service.fix('ir_point_storage_migration', { allowHighRisk: true });
-
-    expect(migrationResult).toMatchObject({
-      type: 'ir_point_storage_migration',
-      failed: 0,
-    });
-    expect(folders.has(emptyBookDir)).toBe(false);
-    expect(folders.has(keepBookDir)).toBe(true);
-    expect(files.has(`${keepBookDir}/bookmarks.json`)).toBe(true);
-  });
-
-  it('removes the empty legacy IR root after deleted markdown residue is cleaned', async () => {
-    const v2Paths = getV2Paths('');
-    const legacyIrRoot = resolveIRImportFolder();
-    const legacyIrFile = `${legacyIrRoot}/Old Topic/01_Old Topic.md`;
-    const { plugin, files, folders } = createMemoryPlugin(
-      {
-        [legacyIrFile]: [
-          '---',
-          'tags:',
-          '  - we_已删除',
-          '---',
-          '',
-          'legacy deleted topic',
-        ].join('\n'),
-      },
-      [`${legacyIrRoot}/Old Topic`]
-    );
-    const service = new DataManagementService(plugin);
-
-    const migrationResult = await service.fix('ir_point_storage_migration', { allowHighRisk: true });
-
-    expect(migrationResult).toMatchObject({
-      type: 'ir_point_storage_migration',
-      failed: 0,
-    });
-    expect(files.has(legacyIrFile)).toBe(false);
-    expect(folders.has(`${legacyIrRoot}/Old Topic`)).toBe(false);
-    expect(folders.has(legacyIrRoot)).toBe(false);
-    expect(folders.has(v2Paths.ir.root)).toBe(true);
-  });
-
-  it('can still clean legacy bookmark files when points have already been migrated', async () => {
-    const v2Paths = getV2Paths('');
-    const { plugin, files } = createMemoryPlugin({
-      [v2Paths.ir.pdfBookmarkTasks]: JSON.stringify({
-        version: 1,
-        tasks: {
-          'pdfbm-1': {
-            id: 'pdfbm-1',
-            topicId: 'topic-1',
-            pdfPath: 'Docs/Test.pdf',
-            title: 'Selection 1',
-            link: 'obsidian://pdf',
-            status: 'new',
-          },
-        },
-      }),
-      [v2Paths.ir.pointFilesIndex]: JSON.stringify({
-        schemaVersion: 1,
-        updatedAt: '2026-04-17T00:00:00.000Z',
-        files: [
-          {
-            topicId: 'topic-1',
-            topicName: 'Topic One',
-            file: 'points/Topic One.irdeck',
-            pointCount: 1,
-            updatedAt: '2026-04-17T00:00:00.000Z',
-          },
-        ],
-      }),
-      [`${v2Paths.ir.root}/points/Topic One.irdeck`]: JSON.stringify({
-        schemaVersion: 1,
-        topicId: 'topic-1',
-        topicName: 'Topic One',
-        updatedAt: '2026-04-17T00:00:00.000Z',
-        points: [{ id: 'pdfbm-1' }],
-      }),
-    });
-    const service = new DataManagementService(plugin);
-
-    const warningResult = await service.check('ir_legacy_bookmark_cleanup');
-    expect(warningResult).toMatchObject({
-      type: 'ir_legacy_bookmark_cleanup',
-      status: 'warning',
-      count: 1,
-    });
-
-    const fixResult = await service.fix('ir_legacy_bookmark_cleanup', { allowHighRisk: true });
-    expect(fixResult).toMatchObject({
-      type: 'ir_legacy_bookmark_cleanup',
-      success: 1,
-      failed: 0,
-    });
-    expect(files.has(v2Paths.ir.pdfBookmarkTasks)).toBe(false);
-  });
-
-  it('migrates legacy registry and tag-group files into .irdeck then removes the deprecated files', async () => {
-    const v2Paths = getV2Paths('');
-    const pluginPaths = getPluginPaths({ vault: { configDir: '.obsidian' } } as any);
-    const { plugin, files } = createMemoryPlugin({
-      [v2Paths.ir.pointFilesIndex]: JSON.stringify({
-        schemaVersion: 1,
-        updatedAt: '2026-04-17T00:00:00.000Z',
-        files: [
-          {
-            topicId: 'topic-1',
-            topicName: '专题一',
-            file: 'points/专题一.irdeck',
-            pointCount: 0,
-            updatedAt: '2026-04-17T00:00:00.000Z',
-          },
-        ],
-      }),
-      [v2Paths.ir.scheduleProfiles]: JSON.stringify({
-        schemaVersion: 1,
-        updatedAt: '2026-04-17T00:00:00.000Z',
-        profiles: [],
-      }),
-      [v2Paths.ir.tagGroups]: JSON.stringify({
-        version: '1.0.0',
-        groups: {
-          paper: {
-            id: 'paper',
-            name: '论文',
-            description: 'paper group',
-            matchAnyTags: ['paper'],
-            matchPriority: 50,
-            createdAt: '2026-04-16T00:00:00.000Z',
-            updatedAt: '2026-04-17T00:00:00.000Z',
-          },
-        },
-      }),
-      [v2Paths.ir.tagGroupProfiles]: JSON.stringify({
-        version: '1.0.0',
-        profiles: {
-          paper: {
-            groupId: 'paper',
-            intervalFactorBase: 1.9,
-            initialIntervalMultiplier: 1.1,
-            sampleCount: 4,
-            updatedAt: '2026-04-17T00:00:00.000Z',
-          },
-        },
-      }),
-      [`${v2Paths.ir.root}/points/专题一.irdeck`]: JSON.stringify({
-        schemaVersion: 1,
-        topicId: 'topic-1',
-        topicName: '专题一',
-        updatedAt: '2026-04-17T00:00:00.000Z',
-        points: [],
-      }),
-    });
-    const service = new DataManagementService(plugin);
-
-    const checkResult = await service.check('ir_point_storage_migration');
-    const fixResult = await service.fix('ir_point_storage_migration', { allowHighRisk: true });
-    const recheckResult = await service.check('ir_point_storage_migration');
-
-    expect(checkResult).toMatchObject({
-      type: 'ir_point_storage_migration',
-      status: 'warning',
-    });
-    expect(fixResult).toMatchObject({
-      type: 'ir_point_storage_migration',
-      failed: 0,
-    });
-    expect(files.has(v2Paths.ir.pointFilesIndex)).toBe(false);
-    expect(files.has(v2Paths.ir.scheduleProfiles)).toBe(false);
-    expect(files.has(v2Paths.ir.tagGroups)).toBe(false);
-    expect(files.has(v2Paths.ir.tagGroupProfiles)).toBe(false);
-    expect(files.has(pluginPaths.cache.incrementalReading.pointFilesIndex)).toBe(true);
-
-    const deckFile = JSON.parse(files.get(`${v2Paths.ir.root}/points/专题一.irdeck`) || '{}');
-    expect(deckFile.tagGroups.paper).toMatchObject({
-      id: 'paper',
-      name: '论文',
-    });
-    expect(deckFile.tagGroupProfiles.paper).toMatchObject({
-      groupId: 'paper',
-      intervalFactorBase: 1.9,
-      sampleCount: 4,
-    });
-    expect(recheckResult).toMatchObject({
-      type: 'ir_point_storage_migration',
-      status: 'ok',
-      count: 0,
-    });
-  });
 });

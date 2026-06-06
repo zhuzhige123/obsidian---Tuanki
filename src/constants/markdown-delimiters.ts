@@ -129,6 +129,34 @@ export function splitContentAndMetadata(content: string): {
 }
 
 /**
+ * 按主分隔符（---div---）拆分卡片正反面
+ */
+export function splitCardFrontBack(content: string): { front: string; back: string } {
+	const separatorWithBlankLines = `\n\n${MAIN_SEPARATOR}\n\n`;
+	if (content.includes(separatorWithBlankLines)) {
+		const parts = content.split(separatorWithBlankLines);
+		return {
+			front: parts[0] || "",
+			back: parts.slice(1).join(separatorWithBlankLines),
+		};
+	}
+
+	const separatorSingleLine = `\n${MAIN_SEPARATOR}\n`;
+	if (content.includes(separatorSingleLine)) {
+		const parts = content.split(separatorSingleLine);
+		return {
+			front: parts[0] || "",
+			back: parts.slice(1).join(separatorSingleLine),
+		};
+	}
+
+	return {
+		front: content,
+		back: "",
+	};
+}
+
+/**
  * 验证选择题选项标签
  */
 export function isValidOptionLabel(label: string): boolean {

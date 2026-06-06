@@ -18,6 +18,7 @@ import { TFile } from 'obsidian';
 import { CardState, CardType, type Card, type FSRSCard, type ReviewLog } from '../types';
 import type { ProgressiveClozeChildCard, ProgressiveClozeParentCard } from '../../types/progressive-cloze-v2';
 import { WeaveDataStorage } from '../storage';
+import { createWDeckServiceMock } from './storage-test-helpers';
 
 const PARENT_UUID = '11111111-1111-4111-8111-111111111111';
 const CHILD_UUID_1 = '22222222-2222-4222-8222-222222222222';
@@ -146,12 +147,13 @@ describe('WeaveDataStorage delete source resolution', () => {
       modified: '2026-03-15T00:00:00.000Z'
     };
 
+    const saveCardToDeck = vi.fn(async (_deck: unknown, card: Card) => card);
     const plugin = {
       settings: {},
-      cardFileService: {
+      wdeckService: createWDeckServiceMock({
         getAllCards: vi.fn(async () => [existingCard]),
-        saveCard: vi.fn(async (_card: Card) => true)
-      },
+        saveCardToDeck
+      }),
       cardMetadataCache: {
         invalidate: vi.fn()
       },
@@ -183,17 +185,20 @@ describe('WeaveDataStorage delete source resolution', () => {
     expect(result.success).toBe(true);
     expect(processNewCardMock).toHaveBeenCalledTimes(1);
     expect(processContentChangeMock).not.toHaveBeenCalled();
-    expect(plugin.cardFileService.saveCard).toHaveBeenCalledTimes(3);
-    expect(plugin.cardFileService.saveCard).toHaveBeenNthCalledWith(
+    expect(saveCardToDeck).toHaveBeenCalledTimes(3);
+    expect(saveCardToDeck).toHaveBeenNthCalledWith(
       1,
+      expect.anything(),
       expect.objectContaining({ uuid: PARENT_UUID, type: CardType.ProgressiveParent })
     );
-    expect(plugin.cardFileService.saveCard).toHaveBeenNthCalledWith(
+    expect(saveCardToDeck).toHaveBeenNthCalledWith(
       2,
+      expect.anything(),
       expect.objectContaining({ uuid: CHILD_UUID_1, type: CardType.ProgressiveChild })
     );
-    expect(plugin.cardFileService.saveCard).toHaveBeenNthCalledWith(
+    expect(saveCardToDeck).toHaveBeenNthCalledWith(
       3,
+      expect.anything(),
       expect.objectContaining({ uuid: CHILD_UUID_2, type: CardType.ProgressiveChild })
     );
   });
@@ -206,12 +211,13 @@ describe('WeaveDataStorage delete source resolution', () => {
       createProgressiveChild(CHILD_UUID_2, 1)
     ]);
 
+    const saveCardsToDeck = vi.fn(async (_deck: unknown, cards: Card[]) => cards);
     const plugin = {
       settings: {},
       getDeck: vi.fn(),
-      cardFileService: {
-        saveCardsBatch: vi.fn(async (_cards: Card[]) => true)
-      },
+      wdeckService: createWDeckServiceMock({
+        saveCardsToDeck
+      }),
       cardMetadataCache: {
         invalidate: vi.fn()
       },
@@ -254,8 +260,10 @@ describe('WeaveDataStorage delete source resolution', () => {
     ]);
 
     expect(processBatchMock).toHaveBeenCalledTimes(1);
-    expect(plugin.cardFileService.saveCardsBatch).toHaveBeenCalledTimes(1);
-    expect(plugin.cardFileService.saveCardsBatch).toHaveBeenCalledWith([
+    expect(saveCardsToDeck).toHaveBeenCalledTimes(1);
+    expect(saveCardsToDeck).toHaveBeenCalledWith(
+      expect.anything(),
+      [
       expect.objectContaining({ uuid: PARENT_UUID, type: CardType.ProgressiveParent }),
       expect.objectContaining({ uuid: CHILD_UUID_1, type: CardType.ProgressiveChild }),
       expect.objectContaining({ uuid: CHILD_UUID_2, type: CardType.ProgressiveChild })
@@ -265,7 +273,7 @@ describe('WeaveDataStorage delete source resolution', () => {
   it('returns YAML-linked deck cards when querying by deckId', async () => {
     const plugin = {
       settings: {},
-      cardFileService: {
+      wdeckService: createWDeckServiceMock({
         getAllCards: vi.fn(async () => [
           {
             uuid: 'card-1',
@@ -284,7 +292,7 @@ describe('WeaveDataStorage delete source resolution', () => {
             stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
           }
         ])
-      },
+      }),
       app: {
         vault: {
           getMarkdownFiles: () => [],
@@ -408,15 +416,15 @@ describe('WeaveDataStorage delete source resolution', () => {
 
     const plugin = {
       settings: {},
-      cardFileService: {
-        getAllCards: vi.fn(async () => [
+      wdeckService: createWDeckServiceMock({
+        getCardsByUUIDs: vi.fn(async () => [
           {
             uuid: 'tk-abc123def456',
             content: '',
             tags: []
           }
         ])
-      },
+      }),
       app: {
         vault: {
           getMarkdownFiles: () => [sourceFile],
@@ -430,7 +438,7 @@ describe('WeaveDataStorage delete source resolution', () => {
     const card = await storage.getCardByUUID('tk-abc123def456');
     const resolved = await (storage as any).resolveMissingDeletionSource(card);
 
-    expect(plugin.cardFileService.getAllCards).toHaveBeenCalled();
+    expect(plugin.wdeckService.getCardsByUUIDs).toHaveBeenCalledWith(['tk-abc123def456']);
     expect(card?.uuid).toBe('tk-abc123def456');
     expect(resolved?.sourceFile).toBe('notes/source.md');
     expect(resolved?.isBatchScanned).toBe(true);
@@ -438,8 +446,8 @@ describe('WeaveDataStorage delete source resolution', () => {
   });
 
   it('uses targeted unified lookup and skips source cleanup for apkg cards without source metadata during batch deletion', async () => {
-    const getCardsByUUIDsBatch = vi.fn(async (uuids: string[]) => ({
-      found: uuids.map(uuid => ({
+    const getCardsByUUIDs = vi.fn(async (uuids: string[]) =>
+      uuids.map(uuid => ({
         uuid,
         content: 'imported content',
         tags: [],
@@ -449,27 +457,20 @@ describe('WeaveDataStorage delete source resolution', () => {
         stats: { totalReviews: 0, totalTime: 0, averageTime: 0 },
         created: '2026-03-15T00:00:00.000Z',
         modified: '2026-03-15T00:00:00.000Z'
-      })),
-      notFound: []
-    }));
+      }))
+    );
     const getAllCards = vi.fn(async () => []);
-    const deleteCardsBatch = vi.fn(async (uuids: string[]) => ({
-      deleted: [...uuids],
-      notFound: []
-    }));
+    const deleteCardsByUUIDs = vi.fn(async (uuids: string[]) => [...uuids]);
     const cleanupAfterCardDeletions = vi.fn();
 
     const plugin = {
       settings: {},
-      cardFileService: {
-        getCardsByUUIDsBatch,
+      wdeckService: createWDeckServiceMock({
+        getCardsByUUIDs,
         getAllCards,
-        deleteCardsBatch
-      },
+        deleteCardsByUUIDs
+      }),
       directFileReader: {
-        removeCardIndex: vi.fn()
-      },
-      cardIndexService: {
         removeCardIndex: vi.fn()
       },
       cardMetadataCache: {
@@ -515,9 +516,9 @@ describe('WeaveDataStorage delete source resolution', () => {
 
     expect(result.deleted).toEqual(['apkg-1', 'apkg-2']);
     expect(result.failed).toEqual([]);
-    expect(getCardsByUUIDsBatch).toHaveBeenCalledWith(['apkg-1', 'apkg-2']);
+    expect(getCardsByUUIDs).toHaveBeenCalledWith(['apkg-1', 'apkg-2']);
     expect(getAllCards).not.toHaveBeenCalled();
-    expect(deleteCardsBatch).toHaveBeenCalledWith(['apkg-1', 'apkg-2']);
+    expect(deleteCardsByUUIDs).toHaveBeenCalledWith(['apkg-1', 'apkg-2']);
     expect(writePersistedDecksSpy).toHaveBeenCalledWith([
       expect.objectContaining({
         id: 'deck-to-delete',
@@ -609,33 +610,21 @@ describe('WeaveDataStorage delete source resolution', () => {
     });
   });
 
-  it('routes mixed legacy and .wdeck card deletions through the correct storage services', async () => {
-    const deleteCardsBatch = vi.fn(async (uuids: string[]) => ({
-      deleted: [...uuids],
-      notFound: []
-    }));
+  it('routes mixed legacy and .wdeck card deletions through wdeckService', async () => {
     const deleteCardsByUUIDs = vi.fn(async (uuids: string[]) => [...uuids]);
 
     const plugin = {
       settings: {},
-      cardFileService: {
-        getCardsByUUIDsBatch: vi.fn(async () => ({
-          found: [
-            {
-              uuid: 'legacy-1',
-              content: 'legacy',
-              tags: [],
-              created: '2026-03-15T00:00:00.000Z',
-              modified: '2026-03-15T00:00:00.000Z',
-              stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
-            }
-          ],
-          notFound: ['wdeck-1']
-        })),
-        deleteCardsBatch
-      },
-      wdeckService: {
-        getAllCards: vi.fn(async () => [
+      wdeckService: createWDeckServiceMock({
+        getCardsByUUIDs: vi.fn(async () => [
+          {
+            uuid: 'legacy-1',
+            content: 'legacy',
+            tags: [],
+            created: '2026-03-15T00:00:00.000Z',
+            modified: '2026-03-15T00:00:00.000Z',
+            stats: { totalReviews: 0, totalTime: 0, averageTime: 0 }
+          },
           {
             uuid: 'wdeck-1',
             deckId: 'wdeck:deck-1',
@@ -656,11 +645,8 @@ describe('WeaveDataStorage delete source resolution', () => {
         ]),
         isWDeckCard: vi.fn((card: any) => card?.deckId === 'wdeck:deck-1'),
         deleteCardsByUUIDs
-      },
+      }),
       directFileReader: {
-        removeCardIndex: vi.fn()
-      },
-      cardIndexService: {
         removeCardIndex: vi.fn()
       },
       cardMetadataCache: {
@@ -695,8 +681,7 @@ describe('WeaveDataStorage delete source resolution', () => {
 
     expect(result.deleted).toEqual(['legacy-1', 'wdeck-1']);
     expect(result.failed).toEqual([]);
-    expect(deleteCardsBatch).toHaveBeenCalledWith(['legacy-1']);
-    expect(deleteCardsByUUIDs).toHaveBeenCalledWith(['wdeck-1']);
+    expect(deleteCardsByUUIDs).toHaveBeenCalledWith(['legacy-1', 'wdeck-1']);
     expect(writePersistedDecksSpy).toHaveBeenCalledWith([
       expect.objectContaining({
         id: 'deck-a',
@@ -706,31 +691,29 @@ describe('WeaveDataStorage delete source resolution', () => {
   });
 
   it('deletes progressive child cards via targeted UUID lookup before deleting the progressive parent', async () => {
-    const deletedOrder: string[] = [];
     const parent = createProgressiveParent();
     const child1 = createProgressiveChild(CHILD_UUID_1, 0);
     const child2 = createProgressiveChild(CHILD_UUID_2, 1);
     const getAllCards = vi.fn(async () => {
       throw new Error('should not scan all cards');
     });
+    const getCardsByUUIDs = vi.fn(async (uuids: string[]) =>
+      uuids.map(uuid => {
+        if (uuid === parent.uuid) return parent;
+        if (uuid === child1.uuid) return child1;
+        return child2;
+      })
+    );
+    const deleteCardsByUUIDs = vi.fn(async (uuids: string[]) => [...uuids]);
 
     const plugin = {
       settings: {},
-      cardFileService: {
-        getCardsByUUIDsBatch: vi.fn(async (uuids: string[]) => ({
-          found: uuids.map(uuid => {
-            if (uuid === parent.uuid) return parent;
-            if (uuid === child1.uuid) return child1;
-            return child2;
-          }),
-          notFound: []
-        })),
+      wdeckService: createWDeckServiceMock({
+        getCardsByUUIDs,
         getAllCards,
-        deleteCard: vi.fn(async (uuid: string) => {
-          deletedOrder.push(uuid);
-          return true;
-        })
-      },
+        isWDeckCard: vi.fn(() => true),
+        deleteCardsByUUIDs
+      }),
       cardMetadataCache: {
         invalidate: vi.fn()
       },
@@ -754,9 +737,13 @@ describe('WeaveDataStorage delete source resolution', () => {
     const result = await storage.deleteCard(parent.uuid);
 
     expect(result.success).toBe(true);
-    expect(plugin.cardFileService.getCardsByUUIDsBatch).toHaveBeenCalledWith([parent.uuid]);
-    expect(plugin.cardFileService.getAllCards).not.toHaveBeenCalled();
-    expect(deletedOrder).toEqual([CHILD_UUID_1, CHILD_UUID_2, parent.uuid]);
+    expect(getCardsByUUIDs).toHaveBeenCalledWith([parent.uuid]);
+    expect(getAllCards).not.toHaveBeenCalled();
+    expect(deleteCardsByUUIDs).toHaveBeenCalledWith([
+      parent.uuid,
+      CHILD_UUID_1,
+      CHILD_UUID_2
+    ]);
   });
 
   it('expands progressive parent batch deletion through targeted child UUID lookups before fallback scans', async () => {
@@ -766,29 +753,23 @@ describe('WeaveDataStorage delete source resolution', () => {
     const getAllCards = vi.fn(async () => {
       throw new Error('should not scan all cards');
     });
-    const deleteCardsBatch = vi.fn(async (uuids: string[]) => ({
-      deleted: [...uuids],
-      notFound: []
-    }));
+    const getCardsByUUIDs = vi.fn(async (uuids: string[]) =>
+      uuids.map(uuid => {
+        if (uuid === parent.uuid) return parent;
+        if (uuid === child1.uuid) return child1;
+        return child2;
+      })
+    );
+    const deleteCardsByUUIDs = vi.fn(async (uuids: string[]) => [...uuids]);
 
     const plugin = {
       settings: {},
-      cardFileService: {
-        getCardsByUUIDsBatch: vi.fn(async (uuids: string[]) => ({
-          found: uuids.map(uuid => {
-            if (uuid === parent.uuid) return parent;
-            if (uuid === child1.uuid) return child1;
-            return child2;
-          }),
-          notFound: []
-        })),
+      wdeckService: createWDeckServiceMock({
+        getCardsByUUIDs,
         getAllCards,
-        deleteCardsBatch
-      },
+        deleteCardsByUUIDs
+      }),
       directFileReader: {
-        removeCardIndex: vi.fn()
-      },
-      cardIndexService: {
         removeCardIndex: vi.fn()
       },
       cardMetadataCache: {
@@ -817,10 +798,10 @@ describe('WeaveDataStorage delete source resolution', () => {
 
     expect(result.deleted).toEqual([parent.uuid]);
     expect(result.failed).toEqual([]);
-    expect(plugin.cardFileService.getCardsByUUIDsBatch).toHaveBeenCalledWith([parent.uuid]);
-    expect(plugin.cardFileService.getCardsByUUIDsBatch).toHaveBeenCalledWith([CHILD_UUID_1, CHILD_UUID_2]);
-    expect(plugin.cardFileService.getAllCards).not.toHaveBeenCalled();
-    expect(deleteCardsBatch).toHaveBeenCalledWith([parent.uuid, CHILD_UUID_1, CHILD_UUID_2]);
+    expect(getCardsByUUIDs).toHaveBeenCalledWith([parent.uuid]);
+    expect(getCardsByUUIDs).toHaveBeenCalledWith([CHILD_UUID_1, CHILD_UUID_2]);
+    expect(getAllCards).not.toHaveBeenCalled();
+    expect(deleteCardsByUUIDs).toHaveBeenCalledWith([parent.uuid, CHILD_UUID_1, CHILD_UUID_2]);
   });
 
   it('collects we_decks-linked cards before deck index removal', async () => {
@@ -929,75 +910,85 @@ describe('WeaveDataStorage delete source resolution', () => {
   });
 
   it('deletes progressive child cards before deleting the progressive parent in unified storage', async () => {
-    const deletedOrder: string[] = [];
+    const parentCard = {
+      uuid: 'parent-1',
+      deckId: 'wdeck:deck-1',
+      type: 'progressive-parent',
+      content: '---\nwe_type: progressive-parent\n---\n{{c1::Alpha}} {{c2::Beta}}',
+      progressiveCloze: {
+        childCardIds: ['child-1', 'child-2'],
+        totalClozes: 2,
+        createdAt: '2026-03-15T00:00:00.000Z'
+      },
+      stats: { totalReviews: 0, totalTime: 0, averageTime: 0 },
+      created: '2026-03-15T00:00:00.000Z',
+      modified: '2026-03-15T00:00:00.000Z',
+      tags: []
+    };
+    const childCards = [
+      {
+        uuid: 'child-1',
+        deckId: 'wdeck:deck-1',
+        type: 'progressive-child',
+        parentCardId: 'parent-1',
+        clozeOrd: 0,
+        content: '{{c1::Alpha}} {{c2::Beta}}',
+        stats: { totalReviews: 1, totalTime: 10, averageTime: 10 },
+        created: '2026-03-15T00:00:00.000Z',
+        modified: '2026-03-15T00:00:00.000Z',
+        tags: [],
+        fsrs: {
+          due: '2026-03-15T00:00:00.000Z',
+          stability: 1,
+          difficulty: 5,
+          elapsedDays: 0,
+          scheduledDays: 0,
+          reps: 0,
+          lapses: 0,
+          state: 0,
+          retrievability: 1
+        },
+        reviewHistory: []
+      },
+      {
+        uuid: 'child-2',
+        deckId: 'wdeck:deck-1',
+        type: 'progressive-child',
+        parentCardId: 'parent-1',
+        clozeOrd: 1,
+        content: '{{c1::Alpha}} {{c2::Beta}}',
+        stats: { totalReviews: 1, totalTime: 10, averageTime: 10 },
+        created: '2026-03-15T00:00:00.000Z',
+        modified: '2026-03-15T00:00:00.000Z',
+        tags: [],
+        fsrs: {
+          due: '2026-03-15T00:00:00.000Z',
+          stability: 1,
+          difficulty: 5,
+          elapsedDays: 0,
+          scheduledDays: 0,
+          reps: 0,
+          lapses: 0,
+          state: 0,
+          retrievability: 1
+        },
+        reviewHistory: []
+      }
+    ];
+    const deleteCardsByUUIDs = vi.fn(async (uuids: string[]) => [...uuids]);
     const plugin = {
       settings: {},
-      cardFileService: {
-        getAllCards: vi.fn(async () => [
-          {
-            uuid: 'parent-1',
-            deckId: 'deck-1',
-            type: 'progressive-parent',
-            content: '---\nwe_type: progressive-parent\n---\n{{c1::Alpha}} {{c2::Beta}}',
-            stats: { totalReviews: 0, totalTime: 0, averageTime: 0 },
-            created: '2026-03-15T00:00:00.000Z',
-            modified: '2026-03-15T00:00:00.000Z',
-            tags: []
-          },
-          {
-            uuid: 'child-1',
-            deckId: 'deck-1',
-            type: 'progressive-child',
-            parentCardId: 'parent-1',
-            clozeOrd: 0,
-            content: '{{c1::Alpha}} {{c2::Beta}}',
-            stats: { totalReviews: 1, totalTime: 10, averageTime: 10 },
-            created: '2026-03-15T00:00:00.000Z',
-            modified: '2026-03-15T00:00:00.000Z',
-            tags: [],
-            fsrs: {
-              due: '2026-03-15T00:00:00.000Z',
-              stability: 1,
-              difficulty: 5,
-              elapsedDays: 0,
-              scheduledDays: 0,
-              reps: 0,
-              lapses: 0,
-              state: 0,
-              retrievability: 1
-            },
-            reviewHistory: []
-          },
-          {
-            uuid: 'child-2',
-            deckId: 'deck-1',
-            type: 'progressive-child',
-            parentCardId: 'parent-1',
-            clozeOrd: 1,
-            content: '{{c1::Alpha}} {{c2::Beta}}',
-            stats: { totalReviews: 1, totalTime: 10, averageTime: 10 },
-            created: '2026-03-15T00:00:00.000Z',
-            modified: '2026-03-15T00:00:00.000Z',
-            tags: [],
-            fsrs: {
-              due: '2026-03-15T00:00:00.000Z',
-              stability: 1,
-              difficulty: 5,
-              elapsedDays: 0,
-              scheduledDays: 0,
-              reps: 0,
-              lapses: 0,
-              state: 0,
-              retrievability: 1
-            },
-            reviewHistory: []
-          }
-        ]),
-        deleteCard: vi.fn(async (uuid: string) => {
-          deletedOrder.push(uuid);
-          return true;
-        })
-      },
+      wdeckService: createWDeckServiceMock({
+        getCardsByUUIDs: vi.fn(async (uuids: string[]) => {
+          const cardsByUUID = new Map([
+            [parentCard.uuid, parentCard],
+            ...childCards.map((card) => [card.uuid, card] as const)
+          ]);
+          return uuids.map((uuid) => cardsByUUID.get(uuid)).filter(Boolean);
+        }),
+        isWDeckCard: vi.fn(() => true),
+        deleteCardsByUUIDs
+      }),
       cardMetadataCache: {
         invalidate: vi.fn()
       },
@@ -1021,8 +1012,7 @@ describe('WeaveDataStorage delete source resolution', () => {
     const result = await storage.deleteCard('parent-1');
 
     expect(result.success).toBe(true);
-    expect(plugin.cardFileService.deleteCard).toHaveBeenCalledTimes(3);
-    expect(deletedOrder).toEqual(['child-1', 'child-2', 'parent-1']);
+    expect(deleteCardsByUUIDs).toHaveBeenCalledWith(['parent-1', 'child-1', 'child-2']);
   });
 
   it('routes progressive parent edits through gateway and saves returned parent plus children', async () => {
@@ -1048,12 +1038,13 @@ describe('WeaveDataStorage delete source resolution', () => {
       return [updatedParent, updatedChild1, updatedChild2];
     });
 
+    const saveCardToDeck = vi.fn(async (_deck: unknown, card: Card) => card);
     const plugin = {
       settings: {},
-      cardFileService: {
+      wdeckService: createWDeckServiceMock({
         getAllCards: vi.fn(async () => [existingParent]),
-        saveCard: vi.fn(async (_card: Card) => true)
-      },
+        saveCardToDeck
+      }),
       cardMetadataCache: {
         invalidate: vi.fn()
       },
@@ -1099,17 +1090,20 @@ describe('WeaveDataStorage delete source resolution', () => {
       })
     );
 
-    expect(plugin.cardFileService.saveCard).toHaveBeenCalledTimes(3);
-    expect(plugin.cardFileService.saveCard).toHaveBeenNthCalledWith(
+    expect(saveCardToDeck).toHaveBeenCalledTimes(3);
+    expect(saveCardToDeck).toHaveBeenNthCalledWith(
       1,
+      expect.anything(),
       expect.objectContaining({ uuid: CHILD_UUID_1, type: CardType.ProgressiveChild })
     );
-    expect(plugin.cardFileService.saveCard).toHaveBeenNthCalledWith(
+    expect(saveCardToDeck).toHaveBeenNthCalledWith(
       2,
+      expect.anything(),
       expect.objectContaining({ uuid: CHILD_UUID_2, type: CardType.ProgressiveChild })
     );
-    expect(plugin.cardFileService.saveCard).toHaveBeenNthCalledWith(
+    expect(saveCardToDeck).toHaveBeenNthCalledWith(
       3,
+      expect.anything(),
       expect.objectContaining({ uuid: PARENT_UUID, type: CardType.ProgressiveParent })
     );
   });
@@ -1119,12 +1113,13 @@ describe('WeaveDataStorage delete source resolution', () => {
     processContentChangeMock.mockResolvedValue(null);
 
     const existingParent = createProgressiveParent();
+    const saveCardToDeck = vi.fn(async (_deck: unknown, card: Card) => card);
     const plugin = {
       settings: {},
-      cardFileService: {
+      wdeckService: createWDeckServiceMock({
         getAllCards: vi.fn(async () => [existingParent]),
-        saveCard: vi.fn(async (_card: Card) => true)
-      },
+        saveCardToDeck
+      }),
       cardMetadataCache: {
         invalidate: vi.fn()
       },
@@ -1156,6 +1151,6 @@ describe('WeaveDataStorage delete source resolution', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe('SAVE_CANCELLED');
-    expect(plugin.cardFileService.saveCard).not.toHaveBeenCalled();
+    expect(saveCardToDeck).not.toHaveBeenCalled();
   });
 });

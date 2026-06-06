@@ -4,9 +4,10 @@ import type { WeaveDataStorage } from "../../../data/storage";
 import type { Deck } from "../../../data/types";
 import type { ImportResult } from "../../../domain/apkg/types";
 import { CreateDeckModalObsidian } from "../../modals/CreateDeckModalObsidian";
-import { logger } from "../../../utils/logger";
-
-declare const __WEAVE_LEGACY_APKG_RUNTIME__: boolean;
+import {
+	closeLegacyApkgImportModal,
+	openLegacyApkgImportModal,
+} from "../../../utils/legacy-apkg-import-action";
 
 interface DeckStudyModalCoordinatorOptions {
   getPlugin: () => WeavePlugin;
@@ -30,10 +31,6 @@ export function createDeckStudyModalCoordinator(
 ): DeckStudyModalCoordinator {
   let createDeckModalInstance: CreateDeckModalObsidian | null = null;
   let editDeckModalInstance: CreateDeckModalObsidian | null = null;
-  let apkgImportModalInstance:
-    | import("../../modals/APKGImportModalObsidian").APKGImportModalObsidian
-    | null = null;
-
   async function handleAPKGImportComplete(result: ImportResult): Promise<void> {
     if (result.success) {
       const message = options.tr("deckStudyPage.import.success", {
@@ -87,29 +84,9 @@ export function createDeckStudyModalCoordinator(
   }
 
   function showAPKGImportModal(): void {
-    if (!__WEAVE_LEGACY_APKG_RUNTIME__) {
-      new Notice(options.getPlugin().getLegacyApkgImportUnavailableMessage(), 8000);
-      return;
-    }
-
-    void (async () => {
-      apkgImportModalInstance?.close();
-      const plugin = options.getPlugin();
-      const { APKGImportModalObsidian } = await import("../../modals/APKGImportModalObsidian");
-
-      apkgImportModalInstance = new APKGImportModalObsidian(plugin.app, {
-        plugin,
-        dataStorage: options.getDataStorage(),
-        wasmUrl: plugin.wasmUrl,
-        legacyImportAvailable: plugin.hasLegacyApkgImportRuntime(),
-        legacyImportHelpText: plugin.getLegacyApkgImportUnavailableMessage(),
-        onImportComplete: handleAPKGImportComplete,
-        onClose: () => {
-          apkgImportModalInstance = null;
-        },
-      });
-      apkgImportModalInstance.open();
-    })();
+    void openLegacyApkgImportModal(options.getPlugin(), options.getDataStorage(), {
+      onImportComplete: handleAPKGImportComplete,
+    });
   }
 
   function showEditDeckModal(deck: Deck): void {
@@ -136,8 +113,7 @@ export function createDeckStudyModalCoordinator(
     createDeckModalInstance = null;
     editDeckModalInstance?.close();
     editDeckModalInstance = null;
-    apkgImportModalInstance?.close();
-    apkgImportModalInstance = null;
+    closeLegacyApkgImportModal();
   }
 
   return {

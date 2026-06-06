@@ -439,7 +439,7 @@
   >
     <!-- 编辑/预览切换按钮 -->
     <button
-      class="toolbar-btn edit-btn"
+      class="clickable-icon toolbar-btn edit-btn"
       onclick={onToggleEdit}
       onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
       onmouseup={handleButtonDragEnd}
@@ -453,7 +453,7 @@
     <!-- 普通文本编辑器按钮 -->
     {#if tempFileUnavailable && onOpenPlainEditor}
       <button
-        class="toolbar-btn plain-editor-btn"
+        class="clickable-icon toolbar-btn plain-editor-btn"
         onclick={onOpenPlainEditor}
         onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
         onmouseup={handleButtonDragEnd}
@@ -467,7 +467,7 @@
 
     <!-- 删除 -->
     <button
-      class="toolbar-btn delete-btn"
+      class="clickable-icon toolbar-btn delete-btn"
       onclick={handleDeleteClick}
       onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
       onmouseup={handleButtonDragEnd}
@@ -480,7 +480,7 @@
 
     <!-- 收藏 -->
     <button
-      class="toolbar-btn favorite-btn"
+      class="clickable-icon toolbar-btn favorite-btn"
       class:favorited={card.tags?.includes('#收藏')}
       onclick={onToggleFavorite}
       onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
@@ -495,8 +495,8 @@
     <!-- 重要程度 -->
     <button
       bind:this={priorityButtonElement}
-      class="toolbar-btn priority-btn"
-      onclick={onChangePriority}
+      class="clickable-icon toolbar-btn priority-btn"
+      onclick={() => onChangePriority?.()}
       onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
       onmouseup={handleButtonDragEnd}
       ontouchstart={(e) => handleButtonLongPressStart(e, e.currentTarget)}
@@ -513,7 +513,7 @@
     <div class="multi-info-container">
       <button
         bind:this={multiInfoButtonElement}
-        class="toolbar-btn multi-info-btn"
+        class="clickable-icon toolbar-btn multi-info-btn"
         class:active={showMultiInfoMenu}
         onclick={toggleMultiInfoMenu}
         onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
@@ -662,7 +662,7 @@
     <div class="more-settings-container">
       <button
         bind:this={moreSettingsButtonElement}
-        class="toolbar-btn more-settings-btn"
+        class="clickable-icon toolbar-btn more-settings-btn"
         class:active={showMoreSettingsMenu}
         onclick={toggleMoreSettingsMenu}
         onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
@@ -1094,6 +1094,12 @@
     padding-bottom: 4px;
   }
 
+  .more-settings-menu-content .setting-item {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+    background: color-mix(in srgb, var(--background-secondary) 40%, var(--background-primary));
+  }
+
   .setting-item {
     display: flex;
     justify-content: space-between;
@@ -1105,10 +1111,22 @@
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
+  .more-settings-menu-content .setting-item:hover {
+    background: var(--background-modifier-hover);
+    border-color: color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border));
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  }
+
   .setting-item:hover {
     background: var(--background-modifier-hover);
     border-color: color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border));
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  }
+
+  .more-settings-menu-content :global(.obsidian-dropdown-trigger.setting-select) {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+    background: color-mix(in srgb, var(--background-secondary) 25%, var(--background-modifier-form-field));
   }
 
   .setting-item.toggle-item {

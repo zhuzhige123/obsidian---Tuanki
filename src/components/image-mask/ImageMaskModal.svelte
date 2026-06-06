@@ -191,7 +191,7 @@ async function handleCancel() {
 }
 
 /**
- * 从 localStorage 加载设置
+ * 从 vaultStorage 加载设置
  */
 function loadSettings() {
   try {
@@ -209,7 +209,7 @@ function loadSettings() {
 }
 
 /**
- * 保存设置到 localStorage
+ * 保存设置到 vaultStorage
  */
 function saveSettings() {
   try {

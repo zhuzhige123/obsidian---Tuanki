@@ -59,7 +59,7 @@ export class WeaveView extends ItemView {
 		isAllSelected: false,
 	};
 	private currentCardView: WeaveCardViewType = "table";
-	private currentDeckStudyView: "kanban" = "kanban";
+	private currentDeckStudyView = "kanban" as const;
 	private currentDeckStudyFilter: WeaveDeckStudyFilter = "memory";
 	private currentCardDataSource: WeaveCardDataSource = "memory";
 	private cardToolbarState: {
@@ -721,35 +721,30 @@ export class WeaveView extends ItemView {
 	 * 使用事件驱动方式，比轮询更高效
 	 */
 	private async waitForDataStorage(): Promise<void> {
-		// 如果已初始化（检查 dataStorage 和 cardFileService），直接返回
-		if (this.plugin.dataStorage && this.plugin.cardFileService) {
+		if (this.plugin.dataStorage) {
 			return;
 		}
 
 		logger.debug("[WeaveView] 等待 allCoreServices 初始化...");
 
 		try {
-			//  关键修复：等待所有核心服务就绪（包括 cardFileService）
-			// getCards() 依赖 cardFileService，必须等待 allCoreServices
 			const { waitForServiceReady } = await import("../utils/service-ready-event");
 			await waitForServiceReady("allCoreServices", 15000);
 			logger.debug("[WeaveView] allCoreServices 已就绪（事件通知）");
 		} catch (_error) {
-			// 事件等待超时，回退到轮询检查
 			logger.warn("[WeaveView] 事件等待超时，回退到轮询检查");
 
-			const maxAttempts = 20; // 额外等待 2 秒
+			const maxAttempts = 20;
 			const interval = 100;
 
 			for (let i = 0; i < maxAttempts; i++) {
-				if (this.plugin.dataStorage && this.plugin.cardFileService) {
+				if (this.plugin.dataStorage) {
 					logger.debug(`[WeaveView] allCoreServices 已就绪（轮询 ${i * interval}ms）`);
 					return;
 				}
 				await new Promise((resolve) => setTimeout(resolve, interval));
 			}
 
-			// 不抛出错误，而是记录警告
 			logger.warn("[WeaveView] dataStorage 初始化超时，将显示加载状态");
 		}
 	}

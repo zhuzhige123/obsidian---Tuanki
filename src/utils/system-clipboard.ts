@@ -25,13 +25,12 @@ function writeWithExecCommand(text: string): boolean {
 }
 
 export async function readSystemClipboardText(): Promise<string> {
-	try {
-		const electronClipboard = (window as any)?.require?.("electron")?.clipboard;
-		if (electronClipboard?.readText) {
-			return String(electronClipboard.readText() || "");
+	if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
+		try {
+			return String((await navigator.clipboard.readText()) || "");
+		} catch {
+			// Clipboard read may require user gesture or permission.
 		}
-	} catch {
-		// ignore Electron clipboard failures
 	}
 
 	return "";
@@ -40,14 +39,13 @@ export async function readSystemClipboardText(): Promise<string> {
 export async function writeSystemClipboardText(text: string): Promise<boolean> {
 	const normalized = String(text ?? "");
 
-	try {
-		const electronClipboard = (window as any)?.require?.("electron")?.clipboard;
-		if (electronClipboard?.writeText) {
-			electronClipboard.writeText(normalized);
+	if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+		try {
+			await navigator.clipboard.writeText(normalized);
 			return true;
+		} catch {
+			// Fall back to DOM copy when async clipboard write is unavailable.
 		}
-	} catch {
-		// ignore Electron clipboard failures and fall back to DOM copy
 	}
 
 	try {

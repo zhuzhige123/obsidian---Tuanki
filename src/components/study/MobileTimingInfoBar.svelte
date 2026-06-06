@@ -118,7 +118,7 @@
 </script>
 
 {#if expanded}
-  <div class="mobile-timing-info-bar {status.class}">
+  <div class="study-timing-info-bar mobile-timing-info-bar {status.class}">
     <!-- 三栏式布局：当前 | 平均 | 状态 -->
     <div class="timing-item current">
       <span class="timing-label">{t('study.timing.current')}</span>
@@ -142,6 +142,7 @@
 {/if}
 
 <style>
+  .study-timing-info-bar,
   .mobile-timing-info-bar {
     display: flex;
     align-items: center;

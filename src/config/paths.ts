@@ -98,13 +98,53 @@ export const LEGACY_MACHINE_DATA_SUBDIR = "_data";
 
 /** 旧增量阅读正文/文件化块兼容目录（新正文默认路径已不再写入这里） */
 export const DEFAULT_IR_IMPORT_FOLDER = `${WEAVE_DATA}/incremental-reading/IR`;
-/** Fallback when Vault is unavailable; runtime paths prefer `Vault#configDir`. */
-// eslint-disable-next-line obsidianmd/hardcoded-config-path -- static default for exclude list / pre-vault bootstrap only
-const DEFAULT_OBSIDIAN_CONFIG_DIR = ".obsidian";
 
-function resolveVaultConfigDir(app?: { vault: { configDir: string } }): string {
+/** 批量制卡默认排除目录（不含 vault.configDir，运行时由 ensureBatchParsingExcludeFolders 注入） */
+export const STATIC_BATCH_PARSE_EXCLUDE_FOLDERS = [".trash", "node_modules", ".git"] as const;
+
+function getLegacyDefaultConfigDirName(): string {
+	return [".", "obsidian"].join("");
+}
+
+function requireVaultConfigDir(app?: { vault?: { configDir?: string } }): string {
 	const configDir = app?.vault?.configDir?.trim();
-	return configDir && configDir.length > 0 ? configDir : DEFAULT_OBSIDIAN_CONFIG_DIR;
+	if (!configDir) {
+		throw new Error("Weave plugin paths require vault.configDir from an initialized App.");
+	}
+	return configDir;
+}
+
+/**
+ * 确保批量制卡排除列表包含当前库的 configDir，并移除历史硬编码 `.obsidian` 项。
+ */
+export function ensureBatchParsingExcludeFolders(
+	excludeFolders: string[] | undefined,
+	app: { vault: { configDir: string } }
+): { folders: string[]; changed: boolean } {
+	const configDir = requireVaultConfigDir(app);
+	const folders = Array.isArray(excludeFolders) ? [...excludeFolders] : [...STATIC_BATCH_PARSE_EXCLUDE_FOLDERS];
+	let changed = !Array.isArray(excludeFolders);
+
+	const legacyConfigDir = getLegacyDefaultConfigDirName();
+	const legacyIndex = folders.indexOf(legacyConfigDir);
+	if (legacyIndex !== -1 && configDir !== legacyConfigDir) {
+		folders.splice(legacyIndex, 1);
+		changed = true;
+	}
+
+	if (!folders.includes(configDir)) {
+		folders.unshift(configDir);
+		changed = true;
+	}
+
+	for (const folder of STATIC_BATCH_PARSE_EXCLUDE_FOLDERS) {
+		if (!folders.includes(folder)) {
+			folders.push(folder);
+			changed = true;
+		}
+	}
+
+	return { folders, changed };
 }
 
 export function normalizeWeaveParentFolder(parentFolder?: string): string {
@@ -249,7 +289,7 @@ export function getPluginDirById(
 	app: { vault: { configDir: string } } | undefined,
 	pluginId: string
 ): string {
-	const configDir = resolveVaultConfigDir(app);
+	const configDir = requireVaultConfigDir(app);
 	return `${configDir}/plugins/${pluginId}`;
 }
 
@@ -268,6 +308,17 @@ export const SCHEMA_VERSION = "3.0.0";
 /** 默认媒体文件夹名 */
 export const DEFAULT_MEDIA_FOLDER_NAME = "media";
 
+/** Vault 媒体清单文件名（避免与插件 manifest.json 混淆） */
+export const MEDIA_MANIFEST_FILENAME = ".manifest.json";
+
+/** 旧版媒体清单文件名，仅用于读取与迁移 */
+export const LEGACY_MEDIA_MANIFEST_FILENAME = "manifest.json";
+
+export function getMediaManifestPath(basePath: string, legacy = false): string {
+	const filename = legacy ? LEGACY_MEDIA_MANIFEST_FILENAME : MEDIA_MANIFEST_FILENAME;
+	return `${basePath}/${filename}`;
+}
+
 // ============================================================================
 // V2.0 规范化路径（新架构）
 // ============================================================================
@@ -283,6 +334,7 @@ export function getPluginPathsById(
 	const migrationRoot = `${cacheRoot}/migration`;
 	const editorTempRoot = `${cacheRoot}/editor-temp`;
 	const irCacheRoot = `${cacheRoot}/incremental-reading`;
+	const questionBankCacheRoot = `${cacheRoot}/question-bank`;
 	const stateRoot = `${root}/state`;
 	const irStateRoot = `${stateRoot}/incremental-reading`;
 	return {
@@ -320,6 +372,11 @@ export function getPluginPathsById(
 			editorTemp: editorTempRoot,
 			wdeckIndex: `${cacheRoot}/wdeck-index.json`,
 			wdeckConflicts: `${cacheRoot}/wdeck-conflicts.json`,
+			questionBank: {
+				root: questionBankCacheRoot,
+				inProgress: `${questionBankCacheRoot}/in-progress`,
+				sessionArchives: `${questionBankCacheRoot}/session-archives`,
+			},
 			incrementalReading: {
 				root: irCacheRoot,
 				irCalendarCache: `${irCacheRoot}/ir-calendar-cache.json`,
@@ -455,9 +512,8 @@ export const PATHS = {
  * - 删除数据文件夹不会影响备份
  * - 只有卸载插件时才会删除备份
  */
-export function getBackupFolder(app?: { vault: { configDir: string } }): string {
-	const configDir = resolveVaultConfigDir(app);
-	return `${configDir}/plugins/weave/backups`;
+export function getBackupFolder(app: { vault: { configDir: string } }): string {
+	return getPluginPaths(app).backups;
 }
 
 /**
@@ -466,11 +522,10 @@ export function getBackupFolder(app?: { vault: { configDir: string } }): string 
  * @returns 备份文件夹路径
  */
 export function getPluginBackupPath(
-	app?: { vault: { configDir: string } },
+	app: { vault: { configDir: string } },
 	pluginId = "weave"
 ): string {
-	const configDir = resolveVaultConfigDir(app);
-	return `${configDir}/plugins/${pluginId}/backups`;
+	return `${getPluginDirById(app, pluginId)}/backups`;
 }
 
 /**
@@ -504,7 +559,10 @@ export function getMediaPath(relativePath: string, parentFolder?: string): strin
  * @param backupId 备份ID（可选）
  * @returns 完整备份路径
  */
-export function getBackupPath(backupId?: string, app?: { vault: { configDir: string } }): string {
+export function getBackupPath(
+	app: { vault: { configDir: string } },
+	backupId?: string
+): string {
 	const folder = getBackupFolder(app);
 	return backupId ? `${folder}/${backupId}` : folder;
 }

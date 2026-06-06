@@ -4,7 +4,11 @@
    * 使用 Obsidian Menu API 构建原生风格菜单
    */
   import type { Card, Deck } from '../../data/types';
-  import type { RatingLabelStyle } from './rating-label-style';
+  import {
+    DEFAULT_RATING_LABEL_STYLE,
+    shouldShowRatingIntervalOnButtons,
+    type RatingLabelStyle,
+  } from './rating-label-style';
   import type { ChoiceOptionOrder } from '../../utils/study/choiceOptionOrder';
   import { Menu } from 'obsidian';
   import type { MenuCallbacks } from '../../services/menu/StudyToolbarMenuBuilder';
@@ -73,8 +77,8 @@
     playbackInterval = 2000,
     cardOrder = 'sequential',
     choiceOptionOrder = 'sequential',
-    ratingLabelStyle = 'classic',
-    showRatingIntervalOnButtons = false,
+    ratingLabelStyle = DEFAULT_RATING_LABEL_STYLE,
+    showRatingIntervalOnButtons = shouldShowRatingIntervalOnButtons(DEFAULT_RATING_LABEL_STYLE),
     timerAutoPauseSeconds = 60,
     showClozeModeSwitchButton = true,
     onClose,

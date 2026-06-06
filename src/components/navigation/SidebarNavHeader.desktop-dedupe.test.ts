@@ -32,6 +32,7 @@ const translationMap = vi.hoisted(() => ({
   'mainMenu.deckStudy.emergentFilter': '涌现筛选',
   'mainMenu.deckStudy.kanbanColumnSettings': '看板设置',
   'mainMenu.cardManagement.dataSourceSwitch': '数据源切换',
+  'mainMenu.cardManagement.tableViewMode': '表格视图模式',
   'mainMenu.cardManagement.tableBasic': '基础信息模式',
   'mainMenu.cardManagement.tableReview': '复习历史模式',
   'mainMenu.cardManagement.gridFixed': '固定布局',

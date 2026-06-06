@@ -390,7 +390,7 @@
   <!-- 提示词选择按钮 -->
   {#if showPromptSelector}
     <button
-      class="prompt-selector-btn"
+      class="clickable-icon weave-toolbar-tab prompt-selector-btn"
       onclick={openPromptMenu}
       title={t('aiAssistant.toolbar.selectPromptTemplate')}
     >
@@ -405,7 +405,7 @@
   <!-- AI服务商/模型选择按钮 -->
   {#if showProviderSelector}
     <button
-      class="ai-provider-selector-btn"
+      class="clickable-icon weave-toolbar-tab ai-provider-selector-btn"
       onclick={openProviderMenu}
       title={t('aiAssistant.toolbar.selectProviderModel')}
     >
@@ -422,7 +422,7 @@
     <div class="prompt-input-shell">
       {#if showPluginMenuButton}
         <button
-          class="plugin-menu-btn"
+          class="clickable-icon plugin-menu-btn"
           onclick={openPluginMenu}
           aria-label={t('aiAssistant.promptFooter.openPluginMenu')}
           title={t('aiAssistant.promptFooter.openPluginMenu')}
@@ -447,7 +447,7 @@
   <!-- 生成按钮 -->
   {#if showGenerateButton}
     <button
-      class="generate-btn"
+      class="clickable-icon weave-toolbar-tab generate-btn"
       onclick={onGenerate}
       disabled={disabled || isGenerating}
       title={disabled ? t('aiAssistant.promptFooter.inputContentFirst') : t('aiAssistant.toolbar.generateCards')}
@@ -492,32 +492,34 @@
 
   .prompt-selector-btn,
   .ai-provider-selector-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
     min-height: var(--prompt-footer-height);
     padding: 0 12px;
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--prompt-footer-radius);
-    color: var(--text-normal);
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: var(--clickable-icon-radius, var(--prompt-footer-radius));
+    color: var(--text-muted);
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .prompt-selector-btn:hover,
   .ai-provider-selector-btn:hover {
-    background: var(--background-primary-alt);
-    border-color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
   .prompt-selector-btn:active,
   .ai-provider-selector-btn:active {
-    transform: scale(0.98);
+    background: var(--background-modifier-active-hover);
+    transform: none;
   }
 
   .prompt-selector-text,
@@ -557,28 +559,30 @@
 
   .plugin-menu-btn {
     flex: 0 0 auto;
-    width: 36px;
+    width: 40px;
+    min-width: 40px;
     min-height: var(--prompt-footer-height);
-    border-radius: var(--prompt-footer-radius);
-    border: 1px solid var(--background-modifier-border);
-    background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
+    padding: 0;
+    border-radius: var(--clickable-icon-radius, var(--prompt-footer-radius));
+    border: none;
+    box-shadow: none;
+    background: transparent;
     color: var(--text-muted);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--background-primary) 72%, transparent);
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .plugin-menu-btn:hover {
     color: var(--text-normal);
-    border-color: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
-    background: var(--background-primary-alt);
+    background: var(--background-modifier-hover);
   }
 
   .plugin-menu-btn:active {
-    transform: scale(0.98);
+    background: var(--background-modifier-active-hover);
+    transform: none;
   }
 
   .prompt-textarea:hover {
@@ -595,23 +599,23 @@
   }
 
   .generate-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
     min-height: var(--prompt-footer-height);
-    padding: 0 20px;
-    background: var(--interactive-accent);
+    padding: 0 12px;
+    background: transparent;
     border: none;
-    border-radius: var(--prompt-footer-radius);
-    color: var(--text-on-accent);
+    box-shadow: none;
+    border-radius: var(--clickable-icon-radius, var(--prompt-footer-radius));
+    color: var(--text-normal);
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
     white-space: nowrap;
     flex-shrink: 0;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
 
   .compact .prompt-selector-btn,
@@ -619,18 +623,20 @@
   .compact .generate-btn {
     min-height: 34px;
     padding: 0 12px;
-    border-radius: 8px;
+    border-radius: var(--clickable-icon-radius, 8px);
     box-shadow: none;
   }
 
   .generate-btn:hover:not(:disabled) {
-    background: var(--interactive-accent-hover);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    transform: none;
+    box-shadow: none;
   }
 
   .generate-btn:active:not(:disabled) {
-    transform: translateY(0);
+    background: var(--background-modifier-active-hover);
+    transform: none;
   }
 
   .generate-btn:disabled {

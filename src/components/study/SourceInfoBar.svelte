@@ -210,8 +210,11 @@
 
   let linkedReadingMaterials = $derived.by(() => {
     const notePath = sourceMarkdownKey;
-    const manager = plugin.readingMaterialManager;
-    if (!notePath || !manager?.getAllMaterials) {
+    const irHost = plugin.app.plugins.getPlugin("weave-incremental-reading") as
+      | { readingMaterialManager?: { getAllMaterials?: () => ReadingMaterial[] } }
+      | null;
+    const manager = irHost?.readingMaterialManager;
+    if (!notePath || typeof manager?.getAllMaterials !== "function") {
       return [] as ReadingMaterial[];
     }
 

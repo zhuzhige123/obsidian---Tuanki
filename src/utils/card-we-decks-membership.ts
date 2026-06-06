@@ -87,17 +87,5 @@ export function applyWeDecksMembershipToCard(
 		modified: new Date().toISOString(),
 	};
 
-	if (resolution.invalidNames.length > 0) {
-		return { card: nextCard, content: nextContent, resolution };
-	}
-
-	if (resolution.formalDeckId) {
-		nextCard.deckId = resolution.formalDeckId;
-		nextCard.referencedByDecks = [resolution.formalDeckId];
-	} else if (resolution.cleared) {
-		(nextCard as Partial<Card>).deckId = undefined;
-		nextCard.referencedByDecks = [];
-	}
-
 	return { card: nextCard, content: nextContent, resolution };
 }

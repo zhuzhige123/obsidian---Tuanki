@@ -8,6 +8,7 @@
 @import './modern-components.css';      /* .weave-card、按钮/标签扩展变体（APKG/模板等使用） */
 @import './z-index-system.css';          /* --z-index-*（dynamic-injected 等；与 core 内 --weave-z-* 并存） */
 @import './codemirror-theme.css';        /* CodeMirror编辑器主题 */
+@import './accent-bar.css';              /* 统一侧边颜色条（设置页 / 模态窗共用） */
 @import './settings-common.css';         /* 设置界面样式 */
 @import './mobile-responsive.css';       /* 📱 手机端响应式适配（媒体查询 - 仅桌面端窄窗口） */
 @import './obsidian-mobile.css';         /* 📱 Obsidian 设备类样式（优先 - 实际移动设备 + 平板端） */

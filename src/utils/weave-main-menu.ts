@@ -20,6 +20,11 @@ import {
 	addMenuToggle,
 	getMenuSubmenu,
 } from "./obsidian-menu";
+import {
+	dispatchLegacyApkgImportRequest,
+	isLegacyApkgImportMenuVisible,
+	type LegacyApkgImportNavigationVisibility,
+} from "./legacy-apkg-import-action";
 
 const DECK_STUDY_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: "deck-study" };
 const CARD_MANAGEMENT_FEATURE_CONTEXT: PremiumFeatureAccessContext = { page: "weave-card-management" };
@@ -33,8 +38,7 @@ export type WeaveGridCardBorderStyle = "solid" | "dashed";
 export type WeaveKanbanLayoutMode = "compact" | "comfortable" | "spacious";
 export type WeaveIRTypeFilter = "all" | "md" | "pdf";
 
-type NavigationVisibility = {
-	apkgImport?: boolean;
+type NavigationVisibility = LegacyApkgImportNavigationVisibility & {
 	csvImport?: boolean;
 };
 
@@ -680,15 +684,13 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 	}
 
 	if (options.currentPage === "deck-study") {
-		if (navigationVisibility.apkgImport !== false) {
+		if (isLegacyApkgImportMenuVisible(navigationVisibility)) {
 			menu.addItem((item) => {
 				item
 					.setTitle(i18n.t("mainMenu.deckStudy.importLegacyPackage"))
 					.setIcon("package")
 					.onClick(() => {
-						dispatchDocumentEvent("apkg-import", {
-							event: actionEvent,
-						});
+						dispatchLegacyApkgImportRequest();
 					});
 			});
 		}

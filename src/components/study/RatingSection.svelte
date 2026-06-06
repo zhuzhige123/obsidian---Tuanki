@@ -10,6 +10,7 @@
   import { detectClozeModeFromContent } from "../../utils/cloze-mode";
   import { predictRatingScheduledDays } from "../../utils/study/predictRatingInterval";
   import {
+    DEFAULT_RATING_LABEL_STYLE,
     getRatingLabels,
     isMoodGraphicStyle,
     isMoodTimeStyle,
@@ -53,6 +54,7 @@
     learningStepIndex?: number;
     ratingLabelStyle?: RatingLabelStyle;
     showRatingIntervalOnButtons?: boolean;
+    shortcutEnabled?: boolean;
   }
 
   let {
@@ -64,8 +66,9 @@
     cardType,
     learningConfig,
     learningStepIndex,
-    ratingLabelStyle = 'classic',
-    showRatingIntervalOnButtons = false
+    ratingLabelStyle = DEFAULT_RATING_LABEL_STYLE,
+    showRatingIntervalOnButtons = shouldShowRatingIntervalOnButtons(DEFAULT_RATING_LABEL_STYLE),
+    shortcutEnabled = true,
   }: Props = $props();
   
   //  响应式翻译函数
@@ -220,13 +223,23 @@
       predictedInterval: getPredictedInterval(cfg.rating)
     }))
   );
+
+  function withShortcutHint(action: string, key: string): string {
+    if (!shortcutEnabled) return action;
+    return t('studyInterface.shortcuts.actionWithKey', { action, key });
+  }
 </script>
 
 <div class="rating-section">
   {#if !showAnswer}
     <!-- 显示答案区域 -->
     <div class="show-answer-area">
-      <button class="show-answer-btn" onclick={onShowAnswer}>
+      <button
+        class="clickable-icon weave-toolbar-tab show-answer-btn"
+        onclick={onShowAnswer}
+        title={withShortcutHint(showAnswerButtonText(), t('studyInterface.shortcuts.showAnswerKeys'))}
+        aria-keyshortcuts="Space Enter"
+      >
         <EnhancedIcon name="eye" size="20" />
         <span>{showAnswerButtonText()}</span>
       </button>
@@ -242,7 +255,9 @@
           class:mood-time-layout={useMoodTimeStyle}
           style="--accent: {cfg.color}; --text-color: {cfg.textColor};"
           aria-label={`评分：${cfg.label}（下一次：${cfg.predictedInterval}）`}
-          title={showIntervalOnButtons ? undefined : cfg.predictedInterval}
+          title={showIntervalOnButtons
+            ? withShortcutHint(cfg.label, cfg.key)
+            : withShortcutHint(`${cfg.label} · ${cfg.predictedInterval}`, cfg.key)}
           aria-keyshortcuts={cfg.key}
           onclick={() => {
             if (showAnswer) {onRate(cfg.rating);}
@@ -311,30 +326,30 @@
   }
 
   .show-answer-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 0.75rem;
-    background: var(--background-secondary);
+    background: transparent;
     color: var(--text-normal);
-    border: 2px solid #3b82f6;
-    border-radius: 0.75rem;
-    padding: 1rem 2rem;
+    border: none;
+    box-shadow: none;
+    border-radius: var(--clickable-icon-radius, 0.75rem);
+    padding: 0 1.25rem;
+    min-height: 48px;
     font-size: 1rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
-    box-shadow: var(--weave-shadow-md);
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .show-answer-btn:hover {
-    box-shadow: var(--weave-shadow-lg);
-    background: #3b82f6;
-    color: white;
-    border-color: #3b82f6;
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
   .show-answer-btn:active {
-    transform: translateY(0);
+    background: var(--background-modifier-active-hover);
+    transform: none;
   }
 
 

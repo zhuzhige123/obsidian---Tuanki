@@ -8,6 +8,7 @@
   import type { Deck } from '../../data/types';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import { tr } from '../../utils/i18n';
+  import { formatQuestionBankAccuracyScore } from '../../utils/question-bank/question-bank-display-stats';
 
   interface QuestionBankStats {
     total: number;      // 总题数
@@ -92,7 +93,7 @@
     name: bank.name,
     total: stats.total,
     completed: stats.completed,
-    accuracy: stats.accuracy.toFixed(0)
+    accuracy: formatQuestionBankAccuracyScore(stats.accuracy)
   })}
 >
   <!-- 纹理层 -->
@@ -123,6 +124,9 @@
 
     <!-- 底部统计信息栏（qb-eleg-*：避免全局 stat-* 类名污染） -->
     <div class="qb-eleg-stats-bar">
+      {#if stats.completed > 0}
+        <div class="qb-eleg-accuracy-badge">{formatQuestionBankAccuracyScore(stats.accuracy)}</div>
+      {/if}
       <div class="qb-eleg-stat">
         <span class="qb-eleg-stat-num">{stats.total}</span>
         <span class="qb-eleg-stat-lbl">{t('decks.questionBank.total')}</span>
@@ -309,6 +313,19 @@
     font-size: 13px;
     font-family: var(--font-interface), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     min-width: 0;
+  }
+
+  .qb-eleg-accuracy-badge {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: rgba(0, 0, 0, 0.22);
+    color: rgba(255, 255, 255, 0.95);
+    white-space: nowrap;
+    flex-shrink: 0;
+    backdrop-filter: blur(6px);
   }
 
   .qb-eleg-stat {

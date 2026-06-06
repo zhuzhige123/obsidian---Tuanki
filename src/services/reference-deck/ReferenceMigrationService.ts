@@ -114,9 +114,8 @@ export class ReferenceMigrationService {
 	 * 1. 扫描 weave/decks/ 下所有子文件夹中的 cards.json 文件
 	 * 2. 将所有卡片迁移到 weave/cards/default.json
 	 * 3. 为每个牌组生成 cardUUIDs 缓存
-	 * 4. 为每张卡片写入 content YAML 中的 we_decks
-	 * 5. 兼容保留 referencedByDecks
-	 * 6. 清理旧的卡片文件
+ * 4. 为每张卡片写入 content YAML 中的 we_decks
+ * 5. 清理旧的卡片文件
 	 */
 	async migrate(options: MigrationOptions = {}): Promise<DataMigrationResult> {
 		const { createBackup = true, validate = true, dryRun = false } = options;
@@ -216,10 +215,10 @@ export class ReferenceMigrationService {
 					content: setCardProperties(card.content || "", {
 						we_decks: expectedDeckNames.length > 0 ? expectedDeckNames : undefined,
 					}),
-					referencedByDecks: expectedRefs,
 					modified: now,
 				};
-				(migratedCard as any).deckId = undefined;
+				(migratedCard as Partial<Card>).deckId = undefined;
+				migratedCard.referencedByDecks = undefined;
 
 				migratedCardsToSave.push(migratedCard);
 			}
@@ -313,7 +312,7 @@ export class ReferenceMigrationService {
 	 */
 	private async createBackup(): Promise<string> {
 		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-		const backupFolder = `${getBackupPath()}/migration-${timestamp}`;
+		const backupFolder = `${getBackupPath(this.plugin.app)}/migration-${timestamp}`;
 		const adapter = this.plugin.app.vault.adapter;
 
 		const { DirectoryUtils } = await import("../../utils/directory-utils");

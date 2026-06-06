@@ -19,6 +19,7 @@ export interface MemoryStudySessionStateBridge {
 	setCurrentCardIndex: (value: number) => void;
 	getCardStartTime: () => number;
 	setCardStartTime: (value: number) => void;
+	getResponseTimeMs?: () => number;
 	getStudyQueue: () => Card[];
 	setStudyQueue: (queue: Card[]) => void;
 	getQueueInitialized?: () => boolean;
@@ -263,7 +264,9 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 
 		const currentCardIndex = options.state.getCurrentCardIndex();
 		const session = options.state.getSession();
-		const responseTime = Date.now() - options.state.getCardStartTime();
+		const responseTime =
+			options.state.getResponseTimeMs?.() ??
+			Date.now() - options.state.getCardStartTime();
 
 		options.saveReviewSnapshot?.({
 			card: cardToRate,

@@ -70,6 +70,23 @@ describe('showDeckStudyMobileNavMenu', () => {
     expect(options.setMemoryDeckDisplayMode).toHaveBeenCalledWith('emergent');
   });
 
+  it('在启用旧版 APKG 导入时显示导入入口', () => {
+    const openAPKGImport = vi.fn();
+    const options = buildOptions({
+      isAPKGImportEnabled: vi.fn(() => true),
+      openAPKGImport,
+    });
+
+    showDeckStudyMobileNavMenu(options);
+
+    const menu = menuInstances[0];
+    const importItem = menu.findItemByTitle('mainMenu.deckStudy.importLegacyPackage');
+    expect(importItem).toBeTruthy();
+
+    importItem?.trigger();
+    expect(openAPKGImport).toHaveBeenCalledTimes(1);
+  });
+
   it('在已进入涌现牌组时显示涌现筛选入口', () => {
     const options = buildOptions({
       memoryDeckDisplayMode: 'emergent',

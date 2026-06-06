@@ -38,13 +38,6 @@ body.is-phone .workspace-leaf-content[data-type="weave-card-staging-view"] .view
   background: var(--weave-surface-background, var(--background-primary));
 }
 
-/* EPUB/阅读器场景：view-content 锁定（勿用于记忆学习内联编辑） */
-.workspace-leaf-content[data-type="weave-study-view"] > .view-content.weave-reading-viewport-locked,
-.workspace-leaf-content[data-type="weave-question-bank-view"] > .view-content.weave-reading-viewport-locked {
-  background: var(--weave-surface-background, var(--background-primary));
-  z-index: 1;
-}
-
 /* 键盘编辑期：原生 view-header 浮在正文之上（与官方笔记一致，正文可滚入顶栏区域） */
 body.is-mobile.weave-edit-active .workspace-leaf-content[data-type="weave-study-view"],
 body.is-phone.weave-edit-active .workspace-leaf-content[data-type="weave-study-view"],

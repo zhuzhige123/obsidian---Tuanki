@@ -20,6 +20,7 @@
   import { addThemeClasses, UnifiedThemeManager } from "../utils/theme-detection";
   import AutoRulesConfigModal from "./modals/AutoRulesConfigModal.svelte";
   import { weaveMainInterfaceStore } from "../stores/weave-main-interface-store";
+  import { registerLegacyApkgImportRequestListener } from "../utils/legacy-apkg-import-action";
   import type {
     WeaveGlobalOperationProgressState,
     WeaveNavigationVisibilityState,
@@ -339,6 +340,20 @@
     window.addEventListener("Weave:card-view-change", handleCardViewChange as EventListener);
     window.addEventListener("Weave:deck-view-change", handleDeckViewChange as EventListener);
 
+    const unregisterLegacyApkgImport = registerLegacyApkgImportRequestListener(
+      plugin,
+      () => dataStorage,
+      {
+        onImportComplete: async (result) => {
+          if (!result.success) {
+            return;
+          }
+
+          plugin.app.workspace.trigger("Weave:data-changed");
+        },
+      }
+    );
+
     // 应用主题类到应用容器
     if (appElement) {
       themeClassCleanup = addThemeClasses(appElement);
@@ -406,6 +421,7 @@
       window.removeEventListener("Weave:deck-filter-change", handleDeckFilterChange as EventListener);
       window.removeEventListener("Weave:card-view-change", handleCardViewChange as EventListener);
       window.removeEventListener("Weave:deck-view-change", handleDeckViewChange as EventListener);
+      unregisterLegacyApkgImport();
       document.removeEventListener('Weave:open-plugin-config', handleOpenPluginConfig);
       plugin.app.workspace.offref(layoutChangeRef);
       if (mobileViewportCleanup) {

@@ -7,6 +7,7 @@
   import EnhancedButton from "../ui/EnhancedButton.svelte";
   import EnhancedIcon from "../ui/EnhancedIcon.svelte";
   import FloatingMenu from "../ui/FloatingMenu.svelte";
+  import PriorityPickerPopover from "../shared/PriorityPickerPopover.svelte";
   import ObsidianIcon from "../ui/ObsidianIcon.svelte";
   import MarkdownView from "../atoms/MarkdownRenderer.svelte";
   import StatsCards from "./StatsCards.svelte";
@@ -145,6 +146,7 @@
     syncCardStatsToCanonicalFormat,
   } from "../../utils/card-stats-normalizer";
   import { createMemoryStudySessionController } from "./memory-study-session-controller";
+  import { StudyTimerService } from "../../services/study/StudyTimerService";
   
   //  组件辅助工具和常量
   import {
@@ -337,7 +339,7 @@
   let currentSessionId = $state<string | null>(null);
   let currentCardIndex = $state(untrack(() => initialCardIndex));
   let showAnswer = $state(false);
-  let cardStartTime = $state(Date.now());
+  const studyTimer = new StudyTimerService();
   //  移动端检测
   const isMobile = Platform.isMobile;
   
@@ -434,7 +436,8 @@
   // 实时反应时间计算（仅在显示答案后有效）
   let currentResponseTime = $derived.by(() => {
     if (!showAnswer) return 0;
-    return Date.now() - cardStartTime;
+    void currentStudyTime;
+    return studyTimer.getResponseTimeMs();
   });
 
   let choiceStatsDisplay = $derived.by(() => {
@@ -1139,7 +1142,7 @@
   let statsCollapsed = $state(initialViewPrefs.statsCollapsed);
   let sourceInfoCollapsed = $state(true);
   let showProficiencyStats = $state(false);  // 学习进度统计栏展开状态
-  let showTimingInfo = $state(false);  // 卡片计时信息栏展开状态
+  let showTimingInfo = $state(false);
   let showEditModal = $state(false);
   let editTargetCard = $state<Card | null>(null);
 
@@ -1912,10 +1915,11 @@
       setCurrentCardIndex: (value) => {
         currentCardIndex = value;
       },
-      getCardStartTime: () => cardStartTime,
+      getCardStartTime: () => studyTimer.getStartTime(),
       setCardStartTime: (value) => {
-        cardStartTime = value;
+        studyTimer.setStartTime(value);
       },
+      getResponseTimeMs: () => studyTimer.getResponseTimeMs(),
       getStudyQueue: () => studyQueue,
       setStudyQueue: (queue) => {
         studyQueue = queue;
@@ -1924,7 +1928,7 @@
       getSession: () => session,
       getSessionStudiedCards: () => sessionStudiedCards,
       setTimerPaused: (value) => {
-        timerPaused = value;
+        studyTimer.setPaused(value);
       }
     },
     getLearningConfigForCard: (card) => resolveMemorySchedulingForCard(card),
@@ -2034,8 +2038,8 @@
         logger.error("保存学习会话失败", e);
       }
 
+      // 由 StudyViewWrapper 在庆祝窗关闭后关闭学习视图；不在此处调用 onClose，避免与庆祝窗状态竞态
       onComplete(finishedSession);
-      onClose();
     },
     shouldSkipLearningStepsInsertion: () => isStagingSession,
   });
@@ -2185,11 +2189,29 @@
     }
   });
 
-  // 计时器状态
-  let currentCardTime = $state(0);
-  let averageTime = $state(0);
   let timerAutoPauseSeconds = $state(untrack(() => plugin.settings.timerAutoPauseSeconds ?? 60));
-  let timerPaused = $state(false);
+
+  $effect(() => {
+    const autoPauseSeconds = timerAutoPauseSeconds;
+    studyTimer.setAutoPauseSeconds(autoPauseSeconds);
+    studyTimer.setOnAutoPaused(() => {
+      const duration = autoPauseSeconds >= 60
+        ? t('studyInterface.intervals.minutes', { n: String(autoPauseSeconds / 60) })
+        : t('studyInterface.intervals.seconds', { n: String(autoPauseSeconds) });
+      new Notice(t('studyInterface.notices.timerAutoPaused', { duration }), 3000);
+    });
+  });
+
+  let averageTime = $state(0);
+
+  $effect(() => {
+    if (session.cardReviews.length === 0) {
+      averageTime = 0;
+    } else {
+      const totalTime = session.cardReviews.reduce((sum, review) => sum + review.responseTime, 0);
+      averageTime = totalTime / session.cardReviews.length;
+    }
+  });
 
   // 进度条刷新触发器
   let progressBarRefreshTrigger = $state(0);
@@ -2229,24 +2251,6 @@
         currentSessionId = null;
       }
     };
-  });
-
-  // 单独的 effect 来更新学习时间 - 始终计时，从看到卡片开始
-  $effect(() => {
-    currentStudyTime = Date.now() - cardStartTime;
-  });
-
-  // 移除重复的卡片时间更新effect，避免与定时器冲突
-  // currentCardTime 现在只在定时器中更新
-
-  // 单独的 effect 来更新平均时间
-  $effect(() => {
-    if (session.cardReviews.length === 0) {
-      averageTime = 0;
-    } else {
-      const totalTime = session.cardReviews.reduce((sum, review) => sum + review.responseTime, 0);
-      averageTime = totalTime / session.cardReviews.length;
-    }
   });
 
   // 模板驱动的预览字段生成 - 已被新系统替代
@@ -2678,26 +2682,7 @@
     // 每秒更新一次学习时间统计（不更新progress，避免与主effect冲突）
     progressUpdateInterval = setInterval(() => {
       if (!showEditModal && currentCard) {
-        // 更新时间相关的状态
-        const elapsed = Date.now() - cardStartTime;
-        const autoPauseMs = timerAutoPauseSeconds * 1000;
-        // 超时自动暂停：当超过设定阈值时停止计时
-        if (autoPauseMs > 0 && elapsed >= autoPauseMs) {
-          if (!timerPaused) {
-            timerPaused = true;
-            const duration = timerAutoPauseSeconds >= 60
-              ? t('studyInterface.intervals.minutes', { n: String(timerAutoPauseSeconds / 60) })
-              : t('studyInterface.intervals.seconds', { n: String(timerAutoPauseSeconds) });
-            new Notice(t('studyInterface.notices.timerAutoPaused', { duration }), 3000);
-          }
-          currentCardTime = autoPauseMs;
-          currentStudyTime = autoPauseMs;
-        } else {
-          currentCardTime = elapsed;
-          currentStudyTime = elapsed;
-        }
-
-        // 更新会话总时间
+        currentStudyTime = studyTimer.getElapsedMs();
         session.totalTime = Math.floor((Date.now() - session.startTime.getTime()) / 1000);
       }
     }, 1000);
@@ -2926,7 +2911,7 @@
         
         // 重置UI状态
         showAnswer = false;
-        cardStartTime = Date.now(); timerPaused = false;
+        studyTimer.reset();
         
         // 更新撤销计数
         updateUndoCount();
@@ -2977,7 +2962,7 @@
       hasCurrentCard: !!cardToRate,
       currentCardId: cardToRate?.uuid,
       showAnswer,
-      cardStartTime
+      responseTimeMs: studyTimer.getResponseTimeMs()
     });
 
     if (!cardToRate || !showAnswer) {
@@ -4141,7 +4126,7 @@
         currentCardIndex = studyQueue.length - 1;
       }
       showAnswer = false;
-      cardStartTime = Date.now();
+      studyTimer.reset();
       return;
     }
 
@@ -4200,7 +4185,7 @@
       
       // 重置显示状态
       showAnswer = false;
-      cardStartTime = Date.now(); timerPaused = false;
+      studyTimer.reset();
       showEditModal = false;
 
       // 强制触发界面刷新
@@ -4296,7 +4281,7 @@
       
       // 重置显示状态
       showAnswer = false;
-      cardStartTime = Date.now(); timerPaused = false;
+      studyTimer.reset();
       showEditModal = false;
 
       // 强制刷新界面
@@ -4474,12 +4459,6 @@
       logger.error('Error changing priority:', error);
       new Notice(t('studyInterface.notices.prioritySetError'));
     }
-  }
-
-  async function confirmChangePriority() {
-    await savePriorityChange(selectedPriority, () => {
-      showPriorityModal = false;
-    });
   }
 
   /**
@@ -4815,6 +4794,7 @@
   // 处理超时自动暂停计时设置变化
   async function handleTimerAutoPauseChange(seconds: number) {
     timerAutoPauseSeconds = seconds;
+    studyTimer.setAutoPauseSeconds(seconds);
     plugin.settings.timerAutoPauseSeconds = seconds;
     try {
       await plugin.saveSettings();
@@ -5359,7 +5339,7 @@
                   <div class="cloze-mode-segmented">
                     <button
                       type="button"
-                      class="cloze-mode-btn"
+                      class="clickable-icon cloze-mode-btn"
                       class:active={currentStudyClozeMode === 'reveal'}
                       onclick={() => handlePreviewClozeModeChange('reveal')}
                       disabled={isClozeModeSaving || currentStudyClozeMode === 'reveal'}
@@ -5369,7 +5349,7 @@
                     </button>
                     <button
                       type="button"
-                      class="cloze-mode-btn"
+                      class="clickable-icon cloze-mode-btn"
                       class:active={currentStudyClozeMode === 'input'}
                       onclick={() => handlePreviewClozeModeChange('input')}
                       disabled={isClozeModeSaving || currentStudyClozeMode === 'input'}
@@ -5385,7 +5365,7 @@
                 <!-- 返回预览按钮 -->
                 <button
                   type="button"
-                  class="footer-side-action-btn return-btn"
+                  class="clickable-icon footer-side-action-btn return-btn"
                   onclick={undoShowAnswer}
                   title={t('studyInterface.labels.returnToPreview')}
                   aria-label={t('studyInterface.labels.returnToPreviewAria')}
@@ -5396,7 +5376,7 @@
                 <!-- 撤销按钮 -->
                 <button
                   type="button"
-                  class="footer-side-action-btn undo-btn"
+                  class="clickable-icon footer-side-action-btn undo-btn"
                   onclick={undoCount > 0 ? handleUndoReview : undefined}
                   title={undoCount > 0 ? t('studyInterface.notices.undoLastRating') : t('studyInterface.notices.nothingToUndo')}
                   disabled={undoCount === 0}
@@ -5420,6 +5400,7 @@
             learningConfig={learningConfig ?? undefined}
             learningStepIndex={currentSessionId ? sessionManager.getSessionState(currentSessionId)?.learningStepIndex : undefined}
             {ratingLabelStyle}
+            shortcutEnabled={plugin.settings.enableShortcuts}
           />
         </div>
       {/if}
@@ -5460,57 +5441,13 @@
         {/snippet}
       </FloatingMenu>
 
-      <!-- 优先级设置浮窗 -->
-      <FloatingMenu
+      <PriorityPickerPopover
         bind:show={showPriorityModal}
         anchor={priorityAnchorElement}
-        placement="left-start"
+        currentPriority={selectedPriority}
+        onSelect={(priority) => void savePriorityChange(priority)}
         onClose={() => showPriorityModal = false}
-        class="study-side-panel-menu"
-      >
-        {#snippet children()}
-          <div class="study-side-panel priority-modal" role="dialog" aria-modal="true" tabindex="-1">
-            <div class="modal-header">
-              <h3>{t('studyInterface.labels.setPriority')}</h3>
-              <button class="modal-close" onclick={() => showPriorityModal = false}>×</button>
-            </div>
-            <div class="modal-body">
-              <p class="modal-description">{t('studyInterface.labels.priorityDescription')}</p>
-              <div class="priority-options">
-                {#each [1, 2, 3, 4] as priority}
-                  <button
-                    class="priority-option"
-                    class:selected={selectedPriority === priority}
-                    onclick={() => { selectedPriority = priority; }}
-                  >
-                    <div class="priority-stars">
-                      {#each Array(priority) as _}
-                        <EnhancedIcon name="starFilled" size="16" />
-                      {/each}
-                      {#each Array(4 - priority) as _}
-                        <EnhancedIcon name="star" size="16" />
-                      {/each}
-                    </div>
-                    <span class="priority-label">
-                      {[
-                        '',
-                        t('study.priority.low'),
-                        t('study.priority.medium'),
-                        t('study.priority.high'),
-                        t('study.priority.urgent')
-                      ][priority]}
-                    </span>
-                  </button>
-                {/each}
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button class="btn-secondary" onclick={() => showPriorityModal = false}>{t('settings.actions.cancel')}</button>
-              <button class="btn-primary" onclick={confirmChangePriority}>{t('studyInterface.labels.confirmSet')}</button>
-            </div>
-          </div>
-        {/snippet}
-      </FloatingMenu>
+      />
 
       </div><!-- 关闭 main-study-area -->
 
@@ -5522,7 +5459,7 @@
             compactModeSetting={sidebarCompactModeSetting}
             onCompactModeSettingChange={handleCompactModeSettingChange}
             card={currentCard}
-            {currentCardTime}
+            currentCardTime={currentStudyTime}
             {averageTime}
             {plugin}
             decks={decks}
@@ -6079,17 +6016,11 @@
     display: inline-flex;
     align-items: center;
     gap: 0.6rem;
-    padding: 0.35rem 0.45rem 0.35rem 0.65rem;
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 82%, var(--interactive-accent) 18%);
-    border-radius: 0.9rem;
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--weave-study-panel-bg) 90%, var(--weave-study-page-bg) 10%) 0%,
-      color-mix(in srgb, var(--weave-study-panel-bg) 96%, transparent) 100%
-    );
-    box-shadow:
-      0 1px 2px color-mix(in srgb, var(--background-modifier-border) 48%, transparent),
-      0 8px 18px color-mix(in srgb, var(--background-modifier-border) 24%, transparent);
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
   }
 
   .footer-cloze-mode-switch .cloze-mode-label {
@@ -6104,47 +6035,44 @@
   .footer-cloze-mode-switch .cloze-mode-segmented {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0.2rem;
-    border-radius: 0.72rem;
-    background: color-mix(in srgb, var(--weave-study-page-bg) 66%, var(--weave-study-panel-bg) 34%);
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 78%, transparent);
+    gap: 4px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    border: none;
   }
 
   .footer-cloze-mode-switch .cloze-mode-btn {
-    border: 1px solid transparent;
+    border: none;
+    box-shadow: none;
     background: transparent;
     color: var(--text-muted);
-    border-radius: 0.6rem;
-    padding: 0.38rem 0.72rem;
+    border-radius: var(--clickable-icon-radius, 999px);
+    padding: 0 10px;
+    min-height: 40px;
     font-size: 12px;
     font-weight: 500;
     line-height: 1.2;
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .footer-cloze-mode-switch .cloze-mode-btn:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--background-modifier-hover) 78%, var(--background-primary) 22%);
+    background: var(--background-modifier-hover);
     color: var(--text-normal);
-    border-color: color-mix(in srgb, var(--interactive-accent) 26%, var(--background-modifier-border));
-    transform: translateY(-1px);
+    transform: none;
   }
 
   .footer-cloze-mode-switch .cloze-mode-btn:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 24%, transparent);
+    box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
   }
 
   .footer-cloze-mode-switch .cloze-mode-btn.active {
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--interactive-accent) 92%, white 8%) 0%,
-      var(--interactive-accent) 100%
-    );
-    color: var(--text-on-accent);
-    border-color: color-mix(in srgb, var(--interactive-accent) 74%, var(--background-modifier-border));
-    box-shadow: 0 4px 10px color-mix(in srgb, var(--interactive-accent) 32%, transparent);
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    border: none;
+    box-shadow: none;
     transform: none;
   }
 
@@ -6159,30 +6087,31 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
     padding: 0;
-    border: 1px solid color-mix(in srgb, var(--background-modifier-border) 78%, transparent);
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--weave-study-page-bg) 84%, var(--weave-study-panel-bg) 16%);
-    color: var(--icon-color, var(--text-normal));
+    border: none;
+    box-shadow: none;
+    border-radius: var(--clickable-icon-radius, 999px);
+    background: transparent;
+    color: var(--icon-color, var(--text-muted));
     cursor: pointer;
-    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .footer-side-action-btn:hover:not(:disabled) {
     background: var(--background-modifier-hover);
     color: var(--icon-color-hover, var(--text-normal));
-    border-color: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
   }
 
   .footer-side-action-btn:focus-visible {
-    outline: 2px solid var(--interactive-accent);
+    outline: 2px solid var(--background-modifier-border-focus);
     outline-offset: 2px;
   }
 
   .footer-side-action-btn:active {
-    background: color-mix(in srgb, var(--background-modifier-hover) 65%, var(--weave-study-panel-bg));
+    background: var(--background-modifier-active-hover);
   }
 
   .footer-side-action-btn:disabled {

@@ -444,13 +444,15 @@
         ></textarea>
         <div class="plain-editor-actions">
           <button
-            class="btn-secondary"
+            type="button"
+            class="clickable-icon weave-toolbar-tab btn-secondary"
             onclick={handleEditorCancel}
           >
             {t('study.editor.cancel')}
           </button>
           <button
-            class="btn-primary"
+            type="button"
+            class="clickable-icon weave-toolbar-tab btn-primary"
             onclick={() => {
               if (plainTextEditorEl) {
                 handlePlainEditorSave(plainTextEditorEl.value);
@@ -629,33 +631,38 @@
   }
 
   .plain-editor-actions button {
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: var(--clickable-icon-size, 28px);
+    padding: 0.35rem 0.65rem;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
+    border: none;
+    box-shadow: none;
+    background: transparent;
   }
 
   .btn-secondary {
-    background: var(--background-modifier-form-field);
-    border: 1px solid var(--background-modifier-border);
-    color: var(--text-normal);
+    color: var(--text-muted);
   }
 
   .btn-secondary:hover {
     background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
   .btn-primary {
-    background: var(--color-accent);
-    border: 1px solid var(--color-accent);
-    color: var(--text-on-accent);
+    color: var(--text-normal);
+    font-weight: 600;
   }
 
   .btn-primary:hover {
-    background: var(--color-accent-hover);
-    border-color: var(--color-accent-hover);
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
   :global(body.is-mobile.weave-edit-active) .inline-editor-container,

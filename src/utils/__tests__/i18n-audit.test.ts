@@ -133,8 +133,6 @@ describe('i18n audit', () => {
       'src/components/study/SourceInfoBar.svelte',
       'src/components/study/CardEditorContainer.svelte',
       'src/components/study/AIActionManager.svelte',
-      'src/components/study/MobileCardManagementHeader.svelte',
-      'src/components/study/MobileCardManagementMenu.svelte',
       'src/components/study/StudyInterface.svelte',
       'src/components/study/VerticalToolbar.svelte',
       'src/components/study/study-interface-helpers.ts',

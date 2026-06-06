@@ -592,6 +592,7 @@
             <span class="cloze-mode-label">{t('cards.editorModal.clozeModeLabel')}</span>
             <button
               type="button"
+              class="clickable-icon cloze-mode-btn"
               class:active={currentClozeMode === 'reveal'}
               onclick={() => void handleClozeModeToggle('reveal')}
               disabled={isLoading || !editorInitialized}
@@ -600,6 +601,7 @@
             </button>
             <button
               type="button"
+              class="clickable-icon cloze-mode-btn"
               class:active={currentClozeMode === 'input'}
               onclick={() => void handleClozeModeToggle('input')}
               disabled={isLoading || !editorInitialized}
@@ -628,7 +630,7 @@
         <!-- 关闭按钮 -->
         {#if onClose}
           <button
-            class="close-btn"
+            class="clickable-icon close-btn"
             onclick={onClose}
             aria-label={t('cards.editorModal.close')}
             title={t('cards.editorModal.closeTitle')}
@@ -680,7 +682,7 @@
       <!-- onclick 在焦点变化后触发，避免与编辑器焦点管理冲突 -->
       <button
         type="button"
-        class="mobile-action-btn secondary"
+        class="clickable-icon weave-toolbar-tab mobile-action-btn secondary"
         onclick={(e) => {
           //  使用 onclick 统一处理，配合 CSS touch-action: manipulation 消除300ms延迟
           e.preventDefault();
@@ -697,7 +699,7 @@
       
       <button
         type="button"
-        class="mobile-action-btn primary"
+        class="clickable-icon weave-toolbar-tab mobile-action-btn primary"
         onclick={(e) => {
           //  使用 onclick 统一处理，配合 CSS touch-action: manipulation 消除300ms延迟
           e.preventDefault();
@@ -758,11 +760,11 @@
   .cloze-mode-switch {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 999px;
-    background: var(--background-secondary);
+    gap: 4px;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
   }
 
   .cloze-mode-label {
@@ -772,45 +774,55 @@
     white-space: nowrap;
   }
 
-  .cloze-mode-switch button {
+  .cloze-mode-switch button,
+  .cloze-mode-switch .cloze-mode-btn {
     border: none;
+    box-shadow: none;
     background: transparent;
     color: var(--text-muted);
-    border-radius: 999px;
-    padding: 6px 10px;
+    border-radius: var(--clickable-icon-radius, 999px);
+    padding: 0 10px;
+    min-height: 40px;
     font-size: 12px;
     cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
-  .cloze-mode-switch button:hover:not(:disabled) {
+  .cloze-mode-switch button:hover:not(:disabled),
+  .cloze-mode-switch .cloze-mode-btn:hover:not(:disabled) {
     background: var(--background-modifier-hover);
     color: var(--text-normal);
   }
 
-  .cloze-mode-switch button.active {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
+  .cloze-mode-switch button.active,
+  .cloze-mode-switch .cloze-mode-btn.active {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
-  .cloze-mode-switch button:disabled {
+  .cloze-mode-switch button:disabled,
+  .cloze-mode-switch .cloze-mode-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
 
   /* 关闭按钮样式 */
   .close-btn {
-    background: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    padding: 0;
+    background: transparent;
     border: none;
+    box-shadow: none;
     font-size: 16px;
     color: var(--text-muted);
     cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .close-btn:hover {
@@ -819,7 +831,7 @@
   }
 
   .close-btn:active {
-    background: var(--background-modifier-active);
+    background: var(--background-modifier-active-hover);
   }
 
   .editor-header h3 {
@@ -992,39 +1004,40 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 8px 16px;
-    border-radius: 8px;
+    width: auto;
+    height: auto;
+    min-height: var(--clickable-icon-size, 28px);
+    padding: 0.35rem 0.65rem;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
     font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
-    border: 1px solid transparent;
-    min-height: 2.25rem;
-    /*  确保按钮接收触摸事件 */
+    transition: background-color 0.15s ease, color 0.15s ease;
+    border: none;
+    box-shadow: none;
+    background: transparent;
     pointer-events: auto;
-    touch-action: manipulation; /* 📱 优化触摸响应 */
-    -webkit-tap-highlight-color: transparent; /* 📱 移除iOS点击高亮 */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
   
   .mobile-action-btn.secondary {
-    background: var(--background-secondary);
-    color: var(--text-normal);
-    border-color: var(--background-modifier-border);
+    color: var(--text-muted);
   }
   
   .mobile-action-btn.secondary:hover:not(:disabled) {
     background: var(--background-modifier-hover);
-    border-color: var(--background-modifier-border-hover);
+    color: var(--text-normal);
   }
   
   .mobile-action-btn.primary {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    border-color: transparent;
+    color: var(--text-normal);
+    font-weight: 600;
   }
   
   .mobile-action-btn.primary:hover:not(:disabled) {
-    background: var(--interactive-accent-hover);
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
   
   .mobile-action-btn:disabled {
@@ -1033,7 +1046,8 @@
   }
   
   .mobile-action-btn:active:not(:disabled) {
-    transform: scale(0.98);
+    background: var(--background-modifier-active-hover);
+    transform: none;
   }
   
   /*  移动端：确保按钮在同一行显示 */

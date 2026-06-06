@@ -6,7 +6,7 @@
  *   node scripts/sync-obsidian-community-version.cjs
  *   node scripts/sync-obsidian-community-version.cjs --version 0.8.11
  *   node scripts/sync-obsidian-community-version.cjs --dry-run
- *   node scripts/sync-obsidian-community-version.cjs --push-ref wip-main-sync:main
+ *   (Do NOT use --push-ref except for emergencies; only obsidian-version-sync:main is allowed.)
  */
 const fs = require("fs");
 const path = require("path");
@@ -124,6 +124,8 @@ function hasStashNamed(name) {
 	return stashList.split("\n").some((line) => line.includes(name));
 }
 
+const ALLOWED_PUSH_REF = `${SYNC_BRANCH}:${DEFAULT_BRANCH}`;
+
 function resolvePushRef(explicitPushRef) {
 	if (explicitPushRef) {
 		assertSafePushRef(explicitPushRef);
@@ -133,13 +135,15 @@ function resolvePushRef(explicitPushRef) {
 		assertSafePushRef(process.env.WEAVE_OBSIDIAN_PUSH_REF);
 		return process.env.WEAVE_OBSIDIAN_PUSH_REF;
 	}
-	return `${SYNC_BRANCH}:${DEFAULT_BRANCH}`;
+	return ALLOWED_PUSH_REF;
 }
 
 function assertSafePushRef(pushRef) {
-	if (/wip-main-sync/i.test(pushRef)) {
+	const normalized = String(pushRef || "").trim();
+	if (normalized !== ALLOWED_PUSH_REF) {
 		fail(
-			"Refusing push ref containing wip-main-sync. Use Mode A default (obsidian-version-sync:main) so only version metadata is pushed."
+			`Refusing push ref "${normalized}". Closed-source policy: only "${ALLOWED_PUSH_REF}" is allowed. ` +
+				"Never push WIP/feature branches or full source to public main. See docs/technical/skills/weave-public-push-guard/SKILL.md"
 		);
 	}
 }

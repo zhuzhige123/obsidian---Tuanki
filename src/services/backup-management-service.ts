@@ -318,7 +318,7 @@ export class BackupManagementService {
 	async getBackupHistory(): Promise<BackupInfo[]> {
 		try {
 			// 使用新的独立备份路径
-			const backupsFolder = getBackupPath();
+			const backupsFolder = getBackupPath(this.plugin.app);
 			if (!backupsFolder) {
 				logger.warn("[getBackupHistory] 备份路径未定义");
 				return [];

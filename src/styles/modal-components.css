@@ -371,9 +371,10 @@
 
 .weave-toolbar-tab.active,
 .weave-toolbar-tab.is-active {
-  color: var(--text-accent);
+  color: var(--text-normal);
   background: var(--background-modifier-hover);
-  box-shadow: inset 0 0 0 1px var(--background-modifier-border-hover, var(--background-modifier-border));
+  font-weight: 600;
+  box-shadow: none;
 }
 
 /* ===== 模态窗尺寸变体 ===== */

@@ -511,6 +511,102 @@ export class WDeckService {
 		return snapshot.conflicts;
 	}
 
+	/**
+	 * 修复结构性 .wdeck 冲突：重复分卷、内容完全相同的副本文件。
+	 * UUID 跨文件冲突仍由上层按 YAML 归属回写处理。
+	 */
+	async repairStructuralConflicts(): Promise<{
+		repaired: number;
+		errors: Array<{ path: string; error: string }>;
+	}> {
+		let repaired = 0;
+		const errors: Array<{ path: string; error: string }> = [];
+
+		const removeDuplicateCopyFiles = async (report: WDeckConflictReport): Promise<void> => {
+			for (const issue of report.issues.filter((item) => item.type === "suspected_duplicate_copy")) {
+				const paths = Array.from(new Set(issue.filePaths.map((path) => String(path || "").trim()).filter(Boolean)));
+				if (paths.length <= 1) {
+					continue;
+				}
+
+				const keepPath = this.pickCanonicalWDeckFilePath(paths);
+				for (const path of paths) {
+					if (path === keepPath) {
+						continue;
+					}
+					try {
+						await this.deleteDeckFile(path);
+						repaired += 1;
+					} catch (error) {
+						errors.push({
+							path,
+							error: error instanceof Error ? error.message : String(error),
+						});
+					}
+				}
+			}
+		};
+
+		const mergeDuplicateSegmentFiles = async (report: WDeckConflictReport): Promise<void> => {
+			for (const issue of report.issues.filter((item) => item.type === "duplicate_segment")) {
+				const paths = Array.from(new Set(issue.filePaths.map((path) => String(path || "").trim()).filter(Boolean)));
+				if (paths.length <= 1) {
+					continue;
+				}
+
+				try {
+					const mergedCards = new Map<string, Card>();
+					let logicalDeckId = "";
+					let logicalDeckName = "";
+
+					for (const path of paths) {
+						const file = this.plugin.app.vault.getAbstractFileByPath(path);
+						if (!(file instanceof TFile)) {
+							continue;
+						}
+						const resolved = await this.readResolvedFile(file);
+						if (!resolved) {
+							continue;
+						}
+						logicalDeckId = resolved.logicalDeckId || logicalDeckId;
+						logicalDeckName = resolved.logicalDeckName || logicalDeckName;
+						for (const card of Array.isArray(resolved.data.cards) ? resolved.data.cards : []) {
+							if (card?.uuid) {
+								mergedCards.set(card.uuid, card);
+							}
+						}
+					}
+
+					if (!logicalDeckId && !logicalDeckName) {
+						continue;
+					}
+
+					await this.saveCardsToDeck(
+						{
+							id: logicalDeckId || logicalDeckName,
+							name: logicalDeckName || logicalDeckId,
+						},
+						Array.from(mergedCards.values())
+					);
+					repaired += 1;
+				} catch (error) {
+					errors.push({
+						path: paths.join(", "),
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}
+			}
+		};
+
+		await this.rebuildCache();
+		const report = await this.getConflictReport(true);
+		await removeDuplicateCopyFiles(report);
+		await mergeDuplicateSegmentFiles(report);
+		await this.rebuildCache();
+
+		return { repaired, errors };
+	}
+
 	async getCacheStatus(): Promise<WDeckCacheStatus> {
 		const cache = await this.readCacheSnapshot();
 		const vaultFiles = this.getVaultWDeckFiles();
@@ -2181,6 +2277,30 @@ export class WDeckService {
 			conflicts: this.detectConflicts(resolvedFiles),
 		});
 		return true;
+	}
+
+	private pickCanonicalWDeckFilePath(paths: string[]): string {
+		const scorePath = (path: string): number => {
+			let score = 0;
+			if (path.includes("/deck-files/")) {
+				score += 100;
+			}
+			if (/_01\.wdeck$/i.test(path)) {
+				score += 20;
+			}
+			if (/未归组/.test(path)) {
+				score -= 10;
+			}
+			return score;
+		};
+
+		return [...paths].sort((left, right) => {
+			const scoreDiff = scorePath(right) - scorePath(left);
+			if (scoreDiff !== 0) {
+				return scoreDiff;
+			}
+			return left.localeCompare(right, "zh-CN");
+		})[0];
 	}
 
 	private detectConflicts(

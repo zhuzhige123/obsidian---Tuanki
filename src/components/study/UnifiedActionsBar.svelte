@@ -122,7 +122,7 @@
     {#if showDeckSelector && availableDecks.length > 0}
       {#if isCompactMobile}
         <button 
-          class="action-btn deck-selector-btn" 
+          class="clickable-icon weave-toolbar-tab action-btn deck-selector-btn" 
           onclick={handleDeckSelectorClick}
           type="button"
         >
@@ -153,7 +153,7 @@
     {/if}
     
     {#if showReturnButton}
-      <button class="action-btn secondary" onclick={onReturn} type="button">
+      <button class="clickable-icon weave-toolbar-tab action-btn secondary" onclick={onReturn} type="button">
         {#if isCompactMobile}
           <EnhancedIcon name="arrow-left" size="18" />
         {/if}
@@ -165,7 +165,7 @@
     
     <!-- 重新生成按钮 -->
     <button 
-      class="action-btn primary" 
+      class="clickable-icon weave-toolbar-tab action-btn primary" 
       onclick={onRegenerate} 
       disabled={isRegenerating}
       type="button"
@@ -181,7 +181,7 @@
     
     <!-- 4. 收入按钮 -->
     <button 
-      class="action-btn primary" 
+      class="clickable-icon weave-toolbar-tab action-btn primary" 
       onclick={onSave} 
       disabled={selectedCount === 0 || isRegenerating || (showDeckSelector && !selectedDeckId)}
       type="button"
@@ -222,48 +222,52 @@
   }
 
   .action-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    font-size: 0.875rem;
+    width: auto;
+    height: auto;
+    min-height: var(--clickable-icon-size, 28px);
+    padding: 0.35rem 0.65rem;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
+    color: var(--text-muted);
+    font-size: var(--font-ui-small, 0.875rem);
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
-    border: none;
+    transition: background-color 0.15s ease, color 0.15s ease;
     outline: none;
   }
   
   /*  移动端按钮样式 */
   .mobile .action-btn {
-    padding: 0.5rem 0.75rem;
+    padding: 0.35rem 0.55rem;
     gap: 0.25rem;
   }
 
-  .action-btn.secondary {
+  .action-btn.secondary:hover:not(:disabled) {
     background: var(--background-modifier-hover);
     color: var(--text-normal);
-  }
-
-  .action-btn.secondary:hover {
-    background: var(--background-modifier-active-hover);
-    transform: translateY(-1px);
+    transform: none;
   }
 
   .action-btn.primary {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
+    color: var(--text-normal);
+    font-weight: 600;
   }
 
-  .action-btn.primary:hover {
-    background: var(--interactive-accent-hover);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(76, 175, 80, 0.35);
+  .action-btn.primary:hover:not(:disabled) {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    transform: none;
+    box-shadow: none;
   }
 
-  .action-btn:active {
-    transform: translateY(0);
+  .action-btn:active:not(:disabled) {
+    background: var(--background-modifier-active-hover);
+    transform: none;
   }
 
   .action-btn:disabled {
@@ -310,18 +314,19 @@
   
   /*  移动端牌组选择器按钮样式 */
   .deck-selector-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 0.375rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.5rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
     font-size: 0.8125rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    color: var(--text-normal);
+    transition: background-color 0.15s ease, color 0.15s ease;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    color: var(--text-muted);
     max-width: 140px;
   }
   
@@ -333,8 +338,8 @@
   }
   
   .deck-selector-btn:hover {
-    border-color: var(--interactive-accent);
     background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
   
   .deck-selector-btn:active {

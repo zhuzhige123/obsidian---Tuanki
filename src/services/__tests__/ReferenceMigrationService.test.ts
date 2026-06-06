@@ -98,9 +98,6 @@ function createMemoryPlugin(initialFiles: Record<string, string> = {}) {
       saveDeck: vi.fn(),
       saveCardsBatch: vi.fn(),
     },
-    cardFileService: {
-      initialize: vi.fn().mockResolvedValue(undefined),
-    },
   } as any;
 
   return {
@@ -199,9 +196,9 @@ describe('ReferenceMigrationService', () => {
     expect(savedCards).toHaveLength(1);
     expect(savedCards[0]).toEqual(expect.objectContaining({
       uuid: 'card-1',
-      referencedByDecks: [deck.id],
     }));
     expect(savedCards[0].deckId).toBeUndefined();
+    expect(savedCards[0].referencedByDecks).toBeUndefined();
     expect(getCardMetadata(savedCards[0].content).we_decks).toEqual([deck.name]);
 
     expect(plugin.dataStorage.saveDeck).toHaveBeenCalledWith(expect.objectContaining({

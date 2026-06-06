@@ -4,6 +4,7 @@
  */
 
 import { ActivationErrorCode } from "../../../utils/types/license-types";
+import { LIFETIME_LICENSE_PURCHASE_URL } from "../../../config/plugin-runtime";
 
 // ==================== 激活码格式规则 ====================
 
@@ -303,7 +304,7 @@ export const ACTIVATION_HELP_TEXT = {
 		email: "tutaoyuan8@outlook.com",
 		subject: "Weave插件激活问题咨询",
 		github: "https://github.com/zhuzhige123/obsidian---Weave",
-		purchase: "https://pay.ldxp.cn/item/ned9pw",
+		purchase: LIFETIME_LICENSE_PURCHASE_URL,
 	},
 } as const;
 

@@ -30,7 +30,7 @@ interface ViewState {
 
 // ===== 常量定义 =====
 
-/** 视图与颜色映射 - 与 MobileCardManagementHeader.svelte 保持一致 */
+/** 视图与颜色映射 - 与 ViewSwitcher.svelte 保持一致 */
 const VIEW_CONFIG: Record<ViewType, ViewConfig> = {
   table: { color: '#ef4444', colorClass: 'red' },
   grid: { color: '#3b82f6', colorClass: 'blue' },

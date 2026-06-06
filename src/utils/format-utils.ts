@@ -65,6 +65,21 @@ export function formatDateTime(date: string | Date): string {
 }
 
 /**
+ * 格式化倒计时（毫秒 -> MM:SS 或 H:MM:SS，等宽数字友好）
+ */
+export function formatCountdownMs(ms: number): string {
+	const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+
+	if (hours > 0) {
+		return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+	}
+	return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+}
+
+/**
  * 格式化持续时间（毫秒转为可读格式）
  */
 export function formatDuration(ms: number): string {

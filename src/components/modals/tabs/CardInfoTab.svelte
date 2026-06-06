@@ -634,8 +634,10 @@
   <!-- 卡片演化历史区 -->
   {#if timelineEvents.length > 0 || parentCard || siblingCards.length > 0}
     <section class="info-section timeline-section" class:mobile={isMobile}>
-      <h3 class="section-title with-accent-bar accent-cyan" class:mobile={isMobile}>
-        {t('modals.cardInfoTab.evolutionHistory')}
+      <div class="weave-section-header-row">
+        <h3 class="section-title with-accent-bar accent-cyan" class:mobile={isMobile}>
+          {t('modals.cardInfoTab.evolutionHistory')}
+        </h3>
         {#if timelineMode === 'full' || (timelineMode === 'compact' && siblingCards.length > 0)}
           <button 
             class="expand-toggle" 
@@ -645,7 +647,7 @@
             {expandedTimeline ? '▲' : '▼'}
           </button>
         {/if}
-      </h3>
+      </div>
 
       {#if timelineMode === 'simple'}
         <!-- 简单模式：一行摘要 -->
@@ -824,17 +826,15 @@
   }
 
   .section-title {
-    display: flex;
-    align-items: center;
-    gap: var(--size-4-2);
-    position: relative;
-    padding-left: 16px;
     font-size: var(--font-ui-medium);
     font-weight: 600;
     color: var(--text-normal);
-    margin-bottom: var(--size-4-4);
-    /*  移除 padding-bottom，避免彩色侧边条偏移 */
+    margin: 0 0 var(--size-4-4) 0;
     line-height: 1.4;
+  }
+
+  .weave-section-header-row .section-title {
+    margin-bottom: 0;
   }
 
   .info-grid {
@@ -870,18 +870,6 @@
   .text-muted {
     color: var(--text-muted);
     font-style: italic;
-  }
-
-  /* 蓝色强调条 */
-  .with-accent-bar.accent-blue::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 4px;
-    background: var(--interactive-accent);
-    border-radius: 2px;
   }
 
   .uuid-button,
@@ -1085,7 +1073,7 @@
     cursor: pointer;
     padding: 2px 6px;
     font-size: var(--font-ui-small);
-    margin-left: auto;
+    flex-shrink: 0;
     transition: all 0.2s ease;
   }
 
@@ -1308,35 +1296,6 @@
     font-weight: 600;
     color: var(--text-normal);
     margin-bottom: var(--size-4-3);
-  }
-
-  /* 彩色条样式 - 复用设置界面的设计 */
-  .section-title.with-accent-bar::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 4px;
-    height: 20px;
-    border-radius: 2px;
-  }
-
-  /* 颜色定义 */
-  .section-title.accent-red::before {
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.8), rgba(220, 38, 38, 0.6));
-  }
-
-  .section-title.accent-orange::before {
-    background: linear-gradient(135deg, rgba(249, 115, 22, 0.8), rgba(234, 88, 12, 0.6));
-  }
-
-  .section-title.accent-purple::before {
-    background: linear-gradient(135deg, rgba(168, 85, 247, 0.8), rgba(147, 51, 234, 0.6));
-  }
-
-  .section-title.accent-cyan::before {
-    background: linear-gradient(135deg, rgba(6, 182, 212, 0.8), rgba(14, 165, 233, 0.6));
   }
 
   .event-detail {
@@ -1681,19 +1640,15 @@
     padding: 12px;
   }
 
-  /* 移动端标题 - 彩色侧边条与文字高度统一 */
+  /* 移动端标题 */
   .section-title.mobile {
     font-size: 14px;
     margin-bottom: 12px;
-    padding-left: 12px;
-    line-height: 1.2;
+    line-height: 1.4;
   }
 
-  /*  移动端彩色侧边条 - 与文字垂直居中对齐 */
-  .section-title.mobile.with-accent-bar::before {
-    height: 14px;
-    top: 50%;
-    transform: translateY(-50%);
+  .weave-section-header-row .section-title.mobile {
+    margin-bottom: 0;
   }
 
   /* 移动端信息网格 */

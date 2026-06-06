@@ -589,7 +589,7 @@
   {#snippet headerActions()}
     <!-- 钉住按钮 -->
     <button
-      class="pin-button"
+      class="clickable-icon weave-toolbar-tab pin-button"
       class:pinned={isPinned}
       onclick={(e) => {
         //  使用 onclick 统一处理，配合 CSS touch-action: manipulation 消除300ms延迟
@@ -613,7 +613,7 @@
     {#if plugin.dataStorage}
       <button
         bind:this={deckButtonRef}
-        class="deck-selector-btn mobile"
+        class="clickable-icon weave-toolbar-tab deck-selector-btn mobile"
         title={MEMORY_DECK_UI_TEXT.selectEditableFormalAssignment}
         aria-label={MEMORY_DECK_UI_TEXT.selectEditableFormalAssignment}
         onclick={(e) => {
@@ -662,15 +662,16 @@
 
 <style>
   .pin-button {
-    background: none;
+    background: transparent;
     border: none;
+    box-shadow: none;
     cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
-    transition: all 0.2s ease;
+    padding: 0 10px;
+    min-height: var(--clickable-icon-size, 28px);
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
+    transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
     opacity: 0.6;
     line-height: 1;
-    /*  移动端触摸优化 */
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
     display: inline-flex;
@@ -685,32 +686,37 @@
 
   .pin-button.pinned {
     opacity: 1;
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
+    background: var(--background-modifier-hover);
+    color: var(--interactive-accent);
   }
 
   .pin-button.pinned:hover {
-    opacity: 0.9;
+    background: var(--background-modifier-active-hover);
   }
   
   /*  移动端牌组选择器按钮样式 */
   .deck-selector-btn.mobile {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 0.375rem;
-    padding: 0.375rem 0.75rem;
-    border-radius: 0.375rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
     font-size: 0.8125rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
-    border: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    color: var(--text-normal);
-    max-width: 160px;
-    /*  移动端触摸优化 */
+    transition: background-color 0.15s ease, color 0.15s ease;
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    color: var(--text-muted);
+    max-width: 140px;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  .deck-selector-btn.mobile:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
   
   .deck-selector-btn.mobile .deck-name {

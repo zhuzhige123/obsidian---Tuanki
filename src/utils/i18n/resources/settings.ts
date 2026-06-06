@@ -310,6 +310,7 @@ export const settingsTranslations: Record<SupportedLanguage, TranslationKey> = {
 			},
 			license: {
 				title: "授权与激活",
+				purchaseLink: "购买永久授权码",
 				description: "管理 Weave 高级功能许可证，查看激活状态与设备绑定。",
 				noSavableCode: "当前授权未提供可保存的激活码",
 				codeCopied: "激活码已复制到剪贴板，请妥善保存",
@@ -688,6 +689,7 @@ export const settingsTranslations: Record<SupportedLanguage, TranslationKey> = {
 			},
 			license: {
 				title: "License & Activation",
+				purchaseLink: "Buy lifetime license",
 				description: "Manage your Weave premium license, activation status, and device bindings.",
 				noSavableCode: "No savable activation code is available for the current license",
 				codeCopied: "Activation code copied to clipboard. Keep it in a safe place.",
@@ -857,7 +859,7 @@ export const settingsTranslationOverrides: Record<SupportedLanguage, Translation
 					description: "现代间隔重复算法的重要实现，为插件中的记忆调度与参数优化提供了关键参考。",
 					name: "fsrs6",
 				},
-				obsidian: {
+				obsidianApp: {
 					description: "感谢 Obsidian 提供开放而灵活的平台基础，让插件可以服务于全平台知识工作流。",
 					name: "Obsidian",
 				},
@@ -1024,7 +1026,7 @@ export const settingsTranslationOverrides: Record<SupportedLanguage, Translation
 						"A modern spaced-repetition implementation that informed the plugin’s scheduling and optimization design.",
 					name: "fsrs6",
 				},
-				obsidian: {
+				obsidianApp: {
 					description:
 						"Thanks to Obsidian for the open and flexible platform foundation that makes this cross-platform learning workflow possible.",
 					name: "Obsidian",

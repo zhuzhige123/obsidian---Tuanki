@@ -8,11 +8,13 @@
 
 import JSZip from "jszip";
 import { APKGLogger } from "../../../infrastructure/logger/APKGLogger";
+import { runTasksWithConcurrency } from "../../../utils/async-pool";
 import { throwIfImportAborted } from "../ImportTaskControl";
 import type { APKGData, APKGFormat } from "../types";
 import { SQLiteReader } from "./SQLiteReader";
 
 const UI_YIELD_BATCH_SIZE = 20;
+const MEDIA_EXTRACT_CONCURRENCY = 8;
 
 export interface APKGPreparedArchive {
   zip: JSZip;
@@ -269,26 +271,33 @@ export class APKGParser {
       return media;
     }
 
-    for (let entryIndex = 0; entryIndex < mediaEntries.length; entryIndex++) {
-      throwIfImportAborted(options?.signal);
-      const [index, filename] = mediaEntries[entryIndex];
-      const file = archive.zip.file(index);
-      if (file) {
-        const data = await file.async("uint8array");
+    let completedExtractions = 0;
+    await runTasksWithConcurrency(
+      mediaEntries.map(([index, filename]) => async () => {
         throwIfImportAborted(options?.signal);
-        media.set(filename, data);
-        this.logger.debug(`提取媒体文件: ${filename} (${data.length} bytes)`);
-      } else {
-        this.logger.warn(`媒体文件缺失: ${filename} (索引: ${index})`);
-      }
+        const file = archive.zip.file(index);
+        if (file) {
+          const data = await file.async("uint8array");
+          throwIfImportAborted(options?.signal);
+          media.set(filename, data);
+          this.logger.debug(`提取媒体文件: ${filename} (${data.length} bytes)`);
+        } else {
+          this.logger.warn(`媒体文件缺失: ${filename} (索引: ${index})`);
+        }
 
-      this.emitProgress(onProgress, "media", 10 + ((entryIndex + 1) / mediaEntries.length) * 90, "正在提取媒体文件...", {
-        totalItems: mediaEntries.length,
-        completedItems: entryIndex + 1,
-        currentItem: filename,
-      });
-      await this.maybeYieldDuringLoop(entryIndex + 1, mediaEntries.length);
-    }
+        completedExtractions += 1;
+        this.emitProgress(onProgress, "media", 10 + (completedExtractions / mediaEntries.length) * 90, "正在提取媒体文件...", {
+          totalItems: mediaEntries.length,
+          completedItems: completedExtractions,
+          currentItem: filename,
+        });
+
+        if (completedExtractions % UI_YIELD_BATCH_SIZE === 0) {
+          await this.yieldToUI();
+        }
+      }),
+      MEDIA_EXTRACT_CONCURRENCY
+    );
 
     return media;
   }

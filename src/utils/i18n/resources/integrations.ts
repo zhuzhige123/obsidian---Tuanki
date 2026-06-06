@@ -2,6 +2,14 @@ import type { SupportedLanguage, TranslationKey } from '../types';
 
 export const integrationsTranslations: Record<SupportedLanguage, TranslationKey> = {
 	'zh-CN': {
+		splitPlugins: {
+			incrementalReadingName: "Weave 增量阅读",
+			epubReaderName: "Weave EPUB 阅读器",
+			unavailableMissing:
+				"未检测到 {pluginName}（{pluginId}）。请在 Obsidian 设置 → 社区插件中安装并启用。",
+			unavailableDisabled:
+				"{pluginName}（{pluginId}）已安装但未启用。请在 Obsidian 设置 → 社区插件中启用。",
+		},
 
 		//  AI制卡配置
 		aiConfig: {
@@ -330,6 +338,14 @@ export const integrationsTranslations: Record<SupportedLanguage, TranslationKey>
 		},
 	},
 	'en-US': {
+		splitPlugins: {
+			incrementalReadingName: "Weave Incremental Reading",
+			epubReaderName: "Weave EPUB Reader",
+			unavailableMissing:
+				"{pluginName} ({pluginId}) was not detected. Install and enable it in Settings → Community plugins.",
+			unavailableDisabled:
+				"{pluginName} ({pluginId}) is installed but disabled. Enable it in Settings → Community plugins.",
+		},
 
 		//  AI Card Creation
 		aiConfig: {

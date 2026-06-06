@@ -1222,9 +1222,9 @@ export class StudyView extends ItemView {
 	/**
 	 * 手动关闭视图（供外部调用）
 	 */
-	public close(): void {
+	public close(options?: { force?: boolean }): void {
 		//  防止递归调用（特别是与其他插件如 Excalidraw 冲突时）
-		if (this.isClosing) {
+		if (this.isClosing && !options?.force) {
 			logger.debug("[StudyView] 防止重入：视图正在关闭中");
 			return;
 		}

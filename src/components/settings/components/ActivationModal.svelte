@@ -12,6 +12,7 @@
     getPluginLocalLicenses,
   } from '../../../utils/plugin-license';
   import { PremiumFeatureGuard } from '../../../services/premium/PremiumFeatureGuard';
+  import { LIFETIME_LICENSE_PURCHASE_URL } from '../../../config/plugin-runtime';
   
   interface Props {
     plugin: any;
@@ -22,7 +23,7 @@
   let { 
     plugin, 
     onSave,
-    purchaseUrl = 'https://pay.ldxp.cn/item/ned9pw' 
+    purchaseUrl = LIFETIME_LICENSE_PURCHASE_URL
   }: Props = $props();
 
   // 响应式翻译

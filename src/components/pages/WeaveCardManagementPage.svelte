@@ -119,8 +119,8 @@
   
   
   // 移动端组件
-  import MobileCardManagementHeader from "../study/MobileCardManagementHeader.svelte";
-  // MobileCardManagementMenu 已移除 - 现在使用 Obsidian Menu API
+  // 移动端：菜单/搜索/视图圆点由 WeaveView 原生 view-header + WeaveMobileHeaderCenter 提供；
+  // 侧边栏模式由 SidebarNavHeader 提供。
   
   // 卡片搜索组件
   import CardSearchInput from "../search/CardSearchInput.svelte";
@@ -133,6 +133,11 @@
   // EPUB阅读器活动文档store（用于文档关联筛选）
   import { epubActiveDocumentStore } from "../../stores/epub-active-document-store";
   import { EPUB_RUNTIME } from "../../services/epub-integration";
+  import {
+    INCREMENTAL_READING_PLUGIN_ID,
+    isIncrementalReadingPluginInstalled,
+    notifySplitPluginUnavailable,
+  } from "../../utils/ir-plugin-integration";
   
   import { IRStorageService } from "../../services/incremental-reading/IRStorageService";
   import { loadIRCardManagementData } from "../../services/incremental-reading/IRCardManagementLoader";
@@ -144,7 +149,7 @@
   } from "../../services/incremental-reading/IRCardManagementMutationService";
   import { resolveAssociatedNotePaths } from "../../services/incremental-reading/IRAssociatedNoteSignals";
   import { IRPointWriteService } from "../../services/incremental-reading/IRPointWriteService";
-  import { recomputeAndBroadcastIRData } from "../../services/incremental-reading";
+  import { recomputeAndBroadcastIRData } from "../../services/incremental-reading/IRScheduleRefreshService";
   import {
     clearPendingCardManagementFilterByCardsRequest,
     consumePendingCardManagementFilterByCardsRequest,
@@ -470,6 +475,9 @@
   function normalizeVisibleCardDataSource(
     source: 'memory' | 'questionBank' | 'incremental-reading'
   ): 'memory' | 'questionBank' | 'incremental-reading' {
+    if (source === 'incremental-reading' && !isIncrementalReadingPluginInstalled(plugin.app)) {
+      return 'memory';
+    }
     if (source === 'questionBank' || source === 'incremental-reading') {
       return source;
     }
@@ -1859,9 +1867,7 @@
 
   // 异步初始化函数
   async function initializeAsync() {
-    // 关键修复：等待所有核心服务就绪（包括 cardFileService）
-    // 视图可能在 workspace 恢复时创建，此时 cardFileService 还未初始化
-    // 必须等待 allCoreServices 而不是 dataStorage，因为 getCards() 依赖 cardFileService
+    // 等待 allCoreServices，避免 workspace 恢复时 dataStorage 尚未就绪
     await waitForServiceReady('allCoreServices', 15000);
     
     // Load initial data
@@ -2387,7 +2393,7 @@
     try {
       logger.debug('[卡片管理] 开始加载卡片数据...');
       
-      // 等待所有核心服务就绪（包括 cardFileService）
+      // 等待核心服务就绪（WDeck + dataStorage）
       await waitForServiceReady('allCoreServices', 15000);
       
       // v2.0: 完全引用式架构 - 从统一存储获取所有卡片
@@ -5130,6 +5136,11 @@
       return;
     }
 
+    if (newSource === 'incremental-reading' && !isIncrementalReadingPluginInstalled(plugin.app)) {
+      notifySplitPluginUnavailable(plugin.app, INCREMENTAL_READING_PLUGIN_ID);
+      return;
+    }
+
     // 根据目标数据源加载数据
     if (newSource === 'questionBank' && questionBankCards.length === 0) {
       await loadQuestionBankCards();
@@ -6904,16 +6915,6 @@
       />
     </div>
   {:else}
-    <!-- 移动端头部（仅在移动端显示） -->
-    <MobileCardManagementHeader
-      {currentView}
-      onMenuClick={showMobileCardManagementMenu}
-      onSearchClick={handleMobileSearchClick}
-      onViewChange={switchView}
-    />
-    
-    <!-- 移动端导航菜单已改用 Obsidian Menu API，不再使用 MobileCardManagementMenu 组件 -->
-    
     <!-- 移动端搜索输入框 -->
     {#if showMobileSearchInput}
       <div class="mobile-search-container">
@@ -7222,6 +7223,17 @@
   .weave-card-management-page.is-table-view {
     --weave-card-management-page-bg: var(--weave-surface-background, var(--weave-surface, var(--background-primary)));
     --weave-card-management-surface-bg: var(--weave-elevated-background, var(--weave-surface-secondary, var(--background-secondary)));
+  }
+
+  .split-plugin-inline-notice {
+    margin: 8px 12px 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-warning);
+    background: var(--background-modifier-form-field);
+    border: 1px solid var(--background-modifier-border);
   }
 
   /* 桌面端彩色圆点视图切换栏样式已移除 - 现在由 WeaveApp 中的 SidebarNavHeader 统一处理 */

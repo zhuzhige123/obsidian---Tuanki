@@ -72,7 +72,7 @@ function buildRootReadme(): string {
 		"| `memory/deck-files/` | 记忆正式牌组的 `.wdeck` 文件目录 | 是 | 正式牌组真源以这里的 `.wdeck` 为主 |",
 		"| `memory/deck-graphs/` | 牌组知识图谱 / 分析输出 | 是 | 牌组分析功能可能在这里产出文件 |",
 		"| `memory/learning/sessions/` | 学习历史与统计输入 | 是 | 这里是历史记录，不是断点续学状态 |",
-		"| `memory/media/` | 图片、音频、遮罩、导入清单 | 是 | 不建议手动删 `manifest.json` 或批量改名 |",
+		"| `memory/media/` | 图片、音频、遮罩、导入清单 | 是 | 不建议手动删 `.manifest.json` 或批量改名 |",
 		"| `incremental-reading/topics/` | IR 专题层真源 | 是 | 用于表达专题层结构，不直接承担正文副本存储 |",
 		"| `incremental-reading/points/` | IR 阅读点与调度真源 | 是 | 阅读点应与正文文件分离，正文不长期内嵌在这里 |",
 		"| `incremental-reading/profiles/` | 需同步的调度模板 | 是 | 用户可编辑的模板应与可重建索引分开 |",

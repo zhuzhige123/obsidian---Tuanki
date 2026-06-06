@@ -26,7 +26,9 @@
     listUserPromptFiles,
     resolveUserPromptFile
   } from '../../services/ai/UserPromptFileService';
+  import { ParsedCardConverter } from '../../services/converter/ParsedCardConverter';
   import { RegexCardParser } from '../../services/batch-parsing/RegexCardParser';
+  import { normalizeRegexParsingConfig } from '../../services/batch-parsing/RegexPresets';
   import { MarkdownFileSuggestModal } from '../../modals/MarkdownFileSuggestModal';
   import { populateProviderModelMenu, showProviderModelMenuAt } from '../../utils/provider-model-menu';
   import { AI_MODEL_OPTIONS, AI_PROVIDER_LABELS, getDefaultAIModel } from '../settings/constants/settings-constants';
@@ -43,6 +45,7 @@
     resolveCurrentActiveDocument,
   } from '../../utils/active-document-resolver';
   import type { CardStagingStudyMode } from '../../types/card-staging-types';
+  import { splitCardFrontBack } from '../../constants/markdown-delimiters';
   import { filterPreviewItemsForStudyMode } from '../../services/ai/card-staging-card-builder';
   import {
     resolveDefaultStagingQuestionBank,
@@ -670,12 +673,12 @@
     try {
       isParsing = true;
       syncToolbarState();
-      const preset = selectedParsePreset;
+      const preset = normalizeRegexParsingConfig(selectedParsePreset);
       const result = await createRegexParser().parseFile(selectedFile.file, preset, 'preview');
       if (!result.success) throw new Error(result.errors[0] || '\u89e3\u6790\u5931\u8d25');
 
       parseItems = result.cards.map((card, index) => {
-        const { front, back } = splitContent(card.content || '');
+        const { front, back } = splitCardFrontBack(card.content || '');
         return {
           id: `${index + 1}`,
           index: index + 1,
@@ -693,6 +696,7 @@
       });
 
       subView = 'parse-preview';
+      new Notice(`\u5df2\u89e3\u6790 ${parseItems.length} \u5f20\u5361\u7247`);
       await persistPreferences();
       syncToolbarState();
     } catch (error) {
@@ -770,25 +774,58 @@
       throw new Error('目标牌组不存在，请重新选择');
     }
 
-    const parsedCards: ParsedCard[] = selectedItems.map((item) => ({
-      ...item.parsedCard,
-      tags: mergeTagLists(item.parsedCard.tags || [], autoTags),
-      metadata: {
-        ...(item.parsedCard.metadata || {}),
-        targetDeckId,
-        sourceFile: item.parsedCard.metadata?.sourceFile || selectedFile?.path || item.parsedCard.sourceFile
-      }
-    }));
+    const converter = new ParsedCardConverter(plugin.app, fsrs);
+    const conversionOptions = {
+      deckId: targetDeckId,
+      deckName: targetDeck.name,
+      preserveSourceInfo: true,
+      priority: plugin.settings.simplifiedParsing?.batchParsing?.defaultPriority ?? 0,
+    };
 
-    await plugin.addCardsToDB(parsedCards);
+    let importedCount = 0;
+    let failedCount = 0;
+    const importedItemIds: string[] = [];
+
+    for (const item of selectedItems) {
+      const parsedCard: ParsedCard = {
+        ...item.parsedCard,
+        tags: mergeTagLists(item.parsedCard.tags || [], autoTags),
+        metadata: {
+          ...(item.parsedCard.metadata || {}),
+          targetDeckId,
+          sourceFile: item.parsedCard.metadata?.sourceFile || selectedFile?.path || item.parsedCard.sourceFile
+        }
+      };
+
+      const result = converter.convertToCard(parsedCard, conversionOptions);
+      if (!result.success || !result.card) {
+        failedCount += 1;
+        logger.error('Parse preview import conversion failed:', result.error);
+        continue;
+      }
+
+      const saveResult = await saveMemoryCard(plugin, result.card, 'create');
+      if (!saveResult.success) {
+        failedCount += 1;
+        logger.error('Parse preview import save failed:', saveResult.error);
+        continue;
+      }
+
+      importedCount += 1;
+      importedItemIds.push(item.id);
+    }
+
+    if (importedCount === 0) {
+      throw new Error('没有可导入的卡片，请检查目标牌组或卡片内容');
+    }
 
     return {
-      importedCount: parsedCards.length,
-      failedCount: 0,
+      importedCount,
+      failedCount,
       selectedCount: selectedItems.length,
       targetDeckId,
       targetDeckName: targetDeck.name,
-      importedItemIds: selectedItems.map((item) => item.id)
+      importedItemIds: failedCount === 0 ? importedItemIds : undefined
     };
   }
 

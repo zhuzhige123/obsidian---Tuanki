@@ -33,6 +33,35 @@ export interface RegexParseResult {
 	originalContent?: string; // 原始文件内容，用于 UUID 插入
 }
 
+/** 设置页「测试解析」预览的单卡摘要 */
+export interface RegexPresetPreviewCard {
+	index: number;
+	front: string;
+	back: string;
+	tags: string[];
+}
+
+/** 设置页 dry-run 解析结果（不写库、不生成 UUID） */
+export interface RegexPresetPreviewResult {
+	success: boolean;
+	cards: RegexPresetPreviewCard[];
+	errors: string[];
+	skippedCount: number;
+}
+
+const ZERO_MATCH_ERROR =
+	"未匹配到任何卡片，请检查文档格式是否与模板一致（Q/A 正则需 Q: 与 A:；分隔符模式需 <-> 与 ---div---）";
+
+function buildZeroMatchError(matchedCount: number, skippedCount: number): string {
+	if (matchedCount === 0) {
+		return ZERO_MATCH_ERROR;
+	}
+	if (skippedCount > 0 && matchedCount === skippedCount) {
+		return `匹配到 ${matchedCount} 张卡片，但均被排除标签过滤（请检查 excludeTags 配置）`;
+	}
+	return "未解析出任何卡片";
+}
+
 /**
  * 卡片匹配结果（中间数据）
  */
@@ -101,6 +130,8 @@ export class RegexCardParser {
 				result.errors.push("无效的解析配置：缺少 separatorMode 或 patternMode");
 				return result;
 			}
+
+			const matchedCount = cardMatches.length;
 
 			// 4. 处理排除标签（系统标签 + 用户配置）
 			const excludeTags = [
@@ -204,6 +235,12 @@ export class RegexCardParser {
 			}
 
 			result.positions = positions;
+
+			if (result.cards.length === 0) {
+				result.success = false;
+				result.errors.push(buildZeroMatchError(matchedCount, result.skippedCount));
+			}
+
 			logDebugWithTag(
 				"RegexCardParser",
 				`成功解析 ${result.cards.length} 张卡片 (跳过 ${result.skippedCount})`
@@ -212,6 +249,72 @@ export class RegexCardParser {
 			result.success = false;
 			result.errors.push(error instanceof Error ? error.message : String(error));
 			logger.error("[RegexCardParser] 解析失败:", error);
+		}
+
+		return result;
+	}
+
+	/**
+	 * 对示例文本做 dry-run 解析（设置页测试用，不读写 Vault）
+	 */
+	parseContentPreview(content: string, config: RegexParsingConfig): RegexPresetPreviewResult {
+		const result: RegexPresetPreviewResult = {
+			success: true,
+			cards: [],
+			errors: [],
+			skippedCount: 0,
+		};
+
+		if (!content.trim()) {
+			result.success = false;
+			result.errors.push("示例内容为空");
+			return result;
+		}
+
+		try {
+			let cardMatches: CardMatch[] = [];
+
+			if (config.mode === "separator" && config.separatorMode) {
+				cardMatches = this.parseBySeparator(content, config);
+			} else if (config.mode === "pattern" && config.patternMode) {
+				cardMatches = this.parseByPattern(content, config);
+			} else {
+				result.success = false;
+				result.errors.push("无效的解析配置：缺少 separatorMode 或 patternMode");
+				return result;
+			}
+
+			const matchedCount = cardMatches.length;
+
+			const excludeTags = [
+				"#we_已删除",
+				"#we_deleted",
+				...(config.excludeTags || []),
+				...(this.plugin?.settings?.simplifiedParsing?.batchParsing?.excludeTags || []),
+			];
+
+			const validMatches = cardMatches.filter((match) => {
+				const shouldSkip = this.shouldSkipByTags(match.tags, excludeTags);
+				if (shouldSkip) {
+					result.skippedCount++;
+				}
+				return !shouldSkip;
+			});
+
+			result.cards = validMatches.map((match, index) => ({
+				index: index + 1,
+				front: match.front.trim(),
+				back: match.back.trim(),
+				tags: match.tags,
+			}));
+
+			if (result.cards.length === 0) {
+				result.success = false;
+				result.errors.push(buildZeroMatchError(matchedCount, result.skippedCount));
+			}
+		} catch (error) {
+			result.success = false;
+			result.errors.push(error instanceof Error ? error.message : String(error));
 		}
 
 		return result;
@@ -389,6 +492,10 @@ export class RegexCardParser {
 					// 没有找到分隔符，整个内容作为正面
 					front = cleanedBlock.trim();
 				}
+			} else if (config.separatorMode?.firstLineAsFront) {
+				const split = this.splitFirstLineAndRest(cleanedBlock);
+				front = split.front;
+				back = split.back;
 			} else {
 				// 没有配置分隔符，整个内容作为正面
 				front = cleanedBlock.trim();
@@ -407,6 +514,21 @@ export class RegexCardParser {
 			logger.error("[RegexCardParser] 解析卡片块失败:", error);
 			return null;
 		}
+	}
+
+	/**
+	 * 首行作正面、其余作背面（标题分隔等格式）
+	 */
+	private splitFirstLineAndRest(text: string): { front: string; back: string } {
+		const normalized = text.replace(/\r\n/g, "\n");
+		const firstBreak = normalized.indexOf("\n");
+		if (firstBreak < 0) {
+			return { front: normalized.trim(), back: "" };
+		}
+		return {
+			front: normalized.slice(0, firstBreak).trim(),
+			back: normalized.slice(firstBreak + 1).trim(),
+		};
 	}
 
 	/**

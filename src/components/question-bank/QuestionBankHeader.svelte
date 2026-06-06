@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Platform } from "obsidian";
   import ObsidianIcon from "../ui/ObsidianIcon.svelte";
-  import FlipClock from "./FlipClock.svelte";
+  import ExamCountdownDisplay from "./ExamCountdownDisplay.svelte";
   import { tr } from "../../utils/i18n";
 
   interface Props {
@@ -18,8 +18,8 @@
     onToggleNavigator?: () => void;
     mode?: "exam";
     remainingTime?: number;
+    examDuration?: number;
     isPaused?: boolean;
-    isTimeWarning?: boolean;
     onTogglePause?: () => void;
   }
 
@@ -37,42 +37,92 @@
     onToggleNavigator,
     mode = "exam",
     remainingTime = 0,
+    examDuration = 0,
     isPaused = false,
-    isTimeWarning = false,
-    onTogglePause
+    onTogglePause,
   }: Props = $props();
 
   const isMobile = Platform.isMobile;
   let t = $derived($tr);
+
+  const isExamMode = $derived(mode === "exam");
+  const showExamCountdown = $derived(isExamMode && examDuration > 0);
+
+  const timeProgressPercent = $derived.by(() => {
+    if (!showExamCountdown || examDuration <= 0) return 0;
+    const elapsed = examDuration - remainingTime;
+    return Math.min(100, Math.max(0, (elapsed / examDuration) * 100));
+  });
+
+  const isTimeWarning = $derived(!isPaused && remainingTime > 0 && remainingTime < 5 * 60 * 1000);
+  const isTimeCritical = $derived(!isPaused && remainingTime > 0 && remainingTime < 60 * 1000);
+
+  const progressBarClass = $derived(
+    isTimeCritical ? "critical" : isTimeWarning ? "warning" : ""
+  );
 </script>
 
-{#if !isMobile}
+{#if isMobile && isExamMode}
+  <div class="study-header study-header-mobile-exam">
+    <div class="mobile-exam-left">
+      <span class="mobile-exam-progress" aria-label={t("study.questionBankUI.header.progressAria", { current: currentIndex, total: totalQuestions })}>
+        <span class="progress-current">{currentIndex}</span>
+        <span class="progress-divider">/</span>
+        <span class="progress-total">{totalQuestions}</span>
+      </span>
+    </div>
+
+    {#if showExamCountdown}
+      <div class="clock-container mobile-clock">
+        <ExamCountdownDisplay remainingTimeMs={remainingTime} {isPaused} compact />
+        {#if onTogglePause}
+          <button
+            type="button"
+            class="clickable-icon study-header-icon-btn pause-btn"
+            onclick={onTogglePause}
+            aria-label={isPaused ? t("study.questionBankUI.header.resumeTimer") : t("study.questionBankUI.header.pauseTimer")}
+            title={isPaused ? t("study.questionBankUI.header.resume") : t("study.questionBankUI.header.pause")}
+          >
+            <ObsidianIcon name={isPaused ? "play" : "pause"} size={14} />
+          </button>
+        {/if}
+      </div>
+    {/if}
+
+    {#if showExamCountdown}
+      <div
+        class="header-progress-bar {progressBarClass}"
+        style:width="{timeProgressPercent}%"
+        aria-hidden="true"
+      ></div>
+    {/if}
+  </div>
+{:else if !isMobile}
   <div class="study-header">
     <div class="header-left">
-      <h2 class="study-title">{bankName || t('study.questionBankUI.header.defaultBank')}</h2>
+      <h2 class="study-title">{bankName || t("study.questionBankUI.header.defaultBank")}</h2>
       <div class="study-progress">
-        <span class="progress-text" aria-label={t('study.questionBankUI.header.progressAria', { current: currentIndex, total: totalQuestions })}>
+        <span
+          class="progress-text"
+          aria-label={t("study.questionBankUI.header.progressAria", { current: currentIndex, total: totalQuestions })}
+        >
           <span class="progress-current">{currentIndex}</span>
           <span class="progress-divider">/</span>
           <span class="progress-total">{totalQuestions}</span>
         </span>
       </div>
 
-      {#if mode === "exam"}
+      {#if showExamCountdown}
         <div class="clock-container">
-          <FlipClock
-            remainingTime={Math.floor(remainingTime / 1000)}
-            {isPaused}
-            {isTimeWarning}
-          />
+          <ExamCountdownDisplay remainingTimeMs={remainingTime} {isPaused} />
 
           {#if onTogglePause}
             <button
               type="button"
               class="clickable-icon study-header-icon-btn pause-btn"
               onclick={onTogglePause}
-              aria-label={isPaused ? t('study.questionBankUI.header.resumeTimer') : t('study.questionBankUI.header.pauseTimer')}
-              title={isPaused ? t('study.questionBankUI.header.resume') : t('study.questionBankUI.header.pause')}
+              aria-label={isPaused ? t("study.questionBankUI.header.resumeTimer") : t("study.questionBankUI.header.pauseTimer")}
+              title={isPaused ? t("study.questionBankUI.header.resume") : t("study.questionBankUI.header.pause")}
             >
               <ObsidianIcon name={isPaused ? "play" : "pause"} size={14} />
             </button>
@@ -88,8 +138,8 @@
           class="clickable-icon study-header-icon-btn"
           class:active={showNavigator}
           onclick={onToggleNavigator}
-          aria-label={showNavigator ? t('study.questionBankUI.header.hideNavigator') : t('study.questionBankUI.header.showNavigator')}
-          title={showNavigator ? t('study.questionBankUI.header.hideNavigator') : t('study.questionBankUI.header.showNavigator')}
+          aria-label={showNavigator ? t("study.questionBankUI.header.hideNavigator") : t("study.questionBankUI.header.showNavigator")}
+          title={showNavigator ? t("study.questionBankUI.header.hideNavigator") : t("study.questionBankUI.header.showNavigator")}
         >
           <ObsidianIcon name="panel-left" size={16} />
         </button>
@@ -99,8 +149,8 @@
         type="button"
         class="clickable-icon study-header-icon-btn"
         onclick={onToggleStats}
-        aria-label={statsCollapsed ? t('study.questionBankUI.header.expandStats') : t('study.questionBankUI.header.collapseStats')}
-        title={statsCollapsed ? t('study.questionBankUI.header.expandStats') : t('study.questionBankUI.header.collapseStats')}
+        aria-label={statsCollapsed ? t("study.questionBankUI.header.expandStats") : t("study.questionBankUI.header.collapseStats")}
+        title={statsCollapsed ? t("study.questionBankUI.header.expandStats") : t("study.questionBankUI.header.collapseStats")}
       >
         <ObsidianIcon name={statsCollapsed ? "chevron-down" : "chevron-up"} size={16} />
       </button>
@@ -111,13 +161,21 @@
           class="clickable-icon study-header-icon-btn"
           class:active={showSidebar}
           onclick={onToggleSidebar}
-          aria-label={showSidebar ? t('study.questionBankUI.header.hideSidebar') : t('study.questionBankUI.header.showSidebar')}
-          title={showSidebar ? t('study.questionBankUI.header.hideSidebar') : t('study.questionBankUI.header.showSidebar')}
+          aria-label={showSidebar ? t("study.questionBankUI.header.hideSidebar") : t("study.questionBankUI.header.showSidebar")}
+          title={showSidebar ? t("study.questionBankUI.header.hideSidebar") : t("study.questionBankUI.header.showSidebar")}
         >
           <ObsidianIcon name="panel-right" size={16} />
         </button>
       {/if}
     </div>
+
+    {#if showExamCountdown}
+      <div
+        class="header-progress-bar {progressBarClass}"
+        style:width="{timeProgressPercent}%"
+        aria-hidden="true"
+      ></div>
+    {/if}
   </div>
 {/if}
 
@@ -131,6 +189,34 @@
     background: var(--background-secondary);
     flex-shrink: 0;
     position: relative;
+  }
+
+  .study-header-mobile-exam {
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    min-height: 44px;
+  }
+
+  .mobile-exam-left {
+    position: absolute;
+    left: 1rem;
+    display: flex;
+    align-items: center;
+  }
+
+  .mobile-exam-progress {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.15rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+  }
+
+  .mobile-clock {
+    margin-left: 0;
+    margin-right: 0;
   }
 
   .header-left {
@@ -253,5 +339,24 @@
   .pause-btn:hover:not(:disabled) {
     background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
     color: var(--interactive-accent);
+  }
+
+  .header-progress-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    background: var(--color-accent);
+    transition: width 1s linear, background 0.3s ease;
+    border-radius: 0 1px 1px 0;
+    pointer-events: none;
+  }
+
+  .header-progress-bar.warning {
+    background: var(--weave-warning, var(--color-yellow));
+  }
+
+  .header-progress-bar.critical {
+    background: var(--weave-error, var(--color-red));
   }
 </style>

@@ -259,7 +259,7 @@ describe('SidebarNavHeader', () => {
     const { container } = render(SidebarNavHeader, {
       props: {
         currentPage: 'weave-card-management',
-        currentView: 'table',
+        currentView: 'grid',
         cardDataSource: 'memory',
         isInSidebarMode: true,
         onNavigate: mockOnNavigate,
@@ -397,7 +397,7 @@ describe('SidebarNavHeader', () => {
     const { container } = render(SidebarNavHeader, {
       props: {
         currentPage: 'weave-card-management',
-        currentView: 'table',
+        currentView: 'grid',
         cardDataSource: 'memory',
         isInSidebarMode: true,
         onNavigate: mockOnNavigate,
@@ -415,7 +415,7 @@ describe('SidebarNavHeader', () => {
 
     timelineItem?.trigger();
 
-    expect(mockOnViewChange).toHaveBeenCalledWith('grid');
+    expect(mockOnViewChange).not.toHaveBeenCalled();
     expect(toolbarListener).toHaveBeenCalled();
     expect((toolbarListener.mock.calls[0][0] as CustomEvent).detail?.action).toBe('grid-layout-timeline');
 

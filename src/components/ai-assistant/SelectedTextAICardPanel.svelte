@@ -15,6 +15,7 @@
   import { generateCardUUID } from '../../services/identifier/WeaveIDGenerator';
   import { detectTraceSourceKind, normalizeTraceDocumentKey } from '../../services/incremental-reading/IRSourceTraceStats';
   import { tr } from '../../utils/i18n';
+  import { vaultStorage } from '../../utils/vault-local-storage';
   import type { WeavePlugin } from '../../main';
   import { createWeaveDataChangeNotifier } from '../../services/ui/WeaveDataChangeBridge';
   import { saveMemoryCard } from '../../services/weave-domain';
@@ -68,29 +69,14 @@
   }
 
   function persistPreviewHeight(value: number): void {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    try {
-      window.localStorage.setItem(PREVIEW_HEIGHT_STORAGE_KEY, String(value));
-    } catch {
-    }
+    vaultStorage.setItem(PREVIEW_HEIGHT_STORAGE_KEY, String(value));
   }
 
   function restorePreviewHeight(): void {
-    if (typeof window === 'undefined') {
-      previewHeight = DEFAULT_PREVIEW_HEIGHT;
-      return;
-    }
-
-    try {
-      const stored = Number(window.localStorage.getItem(PREVIEW_HEIGHT_STORAGE_KEY));
-      previewHeight = Number.isFinite(stored)
-        ? clampPreviewHeight(stored)
-        : DEFAULT_PREVIEW_HEIGHT;
-    } catch {
-      previewHeight = DEFAULT_PREVIEW_HEIGHT;
-    }
+    const stored = Number(vaultStorage.getItem(PREVIEW_HEIGHT_STORAGE_KEY));
+    previewHeight = Number.isFinite(stored)
+      ? clampPreviewHeight(stored)
+      : DEFAULT_PREVIEW_HEIGHT;
   }
 
   function stopResizeDrag(): void {

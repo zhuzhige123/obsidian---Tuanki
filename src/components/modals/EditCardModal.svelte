@@ -248,9 +248,14 @@
     {#if plugin.dataStorage}
       <button
         bind:this={deckButtonRef}
-        class="deck-multi-selector"
+        class="clickable-icon weave-toolbar-tab deck-selector-btn"
         type="button"
-        onclick={(e) => showDeckMenu(e)}
+        title={MEMORY_DECK_UI_TEXT.selectEditableFormalAssignment}
+        aria-label={MEMORY_DECK_UI_TEXT.selectEditableFormalAssignment}
+        onclick={(e) => {
+          e.preventDefault();
+          showDeckMenu(e);
+        }}
         onkeydown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
@@ -258,8 +263,10 @@
           }
         }}
       >
-        <span class="deck-multi-selector-label">{MEMORY_DECK_UI_TEXT.editableFormalAssignment}:</span>
-        <span class="deck-multi-selector-value">{getDeckSelectorText()}</span>
+        <span class="deck-name">{getDeckSelectorText()}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
       </button>
     {/if}
   {/snippet}
@@ -286,25 +293,11 @@
 </ResizableModal>
 
 <style>
-  /* CustomDropdown 组件已内置样式，无需额外 CSS */
-
-  .deck-multi-selector {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    max-width: 320px;
-    padding: 0.25rem 0.5rem;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--input-radius);
-    background: var(--background-modifier-form-field);
-    color: var(--text-normal);
-    cursor: pointer;
-  }
-
-  .deck-multi-selector-value {
+  .deck-selector-btn .deck-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
+    max-width: min(36vw, 200px);
   }
-
 </style>

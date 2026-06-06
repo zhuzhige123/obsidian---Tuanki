@@ -14,6 +14,7 @@
   import DeckLevelBadge from '../ui/DeckLevelBadge.svelte';
   import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import { tr } from '../../utils/i18n';
+  import { formatQuestionBankAccuracyScore } from '../../utils/question-bank/question-bank-display-stats';
 
   interface Props {
     deck: Deck;
@@ -42,6 +43,12 @@
   }: Props = $props();
   
   let t = $derived($tr);
+
+  const questionBankAccuracyScore = $derived(
+    deckMode === 'question-bank' && stats.learningCards > 0
+      ? formatQuestionBankAccuracyScore(stats.memoryRate)
+      : null
+  );
 
   const statLabels = $derived.by(() => {
     switch (deckMode) {
@@ -179,6 +186,9 @@
 
     <!-- 底部统计信息栏 - 左下角 -->
     <div class="stats-bar">
+      {#if questionBankAccuracyScore !== null}
+        <div class="qb-eleg-accuracy-badge">{questionBankAccuracyScore}</div>
+      {/if}
       <div class="stat-item">
         <span class="stat-label">{statLabels.first}</span>
         <span class="stat-value">{stats.newCards}</span>
@@ -375,11 +385,25 @@
   /* 底部统计信息栏 - 左下角 */
   .stats-bar {
     display: flex;
+    align-items: flex-end;
     gap: 20px;
     row-gap: 8px;
     flex-wrap: wrap;
     color: rgba(255, 255, 255, 0.9);
     font-size: 13px;
+  }
+
+  .qb-eleg-accuracy-badge {
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: rgba(0, 0, 0, 0.22);
+    color: rgba(255, 255, 255, 0.95);
+    white-space: nowrap;
+    flex-shrink: 0;
+    backdrop-filter: blur(6px);
   }
 
   .stat-item {

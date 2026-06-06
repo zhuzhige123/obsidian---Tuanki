@@ -146,10 +146,6 @@ export interface SettingsWithEditor {
 	};
 	// AnkiConnect 同步设置
 	ankiConnect?: AnkiConnectSettings;
-	// FSRS6 个性化优化设置
-	/** @deprecated 已移除插件内自研智能优化，保留字段仅为兼容旧配置 */
-	enablePersonalization?: boolean;
-	personalizationSettings?: PersonalizationSettings;
 	// 卡片管理界面视图偏好设置
 	cardManagementViewPreferences?: CardManagementViewPreferences;
 	// 学习界面视图偏好设置
@@ -158,16 +154,6 @@ export interface SettingsWithEditor {
 	noteTypeConfig?: NoteTypeConfig;
 	showClozeModeSwitchButton?: boolean;
 	tutorialHints?: import("../../../services/tutorial/GlobalTutorialHints").GlobalTutorialHintState;
-}
-
-// FSRS6个性化优化设置
-export interface PersonalizationSettings {
-	enabled: boolean; // 总开关
-	minDataPoints: number; // 最小数据点要求（默认50）
-	enableBacktracking: boolean; // 启用回溯策略
-	checkpointInterval: number; // 检查点间隔（默认50次复习）
-	performanceThreshold: number; // 性能下降阈值（默认10%）
-	autoOptimization: boolean; // 自动优化（无需用户干预）
 }
 
 // FSRS相关类型已移至 src/data/types.ts 统一管理

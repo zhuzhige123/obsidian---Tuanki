@@ -1,11 +1,22 @@
 <script lang="ts">
-  import { Notice } from 'obsidian';
+  import { Notice, type App } from 'obsidian';
   import type { RegexParsingConfig } from '../../../types/newCardParsingTypes';
-  import { REGEX_PRESETS } from '../../../services/batch-parsing/RegexPresets';
+  import {
+    REGEX_PRESETS,
+    OFFICIAL_QA_REGEX_SAMPLE_DOCUMENT,
+    cloneOfficialPresetConfig,
+    resolveExampleForConfig,
+    type PresetId,
+  } from '../../../services/batch-parsing/RegexPresets';
+  import {
+    RegexCardParser,
+    type RegexPresetPreviewResult,
+  } from '../../../services/batch-parsing/RegexCardParser';
   import RangeSeparatorConfig from './RangeSeparatorConfig.svelte';
   import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
   import ObsidianDropdown from '../../ui/ObsidianDropdown.svelte';
   import { tr } from '../../../utils/i18n';
+  import { writeSystemClipboardText } from '../../../utils/system-clipboard';
 
   let t = $derived($tr);
   
@@ -13,15 +24,23 @@
   interface Props {
     presets: RegexParsingConfig[];
     onPresetsChange: (presets: RegexParsingConfig[]) => void;
+    app?: App;
   }
   
-  let { presets = [], onPresetsChange }: Props = $props();
+  let { presets = [], onPresetsChange, app }: Props = $props();
   
   // 编辑状态
   let editingPreset: RegexParsingConfig | null = $state(null);
   let isCreating = $state(false);
   let editingOriginalId: string | null = $state(null);
   let editingOriginalName: string | null = $state(null);
+
+  let previewSampleText = $state(OFFICIAL_QA_REGEX_SAMPLE_DOCUMENT);
+  let previewResult: RegexPresetPreviewResult | null = $state(null);
+  let previewRunning = $state(false);
+  let highlightedOfficialId: PresetId | null = $state(null);
+
+  const previewParser = $derived(app ? new RegexCardParser(app) : null);
   
   //  默认值常量
   const DEFAULT_SEPARATOR_MODE = {
@@ -89,12 +108,22 @@
   function ensureSeparatorMode(preset: RegexParsingConfig): void {
     if (!preset.separatorMode) {
       preset.separatorMode = { ...DEFAULT_SEPARATOR_MODE };
-    } else {
-      preset.separatorMode = {
-        ...DEFAULT_SEPARATOR_MODE,
-        ...preset.separatorMode,
-        emptyLineSeparator: preset.separatorMode.emptyLineSeparator || DEFAULT_SEPARATOR_MODE.emptyLineSeparator
-      };
+      return;
+    }
+
+    const incoming = preset.separatorMode;
+    preset.separatorMode = {
+      ...DEFAULT_SEPARATOR_MODE,
+      ...incoming,
+      emptyLineSeparator: incoming.emptyLineSeparator || DEFAULT_SEPARATOR_MODE.emptyLineSeparator
+    };
+
+    const cardSeparator = preset.separatorMode.cardSeparator?.trim() ?? '';
+    if (/^\^#/.test(cardSeparator) && incoming.frontBackSeparator === undefined) {
+      preset.separatorMode.frontBackSeparator = undefined;
+      if (incoming.firstLineAsFront !== false) {
+        preset.separatorMode.firstLineAsFront = true;
+      }
     }
   }
   
@@ -121,6 +150,8 @@
     isCreating = true;
     editingOriginalId = null;
     editingOriginalName = null;
+    previewSampleText = OFFICIAL_QA_REGEX_SAMPLE_DOCUMENT;
+    previewResult = null;
   }
   
   /**
@@ -146,6 +177,48 @@
     }
     
     isCreating = false;
+    previewSampleText = resolveExampleForConfig(editingPreset);
+    previewResult = null;
+  }
+
+  function resetPreviewSample() {
+    previewSampleText = resolveExampleForConfig(editingPreset);
+    previewResult = null;
+  }
+
+  async function copyPreviewSample() {
+    const copied = await writeSystemClipboardText(previewSampleText);
+    new Notice(
+      copied
+        ? t('dataManagement.batchScan.regexPreset.sampleCopied')
+        : t('dataManagement.batchScan.regexPreset.sampleCopyFailed')
+    );
+  }
+
+  function runPreviewParse() {
+    if (!editingPreset) return;
+    if (!previewParser) {
+      new Notice(t('dataManagement.batchScan.regexPreset.previewNeedsApp'));
+      return;
+    }
+    previewRunning = true;
+    try {
+      previewResult = previewParser.parseContentPreview(previewSampleText, editingPreset);
+      if (previewResult.success) {
+        new Notice(
+          t('dataManagement.batchScan.regexPreset.previewSuccess', {
+            count: String(previewResult.cards.length),
+          })
+        );
+      } else {
+        new Notice(
+          previewResult.errors[0] ||
+            t('dataManagement.batchScan.regexPreset.previewFailed')
+        );
+      }
+    } finally {
+      previewRunning = false;
+    }
   }
   
   /**
@@ -157,6 +230,12 @@
     if (!editingPreset.name || !editingPreset.name.trim()) {
       new Notice(t('dataManagement.batchScan.regexPreset.nameEmpty'));
       return;
+    }
+
+    if (editingPreset.mode === 'separator') {
+      ensureSeparatorMode(editingPreset);
+    } else if (editingPreset.mode === 'pattern') {
+      ensurePatternMode(editingPreset);
     }
 
     const trimmedName = editingPreset.name.trim();
@@ -187,12 +266,20 @@
       uuidPattern: '<!-- (tk-[a-z0-9]{12}) -->',
       autoAddUUID: editingPreset.autoAddUUID !== undefined ? editingPreset.autoAddUUID : true,
       excludeTags: editingPreset.excludeTags || [],
-      //  确保 separatorMode 的默认值
-      separatorMode: editingPreset.separatorMode ? {
-        ...editingPreset.separatorMode,
-        multiline: editingPreset.separatorMode.multiline !== undefined ? editingPreset.separatorMode.multiline : true
-      } : undefined
+      separatorMode: editingPreset.separatorMode
+        ? {
+            ...editingPreset.separatorMode,
+            multiline:
+              editingPreset.separatorMode.multiline !== undefined
+                ? editingPreset.separatorMode.multiline
+                : true,
+          }
+        : undefined,
     };
+
+    if (presetToSave.mode === 'separator' && presetToSave.separatorMode) {
+      ensureSeparatorMode(presetToSave);
+    }
 
     if (presetToSave.mode === 'separator') {
       if (!presetToSave.separatorMode?.cardSeparator?.trim()) {
@@ -287,18 +374,11 @@
    * 从官方预设导入
    */
   function importFromOfficial(presetKey: string) {
-    const officialPresetMeta = REGEX_PRESETS[presetKey as keyof typeof REGEX_PRESETS];
-    if (!officialPresetMeta) return;
+    const officialPreset = cloneOfficialPresetConfig(presetKey as PresetId);
+    if (!officialPreset) return;
+
+    highlightedOfficialId = presetKey as PresetId;
     
-    //  获取实际的配置对象
-    const officialPresetId = `official-${officialPresetMeta.id}`;
-    const officialPreset: RegexParsingConfig = {
-      ...officialPresetMeta.config,
-      id: officialPresetMeta.config.id || officialPresetId,
-      excludeTags: officialPresetMeta.config.excludeTags || []
-    };
-    
-    // 检查是否已存在同名预设
     if (presets.some(p => (p.id && p.id === officialPreset.id) || p.name === officialPreset.name)) {
       new Notice(t('dataManagement.batchScan.regexPreset.alreadyExists', { name: officialPreset.name }));
       return;
@@ -306,6 +386,14 @@
     
     onPresetsChange([...presets, officialPreset]);
     new Notice(t('dataManagement.batchScan.regexPreset.imported', { name: officialPreset.name }));
+  }
+
+  function previewOfficialExample(presetKey: string) {
+    const meta = REGEX_PRESETS[presetKey as keyof typeof REGEX_PRESETS];
+    if (!meta) return;
+    highlightedOfficialId = presetKey as PresetId;
+    previewSampleText = meta.example;
+    previewResult = null;
   }
 </script>
 
@@ -331,18 +419,40 @@
     <!-- 官方预设导入 -->
     <div class="official-presets">
       <div class="section-label">{t('dataManagement.batchScan.regexPreset.officialPresets')}</div>
+      <p class="official-presets-hint">{t('dataManagement.batchScan.regexPreset.officialPresetsHint')}</p>
       <div class="preset-chips">
         {#each Object.keys(REGEX_PRESETS) as key}
           {@const preset = REGEX_PRESETS[key as keyof typeof REGEX_PRESETS]}
-          <button 
-            class="preset-chip"
-            onclick={() => importFromOfficial(key)}
-            title={preset.description}
-          >
-            {preset.name}
-          </button>
+          <div class="preset-chip-wrap">
+            <button 
+              class="preset-chip"
+              class:recommended={preset.recommended}
+              class:active={highlightedOfficialId === key}
+              onclick={() => importFromOfficial(key)}
+              title={preset.description}
+            >
+              {#if preset.recommended}
+                <span class="chip-badge">{t('dataManagement.batchScan.regexPreset.recommended')}</span>
+              {/if}
+              {preset.name}
+            </button>
+            <button
+              type="button"
+              class="preset-chip-example"
+              onclick={() => previewOfficialExample(key)}
+              title={t('dataManagement.batchScan.regexPreset.viewExample')}
+            >
+              {t('dataManagement.batchScan.regexPreset.example')}
+            </button>
+          </div>
         {/each}
       </div>
+      {#if highlightedOfficialId && REGEX_PRESETS[highlightedOfficialId]}
+        <details class="official-example-panel" open>
+          <summary>{t('dataManagement.batchScan.regexPreset.exampleDocTitle')}</summary>
+          <pre class="example-doc">{REGEX_PRESETS[highlightedOfficialId].example}</pre>
+        </details>
+      {/if}
     </div>
     
     <!-- 自定义预设列表 -->
@@ -475,6 +585,14 @@
                   rows="3"
                 ></textarea>
                 <small class="help-text">{t('dataManagement.batchScan.regexPreset.cardPatternHelp')}</small>
+                {#if safePatternMode.captureGroups}
+                  <small class="help-text capture-hint">
+                    {t('dataManagement.batchScan.regexPreset.captureGroupsHint', {
+                      front: String(safePatternMode.captureGroups.front),
+                      back: String(safePatternMode.captureGroups.back),
+                    })}
+                  </small>
+                {/if}
               </div>
               
               <!-- 正则标志 -->
@@ -494,6 +612,72 @@
               </div>
             {/if}
             
+            <!-- 示例与测试解析 -->
+            <div class="form-group preview-section">
+              <div class="preview-section-header">
+                <label for="preview-sample">{t('dataManagement.batchScan.regexPreset.sampleDoc')}</label>
+                <div class="preview-actions">
+                  <button type="button" class="btn-link" onclick={resetPreviewSample}>
+                    {t('dataManagement.batchScan.regexPreset.resetSample')}
+                  </button>
+                  <button type="button" class="btn-link" onclick={copyPreviewSample}>
+                    {t('dataManagement.batchScan.regexPreset.copySample')}
+                  </button>
+                </div>
+              </div>
+              <textarea
+                id="preview-sample"
+                class="preview-sample-input"
+                bind:value={previewSampleText}
+                rows="8"
+                placeholder={t('dataManagement.batchScan.regexPreset.sampleDocPlaceholder')}
+              ></textarea>
+              <small class="help-text">{t('dataManagement.batchScan.regexPreset.sampleDocHelp')}</small>
+              <button
+                type="button"
+                class="btn-test-parse"
+                onclick={runPreviewParse}
+                disabled={previewRunning || !editingPreset}
+              >
+                {previewRunning
+                  ? t('dataManagement.batchScan.regexPreset.previewRunning')
+                  : t('dataManagement.batchScan.regexPreset.runPreview')}
+              </button>
+              {#if previewResult}
+                <div
+                  class="preview-result"
+                  class:preview-error={!previewResult.success}
+                >
+                  {#if previewResult.success}
+                    <div class="preview-summary">
+                      {t('dataManagement.batchScan.regexPreset.previewSummary', {
+                        count: String(previewResult.cards.length),
+                        skipped: String(previewResult.skippedCount),
+                      })}
+                    </div>
+                    <ol class="preview-card-list">
+                      {#each previewResult.cards as card}
+                        <li>
+                          <strong>{t('dataManagement.batchScan.regexPreset.previewFront')}</strong>
+                          <pre>{card.front || '—'}</pre>
+                          <strong>{t('dataManagement.batchScan.regexPreset.previewBack')}</strong>
+                          <pre>{card.back || '—'}</pre>
+                          {#if card.tags.length > 0}
+                            <span class="preview-tags">#{card.tags.join(' #')}</span>
+                          {/if}
+                        </li>
+                      {/each}
+                    </ol>
+                  {:else}
+                    <p class="preview-error-msg">
+                      {previewResult.errors.join('；') ||
+                        t('dataManagement.batchScan.regexPreset.previewFailed')}
+                    </p>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+
             <!-- 同步方法 -->
             <div class="form-group">
               <label for="sync-method">{t('dataManagement.batchScan.regexPreset.syncMethod')}</label>
@@ -585,20 +769,99 @@
     text-transform: uppercase;
   }
   
+  .official-presets-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0 0 10px;
+    line-height: 1.5;
+  }
+
   .preset-chips {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
   }
+
+  .preset-chip-wrap {
+    display: inline-flex;
+    align-items: stretch;
+    gap: 0;
+  }
   
   .preset-chip {
     padding: 6px 12px;
-    border-radius: 4px;
+    border-radius: 4px 0 0 4px;
     background: var(--background-secondary);
     border: 1px solid var(--background-modifier-border);
+    border-right: none;
     cursor: pointer;
     font-size: 12px;
     transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .preset-chip.recommended {
+    border-color: var(--interactive-accent);
+  }
+
+  .preset-chip.active {
+    background: var(--background-modifier-hover);
+    border-color: var(--interactive-accent);
+  }
+
+  .chip-badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    font-weight: 600;
+  }
+
+  .preset-chip-example {
+    padding: 6px 8px;
+    border-radius: 0 4px 4px 0;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .preset-chip-example:hover {
+    color: var(--text-normal);
+    border-color: var(--interactive-accent);
+  }
+
+  .official-example-panel {
+    margin-top: 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 8px 12px;
+    background: var(--background-secondary);
+  }
+
+  .official-example-panel summary {
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .example-doc {
+    margin: 8px 0 0;
+    padding: 10px;
+    font-family: var(--font-monospace);
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow: auto;
+    background: var(--background-primary);
+    border-radius: 4px;
   }
 
   /*  深色模式 - 增强预设芯片边框可见性 */
@@ -802,6 +1065,92 @@
     color: var(--text-muted);
     margin-top: 4px;
     line-height: 1.4;
+  }
+
+  .preview-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .preview-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 11px;
+    color: var(--text-accent);
+    cursor: pointer;
+  }
+
+  .preview-sample-input {
+    font-family: var(--font-monospace);
+    min-height: 120px;
+  }
+
+  .btn-test-parse {
+    margin-top: 8px;
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: none;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    cursor: pointer;
+    font-size: 12px;
+  }
+
+  .btn-test-parse:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .preview-result {
+    margin-top: 12px;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    font-size: 12px;
+  }
+
+  .preview-result.preview-error {
+    border-color: var(--background-modifier-error);
+  }
+
+  .preview-summary {
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .preview-card-list {
+    margin: 0;
+    padding-left: 1.2em;
+  }
+
+  .preview-card-list pre {
+    margin: 4px 0 8px;
+    padding: 6px 8px;
+    background: var(--background-primary);
+    border-radius: 4px;
+    white-space: pre-wrap;
+    font-family: var(--font-monospace);
+    font-size: 11px;
+  }
+
+  .preview-tags {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+
+  .preview-error-msg {
+    margin: 0;
+    color: var(--text-error);
   }
   
   .editor-footer {

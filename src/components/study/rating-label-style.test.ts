@@ -34,7 +34,8 @@ function t(key: string): string {
 }
 
 describe("rating-label-style", () => {
-	it("falls back to the default style when the value is invalid", () => {
+	it("uses classic+time as the default style for new installs and invalid values", () => {
+		expect(DEFAULT_RATING_LABEL_STYLE).toBe("classicTime");
 		expect(normalizeRatingLabelStyle("mood")).toBe("mood");
 		expect(normalizeRatingLabelStyle("moodTime")).toBe("moodTime");
 		expect(normalizeRatingLabelStyle("classicTime")).toBe("classicTime");

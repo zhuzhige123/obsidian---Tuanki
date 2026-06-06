@@ -718,7 +718,7 @@
 
     {#if currentPage === 'ai-assistant'}
       <button
-        class="sidebar-action-btn ai-toolbar-btn ai-file-trigger"
+        class="clickable-icon sidebar-action-btn ai-toolbar-btn ai-file-trigger"
         class:active={isInSidebarMode
           ? aiFollowActiveDocument
           : Boolean(aiSelectedFileName || aiActiveDocumentName)}
@@ -740,7 +740,7 @@
       </button>
       {#if aiSubView === 'generate'}
         <button
-          class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-model-trigger"
+          class="clickable-icon sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-model-trigger"
           onclick={(evt) => emitAIAssistantToolbarAction('model', evt)}
           aria-label={t('mainMenu.aiAssistant.model')}
           title={aiModelTitle || t('mainMenu.aiAssistant.model')}
@@ -753,7 +753,7 @@
         </button>
       {:else}
         <button
-          class="sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-parse-trigger"
+          class="clickable-icon sidebar-action-btn ai-toolbar-btn ai-text-trigger ai-parse-trigger"
           onclick={(evt) => emitAIAssistantToolbarAction('parse-template', evt)}
           aria-label={t('mainMenu.aiAssistant.parseTemplate')}
           title={aiParsePresetName || t('mainMenu.aiAssistant.parseTemplate')}
@@ -767,7 +767,7 @@
       {/if}
       {#if !isInSidebarMode}
       <button
-        class="sidebar-action-btn ai-toolbar-btn ai-history-trigger"
+        class="clickable-icon sidebar-action-btn ai-toolbar-btn ai-history-trigger"
         class:disabled={aiHistoryCount === 0}
         onclick={(evt) => emitAIAssistantToolbarAction('history', evt)}
         aria-label={t('mainMenu.aiAssistant.history')}
@@ -784,7 +784,7 @@
       <div class="card-header-actions card-header-actions-left">
         {#if isInSidebarMode}
         <button
-          class="sidebar-action-btn card-toolbar-btn"
+          class="clickable-icon sidebar-action-btn card-toolbar-btn"
           class:active={cardDocumentFilterMode === 'current'}
           class:disabled={!cardCurrentActiveDocument}
           onclick={() => {
@@ -797,7 +797,7 @@
           <EnhancedIcon name={cardDocumentFilterMode === 'current' ? 'file-text' : 'file'} size={16} />
         </button>
         <button
-          class="sidebar-action-btn card-toolbar-btn"
+          class="clickable-icon sidebar-action-btn card-toolbar-btn"
           class:active={cardEnableLocationJump}
           onclick={() => emitCardManagementToolbarAction('toggle-card-location-jump')}
           aria-label={t('mainMenu.cardManagement.cardLocationJump')}
@@ -805,7 +805,7 @@
           <ObsidianIcon name="navigation" size={16} />
         </button>
         <button
-          class="sidebar-action-btn card-toolbar-btn relation-mode-btn"
+          class="clickable-icon sidebar-action-btn card-toolbar-btn relation-mode-btn"
           class:active={cardEnableRelationFilter}
           class:relation-active={cardEnableRelationFilter}
           class:is-hidden-slot={!(currentView === 'grid' || currentView === 'kanban')}
@@ -817,86 +817,86 @@
         {/if}
         {#if !isInSidebarMode}
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             onclick={openCardDataSourceMenu}
             aria-label={getCardDataSourceLabel(cardDataSource)}
             title={getCardDataSourceLabel(cardDataSource)}
           >
             <ObsidianIcon name="database" size={16} />
-            <span class="card-toolbar-btn-label">{getCardDataSourceLabel(cardDataSource)}</span>
+            <span class="clickable-icon card-toolbar-btn-label">{getCardDataSourceLabel(cardDataSource)}</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:active={currentView === 'table' && cardDataSource === 'incremental-reading' && cardIRTypeFilter === 'md'}
             class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'incremental-reading')}
             onclick={() => emitCardManagementToolbarAction('ir-type-md')}
             aria-label={t('mainMenu.cardManagement.irMarkdownLabel')}
           >
             <ObsidianIcon name="file-text" size={16} />
-            <span class="card-toolbar-btn-label">MD</span>
+            <span class="clickable-icon card-toolbar-btn-label">MD</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:active={currentView === 'table' && cardDataSource === 'incremental-reading' && cardIRTypeFilter === 'pdf'}
             class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'incremental-reading')}
             onclick={() => emitCardManagementToolbarAction('ir-type-pdf')}
             aria-label={t('mainMenu.cardManagement.irPdfLabel')}
           >
             <ObsidianIcon name="file" size={16} />
-            <span class="card-toolbar-btn-label">PDF</span>
+            <span class="clickable-icon card-toolbar-btn-label">PDF</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:active={currentView === 'table' && cardDataSource === 'memory' && cardTableViewMode === 'basic'}
             class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'memory')}
             onclick={() => emitCardManagementToolbarAction('table-view-basic')}
             aria-label={t('mainMenu.cardManagement.tableBasic')}
           >
             <ObsidianIcon name="table" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.basicShort')}</span>
+            <span class="clickable-icon card-toolbar-btn-label">{t('mainMenu.cardManagement.basicShort')}</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:active={currentView === 'table' && cardDataSource === 'memory' && cardTableViewMode === 'review'}
             class:is-hidden-slot={!(currentView === 'table' && cardDataSource === 'memory')}
             onclick={() => emitCardManagementToolbarAction('table-view-review')}
             aria-label={t('mainMenu.cardManagement.tableReview')}
           >
             <ObsidianIcon name="bar-chart-2" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.reviewShort')}</span>
+            <span class="clickable-icon card-toolbar-btn-label">{t('mainMenu.cardManagement.reviewShort')}</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:is-hidden-slot={currentView !== 'grid'}
             onclick={openCardGridLayoutMenu}
             aria-label={t('mainMenu.cardManagement.gridLayout')}
             title={t('mainMenu.cardManagement.gridLayout')}
           >
             <ObsidianIcon name={cardGridLayoutModeIcons[cardGridLayoutMode]} size={16} />
-            <span class="card-toolbar-btn-label">{getCardGridLayoutButtonLabel(cardGridLayoutMode)}</span>
+            <span class="clickable-icon card-toolbar-btn-label">{getCardGridLayoutButtonLabel(cardGridLayoutMode)}</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:is-hidden-slot={currentView !== 'grid'}
             onclick={openCardGridBorderStyleMenu}
             aria-label={t('mainMenu.cardManagement.gridBorderStyle')}
             title={t('mainMenu.cardManagement.gridBorderStyle')}
           >
             <ObsidianIcon name={cardGridBorderStyle === 'solid' ? 'square' : 'square-dashed'} size={16} />
-            <span class="card-toolbar-btn-label">{getCardGridBorderButtonLabel(cardGridBorderStyle)}</span>
+            <span class="clickable-icon card-toolbar-btn-label">{getCardGridBorderButtonLabel(cardGridBorderStyle)}</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:is-hidden-slot={currentView !== 'kanban'}
             onclick={toggleCardKanbanLayoutMode}
             aria-label={getCardKanbanLayoutButtonAriaLabel(cardKanbanLayoutMode)}
             title={getCardKanbanLayoutButtonTitle(cardKanbanLayoutMode)}
           >
             <ObsidianIcon name={cardKanbanLayoutModeIcons[cardKanbanLayoutMode]} size={16} />
-            <span class="card-toolbar-btn-label">{getCardKanbanLayoutButtonLabel(cardKanbanLayoutMode)}</span>
+            <span class="clickable-icon card-toolbar-btn-label">{getCardKanbanLayoutButtonLabel(cardKanbanLayoutMode)}</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn relation-mode-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn relation-mode-btn"
             class:active={cardEnableRelationFilter}
             class:relation-active={cardEnableRelationFilter}
             class:is-hidden-slot={!(currentView === 'grid' || currentView === 'kanban')}
@@ -904,42 +904,42 @@
             aria-label={t('mainMenu.cardManagement.relationMode')}
           >
             <ObsidianIcon name="link-2" size={16} />
-            <span class="card-toolbar-btn-label">{cardEnableRelationFilter ? t('mainMenu.cardManagement.relationOn') : t('mainMenu.cardManagement.relationOff')}</span>
+            <span class="clickable-icon card-toolbar-btn-label">{cardEnableRelationFilter ? t('mainMenu.cardManagement.relationOn') : t('mainMenu.cardManagement.relationOff')}</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:is-hidden-slot={!(currentView === 'grid' || currentView === 'kanban')}
             onclick={(event) => emitCardManagementToolbarAction('open-grid-attribute-menu', event.currentTarget as HTMLElement)}
             aria-label={t('mainMenu.cardManagement.attributeSelector')}
           >
             <ObsidianIcon name="tag" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.gridAttributes')}</span>
+            <span class="clickable-icon card-toolbar-btn-label">{t('mainMenu.cardManagement.gridAttributes')}</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             onclick={() => emitCardManagementToolbarAction('open-data-management')}
             aria-label={t('mainMenu.cardManagement.dataManagement')}
           >
             <ObsidianIcon name="database" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.dataShort')}</span>
+            <span class="clickable-icon card-toolbar-btn-label">{t('mainMenu.cardManagement.dataShort')}</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:is-hidden-slot={currentView !== 'table'}
             onclick={(event) => emitCardManagementToolbarAction('open-column-manager', event.currentTarget as HTMLElement)}
             aria-label={t('mainMenu.cardManagement.columnManager')}
           >
             <ObsidianIcon name="columns-2" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.columnShort')}</span>
+            <span class="clickable-icon card-toolbar-btn-label">{t('mainMenu.cardManagement.columnShort')}</span>
           </button>
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:is-hidden-slot={currentView !== 'kanban'}
             onclick={(event) => emitCardManagementToolbarAction('open-kanban-column-settings', event.currentTarget as HTMLElement)}
             aria-label={t('mainMenu.cardManagement.kanbanColumnSettings')}
           >
             <ObsidianIcon name="sliders-horizontal" size={16} />
-            <span class="card-toolbar-btn-label">{t('mainMenu.cardManagement.columnSettingsShort')}</span>
+            <span class="clickable-icon card-toolbar-btn-label">{t('mainMenu.cardManagement.columnSettingsShort')}</span>
           </button>
         {/if}
       </div>
@@ -1015,7 +1015,7 @@
     {#if currentPage === 'ai-assistant'}
       <div class="ai-header-actions">
         <button
-          class="sidebar-action-btn ai-toolbar-btn primary ai-primary-trigger"
+          class="clickable-icon sidebar-action-btn ai-toolbar-btn primary ai-primary-trigger"
           class:disabled={aiSubView === 'generate' ? !aiCanGenerate : !aiCanParse}
           onclick={(evt) => emitAIAssistantToolbarAction(aiSubView === 'generate' ? 'generate' : 'parse', evt)}
           aria-label={getAiPrimaryActionLabel()}
@@ -1029,7 +1029,7 @@
         {#if selectedFilter === 'memory'}
           {#if shouldShowPremiumEntry(PREMIUM_FEATURES.EMERGENT_DECKS)}
             <button
-              class="sidebar-action-btn deck-study-toolbar-btn"
+              class="clickable-icon sidebar-action-btn deck-study-toolbar-btn"
               class:active={memoryDeckDisplayMode === 'emergent' && premiumGuard.canUseFeature(PREMIUM_FEATURES.EMERGENT_DECKS, deckStudyFeatureContext)}
               onclick={(event) => toggleMemoryDeckDisplayMode(event.currentTarget as HTMLElement)}
               aria-label={memoryDeckDisplayMode === 'formal' ? getPremiumEntryTitle(t('mainMenu.deckStudy.switchToEmergent'), PREMIUM_FEATURES.EMERGENT_DECKS) : t('mainMenu.deckStudy.switchToFormal')}
@@ -1042,7 +1042,7 @@
           {/if}
           {#if memoryDeckDisplayMode === 'emergent' && premiumGuard.canUseFeature(PREMIUM_FEATURES.EMERGENT_DECKS, deckStudyFeatureContext)}
             <button
-              class="sidebar-action-btn deck-study-toolbar-btn"
+              class="clickable-icon sidebar-action-btn deck-study-toolbar-btn"
               onclick={(event) => emitDeckStudyToolbarAction('open-emergent-rule-groups', event.currentTarget as HTMLElement)}
               aria-label={t('mainMenu.deckStudy.emergentFilter')}
               title={t('mainMenu.deckStudy.emergentFilter')}
@@ -1053,7 +1053,7 @@
         {/if}
         {#if premiumGuard.canUseFeature(PREMIUM_FEATURES.KANBAN_VIEW, deckStudyFeatureContext)}
           <button
-            class="sidebar-action-btn deck-study-toolbar-btn"
+            class="clickable-icon sidebar-action-btn deck-study-toolbar-btn"
             onclick={(evt) => {
               window.dispatchEvent(new CustomEvent('Weave:open-deck-kanban-menu', {
                 detail: { x: evt.clientX, y: evt.clientY, filter: selectedFilter }
@@ -1070,7 +1070,7 @@
       <div class="card-header-actions card-header-actions-right">
         {#if isInSidebarMode}
           <button
-            class="sidebar-action-btn card-toolbar-btn"
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:active={showSidebarCardSearch || !!cardSearchQuery}
             onclick={toggleSidebarCardSearch}
             aria-label={cardSearchLabel}
@@ -1118,7 +1118,7 @@
         {/if}
         {#if !isInSidebarMode}
           <button
-            class="sidebar-action-btn card-create-btn"
+            class="clickable-icon sidebar-action-btn card-create-btn"
             onclick={() => emitCardManagementToolbarAction('create-card')}
             aria-label={t('ui.newCard')}
           >
@@ -1131,7 +1131,7 @@
 
     {#if currentPage === 'deck-study'}
     <button
-      class="sidebar-action-btn sidebar-inspiration-trigger"
+      class="clickable-icon sidebar-action-btn sidebar-inspiration-trigger"
       onclick={(event) => onOpenInspirationModal?.(event.currentTarget as HTMLElement)}
       aria-label={t('mainMenu.deckStudy.designInspiration')}
       aria-expanded={inspirationPopoverOpen}

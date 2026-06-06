@@ -80,7 +80,7 @@ export class CardStagingView extends ItemView {
 	async onClose(): Promise<void> {
 		if (this.component) {
 			const { unmount: svelteUnmount } = await import("svelte");
-			svelteUnmount(this.component);
+			void svelteUnmount(this.component);
 			this.component = null;
 		}
 	}

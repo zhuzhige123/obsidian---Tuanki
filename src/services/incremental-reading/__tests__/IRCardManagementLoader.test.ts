@@ -32,14 +32,6 @@ vi.mock("../IRPointDataReadService", () => ({
 	},
 }));
 
-vi.mock("../IRSchedulingFacade", () => ({
-	IRSchedulingFacade: class {
-		async initialize() {
-			return;
-		}
-	},
-}));
-
 vi.mock("../IRCardManagementAdapter", () => ({
 	createIRTagGroupNameResolver: vi.fn(async () => async () => "默认"),
 }));

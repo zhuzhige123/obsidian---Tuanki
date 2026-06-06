@@ -29,7 +29,8 @@
   //  导入CardAccessor用于获取子卡片内容
   import { CardAccessor } from '../../services/progressive-cloze/CardAccessor';
   import { CardStoreAdapter } from '../../services/progressive-cloze/CardStoreAdapter';
-  import { getCardMetadataService } from '../../services/CardMetadataService';
+  import { resolveCardDisplayPriority, type CardPriorityLevel } from '../../utils/card-priority';
+  import { tr } from '../../utils/i18n';
   import type { ChoiceOptionOrder } from '../../utils/study/choiceOptionOrder';
   import { applyChoiceQuestionOptionOrder } from '../../utils/study/choiceOptionOrder';
 
@@ -90,8 +91,14 @@
 
   // 响应式状态
   let lastCardId = $state<string | null>(null);
-  const metadataService = getCardMetadataService();
-  let displayPriority = $derived(card ? (metadataService.getCardPriority(card) ?? card.priority) : undefined);
+  let t = $derived($tr);
+  let displayPriority = $derived(resolveCardDisplayPriority(card));
+  const priorityLabels: Record<CardPriorityLevel, string> = {
+    1: 'study.priority.low',
+    2: 'study.priority.medium',
+    3: 'study.priority.high',
+    4: 'study.priority.urgent',
+  };
   let lastShowAnswer = $state(false);
   let lastAnswerControls = $state(untrack(() => enableAnswerControls));
   let lastCardContent = $state<string | null>(null);
@@ -689,14 +696,14 @@
   class:has-error={!!error}
   bind:this={containerElement}
 >
-  <!-- 优先级便签纸，显示在右上角 -->
-  {#if displayPriority}
-    <div class="priority-sticky-note priority-{displayPriority}">
-      <div class="sticky-number">{displayPriority}</div>
-      <div class="sticky-label">
-        {displayPriority === 1 ? '低' : displayPriority === 2 ? '中' : displayPriority === 3 ? '高' : '紧急'}
+  <!-- 优先级便签纸，显示在右上角（与卡片同步解析，避免元数据延迟导致闪烁） -->
+  {#if card && displayPriority}
+    {#key card.uuid}
+      <div class="priority-sticky-note priority-{displayPriority}" aria-label={t('studyInterface.labels.setPriority')}>
+        <div class="sticky-number">{displayPriority}</div>
+        <div class="sticky-label">{t(priorityLabels[displayPriority])}</div>
       </div>
-    </div>
+    {/key}
   {/if}
 
   {#if isLoading}
@@ -873,19 +880,31 @@
     cursor: not-allowed;
   }
 
+  @keyframes priority-sticky-fade-in {
+    from {
+      opacity: 0;
+      transform: rotate(-2deg) translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: rotate(-2deg) translateY(0);
+    }
+  }
+
   /* 优先级便签纸样式 */
   .priority-sticky-note {
     --weave-sticker-slot: 0;
     --weave-sticky-paper: var(--weave-surface-background, var(--background-primary));
     --weave-sticky-surface: var(--weave-elevated-background, var(--background-secondary));
     position: absolute;
-    top: var(--weave-sticker-top);
+    top: var(--weave-sticker-top, 20px);
     right: calc(
-      var(--weave-sticker-right-start) +
-      (var(--weave-sticker-slot) * (var(--weave-sticker-size) + var(--weave-sticker-gap)))
+      var(--weave-sticker-right-start, 24px) +
+      (var(--weave-sticker-slot) * (var(--weave-sticker-size, 68px) + var(--weave-sticker-gap, 12px)))
     );
-    width: var(--weave-sticker-size);
-    height: var(--weave-sticker-size);
+    width: var(--weave-sticker-size, 68px);
+    height: var(--weave-sticker-size, 68px);
+    animation: priority-sticky-fade-in 0.2s ease-out;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -910,8 +929,8 @@
     top: -7px;
     left: 50%;
     transform: translateX(-50%);
-    width: calc(var(--weave-sticker-size) * 0.7);
-    height: calc(var(--weave-sticker-size) * 0.235);
+    width: calc(var(--weave-sticker-size, 68px) * 0.7);
+    height: calc(var(--weave-sticker-size, 68px) * 0.235);
     background: color-mix(in srgb, var(--weave-sticky-paper) 68%, transparent);
     border-radius: 2px;
     backdrop-filter: blur(4px);

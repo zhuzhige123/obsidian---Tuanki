@@ -349,6 +349,75 @@ describe("WDeckService deck file actions", () => {
 		expect(targetData.cards.find((card: any) => card.uuid === "card-1")?.customFields?.wdeck).toBeUndefined();
 	});
 
+	test("repairStructuralConflicts removes exact duplicate .wdeck copies", async () => {
+		const payload = JSON.stringify({
+			fileType: "wdeck",
+			logicalDeckId: "demo",
+			logicalDeckName: "demo",
+			segmentIndex: 1,
+			cards: [{ uuid: "card-1", content: "a" }],
+		});
+		const { plugin, files } = createWDeckPlugin({
+			"weave/memory/deck-files/demo_01.wdeck": payload,
+			"weave/memory/backup/demo_01.wdeck": payload,
+		});
+		const service = new WDeckService(plugin);
+
+		const before = await service.getConflictReport(true);
+		expect(before.issues.some((issue) => issue.type === "suspected_duplicate_copy")).toBe(true);
+
+		const result = await service.repairStructuralConflicts();
+
+		expect(result.repaired).toBeGreaterThan(0);
+		expect(result.errors).toEqual([]);
+		expect(files.has("weave/memory/deck-files/demo_01.wdeck")).toBe(true);
+		expect(files.has("weave/memory/backup/demo_01.wdeck")).toBe(false);
+
+		const after = await service.getConflictReport(true);
+		expect(after.issues.some((issue) => issue.type === "suspected_duplicate_copy")).toBe(false);
+	});
+
+	test("repairStructuralConflicts merges duplicate segment files", async () => {
+		const { plugin, files } = createWDeckPlugin({
+			"weave/memory/deck-files/demo_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "demo",
+				logicalDeckName: "demo",
+				segmentIndex: 1,
+				cards: [{ uuid: "card-1", content: "a" }],
+			}),
+			"weave/memory/deck-files/demo_extra_01.wdeck": JSON.stringify({
+				fileType: "wdeck",
+				logicalDeckId: "demo",
+				logicalDeckName: "demo",
+				segmentIndex: 1,
+				cards: [{ uuid: "card-2", content: "b" }],
+			}),
+		});
+		const service = new WDeckService(plugin);
+
+		const before = await service.getConflictReport(true);
+		expect(before.issues.some((issue) => issue.type === "duplicate_segment")).toBe(true);
+
+		const result = await service.repairStructuralConflicts();
+
+		expect(result.repaired).toBeGreaterThan(0);
+		expect(result.errors).toEqual([]);
+
+		const after = await service.getConflictReport(true);
+		expect(after.issues.some((issue) => issue.type === "duplicate_segment")).toBe(false);
+
+		const remainingPaths = Array.from(files.keys()).filter(
+			(path) => path.startsWith("weave/memory/deck-files/demo") && path.endsWith(".wdeck")
+		);
+		const mergedCardUUIDs = remainingPaths.flatMap((path) => {
+			const payload = JSON.parse(files.get(path) || "{}");
+			return Array.isArray(payload.cards) ? payload.cards.map((card: { uuid?: string }) => card.uuid) : [];
+		});
+		expect(mergedCardUUIDs).toEqual(expect.arrayContaining(["card-1", "card-2"]));
+		expect(files.has("weave/memory/deck-files/demo_extra_01.wdeck")).toBe(false);
+	});
+
 	test("rebuilds private cache and reports uuid conflicts", async () => {
 		const { plugin, files } = createWDeckPlugin({
 			"weave/memory/deck-files/循环系统_01.wdeck": JSON.stringify({

@@ -101,24 +101,24 @@
       {#if isIRDataSource}
         <!-- 增量阅读模式按钮顺序：更换专题、提取卡片、标签操作、删除 -->
         {#if onIRChangeDeck}
-          <button type="button" class="weave-toolbar-btn" title={t('cardManagement.batchToolbar.changeTopic')} onclick={handleIRChangeDeckClick}>
+          <button type="button" class="clickable-icon weave-toolbar-btn" title={t('cardManagement.batchToolbar.changeTopic')} onclick={handleIRChangeDeckClick}>
             <ObsidianIcon name="folder" size={16} />
           </button>
         {/if}
         {#if onIRExtractCards}
-          <button type="button" class="weave-toolbar-btn" title={t('cardManagement.batchToolbar.extractCards')} onclick={handleIRExtractCardsClick}>
+          <button type="button" class="clickable-icon weave-toolbar-btn" title={t('cardManagement.batchToolbar.extractCards')} onclick={handleIRExtractCardsClick}>
             <ObsidianIcon name="file-plus" size={16} />
           </button>
         {/if}
       {:else}
         <!-- 记忆/考试模式按钮顺序：组建牌组、更换牌组、标签操作、删除 -->
         {#if onBuildDeck}
-          <button type="button" class="weave-toolbar-btn weave-btn-primary" title={t('cardManagement.batchToolbar.buildDeck')} onclick={handleBuildDeckClick}>
+          <button type="button" class="clickable-icon weave-toolbar-btn weave-btn-primary" title={t('cardManagement.batchToolbar.buildDeck')} onclick={handleBuildDeckClick}>
             <ObsidianIcon name="layers" size={16} />
           </button>
         {/if}
         {#if onBatchChangeDeck}
-          <button type="button" class="weave-toolbar-btn" title={t('cardManagement.batchToolbar.changeDeck')} onclick={handleBatchChangeDeckClick}>
+          <button type="button" class="clickable-icon weave-toolbar-btn" title={t('cardManagement.batchToolbar.changeDeck')} onclick={handleBatchChangeDeckClick}>
             <ObsidianIcon name="folder" size={16} />
           </button>
         {/if}
@@ -127,7 +127,7 @@
       {#if onBatchAddTagsMenu}
         <button
           type="button"
-          class="weave-toolbar-btn"
+          class="clickable-icon weave-toolbar-btn"
           title={t('cardManagement.batchToolbar.addTags')}
           aria-label={t('cardManagement.batchToolbar.addTags')}
           onclick={handleBatchAddTagsMenuClick}
@@ -138,7 +138,7 @@
       {#if onBatchRemoveTagsMenu}
         <button
           type="button"
-          class="weave-toolbar-btn"
+          class="clickable-icon weave-toolbar-btn"
           title={t('cardManagement.batchToolbar.removeTags')}
           aria-label={t('cardManagement.batchToolbar.removeTags')}
           onclick={handleBatchRemoveTagsMenuClick}
@@ -149,7 +149,7 @@
       {#if onBatchExportSummaryMd}
         <button
           type="button"
-          class="weave-toolbar-btn"
+          class="clickable-icon weave-toolbar-btn"
           title={t('cardManagement.batchToolbar.exportSummaryMd')}
           aria-label={t('cardManagement.batchToolbar.exportSummaryMd')}
           onclick={handleBatchExportSummaryMdClick}
@@ -157,10 +157,10 @@
           <ObsidianIcon name="file-down" size={16} />
         </button>
       {/if}
-      <button type="button" class="weave-toolbar-btn weave-btn-danger" title={t('ui.delete')} onclick={handleBatchDeleteClick}>
+      <button type="button" class="clickable-icon weave-toolbar-btn weave-btn-danger" title={t('ui.delete')} onclick={handleBatchDeleteClick}>
         <ObsidianIcon name="trash-2" size={16} />
       </button>
-      <button type="button" class="weave-toolbar-btn weave-btn-secondary" title={t('cardManagement.batchToolbar.clearSelection')} onclick={() => onClearSelection?.()}>
+      <button type="button" class="clickable-icon weave-toolbar-btn weave-btn-secondary" title={t('cardManagement.batchToolbar.clearSelection')} onclick={() => onClearSelection?.()}>
         <ObsidianIcon name="x-circle" size={16} />
       </button>
       </div>
@@ -267,14 +267,14 @@
     color: var(--text-normal);
   }
 
-  /* 主要操作按钮（组建牌组） */
   .weave-btn-primary {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
+    color: var(--text-normal);
+    font-weight: 600;
   }
 
   .weave-btn-primary:hover {
-    background: var(--interactive-accent-hover, var(--interactive-accent));
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
   }
 
 

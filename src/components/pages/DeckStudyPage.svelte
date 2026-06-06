@@ -109,6 +109,7 @@
   import { extractAllTags, getCardDeckIds, parseSourceInfo } from '../../utils/yaml-utils';
   import { resolveDeckNoCardsReason } from '../../utils/study/noCardsReason';
   import { applyStyleProps } from '../../utils/style-props';
+  import { isLegacyApkgImportMenuVisible } from '../../utils/legacy-apkg-import-action';
 
   interface Props {
     dataStorage: WeaveDataStorage;
@@ -255,7 +256,7 @@
   }
 
   function isAPKGImportEnabled(): boolean {
-    return __WEAVE_LEGACY_APKG_RUNTIME__ && plugin.settings.navigationVisibility?.apkgImport !== false;
+    return isLegacyApkgImportMenuVisible(plugin.settings.navigationVisibility);
   }
 
   function isCSVImportEnabled(): boolean {
@@ -990,26 +991,17 @@
       if (!plugin.questionBankService || !plugin.questionBankHierarchy || !plugin.deckHierarchy) return;
       const memoryTree = await plugin.deckHierarchy.getDeckTree();
       qbDeckTree = await plugin.questionBankHierarchy.buildQuestionBankTree(memoryTree);
-      // 构建统计
-      // 映射QB统计到DeckStats格式，与QuestionBankGridCard显示一致:
-      // newCards → 总题(total), learningCards → 已练(completed), reviewCards → 错题(errorCount)
       const stats: Record<string, DeckStats> = {};
+      const { computeQuestionBankDisplayStats, mapQuestionBankDisplayStatsToDeckStats } =
+        await import('../../utils/question-bank/question-bank-display-stats');
       for (const node of qbDeckTree) {
         const bank = node.deck;
-        const questions = plugin.questionBankService ? await plugin.questionBankService.getQuestionsByBank(bank.id) : [];
-        const total = questions.length;
-        let completed = 0;
-        let errorCount = 0;
-        for (const q of questions) {
-          if ((q as any).stats?.testStats?.attempts > 0) {
-            completed++;
-            errorCount += (q as any).stats?.testStats?.incorrectAttempts || 0;
-          }
-        }
-        stats[bank.id] = {
-          totalCards: total, newCards: total, learningCards: completed, reviewCards: errorCount,
-          todayNew: 0, todayReview: 0, todayTime: 0, totalReviews: 0, totalTime: 0, memoryRate: 0, averageEase: 0, forecastDays: {}
-        };
+        const questions = plugin.questionBankService
+          ? await plugin.questionBankService.getQuestionsByBank(bank.id)
+          : [];
+        stats[bank.id] = mapQuestionBankDisplayStatsToDeckStats(
+          computeQuestionBankDisplayStats(questions)
+        );
       }
       qbDeckStats = stats;
     } catch (e) {
@@ -2369,15 +2361,6 @@
       }
     };
 
-// 处理 APKG 导入
-    const handleAPKGImport = () => {
-      if (!isAPKGImportEnabled()) {
-        return;
-      }
-
-      showAPKGImportModalWithObsidianAPI();
-    };
-
 // 处理 CSV 导入（使用 CSVImportModal 向导）
     const handleCSVImport = () => {
       if (!isCSVImportEnabled()) {
@@ -2397,14 +2380,12 @@
     document.addEventListener('create-deck', handleCreateDeck);
     document.addEventListener('create-question-bank', handleCreateDeck);
     document.addEventListener('more-actions', handleMoreActions);
-    document.addEventListener('apkg-import', handleAPKGImport);
     document.addEventListener('csv-import', handleCSVImport);
     document.addEventListener('json-export', handleJSONExport);
     return () => {
       document.removeEventListener('create-deck', handleCreateDeck);
       document.removeEventListener('create-question-bank', handleCreateDeck);
       document.removeEventListener('more-actions', handleMoreActions);
-      document.removeEventListener('apkg-import', handleAPKGImport);
       document.removeEventListener('csv-import', handleCSVImport);
       document.removeEventListener('json-export', handleJSONExport);
     };

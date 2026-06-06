@@ -24,6 +24,7 @@ import type {
 } from "../../types/progressive-cloze-v2";
 import { isProgressiveClozeChild } from "../../types/progressive-cloze-v2";
 import { logger } from "../../utils/logger";
+import { runTasksWithConcurrency } from "../../utils/async-pool";
 import { setCardProperty } from "../../utils/yaml-utils";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
 import { PREMIUM_FEATURES, PremiumFeatureGuard } from "../premium/PremiumFeatureGuard";
@@ -237,7 +238,22 @@ export class ProgressiveClozeGateway {
 	 * @param cards 待处理的卡片数组
 	 * @returns 处理后的卡片数组（可能包含父子卡片）
 	 */
-	async processBatch(cards: Card[]): Promise<Card[]> {
+	async processBatch(
+		cards: Card[],
+		options?: {
+			importMode?: boolean;
+		}
+	): Promise<Card[]> {
+		if (options?.importMode && cards.length > 1) {
+			const processResults = await runTasksWithConcurrency(
+				cards.map((card) => async () => this.processNewCard(card)),
+				8
+			);
+			const result = processResults.flatMap((processResult) => processResult.cards);
+			logger.info(`[ProgressiveClozeGateway] APKG 导入批量处理完成: ${cards.length}张 → ${result.length}张`);
+			return result;
+		}
+
 		const result: Card[] = [];
 
 		for (const card of cards) {
@@ -847,6 +863,81 @@ export class ProgressiveClozeGateway {
 			lastReview: undefined,
 			retrievability: 1,
 		};
+	}
+
+	/**
+	 * 为渐进式挖空父卡补齐缺失的子卡片（仅补建，不修改父卡正文）。
+	 */
+	async repairMissingChildren(
+		parentCard: Card,
+		dataStorage: GatewayDataStorage
+	): Promise<{ created: ProgressiveClozeChildCard[]; parent: ProgressiveClozeParentCard | null }> {
+		if (parentCard.type !== CardType.ProgressiveParent || !parentCard.content) {
+			return { created: [], parent: null };
+		}
+
+		const parseResult = this.converter.parseClozes(parentCard.content);
+		const existingChildren = (await this.findChildCards(parentCard, dataStorage)).filter(
+			isProgressiveClozeChild
+		);
+		const existingOrds = new Set(existingChildren.map((child) => child.clozeOrd));
+		const missingOrds = parseResult.clozes
+			.map((cloze) => cloze.ord)
+			.filter((ord) => !existingOrds.has(ord));
+
+		if (missingOrds.length === 0) {
+			return { created: [], parent: null };
+		}
+
+		const newChildren: ProgressiveClozeChildCard[] = [];
+		for (const ord of missingOrds) {
+			const clozeData = parseResult.clozes.find((cloze) => cloze.ord === ord);
+			if (!clozeData) {
+				continue;
+			}
+
+			const newChild: ProgressiveClozeChildCard = {
+				...parentCard,
+				uuid: generateCardUUID(),
+				type: CardType.ProgressiveChild,
+				parentCardId: parentCard.uuid,
+				clozeOrd: ord,
+				content: this.toProgressiveChildContent(parentCard.content),
+				fsrs: this.createNewFsrs(),
+				reviewHistory: [],
+				clozeSnapshot: {
+					text: clozeData.text,
+					hint: clozeData.hint,
+				},
+				progressiveCloze: undefined,
+				created: new Date().toISOString(),
+				modified: new Date().toISOString(),
+			} as ProgressiveClozeChildCard;
+
+			await dataStorage.saveCard(newChild);
+			newChildren.push(newChild);
+		}
+
+		const updatedParent: ProgressiveClozeParentCard = {
+			...(parentCard as ProgressiveClozeParentCard),
+			progressiveCloze: {
+				childCardIds: Array.from(
+					new Set([
+						...existingChildren.map((child) => child.uuid),
+						...newChildren.map((child) => child.uuid),
+					])
+				),
+				totalClozes: parseResult.totalClozes,
+				createdAt:
+					(parentCard as ProgressiveClozeParentCard).progressiveCloze?.createdAt ||
+					new Date().toISOString(),
+			},
+			modified: new Date().toISOString(),
+		};
+
+		await dataStorage.saveCard(updatedParent);
+
+		return { created: newChildren, parent: updatedParent };
 	}
 }
 

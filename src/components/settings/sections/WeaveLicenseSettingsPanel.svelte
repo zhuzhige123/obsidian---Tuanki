@@ -13,6 +13,7 @@
   import { showNotification } from '../utils/settings-utils';
   import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
   import { tr } from '../../../utils/i18n';
+  import { LIFETIME_LICENSE_PURCHASE_URL } from '../../../config/plugin-runtime';
   import type { PluginExtended } from '../types/settings-types';
 
   interface Props {
@@ -134,7 +135,17 @@
 <section class="weave-license-settings-panel">
   <div class="weave-license-settings-card">
     <div class="weave-license-settings-header">
-      <h3 class="section-title with-accent-bar accent-purple">{t('settings.license.title')}</h3>
+      <div class="section-title-row">
+        <h3 class="section-title with-accent-bar accent-purple">{t('settings.license.title')}</h3>
+        <a
+          class="license-purchase-link"
+          href={LIFETIME_LICENSE_PURCHASE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {t('settings.license.purchaseLink')}
+        </a>
+      </div>
       <p class="section-description">{t('settings.license.description')}</p>
     </div>
 
@@ -190,6 +201,33 @@
     flex-direction: column;
     gap: var(--weave-license-settings-gap-sm);
     min-width: 0;
+  }
+
+  .section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--weave-license-settings-gap-lg);
+    min-width: 0;
+  }
+
+  .section-title-row .section-title {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .license-purchase-link {
+    flex-shrink: 0;
+    font-size: var(--weave-settings-font-size-desc, var(--font-ui-smaller, 0.85rem));
+    color: var(--text-accent);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.15s ease, opacity 0.15s ease;
+  }
+
+  .license-purchase-link:hover {
+    color: var(--text-accent-hover, var(--text-accent));
+    opacity: 0.88;
   }
 
   .weave-license-settings-content {
@@ -270,6 +308,15 @@
     .weave-license-settings-card {
       padding: calc(var(--weave-license-settings-panel-padding) - 0.1rem);
       border-radius: var(--radius-l, 14px);
+    }
+
+    .section-title-row {
+      flex-wrap: wrap;
+      row-gap: var(--weave-license-settings-gap-sm);
+    }
+
+    .license-purchase-link {
+      white-space: normal;
     }
 
     .weave-license-settings-content :global(.enhanced-activation-form .input-section:not(:first-child)) {

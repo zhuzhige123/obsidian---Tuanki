@@ -18,7 +18,7 @@
   interface Props {
     currentView: ViewType;
     onViewChange: (view: ViewType) => void;
-    /** 与旧版 MobileCardManagementHeader 一致：未开通会员时隐藏网格/看板圆点 */
+    /** 未开通会员时隐藏网格/看板圆点 */
     respectPremiumGates?: boolean;
   }
 

@@ -18,7 +18,6 @@
     type KanbanCardUpdateContext,
     type KanbanDeckDragMode
   } from '../pages/kanban-card-update';
-  import { generateUUID } from '../../utils/helpers';
   import { detectCardQuestionType } from '../../utils/card-type-utils';
   import { UnifiedCardType } from '../../types/unified-card-types';
   import { getCardMetadataService } from '../../services/CardMetadataService';
@@ -1374,22 +1373,6 @@
 
   function handleCardLeave() {
     hoveredCardId = null;
-  }
-
-  // 复制卡片
-  function duplicateCard(card: Card) {
-    // 使用新 ID 生成器
-    const newCard: Card = {
-      ...card,
-      // id字段已废弃，移除
-      uuid: generateUUID(), // 使用新格式 UUID
-      created: new Date().toISOString(),
-      modified: new Date().toISOString()
-    };
-    
-    if (onCardUpdate) {
-      onCardUpdate(newCard);
-    }
   }
 
   // 删除卡片（调用父组件处理，父组件会处理确认逻辑）

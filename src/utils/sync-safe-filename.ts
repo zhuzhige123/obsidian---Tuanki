@@ -109,7 +109,7 @@ export function diagnoseFilename(name: string, isFile = false, fullPathLength = 
 		issues.push("unsafe_chars");
 	}
 
-	const suggested = issues.length > 0 ? sanitizeForSync(name) : name;
+	const suggested = issues.length > 0 ? suggestSyncSafeName(name) : name;
 
 	return {
 		hasIssue: issues.length > 0,
@@ -224,4 +224,62 @@ export function generateSafePath(relativePath: string): string {
 		return diagnostic.hasIssue ? diagnostic.suggested : seg;
 	});
 	return result.join("/");
+}
+
+const LEGACY_APKG_FOLDER_PREFIX = /^\[APKG\]\s*/i;
+const LEGACY_ANKI_CONNECT_FOLDER_PREFIX = /^\[AnkiConnect\]\s*/i;
+
+/**
+ * 生成云同步安全的文件/目录名；旧版 [APKG] / [AnkiConnect] 媒体目录会迁移到新前缀规范。
+ */
+export function suggestSyncSafeName(name: string, maxLength = 100): string {
+	const trimmed = String(name || "").trim();
+	if (!trimmed) {
+		return "unnamed";
+	}
+
+	if (LEGACY_APKG_FOLDER_PREFIX.test(trimmed)) {
+		return buildApkgDeckMediaFolderSegment(trimmed.replace(LEGACY_APKG_FOLDER_PREFIX, ""));
+	}
+
+	if (LEGACY_ANKI_CONNECT_FOLDER_PREFIX.test(trimmed)) {
+		return buildAnkiConnectDeckMediaFolderSegment(trimmed.replace(LEGACY_ANKI_CONNECT_FOLDER_PREFIX, ""));
+	}
+
+	return sanitizeForSync(trimmed, maxLength);
+}
+
+/** APKG 导入媒体目录前缀（避免使用方括号，兼容云同步） */
+export const APKG_MEDIA_FOLDER_PREFIX = "APKG_";
+
+/** AnkiConnect 导入媒体目录前缀 */
+export const ANKI_CONNECT_MEDIA_FOLDER_PREFIX = "AnkiConnect_";
+
+/**
+ * 生成 APKG 牌组媒体文件夹名（仅最后一段，不含父路径）
+ */
+export function buildApkgDeckMediaFolderSegment(deckName: string): string {
+	const safeDeckName = sanitizeForSync(deckName, 80);
+	return `${APKG_MEDIA_FOLDER_PREFIX}${safeDeckName}`;
+}
+
+/**
+ * 生成 AnkiConnect 牌组媒体文件夹名（仅最后一段，不含父路径）
+ */
+export function buildAnkiConnectDeckMediaFolderSegment(deckName: string): string {
+	const safeDeckName = sanitizeForSync(deckName, 80);
+	return `${ANKI_CONNECT_MEDIA_FOLDER_PREFIX}${safeDeckName}`;
+}
+
+/**
+ * 将 APKG/媒体原始文件名转为云同步安全文件名（保留扩展名）
+ */
+export function sanitizeMediaFilename(filename: string, maxLength = 100): string {
+	const normalized = String(filename || "")
+		.replace(/\\/g, "/")
+		.split("/")
+		.filter(Boolean)
+		.map((segment) => sanitizeForSync(segment, maxLength))
+		.join("_");
+	return normalized || "unnamed";
 }

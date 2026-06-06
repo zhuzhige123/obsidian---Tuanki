@@ -9,7 +9,7 @@
   import ObsidianIcon from "../ui/ObsidianIcon.svelte";
   import EnhancedIcon from "../ui/EnhancedIcon.svelte";
   import { showObsidianChoice, showObsidianConfirm } from "../../utils/obsidian-confirm";
-  import FloatingMenu from "../ui/FloatingMenu.svelte";
+  import PriorityPickerPopover from "../shared/PriorityPickerPopover.svelte";
   import QuestionBankHeader from "./QuestionBankHeader.svelte";
   import QuestionBankStatsCards from "./QuestionBankStatsCards.svelte";
   import QuestionBankActionSection from "./QuestionBankActionSection.svelte";
@@ -146,12 +146,11 @@
   let elapsedSeconds = $state(0);
   let timerInterval: number | null = null;
 
-  // 考试倒计时（FlipClock）
+  // 考试倒计时
   let examDuration = $state(60 * 60 * 1000);  // 默认60分钟
   let examStartTime = $state(0);
   let remainingTime = $state(0);
   let isPaused = $state(false);
-  let isTimeWarning = $derived(remainingTime > 0 && remainingTime < 5 * 60 * 1000);  // 最后5分钟警告
   const isPureExamMode = $derived(!!config?.options?.pureExamMode);
 
   function getExamTimeLimitMinutes() {
@@ -920,11 +919,15 @@
     deleteConfirmCardId = '';
   }
 
+  function isValidPriority(value: unknown): value is 1 | 2 | 3 | 4 {
+    return value === 1 || value === 2 || value === 3 || value === 4;
+  }
+
   // 重要程度功能
   function handleChangePriority(priority?: 1 | 2 | 3 | 4) {
     if (!currentQuestion) return;
 
-    if (priority !== undefined) {
+    if (isValidPriority(priority)) {
       void confirmChangePriority(priority);
       return;
     }
@@ -940,10 +943,10 @@
         label: string;
         icon: string;
       }> = [
-        { value: 1, label: t('study.questionBankUI.studyInterface.priorityLow'), icon: 'chevrons-down' },
-        { value: 2, label: t('study.questionBankUI.studyInterface.priorityMedium'), icon: 'minus' },
-        { value: 3, label: t('study.questionBankUI.studyInterface.priorityHigh'), icon: 'chevrons-up' },
-        { value: 4, label: t('study.questionBankUI.studyInterface.priorityVeryHigh'), icon: 'flame' }
+        { value: 1, label: t('study.questionBankUI.studyInterface.importanceLow'), icon: 'chevrons-down' },
+        { value: 2, label: t('study.questionBankUI.studyInterface.importanceMedium'), icon: 'minus' },
+        { value: 3, label: t('study.questionBankUI.studyInterface.importanceHigh'), icon: 'chevrons-up' },
+        { value: 4, label: t('study.questionBankUI.studyInterface.importanceVeryHigh'), icon: 'flame' }
       ];
 
       priorityOptions.forEach((option) => {
@@ -993,11 +996,11 @@
 
         const priorityText = [
           '',
-          t('study.questionBankUI.studyInterface.priorityLow'),
-          t('study.questionBankUI.studyInterface.priorityMedium'),
-          t('study.questionBankUI.studyInterface.priorityHigh'),
-          t('study.questionBankUI.studyInterface.priorityVeryHigh')
-        ][priority] || t('study.questionBankUI.studyInterface.priorityMedium');
+          t('study.questionBankUI.studyInterface.importanceLow'),
+          t('study.questionBankUI.studyInterface.importanceMedium'),
+          t('study.questionBankUI.studyInterface.importanceHigh'),
+          t('study.questionBankUI.studyInterface.importanceVeryHigh')
+        ][priority] || t('study.questionBankUI.studyInterface.importanceMedium');
         new Notice(t('study.questionBankUI.studyInterface.priorityUpdated', { label: priorityText }));
         showPriorityModal = false;
       }
@@ -1520,8 +1523,8 @@
         onToggleNavigator={isPureExamMode ? undefined : toggleNavigatorPanel}
         mode={currentSession.mode}
         {remainingTime}
+        {examDuration}
         {isPaused}
-        {isTimeWarning}
         onTogglePause={handleTogglePause}
       />
 
@@ -1866,56 +1869,14 @@
     </div>
   </div>
 
-<FloatingMenu
+<PriorityPickerPopover
   bind:show={showPriorityModal}
   anchor={priorityAnchorElement}
-  placement="left-start"
+  currentPriority={selectedPriority}
+  variant="importance"
+  onSelect={(priority) => void confirmChangePriority(priority)}
   onClose={() => showPriorityModal = false}
-  class="study-side-panel-menu"
->
-  {#snippet children()}
-    <div class="study-side-panel priority-modal" role="dialog" aria-modal="true" tabindex="-1">
-      <div class="modal-header">
-        <h3>{t('study.questionBankUI.studyInterface.setPriority')}</h3>
-        <button class="modal-close" onclick={() => showPriorityModal = false}>×</button>
-      </div>
-      <div class="modal-body">
-        <p class="modal-description">{t('study.questionBankUI.studyInterface.choosePriority')}</p>
-        <div class="priority-options">
-          {#each [1, 2, 3, 4] as priority}
-            <button
-              class="priority-option"
-              class:selected={selectedPriority === priority}
-              onclick={() => { selectedPriority = priority as 1 | 2 | 3 | 4; }}
-            >
-              <div class="priority-stars">
-                {#each Array(priority) as _}
-                  <EnhancedIcon name="starFilled" size="16" />
-                {/each}
-                {#each Array(4 - priority) as _}
-                  <EnhancedIcon name="star" size="16" />
-                {/each}
-              </div>
-              <span class="priority-label">
-                {[
-                  '',
-                  t('study.questionBankUI.studyInterface.priorityLow'),
-                  t('study.questionBankUI.studyInterface.priorityMedium'),
-                  t('study.questionBankUI.studyInterface.priorityHigh'),
-                  t('study.questionBankUI.studyInterface.priorityVeryHigh')
-                ][priority]}
-              </span>
-            </button>
-          {/each}
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn-secondary" onclick={() => showPriorityModal = false}>{t('study.questionBankUI.studyInterface.cancel')}</button>
-        <button class="btn-primary" onclick={() => confirmChangePriority(selectedPriority as 1 | 2 | 3 | 4)}>{t('study.questionBankUI.studyInterface.confirmPriority')}</button>
-      </div>
-    </div>
-  {/snippet}
-</FloatingMenu>
+/>
 
 <style>
   .question-bank-study-interface-overlay {

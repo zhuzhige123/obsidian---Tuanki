@@ -11,7 +11,9 @@
   import ObsidianIcon from "../ui/ObsidianIcon.svelte";
   import RatingLabelStyleSettingDropdown from "./RatingLabelStyleSettingDropdown.svelte";
   import {
+    DEFAULT_RATING_LABEL_STYLE,
     normalizeRatingLabelStyle,
+    shouldShowRatingIntervalOnButtons,
     type RatingLabelStyle
   } from "./rating-label-style";
   import type { ChoiceOptionOrder } from '../../utils/study/choiceOptionOrder';
@@ -133,9 +135,9 @@
     onCardOrderChange,
     choiceOptionOrder = 'sequential',
     onChoiceOptionOrderChange,
-    ratingLabelStyle = 'classic',
+    ratingLabelStyle = DEFAULT_RATING_LABEL_STYLE,
     onRatingLabelStyleChange,
-    showRatingIntervalOnButtons = false,
+    showRatingIntervalOnButtons = shouldShowRatingIntervalOnButtons(DEFAULT_RATING_LABEL_STYLE),
     onRatingIntervalButtonsToggle,
     // 图谱联动
     isGraphLinked = false,
@@ -157,7 +159,6 @@
     return getDerivationMethodName(method, (key) => t(key));
   }
 
-  // 格式化学习时间
   function formatTime(ms: number): string {
     const totalSeconds = Math.floor(ms / 1000);
     const minutes = Math.floor(totalSeconds / 60);
@@ -947,13 +948,11 @@
 <div class="weave-vertical-toolbar vertical-toolbar" class:compact={compactMode}>
   <!-- 计时器区域（始终显示） -->
   <div class="toolbar-section timer-section">
-    <!-- 当前卡片计时 -->
     <div class="timer-display card-timer">
       <span class="timer-text">{formatTime(currentCardTime)}</span>
       <div class="timer-label" title={t('toolbar.currentCard')}>{t('toolbar.currentCard')}</div>
     </div>
 
-    <!-- 平均用时 -->
     <div class="timer-display avg-timer">
       <span class="timer-text">{formatTime(averageTime)}</span>
       <div class="timer-label" title={t('toolbar.avgTime')}>{t('toolbar.avgTime')}</div>
@@ -1655,7 +1654,6 @@
     gap: 1rem;
   }
 
-  /* 计时器区域 */
   .timer-section {
     width: 100%;
     box-sizing: border-box;
@@ -1705,7 +1703,6 @@
     text-overflow: ellipsis;
   }
 
-  /* 单卡计时器样式 */
   .card-timer {
     border-color: var(--color-accent);
     background: color-mix(in srgb, var(--color-accent) 5%, var(--background-primary));
@@ -1715,7 +1712,6 @@
     color: var(--color-accent);
   }
 
-  /* 平均用时样式 */
   .avg-timer {
     border-color: var(--text-success);
     background: color-mix(in srgb, var(--text-success) 5%, var(--background-primary));
@@ -1724,7 +1720,6 @@
   .avg-timer .timer-text {
     color: var(--text-success);
   }
-
 
   /* 功能按钮 */
   .actions-section {
@@ -1831,7 +1826,6 @@
     margin-top: 0.25rem;
   }
 
-  /* 紧凑模式下计时器也缩小 */
   .vertical-toolbar.compact .timer-display {
     width: 100%;
     min-width: 0;
@@ -1867,6 +1861,19 @@
     .timer-label {
       font-size: 0.5rem;
       letter-spacing: 0.1px;
+    }
+  }
+
+  .timer-display {
+    animation: subtle-pulse 3s ease-in-out infinite;
+  }
+
+  @keyframes subtle-pulse {
+    0%, 100% {
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    50% {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
   }
 
@@ -1910,32 +1917,6 @@
 
   /* 桌面端不进行布局重排，工具栏始终保持垂直方向 */
   /* 移动端布局由 :global(body.is-phone) 控制 */
-
-  /* 微妙的动画效果 */
-  .timer-display {
-    animation: subtle-pulse 3s ease-in-out infinite;
-  }
-
-  @keyframes subtle-pulse {
-    0%, 100% {
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    50% {
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-  }
-
-  /*  计时器淡出动画 */
-  @keyframes fadeOutTimer {
-    from {
-      opacity: 1;
-      transform: translateY(0);
-    }
-    to {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-  }
 
   /* FloatingMenu 容器样式 */
   :global(.deck-menu-container),

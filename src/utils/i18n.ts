@@ -1,3 +1,4 @@
+import { getLanguage } from "obsidian";
 import { logger } from "../utils/logger";
 import { deckAnalyticsTranslationOverrides } from "./i18n/deck-analytics-overrides";
 import { mergeTranslationTrees } from "./i18n/merge-translation-trees";
@@ -94,12 +95,13 @@ function getTranslationAliasCandidates(key: string): string[] {
 // ============================================================================
 
 /**
- * 从Obsidian的localStorage获取当前语言设置
+ * 从 Obsidian 官方 API 读取当前界面语言。
  * Obsidian语言代码: en, zh, zh-TW, ru, ko, it, id, ro, pt-BR, cz, de, es, fr, no, pl, pt, ja, da, uk, sq, tr, hi, se, nl, ar, th, fa, vi, he, ms, ca, am
  */
 function readObsidianHostLanguage(): string | null {
 	try {
-		return window.localStorage.getItem("language");
+		const lang = getLanguage();
+		return lang ? String(lang) : null;
 	} catch {
 		return null;
 	}
@@ -107,7 +109,7 @@ function readObsidianHostLanguage(): string | null {
 
 function detectObsidianLanguage(): SupportedLanguage {
 	try {
-		// 方法1: Obsidian 宿主 localStorage（非插件 vaultStorage）
+		// 方法1: Obsidian 官方 getLanguage()
 		const obsidianLang = readObsidianHostLanguage();
 		if (obsidianLang) {
 			if (obsidianLang === "zh" || obsidianLang === "zh-CN" || obsidianLang === "zh-TW") {

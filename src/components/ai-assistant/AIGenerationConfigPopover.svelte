@@ -46,7 +46,6 @@
       <div class="modal-header">
         <div class="header-title-group">
           <h2 class="modal-title">{t('aiAssistant.generationConfig.title')}</h2>
-          <div class="modal-subtitle">{t('aiAssistant.generationConfig.subtitle')}</div>
         </div>
         <button class="close-btn clickable-icon" type="button" onclick={onClose} title={t('ui.close')} aria-label={t('ui.close')}>
           <ObsidianIcon name="x" size={18} />
@@ -93,9 +92,6 @@
   }
 
   .header-title-group {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
     min-width: 0;
   }
 
@@ -104,11 +100,6 @@
     font-size: 1.3em;
     font-weight: 600;
     color: var(--text-normal);
-  }
-
-  .modal-subtitle {
-    font-size: 0.82rem;
-    color: var(--text-muted);
   }
 
   .close-btn {

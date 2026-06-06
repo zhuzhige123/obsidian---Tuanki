@@ -561,7 +561,7 @@
             
             {#if closable}
               <button
-                class="modal-close-btn"
+                class="clickable-icon modal-close-btn"
                 onclick={handleClose}
                 aria-label="关闭"
               >
@@ -893,66 +893,28 @@
     color: var(--text-normal);
   }
 
-  /*  彩色条样式 - 复用设置界面的设计 */
-  .modal-title.with-accent-bar {
-    position: relative;
-    padding-left: 16px;
-  }
-
-  .modal-title.with-accent-bar::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 4px;
-    height: 20px;
-    border-radius: 2px;
-  }
-
-  /* 颜色定义 */
-  .modal-title.accent-blue::before {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.8), rgba(37, 99, 235, 0.6));
-  }
-
-  .modal-title.accent-green::before {
-    background: linear-gradient(135deg, rgba(34, 197, 94, 0.8), rgba(22, 163, 74, 0.6));
-  }
-
-  .modal-title.accent-purple::before {
-    background: linear-gradient(135deg, rgba(168, 85, 247, 0.8), rgba(147, 51, 234, 0.6));
-  }
-
-  .modal-title.accent-orange::before {
-    background: linear-gradient(135deg, rgba(249, 115, 22, 0.8), rgba(234, 88, 12, 0.6));
-  }
-
-  .modal-title.accent-cyan::before {
-    background: linear-gradient(135deg, rgba(6, 182, 212, 0.8), rgba(14, 165, 233, 0.6));
-  }
-
-  .modal-title.accent-pink::before {
-    background: linear-gradient(135deg, rgba(236, 72, 153, 0.8), rgba(219, 39, 119, 0.6));
-  }
-
-  .modal-title.accent-red::before {
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.8), rgba(220, 38, 38, 0.6));
-  }
+  /* 侧边颜色条见 accent-bar.css */
 
   .modal-close-btn {
-    background: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    padding: 0;
+    background: transparent;
     border: none;
+    box-shadow: none;
     font-size: 1.2rem;
     color: var(--text-muted);
     cursor: pointer;
-    padding: 0.25rem;
-    border-radius: 4px;
-    transition: color 0.15s ease;
-    /*  移除hover背景，仅改变颜色 */
+    border-radius: var(--clickable-icon-radius, var(--radius-s));
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
 
   .modal-close-btn:hover {
-    /* 不显示背景框，仅改变颜色，与 Obsidian 原生关闭按钮一致 */
+    background: var(--background-modifier-hover);
     color: var(--text-normal);
   }
 

@@ -383,53 +383,11 @@
   }
 
   .section-title {
-    display: flex;
-    align-items: center;
-    gap: var(--size-4-2);
-    position: relative;
-    padding-left: 16px;
     font-size: var(--font-ui-medium);
     font-weight: 600;
     color: var(--text-normal);
-    margin-bottom: var(--size-4-4);
-    /* 🔧 移除 padding-bottom，避免彩色侧边条偏移 */
+    margin: 0 0 var(--size-4-4) 0;
     line-height: 1.4;
-  }
-
-  /* 彩色条样式 - 复用设置界面的设计 */
-  .section-title.with-accent-bar::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 4px;
-    border-radius: 2px;
-  }
-
-  /* 颜色定义 */
-  .section-title.accent-blue::before {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.8), rgba(37, 99, 235, 0.6));
-  }
-
-  .section-title.accent-purple::before {
-    background: linear-gradient(135deg, rgba(168, 85, 247, 0.8), rgba(147, 51, 234, 0.6));
-  }
-
-  .section-title.accent-orange::before {
-    background: linear-gradient(135deg, rgba(249, 115, 22, 0.8), rgba(234, 88, 12, 0.6));
-  }
-
-  .section-title.accent-green::before {
-    background: linear-gradient(135deg, rgba(34, 197, 94, 0.8), rgba(22, 163, 74, 0.6));
-  }
-
-  .section-title.accent-cyan::before {
-    background: linear-gradient(135deg, rgba(6, 182, 212, 0.8), rgba(14, 165, 233, 0.6));
-  }
-
-  .section-title.accent-pink::before {
-    background: linear-gradient(135deg, rgba(236, 72, 153, 0.8), rgba(219, 39, 119, 0.6));
   }
 
   .info-grid {
@@ -735,14 +693,7 @@
   .section-title.mobile {
     font-size: 14px;
     margin-bottom: 12px;
-    padding-left: 12px;
-    line-height: 1.2;
-  }
-
-  .section-title.mobile.with-accent-bar::before {
-    height: 14px;
-    top: 50%;
-    transform: translateY(-50%);
+    line-height: 1.4;
   }
 
   /* 移动端列表样式 */

@@ -18,6 +18,7 @@ import { QuestionBankAnalyticsModalObsidian } from "../modals/QuestionBankAnalyt
 import { Notice, Menu } from "obsidian";
 import { isInputClozeQuestionContent } from "../../utils/question-bank/input-cloze-utils";
 import { tr } from "../../utils/i18n";
+import { formatQuestionBankAccuracyScore } from "../../utils/question-bank/question-bank-display-stats";
 
   interface Props {
     plugin: WeavePlugin;
@@ -111,34 +112,17 @@ import { tr } from "../../utils/i18n";
 
     const allBanks = await plugin.questionBankService.getAllBanks();
     
+    const { computeQuestionBankDisplayStats } = await import(
+      '../../utils/question-bank/question-bank-display-stats'
+    );
+
     for (const bank of allBanks) {
       const questions = await plugin.questionBankService.getQuestionsByBank(bank.id);
-      const total = questions.length;
-      
-      // 计算完成度和正确率
-      let completed = 0;
-      let correctCount = 0;
-      
-      for (const question of questions) {
-        if (question.stats?.testStats && question.stats.testStats.totalAttempts > 0) {
-          completed++;
-          // 使用EWMA算法的当前掌握度，回退到旧的简单平均
-          const currentAccuracy = question.stats.testStats.masteryMetrics?.currentAccuracy;
-          if (currentAccuracy !== undefined) {
-            correctCount += currentAccuracy;
-          } else {
-            // 回退：使用简单平均
-            correctCount += (question.stats.testStats.accuracy || 0) * 100;
-          }
-        }
-      }
-      
-      const accuracy = completed > 0 ? correctCount / completed : 0;
-      
+      const display = computeQuestionBankDisplayStats(questions);
       bankStats[bank.id] = {
-        total,
-        completed,
-        accuracy
+        total: display.total,
+        completed: display.completed,
+        accuracy: display.accuracy,
       };
     }
   }
@@ -882,8 +866,8 @@ import { tr } from "../../utils/i18n";
       <span class="stat-number stat-completed">{stats.completed}</span>
     </div>
     <div class="row-stat">
-      <span class="stat-number stat-accuracy" style="color: {getAccuracyColor(stats.accuracy)}">
-        {stats.accuracy.toFixed(0)}%
+      <span class="stat-number stat-accuracy" style="color: {stats.completed > 0 ? getAccuracyColor(stats.accuracy) : 'inherit'}">
+        {stats.completed > 0 ? formatQuestionBankAccuracyScore(stats.accuracy) : '—'}
       </span>
     </div>
 
