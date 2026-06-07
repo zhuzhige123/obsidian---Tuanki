@@ -3,6 +3,8 @@
  * 提供高效的缓存管理，自动淘汰最少使用的项
  */
 
+import { firstIteratorValue } from "../object-utils";
+
 export interface LRUCacheOptions {
 	/** 最大缓存条目数 */
 	maxSize: number;
@@ -195,7 +197,7 @@ export class LRUCache<K extends string, V> {
 	 */
 	private evictOldest(): void {
 		// Map 保持插入顺序，第一项是最旧的
-		const { value: oldestKey } = this.cache.keys().next();
+		const oldestKey = firstIteratorValue(this.cache.keys());
 
 		if (oldestKey !== undefined) {
 			this.delete(oldestKey);

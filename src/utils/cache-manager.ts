@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger";
+import { firstIteratorValue } from "./object-utils";
 /**
  * 缓存管理器
  * 提供高效的LRU缓存和内存管理
@@ -147,7 +148,7 @@ export class LRUCache<T> {
 	}
 
 	private evictLRU(): void {
-		const { value: firstKey } = this.cache.keys().next();
+		const firstKey = firstIteratorValue(this.cache.keys());
 		if (firstKey !== undefined) {
 			this.evict(firstKey);
 		}
