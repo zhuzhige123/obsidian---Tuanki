@@ -270,6 +270,19 @@ if (communityLint.status !== 0) {
   if (communityLint.stderr) notes.push(communityLint.stderr.trim());
 }
 
+const releaseTagCheck = spawnSync(
+  "node",
+  ["scripts/check-github-release-tag.cjs", "--skip-if-offline"],
+  { cwd: root, encoding: "utf8" },
+);
+if (releaseTagCheck.status !== 0) {
+  failures.push(
+    "manifest.version has no matching published GitHub release tag (run node scripts/check-github-release-tag.cjs)",
+  );
+  if (releaseTagCheck.stdout) notes.push(releaseTagCheck.stdout.trim());
+  if (releaseTagCheck.stderr) notes.push(releaseTagCheck.stderr.trim());
+}
+
 if (failures.length > 0) {
   console.error("Obsidian release audit failed:\n");
   for (const failure of failures) {

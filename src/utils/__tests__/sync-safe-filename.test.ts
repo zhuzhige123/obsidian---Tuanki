@@ -35,6 +35,14 @@ describe("sync-safe-filename APKG media paths", () => {
 		expect(diagnoseFilename(suggested, false).hasIssue).toBe(false);
 	});
 
+	it("removes ZWJ emoji sequences without misleading regex character classes", () => {
+		const input = "章节👨‍👩‍👧‍👦笔记";
+		const safeName = sanitizeForSync(input);
+
+		expect(safeName).toBe("章节笔记");
+		expect(diagnoseFilename(safeName, false).hasIssue).toBe(false);
+	});
+
 	it("migrates real-world legacy APKG media folders from data management reports", () => {
 		const cases = [
 			"[APKG] 工作、消费主义和新穷人",

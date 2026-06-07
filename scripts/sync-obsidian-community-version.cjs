@@ -211,6 +211,11 @@ function main() {
 		const stagedDiff = runCapture("git", ["diff", "--cached", "--stat"]);
 		console.log(stagedDiff);
 
+		console.log(
+			`[sync-obsidian-community-version] Verifying GitHub release tag ${targetVersion} exists before push...`
+		);
+		run("node", ["scripts/check-github-release-tag.cjs", "--version", targetVersion]);
+
 		run("git", [
 			"commit",
 			"-m",
