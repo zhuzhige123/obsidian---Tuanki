@@ -19,6 +19,7 @@ import type {
 } from "../types/study-types";
 import { StepIndexCalculator } from "../utils/learning-steps/StepIndexCalculator";
 import { logger } from "../utils/logger";
+import { firstIteratorValue } from "../utils/object-utils";
 
 /**
  * 学习会话状态接口
@@ -365,8 +366,8 @@ export class StudySessionManager {
 		// 清除当前牌组的持久化状态（已恢复）
 		this.persistedSessions.delete(persisted.deckId);
 		if (this.activePersistedDeckId === persisted.deckId) {
-			const nextDeckId = this.persistedSessions.keys().next().value;
-			this.activePersistedDeckId = typeof nextDeckId === "string" ? nextDeckId : null;
+			const nextDeckId = firstIteratorValue(this.persistedSessions.keys());
+			this.activePersistedDeckId = nextDeckId ?? null;
 		}
 
 		logger.debug("[StudySessionManager] 会话已恢复:", sessionId);
@@ -456,8 +457,8 @@ export class StudySessionManager {
 				logger.debug("[StudySessionManager] 持久化会话已清除:", session.sessionId);
 				this.persistedSessions.delete(deckId);
 				if (this.activePersistedDeckId === deckId) {
-					const nextDeckId = this.persistedSessions.keys().next().value;
-					this.activePersistedDeckId = typeof nextDeckId === "string" ? nextDeckId : null;
+					const nextDeckId = firstIteratorValue(this.persistedSessions.keys());
+					this.activePersistedDeckId = nextDeckId ?? null;
 				}
 			}
 			return;
@@ -485,8 +486,8 @@ export class StudySessionManager {
 		const nextActiveDeckId =
 			store.activeDeckId && this.persistedSessions.has(store.activeDeckId)
 				? store.activeDeckId
-				: this.persistedSessions.keys().next().value;
-		this.activePersistedDeckId = typeof nextActiveDeckId === "string" ? nextActiveDeckId : null;
+				: firstIteratorValue(this.persistedSessions.keys());
+		this.activePersistedDeckId = nextActiveDeckId ?? null;
 		logger.debug("[StudySessionManager] 持久化会话集合已设置:", this.persistedSessions.size);
 	}
 }

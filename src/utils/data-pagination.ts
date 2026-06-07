@@ -152,7 +152,6 @@ export class DataPaginationService {
 		const batches = this.createBatches(data, batchConfig.batchSize);
 
 		// 并发处理批次
-		const _concurrentBatches = [];
 		for (let i = 0; i < batches.length; i += batchConfig.maxConcurrent!) {
 			const batchGroup = batches.slice(i, i + batchConfig.maxConcurrent!);
 

@@ -364,7 +364,7 @@ export class CardQualityInboxService {
 
 		if (fullConfig.detectDuplicates) {
 			// 精确重复检测（基于哈希 + 内容确认）
-			for (const [_hash, duplicateCards] of contentHashMap) {
+			for (const duplicateCards of contentHashMap.values()) {
 				if (duplicateCards.length > 1) {
 					// 哈希碰撞时额外确认内容是否真的相同
 					const confirmedGroups = this.groupByExactContent(duplicateCards);

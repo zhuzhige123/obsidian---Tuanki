@@ -456,7 +456,7 @@ export class EmbeddableEditorManager {
 	cleanup(): void {
 		logger.debug("[EmbeddableEditorManager] 清理所有会话");
 
-		for (const [_sessionId, session] of this.sessions.entries()) {
+		for (const session of this.sessions.values()) {
 			if (session.editor) {
 				session.editor.destroy();
 			}

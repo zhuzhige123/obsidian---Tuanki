@@ -269,7 +269,6 @@ export class MultilingualPatternRecognizer {
 		language: string;
 	} {
 		const language = this.detectLanguage(content);
-		const _patterns = this.getPatterns(language);
 
 		// 查找分隔符
 		const separators = this.findSeparators(content, language);

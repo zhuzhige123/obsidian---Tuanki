@@ -4731,15 +4731,7 @@ export class WeavePlugin extends Plugin {
 			// 兼容旧的字符串参数格式
 			const params = typeof options === "string" ? { initialContent: options } : options || {};
 
-			const {
-				initialContent = "",
-				parsedCard,
-				sourceInfo: _sourceInfo,
-				selectedTemplate: _selectedTemplate,
-				contentMapping: _contentMapping,
-				onSuccess,
-				onCancel,
-			} = params;
+			const { initialContent = "", parsedCard, onSuccess, onCancel } = params;
 
 			logger.debug("🎯 [openCreateCardModal] 被调用（直接挂载模式）");
 
@@ -9850,7 +9842,6 @@ export class WeavePlugin extends Plugin {
 			if (enrichedMaskData.masks.length === 0) {
 				if (commentLocation.found && typeof commentLocation.line === "number") {
 					// 删除整行（包括换行符）
-					const _lineContent = editor.getLine(commentLocation.line);
 					editor.replaceRange(
 						"",
 						{ line: commentLocation.line, ch: 0 },
@@ -9879,7 +9870,6 @@ export class WeavePlugin extends Plugin {
 				logger.debug("[Plugin] 已更新遮罩数据");
 			} else {
 				// 插入新注释（在图片行下方）
-				const _nextLine = imageLineNumber + 1;
 				editor.replaceRange(`\n${comment}`, {
 					line: imageLineNumber,
 					ch: editor.getLine(imageLineNumber).length,

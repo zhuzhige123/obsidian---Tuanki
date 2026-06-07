@@ -87,14 +87,12 @@ export class UnifiedDateTimeProcessor {
 	formatDate(
 		date: string | Date | number | null | undefined,
 		format: DateFormat = DateFormat.ISO_DATE,
-		config?: Partial<TimezoneConfig>
+		_config?: Partial<TimezoneConfig>
 	): string {
 		if (!date) return "-";
 
 		const dateObj = this.normalizeDate(date);
 		if (!dateObj || Number.isNaN(dateObj.getTime())) return "-";
-
-		const _finalConfig = { ...this.defaultTimezone, ...config };
 
 		switch (format) {
 			case DateFormat.ISO_DATE:
@@ -165,7 +163,7 @@ export class UnifiedDateTimeProcessor {
 				const years = Math.round(diffMs / (365 * 24 * 60 * 60 * 1000));
 				return rtf.format(years, "year");
 			}
-		} catch (_error) {
+		} catch {
 			// 降级方案
 			return this.formatSimpleRelativeTime(dateObj);
 		}
@@ -196,7 +194,7 @@ export class UnifiedDateTimeProcessor {
 			}
 
 			return null;
-		} catch (_error) {
+		} catch {
 			return null;
 		}
 	}

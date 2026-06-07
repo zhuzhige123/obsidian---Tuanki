@@ -88,7 +88,7 @@ export class CalloutLayer extends BaseConversionLayer {
 					const html = this.generateCalloutHtml(normalizedType, calloutConfig, trimmedTitle, parsedContent);
 
 					return html;
-				} catch (_error) {
+				} catch {
 					warnings.push(`转换 Callout 失败: ${type}`);
 					return match;
 				}

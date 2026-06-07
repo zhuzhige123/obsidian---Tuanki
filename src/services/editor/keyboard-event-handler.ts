@@ -150,7 +150,7 @@ export class KeyboardEventHandler {
 		if (handler) {
 			event.preventDefault();
 			// 不调用 stopPropagation，让其他监听器也能处理
-			const _shouldStopPropagation = handler();
+			handler();
 
 			// Svelte 5: 完全避免使用 stopPropagation
 			// 如果需要阻止其他处理，应该通过返回值等其他机制实现

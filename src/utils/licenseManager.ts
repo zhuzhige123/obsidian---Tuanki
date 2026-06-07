@@ -1083,7 +1083,7 @@ export class ActivationCodeValidator {
 		try {
 			atob(dataBase64);
 			atob(signatureBase64);
-		} catch (_error) {
+		} catch {
 			return {
 				isValid: false,
 				error: "激活码包含无效字符，请检查是否正确复制",
@@ -1142,7 +1142,7 @@ export class ActivationCodeValidator {
 					error: "激活码已过期",
 				};
 			}
-		} catch (_error) {
+		} catch {
 			return {
 				isValid: false,
 				error: "激活码数据格式无效",

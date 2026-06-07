@@ -195,7 +195,7 @@ export class LRUCache<K extends string, V> {
 	 */
 	private evictOldest(): void {
 		// Map 保持插入顺序，第一项是最旧的
-		const oldestKey = this.cache.keys().next().value;
+		const { value: oldestKey } = this.cache.keys().next();
 
 		if (oldestKey !== undefined) {
 			this.delete(oldestKey);

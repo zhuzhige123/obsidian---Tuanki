@@ -2321,8 +2321,8 @@ export class EpubStorageService {
 						readingStats: book.readingStats,
 					});
 				}
-			} catch (_e) {
-				logger.warn("[EpubStorageService] flushPendingProgress failed:", _e);
+			} catch (error) {
+				logger.warn("[EpubStorageService] flushPendingProgress failed:", error);
 			}
 		}
 	}

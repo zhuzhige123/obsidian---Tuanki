@@ -315,7 +315,7 @@ async function testRegexPerformanceAdvanced(
 				if (!passed) {
 					failedTests.push(`${testCase.name} (${executionTime.toFixed(2)}ms)`);
 				}
-			} catch (_error) {
+			} catch {
 				results.push({
 					testName: testCase.name,
 					executionTime: timeoutMs,
@@ -324,7 +324,7 @@ async function testRegexPerformanceAdvanced(
 				failedTests.push(`${testCase.name} (超时或错误)`);
 			}
 		}
-	} catch (_error) {
+	} catch {
 		// 正则表达式创建失败
 		return {
 			passed: false,
@@ -359,7 +359,7 @@ function testRegexPerformance(pattern: string, testString: string, timeoutMs: nu
 
 		const executionTime = Date.now() - startTime;
 		return executionTime < timeoutMs;
-	} catch (_error) {
+	} catch {
 		return false;
 	}
 }

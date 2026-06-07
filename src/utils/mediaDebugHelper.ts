@@ -135,7 +135,7 @@ export class MediaDebugHelper {
 		const exists: string[] = [];
 		const missing: string[] = [];
 
-		for (const [_filename, savedPath] of Object.entries(savedFiles)) {
+		for (const savedPath of Object.values(savedFiles)) {
 			try {
 				const file = this.plugin.app.vault.getAbstractFileByPath(savedPath);
 				if (file) {
@@ -143,7 +143,7 @@ export class MediaDebugHelper {
 				} else {
 					missing.push(savedPath);
 				}
-			} catch (_error) {
+			} catch {
 				missing.push(savedPath);
 			}
 		}

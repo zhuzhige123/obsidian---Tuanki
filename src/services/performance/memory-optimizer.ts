@@ -199,7 +199,7 @@ export class MemoryPoolManager {
 		let freedMemory = 0;
 
 		// 清理未使用的内存块
-		for (const [_size, pool] of this.pools) {
+		for (const pool of this.pools.values()) {
 			const unusedBlocks = pool.filter((block) => !block.inUse);
 
 			// 保留一些空闲块以备后用
@@ -421,7 +421,7 @@ export class MemoryPoolManager {
 	}
 
 	private defragmentMemoryPools(): void {
-		for (const [_size, pool] of this.pools) {
+		for (const pool of this.pools.values()) {
 			// 将使用中的块移到前面，空闲的块移到后面
 			pool.sort((a, b) => {
 				if (a.inUse && !b.inUse) return -1;

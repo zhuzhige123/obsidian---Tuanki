@@ -37,7 +37,7 @@ export async function processUUIDsWithPosition(
 	detectUUIDInContent: (content: string) => string | null
 ): Promise<UUIDProcessResult> {
 	const duplicates: string[] = [];
-	let _contentUpdated = false;
+	let contentUpdated = false;
 
 	if (cards.length !== cardsPosition.length) {
 		return {
@@ -83,7 +83,7 @@ export async function processUUIDsWithPosition(
 			card.metadata.uuid = uuid;
 			card.metadata.blockId = blockId; // 保留blockId（临时字段）
 
-			_contentUpdated = true;
+			contentUpdated = true;
 		}
 	}
 
@@ -134,7 +134,7 @@ export async function processUUIDsWithPosition(
 
 	return {
 		duplicates,
-		contentUpdated: false,
+		contentUpdated,
 		updatedContent: content,
 	};
 }

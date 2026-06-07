@@ -135,14 +135,6 @@ export class DeviceAwareBackupManager {
 				description: options.reason,
 			};
 
-			// 转换为设备无关的相对路径
-			const _deviceAwareBackup: DeviceAwareBackup = {
-				id: backupId,
-				metadata,
-				data: options.data,
-				relativePaths: this.convertToRelativePaths(options.data),
-			};
-
 			// 智能压缩
 			const compressed = await this.compression.createCompressedBackup(options.data as BackupData);
 
@@ -235,7 +227,7 @@ export class DeviceAwareBackupManager {
 			}
 
 			return backups.sort((a, b) => b.metadata.timestamp - a.metadata.timestamp);
-		} catch (_error) {
+		} catch {
 			// 目录不存在或为空
 			return [];
 		}

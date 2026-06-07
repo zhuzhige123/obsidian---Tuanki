@@ -470,7 +470,7 @@ export class ObsidianNavigationService {
 		try {
 			const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 			return file instanceof TFile;
-		} catch (_error) {
+		} catch {
 			return false;
 		}
 	}

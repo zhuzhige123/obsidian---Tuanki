@@ -273,7 +273,7 @@ export class DynamicExtensionManager {
 
 		try {
 			// 应用扩展到所有编辑器
-			for (const [_editorId, view] of this.editorViews) {
+			for (const view of this.editorViews.values()) {
 				view.dispatch({
 					effects: instance.compartment.reconfigure(instance.extension),
 				});
@@ -311,7 +311,7 @@ export class DynamicExtensionManager {
 
 		try {
 			// 从所有编辑器中移除扩展
-			for (const [_editorId, view] of this.editorViews) {
+			for (const view of this.editorViews.values()) {
 				view.dispatch({
 					effects: instance.compartment.reconfigure([]),
 				});
@@ -359,7 +359,7 @@ export class DynamicExtensionManager {
 					instance.extension = newExtension;
 
 					// 重新应用到编辑器
-					for (const [_editorId, view] of this.editorViews) {
+					for (const view of this.editorViews.values()) {
 						view.dispatch({
 							effects: instance.compartment.reconfigure(newExtension),
 						});

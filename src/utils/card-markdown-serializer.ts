@@ -8,9 +8,6 @@ import { logger } from "../utils/logger";
 import type { Card } from "../data/types";
 import { CardType } from "../data/types";
 import { parseCardStateValue } from "./card-state-utils";
-import { ChoiceCardParser } from "../parsers/card-type-parsers/ChoiceCardParser";
-import { ClozeCardParser } from "../parsers/card-type-parsers/ClozeCardParser";
-import { QACardParser } from "../parsers/card-type-parsers/QACardParser";
 import { getCardMetadataService } from "../services/CardMetadataService";
 import { hasProgressiveClozeContent } from "../types/progressive-cloze-v2";
 import { hasAnyClozeSyntax } from "./cloze-syntax";
@@ -426,20 +423,6 @@ export function detectCardTypeFromContent(content: string): "basic" | "cloze" | 
 }
 
 /**
- * 根据卡片类型获取对应的解析器
- */
-function getParserForDetectedType(cardType: "basic" | "cloze" | "multiple"): unknown {
-	switch (cardType) {
-		case "cloze":
-			return new ClozeCardParser();
-		case "multiple":
-			return new ChoiceCardParser();
-		default:
-			return new QACardParser();
-	}
-}
-
-/**
  * 将Markdown内容解析为卡片数据（遵循卡片数据结构规范 v1.0）
  *
  *  核心原则：
@@ -536,7 +519,6 @@ export function markdownToCard(content: string, originalCard: Card): Card {
 
 		//  步骤2：使用对应题型的解析器从content生成fields
 		// 注意：使用detectedType（从内容检测）而不是updatedCard.type（可能是旧值）
-		const _parser = getParserForDetectedType(detectedType);
 		// 只使用 content，不生成 fields
 		logger.debug("[markdownToCard] 使用 content 作为唯一数据源");
 

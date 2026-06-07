@@ -364,7 +364,7 @@ export class FrontmatterManager {
 		try {
 			const content = await this.app.vault.read(file);
 			return content.startsWith("---\n");
-		} catch (_error) {
+		} catch {
 			return false;
 		}
 	}

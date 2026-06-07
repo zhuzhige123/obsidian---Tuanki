@@ -267,7 +267,7 @@ export class DeckHierarchyService {
 				try {
 					const deckCards = await this.storage.getDeckCards(deck.id);
 					allCards.push(...deckCards);
-				} catch (_e) {
+				} catch {
 					// 忽略空牌组
 				}
 			}
@@ -290,7 +290,7 @@ export class DeckHierarchyService {
 					if (metadata.we_decks?.includes(oldName)) {
 						affectedCards.push(card);
 					}
-				} catch (_e) {
+				} catch {
 					// 忽略解析失败的卡片
 				}
 			}

@@ -294,7 +294,7 @@ export class EditorInitializationManager {
 	 * 清理所有进程
 	 */
 	cleanup(): void {
-		for (const [_editorId, process] of this.processes) {
+		for (const process of this.processes.values()) {
 			if (process.state === InitializationState.INITIALIZING) {
 				process.abortController.abort();
 			}

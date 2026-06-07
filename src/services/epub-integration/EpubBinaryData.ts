@@ -75,7 +75,7 @@ type BinaryReadAttempt = {
 
 type BinaryCandidate = {
   label: string;
-  bytes: Uint8Array<ArrayBuffer>;
+  bytes: Uint8Array;
   exactSize: boolean;
   zipReadable: boolean;
 };
@@ -99,9 +99,9 @@ export function normalizeVaultBinaryData(
   binary: unknown,
 	context: string,
 	options: { requireZipSignature?: boolean } = {}
-): Uint8Array<ArrayBuffer> {
+): Uint8Array {
 	const requireZipSignature = options.requireZipSignature ?? true;
-  let normalized: Uint8Array<ArrayBuffer>;
+  let normalized: Uint8Array;
 
   if (binary instanceof Uint8Array) {
     normalized = Uint8Array.from(binary);
@@ -180,7 +180,7 @@ function chooseBetterCandidate(
   return current;
 }
 
-async function canOpenZipArchive(bytes: Uint8Array<ArrayBuffer>): Promise<boolean> {
+async function canOpenZipArchive(bytes: Uint8Array): Promise<boolean> {
   try {
     await JSZip.loadAsync(bytes, { checkCRC32: false });
     return true;
@@ -270,7 +270,7 @@ export async function readVaultBinaryData(
 	file: TFile,
 	context: string,
 	options: ReadVaultBinaryOptions = {}
-): Promise<Uint8Array<ArrayBuffer>> {
+): Promise<Uint8Array> {
 	const requireZipSignature = options.requireZipSignature ?? true;
 	const failureLabel = options.failureLabel || (requireZipSignature ? "EPUB" : "book");
 	const expectedSize = getExpectedFileSize(file);

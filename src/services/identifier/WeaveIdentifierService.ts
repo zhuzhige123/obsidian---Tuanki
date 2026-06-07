@@ -323,9 +323,6 @@ export class WeaveIdentifierService {
 		// 2. 生成新BlockID
 		const blockId = this.idGenerator.generateBlockID();
 
-		// 3. 准备写入内容
-		const _blockIdMarker = BLOCK_ID_WRITE_FORMAT.STANDARD(blockId);
-
 		// TODO: 根据insertFormat决定如何插入
 		// - annotation: 插入到标注块末尾
 		// - batch-parse: 插入到批量解析区域

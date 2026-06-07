@@ -189,7 +189,7 @@ export class BackupManagementService {
 						try {
 							const content = await adapter.read(filePath);
 							JSON.parse(content); // 验证JSON格式
-						} catch (_error) {
+						} catch {
 							issues.push({
 								id: `corrupted_${expectedFile}`,
 								type: "corrupted_data",

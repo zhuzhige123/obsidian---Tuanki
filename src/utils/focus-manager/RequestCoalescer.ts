@@ -88,7 +88,7 @@ export class RequestCoalescer implements IRequestCoalescer {
 		const requests = Array.from(this.pendingRequests.entries());
 
 		// 先清理所有定时器
-		for (const [_key, request] of requests) {
+		for (const [, request] of requests) {
 			if (request.timeoutId !== null) {
 				window.clearTimeout(request.timeoutId);
 			}

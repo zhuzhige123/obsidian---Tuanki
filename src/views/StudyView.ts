@@ -529,7 +529,6 @@ export class StudyView extends ItemView {
 
 		if (state) {
 			const oldDeckId = this.deckId;
-			const _oldDeckName = this.deckName;
 			const oldMode = this.mode;
 			const oldCardIds = this.cardIds;
 			const oldCards = this.cards;
@@ -666,7 +665,7 @@ export class StudyView extends ItemView {
 			const { waitForServiceReady } = await import("../utils/service-ready-event");
 			await waitForServiceReady("dataStorage", 5000);
 			logger.debug("[StudyView] dataStorage 已就绪（事件通知）");
-		} catch (_error) {
+		} catch {
 			// 事件等待超时，回退到轮询检查
 			logger.warn("[StudyView] 事件等待超时，回退到轮询检查");
 
@@ -927,7 +926,7 @@ export class StudyView extends ItemView {
 		logger.debug("[StudyView] 正在恢复会话...", persisted);
 
 		// 恢复会话到 SessionManager
-		const _sessionId = this.studySessionManager.restoreSession(persisted);
+		this.studySessionManager.restoreSession(persisted);
 
 		//  优先使用持久化的 deckId，否则使用当前的 deckId
 		await this.createStudyComponent({
@@ -969,7 +968,7 @@ export class StudyView extends ItemView {
 					if (!options?.mode || options.mode === "normal") {
 						logger.debug("[StudyView] 🔍 验证牌组是否有可学习的卡片...");
 
-						const { loadDeckCardsForStudy, getLearnedNewCardsCountToday } = await import(
+						const { loadDeckCardsForStudy } = await import(
 							"../utils/study/studyCompletionHelper"
 						);
 						const dataStorage = this.plugin.dataStorage;
@@ -986,10 +985,6 @@ export class StudyView extends ItemView {
 
 						const newCardsPerDay = this.plugin.settings.newCardsPerDay || 20;
 						const reviewsPerDay = this.plugin.settings.reviewsPerDay || 20;
-						const _learnedNewCardsToday = await getLearnedNewCardsCountToday(
-							dataStorage,
-							options.deckId
-						);
 
 						const testCards = await loadDeckCardsForStudy(
 							dataStorage,

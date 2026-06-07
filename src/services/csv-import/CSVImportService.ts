@@ -7,6 +7,7 @@
  * - 批量卡片生成
  */
 
+import { omitKey } from "../../utils/object-utils";
 import { parseYAMLFromContent } from "../../utils/yaml-utils";
 
 // ============================================================================
@@ -495,8 +496,7 @@ export function generateCardContent(
 				.map((t) => t.trim())
 				.filter(Boolean)
 		);
-		const { tags: _removedTags, ...remainingFields } = fields;
-		fields = remainingFields;
+		fields = omitKey(fields, "tags");
 	}
 
 	// 额外字段（source, author, page等）

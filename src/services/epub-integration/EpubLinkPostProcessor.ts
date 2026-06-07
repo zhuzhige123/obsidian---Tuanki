@@ -143,7 +143,7 @@ export function createEpubLinkPostProcessor(app: App) {
 							?.replace(/\.epub$/i, "") ||
 					  "EPUB";
 				styleEpubLink(linkEl, displayText);
-			} catch (_e) {
+			} catch {
 				// skip malformed links
 			}
 		});

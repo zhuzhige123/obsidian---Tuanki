@@ -173,7 +173,7 @@ export class VirtualizationMonitor {
 					`${this.markPrefix}-start-${this.viewType}`,
 					`${this.markPrefix}-end-${this.viewType}`
 				);
-			} catch (_error) {
+			} catch {
 				// 忽略测量错误
 			}
 		}
@@ -469,7 +469,7 @@ export class VirtualizationMonitor {
 			try {
 				performance.clearMarks(`${this.markPrefix}-${this.viewType}`);
 				performance.clearMeasures(`${this.markPrefix}-${this.viewType}`);
-			} catch (_error) {
+			} catch {
 				// 忽略清理错误
 			}
 		}

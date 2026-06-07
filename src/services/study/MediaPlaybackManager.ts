@@ -420,7 +420,7 @@ export class MediaPlaybackManager {
 						`[findMediaElements] 🔌 media-extended 选择器 "${_selector}" 找到 ${elements.length} 个元素`
 					);
 				}
-			} catch (_e) {
+			} catch {
 				// 静默失败，因为这些是可选选择器
 			}
 		});
@@ -474,7 +474,7 @@ export class MediaPlaybackManager {
 							}
 						});
 				}
-			} catch (_e) {
+			} catch {
 				// 跨域 iframe 无法访问，静默失败
 				if (debug) {
 					logger.debug("[findMediaElements] ⚠️ iframe 跨域，无法访问内容");

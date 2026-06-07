@@ -147,8 +147,8 @@ export class LRUCache<T> {
 	}
 
 	private evictLRU(): void {
-		const firstKey = this.cache.keys().next().value;
-		if (firstKey) {
+		const { value: firstKey } = this.cache.keys().next();
+		if (firstKey !== undefined) {
 			this.evict(firstKey);
 		}
 	}

@@ -233,8 +233,6 @@ export class BatchParsingManager {
 					result.success = true;
 
 					// 保存UUID记录
-					let _uuidRecordsSaved = 0;
-
 					for (const card of parsedCards) {
 						const uuid = card.metadata?.uuid;
 						const cardId = card.id;
@@ -255,7 +253,6 @@ export class BatchParsingManager {
 						if (file instanceof TFile) {
 							try {
 								await this.uuidManager.saveRecord(uuid, cardId, file, 0);
-								_uuidRecordsSaved++;
 							} catch (error) {
 								logger.error(`保存UUID记录失败 (${uuid}):`, error);
 							}

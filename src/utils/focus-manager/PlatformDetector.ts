@@ -44,7 +44,7 @@ export class PlatformDetector implements IPlatformDetector {
 
 			logger.debug("[PlatformDetector] 平台检测结果:", this.cachedInfo);
 			return this.cachedInfo;
-		} catch (_error) {
+		} catch {
 			// API 不可用时的降级处理
 			logger.warn("[PlatformDetector] Platform API 不可用，使用降级检测");
 			return this.fallbackDetect();

@@ -427,7 +427,7 @@ export class DirectFileCardReader {
 							deckFiles.push(filePath);
 						}
 					}
-				} catch (_error) {
+				} catch {
 					// 子文件夹可能不存在或无权限，跳过
 					logger.debug("[DirectFileCardReader] 跳过子文件夹:", folderPath);
 				}

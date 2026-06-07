@@ -1,4 +1,3 @@
-// @ts-nocheck
 // Adapted from foliate-js/epubcfi.js under the MIT license.
 // Copyright (c) 2022 John Factotum
 
@@ -71,23 +70,23 @@ const tokenizer = (str) => {
 				continue;
 			} else push(["@", parseFloat(value)]);
 		} else if (state === "[") {
-			if (char === ";" && !escape) {
+			if (char === ";" && !isEscaped) {
 				push(["[", value]);
 				state = ";";
-			} else if (char === "," && !escape) {
+			} else if (char === "," && !isEscaped) {
 				push(["[", value]);
 				state = "[";
-			} else if (char === "]" && !escape) push(["[", value]);
+			} else if (char === "]" && !isEscaped) push(["[", value]);
 			else cat(char);
 			continue;
 		} else if (state?.startsWith(";")) {
-			if (char === "=" && !escape) {
+			if (char === "=" && !isEscaped) {
 				state = `;${value}`;
 				value = "";
-			} else if (char === ";" && !escape) {
+			} else if (char === ";" && !isEscaped) {
 				push([state, value]);
 				state = ";";
-			} else if (char === "]" && !escape) push([state, value]);
+			} else if (char === "]" && !isEscaped) push([state, value]);
 			else cat(char);
 			continue;
 		}
@@ -164,8 +163,8 @@ export const collapse = (x, toEnd) =>
 	typeof x === "string"
 		? stringifyCfi(collapse(parse(x), toEnd))
 		: x.parent
-		? concatArrays(x.parent, x[toEnd ? "end" : "start"])
-		: x;
+			? concatArrays(x.parent, x[toEnd ? "end" : "start"])
+			: x;
 
 const buildRange = (from, to) => {
 	if (typeof from === "string") from = parse(from);
@@ -378,24 +377,3 @@ export const fromCalibreHighlight = ({ spine_index, start_cfi, end_cfi }) => {
 	const pre = `${fake.fromIndex(spine_index)}!`;
 	return buildRange(pre + start_cfi.slice(2), pre + end_cfi.slice(2));
 };
-
-export type ParsedCfiPart = {
-	index: number;
-	id?: string;
-	offset?: number;
-	temporal?: number;
-	spatial?: number[];
-	text?: string[];
-	side?: string;
-};
-
-export type ParsedCfiSegment = ParsedCfiPart[];
-export type ParsedCfiPath = ParsedCfiSegment[];
-
-export interface ParsedCfiRange {
-	parent: ParsedCfiPath;
-	start: ParsedCfiPath;
-	end: ParsedCfiPath;
-}
-
-export type ParsedCfi = ParsedCfiPath | ParsedCfiRange;

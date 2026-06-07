@@ -150,7 +150,7 @@ export class WikiLinkLayer extends BaseConversionLayer {
 					color: "#667eea",
 					"text-decoration": "none",
 				});
-			} catch (_error) {
+			} catch {
 				warnings.push(`无法转换双链: ${match}`);
 				return match;
 			}

@@ -64,7 +64,6 @@ export class PositionIndexBuilder {
 		const nonCards: NonCardBlock[] = [];
 
 		let currentPosition = batchRange.contentStart;
-		const _lines = batchContent.split("\n");
 		let currentLine = this.getLineNumber(content, batchRange.contentStart);
 
 		for (let i = 0; i < allBlocks.length; i++) {

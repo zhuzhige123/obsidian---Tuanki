@@ -75,8 +75,8 @@ export class SelectionToIRModal extends Modal {
 			text: this.getDeckButtonText(),
 		});
 		this.applyPickerButtonStyle(this.deckButtonEl);
-		this.deckButtonEl.addEventListener("click", (evt) => {
-			this.showDeckMenu(evt as MouseEvent);
+		this.deckButtonEl.addEventListener("click", (evt: MouseEvent) => {
+			this.showDeckMenu(evt);
 		});
 
 		const folderToolbarEl = headerPanelEl.createDiv({ cls: "weave-selection-to-ir-toolbar" });

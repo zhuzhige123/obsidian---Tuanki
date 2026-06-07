@@ -175,15 +175,6 @@ export class RegexCardParser {
 				return lines.length - 1;
 			};
 
-			// 辅助函数：计算行结束位置（字符索引）
-			const _lineEndIndex = (lineNum: number): number => {
-				let index = 0;
-				for (let i = 0; i < lineNum; i++) {
-					index += lines[i].length + 1; // +1 for \n
-				}
-				return index + lines[lineNum].length;
-			};
-
 			for (let i = 0; i < validMatches.length; i++) {
 				const match = validMatches[i];
 
@@ -351,7 +342,6 @@ export class RegexCardParser {
 			const cardRegex = new RegExp(cardSeparator, flags);
 
 			// 使用 exec 方法获取匹配位置，而不是 split
-			let _lastIndex = 0;
 			let match;
 			const delimiterMatches: Array<{ index: number; length: number }> = [];
 
@@ -361,7 +351,6 @@ export class RegexCardParser {
 					index: match.index,
 					length: match[0].length,
 				});
-				_lastIndex = match.index + match[0].length;
 			}
 
 			// 根据分隔符位置分割卡片块

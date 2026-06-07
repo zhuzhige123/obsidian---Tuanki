@@ -186,8 +186,7 @@ export class PreviewManager {
 			);
 
 			// 渲染超时保护
-			const renderPromise = this.renderWithTimeout(content, container);
-			const _result = await renderPromise;
+			await this.renderWithTimeout(content, container);
 
 			// 缓存渲染结果
 			if (this.options.enableContentCache) {
@@ -263,10 +262,9 @@ export class PreviewManager {
 	private async processRenderQueue(): Promise<void> {
 		if (this.renderQueue.length === 0) return;
 
-		const { content, resolve, reject } = this.renderQueue.shift()!;
+		const { resolve, reject } = this.renderQueue.shift()!;
 
 		try {
-			const _contentHash = this.generateContentHash(content);
 			// 这里需要容器，但队列中没有，所以暂时跳过队列处理
 			// 实际实现中需要重新设计队列结构
 			resolve({ success: false, error: "队列处理暂未实现" });

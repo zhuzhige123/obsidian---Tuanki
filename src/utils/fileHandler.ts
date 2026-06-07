@@ -116,7 +116,7 @@ export class SecureFileHandler {
 		// 确保附件文件夹存在
 		try {
 			await vault.createFolder(attachmentFolder);
-		} catch (_e) {
+		} catch {
 			// 文件夹可能已存在，忽略错误
 		}
 
@@ -232,7 +232,7 @@ export class SecureFileHandler {
 								}
 							}
 						}
-					} catch (_e) {
+					} catch {
 						// 解析失败的项目也应该被清理
 						keysToRemove.push(key);
 					}

@@ -243,8 +243,6 @@ export class CustomPatternManager {
 			const maxGroup = Math.max(...groupIndices);
 
 			if (regex) {
-				// 检查捕获组数量
-				const _testMatch = "".match(regex);
 				// 注意：这里无法准确检测捕获组数量，只能给出建议
 				if (maxGroup > 10) {
 					warnings.push("捕获组数量较多，请确保正则表达式包含足够的捕获组");
@@ -386,7 +384,7 @@ export class CustomPatternManager {
 					});
 				}
 			}
-		} catch (_error) {
+		} catch {
 			return {
 				success: false,
 				results: [],
@@ -561,7 +559,7 @@ export class CustomPatternManager {
 
 			try {
 				testString.match(regex);
-			} catch (_error) {
+			} catch {
 				// 忽略错误，只测试性能
 			}
 

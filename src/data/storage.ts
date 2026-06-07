@@ -38,6 +38,7 @@ import {
 	syncCardStatsToCanonicalFormat,
 } from "../utils/card-stats-normalizer";
 import { DirectoryUtils } from "../utils/directory-utils";
+import { omitKey } from "../utils/object-utils";
 import { hasLegacyMemoryCardStorage } from "../utils/legacy-memory-storage";
 import { t } from "../utils/i18n";
 import { logger } from "../utils/logger";
@@ -1563,7 +1564,7 @@ export class WeaveDataStorage {
 				})
 			);
 			return [...visiblePersistedDecks, ...wdeckDecks];
-		} catch (_error) {
+		} catch {
 			return [];
 		}
 	}
@@ -1937,13 +1938,13 @@ export class WeaveDataStorage {
 				if (this.plugin.wdeckService?.isWDeckDeckId(query.deckId)) {
 					const aggregate = await this.plugin.wdeckService.getDeckAggregateByDeckId(query.deckId);
 					const deckCards = (aggregate?.cards || []).map((card) => this.hydrateCardFromYAML(card));
-					const { deckId: _deckId, ...restQuery } = query;
+					const restQuery = omitKey(query, "deckId");
 					const hasOtherFilters = Object.keys(restQuery).length > 0;
 					return hasOtherFilters ? this.filterCards(deckCards, restQuery as DataQuery) : deckCards;
 				}
 
 				const deckCards = await this.getCardsForDeck(query.deckId);
-				const { deckId: _deckId, ...restQuery } = query;
+				const restQuery = omitKey(query, "deckId");
 				const hasOtherFilters = Object.keys(restQuery).length > 0;
 				return hasOtherFilters ? this.filterCards(deckCards, restQuery as DataQuery) : deckCards;
 			}
@@ -3992,7 +3993,7 @@ export class WeaveDataStorage {
 				path,
 				normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder)
 			);
-		} catch (_error) {
+		} catch {
 			// 文件夹可能已经存在，忽略错误。
 		}
 	}
@@ -4124,10 +4125,7 @@ export class WeaveDataStorage {
 		const persistedDecks = data.decks.filter((deck) => !this.isVirtualWDeckDeck(deck));
 		// 剥离 cardUUIDs，只写牌组配置和统计到 decks.json
 		const stripped = {
-			decks: persistedDecks.map((_d) => {
-				const { cardUUIDs: _cardUUIDs, ...rest } = _d;
-				return rest;
-			}),
+			decks: persistedDecks.map((deck) => omitKey(deck, "cardUUIDs")),
 		};
 		await safeWriteJson(adapter, this.v2Paths.memory.decks, JSON.stringify(stripped));
 	}
@@ -4318,7 +4316,7 @@ export class WeaveDataStorage {
 		try {
 			const adapter = this.plugin.app.vault.adapter;
 			return await adapter.read(filePath);
-		} catch (_error) {
+		} catch {
 			// 尝试 vault API
 		}
 
@@ -4328,7 +4326,7 @@ export class WeaveDataStorage {
 			if (file instanceof TFile) {
 				return await this.plugin.app.vault.read(file);
 			}
-		} catch (_error) {
+		} catch {
 			// 文件未找到，继续抛出统一错误。
 		}
 

@@ -76,7 +76,7 @@ export class SourceNavigationService {
 
 		try {
 			target.scrollTarget.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" });
-		} catch (_e) {
+		} catch {
 			/* ignore */
 		}
 
@@ -105,7 +105,7 @@ export class SourceNavigationService {
 						return;
 					}
 				}
-			} catch (_e) {
+			} catch {
 				/* ignore */
 			}
 			if (attempt + 1 < this.markdownOverlayMaxAttempts) {
@@ -147,7 +147,7 @@ export class SourceNavigationService {
 				if (attempt + 1 < this.markdownOverlayMaxAttempts) {
 					this.showMarkdownOverlayWithRetry(view, candidates, options, latestTarget, attempt + 1);
 				}
-			} catch (_e) {
+			} catch {
 				if (attempt + 1 < this.markdownOverlayMaxAttempts) {
 					this.showMarkdownOverlayWithRetry(view, candidates, options, fallbackTarget, attempt + 1);
 				}
@@ -196,7 +196,7 @@ export class SourceNavigationService {
 					}
 
 					new Notice("已打开源文档，但未精确定位到溯源内容");
-				} catch (_e) {
+				} catch {
 					/* ignore */
 				}
 			})();
@@ -264,7 +264,7 @@ export class SourceNavigationService {
 
 		try {
 			editor.setCursor(startPos);
-		} catch (_e) {
+		} catch {
 			/* ignore */
 		}
 
@@ -273,11 +273,11 @@ export class SourceNavigationService {
 			window.setTimeout(() => {
 				try {
 					editor.setCursor(startPos);
-				} catch (_e) {
+				} catch {
 					/* ignore */
 				}
 			}, 900);
-		} catch (_e) {
+		} catch {
 			/* ignore */
 		}
 
@@ -289,10 +289,10 @@ export class SourceNavigationService {
 				},
 				true
 			);
-		} catch (_e) {
+		} catch {
 			try {
 				editor.scrollIntoView({ from: startPos, to: startPos }, true);
-			} catch (_inner) {
+			} catch {
 				/* ignore */
 			}
 		}
@@ -303,7 +303,7 @@ export class SourceNavigationService {
 	private safeGetEditorValue(editor: Editor): string {
 		try {
 			return String(editor.getValue() || "");
-		} catch (_e) {
+		} catch {
 			return "";
 		}
 	}
@@ -558,7 +558,7 @@ export class SourceNavigationService {
 						});
 					}, 120);
 				}
-			} catch (_e) {
+			} catch {
 				if (attempt < 5) {
 					this.locateCanvasNodeWithRetry(canvasLeaf, candidates, nodeId, options, attempt + 1);
 				}

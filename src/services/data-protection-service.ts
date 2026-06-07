@@ -193,7 +193,7 @@ export class DataProtectionService {
 
 			// 生成恢复选项
 			if (issues.length > 0) {
-				recoveryOptions.push(...this.generateRecoveryOptions(cardId, currentFields, snapshots));
+				recoveryOptions.push(...this.generateRecoveryOptions(currentFields, snapshots));
 			}
 		}
 
@@ -369,7 +369,7 @@ export class DataProtectionService {
 		let newestSnapshot = 0;
 		let totalDataSize = 0;
 
-		for (const [_cardId, snapshots] of this.snapshots) {
+		for (const snapshots of this.snapshots.values()) {
 			totalSnapshots += snapshots.length;
 
 			for (const snapshot of snapshots) {
@@ -426,18 +426,11 @@ export class DataProtectionService {
 	}
 
 	private performPeriodicIntegrityCheck(): void {
-		let _totalCards = 0;
-		const _issuesFound = 0;
-
-		for (const [_cardId] of this.snapshots) {
-			_totalCards++;
-			// 这里可以添加更多的完整性检查逻辑
-			// 由于我们没有访问实际的卡片数据，这里只是示例
-		}
+		// 预留：接入卡片数据后可基于 this.snapshots 做完整性校验
+		void this.snapshots.size;
 	}
 
 	private generateRecoveryOptions(
-		_cardId: string,
 		currentFields: Record<string, string>,
 		snapshots: DataSnapshot[]
 	): RecoveryOption[] {

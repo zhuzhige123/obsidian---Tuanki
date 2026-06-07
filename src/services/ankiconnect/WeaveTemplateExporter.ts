@@ -271,7 +271,7 @@ hr {
 			const updatedModel = await this.syncExistingNativeModel(existingModel, nativeTemplate);
 			logger.debug(`✅ 使用现有原生模板: ${nativeTemplate.name}`);
 			return updatedModel;
-		} catch (_error) {
+		} catch {
 			logger.debug(`📦 创建原生模板: ${nativeTemplate.name}`);
 		}
 

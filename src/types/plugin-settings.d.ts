@@ -106,12 +106,12 @@ export interface AIConfig {
   /**
    * 自定义格式化功能
    */
-  customFormatActions?: any[];
+  customFormatActions?: unknown[];
   
   /**
    * 自定义AI拆分功能
    */
-  customSplitActions?: any[];
+  customSplitActions?: unknown[];
   
   /**
    * 温度参数（0-1）
@@ -673,7 +673,7 @@ export interface WeaveSettings {
    * 简化解析配置
    */
   simplifiedParsing?: {
-    templates?: any[];
+    templates?: unknown[];
     enabled?: boolean;
   };
 

@@ -641,7 +641,7 @@ export class StatePersistenceManager {
 		try {
 			await this.syncState();
 			return true;
-		} catch (_error) {
+		} catch {
 			return false;
 		}
 	}

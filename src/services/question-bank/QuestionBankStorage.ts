@@ -1500,7 +1500,7 @@ export class QuestionBankStorage {
 				if (data.id === bankId) {
 					return filePath;
 				}
-			} catch (_error) {
+			} catch {
 				continue;
 			}
 		}

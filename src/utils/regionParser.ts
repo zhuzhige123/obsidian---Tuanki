@@ -262,7 +262,6 @@ export class RegionParser {
 		endLine: number;
 	}> {
 		const parseResult = this.parseRegions(content);
-		const _lines = content.split("\n");
 
 		return parseResult.regions.map((region, index) => {
 			// 计算行号

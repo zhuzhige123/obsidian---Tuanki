@@ -59,7 +59,7 @@ export class MediaFileHandler {
 			logger.debug(`开始处理 ${Object.keys(mediaFiles).length} 个媒体文件...`);
 
 			// 处理每个媒体文件
-			for (const [_index, filename] of Object.entries(mediaMapping)) {
+			for (const filename of Object.values(mediaMapping)) {
 				const fileData = mediaFiles[filename];
 				if (!fileData) {
 					const error = `媒体文件数据缺失: ${filename}`;

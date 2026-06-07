@@ -176,7 +176,6 @@ export class ProgressiveClozeConverter {
 		const {
 			inheritFsrs = false,
 			inheritanceMode = "first-only",
-			keepParent: _keepParent = true,
 			createdAt = new Date().toISOString(),
 		} = options;
 

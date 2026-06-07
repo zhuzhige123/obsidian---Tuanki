@@ -64,8 +64,6 @@ export class DataManagementService {
 	 * 获取数据概览信息
 	 */
 	async getDataOverview(): Promise<DataOverview> {
-		const _startTime = Date.now();
-
 		try {
 			// 并行获取各种数据统计
 			const [decks, cards, folderSizes] = await Promise.all([

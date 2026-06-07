@@ -25,6 +25,7 @@ import {
 	isProgressiveClozeParent,
 } from "../../types/progressive-cloze-v2";
 import { DirectoryUtils } from "../../utils/directory-utils";
+import { omitKey } from "../../utils/object-utils";
 import { t } from "../../utils/i18n";
 import {
 	cleanupUnusedLegacyMemoryStorage,
@@ -4457,7 +4458,7 @@ export class DataManagementService {
 				}
 			}
 			// decks.json 中剥离 cardUUIDs
-			const strippedDecks = mergedDecks.map(({ cardUUIDs: _cardUUIDs, ...rest }) => rest);
+			const strippedDecks = mergedDecks.map((deck) => omitKey(deck, "cardUUIDs"));
 			await this.plugin.app.vault.adapter.write(
 				decksPath,
 				JSON.stringify({ decks: strippedDecks })
@@ -5512,7 +5513,6 @@ export class DataManagementService {
 								for (const card of originalCards) {
 									mergedMap.set(card.uuid, card);
 								}
-								let _newCards = 0;
 								for (const card of conflictCards) {
 									const existing = mergedMap.get(card.uuid);
 									if (
@@ -5522,7 +5522,6 @@ export class DataManagementService {
 											card.modified > existing.modified)
 									) {
 										mergedMap.set(card.uuid, card);
-										if (!existing) _newCards++;
 									}
 								}
 								await adapter.write(

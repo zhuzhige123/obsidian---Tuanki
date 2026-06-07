@@ -143,20 +143,20 @@ export class DataIntegrityChecker {
 		let autoFixApplied = false;
 
 		// 1. 检查notes字段完整性
-		this.checkNotesFieldIntegrity(cardId, currentFields, originalContent, issues);
+		this.checkNotesFieldIntegrity(currentFields, originalContent, issues);
 
 		// 2. 检查字段数据一致性
-		this.checkFieldConsistency(cardId, currentFields, issues);
+		this.checkFieldConsistency(currentFields, issues);
 
 		// 3. 检查数据格式
-		this.checkDataFormat(cardId, currentFields, issues);
+		this.checkDataFormat(currentFields, issues);
 
 		// 4. 检查校验和
-		this.checkDataChecksum(cardId, currentFields, originalContent, issues);
+		this.checkDataChecksum(currentFields, originalContent, issues);
 
 		// 5. 深度检查（如果启用）
 		if (this.config.enableDeepCheck) {
-			this.performDeepCheck(cardId, currentFields, issues);
+			this.performDeepCheck(currentFields, issues);
 		}
 
 		// 6. 计算指标
@@ -307,7 +307,7 @@ export class DataIntegrityChecker {
 	cleanupOldHistory(): number {
 		let cleaned = 0;
 
-		for (const [_cardId, history] of this.checkHistory) {
+		for (const history of this.checkHistory.values()) {
 			if (history.length > this.config.maxCheckHistory) {
 				const toRemove = history.length - this.config.maxCheckHistory;
 				history.splice(0, toRemove);
@@ -325,7 +325,6 @@ export class DataIntegrityChecker {
 	// 私有检查方法
 
 	private checkNotesFieldIntegrity(
-		_cardId: string,
 		currentFields: Record<string, string>,
 		originalContent: string | undefined,
 		issues: IntegrityIssue[]
@@ -367,7 +366,6 @@ export class DataIntegrityChecker {
 	}
 
 	private checkFieldConsistency(
-		_cardId: string,
 		currentFields: Record<string, string>,
 		issues: IntegrityIssue[]
 	): void {
@@ -408,7 +406,6 @@ export class DataIntegrityChecker {
 	}
 
 	private checkDataFormat(
-		_cardId: string,
 		currentFields: Record<string, string>,
 		issues: IntegrityIssue[]
 	): void {
@@ -447,7 +444,6 @@ export class DataIntegrityChecker {
 	}
 
 	private checkDataChecksum(
-		_cardId: string,
 		currentFields: Record<string, string>,
 		originalContent: string | undefined,
 		issues: IntegrityIssue[]
@@ -473,7 +469,6 @@ export class DataIntegrityChecker {
 	}
 
 	private performDeepCheck(
-		_cardId: string,
 		currentFields: Record<string, string>,
 		issues: IntegrityIssue[]
 	): void {

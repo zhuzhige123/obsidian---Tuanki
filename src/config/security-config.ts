@@ -177,9 +177,6 @@ export class SecurityConfigLoader {
 	 */
 	private async loadFromFile(): Promise<SecurityConfig | null> {
 		try {
-			// 在Obsidian环境中，尝试从插件配置目录加载
-			const _configPath = "weave-security-config.json";
-
 			// 这里需要根据实际的文件系统API实现
 			// 暂时返回null，表示文件配置暂未实现
 			return null;

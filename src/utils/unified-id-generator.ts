@@ -343,7 +343,7 @@ export class UnifiedIDGenerator {
 					result.timestamp = timestamp;
 					result.createdAt = new Date(timestamp);
 				}
-			} catch (_error) {
+			} catch {
 				// 解析失败，忽略
 			}
 		}

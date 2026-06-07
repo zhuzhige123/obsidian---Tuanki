@@ -1,3 +1,4 @@
+import { omitKey } from "../../utils/object-utils";
 import { DEFAULT_EMERGENT_RULE_GROUP, type EmergentRuleGroup } from "./emergent-rule-groups";
 import {
 	buildVisibleEmergentRuleConditionKeys,
@@ -144,8 +145,8 @@ export function removeEmergentRuleGroupDraftState(
 		return null;
 	}
 	const nextGroups = state.groups.filter((group) => group.id !== groupId);
-	const { [groupId]: _removedPrimary, ...nextPrimary } = state.primaryTagFieldByGroup;
-	const { [groupId]: _removedVisible, ...nextVisible } = state.visibleConditionsByGroup;
+	const nextPrimary = omitKey(state.primaryTagFieldByGroup, groupId);
+	const nextVisible = omitKey(state.visibleConditionsByGroup, groupId);
 	return {
 		groups: nextGroups,
 		activeGroupId:

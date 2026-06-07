@@ -1,4 +1,5 @@
 import { logger } from "../../../utils/logger";
+import { omitKey } from "../../../utils/object-utils";
 /**
  * 配置迁移脚本：移除双向同步功能
  *
@@ -43,11 +44,7 @@ export function migrateAnkiConnectSettings(
 	const migratedTemplateMappings: Record<string, unknown> = {};
 
 	for (const [key, mapping] of Object.entries(rest.templateMappings || {})) {
-		const { isBidirectionalCapable: _isBidirectionalCapable, ...cleanMapping } = mapping as Record<
-			string,
-			unknown
-		>;
-		migratedTemplateMappings[key] = cleanMapping;
+		migratedTemplateMappings[key] = omitKey(mapping as Record<string, unknown>, "isBidirectionalCapable");
 	}
 
 	logger.debug("[Migration] 已移除导入/双向同步配置，牌组映射已迁移为仅导出到 Anki");

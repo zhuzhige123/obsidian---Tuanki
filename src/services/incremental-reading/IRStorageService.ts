@@ -625,7 +625,7 @@ export class IRStorageService {
 					await adapter.mkdir(current);
 				}
 			}
-		} catch (_e) {
+		} catch {
 			// 忽略错误，目录可能已存在
 		}
 	}
@@ -771,12 +771,11 @@ export class IRStorageService {
 	 */
 	private async removeBlockFromAllDecks(blockId: string, filePath?: string): Promise<void> {
 		const decks = await this.getAllDecks();
-		let _updatedCount = 0;
 
 		for (const deck of Object.values(decks)) {
 			if (deck.blockIds?.includes(blockId)) {
 				// 移除内容块引用
-				deck.blockIds = deck.blockIds.filter((_id) => _id !== blockId);
+				deck.blockIds = deck.blockIds.filter((id) => id !== blockId);
 				deck.updatedAt = new Date().toISOString();
 
 				// 如果该文件在牌组中不再有内容块，从 sourceFiles 中移除
@@ -784,12 +783,11 @@ export class IRStorageService {
 					const blocks = await this.getAllBlocks();
 					const hasOtherBlocks = deck.blockIds.some((id) => blocks[id]?.filePath === filePath);
 					if (!hasOtherBlocks) {
-						deck.sourceFiles = deck.sourceFiles.filter((_f) => _f !== filePath);
+						deck.sourceFiles = deck.sourceFiles.filter((file) => file !== filePath);
 					}
 				}
 
 				await this.saveDeck(deck);
-				_updatedCount++;
 			}
 		}
 
@@ -821,7 +819,6 @@ export class IRStorageService {
 	private async removeBlocksFromAllDecks(blockIds: string[], filePath: string): Promise<void> {
 		const decks = await this.getAllDecks();
 		const idsToRemove = new Set(blockIds);
-		let _updatedCount = 0;
 
 		for (const deck of Object.values(decks)) {
 			const originalLength = deck.blockIds?.length || 0;
@@ -834,11 +831,10 @@ export class IRStorageService {
 
 				// 从 sourceFiles 中移除该文件
 				if (deck.sourceFiles?.includes(filePath)) {
-					deck.sourceFiles = deck.sourceFiles.filter((_f) => _f !== filePath);
+					deck.sourceFiles = deck.sourceFiles.filter((file) => file !== filePath);
 				}
 
 				await this.saveDeck(deck);
-				_updatedCount++;
 			}
 		}
 

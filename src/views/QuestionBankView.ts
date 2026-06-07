@@ -406,7 +406,7 @@ export class QuestionBankView extends ItemView {
 			const { waitForServiceReady } = await import("../utils/service-ready-event");
 			await waitForServiceReady("questionBankService", 5000);
 			logger.debug("[QuestionBankView] 题库服务已就绪（事件通知）");
-		} catch (_error) {
+		} catch {
 			// 事件等待超时，回退到轮询检查
 			logger.warn("[QuestionBankView] 事件等待超时，回退到轮询检查");
 

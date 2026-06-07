@@ -153,7 +153,6 @@ export class IntelligentBatchProcessor {
 		const semaphore = new Semaphore(this.currentConcurrency);
 
 		let processedItems = 0;
-		const _batchIndex = 0;
 
 		// 处理所有批次
 		const batchPromises = batches.map(async (batch, index) => {

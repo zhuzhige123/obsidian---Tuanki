@@ -547,7 +547,6 @@ export class AnalyticsService {
 	}
 
 	async deckCompare(filter?: AnalyticsFilter) {
-		const _key = "deck:compare";
 		const [decks, sessions] = await Promise.all([
 			this.storage.getDecks(),
 			this.storage.getStudySessions({ since: filter?.since, until: filter?.until }),

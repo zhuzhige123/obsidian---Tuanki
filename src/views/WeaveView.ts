@@ -730,7 +730,7 @@ export class WeaveView extends ItemView {
 			const { waitForServiceReady } = await import("../utils/service-ready-event");
 			await waitForServiceReady("allCoreServices", 15000);
 			logger.debug("[WeaveView] allCoreServices 已就绪（事件通知）");
-		} catch (_error) {
+		} catch {
 			logger.warn("[WeaveView] 事件等待超时，回退到轮询检查");
 
 			const maxAttempts = 20;

@@ -1,4 +1,5 @@
 import { logger } from "../../utils/logger";
+import { omitKey, omitKeys } from "../../utils/object-utils";
 /**
  * 题库核心服务
  *
@@ -441,8 +442,7 @@ export class QuestionBankService {
 			};
 
 			// 从 updates 中移除 metadata，避免 Object.assign 覆盖
-			const { metadata: _metadata, ...restUpdates } = updates;
-			Object.assign(bank, restUpdates);
+			Object.assign(bank, omitKey(updates, "metadata"));
 		} else {
 			Object.assign(bank, updates);
 		}
@@ -640,13 +640,7 @@ export class QuestionBankService {
 			throw new Error(`题目不存在: ${questionId}`);
 		}
 
-		const {
-			stats: _stats,
-			deckId: _deckId,
-			cardPurpose: _cardPurpose,
-			...rest
-		} = updates;
-		Object.assign(card, rest);
+		Object.assign(card, omitKeys(updates, "stats", "deckId", "cardPurpose"));
 		card.modified = new Date().toISOString();
 		await this.dataStorage.saveCard(card);
 	}

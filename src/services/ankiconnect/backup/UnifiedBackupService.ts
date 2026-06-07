@@ -126,8 +126,8 @@ export class UnifiedBackupService {
 			// 加载备份数据
 			const backupData = await this.deviceManager.loadBackup(metadata.storagePath);
 
-			// 转换设备路径
-			const _restoredData = this.deviceManager.restoreDevicePaths(backupData.data);
+			// 转换设备路径（恢复逻辑接入后使用返回值）
+			this.deviceManager.restoreDevicePaths(backupData.data);
 
 			// TODO: 执行实际的数据恢复
 			// 这里需要根据 backup.level 决定恢复策略

@@ -10,6 +10,7 @@
 
 import { EpubLinkService } from "../services/epub-integration/EpubLinkService";
 import { logger } from "./logger";
+import { omitKey } from "./object-utils";
 import { getNormalizedDeckEntries, getSingleMemoryFormalDeckIds } from "./memory-deck-membership";
 import { TagExtractor } from "./tag-extractor";
 
@@ -908,8 +909,7 @@ export function migrateSourceFields(content: string): { content: string; migrate
 		if (
 			sourceValues.some((value) => !!parseBlockId(value))
 		) {
-			const { we_block: _removedWeBlock, ...newYaml } = yaml;
-			return { content: rebuildContent(content, newYaml), migrated: true };
+			return { content: rebuildContent(content, omitKey(yaml, "we_block")), migrated: true };
 		}
 
 		// 提取信息
@@ -940,7 +940,7 @@ export function migrateSourceFields(content: string): { content: string; migrate
 		}
 
 		// 更新 YAML
-		const { we_block: _removedWeBlock, ...newYaml } = yaml;
+		const newYaml = omitKey(yaml, "we_block");
 		if (Array.isArray(yaml.we_source)) {
 			const nextSourceValues = [...sourceValues];
 			if (firstSourceIndex >= 0) {
@@ -1097,7 +1097,7 @@ export function getCardDeckIds(
 					return result;
 				}
 			}
-		} catch (_e) {
+		} catch {
 			logger.debug("[yaml-utils] 解析 we_decks 失败，尝试回退方案");
 		}
 	}
@@ -1159,7 +1159,7 @@ export function getCardDeckIdsFromFormalSource(
 				result.primaryDeckId = convertedIds[0];
 			}
 		}
-	} catch (_e) {
+	} catch {
 		logger.debug("[yaml-utils] 解析正式归属 we_decks 失败");
 	}
 

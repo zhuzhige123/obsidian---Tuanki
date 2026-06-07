@@ -475,7 +475,7 @@ export class GlobalResourceManager {
 	cleanup(): void {
 		logger.debug("[GlobalResourceManager] 开始全局资源清理");
 
-		for (const [_editorId, manager] of this.editorManagers) {
+		for (const manager of this.editorManagers.values()) {
 			manager.destroy();
 		}
 

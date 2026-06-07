@@ -251,7 +251,7 @@ export class CardBuilder {
 	): string[] {
 		const converted: string[] = [];
 
-		for (const [_name, value] of Object.entries(fields)) {
+		for (const value of Object.values(fields)) {
 			if (this.currentConversionConfig?.preserveCardContentHtml) {
 				converted.push(
 					this.converter.convertRawHtml(value, mediaPathMap, this.currentConversionConfig)
