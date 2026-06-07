@@ -95,9 +95,11 @@ export default defineConfig(({ mode }) => {
 	]);
 	const pluginId = "weave";
 	const manifestFileName = DEFAULT_MANIFEST;
+	const isReleaseBuild = process.env.WEAVE_RELEASE_BUILD === "1";
 
-	const resolvedPluginDir =
-		resolvePluginDir(pluginId, process.env) ?? path.resolve(process.cwd(), "dist");
+	const resolvedPluginDir = isReleaseBuild
+		? path.resolve(process.cwd(), "dist")
+		: (resolvePluginDir(pluginId, process.env) ?? path.resolve(process.cwd(), "dist"));
 	const buildOutDir = isMobileHotReloadBuild
 		? mobileHotReloadOutputDir
 		: isDesktopHotReloadBuild

@@ -15,6 +15,7 @@
     "kill:vite:mobile": "node scripts/kill-vite.cjs --target=mobile",
     "prebuild": "node scripts/kill-vite.cjs",
     "build": "npm run check:encoding && node --max-old-space-size=4096 node_modules/vite/bin/vite.js build --mode production",
+    "build:release": "npm run check:encoding && node --max-old-space-size=4096 node_modules/vite/bin/vite.js build --mode production",
     "build:mobile": "npm run build && node scripts/deploy-mobile.cjs",
     "deploy:mobile": "scripts\\sync-to-mobile-adb.bat",
     "dev:mobile": "node scripts/dev-mobile.cjs",

@@ -61,11 +61,10 @@ jobs:
 
       - name: Build plugin
         env:
-          NODE_OPTIONS: --max-old-space-size=6144
+          NODE_OPTIONS: --max-old-space-size=4096
           OBSIDIAN_VAULT_PATH: ""
-        run: |
-          npm run check:encoding
-          node --max-old-space-size=6144 node_modules/vite/bin/vite.js build --mode production
+          WEAVE_RELEASE_BUILD: "1"
+        run: npm run build:release
 
       - name: Verify release assets
         shell: bash
