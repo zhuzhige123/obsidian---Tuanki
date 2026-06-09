@@ -1,4 +1,4 @@
-import { getLanguage } from "obsidian";
+import * as ObsidianApi from "obsidian";
 import { logger } from "../utils/logger";
 import { deckAnalyticsTranslationOverrides } from "./i18n/deck-analytics-overrides";
 import { mergeTranslationTrees } from "./i18n/merge-translation-trees";
@@ -100,7 +100,11 @@ function getTranslationAliasCandidates(key: string): string[] {
  */
 function readObsidianHostLanguage(): string | null {
 	try {
-		const lang = getLanguage();
+		const getLang = (ObsidianApi as { getLanguage?: () => string }).getLanguage;
+		if (typeof getLang !== "function") {
+			return null;
+		}
+		const lang = getLang();
 		return lang ? String(lang) : null;
 	} catch {
 		return null;

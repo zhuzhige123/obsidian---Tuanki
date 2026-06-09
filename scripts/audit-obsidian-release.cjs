@@ -132,10 +132,6 @@ if (failures.length === 0) {
   expect(pkg.version === manifest.version, `package.json version (${pkg.version}) does not match manifest.json (${manifest.version})`);
 
   expect(
-    compareSemver(manifest.minAppVersion, "1.13.0") >= 0,
-    `manifest.json minAppVersion (${manifest.minAppVersion}) must be >= 1.13.0 for getLanguage() and Plugin.settings`,
-  );
-  expect(
     versions[manifest.version] === manifest.minAppVersion,
     `versions.json entry for ${manifest.version} must match manifest.minAppVersion (${manifest.minAppVersion})`,
   );

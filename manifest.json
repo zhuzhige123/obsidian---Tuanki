@@ -1,8 +1,8 @@
 {
   "id": "weave",
   "name": "Weave",
-  "version": "0.8.21",
-  "minAppVersion": "1.13.0",
+  "version": "0.8.22",
+  "minAppVersion": "1.7.0",
   "description": "Enhance knowledge learning and memory consolidation with memory decks and practice quiz decks.",
   "author": "Rabbit (zhuzhige)",
   "authorUrl": "https://github.com/zhuzhige123",
