@@ -264,6 +264,10 @@ scripts/*
 !scripts/sync-obsidian-community-version.cjs
 !scripts/sync-public-versions.cjs
 !scripts/check-github-release-tag.cjs
+!scripts/audit-obsidian-release.cjs
+!scripts/check-dynamic-script.cjs
+!scripts/vendor/
+!scripts/vendor/**
 
 # 测试文件
 test/

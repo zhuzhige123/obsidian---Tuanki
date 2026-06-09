@@ -1,7 +1,7 @@
 {
   "name": "weave",
   "private": true,
-  "version": "0.8.22",
+  "version": "0.8.23",
   "description": "Enhance knowledge learning and memory consolidation with memory decks and practice quiz decks",
   "main": "main.js",
   "type": "module",
@@ -40,6 +40,7 @@
     "lint:obsidian:strict": "node scripts/lint-obsidian-strict.cjs",
     "codemod:prefer-active-document": "node scripts/codemods/prefer-active-document.cjs",
     "audit:obsidian-release": "node scripts/audit-obsidian-release.cjs",
+    "check:dynamic-script": "node scripts/check-dynamic-script.cjs",
     "sync:public-versions": "node scripts/sync-public-versions.cjs",
     "sync:obsidian-version": "node scripts/sync-obsidian-community-version.cjs",
     "lint:promises": "eslint -c eslint.config.mjs src/**/*.ts --max-warnings 9999",

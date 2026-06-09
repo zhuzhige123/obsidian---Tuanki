@@ -113,6 +113,8 @@ export default defineConfig(({ mode }) => {
 		: isDesktopHotReloadBuild
 			? "desktop"
 			: "default";
+	const setImmediateShimPath = path.resolve(process.cwd(), "scripts/vendor/setimmediate-obsidian.cjs");
+	const immediateShimPath = path.resolve(process.cwd(), "scripts/vendor/immediate-obsidian.cjs");
 
 	return {
 		cacheDir: path.resolve(
@@ -121,6 +123,12 @@ export default defineConfig(({ mode }) => {
 		),
 		resolve: {
 			conditions: ["browser", "import", "module", "default"],
+			alias: {
+				// Force modular jszip; the browser field points at dist/jszip.min.js with inlined script polyfills.
+				jszip: path.resolve(process.cwd(), "node_modules/jszip/lib/index.js"),
+				setimmediate: setImmediateShimPath,
+				immediate: immediateShimPath,
+			},
 		},
 			define: {
 				"process.env.NODE_ENV": JSON.stringify(mode),
@@ -145,6 +153,32 @@ export default defineConfig(({ mode }) => {
 			: undefined,
 		clearScreen: false,
 		plugins: [
+			{
+				name: "obsidian-scheduler-shims",
+				enforce: "pre",
+				resolveId(source) {
+					if (source === "setimmediate") {
+						return setImmediateShimPath;
+					}
+					if (source === "immediate") {
+						return immediateShimPath;
+					}
+					return null;
+				},
+				load(id) {
+					const normalized = id.replace(/\\/g, "/");
+					if (
+						normalized.includes("/node_modules/immediate/") ||
+						normalized.endsWith("/immediate/lib/index.js")
+					) {
+						return fs.readFileSync(immediateShimPath, "utf8");
+					}
+					if (normalized.includes("/node_modules/setimmediate/")) {
+						return fs.readFileSync(setImmediateShimPath, "utf8");
+					}
+					return null;
+				},
+			},
 			commonjs(),
 			{
 				name: "build-monitor",

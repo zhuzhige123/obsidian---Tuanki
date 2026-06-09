@@ -190,6 +190,20 @@ if (failures.length === 0) {
     if (extraEntries.length > 0) {
       notes.push(`dist contains extra local build artifacts not meant for GitHub release assets: ${extraEntries.join(", ")}`);
     }
+
+    const distMainPath = path.join(distDir, "main.js");
+    if (fs.existsSync(distMainPath)) {
+      const dynamicScriptCheck = spawnSync("node", ["scripts/check-dynamic-script.cjs"], {
+        cwd: root,
+        encoding: "utf8",
+      });
+      if (dynamicScriptCheck.status !== 0) {
+        expect(
+          false,
+          "dist/main.js contains dynamic <script> creation patterns; run npm run build && npm run check:dynamic-script",
+        );
+      }
+    }
   } else {
     notes.push("dist/ does not exist locally yet; build before doing a final release smoke check.");
   }
