@@ -9,6 +9,8 @@ export const integrationsTranslations: Record<SupportedLanguage, TranslationKey>
 				"未检测到 {pluginName}（{pluginId}）。请在 Obsidian 设置 → 社区插件中安装并启用。",
 			unavailableDisabled:
 				"{pluginName}（{pluginId}）已安装但未启用。请在 Obsidian 设置 → 社区插件中启用。",
+			unavailableFailed:
+				"{pluginName}（{pluginId}）已在社区插件中启用，但当前未能成功加载。请打开开发者控制台查看报错，或在社区插件列表中关闭后重新启用该插件。",
 		},
 
 		//  AI制卡配置
@@ -345,6 +347,8 @@ export const integrationsTranslations: Record<SupportedLanguage, TranslationKey>
 				"{pluginName} ({pluginId}) was not detected. Install and enable it in Settings → Community plugins.",
 			unavailableDisabled:
 				"{pluginName} ({pluginId}) is installed but disabled. Enable it in Settings → Community plugins.",
+			unavailableFailed:
+				"{pluginName} ({pluginId}) is enabled in Community plugins but failed to load. Check the developer console for errors, or disable and re-enable the plugin.",
 		},
 
 		//  AI Card Creation

@@ -21,11 +21,21 @@ export const LICENSE_ENTITLEMENTS = {
   IR_PREMIUM: "ir-premium",
 } as const satisfies Record<string, LicenseEntitlement>;
 
+/** Tuanki→Weave 更名前已签发的激活码 productId，与当前 weave 主插件等价。 */
 const LEGACY_WEAVE_PRODUCT_IDS = new Set<string>([
   "weave",
   "weave-obsidian-plugin",
   "tuanki-obsidian-plugin",
+  "tuweave-main-plugin",
 ]);
+
+function normalizeProductId(productId: string | undefined): string {
+  return String(productId || "").trim().toLowerCase();
+}
+
+export function isLegacyWeaveProductId(productId: string | undefined): boolean {
+  return LEGACY_WEAVE_PRODUCT_IDS.has(normalizeProductId(productId));
+}
 
 const EPUB_PRODUCT_IDS = new Set<string>([
   LICENSED_PRODUCTS.EPUB,
@@ -114,14 +124,12 @@ export function enrichLicenseFromActivationCode(license: LicenseInfo): LicenseIn
 }
 
 export function mapProductIdToEntitlements(productId: string | undefined): LicenseEntitlement[] {
-  const normalized = String(productId || "")
-    .trim()
-    .toLowerCase();
+  const normalized = normalizeProductId(productId);
   if (!normalized) {
     return [];
   }
 
-  if (LEGACY_WEAVE_PRODUCT_IDS.has(normalized)) {
+  if (isLegacyWeaveProductId(normalized)) {
     return [
       LICENSE_ENTITLEMENTS.WEAVE_PREMIUM,
       LICENSE_ENTITLEMENTS.EPUB_PREMIUM,

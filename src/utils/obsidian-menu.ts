@@ -108,3 +108,11 @@ export function addMenuToggle(menu: Menu, config: MenuToggleConfig): void {
 		});
 	});
 }
+
+export {
+	WEAVE_OWNED_MENU_CLASS,
+	WEAVE_OWNED_MENU_COMPACT_CLASS,
+	markWeaveOwnedMenu,
+	showWeaveMenuAtMouseEvent,
+	showWeaveMenuAtPosition,
+} from "./weave-owned-menu";

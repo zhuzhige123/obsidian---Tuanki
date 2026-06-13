@@ -11,8 +11,14 @@ import { logger } from "../utils/logger";
  * 4. 可访问性支持
  */
 
-import { type Extension, RangeSet, RangeSetBuilder } from "@codemirror/state";
-import { Decoration, EditorView, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
+import {
+	type EditorState,
+	type Extension,
+	type RangeSet,
+	RangeSetBuilder,
+	StateField,
+} from "@codemirror/state";
+import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
@@ -135,191 +141,143 @@ class MathWidget extends WidgetType {
 	}
 }
 
-/**
- * LaTeX数学公式视图插件
- */
-class LatexMathViewPlugin {
-	decorations: RangeSet<Decoration>;
-	private config: LatexMathConfig;
+function findMathFormulas(text: string, config: LatexMathConfig): MathMatch[] {
+	const matches: MathMatch[] = [];
 
-	constructor(view: EditorView, config: LatexMathConfig) {
-		this.config = config;
-		this.decorations = this.buildDecorations(view);
+	if (config.enableBlockMath) {
+		matches.push(...findBlockMath(text, config));
 	}
 
-	update(update: ViewUpdate): void {
-		if (update.docChanged || update.viewportChanged) {
-			this.decorations = this.buildDecorations(update.view);
-		}
+	if (config.enableInlineMath) {
+		matches.push(...findInlineMath(text, config));
 	}
 
-	/**
-	 * 构建装饰
-	 */
-	private buildDecorations(view: EditorView): RangeSet<Decoration> {
-		const builder = new RangeSetBuilder<Decoration>();
-		const doc = view.state.doc;
-		const text = doc.toString();
+	matches.sort((a, b) => a.from - b.from);
+	return matches;
+}
 
-		// 查找数学公式
-		const matches = this.findMathFormulas(text);
+function findBlockMath(text: string, config: LatexMathConfig): MathMatch[] {
+	const matches: MathMatch[] = [];
+	const [startDelim, endDelim] = config.blockDelimiters || ["$$", "$$"];
+	const regex = new RegExp(`\\${startDelim}([\\s\\S]*?)\\${endDelim}`, "g");
 
-		for (const match of matches) {
-			if (match.from >= view.viewport.from && match.to <= view.viewport.to) {
-				const widget = new MathWidget(
-					match.content,
-					match.type,
-					this.config,
-					match.valid,
-					match.error
-				);
+	let match = regex.exec(text);
+	while (match !== null) {
+		const content = match[1].trim();
+		const validation = validateLatex(content, config);
 
-				const decoration = Decoration.replace({
-					widget,
-					inclusive: false,
-					block: match.type === "block",
-				});
+		matches.push({
+			from: match.index,
+			to: match.index + match[0].length,
+			content,
+			type: "block",
+			valid: validation.valid,
+			error: validation.error,
+		});
 
-				builder.add(match.from, match.to, decoration);
-			}
-		}
-
-		return builder.finish();
+		match = regex.exec(text);
 	}
 
-	/**
-	 * 查找数学公式
-	 */
-	private findMathFormulas(text: string): MathMatch[] {
-		const matches: MathMatch[] = [];
+	return matches;
+}
 
-		if (this.config.enableBlockMath) {
-			const blockMatches = this.findBlockMath(text);
-			matches.push(...blockMatches);
-		}
+function findInlineMath(text: string, config: LatexMathConfig): MathMatch[] {
+	const matches: MathMatch[] = [];
+	const [startDelim, endDelim] = config.inlineDelimiters || ["$", "$"];
+	const cleanText = text.replace(/\$\$[\s\S]*?\$\$/g, (blockMatch) => " ".repeat(blockMatch.length));
+	const regex = new RegExp(`\\${startDelim}([^\\${startDelim}\\n]+?)\\${endDelim}`, "g");
 
-		if (this.config.enableInlineMath) {
-			const inlineMatches = this.findInlineMath(text);
-			matches.push(...inlineMatches);
-		}
-
-		// 按位置排序
-		matches.sort((a, b) => a.from - b.from);
-
-		return matches;
-	}
-
-	/**
-	 * 查找块级数学公式
-	 */
-	private findBlockMath(text: string): MathMatch[] {
-		const matches: MathMatch[] = [];
-		const [startDelim, endDelim] = this.config.blockDelimiters || ["$$", "$$"];
-		const regex = new RegExp(`\\${startDelim}([\\s\\S]*?)\\${endDelim}`, "g");
-
-		let match = regex.exec(text);
-		while (match !== null) {
-			const content = match[1].trim();
-			const validation = this.validateLatex(content);
-
-			matches.push({
-				from: match.index,
-				to: match.index + match[0].length,
-				content,
-				type: "block",
-				valid: validation.valid,
-				error: validation.error,
-			});
-
-			match = regex.exec(text);
-		}
-
-		return matches;
-	}
-
-	/**
-	 * 查找行内数学公式
-	 */
-	private findInlineMath(text: string): MathMatch[] {
-		const matches: MathMatch[] = [];
-		const [startDelim, endDelim] = this.config.inlineDelimiters || ["$", "$"];
-
-		// 避免与块级公式冲突
-		const cleanText = text.replace(/\$\$[\s\S]*?\$\$/g, (match) => " ".repeat(match.length));
-
-		const regex = new RegExp(`\\${startDelim}([^\\${startDelim}\\n]+?)\\${endDelim}`, "g");
-
-		let match = regex.exec(cleanText);
-		while (match !== null) {
-			const content = match[1].trim();
-
-			// 跳过空内容
-			if (!content) {
-				match = regex.exec(cleanText);
-				continue;
-			}
-
-			const validation = this.validateLatex(content);
-
-			matches.push({
-				from: match.index,
-				to: match.index + match[0].length,
-				content,
-				type: "inline",
-				valid: validation.valid,
-				error: validation.error,
-			});
-
+	let match = regex.exec(cleanText);
+	while (match !== null) {
+		const content = match[1].trim();
+		if (!content) {
 			match = regex.exec(cleanText);
+			continue;
 		}
 
-		return matches;
+		const validation = validateLatex(content, config);
+		matches.push({
+			from: match.index,
+			to: match.index + match[0].length,
+			content,
+			type: "inline",
+			valid: validation.valid,
+			error: validation.error,
+		});
+
+		match = regex.exec(cleanText);
 	}
 
-	/**
-	 * 验证LaTeX语法
-	 */
-	private validateLatex(content: string): { valid: boolean; error?: string } {
-		// 基本验证
-		if (!content.trim()) {
-			return { valid: false, error: "Empty formula" };
-		}
+	return matches;
+}
 
-		if (this.config.maxFormulaLength && content.length > this.config.maxFormulaLength) {
-			return { valid: false, error: "Formula too long" };
-		}
+function validateLatex(content: string, config: LatexMathConfig): { valid: boolean; error?: string } {
+	if (!content.trim()) {
+		return { valid: false, error: "Empty formula" };
+	}
 
-		// 检查括号匹配
-		const brackets = ["{", "}", "[", "]", "(", ")"];
-		const stack: string[] = [];
+	if (config.maxFormulaLength && content.length > config.maxFormulaLength) {
+		return { valid: false, error: "Formula too long" };
+	}
 
-		for (const char of content) {
-			if (brackets.includes(char)) {
-				if (char === "{" || char === "[" || char === "(") {
-					stack.push(char);
-				} else {
-					const last = stack.pop();
-					const pairs = { "}": "{", "]": "[", ")": "(" };
-					if (!last || pairs[char as keyof typeof pairs] !== last) {
-						return { valid: false, error: "Mismatched brackets" };
-					}
+	const brackets = ["{", "}", "[", "]", "(", ")"];
+	const stack: string[] = [];
+
+	for (const char of content) {
+		if (brackets.includes(char)) {
+			if (char === "{" || char === "[" || char === "(") {
+				stack.push(char);
+			} else {
+				const last = stack.pop();
+				const pairs = { "}": "{", "]": "[", ")": "(" };
+				if (!last || pairs[char as keyof typeof pairs] !== last) {
+					return { valid: false, error: "Mismatched brackets" };
 				}
 			}
 		}
-
-		if (stack.length > 0) {
-			return { valid: false, error: "Unclosed brackets" };
-		}
-
-		// 检查常见的LaTeX命令
-		const invalidCommands = content.match(/\\[a-zA-Z]+/g);
-		if (invalidCommands) {
-			// 这里可以添加更严格的命令验证
-			// 目前只做基本检查
-		}
-
-		return { valid: true };
 	}
+
+	if (stack.length > 0) {
+		return { valid: false, error: "Unclosed brackets" };
+	}
+
+	return { valid: true };
+}
+
+function buildLatexMathDecorations(state: EditorState, config: LatexMathConfig): RangeSet<Decoration> {
+	const builder = new RangeSetBuilder<Decoration>();
+	const text = state.doc.toString();
+	const matches = findMathFormulas(text, config);
+
+	for (const match of matches) {
+		const widget = new MathWidget(match.content, match.type, config, match.valid, match.error);
+		builder.add(
+			match.from,
+			match.to,
+			Decoration.replace({
+				widget,
+				inclusive: false,
+				block: match.type === "block",
+			})
+		);
+	}
+
+	return builder.finish();
+}
+
+function createLatexMathDecorationsField(config: LatexMathConfig): StateField<RangeSet<Decoration>> {
+	return StateField.define<RangeSet<Decoration>>({
+		create(state) {
+			return buildLatexMathDecorations(state, config);
+		},
+		update(decorations, tr) {
+			if (tr.docChanged) {
+				return buildLatexMathDecorations(tr.state, config);
+			}
+			return decorations;
+		},
+		provide: (field) => EditorView.decorations.from(field),
+	});
 }
 
 /**
@@ -358,19 +316,7 @@ export function createLatexMathExtension(config: LatexMathConfig = {}): Extensio
 		extensions.push(syntaxHighlighting(latexHighlightStyle));
 	}
 
-	// 添加视图插件
-	extensions.push(
-		ViewPlugin.fromClass(
-			class extends LatexMathViewPlugin {
-				constructor(view: EditorView) {
-					super(view, finalConfig);
-				}
-			},
-			{
-				decorations: (v) => v.decorations,
-			}
-		)
-	);
+	extensions.push(createLatexMathDecorationsField(finalConfig));
 
 	// 添加主题样式
 	extensions.push(

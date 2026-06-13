@@ -31,7 +31,9 @@ export class IRDeckSelectorModal extends SuggestModal<IRDeck> {
 		void super.onOpen();
 		window.dispatchEvent(new CustomEvent("Weave:emergent-child-popup-open"));
 		ensureWeaveSuggestModalTheme();
-		markLatestSuggestionContainer("weave-ir-deck-suggest-popover");
+		markLatestSuggestionContainer("weave-ir-deck-suggest-popover", {
+			scopeEl: this.containerEl,
+		});
 		if (this.containerEl) {
 			this.containerEl.classList.add("weave-suggest-modal-container--raised");
 		}

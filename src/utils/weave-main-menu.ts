@@ -18,6 +18,8 @@ import {
 	addMenuRadioChoices,
 	addMenuSubmenuGroup,
 	addMenuToggle,
+	showWeaveMenuAtMouseEvent,
+	showWeaveMenuAtPosition,
 } from "./obsidian-menu";
 import {
 	dispatchLegacyApkgImportRequest,
@@ -135,17 +137,17 @@ function createViewportMouseEvent(): MouseEvent {
 
 function showMenu(menu: Menu, event?: MouseEvent, anchorEl?: HTMLElement | null): void {
 	if (event) {
-		menu.showAtMouseEvent(event);
+		showWeaveMenuAtMouseEvent(menu, event);
 		return;
 	}
 
 	const pos = getAnchorPosition(anchorEl);
 	if (pos) {
-		menu.showAtPosition(pos);
+		showWeaveMenuAtPosition(menu, pos);
 		return;
 	}
 
-	menu.showAtPosition({
+	showWeaveMenuAtPosition(menu, {
 		x: Math.round(window.innerWidth / 2),
 		y: Math.max(96, Math.round(window.innerHeight / 2)),
 	});

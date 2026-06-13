@@ -9,11 +9,14 @@ export const INCREMENTAL_READING_PLUGIN_ID = "weave-incremental-reading";
 /** 独立 EPUB 阅读器插件 ID */
 export const EPUB_READER_PLUGIN_ID = "weave-epub-reader";
 
-export type SplitPluginAvailability = "available" | "disabled" | "missing";
+export type SplitPluginAvailability = "available" | "disabled" | "failed" | "missing";
 
 /** Weave 数据管理中已委托给拆分插件的检测项前缀 */
 const SPLIT_PLUGIN_IR_CHECK_PREFIX = "ir_";
 const SPLIT_PLUGIN_EPUB_CHECK_PREFIX = "epub_";
+const SPLIT_PLUGIN_NOTICE_COOLDOWN_MS = 8_000;
+
+const recentSplitPluginNotices = new WeakMap<App, Map<string, number>>();
 
 function getInstalledPlugin(app: App, pluginId: string): unknown {
 	return getPluginInstance(app, pluginId) ?? null;
@@ -24,14 +27,22 @@ function getPluginManifest(app: App, pluginId: string): unknown {
 	return manifests?.[pluginId] ?? null;
 }
 
+function isPluginEnabledInSettings(app: App, pluginId: string): boolean {
+	const enabledPlugins = (app.plugins as { enabledPlugins?: Set<string> } | undefined)?.enabledPlugins;
+	return enabledPlugins?.has(pluginId) ?? false;
+}
+
 export function getSplitPluginAvailability(app: App, pluginId: string): SplitPluginAvailability {
 	if (getInstalledPlugin(app, pluginId)) {
 		return "available";
 	}
-	if (getPluginManifest(app, pluginId)) {
-		return "disabled";
+	if (!getPluginManifest(app, pluginId)) {
+		return "missing";
 	}
-	return "missing";
+	if (isPluginEnabledInSettings(app, pluginId)) {
+		return "failed";
+	}
+	return "disabled";
 }
 
 export function getIncrementalReadingPluginAvailability(app: App): SplitPluginAvailability {
@@ -79,6 +90,13 @@ export function getSplitPluginDisplayName(pluginId: string): string {
 export function getSplitPluginUnavailableMessage(app: App, pluginId: string): string {
 	const pluginName = getSplitPluginDisplayName(pluginId);
 	const availability = getSplitPluginAvailability(app, pluginId);
+	if (availability === "failed") {
+		return translateOrFallback(
+			"integrations.splitPlugins.unavailableFailed",
+			`${pluginName}（${pluginId}）已在社区插件中启用，但当前未能成功加载。请打开开发者控制台查看报错，或在社区插件列表中关闭后重新启用该插件。`,
+			{ pluginId, pluginName }
+		);
+	}
 	if (availability === "disabled") {
 		return translateOrFallback(
 			"integrations.splitPlugins.unavailableDisabled",
@@ -97,6 +115,19 @@ export function notifySplitPluginUnavailable(app: App, pluginId: string): void {
 	if (getSplitPluginAvailability(app, pluginId) === "available") {
 		return;
 	}
+
+	const now = Date.now();
+	let noticesByPlugin = recentSplitPluginNotices.get(app);
+	if (!noticesByPlugin) {
+		noticesByPlugin = new Map();
+		recentSplitPluginNotices.set(app, noticesByPlugin);
+	}
+	const lastNoticeAt = noticesByPlugin.get(pluginId) ?? 0;
+	if (now - lastNoticeAt < SPLIT_PLUGIN_NOTICE_COOLDOWN_MS) {
+		return;
+	}
+	noticesByPlugin.set(pluginId, now);
+
 	new Notice(getSplitPluginUnavailableMessage(app, pluginId), 4500);
 }
 

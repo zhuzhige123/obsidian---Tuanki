@@ -63,7 +63,9 @@ export class BatchTagSuggestModal extends SuggestModal<BatchTagSuggestItem> {
 		ensureWeaveSuggestModalTheme();
 		this.hideOverlay();
 		window.requestAnimationFrame(() => this.hideOverlay());
-		markLatestSuggestionContainer("weave-batch-tag-suggest-popover");
+		markLatestSuggestionContainer("weave-batch-tag-suggest-popover", {
+			scopeEl: this.containerEl,
+		});
 		this.positionNearAnchor();
 		this.applyInitialQuery();
 	}

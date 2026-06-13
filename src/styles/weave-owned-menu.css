@@ -1,0 +1,14 @@
+/* Weave 打开的 Obsidian Menu：仅标记 weave-owned-menu，禁止污染裸 .menu */
+
+body > .menu.weave-owned-menu {
+	z-index: var(--weave-z-dropdown, 1600);
+}
+
+body > .menu.weave-owned-menu--compact {
+	z-index: calc(var(--z-index-modal, 400) + 10);
+	font-size: var(--font-ui-small, 13px);
+}
+
+body > .menu.weave-owned-menu--compact .menu-item {
+	font-size: var(--font-ui-small, 13px);
+}

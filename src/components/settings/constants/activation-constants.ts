@@ -82,7 +82,12 @@ export const ACTIVATION_CODE_VALIDATION = {
 
 	// 支持的值
 	SUPPORTED_LICENSE_TYPES: ["lifetime", "subscription"] as const,
-	SUPPORTED_PRODUCTS: ["weave-obsidian-plugin"] as const,
+	SUPPORTED_PRODUCTS: [
+		"weave-obsidian-plugin",
+		"tuanki-obsidian-plugin",
+		"tuweave-main-plugin",
+		"weave",
+	] as const,
 
 	// 时间验证
 	TIME_VALIDATION: {

@@ -16,12 +16,14 @@ import {
 
 function createApp(
 	installed: Record<string, unknown> = {},
-	manifests: Record<string, unknown> = {}
+	manifests: Record<string, unknown> = {},
+	enabledPluginIds: string[] = Object.keys(installed)
 ) {
 	return {
 		plugins: {
 			getPlugin: vi.fn((id: string) => installed[id] ?? null),
 			manifests,
+			enabledPlugins: new Set(enabledPluginIds),
 		},
 	} as any;
 }
@@ -80,12 +82,23 @@ describe("ir-plugin-integration", () => {
 
 		const disabledApp = createApp(
 			{},
-			{ [INCREMENTAL_READING_PLUGIN_ID]: { id: INCREMENTAL_READING_PLUGIN_ID } }
+			{ [INCREMENTAL_READING_PLUGIN_ID]: { id: INCREMENTAL_READING_PLUGIN_ID } },
+			[]
 		);
 		expect(getIncrementalReadingPluginAvailability(disabledApp)).toBe("disabled");
 		expect(getEpubReaderPluginAvailability(disabledApp)).toBe("missing");
 
 		const availableApp = createApp({ [EPUB_READER_PLUGIN_ID]: {} });
 		expect(getEpubReaderPluginAvailability(availableApp)).toBe("available");
+	});
+
+	it("detects enabled-but-not-loaded split plugins separately from disabled plugins", () => {
+		const failedApp = createApp(
+			{},
+			{ [EPUB_READER_PLUGIN_ID]: { id: EPUB_READER_PLUGIN_ID } },
+			[EPUB_READER_PLUGIN_ID]
+		);
+
+		expect(getEpubReaderPluginAvailability(failedApp)).toBe("failed");
 	});
 });

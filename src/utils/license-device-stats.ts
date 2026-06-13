@@ -1,11 +1,6 @@
 import { LICENSE_CLOUD_MAX_DEVICES } from "../config/license-cloud-config";
 import type { LicenseInfo } from "../types/license";
-
-const LEGACY_WEAVE_PRODUCT_IDS = new Set<string>([
-	"weave",
-	"weave-obsidian-plugin",
-	"tuanki-obsidian-plugin",
-]);
+import { isLegacyWeaveProductId } from "./license-state";
 
 export interface LicenseDeviceStats {
 	used: number;
@@ -18,7 +13,7 @@ export function isWeavePrimaryLicense(license: LicenseInfo | null | undefined): 
 	}
 
 	return (
-		LEGACY_WEAVE_PRODUCT_IDS.has(license.issuedProductId ?? "") ||
+		isLegacyWeaveProductId(license.issuedProductId) ||
 		Boolean(license.entitlements?.includes("weave-premium"))
 	);
 }

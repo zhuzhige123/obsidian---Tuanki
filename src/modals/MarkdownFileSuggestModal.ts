@@ -81,7 +81,9 @@ export class MarkdownFileSuggestModal extends FuzzySuggestModal<MarkdownFileSugg
 	onOpen(): void {
 		void super.onOpen();
 		ensureWeaveSuggestModalTheme();
-		markLatestSuggestionContainer("weave-markdown-file-suggest-popover");
+		markLatestSuggestionContainer("weave-markdown-file-suggest-popover", {
+			scopeEl: this.containerEl,
+		});
 		this.positionNearAnchor();
 	}
 

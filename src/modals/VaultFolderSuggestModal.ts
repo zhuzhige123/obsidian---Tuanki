@@ -45,7 +45,9 @@ export class VaultFolderSuggestModal extends FuzzySuggestModal<string> {
 		void super.onOpen();
 		window.dispatchEvent(new CustomEvent("Weave:emergent-child-popup-open"));
 		ensureWeaveSuggestModalTheme();
-		markLatestSuggestionContainer("weave-vault-folder-suggest-popover");
+		markLatestSuggestionContainer("weave-vault-folder-suggest-popover", {
+			scopeEl: this.containerEl,
+		});
 		this.positionNearAnchor();
 
 		if (!this.anchorRect && this.containerEl) {

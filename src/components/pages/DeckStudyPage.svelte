@@ -25,7 +25,7 @@
   import { VaultFolderSuggestModal } from "../../modals/VaultFolderSuggestModal";
   import { BatchTagSuggestModal, type BatchTagSuggestItem } from "../../modals/BatchTagSuggestModal";
   import { Menu, Modal, Notice, Setting, TFile, normalizePath } from "obsidian";
-  import { addMenuSubmenuGroup } from "../../utils/obsidian-menu";
+  import { addMenuSubmenuGroup, showWeaveMenuAtMouseEvent } from "../../utils/obsidian-menu";
   import type { DeckTreeNode } from "../../services/deck/DeckHierarchyService";
   import { type MemoryDeckMenuAction } from "../../services/deck/MemoryDeckMenu";
   import { openFileWithExistingLeaf } from "../../utils/workspace-navigation";
@@ -567,7 +567,7 @@
       });
     });
 
-    menu.showAtMouseEvent(event);
+    showWeaveMenuAtMouseEvent(menu, event, { variant: "compact" });
   }
 
   function duplicateEmergentRuleGroupDraft(groupId: string): void {
@@ -603,7 +603,7 @@
         .onClick(() => removeEmergentRuleGroupDraftV2(groupId));
     });
 
-    menu.showAtMouseEvent(event);
+    showWeaveMenuAtMouseEvent(menu, event, { variant: "compact" });
   }
 
   function setEmergentRuleConditionVisible(groupId: string, conditionKey: EmergentRuleConditionKey): void {
@@ -642,7 +642,7 @@
       return;
     }
 
-    menu.showAtMouseEvent(event);
+    showWeaveMenuAtMouseEvent(menu, event, { variant: "compact" });
   }
 
   function showEmergentRuleConditionRowMenu(
@@ -659,7 +659,7 @@
         .onClick(() => clearEmergentRuleCondition(groupId, conditionKey));
     });
 
-    menu.showAtMouseEvent(event);
+    showWeaveMenuAtMouseEvent(menu, event, { variant: "compact" });
   }
 
   function openEmergentRuleTagSuggestModal(
@@ -1477,7 +1477,7 @@
       }
     }
 
-    menu.showAtMouseEvent(event);
+    showWeaveMenuAtMouseEvent(menu, event, { variant: "compact" });
   }
 
   // 防抖持久化 deckStats（5秒延迟，合并多次快速刷新）
@@ -2911,15 +2911,6 @@
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
     backdrop-filter: blur(14px);
     overflow: visible;
-  }
-
-  :global(.menu) {
-    z-index: calc(var(--z-index-modal, 400) + 10);
-    font-size: var(--font-ui-small, 13px);
-  }
-
-  :global(.menu .menu-item) {
-    font-size: var(--font-ui-small, 13px);
   }
 
   .weave-emergent-rule-popover__footer {

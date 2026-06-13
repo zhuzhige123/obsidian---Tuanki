@@ -6,6 +6,7 @@
 @import './tokens.css';                  /* :root 动画/触控/选择题令牌 + .weave-app 调色板（唯一令牌源） */
 @import './core/index.css';              /* 动画、.weave-btn/.weave-tag 基础、精简工具类 */
 @import './modern-components.css';      /* .weave-card、按钮/标签扩展变体（APKG/模板等使用） */
+@import './weave-owned-menu.css';         /* Weave 自有 Menu 层级（禁止污染裸 .menu） */
 @import './z-index-system.css';          /* --z-index-*（dynamic-injected 等；与 core 内 --weave-z-* 并存） */
 @import './codemirror-theme.css';        /* CodeMirror编辑器主题 */
 @import './accent-bar.css';              /* 统一侧边颜色条（设置页 / 模态窗共用） */

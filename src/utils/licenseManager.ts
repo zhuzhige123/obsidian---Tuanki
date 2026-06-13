@@ -8,6 +8,7 @@ import { logger } from "../utils/logger";
 import { type App, Platform } from "obsidian";
 import type { ActivationCodeData, CloudSyncInfo, LicenseInfo, LicensedProduct } from "../types/license";
 import {
+	isLegacyWeaveProductId,
 	LICENSED_PRODUCTS,
 	licenseAppliesToProduct,
 	mapActivationDataToEntitlements,
@@ -1112,10 +1113,7 @@ export class ActivationCodeValidator {
 			}
 
 			const productId = readUnknownString(data, "productId");
-			if (
-				productId !== "weave-obsidian-plugin" &&
-				productId !== "tuanki-obsidian-plugin"
-			) {
+			if (!isLegacyWeaveProductId(productId)) {
 				return {
 					isValid: false,
 					error: "此激活码不适用于当前产品",

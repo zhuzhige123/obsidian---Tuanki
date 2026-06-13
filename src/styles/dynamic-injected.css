@@ -523,7 +523,6 @@ body .weave-notification:hover {
 /* --- mobile-modal-bounds.ts --- */
 body.is-mobile .weave-modal-backdrop,
 body.is-mobile .weave-modal-container,
-body.is-mobile .modal-overlay,
 body.is-mobile .test-result-backdrop,
 body.is-mobile .resizable-modal-overlay,
 body.is-mobile .receipt-modal,

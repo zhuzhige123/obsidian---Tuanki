@@ -48,6 +48,11 @@ describe("license-state dual product rules", () => {
       "epub-premium",
       "ir-premium",
     ]);
+    expect(mapProductIdToEntitlements("tuanki-obsidian-plugin")).toEqual([
+      "weave-premium",
+      "epub-premium",
+      "ir-premium",
+    ]);
   });
 
   it("rehydrates weave-premium from activation code when persisted entitlements are empty", () => {

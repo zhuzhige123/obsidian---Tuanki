@@ -1,5 +1,11 @@
-import { type Extension, type RangeSet, RangeSetBuilder } from "@codemirror/state";
-import { Decoration, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
+import {
+	type EditorState,
+	type Extension,
+	type RangeSet,
+	RangeSetBuilder,
+	StateField,
+} from "@codemirror/state";
+import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { editorLivePreviewField } from "obsidian";
 import { mount, unmount } from "svelte";
 import WeaveDeckCodeBlock from "../components/markdown/WeaveDeckCodeBlock.svelte";
@@ -8,7 +14,7 @@ import { WEAVE_DECKS_CODE_BLOCK_LANGUAGE } from "../services/markdown/weaveDeckC
 
 type MountedComponent = Parameters<typeof unmount>[0];
 
-interface FenceMatch {
+export interface FenceMatch {
 	from: number;
 	to: number;
 	source: string;
@@ -17,7 +23,10 @@ interface FenceMatch {
 class WeaveDeckCodeBlockWidget extends WidgetType {
 	private component: MountedComponent | null = null;
 
-	constructor(private plugin: WeavePlugin, private source: string) {
+	constructor(
+		private plugin: WeavePlugin,
+		private source: string
+	) {
 		super();
 	}
 
@@ -53,67 +62,8 @@ class WeaveDeckCodeBlockWidget extends WidgetType {
 	}
 }
 
-class WeaveDeckCodeBlockViewPlugin {
-	decorations: RangeSet<Decoration>;
-
-	constructor(private view: EditorView, private plugin: WeavePlugin) {
-		this.decorations = this.buildDecorations(view);
-	}
-
-	update(update: ViewUpdate): void {
-		if (update.docChanged || update.viewportChanged || update.selectionSet) {
-			this.decorations = this.buildDecorations(update.view);
-		}
-	}
-
-	private buildDecorations(view: EditorView): RangeSet<Decoration> {
-		const builder = new RangeSetBuilder<Decoration>();
-
-		if (!view.state.field(editorLivePreviewField, false)) {
-			return builder.finish();
-		}
-
-		const text = view.state.doc.toString();
-		const matches = findWeaveDeckFenceBlocks(text);
-
-		for (const match of matches) {
-			if (match.to < view.viewport.from || match.from > view.viewport.to) {
-				continue;
-			}
-
-			if (selectionIntersectsMatch(view, match)) {
-				continue;
-			}
-
-			builder.add(
-				match.from,
-				match.to,
-				Decoration.replace({
-					widget: new WeaveDeckCodeBlockWidget(this.plugin, match.source),
-					block: true,
-				})
-			);
-		}
-
-		return builder.finish();
-	}
-}
-
-export function createWeaveDeckCodeBlockExtension(plugin: WeavePlugin): Extension {
-	return ViewPlugin.fromClass(
-		class extends WeaveDeckCodeBlockViewPlugin {
-			constructor(view: EditorView) {
-				super(view, plugin);
-			}
-		},
-		{
-			decorations: (value) => value.decorations,
-		}
-	);
-}
-
-function selectionIntersectsMatch(view: EditorView, match: FenceMatch): boolean {
-	return view.state.selection.ranges.some((range) => {
+function selectionIntersectsMatch(state: EditorState, match: FenceMatch): boolean {
+	return state.selection.ranges.some((range) => {
 		const headInside = range.head >= match.from && range.head <= match.to;
 		const anchorInside = range.anchor >= match.from && range.anchor <= match.to;
 		const overlaps = range.from <= match.to && range.to >= match.from;
@@ -121,7 +71,7 @@ function selectionIntersectsMatch(view: EditorView, match: FenceMatch): boolean 
 	});
 }
 
-function findWeaveDeckFenceBlocks(text: string): FenceMatch[] {
+export function findWeaveDeckFenceBlocks(text: string): FenceMatch[] {
 	const matches: FenceMatch[] = [];
 	const pattern = new RegExp(
 		`^\`\`\`(?:${WEAVE_DECKS_CODE_BLOCK_LANGUAGE})[^\\r\\n]*\\r?\\n([\\s\\S]*?)^\`\`\`[ \\t]*$`,
@@ -140,4 +90,59 @@ function findWeaveDeckFenceBlocks(text: string): FenceMatch[] {
 	}
 
 	return matches;
+}
+
+function buildWeaveDeckDecorations(
+	state: EditorState,
+	plugin: WeavePlugin
+): RangeSet<Decoration> {
+	const builder = new RangeSetBuilder<Decoration>();
+
+	if (!state.field(editorLivePreviewField, false)) {
+		return builder.finish();
+	}
+
+	const text = state.doc.toString();
+	const matches = findWeaveDeckFenceBlocks(text);
+
+	for (const match of matches) {
+		if (selectionIntersectsMatch(state, match)) {
+			continue;
+		}
+
+		builder.add(
+			match.from,
+			match.to,
+			Decoration.replace({
+				widget: new WeaveDeckCodeBlockWidget(plugin, match.source),
+				block: true,
+			})
+		);
+	}
+
+	return builder.finish();
+}
+
+function livePreviewFieldChanged(tr: { startState: EditorState; state: EditorState }): boolean {
+	return (
+		tr.startState.field(editorLivePreviewField, false) !==
+		tr.state.field(editorLivePreviewField, false)
+	);
+}
+
+export function createWeaveDeckCodeBlockExtension(plugin: WeavePlugin): Extension {
+	const weaveDeckDecorationsField = StateField.define<RangeSet<Decoration>>({
+		create(state) {
+			return buildWeaveDeckDecorations(state, plugin);
+		},
+		update(decorations, tr) {
+			if (tr.docChanged || tr.selection || livePreviewFieldChanged(tr)) {
+				return buildWeaveDeckDecorations(tr.state, plugin);
+			}
+			return decorations;
+		},
+		provide: (field) => EditorView.decorations.from(field),
+	});
+
+	return weaveDeckDecorationsField;
 }
