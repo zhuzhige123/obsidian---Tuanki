@@ -6,6 +6,7 @@ import { CardState, Rating } from "../data/types";
 import { FSRS6_DEFAULTS } from "../types/fsrs6-types";
 import {
 	PLUGIN_OWNED_SCHEDULING,
+	cloneFsrsCardSnapshot,
 	reviewWithTsFsrs,
 	sanitizeFsrsCardForScheduling,
 	toTsFsrsParams,
@@ -140,5 +141,25 @@ describe("FSRS (ts-fsrs wrapper)", () => {
 		const sanitized = sanitizeFsrsCardForScheduling(broken, FIXED_NOW);
 		expect(sanitized.stability).toBeGreaterThanOrEqual(0.001);
 		expect(sanitized.difficulty).toBeGreaterThanOrEqual(1);
+	});
+
+	test("cloneFsrsCardSnapshot strips non-serializable runtime fields", () => {
+		const source = {
+			due: FIXED_NOW.toISOString(),
+			stability: 0,
+			difficulty: 0,
+			elapsedDays: 0,
+			scheduledDays: 0,
+			reps: 0,
+			lapses: 0,
+			state: CardState.New,
+			retrievability: 1,
+			onChange: () => undefined,
+		} as any;
+
+		const cloned = cloneFsrsCardSnapshot(source);
+		expect(cloned.state).toBe(CardState.New);
+		expect((cloned as any).onChange).toBeUndefined();
+		expect(() => structuredClone(cloned)).not.toThrow();
 	});
 });

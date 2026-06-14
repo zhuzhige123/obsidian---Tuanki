@@ -227,6 +227,46 @@ describe('AICardGenerationService structured preview flow', () => {
     );
   });
 
+  it('parses content-only choice cards in Weave markdown format', async () => {
+    const chat = vi.fn().mockResolvedValue({
+      success: true,
+      content: JSON.stringify({
+        cards: [
+          {
+            type: 'choice',
+            content:
+              'Q: 地球公转一周大约需要多久？（C）\n\nA. 一天\nB. 一个月\nC. 一年\nD. 十年\n\n---div---\n\n地球绕太阳公转周期约为一年的天文定义。'
+          }
+        ]
+      })
+    });
+    vi.spyOn(AIServiceFactory, 'createService').mockReturnValue({ chat } as any);
+
+    const service = new AICardGenerationService(createPluginMock());
+    const sourceContent =
+      'Astronomy basics covering Earth rotation, revolution, seasons, sunlight, and the relation between orbital period and calendar years.';
+    const items = await service.generatePreviewItems(
+      sourceContent,
+      { ...createConfig(), cardCount: 1 },
+      null,
+      'Generate study cards.',
+      {
+        onProgress: vi.fn(),
+        onItemsUpdate: vi.fn()
+      }
+    );
+
+    expect(items).toHaveLength(1);
+    expect(items[0].status).toBe('valid');
+    expect(items[0].draft.type).toBe('choice');
+    if (items[0].draft.type !== 'choice') {
+      throw new Error('expected choice draft');
+    }
+    expect(items[0].draft.answers).toEqual(['C']);
+    expect(items[0].draft.options).toHaveLength(4);
+    expect(items[0].generatedContent).toContain('---div---');
+  });
+
   it('regenerates a single card through the structured draft protocol', async () => {
     const chat = vi.fn().mockResolvedValue({
       success: true,

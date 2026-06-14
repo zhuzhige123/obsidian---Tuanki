@@ -113,6 +113,7 @@
             : t('aiAssistant.staging.importAllTitle')}
         </p>
         <p class="commit-subtext">{t('aiAssistant.staging.commitDescription', { source: session.sourceFileName || t('aiAssistant.staging.unknownSource') })}</p>
+        <p class="commit-progress-hint">{t('aiAssistant.staging.commitProgressHint')}</p>
       </div>
     </div>
 
@@ -224,6 +225,17 @@
   .commit-subtext {
     margin-top: 4px !important;
     font-size: 12px !important;
+  }
+
+  .commit-progress-hint {
+    margin: 6px 0 0 !important;
+    padding: 8px 10px;
+    border-radius: var(--radius-m, 8px);
+    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-secondary));
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 16%, var(--background-modifier-border));
+    color: var(--text-muted);
+    font-size: 12px !important;
+    line-height: 1.5;
   }
 
   .commit-stats {

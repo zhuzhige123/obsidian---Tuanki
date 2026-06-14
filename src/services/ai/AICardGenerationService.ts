@@ -13,6 +13,7 @@ import type {
 import { validateContentLength } from "../../utils/file-utils";
 import { hasAnyClozeSyntax } from "../../utils/cloze-syntax";
 import { logger } from "../../utils/logger";
+import { parseChoiceQuestion } from "../../parsing/choice-question-parser";
 import {
 	buildVariablesFromConfig,
 	replaceTemplateVariables,
@@ -20,6 +21,8 @@ import {
 import { AIServiceFactory } from "./AIServiceFactory";
 import { getModelCapabilities } from "./modelCapabilities";
 import { parseJsonFromAIText } from "./responseParsing";
+import { PromptBuilderService } from "./PromptBuilderService";
+import type { SystemPromptConfig } from "../../types/ai-types";
 
 const DEDUP_PREFIX_LENGTH = 60;
 const MAIN_SEPARATOR = "---div---";
@@ -136,35 +139,27 @@ export class AICardGenerationService {
 		);
 	}
 
-	private buildDraftSystemPrompt(config: GenerationConfig): string {
-		const promptPriorityLines = config.prioritizePromptRequirements
-			? [
-					`优先遵循用户提示词中明确写出的数量、题型和难度要求，但最终总数不得超过 ${
-						config.maxGenerationLimit ?? config.cardCount
-					} 张。`,
-					"如果用户提示词没有明确要求，再回退到默认生成参数。",
-			  ]
-			: [];
+	private resolveSystemPrompt(config: GenerationConfig): string {
+		const systemPromptConfig = this.plugin.settings.aiConfig?.systemPromptConfig as
+			| SystemPromptConfig
+			| undefined;
+		return PromptBuilderService.buildSystemPrompt(config, systemPromptConfig);
+	}
+
+	private buildDraftSerializerPrompt(config: GenerationConfig): string {
 		return [
-			"你是 Weave 插件中的 AI 制卡助手。",
-			"你的任务是根据用户提供的学习材料，输出结构化卡片草稿。",
-			"只允许输出 JSON，不要输出解释、前言、Markdown 代码块。",
-			'外层格式必须是 {"cards":[...]}。',
-			...promptPriorityLines,
-			`严格生成 ${config.cardCount} 张卡片。`,
-			`难度要求：${config.difficulty}。`,
-			`题型分布目标：问答 ${config.typeDistribution.qa}% / 挖空 ${config.typeDistribution.cloze}% / 选择 ${config.typeDistribution.choice}%。`,
-			"不要生成图片，不要返回 images 字段。",
-			"问答题使用 front/back。",
-			"挖空题使用 text/back，text 中必须使用 ==挖空== 语法或 {{c1::...}} 语法。",
-			"选择题使用 question/options/answers/back。",
-			"每道选择题必须有 4 个选项，options 的 key 依次为 A/B/C/D。",
-			'answers 必须使用选项 key 数组，例如 ["B"] 或 ["A","C"]。',
-			"tags 字段可选，若没有可返回空数组或省略。",
-			"三种卡片格式示例：",
-			'问答题：{"type":"qa","front":"问题","back":"答案","tags":["标签"]}',
-			'挖空题：{"type":"cloze","text":"包含 ==挖空== 的句子","back":"解析","tags":["标签"]}',
-			'选择题：{"type":"choice","question":"题干","options":[{"key":"A","text":"选项A"},{"key":"B","text":"选项B"},{"key":"C","text":"选项C"},{"key":"D","text":"选项D"}],"answers":["B"],"back":"解析","tags":["标签"]}',
+			"你是专门负责结构化序列化的 Weave 卡片整理器。",
+			"你会收到一段候选卡片草稿文本，其中可能混有思考过程、解释或格式不规范内容。",
+			"你的唯一任务是把其中可用的卡片整理成严格 JSON。",
+			"只返回 JSON，不要解释，不要代码块。",
+			'外层必须是 {"cards":[...]}。',
+			`最多返回 ${config.cardCount} 张卡片。`,
+			'每张卡必须有 type 与 content；content 为 Markdown，正反面用 ---div--- 分隔。',
+			'问答题示例：{"type":"qa","content":"问题\\n\\n---div---\\n\\n答案","tags":[]}',
+			'挖空题示例：{"type":"cloze","content":"含 ==挖空== 的句子\\n\\n---div---\\n\\n解析","tags":[]}',
+			'选择题示例：{"type":"choice","content":"Q: 题干（B）\\n\\nA. 选项\\nB. 选项\\nC. 选项\\nD. 选项\\n\\n---div---\\n\\n解析","tags":[]}',
+			"禁止使用 front/back/text/question/options/answers 等并行字段。",
+			"如果原草稿缺少必要字段，可做最小必要修正，但不要凭空扩写无关内容。",
 		].join("\n");
 	}
 
@@ -175,29 +170,12 @@ export class AICardGenerationService {
 	private buildRegenerateUserPrompt(item: AICardPreviewItem, instruction: string): string {
 		return [
 			`请只生成 1 张 ${item.draft.type} 类型卡片，并严格返回 {"cards":[...]}。`,
-			"当前卡片草稿：",
-			JSON.stringify(item.draft, null, 2),
-			"",
+			"每张卡必须使用 type + content 字段；content 为 Markdown，正反面用 ---div--- 分隔。",
 			"当前卡片内容：",
 			item.generatedContent,
 			"",
 			"用户修改要求：",
 			instruction,
-		].join("\n");
-	}
-
-	private buildDraftSerializerPrompt(config: GenerationConfig): string {
-		return [
-			"你是专门负责结构化序列化的卡片整理器。",
-			"你会收到一段候选卡片草稿文本，其中可能混有思考过程、解释或格式不规范内容。",
-			"你的唯一任务是把其中可用的卡片整理成严格 JSON。",
-			"只返回 JSON，不要解释，不要代码块。",
-			'外层必须是 {"cards":[...]}。',
-			`最多返回 ${config.cardCount} 张卡片。`,
-			'问答题格式：{"type":"qa","front":"...","back":"...","tags":[...]}',
-			'挖空题格式：{"type":"cloze","text":"...","back":"...","tags":[...]}',
-			'选择题格式：{"type":"choice","question":"...","options":[{"key":"A","text":"..."},{"key":"B","text":"..."},{"key":"C","text":"..."},{"key":"D","text":"..."}],"answers":["A"],"back":"...","tags":[...]}',
-			"如果原草稿缺少必要字段，可做最小必要修正，但不要凭空扩写无关内容。",
 		].join("\n");
 	}
 
@@ -381,6 +359,13 @@ export class AICardGenerationService {
 		if (explicitType === "qa" || explicitType === "cloze" || explicitType === "choice") {
 			return explicitType;
 		}
+		const content = this.normalizeString(raw.content);
+		if (content && parseChoiceQuestion(content)) {
+			return "choice";
+		}
+		if (content && this.containsCloze(content)) {
+			return "cloze";
+		}
 		if (Array.isArray(raw.options) || raw.question !== undefined || raw.answers !== undefined) {
 			return "choice";
 		}
@@ -388,6 +373,31 @@ export class AICardGenerationService {
 			return "cloze";
 		}
 		return "qa";
+	}
+
+	private parseChoiceDraftFromContent(
+		content: string,
+		backFromSplit: string
+	): {
+		question: string;
+		options: GeneratedChoiceOptionDraft[];
+		answers: string[];
+		back?: string;
+	} | null {
+		const parsed = parseChoiceQuestion(content);
+		if (!parsed) {
+			return null;
+		}
+
+		return {
+			question: parsed.question,
+			options: parsed.options.slice(0, 4).map((option, index) => ({
+				key: CHOICE_OPTION_KEYS[index] || option.label,
+				text: option.content,
+			})),
+			answers: parsed.correctAnswers,
+			back: parsed.explanation || backFromSplit || undefined,
+		};
 	}
 
 	private normalizeChoiceOptions(value: unknown): {
@@ -594,10 +604,28 @@ export class AICardGenerationService {
 			case "choice": {
 				const content = this.normalizeString(raw.content);
 				const split = content ? this.splitContent(content) : { front: "", back: "" };
-				const question = this.normalizeString(raw.question) || split.front.split("\n")[0]?.trim() || "";
-				const normalizedOptions = this.normalizeChoiceOptions(raw.options);
-				const normalizedAnswers = this.normalizeChoiceAnswers(raw.answers, normalizedOptions.options);
-				const back = this.normalizeString(raw.back) || split.back || undefined;
+				const parsedFromContent = content
+					? this.parseChoiceDraftFromContent(content, split.back)
+					: null;
+				const question =
+					this.normalizeString(raw.question) ||
+					parsedFromContent?.question ||
+					split.front.split("\n")[0]?.trim() ||
+					"";
+				const normalizedOptions = parsedFromContent
+					? { options: parsedFromContent.options, issues: [] as AICardIssue[] }
+					: this.normalizeChoiceOptions(raw.options);
+				const normalizedAnswers = parsedFromContent
+					? {
+							answers: parsedFromContent.answers,
+							issues: [] as AICardIssue[],
+						}
+					: this.normalizeChoiceAnswers(raw.answers, normalizedOptions.options);
+				const back =
+					this.normalizeString(raw.back) ||
+					parsedFromContent?.back ||
+					split.back ||
+					undefined;
 
 				issues = issues.concat(normalizedOptions.issues, normalizedAnswers.issues);
 
@@ -629,7 +657,8 @@ export class AICardGenerationService {
 			}
 		}
 
-		const generatedContent = this.buildContentFromDraft(draft);
+		const rawContent = this.normalizeString(raw.content);
+		const generatedContent = rawContent || this.buildContentFromDraft(draft);
 		const status = issues.some((issue) => issue.severity === "error")
 			? "invalid"
 			: issues.length > 0
@@ -677,7 +706,7 @@ export class AICardGenerationService {
 
 		const resolvedPrompt = this.buildResolvedPrompt(selectedPrompt, customPrompt, generationConfig);
 		const responseText = await this.executeStructuredDraftRequest({
-			systemPrompt: this.buildDraftSystemPrompt(generationConfig),
+			systemPrompt: this.resolveSystemPrompt(generationConfig),
 			userPrompt: this.buildDraftUserPrompt(content, resolvedPrompt),
 			config: generationConfig,
 		});
@@ -731,7 +760,7 @@ export class AICardGenerationService {
 		};
 
 		const responseText = await this.executeStructuredDraftRequest({
-			systemPrompt: this.buildDraftSystemPrompt(regenerateConfig),
+			systemPrompt: this.resolveSystemPrompt(regenerateConfig),
 			userPrompt: this.buildRegenerateUserPrompt(item, instruction),
 			config: regenerateConfig,
 		});

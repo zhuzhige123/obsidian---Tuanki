@@ -376,4 +376,59 @@ describe("createMemoryStudySessionController", () => {
 		});
 		expect(controller.shouldPersist()).toBe(true);
 	});
+
+	it("skips review undo snapshots when saveReviewSnapshot is not provided", async () => {
+		const queue = [createCard({ uuid: "staging-card" })];
+		let showAnswer = true;
+		let currentCardIndex = 0;
+		const session = createSession();
+		const sessionStudiedCards = new Set<string>();
+		const updateReviewStats = vi.fn();
+		const persistRatedCard = vi.fn(async () => undefined);
+
+		const controller = createMemoryStudySessionController({
+			getFsrs: () => ({
+				review: () => ({
+					card: {
+						...queue[0].fsrs,
+						state: CardState.Review,
+						due: new Date(Date.now() + 86_400_000).toISOString(),
+					},
+					log: { rating: Rating.Good },
+				}),
+			}) as unknown as FSRS,
+			getMode: () => "normal",
+			state: {
+				getCurrentCard: () => queue[currentCardIndex],
+				getShowAnswer: () => showAnswer,
+				setShowAnswer: (value) => {
+					showAnswer = value;
+				},
+				getCurrentCardIndex: () => currentCardIndex,
+				setCurrentCardIndex: (value) => {
+					currentCardIndex = value;
+				},
+				getCardStartTime: () => Date.now() - 1_000,
+				setCardStartTime: () => undefined,
+				getStudyQueue: () => queue,
+				setStudyQueue: (nextQueue) => {
+					queue.splice(0, queue.length, ...nextQueue);
+				},
+				getQueueInitialized: () => true,
+				getSession: () => session,
+				getSessionStudiedCards: () => sessionStudiedCards,
+			},
+			getLearningConfigForCard: () => ({ learningSteps: [], relearningSteps: [] }),
+			applyLearningScheduling: () => undefined,
+			updateReviewStats,
+			persistRatedCard,
+			setSessionCompletionStatus: () => undefined,
+			onFinishSession: async () => undefined,
+		});
+
+		await controller.rateCurrentCard(Rating.Good);
+
+		expect(updateReviewStats).toHaveBeenCalled();
+		expect(persistRatedCard).toHaveBeenCalledWith(queue[0]);
+	});
 });

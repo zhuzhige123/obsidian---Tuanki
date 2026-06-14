@@ -542,6 +542,13 @@
             </div>
           {/if}
 
+          {#if canStartStaging}
+            <div class="staging-hint-banner" role="note">
+              <ObsidianIcon name="info" size={14} />
+              <span>{t('aiAssistant.staging.studyNowHint')}</span>
+            </div>
+          {/if}
+
           <div class="preview-actions-row">
             <div class="deck-selector compact">
               <ObsidianDropdown
@@ -902,6 +909,25 @@
   .import-feedback-banner :global(svg) {
     color: var(--color-green, #22c55e);
     flex-shrink: 0;
+  }
+
+  .staging-hint-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--radius-m, 8px);
+    background: color-mix(in srgb, var(--interactive-accent) 10%, var(--weave-ai-card-bg, var(--background-secondary)));
+    border: 1px solid color-mix(in srgb, var(--interactive-accent) 18%, var(--background-modifier-border));
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .staging-hint-banner :global(svg) {
+    color: var(--interactive-accent);
+    flex-shrink: 0;
+    margin-top: 1px;
   }
 
   .preview-actions-row {

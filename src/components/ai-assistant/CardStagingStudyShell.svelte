@@ -11,6 +11,7 @@
   import StudyInterface from '../study/StudyInterface.svelte';
   import QuestionBankStudyInterface from '../question-bank/QuestionBankStudyInterface.svelte';
   import CardStagingCommitPanel from './CardStagingCommitPanel.svelte';
+  import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import { tr } from '../../utils/i18n';
 
   interface Props {
@@ -31,6 +32,9 @@
   let initialStudyCards = $state<Card[]>([]);
   let showCommitPanel = $state(false);
   let studyRenderKey = $state(0);
+  let stagingSummary = $derived(
+    session ? stagingService.getSummary(session.id) : null
+  );
 
   function handleCardReviewed(card: Card) {
     const item = stagingService.findItemByCardUuid(sessionId, card.uuid);
@@ -103,7 +107,25 @@
       <div class="staging-empty">
         <p>{t('aiAssistant.staging.noMatchingCards')}</p>
       </div>
-    {:else if !showCommitPanel && session.studyMode === 'exam' && initialStudyCards.length > 0}
+    {:else if !showCommitPanel && initialStudyCards.length > 0}
+      <div class="staging-session-banner" role="note">
+        <div class="staging-session-banner-main">
+          <ObsidianIcon name="info" size={14} />
+          <span>{t('aiAssistant.staging.studySessionHint')}</span>
+        </div>
+        {#if stagingSummary}
+          <span class="staging-session-progress">
+            {t('aiAssistant.staging.progress', {
+              kept: String(stagingSummary.keptCount),
+              pending: String(stagingSummary.pendingCount),
+              total: String(stagingSummary.totalCount),
+            })}
+          </span>
+        {/if}
+      </div>
+    {/if}
+
+    {#if !showCommitPanel && session.studyMode === 'exam' && initialStudyCards.length > 0}
       {#key studyRenderKey}
       <QuestionBankStudyInterface
         bankId={buildStagingBankId(session.id)}
@@ -174,5 +196,40 @@
     font-size: 14px;
     padding: 24px;
     text-align: center;
+  }
+
+  .staging-session-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-primary));
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+    flex-shrink: 0;
+  }
+
+  .staging-session-banner-main {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 240px;
+  }
+
+  .staging-session-banner-main :global(svg) {
+    color: var(--interactive-accent);
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .staging-session-progress {
+    color: var(--text-normal);
+    font-weight: 600;
+    white-space: nowrap;
   }
 </style>

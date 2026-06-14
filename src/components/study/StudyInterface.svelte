@@ -1933,7 +1933,10 @@
     },
     getLearningConfigForCard: (card) => resolveMemorySchedulingForCard(card),
     applyLearningScheduling,
-    saveReviewSnapshot: ({ card, rating, responseTime, currentCardIndex, session }) => {
+    // 暂存筛选会话不落库、也不支持撤销评分，跳过快照避免无意义报错
+    saveReviewSnapshot: isStagingSession
+      ? undefined
+      : ({ card, rating, responseTime, currentCardIndex, session }) => {
       const snapshotFsrs = card.fsrs;
       if (!snapshotFsrs) {
         throw new Error(t('studyInterface.errors.reviewSnapshotMissingFsrs'));

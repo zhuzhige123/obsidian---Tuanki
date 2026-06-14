@@ -8,6 +8,7 @@
  * - 自动管理撤销栈大小
  */
 
+import { cloneFsrsCardSnapshot } from "../algorithms/fsrs-adapter";
 import type { FSRSCard, Rating } from "../data/types";
 import type { Review } from "../data/types";
 import { logger } from "../utils/logger";
@@ -59,6 +60,25 @@ export interface ReviewSnapshot {
 	};
 }
 
+function cloneCardStats(stats: CardStats): CardStats {
+	return {
+		totalReviews: stats.totalReviews,
+		totalTime: stats.totalTime,
+		averageTime: stats.averageTime,
+		memoryRate: stats.memoryRate,
+		predictionAccuracy: stats.predictionAccuracy,
+		stabilityTrend: stats.stabilityTrend,
+		difficultyTrend: stats.difficultyTrend,
+	};
+}
+
+function cloneReviewHistory(history: Review[] | undefined): Review[] {
+	if (!history || history.length === 0) {
+		return [];
+	}
+	return JSON.parse(JSON.stringify(history)) as Review[];
+}
+
 /**
  * 复习撤销管理器类
  */
@@ -88,14 +108,14 @@ export class ReviewUndoManager {
 				throw new Error("[ReviewUndoManager] 卡片缺少FSRS数据，无法保存快照");
 			}
 
-			// 深拷贝防止引用污染
+			// 提取可序列化字段，避免 structuredClone 在代理对象上失败
 			const clonedSnapshot: ReviewSnapshot = {
 				cardIndex: snapshot.cardIndex,
 				cardId: snapshot.cardId,
 				cardSnapshot: {
-					fsrs: structuredClone(snapshot.cardSnapshot.fsrs),
-					reviewHistory: structuredClone(snapshot.cardSnapshot.reviewHistory || []),
-					stats: structuredClone(snapshot.cardSnapshot.stats),
+					fsrs: cloneFsrsCardSnapshot(snapshot.cardSnapshot.fsrs),
+					reviewHistory: cloneReviewHistory(snapshot.cardSnapshot.reviewHistory),
+					stats: cloneCardStats(snapshot.cardSnapshot.stats),
 					modified: snapshot.cardSnapshot.modified,
 				},
 				sessionSnapshot: {
