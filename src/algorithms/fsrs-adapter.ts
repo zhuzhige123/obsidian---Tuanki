@@ -245,25 +245,3 @@ export function sanitizeWeights(weights: number[] | undefined): number[] {
 		return [...default_w];
 	}
 }
-
-/**
- * 提取可序列化的 FSRS 字段，供复习撤销快照使用。
- * 避免 structuredClone 在 Svelte 代理或附带运行时字段的对象上失败。
- */
-export function cloneFsrsCardSnapshot(card: FSRSCard): FSRSCard {
-	return {
-		due: card.due,
-		stability: card.stability,
-		difficulty: card.difficulty,
-		elapsedDays: card.elapsedDays,
-		scheduledDays: card.scheduledDays,
-		reps: card.reps,
-		lapses: card.lapses,
-		state: card.state,
-		lastReview: card.lastReview,
-		retrievability: card.retrievability,
-		reviewHistory: card.reviewHistory
-			? JSON.parse(JSON.stringify(card.reviewHistory))
-			: undefined,
-	};
-}

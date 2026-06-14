@@ -98,14 +98,6 @@
   flex-shrink: 0;
 }
 
-.weave-modal-header-toolbar .preview-toggle-btn.is-preview {
-  color: var(--text-accent, var(--interactive-accent));
-}
-
-.weave-modal-header-toolbar .preview-toggle-label {
-  white-space: nowrap;
-}
-
 .weave-modal-header-toolbar .pin-button:not(.is-pinned) {
   opacity: 0.6;
 }

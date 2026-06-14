@@ -221,29 +221,27 @@ export const DEFAULT_AI_CONFIG = {
 		official: [
 			{
 				id: "standard-qa",
-				name: "标准学习",
+				name: "标准问答生成",
 				prompt:
-					"请从以下材料抽取最值得长期记忆的知识点，生成 {count} 张卡片，难度 {difficulty}。优先保证原子化与可回忆性；若材料质量不足，不要凑数。",
+					"请根据以下内容生成{count}张问答卡片，难度为{difficulty}。要求问题简洁明确，答案完整准确。",
 				useBuiltinSystemPrompt: true,
-				description: "默认通用场景，平衡 QA / Cloze / Choice 分布",
+				description: "适用于一般性学习材料，生成标准问答卡片，包含多种题型",
 				variables: ["count", "difficulty", "template"],
 				createdAt: new Date().toISOString(),
 			},
 			{
 				id: "concept-explain",
-				name: "概念理解型",
-				prompt:
-					"请围绕材料中的核心概念制卡，共 {count} 张，难度 {difficulty}。每张卡聚焦一个概念的一个方面（定义 / 特征 / 边界 / 应用 / 反例 五选一）。概念从属关系通过题干语境体现，不要一卡塞多个概念。",
+				name: "概念解释型",
+				prompt: "请提取关键概念并生成解释型卡片，包含定义、特点、应用场景。",
 				useBuiltinSystemPrompt: true,
 				description: "专注于概念理解，生成定义类、解释类卡片",
-				variables: ["count", "difficulty"],
+				variables: ["count"],
 				createdAt: new Date().toISOString(),
 			},
 			{
 				id: "deep-understanding",
 				name: "深度理解型",
-				prompt:
-					"请生成 {count} 张需要理解而非死记的卡片，难度 {difficulty}。侧重机制解释、因果链、条件变化、常见误区辨析。禁止纯术语堆砌；若无法构造可信干扰项，用 QA/Cloze 代替 Choice。",
+				prompt: "生成需要深度思考的卡片，重点考察理解、分析、应用能力。避免简单记忆型问题。",
 				useBuiltinSystemPrompt: true,
 				description: "生成高阶思维卡片，强调理解和应用",
 				variables: ["count", "difficulty"],
@@ -251,32 +249,11 @@ export const DEFAULT_AI_CONFIG = {
 			},
 			{
 				id: "cloze-fill",
-				name: "挖空偏重型",
-				prompt:
-					"请优先生成挖空题，共 {count} 张，难度 {difficulty}。选择原文中「删去关键词仍可读、且关键词可唯一还原」的句子。每卡 1–3 个挖空；避免挖介词、连词、常识词。",
+				name: "挖空填充型",
+				prompt: "生成挖空题，使用{{c1::}}语法标记关键词。每张卡片1-3个挖空点。",
 				useBuiltinSystemPrompt: true,
 				description: "专注于生成挖空题，适合记忆关键术语和概念",
-				variables: ["count", "difficulty"],
-				createdAt: new Date().toISOString(),
-			},
-			{
-				id: "exam-quiz",
-				name: "考试测验型",
-				prompt:
-					"请生成 {count} 张测验向卡片，难度 {difficulty}，选择题占比可高于默认。干扰项必须来自真实易错点；解析须说明错选原因。仍遵守一卡一考点，禁止一题多知识域。",
-				useBuiltinSystemPrompt: true,
-				description: "适合考前自测，强调辨析与干扰项质量",
-				variables: ["count", "difficulty"],
-				createdAt: new Date().toISOString(),
-			},
-			{
-				id: "vocabulary",
-				name: "术语词汇型",
-				prompt:
-					"请从材料提取 {count} 个高价值术语，难度 {difficulty}。每张卡：术语 → 简短定义 + 一个微型例子（放背面）。若术语易混淆，题干加入对比线索或领域前缀。",
-				useBuiltinSystemPrompt: true,
-				description: "适合专业术语、外语词汇与定义记忆",
-				variables: ["count", "difficulty"],
+				variables: ["count"],
 				createdAt: new Date().toISOString(),
 			},
 		],
