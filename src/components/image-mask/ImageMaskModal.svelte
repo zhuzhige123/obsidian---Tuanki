@@ -92,7 +92,7 @@ function handleEditorReady(ready: boolean) {
   // 编辑器就绪后，应用保存的图片显示模式
   if (ready && maskEditor) {
     // 使用setTimeout确保DOM已完全渲染
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (maskEditor) {
         maskEditor.updateImageDisplayMode(imageDisplayMode);
         logger.debug('[ImageMaskModal] 应用保存的图片显示模式:', imageDisplayMode);

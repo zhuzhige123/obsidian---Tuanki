@@ -74,11 +74,9 @@ export class GeminiService extends AIService {
 			});
 
 			const response = await this.request({
-				url: `${this.baseUrl}/models/${this.model}:generateContent?key=${this.apiKey}`,
+				url: this.buildGeminiUrl(`/models/${this.model}:generateContent`),
 				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
+				headers: this.buildGeminiHeaders(),
 				body: JSON.stringify({
 					contents: [
 						{
@@ -175,8 +173,9 @@ export class GeminiService extends AIService {
 	async testConnection(): Promise<boolean> {
 		try {
 			const response = await this.request({
-				url: `${this.baseUrl}/models?key=${this.apiKey}`,
+				url: this.buildGeminiUrl("/models"),
 				method: "GET",
+				headers: this.buildGeminiHeaders(),
 			});
 
 			return response.status === 200;
@@ -201,9 +200,9 @@ export class GeminiService extends AIService {
 			}
 
 			const response = await this.request({
-				url: `${this.baseUrl}/models/${this.model}:generateContent?key=${this.apiKey}`,
+				url: this.buildGeminiUrl(`/models/${this.model}:generateContent`),
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: this.buildGeminiHeaders(),
 				body: JSON.stringify({
 					contents,
 					generationConfig: {
@@ -261,6 +260,17 @@ export class GeminiService extends AIService {
 
 	protected generateCardId(): string {
 		return `gemini-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+	}
+
+	private buildGeminiHeaders(): Record<string, string> {
+		return {
+			"Content-Type": "application/json",
+			"x-goog-api-key": this.apiKey,
+		};
+	}
+
+	private buildGeminiUrl(path: string): string {
+		return `${this.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
 	}
 
 	async regenerateCard(

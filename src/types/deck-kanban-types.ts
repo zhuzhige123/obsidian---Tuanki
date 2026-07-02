@@ -136,75 +136,62 @@ export interface GroupDefinition {
 }
 
 /**
- * 分组配置常量
+ * 分组配置常量（结构定义：key / color / icon）。
+ * 显示文案由 localizeDeckGroupConfig() 通过 i18n 注入，勿直接使用 title / label。
  */
 export const DECK_GROUP_CONFIGS: Record<DeckGroupByType, GroupConfig> = {
-	completion: {
-		title: "完成情况",
+		completion: {
+		title: "",
 		icon: "check-circle",
 		groups: [
-			{ key: "new", label: "新卡片", color: "#10b981", icon: "circle" },
-			{ key: "learning", label: "学习中", color: "#f59e0b", icon: "book-open" },
-			{ key: "review", label: "待复习", color: "#3b82f6", icon: "refresh-cw" },
-			{ key: "completed", label: "已完成", color: "#6b7280", icon: "check-circle" },
+			{ key: "new", label: "", color: "#10b981", icon: "circle" },
+			{ key: "learning", label: "", color: "#f59e0b", icon: "book-open" },
+			{ key: "review", label: "", color: "#3b82f6", icon: "refresh-cw" },
+			{ key: "completed", label: "", color: "#6b7280", icon: "check-circle" },
 		],
 	},
 	timeRange: {
-		title: "时间范围",
+		title: "",
 		icon: "clock",
 		groups: [
-			{ key: "urgent", label: "紧急", color: "#ef4444", icon: "alert-circle" },
-			{ key: "today", label: "今日", color: "#f59e0b", icon: "sun" },
-			{ key: "thisWeek", label: "本周", color: "#3b82f6", icon: "calendar" },
-			{ key: "future", label: "未来", color: "#6b7280", icon: "clock" },
+			{ key: "urgent", label: "", color: "#ef4444", icon: "alert-circle" },
+			{ key: "today", label: "", color: "#f59e0b", icon: "sun" },
+			{ key: "thisWeek", label: "", color: "#3b82f6", icon: "calendar" },
+			{ key: "future", label: "", color: "#6b7280", icon: "clock" },
 		],
 	},
 	priority: {
-		title: "优先级",
+		title: "",
 		icon: "flag",
 		groups: [
-			{ key: "high", label: "高优先级", color: "#ef4444", icon: "alert-triangle" },
-			{ key: "medium", label: "中优先级", color: "#f59e0b", icon: "flag" },
-			{ key: "low", label: "低优先级", color: "#10b981", icon: "minus-circle" },
-			{ key: "none", label: "无优先级", color: "#6b7280", icon: "circle" },
+			{ key: "high", label: "", color: "#ef4444", icon: "alert-triangle" },
+			{ key: "medium", label: "", color: "#f59e0b", icon: "flag" },
+			{ key: "low", label: "", color: "#10b981", icon: "minus-circle" },
+			{ key: "none", label: "", color: "#6b7280", icon: "circle" },
 		],
 	},
 	accuracy: {
-		title: "正确率",
+		title: "",
 		icon: "percent",
 		groups: [
-			{ key: "untested", label: "未练习", color: "#6b7280", icon: "circle-dashed" },
-			{ key: "excellent", label: "＞90分", color: "#10b981", icon: "award" },
-			{ key: "good", label: "＞75分", color: "#3b82f6", icon: "trending-up" },
-			{ key: "poor", label: "＜60分", color: "#ef4444", icon: "alert-circle" },
+			{ key: "untested", label: "", color: "#6b7280", icon: "circle-dashed" },
+			{ key: "excellent", label: "", color: "#10b981", icon: "award" },
+			{ key: "good", label: "", color: "#3b82f6", icon: "trending-up" },
+			{ key: "poor", label: "", color: "#ef4444", icon: "alert-circle" },
 		],
 	},
 	tag: {
-		title: "标签分组",
+		title: "",
 		icon: "tag",
 		groups: [
-			// 动态生成，根据牌组的标签
-			{ key: "noTag", label: "无标签", color: "#6b7280", icon: "circle" },
+			{ key: "noTag", label: "", color: "#6b7280", icon: "circle" },
 		],
 	},
 	tagGroup: {
-		title: "标签组分组",
+		title: "",
 		icon: "tags",
 		groups: [
-			// 动态生成，根据选定的标签组
-			{ key: "__other__", label: "其他", color: "#6b7280", icon: "circle" },
+			{ key: "__other__", label: "", color: "#6b7280", icon: "circle" },
 		],
 	},
-};
-
-/**
- * 分组方式标签映射
- */
-export const DECK_GROUP_BY_LABELS: Record<DeckGroupByType, string> = {
-	completion: "完成情况",
-	timeRange: "时间范围",
-	priority: "优先级",
-	accuracy: "正确率",
-	tag: "标签分组",
-	tagGroup: "标签组分组",
 };

@@ -304,7 +304,7 @@
     closeActiveMenu();
     activeSuggestionPanel = 'folder';
     suggestionQuery = '';
-    setTimeout(() => {
+    window.setTimeout(() => {
       suggestionInputRef?.focus();
       suggestionInputRef?.select();
     }, 0);
@@ -354,7 +354,7 @@
     closeActiveMenu();
     activeSuggestionPanel = 'source';
     suggestionQuery = '';
-    setTimeout(() => {
+    window.setTimeout(() => {
       suggestionInputRef?.focus();
       suggestionInputRef?.select();
     }, 0);
@@ -647,7 +647,7 @@
     
     value = newValue;
     
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (inputRef) {
         inputRef.focus();
         inputRef.setSelectionRange(newCursorPos, newCursorPos);
@@ -715,7 +715,7 @@
     }
     
     // 聚焦并将光标移到末尾
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (inputRef) {
         inputRef.focus();
         inputRef.setSelectionRange(value.length, value.length);
@@ -735,7 +735,7 @@
       inputRef?.blur();
     } else if (e.key === ':') {
       // 输入冒号后延迟检查
-      setTimeout(() => {
+      window.setTimeout(() => {
         checkAndShowSuggestions();
       }, 50);
     }
@@ -837,7 +837,7 @@
                 e.preventDefault();
                 insertPrefix(opt.prefix);
                 showDropdown = false;
-                if (opt.afterInsert) setTimeout(opt.afterInsert, 100);
+                if (opt.afterInsert) window.setTimeout(opt.afterInsert, 100);
               }}
             >
               <span class="dropdown-item-label">{opt.label}</span>

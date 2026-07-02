@@ -81,27 +81,26 @@ export class AdaptiveCacheService {
 
 	static getInstance(): AdaptiveCacheService {
 		if (typeof window !== "undefined") {
-			const w = window as WindowWithAdaptiveCacheService;
-			if (w.__weaveAdaptiveCacheService) {
-				AdaptiveCacheService.instance = w.__weaveAdaptiveCacheService;
+			if (window.__weaveAdaptiveCacheService) {
+				AdaptiveCacheService.instance = window.__weaveAdaptiveCacheService;
 				return AdaptiveCacheService.instance;
 			}
 
 			const instance = new AdaptiveCacheService();
-			w.__weaveAdaptiveCacheService = instance;
+			window.__weaveAdaptiveCacheService = instance;
 
-			if (typeof w.__weaveAdaptiveCacheServiceCleanup !== "function") {
-				w.__weaveAdaptiveCacheServiceCleanup = () => {
+			if (typeof window.__weaveAdaptiveCacheServiceCleanup !== "function") {
+				window.__weaveAdaptiveCacheServiceCleanup = () => {
 					try {
-						(w.__weaveAdaptiveCacheService as AdaptiveCacheService | undefined)?.destroy();
+						(window.__weaveAdaptiveCacheService as AdaptiveCacheService | undefined)?.destroy();
 					} catch { /* no-op */ }
 
 					try {
-						w.__weaveAdaptiveCacheService = undefined;
-						w.__weaveAdaptiveCacheServiceCleanup = undefined;
+						window.__weaveAdaptiveCacheService = undefined;
+						window.__weaveAdaptiveCacheServiceCleanup = undefined;
 					} catch {
-						w.__weaveAdaptiveCacheService = null;
-						w.__weaveAdaptiveCacheServiceCleanup = null;
+						window.__weaveAdaptiveCacheService = null;
+						window.__weaveAdaptiveCacheServiceCleanup = null;
 					}
 				};
 			}

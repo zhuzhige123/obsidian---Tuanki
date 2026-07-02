@@ -52,20 +52,6 @@ export class ParsedCardConverter {
 			// 5. 初始化 FSRS 数据
 			const fsrsCard = this.fsrs.createCard();
 
-			// 转换为 FSRSData 格式（兼容旧类型系统）
-			const fsrsData: unknown = {
-				state: fsrsCard.state,
-				due: fsrsCard.due,
-				stability: fsrsCard.stability,
-				difficulty: fsrsCard.difficulty,
-				elapsed_days: fsrsCard.elapsedDays,
-				scheduled_days: fsrsCard.scheduledDays,
-				reps: fsrsCard.reps,
-				lapses: fsrsCard.lapses,
-				last_review: fsrsCard.lastReview,
-				parameters: null,
-			};
-
 			// 6. 生成时间戳
 			const now = new Date().toISOString();
 
@@ -84,7 +70,7 @@ export class ParsedCardConverter {
 				modified: now,
 
 				// FSRS 数据
-				fsrs: fsrsData,
+				fsrs: fsrsCard,
 
 				// 统计信息
 				stats: {

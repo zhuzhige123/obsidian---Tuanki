@@ -19,6 +19,8 @@ export interface DataOverview {
 	totalCards: number;
 	/** 学习会话数量 */
 	totalSessions: number;
+	/** 已填充的备份槽位数量（0-2：自动 + 手动） */
+	filledBackupSlots: number;
 	/** 最后更新时间 */
 	lastUpdated: string;
 }
@@ -319,7 +321,7 @@ export interface RestoreOptions {
 	dataTypes: DataType[];
 	/** 是否创建恢复前备份 */
 	createPreRestoreBackup: boolean;
-	/** 冲突处理策略 */
+	/** 冲突处理策略；双槽位整库恢复仅支持 overwrite（ask 由 UI 确认后等同 overwrite） */
 	conflictStrategy: "overwrite" | "merge" | "ask";
 }
 

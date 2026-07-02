@@ -12,6 +12,11 @@
     normalizeTraceDocumentKey,
     normalizeTraceSubunitKey
   } from '../../services/incremental-reading/IRSourceTraceStats';
+  import {
+    buildWeSourceLinkFromPath,
+    sanitizeCardTraceMetadata
+  } from '../../services/editor/editor-source-path-resolver';
+  import { isEditorBridgeTempFilePath } from '../../services/editor/editor-temp-file-policy';
 
   import { onMount, onDestroy, untrack } from 'svelte';
   import type { WeavePlugin } from '../../main';
@@ -30,6 +35,11 @@
     openEditableFormalCreateDeckModal
   } from '../../utils/editable-formal-create-deck-modal';
   import { populateEditableFormalDeckMenu } from '../../utils/editable-formal-deck-menu';
+  import {
+    applyWeDecksNamesToCardContent,
+    isSameDeckSelectorState,
+    resolveDeckSelectorFromCardContent
+  } from '../../utils/card-editor-we-decks-sync';
 
   function findFirstPdfPlusLinkFromBody(body: string): string | undefined {
     if (!body) return undefined;
@@ -47,7 +57,14 @@
   }
 
   function resolveTraceMetadata(metadata: any, currentCard?: Card) {
-    const sourceFile = metadata?.sourceFile || metadata?.file || currentCard?.sourceFile;
+    const rawSourceFile = metadata?.sourceFile || metadata?.file || currentCard?.sourceFile;
+    const rawSourceBlock = metadata?.sourceBlock || metadata?.blockId || currentCard?.sourceBlock;
+    const sanitized = sanitizeCardTraceMetadata({
+      sourceFile: rawSourceFile,
+      sourceBlock: rawSourceBlock
+    });
+    const sourceFile = sanitized.sourceFile;
+    const sourceBlock = sanitized.sourceBlock;
     const sourceKind = metadata?.sourceKind || currentCard?.sourceKind || detectTraceSourceKind(sourceFile);
     const sourceDocumentKey =
       metadata?.sourceDocumentKey ||
@@ -57,11 +74,12 @@
     const sourceSubunitKey =
       metadata?.sourceSubunitKey ||
       currentCard?.sourceSubunitKey ||
-      normalizeTraceSubunitKey(metadata?.sourceBlock || metadata?.blockId || currentCard?.sourceBlock) ||
+      normalizeTraceSubunitKey(sourceBlock) ||
       undefined;
 
     return {
       sourceFile,
+      sourceBlock,
       sourceKind,
       sourceDocumentKey,
       sourceSubunitKey,
@@ -88,9 +106,6 @@
     /**  预加载的牌组数据 */
     decks: any[];
 
-    /**  预加载的模板数据 */
-    templates: any[];
-
     /** 保存成功回调 */
     onSave?: (card: Card) => void;
 
@@ -105,7 +120,6 @@
     plugin,
     editorPoolManager,
     decks: preloadedDecks,
-    templates: preloadedTemplates,
     onSave,
     onCancel
   }: Props = $props();
@@ -117,7 +131,6 @@
 
   //  使用预加载的数据（无需异步加载，数据已准备就绪）
   let decks = $state<any[]>(untrack(() => preloadedDecks));
-  let templates = $state<any[]>(untrack(() => preloadedTemplates));
   
   // 当前选择的牌组
   let selectedDeckId = $state(untrack(() => card.deckId));
@@ -144,7 +157,6 @@
   onMount(() => {
     logger.debug('[CreateCardModal] 组件挂载，数据已预加载:', { 
       decksCount: decks.length,
-      templatesCount: templates.length,
       isPinned,
       isPinnedType: typeof isPinned
     });
@@ -379,6 +391,45 @@
     }
   }
 
+  async function readCurrentEditorContent(): Promise<string> {
+    if (inlineCardEditorInstance?.readLiveContent) {
+      return await inlineCardEditorInstance.readLiveContent();
+    }
+    return card.content || '';
+  }
+
+  async function syncWeDecksToEditor(deckNames: string[]): Promise<void> {
+    if (!inlineCardEditorInstance?.updateEditorContent) {
+      return;
+    }
+
+    try {
+      const currentContent = await readCurrentEditorContent();
+      const updatedContent = applyWeDecksNamesToCardContent(currentContent, deckNames);
+      await inlineCardEditorInstance.updateEditorContent(updatedContent);
+      logger.debug('[CreateCardModal] YAML we_decks 已同步更新为:', deckNames);
+    } catch (error) {
+      logger.error('[CreateCardModal] 同步 YAML we_decks 失败:', error);
+    }
+  }
+
+  function syncDeckSelectorFromContent(content: string): void {
+    const memoryDecks = (decks || []).filter((deck) => deck.purpose !== 'test');
+    const nextState = resolveDeckSelectorFromCardContent(content, memoryDecks);
+    const currentState = {
+      deckId: selectedDeckId,
+      deckNames: selectedDeckNames
+    };
+
+    if (isSameDeckSelectorState(currentState, nextState)) {
+      return;
+    }
+
+    selectedDeckId = nextState.deckId;
+    selectedDeckNames = nextState.deckNames;
+    logger.debug('[CreateCardModal] 从 YAML 同步牌组选择器:', nextState);
+  }
+
   // 处理牌组变更 - 同步更新 YAML 中的 we_decks
   async function handleDecksChange(names: string[]) {
     const nextNames = names.length > 0 ? [names[0]] : [];
@@ -392,32 +443,8 @@
     }
 
     logger.debug('[CreateCardModal] 牌组变更:', { selectedDeckId, selectedDeckNames });
-    
-    // 同步更新编辑器内容中的 YAML we_decks
-    if (inlineCardEditorInstance) {
-      try {
-        const { parseYAMLFromContent, extractBodyContent, createContentWithMetadata } = await import('../../utils/yaml-utils');
-        
-        // 获取当前编辑器内容
-        const currentContent = card.content || '';
-        const existingYaml = parseYAMLFromContent(currentContent) || {};
-        const bodyContent = extractBodyContent(currentContent) || '';
-        
-        // 更新 we_decks（支持多牌组引用架构）
-        existingYaml.we_decks = selectedDeckNames.length > 0 ? selectedDeckNames : undefined;
-        
-        // 重新生成带更新后 YAML 的内容
-        const updatedContent = createContentWithMetadata(existingYaml, bodyContent);
-        
-        // 更新编辑器内容
-        if (inlineCardEditorInstance.updateEditorContent) {
-          await inlineCardEditorInstance.updateEditorContent(updatedContent);
-          logger.debug('[CreateCardModal] ✅ YAML we_decks 已同步更新为:', selectedDeckNames);
-        }
-      } catch (error) {
-        logger.error('[CreateCardModal] 同步 YAML we_decks 失败:', error);
-      }
-    }
+
+    await syncWeDecksToEditor(selectedDeckNames);
   }
 
   // 更新卡片内容（供快捷键调用）
@@ -430,28 +457,23 @@
       });
       
       // 兼容两种字段名格式（sourceInfo: file/blockId 或 sourceFile/sourceBlock）
-      const sourceFile = metadata?.sourceFile || metadata?.file;
-      const sourceBlock = metadata?.sourceBlock || metadata?.blockId;
+      const rawSourceFile = metadata?.sourceFile || metadata?.file;
+      const rawSourceBlock = metadata?.sourceBlock || metadata?.blockId;
       const traceMetadata = resolveTraceMetadata(metadata, card);
+      const sourceFile = traceMetadata.sourceFile;
+      const sourceBlock = traceMetadata.sourceBlock;
       
       // 将来源信息写入 YAML frontmatter
       let finalContent = content;
-      if (sourceFile) {
+      const weSource = buildWeSourceLinkFromPath(sourceFile, sourceBlock);
+      if (weSource) {
         const { parseYAMLFromContent, extractBodyContent, createContentWithMetadata } = await import('../../utils/yaml-utils');
         
         // 解析现有内容的 YAML 和正文
         const existingYaml = parseYAMLFromContent(content) || {};
         const bodyContent = extractBodyContent(content) || content;
         
-        // 构建 we_source
-        const docName = sourceFile.replace(/\.md$/, '');
-        const blockId = sourceBlock?.replace(/^\^/, '');
-        
-        if (blockId) {
-          existingYaml.we_source = `![[${docName}#^${blockId}]]`;
-        } else {
-          existingYaml.we_source = `[[${docName}]]`;
-        }
+        existingYaml.we_source = weSource;
         
         // 重新生成带 YAML frontmatter 的内容
         finalContent = createContentWithMetadata(existingYaml, bodyContent);
@@ -461,6 +483,8 @@
           sourceBlock,
           we_source: existingYaml.we_source
         });
+      } else if (rawSourceFile && isEditorBridgeTempFilePath(rawSourceFile)) {
+        logger.debug('[CreateCardModal] 跳过编辑器临时文件的溯源链接', { sourceFile: rawSourceFile });
       }
       
       //  直接更新编辑器内容（不触发组件重渲染）
@@ -492,6 +516,8 @@
   async function handleEditorContentChange(newContent: string) {
     try {
       if (!newContent) return;
+
+      syncDeckSelectorFromContent(newContent);
 
       const { parseYAMLFromContent, extractBodyContent, setCardProperty } = await import('../../utils/yaml-utils');
       const yaml = parseYAMLFromContent(newContent) || {};

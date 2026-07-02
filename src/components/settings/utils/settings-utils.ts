@@ -1,4 +1,5 @@
 import { t } from "../../../utils/i18n";
+import type { WeaveTimerHandle } from "../../../types/timer-handle";
 import { logger } from "../../../utils/logger";
 import { writeSystemClipboardText } from "../../../utils/system-clipboard";
 /**
@@ -309,7 +310,7 @@ export function getSettingsValue<T>(settings: unknown, path: string, defaultValu
 
 	for (const key of keys) {
 		if (current && typeof current === "object" && key in current) {
-			current = current[key];
+			current = (current as Record<string, unknown>)[key];
 		} else {
 			return defaultValue as T;
 		}
@@ -325,7 +326,7 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
 	func: T,
 	wait: number
 ): (...args: Parameters<T>) => void {
-	let timeout: ReturnType<typeof window.setTimeout> | undefined;
+	let timeout: WeaveTimerHandle | undefined;
 
 	return (...args: Parameters<T>) => {
 		if (timeout !== undefined) {

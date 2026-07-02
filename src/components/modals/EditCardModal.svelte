@@ -14,6 +14,8 @@
   import type { EmbeddableEditorManager } from '../../services/editor/EmbeddableEditorManager';
   import ResizableModal from '../ui/ResizableModal.svelte';
   import InlineCardEditor from '../editor/InlineCardEditor.svelte';
+  import PreviewContainer from '../preview/PreviewContainer.svelte';
+  import EnhancedIcon from '../ui/EnhancedIcon.svelte';
   import { Menu, Notice, Platform } from 'obsidian';
   import { getCardMetadata } from '../../utils/yaml-utils';
   import { tr } from '../../utils/i18n';
@@ -22,6 +24,11 @@
     openEditableFormalCreateDeckModal
   } from '../../utils/editable-formal-create-deck-modal';
   import { populateEditableFormalDeckMenu } from '../../utils/editable-formal-deck-menu';
+  import {
+    applyWeDecksNamesToCardContent,
+    isSameDeckSelectorState,
+    resolveDeckSelectorFromCardContent
+  } from '../../utils/card-editor-we-decks-sync';
 
   interface Props {
     /** 是否显示模态窗 */
@@ -68,6 +75,26 @@
   let selectedDeckId = $state(untrack(() => card.deckId));
 
   let selectedDeckNames = $state<string[]>([]);
+
+  let inlineCardEditorInstance = $state<{
+    readLiveContent?: () => Promise<string>;
+    updateEditorContent?: (content: string) => Promise<void>;
+  } | undefined>(undefined);
+  let showPreview = $state(false);
+  let liveContent = $state(untrack(() => card.content || ''));
+  let previewRefreshTrigger = $state(0);
+  let showPreviewAnswer = $state(false);
+
+  function togglePreviewAnswerVisibility(): void {
+    showPreviewAnswer = !showPreviewAnswer;
+    previewRefreshTrigger += 1;
+  }
+
+  const previewCard = $derived.by((): Card => ({
+    ...card,
+    content: liveContent,
+    deckId: selectedDeckId || card.deckId
+  }));
 
   function computeInitialSelectedDeckNames(): string[] {
     const names: string[] = [];
@@ -156,13 +183,55 @@
     }
   }
 
-  function handleDecksChange(names: string[]) {
+  async function readCurrentEditorContent(): Promise<string> {
+    if (inlineCardEditorInstance?.readLiveContent) {
+      return await inlineCardEditorInstance.readLiveContent();
+    }
+    return liveContent || card.content || '';
+  }
+
+  async function syncWeDecksToEditor(deckNames: string[]): Promise<void> {
+    if (!inlineCardEditorInstance?.updateEditorContent) {
+      return;
+    }
+
+    try {
+      const currentContent = await readCurrentEditorContent();
+      const updatedContent = applyWeDecksNamesToCardContent(currentContent, deckNames);
+      await inlineCardEditorInstance.updateEditorContent(updatedContent);
+      liveContent = updatedContent;
+      logger.debug('[EditCardModal] YAML we_decks 已同步更新为:', deckNames);
+    } catch (error) {
+      logger.error('[EditCardModal] 同步 YAML we_decks 失败:', error);
+    }
+  }
+
+  function syncDeckSelectorFromContent(content: string): void {
+    const memoryDecks = (decks || []).filter((deck) => deck.purpose !== 'test');
+    const nextState = resolveDeckSelectorFromCardContent(content, memoryDecks);
+    const currentState = {
+      deckId: selectedDeckId,
+      deckNames: selectedDeckNames
+    };
+
+    if (isSameDeckSelectorState(currentState, nextState)) {
+      return;
+    }
+
+    selectedDeckId = nextState.deckId;
+    selectedDeckNames = nextState.deckNames;
+    logger.debug('[EditCardModal] 从 YAML 同步牌组选择器:', nextState);
+  }
+
+  async function handleDecksChange(names: string[]) {
     const nextNames = names.length > 0 ? [names[0]] : [];
     selectedDeckNames = nextNames;
     const primaryName = nextNames[0];
     const primaryDeck = decks.find(d => d.name === primaryName);
     selectedDeckId = primaryDeck?.id || '';
     logger.debug('[EditCardModal] 牌组变更:', { selectedDeckNames, selectedDeckId });
+
+    await syncWeDecksToEditor(selectedDeckNames);
   }
 
   onDestroy(() => {
@@ -183,7 +252,7 @@
       plugin,
       onDeckCreated: async (newDeck) => {
         await refreshDecks();
-        handleDecksChange([newDeck.name]);
+        await handleDecksChange([newDeck.name]);
         new Notice(t('cards.createModal.deckCreated', { name: newDeck.name }));
         plugin.app.workspace.trigger('Weave:data-changed');
         if (lastMenuPosition) {
@@ -195,6 +264,28 @@
 
   let deckButtonRef = $state<HTMLButtonElement | undefined>(undefined);
   let lastMenuPosition: { x: number; y: number } | null = null;
+
+  function handleLiveContentChange(content: string): void {
+    liveContent = content;
+    syncDeckSelectorFromContent(content);
+    if (showPreview) {
+      previewRefreshTrigger += 1;
+    }
+  }
+
+  async function handleTogglePreview(): Promise<void> {
+    if (!showPreview) {
+      const editor = inlineCardEditorInstance;
+      if (editor?.readLiveContent) {
+        liveContent = await editor.readLiveContent();
+      }
+      previewRefreshTrigger += 1;
+      showPreview = true;
+      return;
+    }
+
+    showPreview = false;
+  }
 
   function getDeckSelectorText(): string {
     if (!selectedDeckNames || selectedDeckNames.length === 0) return MEMORY_DECK_UI_TEXT.unassigned;
@@ -211,7 +302,9 @@
       decks: decks ?? [],
       selectedDeckNames,
       createDeckLabel: t('cards.createModal.createDeckMenu'),
-      onDeckNamesChange: handleDecksChange,
+      onDeckNamesChange: (names) => {
+        void handleDecksChange(names);
+      },
       onCreateDeck: openCreateDeckModal,
       onAfterDeckToggle: () => {
         if (lastMenuPosition) {
@@ -244,6 +337,33 @@
   onClose={handleClose}
 >
   {#snippet headerActions()}
+    <button
+      class="clickable-icon weave-toolbar-tab preview-toggle-btn"
+      class:is-preview={showPreview}
+      type="button"
+      title={showPreview ? t('toolbar.edit') : t('toolbar.preview')}
+      aria-label={showPreview ? t('toolbar.edit') : t('toolbar.preview')}
+      aria-pressed={showPreview}
+      onclick={(e) => {
+        e.preventDefault();
+        void handleTogglePreview();
+      }}
+      onkeydown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          void handleTogglePreview();
+        }
+      }}
+    >
+      <EnhancedIcon
+        name={showPreview ? 'edit' : 'eye'}
+        size={16}
+        variant={showPreview ? 'primary' : 'muted'}
+        ariaLabel={showPreview ? t('toolbar.edit') : t('toolbar.preview')}
+      />
+      <span class="preview-toggle-label">{showPreview ? t('toolbar.edit') : t('toolbar.preview')}</span>
+    </button>
+
     <!-- 牌组选择器（无牌组时仍可通过菜单新建） -->
     {#if plugin.dataStorage}
       <button
@@ -273,6 +393,7 @@
 
   {#snippet children()}
     <InlineCardEditor
+      bind:this={inlineCardEditorInstance}
       {card}
       {plugin}
       {editorPoolManager}
@@ -281,18 +402,67 @@
       displayMode="inline"
       showHeader={false}
       showFooter={true}
+      showEditorContent={!showPreview}
+      previewOverlay={showPreview ? editCardPreviewOverlay : undefined}
+      footerCenter={showPreview ? editCardPreviewFooterCenter : undefined}
       decks={decks}
-      selectedDeckId={selectedDeckId}
+      bind:selectedDeckId={selectedDeckId}
       selectedDeckNames={selectedDeckNames}
       onSave={handleSave}
       onCancel={handleClose}
       onClose={handleClose}
+      onContentChange={handleLiveContentChange}
       sourcePath={plugin.app.workspace.getActiveFile()?.path}
     />
   {/snippet}
 </ResizableModal>
 
+{#snippet editCardPreviewOverlay()}
+  <PreviewContainer
+    card={previewCard}
+    bind:showAnswer={showPreviewAnswer}
+    refreshTrigger={previewRefreshTrigger}
+    {plugin}
+    enableAnimations={true}
+    enableAnswerControls={true}
+    themeMode="auto"
+    renderingMode="quality"
+  />
+{/snippet}
+
+{#snippet editCardPreviewFooterCenter()}
+  <button
+    type="button"
+    class="clickable-icon weave-toolbar-tab preview-back-toggle-btn"
+    class:is-showing-back={showPreviewAnswer}
+    onclick={(e) => {
+      e.preventDefault();
+      togglePreviewAnswerVisibility();
+    }}
+    title={showPreviewAnswer ? t('cards.editorModal.hideBackTitle') : t('cards.editorModal.showBackTitle')}
+    aria-label={showPreviewAnswer ? t('cards.editorModal.hideBack') : t('cards.editorModal.showBack')}
+    aria-pressed={showPreviewAnswer}
+  >
+    <EnhancedIcon
+      name={showPreviewAnswer ? 'chevron-up' : 'eye'}
+      size={16}
+      variant={showPreviewAnswer ? 'primary' : 'muted'}
+      ariaLabel={showPreviewAnswer ? t('cards.editorModal.hideBack') : t('cards.editorModal.showBack')}
+    />
+    <span>{showPreviewAnswer ? t('cards.editorModal.hideBack') : t('cards.editorModal.showBack')}</span>
+  </button>
+{/snippet}
+
 <style>
+  .preview-back-toggle-btn {
+    font-weight: 500;
+    color: var(--text-normal);
+  }
+
+  .preview-back-toggle-btn.is-showing-back {
+    color: var(--text-accent, var(--interactive-accent));
+  }
+
   .deck-selector-btn .deck-name {
     overflow: hidden;
     text-overflow: ellipsis;

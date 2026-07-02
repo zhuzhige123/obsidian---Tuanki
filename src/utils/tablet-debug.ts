@@ -117,7 +117,7 @@ class TabletDebugger {
 		});
 
 		// 替换全局设备检测函数
-		(window as unknown).__weave_detectDevice = mockDetectDevice;
+		window.__weave_detectDevice = mockDetectDevice;
 
 		logger.debug("[TabletDebugger] 设备模拟已启用", deviceInfo);
 		this.updateDebugOverlay();

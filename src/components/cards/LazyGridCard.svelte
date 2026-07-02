@@ -4,6 +4,7 @@
   默认显示骨架屏，性能极佳
 -->
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { logger } from '../../utils/logger';
 
   import { onMount } from 'svelte';
@@ -111,14 +112,14 @@
   let contentElement = $state<HTMLElement>();
   let hasRendered = $state(false); // 是否已渲染
   let isRendering = $state(false); // 正在渲染中
-  let clickTimer: NodeJS.Timeout | null = null;
+  let clickTimer: WeaveTimerHandle | null = null;
   let isHovered = $state(false);
   let contentComponent: Component | null = null;
   let renderedContentSignature = $state('');
   let observer: IntersectionObserver | null = null;
   
   // 长按检测状态
-  let longPressTimer: NodeJS.Timeout | null = null;
+  let longPressTimer: WeaveTimerHandle | null = null;
   let isLongPressTriggered = $state(false);
   const LONG_PRESS_DURATION = 500; // 长按阈值：500ms
   const SIDEBAR_DRAG_LONG_PRESS_DURATION = 420;
@@ -419,7 +420,7 @@
     // 移动端和桌面端统一处理：双击编辑
     if (clickTimer) {
       // 双击触发编辑
-      clearTimeout(clickTimer);
+      window.clearTimeout(clickTimer);
       clickTimer = null;
       // 移动端双击时隐藏功能键
       if (isMobile) {
@@ -430,7 +431,7 @@
     }
     
     // 首次点击，设置延迟触发单击事件
-    clickTimer = setTimeout(() => {
+    clickTimer = window.setTimeout(() => {
       if (isMobile) {
         // 移动端：单击切换功能键显示状态
         showMobileActions = !showMobileActions;
@@ -529,7 +530,7 @@
 
   function clearSidebarDragLongPress(resetReady = true): void {
     if (longPressTimer) {
-      clearTimeout(longPressTimer);
+      window.clearTimeout(longPressTimer);
       longPressTimer = null;
     }
     pointerDownState = null;
@@ -553,7 +554,7 @@
       pointerId: event.pointerId,
     };
 
-    longPressTimer = setTimeout(() => {
+    longPressTimer = window.setTimeout(() => {
       isDragReady = true;
       isLongPressTriggered = true;
       longPressTimer = null;
@@ -622,7 +623,7 @@
     
     isLongPressTriggered = false;
     
-    longPressTimer = setTimeout(() => {
+    longPressTimer = window.setTimeout(() => {
       isLongPressTriggered = true;
       // 触发长按回调（多选）
       onLongPress(card);
@@ -637,7 +638,7 @@
   function handleTouchEnd() {
     if (isInSidebarMode) return;
     if (longPressTimer) {
-      clearTimeout(longPressTimer);
+      window.clearTimeout(longPressTimer);
       longPressTimer = null;
     }
   }
@@ -646,7 +647,7 @@
   function handleTouchMove() {
     if (isInSidebarMode) return;
     if (longPressTimer) {
-      clearTimeout(longPressTimer);
+      window.clearTimeout(longPressTimer);
       longPressTimer = null;
     }
   }
@@ -658,7 +659,7 @@
     const renderSignature = `${card.uuid || ''}|${card.modified || ''}|${sourcePath || ''}|${previewContent}`;
     if (hasRendered && contentElement) {
       // 使用setTimeout确保DOM完全更新
-      setTimeout(() => {
+      window.setTimeout(() => {
         void renderSignature;
         renderMarkdown();
       }, 0);
@@ -708,11 +709,11 @@
       observer?.disconnect();
       disposeRenderedContent();
       if (clickTimer) {
-        clearTimeout(clickTimer);
+        window.clearTimeout(clickTimer);
       }
       // 清理长按定时器
       if (longPressTimer) {
-        clearTimeout(longPressTimer);
+        window.clearTimeout(longPressTimer);
       }
       // 移除事件监听
       window.removeEventListener('Weave:hide-other-card-actions', handleHideOtherCardActions as EventListener);

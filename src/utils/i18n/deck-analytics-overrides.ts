@@ -29,7 +29,9 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 			range: {
 				separator: "至",
 				daysSuffix: "天",
-				scrollHint: "滚动鼠标滚轮可快速切换快捷范围"
+				scrollHint: "滚动鼠标滚轮可快速切换快捷范围",
+				lastDaysLabel: "最近{days}天",
+				lastDaysShort: "{days}天",
 			},
 			retention: {
 				avgPredictedRecall: "平均预测回忆率",
@@ -38,7 +40,10 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 				axisX: "天数",
 				axisY: "回忆 / 保持率 (%)",
 				avgEmpty: "暂无可用复习历史",
-				trueEmpty: "当前时间范围内没有首次复习样本"
+				trueEmpty: "当前时间范围内没有首次复习样本",
+				avgDesc: "当前牌组整体预测 {value}%",
+				trueDesc: "{sample} 个样本中的通过率 {value}%",
+				targetDesc: "FSRS 目标保持率 {value}%",
 			},
 			quantity: {
 				newCards: "新卡片",
@@ -79,8 +84,13 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 				overload: "过载",
 				axisY: "卡片数量",
 				dailyLoad: "每日负荷",
-				capacity: "日容量"
-			}
+				capacity: "日容量",
+				cardsLine: "负荷：{count} 张卡片",
+				capacityLine: "容量：{count} 张/天",
+			},
+			misc: {
+				firstReviewSamples: "{count} 个首次复习样本",
+			},
 		}
 	},
 	"en-US": {
@@ -111,7 +121,9 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 			range: {
 				separator: "to",
 				daysSuffix: "days",
-				scrollHint: "Scroll the mouse wheel to quickly switch quick ranges"
+				scrollHint: "Scroll the mouse wheel to quickly switch quick ranges",
+				lastDaysLabel: "Last {days} days",
+				lastDaysShort: "{days}d",
 			},
 			retention: {
 				avgPredictedRecall: "Avg Predicted Recall",
@@ -120,7 +132,10 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 				axisX: "Days",
 				axisY: "Recall / Retention (%)",
 				avgEmpty: "No review history yet",
-				trueEmpty: "No first-review samples in this range"
+				trueEmpty: "No first-review samples in this range",
+				avgDesc: "{value}% current deck-wide estimate",
+				trueDesc: "{value}% from {sample} samples",
+				targetDesc: "{value}% FSRS scheduling target",
 			},
 			quantity: {
 				newCards: "New Cards",
@@ -161,8 +176,13 @@ export const deckAnalyticsTranslationOverrides: Partial<Record<SupportedLanguage
 				overload: "Overloaded",
 				axisY: "Card Count",
 				dailyLoad: "Daily Load",
-				capacity: "Daily Capacity"
-			}
+				capacity: "Daily Capacity",
+				cardsLine: "Load: {count} cards",
+				capacityLine: "Capacity: {count} cards/day",
+			},
+			misc: {
+				firstReviewSamples: "{count} first-review samples",
+			},
 		}
 	}
 };

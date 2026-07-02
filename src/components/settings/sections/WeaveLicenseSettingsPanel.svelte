@@ -13,7 +13,12 @@
   import { showNotification } from '../utils/settings-utils';
   import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
   import { tr } from '../../../utils/i18n';
-  import { LIFETIME_LICENSE_PURCHASE_URL } from '../../../config/plugin-runtime';
+  import {
+    LIFETIME_LICENSE_PAYPAL_READER_PURCHASE_URL,
+    LIFETIME_LICENSE_PURCHASE_URL,
+    WEAVE_SERIES_PAYPAL_PURCHASE_URL,
+  } from '../../../config/plugin-runtime';
+  import { Menu } from 'obsidian';
   import type { PluginExtended } from '../types/settings-types';
 
   interface Props {
@@ -130,6 +135,55 @@
       isRemoving = false;
     }
   }
+
+  function attachMenuApp(menu: Menu): void {
+    (menu as Menu & { app?: PluginExtended['app'] }).app = plugin.app;
+  }
+
+  function openPurchaseUrl(url: string): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  function showPurchaseMenu(event: MouseEvent): void {
+    const menu = new Menu();
+    attachMenuApp(menu);
+
+    menu.addItem((item) => {
+      item.setTitle(t('settings.license.purchaseOptionMainland'));
+      item.setIcon('store');
+      item.onClick(() => {
+        openPurchaseUrl(LIFETIME_LICENSE_PURCHASE_URL);
+      });
+    });
+
+    menu.addItem((item) => {
+      item.setTitle(t('settings.license.purchaseOptionPaypal'));
+      item.setIcon('globe');
+      const subMenu = item.setSubmenu();
+      attachMenuApp(subMenu);
+
+      subMenu.addItem((subItem) => {
+        subItem.setTitle(t('settings.license.purchaseOptionPaypalReader'));
+        subItem.setIcon('book-open');
+        subItem.onClick(() => {
+          openPurchaseUrl(LIFETIME_LICENSE_PAYPAL_READER_PURCHASE_URL);
+        });
+      });
+
+      subMenu.addItem((subItem) => {
+        subItem.setTitle(t('settings.license.purchaseOptionPaypalSeries'));
+        subItem.setIcon('layers');
+        subItem.onClick(() => {
+          openPurchaseUrl(WEAVE_SERIES_PAYPAL_PURCHASE_URL);
+        });
+      });
+    });
+
+    menu.showAtMouseEvent(event);
+  }
 </script>
 
 <section class="weave-license-settings-panel">
@@ -137,14 +191,13 @@
     <div class="weave-license-settings-header">
       <div class="section-title-row">
         <h3 class="section-title with-accent-bar accent-purple">{t('settings.license.title')}</h3>
-        <a
-          class="license-purchase-link"
-          href={LIFETIME_LICENSE_PURCHASE_URL}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          class="clickable-icon license-purchase-link"
+          onclick={showPurchaseMenu}
         >
           {t('settings.license.purchaseLink')}
-        </a>
+        </button>
       </div>
       <p class="section-description">{t('settings.license.description')}</p>
     </div>
@@ -216,18 +269,47 @@
     min-width: 0;
   }
 
-  .license-purchase-link {
+  .weave-license-settings-panel button.clickable-icon.license-purchase-link,
+  .weave-license-settings-panel button.clickable-icon.license-purchase-link:hover,
+  .weave-license-settings-panel button.clickable-icon.license-purchase-link:focus,
+  .weave-license-settings-panel button.clickable-icon.license-purchase-link:active {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    border: none;
+    border-width: 0;
+    border-color: transparent;
+    box-shadow: none;
+    outline: none;
+    background: transparent;
+    background-color: transparent;
+  }
+
+  .weave-license-settings-panel button.clickable-icon.license-purchase-link {
     flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    width: auto;
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    font: inherit;
     font-size: var(--weave-settings-font-size-desc, var(--font-ui-smaller, 0.85rem));
     color: var(--text-accent);
     text-decoration: none;
     white-space: nowrap;
+    cursor: pointer;
     transition: color 0.15s ease, opacity 0.15s ease;
   }
 
-  .license-purchase-link:hover {
+  .weave-license-settings-panel button.clickable-icon.license-purchase-link:hover {
     color: var(--text-accent-hover, var(--text-accent));
     opacity: 0.88;
+  }
+
+  .weave-license-settings-panel button.clickable-icon.license-purchase-link:focus-visible {
+    outline: 2px solid var(--text-accent);
+    outline-offset: 2px;
   }
 
   .weave-license-settings-content {
@@ -315,7 +397,7 @@
       row-gap: var(--weave-license-settings-gap-sm);
     }
 
-    .license-purchase-link {
+    .weave-license-settings-panel button.clickable-icon.license-purchase-link {
       white-space: normal;
     }
 

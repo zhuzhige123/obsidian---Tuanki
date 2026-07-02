@@ -677,12 +677,18 @@ export class SourceNavigationService {
 			const dx = Math.abs(x - nodeRect.x);
 			const dy = Math.abs(y - nodeRect.y);
 			const dw =
-				Number.isFinite(width) && Number.isFinite(nodeRect.width)
-					? Math.abs(width - (nodeRect.width as number))
+				width !== undefined &&
+				nodeRect.width !== undefined &&
+				Number.isFinite(width) &&
+				Number.isFinite(nodeRect.width)
+					? Math.abs(width - nodeRect.width)
 					: 0;
 			const dh =
-				Number.isFinite(height) && Number.isFinite(nodeRect.height)
-					? Math.abs(height - (nodeRect.height as number))
+				height !== undefined &&
+				nodeRect.height !== undefined &&
+				Number.isFinite(height) &&
+				Number.isFinite(nodeRect.height)
+					? Math.abs(height - nodeRect.height)
 					: 0;
 			const score = dx + dy + dw + dh;
 

@@ -14,8 +14,9 @@ import { logger } from "../../utils/logger";
  * - 类型安全，避免any类型
  */
 
-import type { AIProvider } from "../../components/settings/constants/settings-constants";
 import { AI_PROVIDER_LABELS } from "../../components/settings/constants/settings-constants";
+import type { AIProvider } from "../../types/ai-types";
+import { resolveDefaultAIProvider } from "./AIConfigService";
 import type { Card, Deck } from "../../data/types";
 import type { WeavePlugin } from "../../main";
 import type { AIAction, FormatPreviewResult } from "../../types/ai-types";
@@ -153,13 +154,11 @@ export class AIActionExecutor {
 			return action.provider;
 		}
 
-		// 回退到默认provider
-		const defaultProvider = aiConfig?.defaultProvider;
+		const defaultProvider = resolveDefaultAIProvider(aiConfig);
 		if (defaultProvider) {
 			return defaultProvider;
 		}
 
-		// 如果都没有，抛出配置错误
 		throw new AIConfigError("未设置AI提供商，请在 [插件设置 > AI服务] 中配置默认AI服务");
 	}
 

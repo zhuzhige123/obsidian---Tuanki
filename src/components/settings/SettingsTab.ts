@@ -1,11 +1,11 @@
-import { PluginSettingTab } from "obsidian";
+import { type App, PluginSettingTab } from "obsidian";
 import type WeavePlugin from "../../main";
 import type { PluginExtended } from "./types/settings-types";
 
 export class AnkiSettingsTab extends PluginSettingTab {
 	plugin: PluginExtended;
 
-	constructor(app: unknown, plugin: WeavePlugin) {
+	constructor(app: App, plugin: WeavePlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}

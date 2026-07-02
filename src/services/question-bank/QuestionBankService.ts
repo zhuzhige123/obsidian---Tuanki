@@ -38,6 +38,19 @@ export interface QuestionBankMatchCandidate {
 	totalRefs: number;
 }
 
+export interface OrphanQuestionRefDetail {
+	bankId: string;
+	bankName: string;
+	cardUuid: string;
+}
+
+export interface OrphanQuestionRefScanResult {
+	refCount: number;
+	cardUuids: string[];
+	items: string[];
+	details: OrphanQuestionRefDetail[];
+}
+
 /**
  * 题库核心服务
  */
@@ -227,14 +240,14 @@ export class QuestionBankService {
 		const allBanks = this.getAllQuestionBanks();
 
 		const pairedBanks = allBanks.filter(
-			(b) => b.metadata && (b.metadata as unknown).pairedMemoryDeckId === memoryDeckId
+			(b) => readUnknownString(b.metadata, "pairedMemoryDeckId") === memoryDeckId
 		);
 		if (pairedBanks.length > 0) {
 			return pairedBanks.map((bank) => ({
 				bank,
 				matchType: "pairedMemoryDeckId",
 				overlapCount: Number.MAX_SAFE_INTEGER,
-				totalRefs: Number((bank.metadata as unknown)?.questionCount || 0),
+				totalRefs: Number(readUnknownProperty(bank.metadata, "questionCount") ?? 0),
 			}));
 		}
 
@@ -284,7 +297,7 @@ export class QuestionBankService {
 		const allBanks = this.getAllQuestionBanks();
 
 		const pairedBank = allBanks.find(
-			(b) => b.metadata && (b.metadata as unknown).pairedMemoryDeckId === memoryDeckId
+			(b) => readUnknownString(b.metadata, "pairedMemoryDeckId") === memoryDeckId
 		);
 
 		if (pairedBank) {
@@ -568,25 +581,61 @@ export class QuestionBankService {
 	}
 
 	async removeQuestionRefs(bankId: string, cardUuids: string[]): Promise<void> {
+		await this.removeQuestionsFromBank(bankId, cardUuids);
+	}
+
+	/**
+	 * 从考试题组移除题目：仅解除题组索引并清理考试测试数据，保留记忆牌组卡片。
+	 */
+	async removeQuestionsFromBank(bankId: string, cardUuids: string[]): Promise<void> {
 		const bank = this.getQuestionBank(bankId);
 		if (!bank) {
 			throw new Error(`题库不存在: ${bankId}`);
 		}
 
-		const removeSet = new Set(cardUuids.filter(Boolean));
-		if (removeSet.size === 0) {
+		const uniqueCardUuids = Array.from(new Set(cardUuids.filter(Boolean)));
+		if (uniqueCardUuids.length === 0) {
 			return;
 		}
 
-		const refs = await this.storage.loadBankQuestionRefs(bankId);
-		const filteredRefs = refs.filter((ref) => !removeSet.has(ref.cardUuid));
-
-		if (filteredRefs.length === refs.length) {
-			return;
-		}
-
-		await this.storage.saveBankQuestionRefs(bankId, filteredRefs);
+		await this.storage.cleanupCardsInBank(bankId, uniqueCardUuids);
 		await this.updateBankStats(bankId);
+	}
+
+	/**
+	 * 扫描考试题组中引用已不存在记忆卡片的悬空索引。
+	 */
+	async scanOrphanQuestionRefs(): Promise<OrphanQuestionRefScanResult> {
+		const allCards = await this.dataStorage.getCards();
+		const existingCardUuids = new Set(allCards.map((card) => card.uuid).filter(Boolean));
+		const banks = await this.getAllBanks();
+		const details: OrphanQuestionRefDetail[] = [];
+
+		for (const bank of banks) {
+			const refs = await this.storage.loadBankQuestionRefs(bank.id);
+			for (const ref of refs) {
+				if (!ref.cardUuid || existingCardUuids.has(ref.cardUuid)) {
+					continue;
+				}
+				details.push({
+					bankId: bank.id,
+					bankName: bank.name || bank.id,
+					cardUuid: ref.cardUuid,
+				});
+			}
+		}
+
+		const cardUuids = Array.from(new Set(details.map((detail) => detail.cardUuid)));
+		const items = details.map(
+			(detail) => `${detail.bankName} · ${detail.cardUuid.slice(0, 8)}`
+		);
+
+		return {
+			refCount: details.length,
+			cardUuids,
+			items,
+			details,
+		};
 	}
 
 	async cleanupDeletedMemoryCards(cardUuids: string[]): Promise<void> {
@@ -671,11 +720,7 @@ export class QuestionBankService {
 			throw new Error("deleteQuestion 无法定位题库，请提供 bankId");
 		}
 
-		const refs = await this.storage.loadBankQuestionRefs(bankId);
-		const filtered = refs.filter((r) => r.cardUuid !== actualQuestionId);
-		await this.storage.saveBankQuestionRefs(bankId, filtered);
-
-		await this.updateBankStats(bankId);
+		await this.removeQuestionsFromBank(bankId, [actualQuestionId]);
 	}
 
 	// ============================================================================
@@ -725,10 +770,12 @@ export class QuestionBankService {
 
 		const statsByUuid = await this.storage.loadGlobalQuestionStats();
 		const merged = cards.map((c) => {
-			const clone: Card = { ...c, deckId: bankId, cardPurpose: "test" as unknown };
+			const clone: Card = { ...c, deckId: bankId, cardPurpose: "test" };
 			const testStats = statsByUuid[c.uuid];
 			if (testStats) {
-				clone.stats = clone.stats ? { ...clone.stats, testStats } : ({ testStats } as unknown);
+				clone.stats = clone.stats
+					? { ...clone.stats, testStats }
+					: { totalReviews: 0, totalTime: 0, averageTime: 0, testStats };
 			}
 			return clone;
 		});

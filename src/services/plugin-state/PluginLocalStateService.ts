@@ -15,6 +15,20 @@ import type { IRCalendarSidebarSettings } from "../../types/plugin-settings.d";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
 
+const AI_PROVIDER_IDS = new Set<AIProvider>([
+	"openai",
+	"gemini",
+	"anthropic",
+	"deepseek",
+	"zhipu",
+	"siliconflow",
+	"xai",
+]);
+
+function isAIProvider(value: string): value is AIProvider {
+	return AI_PROVIDER_IDS.has(value as AIProvider);
+}
+
 interface PersistedStudySessionState {
 	persistedStudySession?: unknown;
 	savedAt?: string;
@@ -606,7 +620,7 @@ export class PluginLocalStateService {
 		}
 
 		const normalized: AIAssistantLocalPreferences = {};
-		if (typeof value.lastUsedProvider === "string") {
+		if (typeof value.lastUsedProvider === "string" && isAIProvider(value.lastUsedProvider)) {
 			normalized.lastUsedProvider = value.lastUsedProvider;
 		}
 		if (typeof value.lastUsedModel === "string") {
@@ -799,7 +813,8 @@ export async function migrateLegacyPluginRuntimeState(
 
 		if (
 			!nextPreferences.lastUsedProvider &&
-			typeof legacyData.aiConfig.lastUsedProvider === "string"
+			typeof legacyData.aiConfig.lastUsedProvider === "string" &&
+			isAIProvider(legacyData.aiConfig.lastUsedProvider)
 		) {
 			nextPreferences.lastUsedProvider = legacyData.aiConfig.lastUsedProvider;
 			shouldSavePreferences = true;

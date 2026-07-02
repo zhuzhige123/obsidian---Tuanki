@@ -16,10 +16,16 @@
   import QuestionBankVerticalToolbar from "./QuestionBankVerticalToolbar.svelte";
   import QuestionNavigator from "./QuestionNavigator.svelte";
   import CardEditorContainer from "../study/CardEditorContainer.svelte";
-  import { saveMemoryCard } from "../../services/weave-domain";
+  import { saveMemoryCard, deleteMemoryCard } from "../../services/weave-domain";
   import { logger } from "../../utils/logger";
   import { detectClozeModeFromContent } from "../../utils/cloze-mode";
   import { isInputClozeQuestionContent } from "../../utils/question-bank/input-cloze-utils";
+  import {
+    applyQuestionBankSessionFilters,
+    resolveSessionQuestionCount,
+    shouldShuffleSessionOptions,
+    shouldShuffleSessionQuestions,
+  } from "../../utils/question-bank/apply-question-bank-session-filters";
   import { extractBodyContent } from "../../utils/yaml-utils";
   
   // 选择题渲染支持
@@ -110,9 +116,7 @@
   let tempFileUnavailable = $state(false);
   let isClozeMode = $state(false);
 
-  // 删除确认弹窗状态
-  let showDeleteConfirmModal = $state(false);
-  let deleteConfirmCardId = $state('');
+  // 删除确认（直接删除开关仍沿用全局设置）
   let enableDirectDelete = $state(untrack(() => plugin.settings.enableDirectDelete ?? false));
   let showPriorityModal = $state(false);
   let selectedPriority = $state(2);
@@ -151,6 +155,8 @@
   let examStartTime = $state(0);
   let remainingTime = $state(0);
   let isPaused = $state(false);
+  let totalPausedMs = $state(0);
+  let pauseStartedAt = $state(0);
   const isPureExamMode = $derived(!!config?.options?.pureExamMode);
 
   function getExamTimeLimitMinutes() {
@@ -397,7 +403,7 @@
               hasSubmitted = currentQuestion.isCorrect !== null && currentQuestion.isCorrect !== undefined;
             }
             startTimer();
-            initExamTimer();
+            initExamTimer(true);
             return;
           }
 
@@ -411,22 +417,36 @@
           return;
         }
       }
-      
+
+      const sessionQuestions = isStagingSession
+        ? questions
+        : await applyQuestionBankSessionFilters(questions, config, mode);
+
+      if (sessionQuestions.length === 0) {
+        throw new Error(t('study.questionBankUI.bankCollection.noFilteredQuestions'));
+      }
+
+      const resolvedQuestionCount = resolveSessionQuestionCount(
+        config,
+        mode,
+        sessionQuestions.length
+      );
+
       currentSession = await sessionManager.startSession(
         {
           bankId,
           mode: mode,
-          shuffleQuestions: questionOrder === 'random' || config?.shuffleQuestions === true,
-          shuffleOptions: choiceOptionOrder === 'random' || config?.shuffleOptions === true,
-          questionCount: config?.questionCount,
+          shuffleQuestions: shouldShuffleSessionQuestions(config, questionOrder),
+          shuffleOptions: shouldShuffleSessionOptions(config, choiceOptionOrder),
+          questionCount: resolvedQuestionCount,
           timeLimit: config?.timeLimit ?? (getExamTimeLimitMinutes() ? getExamTimeLimitMinutes()! * 60 * 1000 : undefined)
         },
-        questions
+        sessionQuestions
       );
 
       currentQuestion = sessionManager.getCurrentQuestion();
       startTimer();
-      initExamTimer();  // 初始化考试倒计时
+      initExamTimer(false);
     } catch (error) {
       handleOperationError(error, '初始化测试', t('study.questionBankUI.studyInterface.startupFailed'));
     } finally {
@@ -573,48 +593,29 @@
       return;
     }
 
-    // 增加撤销次数
-    undoCount++;
-
-    // 清除后端记录（允许重新提交）
-    const currentIndex = currentSession?.currentQuestionIndex ?? 0;
-    const questionRecord = currentSession?.questions[currentIndex];
-    if (questionRecord && currentSession) {
-      // 保存当前的正确性状态（用于更新统计）
-      const wasCorrect = questionRecord.isCorrect;
-      
-      // 重置后端题目记录
-      questionRecord.userAnswer = null;
-      questionRecord.isCorrect = null;
-      questionRecord.timeSpent = 0;
-      questionRecord.submittedAt = null;
-      
-      // 更新会话统计（撤销之前的结果）
-      if (wasCorrect === true) {
-        currentSession.correctCount = Math.max(0, currentSession.correctCount - 1);
-      } else if (wasCorrect === false) {
-        currentSession.wrongCount = Math.max(0, currentSession.wrongCount - 1);
+    try {
+      const undone = await sessionManager.undoCurrentAnswer();
+      if (!undone) {
+        return;
       }
-      
-      // 减少已完成题数
-      currentSession.completedQuestions = Math.max(0, currentSession.completedQuestions - 1);
-      
-      // 同步 incorrectCount
-      currentSession.incorrectCount = currentSession.wrongCount;
-      
-      // 重新计算分数和正确率
-      const answeredCount = currentSession.correctCount + currentSession.wrongCount;
-      currentSession.score = answeredCount > 0 
-        ? (currentSession.correctCount / answeredCount) * 100 
-        : 0;
-      currentSession.accuracy = answeredCount > 0
-        ? currentSession.correctCount / answeredCount
-        : 0;
-    }
 
-    // 重置前端状态
-    userAnswer = null;
-    hasSubmitted = false;
+      undoCount++;
+      userAnswer = null;
+      hasSubmitted = false;
+      currentSession = sessionManager.getCurrentSession();
+      if (currentQuestion) {
+        currentQuestion = {
+          ...currentQuestion,
+          userAnswer: null,
+          isCorrect: null,
+          timeSpent: 0,
+          submittedAt: null,
+        };
+      }
+      elapsedSeconds = 0;
+    } catch (error) {
+      handleOperationError(error, '撤销答案', t('study.questionBankUI.studyInterface.submitAnswerFailed'));
+    }
   }
 
   // 收藏功能
@@ -833,90 +834,194 @@
     isClozeMode = !isClozeMode;
   }
 
-  // 删除功能
+  function getCurrentQuestionPreview(): string {
+    if (!currentQuestion) return '';
+    return currentQuestion.question.content.slice(0, 30) || `ID: ${currentQuestion.question.uuid}`;
+  }
+
+  async function refreshCurrentQuestionAfterRemoval(): Promise<void> {
+    if (!sessionManager) {
+      currentQuestion = null;
+      userAnswer = null;
+      hasSubmitted = false;
+      return;
+    }
+
+    currentQuestion = await sessionManager.getCurrentQuestionWithRefresh();
+    if (currentQuestion) {
+      userAnswer = mapStoredChoiceAnswerToDisplayed(currentQuestion.userAnswer || null);
+      hasSubmitted =
+        currentQuestion.isCorrect !== null && currentQuestion.isCorrect !== undefined;
+    } else {
+      userAnswer = null;
+      hasSubmitted = false;
+    }
+    currentSession = sessionManager.getCurrentSession();
+    elapsedSeconds = 0;
+  }
+
+  async function advanceAfterQuestionRemoved(removedCardId: string): Promise<'empty' | 'advanced'> {
+    if (showEditModal) {
+      showEditModal = false;
+      tempFileUnavailable = false;
+      isClozeMode = false;
+    }
+
+    questions = questions.filter((question) => question.uuid !== removedCardId);
+
+    if (sessionManager) {
+      const removalResult = await sessionManager.removeQuestionFromSession(removedCardId);
+      if (removalResult === 'empty' || questions.length === 0) {
+        return 'empty';
+      }
+
+      await refreshCurrentQuestionAfterRemoval();
+      return 'advanced';
+    }
+
+    if (questions.length === 0) {
+      return 'empty';
+    }
+
+    const nextCard = questions[0];
+    currentQuestion = {
+      questionId: nextCard.uuid,
+      question: nextCard,
+      userAnswer: null,
+      correctAnswer: null,
+      isCorrect: null,
+      timeSpent: 0,
+      submittedAt: null,
+    };
+    userAnswer = null;
+    hasSubmitted = false;
+    elapsedSeconds = 0;
+    return 'advanced';
+  }
+
+  async function finalizeQuestionRemoval(
+    removedCardId: string,
+    successNoticeKey: string,
+    options?: { stagingDiscard?: boolean }
+  ): Promise<void> {
+    if (options?.stagingDiscard) {
+      onStagingDiscard?.(removedCardId);
+    }
+
+    const advanceResult = await advanceAfterQuestionRemoved(removedCardId);
+    if (advanceResult === 'empty') {
+      stopTimer();
+      if (isStagingSession) {
+        onStagingSessionComplete?.();
+        return;
+      }
+
+      new Notice(t('study.questionBankUI.studyInterface.allQuestionsDeleted'));
+      if (sessionManager?.getCurrentSession()) {
+        await handleCompleteTest();
+      } else {
+        onExit?.();
+      }
+      return;
+    }
+
+    plugin.app.workspace.trigger('Weave:data-changed');
+    new Notice(t(successNoticeKey));
+  }
+
+  // 移除：仅从考试题组解除引用并清理考试测试数据，保留记忆牌组卡片
+  async function handleRemoveCard(skipConfirm = false) {
+    if (!currentQuestion) return;
+
+    if (!skipConfirm && !enableDirectDelete) {
+      const confirmed = await showObsidianConfirm(
+        plugin.app,
+        t('study.questionBankUI.studyInterface.confirmRemoveMessage', {
+          content: getCurrentQuestionPreview(),
+        }),
+        {
+          title: t('study.questionBankUI.studyInterface.confirmRemoveTitle'),
+          confirmText: t('study.questionBankUI.studyInterface.confirmRemoveAction'),
+          cancelText: t('study.questionBankUI.studyInterface.cancel'),
+          confirmClass: 'mod-warning',
+        }
+      );
+      if (!confirmed) return;
+    }
+
+    try {
+      const removedCardId = currentQuestion.question.uuid;
+
+      if (isStagingSession) {
+        await finalizeQuestionRemoval(removedCardId, 'study.questionBankUI.studyInterface.cardRemoved', {
+          stagingDiscard: true,
+        });
+        return;
+      }
+
+      if (!plugin.questionBankService) {
+        new Notice(t('study.questionBankUI.bankCollection.serviceNotReady'));
+        return;
+      }
+
+      await plugin.questionBankService.removeQuestionsFromBank(bankId, [removedCardId]);
+      await finalizeQuestionRemoval(removedCardId, 'study.questionBankUI.studyInterface.cardRemoved');
+    } catch (error) {
+      handleOperationError(
+        error,
+        '移除题目',
+        t('study.questionBankUI.studyInterface.removeCardFailed')
+      );
+    }
+  }
+
+  // 删除：从记忆牌组与考试题组中彻底删除卡片
   async function handleDeleteCard(skipConfirm = false) {
     if (!currentQuestion) return;
 
-    // 根据直接删除设置决定是否跳过确认弹窗
     if (!skipConfirm && !enableDirectDelete) {
-      const cardContent = currentQuestion.question.content.slice(0, 30) || `ID: ${currentQuestion.question.uuid}`;
-      showDeleteConfirmModal = true;
-      deleteConfirmCardId = cardContent;
-      return;
+      const confirmed = await showObsidianConfirm(
+        plugin.app,
+        `${t('study.questionBankUI.studyInterface.confirmDeleteMessage', {
+          content: getCurrentQuestionPreview(),
+        })}\n${t('study.questionBankUI.studyInterface.deleteIrreversible')}`,
+        {
+          title: t('study.questionBankUI.studyInterface.confirmDeleteTitle'),
+          confirmText: t('common.confirmDelete'),
+          cancelText: t('study.questionBankUI.studyInterface.cancel'),
+          confirmClass: 'mod-warning',
+        }
+      );
+      if (!confirmed) return;
     }
 
     try {
       const deletedCardId = currentQuestion.question.uuid;
 
       if (isStagingSession) {
-        onStagingDiscard?.(deletedCardId);
-
-        if (showEditModal) {
-          showEditModal = false;
-          tempFileUnavailable = false;
-          isClozeMode = false;
-        }
-
-        questions = questions.filter((q) => q.uuid !== deletedCardId);
-
-        if (questions.length === 0) {
-          onStagingSessionComplete?.();
-          return;
-        }
-
-        await handleNextQuestion();
-        new Notice(t('study.questionBankUI.studyInterface.cardDeleted'));
+        await finalizeQuestionRemoval(deletedCardId, 'study.questionBankUI.studyInterface.cardDeleted', {
+          stagingDiscard: true,
+        });
         return;
       }
-      
-      // 使用题库专用删除方法（更新Service缓存）
-      if (!plugin.questionBankService) {
-        new Notice(t('study.questionBankUI.bankCollection.serviceNotReady'));
-        return;
-      }
-      
-      await plugin.questionBankService.deleteQuestion(bankId, deletedCardId);
 
-      // 如果正在编辑模式，退出编辑模式
-      if (showEditModal) {
-        showEditModal = false;
-        tempFileUnavailable = false;
-        isClozeMode = false;
+      const deleteResult = await deleteMemoryCard(plugin, deletedCardId);
+      if (!deleteResult.success) {
+        throw new Error(deleteResult.error || t('study.questionBankUI.studyInterface.deleteCardFailed'));
       }
 
-      // 更新会话中的题目列表
-      if (sessionManager && currentQuestion) {
-        // 从questions数组中移除
-        questions = questions.filter(q => q.uuid !== deletedCardId);
-        
-        // 如果没有题目了，完成测试
-        if (questions.length === 0) {
-          new Notice(t('study.questionBankUI.studyInterface.allQuestionsDeleted'));
-          await handleCompleteTest();
-          return;
-        }
-
-        // 移动到下一题
-        await handleNextQuestion();
-        
-        new Notice(t('study.questionBankUI.studyInterface.cardDeleted'));
+      if (plugin.questionBankService) {
+        await plugin.questionBankService.cleanupDeletedMemoryCards([deletedCardId]);
       }
 
-    } catch (e) {
-      handleOperationError(e, '删除卡片', t('study.questionBankUI.studyInterface.deleteCardFailed'));
+      await finalizeQuestionRemoval(deletedCardId, 'study.questionBankUI.studyInterface.cardDeleted');
+    } catch (error) {
+      handleOperationError(
+        error,
+        '删除卡片',
+        t('study.questionBankUI.studyInterface.deleteCardFailed')
+      );
     }
-  }
-
-  // 确认删除
-  async function confirmDeleteCard() {
-    showDeleteConfirmModal = false;
-    await handleDeleteCard(true);
-  }
-
-  // 取消删除
-  function cancelDeleteCard() {
-    showDeleteConfirmModal = false;
-    deleteConfirmCardId = '';
   }
 
   function isValidPriority(value: unknown): value is 1 | 2 | 3 | 4 {
@@ -1200,33 +1305,54 @@
 
   // 暂停/继续倒计时
   function handleTogglePause() {
-    isPaused = !isPaused;
+    if (!isPaused) {
+      pauseStartedAt = Date.now();
+      isPaused = true;
+      return;
+    }
+
+    if (pauseStartedAt > 0) {
+      totalPausedMs += Date.now() - pauseStartedAt;
+      pauseStartedAt = 0;
+    }
+    isPaused = false;
   }
 
   // 初始化考试倒计时
-  function initExamTimer() {
-    if (currentSession?.mode === 'exam') {
-      examDuration = resolveExamDurationMs();
-      examStartTime = Date.now();
-      remainingTime = examDuration;
+  function initExamTimer(fromRestore = false) {
+    if (currentSession?.mode !== 'exam') {
+      return;
     }
+
+    examDuration = resolveExamDurationMs();
+    totalPausedMs = 0;
+    pauseStartedAt = 0;
+    isPaused = false;
+
+    if (fromRestore && currentSession.startTime) {
+      examStartTime = new Date(currentSession.startTime).getTime();
+    } else {
+      examStartTime = Date.now();
+    }
+
+    const elapsed = Date.now() - examStartTime - totalPausedMs;
+    remainingTime = Math.max(0, examDuration - elapsed);
   }
 
   // 更新倒计时
   $effect(() => {
     if (currentSession?.mode === 'exam' && examStartTime > 0 && !isPaused) {
-      const interval = setInterval(() => {
-        const elapsed = Date.now() - examStartTime;
+      const interval = window.setInterval(() => {
+        const elapsed = Date.now() - examStartTime - totalPausedMs;
         remainingTime = Math.max(0, examDuration - elapsed);
-        
-        // 时间到，先停止计时器再自动提交，防止重复调用
+
         if (remainingTime === 0) {
-          clearInterval(interval);
+          window.clearInterval(interval);
           handleCompleteTest();
         }
       }, 100);
-      
-      return () => clearInterval(interval);
+
+      return () => window.clearInterval(interval);
     }
   });
 
@@ -1346,10 +1472,20 @@
 
   // 计算平均用时
   const averageTime = $derived.by(() => {
-    if (!currentSession || currentSession.completedQuestions === 0) {
+    if (!currentSession) {
       return 0;
     }
-    return elapsedSeconds / currentSession.completedQuestions * 1000;
+
+    const answeredQuestions = currentSession.questions.filter((record) => record.submittedAt);
+    if (answeredQuestions.length === 0) {
+      return 0;
+    }
+
+    const totalMs = answeredQuestions.reduce(
+      (sum, record) => sum + (record.timeSpent || 0) * 1000,
+      0
+    );
+    return totalMs / answeredQuestions.length;
   });
 
 
@@ -1460,9 +1596,11 @@
 
     const menuCallbacks: QuestionBankMenuCallbacks = {
       onToggleEdit: handleToggleEdit,
+      onRemove: handleRemoveCard,
       onDelete: handleDeleteCard,
       onToggleFavorite: handleToggleFavorite,
-      onChangePriority: handleChangePriority,
+      onChangePriority: (priority?: number) =>
+        handleChangePriority(priority as 1 | 2 | 3 | 4 | undefined),
       onOpenDetailedView: handleOpenDetailedView,
       onToggleStatsBar: toggleMobileStatsBar,
       onToggleNavigator: toggleNavigatorPanel,
@@ -1810,6 +1948,7 @@
             {plugin}
             onToggleEdit={handleToggleEdit}
             isEditing={showEditModal}
+            onRemove={handleRemoveCard}
             onDelete={handleDeleteCard}
             onToggleFavorite={handleToggleFavorite}
             onChangePriority={handleChangePriority}
@@ -1822,7 +1961,7 @@
       {/if}
 
       <!-- 底部功能栏（编辑模式隐藏，与记忆学习一致） -->
-      {#if !showEditModal}
+      {#if !showEditModal && !isPureExamMode}
         <div class="study-footer">
           <div class="footer-actions">
             <div class="footer-left-actions">

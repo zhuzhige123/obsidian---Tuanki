@@ -298,7 +298,7 @@ export function createWeaveServiceConfigs(plugin: WeavePlugin): ServiceInitConfi
 			required: true,
 			init: async () => {
 				const { WeaveDataStorage } = await import("../data/storage");
-				plugin.dataStorage = new WeaveDataStorage(plugin as unknown);
+				plugin.dataStorage = new WeaveDataStorage(plugin);
 				await plugin.dataStorage.initialize();
 			},
 		},
@@ -356,7 +356,7 @@ export function createWeaveServiceConfigs(plugin: WeavePlugin): ServiceInitConfi
 			dependencies: ["DataStorage"],
 			init: async () => {
 				const { initDeckNameMapper } = await import("./DeckNameMapper");
-				plugin.deckNameMapper = await initDeckNameMapper(plugin as unknown);
+				plugin.deckNameMapper = await initDeckNameMapper(plugin);
 			},
 		},
 		{

@@ -612,6 +612,66 @@ body.is-mobile .receipt-modal .printer-container {
   word-break: break-all;
 }
 
+.weave-custom-api-url-modal .weave-url-warning {
+  font-size: 0.8rem;
+  color: var(--text-warning, var(--color-orange));
+  line-height: 1.5;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-s);
+  background: rgba(245, 158, 11, 0.1);
+  border-left: 3px solid var(--color-orange);
+}
+
+.weave-custom-model-modal .weave-model-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.weave-custom-model-modal .weave-model-label {
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+.weave-custom-model-modal .weave-model-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.weave-custom-model-modal .weave-model-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.weave-custom-model-modal .weave-model-hint.is-error {
+  color: var(--text-error);
+}
+
+.weave-custom-model-modal .weave-model-provider-info {
+  margin-bottom: 0.5rem;
+}
+
+.weave-custom-model-modal .weave-model-provider-name {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: var(--radius-s);
+  background: var(--interactive-accent-bg);
+  color: var(--interactive-accent);
+  font-size: 0.85rem;
+}
+
+.weave-custom-model-modal .weave-model-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
 .weave-custom-api-url-modal .weave-url-examples {
   margin-top: 1.5rem;
 }

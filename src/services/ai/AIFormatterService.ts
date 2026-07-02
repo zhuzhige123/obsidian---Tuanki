@@ -14,6 +14,7 @@ import type { ParseTemplate } from "../../types/newCardParsingTypes";
 import type { AIConfig } from "../../types/plugin-settings";
 import { logger } from "../../utils/logger";
 import { AIServiceFactory } from "./AIServiceFactory";
+import { resolveDefaultAIProvider, resolveAIChatRequestParams } from "./AIConfigService";
 import { PromptVariableResolver } from "./PromptVariableResolver";
 
 export interface FormatRequest {
@@ -125,7 +126,7 @@ async function formatWithCustomAction(
 
 		const provider =
 			action.provider ||
-			(isAIProvider(aiConfig.defaultProvider) ? aiConfig.defaultProvider : undefined);
+			resolveDefaultAIProvider(aiConfig as Parameters<typeof resolveDefaultAIProvider>[0]);
 
 		if (!provider) {
 			return {
@@ -146,14 +147,18 @@ async function formatWithCustomAction(
 
 		const systemPrompt = variableResolver.resolve(action.systemPrompt, card, context);
 		const userPrompt = variableResolver.resolve(action.userPromptTemplate, card, context);
+		const chatParams = resolveAIChatRequestParams(aiConfig, {
+			temperature: action.temperature,
+			maxTokens: action.maxTokens,
+		});
 		const aiService = AIServiceFactory.createService(provider, plugin, action.model);
 		const response = await aiService.chat({
 			messages: [
 				{ role: "system", content: systemPrompt },
 				{ role: "user", content: userPrompt },
 			],
-			temperature: action.temperature ?? 0.1,
-			maxTokens: action.maxTokens ?? 2000,
+			temperature: chatParams.temperature,
+			maxTokens: chatParams.maxTokens,
 		});
 
 		if (!response.success || !response.content) {
@@ -198,7 +203,7 @@ async function formatChoiceQuestion(
 		const legacyFormattingProvider = getLegacyFormattingProvider(aiConfig);
 		const provider: AIProvider | undefined =
 			(isAIProvider(legacyFormattingProvider) ? legacyFormattingProvider : undefined) ||
-			(isAIProvider(aiConfig.defaultProvider) ? aiConfig.defaultProvider : undefined);
+			resolveDefaultAIProvider(aiConfig as Parameters<typeof resolveDefaultAIProvider>[0]);
 
 		if (!provider) {
 			return {
@@ -216,6 +221,7 @@ async function formatChoiceQuestion(
 		}
 
 		const aiService = AIServiceFactory.createService(provider, plugin, providerConfig.model);
+		const chatParams = resolveAIChatRequestParams(aiConfig);
 		const response = await aiService.chat({
 			messages: [
 				{ role: "system", content: OFFICIAL_CHOICE_FORMATTER_SYSTEM_PROMPT },
@@ -227,8 +233,8 @@ async function formatChoiceQuestion(
 					),
 				},
 			],
-			temperature: 0.1,
-			maxTokens: 2000,
+			temperature: chatParams.temperature,
+			maxTokens: chatParams.maxTokens,
 		});
 
 		if (!response.success || !response.content) {

@@ -75,7 +75,7 @@
     isCalculating = true;
     
     // 使用 setTimeout 避免阻塞 UI
-    setTimeout(() => {
+    window.setTimeout(() => {
       try {
         const filtered = filterManager.applyFilter(cards, filterConfig, []);
         filteredCount = filtered.length;

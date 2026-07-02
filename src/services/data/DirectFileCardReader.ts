@@ -16,7 +16,7 @@ import { logger } from "../../utils/logger";
  * 置信度: 95%
  */
 
-import { DataAdapter, TFile, Vault } from "obsidian";
+import { DataAdapter, EventRef, TFile, Vault } from "obsidian";
 import type { Card } from "../../data/types";
 import {
 	findCardInDeckPayload,
@@ -75,7 +75,7 @@ export class DirectFileCardReader {
 	private indexRebuildCount = 0;
 
 	// 文件监听
-	private fileWatcherRefs: unknown[] = [];
+	private fileWatcherRefs: EventRef[] = [];
 
 	constructor(vault: Vault, dataFolder = "weave") {
 		this.vault = vault;
@@ -545,7 +545,8 @@ export class DirectFileCardReader {
 		}
 
 		if (typeof field === "object" && field !== null && "text" in field) {
-			return (field as unknown).text as string;
+			const text = (field as { text?: unknown }).text;
+			return typeof text === "string" ? text : "";
 		}
 
 		return "";

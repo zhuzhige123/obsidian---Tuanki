@@ -1,4 +1,5 @@
 import { logger } from "../utils/logger";
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 /**
  * 资源管理器
  * 统一管理编辑器相关资源，防止内存泄漏
@@ -9,7 +10,7 @@ export interface ResourceCleanup {
 }
 
 export interface TimerResource {
-	id: ReturnType<typeof setTimeout>  ;
+	id: WeaveTimerHandle  ;
 	type: "timeout" | "interval";
 	description?: string;
 }
@@ -56,7 +57,7 @@ export class EditorResourceManager {
 	 * 注册定时器资源
 	 */
 	registerTimer(
-		id: ReturnType<typeof setTimeout>  ,
+		id: WeaveTimerHandle  ,
 		type: "timeout" | "interval",
 		description?: string
 	): string {

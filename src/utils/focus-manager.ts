@@ -25,24 +25,23 @@ export class FocusManager {
 
 	static getInstance(): FocusManager {
 		if (typeof window !== "undefined") {
-			const w = window as unknown;
-			if (w.__weaveFocusManager) {
-				return w.__weaveFocusManager as FocusManager;
+						if (window.__weaveFocusManager) {
+				return window.__weaveFocusManager;
 			}
 
 			const instance = new FocusManager();
-			w.__weaveFocusManager = instance;
-			w.__weaveFocusManagerCleanup = () => {
+			window.__weaveFocusManager = instance;
+			window.__weaveFocusManagerCleanup = () => {
 				try {
-					(w.__weaveFocusManager as FocusManager | undefined)?.destroy();
+					(window.__weaveFocusManager as FocusManager | undefined)?.destroy();
 				} catch { /* no-op */ }
 
 				try {
-					w.__weaveFocusManager = undefined;
-					w.__weaveFocusManagerCleanup = undefined;
+					window.__weaveFocusManager = undefined;
+					window.__weaveFocusManagerCleanup = undefined;
 				} catch {
-					w.__weaveFocusManager = null;
-					w.__weaveFocusManagerCleanup = null;
+					window.__weaveFocusManager = null;
+					window.__weaveFocusManagerCleanup = null;
 				}
 			};
 
@@ -231,7 +230,7 @@ export class FocusManager {
 		if (style.display === "none" || style.visibility === "hidden") return false;
 
 		// 检查元素是否被禁用
-		if ((element as unknown).disabled) return false;
+		if ("disabled" in element && Boolean((element as HTMLButtonElement).disabled)) return false;
 
 		// 检查tabindex
 		const tabindex = element.getAttribute("tabindex");

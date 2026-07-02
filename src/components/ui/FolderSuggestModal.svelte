@@ -97,7 +97,7 @@
   onMount(() => {
     folders = buildFolderList();
     
-    setTimeout(() => {
+    window.setTimeout(() => {
       showContent = true;
     }, 50);
     

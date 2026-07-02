@@ -7,7 +7,7 @@ import { logger } from "../../utils/logger";
 import type { Plugin } from "obsidian";
 import { Notice } from "obsidian";
 import type { AutoBackupConfig } from "../../types/data-management-types";
-import { SmartBackupEngine } from "./SmartBackupEngine";
+import { getWeaveBackupService } from "./WeaveBackupService";
 
 type PluginWithDataStorage = Plugin & {
 	dataStorage?: {
@@ -16,7 +16,7 @@ type PluginWithDataStorage = Plugin & {
 };
 
 export class AutoBackupScheduler {
-	private engine: SmartBackupEngine;
+	private service: ReturnType<typeof getWeaveBackupService>;
 	private timerId: number | null = null;
 	private isRunning = false;
 	private lastCardCount = 0;
@@ -26,7 +26,7 @@ export class AutoBackupScheduler {
 		private getConfig: () => AutoBackupConfig,
 		private saveConfig: (config: Partial<AutoBackupConfig>) => Promise<void>
 	) {
-		this.engine = new SmartBackupEngine(plugin);
+		this.service = getWeaveBackupService(plugin);
 	}
 
 	/**
@@ -164,10 +164,9 @@ export class AutoBackupScheduler {
 		try {
 			logger.debug(`⏰ 开始创建自动备份 (触发: ${trigger})`);
 
-			const backup = await this.engine.createBackup({
+			const backup = await this.service.createBackup({
 				reason: `自动备份 (${trigger})`,
-				autoCleanup: true,
-				type: "auto", // 标记为自动备份
+				type: "auto",
 			});
 
 			// 更新统计信息

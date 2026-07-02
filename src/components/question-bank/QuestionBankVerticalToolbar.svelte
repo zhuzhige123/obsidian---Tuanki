@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { logger } from '../../utils/logger';
   // 静态导入 parseSourceInfo，确保响应式追踪正常
   import { parseEpubSourceInfo, parseSourceInfo } from '../../utils/yaml-utils';
@@ -29,6 +30,7 @@
     compactModeSetting?: 'auto' | 'fixed';
     onCompactModeSettingChange?: (setting: 'auto' | 'fixed') => void;
     onToggleEdit?: () => void;
+    onRemove?: (skipConfirm?: boolean) => void;
     onDelete?: (skipConfirm?: boolean) => void;
     onToggleFavorite?: () => void;
     onChangePriority?: () => void;
@@ -56,6 +58,7 @@
     compactModeSetting = 'fixed',
     onCompactModeSettingChange,
     onToggleEdit,
+    onRemove,
     onDelete,
     onToggleFavorite,
     onChangePriority,
@@ -79,14 +82,14 @@
   let draggedButtonElement = $state<HTMLElement | null>(null);
   let dragStartY = $state(0);
   let dragCurrentY = $state(0);
-  let longPressTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+  let longPressTimer = $state<WeaveTimerHandle | null>(null);
   const LONG_PRESS_DURATION = 500;
   
   function handleButtonLongPressStart(e: MouseEvent | TouchEvent, element: HTMLElement) {
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     dragStartY = clientY;
     
-    longPressTimer = setTimeout(() => {
+    longPressTimer = window.setTimeout(() => {
       isDraggingButton = true;
       draggedButtonElement = element;
       element.classList.add('dragging');
@@ -134,7 +137,7 @@
   
   function handleButtonDragEnd() {
     if (longPressTimer) {
-      clearTimeout(longPressTimer);
+      window.clearTimeout(longPressTimer);
       longPressTimer = null;
     }
     
@@ -395,12 +398,18 @@
   // 获取卡片状态文本
   function getCardStateText(state: number): string {
     const stateMap: Record<number, string> = {
-      0: t('toolbar.newCard'),
+      0: t('ui.newCard'),
       1: t('study.questionBankUI.verticalToolbar.stateLearning'),
       2: t('study.questionBankUI.verticalToolbar.stateReviewing'),
       3: t('study.questionBankUI.verticalToolbar.stateRelearning')
     };
     return stateMap[state] || t('study.questionBankUI.cardInfoTab.unknown');
+  }
+
+  function handleRemoveClick() {
+    if (onRemove) {
+      onRemove(enableDirectDelete);
+    }
   }
 
   // 删除功能
@@ -465,7 +474,20 @@
       </button>
     {/if}
 
-    <!-- 删除 -->
+    <!-- 移除（仅从考试题组解除，保留记忆牌组卡片） -->
+    <button
+      class="clickable-icon toolbar-btn remove-btn"
+      onclick={handleRemoveClick}
+      onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
+      onmouseup={handleButtonDragEnd}
+      ontouchstart={(e) => handleButtonLongPressStart(e, e.currentTarget)}
+      title={enableDirectDelete ? t('study.questionBankUI.verticalToolbar.directRemoveCard') : t('study.questionBankUI.verticalToolbar.removeCard')}
+    >
+      <EnhancedIcon name="unlink" size="18" />
+      <span class="btn-label">{t('study.questionBankUI.verticalToolbar.remove')}</span>
+    </button>
+
+    <!-- 删除（从记忆牌组与考试题组中彻底删除） -->
     <button
       class="clickable-icon toolbar-btn delete-btn"
       onclick={handleDeleteClick}

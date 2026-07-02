@@ -367,7 +367,7 @@ export class ProgressiveClozeConverter {
 		options: ConversionOptions = {}
 	): Array<{
 		sourceCard: Card;
-		parent: ProgressiveClozeParentCard;
+		parent: ProgressiveClozeParentCard | null;
 		children: ProgressiveClozeChildCard[];
 		success: boolean;
 		error?: string;
@@ -377,7 +377,7 @@ export class ProgressiveClozeConverter {
 				if (!this.canConvert(_card)) {
 					return {
 						sourceCard: _card,
-						parent: null as unknown,
+						parent: null,
 						children: [],
 						success: false,
 						error: "Card cannot be converted to progressive cloze",
@@ -395,7 +395,7 @@ export class ProgressiveClozeConverter {
 			} catch (error) {
 				return {
 					sourceCard: _card,
-					parent: null as unknown,
+					parent: null,
 					children: [],
 					success: false,
 					error: error instanceof Error ? error.message : String(error),

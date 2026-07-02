@@ -3,7 +3,7 @@ import { parseYAMLFromContent, setCardProperties } from "./yaml-utils";
 
 type CardFingerprintInput =
 	| string
-	| Pick<Card, "content" | "type" | "uuid" | "parentCardId" | "clozeOrd">;
+	| Pick<Card, "content" | "type" | "uuid" | "parentCardId"> & { clozeOrd?: number };
 
 /**
  * 提取卡片正文指纹（去除 YAML frontmatter 后标准化并哈希）。

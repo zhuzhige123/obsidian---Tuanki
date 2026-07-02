@@ -110,6 +110,26 @@ export function keepSingleMemoryFormalDeck(
 	return primaryMemoryDeck ? [primaryMemoryDeck, ...nonMemoryDecks] : nonMemoryDecks;
 }
 
+export function getKnownSingleMemoryFormalDeckIds(
+	values: string[] | undefined,
+	decks?: DeckIdentifierLookup[]
+): string[] {
+	const knownRawValues = getMemoryFormalDeckEntries(values, decks)
+		.filter((entry) => entry.isKnownDeck)
+		.map((entry) => entry.rawValue);
+	return getSingleMemoryFormalDeckIds(knownRawValues, decks);
+}
+
+export function getKnownSingleMemoryFormalDeckNames(
+	values: string[] | undefined,
+	decks?: DeckIdentifierLookup[]
+): string[] {
+	const knownRawValues = getMemoryFormalDeckEntries(values, decks)
+		.filter((entry) => entry.isKnownDeck)
+		.map((entry) => entry.rawValue);
+	return getSingleMemoryFormalDeckNames(knownRawValues, decks);
+}
+
 export function getSingleMemoryFormalDeckIds(
 	values: string[] | undefined,
 	decks?: DeckIdentifierLookup[]

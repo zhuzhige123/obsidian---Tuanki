@@ -8,7 +8,7 @@
 
   import { onMount, onDestroy } from 'svelte';
   import { Notice, TFolder } from 'obsidian';
-  import { OperationType } from '../../../types/data-management-types';
+  import { OperationType, DataType } from '../../../types/data-management-types';
   import type {
     DataOverview,
     BackupInfo,
@@ -139,6 +139,21 @@
   let backupHistory = $derived.by(() => {
     storeUpdateTrigger; // 依赖此值以触发更新
     return backupStore?.backups || [];
+  });
+
+  const BACKUP_SLOT_IDS = ['auto', 'manual'] as const;
+
+  let backupSlotRows = $derived.by(() => {
+    storeUpdateTrigger;
+    return BACKUP_SLOT_IDS.map((slotId) => ({
+      slotId,
+      backup: backupHistory.find((b) => b.id === slotId) ?? null,
+    }));
+  });
+
+  let hasAnyBackup = $derived.by(() => {
+    storeUpdateTrigger;
+    return backupHistory.length > 0;
   });
   
   let isLoading = $derived.by(() => {
@@ -280,6 +295,20 @@
       logger.error('打开文件夹失败:', error);
       lastError = '无法打开文件夹';
     }
+  }
+
+  function getStartupDataCheckMode(): 'smart' | 'strict' | 'off' {
+    const mode = plugin.settings?.startupDataCheckMode;
+    if (mode === 'smart' || mode === 'strict' || mode === 'off') {
+      return mode;
+    }
+    return plugin.settings?.enableStartupDataManagementGate === false ? 'off' : 'smart';
+  }
+
+  async function setStartupDataCheckMode(mode: 'smart' | 'strict' | 'off'): Promise<void> {
+    plugin.settings.startupDataCheckMode = mode;
+    plugin.settings.enableStartupDataManagementGate = mode !== 'off';
+    await plugin.saveSettings();
   }
 
   async function applyweaveParentFolder(newParentFolder: string): Promise<void> {
@@ -487,7 +516,7 @@
       }
       
       new Notice(`${t('dataManagement.backup.manual.success')}\n${t('dataManagement.backup.manual.successDetail').replace('{size}', (backup.size / 1024 / 1024).toFixed(2))}`);
-      // 响应式系统会自动更新UI，无需手动刷新
+      await loadDataOverview();
     } catch (error) {
       logger.error('创建备份失败:', error);
       const errorMsg = error instanceof Error ? error.message : t('dataManagement.backup.manual.failed');
@@ -528,9 +557,9 @@
       onConfirm: async () => {
         try {
           // 使用旧的备份管理服务恢复功能
-          const backupManagementService = new BackupManagementService(plugin.dataStorage, plugin) as any;
+          const backupManagementService = new BackupManagementService(plugin);
           const result = await backupManagementService.restoreFromBackup(targetBackupId, {
-            dataTypes: ['decks', 'cards', 'sessions', 'profile'],
+            dataTypes: [DataType.DECKS, DataType.CARDS, DataType.PROFILE],
             createPreRestoreBackup: true,
             conflictStrategy: 'overwrite'
           });
@@ -609,10 +638,10 @@
     });
   }
 
-  function getBackupTypeLabel(type: string): string {
-    if (type === 'auto') return t('dataManagement.backup.history.type.auto');
-    if (type === 'manual') return t('dataManagement.backup.history.type.manual');
-    return type;
+  function getBackupSlotLabel(slotId: string): string {
+    if (slotId === 'auto') return t('dataManagement.backup.slots.type.auto');
+    if (slotId === 'manual') return t('dataManagement.backup.slots.type.manual');
+    return slotId;
   }
 
   function showBackupMenu(event: MouseEvent, backup: any) {
@@ -858,59 +887,96 @@
     onCreateBackup={handleCreateBackup}
   />
 
-  <!-- 备份历史 -->
+  <!-- 启动时数据检查 -->
+  <div class="weave-settings settings-group startup-data-check">
+    <h4 class="group-title with-accent-bar accent-green">{t('dataManagement.startupDataCheck.title')}</h4>
+    <p class="startup-data-check-hint">{t('dataManagement.startupDataCheck.description')}</p>
+    <label class="startup-data-check-mode-label" for="startup-data-check-mode">
+      {t('dataManagement.startupDataCheck.modeLabel')}
+    </label>
+    <select
+      id="startup-data-check-mode"
+      class="modern-input startup-data-check-mode-select"
+      value={getStartupDataCheckMode()}
+      onchange={(e) => {
+        const target = e.target as HTMLSelectElement;
+        void setStartupDataCheckMode(target.value as 'smart' | 'strict' | 'off');
+      }}
+    >
+      <option value="smart">{t('dataManagement.startupDataCheck.modes.smart')}</option>
+      <option value="strict">{t('dataManagement.startupDataCheck.modes.strict')}</option>
+      <option value="off">{t('dataManagement.startupDataCheck.modes.off')}</option>
+    </select>
+    <p class="startup-data-check-mode-hint">
+      {t(`dataManagement.startupDataCheck.modeHints.${getStartupDataCheckMode()}`)}
+    </p>
+  </div>
+
+  <!-- 备份槽位（自动 + 手动，各保留一份） -->
   <div class="weave-settings settings-group backup-history">
-    <h4 class="group-title with-accent-bar accent-purple">{t('dataManagement.backup.history.title')}</h4>
-    
-    {#if backupHistory.length > 0}
-      <div class="backup-table-wrapper">
-        <table class="backup-table">
-          <thead>
+    <h4 class="group-title with-accent-bar accent-purple">{t('dataManagement.backup.slots.title')}</h4>
+    <p class="backup-slots-hint">{t('dataManagement.backup.slots.description')}</p>
+
+    <div class="backup-table-wrapper">
+      <table class="backup-table">
+        <thead>
+          <!-- svelte-ignore component_name_lowercase -->
+          <tr>
+            <th>{t('dataManagement.backup.slots.tableHeaders.backupType')}</th>
+            <th>{t('dataManagement.backup.slots.tableHeaders.backupTime')}</th>
+            <th>{t('dataManagement.backup.slots.tableHeaders.backupSize')}</th>
+            <th>{t('dataManagement.backup.slots.tableHeaders.actions')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each backupSlotRows as row (row.slotId)}
             <!-- svelte-ignore component_name_lowercase -->
-            <tr>
-              <th>{t('dataManagement.backup.history.tableHeaders.backupTime')}</th>
-              <th>{t('dataManagement.backup.history.tableHeaders.backupType')}</th>
-              <th>{t('dataManagement.backup.history.tableHeaders.backupSize')}</th>
-              <th>{t('dataManagement.backup.history.tableHeaders.actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each backupHistory.slice(0, 5) as backup (backup.id)}
-              <!-- svelte-ignore component_name_lowercase -->
-              <tr class:invalid={!backup.isValid}>
-                <td class="time-cell">
-                  {formatBackupTime(backup.timestamp)}
-                </td>
-                <td class="type-cell">
-                  <span class="type-badge" class:auto={backup.type === 'auto'} class:manual={backup.type === 'manual'}>
-                    {getBackupTypeLabel(backup.type)}
-                  </span>
-                </td>
-                <td class="size-cell">
-                  {formatFileSize(backup.size)}
-                </td>
-                <td class="action-cell">
+            <tr class:invalid={row.backup && !row.backup.isValid}>
+              <td class="type-cell">
+                <span
+                  class="type-badge"
+                  class:auto={row.slotId === 'auto'}
+                  class:manual={row.slotId === 'manual'}
+                >
+                  {getBackupSlotLabel(row.slotId)}
+                </span>
+              </td>
+              <td class="time-cell">
+                {#if row.backup}
+                  {formatBackupTime(row.backup.timestamp)}
+                {:else}
+                  <span class="slot-empty">{t('dataManagement.backup.slots.empty')}</span>
+                {/if}
+              </td>
+              <td class="size-cell">
+                {#if row.backup}
+                  {formatFileSize(row.backup.size)}
+                {:else}
+                  <span class="slot-empty">—</span>
+                {/if}
+              </td>
+              <td class="action-cell">
+                {#if row.backup}
                   <button
                     class="menu-button clickable-icon"
                     type="button"
-                    onclick={(e) => showBackupMenu(e, backup)}
+                    onclick={(e) => showBackupMenu(e, row.backup)}
                     title={t('dataManagement.backup.panel.moreActions')}
                     aria-label={t('dataManagement.backup.panel.moreActions')}
                   >
                     <ObsidianIcon name="more-horizontal" size={16} />
                   </button>
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-      {#if backupHistory.length > 5}
-        <div class="more-backups-hint">
-          {t('dataManagement.backup.panel.moreHidden', { count: String(backupHistory.length - 5) })}
-        </div>
-      {/if}
-    {:else}
+                {:else}
+                  <span class="slot-empty">—</span>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+
+    {#if !hasAnyBackup}
       <div class="no-backups">
         <ObsidianIcon name="archive" size={24} />
         <p>{t('dataManagement.backup.panel.noBackups')}</p>
@@ -1123,9 +1189,22 @@
 
   /* 备份历史表格 */
   .backup-table-wrapper {
+    margin-top: var(--weave-settings-gap-sm);
     overflow-x: auto;
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--weave-settings-radius-sm);
+  }
+
+  .backup-slots-hint {
+    margin: 0 0 var(--weave-settings-gap-sm);
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  .slot-empty {
+    color: var(--text-muted);
+    font-size: var(--weave-settings-font-size-desc, 0.85rem);
   }
 
   /*  深色模式 - 增强表格外边框可见性 */
@@ -1284,6 +1363,31 @@
     justify-content: space-between;
     gap: var(--weave-settings-gap-lg);
     margin-bottom: var(--weave-settings-gap-lg);
+  }
+
+  .startup-data-check {
+    margin-top: var(--weave-settings-gap-lg);
+  }
+
+  .startup-data-check-hint,
+  .startup-data-check-mode-hint {
+    margin: var(--weave-settings-gap-sm) 0 0;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    line-height: 1.5;
+  }
+
+  .startup-data-check-mode-label {
+    display: block;
+    margin-top: var(--weave-settings-gap-md);
+    margin-bottom: var(--weave-settings-gap-sm);
+    color: var(--text-normal);
+    font-size: var(--font-ui-small);
+    font-weight: 600;
+  }
+
+  .startup-data-check-mode-select {
+    width: min(100%, 320px);
   }
 
   .data-folder-visibility-section {

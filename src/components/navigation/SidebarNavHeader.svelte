@@ -711,7 +711,7 @@
     <button
       class="sidebar-menu-trigger"
       onclick={handleHeaderMenuClick}
-      aria-label={t('weave.mobileOpenMenu')}
+      aria-label={t('views.weave.mobileOpenMenu')}
     >
       <ObsidianIcon name="menu" size={18} />
     </button>

@@ -28,6 +28,10 @@ jspm_packages/
 
 # Optional eslint cache
 .eslintcache
+.eslint-phase-a.json
+.eslint-phase-a.txt
+.eslint-all.json
+eslint-main-report.json
 
 # Microbundle cache
 .rpt2_cache/
@@ -79,6 +83,7 @@ tmp/
 temp/
 *.bak
 *.bak-*
+*.backup.ts
 *.check.output.txt
 *.test.output.txt
 check-output.txt
@@ -289,7 +294,10 @@ celebration-messages.json
 # public 目录
 public/
 
-# Codex skill junctions (真源在 docs/technical/skills，由 scripts/sync-ai-skills.cmd 生成)
+# Typecheck generated artifacts (baseline .typecheck-baseline.json is committed)
+.typecheck-report.json
+typecheck-raw.txt
+
 .codex/skills/
 
 # Cursor skill junctions（内部 AI 工作流，禁止推送到公开 GitHub）

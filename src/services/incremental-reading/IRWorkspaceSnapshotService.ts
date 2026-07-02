@@ -9,13 +9,13 @@ import type {
 } from "../../types/ir-types";
 import { getTaskTopicId } from "../../utils/ir-topic-compat";
 import { logger } from "../../utils/logger";
-import { IREpubBookmarkTaskService } from "./IREpubBookmarkTaskService";
+import { IREpubBookmarkTaskService, type IREpubBookmarkTask } from "./IREpubBookmarkTaskService";
 import {
 	getProjectedDayLoad,
 	getProjectedScheduleSummary,
 	type IRProjectedScheduleSummary,
 } from "./IRProjectedScheduleSummary";
-import { IRPdfBookmarkTaskService } from "./IRPdfBookmarkTaskService";
+import { IRPdfBookmarkTaskService, type IRPdfBookmarkTask } from "./IRPdfBookmarkTaskService";
 import { IRStorageService } from "./IRStorageService";
 
 type DeckOverviewOptions = {
@@ -33,8 +33,8 @@ export interface IRWorkspaceDataSnapshot {
 	chunksRecord: Record<string, IRChunkFileData>;
 	sourcesRecord: Record<string, IRSourceFileMeta>;
 	history: { sessions?: IRSession[] };
-	pdfTasks: unknown[];
-	epubTasks: unknown[];
+	pdfTasks: IRPdfBookmarkTask[];
+	epubTasks: IREpubBookmarkTask[];
 }
 
 export interface IRDeckOverviewSnapshot {
@@ -427,7 +427,7 @@ export class IRWorkspaceSnapshotService {
 				}
 				continue;
 			}
-			for (const deckKey of deckKeysByIdentifier.get(String((block as unknown).deckPath || "").trim()) || []) {
+			for (const deckKey of deckKeysByIdentifier.get(String(block.deckPath || "").trim()) || []) {
 				map.get(deckKey)?.push(block);
 			}
 		}
@@ -494,7 +494,7 @@ export class IRWorkspaceSnapshotService {
 		}
 
 		for (const task of tasks) {
-			const identifier = String(getTaskTopicId(task as unknown) || (task as unknown)?.deckId || "").trim();
+			const identifier = String(getTaskTopicId(task) || task.deckId || "").trim();
 			if (!identifier) continue;
 			for (const deckKey of deckKeysByIdentifier.get(identifier) || []) {
 				map.get(deckKey)?.push(task);

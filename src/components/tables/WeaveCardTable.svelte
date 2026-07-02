@@ -3,13 +3,19 @@
   import { vaultStorage } from '../../utils/vault-local-storage';
 
   import type { Card } from '../../data/types';
-  // FieldTemplate类型已废弃，现使用动态解析，不再需要预定义模板
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import TableHeader from "./components/TableHeader.svelte";
   import TableRow from './components/TableRow.svelte';
   import type { ColumnVisibility, ColumnWidths, ColumnOrder, TableRowCallbacks, TableViewMode, ColumnKey, TableTagOption } from "./types/table-types";
   import { validateTableIcons } from "../../utils/icon-validator";
   import { getMinColumnWidth } from "./utils/table-utils";
+  import {
+    canTopScrollbarScroll,
+    createOverflowMeasureScheduler,
+    measureHorizontalOverflow,
+    resetLinkedHorizontalScroll,
+    syncLinkedHorizontalScroll,
+  } from "./utils/table-horizontal-scroll";
 
   interface Props {
     cards: Card[];
@@ -23,15 +29,15 @@
     sortConfig: { field: string; direction: "asc" | "desc" };
     onEdit: (cardId: string) => void;
     onDelete: (cardId: string) => void;
-    onResetReviewHistory?: (cardId: string) => void;
+    onResetToNewCard?: (cardId: string) => void;
     onTagsUpdate?: (cardId: string, tags: string[]) => void;
     onPriorityUpdate?: (cardId: string, priority: number) => void;
     loading?: boolean;
     isSorting?: boolean;
-    fieldTemplates?: any[]; // 保持兼容性，但已不使用预定义模板
     plugin?: any;
     onTempFileEdit?: (cardId: string) => void;
     decks?: Array<{id: string; name: string}>;
+    formalDecks?: Array<{id: string; name: string}>;
     onView?: (cardId: string) => void;
     availableTags?: TableTagOption[];
     onJumpToSource?: (card: Card) => void;
@@ -51,15 +57,15 @@
     tableViewMode = 'basic',
     onEdit,
     onDelete,
-    onResetReviewHistory,
+    onResetToNewCard,
     onTagsUpdate,
     onPriorityUpdate,
     loading = false,
     isSorting = false,
-    fieldTemplates = [],
     plugin,
     onTempFileEdit,
     decks = [],
+    formalDecks = [],
     onView,
     availableTags = [],
     onJumpToSource,
@@ -97,6 +103,7 @@
     back: 230,
     status: 126,
     deck: 168,
+    question_bank_deck: 168,
     tags: 190,
     priority: 82,
     created: 120,
@@ -110,7 +117,6 @@
     uuid: 120,
     obsidian_block_link: 150,
     source_document: 196,
-    field_template: 148,
     source_document_status: 118,
     // 题库专用列宽度
     question_type: 108,
@@ -165,6 +171,7 @@
       'front',
       'back',
       'deck',
+      'question_bank_deck',
       'tags',
       'priority',
       'question_type',
@@ -197,11 +204,17 @@
 
   let columnWidths = $state<ColumnWidths>({ ...DEFAULT_COLUMN_WIDTHS });
   let tableContainer = $state<HTMLElement | null>(null);
+  let tableWrapper = $state<HTMLElement | null>(null);
+  let horizontalScrollHost = $state<HTMLElement | null>(null);
   let topScrollbar = $state<HTMLElement | null>(null);
-  let bottomScrollbar = $state<HTMLElement | null>(null);
   let tableElement = $state<HTMLElement | null>(null);
-  let scrollbarContent = $state<HTMLElement | null>(null);
   let hasHorizontalOverflow = $state(false);
+  let horizontalContentWidth = $state(0);
+  let isSyncingScroll = false;
+
+  const overflowScheduler = createOverflowMeasureScheduler(() => {
+    applyHorizontalOverflowState();
+  });
   let tablePixelWidth = $derived.by(() => {
     const checkboxWidth = columnWidths.checkbox ?? DEFAULT_COLUMN_WIDTHS.checkbox;
     const visibleColumnsWidth = effectiveColumns.reduce((total, columnKey) => {
@@ -261,110 +274,141 @@
     return filteredColumns;
   });
 
-  // 同步滚动条
-  function syncScrollbars(source: 'top' | 'bottom') {
-    if (source === 'top' && topScrollbar && bottomScrollbar) {
-      bottomScrollbar.scrollLeft = topScrollbar.scrollLeft;
-    } else if (source === 'bottom' && topScrollbar && bottomScrollbar) {
-      topScrollbar.scrollLeft = bottomScrollbar.scrollLeft;
-    }
-  }
-
-  // 更新滚动条宽度
-  function updateScrollbarWidth() {
-    if (!tableElement || !scrollbarContent || !bottomScrollbar) {
-      hasHorizontalOverflow = false;
+  function syncScrollbars(source: 'top' | 'content') {
+    if (isSyncingScroll || !topScrollbar || !horizontalScrollHost) {
       return;
     }
 
-    // 使用setTimeout确保DOM已更新
-    setTimeout(() => {
-      if (!tableElement || !scrollbarContent || !bottomScrollbar) {
-        hasHorizontalOverflow = false;
-        return;
-      }
-
-      const tableWidth = tableElement.scrollWidth;
-      const viewportWidth = bottomScrollbar.clientWidth;
-      const overflow = tableWidth > viewportWidth + 1;
-
-      scrollbarContent.style.width = `${tableWidth}px`;
-      hasHorizontalOverflow = overflow;
-
-      if (!overflow) {
-        if (topScrollbar) {
-          topScrollbar.scrollLeft = 0;
-        }
-        bottomScrollbar.scrollLeft = 0;
-      }
-    }, 0);
+    isSyncingScroll = true;
+    try {
+      syncLinkedHorizontalScroll(source, topScrollbar, horizontalScrollHost);
+    } finally {
+      isSyncingScroll = false;
+    }
   }
 
-  // 监听表格宽度变化 - 添加防抖优化
-  let updateScrollbarTimer: number | null = null;
-  let resizeDebounceTimer: number | null = null;
-  
-  $effect(() => {
-    // 当列宽、列顺序、列可见性或模式变化时，更新滚动条
-    if (columnWidths && effectiveColumns && columnVisibility && tableViewMode) {
-      // 防抖：避免频繁的 DOM 操作
-      if (updateScrollbarTimer !== null) {
-        clearTimeout(updateScrollbarTimer);
-      }
-      updateScrollbarTimer = window.setTimeout(() => {
-        updateScrollbarWidth();
-        updateScrollbarTimer = null;
-      }, 50); // 50ms 防抖
-    }
-  });
-
-  // 监听cards变化 - 添加防抖优化
-  let cardsUpdateTimer: number | null = null;
-  
-  $effect(() => {
-    if (cards) {
-      // 防抖：避免频繁的 DOM 操作
-      if (cardsUpdateTimer !== null) {
-        clearTimeout(cardsUpdateTimer);
-      }
-      cardsUpdateTimer = window.setTimeout(() => {
-        updateScrollbarWidth();
-        cardsUpdateTimer = null;
-      }, 100); // 100ms 防抖
-    }
-  });
-
-  $effect(() => {
-    if (!tableElement && !bottomScrollbar) {
+  function applyHorizontalOverflowState() {
+    if (!isVisible || !horizontalScrollHost) {
       hasHorizontalOverflow = false;
+      horizontalContentWidth = 0;
+      if (horizontalScrollHost) {
+        resetLinkedHorizontalScroll(horizontalScrollHost, topScrollbar);
+      }
+      return;
+    }
+
+    const metrics = measureHorizontalOverflow({
+      scrollHost: horizontalScrollHost,
+      fallbackViewportWidths: [tableContainer?.clientWidth, tableWrapper?.clientWidth],
+    });
+
+    if (!metrics?.hasOverflow) {
+      hasHorizontalOverflow = false;
+      horizontalContentWidth = 0;
+      resetLinkedHorizontalScroll(horizontalScrollHost, topScrollbar);
+      return;
+    }
+
+    horizontalContentWidth = metrics.contentWidth;
+
+    if (topScrollbar && !canTopScrollbarScroll(topScrollbar)) {
+      hasHorizontalOverflow = false;
+      horizontalContentWidth = 0;
+      resetLinkedHorizontalScroll(horizontalScrollHost, topScrollbar);
+      return;
+    }
+
+    hasHorizontalOverflow = true;
+
+    if (topScrollbar) {
+      topScrollbar.scrollLeft = horizontalScrollHost.scrollLeft;
+    }
+  }
+
+  $effect(() => {
+    void tablePixelWidth;
+    void effectiveColumns;
+    void columnWidths;
+    void tableViewMode;
+    void columnVisibility;
+    void cards;
+    void loading;
+    void isVisible;
+
+    overflowScheduler.schedule();
+  });
+
+  $effect(() => {
+    const observedElements = [
+      tableWrapper,
+      tableContainer,
+      horizontalScrollHost,
+      tableElement,
+      topScrollbar,
+    ].filter((element): element is HTMLElement => element instanceof HTMLElement);
+
+    if (observedElements.length === 0) {
       return;
     }
 
     const resizeObserver = new ResizeObserver(() => {
-      if (resizeDebounceTimer !== null) {
-        clearTimeout(resizeDebounceTimer);
-      }
-      resizeDebounceTimer = window.setTimeout(() => {
-        updateScrollbarWidth();
-        resizeDebounceTimer = null;
-      }, 100);
+      overflowScheduler.scheduleDebounced();
     });
 
-    if (tableElement) {
-      resizeObserver.observe(tableElement);
-    }
-    if (bottomScrollbar) {
-      resizeObserver.observe(bottomScrollbar);
+    for (const element of observedElements) {
+      resizeObserver.observe(element);
     }
 
-    updateScrollbarWidth();
+    overflowScheduler.schedule();
 
     return () => {
-      if (resizeDebounceTimer !== null) {
-        clearTimeout(resizeDebounceTimer);
-        resizeDebounceTimer = null;
-      }
       resizeObserver.disconnect();
+    };
+  });
+
+  $effect(() => {
+    const workspace = plugin?.app?.workspace;
+    if (!workspace) {
+      return;
+    }
+
+    const handleLayoutChange = () => {
+      overflowScheduler.scheduleAfterLayoutSettle();
+    };
+
+    const layoutChangeRef = workspace.on('layout-change', handleLayoutChange);
+    window.addEventListener('Weave:surface-location-change', handleLayoutChange);
+
+    return () => {
+      workspace.offref(layoutChangeRef);
+      window.removeEventListener('Weave:surface-location-change', handleLayoutChange);
+    };
+  });
+
+  $effect(() => {
+    if (!hasHorizontalOverflow) {
+      return;
+    }
+
+    void tick().then(() => {
+      overflowScheduler.schedule();
+    });
+  });
+
+  $effect(() => {
+    const container = tableContainer;
+    if (!container) {
+      return;
+    }
+
+    const handleResetColumnWidths = () => {
+      resetColumnWidths();
+    };
+
+    container.addEventListener('resetColumnWidths', handleResetColumnWidths);
+
+    return () => {
+      container.removeEventListener('resetColumnWidths', handleResetColumnWidths);
     };
   });
 
@@ -418,33 +462,12 @@
 
     loadColumnWidths();
 
-    // 监听重置列宽事件
-    const handleResetColumnWidths = () => {
-      resetColumnWidths();
-    };
+    void tick().then(() => {
+      overflowScheduler.schedule();
+    });
 
-    if (tableContainer) {
-      tableContainer.addEventListener('resetColumnWidths', handleResetColumnWidths);
-    }
-
-    // 清理事件监听器
     return () => {
-      if (tableContainer) {
-        tableContainer.removeEventListener('resetColumnWidths', handleResetColumnWidths);
-      }
-      if (resizeDebounceTimer !== null) {
-        clearTimeout(resizeDebounceTimer);
-      }
-      // 清理定时器
-      if (updateScrollbarTimer !== null) {
-        clearTimeout(updateScrollbarTimer);
-      }
-      if (cardsUpdateTimer !== null) {
-        clearTimeout(cardsUpdateTimer);
-      }
-      if (resizeDebounceTimer !== null) {
-        clearTimeout(resizeDebounceTimer);
-      }
+      overflowScheduler.dispose();
     };
   });
 
@@ -458,6 +481,10 @@
     dragSelectStartCard = cardId;
     // 开始拖拽批量选择
     
+    if (typeof activeDocument === 'undefined') {
+      return;
+    }
+
     // 阻止页面滚动
     activeDocument.body.style.overflow = 'hidden';
     
@@ -516,11 +543,13 @@
       isDragSelectMode = false;
       dragSelectStartCard = null;
       
-      // 恢复页面滚动
-      activeDocument.body.style.overflow = '';
-      
-      // 移除全局事件监听
-      activeDocument.removeEventListener('mouseup', handleGlobalMouseUp);
+      if (typeof activeDocument !== 'undefined') {
+        // 恢复页面滚动
+        activeDocument.body.style.overflow = '';
+        
+        // 移除全局事件监听
+        activeDocument.removeEventListener('mouseup', handleGlobalMouseUp);
+      }
       
       // 退出拖拽批量选择模式
     }
@@ -530,8 +559,8 @@
   let callbacks: TableRowCallbacks = $derived.by(() => ({
     onEdit: (cardId) => onEdit(cardId),
     onDelete: (cardId) => onDelete(cardId),
-    onResetReviewHistory: onResetReviewHistory
-      ? (cardId) => onResetReviewHistory(cardId)
+    onResetToNewCard: onResetToNewCard
+      ? (cardId) => onResetToNewCard(cardId)
       : undefined,
     onTagsUpdate: onTagsUpdate
       ? (cardId, tags) => onTagsUpdate(cardId, tags)
@@ -558,27 +587,27 @@
   // 分页每页25-50条，不需要额外的虚拟滚动
 </script>
 
-<div class="weave-table-wrapper show-grid-borders">
-  {#if !loading && Array.isArray(cards) && cards.length > 0}
-    <!-- 顶部横向滚动条 -->
-    <div 
-      class="weave-table-top-scrollbar" 
-      hidden={!hasHorizontalOverflow}
+<div class="weave-table-wrapper show-grid-borders" bind:this={tableWrapper}>
+  {#if !loading && hasHorizontalOverflow}
+    <div
+      class="weave-table-top-scrollbar"
       bind:this={topScrollbar}
       onscroll={() => syncScrollbars('top')}
     >
-      <div class="weave-table-scrollbar-content" bind:this={scrollbarContent}></div>
+      <div
+        class="weave-table-scrollbar-content"
+        style={`width: ${horizontalContentWidth}px;`}
+      ></div>
     </div>
   {/if}
 
-  <!-- 主表格容器 -->
-  <div 
-    class="weave-table-container" 
-    bind:this={tableContainer}
-    onscroll={() => syncScrollbars('bottom')}
-  >
+  <div class="weave-table-container" bind:this={tableContainer}>
     {#if !loading}
-      <div bind:this={bottomScrollbar} style="overflow-x: auto; overflow-y: hidden;">
+      <div
+        class="weave-table-scroll-x"
+        bind:this={horizontalScrollHost}
+        onscroll={() => syncScrollbars('content')}
+      >
         <table
           class="weave-table"
           bind:this={tableElement}
@@ -615,7 +644,7 @@
                 {callbacks}
                 {plugin}
                 {decks}
-                {fieldTemplates}
+                {formalDecks}
                 {availableTags}
                 onSelect={onCardSelect}
                 onDragSelectStart={handleDragSelectStart}
@@ -635,10 +664,22 @@
   .weave-table-wrapper {
     --weave-table-page-bg: var(--weave-card-management-page-bg, var(--weave-surface-background, var(--weave-surface, var(--background-primary))));
     --weave-table-surface-bg: var(--weave-card-management-surface-bg, var(--weave-elevated-background, var(--weave-surface-secondary, var(--background-secondary))));
+    --weave-table-header-surface: var(
+      --weave-table-surface-bg,
+      var(--background-secondary-alt, var(--background-secondary))
+    );
+    --weave-table-header-bg: var(--weave-table-header-surface);
+    --weave-table-header-fg: var(--text-muted);
+    --weave-table-header-border: var(--background-modifier-border);
+    --weave-table-header-divider: var(--background-modifier-border);
+    --weave-table-header-cell-hover-bg: var(--background-modifier-hover);
+    --weave-table-header-cell-sorted-bg: var(--background-modifier-active-hover);
+    --weave-table-header-cell-sorted-fg: var(--text-normal);
     --weave-table-grid-border-color: var(--table-border-color, var(--divider-color, var(--background-modifier-border)));
     --weave-table-grid-strong-border-color: var(--divider-color, var(--background-modifier-border-hover, var(--background-modifier-border)));
     --weave-table-grid-hover-border-color: var(--divider-color, var(--background-modifier-border-hover, var(--background-modifier-border)));
     --weave-table-header-cell-height: 32px;
+    --weave-table-top-scrollbar-size: 12px;
     --weave-table-header-padding-y: 8px;
     --weave-table-header-padding-x: 16px;
     --weave-table-cell-padding-y: 6px;
@@ -662,31 +703,48 @@
     box-shadow: inset 0 0 0 1px var(--weave-table-grid-border-color);
   }
 
-  /* 顶部横向滚动条 */
   .weave-table-top-scrollbar {
+    flex: 0 0 var(--weave-table-top-scrollbar-size, 12px);
+    height: var(--weave-table-top-scrollbar-size, 12px);
+    min-height: 0;
     overflow-x: auto;
     overflow-y: hidden;
-    height: 12px;
-    background: var(--weave-table-page-bg);
     border-bottom: 1px solid var(--weave-table-grid-strong-border-color);
+    background: var(--weave-table-page-bg);
   }
 
   .weave-table-scrollbar-content {
     height: 1px;
-    min-width: 1200px; /* 最小宽度与表格最小宽度一致 */
+    pointer-events: none;
   }
 
   .weave-table-container {
     flex: 1;
     min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
     background: var(--weave-table-page-bg);
+    scrollbar-gutter: auto;
+  }
+
+  .weave-table-scroll-x {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .weave-table-scroll-x::-webkit-scrollbar {
+    display: none;
+    height: 0;
   }
 
 
   .weave-table {
     width: 100%;
-    min-width: 1200px;
     border-collapse: separate;
     border-spacing: 0;
     position: relative;

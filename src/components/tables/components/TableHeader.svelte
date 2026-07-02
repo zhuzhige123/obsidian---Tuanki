@@ -34,7 +34,7 @@
       },
       questionBank: {
         core: ['front', 'back'],
-        basic: ['deck', 'tags', 'priority'],
+        basic: ['deck', 'question_bank_deck', 'tags', 'priority'],
         test: ['question_type', 'accuracy', 'test_attempts', 'last_test', 'error_level'],
         meta: ['created'],
       },
@@ -163,39 +163,31 @@
     position: sticky;
     top: 0;
     z-index: 10;
-    /* 增强：更深的背景色 */
-    background: color-mix(in srgb, var(--weave-table-page-bg, var(--background-primary)) 90%, var(--weave-table-surface-bg, var(--background-secondary)));
-    /* 增强：更粗的边框 */
-    border-bottom: 1px solid var(--weave-table-grid-strong-border-color, color-mix(in srgb, var(--background-modifier-border) 78%, transparent));
-    /* 增强：更明显的阴影 */
-    box-shadow: 0 1px 0 var(--weave-table-grid-hover-border-color, color-mix(in srgb, var(--background-modifier-border) 34%, transparent));
-    backdrop-filter: blur(10px);
+    background: var(
+      --weave-table-header-bg,
+      var(--background-secondary-alt, var(--background-secondary))
+    );
+    border-bottom: 1px solid var(--weave-table-header-border, var(--background-modifier-border));
   }
 
   .weave-table-header th {
-    /* 增强：增加内边距 */
     padding: var(--weave-table-header-padding-y, 8px) var(--weave-table-header-padding-x, 16px);
     text-align: left;
-    /* 增强：更粗的字重 */
     font-weight: 600;
-    color: color-mix(in srgb, var(--text-muted) 82%, var(--text-normal));
-    /* 增强：略小的字号 */
+    color: var(--weave-table-header-fg, var(--text-muted));
     font-size: 11px;
-    /* 增强：大写文本 */
     text-transform: none;
-    /* 增强：增加字母间距 */
     letter-spacing: 0.04em;
-    border-right: 1px solid var(--weave-table-grid-border-color, color-mix(in srgb, var(--background-modifier-border) 55%, transparent));
-    /* 增强：增加高度 */
+    background: transparent;
+    border-right: 1px solid var(--weave-table-header-divider, var(--background-modifier-border));
     height: var(--weave-table-header-cell-height, 34px);
     vertical-align: middle;
-    /* 平滑过渡 */
     transition: background-color 0.15s ease, color 0.15s ease;
   }
   
   /* 分组列结构：分组结束标记 */
   .weave-table-header th.group-end {
-    border-right: 2px solid var(--weave-table-grid-strong-border-color, var(--background-modifier-border));
+    border-right: 2px solid var(--weave-table-header-divider, var(--background-modifier-border));
   }
 
   /* 可排序列样式 */
@@ -205,8 +197,8 @@
   }
 
   .weave-sortable-column:hover {
-    background: color-mix(in srgb, var(--background-modifier-hover) 68%, transparent);
-    color: var(--text-normal);
+    background: var(--weave-table-header-cell-hover-bg, var(--background-modifier-hover));
+    color: var(--weave-table-header-fg, var(--text-muted));
   }
 
   .weave-sortable-column:active {
@@ -214,8 +206,8 @@
   }
 
   .weave-sortable-column.sorted {
-    background: color-mix(in srgb, var(--interactive-accent) 7%, transparent);
-    color: var(--text-normal);
+    background: var(--weave-table-header-cell-sorted-bg, var(--background-modifier-active-hover));
+    color: var(--weave-table-header-cell-sorted-fg, var(--text-normal));
   }
 
   /* 排序禁用状态 */
@@ -228,7 +220,7 @@
 
   /* 焦点样式（键盘导航） */
   .weave-sortable-column:focus {
-    outline: 2px solid var(--interactive-accent);
+    outline: 2px solid var(--background-modifier-border-focus);
     outline-offset: -2px;
   }
 
@@ -290,7 +282,7 @@
   .weave-actions-column {
     min-width: 100px;
     text-align: center;
-    color: var(--text-faint);
+    color: var(--weave-table-header-fg, var(--text-muted));
   }
 
   /* 响应式：移动端优化 */

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	buildApkgDeckMediaFolderSegment,
 	diagnoseFilename,
+	isIgnorableVaultSystemOrSyncJunk,
 	sanitizeForSync,
 	sanitizeMediaFilename,
 	suggestSyncSafeName,
@@ -54,5 +55,24 @@ describe("sync-safe-filename APKG media paths", () => {
 			expect(suggested.startsWith("APKG_")).toBe(true);
 			expect(diagnoseFilename(suggested, false).hasIssue).toBe(false);
 		}
+	});
+
+	it("ignores OS and sync junk files for filename compatibility checks", () => {
+		const junkNames = [
+			".DS_Store",
+			"DS_Store",
+			"DS_Store-sync1-sync1-sync1-sync1",
+			".DS_Store-sync1",
+			"Thumbs.db",
+			"desktop.ini",
+			".localized",
+			"._note.md",
+		];
+
+		for (const name of junkNames) {
+			expect(isIgnorableVaultSystemOrSyncJunk(name)).toBe(true);
+		}
+
+		expect(isIgnorableVaultSystemOrSyncJunk("一、基础营养学 单选题（1-50题）.md")).toBe(false);
 	});
 });

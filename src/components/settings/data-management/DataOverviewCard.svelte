@@ -49,8 +49,8 @@
     overview ? formatNumber(overview.totalDecks) : '0'
   );
 
-  let formattedSessions = $derived(
-    overview ? formatNumber(overview.totalSessions) : '0'
+  let formattedBackupSlots = $derived(
+    overview ? `${overview.filledBackupSlots ?? 0}/2` : '0/2'
   );
 
   let lastUpdatedText = $derived.by(() => {
@@ -189,7 +189,7 @@
     <div class="stat-item">
       <div class="stat-content">
         <div class="stat-label">{t('dataManagement.backup.latest.stats.backupCount')}</div>
-        <div class="stat-value">{formattedSessions}</div>
+        <div class="stat-value">{formattedBackupSlots}</div>
       </div>
     </div>
   </div>

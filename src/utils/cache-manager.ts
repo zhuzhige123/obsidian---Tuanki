@@ -214,27 +214,26 @@ export class CacheManager {
 
 	static getInstance(): CacheManager {
 		if (typeof window !== "undefined") {
-			const w = window as unknown;
-			if (w.__weaveCacheManager) {
-				CacheManager.instance = w.__weaveCacheManager as CacheManager;
+						if (window.__weaveCacheManager) {
+				CacheManager.instance = window.__weaveCacheManager;
 				return CacheManager.instance;
 			}
 
 			const instance = new CacheManager();
-			w.__weaveCacheManager = instance;
+			window.__weaveCacheManager = instance;
 
-			if (typeof w.__weaveCacheManagerCleanup !== "function") {
-				w.__weaveCacheManagerCleanup = () => {
+			if (typeof window.__weaveCacheManagerCleanup !== "function") {
+				window.__weaveCacheManagerCleanup = () => {
 					try {
-						(w.__weaveCacheManager as CacheManager | undefined)?.destroy();
+						(window.__weaveCacheManager as CacheManager | undefined)?.destroy();
 					} catch { /* no-op */ }
 
 					try {
-						w.__weaveCacheManager = undefined;
-						w.__weaveCacheManagerCleanup = undefined;
+						window.__weaveCacheManager = undefined;
+						window.__weaveCacheManagerCleanup = undefined;
 					} catch {
-						w.__weaveCacheManager = null;
-						w.__weaveCacheManagerCleanup = null;
+						window.__weaveCacheManager = null;
+						window.__weaveCacheManagerCleanup = null;
 					}
 				};
 			}
@@ -259,7 +258,7 @@ export class CacheManager {
 			this.caches.set(name, createdCache);
 			return createdCache;
 		}
-		return cache;
+		return cache as LRUCache<T>;
 	}
 
 	clearCache(name: string): void {

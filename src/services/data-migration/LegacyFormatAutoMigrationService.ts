@@ -2,7 +2,8 @@ import { Notice } from "obsidian";
 import type { WeavePlugin } from "../../main";
 import { logger } from "../../utils/logger";
 import { DataManagementService } from "../data-management/DataManagementService";
-import { CardYAMLMigrationService } from "./CardYAMLMigrationService";
+import { CardYAMLMigrationService, cardNeedsMigration } from "./CardYAMLMigrationService";
+import { DataConsistencyService } from "../reference-deck/DataConsistencyService";
 
 export type LegacyFormatMigrationStepId =
 	| "reference_deck"
@@ -158,6 +159,17 @@ export class LegacyFormatAutoMigrationService {
 			if (!this.plugin.dataStorage) {
 				step.message = "dataStorage 未就绪";
 				return step;
+			}
+
+			if (this.plugin.deckNameMapper) {
+				await this.plugin.deckNameMapper.refresh();
+			}
+
+			// 仅在确有 YAML 迁移需求时先收敛归属，避免每次启动都全量 repair
+			const allCards = await this.plugin.dataStorage.getCards();
+			if (allCards.some((card) => cardNeedsMigration(card))) {
+				const consistencyService = new DataConsistencyService(this.plugin);
+				await consistencyService.repairConsistency();
 			}
 
 			const migrationService = new CardYAMLMigrationService(this.plugin, {

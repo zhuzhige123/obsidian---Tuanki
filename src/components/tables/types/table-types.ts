@@ -52,9 +52,9 @@ export interface ColumnVisibility {
 	uuid: boolean;
 	obsidian_block_link: boolean;
 	source_document: boolean;
-	field_template: boolean;
 	source_document_status: boolean;
 	// 题库专用列
+	question_bank_deck: boolean; // 考试题组
 	question_type: boolean; // 题型
 	accuracy: boolean; // 正确率
 	test_attempts: boolean; // 测试次数
@@ -97,6 +97,7 @@ export const DEFAULT_COLUMN_ORDER: ColumnOrder = [
 	"back",
 	"status",
 	"deck",
+	"question_bank_deck",
 	"tags",
 	"priority",
 	"question_type", // 题型
@@ -114,7 +115,6 @@ export const DEFAULT_COLUMN_ORDER: ColumnOrder = [
 	"uuid",
 	"obsidian_block_link",
 	"source_document",
-	"field_template",
 	"source_document_status",
 	// 增量阅读专用列
 	"ir_title",
@@ -153,6 +153,7 @@ export interface ColumnWidths {
 	back: number;
 	status: number;
 	deck: number;
+	question_bank_deck: number;
 	tags: number;
 	priority: number;
 	created: number;
@@ -166,7 +167,6 @@ export interface ColumnWidths {
 	uuid: number;
 	obsidian_block_link: number;
 	source_document: number;
-	field_template: number;
 	source_document_status: number;
 	// 题库专用列宽度
 	question_type: number;
@@ -199,7 +199,7 @@ export interface ColumnWidths {
 export interface TableRowCallbacks {
 	onEdit: (cardId: string) => void;
 	onDelete: (cardId: string) => void;
-	onResetReviewHistory?: (cardId: string) => void;
+	onResetToNewCard?: (cardId: string) => void;
 	onTagsUpdate?: (cardId: string, tags: string[]) => void;
 	onPriorityUpdate?: (cardId: string, priority: number) => void;
 	onTempFileEdit?: (cardId: string) => void;
@@ -252,7 +252,7 @@ export interface PriorityCellProps extends BaseCellProps {
 export interface ActionsCellProps extends BaseCellProps {
 	onView?: (cardId: string) => void;
 	onTempFileEdit?: (cardId: string) => void;
-	onResetReviewHistory?: (cardId: string) => void;
+	onResetToNewCard?: (cardId: string) => void;
 	onEdit: (cardId: string) => void;
 	onDelete: (cardId: string) => void;
 }
@@ -299,7 +299,7 @@ export interface TableRowProps {
 	callbacks: TableRowCallbacks;
 	plugin?: WeavePlugin;
 	decks?: Array<{ id: string; name: string }> | Deck[];
-	fieldTemplates?: FieldTemplateInfo[];
+	formalDecks?: Array<{ id: string; name: string }> | Deck[];
 	availableTags?: TableTagOption[];
 	onSelect: (cardId: string, selected: boolean) => void;
 	// 拖拽批量选择支持
@@ -318,15 +318,6 @@ export interface TableRowProps {
 export interface TableEmptyStateProps {
 	loading: boolean;
 	isEmpty: boolean;
-}
-
-/**
- * 字段模板信息
- */
-export interface FieldTemplateInfo {
-	name: string;
-	icon: string;
-	class: string;
 }
 
 /**
@@ -368,7 +359,7 @@ export const COLUMN_GROUPS: ColumnGroups = {
 		"review_count",
 	],
 	// 高级选项：技术信息和调试字段
-	advanced: ["uuid", "field_template", "source_document_status"],
+	advanced: ["uuid", "source_document_status"],
 	// 通用字段：在basic和review模式中都需要显示的字段
 	shared: ["front", "back", "status"],
 };

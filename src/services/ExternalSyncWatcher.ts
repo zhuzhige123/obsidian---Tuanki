@@ -17,6 +17,7 @@ import { getV2PathsFromApp } from "../config/paths";
 import type { WeavePlugin } from "../main";
 import { createWeaveDataChangeNotifier } from "./ui/WeaveDataChangeBridge";
 import { logger } from "../utils/logger";
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 
 export class ExternalSyncWatcher {
 	private plugin: WeavePlugin;
@@ -25,14 +26,14 @@ export class ExternalSyncWatcher {
 	private eventRefs: EventRef[] = [];
 
 	/** 防抖定时器 */
-	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private debounceTimer: WeaveTimerHandle | null = null;
 	/** 防抖延迟（毫秒）- 云同步通常批量写入多个文件 */
 	private readonly DEBOUNCE_DELAY = 2000;
 
 	/** 内部写入标记：当插件自身写入文件时设为 true，避免重复刷新 */
 	private _isInternalWrite = false;
 	/** 内部写入冷却定时器 */
-	private _internalWriteCooldown: ReturnType<typeof setTimeout> | null = null;
+	private _internalWriteCooldown: WeaveTimerHandle | null = null;
 
 	/** 已变更的文件路径集合（防抖期间累积） */
 	private pendingChangedFiles = new Set<string>();
@@ -160,6 +161,9 @@ export class ExternalSyncWatcher {
 		if (hasCardChanges || hasDeckChanges) {
 			if (this.plugin.deckMembershipIndexService) {
 				await this.plugin.deckMembershipIndexService.markFullRebuildRequired();
+			}
+			if (this.plugin.bodyFingerprintIndexService) {
+				await this.plugin.bodyFingerprintIndexService.markFullRebuildRequired();
 			}
 			if (this.plugin.studyDueIndexService) {
 				await this.plugin.studyDueIndexService.markFullRebuildRequired();

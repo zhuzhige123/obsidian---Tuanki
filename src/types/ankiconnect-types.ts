@@ -16,7 +16,7 @@ export interface AnkiConnectRequest {
  * AnkiConnect 响应结构
  */
 export interface AnkiConnectResponse<T = unknown> {
-	result: T;
+	result: T | null;
 	error: string | null;
 }
 

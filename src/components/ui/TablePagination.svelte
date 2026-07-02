@@ -31,7 +31,7 @@
     if (page >= 1 && page <= totalPages && !isTransitioning) {
       isTransitioning = true;
       onPageChange(page);
-      setTimeout(() => {
+      window.setTimeout(() => {
         isTransitioning = false;
       }, 300);
     }

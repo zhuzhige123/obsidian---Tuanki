@@ -1,6 +1,5 @@
 <script lang="ts">
   import CSVImportModal from "../../modals/CSVImportModal.svelte";
-  import CreateQuestionBankModal from "../../modals/CreateQuestionBankModal.svelte";
   import CelebrationModal from "../../modals/CelebrationModal.svelte";
   import NoCardsAvailableModal from "../../modals/NoCardsAvailableModal.svelte";
   import TestModeSelectionModal from "../../modals/TestModeSelectionModal.svelte";
@@ -18,7 +17,6 @@
   let {
     plugin,
     dataStorage,
-    showCreateQuestionBankModal,
     showCSVImportModal,
     showCelebrationModal,
     celebrationStats,
@@ -30,9 +28,7 @@
     noCardsStats,
     promptFeatureId,
     showActivationPrompt,
-    onSetShowCreateQuestionBankModal,
     onSetShowCSVImportModal,
-    onLoadQBDeckTree,
     onRefreshData,
     onCloseCelebration,
     onCloseNoCardsModal,
@@ -43,7 +39,6 @@
 
   let t = $derived($tr);
 
-  let createQuestionBankModalOpen = $state(false);
   let csvImportModalOpen = $state(false);
 
   let showCelebrationExamConfigModal = $state(false);
@@ -53,15 +48,7 @@
   let celebrationExamQuestions = $state<Card[]>([]);
 
   $effect(() => {
-    createQuestionBankModalOpen = showCreateQuestionBankModal;
-  });
-
-  $effect(() => {
     csvImportModalOpen = showCSVImportModal;
-  });
-
-  $effect(() => {
-    onSetShowCreateQuestionBankModal(createQuestionBankModalOpen);
   });
 
   $effect(() => {
@@ -118,22 +105,6 @@
     resetCelebrationExamConfigState();
   }
 </script>
-
-{#if showCreateQuestionBankModal}
-  <CreateQuestionBankModal
-    bind:open={createQuestionBankModalOpen}
-    {plugin}
-    mode="create"
-    onClose={() => {
-      onSetShowCreateQuestionBankModal(false);
-    }}
-    onCreated={async () => {
-      onSetShowCreateQuestionBankModal(false);
-      await onLoadQBDeckTree();
-      plugin.app.workspace.trigger("Weave:data-changed");
-    }}
-  />
-{/if}
 
 {#if showCSVImportModal}
   <CSVImportModal

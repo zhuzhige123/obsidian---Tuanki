@@ -78,4 +78,17 @@ tags:
     expect(getCardDeckIds(card, decks).deckIds).toEqual(['deck-target']);
     expect(getCardDeckIdsFromFormalSource(card, decks).deckIds).toEqual([]);
   });
+
+  test('should ignore unknown deck ids in formal source parsing', () => {
+    const decks = [{ id: 'deck-target', name: '目标牌组', purpose: 'memory' as const }];
+    const card = {
+      content: `---
+we_decks:
+  - deck_1777207708022_8jzvizbno
+---
+正文`
+    };
+
+    expect(getCardDeckIdsFromFormalSource(card, decks).deckIds).toEqual([]);
+  });
 });

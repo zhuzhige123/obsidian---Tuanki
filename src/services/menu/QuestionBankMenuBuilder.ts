@@ -30,6 +30,7 @@ export interface QuestionBankMenuConfig {
  */
 export interface QuestionBankMenuCallbacks {
 	onToggleEdit: () => void;
+	onRemove: (skipConfirm?: boolean) => void;
 	onDelete: (skipConfirm?: boolean) => void;
 	onToggleFavorite: () => void;
 	onChangePriority: (priority?: number) => void;
@@ -103,17 +104,27 @@ export class QuestionBankMenuBuilder {
 				});
 		});
 
-		// 2. 删除卡片
+		// 2. 从考试题组移除
 		menu.addItem((item) => {
 			item
-				.setTitle("删除卡片")
+				.setTitle(i18n.t("study.questionBankUI.verticalToolbar.removeCard"))
+				.setIcon("unlink")
+				.onClick(() => {
+					this.safeCallback(() => this.callbacks.onRemove(this.config.enableDirectDelete));
+				});
+		});
+
+		// 3. 删除卡片
+		menu.addItem((item) => {
+			item
+				.setTitle(i18n.t("toolbar.deleteCard"))
 				.setIcon("trash")
 				.onClick(() => {
 					this.safeCallback(() => this.callbacks.onDelete(this.config.enableDirectDelete));
 				});
 		});
 
-		// 3. 收藏卡片
+		// 4. 收藏卡片
 		const isFavorited = this.config.card.tags?.includes("#收藏");
 		menu.addItem((item) => {
 			item

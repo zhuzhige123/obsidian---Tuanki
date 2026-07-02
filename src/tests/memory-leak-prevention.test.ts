@@ -6,6 +6,7 @@ import { EditorResourceManager, getGlobalResourceManager } from '../utils/resour
 import { GlobalDataCache } from '../services/GlobalDataCache';
 import EditorContextManager from '../services/editor/EditorContextManager';
 import { BlockLinkCleanupService } from '../services/cleanup/BlockLinkCleanupService';
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 
 describe('资源管理器内存泄漏防护测试', () => {
   let resourceManager: EditorResourceManager;
@@ -25,7 +26,7 @@ describe('资源管理器内存泄漏防护测试', () => {
     const mockSetTimeout = vi.spyOn(globalThis, 'setTimeout');
     const mockClearTimeout = vi.spyOn(globalThis, 'clearTimeout');
 
-    mockSetTimeout.mockImplementation((() => 123 as unknown as ReturnType<typeof setTimeout>) as unknown as typeof setTimeout);
+    mockSetTimeout.mockImplementation((() => 123 as unknown as WeaveTimerHandle) as unknown as typeof setTimeout);
     mockClearTimeout.mockImplementation((() => undefined) as typeof clearTimeout);
 
     // 注册定时器
@@ -90,7 +91,7 @@ describe('资源管理器内存泄漏防护测试', () => {
     } as any;
 
     const testPromise = new Promise<void>((resolve) => {
-      setTimeout(resolve, 100);
+      window.setTimeout(resolve, 100);
     });
 
     // 注册Promise

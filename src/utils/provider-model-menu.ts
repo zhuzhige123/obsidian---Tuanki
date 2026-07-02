@@ -129,7 +129,7 @@ function populateFlatProviderModelMenu(
 			item.setTitle(AI_PROVIDER_LABELS[provider]).setDisabled(true);
 		});
 
-		if (configuredModel && !staticModelIds.includes(configuredModel)) {
+		if (configuredModel && !(staticModelIds as readonly string[]).includes(configuredModel)) {
 			menu.addItem((item) => {
 				item
 					.setTitle(configuredModel)
@@ -194,7 +194,7 @@ function populateNestedProviderModelMenu(
 			const configuredModel = apiKeys[provider]?.model?.trim();
 			const staticModelIds = models.map((model) => model.id);
 
-			if (configuredModel && !staticModelIds.includes(configuredModel)) {
+			if (configuredModel && !(staticModelIds as readonly string[]).includes(configuredModel)) {
 				submenu.addItem((modelItem) => {
 					modelItem
 						.setTitle(configuredModel)

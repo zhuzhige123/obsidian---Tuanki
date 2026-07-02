@@ -9,8 +9,10 @@
 
 import type { Card, DataConsistencyCheckResult, Deck } from "../../data/types";
 import type { WeavePlugin } from "../../main";
+import { fixWeDecksIdToName } from "../data-migration/CardYAMLMigrationService";
+import { sanitizeCardWeDecksToKnownDecks } from "../../utils/card-we-decks-membership";
 import { logger } from "../../utils/logger";
-import { getCardDeckIdsFromFormalSource } from "../../utils/yaml-utils";
+import { getCardDeckIdsFromFormalSource, setCardProperties } from "../../utils/yaml-utils";
 
 export interface RepairResult {
 	success: boolean;
@@ -19,7 +21,7 @@ export interface RepairResult {
 	error?: string;
 }
 
-type DeckLookup = Pick<Deck, "id" | "name">;
+type DeckLookup = Pick<Deck, "id" | "name" | "purpose">;
 
 export class DataConsistencyService {
 	private plugin: WeavePlugin;
@@ -108,7 +110,25 @@ export class DataConsistencyService {
 
 		try {
 			const decks = await this.plugin.dataStorage.getDecks();
-			const allCards = await this.plugin.dataStorage.getCards();
+			let allCards = await this.plugin.dataStorage.getCards();
+			const repairedIdToNameCards = await this.repairWeDecksIdToName(allCards, decks);
+			if (repairedIdToNameCards.length > 0) {
+				await this.persistBackfilledCards(repairedIdToNameCards);
+				allCards = await this.plugin.dataStorage.getCards();
+			}
+
+			const sanitizedWeDecksCards = await this.repairUnknownWeDecksReferences(allCards, decks);
+			if (sanitizedWeDecksCards.length > 0) {
+				await this.persistBackfilledCards(sanitizedWeDecksCards);
+				allCards = await this.plugin.dataStorage.getCards();
+			}
+
+			const backfilledCards = await this.backfillMissingFormalDeckAttribution(allCards, decks);
+			if (backfilledCards.length > 0) {
+				await this.persistBackfilledCards(backfilledCards);
+				allCards = await this.plugin.dataStorage.getCards();
+			}
+
 			const expectedDeckMap = this.buildExpectedDeckMap(allCards, decks);
 
 			let cleanedInvalidRefs = 0;
@@ -137,13 +157,13 @@ export class DataConsistencyService {
 			}
 
 			logger.info("[DataConsistency] 修复完成", {
-				repairedCards: 0,
+				repairedCards: repairedIdToNameCards.length + backfilledCards.length,
 				cleanedInvalidRefs,
 			});
 
 			return {
 				success: true,
-				repairedCards: 0,
+				repairedCards: repairedIdToNameCards.length + backfilledCards.length,
 				cleanedInvalidRefs,
 			};
 		} catch (error) {
@@ -170,6 +190,162 @@ export class DataConsistencyService {
 		return Array.from(
 			new Set(getCardDeckIdsFromFormalSource(card, decks).deckIds.filter(Boolean))
 		).sort();
+	}
+
+	/**
+	 * 为物理上已写入 .wdeck、但 YAML 缺少 we_decks 的卡片补写正式归属。
+	 *
+	 * 这是 WDeck 迁移/批量导入后的常见缺口：卡片落在牌组文件里，却没有 content YAML 真值，
+	 * 导致“牌组缓存一致性”修复只能清空缓存，却无法建立可收敛的正式归属。
+	 */
+	private async repairWeDecksIdToName(cards: Card[], decks: DeckLookup[]): Promise<Card[]> {
+		const repaired: Card[] = [];
+
+		for (const card of cards) {
+			if (!card?.uuid) {
+				continue;
+			}
+
+			const { card: nextCard, fixed } = fixWeDecksIdToName(card, decks);
+			if (fixed && nextCard.content !== card.content) {
+				repaired.push(nextCard);
+			}
+		}
+
+		if (repaired.length > 0) {
+			logger.info(`[DataConsistency] 修复 we_decks 中的牌组ID: ${repaired.length} 张`);
+		}
+
+		return repaired;
+	}
+
+	private async repairUnknownWeDecksReferences(cards: Card[], decks: DeckLookup[]): Promise<Card[]> {
+		const repaired: Card[] = [];
+
+		for (const card of cards) {
+			if (!card?.uuid) {
+				continue;
+			}
+
+			const { card: nextCard, changed, invalidValues } = sanitizeCardWeDecksToKnownDecks(
+				card,
+				decks
+			);
+			if (!changed || nextCard.content === card.content) {
+				continue;
+			}
+
+			if (invalidValues.length > 0) {
+				logger.info(
+					`[DataConsistency] 清除失效 we_decks 引用: ${card.uuid} -> ${invalidValues.join(", ")}`
+				);
+			}
+			repaired.push(nextCard);
+		}
+
+		if (repaired.length > 0) {
+			logger.info(`[DataConsistency] 清理失效 we_decks: ${repaired.length} 张`);
+		}
+
+		return repaired;
+	}
+
+	private async backfillMissingFormalDeckAttribution(
+		cards: Card[],
+		decks: DeckLookup[]
+	): Promise<Card[]> {
+		const physicalDeckNameByUUID = await this.buildPhysicalDeckNameByUUID();
+		const backfilled: Card[] = [];
+
+		for (const card of cards) {
+			if (!card?.uuid) {
+				continue;
+			}
+
+			if (this.getExpectedDeckIds(card, decks).length > 0) {
+				continue;
+			}
+
+			const deckName = this.resolvePhysicalDeckName(card, physicalDeckNameByUUID);
+			if (!deckName) {
+				continue;
+			}
+
+			const nextContent = setCardProperties(card.content || "", { we_decks: [deckName] });
+			if (nextContent === (card.content || "")) {
+				continue;
+			}
+
+			backfilled.push({
+				...card,
+				content: nextContent,
+				modified: new Date().toISOString(),
+			});
+		}
+
+		if (backfilled.length > 0) {
+			logger.info(`[DataConsistency] 补写缺失 we_decks: ${backfilled.length} 张`);
+		}
+
+		return backfilled;
+	}
+
+	private resolvePhysicalDeckName(
+		card: Card,
+		physicalDeckNameByUUID: Map<string, string>
+	): string | undefined {
+		const marker = (card.customFields as Record<string, unknown> | undefined)?.wdeck;
+		if (marker && typeof marker === "object") {
+			const logicalDeckName = String(
+				(marker as { logicalDeckName?: unknown }).logicalDeckName || ""
+			).trim();
+			if (logicalDeckName) {
+				return logicalDeckName;
+			}
+		}
+
+		return physicalDeckNameByUUID.get(card.uuid);
+	}
+
+	private async buildPhysicalDeckNameByUUID(): Promise<Map<string, string>> {
+		const physicalDeckNameByUUID = new Map<string, string>();
+		if (!this.plugin.wdeckService?.getAllDeckSummaries) {
+			return physicalDeckNameByUUID;
+		}
+
+		try {
+			const summaries = await this.plugin.wdeckService.getAllDeckSummaries();
+			for (const summary of summaries) {
+				const deckName = String(summary.logicalDeckName || "").trim();
+				if (!deckName) {
+					continue;
+				}
+				for (const uuid of summary.cardUUIDs || []) {
+					if (uuid) {
+						physicalDeckNameByUUID.set(uuid, deckName);
+					}
+				}
+			}
+		} catch (error) {
+			logger.warn("[DataConsistency] 读取 WDeck 物理归属失败，跳过 we_decks 补写:", error);
+		}
+
+		return physicalDeckNameByUUID;
+	}
+
+	private async persistBackfilledCards(cards: Card[]): Promise<void> {
+		if (cards.length === 0) {
+			return;
+		}
+
+		if (typeof this.plugin.dataStorage.saveCardsBatch === "function") {
+			await this.plugin.dataStorage.saveCardsBatch(cards);
+			return;
+		}
+
+		for (const card of cards) {
+			await this.plugin.dataStorage.saveCard(card);
+		}
 	}
 
 	private async reconcileWDeckCardPlacement(cards: Card[], decks: DeckLookup[]): Promise<void> {

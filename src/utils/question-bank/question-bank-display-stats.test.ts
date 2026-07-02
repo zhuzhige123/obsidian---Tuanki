@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { MasteryMetrics } from "../../types/question-bank-types";
 import {
 	computeQuestionBankDisplayStats,
 	formatQuestionBankAccuracyScore,
@@ -16,7 +17,8 @@ describe("question-bank-display-stats", () => {
 						totalAttempts: 3,
 						accuracy: 0.5,
 						incorrectAttempts: 1,
-						masteryMetrics: { currentAccuracy: 90 },
+						isInErrorBook: false,
+						masteryMetrics: { currentAccuracy: 90 } as MasteryMetrics,
 					},
 				},
 			},
@@ -26,11 +28,21 @@ describe("question-bank-display-stats", () => {
 						totalAttempts: 2,
 						accuracy: 0.5,
 						incorrectAttempts: 0,
-						masteryMetrics: { currentAccuracy: 70 },
+						isInErrorBook: false,
+						masteryMetrics: { currentAccuracy: 70 } as MasteryMetrics,
 					},
 				},
 			},
-			{ stats: { testStats: { totalAttempts: 0, accuracy: 0, incorrectAttempts: 0 } } },
+			{
+				stats: {
+					testStats: {
+						totalAttempts: 0,
+						accuracy: 0,
+						incorrectAttempts: 0,
+						isInErrorBook: false,
+					},
+				},
+			},
 		]);
 
 		expect(display.total).toBe(3);

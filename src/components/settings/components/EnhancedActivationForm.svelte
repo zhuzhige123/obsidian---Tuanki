@@ -129,7 +129,7 @@
 
   function handlePaste(event: ClipboardEvent) {
     // 允许粘贴，然后清理格式
-    setTimeout(() => {
+    window.setTimeout(() => {
       activationCode = cleanActivationCodeInput(activationCode);
       validateInput();
     }, 0);
@@ -144,7 +144,7 @@
     validationState = 'validating';
     
     // 模拟验证延迟
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (isValidLength && isValidFormat) {
         validationState = 'valid';
       } else {
@@ -333,7 +333,7 @@
 
       showNotification(t('about.license.activation.deactivated'), 'success');
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         const activationCodeInput = activeDocument.getElementById('activation-code');
         activationCodeInput?.focus();
       }, 100);
@@ -387,7 +387,7 @@
           {#if currentLicenseInfo.activationCode}
             <div class="activation-code-section">
               <div class="activation-code-header">
-                <span class="code-label">{t('about.license.activation.codeLabel')}</span>
+                <span class="code-label">{t('about.license.activation.code')}</span>
                 <div class="code-actions">
                   <button
                     class="action-button"
@@ -432,7 +432,7 @@
       <!-- 激活码输入区域 -->
       <div class="input-section">
         <label for="activation-code" class="input-label">
-          {t('about.license.activation.codeLabel')}
+          {t('about.license.activation.code')}
           <span class="input-hint">{t('about.license.activation.codeHint')}</span>
         </label>
         
@@ -571,7 +571,7 @@
             <span class="loading-spinner"></span>
             {t('about.license.activation.activating')}
           {:else}
-            {t('about.license.activation.activateLicense')}
+            {t('about.license.activation.activate')}
           {/if}
         </button>
         

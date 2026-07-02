@@ -14,10 +14,10 @@ import type {
 	BackupCleanupItem,
 	BackupIndexData,
 	BackupMetadata,
-	BackupTrigger,
 	CleanupRecommendation,
 	DeleteAssessment,
 } from "../../../types/backup-types";
+import { BackupTrigger } from "../../../types/backup-types";
 import { StoragePathManager } from "../StoragePathManager";
 
 type DeviceInfoSummary = {
@@ -66,7 +66,7 @@ export class BackupMetadataManager {
 
 			for (const [id, metadata] of Object.entries(indexData.backups)) {
 				if (isRecord(metadata)) {
-					this.index.set(id, metadata as BackupMetadata);
+					this.index.set(id, metadata as unknown as BackupMetadata);
 				}
 			}
 

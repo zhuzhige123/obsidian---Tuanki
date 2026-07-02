@@ -34,142 +34,59 @@ export const PREMIUM_FEATURES = {
 } as const;
 
 /**
- * 功能元数据
+ * 功能元数据（图标等非文案字段）
  */
 export const FEATURE_METADATA: Record<string, {
+  icon?: string;
+}> = {
+  [PREMIUM_FEATURES.GRID_VIEW]: { icon: 'th-large' },
+  [PREMIUM_FEATURES.KANBAN_VIEW]: { icon: 'columns' },
+  [PREMIUM_FEATURES.TIMELINE_VIEW]: { icon: 'history' },
+  [PREMIUM_FEATURES.AI_ASSISTANT]: { icon: 'robot' },
+  [PREMIUM_FEATURES.INCREMENTAL_READING]: { icon: 'book-reader' },
+  [PREMIUM_FEATURES.EMERGENT_DECKS]: { icon: 'sparkles' },
+  [PREMIUM_FEATURES.STUDY_SOURCE_INFO]: { icon: 'file-text' },
+  [PREMIUM_FEATURES.MEMORY_DECK_LEVELS]: { icon: 'award' },
+  [PREMIUM_FEATURES.BATCH_PARSING]: { icon: 'sync-alt' },
+  [PREMIUM_FEATURES.QUESTION_BANK]: { icon: 'clipboard-list' },
+  [PREMIUM_FEATURES.DECK_ANALYTICS]: { icon: 'chart-bar' },
+  [PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION]: { icon: 'chart-bar' },
+  [PREMIUM_FEATURES.DECK_ANALYTICS_TIMING]: { icon: 'history' },
+  [PREMIUM_FEATURES.PROGRESSIVE_CLOZE]: { icon: 'layers' },
+  [PREMIUM_FEATURES.CSV_IMPORT]: { icon: 'file-text' },
+  [PREMIUM_FEATURES.VIEW_SOURCE]: { icon: 'file-text' },
+  'fsrs-study': {},
+  'table-view': {},
+  'obsidian-card-editing': {},
+  'fill-input-mode': {},
+  'ai-card-creation': {},
+  'parse-preview-import': {},
+  'anki-connect-sync': {},
+  'apkg-import': {},
+  'deck-view-embed': {},
+  'active-document-filter': {},
+  'related-cards': {},
+  'image-mask': {},
+};
+
+export function toPremiumFeatureTranslationId(featureId: string): string {
+  return featureId.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
+}
+
+export function resolveFeatureMetadata(featureId: string): {
   name: string;
   description: string;
   icon?: string;
-}> = {
-  [PREMIUM_FEATURES.GRID_VIEW]: {
-    name: '网格视图',
-    description: '以卡片网格形式展示，让管理更直观',
-    icon: 'th-large'
-  },
-  [PREMIUM_FEATURES.KANBAN_VIEW]: {
-    name: '看板视图',
-    description: '看板式管理，按状态分类显示',
-    icon: 'columns'
-  },
-  [PREMIUM_FEATURES.TIMELINE_VIEW]: {
-    name: '时间线视图',
-    description: '按时间线浏览卡片，快速回看内容脉络',
-    icon: 'history'
-  },
-  [PREMIUM_FEATURES.AI_ASSISTANT]: {
-    name: 'AI智能助手',
-    description: '智能批量生成高质量记忆卡片',
-    icon: 'robot'
-  },
-  [PREMIUM_FEATURES.INCREMENTAL_READING]: {
-    name: '渐进性阅读',
-    description: '支持增量阅读工作流',
-    icon: 'book-reader'
-  },
-  [PREMIUM_FEATURES.EMERGENT_DECKS]: {
-    name: '涌现牌组',
-    description: '基于标签与规则自动组织涌现牌组视图',
-    icon: 'sparkles'
-  },
-  [PREMIUM_FEATURES.STUDY_SOURCE_INFO]: {
-    name: '学习来源信息栏',
-    description: '在学习界面查看来源文档、关联阅读材料和同源卡片信息',
-    icon: 'file-text'
-  },
-  [PREMIUM_FEATURES.MEMORY_DECK_LEVELS]: {
-    name: '记忆牌组等级',
-    description: '为记忆牌组显示掌握驱动的等级与升级进度徽章',
-    icon: 'award'
-  },
-  [PREMIUM_FEATURES.BATCH_PARSING]: {
-    name: '批量解析系统',
-    description: '自动解析文档中的卡片，支持文件夹映射和智能触发',
-    icon: 'sync-alt'
-  },
-  [PREMIUM_FEATURES.QUESTION_BANK]: {
-    name: '题库系统',
-    description: '专业的题库考试功能，支持考试、小测验等多种模式',
-    icon: 'clipboard-list'
-  },
-  [PREMIUM_FEATURES.DECK_ANALYTICS]: {
-    name: '牌组分析',
-    description: '详细的牌组学习数据分析、记忆曲线和负荷预测',
-    icon: 'chart-bar'
-  },
-  [PREMIUM_FEATURES.DECK_ANALYTICS_RETENTION]: {
-    name: '记忆率曲线图',
-    description: '查看牌组记忆率与回忆表现趋势',
-    icon: 'chart-bar'
-  },
-  [PREMIUM_FEATURES.DECK_ANALYTICS_TIMING]: {
-    name: '复习时机图',
-    description: '查看牌组复习提前、准时与延迟分布',
-    icon: 'history'
-  },
-  [PREMIUM_FEATURES.PROGRESSIVE_CLOZE]: {
-    name: '渐进式挖空',
-    description: '智能渐进式挖空学习，逐步掌握复杂知识点',
-    icon: 'layers'
-  },
-  [PREMIUM_FEATURES.CSV_IMPORT]: {
-    name: 'CSV 导入',
-    description: '通过 CSV 文件批量导入卡片',
-    icon: 'file-text'
-  },
-  [PREMIUM_FEATURES.VIEW_SOURCE]: {
-    name: '查看原文',
-    description: '快速查看卡片来源文档和上下文',
-    icon: 'file-text'
-  },
-  'fsrs-study': {
-    name: 'FSRS 记忆学习',
-    description: '基于 FSRS 算法的间隔复习、牌组学习与学习统计',
-  },
-  'table-view': {
-    name: '表格视图',
-    description: '以表格管理卡片与牌组，支持筛选、排序与批量操作',
-  },
-  'obsidian-card-editing': {
-    name: 'Obsidian 原生卡片编辑',
-    description: '在 Obsidian 编辑器中直接编辑卡片，支持 Markdown 与所见即所得体验',
-  },
-  'fill-input-mode': {
-    name: '填空题输入模式',
-    description: '学习填空题时在输入框作答，支持即时判分与继续学习',
-  },
-  'ai-card-creation': {
-    name: 'AI 制卡',
-    description: '使用 AI 辅助生成、整理与拆分记忆卡片（需自备 API）',
-  },
-  'parse-preview-import': {
-    name: '解析预览导入',
-    description: '预览 AI 或文本解析结果后再确认导入，避免误导入',
-  },
-  'anki-connect-sync': {
-    name: 'Anki Connect 同步',
-    description: '与 Anki 桌面端双向同步卡片与复习进度',
-  },
-  'apkg-import': {
-    name: '旧版 APKG 导入',
-    description: '导入 Anki .apkg 包，迁移历史牌组与卡片',
-  },
-  'deck-view-embed': {
-    name: 'Markdown 牌组视图',
-    description: '在笔记中插入 weave-decks 代码块，嵌入可配置的牌组视图',
-  },
-  'active-document-filter': {
-    name: '当前文档筛选',
-    description: '按当前活动笔记筛选关联卡片，聚焦当前阅读上下文',
-  },
-  'related-cards': {
-    name: '关联卡片',
-    description: '查看与筛选同源、同笔记或彼此关联的卡片网络',
-  },
-  'image-mask': {
-    name: '图片遮罩',
-    description: '在图片上绘制遮罩区域，制作图像挖空与遮盖练习',
-  },
-};
+} {
+  const translationId = toPremiumFeatureTranslationId(featureId);
+  const nameKey = `premium.features.${translationId}.name`;
+  const descriptionKey = `premium.features.${translationId}.description`;
+  return {
+    name: i18n.hasTranslation(nameKey) ? i18n.t(nameKey) : featureId,
+    description: i18n.hasTranslation(descriptionKey) ? i18n.t(descriptionKey) : '',
+    icon: FEATURE_METADATA[featureId]?.icon,
+  };
+}
 
 /** 激活提示中「基础使用」展示顺序（永久免费能力） */
 export const BASE_BENEFIT_FEATURE_ORDER = [
@@ -470,14 +387,14 @@ export class PremiumFeatureGuard {
   private formatPremiumEntryTitle(baseTitle: string): string {
     const suffix = i18n.hasTranslation('premium.entryTitlePremiumSuffix')
       ? i18n.t('premium.entryTitlePremiumSuffix')
-      : ' (高级)';
+      : ' (Premium)';
     return `${baseTitle}${suffix}`;
   }
 
   private formatLimitedTimeOpenEntryTitle(baseTitle: string): string {
     const suffix = i18n.hasTranslation('premium.entryTitleLimitedTimeSuffix')
       ? i18n.t('premium.entryTitleLimitedTimeSuffix')
-      : ' (限时开放)';
+      : ' (Limited-time access)';
     return `${baseTitle}${suffix}`;
   }
 

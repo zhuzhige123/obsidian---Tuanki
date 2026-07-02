@@ -11,10 +11,9 @@ import { logger } from "../utils/logger";
 
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import type { App, Vault } from "obsidian";
 import { Notice } from "obsidian";
 import type { WeavePlugin } from "../main";
-import { readUnknownProperty, readUnknownString } from "./dynamic-access";
+import { WeaveAttachmentService } from "../services/media/WeaveAttachmentService";
 
 /**
  * 媒体文件处理结果接口
@@ -100,34 +99,20 @@ const DEFAULT_CONFIG: Required<MediaPasteConfig> = {
 	attachmentFolder: "attachments",
 };
 
-function getObsidianAppFromWindow(): App | undefined {
-	if (typeof window === "undefined") {
-		return undefined;
-	}
-	const app = readUnknownProperty(window, "app");
-	if (readUnknownProperty(app, "vault") === undefined) {
-		return undefined;
-	}
-	return app as App;
-}
-
-function resolveVault(plugin: WeavePlugin): Vault | undefined {
-	if (plugin.app?.vault) {
-		return plugin.app.vault;
-	}
-	return getObsidianAppFromWindow()?.vault;
-}
-
 /**
  * 媒体文件粘贴扩展类
  */
 export class MediaPasteExtension {
 	private plugin: WeavePlugin;
 	private config: Required<MediaPasteConfig>;
+	private attachmentService: WeaveAttachmentService;
 
 	constructor(plugin: WeavePlugin, config: Partial<MediaPasteConfig> = {}) {
 		this.plugin = plugin;
 		this.config = { ...DEFAULT_CONFIG, ...config };
+		this.attachmentService =
+			plugin.weaveAttachmentService ??
+			new WeaveAttachmentService(plugin.app, plugin.settings?.weaveParentFolder);
 	}
 
 	/**
@@ -392,70 +377,27 @@ export class MediaPasteExtension {
 	}
 
 	/**
-	 * 保存媒体文件到Obsidian库
+	 * 保存媒体文件到 Obsidian 库（遵循官方附件策略）
 	 */
 	private async saveMediaToVault(file: File): Promise<MediaProcessResult> {
 		try {
 			const fileType = this.getFileType(file.type);
-			logger.debug("🔍 开始保存媒体文件到vault，文件信息:", {
-				name: file.name,
-				type: file.type,
-				size: file.size,
-				fileType,
-			});
-
-			const vault = resolveVault(this.plugin);
-			logger.debug("🏛️ Vault访问状态:", {
-				pluginVault: !!this.plugin.app.vault,
-				windowVault: !!getObsidianAppFromWindow()?.vault,
-				finalVault: !!vault,
-			});
-
-			if (!vault) {
-				throw new Error("无法访问Obsidian vault");
-			}
-
-			// 生成安全的文件名
 			const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 			const extension =
 				this.getFileExtension(file.name) || this.getExtensionFromMimeType(file.type);
 			const prefix = this.getFilePrefix(fileType);
 			const fileName = `${prefix}-${timestamp}${extension}`;
 
-			// 获取附件文件夹路径
-			const attachmentFolder = this.getAttachmentFolder();
-
-			// 确保附件文件夹存在
-			await this.ensureFolder(attachmentFolder);
-
-			// 完整文件路径
-			const filePath = `${attachmentFolder}/${fileName}`;
-
-			// 检查文件是否已存在，生成唯一路径
-			const uniquePath = await this.getUniqueFilePath(filePath);
-			const uniqueFileName = uniquePath.split("/").pop() || fileName;
-
-			// 保存文件
-			logger.debug("📁 准备保存文件:", uniquePath);
-			const arrayBuffer = await file.arrayBuffer();
-			logger.debug("💾 文件数据准备完成，大小:", arrayBuffer.byteLength, "bytes");
-
-			await vault.createBinary(uniquePath, arrayBuffer);
-			logger.debug("✅ 文件已保存到vault:", uniquePath);
-
-			// 验证文件是否真的保存成功
-			const savedFile = vault.getAbstractFileByPath(uniquePath);
-			logger.debug("🔍 文件保存验证:", {
-				exists: !!savedFile,
-				path: uniquePath,
-				fileName: uniqueFileName,
+			const saved = await this.attachmentService.saveFile(file, {
+				fileName,
+				sourcePath: this.plugin.app.workspace.getActiveFile()?.path,
 			});
 
 			return {
 				success: true,
-				filePath: uniquePath,
-				fileName: uniqueFileName,
-				fileType: fileType,
+				filePath: saved.path,
+				fileName: saved.path.split("/").pop() || fileName,
+				fileType,
 			};
 		} catch (error) {
 			logger.error("保存图片失败:", error);
@@ -463,20 +405,6 @@ export class MediaPasteExtension {
 				success: false,
 				error: error instanceof Error ? error.message : "未知错误",
 			};
-		}
-	}
-
-	/**
-	 * 生成图片链接语法
-	 */
-	private generateImageLink(fileName: string, filePath: string): string {
-		if (this.config.useWikiLinks) {
-			// Obsidian Wiki链接格式：![[文件名]]
-			return `![[${fileName}]]`;
-		} else {
-			// 标准Markdown格式：![alt](path)
-			const altText = fileName.replace(/\.[^/.]+$/, ""); // 移除扩展名作为alt文本
-			return `![${altText}](${filePath})`;
 		}
 	}
 
@@ -496,78 +424,6 @@ export class MediaPasteExtension {
 			default:
 				return "file";
 		}
-	}
-
-	/**
-	 * 获取附件文件夹路径
-	 */
-	private getAttachmentFolder(): string {
-		try {
-			// 优先使用Obsidian设置的附件文件夹
-			const vault = resolveVault(this.plugin);
-			const obsidianAttachmentFolder = readUnknownString(
-				readUnknownProperty(vault, "config"),
-				"attachmentFolderPath"
-			);
-
-			if (obsidianAttachmentFolder && obsidianAttachmentFolder !== "/") {
-				logger.debug("📁 使用Obsidian配置的附件文件夹:", obsidianAttachmentFolder);
-				return obsidianAttachmentFolder;
-			}
-		} catch (error) {
-			logger.warn("获取Obsidian附件文件夹配置失败:", error);
-		}
-
-		// 使用默认配置的附件文件夹
-		logger.debug("📁 使用默认附件文件夹:", this.config.attachmentFolder);
-		return this.config.attachmentFolder;
-	}
-
-	/**
-	 * 确保文件夹存在
-	 */
-	private async ensureFolder(folderPath: string): Promise<void> {
-		try {
-			const vault = resolveVault(this.plugin);
-			if (!vault) {
-				throw new Error("无法访问vault");
-			}
-
-			const folder = vault.getAbstractFileByPath(folderPath);
-			if (!folder) {
-				logger.debug("📁 创建文件夹:", folderPath);
-				await vault.createFolder(folderPath);
-			} else {
-				logger.debug("📁 文件夹已存在:", folderPath);
-			}
-		} catch (error) {
-			// 文件夹可能已存在，忽略错误
-			logger.debug("文件夹创建结果:", folderPath, error);
-		}
-	}
-
-	/**
-	 * 获取唯一文件路径
-	 */
-	private async getUniqueFilePath(originalPath: string): Promise<string> {
-		const vault = resolveVault(this.plugin);
-		if (!vault) {
-			return originalPath;
-		}
-
-		let counter = 0;
-		let testPath = originalPath;
-
-		while (vault.getAbstractFileByPath(testPath)) {
-			counter++;
-			const pathParts = originalPath.split(".");
-			const extension = pathParts.pop();
-			const basePath = pathParts.join(".");
-			testPath = `${basePath}-${counter}.${extension}`;
-		}
-
-		logger.debug("📝 生成唯一文件路径:", testPath);
-		return testPath;
 	}
 
 	/**
@@ -629,38 +485,34 @@ export class MediaPasteExtension {
 	 * 生成媒体链接
 	 */
 	private generateMediaLink(
-		fileName: string,
+		_fileName: string,
 		filePath: string,
 		fileType: "image" | "audio" | "video" | "document"
 	): string {
 		if (this.config.useWikiLinks) {
-			// 使用Obsidian Wiki链接格式
 			switch (fileType) {
 				case "image":
-					return `![[${fileName}]]`;
 				case "audio":
-					return `![[${fileName}]]`;
 				case "video":
-					return `![[${fileName}]]`;
+					return `![[${filePath}]]`;
 				case "document":
-					return `[[${fileName}]]`;
+					return `[[${filePath}]]`;
 				default:
-					return `[[${fileName}]]`;
+					return `[[${filePath}]]`;
 			}
-		} else {
-			// 使用标准Markdown格式
-			switch (fileType) {
-				case "image":
-					return `![${fileName}](${filePath})`;
-				case "audio":
-					return `<audio controls><source src="${filePath}" type="audio/mpeg">您的浏览器不支持音频播放。</audio>`;
-				case "video":
-					return `<video controls><source src="${filePath}" type="video/mp4">您的浏览器不支持视频播放。</video>`;
-				case "document":
-					return `[${fileName}](${filePath})`;
-				default:
-					return `[${fileName}](${filePath})`;
-			}
+		}
+
+		switch (fileType) {
+			case "image":
+				return `![${_fileName}](${filePath})`;
+			case "audio":
+				return `<audio controls><source src="${filePath}" type="audio/mpeg">您的浏览器不支持音频播放。</audio>`;
+			case "video":
+				return `<video controls><source src="${filePath}" type="video/mp4">您的浏览器不支持视频播放。</video>`;
+			case "document":
+				return `[${_fileName}](${filePath})`;
+			default:
+				return `[${_fileName}](${filePath})`;
 		}
 	}
 

@@ -1,7 +1,7 @@
 import { Notice, TFile, type App } from "obsidian";
 import { IRDeckSelectorModal } from "../../modals/IRDeckSelectorModal";
-import type { IRChunkFileData } from "../../types/ir-types";
-import { createDefaultChunkFileData, generateChunkId, generateSourceId } from "../../types/ir-types";
+import type { IRBlockMeta, IRChunkFileData } from "../../types/ir-types";
+import { DEFAULT_IR_BLOCK_META, createDefaultChunkFileData, generateChunkId, generateSourceId } from "../../types/ir-types";
 import { logger } from "../../utils/logger";
 import { EpubStorageService } from "../epub-integration/EpubStorageService";
 import { IREpubBookmarkTaskService } from "./IREpubBookmarkTaskService";
@@ -11,6 +11,7 @@ import {
 } from "./IRReadableMarkdownPathResolver";
 import { recomputeAndBroadcastIRData } from "./IRScheduleRefreshService";
 import { IRStorageService } from "./IRStorageService";
+import type { WeaveTimerHandle } from "../../types/timer-handle.js";
 
 export interface IRSelectionQuickCreatePreferencesLike {
 	selectionQuickCreateLastFolder?: string;
@@ -215,7 +216,7 @@ export class IRHostSharedService {
 
 			return await new Promise((resolve) => {
 				let resolved = false;
-				let closeTimer: ReturnType<typeof setTimeout> | null = null;
+				let closeTimer: WeaveTimerHandle | null = null;
 				const settle = (value: IRTopicRef | null) => {
 					if (resolved) return;
 					resolved = true;
@@ -456,7 +457,7 @@ export class IRHostSharedService {
 			}
 
 			existing.updatedAt = now;
-			existing.meta = existingMeta as unknown;
+			existing.meta = existingMeta as unknown as IRBlockMeta;
 			await storage.saveChunkData(existing);
 			return true;
 		}
@@ -469,6 +470,7 @@ export class IRHostSharedService {
 		chunk.updatedAt = now;
 		chunk.nextRepDate = pinToToday ? todayStartMs : now;
 		chunk.meta = {
+			...DEFAULT_IR_BLOCK_META,
 			...(chunk.meta || {}),
 			externalDocument: true,
 			...(pinToToday
@@ -486,7 +488,7 @@ export class IRHostSharedService {
 						).toISOString(),
 				  }
 				: {}),
-		} as unknown;
+		};
 		await storage.saveChunkData(chunk);
 		return true;
 	}

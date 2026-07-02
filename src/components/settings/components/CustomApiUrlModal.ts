@@ -48,6 +48,11 @@ export class CustomApiUrlModal extends Modal {
 			cls: "weave-url-desc",
 		});
 
+		inputGroup.createEl("div", {
+			text: t("aiConfig.apiKeys.customUrlModal.securityWarning"),
+			cls: "weave-url-warning",
+		});
+
 		// 按钮区域
 		const btnContainer = contentEl.createEl("div", { cls: "weave-url-buttons" });
 

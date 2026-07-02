@@ -28,7 +28,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 		management: {
 			dataHealth: {
 				sectionTitle: "正式数据健康检查",
-				migrationSectionTitle: "正式数据迁移与结构状态",
+				migrationSectionTitle: "格式迁移与目录结构",
 				checkMigrationStatus: "检测正式数据状态",
 				emptyCheckResults: "当前暂无正式数据检测结果，点击“检测当前页”开始检测",
 				emptyMigrationResults: "当前暂无正式数据迁移/结构结果，点击上方按钮开始检测",
@@ -37,6 +37,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				lifecycle: {
 					temporary: "临时",
 					longTerm: "长期",
+					advisory: "维护建议",
 				},
 				notes: {
 					weBlockMigration:
@@ -51,6 +52,12 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 						"对比卡片 YAML 中的 we_decks 与 .wdeck 牌组文件里的实际卡片列表。若仍反复出现，可先执行「记忆卡单正式归属收口」，再执行本项修复。",
 					wdeckConflicts:
 						"扫描 .wdeck 分卷重复、同一 UUID 跨文件、疑似复制副本等问题。修复会自动处理重复分卷、完全重复副本、UUID 跨文件冲突和空无效文件；若仍反复出现，请先执行「重复卡片」与「牌组缓存一致性」。",
+					tutorialDeckResidue:
+						"临时清理项：旧版本内置「Weave 指南」教程牌组已废弃。检测会识别教程正文特征及教程牌组归属，清理会删除这些残留卡片。数据稳定后应移除此项。",
+					attachmentRegistryConsistency:
+						"维护建议项：核对 vault 内本地附件引用与 attachment-registry 索引。图床 https 链接不参与此项。修复会规范化卡片、题库与媒体清单中的路径并重建索引；本地暂不可用与 Weave 媒体孤儿仅作提示，不阻塞学习。若确认文件永久缺失，执行修复时会提示高风险确认，可将引用替换为可见占位说明。",
+					pluginRuntimeSyncScope:
+						"维护建议项：提醒插件 runtime/cache 目录不宜纳入 vault 同步。属于配置核对，不阻塞正常使用。",
 				},
 				progress: {
 					checking: "检测 {name}...",
@@ -82,12 +89,16 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					legacyCleanup: "旧目录清理",
 					filenameCompatibility: "文件名与同步兼容性",
 					syncConflictFiles: "同步冲突副本处理",
+					pluginRuntimeSyncScope: "多端同步范围核对",
 					progressiveClozeUnconverted: "渐进式挖空结构转换",
 					progressiveClozeOrphan: "渐进式挖空孤儿子卡片",
 					progressiveClozeMissingChildren: "渐进式挖空缺少子卡片",
 					progressiveClozeExtraChildren: "渐进式挖空多余子卡片",
 					qbankMigration: ".qbank 题库文件迁移",
 					qbankLegacyCleanup: "旧题库文件清理",
+					qbankOrphanRefs: "考试题组悬空引用",
+					attachmentRegistryConsistency: "附件索引一致性",
+					tutorialDeckResidue: "教程牌组残留清理",
 				},
 				syncIssueLabels: {
 					emoji: "Emoji",
@@ -124,6 +135,10 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					duplicateCardsFound:
 						"发现 {count} 张内容重复卡片（{groupCount} 组）。同一正文对应多个 UUID，常见于历史导入、牌组迁移、批量导入或重复保存；可使用修复删除多余副本",
 					duplicateCardsOk: "无内容重复卡片",
+					tutorialDeckResidueFound: "发现 {count} 张已废弃教程牌组残留卡片",
+					tutorialDeckResidueOk: "无教程牌组残留",
+					tutorialDeckResidueDeleteFailed: "教程牌组残留删除失败",
+					tutorialDeckResidueRebuildFailed: "教程牌组残留清理后重建牌组缓存失败",
 					duplicateDeleteFailed: "删除失败",
 					duplicateRebuildFailed: "删除重复卡片后重建牌组缓存失败",
 					irMaterialConsistencyFound:
@@ -161,7 +176,9 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 						"检测到 {count} 个 .wdeck 冲突或重复问题（含分卷重复、UUID 跨文件、疑似复制副本等；仅部分可自动修复）",
 					wdeckConflictsOk: "未检测到 .wdeck 冲突",
 					wdeckCacheNeedsRebuild: "`.wdeck` 私有缓存缺失或已失效，建议重建",
-					wdeckCacheOk: "\".wdeck\" 私有缓存正常（{fileCount} 个文件，{issueCount} 个冲突项）",
+					wdeckCacheOk: "\".wdeck\" 私有缓存正常（{fileCount} 个文件）",
+					wdeckCacheOkWithTrackedConflicts:
+						"\".wdeck\" 私有缓存文件正常（{fileCount} 个文件）；检测到 {issueCount} 个冲突项，请查看上方「.wdeck 冲突检查」并修复",
 					structuredDataFormatNone: "未发现 .wdeck / .irdeck / .qbank 结构化数据文件格式问题",
 					structuredDataFormatFound:
 						"发现 {count} 个结构化数据文件格式问题（可自动修复 {repairable}，需人工处理 {manual}）",
@@ -197,6 +214,11 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					syncConflictNone: "未检测到云同步冲突副本",
 					syncConflictFound: "检测到 {count} 个云同步冲突副本文件，可能包含未合并的数据",
 					syncConflictCheckFailed: "检测失败",
+					pluginRuntimeSyncScopeOk:
+						"vault 真源目录未见插件运行态文件误入；建议在同步工具中排除 plugins/weave/runtime 与 plugins/weave/cache",
+					pluginRuntimeSyncScopeFound:
+						"检测到 {count} 个插件运行态文件误入 weave 真源目录，可能触发无意义同步覆盖",
+					pluginRuntimeSyncScopeCheckFailed: "多端同步范围检测失败",
 					progressiveClozeUnconvertedFound:
 						"发现 {count} 张卡片包含渐进式挖空格式但未转换为子卡片",
 					progressiveClozeUnconvertedOk: "无未转换的渐进式挖空卡片",
@@ -210,6 +232,21 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					progressiveClozeExtraChildrenFound:
 						"发现 {count} 张子卡片的序号在父卡片内容中不存在",
 					progressiveClozeExtraChildrenOk: "无多余子卡片",
+					qbankOrphanRefsFound:
+						"发现 {refCount} 处考试题组悬空引用（对应 {cardCount} 张已删除记忆卡片）",
+					qbankOrphanRefsOk: "考试题组索引与记忆牌组一致，无悬空引用",
+					qbankOrphanRefsCheckFailed: "考试题组悬空引用检测失败: {message}",
+					attachmentRegistryFound:
+						"发现附件维护项（本地暂不可用: {brokenCount}，可自动修复路径: {rewritableCount}，索引过期: {stale}，Weave 媒体孤儿: {orphanCount}）",
+					attachmentRegistryOk: "附件索引与卡片引用一致",
+					attachmentRegistryOkWithOrphans:
+						"附件索引与引用已一致；另有 {orphanCount} 个 Weave 媒体文件未被卡片引用（可忽略，修复不会删除它们）",
+					attachmentRegistryOkWithAdvisories:
+						"附件索引与引用已一致；另有 {brokenCount} 个本地引用暂不可用（可能尚未同步，可忽略），{orphanCount} 个 Weave 媒体孤儿（可忽略）",
+					attachmentRegistryBrokenRef: "附件文件不存在，且未能自动关联或移除引用",
+					attachmentRegistryBrokenRefPending:
+						"本地附件暂不可用（可能尚未同步）：{path}",
+					attachmentRegistryCheckFailed: "附件索引一致性检测失败: {message}",
 					irLocalStateWriteFailed: "{label} 写入插件本地目录失败: {message}",
 					irLocalStateInvalidContent: "{label} 内容无效，无法安全迁移到插件目录",
 					irLocalStateCleanupFailed: "{label} 清理旧文件失败: {message}",
@@ -235,6 +272,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					migrationConflictLabels: {
 						memoryCards: "记忆卡片迁移冲突副本",
 						memoryDecks: "记忆牌组迁移冲突副本",
+						memoryDeckCards: "记忆牌组归属索引迁移冲突副本",
+						memoryLearningSessions: "记忆学习历史迁移冲突副本",
 						irMonitoring: "增量阅读监控迁移冲突副本",
 						irData: "增量阅读迁移冲突副本",
 						qbank: "题库迁移冲突副本",
@@ -309,6 +348,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					migrationConflictImportParseCardFailed: "解析卡片冲突文件失败: {fileName} ({message})",
 					migrationConflictImportCardsFailed: "导入卡片到新结构失败: {message}",
 					migrationConflictImportDecksFailed: "导入牌组到新结构失败: {message}",
+					migrationConflictImportDeleteFailed: "删除已处理冲突文件失败: {fileName} ({message})",
 					structuredConflictDirReadFailed: "读取结构化迁移冲突目录失败: {message}",
 					structuredConflictTargetMissing: "无法定位迁移冲突文件对应的正式 JSON: {fileName}",
 					structuredConflictEmpty: "迁移冲突文件为空，无法恢复: {fileName}",
@@ -323,6 +363,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					irMonitoringDeleteFailed: "删除增量阅读监控冲突文件失败: {path} ({message})",
 					irMaterialOrphanedBlocks: "孤立内容块: {count} 个",
 					targetPathAlreadyExists: "目标路径已存在: {path}",
+					filenameCompatibilitySkipUnresolved: "无法自动修复文件名兼容性问题: {path}",
 					emptyCardFileDeleteFailed: "删除空卡片文件失败: {fileName} ({message})",
 					cardFilesIndexUpdateFailed: "更新 card-files-index.json 失败: {message}",
 					emptyCardCleanupFailed: "清理空卡片文件失败: {message}",
@@ -331,11 +372,49 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					epubSourceIdBackfillIncomplete: "检测到旧 EPUB 链接，但未能完成 sourceId 回填",
 					recoverMigrationConflictDataFailed: "恢复迁移冲突数据失败: {message}",
 					recoverIRMonitoringConflictFailed: "恢复增量阅读监控冲突文件失败: {message}",
+					recoverMemoryMigrationConflictFailed: "恢复记忆模块迁移冲突文件失败: {message}",
 					recoverStructuredConflictFailed: "恢复结构化迁移冲突文件失败: {message}",
+					recoverRedundantConflictFailed: "清理冗余迁移冲突副本失败: {message}",
 					renameMediaManifestFailed: "修正媒体清单文件失败: {message}",
 					frontmatterAccessUnavailable: "无法安全访问 Obsidian frontmatter 处理接口",
 					recoverableBackupMissing: "未找到可恢复的有效备份",
 					normalizedContentMissing: "缺少可写回的规范化内容",
+				},
+			},
+			dataManagement: {
+				progress: {
+					batchProcessing: "正在处理：{file}",
+					batchInitializing: "正在初始化批量处理...",
+					batchDetail: "已完成 {processed}/{total} · 成功 {success} · 失败 {failed}",
+					batchParsingTitle: "批量解析进度",
+					cancelOperation: "取消操作",
+					cancelling: "正在取消...",
+					cleanupTitle: "清理进度",
+					cleanupPreparing: "正在准备清理...",
+					cleanupRunning: "正在清理...",
+					cleanupFinished: "清理完成",
+					cancelCleanup: "取消清理",
+					done: "完成",
+					currentProcessing: "当前处理：{file}",
+					detailSummary: "已处理 {processed}/{total} · 成功 {success} · 跳过 {skipped} · 失败 {failed}",
+					elapsedTime: "已用时间",
+					seconds: "{count} 秒",
+					files: "文件",
+					detected: "检测到",
+					cleaned: "已清理",
+					errors: "错误",
+					cleanupDetails: "清理详情",
+					collapse: "收起",
+					expand: "展开",
+					waitingResults: "等待结果...",
+					statusRunning: "进行中",
+					statusCompleted: "已完成",
+					statusCancelled: "已取消",
+					detailStatusCleaned: "已清理",
+					detailStatusFailed: "失败",
+					detailStatusProcessing: "处理中",
+					detailStatusProtected: "已保护",
+					detailStatusSkipped: "已跳过",
 				},
 			},
 			cardQuality: {
@@ -629,6 +708,23 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 			},
 			dataManagementModal: {
 				title: "正式数据治理",
+				startupGate: {
+					title: "启动前数据检查",
+					bannerTitle: "检测到需要关注的数据项",
+					bannerDesc:
+						"以下检测项建议尽快处理，以保证数据一致性。关闭此窗口不会阻止你正常使用 Weave；可稍后在卡片管理的数据管理中继续处理。",
+					checking: "正在检测数据，请稍候…",
+					ready: "当前阻断项已通过，可以开始使用 Weave。",
+					readyWithAdvisory: "可以开始使用。另有 {count} 项维护建议可稍后在数据管理中处理。",
+					pending: "仍有 {count} 类问题建议处理。",
+					pendingIssueTotal: "共涉及 {count} 处问题",
+					pendingItems: "待处理项：{names}",
+					dismiss: "稍后处理",
+					disableFutureAutoPopup: "以后不再自动弹出此提示",
+					dismissedWithIssues: "数据问题尚未处理（{count} 处），可稍后在卡片管理的数据管理中继续修复",
+					autoPopupDisabled: "已关闭启动时自动弹出数据检查，可在设置 → 数据管理中重新开启",
+					continue: "检查完成，开始使用",
+				},
 				checkCurrentTabTitle: "检测当前标签页",
 				checkCurrentTab: "检测当前页",
 				fixCurrentTabTitle: "修复当前标签页安全项",
@@ -648,14 +744,6 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				reportTime: "时间 {time}",
 				runMigration: "执行迁移",
 				migrateLegacyFormats: "迁移全部旧格式",
-				splitPluginResidueNotice:
-					"增量阅读（weave-incremental-reading）与 EPUB 阅读器（weave-epub-reader）已拆分为独立插件。其旧格式迁移请在对应插件中执行；Weave 仅保留卡片关联与宿主协作能力。",
-				openIncrementalReadingDataManagement: "打开增量阅读数据管理",
-				openIncrementalReadingDataManagementUnavailable:
-					"未检测到 weave-incremental-reading 插件，或其版本尚未提供数据管理入口。",
-				openEpubReaderDataManagement: "打开 EPUB 数据管理",
-				openEpubReaderDataManagementUnavailable:
-					"未检测到 weave-epub-reader 插件，或其版本尚未提供数据管理入口。",
 				migrateIrPointStorage: "迁移增量阅读新存储结构",
 				migrateLegacyIrMarkdown: "迁移旧 IR 正文到 Obsidian 默认新建笔记目录",
 				migrateQbank: "迁移到 .qbank",
@@ -689,6 +777,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				},
 				resultSummary: {
 					foundCount: "发现 {count} 项",
+					needsAttention: "需处理",
+					checkFailed: "检测失败",
 					normal: "正常",
 					noContent: "(无内容)",
 				},
@@ -821,6 +911,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					progressiveClozeUnconverted: "这会把符合渐进挖空格式的卡片转换成父子卡片结构。",
 					progressiveClozeMissingChildren:
 						"按父卡正文中的挖空序号补建缺失子卡。若此前执行过「重复卡片」修复，子卡可能被误删。",
+					tutorialDeckResidue:
+						"这会删除旧版内置「Weave 指南」教程卡片，包括散落在「未归组卡片」中的教程副本。插件已不再自动创建教程牌组。",
 					legacyCleanup: "这会删除旧版数据目录，只应在迁移完成并核对无误后执行。",
 				},
 			},
@@ -858,7 +950,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 		management: {
 			dataHealth: {
 				sectionTitle: "Official Data Health Checks",
-				migrationSectionTitle: "Official Data Migration and Structure Status",
+				migrationSectionTitle: "Format Migration and Directory Structure",
 				checkMigrationStatus: "Check Official Data Status",
 				emptyCheckResults: "No official data check results yet. Click \"Check Current Tab\" to start.",
 				emptyMigrationResults: "No official migration or structure results yet. Use the button above to start checking.",
@@ -867,6 +959,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				lifecycle: {
 					temporary: "Temporary",
 					longTerm: "Long-term",
+					advisory: "Advisory",
 				},
 				notes: {
 					weBlockMigration:
@@ -881,6 +974,12 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 						"Compares we_decks in card YAML with the actual card list inside .wdeck deck files. If it keeps reappearing, run Memory Card Formal Membership Consolidation first, then run this fix.",
 					wdeckConflicts:
 						"Scans duplicate .wdeck segments, cross-file UUID conflicts, suspected duplicate copies, and similar issues. Fix auto-handles duplicate segments, exact duplicate copies, cross-file UUID conflicts, and empty invalid files. If issues keep returning, run Duplicate Cards and Deck Cache Consistency first.",
+					tutorialDeckResidue:
+						"Temporary cleanup task: the legacy built-in Weave Guide tutorial deck has been removed. Detection matches tutorial body signatures and deck attribution; cleanup deletes those residue cards. Remove this task once data is stable.",
+					attachmentRegistryConsistency:
+						"Advisory maintenance: verifies local vault attachment references against attachment-registry. Remote https image URLs are excluded. Repair normalizes paths in cards, question banks, and media manifests, then rebuilds the registry. Locally unavailable refs and weave media orphans are informational only and do not block study. If files are permanently missing, repair will ask for high-risk confirmation to replace refs with visible placeholders.",
+					pluginRuntimeSyncScope:
+						"Advisory maintenance: reminds you that plugin runtime/cache folders should stay out of vault sync. Configuration review only; does not block normal use.",
 				},
 				progress: {
 					checking: "Checking {name}...",
@@ -912,12 +1011,16 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					legacyCleanup: "Legacy Directory Cleanup",
 					filenameCompatibility: "Filename and Sync Compatibility",
 					syncConflictFiles: "Sync Conflict Copy Handling",
+					pluginRuntimeSyncScope: "Multi-device Sync Scope Review",
 					progressiveClozeUnconverted: "Progressive Cloze Structure Conversion",
 					progressiveClozeOrphan: "Progressive Cloze Orphan Child Cards",
 					progressiveClozeMissingChildren: "Progressive Cloze Missing Child Cards",
 					progressiveClozeExtraChildren: "Progressive Cloze Extra Child Cards",
 					qbankMigration: ".qbank Bank File Migration",
 					qbankLegacyCleanup: "Legacy Question Bank File Cleanup",
+					qbankOrphanRefs: "Exam Set Orphan References",
+					attachmentRegistryConsistency: "Attachment Registry Consistency",
+					tutorialDeckResidue: "Tutorial Deck Residue Cleanup",
 				},
 				syncIssueLabels: {
 					emoji: "Emoji",
@@ -954,6 +1057,10 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					duplicateCardsFound:
 						"Found {count} duplicate-content cards ({groupCount} groups). Multiple UUIDs share the same body, often from historical imports, deck migration, batch import, or duplicate saves; use Fix to remove extra copies",
 					duplicateCardsOk: "No duplicate-content cards",
+					tutorialDeckResidueFound: "Found {count} deprecated tutorial deck residue cards",
+					tutorialDeckResidueOk: "No tutorial deck residue",
+					tutorialDeckResidueDeleteFailed: "Failed to delete tutorial deck residue cards",
+					tutorialDeckResidueRebuildFailed: "Failed to rebuild deck cache after tutorial deck cleanup",
 					duplicateDeleteFailed: "Delete failed",
 					duplicateRebuildFailed: "Failed to rebuild deck cache after deleting duplicate cards",
 					irMaterialConsistencyFound:
@@ -991,7 +1098,9 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 						"Detected {count} .wdeck conflicts or duplicate issues (duplicate segments, cross-file UUIDs, suspected copies, etc.; only some are auto-fixable)",
 					wdeckConflictsOk: "No .wdeck conflicts detected",
 					wdeckCacheNeedsRebuild: "The private .wdeck cache is missing or stale and should be rebuilt",
-					wdeckCacheOk: "The private .wdeck cache is healthy ({fileCount} files, {issueCount} conflict items)",
+					wdeckCacheOk: "The private .wdeck cache is healthy ({fileCount} files)",
+					wdeckCacheOkWithTrackedConflicts:
+						"The private .wdeck cache files are healthy ({fileCount} files). {issueCount} conflict item(s) were detected; see \".wdeck conflict check\" above and repair them.",
 					structuredDataFormatNone: "No .wdeck / .irdeck / .qbank structured data format issues were found",
 					structuredDataFormatFound:
 						"Found {count} structured data file format issues ({repairable} auto-fixable, {manual} requiring manual handling)",
@@ -1036,6 +1145,11 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					syncConflictFound:
 						"Detected {count} sync-conflict copy files that may contain unmerged data",
 					syncConflictCheckFailed: "Check failed",
+					pluginRuntimeSyncScopeOk:
+						"No plugin runtime files were found inside the vault source tree; exclude plugins/weave/runtime and plugins/weave/cache from sync tools when possible",
+					pluginRuntimeSyncScopeFound:
+						"Detected {count} plugin runtime files inside the weave source tree, which may cause meaningless sync overwrites",
+					pluginRuntimeSyncScopeCheckFailed: "Multi-device sync scope check failed",
 					progressiveClozeUnconvertedFound:
 						"Found {count} cards that contain progressive cloze content but have not been converted into child cards",
 					progressiveClozeUnconvertedOk: "No unconverted progressive cloze cards",
@@ -1049,6 +1163,22 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					progressiveClozeExtraChildrenFound:
 						"Found {count} child cards whose ordinals no longer exist in their parent card content",
 					progressiveClozeExtraChildrenOk: "No extra child cards",
+					qbankOrphanRefsFound:
+						"Found {refCount} orphan exam-set references ({cardCount} deleted memory cards)",
+					qbankOrphanRefsOk: "Exam set indexes match memory cards; no orphan references",
+					qbankOrphanRefsCheckFailed: "Exam set orphan-reference check failed: {message}",
+					attachmentRegistryFound:
+						"Attachment maintenance items found (local unavailable: {brokenCount}, auto-fixable paths: {rewritableCount}, stale registry: {stale}, weave media orphans: {orphanCount})",
+					attachmentRegistryOk: "Attachment registry matches card references",
+					attachmentRegistryOkWithOrphans:
+						"Attachment registry matches references; {orphanCount} Weave media files are not referenced by cards (safe to ignore; repair will not delete them)",
+					attachmentRegistryOkWithAdvisories:
+						"Attachment registry matches references; {brokenCount} local refs are temporarily unavailable (may not be synced yet; safe to ignore), {orphanCount} weave media orphans (safe to ignore)",
+					attachmentRegistryBrokenRef:
+						"Attachment file is missing and could not be relinked or removed automatically",
+					attachmentRegistryBrokenRefPending:
+						"Local attachment is temporarily unavailable (may not be synced yet): {path}",
+					attachmentRegistryCheckFailed: "Attachment registry consistency check failed: {message}",
 					irLocalStateWriteFailed: "Failed to write {label} into the plugin-local directory: {message}",
 					irLocalStateInvalidContent: "{label} has invalid content and cannot be safely migrated into the plugin directory",
 					irLocalStateCleanupFailed: "Failed to clean up the legacy file for {label}: {message}",
@@ -1074,6 +1204,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					migrationConflictLabels: {
 						memoryCards: "Memory Card Migration Conflict Copy",
 						memoryDecks: "Memory Deck Migration Conflict Copy",
+						memoryDeckCards: "Memory Deck Membership Index Migration Conflict Copy",
+						memoryLearningSessions: "Memory Learning History Migration Conflict Copy",
 						irMonitoring: "Incremental Reading Monitoring Migration Conflict Copy",
 						irData: "Incremental Reading Migration Conflict Copy",
 						qbank: "Question Bank Migration Conflict Copy",
@@ -1148,6 +1280,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					migrationConflictImportParseCardFailed: "Failed to parse card conflict file: {fileName} ({message})",
 					migrationConflictImportCardsFailed: "Failed to import cards into the new structure: {message}",
 					migrationConflictImportDecksFailed: "Failed to import decks into the new structure: {message}",
+					migrationConflictImportDeleteFailed: "Failed to delete processed conflict file: {fileName} ({message})",
 					structuredConflictDirReadFailed: "Failed to read the structured migration conflict directory: {message}",
 					structuredConflictTargetMissing: "Failed to locate the formal JSON corresponding to the migration conflict file: {fileName}",
 					structuredConflictEmpty: "The migration conflict file is empty and cannot be recovered: {fileName}",
@@ -1162,6 +1295,7 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					irMonitoringDeleteFailed: "Failed to delete the incremental-reading monitoring conflict file: {path} ({message})",
 					irMaterialOrphanedBlocks: "Orphaned content blocks: {count}",
 					targetPathAlreadyExists: "Target path already exists: {path}",
+					filenameCompatibilitySkipUnresolved: "Could not automatically fix filename compatibility issue: {path}",
 					emptyCardFileDeleteFailed: "Failed to delete empty card file: {fileName} ({message})",
 					cardFilesIndexUpdateFailed: "Failed to update card-files-index.json: {message}",
 					emptyCardCleanupFailed: "Failed to clean up empty card files: {message}",
@@ -1173,12 +1307,52 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					recoverMigrationConflictDataFailed: "Failed to recover migration-conflict data: {message}",
 					recoverIRMonitoringConflictFailed:
 						"Failed to recover incremental-reading monitoring conflict files: {message}",
+					recoverMemoryMigrationConflictFailed:
+						"Failed to recover memory-module migration conflict files: {message}",
 					recoverStructuredConflictFailed:
 						"Failed to recover structured migration conflict files: {message}",
+					recoverRedundantConflictFailed:
+						"Failed to clean redundant migration conflict copies: {message}",
 					renameMediaManifestFailed: "Failed to fix media manifest files: {message}",
 					frontmatterAccessUnavailable: "Unable to safely access Obsidian's frontmatter processing interface",
 					recoverableBackupMissing: "No recoverable valid backup was found",
 					normalizedContentMissing: "Normalized content for write-back is missing",
+				},
+			},
+			dataManagement: {
+				progress: {
+					batchProcessing: "Processing: {file}",
+					batchInitializing: "Initializing batch processing...",
+					batchDetail: "Completed {processed}/{total} · Success {success} · Failed {failed}",
+					batchParsingTitle: "Batch Parsing Progress",
+					cancelOperation: "Cancel operation",
+					cancelling: "Cancelling...",
+					cleanupTitle: "Cleanup Progress",
+					cleanupPreparing: "Preparing cleanup...",
+					cleanupRunning: "Cleaning up...",
+					cleanupFinished: "Cleanup finished",
+					cancelCleanup: "Cancel cleanup",
+					done: "Done",
+					currentProcessing: "Current file: {file}",
+					detailSummary: "Processed {processed}/{total} · Success {success} · Skipped {skipped} · Failed {failed}",
+					elapsedTime: "Elapsed time",
+					seconds: "{count} sec",
+					files: "Files",
+					detected: "Detected",
+					cleaned: "Cleaned",
+					errors: "Errors",
+					cleanupDetails: "Cleanup details",
+					collapse: "Collapse",
+					expand: "Expand",
+					waitingResults: "Waiting for results...",
+					statusRunning: "Running",
+					statusCompleted: "Completed",
+					statusCancelled: "Cancelled",
+					detailStatusCleaned: "Cleaned",
+					detailStatusFailed: "Failed",
+					detailStatusProcessing: "Processing",
+					detailStatusProtected: "Protected",
+					detailStatusSkipped: "Skipped",
 				},
 			},
 			cardQuality: {
@@ -1472,6 +1646,26 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 			},
 			dataManagementModal: {
 				title: "Official Data Governance",
+				startupGate: {
+					title: "Startup Data Check",
+					bannerTitle: "Data items need your attention",
+					bannerDesc:
+						"The checks below are recommended for data consistency. Closing this window will not block Weave. You can handle them later in Card Management → Data Management.",
+					checking: "Checking your data…",
+					ready: "Blocking checks passed. You can start using Weave.",
+					readyWithAdvisory:
+						"You can start using Weave. {count} advisory maintenance item(s) can be handled later in Data Management.",
+					pending: "{count} issue category(ies) are recommended for attention.",
+					pendingIssueTotal: "{count} issue(s) in total",
+					pendingItems: "Pending: {names}",
+					dismiss: "Remind me later",
+					disableFutureAutoPopup: "Don't show this prompt automatically again",
+					dismissedWithIssues:
+						"{count} data issue(s) remain unresolved. You can fix them later in Card Management → Data Management.",
+					autoPopupDisabled:
+						"Automatic startup data checks are off. Re-enable them in Settings → Data Management.",
+					continue: "Continue using Weave",
+				},
 				checkCurrentTabTitle: "Check current tab",
 				checkCurrentTab: "Check Current Tab",
 				fixCurrentTabTitle: "Safely fix items in the current tab",
@@ -1491,14 +1685,6 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				reportTime: "Time {time}",
 				runMigration: "Run migration",
 				migrateLegacyFormats: "Migrate all legacy formats",
-				splitPluginResidueNotice:
-					"Incremental Reading (weave-incremental-reading) and the EPUB reader (weave-epub-reader) are separate plugins. Run their legacy-format migrations in those plugins. Weave only keeps card linkage and host collaboration.",
-				openIncrementalReadingDataManagement: "Open incremental reading data management",
-				openIncrementalReadingDataManagementUnavailable:
-					"The weave-incremental-reading plugin is not installed, or this version does not expose the data management entry yet.",
-				openEpubReaderDataManagement: "Open EPUB data management",
-				openEpubReaderDataManagementUnavailable:
-					"The weave-epub-reader plugin is not installed, or this version does not expose the data management entry yet.",
 				migrateIrPointStorage: "Migrate incremental reading to the new storage structure",
 				migrateLegacyIrMarkdown: "Migrate legacy IR markdown into Obsidian's default new-note folder",
 				migrateQbank: "Migrate to .qbank",
@@ -1532,6 +1718,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 				},
 				resultSummary: {
 					foundCount: "Found {count} items",
+					needsAttention: "Needs attention",
+					checkFailed: "Check failed",
 					normal: "OK",
 					noContent: "(No content)",
 				},
@@ -1664,6 +1852,8 @@ export const managementUiTranslationOverrides: Record<SupportedLanguage, Transla
 					progressiveClozeUnconverted: "This will convert cards that match the progressive cloze format into a parent-child card structure.",
 					progressiveClozeMissingChildren:
 						"Rebuilds missing child cards from the parent card's cloze ordinals. If you previously ran Duplicate Cards repair, children may have been deleted by mistake.",
+					tutorialDeckResidue:
+						"This will delete legacy built-in Weave Guide tutorial cards, including copies scattered in Ungrouped Cards. The plugin no longer auto-creates tutorial decks.",
 					legacyCleanup: "This will delete legacy data directories and should only be run after migration has been completed and verified.",
 				},
 			},

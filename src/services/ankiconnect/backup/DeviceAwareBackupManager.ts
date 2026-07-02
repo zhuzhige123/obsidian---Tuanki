@@ -56,8 +56,8 @@ export class DeviceAwareBackupManager {
 			? "ios"
 			: "unknown";
 		const factors = [
-			(this.plugin.app as unknown).appId, // Obsidian 应用ID
-			platformStr, // 平台信息
+			readUnknownString(this.plugin.app, "appId") ?? platformStr,
+			platformStr,
 		];
 
 		const combined = factors.join("-");
@@ -271,6 +271,13 @@ export class DeviceAwareBackupManager {
 		return deviceMap;
 	}
 
+	private parseDeviceAwareBackup(data: unknown, filePath: string): DeviceAwareBackup {
+		if (!isRecord(data) || typeof data.id !== "string" || !isRecord(data.metadata)) {
+			throw new Error(`备份文件格式无效: ${filePath}`);
+		}
+		return data as unknown as DeviceAwareBackup;
+	}
+
 	/**
 	 * 加载备份文件
 	 * @param filePath 文件路径
@@ -281,15 +288,12 @@ export class DeviceAwareBackupManager {
 			// 压缩备份
 			const compressed = await this.plugin.app.vault.adapter.readBinary(filePath);
 			const data = await this.compression.gzipDecompress(new Uint8Array(compressed));
-			return data;
+			return this.parseDeviceAwareBackup(data, filePath);
 		} else {
 			// 未压缩备份
 			const content = await this.plugin.app.vault.adapter.read(filePath);
 			const parsed = parseJsonUnknown(content);
-			if (!isRecord(parsed)) {
-				throw new Error(`备份文件格式无效: ${filePath}`);
-			}
-			return parsed as DeviceAwareBackup;
+			return this.parseDeviceAwareBackup(parsed, filePath);
 		}
 	}
 
@@ -319,7 +323,7 @@ export class DeviceAwareBackupManager {
 			}
 
 			if (obj && typeof obj === "object") {
-				const converted: unknown = {};
+				const converted: Record<string, unknown> = {};
 				for (const [key, value] of Object.entries(obj)) {
 					converted[key] = convert(value);
 				}
@@ -350,7 +354,7 @@ export class DeviceAwareBackupManager {
 			}
 
 			if (obj && typeof obj === "object") {
-				const restored: unknown = {};
+				const restored: Record<string, unknown> = {};
 				for (const [key, value] of Object.entries(obj)) {
 					restored[key] = restore(value);
 				}

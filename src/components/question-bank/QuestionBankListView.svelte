@@ -12,11 +12,10 @@ import { vaultStorage } from '../../utils/vault-local-storage';
   import ObsidianIcon from "../ui/ObsidianIcon.svelte";
   import EnhancedIcon from "../ui/EnhancedIcon.svelte";
   import BouncingBallsLoader from "../ui/BouncingBallsLoader.svelte";
-  import CreateQuestionBankModal from "../modals/CreateQuestionBankModal.svelte";
   import TestModeSelectionModal from "../modals/TestModeSelectionModal.svelte";
+import { openCreateQuestionBankModal } from "../../utils/open-create-question-bank-modal";
 import { QuestionBankAnalyticsModalObsidian } from "../modals/QuestionBankAnalyticsModalObsidian";
 import { Notice, Menu } from "obsidian";
-import { isInputClozeQuestionContent } from "../../utils/question-bank/input-cloze-utils";
 import { tr } from "../../utils/i18n";
 import { formatQuestionBankAccuracyScore } from "../../utils/question-bank/question-bank-display-stats";
 
@@ -33,9 +32,6 @@ import { formatQuestionBankAccuracyScore } from "../../utils/question-bank/quest
   let questionBankTree = $state<DeckTreeNode[]>([]);
   let isLoading = $state(true);
   let expandedBankIds = $state<Set<string>>(new Set());
-  
-  // 对话框状态
-  let showCreateModal = $state(false);
   
   // 模式选择相关状态
   let showModeSelectionModal = $state(false);
@@ -213,439 +209,12 @@ import { formatQuestionBankAccuracyScore } from "../../utils/question-bank/quest
       }
     }
 
-    //  根据配置筛选和处理题目
-    let filteredQuestions = await applyQuestionFilters(questions, config, mode);
-    logger.debug('[QuestionBankListView] 题目筛选结果:', {
-      原始题目数: questions.length,
-      筛选后题目数: filteredQuestions.length,
-      配置: config
-    });
-
-    if (filteredQuestions.length === 0) {
-      new Notice(t('study.questionBankUI.bankCollection.noFilteredQuestions'));
-      return;
-    }
-    
-    //  新方式：打开独立的考试学习标签页
     await plugin.openQuestionBankSession({
       bankId,
       bankName,
       mode,
-      config: {
-        ...config,
-        //  注意：筛选后的题目会由 QuestionBankView 重新加载
-        // 这里只传递配置，题目加载逻辑在 QuestionBankView 中
-      }
+      config,
     });
-  }
-
-  //  根据配置筛选题目
-  async function applyQuestionFilters(
-    allQuestions: Card[], 
-    config: QuestionBankModeConfig | undefined, 
-    mode: TestMode
-  ): Promise<Card[]> {
-    if (!config) {
-      logger.debug('[QuestionBankListView] 无配置，返回所有题目');
-      return allQuestions;
-    }
-
-    let filteredQuestions = [...allQuestions];
-    logger.debug('[QuestionBankListView] 开始筛选题目，配置:', config);
-
-    // 1. 根据题目来源筛选
-    if (config.questionSource && config.questionSource !== 'all') {
-      // 根据题目来源筛选（简化实现）
-      logger.debug('[QuestionBankListView] 题目来源筛选:', config.questionSource);
-      // 可以根据不同来源筛选，如：错题集、收藏题目等
-      // 暂时保留所有题目，未来可以扩展
-    }
-
-    // 2. 智能筛选：根据题型比例和难度分布进行分层采样
-    const questionCount = getQuestionCount(config, mode);
-    const targetCount = questionCount && questionCount > 0 ? Math.min(questionCount, filteredQuestions.length) : filteredQuestions.length;
-    
-    if (config.questionTypeRatio || config.difficultyDistribution) {
-      filteredQuestions = await applyIntelligentFiltering(
-        filteredQuestions, 
-        {
-          questionTypeRatio: config.questionTypeRatio || { single_choice: 40, multiple_choice: 30, cloze: 20, short_answer: 10 },
-          difficultyDistribution: config.difficultyDistribution || { easy: 30, medium: 50, hard: 20 }
-        },
-        targetCount
-      );
-      logger.debug('[QuestionBankListView] 智能筛选完成，目标数量:', targetCount, '实际数量:', filteredQuestions.length);
-    } else if (questionCount && questionCount > 0 && questionCount < filteredQuestions.length) {
-      // 没有配置比例时，随机选择指定数量
-      filteredQuestions = shuffleArray(filteredQuestions).slice(0, questionCount);
-      logger.debug('[QuestionBankListView] 随机限制题目数量:', questionCount);
-    }
-
-    // 5. 应用其他选项
-    if (config.options?.shuffleQuestions) {
-      filteredQuestions = shuffleArray(filteredQuestions);
-      logger.debug('[QuestionBankListView] 已打乱题目顺序');
-    }
-
-    logger.debug('[QuestionBankListView] 筛选完成:', {
-      原始数量: allQuestions.length,
-      最终数量: filteredQuestions.length
-    });
-
-    return filteredQuestions;
-  }
-
-  // 获取题目数量配置
-  function getQuestionCount(config: QuestionBankModeConfig, mode: TestMode): number | null {
-    if (config.customQuestionCount) {
-      return config.customQuestionCount[mode] || null;
-    }
-    return null;
-  }
-
-  //  题型识别函数
-  function detectQuestionType(card: Card): 'single_choice' | 'multiple_choice' | 'cloze' | 'short_answer' {
-    const content = card.content;
-    
-    // 1. 选择题检测（基于现有解析器）
-    if (isChoiceQuestion(content)) {
-      // 通过正确答案数量区分单选/多选
-      try {
-        const parsed = parseChoiceQuestion(content);
-        if (parsed && parsed.correctAnswers) {
-          return parsed.correctAnswers.length > 1 ? 'multiple_choice' : 'single_choice';
-        }
-      } catch (error) {
-        logger.warn('[题型识别] 选择题解析失败:', error);
-      }
-      // 默认返回单选
-      return 'single_choice';
-    }
-    
-    // 2. 挖空题检测
-    if (isClozeQuestion(content)) {
-      return 'cloze';
-    }
-    
-    // 3. 问答题（默认）
-    return 'short_answer';
-  }
-
-  //  选择题识别（基于现有模式）
-  function isChoiceQuestion(content: string): boolean {
-    if (!content) return false;
-    
-    // 检查是否包含问题标记和选项格式
-    const hasQuestion = /^(?:Q:|问题：)/m.test(content);
-    const hasOptions = /^[A-H]\)/m.test(content);
-    const hasCorrectMark = /\{(?:✓|✔|correct)\}/.test(content);
-    
-    return hasQuestion && hasOptions && hasCorrectMark;
-  }
-
-  //  挖空题识别：仅将输入式挖空计入题库填空题
-  function isClozeQuestion(content: string): boolean {
-    return isInputClozeQuestionContent(content);
-  }
-
-  //  选择题解析（简化版）
-  function parseChoiceQuestion(content: string): { correctAnswers: string[] } | null {
-    try {
-      const correctAnswers: string[] = [];
-      const lines = content.split('\n');
-      
-      for (const line of lines) {
-        const match = line.match(/^([A-H])\).*?\{(?:✓|✔|correct)\}/);
-        if (match) {
-          correctAnswers.push(match[1]);
-        }
-      }
-      
-      return correctAnswers.length > 0 ? { correctAnswers } : null;
-    } catch (error) {
-      return null;
-    }
-  }
-
-  // 重新分配比例（排除空题型）- 通用工具函数
-  function redistributeRatio(
-    originalRatio: Record<string, number>, 
-    availableTypes: string[]
-  ): Record<string, number> {
-    const adjustedRatio: Record<string, number> = {};
-    let totalRatio = 0;
-    
-    // 计算可用题型的总比例
-    availableTypes.forEach(type => {
-      totalRatio += originalRatio[type] || 0;
-    });
-    
-    if (totalRatio === 0) {
-      // 平均分配
-      const averageRatio = 100 / availableTypes.length;
-      availableTypes.forEach(type => {
-        adjustedRatio[type] = averageRatio;
-      });
-    } else {
-      // 按比例重新分配到100%
-      availableTypes.forEach(type => {
-        adjustedRatio[type] = ((originalRatio[type] || 0) / totalRatio) * 100;
-      });
-    }
-    
-    return adjustedRatio;
-  }
-
-  //  动态难度评估接口
-  interface DynamicDifficulty {
-    totalAttempts: number;        // 总答题次数
-    correctAttempts: number;      // 正确次数  
-    currentAccuracy: number;      // 当前正确率
-    recentAccuracy: number;       // 近期正确率（最近10次）
-    computedDifficulty: number;   // 计算出的难度(1-10)
-    difficultyLevel: 'easy' | 'medium' | 'hard';
-    confidence: number;           // 置信度(0-1)
-  }
-
-  //  核心：动态难度评估算法（基于用户答题统计）
-  function computeDynamicDifficulty(card: Card): DynamicDifficulty {
-    const stats = card.stats?.errorTracking;
-    
-    // 默认难度（新题目）
-    if (!stats) {
-      return {
-        totalAttempts: 0,
-        correctAttempts: 0,
-        currentAccuracy: 0.5, // 默认中等水平
-        recentAccuracy: 0.5,
-        computedDifficulty: 5, // 初始中等难度
-        difficultyLevel: 'medium',
-        confidence: 0 // 新题目置信度为0
-      };
-    }
-    
-    const totalAttempts = stats.correctCount + stats.errorCount;
-    const accuracy = stats.accuracy;
-    const correctAttempts = stats.correctCount;
-    
-    logger.debug(`[难度评估] 卡片 ${card.uuid}: 总次数=${totalAttempts}, 正确率=${accuracy}`);
-    
-    //  您提出的核心算法：基于答题次数和正确率
-    let difficulty = 5; // 初始中等难度
-    
-    // 1. 基于正确率调整难度
-    if (accuracy >= 0.9) {
-      difficulty = 2; // 很高正确率 -> 简单
-    } else if (accuracy >= 0.7) {
-      difficulty = 3; // 高正确率 -> 较简单  
-    } else if (accuracy >= 0.5) {
-      difficulty = 5; // 中等正确率 -> 中等
-    } else if (accuracy >= 0.3) {
-      difficulty = 7; // 低正确率 -> 较难
-    } else {
-      difficulty = 9; // 很低正确率 -> 困难
-    }
-    
-    // 2. 基于答题次数调整（置信度加权）
-    const confidence = Math.min(totalAttempts / 10, 1); // 10次后达到满置信度
-    const adjustedDifficulty = difficulty * confidence + 5 * (1 - confidence);
-    
-    // 3. 近期趋势调整（基于最近的表现）
-    let recentAccuracy = accuracy; // 简化：暂时使用总体正确率
-    if (totalAttempts >= 5) {
-      // TODO: 实现基于最近N次的正确率计算
-      recentAccuracy = accuracy;
-    }
-    
-    // 4. 最终难度值
-    const finalDifficulty = Math.max(1, Math.min(10, Math.round(adjustedDifficulty)));
-    
-    const result: DynamicDifficulty = {
-      totalAttempts,
-      correctAttempts,
-      currentAccuracy: accuracy,
-      recentAccuracy,
-      computedDifficulty: finalDifficulty,
-      difficultyLevel: finalDifficulty <= 3 ? 'easy' : finalDifficulty <= 7 ? 'medium' : 'hard',
-      confidence
-    };
-    
-    logger.debug(`[难度评估] 结果: 难度=${finalDifficulty} (${result.difficultyLevel}), 置信度=${confidence.toFixed(2)}`);
-    return result;
-  }
-
-  //  获取题目的综合难度（静态+动态）
-  function getQuestionDifficulty(card: Card): 'easy' | 'medium' | 'hard' {
-    // 优先使用动态评估的结果
-    const dynamicDiff = computeDynamicDifficulty(card);
-    
-    // 如果有足够的答题数据（置信度 > 0.3），使用动态评估
-    if (dynamicDiff.confidence > 0.3) {
-      return dynamicDiff.difficultyLevel;
-    }
-    
-    // 否则使用静态难度或默认值
-    return card.difficulty || 'medium';
-  }
-
-
-  //  核心：智能分层采样筛选算法
-  async function applyIntelligentFiltering(
-    questions: Card[], 
-    config: {
-      questionTypeRatio: Record<string, number>;
-      difficultyDistribution: Record<string, number>;
-    },
-    targetCount: number
-  ): Promise<Card[]> {
-    
-    logger.debug('[智能筛选] 开始分层采样:', {
-      总题数: questions.length,
-      目标数量: targetCount,
-      题型比例: config.questionTypeRatio,
-      难度比例: config.difficultyDistribution
-    });
-
-    if (targetCount <= 0 || questions.length === 0) {
-      return [];
-    }
-
-    if (targetCount >= questions.length) {
-      // 如果目标数量大于等于总数，直接返回所有题目
-      return config.questionTypeRatio ? shuffleArray(questions) : questions;
-    }
-
-    // 1. 题型分类和难度评估
-    const questionsWithMetadata = questions.map(question => ({
-      ...question,
-      questionType: detectQuestionType(question),
-      evaluatedDifficulty: getQuestionDifficulty(question),
-      dynamicData: computeDynamicDifficulty(question)
-    }));
-
-    // 2. 双维度分组 (题型 × 难度)
-    const groups = createDoubleGroups(questionsWithMetadata);
-    logger.debug('[智能筛选] 双维度分组完成:', summarizeGroups(groups));
-
-    // 3. 分层采样
-    const sampledQuestions = await performLayeredSampling(groups, config, targetCount);
-    
-    logger.debug('[智能筛选] 采样完成:', {
-      采样数量: sampledQuestions.length,
-      目标数量: targetCount,
-      完成率: `${(sampledQuestions.length / targetCount * 100).toFixed(1)}%`
-    });
-
-    return shuffleArray(sampledQuestions);
-  }
-
-  // 创建题型×难度双维度分组
-  function createDoubleGroups(questions: Array<Card & { questionType: string; evaluatedDifficulty: string; dynamicData: DynamicDifficulty }>) {
-    const groups: Record<string, Record<string, typeof questions>> = {};
-    
-    questions.forEach(question => {
-      const type = question.questionType;
-      const difficulty = question.evaluatedDifficulty;
-      
-      if (!groups[type]) {
-        groups[type] = {};
-      }
-      if (!groups[type][difficulty]) {
-        groups[type][difficulty] = [];
-      }
-      
-      groups[type][difficulty].push(question);
-    });
-    
-    return groups;
-  }
-
-  // 汇总分组信息（用于日志）
-  function summarizeGroups(groups: Record<string, Record<string, any[]>>) {
-    const summary: Record<string, any> = {};
-    
-    Object.keys(groups).forEach(type => {
-      summary[type] = {};
-      Object.keys(groups[type]).forEach(difficulty => {
-        summary[type][difficulty] = groups[type][difficulty].length;
-      });
-    });
-    
-    return summary;
-  }
-
-  // 分层采样核心算法
-  async function performLayeredSampling(
-    groups: Record<string, Record<string, Card[]>>, 
-    config: { questionTypeRatio: Record<string, number>; difficultyDistribution: Record<string, number> },
-    targetCount: number
-  ): Promise<Card[]> {
-    
-    const sampledQuestions: Card[] = [];
-    const { questionTypeRatio, difficultyDistribution } = config;
-    
-    // 获取可用的题型和难度
-    const availableTypes = Object.keys(groups).filter(type => 
-      Object.values(groups[type]).some(arr => arr.length > 0)
-    );
-    const availableDifficulties = ['easy', 'medium', 'hard'].filter(difficulty =>
-      availableTypes.some(type => groups[type]?.[difficulty]?.length > 0)
-    );
-
-    logger.debug('[分层采样] 可用维度:', { 题型: availableTypes, 难度: availableDifficulties });
-
-    // 重新计算比例
-    const adjustedTypeRatio = redistributeRatio(questionTypeRatio, availableTypes);
-    const adjustedDifficultyRatio = redistributeRatio(difficultyDistribution, availableDifficulties);
-
-    // 按题型分配
-    for (const type of availableTypes) {
-      const typeCount = Math.floor(targetCount * (adjustedTypeRatio[type] || 0) / 100);
-      if (typeCount <= 0) continue;
-
-      logger.debug(`[分层采样] 题型 ${type}: 目标 ${typeCount} 题`);
-
-      // 在该题型内按难度分配
-      for (const difficulty of availableDifficulties) {
-        const difficultyCount = Math.floor(typeCount * (adjustedDifficultyRatio[difficulty] || 0) / 100);
-        const availableQuestions = groups[type]?.[difficulty] || [];
-        
-        if (difficultyCount <= 0 || availableQuestions.length === 0) continue;
-
-        // 采样该分组的题目
-        const actualCount = Math.min(difficultyCount, availableQuestions.length);
-        const sampled = shuffleArray(availableQuestions).slice(0, actualCount);
-        
-        sampledQuestions.push(...sampled);
-        logger.debug(`[分层采样] ${type}-${difficulty}: 采样 ${sampled.length}/${availableQuestions.length} 题`);
-      }
-    }
-
-    // 补足数量（如果采样不够）
-    const remaining = targetCount - sampledQuestions.length;
-    if (remaining > 0) {
-      const allAvailable = Object.values(groups)
-        .flatMap(typeGroup => Object.values(typeGroup))
-        .flat();
-      
-      const unused = allAvailable.filter(q => !sampledQuestions.some(s => s.uuid === q.uuid));
-      const additional = shuffleArray(unused).slice(0, remaining);
-      
-      sampledQuestions.push(...additional);
-      logger.debug(`[分层采样] 补足题目: ${additional.length} 题`);
-    }
-
-    return sampledQuestions;
-  }
-
-  // 数组乱序工具函数
-  function shuffleArray<T>(array: T[]): T[] {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
   }
 
   // 根据正确率获取颜色
@@ -682,15 +251,16 @@ import { formatQuestionBankAccuracyScore } from "../../utils/question-bank/quest
   function handleCreateBank() {
     if (onCreateBank) {
       onCreateBank();
-    } else {
-      showCreateModal = true;
+      return;
     }
-  }
 
-  // 处理题库创建成功
-  function handleBankCreated(bank: any) {
-    showCreateModal = false;
-    loadQuestionBankTree();
+    openCreateQuestionBankModal({
+      plugin,
+      onBankCreated: async () => {
+        await loadQuestionBankTree();
+        plugin.app.workspace.trigger("Weave:data-changed");
+      },
+    });
   }
 
   // 显示题库菜单（使用 Obsidian 原生菜单）
@@ -946,15 +516,6 @@ import { formatQuestionBankAccuracyScore } from "../../utils/question-bank/quest
     </div>
   {/if}
 </div>
-
-<!-- 创建题库对话框 -->
-<CreateQuestionBankModal
-  bind:open={showCreateModal}
-  {plugin}
-  mode="create"
-  onClose={() => showCreateModal = false}
-  onCreated={handleBankCreated}
-/>
 
 <!-- 🆕 模式选择模态窗 -->
 <TestModeSelectionModal

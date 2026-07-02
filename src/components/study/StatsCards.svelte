@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { logger } from '../../utils/logger';
 
   import type { Card } from "../../data/types";
@@ -26,12 +27,12 @@
 
   // 移动端点击显示标签功能
   let activeStatIndex = $state<number | null>(null);
-  let labelTimeout: ReturnType<typeof setTimeout> | null = null;
+  let labelTimeout: WeaveTimerHandle | null = null;
 
   function handleStatClick(index: number) {
     // 清除之前的定时器
     if (labelTimeout) {
-      clearTimeout(labelTimeout);
+      window.clearTimeout(labelTimeout);
     }
     
     // 切换显示状态
@@ -40,7 +41,7 @@
     } else {
       activeStatIndex = index;
       // 2秒后自动隐藏
-      labelTimeout = setTimeout(() => {
+      labelTimeout = window.setTimeout(() => {
         activeStatIndex = null;
       }, 2000);
     }

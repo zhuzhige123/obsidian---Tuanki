@@ -262,6 +262,7 @@ export class StudySessionManager {
 		if (expiredSessions.length > 0) {
 			for (const sessionId of expiredSessions) {
 				this.sessions.delete(sessionId);
+				this.learningStepsConfig.delete(sessionId);
 			}
 			logger.debug(`[StudySessionManager] 清理过期会话: ${expiredSessions.length} 个`);
 		}
@@ -355,10 +356,15 @@ export class StudySessionManager {
 		const sessionState: StudySessionState = {
 			sessionId,
 			cardId: persisted.currentCardId,
-			learningStepIndex: 0, // 学习步骤索引在具体卡片学习时设置
+			learningStepIndex: 0,
 			startTime: persisted.startTime,
 			interactionCount: persisted.stats.completed,
-			currentState: CardState.New, // 将在实际卡片加载时更新
+			currentState:
+				persisted.sessionType === "new"
+					? CardState.New
+					: persisted.sessionType === "learning"
+						? CardState.Learning
+						: CardState.Review,
 		};
 
 		this.sessions.set(sessionId, sessionState);

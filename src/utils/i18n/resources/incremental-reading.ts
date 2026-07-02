@@ -335,11 +335,6 @@ const enEpubExport = {
 	readingProgress: 'Reading progress',
 };
 
-export const incrementalReadingTranslations: Record<SupportedLanguage, TranslationKey> = {
-	'zh-CN': {},
-	'en-US': {},
-};
-
 export const incrementalReadingTranslationOverrides: Record<SupportedLanguage, TranslationKey> = {
 	'zh-CN': {
 		irTagGroup: {

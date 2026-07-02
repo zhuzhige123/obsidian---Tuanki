@@ -151,7 +151,7 @@
     value = beforeText + newText + afterText;
     
     // 设置新的光标位置
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (!textareaRef) return;
       if (selectedText) {
         textareaRef.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
@@ -194,7 +194,7 @@
     insertAtCursor(codeBlock);
     
     // 将光标移动到代码块内部
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (!textareaRef) return;
       const newPos = textareaRef.selectionStart - 5;
       textareaRef.setSelectionRange(newPos, newPos);
@@ -211,7 +211,7 @@
     insertMarkdown(`[${linkText}](`, ')');
     
     // 选中 URL 部分
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (!textareaRef) return;
       const start = textareaRef.selectionStart;
       textareaRef.setSelectionRange(start, start + linkUrl.length);
@@ -227,7 +227,7 @@
     insertAtCursor(`![${altText}](${imageUrl})`);
     
     // 选中 URL 部分
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (!textareaRef) return;
       const start = textareaRef.selectionStart - imageUrl.length - 1;
       textareaRef.setSelectionRange(start, start + imageUrl.length);
@@ -254,7 +254,7 @@
     value = beforeText + text + afterText;
     
     // 设置新的光标位置
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (!textareaRef) return;
       textareaRef.setSelectionRange(start + text.length, start + text.length);
       textareaRef.focus();

@@ -21,7 +21,7 @@ import { logger } from "../../utils/logger";
 import { App } from "obsidian";
 import type { QBankFileData, QuestionInBank, QBankStats } from "./QBankFileTypes";
 import { getPluginPaths, getV2PathsFromApp } from "../../config/paths";
-import type { Card, Deck } from "../../data/types";
+import type { Card, Deck, DeckSettings, DeckStats } from "../../data/types";
 import type {
 	ErrorBookEntry,
 	PersistedTestSession,
@@ -151,6 +151,50 @@ export class QuestionBankStorage {
 		logger.debug("[QuestionBankStorage] Initialized with basePath:", this.basePath);
 	}
 
+	/** 迁移专用：更新题库根路径（勿在常规业务路径调用）。 */
+	setBasePathForMigration(path: string): void {
+		this.basePath = path;
+	}
+
+	private getDefaultQuestionBankDeckSettings(): DeckSettings {
+		return {
+			newCardsPerDay: 20,
+			maxReviewsPerDay: 200,
+			enableAutoAdvance: false,
+			showAnswerTime: 0,
+			fsrsParams: {
+				w: [
+					0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.001, 1.8722, 0.1666, 0.796,
+					1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542,
+				],
+				requestRetention: 0.9,
+				maximumInterval: 36500,
+				enableFuzz: true,
+			},
+			learningSteps: [1, 10],
+			relearningSteps: [10],
+			graduatingInterval: 1,
+			easyInterval: 4,
+		};
+	}
+
+	private getDefaultQuestionBankDeckStats(): DeckStats {
+		return {
+			totalCards: 0,
+			newCards: 0,
+			learningCards: 0,
+			reviewCards: 0,
+			todayNew: 0,
+			todayReview: 0,
+			todayTime: 0,
+			totalReviews: 0,
+			totalTime: 0,
+			memoryRate: 0,
+			averageEase: 0,
+			forecastDays: {},
+		};
+	}
+
 	normalizeQBankFileDataForPersistence(
 		data: (Partial<QBankFileData> & Record<string, unknown>) | null | undefined,
 		filePathOrName = ""
@@ -273,10 +317,10 @@ export class QuestionBankStorage {
 			filePath
 		);
 		await safeWriteJson(
-			this.app.vault.adapter as unknown,
+			this.app.vault.adapter,
 			filePath,
 			JSON.stringify(normalized, null, 2),
-			this.app as unknown
+			this.app
 		);
 	}
 
@@ -284,9 +328,9 @@ export class QuestionBankStorage {
 		filePath: string
 	): Promise<(QBankFileData & Record<string, unknown>) | null> {
 		return await safeReadJson<QBankFileData & Record<string, unknown>>(
-			this.app.vault.adapter as unknown,
+			this.app.vault.adapter,
 			filePath,
-			this.app as unknown
+			this.app
 		);
 	}
 
@@ -689,8 +733,12 @@ export class QuestionBankStorage {
 						created: typeof bank.created === "string" ? bank.created : new Date().toISOString(),
 						modified: typeof bank.modified === "string" ? bank.modified : new Date().toISOString(),
 						tags: Array.isArray(bank.tags) ? bank.tags.filter((tag): tag is string => typeof tag === "string") : [],
-						settings: isRecord(bank.settings) ? bank.settings : {},
-						stats: isRecord(bank.stats) ? bank.stats : {},
+						settings: isRecord(bank.settings)
+							? { ...this.getDefaultQuestionBankDeckSettings(), ...bank.settings }
+							: this.getDefaultQuestionBankDeckSettings(),
+						stats: isRecord(bank.stats)
+							? { ...this.getDefaultQuestionBankDeckStats(), ...bank.stats }
+							: this.getDefaultQuestionBankDeckStats(),
 						inheritSettings: bank.inheritSettings === true,
 						metadata: isRecord(bank.metadata) ? bank.metadata : {},
 						deckType: bank.deckType === "question-bank" ? "question-bank" : "question-bank",
@@ -815,12 +863,14 @@ export class QuestionBankStorage {
 		try {
 			const bankId = bank.id;
 			const existingQbankRecord = await this.readQBankDataByBankId(bankId);
-			const existingTestHistory = this.normalizeTestHistoryEntries(
-				readQBankField(existingQbankRecord?.data ?? {}, "testHistory")
-			);
-			const existingErrorBook = this.normalizeErrorBookEntries(
-				readQBankField(existingQbankRecord?.data ?? {}, "errorBook")
-			);
+			const existingTestHistory = existingQbankRecord?.data
+				? this.normalizeTestHistoryEntries(
+						readQBankField(existingQbankRecord.data, "testHistory")
+					)
+				: [];
+			const existingErrorBook = existingQbankRecord?.data
+				? this.normalizeErrorBookEntries(readQBankField(existingQbankRecord.data, "errorBook"))
+				: [];
 
 			// 1. 读取题目引用
 			const refs = await this.loadBankQuestionRefs(bankId);
@@ -1048,8 +1098,8 @@ export class QuestionBankStorage {
 						level: 0,
 						order: 0,
 						inheritSettings: false,
-						settings: {},
-						stats: {},
+						settings: this.getDefaultQuestionBankDeckSettings(),
+						stats: this.getDefaultQuestionBankDeckStats(),
 						includeSubdecks: false,
 					};
 
@@ -1928,12 +1978,55 @@ export class QuestionBankStorage {
 		}
 	}
 
-	async cleanupDeletedCards(cardUuids: string[]): Promise<QuestionCardCleanupResult> {
-		const uniqueCardUuids = Array.from(new Set(cardUuids.filter(Boolean)));
-		const targetCardUuids = new Set(uniqueCardUuids);
-		const affectedBankIds = new Set<string>();
-		const historyArchiveOverrides = new Map<string, Record<string, SessionArchiveOverride>>();
-		const result: QuestionCardCleanupResult = {
+	private async collectBankIdsForCardCleanup(): Promise<string[]> {
+		const bankIds = new Set<string>();
+
+		for (const bank of await this.loadBanks()) {
+			if (bank.id) {
+				bankIds.add(bank.id);
+			}
+		}
+
+		for (const bank of await this.loadLegacyBanksFromJson()) {
+			if (bank.id) {
+				bankIds.add(bank.id);
+			}
+		}
+
+		const inProgressSessions = await this.loadConsolidatedMap<PersistedTestSession>(
+			this.getRuntimeInProgressFilePath()
+		);
+		for (const bankId of Object.keys(inProgressSessions)) {
+			bankIds.add(bankId);
+		}
+
+		const sessionArchives = await this.loadConsolidatedMap<Record<string, unknown>>(
+			this.getRuntimeSessionArchivesFilePath()
+		);
+		for (const bankId of Object.keys(sessionArchives)) {
+			bankIds.add(bankId);
+		}
+
+		const banksDir = `${this.basePath}/banks`;
+		try {
+			if (await this.app.vault.adapter.exists(banksDir)) {
+				const listing = await this.app.vault.adapter.list(banksDir);
+				for (const folder of listing.folders) {
+					const folderName = folder.split("/").filter(Boolean).pop();
+					if (folderName) {
+						bankIds.add(folderName);
+					}
+				}
+			}
+		} catch (error) {
+			logger.warn("[QuestionBankStorage] 扫描 banks 目录失败:", error);
+		}
+
+		return Array.from(bankIds);
+	}
+
+	private createEmptyQuestionCardCleanupResult(): QuestionCardCleanupResult {
+		return {
 			affectedBankIds: [],
 			removedRefs: 0,
 			removedGlobalStats: 0,
@@ -1945,81 +2038,95 @@ export class QuestionBankStorage {
 			updatedHistoryEntries: 0,
 			removedHistoryEntries: 0,
 		};
+	}
 
-		if (targetCardUuids.size === 0) {
+	private mergeQuestionCardCleanupResults(
+		target: QuestionCardCleanupResult,
+		source: QuestionCardCleanupResult
+	): void {
+		for (const bankId of source.affectedBankIds) {
+			if (!target.affectedBankIds.includes(bankId)) {
+				target.affectedBankIds.push(bankId);
+			}
+		}
+		target.removedRefs += source.removedRefs;
+		target.removedGlobalStats += source.removedGlobalStats;
+		target.removedErrorBookEntries += source.removedErrorBookEntries;
+		target.updatedInProgressSessions += source.updatedInProgressSessions;
+		target.removedInProgressSessions += source.removedInProgressSessions;
+		target.updatedSessionArchives += source.updatedSessionArchives;
+		target.removedSessionArchives += source.removedSessionArchives;
+		target.updatedHistoryEntries += source.updatedHistoryEntries;
+		target.removedHistoryEntries += source.removedHistoryEntries;
+	}
+
+	/**
+	 * 从单个考试题组移除题目引用，并清理该题组内的考试测试残留数据。
+	 * 不删除记忆牌组中的卡片本体。
+	 */
+	async cleanupCardsInBank(
+		bankId: string,
+		cardUuids: string[],
+		options?: { cleanupGlobalStats?: boolean }
+	): Promise<QuestionCardCleanupResult> {
+		const uniqueCardUuids = Array.from(new Set(cardUuids.filter(Boolean)));
+		const targetCardUuids = new Set(uniqueCardUuids);
+		const result = this.createEmptyQuestionCardCleanupResult();
+
+		if (targetCardUuids.size === 0 || !bankId) {
 			return result;
 		}
 
-		const banks = await this.loadBanks();
-		for (const bank of banks) {
-			const refs = await this.loadBankQuestionRefs(bank.id);
-			if (refs.length === 0) {
-				continue;
+		const markBankAffected = () => {
+			if (!result.affectedBankIds.includes(bankId)) {
+				result.affectedBankIds.push(bankId);
 			}
+		};
 
-			const filteredRefs = refs.filter((ref) => !targetCardUuids.has(ref.cardUuid));
-			const removedCount = refs.length - filteredRefs.length;
-			if (removedCount === 0) {
-				continue;
-			}
-
-			await this.saveBankQuestionRefs(bank.id, filteredRefs);
-			affectedBankIds.add(bank.id);
-			result.removedRefs += removedCount;
+		const refs = await this.loadBankQuestionRefs(bankId);
+		const filteredRefs = refs.filter((ref) => !targetCardUuids.has(ref.cardUuid));
+		const removedRefCount = refs.length - filteredRefs.length;
+		if (removedRefCount > 0) {
+			await this.saveBankQuestionRefs(bankId, filteredRefs);
+			result.removedRefs += removedRefCount;
+			markBankAffected();
 		}
 
-		result.removedGlobalStats = await this.removeUnreferencedGlobalStats(targetCardUuids);
-
-		for (const bank of banks) {
-			const entries = await this.loadErrorBook(bank.id);
-			if (entries.length === 0) {
-				continue;
+		const errorEntries = await this.loadErrorBook(bankId);
+		if (errorEntries.length > 0) {
+			const filteredEntries = errorEntries.filter((entry) => !targetCardUuids.has(entry.cardId));
+			const removedCount = errorEntries.length - filteredEntries.length;
+			if (removedCount > 0) {
+				await this.saveErrorBook(bankId, filteredEntries);
+				result.removedErrorBookEntries += removedCount;
+				markBankAffected();
 			}
-
-			const filteredEntries = entries.filter((entry) => !targetCardUuids.has(entry.cardId));
-			const removedCount = entries.length - filteredEntries.length;
-			if (removedCount === 0) {
-				continue;
-			}
-
-			await this.saveErrorBook(bank.id, filteredEntries);
-			affectedBankIds.add(bank.id);
-			result.removedErrorBookEntries += removedCount;
 		}
 
 		const inProgressPath = this.getRuntimeInProgressFilePath();
 		const inProgressSessions = await this.loadConsolidatedMap<PersistedTestSession>(inProgressPath);
-		let inProgressChanged = false;
-		for (const [bankId, session] of Object.entries(inProgressSessions)) {
-			const cleanup = this.cleanupPersistedSession(session, targetCardUuids);
-			if (cleanup.removedQuestions === 0) {
-				continue;
+		const inProgressSession = inProgressSessions[bankId];
+		if (inProgressSession) {
+			const cleanup = this.cleanupPersistedSession(inProgressSession, targetCardUuids);
+			if (cleanup.removedQuestions > 0) {
+				if (cleanup.session) {
+					inProgressSessions[bankId] = cleanup.session;
+					result.updatedInProgressSessions += 1;
+				} else {
+					delete inProgressSessions[bankId];
+					result.removedInProgressSessions += 1;
+				}
+				await this.saveConsolidatedMap(inProgressPath, inProgressSessions);
+				markBankAffected();
 			}
-
-			if (cleanup.session) {
-				inProgressSessions[bankId] = cleanup.session;
-				result.updatedInProgressSessions += 1;
-			} else {
-				delete inProgressSessions[bankId];
-				result.removedInProgressSessions += 1;
-			}
-
-			affectedBankIds.add(bankId);
-			inProgressChanged = true;
-		}
-		if (inProgressChanged) {
-			await this.saveConsolidatedMap(inProgressPath, inProgressSessions);
 		}
 
+		const historyArchiveOverrides: Record<string, SessionArchiveOverride> = {};
 		const sessionArchivesPath = this.getRuntimeSessionArchivesFilePath();
 		const sessionArchives =
 			await this.loadConsolidatedMap<Record<string, unknown>>(sessionArchivesPath);
-		let sessionArchivesChanged = false;
-		for (const [bankId, archiveMap] of Object.entries(sessionArchives)) {
-			if (!archiveMap || typeof archiveMap !== "object") {
-				continue;
-			}
-
+		const archiveMap = sessionArchives[bankId];
+		if (archiveMap && typeof archiveMap === "object") {
 			let bankChanged = false;
 			const nextArchiveMap = { ...(archiveMap) };
 			for (const [sessionId, archive] of Object.entries(nextArchiveMap)) {
@@ -2028,12 +2135,7 @@ export class QuestionBankStorage {
 					continue;
 				}
 
-				let bankArchiveOverrides = historyArchiveOverrides.get(bankId);
-				if (!bankArchiveOverrides) {
-					bankArchiveOverrides = {};
-					historyArchiveOverrides.set(bankId, bankArchiveOverrides);
-				}
-				bankArchiveOverrides[sessionId] = {
+				historyArchiveOverrides[sessionId] = {
 					archive: cleanup.archive,
 					removedQuestions: cleanup.removedQuestions,
 				};
@@ -2049,46 +2151,57 @@ export class QuestionBankStorage {
 				bankChanged = true;
 			}
 
-			if (!bankChanged) {
-				continue;
+			if (bankChanged) {
+				if (Object.keys(nextArchiveMap).length > 0) {
+					sessionArchives[bankId] = nextArchiveMap;
+				} else {
+					delete sessionArchives[bankId];
+				}
+				await this.saveConsolidatedMap(sessionArchivesPath, sessionArchives);
+				markBankAffected();
 			}
-
-			if (Object.keys(nextArchiveMap).length > 0) {
-				sessionArchives[bankId] = nextArchiveMap;
-			} else {
-				delete sessionArchives[bankId];
-			}
-
-			affectedBankIds.add(bankId);
-			sessionArchivesChanged = true;
-		}
-		if (sessionArchivesChanged) {
-			await this.saveConsolidatedMap(sessionArchivesPath, sessionArchives);
 		}
 
-		for (const bank of banks) {
-			const entries = await this.loadTestHistory(bank.id);
-			if (entries.length === 0) {
-				continue;
-			}
-
+		const historyEntries = await this.loadTestHistory(bankId);
+		if (historyEntries.length > 0) {
 			const cleanup = this.cleanupTestHistoryEntries(
-				entries,
-				historyArchiveOverrides.get(bank.id),
+				historyEntries,
+				Object.keys(historyArchiveOverrides).length > 0 ? historyArchiveOverrides : undefined,
 				targetCardUuids
 			);
-			if (cleanup.updatedEntries === 0 && cleanup.removedEntries === 0) {
-				continue;
+			if (cleanup.updatedEntries > 0 || cleanup.removedEntries > 0) {
+				await this.saveTestHistoryEntries(bankId, cleanup.entries);
+				result.updatedHistoryEntries += cleanup.updatedEntries;
+				result.removedHistoryEntries += cleanup.removedEntries;
+				markBankAffected();
 			}
-
-			await this.saveTestHistoryEntries(bank.id, cleanup.entries);
-
-			affectedBankIds.add(bank.id);
-			result.updatedHistoryEntries += cleanup.updatedEntries;
-			result.removedHistoryEntries += cleanup.removedEntries;
 		}
 
-		result.affectedBankIds = Array.from(affectedBankIds);
+		if (options?.cleanupGlobalStats !== false) {
+			result.removedGlobalStats = await this.removeUnreferencedGlobalStats(targetCardUuids);
+		}
+
+		return result;
+	}
+
+	async cleanupDeletedCards(cardUuids: string[]): Promise<QuestionCardCleanupResult> {
+		const uniqueCardUuids = Array.from(new Set(cardUuids.filter(Boolean)));
+		const targetCardUuids = new Set(uniqueCardUuids);
+		const result = this.createEmptyQuestionCardCleanupResult();
+
+		if (targetCardUuids.size === 0) {
+			return result;
+		}
+
+		const banks = await this.collectBankIdsForCardCleanup();
+		for (const bankId of banks) {
+			const bankResult = await this.cleanupCardsInBank(bankId, uniqueCardUuids, {
+				cleanupGlobalStats: false,
+			});
+			this.mergeQuestionCardCleanupResults(result, bankResult);
+		}
+
+		result.removedGlobalStats = await this.removeUnreferencedGlobalStats(targetCardUuids);
 		return result;
 	}
 

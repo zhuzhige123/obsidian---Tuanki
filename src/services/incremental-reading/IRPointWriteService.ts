@@ -1,6 +1,7 @@
 import { normalizePath, type App } from "obsidian";
 import type { Card } from "../../data/types";
-import type { IRPriority } from "../../types/ir-types";
+import type { IRPriority, IRBlockMeta } from "../../types/ir-types";
+import { DEFAULT_IR_BLOCK_META } from "../../types/ir-types";
 import { resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 import {
 	type IREpubBookmarkTask,
@@ -107,7 +108,7 @@ function buildCardLikeTarget(target: IRPointWriteTarget): Card {
 		uuid: target.id,
 		metadata,
 		ir_source_document_key: target.sourceDocumentPath,
-	} as Card;
+	} as unknown as Card;
 }
 
 export class IRPointWriteService {
@@ -408,7 +409,8 @@ export class IRPointWriteService {
 			await this.pdfService.initialize();
 			const updatedTask = await this.pdfService.updateTask(card.uuid, {
 				meta: {
-					...readCardMetaRecord(card),
+					...DEFAULT_IR_BLOCK_META,
+					...(readCardMetaRecord(card) as Partial<IRBlockMeta>),
 					primaryAssociatedNotePath: primaryPath,
 					associatedNotePath: primaryPath,
 					associatedNotePaths: normalizedNotePaths,
@@ -428,7 +430,8 @@ export class IRPointWriteService {
 			await this.epubService.initialize();
 			const updatedTask = await this.epubService.updateTask(card.uuid, {
 				meta: {
-					...readCardMetaRecord(card),
+					...DEFAULT_IR_BLOCK_META,
+					...(readCardMetaRecord(card) as Partial<IRBlockMeta>),
 					primaryAssociatedNotePath: primaryPath,
 					associatedNotePath: primaryPath,
 					associatedNotePaths: normalizedNotePaths,

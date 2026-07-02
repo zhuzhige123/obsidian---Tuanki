@@ -68,6 +68,7 @@ const ICON_ALIAS_MAP: Record<string, string> = {
   "upload-cloud": "upload",
   cpu: "cpu",
   tool: "wrench",
+  unlink: "unlink",
   "sidebar-open": "panel-left-open",
   "sidebar-close": "panel-left-close",
   "panel-left-open": "panel-left-open",

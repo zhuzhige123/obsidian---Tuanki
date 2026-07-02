@@ -308,6 +308,13 @@ export const SCHEMA_VERSION = "3.0.0";
 /** 默认媒体文件夹名 */
 export const DEFAULT_MEDIA_FOLDER_NAME = "media";
 
+/** Weave 自动维护的附件索引 Markdown（供 Obsidian 孤立附件检测识别 JSON/.wdeck 引用） */
+export const ATTACHMENT_REGISTRY_FILENAME = "attachment-registry.md";
+
+export function getAttachmentRegistryPath(parentFolder?: string): string {
+	return `${getV2Paths(parentFolder).memory.root}/${ATTACHMENT_REGISTRY_FILENAME}`;
+}
+
 /** Vault 媒体清单文件名（避免与插件 manifest.json 混淆） */
 export const MEDIA_MANIFEST_FILENAME = ".manifest.json";
 
@@ -365,6 +372,7 @@ export function getPluginPathsById(
 			studyDue: `${indicesRoot}/study-due-index.json`,
 			ir: `${indicesRoot}/ir-index.json`,
 			question: `${indicesRoot}/question-index.json`,
+			bodyFingerprint: `${indicesRoot}/body-fingerprint-index.json`,
 		},
 		cache: {
 			root: cacheRoot,

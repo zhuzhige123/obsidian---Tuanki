@@ -75,27 +75,26 @@ export class SmartCacheService {
 
 	static getInstance(): SmartCacheService {
 		if (typeof window !== "undefined") {
-			const w = window as unknown;
-			if (w.__weaveSmartCacheService) {
-				SmartCacheService.instance = w.__weaveSmartCacheService as SmartCacheService;
+						if (window.__weaveSmartCacheService) {
+				SmartCacheService.instance = window.__weaveSmartCacheService;
 				return SmartCacheService.instance;
 			}
 
 			const instance = new SmartCacheService();
-			w.__weaveSmartCacheService = instance;
+			window.__weaveSmartCacheService = instance;
 
-			if (typeof w.__weaveSmartCacheServiceCleanup !== "function") {
-				w.__weaveSmartCacheServiceCleanup = () => {
+			if (typeof window.__weaveSmartCacheServiceCleanup !== "function") {
+				window.__weaveSmartCacheServiceCleanup = () => {
 					try {
-						(w.__weaveSmartCacheService as SmartCacheService | undefined)?.destroy();
+						(window.__weaveSmartCacheService as SmartCacheService | undefined)?.destroy();
 					} catch { /* no-op */ }
 
 					try {
-						w.__weaveSmartCacheService = undefined;
-						w.__weaveSmartCacheServiceCleanup = undefined;
+						window.__weaveSmartCacheService = undefined;
+						window.__weaveSmartCacheServiceCleanup = undefined;
 					} catch {
-						w.__weaveSmartCacheService = null;
-						w.__weaveSmartCacheServiceCleanup = null;
+						window.__weaveSmartCacheService = null;
+						window.__weaveSmartCacheServiceCleanup = null;
 					}
 				};
 			}

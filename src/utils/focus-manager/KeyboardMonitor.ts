@@ -7,6 +7,7 @@
 
 import { logger } from "../logger";
 import type { IKeyboardMonitor, KeyboardState } from "./types";
+import type { WeaveTimerHandle } from "../../types/timer-handle.js";
 
 /**
  * 键盘监控器实现
@@ -21,7 +22,7 @@ export class KeyboardMonitor implements IKeyboardMonitor {
 	private listeners: Set<(state: KeyboardState) => void> = new Set();
 	private initialViewportHeight = 0;
 	private resizeHandler: (() => void) | null = null;
-	private animationTimer: ReturnType<typeof setTimeout> | null = null;
+	private animationTimer: WeaveTimerHandle | null = null;
 	private isListening = false;
 	private debugMode = false;
 

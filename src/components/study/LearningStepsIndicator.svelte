@@ -49,11 +49,11 @@ $effect(() => {
   // 当steps变化时，延迟显示
   if (steps) {
     isVisible = false;
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       isVisible = true;
     }, 150); // 150ms延迟
     
-    return () => clearTimeout(timer);
+    return () => window.clearTimeout(timer);
   }
 });
 </script>

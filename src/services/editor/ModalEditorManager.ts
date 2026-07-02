@@ -13,6 +13,7 @@
 
 import { App, Editor, EventRef, MarkdownView, TFile, WorkspaceLeaf, normalizePath } from "obsidian";
 import { isCallable, readUnknownProperty, readUnknownString } from "../../utils/dynamic-access";
+import { isRecord } from "../../utils/typed-json";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
 import {
@@ -154,8 +155,7 @@ export class ModalEditorManager {
 	}
 
 	private isTFileLike(file: unknown): file is TFile {
-		const f = file;
-		return !!f && typeof f.path === "string" && typeof f.extension === "string";
+		return isRecord(file) && typeof file.path === "string" && typeof file.extension === "string";
 	}
 
 	private async getTFileByPathWithRetry(

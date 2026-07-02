@@ -18,8 +18,8 @@
   import type { WorkspaceLeaf } from 'obsidian';
   import { logger } from "../utils/logger";
   import { addThemeClasses, UnifiedThemeManager } from "../utils/theme-detection";
-  import AutoRulesConfigModal from "./modals/AutoRulesConfigModal.svelte";
   import { weaveMainInterfaceStore } from "../stores/weave-main-interface-store";
+  import { t } from "../utils/i18n";
   import { registerLegacyApkgImportRequestListener } from "../utils/legacy-apkg-import-action";
   import type {
     WeaveGlobalOperationProgressState,
@@ -139,8 +139,6 @@
   // 导航可见性本地响应式状态
   let navigationVisibility = $state(untrack(() => createNavigationVisibilitySnapshot()));
 
-  // 插件配置模态窗状态
-  let showPluginConfigModal = $state<string | null>(null);
   let showInspirationPopover = $state(false);
   let inspirationPopoverAnchor = $state<HTMLElement | null>(null);
 
@@ -267,6 +265,34 @@
     };
   }
 
+  async function ensureStartupDataManagementGate(): Promise<void> {
+    if (plugin.getStartupDataCheckMode() === "off") {
+      return;
+    }
+
+    for (let attempt = 0; attempt < 60 && !plugin.dataStorage; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
+    }
+
+    if (!plugin.dataStorage) {
+      logger.warn("[WeaveApp] 数据服务尚未就绪，暂无法运行启动数据检查");
+      return;
+    }
+
+    await plugin.ensureStartupDataGateEvaluated();
+
+    if (!plugin.shouldOpenStartupDataManagementModal()) {
+      return;
+    }
+
+    if (plugin.settings.navigationVisibility?.cardManagement !== false) {
+      weaveMainInterfaceStore.setCurrentPage("weave-card-management");
+      activePage = "weave-card-management";
+    }
+
+    await plugin.openStartupDataManagementModal();
+  }
+
   onMount(() => {
     // 检测移动端设备
     isMobileDevice = Platform.isMobile || activeDocument.body.classList.contains('is-mobile');
@@ -304,21 +330,6 @@
 
     window.addEventListener("Weave:navigate", handleNavigate as EventListener);
 
-    // 监听打开来源说明模态窗事件
-    const handleOpenInspirationModal = () => {
-      toggleInspirationPopover(null);
-    };
-    window.addEventListener("Weave:open-inspiration-modal", handleOpenInspirationModal);
-
-    // 监听插件配置打开事件
-    const handleOpenPluginConfig = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.pluginId) {
-        showPluginConfigModal = detail.pluginId;
-      }
-    };
-    activeDocument.addEventListener('Weave:open-plugin-config', handleOpenPluginConfig);
-    
     // 监听子页面状态变化（用于侧边栏导航同步）
     const handleDeckFilterChange = (e: CustomEvent<string>) => {
       sidebarDeckFilter = e.detail as 'memory' | 'question-bank';
@@ -339,6 +350,8 @@
     window.addEventListener("Weave:deck-filter-change", handleDeckFilterChange as EventListener);
     window.addEventListener("Weave:card-view-change", handleCardViewChange as EventListener);
     window.addEventListener("Weave:deck-view-change", handleDeckViewChange as EventListener);
+
+    void ensureStartupDataManagementGate();
 
     const unregisterLegacyApkgImport = registerLegacyApkgImportRequestListener(
       plugin,
@@ -417,12 +430,10 @@
       }
       unsubscribeMainInterfaceStore();
       window.removeEventListener("Weave:navigate", handleNavigate as EventListener);
-      window.removeEventListener("Weave:open-inspiration-modal", handleOpenInspirationModal);
       window.removeEventListener("Weave:deck-filter-change", handleDeckFilterChange as EventListener);
       window.removeEventListener("Weave:card-view-change", handleCardViewChange as EventListener);
       window.removeEventListener("Weave:deck-view-change", handleDeckViewChange as EventListener);
       unregisterLegacyApkgImport();
-      activeDocument.removeEventListener('Weave:open-plugin-config', handleOpenPluginConfig);
       plugin.app.workspace.offref(layoutChangeRef);
       if (mobileViewportCleanup) {
         mobileViewportCleanup();
@@ -542,14 +553,6 @@
           onClose={closeInspirationPopover}
         />
       </main>
-      {#if showPluginConfigModal === 'auto-rules'}
-        <AutoRulesConfigModal
-          open={true}
-          onClose={() => { showPluginConfigModal = null; }}
-          {plugin}
-        />
-      {/if}
-
     </div>
   {/snippet}
 </ResponsiveContainer>

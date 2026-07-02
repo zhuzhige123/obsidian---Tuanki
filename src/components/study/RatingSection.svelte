@@ -55,6 +55,7 @@
     ratingLabelStyle?: RatingLabelStyle;
     showRatingIntervalOnButtons?: boolean;
     shortcutEnabled?: boolean;
+    ratingDisabled?: boolean;
   }
 
   let {
@@ -69,6 +70,7 @@
     ratingLabelStyle = DEFAULT_RATING_LABEL_STYLE,
     showRatingIntervalOnButtons = shouldShowRatingIntervalOnButtons(DEFAULT_RATING_LABEL_STYLE),
     shortcutEnabled = true,
+    ratingDisabled = false,
   }: Props = $props();
   
   //  响应式翻译函数
@@ -259,8 +261,9 @@
             ? withShortcutHint(cfg.label, cfg.key)
             : withShortcutHint(`${cfg.label} · ${cfg.predictedInterval}`, cfg.key)}
           aria-keyshortcuts={cfg.key}
+          disabled={ratingDisabled}
           onclick={() => {
-            if (showAnswer) {onRate(cfg.rating);}
+            if (showAnswer && !ratingDisabled) {onRate(cfg.rating);}
           }}
         >
           <div class="rate-content">

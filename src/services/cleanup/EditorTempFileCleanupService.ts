@@ -1,7 +1,8 @@
 import { type App, TFile } from "obsidian";
 import { normalizePath } from "obsidian";
-import { logger } from "../../utils/logger";
+import { readUnknownProperty } from "../../utils/dynamic-access";
 import { isCallable } from "../../utils/dynamic-access";
+import { logger } from "../../utils/logger";
 import { getVaultAdapterWithDirOps, listVaultDirectory } from "../../utils/plugin-runtime";
 import {
 	getPluginEditorTempDir,
@@ -316,9 +317,8 @@ export class EditorTempFileCleanupService {
 			const leaves = this.app.workspace.getLeavesOfType("markdown");
 			for (const leaf of leaves) {
 				try {
-					const view = leaf.view as unknown;
-					const file = view?.file as TFile | null | undefined;
-					const p = file?.path;
+					const file = readUnknownProperty(leaf.view, "file");
+					const p = file instanceof TFile ? file.path : undefined;
 					if (p) open.add(normalizePath(p));
 				} catch { /* no-op */ }
 			}

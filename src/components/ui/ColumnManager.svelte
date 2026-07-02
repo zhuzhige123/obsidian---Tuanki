@@ -37,6 +37,7 @@
     back: "背面内容",
     status: "状态",
     deck: "牌组",
+    question_bank_deck: "题库牌组",
     tags: "标签",
     priority: "优先级",
     created: "创建时间",
@@ -50,7 +51,6 @@
     uuid: "唯一标识符",
     obsidian_block_link: "Obsidian块链接",
     source_document: "来源文档",
-    field_template: "字段模板",
     source_document_status: "来源状态",
     // 题库专用列
     question_type: "题型",

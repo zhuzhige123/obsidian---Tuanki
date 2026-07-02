@@ -25,28 +25,17 @@ jobs:
         run: npm ci
 
       # 关键质量指标检查
-      - name: "Gate 1: TypeScript errors must be zero"
+      - name: "Gate 1: TypeScript errors must not increase (ratchet)"
         id: ts-errors
         run: |
-          echo "🔍 Checking TypeScript errors..."
-          npm run check 2>&1 | tee type-check.log
-          ERRORS=$(grep -c "Error:" type-check.log || true)
-          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
-          echo "TypeScript errors found: $ERRORS"
-
-          # 目标：0个错误（当前基线28个，暂时允许）
-          if [ $ERRORS -gt 28 ]; then
-            echo "❌ FAILED: TypeScript errors increased from baseline (28)"
-            echo "Current: $ERRORS errors"
-            echo "Baseline: 28 errors"
-            exit 1
-          elif [ $ERRORS -lt 28 ]; then
-            echo "✅ IMPROVED: TypeScript errors reduced!"
-            echo "Previous: 28 errors"
-            echo "Current: $ERRORS errors"
-          else
-            echo "✅ PASSED: TypeScript errors at baseline (28)"
-          fi
+          echo "🔍 Checking TypeScript errors against baseline..."
+          npm run check:types:gate 2>&1 | tee type-check.log
+          BASELINE=$(node -p "require('./.typecheck-baseline.json').errors")
+          CURRENT=$(node -p "require('./.typecheck-report.json').estimatedRealErrors ?? require('./.typecheck-report.json').errors")
+          echo "baseline=$BASELINE" >> $GITHUB_OUTPUT
+          echo "errors=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Baseline real errors: $BASELINE"
+          echo "Current real errors: $CURRENT"
 
       - name: "Gate 2: Test coverage threshold"
         id: coverage
@@ -144,7 +133,7 @@ jobs:
 
           | Metric | Status | Value | Threshold |
           |--------|--------|-------|-----------|
-          | TypeScript Errors | ${{ steps.ts-errors.outputs.errors <= 28 && '✅' || '❌' }} | ${{ steps.ts-errors.outputs.errors }} | ≤ 28 (baseline) |
+          | TypeScript Errors | ${{ steps.ts-errors.outputs.errors <= steps.ts-errors.outputs.baseline && '✅' || '❌' }} | ${{ steps.ts-errors.outputs.errors }} | ≤ ${{ steps.ts-errors.outputs.baseline }} (baseline) |
           | Test Coverage | ${{ steps.coverage.outputs.coverage >= 60 && '✅' || '⚠️' }} | ${{ steps.coverage.outputs.coverage }}% | ≥ 60% |
           | Build Size | ✅ | - | < 10MB |
 

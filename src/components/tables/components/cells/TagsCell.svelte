@@ -264,7 +264,7 @@
       }
     };
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       activeDocument.addEventListener('mousedown', handlePointerDown);
     }, 0);
 

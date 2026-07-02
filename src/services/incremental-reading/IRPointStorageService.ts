@@ -267,11 +267,11 @@ export class IRPointStorageService {
 	}
 
 	private getV2Paths() {
-		return getV2PathsFromApp(this.app as unknown);
+		return getV2PathsFromApp(this.app);
 	}
 
 	private getPluginPaths() {
-		return getPluginPaths(this.app as unknown);
+		return getPluginPaths(this.app);
 	}
 
 	private getLegacyReadApi(): IRLegacyReadApi {
@@ -330,24 +330,24 @@ export class IRPointStorageService {
 	}
 
 	private async ensureFile(path: string, content: string): Promise<void> {
-		await DirectoryUtils.ensureDirForFile(this.adapter as unknown, path);
+		await DirectoryUtils.ensureDirForFile(this.adapter, path);
 		if (!(await this.adapter.exists(path))) {
 			await this.adapter.write(path, content);
 		}
 	}
 
 	private async readJson<T>(path: string, fallback: T): Promise<T> {
-		const value = await safeReadJson<T>(this.adapter as unknown, path, this.app as unknown);
+		const value = await safeReadJson<T>(this.adapter, path, this.app);
 		return value ?? fallback;
 	}
 
 	private async writeJson(path: string, payload: unknown): Promise<void> {
-		await DirectoryUtils.ensureDirForFile(this.adapter as unknown, path);
+		await DirectoryUtils.ensureDirForFile(this.adapter, path);
 		await safeWriteJson(
-			this.adapter as unknown,
+			this.adapter,
 			path,
 			JSON.stringify(payload, null, 2),
-			this.app as unknown
+			this.app
 		);
 	}
 
@@ -357,10 +357,10 @@ export class IRPointStorageService {
 		}
 
 		await Promise.all([
-			DirectoryUtils.ensureDirRecursive(this.adapter as unknown, this.getPointsDir()),
-			DirectoryUtils.ensureDirRecursive(this.adapter as unknown, this.getReaderStateDir()),
-			DirectoryUtils.ensureDirRecursive(this.adapter as unknown, this.getReaderArtifactsDir()),
-			DirectoryUtils.ensureDirRecursive(this.adapter as unknown, this.getPluginPaths().migration.root),
+			DirectoryUtils.ensureDirRecursive(this.adapter, this.getPointsDir()),
+			DirectoryUtils.ensureDirRecursive(this.adapter, this.getReaderStateDir()),
+			DirectoryUtils.ensureDirRecursive(this.adapter, this.getReaderArtifactsDir()),
+			DirectoryUtils.ensureDirRecursive(this.adapter, this.getPluginPaths().migration.root),
 		]);
 
 		await Promise.all([
@@ -1828,7 +1828,7 @@ export class IRPointStorageService {
 			});
 		}
 
-		await DirectoryUtils.pruneEmptyDirsUnder(this.adapter as unknown, this.getV2Paths().ir.root, {
+		await DirectoryUtils.pruneEmptyDirsUnder(this.adapter, this.getV2Paths().ir.root, {
 			preserveRoot: true,
 		});
 
@@ -4240,7 +4240,7 @@ export class IRPointStorageService {
 			issues.push(...cleanup.failures);
 		}
 
-		await DirectoryUtils.pruneEmptyDirsUnder(this.adapter as unknown, this.getV2Paths().ir.root, {
+		await DirectoryUtils.pruneEmptyDirsUnder(this.adapter, this.getV2Paths().ir.root, {
 			preserveRoot: true,
 		});
 

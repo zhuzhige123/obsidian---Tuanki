@@ -98,6 +98,8 @@ describe('i18n audit', () => {
     const rootDir = process.cwd();
     const hotspotFiles = [
       'src/components/navigation/SidebarNavHeader.svelte',
+      'src/components/navigation/WeaveInspirationModal.svelte',
+      'src/components/deck-views/KanbanView.svelte',
       'src/components/modals/tabs/CardInfoTab.svelte',
       'src/utils/weave-main-menu.ts',
       'src/components/pages/WeaveCardManagementPage.svelte',

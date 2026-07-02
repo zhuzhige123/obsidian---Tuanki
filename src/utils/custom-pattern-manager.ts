@@ -7,6 +7,19 @@ import { logger } from "../utils/logger";
 import { MatchPattern } from "./multi-pattern-matcher";
 import { isRecord, parseJsonUnknown, readNumber, readString } from "./typed-json";
 
+function normalizePatternCategory(category: string): MatchPattern["category"] {
+	if (
+		category === "heading" ||
+		category === "bold" ||
+		category === "qa_pair" ||
+		category === "list" ||
+		category === "custom"
+	) {
+		return category;
+	}
+	return "custom";
+}
+
 export interface CustomPatternConfig {
 	name: string;
 	description: string;
@@ -172,7 +185,7 @@ export class CustomPatternManager {
 				priority: config.priority,
 				fieldMapping: config.fieldMappings,
 				examples: config.examples,
-				category: config.category as unknown,
+				category: normalizePatternCategory(config.category),
 				confidence: 0.8, // 自定义模式的默认置信度
 			};
 		} catch (error) {

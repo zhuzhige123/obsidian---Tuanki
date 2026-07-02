@@ -423,8 +423,8 @@ export class SystemPerformanceMonitor extends ParsingPerformanceMonitor {
 		this.originalFetch = window.fetch;
 		const originalFetch = this.originalFetch;
 
-		(window as unknown).fetch = async (
-			input: unknown,
+		const patchedFetch = async (
+			input: RequestInfo | URL,
 			init?: RequestInit
 		): Promise<Response> => {
 			const startTime = performance.now();
@@ -451,6 +451,7 @@ export class SystemPerformanceMonitor extends ParsingPerformanceMonitor {
 			}
 		};
 
+		window.fetch = patchedFetch as typeof window.fetch;
 		this.hasPatchedFetch = true;
 	}
 
@@ -585,7 +586,7 @@ export class SystemPerformanceMonitor extends ParsingPerformanceMonitor {
 
 		if (this.hasPatchedFetch && this.originalFetch) {
 			try {
-				(window as unknown).fetch = this.originalFetch;
+				window.fetch = this.originalFetch;
 			} catch { /* no-op */ }
 		}
 
@@ -616,28 +617,27 @@ function getOrCreateGlobalPerformanceMonitor(): SystemPerformanceMonitor {
 		return new SystemPerformanceMonitor();
 	}
 
-	const w = window as unknown;
-	if (w.__weaveGlobalPerformanceMonitor) {
-		globalPerformanceMonitor = w.__weaveGlobalPerformanceMonitor as SystemPerformanceMonitor;
+		if (window.__weaveGlobalPerformanceMonitor) {
+		globalPerformanceMonitor = window.__weaveGlobalPerformanceMonitor;
 		return globalPerformanceMonitor;
 	}
 
 	const instance = new SystemPerformanceMonitor();
 	globalPerformanceMonitor = instance;
-	w.__weaveGlobalPerformanceMonitor = instance;
-	w.__weaveGlobalPerformanceMonitorCleanup = () => {
+	window.__weaveGlobalPerformanceMonitor = instance;
+	window.__weaveGlobalPerformanceMonitorCleanup = () => {
 		try {
-			(w.__weaveGlobalPerformanceMonitor as SystemPerformanceMonitor | undefined)?.destroy();
+			(window.__weaveGlobalPerformanceMonitor as SystemPerformanceMonitor | undefined)?.destroy();
 		} catch { /* no-op */ }
 
 		globalPerformanceMonitor = undefined;
 
 		try {
-			w.__weaveGlobalPerformanceMonitor = undefined;
-			w.__weaveGlobalPerformanceMonitorCleanup = undefined;
+			window.__weaveGlobalPerformanceMonitor = undefined;
+			window.__weaveGlobalPerformanceMonitorCleanup = undefined;
 		} catch {
-			w.__weaveGlobalPerformanceMonitor = null;
-			w.__weaveGlobalPerformanceMonitorCleanup = null;
+			window.__weaveGlobalPerformanceMonitor = null;
+			window.__weaveGlobalPerformanceMonitorCleanup = null;
 		}
 	};
 

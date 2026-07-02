@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WeaveIntervalHandle, WeaveTimerHandle } from "../../types/timer-handle.js";
   // ============================================
   //  导入声明区
   // ============================================
@@ -159,21 +160,27 @@
   } from './study-interface-constants';
   import {
     saveCardUnified,
-    updateArrayItem,
     handleError,
-    initializeChoiceStats,
-    initializeCardStats,
     isValidCard,
     ensureCardFields,
     devLog
   } from './study-interface-helpers';
 
-  async function runWithMemoryStudyDataChangeContext<T>(deckId: string | undefined, task: () => Promise<T>): Promise<T> {
+  async function runWithMemoryStudyDataChangeContext<T>(
+    deckId: string | undefined,
+    task: () => Promise<T>,
+    options?: {
+      skipBodyFingerprintSync?: boolean;
+      skipDeckMembershipSync?: boolean;
+    }
+  ): Promise<T> {
     const previousDataChangeContext = (plugin as any).__weaveDataChangeContext;
     (plugin as any).__weaveDataChangeContext = {
       ...previousDataChangeContext,
       source: MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE,
-      deckIds: deckId ? [deckId] : []
+      deckIds: deckId ? [deckId] : [],
+      skipDeckMembershipSync: options?.skipDeckMembershipSync ?? true,
+      skipBodyFingerprintSync: options?.skipBodyFingerprintSync ?? false,
     };
     try {
       return await task();
@@ -197,6 +204,9 @@
     showSourceInfoToggle?: boolean;
     mode?: 'normal' | 'advance';  // 学习模式：normal=正常，advance=提前学习
     initialCardIndex?: number;  // 重启恢复时的初始卡片索引
+    resumedSessionStartTime?: number;
+    resumedSessionStats?: { completed: number; correct: number; incorrect: number };
+    initialSessionStudiedCardIds?: string[];
     isStagingSession?: boolean;
     onStagingCardReviewed?: (card: Card) => void;
     onStagingCardEdited?: (card: Card) => void;
@@ -228,6 +238,9 @@
     showSourceInfoToggle = false,
     mode,
     initialCardIndex = 0,
+    resumedSessionStartTime,
+    resumedSessionStats,
+    initialSessionStudiedCardIds = [],
     isStagingSession = false,
     onStagingCardReviewed,
     onStagingCardEdited,
@@ -345,7 +358,10 @@
   
   // 会话记忆：记录本次会话已学习的卡片
   // 用于防止学习完成后立即可以重新学习
-  let sessionStudiedCards = $state(new Set<string>());
+  let sessionStudiedCards = $state(
+    untrack(() => new Set(initialSessionStudiedCardIds))
+  );
+  let isRating = $state(false);
   
   //  移动端牌组统计（用于顶部栏显示）
   let deckStats = $derived.by(() => {
@@ -543,7 +559,7 @@
       plugin.app.workspace.trigger('layout-change');
       
       // 方法4：延迟后再次设置状态（处理异步渲染问题）
-      setTimeout(async () => {
+      window.setTimeout(async () => {
         if (graphSyncLeaf && !graphSyncLeaf.detached) {
           try {
             await graphSyncLeaf.setViewState({
@@ -567,7 +583,7 @@
   //  监听卡片切换，自动同步图谱
   //  增强：添加防抖和更可靠的状态追踪
   let lastSyncedSourceFile = $state<string | null>(null);
-  let graphSyncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let graphSyncDebounceTimer: WeaveTimerHandle | null = null;
   
   $effect(() => {
     //  关键：在条件判断之前先访问所有依赖，建立明确的依赖关系
@@ -582,12 +598,12 @@
     if (graphEnabled && sourceFile && leafRef) {
       //  防抖：避免快速切换卡片时频繁刷新
       if (graphSyncDebounceTimer) {
-        clearTimeout(graphSyncDebounceTimer);
+        window.clearTimeout(graphSyncDebounceTimer);
       }
       
       //  检查是否需要同步（源文件变化时才同步）
       if (sourceFile !== lastSyncedSourceFile) {
-        graphSyncDebounceTimer = setTimeout(() => {
+        graphSyncDebounceTimer = window.setTimeout(() => {
           logger.debug('[图谱联动] 检测到卡片切换，同步图谱到:', {
             cardId: cardId?.slice(0, 8),
             sourceFile: sourceFile,
@@ -604,7 +620,7 @@
     // 清理函数
     return () => {
       if (graphSyncDebounceTimer) {
-        clearTimeout(graphSyncDebounceTimer);
+        window.clearTimeout(graphSyncDebounceTimer);
       }
     };
   });
@@ -1184,7 +1200,7 @@
     if (showSidebar) {
       if (sidebarCompactModeSetting === 'auto') {
         // 自动模式：延迟重新检测以确保DOM已更新
-        setTimeout(() => {
+        window.setTimeout(() => {
           checkSidebarScrollable();
         }, 100);
       } else if (sidebarCompactModeSetting === 'fixed') {
@@ -1228,7 +1244,7 @@
     
     // 清除之前的定时器
     if (saveTimeoutId !== null) {
-      clearTimeout(saveTimeoutId);
+      window.clearTimeout(saveTimeoutId);
     }
     
     // 延迟保存（300ms防抖），避免频繁写入
@@ -1240,7 +1256,7 @@
     // 清理函数
     return () => {
       if (saveTimeoutId !== null) {
-        clearTimeout(saveTimeoutId);
+        window.clearTimeout(saveTimeoutId);
       }
     };
   });
@@ -1623,7 +1639,7 @@
       const linkText = `${file.basename}#^${blockId}`;
       openLinkWithExistingLeaf(plugin.app, linkText, contextPath, { openInNewTab: true, focus: true }).then(async (openedLeaf) => {
         // Wait a bit longer to ensure file is fully loaded
-        setTimeout(async () => {
+        window.setTimeout(async () => {
           const activeView = (openedLeaf?.view?.getViewType?.() === 'markdown'
             ? openedLeaf.view
             : plugin.app.workspace.getActiveViewOfType('markdown' as any)) as any;
@@ -1692,7 +1708,7 @@
                   );
 
                   // Clear selection after a moment to show highlight effect
-                  setTimeout(() => {
+                  window.setTimeout(() => {
                     editor.setCursor({ line: cursorLine, ch: 0 });
                   }, 1000);
 
@@ -1876,10 +1892,10 @@
   let session = $state<StudySession>({
     id: generateId(),
     deckId: untrack(() => sessionDeckId || ""),  // 优先绑定当前学习牌组，避免引用式牌组统计错位
-    startTime: new Date(),
-    cardsReviewed: 0,
+    startTime: new Date(untrack(() => resumedSessionStartTime ?? Date.now())),
+    cardsReviewed: untrack(() => resumedSessionStats?.completed ?? 0),
     newCardsLearned: 0,
-    correctAnswers: 0,
+    correctAnswers: untrack(() => resumedSessionStats?.correct ?? 0),
     totalTime: 0,
     cardReviews: []
   });
@@ -1963,7 +1979,10 @@
           rating,
           timestamp: Date.now(),
           responseTime
-        }
+        },
+        studyQueueCardIds: studyQueue.map((queuedCard) => queuedCard.uuid),
+        sessionStudiedCardIds: Array.from(sessionStudiedCards),
+        cardReviewsLength: session.cardReviews?.length ?? 0,
       };
 
       reviewUndoManager.saveSnapshot(snapshot);
@@ -1979,9 +1998,19 @@
         onStagingCardReviewed?.(card);
         return;
       }
-      await runWithMemoryStudyDataChangeContext(card.deckId, () =>
-        saveMemoryCardCommand(plugin, card, 'update')
+      const result = await runWithMemoryStudyDataChangeContext(
+        card.deckId,
+        () => saveMemoryCardCommand(plugin, card, 'update'),
+        { skipBodyFingerprintSync: true, skipDeckMembershipSync: true }
       );
+      if (!result?.success) {
+        throw new Error(result?.error || t('studyInterface.errors.saveCardFailed'));
+      }
+    },
+    onPersistFailed: () => {
+      reviewUndoManager.discardLastSnapshot();
+      updateUndoCount();
+      new Notice(t('studyInterface.errors.saveCardFailed'));
     },
     afterCardPersisted: async () => {
       progressBarRefreshTrigger++;
@@ -2052,11 +2081,23 @@
     return memoryStudySessionController.getSessionSnapshot();
   }
 
+  export function getSessionStartTime(): number {
+    return session.startTime.getTime();
+  }
+
   export function shouldPersist() {
     if (isStagingSession) {
       return false;
     }
     return memoryStudySessionController.shouldPersist();
+  }
+
+  export function pause(): void {
+    studyTimer.setPaused(true);
+  }
+
+  export function resume(): void {
+    studyTimer.setPaused(false);
   }
 
   //  从学习队列获取当前卡片（支持渐进式挖空）
@@ -2614,7 +2655,11 @@
       return { success: true, card: updatedCard };
     }
 
-    const saveResult = await saveMemoryCardCommand(plugin, updatedCard, 'update');
+    const saveResult = await runWithMemoryStudyDataChangeContext(
+      updatedCard.deckId,
+      () => saveMemoryCardCommand(plugin, updatedCard, 'update'),
+      { skipDeckMembershipSync: true }
+    );
     if (!saveResult.success) {
       if (saveResult.error === 'SAVE_CANCELLED') {
         return { success: false, cancelled: true };
@@ -2676,11 +2721,11 @@
   });
 
   // 学习进度实时更新机制 - 移除重复的progress更新避免循环
-  let progressUpdateInterval: ReturnType<typeof setInterval> | null = null;
+  let progressUpdateInterval: WeaveIntervalHandle | null = null;
 
   $effect(() => {
     // 每秒更新一次学习时间统计（不更新progress，避免与主effect冲突）
-    progressUpdateInterval = setInterval(() => {
+    progressUpdateInterval = window.setInterval(() => {
       if (!showEditModal && currentCard) {
         currentStudyTime = studyTimer.getElapsedMs();
         session.totalTime = Math.floor((Date.now() - session.startTime.getTime()) / 1000);
@@ -2689,7 +2734,7 @@
 
     return () => {
       if (progressUpdateInterval) {
-        clearInterval(progressUpdateInterval);
+        window.clearInterval(progressUpdateInterval);
       }
     };
   });
@@ -2790,28 +2835,28 @@
         break;
       case '1':
       case 'Numpad1':
-        if (showAnswer) {
+        if (showAnswer && !isRating) {
           event.preventDefault();
           rateCard(1);
         }
         break;
       case '2':
       case 'Numpad2':
-        if (showAnswer) {
+        if (showAnswer && !isRating) {
           event.preventDefault();
           rateCard(2);
         }
         break;
       case '3':
       case 'Numpad3':
-        if (showAnswer) {
+        if (showAnswer && !isRating) {
           event.preventDefault();
           rateCard(3);
         }
         break;
       case '4':
       case 'Numpad4':
-        if (showAnswer) {
+        if (showAnswer && !isRating) {
           event.preventDefault();
           rateCard(4);
         }
@@ -2877,8 +2922,38 @@
         rating: snapshot.reviewInfo.rating
       });
       
-      // 恢复卡片索引
+      // 恢复卡片索引与学习队列
       currentCardIndex = snapshot.cardIndex;
+
+      const cardMap = new Map<string, Card>();
+      for (const card of cards) {
+        cardMap.set(card.uuid, card);
+      }
+      for (const card of studyQueue) {
+        cardMap.set(card.uuid, card);
+      }
+
+      const restoredQueue: Card[] = [];
+      if (snapshot.studyQueueCardIds && snapshot.studyQueueCardIds.length > 0) {
+        for (const id of snapshot.studyQueueCardIds) {
+          const card = cardMap.get(id);
+          if (card) {
+            restoredQueue.push(card);
+          }
+        }
+      }
+      if (restoredQueue.length > 0) {
+        studyQueue = restoredQueue;
+        queueInitialized = true;
+      }
+
+      if (snapshot.sessionStudiedCardIds) {
+        sessionStudiedCards = new Set(snapshot.sessionStudiedCardIds);
+      }
+
+      if (session.cardReviews && typeof snapshot.cardReviewsLength === 'number') {
+        session.cardReviews.length = snapshot.cardReviewsLength;
+      }
       
       // 等待currentCard更新
       await tick();
@@ -2900,14 +2975,24 @@
       session.totalTime = snapshot.sessionSnapshot.totalTime;
       
       // 保存到数据库
-      const result = await runWithMemoryStudyDataChangeContext(currentCard.deckId, () =>
-        saveMemoryCardCommand(plugin, currentCard, 'update')
+      const result = await runWithMemoryStudyDataChangeContext(
+        currentCard.deckId,
+        () => saveMemoryCardCommand(plugin, currentCard, 'update'),
+        { skipBodyFingerprintSync: true, skipDeckMembershipSync: true }
       );
       
       if (result.success) {
-        // 更新内存中的cards数组
-        cards[currentCardIndex] = currentCard;
-        cards = [...cards]; // 触发响应式更新
+        // 同步 cards 数组中的对应卡片
+        const cardIndexInDeck = cards.findIndex((card) => card.uuid === currentCard.uuid);
+        if (cardIndexInDeck >= 0) {
+          cards[cardIndexInDeck] = currentCard;
+          cards = [...cards];
+        }
+        const queueIndex = studyQueue.findIndex((card) => card.uuid === currentCard.uuid);
+        if (queueIndex >= 0) {
+          studyQueue[queueIndex] = currentCard;
+          studyQueue = [...studyQueue];
+        }
         
         // 重置UI状态
         showAnswer = false;
@@ -2955,6 +3040,10 @@
    * 7. 保存卡片并切换下一张
    */
   async function rateCard(rating: Rating) {
+    if (isRating || memoryStudySessionController.isRatingInFlight?.()) {
+      return;
+    }
+
     const cardToRate = currentCard;
 
     logger.debug('rateCard called:', {
@@ -2973,28 +3062,14 @@
       return;
     }
 
+    isRating = true;
     try {
       await memoryStudySessionController.rateCurrentCard(rating);
     } catch (error) {
       logger.error('[StudyModal] 评分流程失败:', error);
+    } finally {
+      isRating = false;
     }
-  }
-  
-  /**
-   * 处理 Learning Steps 插入逻辑
-   * 
-   * 根据评分和卡片状态，判断是否需要在会话中重学
-   * 
-   * @param card 卡片对象
-   * @param rating 评分
-   * @param prevState 评分前的状态
-   */
-  async function handleLearningStepsInsertion(
-    card: Card,
-    rating: Rating,
-    prevState: CardState
-  ) {
-    await memoryStudySessionController.handleLearningStepsInsertion(card, rating, prevState);
   }
 
   /**
@@ -3031,7 +3106,7 @@
 
     // 更新稳定性趋势
     if (card.reviewHistory && card.reviewHistory.length >= 2 && card.fsrs) {
-      const prevStability = card.reviewHistory[card.reviewHistory.length - 2].stability;
+      const prevStability = Math.max(0.01, card.reviewHistory[card.reviewHistory.length - 2].stability);
       const currentStability = card.fsrs.stability;
       const stabilityChange = (currentStability - prevStability) / prevStability;
 
@@ -3435,7 +3510,7 @@
           // ⏸ 如果不是最后一个，等待间隔后再播放下一个
           if (i < mediaElements.length - 1) {
             logger.debug(`⏸️ 等待 ${playbackInterval}ms 后播放下一个媒体`);
-            await new Promise(resolve => setTimeout(resolve, playbackInterval));
+            await new Promise(resolve => window.setTimeout(resolve, playbackInterval));
           }
         }
         logger.debug(' ✅ 所有媒体顺序播放完成');
@@ -3641,7 +3716,7 @@
       }
 
       let resolved = false;
-      const timeoutId = setTimeout(() => {
+      const timeoutId = window.setTimeout(() => {
         if (!resolved) {
           resolved = true;
           cleanup();
@@ -3675,7 +3750,7 @@
       };
 
       function cleanup() {
-        clearTimeout(timeoutId);
+        window.clearTimeout(timeoutId);
         media.removeEventListener('loadeddata', onLoadedData);
         media.removeEventListener('canplay', onCanPlay);
         media.removeEventListener('error', onError);
@@ -3732,7 +3807,7 @@
       });
 
       // 超时保护（3秒后放弃，比之前增加1秒给 media-extended 更多时间）
-      setTimeout(() => {
+      window.setTimeout(() => {
         if (!resolved) {
           resolved = true;
           observer.disconnect();
@@ -3778,7 +3853,7 @@
     const RETRY_DELAY = 200; // 200ms 间隔
     
     for (let i = 0; i < MAX_RETRIES; i++) {
-      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      await new Promise(resolve => window.setTimeout(resolve, RETRY_DELAY));
       mediaElements = findMediaElements();
       
       if (mediaElements.length > 0) {
@@ -3789,7 +3864,7 @@
     }
 
     //  策略3: 深度调试查找（静默）
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise(resolve => window.setTimeout(resolve, 300));
     mediaElements = findMediaElements(undefined, false);
     
     if (mediaElements.length > 0) {
@@ -3872,7 +3947,7 @@
         }
       );
       if (shouldExit) {
-        finishSession();
+        await finishSession();
       }
     } else {
       onClose();
@@ -4236,7 +4311,11 @@
       await recycleCard(cardToRecycle, RecycleReason.MANUAL, 5);
 
       // 保存回收后的卡片
-      const res = await saveMemoryCardCommand(plugin, cardToRecycle, 'update');
+      const res = await runWithMemoryStudyDataChangeContext(
+        cardToRecycle.deckId,
+        () => saveMemoryCardCommand(plugin, cardToRecycle, 'update'),
+        { skipDeckMembershipSync: true }
+      );
       if (!res?.success) {
         new Notice(t('studyInterface.notices.recycleFailed', {
           error: res?.error || t('study.view.unknownError')
@@ -4366,7 +4445,11 @@
       } as Card;
 
       // 保存卡片
-      const result = await saveMemoryCardCommand(plugin, updatedCard, 'update');
+      const result = await runWithMemoryStudyDataChangeContext(
+        updatedCard.deckId,
+        () => saveMemoryCardCommand(plugin, updatedCard, 'update'),
+        { skipBodyFingerprintSync: true, skipDeckMembershipSync: true }
+      );
       if (result.success) {
         //  同步更新 cards 和 studyQueue
         const cardUuid = currentCard.uuid;
@@ -4430,7 +4513,11 @@
       } as any;
 
       // 保存卡片
-      const result = await saveMemoryCardCommand(plugin, updatedCard, 'update');
+      const result = await runWithMemoryStudyDataChangeContext(
+        updatedCard.deckId,
+        () => saveMemoryCardCommand(plugin, updatedCard, 'update'),
+        { skipDeckMembershipSync: true }
+      );
       if (result.success) {
         const savedCard = (result.data || updatedCard) as any;
 
@@ -4562,23 +4649,13 @@
     }
   }
 
-  //  全局键盘监听器 - 修复 Obsidian 快捷键阻塞问题
-  // 参照 ResizableModal.svelte 的成功实现，使用 <svelte:window> 全局监听
-  // 只处理 ESC 键关闭学习界面，其他键让 Obsidian 快捷键系统处理
-  function handleGlobalKeydown(event: KeyboardEvent) {
-    //  编辑模式下完全不处理，让 Obsidian 快捷键正常工作
-    if (showEditModal) return;
-    
-  }
-
-  // 自动显示答案与快捷键绑定（编辑模态开启时暂停监听与自动计时）
   $effect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let timer: WeaveTimerHandle | null = null;
     if (!showEditModal && plugin.settings.autoShowAnswerSeconds > 0 && !showAnswer) {
-      timer = setTimeout(() => showAnswerCard(), plugin.settings.autoShowAnswerSeconds * 1000);
+      timer = window.setTimeout(() => showAnswerCard(), plugin.settings.autoShowAnswerSeconds * 1000);
     }
     if (!showEditModal) document.addEventListener('keydown', handleKeyPress);
-    return () => { document.removeEventListener('keydown', handleKeyPress); if (timer) clearTimeout(timer); };
+    return () => { document.removeEventListener('keydown', handleKeyPress); if (timer) window.clearTimeout(timer); };
   });
 
   // 高度自适应响应式监听（仅预览区，编辑器高度由 flex 布局决定）
@@ -4587,7 +4664,7 @@
       if (showEditModal) {
         return;
       }
-      setTimeout(applyAdaptiveHeight, UI_TIMING.DOM_READY_DELAY);
+      window.setTimeout(applyAdaptiveHeight, UI_TIMING.DOM_READY_DELAY);
     }
   });
 
@@ -4686,7 +4763,7 @@
     
     // 清除之前的防抖定时器
     if (checkTimeoutId !== null) {
-      clearTimeout(checkTimeoutId);
+      window.clearTimeout(checkTimeoutId);
       checkTimeoutId = null;
     }
     
@@ -4879,7 +4956,7 @@
       lastCheckResult = null;
       
       // 立即执行一次检测并更新状态
-      setTimeout(() => {
+      window.setTimeout(() => {
         performScrollCheck();
       }, 100);
     }
@@ -5000,14 +5077,14 @@
 
     const handleResize = () => {
       if (!showEditModal) {
-        setTimeout(applyAdaptiveHeight, 100);
+        window.setTimeout(applyAdaptiveHeight, 100);
       }
-      setTimeout(checkSidebarScrollable, 150);
+      window.setTimeout(checkSidebarScrollable, 150);
     };
     window.addEventListener('resize', handleResize);
 
     // 初始化高度自适应
-    setTimeout(() => {
+    window.setTimeout(() => {
       const el = modalRef as HTMLDivElement | null;
       if (el && typeof (el as any).focus === 'function') {
         el.focus();
@@ -5016,10 +5093,10 @@
     }, 100);
     
     //  初始侧边栏检测（只执行一次）
-    setTimeout(() => checkSidebarScrollable(), 500);
+    window.setTimeout(() => checkSidebarScrollable(), 500);
     
     //  设置 ResizeObserver 监听侧边栏内容变化（带尺寸缓存防止无限触发）
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (!modalRef) return;
       
       const sidebarContent = getSidebarScrollContainer();
@@ -5064,7 +5141,7 @@
   });
   onDestroy(() => {
     if (saveTimeoutId !== null) {
-      clearTimeout(saveTimeoutId);
+      window.clearTimeout(saveTimeoutId);
       saveTimeoutId = null;
     }
 
@@ -5077,6 +5154,18 @@
     }
     if (viewInstance && typeof viewInstance.setMobilePanelStateGetter === 'function') {
       viewInstance.setMobilePanelStateGetter(null);
+    }
+    if (viewInstance && typeof viewInstance.setToggleStatsCallback === 'function') {
+      viewInstance.setToggleStatsCallback(null);
+    }
+    if (viewInstance && typeof viewInstance.setToggleProficiencyStatsCallback === 'function') {
+      viewInstance.setToggleProficiencyStatsCallback(null);
+    }
+    if (viewInstance && typeof viewInstance.setSaveCallback === 'function') {
+      viewInstance.setSaveCallback(null);
+    }
+    if (viewInstance && typeof viewInstance.setEditModeCallback === 'function') {
+      viewInstance.setEditModeCallback(null);
     }
 
     document.removeEventListener('focus', trapFocus, true);
@@ -5093,13 +5182,13 @@
     
     //  清理防抖定时器
     if (checkTimeoutId !== null) {
-      clearTimeout(checkTimeoutId);
+      window.clearTimeout(checkTimeoutId);
       checkTimeoutId = null;
     }
 
     // 清理倒计时定时器
     if (countdownTimerId !== null) {
-      clearInterval(countdownTimerId);
+      window.clearInterval(countdownTimerId);
       countdownTimerId = null;
     }
 
@@ -5120,11 +5209,6 @@
 
   // setupBlockLinkHandlers 已提取到 utils/study/studyInterfaceUtils.ts
 </script>
-
-<!--  全局键盘监听 - 修复 Obsidian 快捷键阻塞问题 -->
-<!-- 参照 ResizableModal.svelte 的成功实现，在 window 对象上监听键盘事件 -->
-<!-- 这样可以避免被 aria-modal="true" 的元素阻塞事件传播 -->
-<svelte:window onkeydown={handleGlobalKeydown} />
 
 <div
   class="study-interface-overlay"
@@ -5401,6 +5485,7 @@
             learningStepIndex={currentSessionId ? sessionManager.getSessionState(currentSessionId)?.learningStepIndex : undefined}
             {ratingLabelStyle}
             shortcutEnabled={plugin.settings.enableShortcuts}
+            ratingDisabled={isRating}
           />
         </div>
       {/if}

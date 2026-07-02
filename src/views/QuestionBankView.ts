@@ -380,11 +380,24 @@ export class QuestionBankView extends ItemView {
 		if (!this.component) {
 			logger.debug("[QuestionBankView] 🔧 组件未创建，现在创建");
 			await this.loadQuestionsAndCreateComponent();
-		} else if (oldBankId !== this.bankId) {
-			// 如果题库ID发生变化，重新加载
-			logger.debug("[QuestionBankView] 🔄 题库ID变化，重新加载");
-			await this.loadQuestionsAndCreateComponent();
+		} else if (oldBankId !== this.bankId || this.resumeBehavior !== "resume") {
+			logger.debug("[QuestionBankView] 🔄 重新开考或切换题库，重新挂载学习界面");
+			await this.reloadStudyComponent();
 		}
+	}
+
+	private async reloadStudyComponent(): Promise<void> {
+		if (this.component) {
+			try {
+				const { unmount } = await import("svelte");
+				void unmount(this.component);
+			} catch (error) {
+				logger.error("[QuestionBankView] 销毁旧组件失败:", error);
+			}
+			this.component = null;
+		}
+
+		await this.loadQuestionsAndCreateComponent();
 	}
 
 	/**

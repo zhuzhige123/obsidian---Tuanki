@@ -1,4 +1,5 @@
 import { logger } from "../../utils/logger";
+import { createErrorMessage } from "../../utils/helpers";
 /**
  * 卡片导出器
  * 负责将 Weave 卡片导出到 Anki
@@ -1108,7 +1109,7 @@ export class CardExporter {
 				} catch (error: unknown) {
 					result.errors.push({
 						type: "model_creation",
-						message: `创建/获取模型失败: ${error.message}`,
+						message: `创建/获取模型失败: ${createErrorMessage(error)}`,
 						templateId,
 						reason: route.targetKind === "mapped" ? "model_unavailable" : "model_creation_failed",
 					});
@@ -1151,7 +1152,7 @@ export class CardExporter {
 			result.success = false;
 			result.errors.push({
 				type: "upload",
-				message: `导出失败: ${error.message}`,
+				message: `导出失败: ${createErrorMessage(error)}`,
 				reason: "unknown",
 			});
 			result.summary = this.buildExportSummary(result);

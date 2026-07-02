@@ -21,6 +21,7 @@ import { markdownToCard } from "../../utils/card-markdown-serializer";
 import { logger } from "../../utils/logger";
 import { getCardDeckIds } from "../../utils/yaml-utils";
 import { AIFormatterService } from "../ai/AIFormatterService";
+import { resolveDefaultAIProvider } from "../ai/AIConfigService";
 import { DerivationMethod } from "../relation/types";
 
 /**
@@ -286,7 +287,7 @@ export class StudyAICoordinator {
 			const { AIServiceFactory } = await import("../ai/AIServiceFactory");
 
 			const aiConfig = this.context.plugin.settings.aiConfig;
-			const provider = aiConfig?.defaultProvider || "openai";
+			const provider = resolveDefaultAIProvider(aiConfig);
 
 			logger.debug("[AI拆分] 使用提供商:", provider);
 			const aiService = AIServiceFactory.createService(provider, this.context.plugin);

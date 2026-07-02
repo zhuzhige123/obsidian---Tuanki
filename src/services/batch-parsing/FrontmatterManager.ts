@@ -271,7 +271,8 @@ export class FrontmatterManager {
 	 */
 	async getUUID(file: TFile): Promise<string | null> {
 		const frontmatter = await this.parseFrontmatter(file);
-		return frontmatter[WEAVE_UUID_FIELD] || null;
+		const value = frontmatter[WEAVE_UUID_FIELD];
+		return typeof value === "string" ? value : null;
 	}
 
 	/**

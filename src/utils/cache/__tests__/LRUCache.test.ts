@@ -118,7 +118,7 @@ describe('LRUCache', () => {
       expect(cache.has('a')).toBe(true);
       
       // Wait for expiration
-      await new Promise(resolve => setTimeout(resolve, 150));
+      await new Promise(resolve => window.setTimeout(resolve, 150));
       
       expect(cache.has('a')).toBe(false);
       expect(cache.get('a')).toBeUndefined();
@@ -131,7 +131,7 @@ describe('LRUCache', () => {
       });
       
       cache.set('a', 1);
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => window.setTimeout(resolve, 100));
       
       expect(cache.has('a')).toBe(true);
     });
@@ -145,7 +145,7 @@ describe('LRUCache', () => {
       cache.set('a', 1);
       cache.set('b', 2);
       
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => window.setTimeout(resolve, 100));
       
       const cleaned = cache.cleanup();
       expect(cleaned).toBe(2);
@@ -273,7 +273,7 @@ describe('CacheManager', () => {
     cache1.set('a', 1);
     cache2.set('b', 2);
     
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => window.setTimeout(resolve, 100));
     
     const cleaned = manager.cleanupAll();
     expect(cleaned).toBe(2);

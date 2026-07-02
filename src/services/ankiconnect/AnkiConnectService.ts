@@ -1,4 +1,5 @@
 import { logger } from "../../utils/logger";
+import { createErrorMessage } from "../../utils/helpers";
 /**
  * AnkiConnect 主服务
  * 协调所有 AnkiConnect 相关功能的核心服务
@@ -660,7 +661,7 @@ export class AnkiConnectService {
 			return result;
 		} catch (error: unknown) {
 			logger.error("导出牌组失败:", error);
-			throw new AnkiConnectError(`导出牌组失败: ${error.message}`, ConnectionErrorType.UNKNOWN);
+			throw new AnkiConnectError(`导出牌组失败: ${createErrorMessage(error)}`, ConnectionErrorType.UNKNOWN);
 		}
 	}
 
@@ -791,7 +792,7 @@ export class AnkiConnectService {
 				deckCards.push(card);
 				cardsByDeck.set(deckName, deckCards);
 			} catch (error: unknown) {
-				repairItem.message = `归档旧卡失败：${error.message}`;
+				repairItem.message = `归档旧卡失败：${createErrorMessage(error)}`;
 				result.failedCards++;
 				result.errors.push(`${mismatchItem.cardId}: ${repairItem.message}`);
 			}
@@ -854,8 +855,8 @@ export class AnkiConnectService {
 
 					repairEntry.item.outcome = repairEntry.archiveCompleted ? "archived_only" : "failed";
 					repairEntry.item.message = repairEntry.archiveCompleted
-						? `旧卡已归档，但新卡重建失败：${error.message}`
-						: `修复失败：${error.message}`;
+						? `旧卡已归档，但新卡重建失败：${createErrorMessage(error)}`
+						: `修复失败：${createErrorMessage(error)}`;
 
 					if (repairEntry.archiveCompleted) {
 						result.archivedOnlyCards++;
@@ -925,7 +926,7 @@ export class AnkiConnectService {
 
 				onProgress?.(i + 1, modelNames.length);
 			} catch (error: unknown) {
-				errors.push(`${modelNames[i]}: ${error.message}`);
+				errors.push(`${modelNames[i]}: ${createErrorMessage(error)}`);
 			}
 		}
 

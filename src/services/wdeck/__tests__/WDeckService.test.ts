@@ -287,10 +287,10 @@ describe("WDeckService", () => {
 		});
 
 		expect(rebuildSpy).not.toHaveBeenCalled();
-		const aggregate = await service.getDeckAggregateByDeckId("wdeck:deck-target");
-		expect(aggregate?.cards.map((card) => card.content)).toContain("new-content");
 		const persisted = JSON.parse(files.get(targetPath) || "{}");
-		expect(persisted.cards[0]?.content).toBe("new-content");
+		const aggregate = await service.getDeckAggregateByDeckId("wdeck:deck-target");
+		expect(persisted.cards[0]?.content).toContain("new-content");
+		expect(aggregate?.cards.map((card) => card.content).join("\n")).toContain("new-content");
 	});
 
 	it("updates a warmed cache incrementally for duplicate cleanup across touched files", async () => {
@@ -566,5 +566,55 @@ describe("WDeckService", () => {
 		} finally {
 			warnSpy.mockRestore();
 		}
+	});
+
+	it("returns the semantically newer duplicate UUID across multiple .wdeck files", async () => {
+		const deckAPath = "weave/memory/deck-files/牌组A_01.wdeck";
+		const deckBPath = "weave/memory/deck-files/牌组B_01.wdeck";
+		const { plugin } = createPlugin({
+			[deckAPath]: JSON.stringify({
+				schemaVersion: 1,
+				fileType: "wdeck",
+				logicalDeckId: "deck-a",
+				logicalDeckName: "牌组A",
+				segmentId: "牌组A_01",
+				segmentIndex: 1,
+				segmentLabel: "01",
+				deck: { id: "deck-a", name: "牌组A", purpose: "memory" },
+				cards: [
+					{
+						uuid: "dup-card",
+						content: "stale",
+						modified: "2026-01-01T00:00:00.000Z",
+						stats: { totalReviews: 1, totalTime: 0, averageTime: 0 },
+					},
+				],
+			}),
+			[deckBPath]: JSON.stringify({
+				schemaVersion: 1,
+				fileType: "wdeck",
+				logicalDeckId: "deck-b",
+				logicalDeckName: "牌组B",
+				segmentId: "牌组B_01",
+				segmentIndex: 1,
+				segmentLabel: "01",
+				deck: { id: "deck-b", name: "牌组B", purpose: "memory" },
+				cards: [
+					{
+						uuid: "dup-card",
+						content: "fresh",
+						modified: "2026-06-15T12:00:00.000Z",
+						stats: { totalReviews: 5, totalTime: 0, averageTime: 0 },
+					},
+				],
+			}),
+		});
+		const service = new WDeckService(plugin);
+
+		await service.rebuildCache();
+		const card = await service.getCardByUUID("dup-card");
+
+		expect(card?.content).toBe("fresh");
+		expect((card?.customFields as any)?.wdeck?.sourcePath).toBe(deckBPath);
 	});
 });

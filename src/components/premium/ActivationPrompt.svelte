@@ -6,9 +6,10 @@
 
   import {
     BASE_BENEFIT_FEATURE_ORDER,
-    FEATURE_METADATA,
     FREE_FEATURE_IDS,
     PREMIUM_BENEFIT_FEATURE_ORDER,
+    resolveFeatureMetadata,
+    toPremiumFeatureTranslationId,
   } from '../../services/premium/PremiumFeatureGuard';
   import { ACTIVATION_HELP_TEXT } from '../settings/constants/activation-constants';
   import { i18n, tr } from '../../utils/i18n';
@@ -27,16 +28,17 @@
   function mapBenefitFeatures(featureIds: readonly string[]) {
     return featureIds
       .map((id) => {
-        const fallback = FEATURE_METADATA[id];
+        const translationId = toPremiumFeatureTranslationId(id);
+        const fallback = resolveFeatureMetadata(id);
         return {
           id,
           name: resolveFeatureTranslation(
-            `decks.activationPrompt.features.${id}.name`,
-            fallback?.name || ''
+            `premium.features.${translationId}.name`,
+            fallback.name
           ),
           description: resolveFeatureTranslation(
-            `decks.activationPrompt.features.${id}.description`,
-            fallback?.description || ''
+            `premium.features.${translationId}.description`,
+            fallback.description
           ),
         };
       })
@@ -68,17 +70,15 @@
   });
 
   const metadata = $derived.by(() => {
-    const fallback = FEATURE_METADATA[featureId] || {
-      name: '',
-      description: '',
-    };
+    const translationId = toPremiumFeatureTranslationId(featureId);
+    const fallback = resolveFeatureMetadata(featureId);
     return {
       name: resolveFeatureTranslation(
-        `decks.activationPrompt.features.${featureId}.name`,
+        `premium.features.${translationId}.name`,
         fallback.name || t('decks.activationPrompt.fallbackName')
       ),
       description: resolveFeatureTranslation(
-        `decks.activationPrompt.features.${featureId}.description`,
+        `premium.features.${translationId}.description`,
         fallback.description || t('decks.activationPrompt.fallbackDescription')
       ),
     };

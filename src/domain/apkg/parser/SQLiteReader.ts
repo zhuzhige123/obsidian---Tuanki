@@ -9,6 +9,7 @@
 import { APKGLogger } from "../../../infrastructure/logger/APKGLogger";
 import { throwIfImportAborted, yieldImportTask } from "../ImportTaskControl";
 import type { APKGFormat, APKGMetadata, AnkiDeck, AnkiModel, AnkiNote } from "../types";
+import type { WeaveTimerHandle } from "../../../types/timer-handle.js";
 
 /**
  * SQLite读取结果
@@ -90,7 +91,7 @@ export class SQLiteReader {
 			return cachedSqlJsRuntime;
 		}
 
-		let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+		let timeoutHandle: WeaveTimerHandle | null = null;
 
 		const initPromise = Promise.race([
 			this.loadSqlJsRuntime(),

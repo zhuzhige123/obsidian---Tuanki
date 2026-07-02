@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import type { Snippet } from "svelte";
   import { createEventDispatcher } from "svelte";
   import EnhancedIcon from "./EnhancedIcon.svelte";
@@ -74,7 +75,7 @@
   const dispatch = createEventDispatcher();
 
   let inputRef: HTMLInputElement;
-  let debounceTimer: ReturnType<typeof setTimeout>;
+  let debounceTimer: WeaveTimerHandle;
   let isFocused = $state(false);
 
   $effect(() => {
@@ -103,9 +104,9 @@
     const target = event.target as HTMLInputElement;
     value = target.value;
     
-    if (debounceTimer) clearTimeout(debounceTimer);
+    if (debounceTimer) window.clearTimeout(debounceTimer);
     
-    debounceTimer = setTimeout(() => {
+    debounceTimer = window.setTimeout(() => {
       onSearch?.(value);
       dispatch('search', value);
     }, debounce);

@@ -54,7 +54,7 @@
     } else {
       isAnimating = false;
       // 等待动画完成后隐藏
-      setTimeout(() => {
+      window.setTimeout(() => {
         isVisible = false;
       }, 300);
     }

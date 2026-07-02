@@ -1,9 +1,10 @@
 import type { App } from "obsidian";
 import { TFile } from "obsidian";
 import type { WeavePlugin } from "../main";
+import { WeaveAttachmentService } from "../services/media/WeaveAttachmentService";
 import { logger } from "../utils/logger";
 import { vaultStorage } from "../utils/vault-local-storage";
-import { readUnknownProperty, readUnknownString } from "./dynamic-access";
+import { readUnknownProperty } from "./dynamic-access";
 import {
 	DEFAULT_FILE_CONFIG,
 	type FileValidationConfig,
@@ -108,23 +109,10 @@ export class SecureFileHandler {
 			throw new Error("Obsidian vault is unavailable");
 		}
 
-		const arrayBuffer = await file.arrayBuffer();
-		const vault = app.vault;
-		const attachmentFolder =
-			readUnknownString(readUnknownProperty(vault, "config"), "attachmentFolderPath") || "attachments";
-
-		// 确保附件文件夹存在
-		try {
-			await vault.createFolder(attachmentFolder);
-		} catch {
-			// 文件夹可能已存在，忽略错误
-		}
-
-		const fullPath = `${attachmentFolder}/${fileName}`;
-		await vault.createBinary(fullPath, arrayBuffer);
-
-		logger.debug("文件已保存到 Obsidian 库:", fullPath);
-		return fullPath;
+		const attachmentService = new WeaveAttachmentService(app);
+		const saved = await attachmentService.saveFile(file, { fileName });
+		logger.debug("文件已保存到 Obsidian 库:", saved.path);
+		return saved.path;
 	}
 
 	/**

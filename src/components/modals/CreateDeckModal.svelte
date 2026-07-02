@@ -83,7 +83,7 @@
           loadAvailableTags();
           
           // 延迟聚焦到输入框（等待DOM更新）
-          setTimeout(() => {
+          window.setTimeout(() => {
             if (nameInputRef) {
               nameInputRef.focus();
               logger.debug('[CreateDeckModal] 聚焦到名称输入框');

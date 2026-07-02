@@ -5,6 +5,7 @@ import {
   type DataChangeEvent,
 } from "../../../services/DataSyncService";
 import { logger } from "../../../utils/logger";
+import type { WeaveTimerHandle } from "../../../types/timer-handle.js";
 
 interface DeckStudyRefreshCoordinatorOptions {
   setIsLoading: (value: boolean) => void;
@@ -31,7 +32,7 @@ export function createDeckStudyRefreshCoordinator(
   let backgroundRefreshRequestedDeckIds = new Set<string>();
   let backgroundRefreshNeedsFull = false;
   let deferredMemoryStudyRefreshDeckIds = new Set<string>();
-  let deferredMemoryStudyRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let deferredMemoryStudyRefreshTimer: WeaveTimerHandle | null = null;
 
   function loadStudySessionsSafely(): Promise<StudySession[]> {
     return options.loadStudySessionsData().catch((error) => {

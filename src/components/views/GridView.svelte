@@ -230,7 +230,7 @@
       setupIntersectionObserver();
       
       // 确保gridContainer已绑定后再设置ResizeObserver
-      setTimeout(() => {
+      window.setTimeout(() => {
         resizeObserver = setupResizeObserver();
       }, 100);
     });

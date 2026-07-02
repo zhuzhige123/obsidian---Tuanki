@@ -13,7 +13,7 @@ describe('i18n runtime fallbacks', () => {
   });
 
   it('prefers concrete translations for high-value keys', () => {
-    expect(i18n.t('about.license.activation.activate')).toBe('Activate');
+    expect(i18n.t('about.license.activation.activate')).toBe('Activate license');
     expect(i18n.t('navigation.aiAssistant')).toBe('AI Assistant');
     expect(i18n.t('study.title')).toBe('Study');
     expect(i18n.t('ankiConnect.connection.test.testing')).toBe('Testing...');

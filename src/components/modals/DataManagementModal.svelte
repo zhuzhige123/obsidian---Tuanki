@@ -17,9 +17,8 @@
     isHighRiskFixType,
     isSplitPluginResidueCheckType,
     isHiddenRescueCheckType,
-    isTemporaryCheckType,
-    getDataCheckLifecycleKind,
-    getDataCheckLifecycleLabel,
+    getDataCheckGateTierKind,
+    getDataCheckGateTierLabel,
     getDataCheckLifecycleNote,
     getDataCheckDisplayName,
     filterDisplayableDataCheckResults,
@@ -41,15 +40,7 @@
   import EnhancedButton from '../ui/EnhancedButton.svelte';
   import { tr, t } from '../../utils/i18n';
   import { showDangerConfirm } from '../../utils/obsidian-confirm';
-  import {
-    getEpubReaderPluginAvailability,
-    getIncrementalReadingPluginAvailability,
-    getSplitPluginUnavailableMessage,
-    INCREMENTAL_READING_PLUGIN_ID,
-    EPUB_READER_PLUGIN_ID,
-    openEpubReaderDataManagement,
-    openIncrementalReadingDataManagement,
-  } from '../../utils/ir-plugin-integration';
+  import { evaluateDataManagementGateReadiness } from '../../services/data-management/DataManagementStartupGate';
 
   // ===== Props =====
   interface Props {
@@ -61,13 +52,25 @@
     allCards?: Card[];
     /** 初始标签页 */
     initialTab?: 'data';
+    /** 启动提示：自动检测数据问题并弹窗，但不阻止正常使用 */
+    startupGate?: boolean;
+    onStartupGateAcknowledge?: (payload: {
+      checkResults: DataCheckResult[];
+      migrationResults: DataCheckResult[];
+    }) => void;
+    onStartupGateDismiss?: (payload?: { disableFutureAutoPopup?: boolean }) => void;
+    registerStartupGateDismissState?: (getter: () => boolean) => void;
   }
 
   let {
     plugin,
     cards = [],
     allCards = [],
-    initialTab = 'data'
+    initialTab = 'data',
+    startupGate = false,
+    onStartupGateAcknowledge,
+    onStartupGateDismiss,
+    registerStartupGateDismissState,
   }: Props = $props();
   
   // 扫描范围
@@ -88,6 +91,21 @@
   let progressCurrent = $state(0);
   let progressTotal = $state(0);
   let progressPercent = $derived(progressTotal > 0 ? Math.round((progressCurrent / progressTotal) * 100) : 0);
+  let startupChecksCompleted = $state(false);
+  let disableFutureAutoPopup = $state(false);
+  const WDECK_CACHE_REBUILD_FIX_TYPES: CheckType[] = [
+    'wdeck_conflicts',
+    'wdeck_cache',
+    'card_deck_consistency',
+    'structured_data_format',
+    'duplicate_cards',
+  ];
+  let startupGateEvaluation = $derived(
+    evaluateDataManagementGateReadiness(checkResults, migrationResults, {
+      checksCompleted: startupChecksCompleted,
+      operationInProgress: isChecking || isFixing || isMigrating,
+    })
+  );
 
   // ===== 质量扫描 State =====
   let isScanning = $state(false);
@@ -231,24 +249,29 @@
     progressTotal = 0;
   }
 
-  function getLifecycleKind(type: CheckType): 'temporary' | 'long_term' {
-    return getDataCheckLifecycleKind(type);
+  function getLifecycleKind(type: CheckType): 'temporary' | 'long_term' | 'advisory' {
+    return getDataCheckGateTierKind(type);
   }
 
   function getLifecycleLabel(type: CheckType): string {
-    return getDataCheckLifecycleLabel(type);
+    return getDataCheckGateTierLabel(type);
   }
 
   function getLifecycleNote(type: CheckType): string {
     return getDataCheckLifecycleNote(type);
   }
 
-  function isTemporaryType(type: CheckType): boolean {
-    return isTemporaryCheckType(type);
-  }
-
-  const activeCheckResults = $derived(checkResults.filter(result => !isTemporaryType(result.type)));
-  const activeMigrationResults = $derived(migrationResults.filter(result => !isTemporaryType(result.type)));
+  const activeCheckResults = $derived(checkResults);
+  const activeMigrationResults = $derived(migrationResults);
+  const startupGateBlockingLabels = $derived(
+    startupGateEvaluation.blockingResults.map((result) => getTypeName(result.type))
+  );
+  const startupGateBlockingIssueTotal = $derived(
+    startupGateEvaluation.blockingResults.reduce((sum, result) => sum + Math.max(result.count, 1), 0)
+  );
+  const startupGateAdvisoryIssueTotal = $derived(
+    startupGateEvaluation.advisoryResults.reduce((sum, result) => sum + Math.max(result.count, 1), 0)
+  );
   const activeCheckSectionTitle = $derived($tr('management.dataHealth.sectionTitle'));
   const activeMigrationSectionTitle = $derived($tr('management.dataHealth.migrationSectionTitle'));
   const activeMigrationActionLabel = $derived($tr('management.dataHealth.checkMigrationStatus'));
@@ -256,8 +279,8 @@
   const activeMigrationEmptyMessage = $derived($tr('management.dataHealth.emptyMigrationResults'));
   const activeFixableTypes = $derived(
     activeCheckResults
-      .filter(result => result.count > 0 && DEFAULT_BATCH_FIX_TYPES.includes(result.type))
-      .map(result => result.type)
+      .filter((result) => shouldShowFixButton(result) && DEFAULT_BATCH_FIX_TYPES.includes(result.type))
+      .map((result) => result.type)
   );
 
   async function runMigrationChecks(
@@ -285,6 +308,17 @@
     }
 
     migrationResults = [...migrationResults, result];
+  }
+
+  function upsertCheckResult(result: DataCheckResult) {
+    const existingIndex = checkResults.findIndex(item => item.type === result.type);
+    if (existingIndex >= 0) {
+      checkResults[existingIndex] = result;
+      checkResults = [...checkResults];
+      return;
+    }
+
+    checkResults = [...checkResults, result];
   }
 
   async function executeTrackedMigrationTask<T>(config: {
@@ -367,6 +401,8 @@
         return t('management.dataManagementModal.highRiskWarnings.syncConflictFiles');
       case 'progressive_cloze_unconverted':
         return t('management.dataManagementModal.highRiskWarnings.progressiveClozeUnconverted');
+      case 'tutorial_deck_residue':
+        return t('management.dataManagementModal.highRiskWarnings.tutorialDeckResidue');
       case 'legacy_cleanup':
         return t('management.dataManagementModal.highRiskWarnings.legacyCleanup');
       default:
@@ -443,8 +479,12 @@
   }
 
   async function handleCheckCurrentTab() {
-		await handleCheckAll();
-		await handleCheckMigration();
+		try {
+			await handleCheckAll();
+			await handleCheckMigration();
+		} finally {
+			startupChecksCompleted = true;
+		}
   }
 
   async function handleFixCurrentTab() {
@@ -469,7 +509,9 @@
 				updateSharedProgress(i + 1, activeFixableTypes.length, t('management.dataManagementModal.progress.fixingType', { name: getTypeName(type) }));
 				const result = await dataService.fix(type);
 				results.push(result);
-				await plugin.wdeckService?.rebuildCache();
+				if (WDECK_CACHE_REBUILD_FIX_TYPES.includes(type)) {
+					await plugin.wdeckService?.rebuildCache();
+				}
 			}
 
 			fixResults = results;
@@ -562,40 +604,6 @@
 
   function supportsDirectFix(type: CheckType): boolean {
     return !isSplitPluginResidueCheckType(type) && !isHiddenRescueCheckType(type);
-  }
-
-  const incrementalReadingPluginAvailability = $derived(
-    getIncrementalReadingPluginAvailability(plugin.app)
-  );
-
-  const epubReaderPluginAvailability = $derived(getEpubReaderPluginAvailability(plugin.app));
-
-  const incrementalReadingPluginHint = $derived(
-    incrementalReadingPluginAvailability === 'available'
-      ? ''
-      : getSplitPluginUnavailableMessage(plugin.app, INCREMENTAL_READING_PLUGIN_ID)
-  );
-
-  const epubReaderPluginHint = $derived(
-    epubReaderPluginAvailability === 'available'
-      ? ''
-      : getSplitPluginUnavailableMessage(plugin.app, EPUB_READER_PLUGIN_ID)
-  );
-
-  function handleOpenIncrementalReadingDataManagement() {
-    if (!openIncrementalReadingDataManagement(plugin.app)) {
-      return;
-    }
-
-    addLog(t('management.dataManagementModal.openIncrementalReadingDataManagement'));
-  }
-
-  function handleOpenEpubReaderDataManagement() {
-    if (!openEpubReaderDataManagement(plugin.app)) {
-      return;
-    }
-
-    addLog(t('management.dataManagementModal.openEpubReaderDataManagement'));
   }
 
   // ===== 迁移检测方法 =====
@@ -708,36 +716,6 @@
     });
   }
 
-  async function handleCleanupLegacy() {
-    const confirmed = await showDangerConfirm(
-      plugin.app,
-      t('management.dataManagementModal.actions.legacyCleanupConfirm'),
-      t('management.dataManagementModal.actions.legacyCleanupConfirmTitle')
-    );
-    if (!confirmed) {
-      addLog(t('management.dataManagementModal.logs.cancelLegacyCleanup'));
-      return;
-    }
-
-    await executeTrackedMigrationTask({
-      title: t('management.dataManagementModal.actions.legacyCleanupTitle'),
-      startLog: t('management.dataManagementModal.actions.legacyCleanupStartLog'),
-      initialDetail: t('management.dataManagementModal.actions.legacyCleanupInitialDetail'),
-      totalSteps: 2,
-      run: () => dataService.cleanupLegacyDirectories({ allowHighRisk: true }),
-      postRunDetail: t('management.dataManagementModal.actions.legacyCleanupPostRunDetail'),
-      afterRun: async () => {
-        const legacyResult = await dataService.checkLegacyDirectories();
-        upsertMigrationResult(legacyResult);
-        updateSharedProgress(2, 2, t('management.dataManagementModal.actions.legacyCleanupRecheckDone'));
-      },
-      successLog: (result) => t('management.dataManagementModal.actions.legacyCleanupSuccessLog', { success: result.success, failed: result.failed }),
-      successDetail: (result) => t('management.dataManagementModal.actions.legacyCleanupSuccessDetail', { success: result.success, failed: result.failed }),
-      errorLogPrefix: t('management.dataManagementModal.actions.legacyCleanupErrorLogPrefix'),
-      errorDetailPrefix: t('management.dataManagementModal.actions.legacyCleanupErrorDetailPrefix')
-    });
-  }
-
   async function handleExecuteQBankMigration() {
     const confirmed = await showDangerConfirm(
       plugin.app,
@@ -814,9 +792,41 @@
   }
 
   function getResultCountText(result: DataCheckResult): string {
-    return result.count > 0
-      ? t('management.dataManagementModal.resultSummary.foundCount', { count: result.count })
-      : t('management.dataManagementModal.resultSummary.normal');
+    if (result.status === 'error') {
+      return result.count > 0
+        ? t('management.dataManagementModal.resultSummary.foundCount', { count: result.count })
+        : t('management.dataManagementModal.resultSummary.checkFailed');
+    }
+    if (result.status === 'warning' && result.count > 0) {
+      return t('management.dataManagementModal.resultSummary.foundCount', { count: result.count });
+    }
+    return t('management.dataManagementModal.resultSummary.normal');
+  }
+
+  function shouldShowFixButton(result: DataCheckResult): boolean {
+    if (!supportsDirectFix(result.type)) {
+      return false;
+    }
+    return result.count > 0;
+  }
+
+  function shouldShowCheckDetails(result: DataCheckResult): boolean {
+    if (result.items.length === 0) {
+      return false;
+    }
+
+    return [
+      'filename_compatibility',
+      'sync_conflict_files',
+      'wdeck_conflicts',
+      'wdeck_cache',
+      'migration_conflict_files',
+      'legacy_cleanup',
+      'ir_legacy_readable_markdown_migration',
+      'ir_redundant_frontmatter_cleanup',
+      'qbank_orphan_refs',
+      'attachment_registry_consistency',
+    ].includes(result.type);
   }
 
   // ===== 质量扫描方法 =====
@@ -961,20 +971,67 @@
     }
   }
   
-  // 重置筛选
-  function resetFilters() {
-    filterSeverity = 'all';
-    filterType = 'all';
+  function handleStartupGateDismiss(): void {
+    if (!startupGateEvaluation.ready && startupGateBlockingIssueTotal > 0) {
+      new Notice(
+        t('management.dataManagementModal.startupGate.dismissedWithIssues', {
+          count: startupGateBlockingIssueTotal,
+        }),
+        6000
+      );
+    }
+
+    onStartupGateDismiss?.({
+      disableFutureAutoPopup,
+    });
   }
+
+  async function initializeStartupChecks() {
+    if (startupGate) {
+      const cached = plugin.getStartupDataGateCachedResults();
+      if (
+        cached.evaluationCompleted &&
+        (cached.checkResults.length > 0 || cached.migrationResults.length > 0)
+      ) {
+        checkResults = cached.checkResults;
+        migrationResults = cached.migrationResults;
+        startupChecksCompleted = true;
+        return;
+      }
+    }
+
+    await handleCheckCurrentTab();
+  }
+
+  $effect(() => {
+    if (!startupGate) {
+      return;
+    }
+    registerStartupGateDismissState?.(() => disableFutureAutoPopup);
+  });
+
+  $effect(() => {
+    if (!startupGate || !startupChecksCompleted || isChecking || isFixing || isMigrating) {
+      return;
+    }
+
+    plugin.syncStartupDataGateResults(checkResults, migrationResults);
+  });
 
   // 初始化时自动检测
   onMount(() => {
-    void handleCheckCurrentTab();
+    void initializeStartupChecks();
     void refreshLatestMigrationSummary();
   });
 </script>
 
-<div class="unified-management-modal">
+<div class="unified-management-modal" class:startup-gate={startupGate}>
+    {#if startupGate}
+      <div class="startup-gate-banner">
+        <p class="startup-gate-banner-title">{$tr('management.dataManagementModal.startupGate.bannerTitle')}</p>
+        <p class="startup-gate-banner-desc">{$tr('management.dataManagementModal.startupGate.bannerDesc')}</p>
+      </div>
+    {/if}
     <!-- 顶部导航栏：分段标签 + 上下文操作 -->
     <div class="modal-header-bar">
       <div class="modal-context-title">{$tr('management.dataManagementModal.title')}</div>
@@ -1036,7 +1093,7 @@
               {#if getLifecycleNote(result.type)}
                 <span class="check-note">{getLifecycleNote(result.type)}</span>
               {/if}
-              {#if result.items.length > 0 && (result.type === 'filename_compatibility' || result.type === 'sync_conflict_files' || result.type === 'ir_legacy_readable_markdown_migration' || result.type === 'ir_redundant_frontmatter_cleanup')}
+              {#if shouldShowCheckDetails(result)}
                 <div class="check-details">
                   {#each result.items.slice(0, 5) as item}
                     <span class="detail-item">{item}</span>
@@ -1057,18 +1114,16 @@
               >
                 <EnhancedIcon name="refresh-cw" size={14} />
               </EnhancedButton>
-              {#if result.count > 0}
-                {#if supportsDirectFix(result.type)}
-                  <EnhancedButton
-                    variant="ghost"
-                    size="sm"
-                    onclick={() => handleFix(result.type)}
-                    disabled={isChecking || isFixing}
-                    tooltip={$tr('management.dataManagementModal.fix')}
-                  >
-                    <EnhancedIcon name="wrench" size={14} />
-                  </EnhancedButton>
-                {/if}
+              {#if shouldShowFixButton(result)}
+                <EnhancedButton
+                  variant="ghost"
+                  size="sm"
+                  onclick={() => handleFix(result.type)}
+                  disabled={isChecking || isFixing}
+                  tooltip={$tr('management.dataManagementModal.fix')}
+                >
+                  <EnhancedIcon name="wrench" size={14} />
+                </EnhancedButton>
               {/if}
             </div>
           </div>
@@ -1093,33 +1148,6 @@
           <!-- 数据迁移与结构核对 -->
           <section class="section">
             <h3 class="section-title">{activeMigrationSectionTitle}</h3>
-            <p class="split-plugin-residue-notice">{$tr('management.dataManagementModal.splitPluginResidueNotice')}</p>
-            <div class="migration-actions split-plugin-actions">
-              <EnhancedButton
-                variant="secondary"
-                size="sm"
-                onclick={handleOpenIncrementalReadingDataManagement}
-                disabled={isMigrating || isChecking || isFixing}
-              >
-                <EnhancedIcon name="bookmark" size={14} />
-                {$tr('management.dataManagementModal.openIncrementalReadingDataManagement')}
-              </EnhancedButton>
-              <EnhancedButton
-                variant="secondary"
-                size="sm"
-                onclick={handleOpenEpubReaderDataManagement}
-                disabled={isMigrating || isChecking || isFixing}
-              >
-                <EnhancedIcon name="book-open" size={14} />
-                {$tr('management.dataManagementModal.openEpubReaderDataManagement')}
-              </EnhancedButton>
-            </div>
-            {#if incrementalReadingPluginHint}
-              <p class="split-plugin-status-hint">{incrementalReadingPluginHint}</p>
-            {/if}
-            {#if epubReaderPluginHint}
-              <p class="split-plugin-status-hint">{epubReaderPluginHint}</p>
-            {/if}
             <div class="migration-actions">
               <EnhancedButton
                 variant="secondary"
@@ -1181,7 +1209,7 @@
                     {#if getLifecycleNote(result.type)}
                       <span class="check-note">{getLifecycleNote(result.type)}</span>
                     {/if}
-                    {#if result.items.length > 0 && (result.type === 'legacy_cleanup' || result.type === 'migration_conflict_files' || result.type === 'ir_point_storage_migration' || result.type === 'ir_legacy_readable_markdown_migration' || result.type === 'ir_local_state_relocation' || result.type === 'ir_legacy_bookmark_cleanup')}
+                    {#if shouldShowCheckDetails(result)}
                       <div class="check-details">
                         {#each result.items.slice(0, 3) as item}
                           <span class="detail-item">{item}</span>
@@ -1240,24 +1268,22 @@
                         <EnhancedIcon name="folder-plus" size={14} />
                       </EnhancedButton>
                     {/if}
-                    {#if result.type === 'legacy_cleanup' && result.count > 0}
-                      <EnhancedButton
-                        variant="ghost"
-                        size="sm"
-                        onclick={handleCleanupLegacy}
-                        disabled={isMigrating}
-                        tooltip={$tr('management.dataManagementModal.cleanupLegacyDirs')}
-                      >
-                        <EnhancedIcon name="trash-2" size={14} />
-                      </EnhancedButton>
-                    {/if}
-                    {#if result.type === 'migration_conflict_files' && result.count > 0}
+                    <EnhancedButton
+                      variant="ghost"
+                      size="sm"
+                      onclick={() => handleCheck(result.type)}
+                      disabled={isChecking || isFixing || isMigrating}
+                      tooltip={$tr('management.dataManagementModal.recheck')}
+                    >
+                      <EnhancedIcon name="refresh-cw" size={14} />
+                    </EnhancedButton>
+                    {#if shouldShowFixButton(result) && !['schema_migration', 'qbank_migration', 'qbank_legacy_cleanup', 'structure_check'].includes(result.type)}
                       <EnhancedButton
                         variant="ghost"
                         size="sm"
                         onclick={() => handleFix(result.type)}
-                        disabled={isMigrating || isFixing}
-                        tooltip={$tr('management.dataManagementModal.resolveMigrationConflicts')}
+                        disabled={isChecking || isFixing || isMigrating}
+                        tooltip={$tr('management.dataManagementModal.fix')}
                       >
                         <EnhancedIcon name="wrench" size={14} />
                       </EnhancedButton>
@@ -1275,20 +1301,78 @@
             </div>
           </section>
 
-          <!-- 操作日志 -->
-          <section class="section">
-            <h3 class="section-title">{$tr('management.dataManagementModal.logTitle')}</h3>
-            <div class="log-container">
-              {#each logs as log}
-                <div class="log-item">{log}</div>
-              {/each}
-              {#if logs.length === 0}
-                <div class="empty-state">{$tr('management.dataManagementModal.noLogs')}</div>
-              {/if}
-            </div>
-          </section>
+          {#if logs.length > 0}
+            <section class="section log-section">
+              <h3 class="section-title">{$tr('management.dataManagementModal.logTitle')}</h3>
+              <div class="log-container">
+                {#each logs as log}
+                  <div class="log-item">{log}</div>
+                {/each}
+              </div>
+            </section>
+          {/if}
       </div>
     </div>
+
+    {#if startupGate}
+      <footer class="startup-gate-footer">
+        <div class="startup-gate-status">
+          {#if isChecking || isMigrating}
+            <span>{$tr('management.dataManagementModal.startupGate.checking')}</span>
+          {:else if startupGateEvaluation.ready}
+            {#if startupGateAdvisoryIssueTotal > 0}
+              <span class="startup-gate-status-ready">
+                {$tr('management.dataManagementModal.startupGate.readyWithAdvisory', { count: startupGateAdvisoryIssueTotal })}
+              </span>
+            {:else}
+              <span class="startup-gate-status-ready">{$tr('management.dataManagementModal.startupGate.ready')}</span>
+            {/if}
+          {:else}
+            <span>{$tr('management.dataManagementModal.startupGate.pending', { count: startupGateEvaluation.blockingResults.length })}</span>
+            {#if startupGateBlockingIssueTotal > startupGateEvaluation.blockingResults.length}
+              <span class="startup-gate-status-detail">
+                {$tr('management.dataManagementModal.startupGate.pendingIssueTotal', { count: startupGateBlockingIssueTotal })}
+              </span>
+            {/if}
+            {#if startupGateBlockingLabels.length > 0}
+              <span class="startup-gate-status-detail">
+                {$tr('management.dataManagementModal.startupGate.pendingItems', { names: startupGateBlockingLabels.join('、') })}
+              </span>
+            {/if}
+          {/if}
+        </div>
+        <div class="startup-gate-actions">
+          <label class="startup-gate-opt-out">
+            <input
+              type="checkbox"
+              bind:checked={disableFutureAutoPopup}
+              disabled={isChecking || isFixing || isMigrating}
+            />
+            <span>{$tr('management.dataManagementModal.startupGate.disableFutureAutoPopup')}</span>
+          </label>
+          <button
+            type="button"
+            class="mod-muted"
+            onclick={handleStartupGateDismiss}
+            disabled={isChecking || isFixing || isMigrating}
+          >
+            {$tr('management.dataManagementModal.startupGate.dismiss')}
+          </button>
+          <button
+            type="button"
+            class="mod-cta"
+            onclick={() =>
+              onStartupGateAcknowledge?.({
+                checkResults,
+                migrationResults,
+              })}
+            disabled={!startupGateEvaluation.ready || isChecking || isFixing || isMigrating}
+          >
+            {$tr('management.dataManagementModal.startupGate.continue')}
+          </button>
+        </div>
+      </footer>
+    {/if}
   </div>
 
 <style>
@@ -1297,6 +1381,88 @@
     flex-direction: column;
     height: 100%;
     background: var(--background-primary);
+  }
+
+  .unified-management-modal.startup-gate .modal-tab-content {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .startup-gate-banner {
+    flex-shrink: 0;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-primary));
+  }
+
+  .startup-gate-banner-title {
+    margin: 0 0 4px;
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--text-normal);
+  }
+
+  .startup-gate-banner-desc {
+    margin: 0;
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+
+  .startup-gate-footer {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    position: relative;
+    z-index: 2;
+  }
+
+  .startup-gate-status {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  .startup-gate-status-detail {
+    color: var(--text-normal);
+  }
+
+  .startup-gate-status-ready {
+    color: var(--text-success);
+    font-weight: 600;
+  }
+
+  .startup-gate-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .startup-gate-opt-out {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 4px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .startup-gate-opt-out input {
+    margin: 0;
   }
 
   .modal-header-bar {
@@ -1553,6 +1719,12 @@
     border-color: rgba(239, 68, 68, 0.18);
   }
 
+  .check-lifecycle-pill.advisory {
+    color: var(--text-muted);
+    background: var(--background-modifier-hover);
+    border: 1px solid var(--background-modifier-border);
+  }
+
   .check-lifecycle-pill.long_term {
     background: rgba(59, 130, 246, 0.12);
     color: rgb(29, 78, 216);
@@ -1655,6 +1827,8 @@
     text-align: center;
     color: var(--text-muted);
     font-size: 13px;
+    pointer-events: none;
+    user-select: none;
   }
 
   :global(.spinning) {
@@ -2010,24 +2184,6 @@
 
   .action-spacer {
     flex: 1;
-  }
-
-  .split-plugin-residue-notice {
-    margin: 0 0 10px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--text-muted);
-    background: var(--background-modifier-form-field);
-    border: 1px solid var(--background-modifier-border);
-  }
-
-  .split-plugin-status-hint {
-    margin: 0 0 10px;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--text-warning);
   }
 
   /* 迁移相关样式 */

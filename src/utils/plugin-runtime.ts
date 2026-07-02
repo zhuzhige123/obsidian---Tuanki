@@ -8,6 +8,10 @@ export type WeaveDataChangeContext = {
 	suppressDeckNotifications?: boolean;
 	suppressCardNotifications?: boolean;
 	suppressSessionNotifications?: boolean;
+	/** 跳过正文指纹索引（如仅更新 FSRS 的学习评分） */
+	skipBodyFingerprintSync?: boolean;
+	/** 跳过牌组成员索引（如学习评分/编辑未改牌组归属） */
+	skipDeckMembershipSync?: boolean;
 };
 
 export type PluginAugment = {
@@ -15,6 +19,7 @@ export type PluginAugment = {
 	externalSyncWatcher?: { markInternalWrite?: () => void };
 	dataSyncService?: { notifyChange?: (event: unknown) => Promise<void> | void };
 	deckMembershipIndexService?: unknown;
+	bodyFingerprintIndexService?: unknown;
 	mediaFileHandler?: unknown;
 	analyticsService?: unknown;
 	autoSyncManager?: { onDeckDeleted?: (deckId: string) => void };

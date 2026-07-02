@@ -492,7 +492,7 @@ export function createCardFormValidator(): FormValidator {
 		},
 		globalRules: [
 			ValidationRules.custom((formData) => {
-				return validateCardFields(formData);
+				return validateCardFields(formData as Record<string, string>);
 			}, "请至少填写问题和答案"),
 		],
 		stopOnFirstError: false,

@@ -3,6 +3,15 @@
  */
 
 import { vi } from 'vitest';
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
+
+if (typeof globalThis.activeDocument === 'undefined') {
+	Object.defineProperty(globalThis, 'activeDocument', {
+		configurable: true,
+		value: document,
+		writable: true,
+	});
+}
 
 type TestStyle = CSSStyleDeclaration & Record<string, string>;
 type MockAbortSignal = {
@@ -77,7 +86,7 @@ vi.spyOn(console, 'debug').mockImplementation(() => {});
 vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
 
 let nextAnimationFrameId = 0;
-const animationFrameTimers = new Map<number, ReturnType<typeof setTimeout>>();
+const animationFrameTimers = new Map<number, WeaveTimerHandle>();
 
 Object.defineProperty(globalThis, 'requestAnimationFrame', {
   writable: true,
@@ -118,7 +127,7 @@ class MockAnimation {
   private listeners = new Map<string, Array<() => void>>();
   private finished = false;
   private cancelled = false;
-  private finishTimer: ReturnType<typeof setTimeout> | null = null;
+  private finishTimer: WeaveTimerHandle | null = null;
 
   constructor(
     private element: HTMLElement,

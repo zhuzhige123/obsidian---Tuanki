@@ -103,22 +103,6 @@ export function createDeckStudyPageRuntimeController(
       }
     })();
 
-    const handleCardCreated = () => {
-      void options.refreshData(false);
-    };
-
-    const handleCardUpdated = () => {
-      logger.debug("[DeckStudyPage] 接收到卡片更新事件，刷新数据");
-      void options.refreshData(false);
-    };
-
-    const workspace = plugin.app.workspace as typeof plugin.app.workspace & {
-      on: (eventName: string, callback: (...args: unknown[]) => void) => void;
-      off: (eventName: string, callback: (...args: unknown[]) => void) => void;
-    };
-    workspace.on("Weave:card-created", handleCardCreated);
-    workspace.on("Weave:card-updated", handleCardUpdated);
-
     void options.refreshData();
 
     const handleSidebarFilterSelect = (event: Event) => {
@@ -182,8 +166,6 @@ export function createDeckStudyPageRuntimeController(
       unsubscribeDecks?.();
       unsubscribeSessions?.();
       unsubscribeCards?.();
-      workspace.off("Weave:card-created", handleCardCreated);
-      workspace.off("Weave:card-updated", handleCardUpdated);
       window.removeEventListener(
         "Weave:sidebar-filter-select",
         handleSidebarFilterSelect as EventListener

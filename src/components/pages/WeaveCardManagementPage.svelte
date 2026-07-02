@@ -25,7 +25,6 @@
   import MasonryGridView from "../views/MasonryGridView.svelte";
   import GridTimelineView from "../views/GridTimelineView.svelte";
   import WeaveBatchToolbar from "../batch/WeaveBatchToolbar.svelte";
-  // BatchTemplateChangeModal 已删除（基于弃用的字段模板系统）
   // BatchDeckChangeModal、BatchRemoveTagsModal、BatchAddTagsModal 已改用 Obsidian Menu API
   // v2.0 引用式牌组系统模态窗
   import BuildDeckModal from "../modals/BuildDeckModal.svelte";
@@ -52,6 +51,11 @@
   } from "../study/kanban-grouping";
 
   import { getCardContentBySide } from "../../utils/helpers";
+  import {
+    collectCardsToResetToNew,
+    isMemoryCard,
+    resetCardLearningState,
+  } from "../../utils/card-reset-utils";
   import { showNotification } from "../../utils/notifications";
   // 源文档路径筛选工具
   import { extractSourceBlock, extractSourcePath, filterCardsBySourceDocument } from "../../utils/source-path-matcher";
@@ -76,11 +80,9 @@
   import { showObsidianConfirm } from "../../utils/obsidian-confirm";
   import {
     addMenuRadioChoices,
-    addMenuSubmenuGroup,
     attachMenuApp,
   } from "../../utils/obsidian-menu";
   import { detectCardQuestionType, getQuestionTypeDistribution } from "../../utils/card-type-utils";
-  import { isInputClozeQuestionContent } from "../../utils/question-bank/input-cloze-utils";
   import { getErrorBookDistribution, getCardErrorLevel } from "../../utils/error-book-utils";
   import { syncCardStatsToCanonicalFormat } from "../../utils/card-stats-normalizer";
   import { CardType } from "../../data/types";
@@ -116,6 +118,15 @@
   // 题库数据存储
   import { QuestionBankStorage } from "../../services/question-bank/QuestionBankStorage";
   import type { QuestionTestStats } from "../../types/question-bank-types";
+  import { filterQuestionBankEligibleCardUuids } from "../../utils/question-bank/eligible-question-cards";
+  import { openCreateQuestionBankModal } from "../../utils/open-create-question-bank-modal";
+  import {
+    buildQuestionBankMembershipIndex,
+    computeQuestionBankMembershipFlags,
+    resolveBatchAddToQuestionBankNoticeParams,
+    resolveEligibleQuestionBankAdds,
+    sortQuestionBanksForMenu,
+  } from "../../utils/question-bank/card-management-batch-utils";
   
   
   // 移动端组件
@@ -126,6 +137,12 @@
   import CardSearchInput from "../search/CardSearchInput.svelte";
   import { parseSearchQuery, matchSearchQuery } from "../../utils/search-parser";
   import type { SearchQuery } from "../../utils/search-parser";
+  import {
+    getMemoryFormalDeckDisplayNames,
+    getQuestionBankDeckDisplayNames,
+    mergeQuestionBankCardIntoMap,
+    resolveQuestionBankDeckIdsForManagement,
+  } from "./card-management-deck-display";
   import { getQuestionTypeLabelFromCard } from "../../utils/question-type-utils";
   
   // 增量阅读活动文档 store（用于文档关联筛选）
@@ -554,7 +571,6 @@
     }
   }
   // showNewCardModal 已移除
-  // showBatchTemplateModal 已删除（基于弃用的字段模板系统）
   // showBatchDeckModal、showBatchRemoveTagsModal、showBatchAddTagsModal 已移除（改用 Obsidian Menu API）
   
   // v2.2 数据管理模态窗
@@ -600,7 +616,6 @@
   const isMobile = detectMobileDevice();
   let showMobileSearchInput = $state(false);
 
-  // allFieldTemplates 已删除（新系统使用动态解析，无需预定义模板）
   let allDecks = $state<Deck[]>([]);
   let memoryDeckOrganizationRuntime = $state<MemoryDeckOrganizationRuntime | null>(null);
   
@@ -611,6 +626,37 @@
   function promptPremiumFeature(featureId: string) {
     promptFeatureId = featureId;
     showActivationPrompt = true;
+  }
+
+  function shouldShowQuestionBankBatchAddAction(): boolean {
+    return premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.QUESTION_BANK, { isPremium });
+  }
+
+  function canUseQuestionBankBatchAddAction(): boolean {
+    return premiumGuard.isPremiumFeature(PREMIUM_FEATURES.QUESTION_BANK) ? isPremium : true;
+  }
+
+  async function resolveQuestionBankStorage(): Promise<QuestionBankStorage | null> {
+    if (plugin.questionBankStorage) {
+      questionBankStorage = plugin.questionBankStorage;
+      return plugin.questionBankStorage;
+    }
+    if (questionBankStorage) {
+      return questionBankStorage;
+    }
+    if (!plugin.app) {
+      return null;
+    }
+    questionBankStorage = new QuestionBankStorage(plugin.app);
+    await questionBankStorage.initialize();
+    return questionBankStorage;
+  }
+
+  async function refreshQuestionBankCacheIfLoaded(): Promise<void> {
+    if (questionBankCards.length === 0 && questionBankDecks.length === 0) {
+      return;
+    }
+    await loadQuestionBankCards();
   }
   
   // 订阅高级版状态（添加挂载状态保护）
@@ -716,7 +762,15 @@
       const computed =
         dataSource === "memory"
           ? getCardDeckIdsFromFormalSource(card, activeDecks)
-          : getCardDeckIds(card, activeDecks);
+          : dataSource === "questionBank"
+            ? (() => {
+                const deckIds = resolveQuestionBankDeckIdsForManagement(card, activeDecks);
+                return {
+                  deckIds,
+                  primaryDeckId: deckIds[0],
+                };
+              })()
+            : getCardDeckIds(card, activeDecks);
       deckIdsCache.set(key, computed);
       return computed;
     };
@@ -922,6 +976,12 @@
         case "uuid":
           return (card.uuid || '').toLowerCase();
         case "deck":
+          return (
+            dataSource === 'questionBank'
+              ? getCardFormalDeckNames(card)
+              : getCardDeckNames(card)
+          ).toLowerCase();
+        case "question_bank_deck":
           return getCardDeckNames(card).toLowerCase();
         // IR 专用字段排序
         case "ir_title":
@@ -989,7 +1049,7 @@
       if (sortingLock && isSorting) {
         // 清除之前的定时器（防止多次触发）
         if (sortLockReleaseTimer !== null) {
-          clearTimeout(sortLockReleaseTimer);
+          window.clearTimeout(sortLockReleaseTimer);
           sortLockReleaseTimer = null;
         }
         
@@ -1071,8 +1131,8 @@
       uuid: false,
       obsidian_block_link: true,
       source_document: true,
-      field_template: true,
       source_document_status: true,
+      question_bank_deck: false,
       question_type: false,
       accuracy: false,
       test_attempts: false,
@@ -1097,6 +1157,7 @@
     };
 
     if (source === 'questionBank') {
+      next.question_bank_deck = true;
       next.question_type = true;
       next.accuracy = true;
       next.test_attempts = true;
@@ -1115,7 +1176,6 @@
       next.created = false;
       next.obsidian_block_link = false;
       next.source_document = false;
-      next.field_template = false;
       next.source_document_status = false;
 
       next.ir_title = true;
@@ -1142,7 +1202,7 @@
   const MEMORY_LEARNING_COLUMNS: ColumnKey[] = ['front', 'back', 'status', 'deck', 'tags', 'priority', 'source_document', 'created', 'actions'];
   const MEMORY_REVIEW_COLUMNS: ColumnKey[] = ['front', 'back', 'status', 'next_review', 'retention', 'interval', 'difficulty', 'review_count', 'actions'];
   const QUESTION_BANK_MINIMAL_COLUMNS: ColumnKey[] = ['front', 'status', 'question_type', 'accuracy', 'error_level', 'actions'];
-  const QUESTION_BANK_EXAM_COLUMNS: ColumnKey[] = ['front', 'back', 'status', 'deck', 'question_type', 'accuracy', 'test_attempts', 'last_test', 'error_level', 'actions'];
+  const QUESTION_BANK_EXAM_COLUMNS: ColumnKey[] = ['front', 'back', 'status', 'deck', 'question_bank_deck', 'question_type', 'accuracy', 'test_attempts', 'last_test', 'error_level', 'actions'];
   const IR_MINIMAL_COLUMNS: ColumnKey[] = ['ir_title', 'ir_source_file', 'ir_state', 'ir_priority', 'actions'];
   const IR_READING_COLUMNS: ColumnKey[] = ['ir_title', 'ir_source_file', 'ir_source_kind', 'ir_notes', 'ir_extract_cards', 'ir_memory_cards', 'ir_decks', 'ir_state', 'ir_priority', 'ir_tags', 'ir_tag_group', 'ir_next_review', 'ir_review_count', 'ir_created', 'actions'];
 
@@ -1286,7 +1346,7 @@
     if (presetId === 'learning') return MEMORY_LEARNING_COLUMNS;
     if (presetId === 'review') return MEMORY_REVIEW_COLUMNS;
 
-    return DEFAULT_COLUMN_ORDER.filter((key) => !key.startsWith('ir_') && !['question_type', 'accuracy', 'test_attempts', 'last_test', 'error_level'].includes(key));
+    return DEFAULT_COLUMN_ORDER.filter((key) => !key.startsWith('ir_') && !['question_type', 'accuracy', 'test_attempts', 'last_test', 'error_level', 'question_bank_deck'].includes(key));
   }
 
   function applyColumnManagerPreset(presetId: ColumnManagerPresetId) {
@@ -1354,6 +1414,7 @@
           'front',
           'back',
           'deck',
+          'question_bank_deck',
           'tags',
           'priority',
           'created',
@@ -1368,7 +1429,6 @@
         advanced: [
           'uuid',
           'source_document',
-          'field_template',
           'source_document_status',
         ],
         shared: ['front', 'back'],
@@ -1570,7 +1630,7 @@
     if (!isMounted || !isViewVisible) {
       // 清理定时器
       if (statisticsUpdateTimer !== null) {
-        clearTimeout(statisticsUpdateTimer);
+        window.clearTimeout(statisticsUpdateTimer);
         statisticsUpdateTimer = null;
       }
       return;
@@ -1690,7 +1750,7 @@
     if (shouldDefer) {
       // 大数据集：延迟计算，避免阻塞主线程
       if (statisticsUpdateTimer !== null) {
-        clearTimeout(statisticsUpdateTimer);
+        window.clearTimeout(statisticsUpdateTimer);
       }
       statisticsUpdateTimer = window.setTimeout(() => {
         updateStatistics();
@@ -1877,9 +1937,13 @@
     // 初始化嵌入式编辑器管理器（方案A：永久隐藏Leaf）
     editorPoolManager = new EmbeddableEditorManager(plugin.app);
     
-    // 初始化题库数据存储
-    questionBankStorage = new QuestionBankStorage(plugin.app);
-    await questionBankStorage.initialize();
+    // 优先复用插件全局题库存储，避免页面与 service 各持一份实例
+    if (plugin.questionBankStorage) {
+      questionBankStorage = plugin.questionBankStorage;
+    } else if (!questionBankStorage) {
+      questionBankStorage = new QuestionBankStorage(plugin.app);
+      await questionBankStorage.initialize();
+    }
   }
 
   // 生命周期
@@ -1941,7 +2005,7 @@
     savedFilters = filterManager.getAllFilters();
     
     // 延迟初始化侧边栏检测（确保 leaf 已创建）
-    setTimeout(async () => {
+    window.setTimeout(async () => {
       await detectSidebarContext();  // 使用缓存的动态导入
     }, 200);
     
@@ -1989,7 +2053,7 @@
     // 监听布局变化（视图拖动时触发）
     const layoutChangeHandler = () => {
       // 延迟执行，等待布局稳定
-      setTimeout(async () => {
+      window.setTimeout(async () => {
         await detectSidebarContext();  
       }, 150);
     };
@@ -2085,20 +2149,10 @@
     };
     window.addEventListener('Weave:card-management-search-change', handleCardManagementSearchChange as EventListener);
 
-    const handleIRTimerRefresh = (e: Event) => {
-      if (dataSource !== 'incremental-reading') return;
-      const detail = (e as CustomEvent<{ blockId?: string; totalSeconds?: number }>).detail;
-      applyIRTimerUpdateToCards(
-        String(detail?.blockId || '').trim(),
-        Number(detail?.totalSeconds || 0)
-      );
-    };
-
     const handleIRRealtimeRefresh = () => {
       if (dataSource !== 'incremental-reading') return;
       queueIRContentReload({ silent: true, debounceMs: 120 });
     };
-    window.addEventListener('Weave:ir-timer-updated', handleIRTimerRefresh);
     window.addEventListener('Weave:ir-data-updated', handleIRRealtimeRefresh);
 
     const handleCardManagementToolbarAction = (e: Event) => {
@@ -2288,13 +2342,13 @@
       
       // 清理所有间隔
       if (refreshInterval) {
-        clearInterval(refreshInterval);
+        window.clearInterval(refreshInterval);
         refreshInterval = null;
       }
       
       // 清理导航超时
       if (navigationTimeout !== null) {
-        clearTimeout(navigationTimeout);
+        window.clearTimeout(navigationTimeout);
         navigationTimeout = null;
       }
       
@@ -2317,7 +2371,7 @@
       
       // 清理排序定时器
       if (sortLockReleaseTimer !== null) {
-        clearTimeout(sortLockReleaseTimer);
+        window.clearTimeout(sortLockReleaseTimer);
         sortLockReleaseTimer = null;
         // 排序定时器已清理
         tableDataTimer = null;
@@ -2325,7 +2379,7 @@
       
       // 清理统计数据更新定时器
       if (statisticsUpdateTimer !== null) {
-        clearTimeout(statisticsUpdateTimer);
+        window.clearTimeout(statisticsUpdateTimer);
         statisticsUpdateTimer = null;
       }
       
@@ -2363,7 +2417,6 @@
         window.clearTimeout(irReloadTimer);
         irReloadTimer = null;
       }
-      window.removeEventListener('Weave:ir-timer-updated', handleIRTimerRefresh);
       window.removeEventListener('Weave:ir-data-updated', handleIRRealtimeRefresh);
       if (resizeObserver) resizeObserver.disconnect();
       if (mutationObserver) mutationObserver.disconnect();
@@ -2386,8 +2439,6 @@
 
   // 已移除旧的 CustomEvent 监听器（Weave:refresh-cards）
   // 现在使用 DataSyncService 统一管理数据刷新
-
-  // loadFieldTemplates 已删除（新系统使用动态解析，无需预加载模板）
 
   async function loadCards() {
     try {
@@ -2524,13 +2575,17 @@
       if (names.length > 0) return names.join(', ');
     }
 
-    // 直接使用 yaml-utils 工具函数，内部已实现完整回退链：
-    // 1. content YAML 的 we_decks（牌组名称）← 权威数据源
-    // 2. card.referencedByDecks（牌组ID列表）
-    // 3. card.deckId（单个牌组ID）
+    if (dataSource === 'questionBank') {
+      return getQuestionBankDeckDisplayNames(card, questionBankDecks).join(', ');
+    }
+
     const decksForLookup = getDecksForDataSource(dataSource);
     const names = getCardDeckNamesFromYaml(card, decksForLookup, '-');
     return names.join(', ');
+  }
+
+  function getCardFormalDeckNames(card: Card): string {
+    return getMemoryFormalDeckDisplayNames(card, allDecks).join(', ');
   }
 
   function getIRReadingSeconds(
@@ -2726,35 +2781,6 @@
     }
   }
 
-  function applyIRTimerUpdateToCards(blockId: string, totalSeconds: number): void {
-    const normalizedBlockId = String(blockId || '').trim();
-    if (!normalizedBlockId || !Number.isFinite(totalSeconds)) return;
-
-    let changed = false;
-    irContentCards = irContentCards.map((card) => {
-      if (card.uuid !== normalizedBlockId) return card;
-
-      const previousSeconds = Number((card as any).ir_reading_time ?? card.stats?.totalTime ?? 0);
-      if (previousSeconds === totalSeconds) {
-        return card;
-      }
-
-      changed = true;
-      return {
-        ...card,
-        ir_reading_time: totalSeconds,
-        stats: {
-          ...(card.stats || {}),
-          totalTime: totalSeconds
-        }
-      } as Card;
-    });
-
-    if (changed) {
-      invalidateCardManagementDerivedCaches();
-    }
-  }
-
   function queueIRContentReload(options: { silent?: boolean; debounceMs?: number } = {}): void {
     const debounceMs = Math.max(0, options.debounceMs ?? 120);
 
@@ -2828,7 +2854,7 @@
       lastViewSwitch = now;
       
       // 切换到表格视图时，延迟后才开始转换数据
-      if (tableDataTimer) clearTimeout(tableDataTimer);
+      if (tableDataTimer) window.clearTimeout(tableDataTimer);
       tableDataTimer = window.setTimeout(() => {
         isTableDataReady = true;
         tableDataTimer = null;
@@ -2837,7 +2863,7 @@
       // 切换到其他视图时，保持表格数据状态但不重新计算
       lastViewSwitch = Date.now();
       if (tableDataTimer) {
-        clearTimeout(tableDataTimer);
+        window.clearTimeout(tableDataTimer);
         tableDataTimer = null;
       }
       // 不立即设置 isTableDataReady = false，保留缓存
@@ -2961,7 +2987,8 @@
           ? memoryDeckOrganizationRuntime?.resolvedDeckRefsByCardUUID[card.uuid] || []
           : [],
         status: getCardStatusString(card.fsrs?.state ?? 0),
-        deck: getCardDeckNames(card), // v2.0: 支持多牌组引用显示
+        deck: dataSource === 'questionBank' ? getCardFormalDeckNames(card) : getCardDeckNames(card),
+        question_bank_deck: dataSource === 'questionBank' ? getCardDeckNames(card) : '',
         nextReview: card.fsrs?.due,
         sourceDocumentStatus: getSourceDocumentStatus(card),
         // 修复：添加块引用字段映射
@@ -3055,7 +3082,7 @@
       
       // 清理之前的导航超时
       if (navigationTimeout !== null) {
-        clearTimeout(navigationTimeout);
+        window.clearTimeout(navigationTimeout);
       }
       
       // 设置导航超时，3秒后重置状态
@@ -3659,7 +3686,7 @@
 
     // 清除之前的定时器（如果存在）
     if (sortLockReleaseTimer !== null) {
-      clearTimeout(sortLockReleaseTimer);
+      window.clearTimeout(sortLockReleaseTimer);
       sortLockReleaseTimer = null;
     }
 
@@ -3691,7 +3718,11 @@
   // 显示排序菜单
   function handleShowSortMenu(e: MouseEvent) {
     const menu = new Menu();
-    const deckLabel = dataSource === 'incremental-reading' ? t('cardManagement.sortMenu.topic') : t('cardManagement.sortMenu.deck');
+    const deckLabel = dataSource === 'incremental-reading'
+      ? t('cardManagement.sortMenu.topic')
+      : dataSource === 'questionBank'
+        ? t('cardManagement.sortMenu.formalDeck')
+        : t('cardManagement.sortMenu.deck');
     
     const sortFields = [
       { field: 'created', label: t('cardManagement.sortMenu.created'), icon: ICON_NAMES.CLOCK },
@@ -3699,6 +3730,9 @@
       { field: 'front', label: t('cardManagement.sortMenu.front'), icon: ICON_NAMES.FILE_TEXT },
       { field: 'back', label: t('cardManagement.sortMenu.back'), icon: ICON_NAMES.FILE_TEXT },
       { field: 'deck', label: deckLabel, icon: ICON_NAMES.FOLDER },
+      ...(dataSource === 'questionBank'
+        ? [{ field: 'question_bank_deck', label: t('cardManagement.sortMenu.questionBankDeck'), icon: ICON_NAMES.CLIPBOARD_LIST }]
+        : []),
       { field: 'tags', label: t('cardManagement.sortMenu.tags'), icon: ICON_NAMES.TAG },
       { field: 'status', label: t('cardManagement.sortMenu.status'), icon: ICON_NAMES.CHECK_CIRCLE },
     ];
@@ -3772,11 +3806,21 @@
   // 批量操作事件处理 - 使用 Obsidian Menu API
   let lastBatchDeckMenuPosition: { x: number; y: number } | null = null;
 
-  function handleBatchChangeDeck(event?: MouseEvent) {
+  function resolveBatchDeckMenuPosition(event?: MouseEvent): { x: number; y: number } {
+    if (event) {
+      const rect = (event.target as HTMLElement).getBoundingClientRect();
+      lastBatchDeckMenuPosition = { x: rect.left, y: rect.top - 8 };
+    } else if (!lastBatchDeckMenuPosition) {
+      lastBatchDeckMenuPosition = { x: window.innerWidth / 2, y: window.innerHeight - 100 };
+    }
+
+    return lastBatchDeckMenuPosition!;
+  }
+
+  function handleMemoryBatchChangeDeck(event?: MouseEvent) {
     const selectedCardIds = Array.from(selectedCards);
-    logger.debug("更换牌组:", selectedCardIds);
-    const batchDeckContext = getBatchMemoryDeckSelectionContext(selectedCardIds);
-    const { memoryDecks, uniqueSourceDeckIds } = batchDeckContext;
+    logger.debug("更换记忆牌组:", selectedCardIds);
+    const { memoryDecks, uniqueSourceDeckIds } = getBatchMemoryDeckSelectionContext(selectedCardIds);
 
     if (selectedCardIds.length === 0) {
       new Notice(t('cardManagement.notices.changeDeckSelectCardsFirst'));
@@ -3788,196 +3832,19 @@
       return;
     }
 
-    if (event) {
-      const rect = (event.target as HTMLElement).getBoundingClientRect();
-      lastBatchDeckMenuPosition = { x: rect.left, y: rect.top - 8 };
-    } else {
-      lastBatchDeckMenuPosition = { x: window.innerWidth / 2, y: window.innerHeight - 100 };
-    }
-
     const menu = attachMenuApp(new Menu(), plugin.app);
     const selectedSet = new Set(selectedCardIds);
-
-    addMenuSubmenuGroup(
-      menu,
-      { title: t('cardManagement.batchDeckMenu.memoryDecks'), icon: 'graduation-cap' },
-      (submenu) => {
-        memoryDecks.forEach((deck) => {
-          const deckCardUUIDs = new Set(deck.cardUUIDs || []);
-          let anyInDeck = false;
-          let allInDeck = true;
-          for (const uuid of selectedSet) {
-            if (deckCardUUIDs.has(uuid)) {
-              anyInDeck = true;
-            } else {
-              allInDeck = false;
-            }
-          }
-          const indentLevel = deck.level || 0;
-          const prefix = indentLevel > 0 ? '  '.repeat(indentLevel) + '└ ' : '';
-
-          submenu.addItem((subItem) => {
-            subItem.setTitle(prefix + deck.name);
-            if (allInDeck) {
-              subItem.setIcon('check-square');
-            } else {
-              subItem.setIcon(anyInDeck ? 'minus-square' : 'square');
-            }
-            subItem.onClick(async () => {
-              await handleBatchToggleDeckReference(deck, { allInDeck }, selectedCardIds);
-            });
-          });
-        });
-      }
-    );
-
-    if (premiumGuard.shouldShowFeatureEntry(PREMIUM_FEATURES.QUESTION_BANK)) {
-      const questionBankLocked = premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.QUESTION_BANK);
-      addMenuSubmenuGroup(
-        menu,
-        {
-          title: questionBankLocked
-            ? t('cardManagement.batchDeckMenu.questionBankDecksPremium')
-            : t('cardManagement.batchDeckMenu.questionBankDecks'),
-          icon: 'clipboard-list',
-        },
-        (submenu) => {
-          if (questionBankLocked) {
-            submenu.addItem((subItem) => {
-              subItem
-                .setTitle(t('cardManagement.batchDeckMenu.activateToUse'))
-                .setIcon('lock')
-                .onClick(() => {
-                  promptPremiumFeature(PREMIUM_FEATURES.QUESTION_BANK);
-                });
-            });
-            return;
-          }
-
-          if (questionBankStorage && plugin.questionBankService) {
-            const banks = plugin.questionBankService.getAllQuestionBanks();
-            if (banks.length > 0) {
-              banks.forEach((bank) => {
-                submenu.addItem((subItem) => {
-                  subItem.setTitle(bank.name).setIcon('edit-3');
-                  subItem.onClick(async () => {
-                    await handleBatchAddToExamDeck(bank.id, selectedCardIds);
-                  });
-                });
-              });
-            } else {
-              submenu.addItem((subItem) => {
-                subItem.setTitle(t('cardManagement.batchDeckMenu.noQuestionBanks')).setDisabled(true);
-              });
-            }
-          } else {
-            submenu.addItem((subItem) => {
-              subItem.setTitle(t('cardManagement.notices.questionBankServiceInitMissing')).setDisabled(true);
-            });
-          }
-        }
-      );
-    }
-
-    menu.showAtPosition(lastBatchDeckMenuPosition!);
-  }
-
-  // 批量将选择题卡片添加到考试牌组
-  async function handleBatchAddToExamDeck(bankId: string, selectedCardIds: string[]) {
-    try {
-      if (premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.QUESTION_BANK)) {
-        promptPremiumFeature(PREMIUM_FEATURES.QUESTION_BANK);
-        return;
-      }
-
-      if (!plugin.questionBankService) {
-        showNotification(t('cardManagement.notices.questionBankServiceInitMissing'), 'error');
-        return;
-      }
-
-      // 从选中的卡片中筛选出可加入考试牌组的题型
-      const sourceCards = currentSourceCards;
-      const selectedCardData = sourceCards.filter(c => selectedCardIds.includes(c.uuid));
-      const supportedQuestionCards = selectedCardData.filter(c => {
-        const questionType = detectCardQuestionType(c);
-        return questionType === 'single-choice'
-          || questionType === 'multiple-choice'
-          || isInputClozeQuestionContent(c.content);
-      });
-      const skippedUnsupportedCount = selectedCardData.length - supportedQuestionCards.length;
-
-      if (supportedQuestionCards.length === 0) {
-        showNotification(t('cardManagement.notices.noSupportedQuestionsForBank'), 'warning');
-        return;
-      }
-
-      // 获取考试牌组信息
-      const bank = plugin.questionBankService.getQuestionBank(bankId);
-      if (!bank) {
-        showNotification(t('cardManagement.notices.questionBankMissing'), 'error');
-        return;
-      }
-
-      // 将支持的题目卡片 UUID 引用添加到考试牌组
-      const existingUUIDs = new Set(bank.cardUUIDs || []);
-      let addedCount = 0;
-      let skippedExistingCount = 0;
-      for (const card of supportedQuestionCards) {
-        if (!existingUUIDs.has(card.uuid)) {
-          existingUUIDs.add(card.uuid);
-          addedCount++;
-        } else {
-          skippedExistingCount++;
-        }
-      }
-
-      if (addedCount === 0) {
-        showNotification(t('cardManagement.notices.allQuestionsAlreadyInBank'), 'info');
-        return;
-      }
-
-      bank.cardUUIDs = Array.from(existingUUIDs);
-      bank.modified = new Date().toISOString();
-      await questionBankStorage!.saveBanks(plugin.questionBankService.getAllQuestionBanks());
-
-      const summaryParts = [`已将 ${addedCount} 题加入考试题组"${bank.name}"`];
-      if (skippedUnsupportedCount > 0) {
-        summaryParts.push(`跳过 ${skippedUnsupportedCount} 张不支持的卡片`);
-      }
-      if (skippedExistingCount > 0) {
-        summaryParts.push(`跳过 ${skippedExistingCount} 张已存在题目`);
-      }
-      showNotification(summaryParts.join('，'), 'success');
-    } catch (error) {
-      logger.error('添加到考试牌组失败:', error);
-      showNotification(t('cardManagement.notices.operationFailed'), 'error');
-    }
-  }
-
-  function showBatchDeckMultiSelectMenu(selectedCardIds: string[]) {
-    if (!lastBatchDeckMenuPosition) {
-      lastBatchDeckMenuPosition = { x: window.innerWidth / 2, y: window.innerHeight - 100 };
-    }
-
-    const menu = new Menu();
-    (menu as any).app = plugin.app;
 
     menu.addItem((item) => {
       item.setTitle(t('cardManagement.dialogs.setDeckForCards', { count: selectedCardIds.length }));
       item.setDisabled(true);
     });
-
     menu.addSeparator();
 
-    const selectedSet = new Set(selectedCardIds);
-
-    const memoryDecks = getDecksForDataSource('memory');
     memoryDecks.forEach((deck) => {
       const deckCardUUIDs = new Set(deck.cardUUIDs || []);
-
       let anyInDeck = false;
       let allInDeck = true;
-
       for (const uuid of selectedSet) {
         if (deckCardUUIDs.has(uuid)) {
           anyInDeck = true;
@@ -3985,32 +3852,162 @@
           allInDeck = false;
         }
       }
-
       const indentLevel = deck.level || 0;
       const prefix = indentLevel > 0 ? '  '.repeat(indentLevel) + '└ ' : '';
 
-      menu.addItem((item) => {
-        item.setTitle(prefix + deck.name);
-
+      menu.addItem((subItem) => {
+        subItem.setTitle(prefix + deck.name);
         if (allInDeck) {
-          item.setIcon('check-square');
+          subItem.setIcon('check-square');
         } else {
-          item.setIcon(anyInDeck ? 'minus-square' : 'square');
+          subItem.setIcon(anyInDeck ? 'minus-square' : 'square');
         }
-
-        item.onClick(async () => {
+        subItem.onClick(async () => {
           await handleBatchToggleDeckReference(deck, { allInDeck }, selectedCardIds);
-
-          if (lastBatchDeckMenuPosition) {
-            setTimeout(() => {
-              showBatchDeckMultiSelectMenu(selectedCardIds);
-            }, 0);
-          }
         });
       });
     });
 
-    menu.showAtPosition(lastBatchDeckMenuPosition);
+    menu.showAtPosition(resolveBatchDeckMenuPosition(event));
+  }
+
+  function getBatchQuestionBankSourceBankId(card: Card, banks: Deck[]): string {
+    const { primaryDeckId } = getCardDeckIds(card, banks);
+    return primaryDeckId || card.deckId || '';
+  }
+
+  function getBatchQuestionBankSelectionContext(selectedCardIds: string[]) {
+    const banks = getDecksForDataSource('questionBank');
+    const selectedCardData = collectSelectedBatchCards(selectedCardIds);
+    const uniqueSourceBankIds = Array.from(
+      new Set(
+        selectedCardData
+          .map((card) => getBatchQuestionBankSourceBankId(card, banks))
+          .filter(Boolean)
+      )
+    );
+
+    return {
+      banks,
+      selectedCardData,
+      uniqueSourceBankIds,
+    };
+  }
+
+  function handleQuestionBankBatchChangeDeck(event?: MouseEvent) {
+    const selectedCardIds = Array.from(selectedCards);
+    logger.debug("更换考试题组:", selectedCardIds);
+
+    if (selectedCardIds.length === 0) {
+      new Notice(t('cardManagement.notices.changeDeckSelectCardsFirst'));
+      return;
+    }
+
+    if (!plugin.questionBankService) {
+      showNotification(t('cardManagement.notices.questionBankServiceInitMissing'), 'error');
+      return;
+    }
+
+    const { banks, uniqueSourceBankIds } = getBatchQuestionBankSelectionContext(selectedCardIds);
+    if (uniqueSourceBankIds.length !== 1) {
+      showNotification(t('cardManagement.notices.batchDeckSameSourceRequired'), 'warning');
+      return;
+    }
+
+    const sourceBankId = uniqueSourceBankIds[0];
+    const menu = attachMenuApp(new Menu(), plugin.app);
+
+    menu.addItem((item) => {
+      item.setTitle(t('cardManagement.dialogs.setDeckForCards', { count: selectedCardIds.length }));
+      item.setDisabled(true);
+    });
+    menu.addSeparator();
+
+    if (banks.length === 0) {
+      menu.addItem((item) => {
+        item.setTitle(t('cardManagement.batchDeckMenu.noQuestionBanks')).setDisabled(true);
+      });
+      menu.showAtPosition(resolveBatchDeckMenuPosition(event));
+      return;
+    }
+
+    banks.forEach((bank) => {
+      const isCurrentBank = bank.id === sourceBankId;
+      menu.addItem((item) => {
+        item.setTitle(bank.name);
+        item.setIcon(isCurrentBank ? 'check' : 'folder');
+        if (isCurrentBank) {
+          item.setDisabled(true);
+          return;
+        }
+        item.onClick(async () => {
+          await handleBatchMoveQuestionBankRefs(sourceBankId, bank.id, selectedCardIds);
+        });
+      });
+    });
+
+    menu.showAtPosition(resolveBatchDeckMenuPosition(event));
+  }
+
+  async function handleBatchMoveQuestionBankRefs(
+    sourceBankId: string,
+    targetBankId: string,
+    cardUUIDs: string[]
+  ) {
+    if (!plugin.questionBankService) {
+      showNotification(t('cardManagement.notices.questionBankServiceInitMissing'), 'error');
+      return;
+    }
+
+    const targetBank = plugin.questionBankService.getQuestionBank(targetBankId);
+    if (!targetBank) {
+      showNotification(t('cardManagement.notices.questionBankMissing'), 'error');
+      return;
+    }
+
+    const cardUuidsToMove = cardUUIDs.filter(Boolean);
+    if (cardUuidsToMove.length === 0) {
+      return;
+    }
+
+    let progress: GlobalOperationController | null = null;
+    try {
+      progress = createCardManagementGlobalOperation({
+        title: t('cardManagement.batchOps.moveDeckTitle'),
+        total: cardUuidsToMove.length,
+        detail: t('cardManagement.batchOps.moveToDeck', { count: cardUuidsToMove.length, name: targetBank.name }),
+        navigationMessage: t('cardManagement.batchOps.moveDeckNavigation')
+      });
+
+      await plugin.questionBankService.removeQuestionRefs(sourceBankId, cardUuidsToMove);
+      await plugin.questionBankService.addQuestionRefs(targetBankId, cardUuidsToMove);
+
+      progress.update({
+        status: 'running',
+        current: cardUuidsToMove.length,
+        detail: t('cardManagement.batchOps.refreshingQuestionBank')
+      });
+      await loadQuestionBankCards();
+
+      progress.finish({
+        status: 'success',
+        current: cardUuidsToMove.length,
+        detail: t('cardManagement.batchOps.moveToDeckDone', { count: cardUuidsToMove.length, name: targetBank.name })
+      });
+      showNotification(
+        t('cardManagement.batchOps.moveToDeckDone', { count: cardUuidsToMove.length, name: targetBank.name }),
+        'success'
+      );
+      dataVersion++;
+    } catch (error) {
+      logger.error('[QuestionBank] 批量更换题组失败:', error);
+      progress?.finish({
+        status: 'error',
+        current: cardUuidsToMove.length,
+        detail: t('cardManagement.notices.operationFailed')
+      });
+      showNotification(t('cardManagement.notices.operationFailed'), 'error');
+    }
   }
 
   async function handleBatchToggleDeckReference(
@@ -4090,6 +4087,244 @@
         logger.error('[WeaveCardManagement] 批量更换牌组失败:', error);
         showNotification(t('cardManagement.batchOps.moveDeckFailed'), 'error');
     }
+  }
+
+  function openCreateQuestionBankModalForBatch(eligibleUUIDs: string[]) {
+    openCreateQuestionBankModal({
+      plugin,
+      onBankCreated: async (bank) => {
+        if (eligibleUUIDs.length === 0) {
+          showNotification(t('cardManagement.notices.noSupportedQuestionsForBank'), 'warning');
+          return;
+        }
+        await handleBatchAddCardsToQuestionBank(bank.id, bank.name, eligibleUUIDs);
+      },
+    });
+  }
+
+  async function handleBatchAddCardsToQuestionBank(
+    bankId: string,
+    bankName: string,
+    cardUUIDs: string[],
+    options?: { skippedCount?: number }
+  ) {
+    if (!plugin.questionBankService) {
+      showNotification(t('cardManagement.notices.questionBankServiceInitMissing'), 'error');
+      return;
+    }
+
+    const uuidsToAdd = Array.from(new Set(cardUUIDs.filter(Boolean)));
+    if (uuidsToAdd.length === 0) {
+      showNotification(t('cardManagement.notices.noSupportedQuestionsForBank'), 'warning');
+      return;
+    }
+
+    const notice = resolveBatchAddToQuestionBankNoticeParams(uuidsToAdd.length, bankName, options);
+    const noticeMessage = t(`cardManagement.batchOps.${notice.key}`, notice.params);
+
+    let progress: GlobalOperationController | null = null;
+    try {
+      progress = createCardManagementGlobalOperation({
+        title: t('cardManagement.batchOps.addToQuestionBankTitle'),
+        total: uuidsToAdd.length,
+        detail: t('cardManagement.batchOps.addToQuestionBankDetail', {
+          count: uuidsToAdd.length,
+          name: bankName,
+        }),
+        navigationMessage: t('cardManagement.batchOps.questionBankNavigation'),
+      });
+
+      await plugin.questionBankService.addQuestionRefs(bankId, uuidsToAdd);
+
+      progress.finish({
+        status: 'success',
+        current: uuidsToAdd.length,
+        detail: noticeMessage,
+      });
+      showNotification(noticeMessage, notice.level);
+      await refreshQuestionBankCacheIfLoaded();
+      dataVersion++;
+    } catch (error) {
+      logger.error('[QuestionBank] 批量添加到考试题组失败:', error);
+      progress?.finish({
+        status: 'error',
+        current: uuidsToAdd.length,
+        detail: t('cardManagement.notices.addToQuestionBankFailed'),
+      });
+      showNotification(t('cardManagement.notices.addToQuestionBankFailed'), 'error');
+    }
+  }
+
+  async function handleBatchRemoveCardsFromQuestionBank(
+    bankId: string,
+    bankName: string,
+    cardUUIDs: string[]
+  ) {
+    if (!plugin.questionBankService) {
+      showNotification(t('cardManagement.notices.questionBankServiceInitMissing'), 'error');
+      return;
+    }
+
+    const uuidsToRemove = Array.from(new Set(cardUUIDs.filter(Boolean)));
+    if (uuidsToRemove.length === 0) {
+      return;
+    }
+
+    let progress: GlobalOperationController | null = null;
+    try {
+      progress = createCardManagementGlobalOperation({
+        title: t('cardManagement.batchOps.removeFromQuestionBankTitle'),
+        total: uuidsToRemove.length,
+        detail: t('cardManagement.batchOps.removeFromQuestionBankDetail', {
+          count: uuidsToRemove.length,
+          name: bankName,
+        }),
+        navigationMessage: t('cardManagement.batchOps.questionBankNavigation'),
+      });
+
+      await plugin.questionBankService.removeQuestionRefs(bankId, uuidsToRemove);
+
+      progress.finish({
+        status: 'success',
+        current: uuidsToRemove.length,
+        detail: t('cardManagement.batchOps.removeFromQuestionBankDone', {
+          count: uuidsToRemove.length,
+          name: bankName,
+        }),
+      });
+      showNotification(
+        t('cardManagement.batchOps.removeFromQuestionBankDone', {
+          count: uuidsToRemove.length,
+          name: bankName,
+        }),
+        'success'
+      );
+      await refreshQuestionBankCacheIfLoaded();
+      dataVersion++;
+    } catch (error) {
+      logger.error('[QuestionBank] 批量从考试题组移除失败:', error);
+      progress?.finish({
+        status: 'error',
+        current: uuidsToRemove.length,
+        detail: t('cardManagement.notices.operationFailed'),
+      });
+      showNotification(t('cardManagement.notices.operationFailed'), 'error');
+    }
+  }
+
+  async function handleBatchToggleQuestionBankReference(
+    bank: Deck,
+    current: { allInBank: boolean },
+    cardUUIDs: string[],
+    eligibleUUIDs: string[],
+    inBankSet: Set<string>
+  ) {
+    if (current.allInBank) {
+      await handleBatchRemoveCardsFromQuestionBank(bank.id, bank.name, cardUUIDs);
+      return;
+    }
+
+    const toAdd = resolveEligibleQuestionBankAdds(eligibleUUIDs, inBankSet);
+
+    if (toAdd.length === 0) {
+      if (eligibleUUIDs.length === 0) {
+        showNotification(t('cardManagement.notices.noSupportedQuestionsForBank'), 'warning');
+      } else {
+        showNotification(t('cardManagement.notices.allQuestionsAlreadyInBank'), 'warning');
+      }
+      return;
+    }
+
+    const skippedCount = Math.max(0, cardUUIDs.length - eligibleUUIDs.length);
+    await handleBatchAddCardsToQuestionBank(bank.id, bank.name, toAdd, { skippedCount });
+  }
+
+  async function handleMemoryBatchAddToQuestionBank(event?: MouseEvent) {
+    const selectedCardIds = Array.from(selectedCards);
+    logger.debug('设置考试题组引用:', selectedCardIds);
+
+    if (selectedCardIds.length === 0) {
+      new Notice(t('cardManagement.notices.batchSelectCardsFirst'));
+      return;
+    }
+
+    if (!shouldShowQuestionBankBatchAddAction()) {
+      return;
+    }
+
+    if (!canUseQuestionBankBatchAddAction()) {
+      promptPremiumFeature(PREMIUM_FEATURES.QUESTION_BANK);
+      return;
+    }
+
+    if (!plugin.questionBankService) {
+      showNotification(t('cardManagement.notices.questionBankServiceInitMissing'), 'error');
+      return;
+    }
+
+    const storage = await resolveQuestionBankStorage();
+    if (!storage) {
+      showNotification(t('cardManagement.notices.questionBankStorageMissing'), 'error');
+      return;
+    }
+
+    const selectedCardData = collectSelectedBatchCards(selectedCardIds);
+    const eligibleUUIDs = filterQuestionBankEligibleCardUuids(selectedCardData);
+
+    const banks = sortQuestionBanksForMenu(await plugin.questionBankService.getAllBanks());
+    const membership = await buildQuestionBankMembershipIndex(storage, banks, selectedCardIds);
+    const menu = attachMenuApp(new Menu(), plugin.app);
+
+    menu.addItem((item) => {
+      item.setTitle(
+        t('cardManagement.batchQuestionBankMenu.titleWithCount', {
+          count: selectedCardIds.length,
+        })
+      );
+      item.setDisabled(true);
+    });
+    menu.addSeparator();
+
+    menu.addItem((item) => {
+      item
+        .setTitle(t('cardManagement.batchQuestionBankMenu.createNew'))
+        .setIcon('plus')
+        .onClick(() => {
+          openCreateQuestionBankModalForBatch(eligibleUUIDs);
+        });
+    });
+    menu.addSeparator();
+
+    if (banks.length === 0) {
+      menu.addItem((item) => {
+        item.setTitle(t('cardManagement.batchDeckMenu.noQuestionBanks')).setDisabled(true);
+      });
+    } else {
+      banks.forEach((bank) => {
+        const inBankSet = membership.get(bank.id) || new Set<string>();
+        const { anyInBank, allInBank } = computeQuestionBankMembershipFlags(selectedCardIds, inBankSet);
+
+        menu.addItem((subItem) => {
+          subItem.setTitle(bank.name);
+          if (allInBank) {
+            subItem.setIcon('check-square');
+          } else {
+            subItem.setIcon(anyInBank ? 'minus-square' : 'square');
+          }
+          subItem.onClick(async () => {
+            await handleBatchToggleQuestionBankReference(
+              bank,
+              { allInBank },
+              selectedCardIds,
+              eligibleUUIDs,
+              inBankSet
+            );
+          });
+        });
+      });
+    }
+
+    menu.showAtPosition(resolveBatchDeckMenuPosition(event));
   }
 
   function handleBatchCopy() {
@@ -5073,7 +5308,8 @@
 
   // 加载考试牌组卡片数据
   async function loadQuestionBankCards(): Promise<void> {
-    if (!questionBankStorage) {
+    const storage = await resolveQuestionBankStorage();
+    if (!storage) {
       logger.error('[QuestionBank] Storage未初始化');
       return;
     }
@@ -5082,7 +5318,7 @@
     
     try {
       // 1. 加载所有题库牌组
-      const banks = await questionBankStorage.loadBanks();
+      const banks = await storage.loadBanks();
       logger.debug(`[QuestionBank] 加载了${banks.length}个题库`);
       questionBankDecks = banks;
       
@@ -5093,7 +5329,7 @@
           ? await plugin.questionBankService.getQuestionsByBank(bank.id)
           : [];
         for (const question of questions) {
-          allQuestionsMap.set(question.uuid, question);
+          mergeQuestionBankCardIntoMap(allQuestionsMap, question, bank.id);
         }
       }
       logger.debug(`[QuestionBank] 加载了${allQuestionsMap.size}张实际存在的题目`);
@@ -5472,6 +5708,63 @@
         await loadCards();
       }
       showNotification(t('cardManagement.notices.deleteFailedRetry'), 'error');
+    }
+  }
+
+  async function handleResetCardToNew(cardUuid: string) {
+    if (dataSource !== 'memory') {
+      showNotification(t('cardManagement.notices.memoryOnlyReset'), 'warning');
+      return;
+    }
+
+    const cardToReset = cards.find((card) => card.uuid === cardUuid);
+    if (!cardToReset) {
+      logger.error('[WeaveCardManagement] 未找到要重置的卡片:', cardUuid);
+      return;
+    }
+
+    if (!isMemoryCard(cardToReset)) {
+      showNotification(t('cardManagement.notices.memoryOnlyReset'), 'warning');
+      return;
+    }
+
+    const targets = collectCardsToResetToNew(cardToReset, cards);
+    const frontContent = getCardContentBySide(cardToReset, 'front', [], " / ");
+    const childCount = targets.length - 1;
+    const confirmMessage =
+      childCount > 0
+        ? t('cardManagement.confirms.resetToNewCardWithChildrenMessage', {
+            content: frontContent,
+            count: String(childCount),
+          })
+        : t('cardManagement.confirms.resetToNewCardMessage', { content: frontContent });
+
+    const confirmed = await showObsidianConfirm(
+      plugin.app,
+      confirmMessage,
+      {
+        title: t('cardManagement.confirms.resetToNewCardTitle'),
+        confirmText: t('cardManagement.confirms.resetToNewCardConfirm'),
+      }
+    );
+    if (!confirmed) return;
+
+    try {
+      const now = new Date();
+      const updatedCards = targets.map((card) => resetCardLearningState(card, now));
+      const updatedById = new Map(updatedCards.map((card) => [card.uuid, card]));
+
+      for (const updatedCard of updatedCards) {
+        await saveMemoryCardCommand(plugin, updatedCard, 'update');
+      }
+
+      cards = cards.map((card) => updatedById.get(card.uuid) ?? card);
+      plugin.app.workspace.trigger('Weave:data-changed');
+      showNotification(t('cardManagement.notices.resetToNewCardDone'), 'success');
+    } catch (error) {
+      logger.error('重置为新卡片失败:', error);
+      showNotification(t('cardManagement.notices.resetToNewCardFailed'), 'error');
+      await loadCards();
     }
   }
 
@@ -5884,9 +6177,6 @@
   }
 
   // 新建卡片相关方法已移除
-
-  // handleBatchTemplateChangeConfirm 已删除（基于弃用的字段模板系统）
-
 
   // handleBatchDeckChangeCancel 已移除（改用 Obsidian Menu API）
 
@@ -6451,7 +6741,7 @@
     const elapsed = Date.now() - startTime;
     const minDisplayTime = 800;
     if (elapsed < minDisplayTime) {
-      await new Promise(resolve => setTimeout(resolve, minDisplayTime - elapsed));
+      await new Promise(resolve => window.setTimeout(resolve, minDisplayTime - elapsed));
     }
     
     // 隐藏加载状态
@@ -6788,6 +7078,38 @@
         return;
       }
 
+      if (dataSource === 'questionBank') {
+        if (!plugin.questionBankService) {
+          showNotification(t('cardManagement.notices.questionBankServiceInitMissing'), 'error');
+          return;
+        }
+
+        const existingCard = currentSourceCards.find((candidate) => candidate.uuid === updatedCard.uuid) || updatedCard;
+        const oldBankIds = resolveQuestionBankDeckIdsForManagement(existingCard, questionBankDecks);
+        const newBankIds = resolveQuestionBankDeckIdsForManagement(updatedCard, questionBankDecks);
+
+        const oldSet = new Set(oldBankIds);
+        const newSet = new Set(newBankIds);
+        const banksToRemove = oldBankIds.filter((bankId) => !newSet.has(bankId));
+        const banksToAdd = newBankIds.filter((bankId) => !oldSet.has(bankId));
+
+        if (banksToRemove.length === 0 && banksToAdd.length === 0) {
+          return;
+        }
+
+        for (const bankId of banksToRemove) {
+          await plugin.questionBankService.removeQuestionRefs(bankId, [updatedCard.uuid]);
+        }
+        for (const bankId of banksToAdd) {
+          await plugin.questionBankService.addQuestionRefs(bankId, [updatedCard.uuid]);
+        }
+
+        await loadQuestionBankCards();
+        showNotification(t('cardManagement.notices.cardMoved'), 'success');
+        dataVersion++;
+        return;
+      }
+
       // v2.2: 优先从 content YAML 的 we_decks 获取牌组 ID
       const currentDecks = getDecksForDataSource(dataSource);
       const existingCard = currentSourceCards.find(c => c.uuid === updatedCard.uuid);
@@ -6881,7 +7203,7 @@
       plugin.app.workspace.trigger('Weave:data-changed');
       
       // 延迟显示通知，避免覆盖清理通知
-      setTimeout(() => {
+      window.setTimeout(() => {
         showNotification(t('cardManagement.notices.cardDeleted'), 'success');
       }, 1000);
     } catch (error) {
@@ -6954,13 +7276,24 @@
     visible={showBatchToolbar}
     app={plugin.app}
     {dataSource}
-    onBatchChangeDeck={dataSource === 'memory' ? handleBatchChangeDeck : undefined}
+    onBatchChangeDeck={
+      dataSource === 'memory'
+        ? handleMemoryBatchChangeDeck
+        : dataSource === 'questionBank'
+          ? handleQuestionBankBatchChangeDeck
+          : undefined
+    }
     onBatchAddTagsMenu={handleBatchAddTagsMenu}
     onBatchRemoveTagsMenu={handleBatchRemoveTagsMenu}
     onBatchExportSummaryMd={handleBatchExportSummaryMd}
     onBatchDelete={handleBatchDelete}
     onClearSelection={handleClearSelection}
     onBuildDeck={dataSource === 'memory' ? handleBuildDeck : undefined}
+    onBatchAddToQuestionBank={
+      dataSource === 'memory' && shouldShowQuestionBankBatchAddAction()
+        ? handleMemoryBatchAddToQuestionBank
+        : undefined
+    }
     onIRChangeDeck={dataSource === 'incremental-reading' ? handleIRBatchChangeDeck : undefined}
     {isMobile}
   />
@@ -7060,6 +7393,7 @@
             onSort={(field) => handleSort(field)}
             onEdit={handleEditCard}
             onDelete={handleDeleteCard}
+            onResetToNewCard={handleResetCardToNew}
             onTagsUpdate={handleTagsUpdate}
             onPriorityUpdate={handlePriorityUpdate}
             onIRAssociatedNotesManage={handleIRAssociatedNotesManage}
@@ -7069,10 +7403,10 @@
             {sortConfig}
             {isSorting}
             loading={isLoading}
-            fieldTemplates={[]}
             {availableTags}
             {plugin}
             decks={currentDataSourceDecks}
+            formalDecks={allDecks}
             isVisible={isViewVisible}
           />
           
@@ -7223,17 +7557,6 @@
   .weave-card-management-page.is-table-view {
     --weave-card-management-page-bg: var(--weave-surface-background, var(--weave-surface, var(--background-primary)));
     --weave-card-management-surface-bg: var(--weave-elevated-background, var(--weave-surface-secondary, var(--background-secondary)));
-  }
-
-  .split-plugin-inline-notice {
-    margin: 8px 12px 0;
-    padding: 10px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--text-warning);
-    background: var(--background-modifier-form-field);
-    border: 1px solid var(--background-modifier-border);
   }
 
   /* 桌面端彩色圆点视图切换栏样式已移除 - 现在由 WeaveApp 中的 SidebarNavHeader 统一处理 */

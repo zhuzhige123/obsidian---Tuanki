@@ -111,9 +111,9 @@ export class UnifiedErrorHandler {
 	 */
 	static getInstance(): UnifiedErrorHandler {
 		if (typeof window !== "undefined") {
-			const w = window as unknown;
-			if (w.__weaveUnifiedErrorHandler) {
-				return w.__weaveUnifiedErrorHandler as UnifiedErrorHandler;
+			const cached = window.__weaveUnifiedErrorHandler;
+			if (cached) {
+				return cached;
 			}
 		}
 
@@ -127,19 +127,18 @@ export class UnifiedErrorHandler {
 			}
 
 			if (typeof window !== "undefined") {
-				const w = window as unknown;
-				w.__weaveUnifiedErrorHandler = UnifiedErrorHandler.instance;
-				w.__weaveUnifiedErrorHandlerCleanup = () => {
+				window.__weaveUnifiedErrorHandler = UnifiedErrorHandler.instance;
+				window.__weaveUnifiedErrorHandlerCleanup = () => {
 					try {
-						(w.__weaveUnifiedErrorHandler as UnifiedErrorHandler | undefined)?.destroy();
+						window.__weaveUnifiedErrorHandler?.destroy();
 					} catch { /* no-op */ }
 
 					try {
-						w.__weaveUnifiedErrorHandler = undefined;
-						w.__weaveUnifiedErrorHandlerCleanup = undefined;
+						window.__weaveUnifiedErrorHandler = undefined;
+						window.__weaveUnifiedErrorHandlerCleanup = undefined;
 					} catch {
-						w.__weaveUnifiedErrorHandler = null;
-						w.__weaveUnifiedErrorHandlerCleanup = null;
+						window.__weaveUnifiedErrorHandler = null;
+						window.__weaveUnifiedErrorHandlerCleanup = null;
 					}
 				};
 			}
@@ -151,29 +150,16 @@ export class UnifiedErrorHandler {
 	 * 创建后备实例（当正常初始化失败时使用）
 	 */
 	private static createFallbackInstance(): UnifiedErrorHandler {
-		const instance = Object.create(UnifiedErrorHandler.prototype) as UnifiedErrorHandler;
-		(instance as UnifiedErrorHandler & {
-			errorHistory: unknown[];
-			listeners: unknown[];
-			recoveryStrategies: Map<string, unknown>;
-			errorCounter: number;
-			maxHistorySize: number;
-			errorFrequencyMap: Map<string, number>;
-			maxErrorsPerMinute: number;
-			errorCooldownMs: number;
-		}).errorHistory = [];
-		(instance as UnifiedErrorHandler & { listeners: unknown[] }).listeners = [];
-		(instance as UnifiedErrorHandler & { recoveryStrategies: Map<string, unknown> })
-			.recoveryStrategies = new Map();
-		(instance as UnifiedErrorHandler & { errorCounter: number }).errorCounter = 0;
-		(instance as UnifiedErrorHandler & { maxHistorySize: number }).maxHistorySize = 100;
-		(instance as UnifiedErrorHandler & { errorFrequencyMap: Map<string, number> })
-			.errorFrequencyMap = new Map();
-		(instance as UnifiedErrorHandler & { maxErrorsPerMinute: number }).maxErrorsPerMinute = 10;
-		(instance as UnifiedErrorHandler & { errorCooldownMs: number }).errorCooldownMs = 60000;
-
-		logger.warn("[UnifiedErrorHandler] Using fallback instance with limited functionality");
-		return instance;
+		return Object.assign(Object.create(UnifiedErrorHandler.prototype), {
+			errorHistory: [],
+			listeners: [],
+			recoveryStrategies: new Map(),
+			errorCounter: 0,
+			maxHistorySize: 100,
+			errorFrequencyMap: new Map(),
+			maxErrorsPerMinute: 10,
+			errorCooldownMs: 60000,
+		}) as unknown as UnifiedErrorHandler;
 	}
 
 	/**
@@ -634,15 +620,12 @@ export class UnifiedErrorHandler {
 		this.recoveryStrategies.clear();
 
 		try {
-			if (typeof window !== "undefined") {
-				const w = window as unknown;
-				if (w.__weaveUnifiedErrorHandler === this) {
-					w.__weaveUnifiedErrorHandler = undefined;
-				}
+			if (typeof window !== "undefined" && window.__weaveUnifiedErrorHandler === this) {
+				window.__weaveUnifiedErrorHandler = undefined;
 			}
 		} catch { /* no-op */ }
 
-		UnifiedErrorHandler.instance = null as unknown;
+		UnifiedErrorHandler.instance = null as unknown as UnifiedErrorHandler;
 	}
 
 	/**

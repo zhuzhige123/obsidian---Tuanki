@@ -9,6 +9,7 @@
 import { type EventRef, Notice, TFile } from "obsidian";
 import type { WeavePlugin } from "../main";
 import { logger } from "../utils/logger";
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 
 /**
  * 批量解析文件监听器选项
@@ -33,7 +34,7 @@ export class BatchParsingFileWatcher {
 	private plugin: WeavePlugin;
 	private options: BatchParsingWatcherOptions;
 	private eventRefs: EventRef[] = [];
-	private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private debounceTimers = new Map<string, WeaveTimerHandle>();
 	private isProcessing = new Map<string, boolean>();
 
 	constructor(plugin: WeavePlugin, options: BatchParsingWatcherOptions) {

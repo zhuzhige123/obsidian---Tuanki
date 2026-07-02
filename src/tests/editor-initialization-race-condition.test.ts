@@ -21,7 +21,7 @@ describe('编辑器初始化竞态条件测试', () => {
 
     const mockInitFn = vi.fn(async (signal: AbortSignal) => {
       initCallCount++;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
       if (signal.aborted) {
         throw new Error('初始化被中止');
       }
@@ -51,7 +51,7 @@ describe('编辑器初始化竞态条件测试', () => {
         throw new Error('模拟初始化失败');
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
     });
 
     const result = await initManager.safeInitialize(editorId, mockInitFn, {
@@ -71,10 +71,10 @@ describe('编辑器初始化竞态条件测试', () => {
       initStarted = true;
 
       await new Promise((resolve, reject) => {
-        const timer = setTimeout(resolve, 1000);
+        const timer = window.setTimeout(resolve, 1000);
 
         signal.addEventListener('abort', () => {
-          clearTimeout(timer);
+          window.clearTimeout(timer);
           reject(new Error('初始化被中止'));
         });
       });
@@ -82,7 +82,7 @@ describe('编辑器初始化竞态条件测试', () => {
 
     const initPromise = initManager.safeInitialize(editorId, mockInitFn);
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
     expect(initStarted).toBe(true);
 
     const aborted = initManager.abortInitialization(editorId);
@@ -103,7 +103,7 @@ describe('编辑器初始化竞态条件测试', () => {
       concurrentCount++;
       maxConcurrentReached = Math.max(maxConcurrentReached, concurrentCount);
 
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
 
       concurrentCount--;
     });
@@ -127,18 +127,18 @@ describe('编辑器初始化竞态条件测试', () => {
 
     const mockInitFn = vi.fn(async (_signal: AbortSignal) => {
       expect(initManager.getInitializationState(editorId)).toBe(InitializationState.INITIALIZING);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => window.setTimeout(resolve, 100));
     });
 
     const resultPromise = initManager.safeInitialize(editorId, mockInitFn);
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
     expect(initManager.getInitializationState(editorId)).toBe(InitializationState.INITIALIZING);
 
     const result = await resultPromise;
     expect(result.success).toBe(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await new Promise((resolve) => window.setTimeout(resolve, 1100));
     expect(initManager.getInitializationState(editorId)).toBe(InitializationState.IDLE);
   });
 
@@ -146,7 +146,7 @@ describe('编辑器初始化竞态条件测试', () => {
     const editorId = 'test-editor-5';
 
     const mockInitFn = vi.fn(async (_signal: AbortSignal) => {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => window.setTimeout(resolve, 2000));
     });
 
     const result = await initManager.safeInitialize(editorId, mockInitFn, {
@@ -166,7 +166,7 @@ describe('编辑器初始化集成场景', () => {
     let initCount = 0;
     const mockInitFn = async (signal: AbortSignal) => {
       initCount++;
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
 
       if (signal.aborted) {
         throw new Error('初始化被中止');
@@ -175,11 +175,11 @@ describe('编辑器初始化集成场景', () => {
 
     const init1 = initManager.safeInitialize(editorId, mockInitFn);
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       initManager.abortInitialization(editorId);
     }, 50);
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       void initManager.safeInitialize(editorId, mockInitFn);
     }, 100);
 
@@ -187,7 +187,7 @@ describe('编辑器初始化集成场景', () => {
 
     expect(result1.success).toBe(false);
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => window.setTimeout(resolve, 300));
     expect(initCount).toBeLessThanOrEqual(2);
   });
 });

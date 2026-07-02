@@ -1,6 +1,8 @@
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { logger } from '../../utils/logger';
   import { aiConfigStore } from '../../stores/ai-config.store';
+  import { patchCustomAIActions, resolveDefaultAIProvider } from '../../services/ai/AIConfigService';
   import type { AIAction, AIActionType, AIProvider } from '../../types/ai-types';
   import { TEMPLATE_VARIABLES } from '../../types/ai-types';
   import type { Deck } from '../../data/types';
@@ -56,7 +58,7 @@
   let hasUnsavedChanges = $state(false);
   let saveState = $state<'idle' | 'saving' | 'saved'>('idle');
   let initializedForCurrentOpen = $state(false);
-  let saveFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+  let saveFeedbackTimer: WeaveTimerHandle | null = null;
 
   function cloneValue<T>(value: T): T {
     try {
@@ -72,7 +74,7 @@
 
   function clearSaveFeedbackTimer() {
     if (saveFeedbackTimer) {
-      clearTimeout(saveFeedbackTimer);
+      window.clearTimeout(saveFeedbackTimer);
       saveFeedbackTimer = null;
     }
   }
@@ -211,7 +213,7 @@
   const providers: AIProvider[] = ['openai', 'gemini', 'anthropic', 'deepseek', 'zhipu', 'siliconflow', 'xai'];
 
   function getPreferredProvider(): AIProvider {
-    return plugin.settings.aiConfig?.defaultProvider || 'zhipu';
+    return resolveDefaultAIProvider(plugin.settings.aiConfig);
   }
 
   function getDefaultModelForProvider(provider?: AIProvider): string {
@@ -466,8 +468,6 @@
     clearSaveFeedbackTimer();
 
     try {
-      const currentState = aiConfigStore.getState();
-
       if (!plugin.settings.aiConfig) {
         plugin.settings.aiConfig = {
           apiKeys: {},
@@ -477,11 +477,10 @@
         } as any;
       }
 
-      const aiConfig = plugin.settings.aiConfig!;
-      aiConfig.defaultProvider = currentState.defaultProvider;
-      aiConfig.apiKeys = cloneValue(currentState.apiKeys);
-      aiConfig.customFormatActions = cloneActions(draftFormatActions);
-      aiConfig.customSplitActions = cloneActions(draftSplitActions);
+      patchCustomAIActions(plugin.settings.aiConfig!, {
+        customFormatActions: cloneActions(draftFormatActions),
+        customSplitActions: cloneActions(draftSplitActions),
+      });
 
       await plugin.saveSettings();
       aiConfigStore.reloadFromPlugin();
@@ -490,7 +489,7 @@
       saveState = 'saved';
       new Notice(t('study.aiActionManager.notices.saved'));
 
-      saveFeedbackTimer = setTimeout(() => {
+      saveFeedbackTimer = window.setTimeout(() => {
         saveState = 'idle';
         saveFeedbackTimer = null;
       }, 2000);

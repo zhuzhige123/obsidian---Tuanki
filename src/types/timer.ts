@@ -1,2 +1,2 @@
-/** Cross-platform timer handle (browser + Obsidian desktop). */
-export type TimerHandle = ReturnType<typeof window.setTimeout>;
+/** Cross-platform timer handle (browser numeric ID in Obsidian renderer). */
+export type TimerHandle = number;

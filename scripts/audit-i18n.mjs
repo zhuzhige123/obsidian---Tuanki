@@ -3,34 +3,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 
-const translationKeyAliases = {
-  'about.license.activation.activateLicense': 'about.license.activation.activate',
-  'about.license.activation.codeLabel': 'about.license.activation.code',
-  'ankiConnect.autoSync.enableLabel': 'ankiConnect.autoSync.enable',
-  'ankiConnect.connection.connected': 'ankiConnect.connection.statusLabel.connected',
-  'ankiConnect.connection.disconnected': 'ankiConnect.connection.statusLabel.disconnected',
-  'ankiConnect.connection.endpointDesc': 'ankiConnect.connection.address.description',
-  'ankiConnect.connection.endpointLabel': 'ankiConnect.connection.address.label',
-  'ankiConnect.connection.testButton': 'ankiConnect.connection.test.button',
-  'ankiConnect.connection.testing': 'ankiConnect.connection.statusLabel.testing',
-  'ankiConnect.connection.testingButton': 'ankiConnect.connection.test.testing',
-  'study.view.title': 'study.title',
-  'toolbar.aiAssistant': 'navigation.aiAssistant'
-};
-
-const translationAliasSuffixes = [
-  ['Label', 'label'],
-  ['Desc', 'description'],
-  ['Description', 'description'],
-  ['Placeholder', 'placeholder'],
-  ['Title', 'title'],
-  ['Button', 'button'],
-  ['Help', 'help'],
-  ['Error', 'error'],
-  ['Success', 'success'],
-  ['Warning', 'warning'],
-  ['Info', 'info']
-];
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const pluginRoot = path.resolve(__dirname, '..');
+const aliasConfig = JSON.parse(
+  fs.readFileSync(path.join(pluginRoot, 'src/utils/i18n/translation-key-aliases.json'), 'utf8')
+);
+const translationKeyAliases = aliasConfig.translationKeyAliases;
+const translationAliasSuffixes = aliasConfig.translationAliasSuffixes;
 
 const placeholderRegex = /\{(\w+)\}/g;
 const literalUsageRegexes = [
@@ -51,17 +31,15 @@ const dynamicUsageRegexes = [
 ];
 const intentionalRuntimeFallbackPrefixes = ['runtimeFallback.'];
 const resourceModuleBoundaries = [
-  { file: 'app-shell.ts', exportName: 'appShellTranslations', allowedKeys: ['common', 'navigation', 'celebration', 'rating', 'notifications', 'menus', 'ui', 'tables', 'toolbar', 'pluginSystem', 'virtualization', 'commands'] },
-  { file: 'app-shell.ts', exportName: 'appShellTranslationOverrides', allowedKeys: ['common', 'commands', 'toolbar'] },
+  { file: 'app-shell-clean.ts', exportName: 'appShellTranslations', allowedKeys: ['common', 'navigation', 'celebration', 'rating', 'notifications', 'menus', 'ui', 'tables', 'toolbar', 'mainMenu', 'commands', 'views'] },
+  { file: 'app-shell-clean.ts', exportName: 'appShellTranslationOverrides', allowedKeys: ['common', 'commands', 'toolbar'] },
   { file: 'settings.ts', exportName: 'settingsTranslations', allowedKeys: ['settings'] },
   { file: 'settings.ts', exportName: 'settingsTranslationOverrides', allowedKeys: ['settings', 'settingsConstants', 'settingsUtils'] },
-  { file: 'integrations.ts', exportName: 'integrationsTranslations', allowedKeys: ['aiConfig', 'ankiConnect', 'about', 'license'] },
+  { file: 'integrations.ts', exportName: 'integrationsTranslations', allowedKeys: ['splitPlugins', 'aiConfig', 'ankiConnect', 'about', 'license', 'premium'] },
   { file: 'integrations.ts', exportName: 'integrationsTranslationOverrides', allowedKeys: ['aiConfig', 'ankiConnect', 'about'] },
-  { file: 'study.ts', exportName: 'studyTranslations', allowedKeys: ['study', 'studyInterface', 'studyInfo', 'fsrs', 'deckStudyPage', 'cards'] },
-  { file: 'study.ts', exportName: 'studyTranslationOverrides', allowedKeys: ['study', 'studyInterface', 'deckStudyPage', 'cards', 'fsrs6Notices', 'noCardsModal'] },
-  { file: 'management.ts', exportName: 'managementTranslations', allowedKeys: ['analytics', 'cardManagement', 'filters', 'parsing', 'modals', 'dataManagement', 'decks'] },
+  { file: 'study.ts', exportName: 'studyTranslations', allowedKeys: ['study', 'studyInterface', 'studyInfo', 'fsrs', 'fsrs6Notices', 'deckStudyPage', 'cards'] },
+  { file: 'management.ts', exportName: 'managementTranslations', allowedKeys: ['analytics', 'cardManagement', 'filters', 'parsing', 'modals', 'dataManagement', 'decks', 'storage'] },
   { file: 'management.ts', exportName: 'managementTranslationOverrides', allowedKeys: ['modals', 'dataManagement', 'decks'] },
-  { file: 'incremental-reading.ts', exportName: 'incrementalReadingTranslations', allowedKeys: [] },
   { file: 'incremental-reading.ts', exportName: 'incrementalReadingTranslationOverrides', allowedKeys: ['irTagGroup', 'irSettings', 'irSidebar', 'epub'] }
 ];
 
@@ -734,8 +712,6 @@ function printSummary(report) {
   }
 }
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 const args = new Set(process.argv.slice(2));
 const report = buildReport(rootDir);

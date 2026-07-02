@@ -141,7 +141,10 @@ export async function buildLegacyIRBlockCard(options: {
 	const sourceKind = detectTraceSourceKind(block.filePath);
 	const sourceDocumentKey = normalizeTraceDocumentKey(block.filePath, sourceKind) || block.filePath;
 	const priorityValue = getIRPriorityValue(block.priorityUi, block.priorityEff, block.priority);
-	const associatedNotePaths = resolveLegacyAssociatedNotePaths(block, (block.meta || null));
+	const associatedNotePaths = resolveLegacyAssociatedNotePaths(
+		block as AssociatedNoteCarrier,
+		block.meta || null
+	);
 	const primaryAssociatedNotePath = associatedNotePaths[0];
 	const tagGroupName = await helpers.resolveTagGroupName({
 		explicitGroupId: block.tagGroupId || block.meta?.tagGroup,

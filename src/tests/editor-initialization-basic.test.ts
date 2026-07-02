@@ -30,7 +30,7 @@ describe('编辑器初始化管理器基础测试', () => {
 
     const mockInitFn = async (_signal: AbortSignal) => {
       initCalled = true;
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => window.setTimeout(resolve, 10));
     };
 
     const result = await initManager.safeInitialize(editorId, mockInitFn);
@@ -63,10 +63,10 @@ describe('编辑器初始化管理器基础测试', () => {
       initStarted = true;
 
       await new Promise((resolve, reject) => {
-        const timer = setTimeout(resolve, 1000);
+        const timer = window.setTimeout(resolve, 1000);
 
         signal.addEventListener('abort', () => {
-          clearTimeout(timer);
+          window.clearTimeout(timer);
           reject(new Error('初始化被中止'));
         });
       });
@@ -74,7 +74,7 @@ describe('编辑器初始化管理器基础测试', () => {
 
     const initPromise = initManager.safeInitialize(editorId, mockInitFn);
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
     expect(initStarted).toBe(true);
 
     const aborted = initManager.abortInitialization(editorId);

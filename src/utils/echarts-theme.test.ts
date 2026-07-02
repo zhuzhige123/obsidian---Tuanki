@@ -9,7 +9,9 @@ describe('echarts theme color helpers', () => {
 
   it('builds gradient stops from hsl calc theme colors without leaking raw css expressions', () => {
     const color = 'hsl(calc(258 - 1), calc(88% * 1.01), calc(66% * 1.075))';
-    const gradient = createGradient(color, 0.33, 0.03);
+    const gradient = createGradient(color, 0.33, 0.03) as {
+      colorStops: Array<{ color: string }>;
+    };
 
     expect(gradient.colorStops).toEqual([
       expect.objectContaining({ color: expect.stringMatching(/^rgba\(\d+, \d+, \d+, 0\.33\)$/) }),

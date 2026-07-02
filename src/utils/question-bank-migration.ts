@@ -254,7 +254,7 @@ export class QuestionBankMigration {
 
 			const questionBankStorage = this.plugin.questionBankStorage;
 			if (questionBankStorage) {
-				questionBankStorage.basePath = this.newBasePath;
+				questionBankStorage.setBasePathForMigration(this.newBasePath);
 				logger.debug(`[Migration] QuestionBankStorage basePath updated to: ${this.newBasePath}`);
 			}
 		} catch (error) {

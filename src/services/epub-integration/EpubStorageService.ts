@@ -35,6 +35,7 @@ import type {
 	EpubStrikethroughDisplayMode,
 } from "./types";
 import { getEpubRuntime } from "./epub-runtime";
+import type { WeaveTimerHandle } from "../../types/timer-handle.js";
 
 export interface EpubBookshelfSettings {
 	lastScanAt?: number;
@@ -118,7 +119,7 @@ export class EpubStorageService {
 	private app: App;
 	private basePath: string;
 	private localPluginId: string;
-	private _progressDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private _progressDebounceTimer: WeaveTimerHandle | null = null;
 	private _pendingProgress: { bookId: string; position: ReadingPosition } | null = null;
 	private _booksCache: Record<string, EpubBook> | null = null;
 	private _booksWriteLock: Promise<void> = Promise.resolve();
@@ -225,19 +226,19 @@ export class EpubStorageService {
 
 	private getLocalReaderStateRoot(): string {
 		return normalizePath(
-			`${getPluginPathsById(this.app as unknown, this.localPluginId).state.incrementalReading.readerState}/epub`
+			`${getPluginPathsById(this.app, this.localPluginId).state.incrementalReading.readerState}/epub`
 		);
 	}
 
 	private getUnifiedLocalDataPath(): string {
 		return normalizePath(
-			`${getPluginPathsById(this.app as unknown, this.localPluginId).state.incrementalReading.epubReaderData}`
+			`${getPluginPathsById(this.app, this.localPluginId).state.incrementalReading.epubReaderData}`
 		);
 	}
 
 	private getLocalReaderArtifactsRoot(): string {
 		return normalizePath(
-			`${getPluginPathsById(this.app as unknown, this.localPluginId).cache.incrementalReading.readerArtifacts}/epub`
+			`${getPluginPathsById(this.app, this.localPluginId).cache.incrementalReading.readerArtifacts}/epub`
 		);
 	}
 
@@ -2159,10 +2160,10 @@ export class EpubStorageService {
 		}
 
 		await Promise.all([
-			DirectoryUtils.pruneEmptyDirsUnder(adapter as unknown, this.getLocalReaderStateRoot(), {
+			DirectoryUtils.pruneEmptyDirsUnder(adapter, this.getLocalReaderStateRoot(), {
 				preserveRoot: false,
 			}),
-			DirectoryUtils.pruneEmptyDirsUnder(adapter as unknown, this.getLocalReaderArtifactsRoot(), {
+			DirectoryUtils.pruneEmptyDirsUnder(adapter, this.getLocalReaderArtifactsRoot(), {
 				preserveRoot: false,
 			}),
 		]);
@@ -3055,16 +3056,16 @@ export class EpubStorageService {
 			}
 
 			await Promise.all([
-				DirectoryUtils.pruneEmptyDirsUnder(this.app.vault.adapter as unknown, this.basePath, {
+				DirectoryUtils.pruneEmptyDirsUnder(this.app.vault.adapter, this.basePath, {
 					preserveRoot: false,
 				}),
 				DirectoryUtils.pruneEmptyDirsUnder(
-					this.app.vault.adapter as unknown,
+					this.app.vault.adapter,
 					this.getLocalReaderStateRoot(),
 					{ preserveRoot: false }
 				),
 				DirectoryUtils.pruneEmptyDirsUnder(
-					this.app.vault.adapter as unknown,
+					this.app.vault.adapter,
 					this.getLocalReaderArtifactsRoot(),
 					{ preserveRoot: false }
 				),

@@ -5,17 +5,26 @@ import { Notice } from "obsidian";
 import {
 	LEGACY_PATHS,
 	WEAVE_DATA,
-	getBackupPath,
 	getPluginPaths,
 	getV2Paths,
 	normalizeWeaveParentFolder,
 } from "../config/paths";
 import type { WeavePlugin } from "../main";
+import { asPluginAugment, type WeaveDataChangeContext } from "../utils/plugin-runtime";
 import type { ExternalSyncWatcher } from "../services/ExternalSyncWatcher";
-import type { DataChangeEvent, DataSyncService } from "../services/DataSyncService";
+import {
+	MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE,
+	type DataChangeEvent,
+	type DataSyncService,
+} from "../services/DataSyncService";
 import { BlockLinkCleanupService } from "../services/cleanup/BlockLinkCleanupService";
 import { getEmergentDeckService } from "../services/deck/EmergentDeckService";
 import type { DeckMembershipIndexService } from "../services/index/DeckMembershipIndexService";
+import type { BodyFingerprintIndexService } from "../services/index/BodyFingerprintIndexService";
+import {
+	isLegacyMemoryDeckCoveredByWDeck,
+	shouldRemovePersistedDeckShadowedByWDeck,
+} from "./deck-shadowing";
 import {
 	WDECK_UNGROUPED_DECK_NAME,
 	normalizeWDeckLogicalDeckId,
@@ -43,16 +52,22 @@ import { hasLegacyMemoryCardStorage } from "../utils/legacy-memory-storage";
 import { t } from "../utils/i18n";
 import { logger } from "../utils/logger";
 import { showObsidianChoice, showObsidianInput } from "../utils/obsidian-confirm";
+import {
+	alignCardRuntimeMembershipFromFormalSource,
+	resolveMemoryDeckWriteTarget,
+} from "../utils/card-we-decks-membership";
 import { keepSingleMemoryFormalDeck } from "../utils/memory-deck-membership";
 import { safeReadJson, safeWriteJson } from "../utils/safe-json-io";
 import { isRecord, parseJsonUnknown } from "../utils/typed-json";
 import { ensureWeaveDataReadmesForPath } from "../utils/weave-data-readme";
 import {
 	type CardYAMLMetadata,
+	type CardYAMLType,
 	extractAllTags,
 	extractBodyContent,
 	getCardDeckIds,
 	getCardDeckIdsFromFormalSource,
+	getCardMetadata,
 	parseBlockId,
 	parseObsidianLink,
 	parseSourceInfo,
@@ -61,34 +76,40 @@ import {
 	setCardProperty,
 } from "../utils/yaml-utils";
 import type { StudySession } from "./study-types";
-import type {
-	AnkiExportData,
-	ApiResponse,
-	Card,
+import {
 	CardState,
-	DataQuery,
-	Deck,
-	DeckSettings,
-	DeckStats,
-	UserProfile,
+	CardType,
+	type AnkiExportData,
+	type ApiResponse,
+	type Card,
+	type DataQuery,
+	type Deck,
+	type DeckSettings,
+	type DeckStats,
+	type UserProfile,
 } from "./types";
-import { CardType } from "./types";
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 
 type StorageProgressCallback = (current: number, total: number, detail: string) => void;
 
-type WeaveDataChangeContext = {
-	source?: string;
-	deckIds?: string[];
-	suppressDeckNotifications?: boolean;
-	suppressCardNotifications?: boolean;
-	suppressSessionNotifications?: boolean;
-};
+function coerceCardType(value: unknown): CardType | undefined {
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	return (Object.values(CardType) as string[]).includes(value) ? (value as CardType) : undefined;
+}
 
-type PluginAugment = {
+function coerceCardYamlType(value: unknown): CardYAMLType | undefined {
+	const cardType = coerceCardType(value);
+	return cardType as CardYAMLType | undefined;
+}
+
+type StoragePluginAugment = {
 	__weaveDataChangeContext?: WeaveDataChangeContext;
 	externalSyncWatcher?: ExternalSyncWatcher;
 	dataSyncService?: DataSyncService;
 	deckMembershipIndexService?: DeckMembershipIndexService;
+	bodyFingerprintIndexService?: BodyFingerprintIndexService;
 	mediaFileHandler?: {
 		cleanupDeckMedia?: (deckId: string) => Promise<void> | void;
 	};
@@ -117,10 +138,10 @@ export class WeaveDataStorage {
 	/** 寰呭埛鍐欑殑 deck cardUUIDs 澧為噺锛坉eckId 鈫?Set<cardUUID>锛?*/
 	private _pendingDeckCardUUIDs = new Map<string, Set<string>>();
 	/** 闃叉姈瀹氭椂鍣?*/
-	private _deckCardUUIDsFlushTimer: ReturnType<typeof setTimeout> | null = null;
+	private _deckCardUUIDsFlushTimer: WeaveTimerHandle | null = null;
 	/** 闃叉姈寤惰繜锛坢s锛?*/
 	private static readonly DECK_CARD_UUIDS_FLUSH_DELAY = 300;
-	/** 正文指纹索引（懒加载，写入/删除后失效） */
+	/** 正文指纹索引会话缓存（持久化索引由 BodyFingerprintIndexService 维护） */
 	private bodyFingerprintIndex: Map<string, string> | null = null;
 
 	private get v2Paths() {
@@ -132,8 +153,8 @@ export class WeaveDataStorage {
 		this.plugin = plugin;
 	}
 
-	private get pluginCompat(): WeavePlugin & PluginAugment {
-		return this.plugin as WeavePlugin & PluginAugment;
+	private get pluginCompat(): WeavePlugin & StoragePluginAugment {
+		return asPluginAugment(this.plugin) as WeavePlugin & StoragePluginAugment;
 	}
 
 	private getVaultAdapterWithDirOps(): VaultAdapterWithDirOps {
@@ -310,6 +331,19 @@ export class WeaveDataStorage {
 		}
 	}
 
+	private async cleanupQuestionBankAfterCardDeletion(cardUUIDs: string[]): Promise<void> {
+		const uniqueUUIDs = Array.from(new Set(cardUUIDs.filter(Boolean)));
+		if (uniqueUUIDs.length === 0) {
+			return;
+		}
+
+		try {
+			await this.plugin.questionBankService?.cleanupDeletedMemoryCards(uniqueUUIDs);
+		} catch (error) {
+			logger.warn("[Storage] 清理考试题组悬空引用失败:", error);
+		}
+	}
+
 	private async hasLegacyMemoryStorage(): Promise<boolean> {
 		return hasLegacyMemoryCardStorage(
 			this.plugin.app,
@@ -363,7 +397,17 @@ export class WeaveDataStorage {
 		errors: string[];
 	}> {
 		const rawCards = await this.readAllCardsIncludingWDeckRaw({ includeLegacyCards: true });
-		const candidates = rawCards.filter((card) => cardNeedsLegacyStatsMigration(card));
+		const candidates: Card[] = [];
+		for (const card of rawCards) {
+			if (!cardNeedsLegacyStatsMigration(card)) {
+				continue;
+			}
+			const nextCard = { ...card };
+			if (!syncCardStatsToCanonicalFormat(nextCard)) {
+				continue;
+			}
+			candidates.push(nextCard);
+		}
 		if (candidates.length === 0) {
 			return { migrated: 0, failed: 0, errors: [] };
 		}
@@ -455,6 +499,9 @@ export class WeaveDataStorage {
 				typeof deckDefinition.category === "string" && deckDefinition.category.trim()
 					? deckDefinition.category
 					: "WDeck",
+			categoryIds: Array.isArray(deckDefinition.categoryIds)
+				? deckDefinition.categoryIds.filter((id): id is string => typeof id === "string" && !!id.trim())
+				: undefined,
 			cardUUIDs: [...params.cardUUIDs],
 			parentId:
 				typeof deckDefinition.parentId === "string" ? deckDefinition.parentId : undefined,
@@ -514,36 +561,110 @@ export class WeaveDataStorage {
 		);
 	}
 
-	private isDeckMigratedToWDeck(deck: Deck): boolean {
-		const metadata =
-			deck.metadata && typeof deck.metadata === "object"
-				? (deck.metadata)
-				: null;
-		const migration =
-			metadata?.wdeckMigration && typeof metadata.wdeckMigration === "object"
-				? (metadata.wdeckMigration as Record<string, unknown>)
-				: null;
-
-		return migration?.status === "migrated";
+	/**
+	 * 清理已被 .wdeck 正式接管的 legacy decks.json 残留，避免重名校验与启动迁移失败。
+	 */
+	async reconcileLegacyDeckResidue(): Promise<number> {
+		return this.purgeShadowedLegacyPersistedDecks();
 	}
 
-	private isLegacyMemoryDeckCoveredByWDeck(
-		deck: Deck,
-		aggregates: Array<{ logicalDeckId: string }>
-	): boolean {
-		if (deck.purpose === "test") {
-			return false;
+	private async purgeShadowedLegacyPersistedDecks(): Promise<number> {
+		if (!this.plugin.wdeckService) {
+			return 0;
 		}
 
-		if (this.isDeckMigratedToWDeck(deck)) {
-			return true;
+		let wdeckSummaries: Array<{ logicalDeckId: string; logicalDeckName: string }> = [];
+		try {
+			wdeckSummaries = await this.plugin.wdeckService.getAllDeckSummaries();
+		} catch (error) {
+			logger.warn("[Storage] 读取 WDeck 摘要失败，跳过 legacy 牌组残留清理", error);
+			return 0;
 		}
 
-		const logicalDeckId = normalizeWDeckLogicalDeckId(deck.id, deck.name);
-		return aggregates.some((aggregate) => aggregate.logicalDeckId === logicalDeckId);
+		if (wdeckSummaries.length === 0) {
+			return 0;
+		}
+
+		const persistedDecks = await this.readPersistedDecks();
+		const shadowedDecks = persistedDecks.filter((deck) =>
+			isLegacyMemoryDeckCoveredByWDeck(deck, wdeckSummaries)
+		);
+		if (shadowedDecks.length === 0) {
+			return 0;
+		}
+
+		await this.mergeShadowedLegacyDeckFieldsIntoWDeck(shadowedDecks, wdeckSummaries);
+
+		const shadowedDeckIds = new Set(
+			shadowedDecks.map((deck) => String(deck.id || "").trim()).filter(Boolean)
+		);
+		const filteredDecks = persistedDecks.filter(
+			(deck) => !shadowedDeckIds.has(String(deck.id || "").trim())
+		);
+
+		await this.writePersistedDecks(filteredDecks);
+		for (const deckId of shadowedDeckIds) {
+			await this.deleteDeckCardUUIDs(deckId);
+		}
+
+		logger.info(
+			`[Storage] 已清理 ${shadowedDecks.length} 个被 .wdeck 接管的 legacy decks.json 残留条目`
+		);
+		return shadowedDecks.length;
 	}
 
-	private async removePersistedMemoryDeck(logicalDeckId: string): Promise<void> {
+	private async mergeShadowedLegacyDeckFieldsIntoWDeck(
+		shadowedDecks: Deck[],
+		wdeckSummaries: Array<{ logicalDeckId: string; logicalDeckName: string; deck?: Partial<Deck> }>
+	): Promise<void> {
+		if (!this.plugin.wdeckService) {
+			return;
+		}
+
+		for (const legacyDeck of shadowedDecks) {
+			const matchedSummary = wdeckSummaries.find((summary) =>
+				isLegacyMemoryDeckCoveredByWDeck(legacyDeck, [summary])
+			);
+			if (!matchedSummary) {
+				continue;
+			}
+
+			const wdeckDefinition = matchedSummary.deck || {};
+			const legacyCategoryIds = Array.isArray(legacyDeck.categoryIds)
+				? legacyDeck.categoryIds.filter((id): id is string => typeof id === "string" && !!id.trim())
+				: [];
+			const wdeckCategoryIds = Array.isArray(wdeckDefinition.categoryIds)
+				? wdeckDefinition.categoryIds.filter((id): id is string => typeof id === "string" && !!id.trim())
+				: [];
+
+			if (legacyCategoryIds.length === 0 || wdeckCategoryIds.length > 0) {
+				continue;
+			}
+
+			try {
+				const runtimeDeckId = toWDeckRuntimeDeckId(matchedSummary.logicalDeckId);
+				const existingDeck = await this.getDeck(runtimeDeckId);
+				if (!existingDeck) {
+					continue;
+				}
+
+				await this.plugin.wdeckService.saveDeckDefinition({
+					...existingDeck,
+					categoryIds: legacyCategoryIds,
+				});
+			} catch (error) {
+				logger.warn(
+					`[Storage] 合并 legacy 牌组「${legacyDeck.name || legacyDeck.id}」分类到 .wdeck 失败`,
+					error
+				);
+			}
+		}
+	}
+
+	private async removePersistedMemoryDeck(
+		logicalDeckId: string,
+		logicalDeckName?: string
+	): Promise<void> {
 		const adapter = (this.plugin.app.vault as { adapter?: unknown })?.adapter;
 		if (!adapter) {
 			return;
@@ -551,17 +672,14 @@ export class WeaveDataStorage {
 
 		const persistedDecks = await this.readPersistedDecks();
 		const removedDeckIds = persistedDecks
-			.filter(
-				(deck) =>
-					deck.purpose !== "test" &&
-					normalizeWDeckLogicalDeckId(deck.id, deck.name) === logicalDeckId
+			.filter((deck) =>
+				shouldRemovePersistedDeckShadowedByWDeck(deck, logicalDeckId, logicalDeckName)
 			)
 			.map((deck) => String(deck.id || "").trim())
 			.filter(Boolean);
+		const removedDeckIdSet = new Set(removedDeckIds);
 		const filteredDecks = persistedDecks.filter(
-			(deck) =>
-				deck.purpose === "test" ||
-				normalizeWDeckLogicalDeckId(deck.id, deck.name) !== logicalDeckId
+			(deck) => !removedDeckIdSet.has(String(deck.id || "").trim())
 		);
 
 		if (filteredDecks.length === persistedDecks.length) {
@@ -696,11 +814,13 @@ export class WeaveDataStorage {
 	}
 
 	private async resolveWDeckTargetForCard(
-		card: Pick<Card, "deckId" | "cardPurpose">
+		card: Pick<Card, "deckId" | "referencedByDecks" | "cardPurpose"> & Pick<Partial<Card>, "content">
 	): Promise<{ id: string; name: string }> {
-		const runtimeDeckId = String(card.deckId || "").trim();
-		if (runtimeDeckId && this.plugin.wdeckService) {
-			const info = await this.plugin.wdeckService.getDeckInfoByAnyDeckId(runtimeDeckId);
+		const decks = await this.getDecks();
+		const target = resolveMemoryDeckWriteTarget(card, decks, WDECK_UNGROUPED_DECK_NAME);
+
+		if (target.source !== "ungrouped" && this.plugin.wdeckService) {
+			const info = await this.plugin.wdeckService.getDeckInfoByAnyDeckId(target.id);
 			if (info) {
 				return {
 					id: info.runtimeDeckId,
@@ -709,12 +829,14 @@ export class WeaveDataStorage {
 			}
 		}
 
-		const persistedDeck = await this.getPersistedDeckById(runtimeDeckId);
-		if (persistedDeck && persistedDeck.purpose !== "test") {
-			return {
-				id: persistedDeck.id,
-				name: persistedDeck.name,
-			};
+		if (target.source !== "ungrouped") {
+			const persistedDeck = await this.getPersistedDeckById(target.id);
+			if (persistedDeck && persistedDeck.purpose !== "test") {
+				return {
+					id: persistedDeck.id,
+					name: persistedDeck.name,
+				};
+			}
 		}
 
 		return {
@@ -818,8 +940,8 @@ export class WeaveDataStorage {
 		}
 
 		if (unresolvedUUIDs.size > 0) {
-			const allCards = await this.getCards();
-			for (const card of allCards) {
+			const remainingCards = await this.getCardsByUUIDs(Array.from(unresolvedUUIDs));
+			for (const card of remainingCards) {
 				if (card?.uuid && unresolvedUUIDs.has(card.uuid) && !cardsByUUID.has(card.uuid)) {
 					cardsByUUID.set(card.uuid, card);
 				}
@@ -903,9 +1025,61 @@ export class WeaveDataStorage {
 		this.bodyFingerprintIndex = null;
 	}
 
+	private async syncBodyFingerprintIndexAfterWrite(cards: Card | Card[]): Promise<void> {
+		const normalizedCards = (Array.isArray(cards) ? cards : [cards]).filter((card) => card?.uuid);
+		if (normalizedCards.length === 0) {
+			return;
+		}
+
+		const service = this.pluginCompat.bodyFingerprintIndexService;
+		if (service) {
+			try {
+				await service.upsertCards(normalizedCards);
+			} catch (error) {
+				logger.warn("[Storage] 正文指纹索引增量更新失败", error);
+				await service.markFullRebuildRequired();
+			}
+		}
+
+		this.invalidateBodyFingerprintIndex();
+	}
+
+	private async syncBodyFingerprintIndexAfterDelete(cardUUIDs: string[]): Promise<void> {
+		const uniqueUUIDs = Array.from(new Set(cardUUIDs.filter(Boolean)));
+		if (uniqueUUIDs.length === 0) {
+			return;
+		}
+
+		const service = this.pluginCompat.bodyFingerprintIndexService;
+		if (service) {
+			try {
+				await service.removeCards(uniqueUUIDs);
+			} catch (error) {
+				logger.warn("[Storage] 正文指纹索引删除更新失败", error);
+				await service.markFullRebuildRequired();
+			}
+		}
+
+		this.invalidateBodyFingerprintIndex();
+	}
+
 	private async getBodyFingerprintIndex(): Promise<Map<string, string>> {
 		if (this.bodyFingerprintIndex) {
 			return this.bodyFingerprintIndex;
+		}
+
+		const service = this.pluginCompat.bodyFingerprintIndexService;
+		if (service) {
+			try {
+				if (await service.needsRebuild()) {
+					const cards = await this.readAllCardsFromUnifiedStorage();
+					await service.rebuildFromCards(cards);
+				}
+				this.bodyFingerprintIndex = await service.getIndexMap();
+				return this.bodyFingerprintIndex;
+			} catch (error) {
+				logger.warn("[Storage] 持久化正文指纹索引读取失败，回退全库构建", error);
+			}
 		}
 
 		const cards = await this.readAllCardsFromUnifiedStorage();
@@ -944,7 +1118,18 @@ export class WeaveDataStorage {
 		cards: Card[],
 		existingUuidSet: Set<string>
 	): Promise<Card[]> {
-		const bodyIndex = await this.getBodyFingerprintIndex();
+		const needsFingerprintLookup = cards.some(
+			(card) =>
+				!!card?.uuid &&
+				!existingUuidSet.has(card.uuid) &&
+				!!getCardBodyFingerprint(card)
+		);
+
+		if (!needsFingerprintLookup) {
+			return cards.filter((card) => !!card?.uuid);
+		}
+
+		let bodyIndex: Map<string, string> | undefined;
 		const batchFingerprints = new Map<string, string>();
 		const output: Card[] = [];
 		const outputByUuid = new Map<string, Card>();
@@ -963,7 +1148,12 @@ export class WeaveDataStorage {
 				continue;
 			}
 
-			const canonicalUuid = batchFingerprints.get(fingerprint) || bodyIndex.get(fingerprint);
+			let canonicalUuid = batchFingerprints.get(fingerprint);
+			if (!canonicalUuid) {
+				bodyIndex ??= await this.getBodyFingerprintIndex();
+				canonicalUuid = bodyIndex.get(fingerprint);
+			}
+
 			if (canonicalUuid && canonicalUuid !== card.uuid) {
 				logger.info(`[Storage] 批量写入跳过正文重复副本: ${card.uuid} -> ${canonicalUuid}`);
 
@@ -1016,6 +1206,14 @@ export class WeaveDataStorage {
 
 		if (this.plugin.wdeckService) {
 			try {
+				if (uniqueUUIDs.length === 1) {
+					const located = await this.plugin.wdeckService.getCardByUUID(uniqueUUIDs[0]);
+					if (located?.uuid) {
+						existingCardUUIDs.add(located.uuid);
+					}
+					return existingCardUUIDs;
+				}
+
 				const locatedCards = await this.plugin.wdeckService.getCardsByUUIDs(uniqueUUIDs);
 				for (const card of locatedCards) {
 					if (card?.uuid) {
@@ -1166,6 +1364,7 @@ export class WeaveDataStorage {
 			logger.info("[Storage] Creating data files...");
 			await this.ensureDataFiles();
 			await this.migrateLegacyDeckStoreIfNeeded();
+			await this.reconcileLegacyDeckResidue();
 
 			// 仅在确认仓库中没有任何记忆牌组来源时，标记待用户创建（不静默自动建组）
 			logger.info("[Storage] Checking memory deck presence...");
@@ -1538,7 +1737,7 @@ export class WeaveDataStorage {
 
 			const visiblePersistedDecks: Deck[] = [];
 			for (const deck of persistedDecks) {
-				if (this.plugin.wdeckService && this.isLegacyMemoryDeckCoveredByWDeck(deck, wdeckSummaries)) {
+				if (this.plugin.wdeckService && isLegacyMemoryDeckCoveredByWDeck(deck, wdeckSummaries)) {
 					continue;
 				}
 
@@ -1612,6 +1811,38 @@ export class WeaveDataStorage {
 		}
 	}
 
+	private filterDecksForNameValidation(decks: Deck[], savingDeck: Deck): Deck[] {
+		if (savingDeck.purpose === "test" || !this.plugin.wdeckService) {
+			return decks;
+		}
+
+		const wdeckService = this.plugin.wdeckService;
+		const wdeckNames = new Set(
+			decks
+				.filter((deck) => wdeckService.isWDeckDeckId(deck.id))
+				.map((deck) => String(deck.name || "").trim())
+				.filter(Boolean)
+		);
+
+		if (wdeckNames.size === 0) {
+			return decks;
+		}
+
+		return decks.filter((deck) => {
+			if (wdeckService.isWDeckDeckId(deck.id)) {
+				return true;
+			}
+
+			const deckName = String(deck.name || "").trim();
+			if (!deckName || !wdeckNames.has(deckName)) {
+				return true;
+			}
+
+			// 同名 legacy decks.json 残留不应与 .wdeck 正式牌组参与重名校验
+			return false;
+		});
+	}
+
 	private validateDeckNameUniqueness(decks: Deck[], deck: Deck): void {
 		const normalizedName = String(deck.name || "").trim();
 		if (!normalizedName) {
@@ -1629,7 +1860,8 @@ export class WeaveDataStorage {
 			currentDeckIds.add(toWDeckRuntimeDeckId(logicalDeckId));
 		}
 
-		const duplicateDeck = decks.find(
+		const comparableDecks = this.filterDecksForNameValidation(decks, deck);
+		const duplicateDeck = comparableDecks.find(
 			(existingDeck) =>
 				!currentDeckIds.has(String(existingDeck.id || "").trim()) &&
 				!(
@@ -1678,7 +1910,7 @@ export class WeaveDataStorage {
 					deckDefinition: savedAggregate.deck,
 				});
 
-				await this.removePersistedMemoryDeck(logicalDeckId);
+				await this.removePersistedMemoryDeck(logicalDeckId, normalizedDeck.name);
 
 				if (this.plugin.deckNameMapper) {
 					if (!existingDeck) {
@@ -1786,10 +2018,15 @@ export class WeaveDataStorage {
 				timestamp: new Date().toISOString(),
 			};
 		} catch (error) {
-			logger.error("Failed to save deck:", error);
+			const message = extractErrorMessage(error);
+			if (message.includes("牌组名称") && message.includes("已存在")) {
+				logger.warn(`Failed to save deck: ${message}`);
+			} else {
+				logger.error("Failed to save deck:", error);
+			}
 			return {
 				success: false,
-				error: extractErrorMessage(error),
+				error: message,
 				timestamp: new Date().toISOString(),
 			};
 		}
@@ -1967,13 +2204,8 @@ export class WeaveDataStorage {
 			const hasRuntimeWDeckMeta = this.plugin.wdeckService?.hasRuntimeCardMeta(card) === true;
 			let existingCard: Card | undefined = hasRuntimeWDeckMeta ? this.normalizeCardData(card) : undefined;
 
-			if (!existingCard) {
-				existingCard = (await this.getCards()).find((c) => c.uuid === card.uuid);
-			}
-
-			if (!existingCard && card.deckId) {
-				const deckCards = await this.getDeckCards(card.deckId);
-				existingCard = deckCards.find((c) => c.uuid === card.uuid);
+			if (!existingCard && card.uuid) {
+				existingCard = (await this.getCardsByUUIDs([card.uuid]))[0];
 			}
 
 			if (!existingCard) {
@@ -2246,7 +2478,7 @@ export class WeaveDataStorage {
 	 */
 	private hydrateCardFromYAML(card: Card): Card {
 		try {
-			const yaml = parseYAMLFromContent(card.content || "");
+			const yamlMeta = getCardMetadata(card.content || "");
 			if (!card.content) {
 				syncCardStatsToCanonicalFormat(card);
 				return card; // 没有 YAML，返回原卡片
@@ -2264,27 +2496,22 @@ export class WeaveDataStorage {
 			// 3. we_decks 需要通过 DeckNameMapper 转换（异步，这里只记录名称）
 			// 注意：deckId 的转换在需要时通过 CardMetadataService 处理
 
-			if (yaml.we_type) {
-				hydrated.type = yaml.we_type;
+			const yamlType = coerceCardType(yamlMeta.we_type);
+			if (yamlType) {
+				hydrated.type = yamlType;
 			} else if (!hydrated.type) {
 				const body = extractBodyContent(hydrated.content || "") || hydrated.content || "";
-				hydrated.type = (detectCardTypeFromContent(body) || CardType.Basic) as unknown;
+				hydrated.type = coerceCardType(detectCardTypeFromContent(body)) ?? CardType.Basic;
 			}
 
 			// 5. we_priority -> priority
-			if (yaml.we_priority !== undefined) {
-				hydrated.priority = yaml.we_priority;
+			if (yamlMeta.we_priority !== undefined) {
+				hydrated.priority = yamlMeta.we_priority;
 			}
 
 			// 6. created / we_created -> created
-			const created =
-				typeof yaml.created === "string"
-					? yaml.created
-					: typeof yaml.we_created === "string"
-						? yaml.we_created
-						: undefined;
-			if (created) {
-				hydrated.created = created;
+			if (yamlMeta.created) {
+				hydrated.created = yamlMeta.created;
 			}
 
 			// 7. tags -> tags
@@ -2322,26 +2549,25 @@ export class WeaveDataStorage {
 	): Promise<Card> {
 		try {
 			// content YAML 是唯一权威数据源，直接解析保留
-			const existingYAML = parseYAMLFromContent(card.content || "") || {};
+			const existingMeta = getCardMetadata(card.content || "");
 			const shouldSyncDeckMembershipFromRuntime = options?.syncDeckMembershipFromRuntime === true;
-			const hasExistingYAML = Object.keys(existingYAML).length > 0;
+			const hasExistingYAML = Object.keys(existingMeta).some((key) => {
+				const value = existingMeta[key as keyof CardYAMLMetadata];
+				return value !== undefined && value !== null && (!Array.isArray(value) || value.length > 0);
+			});
 			if (!hasExistingYAML && !shouldSyncDeckMembershipFromRuntime) {
 				return card;
 			}
-			if (!hasExistingYAML && shouldSyncDeckMembershipFromRuntime) {
-				(existingYAML as Record<string, unknown>).__deckSyncPlaceholder = true;
-			}
 
-			// 璋冭瘯鏃ュ織锛氭鏌ヤ紶鍏ョ殑 we_decks 鍊?
-			if (Object.keys(existingYAML).length === 0) {
-				return card;
-			}
-
-			const metadata: CardYAMLMetadata = {};
-
-			if (existingYAML.we_source) metadata.we_source = existingYAML.we_source;
-			if (existingYAML.we_block) metadata.we_block = existingYAML.we_block;
-			if (existingYAML.we_decks) metadata.we_decks = existingYAML.we_decks;
+			const metadata: CardYAMLMetadata = {
+				...(existingMeta.we_source ? { we_source: existingMeta.we_source } : {}),
+				...(existingMeta.we_block ? { we_block: existingMeta.we_block } : {}),
+				...(existingMeta.we_decks ? { we_decks: existingMeta.we_decks } : {}),
+				...(existingMeta.we_priority !== undefined
+					? { we_priority: existingMeta.we_priority }
+					: {}),
+				...(existingMeta.tags ? { tags: existingMeta.tags } : {}),
+			};
 			const runtimeDeckIds = this.getRuntimeDeckIds(card);
 			let normalizedRuntimeDeckIds = runtimeDeckIds;
 			if (shouldSyncDeckMembershipFromRuntime) {
@@ -2354,26 +2580,28 @@ export class WeaveDataStorage {
 						: undefined;
 			}
 			if (card.type) {
-				metadata.we_type = card.type as unknown;
+				metadata.we_type = coerceCardYamlType(card.type);
 			} else {
 				const body = extractBodyContent(card.content || "") || card.content || "";
 				const detected = detectCardTypeFromContent(body);
-				metadata.we_type = (detected || CardType.Basic) as unknown;
+				metadata.we_type = coerceCardYamlType(detected) ?? "basic";
 				logger.debug(
 					"[Storage] syncCardMetadataToYAML: 根据当前内容自动检测 we_type 为",
 					metadata.we_type
 				);
 			}
-			if (existingYAML.we_priority !== undefined) metadata.we_priority = existingYAML.we_priority;
-			if (existingYAML.tags) metadata.tags = existingYAML.tags;
+			if (existingMeta.we_priority !== undefined) {
+				metadata.we_priority = existingMeta.we_priority;
+			}
+			if (existingMeta.tags) {
+				metadata.tags = existingMeta.tags;
+			}
 			const canonicalCreated =
 				typeof card.created === "string" && card.created.trim()
 					? card.created
-					: typeof existingYAML.created === "string" && existingYAML.created.trim()
-						? existingYAML.created
-						: typeof existingYAML.we_created === "string" && existingYAML.we_created.trim()
-							? existingYAML.we_created
-							: undefined;
+					: existingMeta.created?.trim()
+						? existingMeta.created
+						: undefined;
 			if (canonicalCreated) {
 				metadata.created = canonicalCreated;
 			}
@@ -2423,13 +2651,24 @@ export class WeaveDataStorage {
 		}
 
 		const now = new Date();
-		const cardWithYAML = await this.syncCardMetadataToYAML(normalizedCard, options);
+		const cachedDecks =
+			typeof this.plugin.getCachedDecksSnapshot === "function"
+				? this.plugin.getCachedDecksSnapshot()
+				: [];
+		const decksForMembership =
+			cachedDecks.length > 0 ? cachedDecks : await this.getDecks();
+		const membershipAlignedCard = alignCardRuntimeMembershipFromFormalSource(
+			normalizedCard,
+			decksForMembership
+		);
+		const cardWithYAML = await this.syncCardMetadataToYAML(membershipAlignedCard, options);
 		const knownExisting =
 			options?.knownExisting === true ||
 			this.plugin.wdeckService?.hasRuntimeCardMeta(cardWithYAML) === true;
 		const isCreateAction = knownExisting
 			? false
 			: !(await this.getExistingCardUUIDSet([normalizedCard.uuid])).has(normalizedCard.uuid);
+		const skipBodyFingerprintSync = this.shouldSkipBodyFingerprintSync();
 
 		if (isCreateAction) {
 			const coalesced = await this.coalesceNewCardAgainstBodyDuplicate(cardWithYAML);
@@ -2463,7 +2702,9 @@ export class WeaveDataStorage {
 				);
 
 				await this.syncCardIndicesAfterWrite(savedCard);
-				this.invalidateBodyFingerprintIndex();
+				if (!skipBodyFingerprintSync) {
+					await this.syncBodyFingerprintIndexAfterWrite(savedCard);
+				}
 				return { success: true, data: savedCard, timestamp: now.toISOString() };
 			} catch (error) {
 				logger.warn("[Storage] WDeck 卡片保存失败:", error);
@@ -2503,7 +2744,9 @@ export class WeaveDataStorage {
 				);
 
 				await this.syncCardIndicesAfterWrite(savedCard);
-				this.invalidateBodyFingerprintIndex();
+				if (!skipBodyFingerprintSync) {
+					await this.syncBodyFingerprintIndexAfterWrite(savedCard);
+				}
 				return { success: true, data: savedCard, timestamp: now.toISOString() };
 			} catch (error) {
 				logger.warn("[Storage] 普通记忆卡写入 .wdeck 失败:", error);
@@ -2596,6 +2839,7 @@ export class WeaveDataStorage {
 				);
 			};
 
+			const decksForMembership = await this.getDecks();
 			const deckToUUIDs = new Map<string, Set<string>>();
 			const wdeckCardsToSave: Card[] = [];
 			const deckBoundWDeckCards = new Map<string, { deck: { id: string; name: string }; cards: Card[] }>();
@@ -2607,9 +2851,12 @@ export class WeaveDataStorage {
 					continue;
 				}
 
-				const cardWithYAML = isApkgImport
+				const membershipAlignedCard = isApkgImport
 					? c
-					: await this.syncCardMetadataToYAML(c, {
+					: alignCardRuntimeMembershipFromFormalSource(c, decksForMembership);
+				const cardWithYAML = isApkgImport
+					? membershipAlignedCard
+					: await this.syncCardMetadataToYAML(membershipAlignedCard, {
 							syncDeckMembershipFromRuntime:
 								!existingCardUUIDs.has(c.uuid) && this.getRuntimeDeckIds(c).length > 0,
 						});
@@ -2618,26 +2865,38 @@ export class WeaveDataStorage {
 					created: cardWithYAML.created || now.toISOString(),
 					modified: now.toISOString(),
 				};
+				const alignedCardToSave = alignCardRuntimeMembershipFromFormalSource(
+					cardToSave,
+					decksForMembership
+				);
 
-				if (this.plugin.wdeckService?.hasRuntimeCardMeta(cardToSave)) {
-					wdeckCardsToSave.push(cardToSave);
+				if (this.plugin.wdeckService?.hasRuntimeCardMeta(alignedCardToSave)) {
+					wdeckCardsToSave.push(alignedCardToSave);
 					reportSaveProgress(index + 1);
 					continue;
 				}
 
-				const targetDeck = await this.resolveWDeckTargetForCard(cardToSave);
+				const targetDeck = await this.resolveWDeckTargetForCard(alignedCardToSave);
 				const bucket =
 					deckBoundWDeckCards.get(targetDeck.id) || {
 						deck: targetDeck,
 						cards: [],
 					};
-				bucket.cards.push(cardToSave);
+				bucket.cards.push(alignedCardToSave);
 				deckBoundWDeckCards.set(targetDeck.id, bucket);
 
-				if (c.deckId && !this.plugin.wdeckService.isWDeckDeckId(c.deckId)) {
-					const set = deckToUUIDs.get(c.deckId) || new Set<string>();
+				const writeTarget = resolveMemoryDeckWriteTarget(
+					alignedCardToSave,
+					decksForMembership,
+					WDECK_UNGROUPED_DECK_NAME
+				);
+				if (
+					writeTarget.source !== "ungrouped" &&
+					!this.plugin.wdeckService.isWDeckDeckId(writeTarget.id)
+				) {
+					const set = deckToUUIDs.get(writeTarget.id) || new Set<string>();
 					set.add(c.uuid);
-					deckToUUIDs.set(c.deckId, set);
+					deckToUUIDs.set(writeTarget.id, set);
 				}
 				reportSaveProgress(index + 1);
 			}
@@ -2692,9 +2951,8 @@ export class WeaveDataStorage {
 					},
 					"suppressCardNotifications"
 				);
+				await this.syncBodyFingerprintIndexAfterWrite(savedCards);
 			}
-
-			this.invalidateBodyFingerprintIndex();
 
 			options?.onProgress?.(
 				progressTotal,
@@ -2990,7 +3248,8 @@ export class WeaveDataStorage {
 						"suppressCardNotifications"
 					);
 
-					this.invalidateBodyFingerprintIndex();
+					await this.syncBodyFingerprintIndexAfterDelete(deletedUUIDs);
+					await this.cleanupQuestionBankAfterCardDeletion(deletedUUIDs);
 					return { success: true, data: true, timestamp: new Date().toISOString() };
 				}
 			}
@@ -2999,6 +3258,7 @@ export class WeaveDataStorage {
 			let deckId: string | undefined;
 			let cardToDelete: Card | null = existingCard;
 			let allCardsInDeck: Card[] = [];
+			let cascadeDeletedChildUUIDs: string[] = [];
 
 			if (!deckId) {
 				const allDecks = await this.getDecks();
@@ -3033,6 +3293,7 @@ export class WeaveDataStorage {
 					if (childIndex >= 0) {
 						allCardsInDeck.splice(childIndex, 1);
 					}
+					cascadeDeletedChildUUIDs.push(childCard.uuid);
 				}
 
 				logger.info(`[Storage] 已级联删除 ${childCards.length} 个子卡片`);
@@ -3104,6 +3365,11 @@ export class WeaveDataStorage {
 
 				// v5.8: 触发卡片删除事件（用于会话统计等）
 				this.plugin.app.workspace.trigger("Weave:card-deleted", cardUuid);
+
+				await this.cleanupQuestionBankAfterCardDeletion([
+					cardUuid,
+					...cascadeDeletedChildUUIDs,
+				]);
 
 				return { success: true, data: true, timestamp: new Date().toISOString() };
 			}
@@ -3270,8 +3536,9 @@ export class WeaveDataStorage {
 					`[Storage] 批量删除卡片完成: 请求 ${uniqueUUIDs.length}, 实删 ${deletedBatchUUIDs.length}, 失败 ${failed.length}`
 				);
 				if (deleted.length > 0) {
-					this.invalidateBodyFingerprintIndex();
+					await this.syncBodyFingerprintIndexAfterDelete(deleted);
 				}
+				await this.cleanupQuestionBankAfterCardDeletion(deletedBatchUUIDs);
 				return { deleted, failed };
 			} catch (error) {
 				logger.error("[Storage] 批量删除卡片失败，回退到逐张删除:", error);
@@ -3292,7 +3559,7 @@ export class WeaveDataStorage {
 		}
 
 		if (deleted.length > 0) {
-			this.invalidateBodyFingerprintIndex();
+			await this.syncBodyFingerprintIndexAfterDelete(deleted);
 		}
 		return { deleted, failed };
 	}
@@ -3302,7 +3569,7 @@ export class WeaveDataStorage {
 	 * 用于增量同步系统
 	 *
 	 * @param uuids UUID数组
-	 * @returns 找到的卡片数量
+	 * @returns 按输入顺序排列的卡片列表（未找到则跳过）
 	 */
 	async getCardsByUUIDs(uuids: string[]): Promise<Card[]> {
 		try {
@@ -3315,6 +3582,7 @@ export class WeaveDataStorage {
 
 			const foundCards = new Map<string, Card>();
 			const uuidSet = new Set(normalizedUUIDs);
+			let wdeckLookupFailed = false;
 
 			if (this.plugin.wdeckService) {
 				try {
@@ -3330,11 +3598,18 @@ export class WeaveDataStorage {
 						}
 					}
 				} catch (error) {
+					wdeckLookupFailed = true;
 					logger.warn("[WeaveDataStorage] WDeck UUID 批量查询失败，降级到其他路径:", error);
 				}
 			}
 
 			if (uuidSet.size === 0) {
+				return normalizedUUIDs.map((uuid) => foundCards.get(uuid)).filter((card): card is Card => !!card);
+			}
+
+			// WDeck 已是主存储：未命中的 UUID 视为不存在，避免扫描全部牌组。
+			// 若 WDeck 查询本身失败，则仍允许走 legacy 回退。
+			if (this.plugin.wdeckService && !wdeckLookupFailed) {
 				return normalizedUUIDs.map((uuid) => foundCards.get(uuid)).filter((card): card is Card => !!card);
 			}
 
@@ -3704,38 +3979,10 @@ export class WeaveDataStorage {
 		}
 	}
 
-	// 数据备份
+	// 数据备份（写入自动备份槽位，覆盖上一份）
 	async createBackup(): Promise<string> {
-		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-		const backupBasePath = getBackupPath(this.plugin.app);
-		if (!backupBasePath) {
-			throw new Error("备份路径未定义");
-		}
-		const backupFolder = `${backupBasePath}/${timestamp}`;
-		const adapter = this.plugin.app.vault.adapter;
-
-		//  使用递归创建支持嵌套路径
-		await this.ensureFolder(backupFolder);
-
-		const fileMapping = [
-			{ source: this.v2Paths.memory.decks, target: "decks.json" },
-			{ source: getPluginPaths(this.plugin.app).state.userProfile, target: "profile.json" },
-		];
-
-		for (const { source, target } of fileMapping) {
-			try {
-				const sourceContent = (await adapter.exists(source)) ? await adapter.read(source) : "[]";
-				await adapter.write(`${backupFolder}/${target}`, sourceContent);
-			} catch (error) {
-				logger.warn(`备份文件失败: ${source}`, error);
-				await adapter.write(`${backupFolder}/${target}`, "[]");
-			}
-		}
-
-		// 备份保留策略
-		await this.pruneBackups();
-
-		return backupFolder;
+		const { createAutoDataBackup } = await import("../services/backup/WeaveBackupService");
+		return createAutoDataBackup(this.plugin);
 	}
 
 	// 瀵煎嚭涓?Anki revlog 椋庢牸鐨?JSON锛堝熀鏈槧灏勶級
@@ -3789,36 +4036,9 @@ export class WeaveDataStorage {
 	}
 
 	async pruneBackups(): Promise<void> {
-		const retention: number = this.plugin.settings?.backupRetentionCount ?? 10;
-		//  使用新的独立备份路径
-		const parent = getBackupPath(this.plugin.app);
-		if (!parent) {
-			logger.warn("[pruneBackups] 备份路径未定义，跳过清理");
-			return;
-		}
 		try {
-			const listing = await this.listVaultDir(parent);
-			const folders = listing.folders;
-			if (!Array.isArray(folders) || folders.length <= retention) return;
-			const sorted = folders.slice().sort(); const toDelete = sorted.slice(0, Math.max(0, folders.length - retention));
-			for (const folder of toDelete) {
-				const files = ["decks.json", "profile.json"];
-				for (const f of files) {
-					const p = `${folder}/${f}`;
-					if (await this.exists(p)) {
-						await this.plugin.app.vault.adapter.remove(p);
-					}
-				}
-				// 删除空文件夹
-				const adapter = this.getVaultAdapterWithDirOps();
-				if (adapter.rmdir) {
-					await adapter.rmdir(folder, true);
-				} else {
-					try {
-						await this.plugin.app.vault.adapter.remove(folder);
-					} catch { /* no-op */ }
-				}
-			}
+			const { runWeaveBackupMaintenance } = await import("../services/backup/WeaveBackupService");
+			await runWeaveBackupMaintenance(this.plugin);
 		} catch (e) {
 			logger.warn("Backup pruning skipped:", e);
 		}
@@ -4466,10 +4686,10 @@ export class WeaveDataStorage {
 		let hasContentChange = false;
 		let updatedLinks = 0;
 
-		const yaml = parseYAMLFromContent(nextContent);
-		if (yaml.we_source !== undefined) {
-			const rewriteResult = this.rewriteWeSourceValue(yaml.we_source, oldPath, newPath);
-			if (rewriteResult.value !== yaml.we_source) {
+		const yamlMeta = getCardMetadata(nextContent);
+		if (yamlMeta.we_source !== undefined) {
+			const rewriteResult = this.rewriteWeSourceValue(yamlMeta.we_source, oldPath, newPath);
+			if (rewriteResult.value !== yamlMeta.we_source) {
 				updatedLinks += rewriteResult.updatedLinks;
 				nextContent = setCardProperty(nextContent, "we_source", rewriteResult.value);
 				hasContentChange = true;
@@ -4579,22 +4799,42 @@ export class WeaveDataStorage {
 	}
 
 	private async getDeckLookupsForIndex(): Promise<Array<{ id: string; name: string }>> {
-		const decks = this.plugin.cachedDecks?.length ? this.plugin.cachedDecks : await this.getDecks();
+		const cachedDecks = this.plugin.getCachedDecksSnapshot();
+		const decks = cachedDecks.length > 0 ? cachedDecks : await this.getDecks();
 		return decks
 			.filter((deck) => Boolean(deck?.id && deck?.name))
 			.map((deck) => ({ id: deck.id, name: deck.name }));
 	}
 
+	private shouldSkipDeckMembershipSync(): boolean {
+		const context = this.getDataChangeContext();
+		if (context?.skipDeckMembershipSync === true) {
+			return true;
+		}
+		if (context?.skipDeckMembershipSync === false) {
+			return false;
+		}
+		return context?.source === MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE;
+	}
+
+	private shouldSkipBodyFingerprintSync(): boolean {
+		return this.getDataChangeContext()?.skipBodyFingerprintSync === true;
+	}
+
 	private async syncCardIndicesAfterWrite(card: Card): Promise<void> {
 		try {
-			const deckLookups = await this.getDeckLookupsForIndex();
+			const skipDeckMembershipSync = this.shouldSkipDeckMembershipSync();
+			const deckLookups = skipDeckMembershipSync ? [] : await this.getDeckLookupsForIndex();
 			if (this.plugin.studyDueIndexService) {
-				await this.plugin.studyDueIndexService.updateCard(card, deckLookups);
+				await this.plugin.studyDueIndexService.updateCard(card, deckLookups, {
+					skipDeckMembershipSync,
+				});
 				return;
 			}
 
-			if (this.plugin.deckMembershipIndexService) {
+			if (this.plugin.deckMembershipIndexService && !skipDeckMembershipSync) {
 				const { getFormalDeckLookups } = await import("../services/index/StudyDueIndexService");
+				const deckLookups = await this.getDeckLookupsForIndex();
 				const { decks } = getFormalDeckLookups(card, deckLookups);
 				if (decks.length > 0) {
 					await this.plugin.deckMembershipIndexService.updateCards([card], decks);

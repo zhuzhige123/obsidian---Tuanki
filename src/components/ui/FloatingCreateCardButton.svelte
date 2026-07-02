@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { logger } from '../../utils/logger';
   import { vaultStorage } from '../../utils/vault-local-storage';
 
@@ -39,7 +40,7 @@
   let dragThreshold = 5; // 像素阈值，超过这个距离才认为是拖拽
 
   //  移动端触摸拖动状态
-  let longPressTimer: ReturnType<typeof setTimeout> | undefined;
+  let longPressTimer: WeaveTimerHandle | undefined;
   let isTouchDragging = $state(false);
   let touchStartPosition = $state({ x: 0, y: 0 });
   const LONG_PRESS_DURATION = 500; // 长按 500ms 触发拖动
@@ -48,7 +49,7 @@
   const POSITION_STORAGE_KEY = 'weave-floating-button-position';
 
   // 防抖保存位置
-  let savePositionTimer: ReturnType<typeof setTimeout> | undefined;
+  let savePositionTimer: WeaveTimerHandle | undefined;
 
   // 检测主题模式
   function detectTheme() {
@@ -104,10 +105,10 @@
   // 保存位置（防抖）
   function savePosition() {
     if (savePositionTimer) {
-      clearTimeout(savePositionTimer);
+      window.clearTimeout(savePositionTimer);
     }
 
-    savePositionTimer = setTimeout(() => {
+    savePositionTimer = window.setTimeout(() => {
       try {
         vaultStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(position));
       } catch (error) {
@@ -119,7 +120,7 @@
   // 立即保存位置（用于拖拽结束）
   function savePositionImmediate() {
     if (savePositionTimer) {
-      clearTimeout(savePositionTimer);
+      window.clearTimeout(savePositionTimer);
     }
     try {
       vaultStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(position));
@@ -264,7 +265,7 @@
     }
 
     // 设置长按定时器
-    longPressTimer = setTimeout(() => {
+    longPressTimer = window.setTimeout(() => {
       // 长按触发拖动模式
       isTouchDragging = true;
       isDragging = true;
@@ -297,7 +298,7 @@
     // 如果移动了，取消长按定时器（除非已经进入拖动模式）
     if (!isTouchDragging && distance > dragThreshold) {
       if (longPressTimer) {
-        clearTimeout(longPressTimer);
+        window.clearTimeout(longPressTimer);
         longPressTimer = undefined;
       }
       hasMoved = true;
@@ -330,7 +331,7 @@
   function handleTouchEnd(event: TouchEvent) {
     // 清除长按定时器
     if (longPressTimer) {
-      clearTimeout(longPressTimer);
+      window.clearTimeout(longPressTimer);
       longPressTimer = undefined;
     }
 
@@ -418,10 +419,10 @@
 
     // 清理定时器
     if (savePositionTimer) {
-      clearTimeout(savePositionTimer);
+      window.clearTimeout(savePositionTimer);
     }
     if (longPressTimer) {
-      clearTimeout(longPressTimer);
+      window.clearTimeout(longPressTimer);
     }
 
     //  关键修复：强制清理全局 document.body 样式

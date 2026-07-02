@@ -55,7 +55,26 @@ export class DeckNameMapper {
 	}
 
 	getDeckNameById(deckId: string): string | undefined {
-		return this.idToNameMap.get(deckId);
+		const direct = this.idToNameMap.get(deckId);
+		if (direct) {
+			return direct;
+		}
+
+		const trimmed = String(deckId || "").trim();
+		if (!trimmed.startsWith("wdeck:")) {
+			return undefined;
+		}
+
+		const logicalName = trimmed.slice("wdeck:".length).trim();
+		if (!logicalName) {
+			return undefined;
+		}
+
+		if (this.nameToIdMap.has(logicalName)) {
+			return logicalName;
+		}
+
+		return logicalName;
 	}
 
 	getDeckById(deckId: string): Deck | undefined {
@@ -235,7 +254,42 @@ export function getDeckIdByName(deckName: string): string | undefined {
 
 export function getDeckNameById(deckId: string): string | undefined {
 	if (!deckNameMapperInstance) {
+		return resolveWDeckLogicalDeckNameFromId(deckId);
+	}
+	return (
+		deckNameMapperInstance.getDeckNameById(deckId) ||
+		resolveWDeckLogicalDeckNameFromId(deckId)
+	);
+}
+
+/** 从 wdeck 运行时 ID 或卡片物理归属推断正式牌组名称 */
+export function resolveDeckIdToFormalName(
+	deckId: string,
+	card?: { customFields?: Record<string, unknown> }
+): string | undefined {
+	const fromMapper = getDeckNameById(deckId);
+	if (fromMapper) {
+		return fromMapper;
+	}
+
+	const marker = (card?.customFields)?.wdeck;
+	if (marker && typeof marker === "object") {
+		const logicalDeckName = String(
+			(marker as { logicalDeckName?: unknown }).logicalDeckName || ""
+		).trim();
+		if (logicalDeckName) {
+			return logicalDeckName;
+		}
+	}
+
+	return resolveWDeckLogicalDeckNameFromId(deckId);
+}
+
+function resolveWDeckLogicalDeckNameFromId(deckId: string): string | undefined {
+	const trimmed = String(deckId || "").trim();
+	if (!trimmed.startsWith("wdeck:")) {
 		return undefined;
 	}
-	return deckNameMapperInstance.getDeckNameById(deckId);
+	const logicalName = trimmed.slice("wdeck:".length).trim();
+	return logicalName || undefined;
 }

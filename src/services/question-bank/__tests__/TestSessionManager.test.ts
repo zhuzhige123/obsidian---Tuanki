@@ -64,4 +64,64 @@ describe("TestSessionManager", () => {
 
 		expect(result.isCorrect).toBe(false);
 	});
+
+	it("undoes the current answer and recalculates score consistently", async () => {
+		const manager = new TestSessionManager(createStorageMock());
+		const cards = [
+			createInputClozeCard(),
+			{
+				...createInputClozeCard(),
+				uuid: "card-2",
+				content: "Q?\nA. one\nB. two\nAnswer: A",
+			},
+		];
+
+		await manager.startSession({ bankId: "bank-1", mode: "exam" }, cards);
+		await manager.submitAnswer({
+			questionId: cards[0].uuid,
+			answer: ["Paris", "Seine"],
+			timeSpent: 8,
+		});
+
+		const sessionBeforeUndo = manager.getCurrentSession();
+		expect(sessionBeforeUndo?.correctCount).toBe(1);
+		expect(sessionBeforeUndo?.score).toBe(50);
+
+		const undone = await manager.undoCurrentAnswer();
+		expect(undone).toBe(true);
+
+		const sessionAfterUndo = manager.getCurrentSession();
+		expect(sessionAfterUndo?.correctCount).toBe(0);
+		expect(sessionAfterUndo?.completedQuestions).toBe(0);
+		expect(sessionAfterUndo?.score).toBe(0);
+		expect(sessionAfterUndo?.questions[0].isCorrect).toBeNull();
+	});
+
+	it("updates stats when removing an answered question", async () => {
+		const manager = new TestSessionManager(createStorageMock());
+		const cards = [
+			createInputClozeCard(),
+			{
+				...createInputClozeCard(),
+				uuid: "card-2",
+				content: "Q?\nA. one\nB. two\nAnswer: A",
+			},
+		];
+
+		await manager.startSession({ bankId: "bank-1", mode: "exam" }, cards);
+		await manager.submitAnswer({
+			questionId: cards[0].uuid,
+			answer: ["Paris", "Seine"],
+			timeSpent: 8,
+		});
+
+		const removalResult = await manager.removeQuestionFromSession(cards[0].uuid);
+		expect(removalResult).toBe("removed");
+
+		const session = manager.getCurrentSession();
+		expect(session?.totalQuestions).toBe(1);
+		expect(session?.correctCount).toBe(0);
+		expect(session?.completedQuestions).toBe(0);
+		expect(session?.score).toBe(0);
+	});
 });

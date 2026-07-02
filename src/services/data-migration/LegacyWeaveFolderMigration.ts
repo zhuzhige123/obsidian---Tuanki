@@ -160,7 +160,7 @@ async function filesHaveSameContent(
 	rightPath: string
 ): Promise<boolean> {
 	try {
-		if (adapter.readBinary && adapter.writeBinary) {
+		if (typeof adapter.readBinary === "function" && typeof adapter.writeBinary === "function") {
 			const [left, right] = await Promise.all([
 				adapter.readBinary(leftPath),
 				adapter.readBinary(rightPath),

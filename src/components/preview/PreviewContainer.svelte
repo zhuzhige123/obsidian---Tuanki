@@ -353,7 +353,7 @@
                   img.addEventListener('load', () => resolve(null), { once: true });
                   img.addEventListener('error', () => resolve(null), { once: true });
                   // 超时保护
-                  setTimeout(() => resolve(null), 1000);
+                  window.setTimeout(() => resolve(null), 1000);
                 });
               });
               
@@ -377,7 +377,7 @@
             }
             
             // 等待一段时间后再试
-            await new Promise(resolve => setTimeout(resolve, waitInterval));
+            await new Promise(resolve => window.setTimeout(resolve, waitInterval));
             attempts++;
           }
           

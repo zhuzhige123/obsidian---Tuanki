@@ -25,13 +25,13 @@
   import {
     createDeckTagColumnKey,
     DECK_GROUP_CONFIGS,
-    DECK_GROUP_BY_LABELS,
     DECK_TAG_EMPTY_GROUP_KEY,
     DECK_TAG_GROUP_OTHER_KEY,
     getDeckTagLabelFromColumnKey,
     normalizeDeckTagGroup,
     normalizeDeckTagGroupTags
   } from '../../types/deck-kanban-types';
+  import { getDeckGroupByTypeLabel, localizeDeckGroupConfig } from '../../utils/deck-kanban-labels';
   import { tr } from '../../utils/i18n';
   import { showObsidianConfirm } from '../../utils/obsidian-confirm';
   import { type MemoryDeckMenuAction } from '../../services/deck/MemoryDeckMenu';
@@ -301,10 +301,10 @@
         groups: tagGroups
       };
     }
-    return DECK_GROUP_CONFIGS[groupBy];
+    return localizeDeckGroupConfig(groupBy, t);
   })());
   
-  const currentGroupLabel = $derived(DECK_GROUP_BY_LABELS[groupBy]);
+  const currentGroupLabel = $derived(currentGroupConfig.title);
   
   // 获取有序的列配置（用于渲染）
   const orderedGroups = $derived((() => {
@@ -659,7 +659,7 @@
       menu,
       groupBy,
       groupTypes.map((type) => ({
-        title: DECK_GROUP_CONFIGS[type].title,
+        title: getDeckGroupByTypeLabel(type, t),
         icon: DECK_GROUP_CONFIGS[type].icon as import('obsidian').IconName,
         value: type,
         disabled: type === 'tagGroup' && tagGroupUnavailable,
@@ -1077,7 +1077,7 @@
 
         menu.addItem((item) =>
           item
-            .setTitle('转为正式牌组')
+            .setTitle(t('decks.kanban.promoteToFormalDeck'))
             .setIcon('folder-plus')
             .onClick(async () => await onPromoteEmergentDeck(candidate, event))
         );
@@ -1090,19 +1090,19 @@
     if (deckMode === 'incremental-reading') {
       // === 增量阅读牌组菜单（与历史 IR 牌组网格视图一致）===
       menu.addItem((item) =>
-        item.setTitle('专题编辑').setIcon('edit-3')
+        item.setTitle(t('decks.kanban.topicEdit')).setIcon('edit-3')
           .onClick(() => onEditDeck?.(deckId))
       );
       
       menu.addItem((item) =>
-        item.setTitle('专题分析').setIcon('bar-chart-2')
+        item.setTitle(t('decks.kanban.topicAnalytics')).setIcon('bar-chart-2')
           .onClick(() => onOpenLoadForecast?.(deckId))
       );
       
       menu.addSeparator();
       
       menu.addItem((item) =>
-        item.setTitle('删除专题').setIcon('trash-2').setWarning(true)
+        item.setTitle(t('decks.kanban.deleteTopic')).setIcon('trash-2').setWarning(true)
           .onClick(() => onDeleteDeck?.(deckId))
       );
     } else if (deckMode === 'question-bank') {

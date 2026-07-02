@@ -66,11 +66,11 @@ $effect(() => {
   // 当importance变化时，延迟显示
   if (importance && sticky) {
     isVisible = false;
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       isVisible = true;
     }, 150); // 150ms延迟
     
-    return () => clearTimeout(timer);
+    return () => window.clearTimeout(timer);
   } else {
     isVisible = false;
   }

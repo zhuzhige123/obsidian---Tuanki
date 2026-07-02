@@ -2,6 +2,14 @@ import type { App } from "obsidian";
 import { normalizePath } from "obsidian";
 import { EpubStorageService } from "../epub-integration/EpubStorageService";
 import type { IRBlockMeta, IRBlockStats, IRBlockStatus, IRBlockV4 } from "../../types/ir-types";
+
+type IREpubBookmarkBlockV4 = IRBlockV4 & {
+	contentPreview?: string;
+	epubBookmarkHref?: string;
+	epubBookmarkTitle?: string;
+	epubBookmarkLevel?: number;
+	epubBookmarkResumeCfi?: string;
+};
 import { DEFAULT_IR_BLOCK_META, DEFAULT_IR_BLOCK_STATS } from "../../types/ir-types";
 import { getTaskTopicId } from "../../utils/ir-topic-compat";
 import { logger } from "../../utils/logger";
@@ -647,8 +655,8 @@ export class IREpubBookmarkTaskService {
 		return deletedCount;
 	}
 
-	toBlockV4(task: IREpubBookmarkTask): IRBlockV4 {
-		const block: IRBlockV4 = {
+	toBlockV4(task: IREpubBookmarkTask): IREpubBookmarkBlockV4 {
+		const block: IREpubBookmarkBlockV4 = {
 			id: task.id,
 			sourcePath: task.epubFilePath,
 			blockId: task.id,
@@ -665,11 +673,11 @@ export class IREpubBookmarkTaskService {
 			updatedAt: task.updatedAt,
 		};
 
-		(block as unknown).contentPreview = task.title;
-		(block as unknown).epubBookmarkHref = task.tocHref;
-		(block as unknown).epubBookmarkTitle = task.title;
-		(block as unknown).epubBookmarkLevel = task.tocLevel;
-		(block as unknown).epubBookmarkResumeCfi = task.resumeCfi;
+		block.contentPreview = task.title;
+		block.epubBookmarkHref = task.tocHref;
+		block.epubBookmarkTitle = task.title;
+		block.epubBookmarkLevel = task.tocLevel;
+		block.epubBookmarkResumeCfi = task.resumeCfi;
 
 		return block;
 	}

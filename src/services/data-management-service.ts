@@ -84,12 +84,21 @@ export class DataManagementService {
 			const dataFolderPath = this.getDataFolderPath();
 			const totalSize = folderSizes.folderSizes[dataFolderPath] || 0;
 
+			let filledBackupSlots = 0;
+			try {
+				const { countFilledBackupSlots } = await import("./backup/WeaveBackupService");
+				filledBackupSlots = await countFilledBackupSlots(this.plugin);
+			} catch (error) {
+				logger.warn("无法获取备份槽位状态:", error);
+			}
+
 			return {
 				dataFolderPath,
 				totalSize,
 				totalDecks: decks.length,
 				totalCards: cards.length,
 				totalSessions,
+				filledBackupSlots,
 				lastUpdated: new Date().toISOString(),
 			};
 		} catch (error) {

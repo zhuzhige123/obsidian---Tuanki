@@ -46,8 +46,8 @@
 
   // Tab定义（测试卡片专用）- 📱 移动端显示文本功能键（不显示图标）
   let tabs = $derived([
-    { id: 'info', label: t('study.questionBankUI.detailModal.infoTab'), icon: '' },
-    { id: 'stats', label: t('study.questionBankUI.detailModal.statsTab'), icon: '' }
+    { id: 'info' as const, label: t('study.questionBankUI.detailModal.infoTab'), icon: '' },
+    { id: 'stats' as const, label: t('study.questionBankUI.detailModal.statsTab'), icon: '' }
   ]);
 
   // 牌组名称 - 使用$derived确保响应式更新

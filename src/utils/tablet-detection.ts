@@ -43,15 +43,15 @@ export function detectDevice(): DeviceInfo {
 
 	// 平台检测 - 使用 Obsidian Platform API
 	let platform: DeviceInfo["platform"] = "unknown";
-	if ((Platform as unknown).isIosApp) {
+	if (Platform.isIosApp) {
 		platform = "ios";
-	} else if ((Platform as unknown).isAndroidApp) {
+	} else if (Platform.isAndroidApp) {
 		platform = "android";
-	} else if ((Platform as unknown).isWin) {
+	} else if (Platform.isWin) {
 		platform = "windows";
-	} else if ((Platform as unknown).isMacOS) {
+	} else if (Platform.isMacOS) {
 		platform = "macos";
-	} else if ((Platform as unknown).isLinux) {
+	} else if (Platform.isLinux) {
 		platform = "linux";
 	}
 

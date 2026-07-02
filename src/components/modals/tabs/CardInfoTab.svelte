@@ -335,7 +335,7 @@
       }));
 
       // 3. 延迟一小段时间，确保页面已加载，然后应用筛选
-      setTimeout(() => {
+      window.setTimeout(() => {
         window.dispatchEvent(new CustomEvent('Weave:filter-by-cards', {
           detail: {
             cardIds: allSiblingIds,

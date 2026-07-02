@@ -166,7 +166,7 @@ body.is-mobile .weave-app .view-type-dot {
   min-width: auto;
 }
 
-/* 🔧 ExtractListView 复选框例外：使用组件内定义的 18px 尺寸 */
+/* 列表项指示器：使用组件内定义的 18px 尺寸 */
 body.is-mobile .weave-app .list-item-indicator {
   min-height: auto;
   min-width: auto;
@@ -1340,7 +1340,6 @@ body.is-mobile .weave-app .weave-table .col-actions,
 body.is-mobile .weave-app .weave-table .col-uuid,
 body.is-mobile .weave-app .weave-table .col-obsidian_block_link,
 body.is-mobile .weave-app .weave-table .col-source_document,
-body.is-mobile .weave-app .weave-table .col-field_template,
 body.is-mobile .weave-app .weave-table .col-source_document_status,
 body.is-mobile .weave-app .weave-table .col-question_type,
 body.is-mobile .weave-app .weave-table .col-accuracy,
@@ -1409,7 +1408,7 @@ body.is-mobile .weave-app .weave-table .col-next_review {
   color: var(--text-muted);
 }
 
-/* 移动端隐藏顶部滚动条 */
+/* 移动端隐藏顶部滚动条，保留触控横向滑动 */
 body.is-mobile .weave-app .weave-table-top-scrollbar {
   display: none;
 }
@@ -1419,6 +1418,31 @@ body.is-mobile .weave-app .weave-table-container {
   -webkit-overflow-scrolling: touch;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+body.is-mobile .weave-app .weave-table-scroll-x {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+body.is-mobile .weave-app .weave-table-scroll-x::-webkit-scrollbar {
+  display: initial;
+  height: 6px;
+}
+
+/* 移动端看板：隐藏顶部滚动条，保留触控横向滑动 */
+body.is-mobile .weave-app .weave-kanban-top-scrollbar {
+  display: none;
+}
+
+body.is-mobile .weave-app .weave-kanban-board {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+body.is-mobile .weave-app .weave-kanban-board::-webkit-scrollbar {
+  display: initial;
+  height: 6px;
 }
 
 /* 移动端表格行触控反馈 */

@@ -1,5 +1,6 @@
 import type { SupportedLanguage } from '../../utils/i18n';
 import { deckAnalyticsTranslationOverrides } from '../../utils/i18n/deck-analytics-overrides';
+import { isRecord } from "../../utils/typed-json";
 
 export type DeckAnalyticsText = ReturnType<typeof createDeckAnalyticsText>;
 
@@ -8,15 +9,26 @@ function getText(language: SupportedLanguage, key: string): string {
   let current: unknown = deckAnalyticsTranslationOverrides[language];
 
   for (const segment of keys) {
-    current = current?.[segment];
+    if (!isRecord(current)) {
+      return key;
+    }
+    current = current[segment];
   }
 
   return typeof current === 'string' ? current : key;
 }
 
+function interpolate(template: string, params: Record<string, string | number>): string {
+  return Object.entries(params).reduce(
+    (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
+    template,
+  );
+}
+
 export function createDeckAnalyticsText(language: SupportedLanguage) {
-  const en = language === 'en-US';
   const tx = (key: string) => getText(language, key);
+  const txParams = (key: string, params: Record<string, string | number>) =>
+    interpolate(tx(key), params);
 
   return {
     updating: tx('updating'),
@@ -46,8 +58,8 @@ export function createDeckAnalyticsText(language: SupportedLanguage) {
       separator: tx('range.separator'),
       daysSuffix: tx('range.daysSuffix'),
       scrollHint: tx('range.scrollHint'),
-      lastDaysLabel: (days: number) => en ? `Last ${days} days` : `最近${days}天`,
-      lastDaysShort: (days: number) => en ? `${days}d` : `${days}天`
+      lastDaysLabel: (days: number) => txParams('range.lastDaysLabel', { days }),
+      lastDaysShort: (days: number) => txParams('range.lastDaysShort', { days })
     },
     retention: {
       avgPredictedRecall: tx('retention.avgPredictedRecall'),
@@ -55,11 +67,12 @@ export function createDeckAnalyticsText(language: SupportedLanguage) {
       targetRetention: tx('retention.targetRetention'),
       axisX: tx('retention.axisX'),
       axisY: tx('retention.axisY'),
-      avgDesc: (value: number) => en ? `${value.toFixed(1)}% current deck-wide estimate` : `当前牌组整体预测 ${value.toFixed(1)}%`,
+      avgDesc: (value: number) => txParams('retention.avgDesc', { value: value.toFixed(1) }),
       avgEmpty: tx('retention.avgEmpty'),
-      trueDesc: (value: number, sample: number) => en ? `${value.toFixed(1)}% from ${sample} samples` : `${sample} 个样本中的通过率 ${value.toFixed(1)}%`,
+      trueDesc: (value: number, sample: number) =>
+        txParams('retention.trueDesc', { value: value.toFixed(1), sample }),
       trueEmpty: tx('retention.trueEmpty'),
-      targetDesc: (value: number) => en ? `${value.toFixed(1)}% FSRS scheduling target` : `FSRS 目标保持率 ${value.toFixed(1)}%`
+      targetDesc: (value: number) => txParams('retention.targetDesc', { value: value.toFixed(1) })
     },
     quantity: {
       newCards: tx('quantity.newCards'),
@@ -101,11 +114,11 @@ export function createDeckAnalyticsText(language: SupportedLanguage) {
       axisY: tx('load.axisY'),
       dailyLoad: tx('load.dailyLoad'),
       capacity: tx('load.capacity'),
-      cardsLine: (count: number) => en ? `Load: ${count} cards` : `负荷：${count} 张卡片`,
-      capacityLine: (count: number) => en ? `Capacity: ${count} cards/day` : `容量：${count} 张/天`
+      cardsLine: (count: number) => txParams('load.cardsLine', { count }),
+      capacityLine: (count: number) => txParams('load.capacityLine', { count })
     },
     misc: {
-      firstReviewSamples: (count: number) => en ? `${count} first-review samples` : `${count} 个首次复习样本`
+      firstReviewSamples: (count: number) => txParams('misc.firstReviewSamples', { count })
     }
   };
 }

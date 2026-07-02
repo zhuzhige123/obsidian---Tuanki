@@ -28,7 +28,9 @@ export async function loadSqlJs(wasmUrl?: string): Promise<SqlJs> {
 		logger.debug("🔧 正在加载 SQL.js 库...");
 
 		// 配置 SQL.js
-		const config: unknown = {};
+		const config: {
+			locateFile?: (file: string) => string;
+		} = {};
 
 		if (wasmUrl) {
 			config.locateFile = (file: string) => {

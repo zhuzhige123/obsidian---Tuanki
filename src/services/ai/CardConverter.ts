@@ -1,4 +1,4 @@
-import { logger } from "../../utils/logger";
+import { ParseErrorType } from "../../types/metadata-types";
 /**
  * AI生成卡片转换为Weave标准卡片格式
  */
@@ -13,6 +13,7 @@ import { QACardParser } from "../../parsers/card-type-parsers/QACardParser";
 import { splitCardFrontBack } from "../../constants/markdown-delimiters";
 import type { CardConversionResult, GeneratedCard, GenerationConfig } from "../../types/ai-types";
 import { setCardProperties } from "../../utils/yaml-utils";
+import { logger } from "../../utils/logger";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
 
 export class CardConverter {
@@ -406,7 +407,7 @@ export class CardConverter {
 						fields: {},
 						rawContent: content,
 						error: {
-							type: "unknown_card_type" as unknown,
+							type: ParseErrorType.UNKNOWN_CARD_TYPE,
 							message: `未知的卡片类型: ${type}`,
 						},
 					};
@@ -419,7 +420,7 @@ export class CardConverter {
 				fields: {},
 				rawContent: content,
 				error: {
-					type: "invalid_format" as unknown,
+					type: ParseErrorType.INVALID_FORMAT,
 					message: error instanceof Error ? error.message : "解析失败",
 				},
 			};

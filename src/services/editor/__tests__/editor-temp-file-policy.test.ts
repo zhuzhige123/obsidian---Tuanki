@@ -2,6 +2,8 @@ import {
   getVaultEditorTempDir,
   getPluginEditorTempDir,
   isDetachedEditorTempFilePath,
+  isEditorBridgeTempFilePath,
+  isModalEditorPermanentFilePath,
   isLegacyModalEditorPermanentFilePath,
   isPluginCacheModalEditorPermanentFilePath,
   resolveDetachedEditorTempFolder,
@@ -13,6 +15,15 @@ describe('editor-temp-file-policy', () => {
     expect(isDetachedEditorTempFilePath('notes/weave-editor-session.md')).toBe(true);
     expect(isDetachedEditorTempFilePath('notes/weave-editor-session.txt')).toBe(false);
     expect(isDetachedEditorTempFilePath('notes/real-note.md')).toBe(false);
+  });
+
+  it('detects modal editor permanent buffers as non-traceable bridge temp files', () => {
+    expect(isEditorBridgeTempFilePath('weave/editor/weave-editor-session.md')).toBe(true);
+    expect(
+      isEditorBridgeTempFilePath('.obsidian/plugins/weave/cache/editor-temp/modal-editor-permanent-2.md')
+    ).toBe(true);
+    expect(isEditorBridgeTempFilePath('notes/real-note.md')).toBe(false);
+    expect(isModalEditorPermanentFilePath('modal-editor-permanent.md')).toBe(true);
   });
 
   it('resolves detached editor temp folders from sourcePath and plugin configDir', () => {

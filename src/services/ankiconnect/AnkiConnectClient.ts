@@ -78,6 +78,14 @@ export class AnkiConnectClient {
 				);
 			}
 
+			if (result.result === null || result.result === undefined) {
+				throw new AnkiConnectError(
+					"AnkiConnect 返回空结果",
+					ConnectionErrorType.UNKNOWN,
+					"请查看 Anki 错误日志获取详细信息"
+				);
+			}
+
 			return result.result;
 		} catch (error: unknown) {
 			// 处理 AbortError（超时）

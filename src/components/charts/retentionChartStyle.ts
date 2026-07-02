@@ -15,7 +15,7 @@ interface RetentionChartAxisLike {
 	[key: string]: unknown;
 }
 
-interface RetentionChartOptionLike {
+export interface RetentionChartOptionLike {
 	series?: RetentionChartSeriesLike[];
 	legend?: unknown;
 	grid?: unknown;

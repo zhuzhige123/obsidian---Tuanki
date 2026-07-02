@@ -272,7 +272,7 @@ export class ObsidianNavigationService {
 
 				// 滚动到目标位置
 				try {
-					editor.scrollIntoView(cursorPos, true);
+					editor.scrollIntoView({ from: cursorPos, to: cursorPos }, true);
 				} catch (scrollError) {
 					logger.warn("⚠️ [NavigationService] 滚动到位置失败:", scrollError);
 				}

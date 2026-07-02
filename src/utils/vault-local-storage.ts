@@ -12,6 +12,7 @@ import type { App } from "obsidian";
 import { getPluginPaths } from "../config/paths";
 import { DirectoryUtils } from "./directory-utils";
 import { logger } from "./logger";
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 
 const MANAGED_PREFIXES = ["weave-", "weave_", "attachment_"] as const;
 const PERSIST_DELAY_MS = 150;
@@ -25,7 +26,7 @@ class VaultLocalStorage {
 	private entries: Record<string, string> = {};
 	private initializePromise: Promise<void> | null = null;
 	private persistPromise: Promise<void> = Promise.resolve();
-	private persistTimer: ReturnType<typeof setTimeout> | null = null;
+	private persistTimer: WeaveTimerHandle | null = null;
 	private dirty = false;
 
 	setApp(app: App): void {

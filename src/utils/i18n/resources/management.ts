@@ -89,7 +89,7 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 			search: "搜索",
 			actions: {
 				menu: "操作菜单",
-				resetReviewHistory: "重置复习历史",
+				resetToNewCard: "重置为新卡片",
 			},
 			viewModes: {
 				title: "视图",
@@ -250,9 +250,9 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 				deleteFailedRetry: "删除失败，请重试",
 				cardSaved: "卡片保存成功",
 				saveFailed: "保存失败",
-				memoryOnlyReset: "只有记忆卡支持重置复习历史",
-				resetReviewHistoryDone: "已重置卡片复习历史",
-				resetReviewHistoryFailed: "重置卡片复习历史失败",
+				memoryOnlyReset: "只有记忆卡支持重置为新卡片",
+				resetToNewCardDone: "已重置为新卡片",
+				resetToNewCardFailed: "重置为新卡片失败",
 				associatedNoteMissing: "关联笔记不存在或已被移动",
 				associatedNotesUpdated: "关联笔记已更新",
 				associatedNotesCleared: "已清空关联笔记",
@@ -308,6 +308,8 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 			sortMenu: {
 				topic: "专题",
 				deck: "牌组",
+				formalDeck: "正式牌组",
+				questionBankDeck: "考试题组",
 				created: "创建时间",
 				modified: "修改时间",
 				front: "正面内容",
@@ -323,6 +325,11 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 				questionBankDecksPremium: "考试牌组 (高级)",
 				activateToUse: "激活后使用",
 				noQuestionBanks: "暂无考试牌组",
+			},
+			batchQuestionBankMenu: {
+				title: "被以下考试题组所引用",
+				titleWithCount: "被以下考试题组所引用 · {count} 张卡片",
+				createNew: "新建考试题组",
 			},
 			tagMenu: {
 				create: "新建",
@@ -349,9 +356,11 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 				deleteCardMessage: "确定要删除卡片 \"{content}\" 吗？",
 				deleteTitle: "确认删除",
 				deleteConfirm: "删除",
-				resetReviewHistoryMessage: "确定要将卡片“{content}”的复习历史清空，并恢复为新卡吗？",
-				resetReviewHistoryTitle: "重置复习历史",
-				resetReviewHistoryConfirm: "重置",
+				resetToNewCardMessage: "确定要将卡片“{content}”重置为新卡片吗？将清空其复习历史与学习进度。",
+				resetToNewCardWithChildrenMessage:
+					"确定要将卡片“{content}”及其 {count} 张子卡重置为新卡片吗？将清空相关复习历史与学习进度。",
+				resetToNewCardTitle: "重置为新卡片",
+				resetToNewCardConfirm: "重置",
 			},
 			batchOps: {
 				selectReadingPointsFirst: "请先选择阅读点",
@@ -416,6 +425,15 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 				moveToUngroupedDone: "已将 {count} 张卡片移至未归组卡片",
 				moveToDeckDone: "已将 {count} 张卡片移至牌组“{name}”",
 				moveDeckFailed: "批量更换牌组失败",
+				addToQuestionBankTitle: "正在添加到考试题组",
+				addToQuestionBankDetail: "正在将 {count} 张卡片加入考试题组「{name}」",
+				removeFromQuestionBankTitle: "正在从考试题组移除",
+				removeFromQuestionBankDetail: "正在从考试题组「{name}」移除 {count} 张卡片",
+				questionBankNavigation: "正在更新考试题组引用，请暂时留在当前页面，完成后会自动刷新。",
+				addToQuestionBankDone: "已将 {count} 张卡片加入考试题组「{name}」",
+				addToQuestionBankDoneWithSkipped:
+					"已将 {count} 张卡片加入考试题组「{name}」（另有 {skipped} 张不符合题型要求，已跳过）",
+				removeFromQuestionBankDone: "已从考试题组「{name}」移除 {count} 张卡片",
 			},
 			dialogs: {
 				setDeckForCards: "设置 {count} 张卡片所属牌组",
@@ -904,6 +922,22 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 		dataManagement: {
 			title: "数据管理",
 			description: "管理插件数据的导入、导出和备份",
+			startupDataCheck: {
+				title: "启动时数据检查",
+				description:
+					"控制打开 Weave 主界面时是否自动检查数据。智能模式仅在发现问题时弹窗；严格模式每次启动都会弹出数据管理。",
+				modeLabel: "检查模式",
+				modes: {
+					smart: "智能（推荐）",
+					strict: "严格",
+					off: "关闭",
+				},
+				modeHints: {
+					smart: "后台静默检查；数据正常时不打扰，有问题时弹出提示（可稍后处理）。",
+					strict: "每次打开主界面都会弹出数据管理提示，关闭后不影响正常使用。",
+					off: "不自动检查，也不弹出启动提示。",
+				},
+			},
 			panelTitle: "数据管理主面板组件",
 			panelDescription: "集成所有数据管理功能的统一界面",
 			initFailed: "服务初始化失败",
@@ -958,11 +992,11 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 						totalSize: "总大小",
 						deckCount: "牌组数量",
 						cardTotal: "卡片总量",
-						backupCount: "保存总数",
+						backupCount: "备份槽位 (已用/2)",
 					},
 				},
 				history: {
-					title: "备份历史",
+					title: "备份槽位",
 					tableHeaders: {
 						backupTime: "备份时间",
 						backupType: "备份方式",
@@ -977,6 +1011,25 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 						restore: "恢复",
 						delete: "删除",
 						export: "导出",
+					},
+				},
+				slots: {
+					title: "数据备份",
+					description: "自动与手动各保留一份最新备份（不含附件）。新备份会覆盖同类型上一份。",
+					empty: "尚未创建",
+					tableHeaders: {
+						backupTime: "备份时间",
+						backupType: "备份方式",
+						backupSize: "备份大小",
+						actions: "操作",
+					},
+					type: {
+						manual: "手动",
+						auto: "自动",
+					},
+					actions: {
+						restore: "恢复",
+						delete: "删除",
 					},
 				},
 				operations: {
@@ -1027,7 +1080,7 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 					backupSize: "备份大小: {size} MB",
 					backupType: "备份类型: {type}",
 					restoreWarningOverwrite: "当前数据将被覆盖",
-					restoreWarningAutoBackup: "恢复前将自动创建备份",
+					restoreWarningAutoBackup: "恢复前会将当前数据写入手动备份槽位（覆盖原手动备份）",
 					restoreWarningIrreversible: "此操作不可撤销",
 					restoreSuccess: "数据恢复成功\n恢复文件数: {count}",
 					restoreFailed: "恢复失败: {error}",
@@ -1079,6 +1132,7 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 					weaveFolderTitle: "Weave 文件夹位置",
 					rootDirectory: "(根目录)",
 					select: "选择",
+					selectFolderPath: "选择文件夹路径",
 					moveFolderTitle: "移动 Weave 文件夹",
 					moveFolderMessage: "将移动可读内容文件夹到新的父目录。",
 					repairFolderTitle: "修复 Weave 文件夹",
@@ -1237,7 +1291,7 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 			search: "Search",
 			actions: {
 				menu: "Actions Menu",
-				resetReviewHistory: "Reset Review History",
+				resetToNewCard: "Reset to New Card",
 			},
 			viewModes: {
 				title: "View",
@@ -1398,9 +1452,9 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 				deleteFailedRetry: "Delete failed. Please try again",
 				cardSaved: "Card saved",
 				saveFailed: "Save failed",
-				memoryOnlyReset: "Only memory cards support resetting review history",
-				resetReviewHistoryDone: "Review history reset",
-				resetReviewHistoryFailed: "Failed to reset review history",
+				memoryOnlyReset: "Only memory cards can be reset to new",
+				resetToNewCardDone: "Reset to new card",
+				resetToNewCardFailed: "Failed to reset to new card",
 				associatedNoteMissing: "Associated note does not exist or has been moved",
 				associatedNotesUpdated: "Associated notes updated",
 				associatedNotesCleared: "Associated notes cleared",
@@ -1456,6 +1510,8 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 			sortMenu: {
 				topic: "Topic",
 				deck: "Deck",
+				formalDeck: "Formal Deck",
+				questionBankDeck: "Exam Set",
 				created: "Created time",
 				modified: "Modified time",
 				front: "Front content",
@@ -1471,6 +1527,11 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 				questionBankDecksPremium: "Exam Decks (Premium)",
 				activateToUse: "Activate to use",
 				noQuestionBanks: "No exam decks yet",
+			},
+			batchQuestionBankMenu: {
+				title: "Referenced by exam sets",
+				titleWithCount: "Referenced by exam sets · {count} cards",
+				createNew: "Create exam set",
 			},
 			tagMenu: {
 				create: "Create",
@@ -1497,9 +1558,12 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 				deleteCardMessage: "Delete card \"{content}\"?",
 				deleteTitle: "Confirm delete",
 				deleteConfirm: "Delete",
-				resetReviewHistoryMessage: "Clear the review history of card \"{content}\" and restore it as a new card?",
-				resetReviewHistoryTitle: "Reset review history",
-				resetReviewHistoryConfirm: "Reset",
+				resetToNewCardMessage:
+					"Reset card \"{content}\" to a new card? This clears its review history and learning progress.",
+				resetToNewCardWithChildrenMessage:
+					"Reset card \"{content}\" and its {count} sub-cards to new cards? This clears related review history and learning progress.",
+				resetToNewCardTitle: "Reset to new card",
+				resetToNewCardConfirm: "Reset",
 			},
 			batchOps: {
 				selectReadingPointsFirst: "Please select reading points first",
@@ -1564,6 +1628,15 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 				moveToUngroupedDone: "Moved {count} cards to ungrouped",
 				moveToDeckDone: "Moved {count} cards to deck \"{name}\"",
 				moveDeckFailed: "Batch deck change failed",
+				addToQuestionBankTitle: "Adding to exam set",
+				addToQuestionBankDetail: "Adding {count} cards to exam set \"{name}\"",
+				removeFromQuestionBankTitle: "Removing from exam set",
+				removeFromQuestionBankDetail: "Removing {count} cards from exam set \"{name}\"",
+				questionBankNavigation: "Updating exam set references. Please stay on this page until refresh completes.",
+				addToQuestionBankDone: "Added {count} cards to exam set \"{name}\"",
+				addToQuestionBankDoneWithSkipped:
+					"Added {count} cards to exam set \"{name}\" ({skipped} unsupported cards skipped)",
+				removeFromQuestionBankDone: "Removed {count} cards from exam set \"{name}\"",
 			},
 			dialogs: {
 				setDeckForCards: "Set deck for {count} cards",
@@ -2053,6 +2126,22 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 		dataManagement: {
 			title: "Data Management",
 			description: "Manage plugin data import, export, and backup",
+			startupDataCheck: {
+				title: "Startup Data Check",
+				description:
+					"Control whether Weave checks your data when you open the main interface. Smart mode only interrupts you when issues are found.",
+				modeLabel: "Check mode",
+				modes: {
+					smart: "Smart (recommended)",
+					strict: "Strict",
+					off: "Off",
+				},
+				modeHints: {
+					smart: "Runs checks in the background. No popup when data is healthy; shows a prompt when issues remain (you can defer).",
+					strict: "Opens Data Management on every startup. Closing it does not block normal use.",
+					off: "No automatic checks and no startup prompt.",
+				},
+			},
 			panelTitle: "Data Management Panel",
 			panelDescription: "Integrated interface for all data management functions",
 			initFailed: "Service initialization failed",
@@ -2107,11 +2196,11 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 						totalSize: "Total Size",
 						deckCount: "Deck Count",
 						cardTotal: "Card Total",
-						backupCount: "Backup Count",
+						backupCount: "Backup Slots (used/2)",
 					},
 				},
 				history: {
-					title: "Backup History",
+					title: "Backup Slots",
 					tableHeaders: {
 						backupTime: "Backup Time",
 						backupType: "Backup Type",
@@ -2126,6 +2215,26 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 						restore: "Restore",
 						delete: "Delete",
 						export: "Export",
+					},
+				},
+				slots: {
+					title: "Data Backup",
+					description:
+						"One latest auto and one manual backup (attachments excluded). Each new backup replaces the previous one of the same type.",
+					empty: "Not created yet",
+					tableHeaders: {
+						backupTime: "Backup Time",
+						backupType: "Backup Type",
+						backupSize: "Backup Size",
+						actions: "Actions",
+					},
+					type: {
+						manual: "Manual",
+						auto: "Auto",
+					},
+					actions: {
+						restore: "Restore",
+						delete: "Delete",
 					},
 				},
 				operations: {
@@ -2177,7 +2286,8 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 					backupSize: "Backup size: {size} MB",
 					backupType: "Backup type: {type}",
 					restoreWarningOverwrite: "Current data will be overwritten",
-					restoreWarningAutoBackup: "A backup will be created automatically before restore",
+					restoreWarningAutoBackup:
+						"Current data will be saved to the manual backup slot before restore (replacing the previous manual backup)",
 					restoreWarningIrreversible: "This action cannot be undone",
 					restoreSuccess: "Data restored successfully\nRestored files: {count}",
 					restoreFailed: "Restore failed: {error}",
@@ -2229,6 +2339,7 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 					weaveFolderTitle: "Weave Folder Location",
 					rootDirectory: "(Root directory)",
 					select: "Select",
+					selectFolderPath: "Select folder path",
 					moveFolderTitle: "Move Weave Folder",
 					moveFolderMessage: "Readable content folders will be moved to the new parent directory.",
 					repairFolderTitle: "Repair Weave Folder",
@@ -2288,6 +2399,25 @@ export const managementTranslations: Record<SupportedLanguage, TranslationKey> =
 				refreshData: "Refresh Data",
 			},
 		},
+		storage: {
+			firstDeck: {
+				title: "Create your first memory deck",
+				message:
+					"This vault has no memory deck files (.wdeck) yet.\nWould you like to create your first deck now?",
+				choiceCreate: "Create deck",
+				choiceLater: "Not now",
+				choiceCreateDesc: "Enter a deck name and save it as a .wdeck file",
+				choiceLaterDesc: "Skip for now; card creation and study need at least one deck",
+				nameTitle: "Deck name",
+				nameMessage: "Enter a name for your first memory deck:",
+				namePlaceholder: "e.g. Default deck",
+				confirm: "Create",
+				cancel: "Cancel",
+				created: "Deck created: {name}",
+				createFailed: "Failed to create deck: {error}",
+				invalidName: "Deck name cannot be empty",
+			},
+		},
 	},
 };
 
@@ -2323,6 +2453,11 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				deleteMapping: "删除映射",
 				deletedMapping: "映射已删除",
 				detected: "检测到",
+				emptyMappings: {
+					action: "添加第一条映射",
+					desc: "添加映射后，可将指定文件夹或单个笔记文件批量解析并导入到目标牌组。",
+					title: "还没有文件夹映射",
+				},
 				errors: "错误",
 				exclude: "排除",
 				fileTooltip: "扫描单个文件",
@@ -2418,9 +2553,12 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				selectPreset: "选择预设",
 				separator: {
 					cardRangeSeparator: "卡片区间分隔符",
-					cardRangeSeparatorHelp: "用于标记同一卡片内部的前后字段分隔",
-					cardRangeSeparatorPlaceholder: "例如 ---",
+					cardRangeSeparatorHelp: "用于分隔不同卡片（例如 <->）",
+					cardRangeSeparatorPlaceholder: "例如 <->",
 					cardSeparatorMethod: "卡片分隔方式",
+					frontBackSeparator: "正反面分隔符",
+					frontBackSeparatorHelp: "用于分隔单张卡片的正面与背面内容",
+					frontBackSeparatorPlaceholder: "例如 ---div---",
 					emptyLineCount: "空行数量",
 					emptyLineCountHelp: "使用连续空行切分卡片时的空行数量",
 					emptyLineCountPlaceholder: "例如 2",
@@ -2687,6 +2825,50 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				tagGroupUpdated: "标签组“{name}”已更新",
 				tagGrouping: "按标签组分组",
 				viewOptions: "视图选项",
+				promoteToFormalDeck: "转为正式牌组",
+				topicEdit: "专题编辑",
+				topicAnalytics: "专题分析",
+				deleteTopic: "删除专题",
+				groupByTypes: {
+					completion: "完成情况",
+					timeRange: "时间范围",
+					priority: "优先级",
+					accuracy: "正确率",
+					tag: "标签分组",
+					tagGroup: "标签组分组",
+				},
+				groupColumns: {
+					completion: {
+						new: "新卡片",
+						learning: "学习中",
+						review: "待复习",
+						completed: "已完成",
+					},
+					timeRange: {
+						urgent: "紧急",
+						today: "今日",
+						thisWeek: "本周",
+						future: "未来",
+					},
+					priority: {
+						high: "高优先级",
+						medium: "中优先级",
+						low: "低优先级",
+						none: "无优先级",
+					},
+					accuracy: {
+						untested: "未练习",
+						excellent: "＞90分",
+						good: "＞75分",
+						poor: "＜60分",
+					},
+					tag: {
+						noTag: "无标签",
+					},
+					tagGroup: {
+						__other__: "其他",
+					},
+				},
 			},
 			menu: {
 				advanceStudy: "提前学习",
@@ -2732,8 +2914,6 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 			grid: {
 				emptyHint: "当前没有可显示的牌组，试试创建新牌组或调整筛选条件。",
 				emptyText: "暂无牌组",
-				readingDesc: "请改用增量阅读相关功能查看和处理阅读材料。",
-				readingTitle: "增量摘录模式已停用",
 			},
 			activationPrompt: {
 				close: "关闭",
@@ -2750,74 +2930,6 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				purchaseLink: "获取永久授权激活码",
 				fallbackName: "高级功能",
 				fallbackDescription: "此功能需要激活许可证",
-				features: {
-					"fsrs-study": {
-						name: "FSRS 记忆学习",
-						description: "基于 FSRS 算法的间隔复习、牌组学习与学习统计",
-					},
-					"table-view": {
-						name: "表格视图",
-						description: "以表格管理卡片与牌组，支持筛选、排序与批量操作",
-					},
-					"obsidian-card-editing": {
-						name: "Obsidian 原生卡片编辑",
-						description: "在 Obsidian 编辑器中直接编辑卡片，支持 Markdown 与所见即所得体验",
-					},
-					"fill-input-mode": {
-						name: "填空题输入模式",
-						description: "学习填空题时在输入框作答，支持即时判分与继续学习",
-					},
-					"ai-card-creation": {
-						name: "AI 制卡",
-						description: "使用 AI 辅助生成、整理与拆分记忆卡片（需自备 API）",
-					},
-					"parse-preview-import": {
-						name: "解析预览导入",
-						description: "预览 AI 或文本解析结果后再确认导入，避免误导入",
-					},
-					"ai-assistant": { name: "AI 智能助手", description: "AI 工作台与辅助制卡入口（需自备 API）" },
-					"view-source": { name: "学习溯源", description: "快速查看卡片来源笔记与上下文" },
-					"deck-analytics-retention": {
-						name: "记忆率曲线",
-						description: "查看牌组记忆率与回忆表现趋势",
-					},
-					"csv-import": { name: "CSV 导入", description: "通过 CSV 文件批量导入卡片" },
-					"anki-connect-sync": {
-						name: "Anki Connect 同步",
-						description: "与 Anki 桌面端双向同步卡片与复习进度",
-					},
-					"apkg-import": {
-						name: "旧版 APKG 导入",
-						description: "导入 Anki .apkg 包，迁移历史牌组与卡片",
-					},
-					"deck-view-embed": {
-						name: "Markdown 牌组视图",
-						description: "在笔记中插入 weave-decks 代码块，嵌入可配置的牌组视图",
-					},
-					"active-document-filter": {
-						name: "当前文档筛选",
-						description: "按当前活动笔记筛选关联卡片，聚焦当前阅读上下文",
-					},
-					"related-cards": {
-						name: "关联卡片",
-						description: "查看与筛选同源、同笔记或彼此关联的卡片网络",
-					},
-					"image-mask": {
-						name: "图片遮罩",
-						description: "在图片上绘制遮罩区域，制作图像挖空与遮盖练习",
-					},
-					"grid-view": { name: "网格视图", description: "以卡片网格形式展示，让管理更直观" },
-					"kanban-view": { name: "看板视图", description: "看板式管理，按状态分类显示" },
-					"timeline-view": { name: "时间线视图", description: "按时间线浏览卡片，快速回看内容脉络" },
-					"study-source-info": { name: "学习来源信息栏", description: "在学习界面查看来源文档、关联阅读材料和同源卡片信息" },
-					"memory-deck-levels": { name: "记忆牌组等级", description: "为记忆牌组显示掌握驱动的等级与升级进度徽章" },
-					"question-bank": { name: "题库系统", description: "专业的题库考试功能，支持考试、小测验等多种模式" },
-					"incremental-reading": { name: "渐进性阅读", description: "支持增量阅读工作流" },
-					"emergent-decks": { name: "涌现牌组", description: "基于标签与规则自动组织涌现牌组视图" },
-					"batch-parsing": { name: "批量解析系统", description: "自动解析文档中的卡片，支持文件夹映射和智能触发" },
-					"deck-analytics": { name: "牌组分析", description: "详细的牌组学习数据分析、记忆曲线和负荷预测" },
-					"progressive-cloze": { name: "渐进式挖空", description: "智能渐进式挖空学习，逐步掌握复杂知识点" },
-				},
 			},
 			card: {
 				ariaLabel: "牌组卡片：{name}",
@@ -2885,6 +2997,11 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				deleteMapping: "Delete mapping",
 				deletedMapping: "Mapping deleted",
 				detected: "Detected",
+				emptyMappings: {
+					action: "Add first mapping",
+					desc: "Add a mapping to batch-parse cards from a folder or a single note into a target deck.",
+					title: "No folder mappings yet",
+				},
 				errors: "Errors",
 				exclude: "Exclude",
 				fileTooltip: "Scan a single file",
@@ -2980,10 +3097,13 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				selectFolderPath: "Select folder path",
 				selectPreset: "Select preset",
 				separator: {
-					cardRangeSeparator: "Card field separator",
-					cardRangeSeparatorHelp: "Used to separate front and back fields inside a single card.",
-					cardRangeSeparatorPlaceholder: "For example ---",
+					cardRangeSeparator: "Card range separator",
+					cardRangeSeparatorHelp: "Separates different cards (for example <->).",
+					cardRangeSeparatorPlaceholder: "For example <->",
 					cardSeparatorMethod: "Card separator method",
+					frontBackSeparator: "Front/back separator",
+					frontBackSeparatorHelp: "Separates the front and back of a single card.",
+					frontBackSeparatorPlaceholder: "For example ---div---",
 					emptyLineCount: "Empty line count",
 					emptyLineCountHelp: "How many consecutive empty lines are used to split cards.",
 					emptyLineCountPlaceholder: "For example 2",
@@ -3258,6 +3378,50 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				tagGroupUpdated: 'Tag group "{name}" updated',
 				tagGrouping: "Group by tag group",
 				viewOptions: "View options",
+				promoteToFormalDeck: "Promote to formal deck",
+				topicEdit: "Edit topic",
+				topicAnalytics: "Topic analytics",
+				deleteTopic: "Delete topic",
+				groupByTypes: {
+					completion: "Completion status",
+					timeRange: "Time range",
+					priority: "Priority",
+					accuracy: "Accuracy",
+					tag: "Tag grouping",
+					tagGroup: "Tag group grouping",
+				},
+				groupColumns: {
+					completion: {
+						new: "New cards",
+						learning: "Learning",
+						review: "Due for review",
+						completed: "Completed",
+					},
+					timeRange: {
+						urgent: "Urgent",
+						today: "Today",
+						thisWeek: "This week",
+						future: "Future",
+					},
+					priority: {
+						high: "High priority",
+						medium: "Medium priority",
+						low: "Low priority",
+						none: "No priority",
+					},
+					accuracy: {
+						untested: "Not practiced",
+						excellent: "> 90",
+						good: "> 75",
+						poor: "< 60",
+					},
+					tag: {
+						noTag: "No tag",
+					},
+					tagGroup: {
+						__other__: "Other",
+					},
+				},
 			},
 			menu: {
 				advanceStudy: "Advance study",
@@ -3304,9 +3468,6 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				emptyHint:
 					"There are no decks to show right now. Try creating one or adjusting the filter.",
 				emptyText: "No decks yet",
-				readingDesc:
-					"Please use the incremental-reading features to view and manage reading materials.",
-				readingTitle: "Reading mode has been retired",
 			},
 			activationPrompt: {
 				close: "Close",
@@ -3323,80 +3484,6 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				purchaseLink: "Get lifetime activation code",
 				fallbackName: "Premium feature",
 				fallbackDescription: "This feature requires activation",
-				features: {
-					"fsrs-study": {
-						name: "FSRS study",
-						description: "Spaced repetition, deck study, and learning stats powered by FSRS",
-					},
-					"table-view": {
-						name: "Table view",
-						description: "Manage cards and decks in a table with filtering, sorting, and batch actions",
-					},
-					"obsidian-card-editing": {
-						name: "Native Obsidian card editing",
-						description: "Edit cards directly in Obsidian with Markdown and WYSIWYG workflows",
-					},
-					"fill-input-mode": {
-						name: "Fill-in-the-blank input mode",
-						description: "Answer cloze cards in an input field with instant feedback while studying",
-					},
-					"ai-card-creation": {
-						name: "AI card creation",
-						description: "Generate, organize, and split memory cards with AI (bring your own API)",
-					},
-					"parse-preview-import": {
-						name: "Parse preview import",
-						description: "Preview AI or text parsing results before importing to avoid mistakes",
-					},
-					"ai-assistant": {
-						name: "AI assistant",
-						description: "AI workspace and assisted card-creation entry (bring your own API)",
-					},
-					"view-source": {
-						name: "Source navigation",
-						description: "Jump to source notes and surrounding context while studying",
-					},
-					"deck-analytics-retention": {
-						name: "Retention curve",
-						description: "Track retention and recall trends for a deck",
-					},
-					"csv-import": { name: "CSV import", description: "Import cards in bulk from CSV files" },
-					"anki-connect-sync": {
-						name: "Anki Connect sync",
-						description: "Two-way sync cards and review progress with Anki Desktop",
-					},
-					"apkg-import": {
-						name: "Legacy APKG import",
-						description: "Import Anki .apkg packages to migrate existing decks and cards",
-					},
-					"deck-view-embed": {
-						name: "Markdown deck view embed",
-						description: "Insert weave-decks code blocks in notes to embed configurable deck views",
-					},
-					"active-document-filter": {
-						name: "Active document filter",
-						description: "Filter cards linked to the currently active note for focused reading context",
-					},
-					"related-cards": {
-						name: "Related cards",
-						description: "Browse and filter cards linked by source notes or card relationships",
-					},
-					"image-mask": {
-						name: "Image masking",
-						description: "Draw mask regions on images for image cloze and occlusion practice",
-					},
-					"grid-view": { name: "Grid view", description: "Display decks as cards in a clean grid for faster management" },
-					"kanban-view": { name: "Kanban view", description: "Manage decks in grouped columns by status" },
-					"timeline-view": { name: "Timeline view", description: "Browse cards chronologically and review learning context quickly" },
-					"study-source-info": { name: "Study source panel", description: "View source notes, linked reading material, and same-source cards while studying" },
-					"memory-deck-levels": { name: "Memory deck levels", description: "Show mastery-driven levels and progress badges for memory decks" },
-					"question-bank": { name: "Question bank", description: "Exam-oriented question bank with tests and quizzes" },
-					"incremental-reading": { name: "Incremental reading", description: "Support an incremental-reading workflow" },
-					"emergent-decks": { name: "Emergent decks", description: "Auto-organize emergent deck views from tags and rules" },
-					"batch-parsing": { name: "Batch parsing", description: "Auto-parse cards from documents with folder mapping and smart triggers" },
-					"deck-analytics": { name: "Deck analytics", description: "Detailed deck analytics, retention curves, and workload forecast" },
-					"progressive-cloze": { name: "Progressive cloze", description: "Learn complex knowledge progressively with staged cloze steps" },
-				},
 			},
 			card: {
 				ariaLabel: "Deck card: {name}",
@@ -3429,25 +3516,6 @@ export const managementTranslationOverrides: Record<SupportedLanguage, Translati
 				today: "Today",
 				urgent: "Urgent",
 				weekDays: "Mon\nTue\nWed\nThu\nFri\nSat\nSun",
-			},
-		},
-		storage: {
-			firstDeck: {
-				title: "Create your first memory deck",
-				message:
-					"This vault has no memory deck files (.wdeck) yet.\nWould you like to create your first deck now?",
-				choiceCreate: "Create deck",
-				choiceLater: "Not now",
-				choiceCreateDesc: "Enter a deck name and save it as a .wdeck file",
-				choiceLaterDesc: "Skip for now; card creation and study need at least one deck",
-				nameTitle: "Deck name",
-				nameMessage: "Enter a name for your first memory deck:",
-				namePlaceholder: "e.g. Default deck",
-				confirm: "Create",
-				cancel: "Cancel",
-				created: "Deck created: {name}",
-				createFailed: "Failed to create deck: {error}",
-				invalidName: "Deck name cannot be empty",
 			},
 		},
 	},

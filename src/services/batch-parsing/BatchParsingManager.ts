@@ -11,9 +11,10 @@ import { logger } from "../../utils/logger";
  */
 
 import { App, Modal, Notice, TFile } from "obsidian";
+import type WeavePlugin from "../../main";
 import { writable } from "svelte/store";
 import { CleanupProgressModal } from "../../components/modals/CleanupProgressModal";
-import { SimplifiedParsingSettings } from "../../types/newCardParsingTypes";
+import { SimplifiedParsingSettings, normalizeFolderDeckMappings } from "../../types/newCardParsingTypes";
 import type { IWeavePlugin } from "../../types/plugin-interfaces";
 import { logDebugWithTag } from "../../utils/logger";
 import { SimplifiedCardParser } from "../../utils/simplifiedParser/SimplifiedCardParser";
@@ -130,7 +131,7 @@ export class BatchParsingManager {
 			app, //  传入 app 实例
 			plugin.dataStorage, // 传入 dataStorage（用于 ThreeWayMergeEngine）
 			plugin.blockLinkCleanupService, //  传入清理服务（用于保护新创建的UUID）
-			plugin // 传入 plugin（用于 ThreeWayMergeEngine 访问 directFileReader）
+			plugin as WeavePlugin // 传入 plugin（用于 ThreeWayMergeEngine 访问 directFileReader）
 		);
 
 		this.isInitialized = true;
@@ -242,7 +243,11 @@ export class BatchParsingManager {
 						}
 
 						const sourceFilePath =
-							card.sourceFile || card.metadata?.sourceFile || card.customFields?.obsidianFilePath;
+							(typeof card.sourceFile === "string" ? card.sourceFile : undefined) ||
+							(typeof card.metadata?.sourceFile === "string" ? card.metadata.sourceFile : undefined) ||
+							(typeof card.customFields?.obsidianFilePath === "string"
+								? card.customFields.obsidianFilePath
+								: undefined);
 
 						if (!sourceFilePath) {
 							continue;
@@ -384,6 +389,13 @@ export class BatchParsingManager {
 	 *  v2: 同步更新到 plugin settings
 	 */
 	async updateConfig(updates: Partial<SimpleBatchParsingConfig>): Promise<void> {
+		if (updates.folderDeckMappings) {
+			updates = {
+				...updates,
+				folderDeckMappings: normalizeFolderDeckMappings(updates.folderDeckMappings).mappings,
+			};
+		}
+
 		this.config = { ...this.config, ...updates };
 
 		//  同步映射配置到 plugin settings（添加安全检查）
@@ -517,17 +529,19 @@ export class BatchParsingManager {
 
 		const settingsMappings = this.plugin.settings.simplifiedParsing.batchParsing.folderDeckMappings;
 		if (settingsMappings && Array.isArray(settingsMappings) && settingsMappings.length > 0) {
-			const normalizedMappings = settingsMappings.map((mapping) => {
-				const legacyMapping = mapping as typeof mapping & {
-					fileMode?: FolderDeckMapping["fileMode"];
-				};
-				return {
-					...mapping,
-					type: mapping.type ?? "folder",
-					path: mapping.path ?? mapping.folderPath ?? "",
-					fileMode: legacyMapping.fileMode ?? "single-card",
-				};
-			});
+			const normalizedMappings = normalizeFolderDeckMappings(
+				settingsMappings.map((mapping) => {
+					const legacyMapping = mapping as typeof mapping & {
+						fileMode?: FolderDeckMapping["fileMode"];
+					};
+					return {
+						...mapping,
+						type: mapping.type ?? "folder",
+						path: mapping.path ?? mapping.folderPath ?? "",
+						fileMode: legacyMapping.fileMode ?? "single-card",
+					} as FolderDeckMapping;
+				})
+			).mappings;
 			const oldCount = this.config.folderDeckMappings?.length || 0;
 			this.config.folderDeckMappings = normalizedMappings;
 			this.logDebug(

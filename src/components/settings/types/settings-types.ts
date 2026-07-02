@@ -5,7 +5,6 @@
 
 import type WeavePlugin from "../../../main";
 import type { RatingLabelStyle } from "../../study/rating-label-style";
-import type { NoteTypeConfig } from "../../../types/extract-types";
 import type { LicenseInfo as UnifiedLicenseInfo, LicenseStore as UnifiedLicenseStore } from "../../../types/license";
 import type { SimplifiedParsingSettings } from "../../../types/newCardParsingTypes";
 
@@ -150,10 +149,11 @@ export interface SettingsWithEditor {
 	cardManagementViewPreferences?: CardManagementViewPreferences;
 	// 学习界面视图偏好设置
 	studyInterfaceViewPreferences?: StudyInterfaceViewPreferences;
-	// 笔记类型配置
-	noteTypeConfig?: NoteTypeConfig;
 	showClozeModeSwitchButton?: boolean;
 	tutorialHints?: import("../../../services/tutorial/GlobalTutorialHints").GlobalTutorialHintState;
+	enableStartupDataManagementGate?: boolean;
+	startupDataCheckMode?: import("../../../services/data-management/DataManagementStartupGate").StartupDataCheckMode;
+	startupDataGateBaseline?: import("../../../services/data-management/DataManagementStartupGate").StartupDataGateBaseline;
 }
 
 // FSRS相关类型已移至 src/data/types.ts 统一管理

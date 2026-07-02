@@ -7,7 +7,7 @@ import type { Rating } from "../data/types";
 /**
  * 标签页ID类型
  */
-export type TabId = "info" | "stats" | "curve";
+export type TabId = "info" | "stats" | "curve" | "schedule";
 
 /**
  * 标签页定义

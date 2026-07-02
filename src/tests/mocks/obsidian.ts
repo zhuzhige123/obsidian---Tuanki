@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import type { TimerHandle } from "../types/timer";
+import type { WeaveTimerHandle as TimerHandle } from "../../types/timer-handle.js";
 /**
  * Obsidian API Mock for Testing
  * 涓烘祴璇曠幆澧冩彁渚?Obsidian API 鐨勬ā鎷熷疄鐜?
@@ -533,8 +533,8 @@ export const moment = vi.fn(() => ({
 export const debounce = vi.fn((fn: Function, delay: number) => {
   let timeoutId: TimerHandle;
   return (...args: any[]) => {
-    clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => fn.apply(null, args), delay);
+    window.clearTimeout(timeoutId);
+    timeoutId = window.setTimeout(() => fn.apply(null, args), delay);
   };
 });
 

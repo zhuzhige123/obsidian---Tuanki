@@ -25,6 +25,7 @@ import {
 	toggleViewLocation,
 } from "../utils/view-location-utils";
 import { addMenuSubmenuGroup, addMenuToggle } from "../utils/obsidian-menu";
+import { syncWeaveMemoryStudySessionBroadcast } from "../utils/weave-memory-study-session-bridge";
 
 export const VIEW_TYPE_STUDY = "weave-study-view";
 
@@ -50,6 +51,7 @@ type StudyViewWorkspaceState = {
 type StudyViewComponentApi = {
 	getQueueProgress?: () => StudyQueueState | null;
 	getSessionData?: () => StudySessionSnapshot;
+	getSessionStartTime?: () => number;
 	shouldPersist?: () => boolean;
 	updateStudyParams?: (params: CreateStudyComponentOptions) => Promise<void>;
 	pause?: () => void;
@@ -118,6 +120,7 @@ export class StudyView extends ItemView {
 	private plugin: WeavePlugin;
 	private instanceId: string;
 	private isPaused = false;
+	private studyLeafWasActive = false;
 	private studySessionManager: StudySessionManager;
 	private isPauseHandling = false; //  防止递归调用
 	private isClosing = false; //  防止 close() 递归调用
@@ -767,6 +770,8 @@ export class StudyView extends ItemView {
 				return;
 			}
 
+			syncWeaveMemoryStudySessionBroadcast(this.app);
+
 			// 检查是否有持久化的会话需要恢复
 			const persistedSession = this.studySessionManager.getPersistedSession(this.deckId);
 			const hasExplicitStudySource =
@@ -785,6 +790,8 @@ export class StudyView extends ItemView {
 			// 监听标签页激活/失活事件
 			this.registerViewEvents();
 		} catch (error) {
+			endStudySession(this.instanceId);
+			syncWeaveMemoryStudySessionBroadcast(this.app);
 			logger.error("[StudyView] 初始化失败:", error);
 			this.showMessageState("weave-study-view-error", i18n.t("study.view.initFailed"), "alert-circle");
 		}
@@ -943,6 +950,17 @@ export class StudyView extends ItemView {
 	 */
 	private async createStudyComponent(options?: CreateStudyComponentOptions): Promise<void> {
 		try {
+			if (this.component) {
+				try {
+					const { unmount } = await import("svelte");
+					unmount(this.component);
+					logger.debug("[StudyView] 已销毁旧的学习组件");
+				} catch (error) {
+					logger.error("[StudyView] 销毁旧学习组件失败:", error);
+				}
+				this.component = null;
+			}
+
 			//  验证参数
 			if (!options?.resumeData && !options?.queueState) {
 				// 如果没有恢复数据也没有队列状态，必须有 deckId 或 cardIds
@@ -984,7 +1002,7 @@ export class StudyView extends ItemView {
 						}
 
 						const newCardsPerDay = this.plugin.settings.newCardsPerDay || 20;
-						const reviewsPerDay = this.plugin.settings.reviewsPerDay || 20;
+						const reviewsPerDay = this.plugin.settings.reviewsPerDay ?? 20;
 
 						const testCards = await loadDeckCardsForStudy(
 							dataStorage,
@@ -1053,16 +1071,18 @@ export class StudyView extends ItemView {
 	 * 注册视图事件监听
 	 */
 	private registerViewEvents(): void {
+		this.studyLeafWasActive = this.leaf === this.app.workspace.activeLeaf;
+
 		// 监听标签页激活事件
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", (leaf) => {
-				if (leaf === this.leaf) {
-					// 当前视图被激活
+				const studyIsActive = leaf === this.leaf;
+				if (studyIsActive) {
 					this.handleActivate();
-				} else if (this.leaf && leaf !== this.leaf) {
-					// 当前视图失去焦点
+				} else if (this.studyLeafWasActive) {
 					this.handleDeactivate();
 				}
+				this.studyLeafWasActive = studyIsActive;
 			})
 		);
 	}
@@ -1168,6 +1188,11 @@ export class StudyView extends ItemView {
 			return false;
 		}
 
+		const startTime =
+			typeof this.component.getSessionStartTime === "function"
+				? this.component.getSessionStartTime()
+				: Date.now();
+
 		this.studySessionManager.setPersistedSession({
 			sessionId: this.instanceId,
 			deckId: data.deckId,
@@ -1177,7 +1202,7 @@ export class StudyView extends ItemView {
 			currentCardId,
 			remainingCardIds: Array.isArray(data.remainingCardIds) ? data.remainingCardIds : [],
 			queueState: queueProgress || undefined,
-			startTime: Date.now(),
+			startTime,
 			pauseTime: Date.now(),
 			stats: data.stats,
 			isPaused: true,
@@ -1212,6 +1237,8 @@ export class StudyView extends ItemView {
 		//  强制注销学习实例（确保清理）
 		endStudySession(this.instanceId);
 		logger.debug("[StudyView] 学习实例已注销:", this.instanceId);
+
+		window.setTimeout(() => syncWeaveMemoryStudySessionBroadcast(this.app), 0);
 
 		logger.debug("[StudyView] 视图已完全关闭，所有状态已清理");
 	}

@@ -1,6 +1,13 @@
 import type { App } from "obsidian";
 import { normalizePath } from "obsidian";
 import type { IRBlockMeta, IRBlockStats, IRBlockStatus, IRBlockV4 } from "../../types/ir-types";
+
+type IRPdfBookmarkBlockV4 = IRBlockV4 & {
+	contentPreview?: string;
+	pdfBookmarkLink?: string;
+	pdfBookmarkTitle?: string;
+	pdfBookmarkAnnotationId?: string;
+};
 import { DEFAULT_IR_BLOCK_META, DEFAULT_IR_BLOCK_STATS } from "../../types/ir-types";
 import { getTaskTopicId } from "../../utils/ir-topic-compat";
 import { logger } from "../../utils/logger";
@@ -428,8 +435,8 @@ export class IRPdfBookmarkTaskService {
 		return deletedCount;
 	}
 
-	toBlockV4(task: IRPdfBookmarkTask): IRBlockV4 {
-		const block: IRBlockV4 = {
+	toBlockV4(task: IRPdfBookmarkTask): IRPdfBookmarkBlockV4 {
+		const block: IRPdfBookmarkBlockV4 = {
 			id: task.id,
 			sourcePath: task.pdfPath,
 			blockId: task.id,
@@ -446,10 +453,10 @@ export class IRPdfBookmarkTaskService {
 			updatedAt: task.updatedAt,
 		};
 
-		(block as unknown).contentPreview = task.title;
-		(block as unknown).pdfBookmarkLink = task.link;
-		(block as unknown).pdfBookmarkTitle = task.title;
-		(block as unknown).pdfBookmarkAnnotationId = task.annotationId;
+		block.contentPreview = task.title;
+		block.pdfBookmarkLink = task.link;
+		block.pdfBookmarkTitle = task.title;
+		block.pdfBookmarkAnnotationId = task.annotationId;
 
 		return block;
 	}

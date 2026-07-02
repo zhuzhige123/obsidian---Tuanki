@@ -1,12 +1,9 @@
-import type { EventRef, WorkspaceLeaf } from "obsidian";
+import type { EventRef, Workspace, WorkspaceLeaf } from "obsidian";
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 
-type WorkspaceLike = {
-	layoutReady?: boolean;
+type WorkspaceLike = Pick<Workspace, "layoutReady" | "onLayoutReady" | "on" | "offref"> & {
 	activeLeaf?: WorkspaceLeaf | null;
 	getActiveLeaf?: () => WorkspaceLeaf | null;
-	on?: (name: string, callback: (leaf: WorkspaceLeaf | null) => void) => EventRef;
-	offref?: (ref: EventRef) => void;
-	onLayoutReady?: (callback: () => void) => void;
 };
 
 type DeferredLeafRedirectControllerOptions = {
@@ -27,7 +24,7 @@ export class DeferredLeafRedirectController {
 	private readonly onRedirect: () => void;
 	private readonly delayMs: number;
 	private activeLeafChangeRef: EventRef | null = null;
-	private redirectTimer: ReturnType<typeof setTimeout> | null = null;
+	private redirectTimer: WeaveTimerHandle | null = null;
 	private started = false;
 	private disposed = false;
 

@@ -1,5 +1,6 @@
 import { logger } from "../utils/logger";
 import { vaultStorage } from "../utils/vault-local-storage";
+import type { WeaveIntervalHandle } from "../types/timer-handle";
 import type { TimerHandle } from "../types/timer";
 /**
  * 统一状态管理系统
@@ -130,7 +131,7 @@ export class UnifiedStateManager {
 	private subscribers = new Set<(state: AppState) => void>();
 	private persistenceKey = "weave-app-state";
 	private autoSaveInterval: TimerHandle | null = null;
-	private performanceMonitorInterval: ReturnType<typeof setInterval> | null = null;
+	private performanceMonitorInterval: WeaveIntervalHandle | null = null;
 
 	constructor() {
 		this.loadPersistedState();
@@ -526,28 +527,27 @@ function getOrCreateGlobalStateManager(): UnifiedStateManager {
 		return new UnifiedStateManager();
 	}
 
-	const w = window as WindowWithGlobalStateManager;
-	if (w.__weaveGlobalStateManager) {
-		return w.__weaveGlobalStateManager;
+	if (window.__weaveGlobalStateManager) {
+		return window.__weaveGlobalStateManager;
 	}
 
 	const instance = new UnifiedStateManager();
-	w.__weaveGlobalStateManager = instance;
-	w.__weaveGlobalStateManagerCleanup = () => {
+	window.__weaveGlobalStateManager = instance;
+	window.__weaveGlobalStateManagerCleanup = () => {
 		try {
-			w.__weaveGlobalPersistenceManagerCleanup?.();
+			window.__weaveGlobalPersistenceManagerCleanup?.();
 		} catch { /* no-op */ }
 
 		try {
-			(w.__weaveGlobalStateManager as UnifiedStateManager | undefined)?.destroy();
+			(window.__weaveGlobalStateManager as UnifiedStateManager | undefined)?.destroy();
 		} catch { /* no-op */ }
 
 		try {
-			w.__weaveGlobalStateManager = undefined;
-			w.__weaveGlobalStateManagerCleanup = undefined;
+			window.__weaveGlobalStateManager = undefined;
+			window.__weaveGlobalStateManagerCleanup = undefined;
 		} catch {
-			w.__weaveGlobalStateManager = null;
-			w.__weaveGlobalStateManagerCleanup = null;
+			window.__weaveGlobalStateManager = null;
+			window.__weaveGlobalStateManagerCleanup = null;
 		}
 	};
 
@@ -671,24 +671,23 @@ function getOrCreateGlobalPersistenceManager(
 		return new StatePersistenceManager(stateManager);
 	}
 
-	const w = window as WindowWithGlobalStateManager;
-	if (w.__weaveGlobalPersistenceManager) {
-		return w.__weaveGlobalPersistenceManager;
+	if (window.__weaveGlobalPersistenceManager) {
+		return window.__weaveGlobalPersistenceManager;
 	}
 
 	const instance = new StatePersistenceManager(stateManager);
-	w.__weaveGlobalPersistenceManager = instance;
-	w.__weaveGlobalPersistenceManagerCleanup = () => {
+	window.__weaveGlobalPersistenceManager = instance;
+	window.__weaveGlobalPersistenceManagerCleanup = () => {
 		try {
-			(w.__weaveGlobalPersistenceManager as StatePersistenceManager | undefined)?.destroy();
+			(window.__weaveGlobalPersistenceManager as StatePersistenceManager | undefined)?.destroy();
 		} catch { /* no-op */ }
 
 		try {
-			w.__weaveGlobalPersistenceManager = undefined;
-			w.__weaveGlobalPersistenceManagerCleanup = undefined;
+			window.__weaveGlobalPersistenceManager = undefined;
+			window.__weaveGlobalPersistenceManagerCleanup = undefined;
 		} catch {
-			w.__weaveGlobalPersistenceManager = null;
-			w.__weaveGlobalPersistenceManagerCleanup = null;
+			window.__weaveGlobalPersistenceManager = null;
+			window.__weaveGlobalPersistenceManagerCleanup = null;
 		}
 	};
 

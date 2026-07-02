@@ -21,11 +21,11 @@ describe('FocusManagement Integration Tests', () => {
 
   // 辅助函数：等待 requestAnimationFrame
   const waitForRAF = () => new Promise<void>(resolve => {
-    setTimeout(resolve, 50); // jsdom 中 RAF 被 mock 为 setTimeout
+    window.setTimeout(resolve, 50); // jsdom 中 RAF 被 mock 为 setTimeout
   });
 
   const waitForCoalescedAction = async () => {
-    await new Promise(resolve => setTimeout(resolve, 120));
+    await new Promise(resolve => window.setTimeout(resolve, 120));
     await waitForRAF();
   };
 

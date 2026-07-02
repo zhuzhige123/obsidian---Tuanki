@@ -76,7 +76,11 @@ export class StudyDueIndexService {
 		return dueUUIDs;
 	}
 
-	async updateCard(card: Card, decks: DeckLookup[] = []): Promise<void> {
+	async updateCard(
+		card: Card,
+		decks: DeckLookup[] = [],
+		options?: { skipDeckMembershipSync?: boolean }
+	): Promise<void> {
 		if (!card?.uuid) {
 			return;
 		}
@@ -97,7 +101,11 @@ export class StudyDueIndexService {
 			};
 		});
 
-		if (this.plugin.deckMembershipIndexService && decks.length > 0) {
+		if (
+			!options?.skipDeckMembershipSync &&
+			this.plugin.deckMembershipIndexService &&
+			decks.length > 0
+		) {
 			try {
 				await this.plugin.deckMembershipIndexService.updateCards([card], decks);
 			} catch (error) {

@@ -161,11 +161,11 @@ export function parseFrontmatterAndContent(content: string): {
 							currentObject[key] = "";
 						} else {
 							// 移除引号并转换类型
-							let cleanValue: unknown = value.replace(/^["']|["']$/g, "");
+							let cleanValue: string | number = value.replace(/^["']|["']$/g, "");
 
 							// 尝试转换数字
 							if (/^\d+$/.test(cleanValue)) {
-								cleanValue = parseInt(cleanValue);
+								cleanValue = parseInt(cleanValue, 10);
 							} else if (/^\d+\.\d+$/.test(cleanValue)) {
 								cleanValue = parseFloat(cleanValue);
 							}
@@ -200,11 +200,11 @@ export function parseFrontmatterAndContent(content: string): {
 						isArray = false;
 						currentObject = null;
 						// 移除引号并转换类型
-						let cleanValue: unknown = value.replace(/^["']|["']$/g, "");
+						let cleanValue: string | number = value.replace(/^["']|["']$/g, "");
 
 						// 尝试转换数字
 						if (/^\d+$/.test(cleanValue)) {
-							cleanValue = parseInt(cleanValue);
+							cleanValue = parseInt(cleanValue, 10);
 						} else if (/^\d+\.\d+$/.test(cleanValue)) {
 							cleanValue = parseFloat(cleanValue);
 						}
@@ -474,8 +474,11 @@ export function markdownToCard(content: string, originalCard: Card): Card {
 			updatedCard.tags = frontmatter.tags;
 		}
 
-		if (frontmatter.priority) {
-			updatedCard.priority = frontmatter.priority;
+		if (frontmatter.priority !== undefined) {
+			const priority = readNumber(frontmatter, "priority");
+			if (priority !== undefined) {
+				updatedCard.priority = priority;
+			}
 		}
 
 		//  从frontmatter解析FSRS数据（修复属性访问问题）

@@ -2,28 +2,10 @@
   import FloatingMenu from '../ui/FloatingMenu.svelte';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import {
-    cardSyntaxTutorials,
-    inspirationModalTabs,
+    getInspirationModalContent,
     type InspirationModalTabId,
   } from './inspiration-card-syntax-content';
-
-  interface InspirationLink {
-    label: string;
-    href: string;
-  }
-
-  interface InspirationItem {
-    statement: string;
-    categoryTag: string;
-    note?: string;
-    links?: InspirationLink[];
-  }
-
-  interface InspirationSection {
-    title: string;
-    intro: string;
-    items: InspirationItem[];
-  }
+  import { currentLanguage } from '../../utils/i18n';
 
   interface Props {
     visible: boolean;
@@ -38,84 +20,28 @@
 
   let activeTab = $state<InspirationModalTabId>('attribution');
 
-  const inspirationSections: InspirationSection[] = [
-    {
-      title: '底层框架与方法来源',
-      intro: '插件底层框架、概念定义与核心学习方法的来源。',
-      items: [
-        {
-          statement: '整体框架、命名与局部早期参考来自作者个人设计；Anki（局部早期参考）',
-          categoryTag: '整体框架说明',
-          note:
-            'Weave 最初命名为 Tuanki。插件整体框架、整体设计与布局、和 Obsidian 功能之间的交互，以及不同应用方式下的交互组织，主要都由作者个人设计。'
-        },
-        {
-          statement: '增量阅读基础定义来源于 SuperMemo',
-          categoryTag: '概念来源',
-          note: '增量阅读的一些基本定义、术语理解与方法论起点来源于 SuperMemo。'
-        },
-        {
-          statement: '记忆牌组算法来源为 FSRS6',
-          categoryTag: '算法来源',
-          note: '记忆牌组的核心调度算法来源于 FSRS6。'
-        }
-      ]
-    },
-    {
-      title: '界面与交互参考',
-      intro: '顶部功能栏、搜索面板与导航表达上的设计参考。',
-      items: [
-        {
-          statement: '搜索匹配面板参考 Obsidian 搜索匹配面板',
-          categoryTag: '界面参考',
-          note: '搜索匹配面板的布局思路与结果反馈方式，参考了 Obsidian 自身的搜索匹配面板设计。'
-        },
-        {
-          statement: '标签页导航栏扁平化文本风格参考 Components AI 对话底部功能键',
-          categoryTag: '样式参考',
-          note: '标签页导航栏的扁平化、极简文本显示风格，参考了 Components AI 对话底部功能键的设计语言。'
-        },
-        {
-          statement: '多彩侧边颜色条参考 Composer 主题标题设计',
-          categoryTag: '视觉参考',
-          note: '插件中多彩侧边颜色条的视觉表达，参考了 Composer 这款 Obsidian 主题的标题设计。'
-        }
-      ]
-    },
-    {
-      title: '工作区与辅助交互参考',
-      intro: '看板、日历等辅助工作区中的交互参考。',
-      items: [
-        {
-          statement: '看板列设置参考 Notion',
-          categoryTag: '交互参考',
-          note: '看板列设置的交互组织方式参考了 Notion。'
-        },
-        {
-          statement: '增量阅读日历布局调整参考 obsidian-calendar-plugin',
-          categoryTag: '调整参考',
-          note: '增量阅读日历的一些布局和节奏调整，参考了 obsidian-calendar-plugin。',
-          links: [
-            {
-              label: 'GitHub 仓库',
-              href: 'https://github.com/liamcain/obsidian-calendar-plugin'
-            }
-          ]
-        }
-      ]
-    }
-  ];
+  const inspirationContent = $derived.by(() => {
+    void $currentLanguage;
+    return getInspirationModalContent();
+  });
+
+  const inspirationSections = $derived(inspirationContent.sections);
+  const inspirationModalTabs = $derived(inspirationContent.tabs);
 
   const activeSyntaxTutorial = $derived(
-    activeTab === 'attribution' ? null : cardSyntaxTutorials[activeTab]
+    activeTab === 'attribution' ? null : inspirationContent.tutorials[activeTab]
   );
 
   const modalHeading = $derived(
-    activeTab === 'attribution' ? '设计灵感与借鉴说明' : '卡片语法与示例'
+    activeTab === 'attribution'
+      ? inspirationContent.modalHeadings.attributionTitle
+      : inspirationContent.modalHeadings.syntaxTitle
   );
 
   const modalKicker = $derived(
-    activeTab === 'attribution' ? '来源说明' : '题型教程'
+    activeTab === 'attribution'
+      ? inspirationContent.modalHeadings.attributionKicker
+      : inspirationContent.modalHeadings.syntaxKicker
   );
 
   function selectTab(tabId: InspirationModalTabId): void {
@@ -152,7 +78,7 @@
       type="button"
       class="weave-inspiration-popover__close"
       onclick={onClose}
-      aria-label="关闭说明"
+      aria-label={inspirationContent.aria.close}
     >
       <ObsidianIcon name="x" size={16} />
     </button>
@@ -162,7 +88,7 @@
     id={tabListId}
     class="weave-inspiration-tabs weave-toolbar-tabs"
     role="tablist"
-    aria-label="说明与题型教程"
+    aria-label={inspirationContent.aria.tablist}
   >
     {#each inspirationModalTabs as tab (tab.id)}
       <button

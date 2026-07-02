@@ -37,6 +37,7 @@ vi.mock('../../services/progressive-cloze/ProgressiveClozeGateway', () => ({
 }));
 
 import { WeaveDataStorage } from '../storage';
+import type { Card } from '../types';
 import { TFile } from 'obsidian';
 import { MEMORY_STUDY_SESSION_DATA_CHANGE_SOURCE } from '../../services/DataSyncService';
 import { parseYAMLFromContent } from '../../utils/yaml-utils';
@@ -822,7 +823,7 @@ describe('WeaveDataStorage deck query', () => {
     expect(result.success).toBe(true);
     expect(saveCardToDeck).toHaveBeenCalledTimes(1);
 
-    const savedCard = saveCardToDeck.mock.calls[0][1];
+    const savedCard = saveCardToDeck.mock.calls[0][1] as Card;
     const yaml = parseYAMLFromContent(savedCard.content);
     expect(yaml.we_decks).toEqual(['目标牌组']);
     expect(savedCard.deckId).toBe('deck-target');
@@ -920,6 +921,9 @@ describe('WeaveDataStorage deck query', () => {
       settings: {},
       wdeckService: createWDeckServiceMock({
         getAllCards: vi.fn(async () => [existingCard]),
+        getCardsByUUIDs: vi.fn(async (uuids: string[]) =>
+          uuids.includes(existingCard.uuid) ? [existingCard] : []
+        ),
         saveCardToDeck
       }),
       app: {
@@ -947,7 +951,7 @@ describe('WeaveDataStorage deck query', () => {
     } as any);
 
     expect(result.success).toBe(true);
-    const savedCard = saveCardToDeck.mock.calls[0][1];
+    const savedCard = saveCardToDeck.mock.calls[0][1] as Card;
     const yaml = parseYAMLFromContent(savedCard.content);
     expect(yaml.we_decks).toBeUndefined();
   });
@@ -1049,7 +1053,7 @@ describe('WeaveDataStorage deck query', () => {
     ]);
 
     expect(saveCardsToDeck).toHaveBeenCalledTimes(1);
-    const savedCard = saveCardsToDeck.mock.calls[0][1][0];
+    const savedCard = saveCardsToDeck.mock.calls[0][1][0] as Card;
     const yaml = parseYAMLFromContent(savedCard.content);
     expect(yaml.we_decks).toEqual(['目标牌组']);
     expect(savedCard.referencedByDecks).toEqual(['deck-target']);
@@ -1108,9 +1112,9 @@ describe('WeaveDataStorage deck query', () => {
       } as any
     ]);
 
-    expect(plugin.wdeckService.getCardsByUUIDs).toHaveBeenCalledWith([
+    expect(plugin.wdeckService.getCardByUUID).toHaveBeenCalledWith(
       '66666666-6666-4666-8666-666666666666'
-    ]);
+    );
     expect(plugin.wdeckService.getAllCards).not.toHaveBeenCalled();
   });
 
@@ -1169,7 +1173,9 @@ describe('WeaveDataStorage deck query', () => {
 
     expect(replaceDeckCardsForDeck).toHaveBeenCalledTimes(1);
 
-    const savedCard = replaceDeckCardsForDeck.mock.calls[0][1][0];
+    const firstCall = replaceDeckCardsForDeck.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const savedCard = (firstCall as unknown as [string, Card[]])[1][0];
     const yaml = parseYAMLFromContent(savedCard.content);
     expect(yaml.we_decks).toEqual(['目标牌组']);
     expect(savedCard.deckId).toBe('deck-target');
@@ -1392,6 +1398,293 @@ describe('WeaveDataStorage deck query', () => {
     expect(plugin.wdeckService.getAllCards).not.toHaveBeenCalled();
   });
 
+  it('round-trips categoryIds from .wdeck deck definitions in getDecks', async () => {
+    const files = new Map<string, string>();
+
+    const plugin = {
+      settings: {},
+      wdeckService: {
+        isWDeckDeckId: vi.fn((deckId: string) => deckId.startsWith('wdeck:')),
+        getAllDeckSummaries: vi.fn(async () => [
+          {
+            runtimeDeckId: 'wdeck:默认牌组',
+            logicalDeckId: '默认牌组',
+            logicalDeckName: '默认牌组',
+            filePaths: ['weave/memory/deck-files/默认牌组_01.wdeck'],
+            segmentIndices: [1],
+            cardUUIDs: [],
+            deck: {
+              id: '默认牌组',
+              name: '默认牌组',
+              categoryIds: ['category-1']
+            }
+          }
+        ])
+      },
+      app: {
+        vault: {
+          adapter: {
+            exists: vi.fn(async () => false),
+            read: vi.fn(async () => {
+              throw new Error('missing');
+            })
+          },
+          configDir: '.obsidian',
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    const decks = await storage.getDecks();
+
+    expect(decks[0]?.categoryIds).toEqual(['category-1']);
+  });
+
+  it('hides legacy decks.json entries shadowed by .wdeck with the same display name', async () => {
+    const files = new Map<string, string>([
+      [
+        'weave/memory/decks.json',
+        JSON.stringify({
+          decks: [
+            {
+              id: 'deck_m5abc123',
+              name: '默认牌组',
+              metadata: {},
+              created: '2026-04-14T00:00:00.000Z',
+              modified: '2026-04-14T00:00:00.000Z'
+            }
+          ]
+        })
+      ]
+    ]);
+
+    const adapter = {
+      exists: vi.fn(async (path: string) => files.has(path)),
+      read: vi.fn(async (path: string) => {
+        const value = files.get(path);
+        if (value === undefined) throw new Error(`Missing file: ${path}`);
+        return value;
+      }),
+      write: vi.fn(async (path: string, content: string) => {
+        files.set(path, content);
+      }),
+      mkdir: vi.fn(async () => undefined)
+    };
+
+    const plugin = {
+      settings: {},
+      wdeckService: {
+        isWDeckDeckId: vi.fn((deckId: string) => deckId.startsWith('wdeck:')),
+        getAllDeckSummaries: vi.fn(async () => [
+          {
+            runtimeDeckId: 'wdeck:默认牌组',
+            logicalDeckId: '默认牌组',
+            logicalDeckName: '默认牌组',
+            filePaths: ['weave/memory/deck-files/默认牌组_01.wdeck'],
+            segmentIndices: [1],
+            cardUUIDs: ['card-1'],
+            deck: {
+              id: '默认牌组',
+              name: '默认牌组'
+            }
+          }
+        ]),
+        getAllDeckAggregates: vi.fn(async () => {
+          throw new Error('getAllDeckAggregates should not be used when getAllDeckSummaries exists');
+        })
+      },
+      app: {
+        vault: {
+          adapter,
+          configDir: '.obsidian',
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    const decks = await storage.getDecks();
+
+    expect(decks.map((deck) => deck.id)).toEqual(['wdeck:默认牌组']);
+    expect(decks[0]?.name).toBe('默认牌组');
+  });
+
+  it('purges legacy decks.json residue when reconcileLegacyDeckResidue runs', async () => {
+    const files = new Map<string, string>([
+      [
+        'weave/memory/decks.json',
+        JSON.stringify({
+          decks: [
+            {
+              id: 'deck_m5abc123',
+              name: '默认牌组',
+              metadata: {},
+              created: '2026-04-14T00:00:00.000Z',
+              modified: '2026-04-14T00:00:00.000Z'
+            },
+            {
+              id: 'legacy-visible',
+              name: 'legacy-visible',
+              metadata: {},
+              created: '2026-04-14T00:00:00.000Z',
+              modified: '2026-04-14T00:00:00.000Z'
+            }
+          ]
+        })
+      ]
+    ]);
+
+    const adapter = {
+      exists: vi.fn(async (path: string) => files.has(path)),
+      read: vi.fn(async (path: string) => {
+        const value = files.get(path);
+        if (value === undefined) throw new Error(`Missing file: ${path}`);
+        return value;
+      }),
+      write: vi.fn(async (path: string, content: string) => {
+        files.set(path, content);
+      }),
+      mkdir: vi.fn(async () => undefined),
+      remove: vi.fn(async () => undefined)
+    };
+
+    const plugin = {
+      settings: {},
+      wdeckService: {
+        isWDeckDeckId: vi.fn((deckId: string) => deckId.startsWith('wdeck:')),
+        getAllDeckSummaries: vi.fn(async () => [
+          {
+            runtimeDeckId: 'wdeck:默认牌组',
+            logicalDeckId: '默认牌组',
+            logicalDeckName: '默认牌组',
+            filePaths: ['weave/memory/deck-files/默认牌组_01.wdeck'],
+            segmentIndices: [1],
+            cardUUIDs: [],
+            deck: {
+              id: '默认牌组',
+              name: '默认牌组'
+            }
+          }
+        ])
+      },
+      app: {
+        vault: {
+          adapter,
+          configDir: '.obsidian',
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    const removed = await storage.reconcileLegacyDeckResidue();
+
+    expect(removed).toBe(1);
+    const persisted = JSON.parse(files.get('weave/memory/decks.json') || '{"decks":[]}');
+    expect(persisted.decks.map((deck: { id: string }) => deck.id)).toEqual(['legacy-visible']);
+  });
+
+  it('allows updating a .wdeck deck when legacy decks.json still has the same display name', async () => {
+    const saveDeckDefinition = vi.fn(async (deck: any) => ({
+      runtimeDeckId: 'wdeck:默认牌组',
+      logicalDeckId: '默认牌组',
+      logicalDeckName: deck.name,
+      files: [{ path: 'weave/memory/deck-files/默认牌组_01.wdeck' }],
+      segmentIndices: [1],
+      cards: [],
+      deck: {
+        id: '默认牌组',
+        name: deck.name,
+        categoryIds: deck.categoryIds,
+        created: deck.created,
+        modified: deck.modified,
+        metadata: {}
+      }
+    }));
+
+    const plugin = {
+      settings: {},
+      wdeckService: {
+        isWDeckDeckId: vi.fn((deckId: string) => deckId.startsWith('wdeck:')),
+        getAllDeckSummaries: vi.fn(async () => [
+          {
+            runtimeDeckId: 'wdeck:默认牌组',
+            logicalDeckId: '默认牌组',
+            logicalDeckName: '默认牌组',
+            filePaths: ['weave/memory/deck-files/默认牌组_01.wdeck'],
+            segmentIndices: [1],
+            cardUUIDs: [],
+            deck: {
+              id: '默认牌组',
+              name: '默认牌组'
+            }
+          }
+        ]),
+        getDeckAggregateByAnyDeckId: vi.fn(async () => null),
+        saveDeckDefinition
+      },
+      app: {
+        vault: {
+          adapter: {
+            exists: vi.fn(async () => false),
+            read: vi.fn(async () => {
+              throw new Error('missing');
+            }),
+            write: vi.fn(async () => undefined),
+            mkdir: vi.fn(async () => undefined)
+          },
+          configDir: '.obsidian',
+          getMarkdownFiles: () => [],
+          getAbstractFileByPath: () => null,
+          cachedRead: vi.fn()
+        }
+      }
+    } as any;
+
+    const storage = new WeaveDataStorage(plugin);
+    vi.spyOn(storage, 'getDecks').mockResolvedValue([
+      {
+        id: 'wdeck:默认牌组',
+        name: '默认牌组',
+        description: '',
+        category: '默认',
+        categoryIds: [],
+        tags: [],
+        metadata: { fileType: 'wdeck', logicalDeckId: '默认牌组' },
+        created: '2026-04-14T00:00:00.000Z',
+        modified: '2026-04-14T00:00:00.000Z'
+      } as any
+    ]);
+
+    const result = await storage.saveDeck({
+      id: 'wdeck:默认牌组',
+      name: '默认牌组',
+      description: '',
+      category: '默认',
+      categoryIds: ['category-1'],
+      tags: [],
+      metadata: { fileType: 'wdeck', logicalDeckId: '默认牌组' },
+      created: '2026-04-14T00:00:00.000Z',
+      modified: '2026-04-14T00:00:00.000Z'
+    } as any);
+
+    expect(result.success).toBe(true);
+    expect(saveDeckDefinition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: '默认牌组',
+        name: '默认牌组',
+        categoryIds: ['category-1']
+      })
+    );
+  });
+
   it('hides migrated legacy decks and exposes aggregated .wdeck decks', async () => {
     const files = new Map<string, string>([
       [
@@ -1517,6 +1810,7 @@ describe('WeaveDataStorage deck query', () => {
     const plugin = {
       settings: {},
       wdeckService: {
+        isWDeckDeckId: vi.fn((deckId: string) => deckId.startsWith('wdeck:')),
         getAllDeckAggregates: vi.fn(async () => []),
         getDeckAggregateByAnyDeckId: vi.fn(async () => null),
         saveDeckDefinition: vi.fn(async (deck: any) => ({

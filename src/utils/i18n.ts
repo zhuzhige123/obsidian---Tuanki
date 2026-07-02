@@ -3,6 +3,7 @@ import { logger } from "../utils/logger";
 import { deckAnalyticsTranslationOverrides } from "./i18n/deck-analytics-overrides";
 import { mergeTranslationTrees } from "./i18n/merge-translation-trees";
 import { translations, translationOverrides } from "./i18n/resources";
+import translationKeyAliasConfig from "./i18n/translation-key-aliases.json";
 import type { I18nConfig, SupportedLanguage, TranslationKey } from "./i18n/types";
 import { derived, get, writable } from "svelte/store";
 
@@ -36,21 +37,9 @@ const defaultConfig: I18nConfig = {
 	supportedLanguages: ["zh-CN", "en-US"],
 };
 
-const translationKeyAliases: Record<string, string> = {};
+const translationKeyAliases = translationKeyAliasConfig.translationKeyAliases as Record<string, string>;
 
-const translationAliasSuffixes = [
-	["Label", "label"],
-	["Desc", "description"],
-	["Description", "description"],
-	["Placeholder", "placeholder"],
-	["Title", "title"],
-	["Button", "button"],
-	["Help", "help"],
-	["Error", "error"],
-	["Success", "success"],
-	["Warning", "warning"],
-	["Info", "info"],
-] as const;
+const translationAliasSuffixes = translationKeyAliasConfig.translationAliasSuffixes as Array<[string, string]>;
 
 function getTranslationAliasCandidates(key: string): string[] {
 	const candidates = new Set<string>();
@@ -229,15 +218,25 @@ export class I18nService {
 	/**
 	 * 获取翻译文本
 	 */
+	private getCrossLanguageFallback(language: SupportedLanguage): SupportedLanguage | null {
+		if (language === "en-US") {
+			// English UI must never fall back to Chinese strings.
+			return null;
+		}
+		if (language === "zh-CN") {
+			return "en-US";
+		}
+		return this.config.fallbackLanguage === language ? null : this.config.fallbackLanguage;
+	}
+
 	t(key: string, params?: Record<string, string | number>): string {
 		const translation = this.resolveTranslation(key, this.currentLang);
 
 		if (!translation) {
-			// 尝试回退语言
-			const fallbackTranslation =
-				this.currentLang === this.config.fallbackLanguage
-					? null
-					: this.resolveTranslation(key, this.config.fallbackLanguage);
+			const fallbackLanguage = this.getCrossLanguageFallback(this.currentLang);
+			const fallbackTranslation = fallbackLanguage
+				? this.resolveTranslation(key, fallbackLanguage)
+				: null;
 			if (fallbackTranslation) {
 				return this.interpolate(fallbackTranslation, params);
 			}
@@ -259,10 +258,10 @@ export class I18nService {
 	 * 检查当前语言或回退语言是否存在翻译（含兼容别名）
 	 */
 	hasTranslation(key: string): boolean {
+		const fallbackLanguage = this.getCrossLanguageFallback(this.currentLang);
 		return Boolean(
 			this.resolveTranslation(key, this.currentLang) ||
-				(this.currentLang !== this.config.fallbackLanguage &&
-					this.resolveTranslation(key, this.config.fallbackLanguage))
+				(fallbackLanguage && this.resolveTranslation(key, fallbackLanguage))
 		);
 	}
 
@@ -294,7 +293,7 @@ export class I18nService {
 
 		for (const k of keys) {
 			if (current && typeof current === "object" && k in current) {
-				current = current[k];
+				current = (current as Record<string, unknown>)[k];
 			} else {
 				return null;
 			}

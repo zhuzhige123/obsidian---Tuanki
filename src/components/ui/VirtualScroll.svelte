@@ -3,6 +3,7 @@
   为大数据集提供高性能的滚动渲染
 -->
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { onMount } from 'svelte';
 
   interface Props {
@@ -31,7 +32,7 @@
   let scrollContainer: HTMLDivElement;
   let scrollTop = $state(0);
   let isScrolling = $state(false);
-  let scrollTimeout: NodeJS.Timeout | null = null;
+  let scrollTimeout: WeaveTimerHandle | null = null;
 
   // 计算可见范围
   let visibleRange = $derived.by(() => {
@@ -71,11 +72,11 @@
     
     // 清除之前的超时
     if (scrollTimeout) {
-      clearTimeout(scrollTimeout);
+      window.clearTimeout(scrollTimeout);
     }
     
     // 设置滚动结束检测
-    scrollTimeout = setTimeout(() => {
+    scrollTimeout = window.setTimeout(() => {
       isScrolling = false;
     }, 150);
 
@@ -149,7 +150,7 @@
   $effect(() => {
     return () => {
       if (scrollTimeout) {
-        clearTimeout(scrollTimeout);
+        window.clearTimeout(scrollTimeout);
       }
     };
   });

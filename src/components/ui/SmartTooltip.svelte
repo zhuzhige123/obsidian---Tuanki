@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   /**
    * 智能提示组件
    * 提供上下文相关的帮助信息和操作指导
@@ -56,8 +57,8 @@
   let tooltipElement = $state<HTMLElement>();
   let isVisible = $state(false);
   let actualPlacement = $state(untrack(() => placement));
-  let showTimer: NodeJS.Timeout | null = null;
-  let hideTimer: NodeJS.Timeout | null = null;
+  let showTimer: WeaveTimerHandle | null = null;
+  let hideTimer: WeaveTimerHandle | null = null;
 
   // 计算位置
   function calculatePosition() {
@@ -128,13 +129,13 @@
   // 显示提示
   function show() {
     if (hideTimer) {
-      clearTimeout(hideTimer);
+      window.clearTimeout(hideTimer);
       hideTimer = null;
     }
 
     if (showTimer) return;
 
-    showTimer = setTimeout(() => {
+    showTimer = window.setTimeout(() => {
       isVisible = true;
       onshow?.();
       showTimer = null;
@@ -149,7 +150,7 @@
   // 隐藏提示
   function hide() {
     if (showTimer) {
-      clearTimeout(showTimer);
+      window.clearTimeout(showTimer);
       showTimer = null;
     }
 
@@ -157,7 +158,7 @@
 
     if (hideTimer) return;
 
-    hideTimer = setTimeout(() => {
+    hideTimer = window.setTimeout(() => {
       isVisible = false;
       onhide?.();
       hideTimer = null;
@@ -167,11 +168,11 @@
   // 立即隐藏
   function hideImmediate() {
     if (showTimer) {
-      clearTimeout(showTimer);
+      window.clearTimeout(showTimer);
       showTimer = null;
     }
     if (hideTimer) {
-      clearTimeout(hideTimer);
+      window.clearTimeout(hideTimer);
       hideTimer = null;
     }
     isVisible = false;
@@ -224,7 +225,7 @@
 
   function handleTooltipMouseEnter() {
     if (interactive && hideTimer) {
-      clearTimeout(hideTimer);
+      window.clearTimeout(hideTimer);
       hideTimer = null;
     }
   }
@@ -261,8 +262,8 @@
     window.removeEventListener('resize', handleResize);
     window.removeEventListener('scroll', handleResize, true);
     
-    if (showTimer) clearTimeout(showTimer);
-    if (hideTimer) clearTimeout(hideTimer);
+    if (showTimer) window.clearTimeout(showTimer);
+    if (hideTimer) window.clearTimeout(hideTimer);
   });
 
   // 公开方法

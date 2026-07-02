@@ -13,11 +13,12 @@ import type { WeavePlugin } from "../../main";
 import { logger } from "../../utils/logger";
 import {
 	type CardYAMLMetadata,
+	type CardYAMLType,
 	needsSourceMigration,
 	parseYAMLFromContent,
 	setCardProperties,
 } from "../../utils/yaml-utils";
-import { getDeckNameById } from "../DeckNameMapper";
+import { resolveDeckIdToFormalName } from "../DeckNameMapper";
 
 // ===== 类型定义 =====
 
@@ -153,27 +154,27 @@ export class CardYAMLMigrationService {
 				}
 			}
 
-			if (deckIds.size > 0) {
+			const hadDeckIdsToMigrate = deckIds.size > 0;
+			let wroteWeDecks = false;
+			if (hadDeckIdsToMigrate) {
 				const deckNames: string[] = [];
 				for (const id of deckIds) {
-					const name = getDeckNameById(id);
+					const name = resolveDeckIdToFormalName(id, card);
 					if (name) {
 						deckNames.push(name);
 					} else {
-						// 🆕 v2.2 修复：找不到名称时跳过，不写入ID
-						// 原因：we_decks 应该存储牌组名称，写入 ID 会导致显示错误
 						logger.warn(`[Migration] 牌组ID "${id}" 找不到对应名称，跳过（不写入ID）`);
-						// 不再将 ID 作为名称写入
 					}
 				}
 				if (deckNames.length > 0) {
 					metadata.we_decks = deckNames;
+					wroteWeDecks = true;
 				}
 			}
 
 			// 迁移 type -> we_type
 			if (card.type) {
-				metadata.we_type = card.type as unknown;
+				metadata.we_type = card.type as CardYAMLType;
 			}
 
 			// 迁移 priority -> we_priority
@@ -202,8 +203,18 @@ export class CardYAMLMigrationService {
 				(migratedCard as Partial<Card>).tags = undefined;
 				(migratedCard as Partial<Card>).priority = undefined;
 				(migratedCard as Partial<Card>).type = undefined;
-				(migratedCard as Partial<Card>).deckId = undefined;
-				migratedCard.referencedByDecks = undefined;
+
+				// 仅在牌组归属已成功写入 YAML 后才清除 deckId/referencedByDecks，避免丢失真值
+				const yamlAfter = parseYAMLFromContent(newContent);
+				const migratedDeckNames = yamlAfter.we_decks;
+				const deckMigrationSucceeded =
+					!hadDeckIdsToMigrate ||
+					wroteWeDecks ||
+					(Array.isArray(migratedDeckNames) && migratedDeckNames.length > 0);
+				if (deckMigrationSucceeded) {
+					(migratedCard as Partial<Card>).deckId = undefined;
+					migratedCard.referencedByDecks = undefined;
+				}
 			}
 
 			if (this.config.verbose) {
@@ -339,6 +350,8 @@ export class CardYAMLMigrationService {
 	}
 
 	private async loadCardsForMigration(): Promise<Card[]> {
+		const byUuid = new Map<string, Card>();
+
 		if (this.plugin.wdeckService) {
 			const summaries = await this.plugin.wdeckService.getAllDeckSummaries();
 			const seen = new Set<string>();
@@ -352,11 +365,23 @@ export class CardYAMLMigrationService {
 				}
 			}
 			if (uuids.length > 0) {
-				return this.plugin.wdeckService.getCardsByUUIDs(uuids);
+				const wdeckCards = await this.plugin.wdeckService.getCardsByUUIDs(uuids);
+				for (const card of wdeckCards) {
+					if (card?.uuid) {
+						byUuid.set(card.uuid, card);
+					}
+				}
 			}
 		}
 
-		return this.plugin.dataStorage.getAllCards();
+		const storedCards = await this.plugin.dataStorage.getAllCards();
+		for (const card of storedCards) {
+			if (card?.uuid && !byUuid.has(card.uuid)) {
+				byUuid.set(card.uuid, card);
+			}
+		}
+
+		return Array.from(byUuid.values());
 	}
 }
 
@@ -377,8 +402,13 @@ export function cardNeedsMigration(card: Card): boolean {
 	if (!yaml.we_source && (card.sourceFile || card.sourceBlock)) {
 		return true;
 	}
-	if (!yaml.we_decks?.length && (card.deckId || card.referencedByDecks?.length)) {
-		return true;
+	if (!Array.isArray(yaml.we_decks) || yaml.we_decks.length === 0) {
+		if (readWDeckLogicalDeckName(card)) {
+			return false;
+		}
+		if (card.deckId || card.referencedByDecks?.length) {
+			return true;
+		}
 	}
 	if (!yaml.we_type && card.type) {
 		return true;
@@ -388,6 +418,18 @@ export function cardNeedsMigration(card: Card): boolean {
 	}
 
 	return false;
+}
+
+function readWDeckLogicalDeckName(card: Card): string | undefined {
+	const marker = (card.customFields as Record<string, unknown> | undefined)?.wdeck;
+	if (!marker || typeof marker !== "object") {
+		return undefined;
+	}
+
+	const logicalDeckName = String(
+		(marker as { logicalDeckName?: unknown }).logicalDeckName || ""
+	).trim();
+	return logicalDeckName || undefined;
 }
 
 /**
@@ -418,7 +460,7 @@ export function migrateCardQuick(card: Card): Card {
 	}
 
 	if (card.type) {
-		metadata.we_type = card.type as unknown;
+		metadata.we_type = card.type as CardYAMLType;
 	}
 
 	if (card.priority !== undefined) {
@@ -457,14 +499,15 @@ export function fixWeDecksIdToName(
 
 	try {
 		const yaml = parseYAMLFromContent(card.content);
-		if (!yaml.we_decks || yaml.we_decks.length === 0) {
+		const deckNames = yaml.we_decks;
+		if (!Array.isArray(deckNames) || deckNames.length === 0) {
 			return { card, fixed: false };
 		}
 
 		let needsFix = false;
 		const fixedDeckNames: string[] = [];
 
-		for (const rawValue of yaml.we_decks) {
+		for (const rawValue of deckNames) {
 			if (typeof rawValue !== "string") {
 				continue;
 			}
@@ -493,6 +536,10 @@ export function fixWeDecksIdToName(
 		const metadata: CardYAMLMetadata = {};
 		if (fixedDeckNames.length > 0) {
 			metadata.we_decks = fixedDeckNames;
+		} else if (needsFix) {
+			metadata.we_decks = undefined;
+		} else {
+			return { card, fixed: false };
 		}
 
 		const newContent = setCardProperties(card.content, metadata);

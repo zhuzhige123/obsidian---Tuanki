@@ -103,6 +103,14 @@ export class SourceLocateOverlayService {
 		this.showAtRect(virtualRect, options);
 	}
 
+	private filterHTMLElements(elements: Iterable<Element>): HTMLElement[] {
+		return Array.from(elements).filter((element): element is HTMLElement => element.instanceOf(HTMLElement));
+	}
+
+	private asHTMLElement(element: Element | null | undefined): HTMLElement | null {
+		return element instanceof HTMLElement ? element : null;
+	}
+
 	findMarkdownLocateTarget(
 		container: HTMLElement,
 		candidates: string[]
@@ -196,15 +204,19 @@ export class SourceLocateOverlayService {
 		});
 
 		if (previewLink) {
-			const target = previewLink.closest(".callout, blockquote, p, li, div");
+			const target = this.asHTMLElement(previewLink.closest(".callout, blockquote, p, li, div"));
+			const scrollTarget = target ?? this.asHTMLElement(previewLink);
+			if (!scrollTarget) {
+				return null;
+			}
 			return this.buildLocateTarget(
-				target || previewLink,
+				scrollTarget,
 				request.textCandidates.length > 0 ? request.textCandidates : cleanCandidates,
-				previewLink
+				this.asHTMLElement(previewLink)
 			);
 		}
 
-		const sourceLines = Array.from(container.querySelectorAll(".cm-line"));
+		const sourceLines = this.filterHTMLElements(container.querySelectorAll(".cm-line"));
 		const sourceLineCandidates = Array.from(
 			new Set([
 				...(request.textCandidates.length > 0 ? request.textCandidates : []),
@@ -220,7 +232,7 @@ export class SourceLocateOverlayService {
 		}
 
 		if (!request.hasEpubTarget) {
-			const activeLine = container.querySelector(".cm-active, .cm-line");
+			const activeLine = this.asHTMLElement(container.querySelector(".cm-active, .cm-line"));
 			if (activeLine) {
 				return this.buildLocateTarget(
 					activeLine,
@@ -286,6 +298,9 @@ export class SourceLocateOverlayService {
 		let bestScore = 0;
 
 		for (const element of previewTargets) {
+			if (!(element.instanceOf(HTMLElement))) {
+				continue;
+			}
 			const values = [
 				element.id,
 				element.getAttribute("data-heading") || "",
@@ -319,6 +334,9 @@ export class SourceLocateOverlayService {
 		let bestScore = 0;
 
 		for (const element of previewBlocks) {
+			if (!(element.instanceOf(HTMLElement))) {
+				continue;
+			}
 			const text = element.textContent || "";
 			if (!text.trim()) continue;
 			const score = this.scoreBestCandidateMatch(text, candidates);
@@ -343,7 +361,9 @@ export class SourceLocateOverlayService {
 			".markdown-rendered blockquote",
 		]) {
 			for (const block of Array.from(container.querySelectorAll(selector))) {
-				blockSet.add(block);
+				if (block.instanceOf(HTMLElement)) {
+					blockSet.add(block);
+				}
 			}
 		}
 
@@ -365,7 +385,7 @@ export class SourceLocateOverlayService {
 		container: HTMLElement,
 		request: MarkdownLocateRequest
 	): MarkdownLocateTarget | null {
-		const sourceLines = Array.from(container.querySelectorAll(".cm-line"));
+		const sourceLines = this.filterHTMLElements(container.querySelectorAll(".cm-line"));
 		if (sourceLines.length === 0) {
 			return null;
 		}

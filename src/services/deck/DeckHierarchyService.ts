@@ -12,6 +12,7 @@ import { logger } from "../../utils/logger";
 
 import type { WeaveDataStorage } from "../../data/storage";
 import type { Card, Deck, DeckSettings, DeckStats } from "../../data/types";
+import { normalizeWDeckLogicalDeckId } from "../wdeck/WDeckService";
 import { getCardMetadata, setCardProperty } from "../../utils/yaml-utils";
 
 /**
@@ -71,11 +72,41 @@ export class DeckHierarchyService {
 			throw new Error("牌组名称不能为空");
 		}
 
+		const normalizedName = name.trim();
+		const excludedDeckIds = new Set<string>();
+		const normalizedExclude = String(excludeDeckId || "").trim();
+		if (normalizedExclude) {
+			excludedDeckIds.add(normalizedExclude);
+			excludedDeckIds.add(normalizeWDeckLogicalDeckId(normalizedExclude));
+		}
+
 		const allDecks = await this.storage.getDecks();
-		const isDuplicate = allDecks.some((d) => d.name === name.trim() && d.id !== excludeDeckId);
+		const isDuplicate = allDecks.some((deck) => {
+			if (String(deck.name || "").trim() !== normalizedName) {
+				return false;
+			}
+
+			const deckId = String(deck.id || "").trim();
+			if (!deckId) {
+				return true;
+			}
+
+			if (excludedDeckIds.has(deckId)) {
+				return false;
+			}
+
+			if (
+				normalizedExclude &&
+				excludedDeckIds.has(normalizeWDeckLogicalDeckId(deck.id, deck.name))
+			) {
+				return false;
+			}
+
+			return true;
+		});
 
 		if (isDuplicate) {
-			throw new Error(`牌组名称「${name}」已存在`);
+			throw new Error(`牌组名称「${normalizedName}」已存在`);
 		}
 	}
 

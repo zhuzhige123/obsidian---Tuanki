@@ -8,6 +8,7 @@ import { Component, MarkdownRenderer } from "obsidian";
 import type { WeavePlugin } from "../main";
 import type { EditorResourceManager } from "./resource-manager";
 import { applyStyleProps } from "./style-props";
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 
 export interface PreviewOptions {
 	/** 防抖延迟（毫秒） */
@@ -50,14 +51,14 @@ export class PreviewManager {
 	private isRendering = false;
 	private renderQueue: Array<{
 		content: string;
-		resolve: (value: unknown) => void;
+		resolve: (value: PreviewRenderResult) => void;
 		reject: (reason?: unknown) => void;
 	}> = [];
 	private currentComponent: Component | null = null;
 	private abortController: AbortController | null = null;
 
 	// 防抖和缓存
-	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private debounceTimer: WeaveTimerHandle | null = null;
 	private contentCache = new Map<string, CachedPreview>();
 	private lastContentHash = "";
 
@@ -267,7 +268,13 @@ export class PreviewManager {
 		try {
 			// 这里需要容器，但队列中没有，所以暂时跳过队列处理
 			// 实际实现中需要重新设计队列结构
-			resolve({ success: false, error: "队列处理暂未实现" });
+			resolve({
+				success: false,
+				error: "队列处理暂未实现",
+				renderTime: 0,
+				contentHash: "",
+				fromCache: false,
+			});
 		} catch (error) {
 			reject(error);
 		}

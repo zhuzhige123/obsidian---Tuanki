@@ -3,32 +3,9 @@
  * WeaveCardTable 组件拆分 - 共享工具函数
  */
 
-import { getOfficialTemplateById } from "../../../constants/official-templates";
 import { ICON_NAMES } from "../../../icons/index.js";
-import type { ParseTemplate } from "../../../types/newCardParsingTypes";
-// 🆕 v2.2: 导入牌组信息获取工具
 import { getCardDeckNames as getCardDeckNamesFromYaml } from "../../../utils/yaml-utils";
-import type { FieldTemplateInfo, SourceDocumentStatusInfo } from "../types/table-types";
-
-type TemplateLookupPlugin = {
-	settings?: {
-		simplifiedParsing?: {
-			templates?: ParseTemplate[];
-		};
-	};
-};
-
-type LegacyFieldTemplate = {
-	id: string;
-	name: string;
-	isOfficial?: boolean;
-};
-
-function isLegacyFieldTemplate(
-	template: LegacyFieldTemplate | FieldTemplateInfo
-): template is LegacyFieldTemplate {
-	return "id" in template;
-}
+import type { SourceDocumentStatusInfo } from "../types/table-types";
 
 /**
  * 获取排序图标
@@ -119,74 +96,6 @@ export function getCardDeckName(
 	// 使用统一的工具函数获取牌组名称
 	const names = getCardDeckNamesFromYaml(card, decks, "无牌组");
 	return names.join(", ");
-}
-
-/**
- * 获取字段模板显示信息
- * @param templateId - 模板ID
- * @param fieldTemplates - 旧版字段模板（已废弃，仅用于向后兼容）
- * @param plugin - 插件实例
- */
-export function getFieldTemplateInfo(
-	templateId: string,
-	fieldTemplates: Array<LegacyFieldTemplate | FieldTemplateInfo> = [],
-	plugin?: TemplateLookupPlugin
-): FieldTemplateInfo {
-	if (!templateId) {
-		return {
-			name: "未设置",
-			icon: ICON_NAMES.HELP,
-			class: "weave-template-unknown",
-		};
-	}
-
-	// 1. 优先查找官方模板
-	const officialTemplate = getOfficialTemplateById(templateId);
-	if (officialTemplate) {
-		return {
-			name: officialTemplate.name,
-			icon: ICON_NAMES.CHECK_CIRCLE,
-			class: "weave-template-official",
-		};
-	}
-
-	// 2. 查找用户自定义 ParseTemplate
-	const userParseTemplate = plugin?.settings?.simplifiedParsing?.templates?.find(
-		(template) => template.id === templateId
-	);
-	if (userParseTemplate) {
-		const isAnkiImported = userParseTemplate.weaveMetadata?.source === "anki_imported";
-		return {
-			name: userParseTemplate.name,
-			icon: isAnkiImported ? ICON_NAMES.DOWNLOAD : ICON_NAMES.TAG,
-			class: "weave-template-custom",
-		};
-	}
-
-	// 3. 查找旧版 FieldTemplate
-	const oldTemplate = fieldTemplates.find(
-		(template): template is LegacyFieldTemplate =>
-			isLegacyFieldTemplate(template) && template.id === templateId
-	);
-	if (oldTemplate) {
-		return {
-			name: oldTemplate.name,
-			icon: oldTemplate.isOfficial ? ICON_NAMES.CHECK_CIRCLE : ICON_NAMES.TAG,
-			class: oldTemplate.isOfficial ? "weave-template-official" : "weave-template-custom",
-		};
-	}
-
-	// 4. 后备显示：格式化 templateId
-	const formattedName = templateId
-		.replace(/^(official-|anki-imported-|custom-)/, "")
-		.replace(/[-_]/g, " ")
-		.replace(/\b\w/g, (c) => c.toUpperCase());
-
-	return {
-		name: formattedName,
-		icon: ICON_NAMES.WARNING,
-		class: "weave-template-missing",
-	};
 }
 
 /**

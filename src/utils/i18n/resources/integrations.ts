@@ -89,13 +89,16 @@ export const integrationsTranslations: Record<SupportedLanguage, TranslationKey>
 				},
 			},
 			globalParams: {
+				title: "全局参数",
 				temperature: {
 					label: "Temperature",
-					description: "控制AI响应的随机性。值越低越确定，越高越创造性。推荐范围：0.5-1.0",
+					description:
+						"控制 AI 响应的随机性。值越低越确定，越高越创造性。用于 AI 助手、学习侧格式化/拆分（动作未单独指定时）及制卡流程。推荐范围：0.5-1.0；格式化场景建议 0.1-0.3。",
 				},
 				maxTokens: {
 					label: "最大Token数",
-					description: "单次请求的最大Token数量。推荐范围：1000-4000",
+					description:
+						"单次请求的最大 Token 数量。用于 AI 助手、学习侧格式化/拆分（动作未单独指定时）及制卡流程。拆分长内容时建议 4000 及以上。",
 				},
 				requestTimeout: {
 					label: "请求超时时间",
@@ -337,6 +340,36 @@ export const integrationsTranslations: Record<SupportedLanguage, TranslationKey>
 		premium: {
 			entryTitlePremiumSuffix: " (高级)",
 			entryTitleLimitedTimeSuffix: " (限时开放)",
+			features: {
+				gridView: { name: "网格视图", description: "以卡片网格形式展示，让管理更直观" },
+				kanbanView: { name: "看板视图", description: "看板式管理，按状态分类显示" },
+				timelineView: { name: "时间线视图", description: "按时间线浏览卡片，快速回看内容脉络" },
+				aiAssistant: { name: "AI智能助手", description: "智能批量生成高质量记忆卡片" },
+				incrementalReading: { name: "渐进性阅读", description: "支持增量阅读工作流" },
+				emergentDecks: { name: "涌现牌组", description: "基于标签与规则自动组织涌现牌组视图" },
+				studySourceInfo: { name: "学习来源信息栏", description: "在学习界面查看来源文档、关联阅读材料和同源卡片信息" },
+				memoryDeckLevels: { name: "记忆牌组等级", description: "为记忆牌组显示掌握驱动的等级与升级进度徽章" },
+				batchParsing: { name: "批量解析系统", description: "自动解析文档中的卡片，支持文件夹映射和智能触发" },
+				questionBank: { name: "题库系统", description: "专业的题库考试功能，支持考试、小测验等多种模式" },
+				deckAnalytics: { name: "牌组分析", description: "详细的牌组学习数据分析、记忆曲线和负荷预测" },
+				deckAnalyticsRetention: { name: "记忆率曲线图", description: "查看牌组记忆率与回忆表现趋势" },
+				deckAnalyticsTiming: { name: "复习时机图", description: "查看牌组复习提前、准时与延迟分布" },
+				progressiveCloze: { name: "渐进式挖空", description: "智能渐进式挖空学习，逐步掌握复杂知识点" },
+				csvImport: { name: "CSV 导入", description: "通过 CSV 文件批量导入卡片" },
+				viewSource: { name: "查看原文", description: "快速查看卡片来源文档和上下文" },
+				fsrsStudy: { name: "FSRS 记忆学习", description: "基于 FSRS 算法的间隔复习、牌组学习与学习统计" },
+				tableView: { name: "表格视图", description: "以表格管理卡片与牌组，支持筛选、排序与批量操作" },
+				obsidianCardEditing: { name: "Obsidian 原生卡片编辑", description: "在 Obsidian 编辑器中直接编辑卡片，支持 Markdown 与所见即所得体验" },
+				fillInputMode: { name: "填空题输入模式", description: "学习填空题时在输入框作答，支持即时判分与继续学习" },
+				aiCardCreation: { name: "AI 制卡", description: "使用 AI 辅助生成、整理与拆分记忆卡片（需自备 API）" },
+				parsePreviewImport: { name: "解析预览导入", description: "预览 AI 或文本解析结果后再确认导入，避免误导入" },
+				ankiConnectSync: { name: "Anki Connect 同步", description: "与 Anki 桌面端双向同步卡片与复习进度" },
+				apkgImport: { name: "旧版 APKG 导入", description: "导入 Anki .apkg 包，迁移历史牌组与卡片" },
+				deckViewEmbed: { name: "Markdown 牌组视图", description: "在笔记中插入 weave-decks 代码块，嵌入可配置的牌组视图" },
+				activeDocumentFilter: { name: "当前文档筛选", description: "按当前活动笔记筛选关联卡片，聚焦当前阅读上下文" },
+				relatedCards: { name: "关联卡片", description: "查看与筛选同源、同笔记或彼此关联的卡片网络" },
+				imageMask: { name: "图片遮罩", description: "在图片上绘制遮罩区域，制作图像挖空与遮盖练习" },
+			},
 		},
 	},
 	'en-US': {
@@ -428,14 +461,16 @@ export const integrationsTranslations: Record<SupportedLanguage, TranslationKey>
 				},
 			},
 			globalParams: {
+				title: "Global Parameters",
 				temperature: {
 					label: "Temperature",
 					description:
-						"Control AI response randomness. Lower = more deterministic, Higher = more creative. Recommended: 0.5-1.0",
+						"Controls AI response randomness. Used by the AI assistant, study formatting/split (when an action does not override), and card generation. Recommended: 0.5-1.0; use 0.1-0.3 for formatting tasks.",
 				},
 				maxTokens: {
 					label: "Max Tokens",
-					description: "Maximum tokens per request. Recommended: 1000-4000",
+					description:
+						"Maximum tokens per request. Used by the AI assistant, study formatting/split (when an action does not override), and card generation. Use 4000+ for long split outputs.",
 				},
 				requestTimeout: {
 					label: "Request Timeout",
@@ -684,6 +719,36 @@ Output Format (JSON):
 		premium: {
 			entryTitlePremiumSuffix: " (Premium)",
 			entryTitleLimitedTimeSuffix: " (Limited-time access)",
+			features: {
+				gridView: { name: "Grid view", description: "Browse cards in a grid layout for clearer management" },
+				kanbanView: { name: "Kanban view", description: "Manage cards on a board grouped by status" },
+				timelineView: { name: "Timeline view", description: "Browse cards chronologically to review content flow" },
+				aiAssistant: { name: "AI assistant", description: "Generate high-quality memory cards in batches with AI" },
+				incrementalReading: { name: "Incremental reading", description: "Support incremental-reading workflows" },
+				emergentDecks: { name: "Emergent decks", description: "Organize emergent deck views from tags and rules" },
+				studySourceInfo: { name: "Study source info bar", description: "View source documents, related reading items, and linked cards while studying" },
+				memoryDeckLevels: { name: "Memory deck levels", description: "Show mastery-driven levels and upgrade badges for memory decks" },
+				batchParsing: { name: "Batch parsing", description: "Parse cards from documents automatically with folder mappings and smart triggers" },
+				questionBank: { name: "Exam sets", description: "Professional exam workflows with tests, quizzes, and more" },
+				deckAnalytics: { name: "Deck analytics", description: "Detailed study analytics, memory curves, and workload forecasts" },
+				deckAnalyticsRetention: { name: "Retention curve", description: "Review deck retention and recall trends" },
+				deckAnalyticsTiming: { name: "Review timing chart", description: "Review early, on-time, and late review distributions" },
+				progressiveCloze: { name: "Progressive cloze", description: "Learn complex points step by step with progressive cloze cards" },
+				csvImport: { name: "CSV import", description: "Import cards in bulk from CSV files" },
+				viewSource: { name: "View source", description: "Quickly open a card's source document and context" },
+				fsrsStudy: { name: "FSRS spaced study", description: "Spaced repetition, deck study, and study stats powered by FSRS" },
+				tableView: { name: "Table view", description: "Manage cards and decks in a table with filtering, sorting, and batch actions" },
+				obsidianCardEditing: { name: "Native Obsidian card editing", description: "Edit cards directly in Obsidian with Markdown and WYSIWYG support" },
+				fillInputMode: { name: "Fill-in input mode", description: "Answer fill-in cards in an input box with instant grading" },
+				aiCardCreation: { name: "AI card creation", description: "Generate, organize, and split memory cards with AI (bring your own API key)" },
+				parsePreviewImport: { name: "Parse preview import", description: "Preview AI or text parsing results before importing to avoid mistakes" },
+				ankiConnectSync: { name: "AnkiConnect sync", description: "Sync cards and review progress with Anki desktop" },
+				apkgImport: { name: "Legacy APKG import", description: "Import Anki .apkg packages to migrate historical decks and cards" },
+				deckViewEmbed: { name: "Markdown deck view", description: "Embed configurable deck views with weave-decks code blocks in notes" },
+				activeDocumentFilter: { name: "Active document filter", description: "Filter related cards by the currently active note" },
+				relatedCards: { name: "Related cards", description: "Browse cards linked by source, note, or relation" },
+				imageMask: { name: "Image mask", description: "Draw masked regions on images for image cloze and cover exercises" },
+			},
 		},
 	},
 };
@@ -693,6 +758,8 @@ export const integrationsTranslationOverrides: Record<SupportedLanguage, Transla
 		aiConfig: {
 			apiKeys: {
 				customHint: "当前使用的是不在预设列表中的自定义模型",
+				testApiKeyMissing: "请先填写 API 密钥",
+				testConnectionFailed: "连接测试失败，请检查密钥、模型和 API 地址",
 				customModel: {
 					cancel: "取消",
 					emptyError: "模型名称不能为空",
@@ -720,12 +787,15 @@ export const integrationsTranslationOverrides: Record<SupportedLanguage, Transla
 					protocolError: "仅支持 HTTP 或 HTTPS 协议",
 					queryHashError: "基础 URL 不应包含查询参数或锚点",
 					save: "保存",
+					securityWarning:
+						"你的 API 密钥将发往此地址。请仅填写你信任的服务商或自建代理地址，避免泄露密钥。",
 					title: "自定义 {provider} API 地址",
 				},
 			},
 			notices: {
 				apiUrlReset: "已恢复 {provider} 的默认 API 地址",
 				apiUrlUpdated: "已更新 {provider} 的 API 地址",
+				customModelSaved: "已添加自定义模型：{model}",
 			},
 		},
 		ankiConnect: {
@@ -932,7 +1002,7 @@ export const integrationsTranslationOverrides: Record<SupportedLanguage, Transla
 		about: {
 			license: {
 				activation: {
-					activateLicense: "激活许可证",
+					activate: "激活许可证",
 					activatedAt: "激活时间：",
 					activatedDevices: "已激活设备：",
 					activationFailed: "激活失败，请检查激活码和邮箱是否正确",
@@ -942,7 +1012,7 @@ export const integrationsTranslationOverrides: Record<SupportedLanguage, Transla
 					clearInput: "清空输入",
 					codeCopied: "激活码已复制到剪贴板",
 					codeHint: "支持粘贴完整激活码，系统会自动清理格式",
-					codeLabel: "激活码",
+					code: "激活码",
 					collapseCode: "折叠激活码",
 					confirmDeactivate: "确定要移除本设备的激活码吗？移除后将立即恢复为未激活状态。",
 					confirmDeactivateTitle: "移除激活码",
@@ -1016,6 +1086,8 @@ export const integrationsTranslationOverrides: Record<SupportedLanguage, Transla
 		aiConfig: {
 			apiKeys: {
 				customHint: "Currently using a custom model outside the built-in list",
+				testApiKeyMissing: "Enter an API key first",
+				testConnectionFailed: "Connection test failed. Check your key, model, and API URL",
 				customModel: {
 					cancel: "Cancel",
 					emptyError: "Model name cannot be empty",
@@ -1044,12 +1116,15 @@ export const integrationsTranslationOverrides: Record<SupportedLanguage, Transla
 					protocolError: "Only HTTP and HTTPS are supported",
 					queryHashError: "The base URL should not include query parameters or a hash fragment",
 					save: "Save",
+					securityWarning:
+						"Your API key will be sent to this URL. Only use endpoints you trust, such as official providers or your own proxy.",
 					title: "Custom API URL for {provider}",
 				},
 			},
 			notices: {
 				apiUrlReset: "Reset the API URL for {provider} to the default value",
 				apiUrlUpdated: "Updated the API URL for {provider}",
+				customModelSaved: "Added custom model: {model}",
 			},
 		},
 		ankiConnect: {
@@ -1260,7 +1335,7 @@ export const integrationsTranslationOverrides: Record<SupportedLanguage, Transla
 		about: {
 			license: {
 				activation: {
-					activateLicense: "Activate license",
+					activate: "Activate license",
 					activatedAt: "Activated at: ",
 					activatedDevices: "Activated devices: ",
 					activationFailed: "Activation failed. Please check the activation code and email.",
@@ -1270,7 +1345,7 @@ export const integrationsTranslationOverrides: Record<SupportedLanguage, Transla
 					clearInput: "Clear input",
 					codeCopied: "Activation code copied to clipboard",
 					codeHint: "Paste the full activation code. Formatting will be cleaned automatically.",
-					codeLabel: "Activation Code",
+					code: "Activation Code",
 					collapseCode: "Collapse activation code",
 					confirmDeactivate:
 						"Remove the activation code from this device? The plugin will immediately return to the inactive state.",

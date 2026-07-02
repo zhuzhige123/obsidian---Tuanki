@@ -32,7 +32,7 @@
       onReveal();
 
       // 动画完成后重置状态
-      setTimeout(() => {
+      window.setTimeout(() => {
         isAnimating = false;
       }, 300);
     }

@@ -3,6 +3,7 @@
   根据学习状态和题型对卡片进行分组展示
 -->
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { Notice } from 'obsidian';
   import { logger } from '../../utils/logger';
   import { getCardTagValues } from '../../utils/tag-utils';
@@ -28,6 +29,13 @@
   } from './kanban-selection';
 
   import { onMount, tick } from "svelte";
+  import {
+    canTopScrollbarScroll,
+    createOverflowMeasureScheduler,
+    measureHorizontalOverflow,
+    resetLinkedHorizontalScroll,
+    syncLinkedHorizontalScroll,
+  } from '../tables/utils/table-horizontal-scroll';
   import { tr } from '../../utils/i18n';
   import type { Card, CardState, CardType, Deck } from "../../data/types";
   import type { WeaveDataStorage } from "../../data/storage";
@@ -248,33 +256,78 @@
   let showColumnMenu = $state(false);
   let columnMenuRef = $state<HTMLElement | null>(null);
 
-  // 顶部滚动条同步
+  // 顶部横向滚动条（仅真实溢出时渲染，逻辑与卡片表格视图共用）
+  let kanbanViewRef = $state<HTMLElement | null>(null);
   let topScrollbarRef = $state<HTMLElement | null>(null);
-  let topScrollbarContentRef = $state<HTMLElement | null>(null);
   let kanbanBoardRef = $state<HTMLElement | null>(null);
-  let boardResizeObserver: ResizeObserver | null = null;
+  let hasHorizontalOverflow = $state(false);
+  let horizontalContentWidth = $state(0);
+  let isSyncingScroll = false;
+
+  const overflowScheduler = createOverflowMeasureScheduler(() => {
+    applyHorizontalOverflowState();
+  });
+
+  function syncScrollbars(source: 'top' | 'board') {
+    if (isSyncingScroll || !topScrollbarRef || !kanbanBoardRef) {
+      return;
+    }
+
+    isSyncingScroll = true;
+    try {
+      syncLinkedHorizontalScroll(
+        source === 'top' ? 'top' : 'content',
+        topScrollbarRef,
+        kanbanBoardRef
+      );
+    } finally {
+      isSyncingScroll = false;
+    }
+  }
+
+  function applyHorizontalOverflowState() {
+    if (isMobile || !kanbanBoardRef) {
+      hasHorizontalOverflow = false;
+      horizontalContentWidth = 0;
+      if (kanbanBoardRef) {
+        resetLinkedHorizontalScroll(kanbanBoardRef, topScrollbarRef);
+      }
+      return;
+    }
+
+    const metrics = measureHorizontalOverflow({
+      scrollHost: kanbanBoardRef,
+      fallbackViewportWidths: [kanbanViewRef?.clientWidth],
+    });
+
+    if (!metrics?.hasOverflow) {
+      hasHorizontalOverflow = false;
+      horizontalContentWidth = 0;
+      resetLinkedHorizontalScroll(kanbanBoardRef, topScrollbarRef);
+      return;
+    }
+
+    horizontalContentWidth = metrics.contentWidth;
+
+    if (topScrollbarRef && !canTopScrollbarScroll(topScrollbarRef)) {
+      hasHorizontalOverflow = false;
+      horizontalContentWidth = 0;
+      resetLinkedHorizontalScroll(kanbanBoardRef, topScrollbarRef);
+      return;
+    }
+
+    hasHorizontalOverflow = true;
+
+    if (topScrollbarRef) {
+      topScrollbarRef.scrollLeft = kanbanBoardRef.scrollLeft;
+    }
+  }
 
   function openColumnMenu() {
     menuView = 'main';
     showColumnMenu = true;
   }
 
-  function syncScroll(source: 'top' | 'board') {
-    if (!topScrollbarRef || !kanbanBoardRef) return;
-    if (source === 'top') {
-      kanbanBoardRef.scrollLeft = topScrollbarRef.scrollLeft;
-    } else {
-      topScrollbarRef.scrollLeft = kanbanBoardRef.scrollLeft;
-    }
-  }
-
-  function updateTopScrollbarWidth() {
-    if (kanbanBoardRef && topScrollbarContentRef) {
-      const scrollWidth = kanbanBoardRef.scrollWidth;
-      topScrollbarContentRef.style.width = `${scrollWidth}px`;
-    }
-  }
-  
   // 菜单导航状态
   type MenuView = 'main' | 'groupby' | 'tag-group' | 'sort' | 'sort-add';
   let menuView = $state<MenuView>('main');
@@ -286,7 +339,7 @@
   let menuReorderSortRule = $state<SortConfig | null>(null);
   let menuReorderActive = $state(false);
   let menuReorderDirty = $state(false);
-  let menuReorderTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+  let menuReorderTimer = $state<WeaveTimerHandle | null>(null);
 
   // 分组方式标签映射
   const groupByLabels = $derived<Record<string, string>>({
@@ -1004,7 +1057,7 @@
 
   function clearMenuReorderTimer() {
     if (menuReorderTimer) {
-      clearTimeout(menuReorderTimer);
+      window.clearTimeout(menuReorderTimer);
       menuReorderTimer = null;
     }
   }
@@ -1073,7 +1126,7 @@
     menuReorderItemEl = itemEl;
     menuReorderColumnKey = options.columnKey ?? null;
     menuReorderSortRule = options.sortRule ?? null;
-    menuReorderTimer = setTimeout(() => {
+    menuReorderTimer = window.setTimeout(() => {
       menuReorderTimer = null;
       menuReorderActive = true;
       activeDocument.body.style.userSelect = 'none';
@@ -1796,35 +1849,80 @@
     // 初始化可见卡片数量
     initializeVisibleCards();
 
-    // 顶部滚动条：监听看板内容宽度变化
+    void tick().then(() => {
+      overflowScheduler.schedule();
+    });
+
     return () => {
       window.removeEventListener('Weave:open-kanban-column-settings-menu', handleOpenColumnSettings);
-
-      if (boardResizeObserver) {
-        boardResizeObserver.disconnect();
-        boardResizeObserver = null;
-      }
+      overflowScheduler.dispose();
     };
   });
 
-  // 看板board ref变化时设置ResizeObserver
   $effect(() => {
-    if (kanbanBoardRef) {
-      boardResizeObserver?.disconnect();
-      boardResizeObserver = new ResizeObserver(() => {
-        updateTopScrollbarWidth();
-      });
-      boardResizeObserver.observe(kanbanBoardRef);
-      // 初始同步
-      updateTopScrollbarWidth();
-    }
+    void renderedGroups;
+    void groupedCards;
+    void layoutMode;
+    void columnConfig;
+    void cards.length;
+    void isMobile;
+
+    overflowScheduler.schedule();
   });
 
-  // 分组变化时更新滚动条宽度
   $effect(() => {
-    if (groupedCards) {
-      setTimeout(updateTopScrollbarWidth, 50);
+    const observedElements = [
+      kanbanViewRef,
+      kanbanBoardRef,
+      topScrollbarRef,
+    ].filter((element): element is HTMLElement => element instanceof HTMLElement);
+
+    if (observedElements.length === 0) {
+      return;
     }
+
+    const resizeObserver = new ResizeObserver(() => {
+      overflowScheduler.scheduleDebounced();
+    });
+
+    for (const element of observedElements) {
+      resizeObserver.observe(element);
+    }
+
+    overflowScheduler.schedule();
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  });
+
+  $effect(() => {
+    const workspace = plugin?.app?.workspace;
+    if (!workspace) {
+      return;
+    }
+
+    const handleLayoutChange = () => {
+      overflowScheduler.scheduleAfterLayoutSettle();
+    };
+
+    const layoutChangeRef = workspace.on('layout-change', handleLayoutChange);
+    window.addEventListener('Weave:surface-location-change', handleLayoutChange);
+
+    return () => {
+      workspace.offref(layoutChangeRef);
+      window.removeEventListener('Weave:surface-location-change', handleLayoutChange);
+    };
+  });
+
+  $effect(() => {
+    if (!hasHorizontalOverflow) {
+      return;
+    }
+
+    void tick().then(() => {
+      overflowScheduler.schedule();
+    });
   });
 
   $effect(() => {
@@ -1927,7 +2025,7 @@
   });
 </script>
 
-<div class="weave-kanban-view">
+<div class="weave-kanban-view" bind:this={kanbanViewRef}>
   <!-- 渲染进度遮罩 -->
   {#if isRendering && cards.length > 0}
     <div class="weave-rendering-overlay"></div>
@@ -2394,23 +2492,28 @@
     />
   {/if}
 
-  <!-- 顶部横向滚动条 -->
-  <div
-    class="weave-kanban-top-scrollbar"
-    bind:this={topScrollbarRef}
-    onscroll={() => syncScroll('top')}
-  >
-    <div class="weave-kanban-scrollbar-content" bind:this={topScrollbarContentRef}></div>
-  </div>
+  {#if hasHorizontalOverflow && !isMobile}
+    <div
+      class="weave-kanban-top-scrollbar"
+      bind:this={topScrollbarRef}
+      onscroll={() => syncScrollbars('top')}
+    >
+      <div
+        class="weave-kanban-scrollbar-content"
+        style={`width: ${horizontalContentWidth}px;`}
+      ></div>
+    </div>
+  {/if}
 
   <!-- 看板列 -->
   <div
     class="weave-kanban-board"
+    class:has-top-horizontal-scroll={hasHorizontalOverflow && !isMobile}
     class:layout-compact={layoutMode === 'compact'}
     class:layout-comfortable={layoutMode === 'comfortable'}
     class:layout-spacious={layoutMode === 'spacious'}
     bind:this={kanbanBoardRef}
-    onscroll={() => syncScroll('board')}
+    onscroll={() => syncScrollbars('board')}
   >
     {#if cardStateManager}
       {#each renderedGroups as group (group.key)}
@@ -2552,6 +2655,7 @@
   @import '../views/styles/grid-common.css';
 
   .weave-kanban-view {
+    --weave-kanban-top-scrollbar-size: 12px;
     position: relative;
     display: flex;
     flex-direction: column;
@@ -2559,17 +2663,21 @@
     background: var(--background-primary);
   }
 
-  /* 顶部横向滚动条 */
+  /* 顶部横向滚动条（仅真实溢出时由模板渲染） */
   .weave-kanban-top-scrollbar {
+    flex: 0 0 var(--weave-kanban-top-scrollbar-size, 12px);
+    height: var(--weave-kanban-top-scrollbar-size, 12px);
+    min-height: 0;
     overflow-x: auto;
     overflow-y: hidden;
-    height: 12px;
     flex-shrink: 0;
     border-bottom: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
   }
 
   .weave-kanban-scrollbar-content {
     height: 1px;
+    pointer-events: none;
   }
 
   .weave-kanban-board {
@@ -2579,6 +2687,17 @@
     padding: 0.75rem;
     overflow-x: auto;
     overflow-y: hidden;
+    min-height: 0;
+  }
+
+  .weave-kanban-board.has-top-horizontal-scroll {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .weave-kanban-board.has-top-horizontal-scroll::-webkit-scrollbar {
+    display: none;
+    height: 0;
   }
 
   .weave-kanban-column {

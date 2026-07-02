@@ -674,6 +674,8 @@ type CardTemplateLike = {
 	fields?: CardTemplateField[];
 };
 
+export type { CardTemplateLike };
+
 function isTemplateField(item: CardTemplateField): boolean {
 	return item.type === "field";
 }

@@ -51,11 +51,11 @@ describe("cleanupRestoredDetachedEditorLeaves", () => {
 			detached: false,
 			containerEl: document.createElement("div"),
 			view: {},
+			detach: () => {
+				detachedLeaf.detached = true;
+			},
 		};
 		detachedLeaf.containerEl.dataset.weaveDetachedLeafEditor = "true";
-		detachedLeaf.detach = () => {
-			detachedLeaf.detached = true;
-		};
 
 		const normalLeaf = {
 			detached: false,

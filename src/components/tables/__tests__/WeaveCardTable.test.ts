@@ -105,7 +105,6 @@ const defaultProps = {
     uuid: false,
     obsidian_block_link: false,
     source_document: false,
-    field_template: true
   }),
   columnOrder: [...DEFAULT_COLUMN_ORDER],
   onCardSelect: vi.fn(),
@@ -116,7 +115,6 @@ const defaultProps = {
   onDelete: vi.fn(),
   onTagsUpdate: vi.fn(),
   loading: false,
-  fieldTemplates: []
 };
 
 describe('WeaveCardTable', () => {
@@ -185,6 +183,12 @@ describe('WeaveCardTable', () => {
     
     expect(screen.getByText('标签1')).toBeInTheDocument();
     expect(screen.getByText('标签2')).toBeInTheDocument();
+  });
+
+  it('does not render top horizontal scrollbar track without overflow', () => {
+    render(WeaveCardTable, { props: defaultProps });
+
+    expect(document.querySelector('.weave-table-top-scrollbar')).toBeNull();
   });
 
   it('calls onTagsUpdate when tags are edited', async () => {

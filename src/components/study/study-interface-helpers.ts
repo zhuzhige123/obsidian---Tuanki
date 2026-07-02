@@ -98,19 +98,6 @@ export async function saveCardUnified(
 // ============================================
 
 /**
- * 触发数组响应式更新的统一函数
- *
- * 注意：在Svelte 5中，直接赋值新数组会触发响应式更新
- * 这个函数主要用于代码可读性和未来可能的优化
- *
- * @param cards - 卡片数组
- * @returns 新的卡片数组引用
- */
-export function triggerArrayUpdate<T>(array: T[]): T[] {
-	return [...array];
-}
-
-/**
  * 更新数组中的单个元素并触发响应式更新
  *
  * @param array - 原数组

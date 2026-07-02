@@ -35,7 +35,7 @@ function asPdfOutlineDocument(value: unknown): PdfOutlineDocumentLike | null {
 	if (!isRecord(value) || typeof value.getOutline !== "function") {
 		return null;
 	}
-	return value as PdfOutlineDocumentLike;
+	return value as unknown as PdfOutlineDocumentLike;
 }
 
 function extractPdfDocumentFromView(view: unknown): PdfOutlineDocumentLike | null {

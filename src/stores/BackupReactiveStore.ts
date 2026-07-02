@@ -6,13 +6,10 @@ import { logger } from "../utils/logger";
 
 import type { Plugin } from "obsidian";
 import type { Card, Deck } from "../data/types";
-import { SmartBackupEngine } from "../services/backup/SmartBackupEngine";
+import { getWeaveBackupService, type WeaveBackupService } from "../services/backup/WeaveBackupService";
 import type { BackupInfo, OperationType } from "../types/data-management-types";
 
-const MAX_BACKUPS = 3;
-
 export class BackupReactiveStore {
-	// 核心状态（普通属性）
 	public backups: BackupInfo[] = [];
 	public isLoading = false;
 	public error: string | null = null;
@@ -22,29 +19,23 @@ export class BackupReactiveStore {
 		status: string;
 	} | null = null;
 
-	// 备份引擎
-	private engine: SmartBackupEngine;
-
-	// 状态变化回调
+	private service: WeaveBackupService;
 	private onStateChange: (() => void) | null = null;
 
 	constructor(private plugin: Plugin) {
-		this.engine = new SmartBackupEngine(plugin);
+		this.service = getWeaveBackupService(plugin);
 	}
 
-	// 注册状态变化回调
 	subscribe(callback: () => void) {
 		this.onStateChange = callback;
 	}
 
-	// 触发状态更新
 	private notifyStateChange() {
 		if (this.onStateChange) {
 			this.onStateChange();
 		}
 	}
 
-	// 计算统计信息
 	get stats() {
 		const total = this.backups.length;
 		const totalSize = this.backups.reduce((sum, b) => sum + b.size, 0);
@@ -57,24 +48,19 @@ export class BackupReactiveStore {
 			validCount,
 			invalidCount: total - validCount,
 			invalidBackups,
-			needsCleanup: total > MAX_BACKUPS,
+			needsCleanup: invalidBackups.length > 0,
 			oldestBackup: this.backups[this.backups.length - 1],
 			newestBackup: this.backups[0],
 		};
 	}
 
-	/**
-	 * 加载备份列表
-	 */
 	async loadBackups(): Promise<void> {
 		this.isLoading = true;
 		this.error = null;
 		this.notifyStateChange();
 
 		try {
-			const backups = await this.engine.listBackups();
-			//  过滤无效备份，防止用户点击预览时出错
-			// 只保留明确有效的备份（isValid === true）或未验证的备份（isValid === undefined）
+			const backups = await this.service.listBackups();
 			this.backups = backups.filter((b) => b.isValid !== false);
 		} catch (error) {
 			logger.error("加载备份列表失败:", error);
@@ -86,9 +72,6 @@ export class BackupReactiveStore {
 		}
 	}
 
-	/**
-	 * 创建备份
-	 */
 	async createBackup(description?: string): Promise<BackupInfo | null> {
 		this.currentOperation = {
 			type: "backup" as OperationType,
@@ -99,8 +82,7 @@ export class BackupReactiveStore {
 		this.notifyStateChange();
 
 		try {
-			// 注册进度回调
-			this.engine.onProgress((progress) => {
+			this.service.onProgress((progress) => {
 				if (this.currentOperation) {
 					this.currentOperation = {
 						...this.currentOperation,
@@ -111,14 +93,12 @@ export class BackupReactiveStore {
 				}
 			});
 
-			const backup = await this.engine.createBackup({
-				reason: description, // 使用正确的字段名
-				autoCleanup: true,
-				type: "manual", // 标记为手动备份
+			const backup = await this.service.createBackup({
+				reason: description,
+				type: "manual",
 			});
 
-			// 增量更新：添加到列表头部
-			this.backups = [backup, ...this.backups];
+			await this.loadBackups();
 
 			this.currentOperation = null;
 			this.notifyStateChange();
@@ -129,22 +109,18 @@ export class BackupReactiveStore {
 			this.currentOperation = null;
 			this.notifyStateChange();
 			return null;
+		} finally {
+			this.service.clearProgress();
 		}
 	}
 
-	/**
-	 * 删除备份
-	 */
 	async deleteBackup(backupId: string): Promise<boolean> {
 		this.error = null;
 
 		try {
-			await this.engine.deleteBackup(backupId);
-
-			// 响应式更新：从列表中移除
+			await this.service.deleteBackup(backupId);
 			this.backups = this.backups.filter((b) => b.id !== backupId);
 			this.notifyStateChange();
-
 			return true;
 		} catch (error) {
 			logger.error("删除备份失败:", error);
@@ -154,34 +130,28 @@ export class BackupReactiveStore {
 		}
 	}
 
-	/**
-	 * 自动修复备份
-	 */
 	async autoRepairBackup(backupId: string): Promise<boolean> {
 		this.error = null;
 
 		try {
-			const result = await this.engine.autoRepair(backupId);
+			const result = await this.service.autoRepair(backupId);
 
 			if (result.success) {
-				// 更新备份状态
 				const index = this.backups.findIndex((b) => b.id === backupId);
 				if (index !== -1) {
-					// 创建新对象以触发响应式更新
 					this.backups[index] = {
 						...this.backups[index],
 						isValid: true,
 					};
-					// 强制更新数组引用
 					this.backups = [...this.backups];
 					this.notifyStateChange();
 				}
 				return true;
-			} else {
-				this.error = result.error || "修复失败";
-				this.notifyStateChange();
-				return false;
 			}
+
+			this.error = result.error || "修复失败";
+			this.notifyStateChange();
+			return false;
 		} catch (error) {
 			logger.error("自动修复失败:", error);
 			this.error = error instanceof Error ? error.message : "修复失败";
@@ -190,9 +160,6 @@ export class BackupReactiveStore {
 		}
 	}
 
-	/**
-	 * 批量修复所有无效备份
-	 */
 	async autoRepairAll(): Promise<{ success: number; failed: number }> {
 		const invalidBackups = this.backups.filter((b) => !b.isValid);
 		let success = 0;
@@ -210,12 +177,9 @@ export class BackupReactiveStore {
 		return { success, failed };
 	}
 
-	/**
-	 * 刷新单个备份的验证状态
-	 */
 	async refreshBackupValidation(backupId: string): Promise<void> {
 		try {
-			const validation = await this.engine.validateBackup(backupId);
+			const validation = await this.service.validateBackup(backupId);
 
 			const index = this.backups.findIndex((b) => b.id === backupId);
 			if (index !== -1) {
@@ -223,7 +187,6 @@ export class BackupReactiveStore {
 					...this.backups[index],
 					isValid: validation.passed,
 				};
-				// 强制更新数组引用
 				this.backups = [...this.backups];
 				this.notifyStateChange();
 			}
@@ -232,9 +195,6 @@ export class BackupReactiveStore {
 		}
 	}
 
-	/**
-	 * 批量清理所有无效备份
-	 */
 	async cleanupInvalidBackups(): Promise<{ deleted: number; failed: number } | null> {
 		this.currentOperation = {
 			type: "cleanup" as OperationType,
@@ -245,9 +205,7 @@ export class BackupReactiveStore {
 		this.notifyStateChange();
 
 		try {
-			const result = await this.engine.cleanupInvalidBackups();
-
-			// 重新加载备份列表
+			const result = await this.service.cleanupInvalidBackups();
 			await this.loadBackups();
 
 			this.currentOperation = null;
@@ -262,9 +220,6 @@ export class BackupReactiveStore {
 		}
 	}
 
-	/**
-	 * 预览备份内容
-	 */
 	async previewBackup(backupId: string): Promise<{
 		decks: Deck[];
 		cards: Card[];
@@ -272,8 +227,7 @@ export class BackupReactiveStore {
 		cardCount: number;
 	} | null> {
 		try {
-			const result = await this.engine.previewBackup(backupId);
-			return result;
+			return await this.service.previewBackup(backupId);
 		} catch (error) {
 			logger.error("预览备份失败:", error);
 			this.error = error instanceof Error ? error.message : "预览备份失败";
@@ -282,17 +236,11 @@ export class BackupReactiveStore {
 		}
 	}
 
-	/**
-	 * 清除错误状态
-	 */
 	clearError(): void {
 		this.error = null;
 		this.notifyStateChange();
 	}
 
-	/**
-	 * 重置存储状态
-	 */
 	reset(): void {
 		this.backups = [];
 		this.isLoading = false;

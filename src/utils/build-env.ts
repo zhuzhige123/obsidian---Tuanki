@@ -4,7 +4,7 @@
  */
 
 export function isDevBuild(): boolean {
-	return import.meta.env.DEV === true;
+	return Boolean(import.meta.env.DEV);
 }
 
 export function readBuildEnv(key: string): string | undefined {

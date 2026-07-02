@@ -17,6 +17,7 @@
     onClearSelection?: () => void;
     // 组建牌组
     onBuildDeck?: () => void;
+    onBatchAddToQuestionBank?: (event: MouseEvent) => void;
     // 增量阅读操作
     onIRChangeDeck?: (event: MouseEvent) => void;
     onIRExtractCards?: () => void;
@@ -35,6 +36,7 @@
     onBatchDelete,
     onClearSelection,
     onBuildDeck,
+    onBatchAddToQuestionBank,
     onIRChangeDeck,
     onIRExtractCards,
     isMobile = false
@@ -64,7 +66,7 @@
     const confirmed = await showObsidianConfirm(
       app,
       t('cardManagement.batchDelete.confirm').replace('{count}', String(selectedCount)),
-      { title: t('ui.confirmDelete'), confirmText: t('ui.delete') }
+      { title: t('common.confirmDelete'), confirmText: t('ui.delete') }
     );
     if (confirmed) {
       onBatchDelete?.();
@@ -74,6 +76,10 @@
   // 组建牌组
   function handleBuildDeckClick() {
     onBuildDeck?.();
+  }
+
+  function handleBatchAddToQuestionBankClick(event: MouseEvent) {
+    onBatchAddToQuestionBank?.(event);
   }
 
   // IR: 更换专题
@@ -120,6 +126,17 @@
         {#if onBatchChangeDeck}
           <button type="button" class="clickable-icon weave-toolbar-btn" title={t('cardManagement.batchToolbar.changeDeck')} onclick={handleBatchChangeDeckClick}>
             <ObsidianIcon name="folder" size={16} />
+          </button>
+        {/if}
+        {#if onBatchAddToQuestionBank}
+          <button
+            type="button"
+            class="clickable-icon weave-toolbar-btn"
+            title={t('cardManagement.batchToolbar.addToQuestionBank')}
+            aria-label={t('cardManagement.batchToolbar.addToQuestionBank')}
+            onclick={handleBatchAddToQuestionBankClick}
+          >
+            <ObsidianIcon name="clipboard-list" size={16} />
           </button>
         {/if}
       {/if}

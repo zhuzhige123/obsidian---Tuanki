@@ -178,7 +178,10 @@ export class EnhancedPerformanceMonitor {
 		if (this.config.enableMemoryTracking) {
 			const memoryInfo = this.getMemoryUsage();
 			memoryAfter = memoryInfo.used;
-			memoryBefore = memoryAfter - (additionalData?.memoryDelta || 0);
+			const rawDelta = additionalData?.memoryDelta;
+			const delta =
+				typeof rawDelta === "number" && Number.isFinite(rawDelta) ? rawDelta : 0;
+			memoryBefore = memoryAfter - delta;
 			memoryDelta = memoryAfter - memoryBefore;
 		}
 
@@ -493,24 +496,23 @@ function getOrCreateWindowEnhancedMonitor(
 		return globalEnhancedMonitor;
 	}
 
-	const w = window as unknown;
-	if (w.__weaveEnhancedPerformanceMonitor) {
-		return w.__weaveEnhancedPerformanceMonitor as EnhancedPerformanceMonitor;
+		if (window.__weaveEnhancedPerformanceMonitor) {
+		return window.__weaveEnhancedPerformanceMonitor;
 	}
 
 	const instance = new EnhancedPerformanceMonitor(config);
-	w.__weaveEnhancedPerformanceMonitor = instance;
-	w.__weaveEnhancedPerformanceMonitorCleanup = () => {
+	window.__weaveEnhancedPerformanceMonitor = instance;
+	window.__weaveEnhancedPerformanceMonitorCleanup = () => {
 		try {
-			(w.__weaveEnhancedPerformanceMonitor as EnhancedPerformanceMonitor | undefined)?.destroy();
+			(window.__weaveEnhancedPerformanceMonitor as EnhancedPerformanceMonitor | undefined)?.destroy();
 		} catch { /* no-op */ }
 
 		try {
-			w.__weaveEnhancedPerformanceMonitor = undefined;
-			w.__weaveEnhancedPerformanceMonitorCleanup = undefined;
+			window.__weaveEnhancedPerformanceMonitor = undefined;
+			window.__weaveEnhancedPerformanceMonitorCleanup = undefined;
 		} catch {
-			w.__weaveEnhancedPerformanceMonitor = null;
-			w.__weaveEnhancedPerformanceMonitorCleanup = null;
+			window.__weaveEnhancedPerformanceMonitor = null;
+			window.__weaveEnhancedPerformanceMonitorCleanup = null;
 		}
 	};
 

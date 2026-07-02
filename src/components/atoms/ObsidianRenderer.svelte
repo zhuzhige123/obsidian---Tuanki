@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { onMount, onDestroy } from 'svelte';
   import { MarkdownRenderer, Component } from 'obsidian';
   import type { WeavePlugin } from '../../main';
@@ -6,6 +7,8 @@
   import { shouldRevealClozeAnswersForRender } from '../../utils/cloze-mode';
   import { escapeHtml, replaceAnkiClozeSyntax, replaceConfiguredClozeSyntax } from '../../utils/cloze-syntax';
   import { applyStyleProps } from '../../utils/style-props';
+
+  const MERMAID_FENCE_REGEX = /```mermaid\s*\n[\s\S]*?```/gi;
 
   interface Props {
     plugin: WeavePlugin;
@@ -291,6 +294,34 @@
   let isMounted = $state(false);  
   let pendingRender = $state(false);
 
+  /** Mermaid 块内不做挖空预处理，避免破坏图表源码 */
+  function processClozesOutsideMermaidFences(
+    rawContent: string,
+    processSegment: (segment: string) => string
+  ): string {
+    if (!rawContent) {
+      return rawContent;
+    }
+
+    let result = '';
+    let lastIndex = 0;
+    const regex = new RegExp(MERMAID_FENCE_REGEX.source, 'gi');
+
+    for (const match of rawContent.matchAll(regex)) {
+      const matchIndex = match.index ?? -1;
+      if (matchIndex < 0) {
+        continue;
+      }
+
+      result += processSegment(rawContent.slice(lastIndex, matchIndex));
+      result += match[0];
+      lastIndex = matchIndex + match[0].length;
+    }
+
+    result += processSegment(rawContent.slice(lastIndex));
+    return result;
+  }
+
   function buildWeaveClozeMarkup(answerText: string, hint?: string | null): string {
     const markHtml = `<mark data-weave-cloze="true">${escapeHtml(answerText)}</mark>`;
     if (!hint) {
@@ -300,12 +331,14 @@
     return `<span data-cloze-hint="${escapeHtml(hint)}">${markHtml}</span>`;
   }
 
-  function preprocessClozeContent(rawContent: string): string {
-    if (!rawContent) return rawContent;
-    
-    let processedContent = rawContent;
+  function applyHtmlClozeMarkup(segment: string): string {
+    if (!segment) {
+      return segment;
+    }
+
     const clozeSettings = plugin?.settings?.clozeSettings;
-    
+    let processedContent = segment;
+
     if (activeClozeOrdinal !== undefined) {
       processedContent = replaceAnkiClozeSyntax(processedContent, (match) => {
         if (match.ordinal === activeClozeOrdinal) {
@@ -315,7 +348,7 @@
         return match.text;
       });
 
-      logger.debug('[ObsidianRenderer]',`✅ 渲染渐进式挖空（activeCloze: c${activeClozeOrdinal}）`);
+      logger.debug('[ObsidianRenderer]', `✅ 渲染渐进式挖空（activeCloze: c${activeClozeOrdinal}）`);
     } else if (studyInstance && typeof studyInstance === 'object' && 'activeClozeOrd' in studyInstance) {
       const activeClozeOrd = studyInstance.activeClozeOrd;
 
@@ -327,7 +360,7 @@
         return match.text;
       });
 
-      logger.debug('[ObsidianRenderer]',`✅ 渲染渐进式挖空学习实例（activeCloze: c${activeClozeOrd + 1}）`);
+      logger.debug('[ObsidianRenderer]', `✅ 渲染渐进式挖空学习实例（activeCloze: c${activeClozeOrd + 1}）`);
     } else {
       processedContent = replaceAnkiClozeSyntax(processedContent, (match) =>
         buildWeaveClozeMarkup(match.text, match.hint)
@@ -339,8 +372,14 @@
       (match) => buildWeaveClozeMarkup(match.text),
       clozeSettings
     );
-    
+
     return processedContent;
+  }
+
+  function preprocessClozeContent(rawContent: string): string {
+    if (!rawContent) return rawContent;
+
+    return processClozesOutsideMermaidFences(rawContent, applyHtmlClozeMarkup);
   }
 
   /**
@@ -412,11 +451,11 @@
    * 脚注弹窗状态
    */
   let activeFootnotePopover: HTMLElement | null = null;
-  let footnoteHideTimer: ReturnType<typeof setTimeout> | null = null;
+  let footnoteHideTimer: WeaveTimerHandle | null = null;
 
   function removeFootnotePopover(): void {
     if (footnoteHideTimer) {
-      clearTimeout(footnoteHideTimer);
+      window.clearTimeout(footnoteHideTimer);
       footnoteHideTimer = null;
     }
     if (activeFootnotePopover) {
@@ -426,13 +465,13 @@
   }
 
   function scheduleRemovePopover(delay = 200): void {
-    if (footnoteHideTimer) clearTimeout(footnoteHideTimer);
-    footnoteHideTimer = setTimeout(removeFootnotePopover, delay);
+    if (footnoteHideTimer) window.clearTimeout(footnoteHideTimer);
+    footnoteHideTimer = window.setTimeout(removeFootnotePopover, delay);
   }
 
   function cancelRemovePopover(): void {
     if (footnoteHideTimer) {
-      clearTimeout(footnoteHideTimer);
+      window.clearTimeout(footnoteHideTimer);
       footnoteHideTimer = null;
     }
   }
@@ -483,7 +522,7 @@
         if (footnoteContent) {
           footnoteContent.scrollIntoView({ behavior: 'smooth', block: 'center' });
           footnoteContent.classList.add('footnote-highlighted');
-          setTimeout(() => {
+          window.setTimeout(() => {
             footnoteContent.classList.remove('footnote-highlighted');
           }, 2000);
         }
@@ -498,7 +537,7 @@
       if (oldEnter) refEl.removeEventListener('mouseenter', oldEnter);
       if (oldLeave) refEl.removeEventListener('mouseleave', oldLeave);
 
-      let hoverShowTimer: ReturnType<typeof setTimeout> | null = null;
+      let hoverShowTimer: WeaveTimerHandle | null = null;
 
       const enterHandler = (e: MouseEvent) => {
         // 如果已有同一个弹窗，取消隐藏计时
@@ -508,7 +547,7 @@
         }
 
         // 延迟显示弹窗（避免快速掠过时闪烁）
-        hoverShowTimer = setTimeout(() => {
+        hoverShowTimer = window.setTimeout(() => {
           hoverShowTimer = null;
           showFootnotePopover(refEl, container, footnoteId);
         }, 300);
@@ -516,7 +555,7 @@
 
       const leaveHandler = () => {
         if (hoverShowTimer) {
-          clearTimeout(hoverShowTimer);
+          window.clearTimeout(hoverShowTimer);
           hoverShowTimer = null;
         }
         scheduleRemovePopover(300);
@@ -559,7 +598,7 @@
         if (target) {
           target.scrollIntoView({ behavior: 'smooth', block: 'center' });
           target.classList.add('footnote-highlighted');
-          setTimeout(() => {
+          window.setTimeout(() => {
             target.classList.remove('footnote-highlighted');
           }, 2000);
         }
@@ -622,12 +661,14 @@
   function postProcessRenderedContent(element: HTMLElement): void {
     if (!enableClozeProcessing) return;
 
-    const markElements = element.querySelectorAll('mark[data-weave-cloze]');
+    const markElements = element.querySelectorAll('mark[data-weave-cloze]:not(.weave-cloze-mark)');
     const shouldReveal = effectiveShowClozeAnswers;
     
     markElements.forEach((mark, index) => {
       const markEl = mark as HTMLElement;
-      const answerText = markEl.textContent || '';
+      const answerText = (markEl.getAttribute('data-cloze-answer') ?? markEl.textContent ?? '')
+        .replace(/\u200B/g, '')
+        .trim();
       const userAnswer = normalizedClozeUserAnswers[index] || '';
       const previousHandler = (markEl as HTMLElement & { _weaveClozeClickHandler?: EventListener })._weaveClozeClickHandler;
       if (previousHandler) {
@@ -635,7 +676,9 @@
       }
       
       markEl.classList.add('weave-cloze-mark');
-      markEl.setAttribute('data-cloze-answer', answerText);
+      if (answerText) {
+        markEl.setAttribute('data-cloze-answer', answerText);
+      }
       markEl.setAttribute('data-cloze-index', String(index));
       if (userAnswer) {
         markEl.setAttribute('data-user-answer', userAnswer);
@@ -647,9 +690,12 @@
         const clickHandler: EventListener = (e) => {
           const target = e.currentTarget as HTMLElement;
           if (target.classList.contains('weave-cloze-hidden')) {
+            const answer = target.getAttribute('data-cloze-answer') || target.textContent || '';
             target.classList.remove('weave-cloze-hidden');
             target.classList.add('weave-cloze-revealed');
+            target.replaceChildren(document.createTextNode(answer));
             target.setAttribute('aria-label', getClozeAriaLabel(true, target.getAttribute('data-hint')));
+            applyStyleProps(target, { cursor: 'default' });
           }
         };
 
@@ -775,30 +821,27 @@
         return;
       }
 
-      // 加载组件
+      // 先处理 HTML 挖空，避免恢复可见后出现答案闪烁
+      postProcessRenderedContent(container);
+      wrapTablesForHorizontalScroll(container);
+
+      // 恢复可见后再加载组件（脚注、Mermaid 等异步渲染依赖可见布局）
+      if (isMounted && container) {
+        applyStyleProps(container, { visibility: null });
+      }
+
       component.load();
 
       // 脚注需要在 Component 加载后再等一个 DOM 更新周期才能完整渲染
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise(resolve => window.setTimeout(resolve, 50));
 
-      // 后处理渲染内容
-      postProcessRenderedContent(container);
-
-      wrapTablesForHorizontalScroll(container);
+      notifyRenderComplete(container);
 
       // 注册内部链接点击事件处理器
       setupInternalLinkHandlers(container);
 
       // 设置脚注处理器
       setupFootnoteHandlers(container);
-
-      // 触发完成回调（父组件在此回调中分割DOM并隐藏答案区域）
-      notifyRenderComplete(container);
-
-      // 回调完成后恢复可见（答案已被隐藏）
-      if (isMounted && container) {
-        applyStyleProps(container, { visibility: null });
-      }
       
       logger.debug('[ObsidianRenderer]','✅ 渲染成功', {
         contentLength: content.length,
@@ -839,7 +882,7 @@
         pendingRender = false;
 
         if (isMounted && container && plugin?.app) {
-          setTimeout(() => renderContent(), 0);
+          window.setTimeout(() => renderContent(), 0);
         }
       }
     }
@@ -876,7 +919,7 @@
       previousActiveClozeOrdinal = currentActiveCloze;
       
       // 延迟到下一个事件循环，避免阻塞启动
-      setTimeout(() => renderContent(), 0);
+      window.setTimeout(() => renderContent(), 0);
     }
   });
   
@@ -899,8 +942,10 @@
       });
       previousShowCloze = shouldShow;
       previousClozeMode = currentMode;
-      // 延迟执行，避免阻塞
-      setTimeout(() => updateClozeDisplay(shouldShow), 100);
+
+      window.setTimeout(() => {
+        updateClozeDisplay(shouldShow);
+      }, 100);
     }
   });
   

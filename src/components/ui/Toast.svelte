@@ -4,6 +4,7 @@
 -->
 
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { onMount, onDestroy } from 'svelte';
   import { tr } from '../../utils/i18n';
 
@@ -38,8 +39,8 @@
   let progressWidth = $state(100);
 
   // 自动关闭定时器
-  let autoCloseTimer: NodeJS.Timeout | null = null;
-  let progressTimer: NodeJS.Timeout | null = null;
+  let autoCloseTimer: WeaveTimerHandle | null = null;
+  let progressTimer: WeaveTimerHandle | null = null;
 
   onMount(() => {
     if (duration > 0) {
@@ -49,11 +50,11 @@
 
   onDestroy(() => {
     if (autoCloseTimer) {
-      clearTimeout(autoCloseTimer);
+      window.clearTimeout(autoCloseTimer);
       autoCloseTimer = null;
     }
     if (progressTimer) {
-      clearInterval(progressTimer);
+      window.clearInterval(progressTimer);
       progressTimer = null;
     }
   });
@@ -63,26 +64,26 @@
 
     // 进度条动画
     progressWidth = 0;
-    progressTimer = setInterval(() => {
+    progressTimer = window.setInterval(() => {
       progressWidth += (100 / duration) * 100;
       if (progressWidth >= 100) {
-        clearInterval(progressTimer!);
+        window.clearInterval(progressTimer!);
       }
     }, 100);
 
     // 自动关闭
-    autoCloseTimer = setTimeout(() => {
+    autoCloseTimer = window.setTimeout(() => {
       close();
     }, duration);
   }
 
   function pauseAutoClose() {
     if (autoCloseTimer) {
-      clearTimeout(autoCloseTimer);
+      window.clearTimeout(autoCloseTimer);
       autoCloseTimer = null;
     }
     if (progressTimer) {
-      clearInterval(progressTimer);
+      window.clearInterval(progressTimer);
       progressTimer = null;
     }
   }
@@ -91,14 +92,14 @@
     if (duration > 0 && !autoCloseTimer) {
       const remainingTime = duration * (1 - progressWidth / 100);
       if (remainingTime > 0) {
-        autoCloseTimer = setTimeout(() => {
+        autoCloseTimer = window.setTimeout(() => {
           close();
         }, remainingTime);
 
-        progressTimer = setInterval(() => {
+        progressTimer = window.setInterval(() => {
           progressWidth += (100 / remainingTime) * 100;
           if (progressWidth >= 100) {
-            clearInterval(progressTimer!);
+            window.clearInterval(progressTimer!);
           }
         }, 100);
       }
@@ -108,10 +109,10 @@
   function close() {
     visible = false;
     if (autoCloseTimer) {
-      clearTimeout(autoCloseTimer);
+      window.clearTimeout(autoCloseTimer);
     }
     if (progressTimer) {
-      clearInterval(progressTimer);
+      window.clearInterval(progressTimer);
     }
     onclose?.();
   }

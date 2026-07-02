@@ -12,7 +12,7 @@ import type {
 	FilterStorage,
 	SavedFilter,
 } from "../types/filter-types";
-import { getCardContentBySide } from "../utils/helpers";
+import { getCardContentBySide, type CardTemplateLike } from "../utils/helpers";
 import { logger } from "../utils/logger";
 import { extractSourcePath } from "../utils/source-path-matcher";
 import { vaultStorage } from "../utils/vault-local-storage";
@@ -390,7 +390,7 @@ export class FilterManager {
 	/**
 	 * 应用筛选器到卡片列表
 	 */
-	applyFilter(cards: Card[], config: FilterConfig, allFieldTemplates: unknown[] = []): Card[] {
+	applyFilter(cards: Card[], config: FilterConfig, allFieldTemplates: CardTemplateLike[] = []): Card[] {
 		if (!config.groups || config.groups.length === 0) {
 			return cards;
 		}
@@ -404,7 +404,7 @@ export class FilterManager {
 	private evaluateFilterConfig(
 		card: Card,
 		config: FilterConfig,
-		allFieldTemplates: unknown[] = []
+		allFieldTemplates: CardTemplateLike[] = []
 	): boolean {
 		if (config.groups.length === 0) return true;
 
@@ -423,7 +423,7 @@ export class FilterManager {
 	private evaluateFilterGroup(
 		card: Card,
 		group: FilterGroup,
-		allFieldTemplates: unknown[] = []
+		allFieldTemplates: CardTemplateLike[] = []
 	): boolean {
 		const enabledConditions = group.conditions.filter((c) => c.enabled);
 		if (enabledConditions.length === 0) return true;
@@ -443,7 +443,7 @@ export class FilterManager {
 	private evaluateCondition(
 		card: Card,
 		condition: FilterCondition,
-		allFieldTemplates: unknown[] = []
+		allFieldTemplates: CardTemplateLike[] = []
 	): boolean {
 		const fieldValue = this.getFieldValue(card, condition.field, allFieldTemplates);
 		const targetValue = condition.value;
@@ -512,7 +512,7 @@ export class FilterManager {
 	/**
 	 * 获取卡片字段值
 	 */
-	private getFieldValue(card: Card, field: FilterField, allFieldTemplates: unknown[] = []): unknown {
+	private getFieldValue(card: Card, field: FilterField, allFieldTemplates: CardTemplateLike[] = []): unknown {
 		switch (field) {
 			case "status":
 				return this.getStatusString(card.fsrs?.state ?? 0);

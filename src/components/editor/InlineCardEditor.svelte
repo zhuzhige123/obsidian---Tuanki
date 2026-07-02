@@ -5,6 +5,7 @@
   用于卡片创建和编辑模态窗
 -->
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import type { Card, Deck } from '../../data/types';
   import { CardType } from '../../data/types';
   import type { WeavePlugin } from '../../main';
@@ -20,7 +21,10 @@
     parseYAMLFromContent,
     setCardProperties
   } from '../../utils/yaml-utils';
-  import { applyWeDecksMembershipToCard } from '../../utils/card-we-decks-membership';
+  import {
+    applyWeDecksMembershipToCard
+  } from '../../utils/card-we-decks-membership';
+  import { applyWeDecksNamesToCardContent } from '../../utils/card-editor-we-decks-sync';
   import { detectCardQuestionType } from '../../utils/card-type-utils';
   import { getCardTypeName } from '../../types/unified-card-types';
   import { saveMemoryCard } from '../../services/weave-domain';
@@ -39,11 +43,17 @@
     selectedDeckNames?: string[];
     showHeader?: boolean;
     showFooter?: boolean;
+    /** 隐藏编辑区 DOM（保持编辑器实例，用于模态窗预览切换） */
+    showEditorContent?: boolean;
     isPinned?: boolean; // 钉住模式（保持编辑器实例）
     onSave?: (card: Card) => void;
     onCancel?: () => void;
     onClose?: () => void; // 支持关闭按钮
     onContentChange?: (content: string) => void;
+    /** 预览模式时替换编辑区的内容（编辑会话仍保持挂载） */
+    previewOverlay?: Snippet;
+    /** 底栏居中区域（如预览模式下的显示/隐藏背面） */
+    footerCenter?: Snippet;
     decks?: Deck[]; // 支持牌组列表
     propsDecks?: Deck[];
     propsFieldTemplates?: any[];
@@ -62,11 +72,14 @@
     selectedDeckNames = [],
     showHeader = true,
     showFooter = true,
+    showEditorContent = true,
     isPinned = false, // 钉住模式
     onSave,
     onCancel,
     onClose,
     onContentChange,
+    previewOverlay,
+    footerCenter,
     decks = [],
     propsDecks = [],
     propsFieldTemplates = [],
@@ -85,7 +98,6 @@
   
   // 防止保存或取消逻辑被重复触发。
   let isProcessing = $state(false);
-  let deckSelectionTouched = $state(false);
   let currentContent = $state(card.content || '');
 
   const supportsClozeModeToggle = $derived.by(() => {
@@ -99,6 +111,7 @@
   });
 
   const secondaryActionLabel = $derived(mode === 'create' ? t('cards.editorModal.cancel') : t('cards.editorModal.close'));
+  const isPreviewReplaceMode = $derived(!showEditorContent && previewOverlay);
 
   function extractClozeOrdinals(content: string): number[] {
     const ordinals = new Set<number>();
@@ -181,6 +194,15 @@
     currentContent = content;
     card.content = content;
     onContentChange?.(content);
+  }
+
+  async function syncWeDecksToEditorContent(deckNames: string[]): Promise<void> {
+    const current = currentContent || card.content || '';
+    const updated = applyWeDecksNamesToCardContent(current, deckNames);
+    if (updated === current) {
+      return;
+    }
+    await updateEditorContent(updated);
   }
 
   async function handleClozeModeToggle(mode: ClozeMode): Promise<void> {
@@ -335,17 +357,7 @@
       };
 
       const memoryDecks = (decks || []).filter((deck) => deck.purpose !== 'test');
-      let contentForMembership = updatedCard.content || '';
-
-      if (deckSelectionTouched) {
-        const selectorDeckName =
-          (Array.isArray(selectedDeckNames) && selectedDeckNames[0]) ||
-          decks?.find((deck) => deck.id === selectedDeckId)?.name ||
-          '';
-        contentForMembership = setCardProperties(contentForMembership, {
-          we_decks: selectorDeckName ? [selectorDeckName] : undefined
-        });
-      }
+      const contentForMembership = updatedCard.content || '';
 
       const appliedMembership = applyWeDecksMembershipToCard(
         updatedCard,
@@ -423,7 +435,7 @@
       let persistedCard: Card = updatedCard;
       if (plugin.dataStorage) {
         logger.debug('[InlineCardEditor] 💾 开始保存到数据库...');
-        const saveResult = await saveMemoryCard(plugin, updatedCard, 'update');
+        const saveResult = await saveMemoryCard(plugin, updatedCard, isNew ? 'create' : 'update');
         persistedCard = saveResult.data || updatedCard;
         
         if (!saveResult.success) {
@@ -456,7 +468,7 @@
       new Notice(t('cards.editorModal.saveFailedPrefix') + (error instanceof Error ? error.message : t('cards.editorModal.unknownError')));
     } finally {
       //  延迟重置处理标志，防止快速连续点击
-      setTimeout(() => {
+      window.setTimeout(() => {
         isProcessing = false;
       }, 300);
     }
@@ -482,9 +494,29 @@
     onCancel?.();
     
     //  延迟重置处理标志
-    setTimeout(() => {
+    window.setTimeout(() => {
       isProcessing = false;
     }, 300);
+  }
+
+  /** 从嵌入式编辑器读取最新正文（不销毁会话，供编辑模态窗预览切换使用） */
+  export async function readLiveContent(): Promise<string> {
+    if (!editorPoolManager || !currentEditSessionId) {
+      return currentContent || card.content || '';
+    }
+
+    const result = await editorPoolManager.finishEditing(currentEditSessionId, false, {
+      isStudySession: isPinned,
+      targetCardId: card.uuid
+    });
+
+    if (result.success && result.updatedCard) {
+      const content = result.updatedCard.content || '';
+      handleEditorContentChange(content);
+      return content;
+    }
+
+    return currentContent || card.content || '';
   }
 
   //  更新编辑器内容（供外部调用，用于快捷键填充）
@@ -621,7 +653,7 @@
               selectedDeckId = value;
               const nextDeckName = decks?.find(d => d.id === value)?.name;
               selectedDeckNames = nextDeckName ? [nextDeckName] : [];
-              deckSelectionTouched = true;
+              void syncWeDecksToEditorContent(selectedDeckNames);
               logger.debug('[InlineCardEditor] 牌组选择变更:', selectedDeckId);
             }}
           />
@@ -642,10 +674,18 @@
     </div>
   {/if}
 
-  <div class="editor-content">
+  <div class="editor-content" class:content-hidden={!showEditorContent && !previewOverlay}>
+    {#if isPreviewReplaceMode && previewOverlay}
+      <div class="editor-preview-layer">
+        {@render previewOverlay()}
+      </div>
+    {/if}
 
     <!-- Obsidian原生编辑器容器 -->
-    <div class="editor-container-wrapper">
+    <div
+      class="editor-container-wrapper"
+      class:editor-keep-alive={isPreviewReplaceMode}
+    >
       <div 
         class="obsidian-editor-container" 
         bind:this={editorContainer}
@@ -677,7 +717,14 @@
   </div>
 
   {#if showFooter}
-    <div class="editor-footer">
+    <div class="editor-footer" class:has-center={footerCenter}>
+      {#if footerCenter}
+        <div class="editor-footer-center">
+          {@render footerCenter()}
+        </div>
+      {/if}
+
+      <div class="editor-footer-actions">
       <!-- 移动端使用 onclick 替代 pointerup，配合 touch-action: manipulation 消除延迟 -->
       <!-- onclick 在焦点变化后触发，避免与编辑器焦点管理冲突 -->
       <button
@@ -717,6 +764,7 @@
         {/if}
         {mode === 'create' ? t('cards.editorModal.createAction') : t('cards.editorModal.saveAction')}
       </button>
+      </div>
     </div>
   {/if}
 </div>
@@ -859,6 +907,38 @@
     overflow: hidden;
   }
 
+  .editor-content.content-hidden {
+    flex: 0 0 0;
+    min-height: 0;
+    max-height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .editor-preview-layer {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .editor-preview-layer :global(.weave-preview-container) {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .editor-container-wrapper.editor-keep-alive {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    flex: 0 0 0;
+    min-height: 0;
+  }
 
   /* 编辑器容器包装器 */
   .editor-container-wrapper {
@@ -987,8 +1067,10 @@
   .editor-footer {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
     gap: 12px;
     padding-top: 16px;
+    flex-shrink: 0;
     /*  移除分割线：border-top: 1px solid var(--background-modifier-border); */
     background: var(--background-primary); /* 🎨 与内容区保持一致的黑色背景 */
     /*  确保按钮容器接收触摸事件 */
@@ -996,6 +1078,30 @@
     /*  确保按钮在最上层 */
     position: relative;
     z-index: 10;
+  }
+
+  .editor-footer.has-center {
+    min-height: calc(var(--clickable-icon-size, 28px) + 0.35rem);
+  }
+
+  .editor-footer-center {
+    position: absolute;
+    left: 50%;
+    top: 16px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    z-index: 11;
+  }
+
+  .editor-footer-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
   }
   
   /*  移动端操作按钮样式 */

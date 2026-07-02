@@ -29,7 +29,7 @@ import { logger } from "../../utils/logger";
  *    - 保持向后兼容性
  */
 
-import { Notice, TFile, TFolder, Vault } from "obsidian";
+import { type App, Notice, TFile, TFolder, Vault } from "obsidian";
 import {
 	BatchParseConfig,
 	ParsedCard,
@@ -46,77 +46,23 @@ import { type UUIDConfig, UUIDManager } from "./UUIDManager";
 import { processUUIDsWithPosition } from "./processUUIDs-new";
 
 import type { WeaveDataStorage } from "../../data/storage";
+import type WeavePlugin from "../../main";
 // 场景 2：单文件单卡片解析器
 import { SingleCardParser } from "./SingleCardParser";
 import { SingleCardSyncEngine } from "./SingleCardSyncEngine";
 
 import type {
+	FolderDeckMapping,
 	MultiCardsConfig,
 	RegexParsingConfig,
 	SingleCardConfig,
 } from "../../types/newCardParsingTypes";
+export type { FolderDeckMapping } from "../../types/newCardParsingTypes";
 // 场景 1：单文件多卡片正则解析器
 import { RegexCardParser } from "./RegexCardParser";
 
 //  清理服务（用于保护新创建的UUID）
 import type { BlockLinkCleanupService } from "../cleanup/BlockLinkCleanupService";
-
-/**
- * 文件夹牌组映射（统一配置）
- * 核心数据结构，整合了文件选择和牌组映射
- * 支持文件级别映射
- */
-export interface FolderDeckMapping {
-	/** 唯一ID (使用UUID) */
-	id: string;
-
-	/** 映射类型：文件夹或单个文件 */
-	type: "folder" | "file";
-
-	/** 统一路径字段（文件夹路径或文件路径） */
-	path: string;
-
-	/** Compatibility note: 使用 path 替代，保留用于向后兼容 */
-	folderPath?: string;
-
-	/** 目标牌组ID */
-	targetDeckId: string;
-
-	/** 目标牌组名称（冗余字段，便于显示） */
-	targetDeckName: string;
-
-	/** 是否递归包含子文件夹（仅 type='folder' 时有效） */
-	includeSubfolders: boolean;
-
-	/** 是否启用该映射 */
-	enabled: boolean;
-
-	/** 鏂囦欢瑙ｆ瀽妯″紡 */
-	fileMode: "single-card" | "multi-cards";
-
-	/** 场景 2 配置（单文件单卡片） */
-	singleCardConfig?: SingleCardConfig;
-
-	/** 场景 1 配置（单文件多卡片） */
-	multiCardsConfig?: MultiCardsConfig;
-
-	// 可选高级配置
-	/** 牌组命名策略 */
-	namingStrategy?: "folder-name" | "custom" | "path-based";
-
-	/** 自定义牌组名称 */
-	customName?: string;
-
-	/** 牌组不存在时自动创建 */
-	autoCreateDeck?: boolean;
-
-	// 运行时统计信息（不持久化）
-	/** 检测到的文件数 */
-	fileCount?: number;
-
-	/** 最后扫描时间 */
-	lastScanned?: string;
-}
 
 /**
  * 批量解析配置（ 重构后）
@@ -220,7 +166,7 @@ export class SimpleBatchParsingService {
 	private deckMapping: DeckMappingService;
 	private uuidManager: UUIDManager;
 	private parser: SimplifiedCardParser;
-	private mergeEngine: ThreeWayMergeEngine;
+	private mergeEngine?: ThreeWayMergeEngine;
 	private isRunning = false;
 	private abortController?: AbortController;
 	private app: IObsidianApp;
@@ -263,7 +209,7 @@ export class SimpleBatchParsingService {
 		app: IObsidianApp,
 		dataStorage?: WeaveDataStorage, // 添加 dataStorage 参数（用于 ThreeWayMergeEngine 和 SingleCardSyncEngine）
 		cleanupService?: BlockLinkCleanupService, //  添加清理服务参数
-		plugin?: unknown // 添加 plugin 参数（用于 ThreeWayMergeEngine 访问 directFileReader）
+		plugin?: WeavePlugin // 添加 plugin 参数（用于 ThreeWayMergeEngine 访问 directFileReader）
 	) {
 		this.config = config;
 		this.fileSelector = fileSelector;
@@ -278,16 +224,14 @@ export class SimpleBatchParsingService {
 			this.mergeEngine = new ThreeWayMergeEngine(dataStorage, plugin); //  传递plugin参数
 
 			// 初始化单文件单卡片解析器和同步引擎
-			this.singleCardParser = new SingleCardParser(app as unknown);
+			this.singleCardParser = new SingleCardParser(app as App);
 			this.singleCardSyncEngine = new SingleCardSyncEngine(dataStorage, plugin); //  传递plugin参数
 
 			// 初始化单文件多卡片正则解析器
-			this.regexCardParser = new RegexCardParser(app as unknown, plugin); //  传递plugin参数
+			this.regexCardParser = new RegexCardParser(app as App, plugin); //  传递plugin参数
 
 			logDebugWithTag("SimpleBatchParsingService", "✅ 单文件单卡片解析器和正则解析器已初始化");
 		} else {
-			// 降级：如果没有dataStorage，创建一个空引擎（不会被调用）
-			this.mergeEngine = new ThreeWayMergeEngine(null, null);
 			logger.error(
 				"❌ [SimpleBatchParsingService] dataStorage未提供，单文件单卡片模式和三方合并功能将不可用！"
 			);
@@ -954,6 +898,10 @@ export class SimpleBatchParsingService {
 				}
 
 				// 优先级3: 使用三方合并引擎智能判断
+				if (!this.mergeEngine) {
+					result.skippedCards++;
+					continue;
+				}
 				const cardContent = card.metadata?.lastScannedContent || card.content || "";
 				const syncResult = await this.mergeEngine.smartSync(cardContent, uuid, deckId);
 
@@ -1212,8 +1160,8 @@ export class SimpleBatchParsingService {
 		const targetPath = mapping.path || mapping.folderPath || "";
 
 		// 确保 fileMode 有默认值，兼容旧数据
-		if (!(mapping as unknown).fileMode) {
-			(mapping as unknown).fileMode = "single-card";
+		if (!mapping.fileMode) {
+			mapping.fileMode = "single-card";
 			logDebugWithTag(
 				"SimpleBatchParsingService",
 				"⚠️ 检测到映射缺少fileMode，自动设置为single-card"
@@ -1802,6 +1750,10 @@ export class SimpleBatchParsingService {
 						}
 
 						// 使用三方合并引擎决策
+						if (!this.mergeEngine) {
+							result.skippedCards = (result.skippedCards || 0) + 1;
+							continue;
+						}
 						const sourceContent = parsedCard.content || "";
 						const syncResult = await this.mergeEngine.smartSync(
 							sourceContent,
@@ -1855,7 +1807,7 @@ export class SimpleBatchParsingService {
 					const uuid = parsedCard.metadata?.uuid;
 					if (!uuid) {
 						result.newCards = (result.newCards || 0) + 1;
-					} else {
+					} else if (this.mergeEngine) {
 						// 检查是否存在
 						const existingCard = await this.mergeEngine.findCardByUUID(uuid);
 						if (existingCard) {

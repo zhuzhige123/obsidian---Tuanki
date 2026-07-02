@@ -6,6 +6,7 @@ import { logger } from "../../utils/logger";
 
 import type { Card } from "../../data/types";
 import type { WeavePlugin } from "../../main";
+import { createErrorMessage } from "../../utils/helpers";
 import type {
 	AnkiModelInfo,
 	AnkiNoteInfo,
@@ -90,7 +91,7 @@ export class CardImporter {
 				try {
 					// 获取现有牌组和卡片用于备份
 					const allDecks = await dataStorage.getAllDecks();
-					const existingDeck = allDecks.find((d: unknown) => d.id === targetWeaveDeckId);
+					const existingDeck = allDecks.find((d) => d.id === targetWeaveDeckId);
 
 					if (existingDeck) {
 						const existingCards = await dataStorage.getCardsByDeck(targetWeaveDeckId);
@@ -108,7 +109,7 @@ export class CardImporter {
 					logger.warn("备份失败，但继续导入:", backupError);
 					errors.push({
 						type: "storage",
-						message: `备份失败: ${backupError.message}`,
+						message: `备份失败: ${createErrorMessage(backupError)}`,
 					});
 				}
 			}
@@ -198,7 +199,7 @@ export class CardImporter {
 				} catch (error: unknown) {
 					errors.push({
 						type: "template_conversion",
-						message: `无法转换模板 ${modelName}: ${error.message}`,
+						message: `无法转换模板 ${modelName}: ${createErrorMessage(error)}`,
 						templateName: modelName,
 					});
 				}
@@ -283,7 +284,7 @@ export class CardImporter {
 					skippedCards++;
 					errors.push({
 						type: "card_conversion",
-						message: `转换卡片失败: ${error.message}`,
+						message: `转换卡片失败: ${createErrorMessage(error)}`,
 						ankiNoteId: note.noteId,
 					});
 				}
@@ -376,7 +377,7 @@ export class CardImporter {
 					logger.error("❌ 回滚失败:", rollbackError);
 					errors.push({
 						type: "storage",
-						message: `回滚失败: ${rollbackError.message}`,
+						message: `回滚失败: ${createErrorMessage(rollbackError)}`,
 					});
 				}
 			}
@@ -390,7 +391,7 @@ export class CardImporter {
 					...errors,
 					{
 						type: "storage",
-						message: `导入失败: ${error.message}`,
+						message: `导入失败: ${createErrorMessage(error)}`,
 					},
 				],
 				templates: importedTemplates,

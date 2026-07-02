@@ -1,3 +1,4 @@
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 /**
  * 通用防抖工具
  * 用于替代项目中重复的防抖逻辑
@@ -16,7 +17,7 @@ export function createDebouncer(config: DebouncerConfig | number) {
 		typeof config === "number" ? { delay: config, immediate: false } : config;
 
 	let lastTime = 0;
-	let timeoutId: ReturnType<typeof setTimeout> | null = null;
+	let timeoutId: WeaveTimerHandle | null = null;
 
 	return function debounce<T extends (...args: unknown[]) => unknown>(
 		callback: T
@@ -101,7 +102,7 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
 	fn: T,
 	delay: number
 ): (...args: Parameters<T>) => void {
-	let timeoutId: ReturnType<typeof setTimeout> | null = null;
+	let timeoutId: WeaveTimerHandle | null = null;
 
 	return function (this: unknown, ...args: Parameters<T>) {
 		if (timeoutId) {

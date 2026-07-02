@@ -35,14 +35,14 @@ function asPdfBookmarkTask(raw: unknown): IRPdfBookmarkTask | null {
 	if (!isRecord(raw) || typeof raw.id !== "string") {
 		return null;
 	}
-	return raw as IRPdfBookmarkTask;
+	return raw as unknown as IRPdfBookmarkTask;
 }
 
 function asEpubBookmarkTask(raw: unknown): IREpubBookmarkTask | null {
 	if (!isRecord(raw) || typeof raw.id !== "string") {
 		return null;
 	}
-	return raw as IREpubBookmarkTask;
+	return raw as unknown as IREpubBookmarkTask;
 }
 
 export interface IRCardManagementLoadResult {

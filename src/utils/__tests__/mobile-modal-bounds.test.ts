@@ -106,7 +106,7 @@ function mockRect(element: HTMLElement, input: RectInput): void {
 
 async function flushObservers(): Promise<void> {
 	await Promise.resolve();
-	await new Promise((resolve) => setTimeout(resolve, 40));
+	await new Promise((resolve) => window.setTimeout(resolve, 40));
 }
 
 describe("mobile-modal-bounds", () => {

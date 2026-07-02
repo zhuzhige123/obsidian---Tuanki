@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { onMount, onDestroy } from "svelte";
   import ObsidianIcon from "../ui/ObsidianIcon.svelte";
   import EnhancedIcon from "../ui/EnhancedIcon.svelte";
@@ -21,7 +22,6 @@
 // 渐进式挖空支持
   import { isProgressiveClozeParent, isProgressiveClozeChild } from '../../types/progressive-cloze-v2';
   import CSVImportModal from "../modals/CSVImportModal.svelte";
-  import CreateQuestionBankModal from "../modals/CreateQuestionBankModal.svelte";
   import { VaultFolderSuggestModal } from "../../modals/VaultFolderSuggestModal";
   import { BatchTagSuggestModal, type BatchTagSuggestItem } from "../../modals/BatchTagSuggestModal";
   import { Menu, Modal, Notice, Setting, TFile, normalizePath } from "obsidian";
@@ -121,7 +121,6 @@
 
   // 核心状态
   let showCSVImportModal = $state(false);
-  let showCreateQuestionBankModal = $state(false);
   
   //  加载状态
   let isLoading = $state(true);
@@ -834,7 +833,7 @@
     modalCoordinator.closeAll();
     refreshCoordinator.dispose();
     if (persistStatsTimer) {
-      clearTimeout(persistStatsTimer);
+      window.clearTimeout(persistStatsTimer);
       persistStatsTimer = null;
     }
   });
@@ -1289,7 +1288,7 @@
     // 读取配置
     const filterSiblings = plugin.settings.studyConfig?.siblingDispersion?.filterInQueue ?? true;
     const newCardsPerDay = plugin.settings.newCardsPerDay || 20;
-    const reviewsPerDay = plugin.settings.reviewsPerDay || 200;
+    const reviewsPerDay = plugin.settings.reviewsPerDay ?? 20;
     const allCardsForStats = await dataStorage.getAllCards();
     const runtime = await refreshEmergentDeckRuntime(allCardsForStats);
     const deckCardsMap = buildDeckCardsMap(allCardsForStats, decks);
@@ -1481,10 +1480,10 @@
   }
 
   // 防抖持久化 deckStats（5秒延迟，合并多次快速刷新）
-  let persistStatsTimer: ReturnType<typeof setTimeout> | null = null;
+  let persistStatsTimer: WeaveTimerHandle | null = null;
   function debouncedPersistDeckStats(stats: Record<string, DeckStats>) {
-    if (persistStatsTimer) clearTimeout(persistStatsTimer);
-    persistStatsTimer = setTimeout(async () => {
+    if (persistStatsTimer) window.clearTimeout(persistStatsTimer);
+    persistStatsTimer = window.setTimeout(async () => {
       try {
         await dataStorage.persistAllDeckStats(stats);
       } catch (e) {
@@ -1497,9 +1496,7 @@
     getPlugin: () => plugin,
     getDataStorage: () => dataStorage,
     tr: (key: string, vars?: Record<string, string>) => t(key, vars),
-    setShowCreateQuestionBankModal: (value: boolean) => {
-      showCreateQuestionBankModal = value;
-    },
+    loadQBDeckTree,
     refreshData,
     refreshTargetedDeckData,
   });
@@ -1610,7 +1607,7 @@
       });
       
       const newCardsPerDay = plugin.settings.newCardsPerDay || 20;
-      const reviewsPerDay = plugin.settings.reviewsPerDay || 20;
+      const reviewsPerDay = plugin.settings.reviewsPerDay ?? 20;
       
       // 获取今天已学习的新卡片数量
       const learnedNewCardsToday = await getLearnedNewCardsCountToday(dataStorage, deckId);
@@ -2430,7 +2427,6 @@
   let modalHostProps = $derived({
     plugin,
     dataStorage,
-    showCreateQuestionBankModal,
     showCSVImportModal,
     showCelebrationModal,
     celebrationStats,
@@ -2442,13 +2438,9 @@
     noCardsStats,
     promptFeatureId,
     showActivationPrompt,
-    onSetShowCreateQuestionBankModal: (value: boolean) => {
-      showCreateQuestionBankModal = value;
-    },
     onSetShowCSVImportModal: (value: boolean) => {
       showCSVImportModal = value;
     },
-    onLoadQBDeckTree: loadQBDeckTree,
     onRefreshData: async () => {
       await refreshData();
     },

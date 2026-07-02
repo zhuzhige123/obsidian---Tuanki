@@ -6,6 +6,13 @@
   import type { App } from 'obsidian';
   import type { BatchParseResult } from '../../../services/batch-parsing';
   import type { FolderDeckMapping, RegexParsingConfig } from '../../../types/newCardParsingTypes';
+  import {
+    createEmptyFolderDeckMapping,
+    DEFAULT_MULTI_CARDS_CONFIG,
+    DEFAULT_SINGLE_CARD_CONFIG,
+    getFolderDeckMappingCardCount,
+    normalizeFolderDeckMappings,
+  } from '../../../types/newCardParsingTypes';
   import type { Deck } from '../../../data/types';
   import { FolderSuggest } from '../../../utils/FolderSuggest';
   import { FileSuggest } from '../../../utils/FileSuggest';
@@ -157,6 +164,11 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
       plugin.saveSettings().catch(() => {});
     }
     migrateMappingPresetRefs(normalized.presets);
+
+    const mappingNormalization = normalizeFolderDeckMappings(mappings);
+    if (mappingNormalization.changed) {
+      onMappingsChange(mappingNormalization.mappings);
+    }
   });
   
   /**
@@ -176,40 +188,10 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
   }
 
   /**
-   * 生成简单的UUID
-   */
-  function generateId(): string {
-    return `mapping-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
-  }
-
-  /**
    * 添加新映射
-   * 
-   * 默认类型为 folder
    */
   function addMapping() {
-    const newMapping: FolderDeckMapping = {
-      id: generateId(),
-      type: 'folder',  // 默认为文件夹类型
-      path: '',
-      folderPath: '',  // 向后兼容
-      targetDeckId: '',
-      targetDeckName: '',
-      includeSubfolders: true,
-      enabled: true,
-      autoCreateDeck: false,
-      // 默认文件模式和配置
-      fileMode: 'single-card',
-      singleCardConfig: {
-        contentStructure: 'front-back-split',
-        frontBackSeparator: '---div---',
-        uuidLocation: 'frontmatter',
-        syncMethod: 'mtime-compare',
-        excludeTags: ['禁止同步']
-      }
-    } as any;
-    
-    onMappingsChange([...mappings, newMapping]);
+    onMappingsChange([...mappings, createEmptyFolderDeckMapping()]);
   }
 
   /**
@@ -219,6 +201,19 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
     const updated = mappings.map(m => 
       m.id === id ? { ...m, ...updates } : m
     );
+    onMappingsChange(updated);
+  }
+
+  function updateMappingScanStats(id: string, totalCards: number) {
+    const updated = mappings.map((mapping) => {
+      if (mapping.id !== id) return mapping;
+      const { fileCount: _legacy, ...rest } = mapping;
+      return {
+        ...rest,
+        cardCount: totalCards,
+        lastScanned: new Date().toISOString(),
+      };
+    });
     onMappingsChange(updated);
   }
 
@@ -291,11 +286,7 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
           // 调用插件的统一保存流程
           await plugin.addCardsToDB(result.parsedCards);
           
-          // 更新映射的统计信息
-          updateMapping(mapping.id, {
-            fileCount: result.totalCards,
-            lastScanned: new Date().toISOString()
-          });
+          updateMappingScanStats(mapping.id, result.totalCards);
           
           // 显示成功结果
           new Notice(t('dataManagement.batchScan.saveSuccess', { count: result.totalCards, deck: mapping.targetDeckName }));
@@ -326,7 +317,7 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
       item
         .setTitle(t('dataManagement.batchScan.startScan'))
         .setIcon('refresh-cw')
-        .setDisabled(!mapping.folderPath || !mapping.targetDeckId)
+        .setDisabled(!(mapping.path || mapping.folderPath) || !mapping.targetDeckId)
         .onClick(() => startScanMapping(mapping));
     });
     
@@ -347,20 +338,36 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
    * 初始化文件夹输入框的 FolderSuggest
    */
   function initFolderSuggest(inputEl: HTMLInputElement, mappingId: string) {
-    if (inputEl && app) {
-      const suggest = new FolderSuggest(app, inputEl);
-      folderSuggests.set(mappingId, suggest);
-    }
+    if (!inputEl || !app) return;
+
+    folderSuggests.get(mappingId)?.close();
+    const suggest = new FolderSuggest(app, inputEl);
+    folderSuggests.set(mappingId, suggest);
+
+    return {
+      destroy() {
+        suggest.close();
+        folderSuggests.delete(mappingId);
+      },
+    };
   }
   
   /**
    * 初始化文件输入框的 FileSuggest
    */
   function initFileSuggest(inputEl: HTMLInputElement, mappingId: string) {
-    if (inputEl && app) {
-      const suggest = new FileSuggest(app, inputEl);
-      fileSuggests.set(mappingId, suggest);
-    }
+    if (!inputEl || !app) return;
+
+    fileSuggests.get(mappingId)?.close();
+    const suggest = new FileSuggest(app, inputEl);
+    fileSuggests.set(mappingId, suggest);
+
+    return {
+      destroy() {
+        suggest.close();
+        fileSuggests.delete(mappingId);
+      },
+    };
   }
   
   /**
@@ -409,12 +416,25 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
    */
   function refreshDeckNames() {
     const deckMap = new Map(decks.map(d => [d.id, d.name]));
-    const updated = mappings.map(m => ({
-      ...m,
-      targetDeckName: deckMap.get(m.targetDeckId) || m.targetDeckName
-    }));
-    onMappingsChange(updated);
+    let changed = false;
+    const updated = mappings.map(m => {
+      const nextName = deckMap.get(m.targetDeckId) || m.targetDeckName;
+      if (nextName !== m.targetDeckName) {
+        changed = true;
+        return { ...m, targetDeckName: nextName };
+      }
+      return m;
+    });
+    if (changed) {
+      onMappingsChange(updated);
+    }
   }
+
+  // 牌组重命名后同步显示名称
+  $effect(() => {
+    if (decks.length === 0 || mappings.length === 0) return;
+    refreshDeckNames();
+  });
 </script>
 
 <!-- 正则预设管理区域 -->
@@ -448,7 +468,7 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
     </div>
   </div>
 
-  <!-- 映射表格（始终显示，包括空状态） -->
+  <!-- 映射表格 -->
   {#if mappings.length > 0}
     <div class="mapping-table-container">
       <table class="mapping-table">
@@ -469,6 +489,7 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
           {#each mappings as mapping (mapping.id)}
             {@const mappingType = mapping.type || 'folder'}
             {@const mappingPath = mapping.path || mapping.folderPath || ''}
+            {@const mappingCardCount = getFolderDeckMappingCardCount(mapping)}
             <tr class:disabled={!mapping.enabled}>
               <!-- 类型选择列（只显示图标，悬停显示名称） -->
               <td class="type-cell">
@@ -555,38 +576,17 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
                     if (newMode === 'single-card') {
                       updateMapping(mapping.id, { 
                         fileMode: newMode,
-                        singleCardConfig: {
-                          contentStructure: 'front-back-split',
-                          frontBackSeparator: '---div---',
-                          uuidLocation: 'frontmatter',
-                          syncMethod: 'mtime-compare',
-                          excludeTags: ['禁止同步']
-                        },
+                        singleCardConfig: { ...DEFAULT_SINGLE_CARD_CONFIG },
                         multiCardsConfig: undefined
                       });
                     } else {
                       updateMapping(mapping.id, { 
                         fileMode: newMode,
                         multiCardsConfig: {
-                          usePreset: 'default',
-                          parsingConfig: {
-                            name: '默认格式',
-                            mode: 'separator',
-                            separatorMode: {
-                              cardSeparator: '<->',
-                              frontBackSeparator: '---div---',
-                              multiline: true,
-                              emptyLineSeparator: {
-                                enabled: false,
-                                lineCount: 2
-                              }
-                            },
-                            uuidLocation: 'inline',
-                            uuidPattern: '<!-- (tk-[a-z0-9]{12}) -->',
-                            excludeTags: ['禁止同步'],
-                            autoAddUUID: true,
-                            syncMethod: 'tag-based'
-                          }
+                          ...DEFAULT_MULTI_CARDS_CONFIG,
+                          parsingConfig: DEFAULT_MULTI_CARDS_CONFIG.parsingConfig
+                            ? { ...DEFAULT_MULTI_CARDS_CONFIG.parsingConfig }
+                            : undefined,
                         },
                         singleCardConfig: undefined
                       });
@@ -689,8 +689,8 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
               
               <!-- 卡片数量统计 -->
               <td class="card-count-cell">
-                {#if mapping.fileCount !== undefined}
-                  <span class="card-count">{mapping.fileCount} {t('dataManagement.batchScan.cardUnit')}</span>
+                {#if mappingCardCount !== undefined}
+                  <span class="card-count">{mappingCardCount} {t('dataManagement.batchScan.cardUnit')}</span>
                 {:else}
                   <span class="card-count-placeholder">{t('dataManagement.batchScan.notCounted')}</span>
                 {/if}
@@ -729,6 +729,14 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
           {/each}
         </tbody>
       </table>
+    </div>
+  {:else}
+    <div class="mapping-empty-state">
+      <p class="empty-title">{t('dataManagement.batchScan.emptyMappings.title')}</p>
+      <p class="empty-desc">{t('dataManagement.batchScan.emptyMappings.desc')}</p>
+      <button class="add-mapping-btn empty-action" type="button" onclick={addMapping}>
+        {t('dataManagement.batchScan.emptyMappings.action')}
+      </button>
     </div>
   {/if}
 </div>
@@ -841,6 +849,37 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
 
   .add-mapping-btn:active {
     transform: translateY(0);
+  }
+
+  .mapping-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 2rem 1rem;
+    border: 1px dashed var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    background: var(--background-secondary);
+    text-align: center;
+  }
+
+  .empty-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-normal);
+  }
+
+  .empty-desc {
+    margin: 0;
+    max-width: 36rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  .add-mapping-btn.empty-action {
+    margin-top: 0.25rem;
   }
 
   /* ===== 表格容器 ===== */
@@ -1002,7 +1041,7 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
     display: block;
     text-align: center;
     color: var(--text-faint);
-    font-size: 14px;
+    font-size: 13px;
   }
 
   /* ===== 文件模式选择样式 ===== */
@@ -1017,13 +1056,6 @@ import { showObsidianConfirm } from '../../../utils/obsidian-confirm';
   .regex-config-cell {
     padding: 8px;
     min-width: 150px;
-  }
-
-  .na-text {
-    color: var(--text-muted);
-    font-size: 13px;
-    display: block;
-    text-align: center;
   }
 
   /* ===== 文件夹输入框样式 ===== */

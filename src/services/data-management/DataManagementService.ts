@@ -17,7 +17,7 @@ import {
 	normalizeWeaveParentFolder,
 	resolveIRImportFolder,
 } from "../../config/paths";
-import type { Card, Deck } from "../../data/types";
+import type { Card, Deck, DeckStats } from "../../data/types";
 import type { WeavePlugin } from "../../main";
 import {
 	hasProgressiveClozeContent,
@@ -34,8 +34,14 @@ import {
 import {
 	getCardBodyFingerprint,
 	getCardRetentionScore,
+	buildBodyFingerprintIndex,
 } from "../../utils/card-content-fingerprint";
+import {
+	collectTutorialDeckResidueCards,
+	TUTORIAL_DECK_NAMES,
+} from "../../utils/tutorial-deck-catalog";
 import { logger } from "../../utils/logger";
+import { getAttachmentRegistryAutoFixIssueCount } from "../media/attachment-registry-issues";
 import {
 	hasMultipleMemoryFormalDecks,
 	keepSingleMemoryFormalDeck,
@@ -49,7 +55,10 @@ import {
 } from "../../utils/persisted-path-rewriter";
 import {
 	type SyncIssueType,
+	buildUniqueSyncSafeFilename,
 	diagnoseFilename,
+	ensureSyncSafeFilename,
+	isIgnorableVaultSystemOrSyncJunk,
 	sanitizeForSync,
 } from "../../utils/sync-safe-filename";
 import {
@@ -124,12 +133,16 @@ export type CheckType =
 	| "legacy_cleanup" // 旧目录清理
 	| "filename_compatibility" // 文件名云同步兼容性
 	| "sync_conflict_files" // 云同步冲突副本检测
+	| "plugin_runtime_sync_scope" // 插件运行态误入 vault / 同步范围提示
 	| "progressive_cloze_unconverted" // 符合渐进式挖空格式但未转换
 	| "progressive_cloze_orphan" // 孤儿子卡片（父卡片已不存在）
 	| "progressive_cloze_missing_children" // 父卡片缺少序号对应的子卡片
 	| "progressive_cloze_extra_children" // 子卡片序号在父卡片内容中不存在
 	| "qbank_migration" // 考试题组迁移到 .qbank 格式
-	| "qbank_legacy_cleanup"; // 清理已迁移的旧题库文件
+	| "qbank_legacy_cleanup" // 清理已迁移的旧题库文件
+	| "qbank_orphan_refs" // 考试题组悬空引用（记忆卡片已删除）
+	| "attachment_registry_consistency" // 附件索引与卡片引用一致性
+	| "tutorial_deck_residue"; // 清理已废弃的内置教程牌组残留
 
 /** 检测状态 */
 export type CheckStatus = "ok" | "warning" | "error";
@@ -174,6 +187,7 @@ export const TEMPORARY_CHECK_TYPES: CheckType[] = [
 	"legacy_memory_files",
 	"migration_conflict_files",
 	"legacy_cleanup",
+	"tutorial_deck_residue",
 ];
 
 export const SPLIT_PLUGIN_RESIDUE_CHECK_TYPES: CheckType[] = [
@@ -186,6 +200,16 @@ export const SPLIT_PLUGIN_RESIDUE_CHECK_TYPES: CheckType[] = [
 	"ir_legacy_bookmark_cleanup",
 	"ir_material_consistency",
 ];
+
+/** 启动门禁中的「维护建议」项：可检测、可修复，但不阻塞正常使用 */
+export const STARTUP_GATE_ADVISORY_CHECK_TYPES: CheckType[] = [
+	"attachment_registry_consistency",
+	"plugin_runtime_sync_scope",
+];
+
+export function isStartupGateAdvisoryCheckType(type: CheckType): boolean {
+	return STARTUP_GATE_ADVISORY_CHECK_TYPES.includes(type);
+}
 
 export const HIDDEN_RESCUE_CHECK_TYPES: CheckType[] = [
 	...SPLIT_PLUGIN_RESIDUE_CHECK_TYPES,
@@ -223,6 +247,7 @@ const CHECK_TYPE_DISPLAY_NAMES: Partial<Record<CheckType, string>> = {
 	legacy_cleanup: "management.dataCheckService.checkNames.legacyCleanup",
 	filename_compatibility: "management.dataCheckService.checkNames.filenameCompatibility",
 	sync_conflict_files: "management.dataCheckService.checkNames.syncConflictFiles",
+	plugin_runtime_sync_scope: "management.dataCheckService.checkNames.pluginRuntimeSyncScope",
 	progressive_cloze_unconverted:
 		"management.dataCheckService.checkNames.progressiveClozeUnconverted",
 	progressive_cloze_orphan: "management.dataCheckService.checkNames.progressiveClozeOrphan",
@@ -232,9 +257,40 @@ const CHECK_TYPE_DISPLAY_NAMES: Partial<Record<CheckType, string>> = {
 		"management.dataCheckService.checkNames.progressiveClozeExtraChildren",
 	qbank_migration: "management.dataCheckService.checkNames.qbankMigration",
 	qbank_legacy_cleanup: "management.dataCheckService.checkNames.qbankLegacyCleanup",
+	qbank_orphan_refs: "management.dataCheckService.checkNames.qbankOrphanRefs",
+	attachment_registry_consistency:
+		"management.dataCheckService.checkNames.attachmentRegistryConsistency",
+	tutorial_deck_residue: "management.dataCheckService.checkNames.tutorialDeckResidue",
 };
 
 export type DataCheckLifecycleKind = "temporary" | "long_term";
+
+/** 启动门禁分级：阻断 / 维护建议 / 临时迁移 */
+export type DataCheckTier = "blocking" | "advisory" | "temporary";
+
+export function getDataCheckTier(type: CheckType): DataCheckTier {
+	if (isTemporaryCheckType(type)) {
+		return "temporary";
+	}
+	if (isStartupGateAdvisoryCheckType(type)) {
+		return "advisory";
+	}
+	return "blocking";
+}
+
+export function getDataCheckGateTierKind(type: CheckType): DataCheckLifecycleKind | "advisory" {
+	if (getDataCheckTier(type) === "advisory") {
+		return "advisory";
+	}
+	return getDataCheckLifecycleKind(type);
+}
+
+export function getDataCheckGateTierLabel(type: CheckType): string {
+	if (getDataCheckTier(type) === "advisory") {
+		return t("management.dataCheckService.lifecycle.advisory");
+	}
+	return getDataCheckLifecycleLabel(type);
+}
 
 export function isTemporaryCheckType(type: CheckType): boolean {
 	return TEMPORARY_CHECK_TYPES.includes(type);
@@ -298,6 +354,12 @@ export function getDataCheckLifecycleNote(type: CheckType): string {
 			return t("management.dataCheckService.notes.cardDeckConsistency");
 		case "wdeck_conflicts":
 			return t("management.dataCheckService.notes.wdeckConflicts");
+		case "tutorial_deck_residue":
+			return t("management.dataCheckService.notes.tutorialDeckResidue");
+		case "attachment_registry_consistency":
+			return t("management.dataCheckService.notes.attachmentRegistryConsistency");
+		case "plugin_runtime_sync_scope":
+			return t("management.dataCheckService.notes.pluginRuntimeSyncScope");
 		default:
 			return "";
 	}
@@ -432,6 +494,7 @@ export const DEFAULT_CHECK_TYPES: CheckType[] = [
 	"we_block_migration",
 	"structured_data_format",
 	"duplicate_cards",
+	"tutorial_deck_residue",
 	"card_deck_consistency",
 	"wdeck_conflicts",
 	"wdeck_cache",
@@ -439,21 +502,20 @@ export const DEFAULT_CHECK_TYPES: CheckType[] = [
 	"legacy_cleanup",
 	"filename_compatibility",
 	"sync_conflict_files",
+	"plugin_runtime_sync_scope",
 	"progressive_cloze_unconverted",
 	"progressive_cloze_orphan",
 	"progressive_cloze_missing_children",
 	"progressive_cloze_extra_children",
+	"qbank_orphan_refs",
+	"attachment_registry_consistency",
 ];
 
 export const MIGRATION_CHECK_TYPES: CheckType[] = [
 	"schema_migration",
 	"qbank_migration",
 	"qbank_legacy_cleanup",
-	"wdeck_conflicts",
-	"wdeck_cache",
-	"migration_conflict_files",
 	"structure_check",
-	"legacy_cleanup",
 ];
 
 export const DEFAULT_BATCH_FIX_TYPES: CheckType[] = [
@@ -462,10 +524,15 @@ export const DEFAULT_BATCH_FIX_TYPES: CheckType[] = [
 	"epub_source_link_migration",
 	"structured_data_format",
 	"card_deck_consistency",
+	"wdeck_conflicts",
+	"wdeck_cache",
+	"qbank_orphan_refs",
+	"attachment_registry_consistency",
 ];
 
 export const HIGH_RISK_FIX_TYPES: CheckType[] = [
 	"duplicate_cards",
+	"tutorial_deck_residue",
 	"ir_material_consistency",
 	"ir_redundant_frontmatter_cleanup",
 	"epub_markdown_source_id_backfill",
@@ -481,6 +548,7 @@ export const HIGH_RISK_FIX_TYPES: CheckType[] = [
 	"filename_compatibility",
 	"sync_conflict_files",
 	"progressive_cloze_unconverted",
+	"attachment_registry_consistency",
 ];
 
 export const MAIN_PLUGIN_HIGH_RISK_FIX_TYPES: CheckType[] = HIGH_RISK_FIX_TYPES.filter(
@@ -594,6 +662,8 @@ export class DataManagementService {
 		deletedCardFiles: number;
 		mergedCardFiles: number;
 		mergedIRMonitoringFiles: number;
+		mergedMemoryConflictFiles: number;
+		removedRedundantConflictFiles: number;
 		renamedManifests: number;
 		errors: string[];
 	}> {
@@ -605,6 +675,8 @@ export class DataManagementService {
 			deletedCardFiles: 0,
 			mergedCardFiles: 0,
 			mergedIRMonitoringFiles: 0,
+			mergedMemoryConflictFiles: 0,
+			removedRedundantConflictFiles: 0,
 			renamedManifests: 0,
 			errors: [] as string[],
 		};
@@ -636,16 +708,26 @@ export class DataManagementService {
 		}
 
 		try {
-			if (isIncrementalReadingPluginInstalled(this.plugin.app)) {
-				return result;
+			if (!isIncrementalReadingPluginInstalled(this.plugin.app)) {
+				const monitoringRecovery = await this.recoverIRMonitoringConflictFiles(v2Paths);
+				result.mergedIRMonitoringFiles = monitoringRecovery.mergedFiles;
+				result.errors.push(...monitoringRecovery.errors);
 			}
-
-			const monitoringRecovery = await this.recoverIRMonitoringConflictFiles(v2Paths);
-			result.mergedIRMonitoringFiles = monitoringRecovery.mergedFiles;
-			result.errors.push(...monitoringRecovery.errors);
 		} catch (error) {
 			result.errors.push(
 				t("management.dataCheckService.messages.recoverIRMonitoringConflictFailed", {
+					message: String(error),
+				})
+			);
+		}
+
+		try {
+			const memoryRecovery = await this.recoverMemoryMigrationConflictFiles(v2Paths);
+			result.mergedMemoryConflictFiles = memoryRecovery.mergedFiles;
+			result.errors.push(...memoryRecovery.errors);
+		} catch (error) {
+			result.errors.push(
+				t("management.dataCheckService.messages.recoverMemoryMigrationConflictFailed", {
 					message: String(error),
 				})
 			);
@@ -657,6 +739,18 @@ export class DataManagementService {
 		} catch (error) {
 			result.errors.push(
 				t("management.dataCheckService.messages.recoverStructuredConflictFailed", {
+					message: String(error),
+				})
+			);
+		}
+
+		try {
+			const redundantRecovery = await this.recoverRedundantMigrationConflictCopies(v2Paths);
+			result.removedRedundantConflictFiles = redundantRecovery.removedFiles;
+			result.errors.push(...redundantRecovery.errors);
+		} catch (error) {
+			result.errors.push(
+				t("management.dataCheckService.messages.recoverRedundantConflictFailed", {
 					message: String(error),
 				})
 			);
@@ -719,6 +813,8 @@ export class DataManagementService {
 				return await this.checkStructuredDataFormat();
 			case "duplicate_cards":
 				return this.checkDuplicateCards(await this.plugin.dataStorage.getCards());
+			case "tutorial_deck_residue":
+				return this.checkTutorialDeckResidue();
 			case "card_deck_consistency":
 				return await this.checkCardDeckConsistency();
 			case "schema_migration":
@@ -741,6 +837,8 @@ export class DataManagementService {
 				return await this.checkFilenameCompatibility();
 			case "sync_conflict_files":
 				return await this.checkSyncConflictFiles();
+			case "plugin_runtime_sync_scope":
+				return await this.checkPluginRuntimeSyncScope();
 			case "progressive_cloze_unconverted":
 				return this.checkProgressiveClozeUnconverted(await this.plugin.dataStorage.getCards());
 			case "progressive_cloze_orphan":
@@ -753,6 +851,10 @@ export class DataManagementService {
 				return await this.checkQBankMigration();
 			case "qbank_legacy_cleanup":
 				return await this.checkQBankLegacyCleanup();
+			case "qbank_orphan_refs":
+				return await this.checkQBankOrphanRefs();
+			case "attachment_registry_consistency":
+				return await this.checkAttachmentRegistryConsistency();
 			case "orphan_cards":
 				return this.checkOrphanCards(
 					await this.plugin.dataStorage.getCards(),
@@ -792,6 +894,8 @@ export class DataManagementService {
 				return await this.fixStructuredDataFormat();
 			case "duplicate_cards":
 				return await this.fixDuplicateCards(await this.plugin.dataStorage.getCards());
+			case "tutorial_deck_residue":
+				return await this.fixTutorialDeckResidue();
 			case "card_deck_consistency":
 				return await this.fixCardDeckConsistency();
 			case "schema_migration":
@@ -822,6 +926,10 @@ export class DataManagementService {
 				return await this.executeQBankMigration({ confirmed: !!options.allowHighRisk });
 			case "qbank_legacy_cleanup":
 				return await this.executeQBankLegacyCleanup({ confirmed: !!options.allowHighRisk });
+			case "qbank_orphan_refs":
+				return await this.fixQBankOrphanRefs();
+			case "attachment_registry_consistency":
+				return await this.fixAttachmentRegistryConsistency(options);
 			default:
 				return {
 					type,
@@ -860,7 +968,11 @@ export class DataManagementService {
 
 			try {
 				const yaml = parseYAMLFromContent(card.content);
-				if (hasMultipleMemoryFormalDecks(yaml.we_decks, decks)) {
+				const weDecksRaw = yaml.we_decks;
+				const weDecks = Array.isArray(weDecksRaw)
+					? weDecksRaw.filter((entry): entry is string => typeof entry === "string")
+					: undefined;
+				if (hasMultipleMemoryFormalDecks(weDecks, decks)) {
 					affectedCards.push(card.uuid);
 				}
 			} catch {
@@ -1067,7 +1179,24 @@ export class DataManagementService {
 
 		logger.info(`[DataManagement] 发现 ${toDelete.length} 张重复卡片待删除`);
 
-		// 3. 删除重复卡片
+		// 3. 删除前先收敛正式归属，避免 .wdeck 物理副本与 YAML 真值脱节导致后续修复回弹
+		const consistencyService = new DataConsistencyService(this.plugin);
+		const preRepairResult = await consistencyService.repairConsistency();
+		if (!preRepairResult.success) {
+			errors.push({
+				uuid: "duplicate_cards",
+				error: preRepairResult.error || t("management.dataCheckService.messages.duplicateRebuildFailed"),
+			});
+			logger.warn("[DataManagement] 重复卡片修复前一致性收敛失败，中止删除");
+			return {
+				type: "duplicate_cards",
+				success: 0,
+				failed: toDelete.length,
+				errors,
+			};
+		}
+
+		// 4. 删除重复卡片
 		if (typeof this.plugin.dataStorage.deleteCards === "function") {
 			const deleteResult = await this.plugin.dataStorage.deleteCards(toDelete);
 			success += deleteResult.deleted.length;
@@ -1086,9 +1215,8 @@ export class DataManagementService {
 			});
 		}
 
-		// 4. 更新牌组 cardUUIDs：替换已删除UUID为保留的UUID
+		// 5. 删除后再次回写牌组缓存，并清理 .wdeck 结构性重复副本
 		if (success > 0) {
-			const consistencyService = new DataConsistencyService(this.plugin);
 			const repairResult = await consistencyService.repairConsistency();
 			if (!repairResult.success) {
 				errors.push({
@@ -1097,11 +1225,130 @@ export class DataManagementService {
 				});
 				failed += 1;
 			}
+
+			if (this.plugin.wdeckService?.repairStructuralConflicts) {
+				try {
+					await this.plugin.wdeckService.repairStructuralConflicts();
+					await this.plugin.wdeckService.rebuildCache();
+				} catch (error) {
+					logger.warn("[DataManagement] 重复卡片修复后清理 .wdeck 结构冲突失败:", error);
+				}
+			}
 		}
 
 		logger.info(`[DataManagement] 重复卡片修复完成: 删除 ${success} 张，失败 ${failed}`);
 
 		return { type: "duplicate_cards", success, failed, errors };
+	}
+
+	/**
+	 * 检测已废弃的内置教程牌组残留。
+	 *
+	 * 旧版本会自动创建「Weave 指南」及教程正文；后续迁移/渐进式挖空转换可能把这些卡片
+	 * 复制到「未归组卡片」等牌组，形成大量重复教程副本。
+	 */
+	private async checkTutorialDeckResidue(): Promise<DataCheckResult> {
+		const cards = await this.plugin.dataStorage.getCards();
+		const residue = collectTutorialDeckResidueCards(cards);
+
+		return {
+			type: "tutorial_deck_residue",
+			status: residue.length > 0 ? "warning" : "ok",
+			count: residue.length,
+			items: residue.map((card) => card.uuid).slice(0, 200),
+			message:
+				residue.length > 0
+					? t("management.dataCheckService.messages.tutorialDeckResidueFound", {
+							count: residue.length,
+						})
+					: t("management.dataCheckService.messages.tutorialDeckResidueOk"),
+		};
+	}
+
+	/**
+	 * 清理已废弃教程牌组卡片，并尝试移除空的「Weave 指南」牌组文件。
+	 */
+	private async fixTutorialDeckResidue(): Promise<DataFixResult> {
+		const cards = await this.plugin.dataStorage.getCards();
+		const residue = collectTutorialDeckResidueCards(cards);
+		const toDelete = residue.map((card) => card.uuid).filter(Boolean);
+
+		if (toDelete.length === 0) {
+			return { type: "tutorial_deck_residue", success: 0, failed: 0, errors: [] };
+		}
+
+		logger.info(`[DataManagement] 开始清理教程牌组残留: ${toDelete.length} 张`);
+
+		let success = 0;
+		let failed = 0;
+		const errors: Array<{ uuid: string; error: string }> = [];
+
+		if (typeof this.plugin.dataStorage.deleteCards === "function") {
+			const deleteResult = await this.plugin.dataStorage.deleteCards(toDelete);
+			success += deleteResult.deleted.length;
+			failed += deleteResult.failed.length;
+			errors.push(
+				...deleteResult.failed.map((item) => ({
+					uuid: item.uuid,
+					error: item.error || t("management.dataCheckService.messages.tutorialDeckResidueDeleteFailed"),
+				}))
+			);
+		} else {
+			failed += toDelete.length;
+			errors.push({
+				uuid: "tutorial_deck_residue",
+				error: t("management.dataCheckService.messages.tutorialDeckResidueDeleteFailed"),
+			});
+		}
+
+		if (success > 0) {
+			const consistencyService = new DataConsistencyService(this.plugin);
+			const repairResult = await consistencyService.repairConsistency();
+			if (!repairResult.success) {
+				errors.push({
+					uuid: "tutorial_deck_residue",
+					error:
+						repairResult.error ||
+						t("management.dataCheckService.messages.tutorialDeckResidueRebuildFailed"),
+				});
+				failed += 1;
+			}
+
+			await this.cleanupEmptyTutorialDecks();
+		}
+
+		logger.info(`[DataManagement] 教程牌组残留清理完成: 删除 ${success} 张，失败 ${failed}`);
+
+		return { type: "tutorial_deck_residue", success, failed, errors };
+	}
+
+	private async cleanupEmptyTutorialDecks(): Promise<void> {
+		if (!this.plugin.wdeckService) {
+			return;
+		}
+
+		const decks = await this.plugin.dataStorage.getDecks();
+		for (const deckName of TUTORIAL_DECK_NAMES) {
+			const matchedDeck = decks.find((deck) => deck.name === deckName);
+			if (!matchedDeck?.id) {
+				continue;
+			}
+
+			const cardCount = Array.isArray(matchedDeck.cardUUIDs) ? matchedDeck.cardUUIDs.length : 0;
+			if (cardCount > 0) {
+				continue;
+			}
+
+			try {
+				if (this.plugin.wdeckService.isWDeckDeckId(matchedDeck.id)) {
+					await this.plugin.wdeckService.dissolveDeckByDeckId(matchedDeck.id);
+				}
+			} catch (error) {
+				logger.warn(`[DataManagement] 清理空教程牌组失败: ${deckName}`, error);
+			}
+		}
+
+		await this.plugin.wdeckService.rebuildCache();
 	}
 
 	// ===== 具体修复实现 =====
@@ -1266,7 +1513,7 @@ export class DataManagementService {
 
 					for (const filePath of files) {
 						const fileName = filePath.split("/").pop() || "";
-						if (!fileName) continue;
+						if (!fileName || isIgnorableVaultSystemOrSyncJunk(fileName)) continue;
 						const diag = diagnoseFilename(fileName, true, filePath.length);
 						const fixableIssues = diag.issues.filter((_i) => _i !== "path_too_long");
 						if (fixableIssues.length > 0) {
@@ -1277,7 +1524,7 @@ export class DataManagementService {
 
 					for (const folderPath of folders) {
 						const folderName = folderPath.split("/").pop() || "";
-						if (folderName) {
+						if (folderName && !isIgnorableVaultSystemOrSyncJunk(folderName)) {
 							const diag = diagnoseFilename(folderName, false, folderPath.length);
 							const fixableIssues = diag.issues.filter((_i) => _i !== "path_too_long");
 							if (fixableIssues.length > 0) {
@@ -1379,6 +1626,120 @@ export class DataManagementService {
 		return rewritten;
 	}
 
+	private getFixableSyncFilenameIssues(
+		name: string,
+		isFile: boolean,
+		fullPathLength: number
+	): SyncIssueType[] {
+		return diagnoseFilename(name, isFile, fullPathLength).issues.filter(
+			(issue) => issue !== "path_too_long"
+		);
+	}
+
+	private async findCanonicalPathForMigrationConflict(
+		adapter: DataAdapter,
+		conflictPath: string
+	): Promise<string | null> {
+		const parentPath = conflictPath.split("/").slice(0, -1).join("/");
+		const weaveRoot = parentPath.replace(/\/_migration_conflicts$/, "");
+		if (!weaveRoot || weaveRoot === parentPath) {
+			return null;
+		}
+
+		const rawName = conflictPath.split("/").pop() || "";
+		const withoutPrefix = rawName.replace(/^weave_/, "");
+		const withoutTimestamp = withoutPrefix.replace(/-\d+$/, "");
+		const isFile = withoutTimestamp.includes(".");
+		const candidates = [
+			`${weaveRoot}/${ensureSyncSafeFilename(withoutTimestamp, isFile)}`,
+			`${weaveRoot}/${withoutTimestamp}`,
+		];
+		if (withoutTimestamp === "schema-version.json") {
+			candidates.unshift(getV2Paths(normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder)).schemaVersion);
+		}
+
+		for (const candidate of candidates) {
+			if (await adapter.exists(candidate)) {
+				return candidate;
+			}
+		}
+
+		return null;
+	}
+
+	private async resolveFilenameCompatibilityTarget(
+		adapter: DataAdapter,
+		oldPath: string,
+		isFile: boolean
+	): Promise<{ action: "skip" } | { action: "rename"; newPath: string } | { action: "deleted" }> {
+		const segments = oldPath.split("/");
+		const fileName = segments[segments.length - 1] || "";
+		if (!fileName) {
+			return { action: "skip" };
+		}
+
+		const safeName = ensureSyncSafeFilename(fileName, isFile);
+		const parentPath = segments.slice(0, -1).join("/");
+		const fixableIssues = this.getFixableSyncFilenameIssues(fileName, isFile, oldPath.length);
+
+		if (fixableIssues.length === 0) {
+			return { action: "skip" };
+		}
+
+		if (oldPath.includes("/_migration_conflicts/")) {
+			const canonicalPath = await this.findCanonicalPathForMigrationConflict(adapter, oldPath);
+			if (canonicalPath) {
+				try {
+					const [oldContent, canonicalContent] = await Promise.all([
+						adapter.read(oldPath),
+						adapter.read(canonicalPath),
+					]);
+					if (oldContent === canonicalContent) {
+						await adapter.remove(oldPath);
+						return { action: "deleted" };
+					}
+				} catch (error) {
+					logger.debug(`[DataManagement] 无法比对迁移冲突副本: ${oldPath}`, error);
+				}
+			}
+		}
+
+		for (let attempt = 0; attempt < 20; attempt += 1) {
+			const candidateName = buildUniqueSyncSafeFilename(safeName, attempt);
+			const candidatePath = parentPath ? `${parentPath}/${candidateName}` : candidateName;
+
+			if (candidatePath === oldPath) {
+				if (this.getFixableSyncFilenameIssues(candidateName, isFile, candidatePath.length).length === 0) {
+					return { action: "skip" };
+				}
+				continue;
+			}
+
+			if (!(await adapter.exists(candidatePath))) {
+				return { action: "rename", newPath: candidatePath };
+			}
+
+			try {
+				const [oldContent, existingContent] = await Promise.all([
+					adapter.read(oldPath),
+					adapter.read(candidatePath),
+				]);
+				if (oldContent === existingContent) {
+					await adapter.remove(oldPath);
+					return { action: "deleted" };
+				}
+			} catch (error) {
+				logger.debug(`[DataManagement] 无法比对重名文件: ${oldPath}`, error);
+			}
+		}
+
+		throw new Error(
+			t("management.dataCheckService.messages.targetPathAlreadyExists", {
+				path: parentPath ? `${parentPath}/${safeName}` : safeName,
+			})
+		);
+	}
+
 	/**
 	 * 修复文件名云同步兼容性问题
 	 *
@@ -1401,8 +1762,8 @@ export class DataManagementService {
 			}
 
 			// 收集需要重命名的路径（只检测最后一段名称，保持父路径不变）
-			const fileRenames: Array<{ oldPath: string; newPath: string }> = [];
-			const folderRenames: Array<{ oldPath: string; newPath: string; depth: number }> = [];
+			const fileRenames: Array<{ oldPath: string }> = [];
+			const folderRenames: Array<{ oldPath: string; depth: number }> = [];
 
 			const scanDir = async (dir: string, depth: number): Promise<void> => {
 				if (depth > 8) return;
@@ -1414,14 +1775,9 @@ export class DataManagementService {
 					for (const filePath of files) {
 						const segments = filePath.split("/");
 						const fileName = segments[segments.length - 1];
-						if (!fileName) continue;
-						const diag = diagnoseFilename(fileName, true, filePath.length);
-						const fixableIssues = diag.issues.filter((_i) => _i !== "path_too_long");
-						if (fixableIssues.length > 0) {
-							// 只替换最后一段，保持父路径不变
-							const parentPath = segments.slice(0, -1).join("/");
-							const newPath = parentPath ? `${parentPath}/${diag.suggested}` : diag.suggested;
-							fileRenames.push({ oldPath: filePath, newPath });
+						if (!fileName || isIgnorableVaultSystemOrSyncJunk(fileName)) continue;
+						if (this.getFixableSyncFilenameIssues(fileName, true, filePath.length).length > 0) {
+							fileRenames.push({ oldPath: filePath });
 						}
 					}
 
@@ -1431,13 +1787,9 @@ export class DataManagementService {
 
 						const segments = folderPath.split("/");
 						const folderName = segments[segments.length - 1];
-						if (!folderName) continue;
-						const diag = diagnoseFilename(folderName, false, folderPath.length);
-						const fixableIssues = diag.issues.filter((_i) => _i !== "path_too_long");
-						if (fixableIssues.length > 0) {
-							const parentPath = segments.slice(0, -1).join("/");
-							const newPath = parentPath ? `${parentPath}/${diag.suggested}` : diag.suggested;
-							folderRenames.push({ oldPath: folderPath, newPath, depth });
+						if (!folderName || isIgnorableVaultSystemOrSyncJunk(folderName)) continue;
+						if (this.getFixableSyncFilenameIssues(folderName, false, folderPath.length).length > 0) {
+							folderRenames.push({ oldPath: folderPath, depth });
 						}
 					}
 				} catch (error) {
@@ -1447,31 +1799,57 @@ export class DataManagementService {
 
 			await scanDir(root, 0);
 
-			const performRename = async (item: { oldPath: string; newPath: string }, kind: "file" | "folder") => {
-				if (item.oldPath === item.newPath) {
+			const performRename = async (oldPath: string, kind: "file" | "folder") => {
+				const resolution = await this.resolveFilenameCompatibilityTarget(
+					adapter,
+					oldPath,
+					kind === "file"
+				);
+
+				if (resolution.action === "skip") {
+					const segments = oldPath.split("/");
+					const name = segments[segments.length - 1] || "";
+					if (
+						name &&
+						this.getFixableSyncFilenameIssues(name, kind === "file", oldPath.length).length > 0
+					) {
+						failed++;
+						errors.push({
+							uuid: oldPath,
+							error: t("management.dataCheckService.messages.filenameCompatibilitySkipUnresolved", {
+								path: oldPath,
+							}),
+						});
+					}
 					return;
 				}
-				if (await adapter.exists(item.newPath)) {
-					logger.warn(`[DataManagement] 目标路径已存在，跳过: ${item.newPath}`);
-					errors.push({
-						uuid: item.oldPath,
-						error: t("management.dataCheckService.messages.targetPathAlreadyExists", {
-							path: item.newPath,
-						}),
-					});
-					failed++;
+
+				if (resolution.action === "deleted") {
+					success++;
+					logger.info(`[DataManagement] 删除重复/冲突副本: ${oldPath}`);
 					return;
 				}
-				await renameVaultPath(this.plugin.app, item.oldPath, item.newPath);
-				appliedRules.push({ from: item.oldPath, to: item.newPath });
+
+				if (await adapter.exists(resolution.newPath)) {
+					throw new Error(
+						t("management.dataCheckService.messages.targetPathAlreadyExists", {
+							path: resolution.newPath,
+						})
+					);
+				}
+
+				await renameVaultPath(this.plugin.app, oldPath, resolution.newPath);
+				appliedRules.push({ from: oldPath, to: resolution.newPath });
 				success++;
-				logger.info(`[DataManagement] 重命名${kind === "file" ? "文件" : "目录"}: ${item.oldPath} → ${item.newPath}`);
+				logger.info(
+					`[DataManagement] 重命名${kind === "file" ? "文件" : "目录"}: ${oldPath} → ${resolution.newPath}`
+				);
 			};
 
 			// 1. 先重命名文件（文件重命名不影响其他路径）
 			for (const item of fileRenames) {
 				try {
-					await performRename(item, "file");
+					await performRename(item.oldPath, "file");
 				} catch (error) {
 					failed++;
 					errors.push({ uuid: item.oldPath, error: String(error) });
@@ -1483,7 +1861,7 @@ export class DataManagementService {
 			folderRenames.sort((a, b) => b.depth - a.depth);
 			for (const item of folderRenames) {
 				try {
-					await performRename(item, "folder");
+					await performRename(item.oldPath, "folder");
 				} catch (error) {
 					failed++;
 					errors.push({ uuid: item.oldPath, error: String(error) });
@@ -1571,6 +1949,20 @@ export class DataManagementService {
 			};
 		}
 
+		if (/weave_memory_deck-cards_.+\.json-\d+$/.test(fileName)) {
+			return {
+				label: t("management.dataCheckService.messages.migrationConflictLabels.memoryDeckCards"),
+				autoRecoverable: true,
+			};
+		}
+
+		if (/weave_memory_learning_sessions_.+\.json-\d+$/.test(fileName)) {
+			return {
+				label: t("management.dataCheckService.messages.migrationConflictLabels.memoryLearningSessions"),
+				autoRecoverable: true,
+			};
+		}
+
 		if (/weave_incremental-reading_monitoring\.json-\d+$/.test(fileName)) {
 			return {
 				label: t("management.dataCheckService.messages.migrationConflictLabels.irMonitoring"),
@@ -1588,6 +1980,20 @@ export class DataManagementService {
 		if (/weave_question-bank_.*\.json-\d+$/.test(fileName)) {
 			return {
 				label: t("management.dataCheckService.messages.migrationConflictLabels.qbank"),
+				autoRecoverable: true,
+			};
+		}
+
+		if (/weave_schema-version\.json-\d+$/.test(fileName)) {
+			return {
+				label: t("management.dataCheckService.messages.migrationConflictLabels.weaveGeneric"),
+				autoRecoverable: true,
+			};
+		}
+
+		if (/weave_.*\.md-\d+$/.test(fileName)) {
+			return {
+				label: t("management.dataCheckService.messages.migrationConflictLabels.weaveGeneric"),
 				autoRecoverable: true,
 			};
 		}
@@ -1698,10 +2104,7 @@ export class DataManagementService {
 		const recovery = await this.recoverMigrationConflictData();
 		const after = await this.listMigrationConflictFiles();
 		const beforeByPath = new Map(before.map((file) => [file.path, file]));
-		const errors: Array<{ uuid: string; error: string }> = recovery.errors.map((error) => ({
-			uuid: "",
-			error,
-		}));
+		const errors: Array<{ uuid: string; error: string }> = [];
 
 		for (const file of after) {
 			const original = beforeByPath.get(file.path) || file;
@@ -1713,10 +2116,14 @@ export class DataManagementService {
 			});
 		}
 
+		if (recovery.errors.length > 0) {
+			logger.warn("[DataManagement] 迁移冲突恢复过程中出现非致命错误:", recovery.errors);
+		}
+
 		return {
 			type: "migration_conflict_files",
 			success: Math.max(before.length - after.length, 0),
-			failed: errors.length,
+			failed: after.length,
 			errors,
 		};
 	}
@@ -1964,6 +2371,41 @@ export class DataManagementService {
 		};
 	}
 
+	private filterCardsNotDuplicatingWDeckBody(
+		candidates: Card[],
+		existingWDeckCards: Card[]
+	): Card[] {
+		if (candidates.length === 0 || existingWDeckCards.length === 0) {
+			return candidates;
+		}
+
+		const fingerprintIndex = buildBodyFingerprintIndex(existingWDeckCards);
+		const filtered: Card[] = [];
+		let skipped = 0;
+
+		for (const card of candidates) {
+			const fingerprint = getCardBodyFingerprint(card);
+			if (!fingerprint) {
+				filtered.push(card);
+				continue;
+			}
+
+			const canonicalUuid = fingerprintIndex.get(fingerprint);
+			if (canonicalUuid && canonicalUuid !== card.uuid) {
+				skipped += 1;
+				continue;
+			}
+
+			filtered.push(card);
+		}
+
+		if (skipped > 0) {
+			logger.info(`[DataManagement] WDeck 迁移跳过 ${skipped} 张正文重复卡片`);
+		}
+
+		return filtered;
+	}
+
 	private getCardsForWDeckMigration(
 		deck: Deck,
 		allCards: Card[],
@@ -2182,6 +2624,7 @@ export class DataManagementService {
 			this.getExistingWDeckFiles(),
 		]);
 		const runtimeCards = allCards.filter((card) => !this.plugin.wdeckService?.isWDeckCard(card));
+		const existingWDeckCards = allCards.filter((card) => this.plugin.wdeckService?.isWDeckCard(card));
 		const regularCardMap = new Map<string, Card>();
 		const regularCardsWithoutUUID: Card[] = [];
 		const mergeRegularCards = (cards: Card[]) => {
@@ -2244,10 +2687,9 @@ export class DataManagementService {
 				continue;
 			}
 
-			const deckCards = this.getCardsForWDeckMigration(
-				deck,
-				normalizedRegularCards,
-				sourceDecks
+			const deckCards = this.filterCardsNotDuplicatingWDeckBody(
+				this.getCardsForWDeckMigration(deck, normalizedRegularCards, sourceDecks),
+				existingWDeckCards
 			);
 			if (deckCards.length === 0) {
 				continue;
@@ -2299,9 +2741,12 @@ export class DataManagementService {
 			}
 		}
 
-		const orphanCards = normalizedRegularCards
-			.filter((card) => card?.uuid && !assignedUUIDs.has(card.uuid))
-			.map((card) => this.stripWDeckRuntimeMarker(card));
+		const orphanCards = this.filterCardsNotDuplicatingWDeckBody(
+			normalizedRegularCards
+				.filter((card) => card?.uuid && !assignedUUIDs.has(card.uuid))
+				.map((card) => this.stripWDeckRuntimeMarker(card)),
+			existingWDeckCards
+		);
 		if (orphanCards.length > 0) {
 			const now = new Date().toISOString();
 			candidates.push({
@@ -2558,6 +3003,11 @@ export class DataManagementService {
 			const migratedDecks: Array<{ deckId: string; logicalDeckId: string; filePath: string }> = [];
 
 			for (const candidate of plan.candidates) {
+				const cardsToMigrate = candidate.cards;
+				if (cardsToMigrate.length === 0) {
+					continue;
+				}
+
 				const payload: WDeckFileData = {
 					schemaVersion: 1,
 					fileType: "wdeck",
@@ -2566,7 +3016,7 @@ export class DataManagementService {
 					segmentId: `${candidate.logicalDeckName}_01`,
 					segmentIndex: 1,
 					segmentLabel: "01",
-					cards: candidate.cards,
+					cards: cardsToMigrate,
 				};
 
 				try {
@@ -2582,7 +3032,7 @@ export class DataManagementService {
 								merged.set(card.uuid, card);
 							}
 						}
-						for (const card of candidate.cards) {
+						for (const card of cardsToMigrate) {
 							if (card?.uuid) {
 								merged.set(card.uuid, card);
 							}
@@ -3441,7 +3891,7 @@ export class DataManagementService {
 		if (!this.plugin.wdeckService) {
 			return {
 				type: "wdeck_conflicts",
-				status: "ok",
+				status: "error",
 				count: 0,
 				items: [],
 				message: t("management.dataCheckService.messages.wdeckServiceUnavailable"),
@@ -3483,7 +3933,12 @@ export class DataManagementService {
 				: [],
 			message: status.needsRebuild
 				? t("management.dataCheckService.messages.wdeckCacheNeedsRebuild")
-				: t("management.dataCheckService.messages.wdeckCacheOk", { fileCount: status.fileCount, issueCount: status.issueCount }),
+				: status.issueCount > 0
+					? t("management.dataCheckService.messages.wdeckCacheOkWithTrackedConflicts", {
+							fileCount: status.fileCount,
+							issueCount: status.issueCount,
+						})
+					: t("management.dataCheckService.messages.wdeckCacheOk", { fileCount: status.fileCount }),
 		};
 	}
 
@@ -3748,7 +4203,7 @@ export class DataManagementService {
 					if (!issue.normalizedContent) {
 						throw new Error(t("management.dataCheckService.messages.normalizedContentMissing"));
 					}
-					await safeWriteJson(adapter as unknown, issue.path, issue.normalizedContent, this.plugin.app as unknown);
+					await safeWriteJson(adapter, issue.path, issue.normalizedContent, this.plugin.app);
 				}
 				success += 1;
 			} catch (error) {
@@ -4021,6 +4476,8 @@ export class DataManagementService {
 				recovered.deletedCardFiles > 0 ||
 				recovered.mergedCardFiles > 0 ||
 				recovered.mergedIRMonitoringFiles > 0 ||
+				recovered.mergedMemoryConflictFiles > 0 ||
+				recovered.removedRedundantConflictFiles > 0 ||
 				recovered.renamedManifests > 0
 			) {
 				success += 1;
@@ -4231,7 +4688,8 @@ export class DataManagementService {
 			/^\.?weave_memory_cards_.*\.json-\d+$/.test(f)
 		);
 		const deckFileNames = allFileNames.filter((f) => /^\.?weave_memory_decks\.json-\d+$/.test(f));
-		const handledConflictFileNames = [...deckFileNames, ...cardFileNames];
+		const successfulDeckImports = new Set<string>();
+		const successfulCardImports = new Set<string>();
 
 		const readConflictFile = async (fileName: string): Promise<string | null> => {
 			try {
@@ -4286,6 +4744,7 @@ export class DataManagementService {
 						}
 					}
 				}
+				successfulDeckImports.add(deckFileName);
 			} catch (e) {
 				result.errors.push(t("management.dataCheckService.messages.migrationConflictImportParseDeckFailed", { fileName: deckFileName, message: String(e) }));
 			}
@@ -4321,12 +4780,14 @@ export class DataManagementService {
 
 					importedCardsByUuid.set(c.uuid, { ...c, deckId, content: nextContent });
 				}
+				successfulCardImports.add(cardFileName);
 			} catch (e) {
 				result.errors.push(t("management.dataCheckService.messages.migrationConflictImportParseCardFailed", { fileName: cardFileName, message: String(e) }));
 			}
 		}
 
 		const importedCards = Array.from(importedCardsByUuid.values());
+		let cardSaveSucceeded = importedCards.length === 0;
 		if (importedCards.length > 0) {
 			try {
 				if (
@@ -4358,11 +4819,13 @@ export class DataManagementService {
 				}
 
 				result.importedCards = importedCards.length;
+				cardSaveSucceeded = true;
 			} catch (e) {
 				result.errors.push(t("management.dataCheckService.messages.migrationConflictImportCardsFailed", { message: String(e) }));
 			}
 		}
 
+		let deckSaveSucceeded = importedDecksById.size === 0;
 		try {
 			const decksPath = v2Paths.memory.decks;
 			const deckById = new Map<string, Deck>(Array.from(currentDeckById.entries()));
@@ -4403,9 +4866,25 @@ export class DataManagementService {
 				}
 			}
 
+			const defaultDeckSettings = this.plugin.dataStorage.getCurrentDefaultDeckSettings();
+
 			for (const [deckId, set] of uuidsByDeckId.entries()) {
 				if (!deckById.has(deckId)) {
 					const name = deckNameById.get(deckId) || deckId;
+					const emptyStats: DeckStats = {
+						totalCards: 0,
+						newCards: 0,
+						learningCards: 0,
+						reviewCards: 0,
+						todayNew: 0,
+						todayReview: 0,
+						todayTime: 0,
+						totalReviews: 0,
+						totalTime: 0,
+						memoryRate: 0,
+						averageEase: 0,
+						forecastDays: {},
+					};
 					deckById.set(deckId, {
 						id: deckId,
 						name,
@@ -4418,24 +4897,12 @@ export class DataManagementService {
 						created: new Date().toISOString(),
 						modified: new Date().toISOString(),
 						includeSubdecks: false,
-						stats: {
-							totalCards: 0,
-							newCards: 0,
-							learningCards: 0,
-							reviewCards: 0,
-							todayNew: 0,
-							todayReview: 0,
-							todayTime: 0,
-							totalReviews: 0,
-							totalTime: 0,
-							memoryRate: 0,
-							averageEase: 0,
-							forecastDays: {},
-						} as unknown,
+						settings: defaultDeckSettings,
+						stats: emptyStats,
 						tags: [],
 						metadata: {},
 						cardUUIDs: [],
-					} as unknown);
+					});
 				}
 
 				const deck = deckById.get(deckId)!;
@@ -4464,9 +4931,13 @@ export class DataManagementService {
 				JSON.stringify({ decks: strippedDecks })
 			);
 			result.importedDecks = importedDecksById.size;
+			deckSaveSucceeded = true;
 
 			if (this.plugin.deckMembershipIndexService) {
 				await this.plugin.deckMembershipIndexService.markFullRebuildRequired();
+			}
+			if (this.plugin.bodyFingerprintIndexService) {
+				await this.plugin.bodyFingerprintIndexService.markFullRebuildRequired();
 			}
 			if (this.plugin.studyDueIndexService) {
 				await this.plugin.studyDueIndexService.markFullRebuildRequired();
@@ -4481,15 +4952,32 @@ export class DataManagementService {
 			);
 		}
 
-		if (handledConflictFileNames.length > 0 && result.errors.length === 0) {
-			const adapter = this.plugin.app.vault.adapter;
-			for (const f of handledConflictFileNames) {
-				try {
-					const conflictPath = `${conflictDir}/${f}`;
-					if (await adapter.exists(conflictPath)) {
-						await adapter.remove(conflictPath);
-					}
-				} catch { /* no-op */ }
+		const adapter = this.plugin.app.vault.adapter;
+		const removeConflictFile = async (fileName: string): Promise<void> => {
+			try {
+				const conflictPath = `${conflictDir}/${fileName}`;
+				if (await adapter.exists(conflictPath)) {
+					await adapter.remove(conflictPath);
+				}
+			} catch (e) {
+				result.errors.push(
+					t("management.dataCheckService.messages.migrationConflictImportDeleteFailed", {
+						fileName,
+						message: String(e),
+					})
+				);
+			}
+		};
+
+		if (deckSaveSucceeded) {
+			for (const fileName of successfulDeckImports) {
+				await removeConflictFile(fileName);
+			}
+		}
+
+		if (cardSaveSucceeded) {
+			for (const fileName of successfulCardImports) {
+				await removeConflictFile(fileName);
 			}
 		}
 
@@ -4498,6 +4986,163 @@ export class DataManagementService {
 
 	private stripMigrationConflictTimestamp(fileName: string): string {
 		return fileName.replace(/-\d+$/, "");
+	}
+
+	private extractMigrationConflictOriginalBaseName(fileName: string): string {
+		return this.stripMigrationConflictTimestamp(fileName.replace(/^weave_/, ""));
+	}
+
+	private isMigrationMarkerBasename(baseName: string): boolean {
+		return baseName === "schema-version.json" || baseName === "migration-completed" || baseName === "editor-host.md";
+	}
+
+	private shouldSkipRedundantMigrationConflictRecovery(fileName: string): boolean {
+		return (
+			/^\.?weave_memory_cards_.*\.json-\d+$/.test(fileName) ||
+			/^\.?weave_memory_decks\.json-\d+$/.test(fileName) ||
+			/^\.?weave_incremental-reading_monitoring\.json-\d+$/.test(fileName) ||
+			this.isMemoryMigrationConflictFile(fileName) ||
+			this.isStructuredJsonMigrationConflictFile(fileName)
+		);
+	}
+
+	private async findWeaveRootFileWithSameContent(
+		v2Paths: ReturnType<typeof getV2Paths>,
+		content: string,
+		conflictPath: string
+	): Promise<string | null> {
+		const adapter = this.plugin.app.vault.adapter;
+		if (!(await adapter.exists(v2Paths.root))) {
+			return null;
+		}
+
+		try {
+			const listing = await adapter.list(v2Paths.root);
+			for (const filePath of listing.files || []) {
+				if (filePath === conflictPath) {
+					continue;
+				}
+				try {
+					const candidateContent = await adapter.read(filePath);
+					if (candidateContent === content) {
+						return filePath;
+					}
+				} catch {
+					continue;
+				}
+			}
+		} catch (error) {
+			logger.debug(`[DataManagement] 扫描 Weave 根目录副本失败: ${v2Paths.root}`, error);
+		}
+
+		return null;
+	}
+
+	private async recoverRedundantMigrationConflictCopies(
+		v2Paths: ReturnType<typeof getV2Paths>
+	): Promise<{ removedFiles: number; errors: string[] }> {
+		const adapter = this.plugin.app.vault.adapter;
+		const conflictDir = `${v2Paths.root}/_migration_conflicts`;
+		const result = {
+			removedFiles: 0,
+			errors: [] as string[],
+		};
+
+		if (!(await adapter.exists(conflictDir))) {
+			return result;
+		}
+
+		let conflictPaths: string[] = [];
+		try {
+			const listing = await adapter.list(conflictDir);
+			conflictPaths = listing.files || [];
+		} catch (error) {
+			result.errors.push(
+				t("management.dataCheckService.messages.structuredConflictDirReadFailed", {
+					message: String(error),
+				})
+			);
+			return result;
+		}
+
+		for (const conflictPath of conflictPaths) {
+			const fileName = conflictPath.split("/").pop() || conflictPath;
+			if (!fileName || this.shouldSkipRedundantMigrationConflictRecovery(fileName)) {
+				continue;
+			}
+
+			try {
+				const removed = await this.tryRemoveRedundantMigrationConflictCopy(
+					conflictPath,
+					v2Paths
+				);
+				if (removed) {
+					result.removedFiles += 1;
+				}
+			} catch (error) {
+				result.errors.push(
+					t("management.dataCheckService.messages.structuredConflictDeleteFailed", {
+						path: conflictPath,
+						message: String(error),
+					})
+				);
+			}
+		}
+
+		return result;
+	}
+
+	private async tryRemoveRedundantMigrationConflictCopy(
+		conflictPath: string,
+		v2Paths: ReturnType<typeof getV2Paths>
+	): Promise<boolean> {
+		const adapter = this.plugin.app.vault.adapter;
+		const fileName = conflictPath.split("/").pop() || "";
+		const originalBaseName = this.extractMigrationConflictOriginalBaseName(fileName);
+
+		let conflictContent: string;
+		try {
+			conflictContent = await adapter.read(conflictPath);
+		} catch (error) {
+			throw new Error(
+				t("management.dataCheckService.messages.migrationConflictImportReadFailed", {
+					fileName,
+					message: String(error),
+				})
+			);
+		}
+
+		const canonicalPath = await this.findCanonicalPathForMigrationConflict(adapter, conflictPath);
+		if (canonicalPath && (await adapter.exists(canonicalPath))) {
+			const canonicalContent = await adapter.read(canonicalPath);
+			if (canonicalContent === conflictContent || this.isMigrationMarkerBasename(originalBaseName)) {
+				await adapter.remove(conflictPath);
+				logger.info(`[DataManagement] 删除冗余迁移冲突副本: ${conflictPath}`);
+				return true;
+			}
+		} else if (
+			this.isMigrationMarkerBasename(originalBaseName) &&
+			(await adapter.exists(v2Paths.schemaVersion))
+		) {
+			await adapter.remove(conflictPath);
+			logger.info(`[DataManagement] 删除冗余迁移标记冲突副本: ${conflictPath}`);
+			return true;
+		}
+
+		const contentMatchPath = await this.findWeaveRootFileWithSameContent(
+			v2Paths,
+			conflictContent,
+			conflictPath
+		);
+		if (contentMatchPath) {
+			await adapter.remove(conflictPath);
+			logger.info(
+				`[DataManagement] 删除与正式文件内容相同的迁移冲突副本: ${conflictPath} -> ${contentMatchPath}`
+			);
+			return true;
+		}
+
+		return false;
 	}
 
 	private toMigrationConflictComparableName(path: string): string {
@@ -4757,6 +5402,7 @@ export class DataManagementService {
 		consecutiveCorrect = currentStreak;
 		const totalAttempts = attempts.length;
 		const normalizedAttempts: TestAttempt[] = attempts.map((attempt) => ({
+			sessionId: readString(attempt, "sessionId")?.trim() || "legacy-migration",
 			isCorrect: attempt.isCorrect === true,
 			mode: "exam" as const,
 			timestamp: this.toMigrationString(attempt.timestamp),
@@ -4920,6 +5566,253 @@ export class DataManagementService {
 		return this.getMigrationEntryTimestamp(incoming) > this.getMigrationEntryTimestamp(current)
 			? incoming
 			: current;
+	}
+
+	private isMemoryMigrationConflictFile(fileName: string): boolean {
+		return (
+			/^weave_memory_deck-cards_.+\.json-\d+$/.test(fileName) ||
+			/^weave_memory_learning_sessions_.+\.json-\d+$/.test(fileName)
+		);
+	}
+
+	private isMemoryDeckCardsMigrationConflictFile(fileName: string): boolean {
+		return /^weave_memory_deck-cards_.+\.json-\d+$/.test(fileName);
+	}
+
+	private resolveMemoryMigrationConflictTargetPath(
+		fileName: string,
+		v2Paths: ReturnType<typeof getV2Paths>
+	): string | null {
+		const stripped = this.stripMigrationConflictTimestamp(fileName);
+
+		const deckCardsMatch = stripped.match(/^weave_memory_deck-cards_(.+)$/);
+		if (deckCardsMatch?.[1]) {
+			return `${v2Paths.memory.deckCards}/${deckCardsMatch[1]}`;
+		}
+
+		const sessionsMatch = stripped.match(/^weave_memory_learning_sessions_(.+)$/);
+		if (sessionsMatch?.[1]) {
+			return `${v2Paths.memory.learning.sessions}/${sessionsMatch[1]}`;
+		}
+
+		return null;
+	}
+
+	private async removeLegacyDeckCardsFileIfWDeckCoversMembership(
+		v2Paths: ReturnType<typeof getV2Paths>,
+		deckRelativeFileName: string,
+		mergedUUIDs: string[]
+	): Promise<void> {
+		const wdeckService = this.plugin.wdeckService;
+		if (!wdeckService || mergedUUIDs.length === 0) {
+			return;
+		}
+
+		const deckId = deckRelativeFileName.replace(/\.json$/i, "").trim();
+		if (!deckId) {
+			return;
+		}
+
+		const aggregate = await wdeckService.getDeckAggregateByAnyDeckId(deckId);
+		if (!aggregate) {
+			return;
+		}
+
+		const wdeckUUIDs = new Set(
+			aggregate.cards.map((card) => String(card?.uuid || "").trim()).filter(Boolean)
+		);
+		if (!mergedUUIDs.every((uuid) => wdeckUUIDs.has(uuid))) {
+			return;
+		}
+
+		const adapter = this.plugin.app.vault.adapter;
+		const deckCardsPath = `${v2Paths.memory.deckCards}/${deckRelativeFileName}`;
+		if (await adapter.exists(deckCardsPath)) {
+			await adapter.remove(deckCardsPath);
+			logger.info(`[DataManagement] WDeck 已覆盖牌组归属，移除遗留 deck-cards: ${deckCardsPath}`);
+		}
+	}
+
+	private async ensureParentDirectory(adapter: DataAdapter, filePath: string): Promise<void> {
+		const slash = filePath.lastIndexOf("/");
+		if (slash <= 0) {
+			return;
+		}
+		await DirectoryUtils.ensureDirRecursive(adapter, filePath.slice(0, slash));
+	}
+
+	private async mergeMemoryDeckCardsMigrationConflict(
+		v2Paths: ReturnType<typeof getV2Paths>,
+		conflictPath: string,
+		targetPath: string,
+		conflictJson: unknown
+	): Promise<void> {
+		const adapter = this.plugin.app.vault.adapter;
+		const deckRelativeFileName = targetPath.split("/").pop() || "";
+		const conflictUUIDs = this.readCardUUIDsFromPayload(conflictJson);
+
+		await this.ensureParentDirectory(adapter, targetPath);
+
+		if (!(await adapter.exists(targetPath))) {
+			await safeWriteJson(
+				adapter,
+				targetPath,
+				JSON.stringify({ cardUUIDs: conflictUUIDs }, null, 2),
+				this.plugin.app
+			);
+			await this.removeLegacyDeckCardsFileIfWDeckCoversMembership(
+				v2Paths,
+				deckRelativeFileName,
+				conflictUUIDs
+			);
+			return;
+		}
+
+		const currentJson = await safeReadJson(adapter, targetPath, this.plugin.app);
+		const mergedUUIDs = Array.from(
+			new Set([...this.readCardUUIDsFromPayload(currentJson), ...conflictUUIDs].filter(Boolean))
+		);
+		await safeWriteJson(
+			adapter,
+			targetPath,
+			JSON.stringify({ cardUUIDs: mergedUUIDs }, null, 2),
+			this.plugin.app
+		);
+		await this.removeLegacyDeckCardsFileIfWDeckCoversMembership(
+			v2Paths,
+			deckRelativeFileName,
+			mergedUUIDs
+		);
+
+		const deckId = deckRelativeFileName.replace(/\.json$/i, "").trim();
+		if (deckId && this.plugin.deckMembershipIndexService) {
+			await this.plugin.deckMembershipIndexService.markDecksDirty([deckId]);
+		}
+	}
+
+	private async recoverMemoryMigrationConflictFiles(
+		v2Paths: ReturnType<typeof getV2Paths>
+	): Promise<{ mergedFiles: number; errors: string[] }> {
+		const adapter = this.plugin.app.vault.adapter;
+		const conflictDir = `${v2Paths.root}/_migration_conflicts`;
+		const result = {
+			mergedFiles: 0,
+			errors: [] as string[],
+		};
+
+		if (!(await adapter.exists(conflictDir))) {
+			return result;
+		}
+
+		let conflictPaths: string[] = [];
+		try {
+			const listing = await adapter.list(conflictDir);
+			conflictPaths = (listing.files || []).filter((filePath) =>
+				this.isMemoryMigrationConflictFile(filePath.split("/").pop() || "")
+			);
+		} catch (error) {
+			result.errors.push(
+				t("management.dataCheckService.messages.structuredConflictDirReadFailed", {
+					message: String(error),
+				})
+			);
+			return result;
+		}
+
+		for (const conflictPath of conflictPaths) {
+			const fileName = conflictPath.split("/").pop() || conflictPath;
+			const targetPath = this.resolveMemoryMigrationConflictTargetPath(fileName, v2Paths);
+			if (!targetPath) {
+				result.errors.push(
+					t("management.dataCheckService.messages.structuredConflictTargetMissing", { fileName })
+				);
+				continue;
+			}
+
+			let conflictJson: unknown;
+			try {
+				const raw = await adapter.read(conflictPath);
+				if (!raw.trim()) {
+					result.errors.push(
+						t("management.dataCheckService.messages.structuredConflictEmpty", { fileName })
+					);
+					continue;
+				}
+				conflictJson = JSON.parse(raw);
+			} catch (error) {
+				result.errors.push(
+					t("management.dataCheckService.messages.structuredConflictParseFailed", {
+						fileName,
+						message: String(error),
+					})
+				);
+				continue;
+			}
+
+			try {
+				await this.ensureParentDirectory(adapter, targetPath);
+
+				if (this.isMemoryDeckCardsMigrationConflictFile(fileName)) {
+					await this.mergeMemoryDeckCardsMigrationConflict(
+						v2Paths,
+						conflictPath,
+						targetPath,
+						conflictJson
+					);
+				} else {
+					const currentJson = (await adapter.exists(targetPath))
+						? await safeReadJson(adapter, targetPath, this.plugin.app)
+						: {
+								_schemaVersion: "1.0.0",
+								yearMonth:
+									targetPath
+										.split("/")
+										.pop()
+										?.replace(/\.json$/i, "") || "",
+								sessions: [],
+							};
+					const merged = this.mergeMigrationConflictJson(currentJson, conflictJson);
+					if (merged === undefined || merged === null) {
+						result.errors.push(
+							t("management.dataCheckService.messages.structuredConflictMergeFailed", {
+								fileName,
+							})
+						);
+						continue;
+					}
+					await safeWriteJson(
+						adapter,
+						targetPath,
+						JSON.stringify(merged, null, 2),
+						this.plugin.app
+					);
+				}
+			} catch (error) {
+				result.errors.push(
+					t("management.dataCheckService.messages.structuredConflictWriteFailed", {
+						path: targetPath,
+						message: String(error),
+					})
+				);
+				continue;
+			}
+
+			try {
+				if (await adapter.exists(conflictPath)) {
+					await adapter.remove(conflictPath);
+					result.mergedFiles += 1;
+				}
+			} catch (error) {
+				result.errors.push(
+					t("management.dataCheckService.messages.structuredConflictDeleteFailed", {
+						path: conflictPath,
+						message: String(error),
+					})
+				);
+			}
+		}
+
+		return result;
 	}
 
 	private async recoverStructuredJsonConflictFiles(
@@ -5120,23 +6013,43 @@ export class DataManagementService {
 			dailyStats: this.mergeUniqueIRMonitoringEntries(
 				newestFirst.map((item) => (Array.isArray(item.dailyStats) ? item.dailyStats : [])),
 				(entry) => this.buildIRMonitoringConflictSignature(entry, ["date"])
-			).sort((a: unknown, b: unknown) => String(a?.date || "").localeCompare(String(b?.date || ""))),
+			).sort((a, b) => {
+				const aDate = isRecord(a) ? readString(a, "date") ?? "" : "";
+				const bDate = isRecord(b) ? readString(b, "date") ?? "" : "";
+				return aDate.localeCompare(bDate);
+			}),
 			priorityChanges: this.mergeUniqueIRMonitoringEntries(
 				newestFirst.map((item) => (Array.isArray(item.priorityChanges) ? item.priorityChanges : [])),
 				(entry) => this.buildIRMonitoringConflictSignature(entry, ["blockId", "timestamp"])
-			).sort((a: unknown, b: unknown) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
+			).sort((a, b) => {
+				const aTime = isRecord(a) ? readString(a, "timestamp") ?? "" : "";
+				const bTime = isRecord(b) ? readString(b, "timestamp") ?? "" : "";
+				return aTime.localeCompare(bTime);
+			}),
 			groupParamChanges: this.mergeUniqueIRMonitoringEntries(
 				newestFirst.map((item) => (Array.isArray(item.groupParamChanges) ? item.groupParamChanges : [])),
 				(entry) => this.buildIRMonitoringConflictSignature(entry, ["groupId", "timestamp"])
-			).sort((a: unknown, b: unknown) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
+			).sort((a, b) => {
+				const aTime = isRecord(a) ? readString(a, "timestamp") ?? "" : "";
+				const bTime = isRecord(b) ? readString(b, "timestamp") ?? "" : "";
+				return aTime.localeCompare(bTime);
+			}),
 			decisionEvents: this.mergeUniqueIRMonitoringEntries(
 				newestFirst.map((item) => (Array.isArray(item.decisionEvents) ? item.decisionEvents : [])),
 				(entry) => this.buildIRMonitoringConflictSignature(entry, ["itemId", "action", "timestamp"])
-			).sort((a: unknown, b: unknown) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
+			).sort((a, b) => {
+				const aTime = isRecord(a) ? readString(a, "timestamp") ?? "" : "";
+				const bTime = isRecord(b) ? readString(b, "timestamp") ?? "" : "";
+				return aTime.localeCompare(bTime);
+			}),
 			decisionOutcomes: this.mergeUniqueIRMonitoringEntries(
 				newestFirst.map((item) => (Array.isArray(item.decisionOutcomes) ? item.decisionOutcomes : [])),
 				(entry) => this.buildIRMonitoringConflictSignature(entry, ["itemId", "outcomeType", "timestamp"])
-			).sort((a: unknown, b: unknown) => String(a?.timestamp || "").localeCompare(String(b?.timestamp || ""))),
+			).sort((a, b) => {
+				const aTime = isRecord(a) ? readString(a, "timestamp") ?? "" : "";
+				const bTime = isRecord(b) ? readString(b, "timestamp") ?? "" : "";
+				return aTime.localeCompare(bTime);
+			}),
 			lastUpdated:
 				newestFirst
 					.map((item) => String(item.lastUpdated || "").trim())
@@ -5339,22 +6252,63 @@ export class DataManagementService {
 	}
 	// ===== 云同步冲突副本检测 =====
 
-	/** 常见云同步冲突副本命名模式 */
+	/** 常见云同步冲突副本命名模式（覆盖 JSON 与 Weave 结构化真源扩展名） */
+	private static readonly SYNC_STRUCTURED_EXTENSIONS = "(?:json|wdeck|irdeck|qbank)";
 	private static readonly CONFLICT_PATTERNS: RegExp[] = [
-		/ \d+\.json$/, // iCloud: "file 2.json"
-		/ \(\d+\)\.json$/, // OneDrive: "file (1).json"
-		/-[A-Z0-9]{7,}\.json$/, // Syncthing: short device ID suffix
-		/\.sync-conflict-\d{8}-\d{6}-[A-Z0-9]+\.json$/, // Syncthing full
-		/ \(SyncConflict\)\.json$/i, // 坚果云
-		/ \(conflicted copy .+\)\.json$/i, // Dropbox
-		/-conflict-\d+\.json$/, // generic
+		new RegExp(` \\d+\\.${DataManagementService.SYNC_STRUCTURED_EXTENSIONS}$`),
+		new RegExp(` \\(\\d+\\)\\.${DataManagementService.SYNC_STRUCTURED_EXTENSIONS}$`),
+		new RegExp(`-[A-Z0-9]{7,}\\.${DataManagementService.SYNC_STRUCTURED_EXTENSIONS}$`),
+		new RegExp(
+			`\\.sync-conflict-\\d{8}-\\d{6}-[A-Z0-9]+\\.${DataManagementService.SYNC_STRUCTURED_EXTENSIONS}$`
+		),
+		new RegExp(` \\(SyncConflict\\)\\.${DataManagementService.SYNC_STRUCTURED_EXTENSIONS}$`, "i"),
+		new RegExp(
+			` \\(conflicted copy .+\\)\\.${DataManagementService.SYNC_STRUCTURED_EXTENSIONS}$`,
+			"i"
+		),
+		new RegExp(`-conflict-\\d+\\.${DataManagementService.SYNC_STRUCTURED_EXTENSIONS}$`),
 	];
+
+	private static readonly PLUGIN_RUNTIME_LEAK_FILE_NAMES = new Set([
+		"wdeck-index.json",
+		"wdeck-conflicts.json",
+		"point-files-index.json",
+		"sync-state.json",
+		"study-due-index.json",
+		"quality-inbox.json",
+		"import-mappings.json",
+		"local-storage.json",
+	]);
 
 	/**
 	 * 检测是否为冲突副本文件名
 	 */
 	private isSyncConflictFile(fileName: string): boolean {
 		return DataManagementService.CONFLICT_PATTERNS.some((p) => p.test(fileName));
+	}
+
+	/**
+	 * 递归扫描目录下的结构化真源文件（JSON / .wdeck / .irdeck / .qbank）
+	 */
+	private async listStructuredDataFilesRecursive(dir: string): Promise<string[]> {
+		const adapter = this.plugin.app.vault.adapter;
+		const result: string[] = [];
+		const extensionPattern = /\.(json|wdeck|irdeck|qbank)$/i;
+		try {
+			const listing = await adapter.list(dir);
+			for (const filePath of listing.files) {
+				if (extensionPattern.test(filePath)) {
+					result.push(filePath);
+				}
+			}
+			for (const sub of listing.folders) {
+				const subFiles = await this.listStructuredDataFilesRecursive(sub);
+				result.push(...subFiles);
+			}
+		} catch {
+			/* no-op */
+		}
+		return result;
 	}
 
 	/**
@@ -5384,7 +6338,7 @@ export class DataManagementService {
 			const v2Paths = getV2Paths(
 				normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder)
 			);
-			const allFiles = await this.listJsonFilesRecursive(v2Paths.root);
+			const allFiles = await this.listStructuredDataFilesRecursive(v2Paths.root);
 
 			const conflicts = allFiles.filter((_f) => {
 				const name = _f.split("/").pop() || "";
@@ -5412,10 +6366,55 @@ export class DataManagementService {
 			logger.error("[DataManagement] checkSyncConflictFiles failed:", error);
 			return {
 				type: "sync_conflict_files",
-				status: "ok",
+				status: "error",
 				count: 0,
 				items: [],
 				message: t("management.dataCheckService.messages.syncConflictCheckFailed"),
+			};
+		}
+	}
+
+	/**
+	 * 检测插件运行态文件是否误入 vault 真源目录，并提示同步排除范围。
+	 */
+	private async checkPluginRuntimeSyncScope(): Promise<DataCheckResult> {
+		try {
+			const v2Paths = getV2Paths(
+				normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder)
+			);
+			const allFiles = await this.listStructuredDataFilesRecursive(v2Paths.root);
+			const leaked = allFiles.filter((filePath) => {
+				const fileName = filePath.split("/").pop() || "";
+				return DataManagementService.PLUGIN_RUNTIME_LEAK_FILE_NAMES.has(fileName);
+			});
+
+			if (leaked.length === 0) {
+				return {
+					type: "plugin_runtime_sync_scope",
+					status: "ok",
+					count: 0,
+					items: [],
+					message: t("management.dataCheckService.messages.pluginRuntimeSyncScopeOk"),
+				};
+			}
+
+			return {
+				type: "plugin_runtime_sync_scope",
+				status: "warning",
+				count: leaked.length,
+				items: leaked,
+				message: t("management.dataCheckService.messages.pluginRuntimeSyncScopeFound", {
+					count: leaked.length,
+				}),
+			};
+		} catch (error) {
+			logger.error("[DataManagement] checkPluginRuntimeSyncScope failed:", error);
+			return {
+				type: "plugin_runtime_sync_scope",
+				status: "error",
+				count: 0,
+				items: [],
+				message: t("management.dataCheckService.messages.pluginRuntimeSyncScopeCheckFailed"),
 			};
 		}
 	}
@@ -5436,7 +6435,7 @@ export class DataManagementService {
 				normalizeWeaveParentFolder(this.plugin.settings?.weaveParentFolder)
 			);
 			const adapter = this.plugin.app.vault.adapter;
-			const allFiles = await this.listJsonFilesRecursive(v2Paths.root);
+			const allFiles = await this.listStructuredDataFilesRecursive(v2Paths.root);
 			const pluginPaths = getPluginPaths(this.plugin.app);
 			const archiveRoot = `${pluginPaths.backups}/sync-conflicts/${new Date()
 				.toISOString()
@@ -5761,6 +6760,215 @@ export class DataManagementService {
 			failed,
 			errors,
 		};
+	}
+
+	private async checkQBankOrphanRefs(): Promise<DataCheckResult> {
+		if (!this.plugin.questionBankService) {
+			return {
+				type: "qbank_orphan_refs",
+				status: "ok",
+				count: 0,
+				items: [],
+				message: t("management.dataCheckService.messages.qbankOrphanRefsOk"),
+			};
+		}
+
+		try {
+			const scan = await this.plugin.questionBankService.scanOrphanQuestionRefs();
+			return {
+				type: "qbank_orphan_refs",
+				status: scan.refCount > 0 ? "warning" : "ok",
+				count: scan.refCount,
+				items: scan.items,
+				message:
+					scan.refCount > 0
+						? t("management.dataCheckService.messages.qbankOrphanRefsFound", {
+								refCount: scan.refCount,
+								cardCount: scan.cardUuids.length,
+							})
+						: t("management.dataCheckService.messages.qbankOrphanRefsOk"),
+			};
+		} catch (error) {
+			logger.error("[DataManagement] 考试题组悬空引用检测失败:", error);
+			return {
+				type: "qbank_orphan_refs",
+				status: "error",
+				count: 0,
+				items: [],
+				message: t("management.dataCheckService.messages.qbankOrphanRefsCheckFailed", {
+					message: error instanceof Error ? error.message : String(error),
+				}),
+			};
+		}
+	}
+
+	private async fixQBankOrphanRefs(): Promise<DataFixResult> {
+		if (!this.plugin.questionBankService) {
+			return {
+				type: "qbank_orphan_refs",
+				success: 0,
+				failed: 0,
+				errors: [],
+			};
+		}
+
+		try {
+			const scan = await this.plugin.questionBankService.scanOrphanQuestionRefs();
+			if (scan.cardUuids.length === 0) {
+				return {
+					type: "qbank_orphan_refs",
+					success: 0,
+					failed: 0,
+					errors: [],
+				};
+			}
+
+			await this.plugin.questionBankService.cleanupDeletedMemoryCards(scan.cardUuids);
+			this.plugin.app.workspace.trigger("Weave:data-changed");
+
+			return {
+				type: "qbank_orphan_refs",
+				success: scan.refCount,
+				failed: 0,
+				errors: [],
+			};
+		} catch (error) {
+			logger.error("[DataManagement] 考试题组悬空引用修复失败:", error);
+			return {
+				type: "qbank_orphan_refs",
+				success: 0,
+				failed: 1,
+				errors: [
+					{
+						uuid: "qbank_orphan_refs",
+						error: error instanceof Error ? error.message : String(error),
+					},
+				],
+			};
+		}
+	}
+
+	private async checkAttachmentRegistryConsistency(): Promise<DataCheckResult> {
+		const registryService = this.plugin.attachmentRegistryService;
+		if (!registryService) {
+			return {
+				type: "attachment_registry_consistency",
+				status: "ok",
+				count: 0,
+				items: [],
+				message: t("management.dataCheckService.messages.attachmentRegistryOk"),
+			};
+		}
+
+		try {
+			const scan = await registryService.scan();
+			const autoFixCount = getAttachmentRegistryAutoFixIssueCount(scan);
+			const items = [
+				...scan.brokenPaths,
+				...scan.rewritablePaths.map((entry) => entry.rawPath),
+				...(scan.isRegistryStale ? ["__registry_stale__"] : []),
+				...scan.orphanWeaveMediaPaths,
+			];
+
+			const hasAdvisories =
+				scan.brokenPaths.length > 0 || scan.orphanWeaveMediaPaths.length > 0;
+
+			let message: string;
+			let status: CheckStatus;
+			if (autoFixCount > 0) {
+				status = "warning";
+				message = t("management.dataCheckService.messages.attachmentRegistryFound", {
+					brokenCount: scan.brokenPaths.length,
+					rewritableCount: scan.rewritablePaths.length,
+					stale: scan.isRegistryStale ? 1 : 0,
+					orphanCount: scan.orphanWeaveMediaPaths.length,
+				});
+			} else if (hasAdvisories) {
+				status = "ok";
+				message = t("management.dataCheckService.messages.attachmentRegistryOkWithAdvisories", {
+					brokenCount: scan.brokenPaths.length,
+					orphanCount: scan.orphanWeaveMediaPaths.length,
+				});
+			} else {
+				status = "ok";
+				message = t("management.dataCheckService.messages.attachmentRegistryOk");
+			}
+
+			return {
+				type: "attachment_registry_consistency",
+				status,
+				count: autoFixCount,
+				items,
+				message,
+			};
+		} catch (error) {
+			logger.error("[DataManagement] 附件索引一致性检测失败:", error);
+			return {
+				type: "attachment_registry_consistency",
+				status: "error",
+				count: 0,
+				items: [],
+				message: t("management.dataCheckService.messages.attachmentRegistryCheckFailed", {
+					message: error instanceof Error ? error.message : String(error),
+				}),
+			};
+		}
+	}
+
+	private async fixAttachmentRegistryConsistency(options?: DataFixOptions): Promise<DataFixResult> {
+		const registryService = this.plugin.attachmentRegistryService;
+		if (!registryService) {
+			return {
+				type: "attachment_registry_consistency",
+				success: 0,
+				failed: 0,
+				errors: [],
+			};
+		}
+
+		try {
+			const before = await registryService.scan();
+			const unresolvedStrategy = options?.allowHighRisk ? "placeholder" : "leave";
+			const repair = await registryService.repairReferences({
+				reason: "data_management_fix",
+				unresolvedStrategy,
+			});
+			const after = await registryService.scan();
+
+			const fixedStale = before.isRegistryStale && !after.isRegistryStale ? 1 : 0;
+			const success =
+				repair.pathsNormalized +
+				repair.pathsPlaceholdered +
+				repair.pathsRemoved +
+				repair.manifestPathsNormalized +
+				fixedStale;
+			const remainingAutoFix = getAttachmentRegistryAutoFixIssueCount(after);
+
+			return {
+				type: "attachment_registry_consistency",
+				success,
+				failed: remainingAutoFix,
+				errors: after.brokenPaths.map((path) => ({
+					uuid: path,
+					error: t("management.dataCheckService.messages.attachmentRegistryBrokenRefPending", {
+						path,
+					}),
+				})),
+			};
+		} catch (error) {
+			logger.error("[DataManagement] 附件索引重建失败:", error);
+			return {
+				type: "attachment_registry_consistency",
+				success: 0,
+				failed: 1,
+				errors: [
+					{
+						uuid: "attachment_registry_consistency",
+						error: error instanceof Error ? error.message : String(error),
+					},
+				],
+			};
+		}
 	}
 
 	private checkProgressiveClozeOrphan(cards: Card[]): DataCheckResult {

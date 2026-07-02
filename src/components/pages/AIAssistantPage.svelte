@@ -22,6 +22,7 @@
   import { listVaultMarkdownFiles } from '../../utils/vault-file-list';
   import { fileToInfo, sortFilesByModified } from '../../utils/file-utils';
   import { AICardGenerationService } from '../../services/ai/AICardGenerationService';
+  import { resolveDefaultAIProvider, readAIGlobalGenerationDefaults } from '../../services/ai/AIConfigService';
   import {
     listUserPromptFiles,
     resolveUserPromptFile
@@ -145,13 +146,7 @@
 
   function resolveProvider(value: string | null | undefined): AIProvider {
     if (isValidProvider(value)) return value;
-
-    const defaultProvider = plugin.settings.aiConfig?.defaultProvider;
-    if (isValidProvider(defaultProvider)) {
-      return defaultProvider;
-    }
-
-    return 'openai';
+    return resolveDefaultAIProvider(plugin.settings.aiConfig);
   }
 
   function getDefaultModelForProvider(provider: AIProvider): string {
@@ -189,7 +184,7 @@
     const saved = preferences.savedGenerationConfig;
     const limit = saved?.maxGenerationLimit ?? saved?.cardCount ?? 20;
     const provider = resolveProvider(preferences.lastUsedProvider || plugin.settings.aiConfig?.defaultProvider);
-    const defaultMaxTokens = saved?.maxTokens ?? plugin.settings.aiConfig?.globalParams?.maxTokens ?? 2000;
+    const globalDefaults = readAIGlobalGenerationDefaults(plugin.settings.aiConfig);
 
     return normalizeGenerationConfig({
       templateId: '',
@@ -199,8 +194,8 @@
       typeDistribution: { ...(saved?.typeDistribution ?? { qa: 50, cloze: 30, choice: 20 }) },
       provider,
       model: '',
-      temperature: saved?.temperature ?? 0.7,
-      maxTokens: defaultMaxTokens,
+      temperature: saved?.temperature ?? globalDefaults.temperature,
+      maxTokens: saved?.maxTokens ?? globalDefaults.maxTokens,
       templates: { qa: 'official-qa', choice: 'official-choice', cloze: 'official-cloze' },
       enableHints: saved?.enableHints ?? true,
       maxGenerationLimit: limit,

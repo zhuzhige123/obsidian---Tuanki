@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../../types/timer-handle.js";
   /**
    * 可拖拽复选框包裹器
    * 负责处理长按触发拖拽批量选择的交互逻辑
@@ -30,7 +31,7 @@
   
   // 长按状态（纯Svelte响应式）
   let isLongPressing = $state(false);
-  let longPressTimer: NodeJS.Timeout | null = null;
+  let longPressTimer: WeaveTimerHandle | null = null;
   let isPressed = $state(false);
   
   const LONG_PRESS_DURATION = 500; // 500ms
@@ -41,7 +42,7 @@
     isPressed = true;
     
     // 设置长按定时器
-    longPressTimer = setTimeout(() => {
+    longPressTimer = window.setTimeout(() => {
       if (isPressed) {
         isLongPressing = true;
       }
@@ -50,7 +51,7 @@
   
   function handleMouseUp(event: MouseEvent) {
     if (longPressTimer) {
-      clearTimeout(longPressTimer);
+      window.clearTimeout(longPressTimer);
       longPressTimer = null;
     }
     
@@ -72,7 +73,7 @@
   
   function handleMouseLeave() {
     if (longPressTimer && !isDragSelectActive) {
-      clearTimeout(longPressTimer);
+      window.clearTimeout(longPressTimer);
       longPressTimer = null;
       isPressed = false;
     }

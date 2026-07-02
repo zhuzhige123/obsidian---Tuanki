@@ -11,6 +11,7 @@ import type { AICardPreviewItem } from "../../types/ai-types";
 
 function makeGeneratedCard(type: GeneratedCard["type"]): GeneratedCard {
 	return {
+		uuid: "test-generated-card",
 		type,
 		content: `# Front\n---div---\nBack`,
 		metadata: {

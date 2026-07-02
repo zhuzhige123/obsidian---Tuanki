@@ -1,5 +1,9 @@
 import { requestUrl } from "obsidian";
 import type { RequestUrlParam, RequestUrlResponse } from "obsidian";
+import {
+	runWithAIRequestSlot,
+	withAIRequestTimeout,
+} from "./ai-request-policy";
 
 export type AIHttpRequest = RequestUrlParam;
 export type AIHttpResponse = RequestUrlResponse;
@@ -9,5 +13,7 @@ export type AIHttpResponse = RequestUrlResponse;
  * 这样 provider 实现不再直接依赖 `obsidian` 模块，后续更容易统一维护。
  */
 export async function sendAIHttpRequest(request: AIHttpRequest): Promise<AIHttpResponse> {
-	return requestUrl(request);
+	return runWithAIRequestSlot(() =>
+		withAIRequestTimeout(() => requestUrl(request))
+	);
 }

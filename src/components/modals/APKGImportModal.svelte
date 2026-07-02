@@ -137,7 +137,7 @@
         return;
       }
 
-      setTimeout(resolve, 0);
+      window.setTimeout(resolve, 0);
     });
   }
 
@@ -276,7 +276,7 @@
       await yieldToNextFrame();
 
       if (result.success) {
-        setTimeout(() => {
+        window.setTimeout(() => {
           if (!shouldIgnoreImportUpdate(runId) && importResult) {
             void Promise.resolve(onImportComplete(importResult));
           }

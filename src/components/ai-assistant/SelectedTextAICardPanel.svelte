@@ -11,9 +11,12 @@
 
   import { AISplitService } from '../../services/ai/AISplitService';
   import { resolveDefaultAISplitInstruction, type AISelectedTextPanelHost } from '../../services/ai/ai-host';
+  import { resolveDefaultAIProvider } from '../../services/ai/AIConfigService';
   import { createContentWithMetadata, extractBodyContent } from '../../utils/yaml-utils';
   import { generateCardUUID } from '../../services/identifier/WeaveIDGenerator';
   import { detectTraceSourceKind, normalizeTraceDocumentKey } from '../../services/incremental-reading/IRSourceTraceStats';
+  import { buildWeSourceLinkFromPath } from '../../services/editor/editor-source-path-resolver';
+  import { isEditorBridgeTempFilePath } from '../../services/editor/editor-temp-file-policy';
   import { tr } from '../../utils/i18n';
   import { vaultStorage } from '../../utils/vault-local-storage';
   import type { WeavePlugin } from '../../main';
@@ -131,7 +134,7 @@
   });
 
   function getPreferredProvider(): AIProvider {
-    return (weavePlugin.settings.aiConfig?.defaultProvider || 'openai') as AIProvider;
+    return resolveDefaultAIProvider(weavePlugin.settings.aiConfig);
   }
 
   let splitModelLabel = $derived.by(() => {
@@ -224,12 +227,14 @@
       return;
     }
 
-    if (!sourceFilePath) {
+    if (!sourceFilePath || isEditorBridgeTempFilePath(sourceFilePath)) {
       return;
     }
 
-    const base = sourceFilePath.split('/').pop()?.replace(/\.md$/, '') || sourceFilePath;
-    sourceWeSource = `[[${base}]]`;
+    const weSource = buildWeSourceLinkFromPath(sourceFilePath);
+    if (weSource) {
+      sourceWeSource = weSource;
+    }
   }
 
   function toTempPreviewCard(content: string, index: number): Card {
@@ -385,6 +390,10 @@
   }
 
   function buildSourceTraceMeta() {
+    if (!sourceFilePath || isEditorBridgeTempFilePath(sourceFilePath)) {
+      return {};
+    }
+
     const sourceKind = detectTraceSourceKind(sourceFilePath);
     return {
       sourceKind,

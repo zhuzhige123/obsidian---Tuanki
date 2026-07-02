@@ -6,6 +6,7 @@
  */
 
 import type { WorkspaceLeaf } from "obsidian";
+import { readUnknownProperty } from "../dynamic-access";
 import { logger } from "../logger";
 import { FocusStack } from "./FocusStack";
 import { FocusTrapManager } from "./FocusTrapManager";
@@ -246,7 +247,7 @@ export class FocusManager implements IFocusManager {
 	 * 检查 leaf 是否已激活
 	 */
 	isLeafActive(leaf: WorkspaceLeaf): boolean {
-		const leafEl = (leaf as unknown).containerEl as HTMLElement;
+		const leafEl = readUnknownProperty(leaf, "containerEl") as HTMLElement | undefined;
 		if (!leafEl) return false;
 		return leafEl.classList.contains("mod-active");
 	}

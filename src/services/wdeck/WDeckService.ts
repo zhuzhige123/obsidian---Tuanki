@@ -3,11 +3,22 @@ import { normalizePath } from "obsidian";
 import { getPluginDir, getPluginPaths, getV2Paths, normalizeWeaveParentFolder } from "../../config/paths";
 import type { Card, Deck } from "../../data/types";
 import type { WeavePlugin } from "../../main";
+import {
+	compareCardsForSyncWinner,
+	pickNewerCard,
+	stampCardSyncMetadata,
+} from "../../utils/card-sync-merge";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
 import { hasValidJsonBackup, readJsonBackup, safeReadJson, safeWriteJson } from "../../utils/safe-json-io";
 import { sanitizeForSync } from "../../utils/sync-safe-filename";
+import { adapterWriteIfChanged, modifyVaultFileIfChanged } from "../../utils/vault-write-guard";
 import { ensureWeaveDataReadmesForPath } from "../../utils/weave-data-readme";
+import {
+	alignCardRuntimeMembershipFromFormalSource,
+	resolveMemoryDeckWriteTarget,
+} from "../../utils/card-we-decks-membership";
+import { getCardDeckIdsFromFormalSource, setCardProperties } from "../../utils/yaml-utils";
 
 export const WDECK_FILE_EXTENSION = "wdeck";
 export const WDECK_RUNTIME_DECK_PREFIX = "wdeck:";
@@ -361,9 +372,9 @@ export class WDeckService {
 			JSON.parse(raw);
 		} catch {
 			const recovered = await safeReadJson<WDeckFileData>(
-				this.plugin.app.vault.adapter as unknown,
+				this.plugin.app.vault.adapter,
 				normalizedPath,
-				this.plugin.app as unknown
+				this.plugin.app
 			);
 			if (!recovered) {
 				throw new WDeckFileLoadError(
@@ -410,27 +421,30 @@ export class WDeckService {
 	async getCardByUUID(uuid: string): Promise<Card | null> {
 		if (!uuid) return null;
 
-		const snapshot = await this.loadSnapshot();
 		const normalizedUUID = String(uuid).trim();
-		const locatedPath = snapshot.cardLocator[normalizedUUID];
-		if (locatedPath) {
-			const locatedCached = snapshot.files.find((item) => item.path === locatedPath);
-			if (locatedCached) {
-				const locatedCard = await this.findDecoratedCardInCachedFile(locatedCached, normalizedUUID);
-				if (locatedCard) {
-					return locatedCard;
-				}
-			}
+		const [located] = await this.getCardsByUUIDs([normalizedUUID]);
+		if (located) {
+			return located;
 		}
 
+		const snapshot = await this.loadSnapshot();
+		const targetUUIDs = new Set<string>([normalizedUUID]);
+		const recovered = new Map<string, Card>();
 		for (const cached of snapshot.files) {
-			const found = await this.findDecoratedCardInCachedFile(cached, normalizedUUID);
-			if (found) {
-				return found;
+			await this.collectDecoratedCardsFromCachedFile(cached, targetUUIDs, recovered);
+			if (recovered.has(normalizedUUID)) {
+				break;
 			}
 		}
 
-		return null;
+		const card = recovered.get(normalizedUUID) ?? null;
+		if (card) {
+			logger.info(
+				`[WDeck] cardLocator 未命中 ${normalizedUUID}，已通过文件扫描恢复并重建缓存`
+			);
+			await this.rebuildCache();
+		}
+		return card;
 	}
 
 	async getCardsByUUIDs(uuids: string[]): Promise<Card[]> {
@@ -443,14 +457,12 @@ export class WDeckService {
 
 		const snapshot = await this.loadSnapshot();
 		const uuidsByPath = new Map<string, Set<string>>();
-		const unresolved = new Set<string>();
 		const foundCards = new Map<string, Card>();
 		const cachedByPath = new Map(snapshot.files.map((file) => [file.path, file] as const));
 
 		for (const uuid of normalizedUUIDs) {
 			const locatedPath = snapshot.cardLocator[uuid];
 			if (!locatedPath) {
-				unresolved.add(uuid);
 				continue;
 			}
 			const bucket = uuidsByPath.get(locatedPath) || new Set<string>();
@@ -461,20 +473,10 @@ export class WDeckService {
 		for (const [path, uuidSet] of uuidsByPath.entries()) {
 			const cached = cachedByPath.get(path);
 			if (!cached) {
-				for (const uuid of uuidSet) {
-					unresolved.add(uuid);
-				}
 				continue;
 			}
 
 			await this.collectDecoratedCardsFromCachedFile(cached, uuidSet, foundCards);
-		}
-
-		if (unresolved.size > 0) {
-			const unresolvedSet = new Set(unresolved);
-			for (const cached of snapshot.files) {
-				await this.collectDecoratedCardsFromCachedFile(cached, unresolvedSet, foundCards);
-			}
 		}
 
 		return normalizedUUIDs.map((uuid) => foundCards.get(uuid)).filter((card): card is Card => !!card);
@@ -675,9 +677,9 @@ export class WDeckService {
 		}
 
 		return await hasValidJsonBackup(
-			this.plugin.app.vault.adapter as unknown,
+			this.plugin.app.vault.adapter,
 			normalizedPath,
-			this.plugin.app as unknown
+			this.plugin.app
 		);
 	}
 
@@ -688,9 +690,9 @@ export class WDeckService {
 		}
 
 		const backupEntry = await readJsonBackup<WDeckFileData>(
-			this.plugin.app.vault.adapter as unknown,
+			this.plugin.app.vault.adapter,
 			normalizedPath,
-			this.plugin.app as unknown
+			this.plugin.app
 		);
 		if (!backupEntry) {
 			return false;
@@ -701,10 +703,10 @@ export class WDeckService {
 			normalizedPath
 		);
 		await safeWriteJson(
-			this.plugin.app.vault.adapter as unknown,
+			this.plugin.app.vault.adapter,
 			normalizedPath,
 			`${JSON.stringify(normalized, null, 2)}\n`,
-			this.plugin.app as unknown
+			this.plugin.app
 		);
 
 		await this.rebuildCache();
@@ -736,10 +738,10 @@ export class WDeckService {
 			}
 			const normalized = this.normalizeDeckFileDataForPersistence(parsed, normalizedPath);
 			await safeWriteJson(
-				this.plugin.app.vault.adapter as unknown,
+				this.plugin.app.vault.adapter,
 				normalizedPath,
 				`${JSON.stringify(normalized, null, 2)}\n`,
-				this.plugin.app as unknown
+				this.plugin.app
 			);
 			await this.rebuildCache();
 			return { repaired: true, usedBackup: false };
@@ -926,7 +928,9 @@ export class WDeckService {
 		}
 
 		for (const card of cards) {
-			const stripped = this.stripRuntimeCardMeta(card);
+			const stripped = this.stripRuntimeCardMeta(
+				stampCardSyncMetadata(this.ensureFormalDeckAttributionInContent(card, logicalDeckName))
+			);
 			if (stripped?.uuid) {
 				merged.set(stripped.uuid, stripped);
 			}
@@ -969,7 +973,11 @@ export class WDeckService {
 		const logicalDeckId = this.normalizeDeckId(deck.id, logicalDeckName);
 		const existingFiles = await this.getResolvedFilesForLogicalDeck(logicalDeckId, logicalDeckName);
 		const payloadCards = cards
-			.map((card) => this.stripRuntimeCardMeta(card))
+			.map((card) =>
+				this.stripRuntimeCardMeta(
+					stampCardSyncMetadata(this.ensureFormalDeckAttributionInContent(card, logicalDeckName))
+				)
+			)
 			.filter((card): card is Card => !!card?.uuid);
 		await this.stripCardUUIDsFromOtherFiles(
 			payloadCards.map((card) => card.uuid),
@@ -1019,9 +1027,18 @@ export class WDeckService {
 			throw new Error("WDeck 卡片缺少牌组文件路径，无法保存。");
 		}
 
-		const preferredTarget = await this.resolvePreferredDeckForCard(card, runtimeMeta);
+		const decks =
+			typeof this.plugin.dataStorage?.getDecks === "function"
+				? await this.plugin.dataStorage.getDecks().catch(() => [])
+				: [];
+		const membershipAlignedCard = alignCardRuntimeMembershipFromFormalSource(card, decks);
+		const preferredTarget = await this.resolvePreferredDeckForCard(membershipAlignedCard, runtimeMeta);
 		if (!preferredTarget.sameLogicalDeck) {
-			const [savedCard] = await this.saveCardsToDeckInternal(preferredTarget.deck, [card], options);
+			const [savedCard] = await this.saveCardsToDeckInternal(
+				preferredTarget.deck,
+				[membershipAlignedCard],
+				options
+			);
 			if (!savedCard) {
 				throw new Error(`WDeck 卡片跨牌组保存失败: ${card.uuid}`);
 			}
@@ -1030,7 +1047,11 @@ export class WDeckService {
 
 		const file = this.plugin.app.vault.getAbstractFileByPath(runtimeMeta.sourcePath);
 		if (!(file instanceof TFile)) {
-			const [savedCard] = await this.saveCardsToDeckInternal(preferredTarget.deck, [card], options);
+			const [savedCard] = await this.saveCardsToDeckInternal(
+				preferredTarget.deck,
+				[membershipAlignedCard],
+				options
+			);
 			if (!savedCard) {
 				throw new Error(`WDeck 牌组文件不存在且无法重建: ${runtimeMeta.sourcePath}`);
 			}
@@ -1039,7 +1060,11 @@ export class WDeckService {
 
 		const resolved = await this.readResolvedFile(file);
 		if (!resolved) {
-			const [savedCard] = await this.saveCardsToDeckInternal(preferredTarget.deck, [card], options);
+			const [savedCard] = await this.saveCardsToDeckInternal(
+				preferredTarget.deck,
+				[membershipAlignedCard],
+				options
+			);
 			if (!savedCard) {
 				throw new Error(`无法读取 WDeck 牌组文件: ${runtimeMeta.sourcePath}`);
 			}
@@ -1047,7 +1072,11 @@ export class WDeckService {
 		}
 
 		const cards = Array.isArray(resolved.data.cards) ? [...resolved.data.cards] : [];
-		const cardToPersist = this.stripRuntimeCardMeta(card);
+		const cardToPersist = this.stripRuntimeCardMeta(
+			stampCardSyncMetadata(
+				this.ensureFormalDeckAttributionInContent(membershipAlignedCard, resolved.logicalDeckName)
+			)
+		);
 		const existingIndex = cards.findIndex((item) => item?.uuid === card.uuid);
 
 		if (existingIndex >= 0) {
@@ -1123,16 +1152,21 @@ export class WDeckService {
 	async saveCardsBatch(cards: Card[]): Promise<void> {
 		const touchedPaths = new Set<string>();
 		const groups = new Map<string, { deck: Pick<Deck, "id" | "name">; cards: Card[] }>();
+		const decks =
+			typeof this.plugin.dataStorage?.getDecks === "function"
+				? await this.plugin.dataStorage.getDecks().catch(() => [])
+				: [];
 
 		for (const card of cards) {
-			const runtimeMeta = this.getRuntimeCardMeta(card);
-			const preferredTarget = await this.resolvePreferredDeckForCard(card, runtimeMeta);
+			const membershipAlignedCard = alignCardRuntimeMembershipFromFormalSource(card, decks);
+			const runtimeMeta = this.getRuntimeCardMeta(membershipAlignedCard);
+			const preferredTarget = await this.resolvePreferredDeckForCard(membershipAlignedCard, runtimeMeta);
 			const groupKey = this.normalizeDeckId(preferredTarget.deck.id, preferredTarget.deck.name);
 			const bucket = groups.get(groupKey) || {
 				deck: preferredTarget.deck,
 				cards: [],
 			};
-			bucket.cards.push(card);
+			bucket.cards.push(membershipAlignedCard);
 			groups.set(groupKey, bucket);
 		}
 
@@ -1486,10 +1520,11 @@ export class WDeckService {
 			const segmentIndex = index + 1;
 			const existing = existingFiles.find((file) => (file.segmentIndex || 1) === segmentIndex);
 			const targetPath = existing?.file.path || this.buildDeckFilePathInDirectory(baseDirectory, logicalDeckName, segmentIndex);
-			let targetFile = this.plugin.app.vault.getAbstractFileByPath(targetPath);
-			if (!(targetFile instanceof TFile)) {
-				targetFile = await this.createDeckFile(targetPath, logicalDeckId, logicalDeckName);
-			}
+			const existingAbstract = this.plugin.app.vault.getAbstractFileByPath(targetPath);
+			const targetFile =
+				existingAbstract instanceof TFile
+					? existingAbstract
+					: await this.createDeckFile(targetPath, logicalDeckId, logicalDeckName);
 
 			await this.writeDeckFile(targetFile, {
 				fileType: "wdeck",
@@ -1584,7 +1619,7 @@ export class WDeckService {
 		const vault = this.plugin.app.vault;
 		const existing = vault.getAbstractFileByPath(normalizedPath);
 		if (existing instanceof TFile) {
-			await vault.modify(existing, content);
+			await modifyVaultFileIfChanged(vault, existing, content);
 			return existing;
 		}
 
@@ -1603,7 +1638,7 @@ export class WDeckService {
 				}
 				const recovered = vault.getAbstractFileByPath(normalizedPath);
 				if (recovered instanceof TFile) {
-					await vault.modify(recovered, content);
+					await modifyVaultFileIfChanged(vault, recovered, content);
 					return recovered;
 				}
 				logger.warn(
@@ -1618,7 +1653,7 @@ export class WDeckService {
 		} catch (error) {
 			const recovered = vault.getAbstractFileByPath(normalizedPath);
 			if (recovered instanceof TFile) {
-				await vault.modify(recovered, content);
+				await modifyVaultFileIfChanged(vault, recovered, content);
 				return recovered;
 			}
 			const message = error instanceof Error ? error.message : String(error);
@@ -1742,7 +1777,7 @@ export class WDeckService {
 
 		const adapter = this.plugin.app.vault.adapter;
 		const content = await adapter.read(file.path);
-		await adapter.write(normalizedTargetPath, content);
+		await adapterWriteIfChanged(adapter, normalizedTargetPath, content);
 		await adapter.remove(file.path);
 	}
 
@@ -1796,7 +1831,7 @@ export class WDeckService {
 			vaultFingerprint,
 			scannedAt: new Date().toISOString(),
 			files: cachedFiles,
-			cardLocator: this.buildCardLocator(cachedFiles),
+			cardLocator: this.buildCardLocatorFromResolved(validFiles),
 			conflicts,
 		};
 	}
@@ -1975,6 +2010,27 @@ export class WDeckService {
 		return locator;
 	}
 
+	private buildCardLocatorFromResolved(files: ResolvedWDeckFile[]): WDeckCardLocator {
+		const winners = new Map<string, { path: string; card: Card }>();
+		for (const file of files) {
+			for (const card of file.data.cards || []) {
+				if (!card?.uuid) {
+					continue;
+				}
+				const existing = winners.get(card.uuid);
+				if (!existing || compareCardsForSyncWinner(card, existing.card) > 0) {
+					winners.set(card.uuid, { path: file.file.path, card });
+				}
+			}
+		}
+
+		const locator: WDeckCardLocator = {};
+		for (const [uuid, entry] of winners.entries()) {
+			locator[uuid] = entry.path;
+		}
+		return locator;
+	}
+
 	private async loadResolvedFileForCached(cached: CachedResolvedWDeckFile): Promise<ResolvedWDeckFile | null> {
 		const file = this.plugin.app.vault.getAbstractFileByPath(cached.path);
 		if (!(file instanceof TFile)) {
@@ -2072,8 +2128,12 @@ export class WDeckService {
 		}
 
 		for (const card of Array.isArray(resolved.data.cards) ? resolved.data.cards : []) {
-			if (card?.uuid && targetUUIDs.has(card.uuid) && !foundCards.has(card.uuid)) {
-				foundCards.set(card.uuid, this.decorateCachedCard(card, cached));
+			if (card?.uuid && targetUUIDs.has(card.uuid)) {
+				const decorated = this.decorateCachedCard(card, cached);
+				const existing = foundCards.get(card.uuid);
+				if (!existing || compareCardsForSyncWinner(decorated, existing) > 0) {
+					foundCards.set(card.uuid, decorated);
+				}
 			}
 		}
 	}
@@ -2276,7 +2336,7 @@ export class WDeckService {
 			vaultFingerprint: this.computeVaultFingerprint(currentVaultFiles),
 			scannedAt: new Date().toISOString(),
 			files: nextCachedFiles,
-			cardLocator: this.buildCardLocator(nextCachedFiles),
+			cardLocator: this.buildCardLocatorFromResolved(resolvedFiles),
 			conflicts: this.detectConflicts(resolvedFiles),
 		});
 		return true;
@@ -2439,9 +2499,9 @@ export class WDeckService {
 			parsed = JSON.parse(raw) as WDeckFileData;
 		} catch (error) {
 			parsed = await safeReadJson<WDeckFileData>(
-				this.plugin.app.vault.adapter as unknown,
+				this.plugin.app.vault.adapter,
 				file.path,
-				this.plugin.app as unknown
+				this.plugin.app
 			);
 			if (!parsed) {
 				if (this.isTransientMissingFile(file, error)) {
@@ -2510,7 +2570,11 @@ export class WDeckService {
 			const cards = Array.isArray(resolved.data.cards) ? resolved.data.cards : [];
 			for (const card of cards) {
 				if (!card?.uuid) continue;
-				cardMap.set(card.uuid, this.decorateCard(card, resolved));
+				const decorated = this.decorateCard(card, resolved);
+				const existing = cardMap.get(card.uuid);
+				if (!existing || compareCardsForSyncWinner(decorated, existing) > 0) {
+					cardMap.set(card.uuid, decorated);
+				}
 			}
 		}
 
@@ -2535,13 +2599,14 @@ export class WDeckService {
 	}
 
 	private findDecoratedCardInResolvedFiles(uuid: string, files: ResolvedWDeckFile[]): Card | null {
+		const matches: Card[] = [];
 		for (const resolved of files) {
 			const found = (resolved.data.cards || []).find((card) => card?.uuid === uuid);
 			if (found) {
-				return this.decorateCard(found, resolved);
+				matches.push(this.decorateCard(found, resolved));
 			}
 		}
-		return null;
+		return pickNewerCard(matches);
 	}
 
 	private buildDeckDefinition(
@@ -2616,6 +2681,27 @@ export class WDeckService {
 		});
 	}
 
+	private ensureFormalDeckAttributionInContent(card: Card, deckName: string): Card {
+		const normalizedDeckName = String(deckName || "").trim();
+		if (!normalizedDeckName) {
+			return card;
+		}
+
+		if (getCardDeckIdsFromFormalSource(card).deckIds.length > 0) {
+			return card;
+		}
+
+		const nextContent = setCardProperties(card.content || "", { we_decks: [normalizedDeckName] });
+		if (nextContent === (card.content || "")) {
+			return card;
+		}
+
+		return {
+			...card,
+			content: nextContent,
+		};
+	}
+
 	private stripRuntimeCardMeta(card: Card): Card {
 		const customFields = card.customFields && typeof card.customFields === "object" ? { ...card.customFields } : {};
 		if ("wdeck" in customFields) {
@@ -2658,7 +2744,7 @@ export class WDeckService {
 	}
 
 	private async resolvePreferredDeckForCard(
-		card: Pick<Card, "deckId">,
+		card: Pick<Card, "deckId" | "content" | "referencedByDecks">,
 		runtimeMeta?: WDeckRuntimeCardMeta | null
 	): Promise<{ deck: Pick<Deck, "id" | "name">; sameLogicalDeck: boolean }> {
 		const currentLogicalDeckId = runtimeMeta
@@ -2668,9 +2754,14 @@ export class WDeckService {
 			WDECK_UNGROUPED_DECK_NAME,
 			WDECK_UNGROUPED_DECK_NAME
 		);
-		const requestedDeckId = String(card.deckId || "").trim();
 
-		if (!requestedDeckId) {
+		const decks =
+			typeof this.plugin.dataStorage?.getDecks === "function"
+				? await this.plugin.dataStorage.getDecks().catch(() => [])
+				: [];
+		const writeTarget = resolveMemoryDeckWriteTarget(card, decks, WDECK_UNGROUPED_DECK_NAME);
+
+		if (writeTarget.source === "ungrouped") {
 			return {
 				deck: {
 					id: WDECK_UNGROUPED_DECK_NAME,
@@ -2680,15 +2771,15 @@ export class WDeckService {
 			};
 		}
 
-		const deckInfo = await this.getDeckInfoByAnyDeckId(requestedDeckId);
+		const deckInfo = await this.getDeckInfoByAnyDeckId(writeTarget.id);
 		if (deckInfo) {
 			const targetLogicalDeckId = this.normalizeDeckId(
-				deckInfo.logicalDeckId || requestedDeckId,
+				deckInfo.logicalDeckId || writeTarget.id,
 				deckInfo.logicalDeckName
 			);
 			return {
 				deck: {
-					id: deckInfo.logicalDeckId || requestedDeckId,
+					id: deckInfo.logicalDeckId || writeTarget.id,
 					name: deckInfo.logicalDeckName,
 				},
 				sameLogicalDeck: currentLogicalDeckId === targetLogicalDeckId,
@@ -2698,7 +2789,7 @@ export class WDeckService {
 		const persistedDeck =
 			typeof this.plugin.dataStorage?.getDeck === "function"
 				? await this.plugin.dataStorage
-						.getDeck(requestedDeckId)
+						.getDeck(writeTarget.id)
 						.catch(() => null)
 				: null;
 		if (persistedDeck && persistedDeck.purpose !== "test") {
@@ -2714,10 +2805,11 @@ export class WDeckService {
 
 		return {
 			deck: {
-				id: WDECK_UNGROUPED_DECK_NAME,
-				name: WDECK_UNGROUPED_DECK_NAME,
+				id: writeTarget.id,
+				name: writeTarget.name,
 			},
-			sameLogicalDeck: currentLogicalDeckId === ungroupedLogicalDeckId,
+			sameLogicalDeck:
+				currentLogicalDeckId === this.normalizeDeckId(writeTarget.id, writeTarget.name),
 		};
 	}
 
@@ -2728,10 +2820,10 @@ export class WDeckService {
 		);
 		const serialized = JSON.stringify(normalized, null, 2);
 		await safeWriteJson(
-			this.plugin.app.vault.adapter as unknown,
+			this.plugin.app.vault.adapter,
 			file.path,
 			serialized + "\n",
-			this.plugin.app as unknown
+			this.plugin.app
 		);
 	}
 }

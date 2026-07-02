@@ -91,7 +91,7 @@ describe("CardStagingSessionService", () => {
 			},
 		};
 
-		service.markItemReviewed(session.id, item.id, reviewedCard);
+		service.markItemReviewed(session.id, item.id, reviewedCard as import("../../data/types").Card);
 		const updated = service.getSession(session.id)?.items[0];
 		expect(updated?.status).toBe("kept");
 		expect(updated?.previewCard.fsrs?.reps).toBe(1);

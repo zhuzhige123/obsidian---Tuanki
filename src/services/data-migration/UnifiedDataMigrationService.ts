@@ -571,6 +571,21 @@ async function moveFileWithConflict(
 		return "moved";
 	}
 
+	try {
+		const [fromContent, toContent] = await Promise.all([
+			adapter.read(fromPath),
+			adapter.read(toPath),
+		]);
+		if (fromContent === toContent) {
+			try {
+				await adapter.remove(fromPath);
+			} catch { /* no-op */ }
+			return "moved";
+		}
+	} catch (error) {
+		logger.debug(`[UnifiedDataMigration] 冲突前内容比对失败: ${fromPath}`, error);
+	}
+
 	await DirectoryUtils.ensureDirRecursive(adapter, conflictsRoot);
 	const safeName = (sourceWins ? toPath : fromPath).replace(/[\\/:]/g, "_").replace(/^\.+/, "");
 	const archivedPath = `${conflictsRoot}/${safeName}-${Date.now()}`;

@@ -59,7 +59,7 @@ export interface UnifiedStudyProviderOptions {
 
 const DEFAULT_OPTIONS: UnifiedStudyProviderOptions = {
 	newCardsPerDay: 20,
-	reviewsPerDay: 200,
+	reviewsPerDay: 20,
 	filterSiblings: true,
 	onlyDue: true,
 };

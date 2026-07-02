@@ -7,15 +7,16 @@
   import EnhancedIcon from "../../ui/EnhancedIcon.svelte";
   import DraggableCheckboxWrapper from "./DraggableCheckboxWrapper.svelte";
   import { ICON_NAMES } from "../../../icons/index.js";
-  import { truncateText, getFieldTemplateInfo, getSourceDocumentStatusInfo } from "../utils/table-utils";
+  import { truncateText, getSourceDocumentStatusInfo } from "../utils/table-utils";
   import TagsCell from "./cells/TagsCell.svelte";
   import PriorityCell from "./cells/PriorityCell.svelte";
   import ActionsCell from "./cells/ActionsCell.svelte";
   import ReviewDataCell from "./cells/ReviewDataCell.svelte";
   import ModifiedCell from "./cells/ModifiedCell.svelte";
-  import type { FieldTemplateInfo, SourceDocumentStatusInfo, TableRowProps } from "../types/table-types";
+  import type { SourceDocumentStatusInfo, TableRowProps } from "../types/table-types";
   import { getCardBack, getCardFront } from "../../../utils/card-field-helper";
   import { getCardDeckIds } from "../../../utils/yaml-utils";
+  import { getMemoryFormalDeckDisplayNames, getQuestionBankDeckDisplayNames } from "../../pages/card-management-deck-display";
 
   let {
     card,
@@ -26,7 +27,7 @@
     callbacks,
     plugin,
     decks = [],
-    fieldTemplates = [],
+    formalDecks = [],
     availableTags = [],
     onSelect,
     onDragSelectStart,
@@ -191,12 +192,6 @@
     }
   }
 
-  const defaultTemplateInfo: FieldTemplateInfo = {
-    name: '未设置',
-    icon: ICON_NAMES.HELP,
-    class: 'weave-template-unknown'
-  };
-
   const defaultSourceStatusInfo: SourceDocumentStatusInfo = {
     text: '未知',
     icon: ICON_NAMES.HELP,
@@ -205,13 +200,6 @@
   };
 
   // 只有行可见时才计算派生数据，减少大表格下的额外开销。
-  let templateInfo = $state<FieldTemplateInfo>(
-    untrack(() =>
-      isVisible
-        ? getFieldTemplateInfo(card.templateId || '', fieldTemplates, plugin)
-        : defaultTemplateInfo
-    )
-  );
   let sourceStatusInfo = $state<SourceDocumentStatusInfo>(
     untrack(() =>
       isVisible
@@ -223,6 +211,10 @@
   let cardDeckNames = $derived.by(() => {
     if (!isVisible) return [];
 
+    if (tableViewMode === 'questionBank') {
+      return getMemoryFormalDeckDisplayNames(card, formalDecks.length > 0 ? formalDecks : decks);
+    }
+
     const { deckIds } = getCardDeckIds(card, decks, { fallbackToReferences: false });
     if (deckIds.length === 0) {
       return [];
@@ -233,6 +225,11 @@
       .filter(Boolean);
 
     return Array.from(new Set(names));
+  });
+
+  let cardQuestionBankDeckNames = $derived.by(() => {
+    if (!isVisible || tableViewMode !== 'questionBank') return [];
+    return getQuestionBankDeckDisplayNames(card, decks);
   });
 
   let irCardDeckNames = $derived.by(() => {
@@ -270,7 +267,6 @@
   $effect(() => {
     if (!isVisible) return;
 
-    templateInfo = getFieldTemplateInfo(card.templateId || '', fieldTemplates, plugin);
     sourceStatusInfo = getSourceDocumentStatusInfo((card as any).sourceDocumentStatus || '');
   });
 
@@ -350,6 +346,20 @@
         {/if}
         </div>
       </td>
+    {:else if columnKey === 'question_bank_deck'}
+      <td class="weave-deck-column">
+        <div class="weave-decks-container">
+        {#if cardQuestionBankDeckNames.length > 0}
+          {#each cardQuestionBankDeckNames as deckName}
+            <span class="weave-deck-badge weave-deck-badge--question-bank" title={deckName}>
+              {truncateText(deckName, 12)}
+            </span>
+          {/each}
+        {:else}
+          <span class="weave-text-muted">{t('cardManagement.table.common.unassigned')}</span>
+        {/if}
+        </div>
+      </td>
     {:else if columnKey === 'tags'}
       <TagsCell app={plugin?.app} {card} {availableTags} onTagsUpdate={callbacks.onTagsUpdate} />
     {:else if columnKey === 'priority'}
@@ -388,17 +398,6 @@
           </button>
         {:else}
           <span class="weave-text-muted">-</span>
-        {/if}
-      </td>
-    {:else if columnKey === 'field_template'}
-      <td class="weave-field-template-column">
-        {#if templateInfo}
-          <div class="weave-cell-content weave-field-template-chip {templateInfo.class}">
-            <EnhancedIcon name={templateInfo.icon} size={12} />
-            <span class="weave-field-template-text">{templateInfo.name}</span>
-          </div>
-        {:else}
-          <span class="weave-text-muted">{t('cardManagement.table.common.notSet')}</span>
         {/if}
       </td>
     {:else if columnKey === 'source_document_status'}
@@ -583,7 +582,7 @@
           {card}
           onView={callbacks.onView}
           onTempFileEdit={callbacks.onTempFileEdit}
-          onResetReviewHistory={callbacks.onResetReviewHistory}
+          onResetToNewCard={callbacks.onResetToNewCard}
           onEdit={callbacks.onEdit}
           onDelete={callbacks.onDelete}
         />
@@ -856,6 +855,12 @@
     background: color-mix(in srgb, var(--color-orange, #d97706) 10%, var(--weave-table-surface-bg, var(--background-secondary)));
     border-color: color-mix(in srgb, var(--color-orange, #d97706) 20%, transparent);
     color: color-mix(in srgb, var(--color-orange, #d97706) 82%, var(--text-normal));
+  }
+
+  .weave-deck-badge--question-bank {
+    background: color-mix(in srgb, var(--color-purple, #7c3aed) 10%, var(--weave-table-surface-bg, var(--background-secondary)));
+    border-color: color-mix(in srgb, var(--color-purple, #7c3aed) 20%, transparent);
+    color: color-mix(in srgb, var(--color-purple, #7c3aed) 82%, var(--text-normal));
   }
 
   .weave-table-row:hover .weave-deck-badge {

@@ -129,7 +129,9 @@ export class FocusTrapManager implements IFocusTrapManager {
 		const elements = Array.from(container.querySelectorAll(selector));
 
 		// 过滤掉不可见和禁用的元素
-		return elements.filter((el) => this.isElementFocusable(el));
+		return elements
+			.filter((el): el is HTMLElement => el.instanceOf(HTMLElement))
+			.filter((el) => this.isElementFocusable(el));
 	}
 
 	/**
@@ -143,7 +145,7 @@ export class FocusTrapManager implements IFocusTrapManager {
 		if (style.display === "none" || style.visibility === "hidden") return false;
 
 		// 检查元素是否被禁用
-		if ((element as unknown).disabled) return false;
+		if ("disabled" in element && Boolean((element as HTMLButtonElement).disabled)) return false;
 
 		// 检查 tabindex
 		const tabindex = element.getAttribute("tabindex");

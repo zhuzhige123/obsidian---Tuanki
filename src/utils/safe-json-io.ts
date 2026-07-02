@@ -8,9 +8,11 @@
  * 备份存储位置：.obsidian/plugins/weave/backups/
  */
 
+import type { DataAdapter } from "obsidian";
 import { getPluginPaths } from "../config/paths";
 import { DirectoryUtils } from "./directory-utils";
 import { logger } from "./logger";
+import { adapterWriteIfChanged, textContentEquals } from "./vault-write-guard";
 
 function getBackupDir(app?: { vault: { configDir: string } }): string {
 	return `${getPluginPaths(app).backups}/json-recovery`;
@@ -85,31 +87,31 @@ export async function restoreJsonBackup<T = unknown>(
  * @param content 要写入的 JSON 字符串
  */
 export async function safeWriteJson(
-	adapter: {
-		read: (path: string) => Promise<string>;
-		write: (path: string, data: string) => Promise<void>;
-		exists: (path: string) => Promise<boolean>;
-	},
+	adapter: DataAdapter,
 	filePath: string,
 	content: string,
 	app?: { vault: { configDir: string } }
 ): Promise<void> {
-	// 尝试备份当前版本
 	try {
 		if (await adapter.exists(filePath)) {
 			const current = await adapter.read(filePath);
+			if (textContentEquals(current, content)) {
+				return;
+			}
 			// 只有当前内容是有效 JSON 时才备份（避免备份已损坏的文件）
 			JSON.parse(current);
 			const backupDir = getBackupDir(app);
-			await DirectoryUtils.ensureDirRecursive(adapter as unknown, backupDir);
+			await DirectoryUtils.ensureDirRecursive(adapter, backupDir);
 			await adapter.write(toBackupPath(filePath, app), current);
 		}
 	} catch {
 		// 备份失败不影响正常写入
 	}
 
-	// 正常写入
-	await adapter.write(filePath, content);
+	const writeResult = await adapterWriteIfChanged(adapter, filePath, content);
+	if (!writeResult.written) {
+		return;
+	}
 }
 
 /**

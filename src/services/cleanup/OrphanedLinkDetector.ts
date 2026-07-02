@@ -10,7 +10,7 @@ import { logger } from "../../utils/logger";
  * - 白名单保护机制防止误删
  */
 
-import { TFile, TFolder, Vault } from "obsidian";
+import { TFile, TFolder, Vault, type App } from "obsidian";
 import { getV2PathsFromApp } from "../../config/paths";
 import { parseDeckFilePayload } from "../../utils/deck-file-payload";
 import { logDebugWithTag } from "../../utils/logger";
@@ -45,7 +45,7 @@ export class OrphanedLinkDetector {
 
 	private readonly INDEX_CACHE_TTL = 30000; // 索引缓存30秒
 
-	constructor(vault: Vault, app?: unknown) {
+	constructor(vault: Vault, app?: App) {
 		this.vault = vault;
 		this.app = app;
 		this.cardsRoot = getV2PathsFromApp(app).memory.cards;

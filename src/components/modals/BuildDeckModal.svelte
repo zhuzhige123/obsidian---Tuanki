@@ -20,8 +20,7 @@
   import { tr } from '../../utils/i18n';
   import { generateId } from '../../utils/helpers';
   import { PremiumFeatureGuard, PREMIUM_FEATURES } from '../../services/premium/PremiumFeatureGuard';
-  import { parseChoiceQuestion } from '../../parsing/choice-question-parser';
-  import { isInputClozeQuestionContent } from '../../utils/question-bank/input-cloze-utils';
+  import { filterQuestionBankEligibleCardUuids } from '../../utils/question-bank/eligible-question-cards';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
 
   interface Props {
@@ -142,7 +141,7 @@
           questionBankEligibleUUIDs = [];
           
           // 聚焦到名称输入框
-          setTimeout(() => {
+          window.setTimeout(() => {
             if (nameInputRef) {
               nameInputRef.focus();
             }
@@ -168,11 +167,10 @@
           cardByUuid.set(card.uuid, card);
         }
 
-        questionBankEligibleUUIDs = selectedCardUUIDs
+        const selectedCards = selectedCardUUIDs
           .map((uuid) => cardByUuid.get(uuid))
-          .filter((card): card is (typeof allCards)[number] => card !== undefined)
-          .filter((card) => Boolean(parseChoiceQuestion(card.content)) || isInputClozeQuestionContent(card.content))
-          .map((card) => card.uuid);
+          .filter((card): card is (typeof allCards)[number] => card !== undefined);
+        questionBankEligibleUUIDs = filterQuestionBankEligibleCardUuids(selectedCards);
       } catch (error) {
         logger.error('[BuildDeckModal] 题库题目筛选失败:', error);
         questionBankEligibleUUIDs = [];

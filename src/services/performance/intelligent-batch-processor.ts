@@ -97,19 +97,21 @@ class Semaphore {
 	}
 }
 
+export interface BatchPerformanceSnapshot {
+	batchSize: number;
+	concurrency: number;
+	processingTime: number;
+	throughput: number;
+	errorRate: number;
+	timestamp: number;
+}
+
 /**
  * 智能批量处理器
  */
 export class IntelligentBatchProcessor {
 	private config: BatchConfig;
-	private performanceHistory: Array<{
-		batchSize: number;
-		concurrency: number;
-		processingTime: number;
-		throughput: number;
-		errorRate: number;
-		timestamp: number;
-	}> = [];
+	private performanceHistory: BatchPerformanceSnapshot[] = [];
 
 	private currentBatchSize: number;
 	private currentConcurrency: number;
@@ -389,7 +391,7 @@ export class IntelligentBatchProcessor {
 	/**
 	 * 检查性能是否在下降
 	 */
-	private isPerformanceDecreasing(history: unknown[]): boolean {
+	private isPerformanceDecreasing(history: BatchPerformanceSnapshot[]): boolean {
 		if (history.length < 2) return false;
 
 		const recent = history[history.length - 1];

@@ -28,10 +28,6 @@ declare global {
 // ============================================================================
 
 declare module 'obsidian' {
-  /**
-   * Workspace扩展
-   * 添加常用的视图类型查找方法
-   */
   interface Workspace {
     /**
      * 获取指定类型的活动视图

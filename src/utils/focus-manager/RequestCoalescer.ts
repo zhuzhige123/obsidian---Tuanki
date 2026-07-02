@@ -7,10 +7,11 @@
 
 import { logger } from "../logger";
 import type { IRequestCoalescer } from "./types";
+import type { WeaveTimerHandle } from "../../types/timer-handle.js";
 
 interface PendingRequest {
 	action: () => void;
-	timeoutId: ReturnType<typeof setTimeout> | null;
+	timeoutId: WeaveTimerHandle | null;
 }
 
 /**
@@ -20,7 +21,7 @@ export class RequestCoalescer implements IRequestCoalescer {
 	private pendingRequests: Map<string, PendingRequest> = new Map();
 	private readyKeys: Set<string> = new Set();
 	private flushRafId: number | null = null;
-	private flushTimeoutId: ReturnType<typeof setTimeout> | null = null;
+	private flushTimeoutId: WeaveTimerHandle | null = null;
 	private debounceMs: number;
 	private debugMode: boolean;
 

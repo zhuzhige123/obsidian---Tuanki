@@ -1,6 +1,10 @@
 import { irActiveBlockContextStore } from '../../../stores/ir-active-block-context-store';
 import { irActiveDocumentStore } from '../../../stores/ir-active-document-store';
-import { resolveEditorSourcePathFromIR } from '../editor-source-path-resolver';
+import {
+  buildWeSourceLinkFromPath,
+  resolveEditorSourcePathFromIR,
+  sanitizeCardTraceMetadata,
+} from '../editor-source-path-resolver';
 
 afterEach(() => {
   irActiveBlockContextStore.clearActiveContext();
@@ -72,6 +76,31 @@ describe('editor-source-path-resolver', () => {
     expect(result.sourcePath).toBe('ir/active-document.md');
     expect(result.blockContext).toBeNull();
     expect(result.resolvedFrom).toBe('active-document');
+  });
+
+  it('drops unresolved editor bridge temp files instead of keeping them as trace sources', async () => {
+    const result = await resolveEditorSourcePathFromIR({
+      sourcePath: 'weave/editor/weave-editor-session-1.md',
+    });
+
+    expect(result.sourcePath).toBeUndefined();
+    expect(result.resolvedFrom).toBe('unresolved');
+  });
+
+  it('buildWeSourceLinkFromPath skips editor bridge temp files', () => {
+    expect(
+      buildWeSourceLinkFromPath('weave/editor/weave-editor-session-1.md', '^abc123')
+    ).toBeUndefined();
+    expect(buildWeSourceLinkFromPath('notes/source.md', '^abc123')).toBe('![[notes/source#^abc123]]');
+  });
+
+  it('sanitizeCardTraceMetadata removes temp-file trace metadata', () => {
+    expect(
+      sanitizeCardTraceMetadata({
+        sourceFile: 'weave/editor/weave-editor-session-1.md',
+        sourceBlock: '^abc123',
+      })
+    ).toEqual({});
   });
 
   it('can skip sourceless IR lookup when the caller wants strict behavior', async () => {

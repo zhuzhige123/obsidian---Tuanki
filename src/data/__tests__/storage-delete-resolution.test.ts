@@ -980,10 +980,12 @@ describe('WeaveDataStorage delete source resolution', () => {
       settings: {},
       wdeckService: createWDeckServiceMock({
         getCardsByUUIDs: vi.fn(async (uuids: string[]) => {
-          const cardsByUUID = new Map([
-            [parentCard.uuid, parentCard],
-            ...childCards.map((card) => [card.uuid, card] as const)
-          ]);
+          const cardsByUUID = new Map<string, Card>(
+            [
+              [parentCard.uuid, parentCard],
+              ...childCards.map((card) => [card.uuid, card]),
+            ] as [string, Card][]
+          );
           return uuids.map((uuid) => cardsByUUID.get(uuid)).filter(Boolean);
         }),
         isWDeckCard: vi.fn(() => true),

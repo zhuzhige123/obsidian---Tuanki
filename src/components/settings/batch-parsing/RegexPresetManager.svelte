@@ -345,8 +345,13 @@
    * 删除预设
    */
   async function deletePreset(preset: RegexParsingConfig) {
+    if (!app) {
+      new Notice(t('dataManagement.batchScan.regexPreset.previewNeedsApp'));
+      return;
+    }
+
     const confirmed = await showObsidianConfirm(
-      (window as any).app,
+      app,
       t('dataManagement.batchScan.regexPreset.confirmDelete', { name: preset.name }),
       { title: t('dataManagement.batchScan.regexPreset.confirmDeleteTitle') }
     );
@@ -558,13 +563,21 @@
             
             <!-- 分隔符模式配置 -->
             {#if editingPreset?.mode === 'separator'}
-              <RangeSeparatorConfig 
+              <RangeSeparatorConfig
                 config={safeSeparatorMode}
                 name="separator-type"
-                onChange={() => {
-                  if (!editingPreset?.separatorMode) {
-                    editingPreset!.separatorMode = { ...DEFAULT_SEPARATOR_MODE };
-                  }
+                hideFrontBack={/^\^#/.test(safeSeparatorMode.cardSeparator?.trim() ?? '')}
+                onChange={(updated) => {
+                  if (!editingPreset) return;
+                  editingPreset.separatorMode = {
+                    ...DEFAULT_SEPARATOR_MODE,
+                    ...editingPreset.separatorMode,
+                    ...updated,
+                    emptyLineSeparator:
+                      updated.emptyLineSeparator ??
+                      editingPreset.separatorMode?.emptyLineSeparator ??
+                      DEFAULT_SEPARATOR_MODE.emptyLineSeparator,
+                  };
                 }}
               />
             {/if}

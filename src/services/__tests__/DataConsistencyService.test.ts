@@ -179,4 +179,123 @@ describe('DataConsistencyService', () => {
       [expect.objectContaining({ uuid: 'card-1' })]
     );
   });
+
+  it('backfills missing we_decks from physical WDeck placement before repairing caches', async () => {
+    const decks = [
+      {
+        id: 'wdeck:未归组卡片',
+        name: '未归组卡片',
+        purpose: 'memory',
+        cardUUIDs: ['card-orphan'],
+        modified: '2026-03-30T00:00:00.000Z',
+      },
+    ];
+    const cardsBefore = [
+      {
+        uuid: 'card-orphan',
+        content: '---\nwe_type: basic\ncreated: "2026-01-01"\n---\n正文',
+        modified: '2026-03-30T00:00:00.000Z',
+      },
+    ];
+    const cardsAfter = [
+      {
+        uuid: 'card-orphan',
+        content:
+          '---\nwe_type: basic\ncreated: "2026-01-01"\nwe_decks:\n  - 未归组卡片\n---\n正文',
+        modified: '2026-03-30T00:00:00.000Z',
+      },
+    ];
+
+    const saveCardsBatch = vi.fn(async () => undefined);
+    let cardReads = 0;
+    const replaceDeckCardsForDeck = vi.fn(async () => []);
+
+    const plugin = {
+      dataStorage: {
+        getDecks: vi.fn(async () => decks),
+        getCards: vi.fn(async () => {
+          cardReads += 1;
+          return cardReads === 1 ? cardsBefore : cardsAfter;
+        }),
+        saveDeck: vi.fn(async () => ({ success: true, timestamp: '2026-03-30T00:00:00.000Z' })),
+        saveCardsBatch,
+      },
+      wdeckService: {
+        getAllDeckSummaries: vi.fn(async () => [
+          {
+            logicalDeckName: '未归组卡片',
+            cardUUIDs: ['card-orphan'],
+          },
+        ]),
+        replaceDeckCardsForDeck,
+      },
+    } as any;
+
+    const service = new DataConsistencyService(plugin);
+    const repairResult = await service.repairConsistency();
+
+    expect(saveCardsBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        uuid: 'card-orphan',
+        content: expect.stringContaining('we_decks'),
+      }),
+    ]);
+    expect(repairResult).toMatchObject({
+      success: true,
+      repairedCards: 1,
+    });
+    expect(replaceDeckCardsForDeck).toHaveBeenCalledWith(
+      { id: 'wdeck:未归组卡片', name: '未归组卡片' },
+      [expect.objectContaining({ uuid: 'card-orphan' })]
+    );
+  });
+
+  it('repairs we_decks that mistakenly store deck IDs instead of names', async () => {
+    const decks = [
+      {
+        id: 'deck_a',
+        name: '牌组A',
+        cardUUIDs: ['card-id-mistake'],
+        modified: '2026-06-15T00:00:00.000Z',
+      },
+    ];
+
+    const cards = [
+      {
+        uuid: 'card-id-mistake',
+        content: '---\nwe_decks:\n  - deck_a\n---\n正文',
+        referencedByDecks: [],
+        modified: '2026-06-15T00:00:00.000Z',
+      },
+    ];
+
+    const saveCardsBatch = vi.fn(async () => undefined);
+    const saveDeck = vi.fn(async () => ({
+      success: true,
+      timestamp: '2026-06-15T00:00:00.000Z',
+    }));
+
+    const plugin = {
+      dataStorage: {
+        getDecks: vi.fn(async () => decks),
+        getCards: vi.fn(async () => cards),
+        saveDeck,
+        saveCardsBatch,
+      },
+    } as any;
+
+    const service = new DataConsistencyService(plugin);
+    const repairResult = await service.repairConsistency();
+
+    expect(saveCardsBatch).toHaveBeenCalledWith([
+      expect.objectContaining({
+        uuid: 'card-id-mistake',
+        content: expect.stringContaining('牌组A'),
+      }),
+    ]);
+    expect(repairResult).toMatchObject({
+      success: true,
+      repairedCards: 1,
+    });
+  });
 });

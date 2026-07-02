@@ -6,14 +6,12 @@
 import { derived, get, writable } from "svelte/store";
 import { OFFICIAL_FORMAT_ACTIONS } from "../constants/official-format-actions";
 import type { WeavePlugin } from "../main";
-import type { AIAction, AIProvider } from "../types/ai-types";
+import type { AIAction } from "../types/ai-types";
+import { patchCustomAIActions } from "../services/ai/AIConfigService";
 import { logger } from "../utils/logger";
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 
 type PersistedAIConfig = NonNullable<WeavePlugin["settings"]["aiConfig"]>;
-
-function normalizeDefaultProvider(value: string | undefined): AIProvider {
-	return value ? (value as AIProvider) : "zhipu";
-}
 
 function createDefaultPersistedAIConfig(): PersistedAIConfig {
 	return {
@@ -89,46 +87,12 @@ function normalizePersistedCustomActions(
 		.filter((action): action is AIAction => Boolean(action));
 }
 
-function normalizePersistedApiKeys(
-	value: unknown
-): Record<string, { apiKey: string; model?: string }> {
-	if (!value || typeof value !== "object") {
-		return {};
-	}
-
-	const result: Record<string, { apiKey: string; model?: string }> = {};
-	for (const [provider, rawEntry] of Object.entries(value as Record<string, unknown>)) {
-		if (!rawEntry || typeof rawEntry !== "object") {
-			continue;
-		}
-		const entry = rawEntry as Record<string, unknown>;
-		if (typeof entry.apiKey !== "string") {
-			continue;
-		}
-		result[provider] = {
-			apiKey: entry.apiKey,
-			model: typeof entry.model === "string" ? entry.model : undefined,
-		};
-	}
-	return result;
-}
-
-// ============================================================================
-// Type Definitions
-// ============================================================================
 
 export interface AIConfigState {
-	// 自定义功能列表
 	customFormatActions: AIAction[];
 	customSplitActions: AIAction[];
-
-	// 默认配置
-	defaultProvider: AIProvider;
-	apiKeys: Record<string, { apiKey: string; model?: string }>;
-
-	// 元数据
 	lastModified: number;
-	version: number; // 用于追踪变更
+	version: number;
 }
 
 // ============================================================================
@@ -138,7 +102,7 @@ export interface AIConfigState {
 class AIConfigStore {
 	private plugin: WeavePlugin | null = null;
 	private store = writable<AIConfigState>(this.getInitialState());
-	private saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+	private saveDebounceTimer: WeaveTimerHandle | null = null;
 	private readonly SAVE_DEBOUNCE_MS = 1000; // 1秒防抖
 
 	// ============================================================================
@@ -159,8 +123,6 @@ class AIConfigStore {
 		return {
 			customFormatActions: [],
 			customSplitActions: [],
-			defaultProvider: "zhipu",
-			apiKeys: {},
 			lastModified: Date.now(),
 			version: 0,
 		};
@@ -186,8 +148,6 @@ class AIConfigStore {
 				customSplitActions: structuredClone(
 					normalizePersistedCustomActions(aiConfig.customSplitActions, "split")
 				),
-				defaultProvider: normalizeDefaultProvider(aiConfig.defaultProvider),
-				apiKeys: structuredClone(aiConfig.apiKeys || {}),
 				lastModified: Date.now(),
 				version: 0,
 			});
@@ -202,8 +162,6 @@ class AIConfigStore {
 					JSON.parse(JSON.stringify(aiConfig.customSplitActions ?? [])),
 					"split"
 				),
-				defaultProvider: normalizeDefaultProvider(aiConfig.defaultProvider),
-				apiKeys: normalizePersistedApiKeys(JSON.parse(JSON.stringify(aiConfig.apiKeys ?? {}))),
 				lastModified: Date.now(),
 				version: 0,
 			});
@@ -354,16 +312,16 @@ class AIConfigStore {
 		const aiConfig = this.ensurePluginAIConfig();
 
 		try {
-			aiConfig.customFormatActions = structuredClone(state.customFormatActions);
-			aiConfig.customSplitActions = structuredClone(state.customSplitActions);
+			patchCustomAIActions(aiConfig, {
+				customFormatActions: structuredClone(state.customFormatActions),
+				customSplitActions: structuredClone(state.customSplitActions),
+			});
 		} catch (error) {
 			logger.warn("[AIConfigStore] 保存时structuredClone失败，使用JSON fallback:", error);
-			aiConfig.customFormatActions = JSON.parse(
-				JSON.stringify(state.customFormatActions)
-			) as AIAction[];
-			aiConfig.customSplitActions = JSON.parse(
-				JSON.stringify(state.customSplitActions)
-			) as AIAction[];
+			patchCustomAIActions(aiConfig, {
+				customFormatActions: JSON.parse(JSON.stringify(state.customFormatActions)) as AIAction[],
+				customSplitActions: JSON.parse(JSON.stringify(state.customSplitActions)) as AIAction[],
+			});
 		}
 
 		try {

@@ -34,6 +34,7 @@ import {
 } from "../../types/ir-types";
 import { logger } from "../../utils/logger";
 import { DirectoryUtils } from "../../utils/directory-utils";
+import { adapterWriteIfChanged, type VaultAdapterLike } from "../../utils/vault-write-guard";
 import { isRecord, parseJsonUnknown } from "../../utils/typed-json";
 import { IRPointStorageService } from "./IRPointStorageService";
 
@@ -151,7 +152,7 @@ export class IRTagGroupService {
 	}
 
 	private getDocumentMapPath(): string {
-		return getPluginPaths(this.app as unknown).cache.incrementalReading.documentGroupMap;
+		return getPluginPaths(this.app).cache.incrementalReading.documentGroupMap;
 	}
 
 	private getLegacyDocumentMapPath(): string {
@@ -286,13 +287,10 @@ export class IRTagGroupService {
 			}
 
 			const parsed = JSON.parse(await adapter.read(filePath)) as IRTagGroupsStore;
-			const groups =
-				parsed &&
-				typeof parsed === "object" &&
-				(parsed as unknown).groups &&
-				typeof (parsed as unknown).groups === "object"
-					? ((parsed as unknown).groups as Record<string, IRTagGroup>)
-					: {};
+			const groupsRaw = isRecord(parsed) ? parsed.groups : undefined;
+			const groups = isRecord(groupsRaw)
+				? (groupsRaw)
+				: {};
 			return {
 				exists: true,
 				groups: Object.fromEntries(
@@ -328,13 +326,10 @@ export class IRTagGroupService {
 			}
 
 			const parsed = JSON.parse(await adapter.read(filePath)) as IRTagGroupProfilesStore;
-			const profiles =
-				parsed &&
-				typeof parsed === "object" &&
-				(parsed as unknown).profiles &&
-				typeof (parsed as unknown).profiles === "object"
-					? ((parsed as unknown).profiles as Record<string, IRTagGroupProfile>)
-					: {};
+			const profilesRaw = isRecord(parsed) ? parsed.profiles : undefined;
+			const profiles = isRecord(profilesRaw)
+				? (profilesRaw)
+				: {};
 			return {
 				exists: true,
 				profiles: Object.fromEntries(
@@ -622,8 +617,8 @@ export class IRTagGroupService {
 			map: this.documentMapCache,
 		};
 
-		await DirectoryUtils.ensureDirForFile(adapter as unknown, filePath);
-		await adapter.write(filePath, JSON.stringify(store));
+		await DirectoryUtils.ensureDirForFile(adapter, filePath);
+		await adapterWriteIfChanged(adapter as VaultAdapterLike, filePath, JSON.stringify(store));
 	}
 
 	async getAllGroups(): Promise<IRTagGroup[]> {
@@ -800,7 +795,10 @@ export class IRTagGroupService {
 			try {
 				const allSources = await options.getAllSources();
 				for (const source of Object.values(allSources)) {
-					if (source?.tagGroup === groupId) {
+					if (!isRecord(source)) {
+						continue;
+					}
+					if (source.tagGroup === groupId) {
 						source.tagGroup = "default";
 						source.updatedAt = Date.now();
 						await options.saveSource(source);

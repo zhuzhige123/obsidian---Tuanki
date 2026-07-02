@@ -588,7 +588,7 @@
     if (!plugin?.app) return;
     
     // 等待DOM更新
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise(resolve => window.setTimeout(resolve, 50));
     
     // 渲染上文
     if (contextBeforeRenderContainer && sourceBlockContext.before.length > 0) {
@@ -628,7 +628,7 @@
    */
   function scrollToSourceBlockHighlight() {
     // 延迟执行确保DOM完全渲染
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (sourceBlockRenderContainer) {
         // 找到高亮区域的父元素
         const highlightElement = sourceBlockRenderContainer.closest('.source-block-highlight');
@@ -919,7 +919,7 @@
       plugin.app.workspace.trigger('layout-change');
       
       //  延迟后再次刷新，确保图谱完全加载
-      setTimeout(async () => {
+      window.setTimeout(async () => {
         if (graphSyncLeaf && !graphSyncLeaf.detached) {
           try {
             await graphSyncLeaf.setViewState({ 

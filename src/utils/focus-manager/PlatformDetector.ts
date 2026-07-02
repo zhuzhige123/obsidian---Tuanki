@@ -6,6 +6,7 @@
  */
 
 import { Platform } from "obsidian";
+import { readUnknownProperty } from "../dynamic-access";
 import { logger } from "../logger";
 import type { IPlatformDetector, PlatformInfo } from "./types";
 
@@ -66,7 +67,7 @@ export class PlatformDetector implements IPlatformDetector {
 		try {
 			// 优先使用 Obsidian API
 			if (typeof Platform !== "undefined" && "isIosApp" in Platform) {
-				return (Platform as unknown).isIosApp === true;
+				return readUnknownProperty(Platform, "isIosApp") === true;
 			}
 
 			// 降级：使用 userAgent 检测
@@ -83,7 +84,7 @@ export class PlatformDetector implements IPlatformDetector {
 		try {
 			// 优先使用 Obsidian API
 			if (typeof Platform !== "undefined" && "isAndroidApp" in Platform) {
-				return (Platform as unknown).isAndroidApp === true;
+				return readUnknownProperty(Platform, "isAndroidApp") === true;
 			}
 
 			// 降级：使用 userAgent 检测

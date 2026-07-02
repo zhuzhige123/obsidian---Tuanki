@@ -79,6 +79,8 @@ export interface RegexParsingConfig {
 			back: number; // 背面内容（答案）在第几个捕获组
 			tags?: number; // 可选：标签在第几个捕获组
 		};
+		/** Legacy delimiter field retained for migration from older configs. */
+		cardSeparator?: string;
 	};
 
 	// UUID位置
@@ -135,7 +137,10 @@ export interface FolderDeckMapping {
 	multiCardsConfig?: MultiCardsConfig;
 
 	// 统计信息字段
-	fileCount?: number; // 卡片数量统计
+	/** 上次扫描检测到的卡片数量 */
+	cardCount?: number;
+	/** @deprecated 请使用 cardCount；读取时会自动迁移 */
+	fileCount?: number;
 	lastScanned?: string; // 最后扫描时间（ISO字符串）
 
 	// 向后兼容字段
@@ -567,6 +572,97 @@ export function createDefaultFolderDeckMapping(
 		fileMode: "single-card", // 默认使用单文件单卡片模式
 		singleCardConfig: { ...DEFAULT_SINGLE_CARD_CONFIG },
 	};
+}
+
+/** 默认单文件多卡片解析配置（映射行切换到 multi-cards 时使用） */
+export const DEFAULT_MULTI_CARDS_CONFIG: MultiCardsConfig = {
+	usePreset: "default",
+	parsingConfig: {
+		name: "默认格式",
+		mode: "separator",
+		separatorMode: {
+			cardSeparator: "<->",
+			frontBackSeparator: "---div---",
+			multiline: true,
+			emptyLineSeparator: {
+				enabled: false,
+				lineCount: 2,
+			},
+		},
+		uuidLocation: "inline",
+		uuidPattern: "<!-- (tk-[a-z0-9]{12}) -->",
+		excludeTags: ["禁止同步"],
+		autoAddUUID: true,
+		syncMethod: "tag-based",
+	},
+};
+
+/** 创建空的文件夹/文件映射行（设置面板「添加映射」） */
+export function createEmptyFolderDeckMapping(): FolderDeckMapping {
+	return {
+		id: `mapping-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+		type: "folder",
+		path: "",
+		folderPath: "",
+		targetDeckId: "",
+		targetDeckName: "",
+		includeSubfolders: true,
+		enabled: true,
+		fileMode: "single-card",
+		singleCardConfig: { ...DEFAULT_SINGLE_CARD_CONFIG },
+	};
+}
+
+/** 读取映射行上的卡片数量（兼容旧 fileCount 字段） */
+export function getFolderDeckMappingCardCount(
+	mapping: Pick<FolderDeckMapping, "cardCount" | "fileCount">
+): number | undefined {
+	return mapping.cardCount ?? mapping.fileCount;
+}
+
+/** 规范化单条映射：统一 path、迁移 fileCount → cardCount */
+export function normalizeFolderDeckMapping(mapping: FolderDeckMapping): {
+	mapping: FolderDeckMapping;
+	changed: boolean;
+} {
+	let changed = false;
+	let next: FolderDeckMapping = mapping;
+
+	const resolvedPath = mapping.path || mapping.folderPath || "";
+	if (resolvedPath && mapping.path !== resolvedPath) {
+		next = { ...next, path: resolvedPath };
+		changed = true;
+	}
+
+	const legacyCount = next.fileCount;
+	if (next.cardCount === undefined && legacyCount !== undefined) {
+		next = { ...next, cardCount: legacyCount };
+		changed = true;
+	}
+
+	if (legacyCount !== undefined) {
+		const { fileCount: _legacy, ...withoutLegacyCount } = next;
+		next = withoutLegacyCount;
+		changed = true;
+	}
+
+	return { mapping: next, changed };
+}
+
+/** 批量规范化映射列表 */
+export function normalizeFolderDeckMappings(mappings: FolderDeckMapping[]): {
+	mappings: FolderDeckMapping[];
+	changed: boolean;
+} {
+	let changed = false;
+	const normalized = mappings.map((mapping) => {
+		const result = normalizeFolderDeckMapping(mapping);
+		if (result.changed) {
+			changed = true;
+		}
+		return result.mapping;
+	});
+	return { mappings: normalized, changed };
 }
 
 /**

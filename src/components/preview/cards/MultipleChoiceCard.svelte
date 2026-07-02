@@ -47,7 +47,7 @@
     showExplanation = true; // 立即显示解析
 
     // 触发动画反馈
-    setTimeout(() => {
+    window.setTimeout(() => {
       const optionEl = activeDocument.querySelector(`[data-option-id="${optionId}"]`);
       if (optionEl) {
         if (optionId === correctOption) {

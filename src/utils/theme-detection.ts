@@ -15,7 +15,7 @@ export interface ThemeDetectionResult {
 
 /** 统一主题状态，并向使用方广播变更。 */
 export class UnifiedThemeManager {
-	private static instance: UnifiedThemeManager;
+	private static instance: UnifiedThemeManager | null = null;
 	private currentTheme: ThemeDetectionResult;
 	private listeners: Array<(result: ThemeDetectionResult) => void> = [];
 	private mediaQuery: MediaQueryList;
@@ -32,24 +32,23 @@ export class UnifiedThemeManager {
 	}
 
 	static getInstance(): UnifiedThemeManager {
-		const w = window as unknown;
-		// 将实例挂到 window 上，避免热更新或重复初始化时重复注册监听器。
-		if (w.__weaveThemeManager) {
-			return w.__weaveThemeManager as UnifiedThemeManager;
+				// 将实例挂到 window 上，避免热更新或重复初始化时重复注册监听器。
+		if (window.__weaveThemeManager) {
+			return window.__weaveThemeManager;
 		}
 		if (!UnifiedThemeManager.instance) {
 			UnifiedThemeManager.instance = new UnifiedThemeManager();
-			w.__weaveThemeManager = UnifiedThemeManager.instance;
-			w.__weaveThemeManagerCleanup = () => {
+			window.__weaveThemeManager = UnifiedThemeManager.instance;
+			window.__weaveThemeManagerCleanup = () => {
 				try {
-					(w.__weaveThemeManager as UnifiedThemeManager | undefined)?.destroy();
+					(window.__weaveThemeManager as UnifiedThemeManager | undefined)?.destroy();
 				} catch { /* no-op */ }
 				try {
-					w.__weaveThemeManager = undefined;
-					w.__weaveThemeManagerCleanup = undefined;
+					window.__weaveThemeManager = undefined;
+					window.__weaveThemeManagerCleanup = undefined;
 				} catch {
-					w.__weaveThemeManager = null;
-					w.__weaveThemeManagerCleanup = null;
+					window.__weaveThemeManager = null;
+					window.__weaveThemeManagerCleanup = null;
 				}
 			};
 		}
@@ -188,13 +187,12 @@ export class UnifiedThemeManager {
 		this.isInitialized = false;
 
 		try {
-			const w = window as unknown;
-			if (w.__weaveThemeManager === this) {
-				w.__weaveThemeManager = undefined;
+						if (window.__weaveThemeManager === this) {
+				window.__weaveThemeManager = undefined;
 			}
 		} catch { /* no-op */ }
 
-		UnifiedThemeManager.instance = null as unknown;
+		UnifiedThemeManager.instance = null;
 	}
 }
 

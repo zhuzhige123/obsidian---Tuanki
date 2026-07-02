@@ -143,7 +143,7 @@
     
     // Keep focus for multi-selection
     if (!isMaxReached) {
-      setTimeout(() => inputEl?.focus(), 50);
+      window.setTimeout(() => inputEl?.focus(), 50);
     }
   }
 

@@ -7,6 +7,7 @@
   import { logger } from "../../utils/logger";
   import { normalizePathForComparison } from "../../utils/source-path-matcher";
   import { tr } from '../../utils/i18n';
+  import { getPluginInstance } from "../../utils/plugin-runtime";
   import { parseEpubSourceInfo, parseSourceInfo } from "../../utils/yaml-utils";
 
   interface Props {
@@ -210,7 +211,7 @@
 
   let linkedReadingMaterials = $derived.by(() => {
     const notePath = sourceMarkdownKey;
-    const irHost = plugin.app.plugins.getPlugin("weave-incremental-reading") as
+    const irHost = getPluginInstance(plugin.app, "weave-incremental-reading") as
       | { readingMaterialManager?: { getAllMaterials?: () => ReadingMaterial[] } }
       | null;
     const manager = irHost?.readingMaterialManager;

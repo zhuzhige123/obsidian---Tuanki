@@ -173,7 +173,7 @@
     selectedDeckIds = newSet;
     
     // 更新图表
-    setTimeout(() => updateAllCharts(), 100);
+    window.setTimeout(() => updateAllCharts(), 100);
   }
   
   // 全选/取消全选
@@ -190,7 +190,7 @@
       }
       selectedDeckIds = newSet;
     }
-    setTimeout(() => updateAllCharts(), 100);
+    window.setTimeout(() => updateAllCharts(), 100);
   }
   
   // 更新所有图表
@@ -1689,12 +1689,12 @@
         preserveEndDate: rangeSelectionMode === 'custom',
         mode: rangeSelectionMode
       });
-      setTimeout(() => {
+      window.setTimeout(() => {
         isUpdating = false;
       }, 300);
     });
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       wheelThrottle = false;
     }, WHEEL_THROTTLE_MS);
   }
@@ -1786,7 +1786,7 @@
     activeTab = tab;
     
     // 延迟初始化和调整大小，确保DOM已渲染
-    setTimeout(() => {
+    window.setTimeout(() => {
       // 标签配置映射
       const chartConfig = {
         'retention': { 
@@ -1836,7 +1836,7 @@
     loadAllDecks();
     
     // 延迟初始化，确保DOM完全渲染
-    setTimeout(() => {
+    window.setTimeout(() => {
       // 使用switchTab函数初始化初始标签页
       // 这会自动处理图表初始化和事件监听器
       switchTab(activeTab);
@@ -1848,7 +1848,7 @@
       for (const mutation of mutations) {
         if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
           // 主题变化时重新初始化图表
-          setTimeout(() => updateChartsTheme(), 100);
+          window.setTimeout(() => updateChartsTheme(), 100);
           break;
         }
       }
@@ -1863,7 +1863,7 @@
 
   // 监听activeTab变化，确保图表正确显示
   $effect(() => {
-    setTimeout(() => {
+    window.setTimeout(() => {
       // 无论图表是否已存在，都要确保绑定滚轮事件监听器
       if (activeTab === 'retention' && retentionChartRef) {
         if (!retentionChart) {
@@ -1903,7 +1903,7 @@
 
     if (renderedLanguage !== language) {
       renderedLanguage = language;
-      setTimeout(() => updateChartsTheme(), 100);
+      window.setTimeout(() => updateChartsTheme(), 100);
     }
   });
 

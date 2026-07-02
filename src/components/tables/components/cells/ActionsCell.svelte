@@ -2,13 +2,14 @@
   import { Menu } from "obsidian";
   import { tr } from "../../../../utils/i18n";
   import EnhancedIcon from "../../../ui/EnhancedIcon.svelte";
+  import { isMemoryCard } from "../../../../utils/card-reset-utils";
   import type { ActionsCellProps } from "../../types/table-types";
 
   let {
     card,
     onView,
     onTempFileEdit,
-    onResetReviewHistory,
+    onResetToNewCard,
     onEdit,
     onDelete
   }: ActionsCellProps = $props();
@@ -43,12 +44,12 @@
       });
     }
 
-    if (card.fsrs && onResetReviewHistory) {
+    if (onResetToNewCard && isMemoryCard(card)) {
       menu.addItem((item) => {
         item
-          .setTitle(t("cardManagement.actions.resetReviewHistory"))
+          .setTitle(t("cardManagement.actions.resetToNewCard"))
           .setIcon("rotate-ccw")
-          .onClick(() => onResetReviewHistory(card.uuid));
+          .onClick(() => onResetToNewCard(card.uuid));
       });
     }
 

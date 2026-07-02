@@ -1,4 +1,5 @@
 import { type EventRef, ItemView, Menu, Platform } from "obsidian";
+import type { WeaveIntervalHandle } from "../types/timer-handle";
 import type { WorkspaceLeaf } from "obsidian";
 import type { WeavePlugin } from "../main";
 import { i18n } from "../utils/i18n";
@@ -48,7 +49,7 @@ export class WeaveView extends ItemView {
 	private deckFilterChangeHandler: ((event: Event) => void) | null = null;
 	private cardDataSourceChangeHandler: ((event: Event) => void) | null = null;
 	private cardToolbarStateHandler: ((event: Event) => void) | null = null;
-	private pendingLoadRetryInterval: ReturnType<typeof setInterval> | null = null;
+	private pendingLoadRetryInterval: WeaveIntervalHandle | null = null;
 	private aiSelectionState = {
 		hasCards: false,
 		selectedCount: 0,
@@ -416,10 +417,10 @@ export class WeaveView extends ItemView {
 			return null;
 		}
 
-		let host =
+		let host: HTMLElement | null =
 			this.mobileHeaderCenterHost instanceof HTMLElement
 				? this.mobileHeaderCenterHost
-				: (viewHeader.querySelector(".weave-mobile-header-center-host"));
+				: viewHeader.querySelector(".weave-mobile-header-center-host");
 
 		if (!(host instanceof HTMLElement)) {
 			host = activeDocument.createElement("div");

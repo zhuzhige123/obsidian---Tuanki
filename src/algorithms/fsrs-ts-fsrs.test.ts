@@ -95,7 +95,7 @@ describe("FSRS (ts-fsrs wrapper)", () => {
 				scheduled_days: reviewed.scheduledDays,
 				reps: reviewed.reps,
 				lapses: reviewed.lapses,
-				state: reviewed.state,
+				state: reviewed.state as unknown as import("ts-fsrs").State,
 				last_review: new Date(reviewed.lastReview!),
 				due: new Date(reviewed.due),
 			},

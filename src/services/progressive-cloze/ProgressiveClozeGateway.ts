@@ -29,6 +29,13 @@ import { generateCardUUID } from "../identifier/WeaveIDGenerator";
 import { PREMIUM_FEATURES, PremiumFeatureGuard } from "../premium/PremiumFeatureGuard";
 import { ProgressiveClozeConverter } from "./ProgressiveClozeConverter";
 
+type CardWithProgressiveCloze = Card & { progressiveCloze?: unknown };
+
+function withoutProgressiveCloze(card: CardWithProgressiveCloze): Card {
+	const { progressiveCloze: _removed, ...rest } = card;
+	return rest;
+}
+
 /**
  * 卡片处理结果（第一道门）
  */
@@ -441,13 +448,12 @@ export class ProgressiveClozeGateway {
 	): Promise<Card[] | null> {
 		if (oldCard.type !== CardType.ProgressiveParent) {
 			// 非父卡片，直接转换
-			const updatedCard: Card = {
+			const updatedCard = withoutProgressiveCloze({
 				...oldCard,
 				type: CardType.Cloze,
 				content: setCardProperty(newContent, "we_type", CardType.Cloze),
 				modified: new Date().toISOString(),
-			};
-			(updatedCard as unknown).progressiveCloze = undefined;
+			});
 			return [updatedCard];
 		}
 
@@ -491,22 +497,20 @@ export class ProgressiveClozeGateway {
 			await dataStorage.deleteCard(childCard.uuid);
 		}
 
-		const updatedCard: Card = {
+		const updatedCard = withoutProgressiveCloze({
 			...oldCard,
 			type: newType,
 			content: nextContent,
 			modified: new Date().toISOString(),
-		};
-
-		(updatedCard as unknown).progressiveCloze = undefined;
-
-		if (exitChoice.mode === "inherit-child" && inheritedChild) {
-			(updatedCard as unknown).fsrs = inheritedChild.fsrs;
-			(updatedCard as unknown).reviewHistory = inheritedChild.reviewHistory || [];
-		} else {
-			(updatedCard as unknown).fsrs = this.createNewFsrs();
-			(updatedCard as unknown).reviewHistory = [];
-		}
+			fsrs:
+				exitChoice.mode === "inherit-child" && inheritedChild
+					? inheritedChild.fsrs
+					: this.createNewFsrs(),
+			reviewHistory:
+				exitChoice.mode === "inherit-child" && inheritedChild
+					? inheritedChild.reviewHistory || []
+					: [],
+		});
 
 		logger.info(
 			`[ProgressiveClozeGateway] 降级完成: progressive-parent -> ${newType}, mode=${exitChoice.mode}`

@@ -158,7 +158,7 @@ function buildDeckIdentifierContext(decks: IRDeck[], requestedDeckIds: string[])
 
 	for (const deck of decks) {
 		const deckId = String(deck?.id || "").trim();
-		const deckPath = String((deck as unknown)?.path || "").trim();
+		const deckPath = String(deck.path || "").trim();
 		const identifiers = normalizeIdentifiers([deckId, deckPath]);
 		if (identifiers.length === 0) {
 			continue;
@@ -218,8 +218,8 @@ function buildLegacyBlockDeckIdsByBlockId(
 
 		const canonicalDeckId =
 			canonicalByIdentifier.get(String(deck.id || "").trim()) ||
-			canonicalByIdentifier.get(String((deck as unknown)?.path || "").trim()) ||
-			String(deck.id || (deck as unknown)?.path || "").trim();
+			canonicalByIdentifier.get(String(deck.path || "").trim()) ||
+			String(deck.id || deck.path || "").trim();
 		if (!canonicalDeckId) continue;
 
 		for (const blockId of deck.blockIds || []) {
@@ -383,7 +383,7 @@ async function mergeLegacyBlocksIntoProjectedScheduleSummary(
 		}
 
 		const matchedDeckIds = new Set(blockDeckIdsById.get(String(block.id || "").trim()) || []);
-		const legacyDeckPath = String((block as unknown)?.deckPath || "").trim();
+		const legacyDeckPath = String(block.deckPath || "").trim();
 		if (legacyDeckPath && targetIdentifiers.has(legacyDeckPath)) {
 			matchedDeckIds.add(canonicalByIdentifier.get(legacyDeckPath) || legacyDeckPath);
 		}

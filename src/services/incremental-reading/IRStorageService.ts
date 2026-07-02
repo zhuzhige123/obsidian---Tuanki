@@ -12,6 +12,7 @@ import {
 import type {
 	FileSyncState,
 	IRBlock,
+	IRBlockMeta,
 	IRDeck,
 	IRHistoryStore,
 	IRSession,
@@ -71,7 +72,7 @@ export class IRStorageService {
 	}
 
 	private getSyncStateStoragePath(): string {
-		return normalizePath(getPluginPaths(this.app as unknown).cache.incrementalReading.syncState);
+		return normalizePath(getPluginPaths(this.app).cache.incrementalReading.syncState);
 	}
 
 	private getLegacySyncStateStoragePath(): string {
@@ -79,15 +80,15 @@ export class IRStorageService {
 	}
 
 	private getHistoryStoragePath(): string {
-		return normalizePath(getPluginPaths(this.app as unknown).state.incrementalReading.history);
+		return normalizePath(getPluginPaths(this.app).state.incrementalReading.history);
 	}
 
 	private getCalendarProgressStoragePath(): string {
-		return normalizePath(getPluginPaths(this.app as unknown).state.incrementalReading.calendarProgress);
+		return normalizePath(getPluginPaths(this.app).state.incrementalReading.calendarProgress);
 	}
 
 	private getStudySessionsStoragePath(): string {
-		return normalizePath(getPluginPaths(this.app as unknown).state.incrementalReading.studySessions);
+		return normalizePath(getPluginPaths(this.app).state.incrementalReading.studySessions);
 	}
 
 	private collectLegacyIncrementalReadingStatePaths(fileName: string): string[] {
@@ -175,7 +176,7 @@ export class IRStorageService {
 		decks: Record<string, IRDeck>
 	): string[] {
 		const topicIds = new Set<string>();
-		const directDeckPath = String((block as unknown)?.deckPath || "").trim();
+		const directDeckPath = String(block.deckPath || "").trim();
 		if (directDeckPath) {
 			topicIds.add(directDeckPath);
 		}
@@ -301,9 +302,11 @@ export class IRStorageService {
 				note: typeof block.notes === "string" ? block.notes : undefined,
 				isStarred: Boolean(block.favorite),
 				linkedNotePaths: resolveAssociatedNotePaths({
-					associatedNotePath:
-						resolveAssociatedNotePath(block) ||
-						resolveAssociatedNotePath(readUnknownProperty(block, "meta")),
+					associatedNotePath: resolveAssociatedNotePath(
+						isRecord(readUnknownProperty(block, "meta"))
+							? (readUnknownProperty(block, "meta") as IRBlockMeta)
+							: undefined
+					),
 					associatedNotePaths: Array.isArray(readUnknownProperty(block, "associatedNotePaths"))
 						? (readUnknownProperty(block, "associatedNotePaths") as string[])
 						: Array.isArray(readUnknownProperty(readUnknownProperty(block, "meta"), "associatedNotePaths"))
@@ -2610,7 +2613,7 @@ export class IRStorageService {
 		for (const [chunkId, chunk] of Object.entries(chunks)) {
 			if (typeof chunk.filePath !== "string" || chunk.filePath.trim() === "") {
 				invalidChunkIds.push(chunkId);
-				invalidPaths.push(String((chunk as unknown).filePath));
+				invalidPaths.push(String(chunk.filePath));
 				continue;
 			}
 
@@ -2933,7 +2936,7 @@ export class IRStorageService {
 
 		// 默认旧 IR 导入目录已经属于弃用结构，清空后应一并删除；
 		// 若调用方显式传入自定义扫描根，则保留根目录，避免误删用户自定义容器目录。
-		await DirectoryUtils.pruneEmptyDirsUnder(adapter as unknown, root, {
+		await DirectoryUtils.pruneEmptyDirsUnder(adapter, root, {
 			preserveRoot: Boolean(scanRoot && String(scanRoot).trim()),
 		});
 
@@ -2955,11 +2958,11 @@ export class IRStorageService {
 
 		for (const [blockId, block] of Object.entries(blocks)) {
 			if (
-				typeof (block as unknown).filePath !== "string" ||
-				String((block as unknown).filePath).trim() === ""
+				typeof block.filePath !== "string" ||
+				block.filePath.trim() === ""
 			) {
 				invalidBlockIds.push(blockId);
-				invalidPaths.push(String((block as unknown).filePath));
+				invalidPaths.push(String(block.filePath));
 				continue;
 			}
 

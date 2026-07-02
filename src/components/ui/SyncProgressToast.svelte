@@ -72,7 +72,7 @@ const eta = $derived.by(() => {
 let visible = $state(true);
 $effect(() => {
   if (isComplete && autoHide) {
-    setTimeout(() => {
+    window.setTimeout(() => {
       visible = false;
     }, 3000);
   }

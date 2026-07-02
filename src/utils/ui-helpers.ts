@@ -1,3 +1,4 @@
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 /**
  * UI辅助工具函数
  * 包含各种UI相关的帮助函数
@@ -132,7 +133,7 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
 	func: T,
 	wait: number
 ): (...args: Parameters<T>) => void {
-	let timeout: ReturnType<typeof setTimeout> | null = null;
+	let timeout: WeaveTimerHandle | null = null;
 
 	return function (this: unknown, ...args: Parameters<T>) {
 		if (timeout) window.clearTimeout(timeout);

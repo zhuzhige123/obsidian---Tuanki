@@ -27,12 +27,13 @@ import { accuracyCalculator } from "./AccuracyCalculator";
 import { isStagingBankId } from "../ai/card-staging-card-builder";
 import type { QuestionBankStorage } from "./QuestionBankStorage";
 import type { QuestionBankService } from "./QuestionBankService";
+import { TestScoringEngine } from "./TestScoringEngine";
 
 export interface SessionConfig {
 	bankId: string;
 	mode: TestMode;
 	questionCount?: number; // 题目数量限制（可选）
-	timeLimit?: number; // 时间限制（秒，可选）
+	timeLimit?: number; // 时间限制（毫秒，可选）
 	shuffleQuestions?: boolean; // 是否打乱题目顺序
 	shuffleOptions?: boolean; // 是否打乱选项顺序
 }
@@ -217,18 +218,7 @@ export class TestSessionManager {
 		//  修复：更新已完成题数（用于显示答题次数和进度）
 		this.currentSession.completedQuestions++;
 
-		// 同步 incorrectCount（与 wrongCount 保持一致）
-		this.currentSession.incorrectCount = this.currentSession.wrongCount;
-
-		// 计算当前累积分数（总分100分制）
-		const pointsPerQuestion =
-			this.currentSession.totalQuestions > 0 ? 100 / this.currentSession.totalQuestions : 0;
-		this.currentSession.score = Math.round(this.currentSession.correctCount * pointsPerQuestion);
-
-		// 计算正确率
-		const answeredCount = this.currentSession.correctCount + this.currentSession.wrongCount;
-		this.currentSession.accuracy =
-			answeredCount > 0 ? this.currentSession.correctCount / answeredCount : 0;
+		this.recalculateSessionStats();
 
 		// 持久化会话（完成态不需要保存完整会话，仅写历史分数并清理恢复文件）
 		await this.saveSession(this.currentSession);
@@ -238,6 +228,38 @@ export class TestSessionManager {
 			correctAnswer: questionRecord.correctAnswer,
 			questionRecord,
 		};
+	}
+
+	/**
+	 * 撤销当前题目的已提交答案
+	 */
+	async undoCurrentAnswer(): Promise<boolean> {
+		if (!this.currentSession) {
+			return false;
+		}
+
+		const currentIndex = this.currentSession.currentQuestionIndex;
+		const questionRecord = this.currentSession.questions[currentIndex];
+		if (!questionRecord || questionRecord.isCorrect === null) {
+			return false;
+		}
+
+		if (questionRecord.isCorrect === true) {
+			this.currentSession.correctCount = Math.max(0, this.currentSession.correctCount - 1);
+		} else if (questionRecord.isCorrect === false) {
+			this.currentSession.wrongCount = Math.max(0, this.currentSession.wrongCount - 1);
+		}
+
+		this.currentSession.completedQuestions = Math.max(0, this.currentSession.completedQuestions - 1);
+		questionRecord.userAnswer = null;
+		questionRecord.isCorrect = null;
+		questionRecord.timeSpent = 0;
+		questionRecord.submittedAt = null;
+
+		this.recalculateSessionStats();
+		this.questionStartTime = Date.now();
+		await this.saveSession(this.currentSession);
+		return true;
 	}
 
 	/**
@@ -357,10 +379,7 @@ export class TestSessionManager {
 		this.currentSession.endTime = new Date().toISOString();
 		this.currentSession.totalTimeSpent = totalTimeSpent;
 
-		// 计算最终累积分数（总分100分制）
-		const pointsPerQuestion =
-			this.currentSession.totalQuestions > 0 ? 100 / this.currentSession.totalQuestions : 0;
-		this.currentSession.score = Math.round(this.currentSession.correctCount * pointsPerQuestion);
+		this.recalculateSessionStats();
 
 		if (!isStagingBankId(this.currentSession.bankId)) {
 			// 持久化会话
@@ -383,6 +402,57 @@ export class TestSessionManager {
 		this.currentSession = null;
 
 		return completedSession;
+	}
+
+	/**
+	 * 从当前会话中移除题目（不结束整场考试）
+	 */
+	async removeQuestionFromSession(cardUuid: string): Promise<"removed" | "empty" | "no-session"> {
+		if (!this.currentSession) {
+			return "no-session";
+		}
+
+		const questions = this.currentSession.questions;
+		const removeIndex = questions.findIndex(
+			(record) => record.questionId === cardUuid || record.question?.uuid === cardUuid
+		);
+		if (removeIndex < 0) {
+			return "removed";
+		}
+
+		const removedRecord = questions[removeIndex];
+		if (removedRecord.submittedAt) {
+			this.currentSession.completedQuestions = Math.max(
+				0,
+				this.currentSession.completedQuestions - 1
+			);
+			if (removedRecord.isCorrect === true) {
+				this.currentSession.correctCount = Math.max(0, this.currentSession.correctCount - 1);
+			} else if (removedRecord.isCorrect === false) {
+				this.currentSession.wrongCount = Math.max(0, this.currentSession.wrongCount - 1);
+			}
+		}
+
+		const currentIndex = this.currentSession.currentQuestionIndex;
+		questions.splice(removeIndex, 1);
+		this.currentSession.totalQuestions = questions.length;
+
+		if (questions.length === 0) {
+			await this.storage.clearInProgressSession(this.currentSession.bankId);
+			this.currentSession = null;
+			return "empty";
+		}
+
+		if (removeIndex < currentIndex) {
+			this.currentSession.currentQuestionIndex = currentIndex - 1;
+		} else 		if (removeIndex === currentIndex && currentIndex >= questions.length) {
+			this.currentSession.currentQuestionIndex = questions.length - 1;
+		}
+
+		this.recalculateSessionStats();
+
+		await this.saveSession(this.currentSession);
+		return "removed";
 	}
 
 	/**
@@ -542,7 +612,7 @@ export class TestSessionManager {
 					const question = questionsMap.get(r.questionId);
 					return {
 						questionId: r.questionId,
-						question: question as unknown,
+						question: question as Card,
 						userAnswer: r.userAnswer,
 						correctAnswer: r.correctAnswer,
 						isCorrect: r.isCorrect,
@@ -611,6 +681,18 @@ export class TestSessionManager {
 	}
 
 	// ==================== 私有方法 ====================
+
+	private recalculateSessionStats(): void {
+		if (!this.currentSession) {
+			return;
+		}
+
+		const session = this.currentSession;
+		session.incorrectCount = session.wrongCount;
+		const answeredCount = session.correctCount + session.wrongCount;
+		session.accuracy = answeredCount > 0 ? session.correctCount / answeredCount : 0;
+		session.score = Math.round(TestScoringEngine.scoreSession(session).totalScore);
+	}
 
 	/**
 	 * 保存会话到存储

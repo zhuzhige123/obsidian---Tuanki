@@ -12,6 +12,7 @@
 
 import { tick } from "svelte";
 import type { WeavePlugin } from "../../main";
+import { createErrorMessage } from "../../utils/helpers";
 import { logger } from "../../utils/logger";
 
 /**
@@ -76,18 +77,15 @@ export class MediaPlaybackManager {
 		setting: keyof MediaPlaybackSettings,
 		value: boolean | PlayMode | PlayTiming | number
 	): Promise<void> {
-		// 更新内部设置
-		(this.settings as unknown)[setting] = value;
+		this.settings = { ...this.settings, [setting]: value };
 
-		// 更新插件设置
-		this.plugin.settings.mediaAutoPlay = this.plugin.settings.mediaAutoPlay || {
+		const currentMediaAutoPlay = this.plugin.settings.mediaAutoPlay ?? {
 			enabled: false,
-			mode: "first",
-			timing: "cardChange",
+			mode: "first" as const,
+			timing: "cardChange" as const,
 			playbackInterval: 2000,
 		};
-
-		(this.plugin.settings.mediaAutoPlay as unknown)[setting] = value;
+		this.plugin.settings.mediaAutoPlay = { ...currentMediaAutoPlay, [setting]: value };
 
 		// 保存设置
 		await this.plugin.saveSettings();
@@ -280,13 +278,12 @@ export class MediaPlaybackManager {
 			await media.play();
 			logger.debug(`✅ ${logTag} 媒体播放成功`);
 		} catch (error: unknown) {
-			// 处理常见播放错误
-			if (error.name === "NotAllowedError") {
+			if (error instanceof DOMException && error.name === "NotAllowedError") {
 				logger.debug(`🔇 ${logTag} 浏览器阻止自动播放（用户交互要求）`);
-			} else if (error.name === "NotSupportedError") {
+			} else if (error instanceof DOMException && error.name === "NotSupportedError") {
 				logger.warn(`❌ ${logTag} 媒体格式不支持:`, media.src);
 			} else {
-				logger.warn(`⚠️ ${logTag} 播放失败:`, error.message);
+				logger.warn(`⚠️ ${logTag} 播放失败:`, createErrorMessage(error));
 				throw error;
 			}
 		}

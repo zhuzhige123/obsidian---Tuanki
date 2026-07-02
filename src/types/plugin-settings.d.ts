@@ -114,14 +114,35 @@ export interface AIConfig {
   customSplitActions?: unknown[];
   
   /**
-   * 温度参数（0-1）
+   * 温度参数（0-1）- 已迁移至 globalParams.temperature
    */
   temperature?: number;
   
   /**
-   * 最大生成长度
+   * 最大生成长度 - 已迁移至 globalParams.maxTokens
    */
   maxTokens?: number;
+
+  /**
+   * 全局 AI 请求参数
+   */
+  globalParams?: {
+    temperature: number;
+    maxTokens: number;
+    requestTimeout: number;
+    concurrentLimit: number;
+  };
+
+  /**
+   * 系统提示词配置
+   */
+  systemPromptConfig?: {
+    useBuiltin: boolean;
+    customPrompt: string;
+    lastModified?: string;
+    customSystemPrompts?: unknown[];
+    selectedSystemPromptId?: string;
+  };
 }
 
 // ============================================================================

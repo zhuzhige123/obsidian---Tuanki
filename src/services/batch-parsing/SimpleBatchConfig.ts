@@ -107,16 +107,17 @@ export class BatchConfigValidator {
 		const warnings: string[] = [];
 
 		for (const mapping of mappings) {
-			if (!mapping.folderPath) {
-				errors.push("映射的 folderPath 不能为空");
+			const mappingPath = mapping.path || mapping.folderPath;
+			if (!mappingPath) {
+				errors.push("映射的路径不能为空");
 			}
 
 			if (!mapping.targetDeckId) {
-				errors.push(`文件夹 ${mapping.folderPath} 未指定目标牌组`);
+				errors.push(`映射 ${mappingPath || mapping.id || "未知"} 未指定目标牌组`);
 			}
 
 			if (!mapping.id) {
-				errors.push(`文件夹 ${mapping.folderPath} 缺少唯一ID`);
+				errors.push(`映射 ${mappingPath || "未知"} 缺少唯一ID`);
 			}
 		}
 

@@ -147,8 +147,8 @@
     //  初始化移动端边界检测
     updateMobileBounds();
     
-    // 播放音效
-    if (soundEnabled) {
+    // 成绩达标时播放庆祝音效
+    if (soundEnabled && sessionScore.totalScore >= 60) {
       const sound = getCelebrationSound();
       sound.play(soundVolume).catch(err => {
         logger.error('[TestResultView] 音效播放失败:', err);
@@ -156,7 +156,7 @@
     }
 
     // 延迟显示内容（等待礼花动画）
-    setTimeout(() => {
+    window.setTimeout(() => {
       showContent = true;
     }, 300);
     
@@ -235,7 +235,7 @@
               stroke="currentColor"
               stroke-width="8"
               stroke-dasharray="283"
-              stroke-dashoffset={283 - (283 * sessionScore.accuracy / 100)}
+              stroke-dashoffset={283 - (283 * sessionScore.totalScore / 100)}
               transform="rotate(-90 50 50)"
               class="progress-ring"
             />

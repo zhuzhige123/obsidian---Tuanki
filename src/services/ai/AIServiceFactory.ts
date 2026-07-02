@@ -12,6 +12,7 @@ import { SiliconFlowService } from "./SiliconFlowService";
 import { ZhipuService } from "./ZhipuService";
 import { getDefaultAIModel } from "../../components/settings/constants/settings-constants";
 import { resolveAIConfig, type AIConfigHost } from "./ai-host";
+import { resolveDefaultAIProvider } from "./AIConfigService";
 
 interface AIProviderConfig {
 	apiKey: string;
@@ -26,20 +27,6 @@ type AIConfigWithProviders = AIConfig & {
 	defaultProvider?: string;
 	systemPromptConfig?: SystemPromptConfig;
 };
-
-const AI_PROVIDERS: AIProvider[] = [
-	"openai",
-	"gemini",
-	"anthropic",
-	"deepseek",
-	"zhipu",
-	"siliconflow",
-	"xai",
-];
-
-function isAIProvider(value?: string): value is AIProvider {
-	return value !== undefined && AI_PROVIDERS.includes(value as AIProvider);
-}
 
 function getAIConfig(host: AIConfigHost): AIConfigWithProviders | undefined {
 	return resolveAIConfig(host) as AIConfigWithProviders | undefined;
@@ -138,7 +125,7 @@ function getDefaultService(host: AIConfigHost): IAIService {
 		throw new Error("AI配置未初始化");
 	}
 
-	const provider = isAIProvider(aiConfig.defaultProvider) ? aiConfig.defaultProvider : "zhipu";
+	const provider = resolveDefaultAIProvider(aiConfig as Parameters<typeof resolveDefaultAIProvider>[0]);
 
 	return createService(provider, host);
 }

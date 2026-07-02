@@ -405,6 +405,20 @@ export interface IRBlockMeta {
 	associatedNotePath?: string;
 	/** 关联的 Markdown 笔记路径列表 */
 	associatedNotePaths?: string[];
+	/** 外部文档（PDF/EPUB 等）纳入 IR 调度 */
+	externalDocument?: boolean;
+	/** 文件夹订阅自动导入时间 (ISO) */
+	autoSubscribedAt?: string;
+	autoSubscribedFolderPath?: string;
+	autoSubscribedBadgeUntil?: string;
+	/** 源文件顺序锁定（订阅导入当日优先） */
+	sourceSequenceLocked?: boolean;
+	sourceSequenceAnchorDateKey?: string;
+	/** Canvas / 阅读点扩展元数据 */
+	pointTitle?: string;
+	resumeLink?: string;
+	canvasNodeId?: string;
+	canvasTextCandidates?: unknown;
 }
 
 /**

@@ -5,6 +5,7 @@ import { logger } from "../../utils/logger";
  */
 
 import type { App } from "obsidian";
+import type { WeaveIntervalHandle } from "../../types/timer-handle";
 import { CardType } from "../../data/types";
 import { BatchDocumentWriter } from "../../services/BatchDocumentWriter";
 import {
@@ -47,7 +48,7 @@ export class SimplifiedCardParser implements ICardParser {
 	private lastCardsPosition?: CardWithPosition[]; // 存储最近一次解析的卡片位置信息
 	private readonly MAX_CACHE_SIZE = 1000;
 	private readonly CACHE_TTL = 5 * 60 * 1000; // 5分钟
-	private cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
+	private cacheCleanupInterval: WeaveIntervalHandle | null = null;
 
 	constructor(settings: SimplifiedParsingSettings, app?: App) {
 		this.settings = settings;

@@ -135,7 +135,7 @@
     try {
       // 等待一段时间后重试
       const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 5000);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      await new Promise(resolve => window.setTimeout(resolve, delay));
 
       // 重置错误状态
       hasError = false;

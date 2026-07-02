@@ -43,8 +43,8 @@
   });
 
   const tabs = $derived([
-    { id: 'info', label: '阅读点信息', icon: '' },
-    { id: 'schedule', label: '调度数据', icon: '' }
+    { id: 'info' as const, label: '阅读点信息', icon: '' },
+    { id: 'schedule' as const, label: '调度数据', icon: '' }
   ]);
 
   function handleTabChange(tabId: string) {

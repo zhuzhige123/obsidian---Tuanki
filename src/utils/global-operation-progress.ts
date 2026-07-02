@@ -1,3 +1,4 @@
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 import {
 	weaveMainInterfaceStore,
 	type WeaveGlobalOperationProgressState,
@@ -36,7 +37,7 @@ export function createGlobalOperationController(config: {
 		navigationMessage: config.navigationMessage,
 		operationId: config.operationId,
 	});
-	let clearTimer: ReturnType<typeof setTimeout> | null = null;
+	let clearTimer: WeaveTimerHandle | null = null;
 	const clear = (clearDelayMs = 0) => {
 		if (clearTimer !== null) {
 			window.clearTimeout(clearTimer);

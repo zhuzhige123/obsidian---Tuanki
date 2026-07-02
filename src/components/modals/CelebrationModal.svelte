@@ -57,7 +57,7 @@
     }
     
     // 延迟显示内容（等待礼花动画）
-    setTimeout(() => {
+    window.setTimeout(() => {
       showContent = true;
     }, 300);
   });

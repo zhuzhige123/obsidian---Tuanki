@@ -111,7 +111,7 @@ export class ErrorHandler {
 		}
 
 		if (error && typeof error === "object" && "message" in error) {
-			return String((error as unknown).message);
+			return String((error as { message?: unknown }).message);
 		}
 
 		return "未知错误";

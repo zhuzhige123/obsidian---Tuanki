@@ -328,7 +328,7 @@
     
     // 设置标志，防止立即触发遮罩层点击关闭
     justFinishedDragging = true;
-    setTimeout(() => {
+    window.setTimeout(() => {
       justFinishedDragging = false;
     }, 100);
 

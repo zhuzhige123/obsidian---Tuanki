@@ -9,6 +9,7 @@ import type { FSRSCard } from "../data/types";
 import { Rating } from "../data/types";
 import type { FSRS6Parameters, FSRS6PerformanceMetrics } from "../types/fsrs6-types";
 import { FSRS6Error } from "../types/fsrs6-types";
+import type { WeaveIntervalHandle } from "../types/timer-handle";
 
 interface AlgorithmPoolConfig {
 	maxInstances: number;
@@ -39,7 +40,7 @@ export class FSRS6ServiceManager {
 	private cache: Map<string, CacheEntry<unknown>> = new Map();
 	private config: AlgorithmPoolConfig;
 	private performanceMetrics: FSRS6PerformanceMetrics;
-	private cleanupTimer?: ReturnType<typeof setInterval>;
+	private cleanupTimer?: WeaveIntervalHandle;
 
 	private constructor(config?: Partial<AlgorithmPoolConfig>) {
 		this.config = {

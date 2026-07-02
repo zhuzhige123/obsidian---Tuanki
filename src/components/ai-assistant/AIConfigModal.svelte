@@ -101,7 +101,7 @@
   $effect(() => {
     if (isOpen && !wasOpen) {
       focusManager.saveFocus();
-      setTimeout(() => {
+      window.setTimeout(() => {
         if (!modalEl) return;
         lastTrapEl = modalEl;
         const firstFocusable = modalEl.querySelector(
@@ -285,7 +285,7 @@
     };
     applyClass();
     requestAnimationFrame(applyClass);
-    setTimeout(applyClass, 0);
+    window.setTimeout(applyClass, 0);
   }
 
   function openSystemPromptSelectMenu(event: MouseEvent) {

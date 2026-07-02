@@ -355,7 +355,7 @@ export class ImportMappingManager {
 		return {
 			totalMappings: all.length,
 			syncedMappings: all.filter((m) => m.syncStatus === "synced").length,
-			conflictMappings: all.filter((m) => (m as unknown).syncStatus === "conflict").length,
+			conflictMappings: all.filter((m) => (m as { syncStatus?: string }).syncStatus === "conflict").length,
 		};
 	}
 }

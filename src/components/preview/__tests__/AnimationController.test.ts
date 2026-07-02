@@ -10,7 +10,7 @@ Object.defineProperty(window, 'getComputedStyle', {
 
 // Mock requestAnimationFrame
 global.requestAnimationFrame = vi.fn().mockImplementation((cb) => {
-  setTimeout(cb, 16); // Simulate 60fps
+  window.setTimeout(cb, 16); // Simulate 60fps
   return 1;
 });
 

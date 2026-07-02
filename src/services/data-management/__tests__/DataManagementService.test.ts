@@ -156,6 +156,16 @@ function createMemoryPlugin(initialFiles: Record<string, string> = {}, initialDi
       }
       folders.delete(normalized);
     },
+    rename: async (oldPath: string, newPath: string) => {
+      const normalizedOld = normalizeTestPath(oldPath);
+      const normalizedNew = normalizeTestPath(newPath);
+      const content = files.get(normalizedOld);
+      if (content === undefined) {
+        throw new Error(`File not found: ${normalizedOld}`);
+      }
+      files.delete(normalizedOld);
+      writeText(normalizedNew, content);
+    },
     rmdir: async (dir: string, recursive = false) => {
       const normalized = normalizeTestPath(dir);
       if (recursive) {
@@ -186,6 +196,9 @@ function createMemoryPlugin(initialFiles: Record<string, string> = {}, initialDi
         getPlugin: vi.fn(() => null),
       },
       fileManager: {
+        renameFile: async (file: { path: string }, newPath: string) => {
+          await adapter.rename(file.path, newPath);
+        },
         processFrontMatter: vi.fn(async (file: { path: string }, handler: (frontmatter: Record<string, unknown>) => void) => {
           const normalized = normalizeTestPath(file.path);
           const current = files.get(normalized);
@@ -385,7 +398,7 @@ describe('DataManagementService', () => {
 
     const repairConsistencySpy = vi
       .spyOn(DataConsistencyService.prototype, 'repairConsistency')
-      .mockResolvedValue({ success: true });
+      .mockResolvedValue({ success: true, repairedCards: 0, cleanedInvalidRefs: 0 });
 
     const service = new DataManagementService(plugin);
     const result = await service.fix('duplicate_cards', { allowHighRisk: true });
@@ -396,6 +409,119 @@ describe('DataManagementService', () => {
       failed: 0
     });
     expect(plugin.dataStorage.deleteCards).toHaveBeenCalledWith(['card-dup']);
+    repairConsistencySpy.mockRestore();
+  });
+
+  it('aborts duplicate-card deletion when pre-repair consistency fails', async () => {
+    const { plugin } = createMemoryPlugin();
+    plugin.dataStorage.getCards.mockResolvedValue([
+      {
+        uuid: 'card-keep',
+        content: '---\nwe_decks:\n  - 牌组A\n---\n重复内容',
+        modified: '2026-04-30T00:00:00.000Z',
+        stats: { totalReviews: 10, totalTime: 10, averageTime: 1 },
+      },
+      {
+        uuid: 'card-dup',
+        content: '---\nwe_decks:\n  - 牌组A\n---\n重复内容',
+        modified: '2026-04-30T00:00:00.000Z',
+        stats: { totalReviews: 0, totalTime: 0, averageTime: 0 },
+      },
+    ]);
+    plugin.dataStorage.deleteCards = vi.fn(async () => ({ deleted: [], failed: [] }));
+
+    vi.spyOn(DataConsistencyService.prototype, 'repairConsistency').mockResolvedValue({
+      success: false,
+      repairedCards: 0,
+      cleanedInvalidRefs: 0,
+      error: 'repair failed',
+    });
+
+    const service = new DataManagementService(plugin);
+    const result = await service.fix('duplicate_cards', { allowHighRisk: true });
+
+    expect(result).toMatchObject({
+      type: 'duplicate_cards',
+      success: 0,
+      failed: 1,
+    });
+    expect(plugin.dataStorage.deleteCards).not.toHaveBeenCalled();
+  });
+
+  it('detects legacy tutorial deck residue cards', async () => {
+    const { plugin } = createMemoryPlugin();
+    plugin.dataStorage.getCards.mockResolvedValue([
+      {
+        uuid: 'tutorial-card-1',
+        content: '---\nwe_decks:\n  - 未归组卡片\n---\n插件支持哪两种挖空标记？',
+        modified: '2026-06-15T00:00:00.000Z',
+      },
+      {
+        uuid: 'normal-card-1',
+        content: '---\nwe_decks:\n  - 我的牌组\n---\n自定义内容',
+        modified: '2026-06-15T00:00:00.000Z',
+      },
+    ]);
+
+    const service = new DataManagementService(plugin);
+    const result = await service.check('tutorial_deck_residue');
+
+    expect(result).toMatchObject({
+      type: 'tutorial_deck_residue',
+      status: 'warning',
+      count: 1,
+      items: ['tutorial-card-1'],
+    });
+  });
+
+  it('deletes tutorial deck residue cards and rebuilds deck cache', async () => {
+    const { plugin } = createMemoryPlugin();
+    let cards = [
+      {
+        uuid: 'tutorial-card-1',
+        content: '---\nwe_decks:\n  - Weave 指南\n---\n如何编写渐进式挖空卡片？',
+        modified: '2026-06-15T00:00:00.000Z',
+      },
+      {
+        uuid: 'normal-card-1',
+        content: '---\nwe_decks:\n  - 我的牌组\n---\n自定义内容',
+        modified: '2026-06-15T00:00:00.000Z',
+      },
+    ];
+
+    plugin.dataStorage.getCards.mockImplementation(async () => cards);
+    plugin.dataStorage.getDecks.mockResolvedValue([
+      {
+        id: 'deck-tutorial',
+        name: 'Weave 指南',
+        purpose: 'memory',
+        cardUUIDs: [],
+      },
+    ]);
+    plugin.dataStorage.deleteCards = vi.fn(async (uuids: string[]) => {
+      cards = cards.filter((card) => !uuids.includes(card.uuid));
+      return {
+        deleted: uuids,
+        failed: [],
+      };
+    });
+    plugin.wdeckService.isWDeckDeckId = vi.fn(() => true);
+    plugin.wdeckService.dissolveDeckByDeckId = vi.fn().mockResolvedValue(undefined);
+
+    const repairConsistencySpy = vi
+      .spyOn(DataConsistencyService.prototype, 'repairConsistency')
+      .mockResolvedValue({ success: true, repairedCards: 0, cleanedInvalidRefs: 0 });
+
+    const service = new DataManagementService(plugin);
+    const result = await service.fix('tutorial_deck_residue', { allowHighRisk: true });
+
+    expect(result).toMatchObject({
+      type: 'tutorial_deck_residue',
+      success: 1,
+      failed: 0,
+    });
+    expect(plugin.dataStorage.deleteCards).toHaveBeenCalledWith(['tutorial-card-1']);
+    expect(plugin.wdeckService.dissolveDeckByDeckId).toHaveBeenCalledWith('deck-tutorial');
     repairConsistencySpy.mockRestore();
   });
 
@@ -914,6 +1040,165 @@ describe('DataManagementService', () => {
     );
   });
 
+  it('classifies memory deck-cards and learning session migration conflicts as auto-recoverable', async () => {
+    const v2Paths = getV2Paths('');
+    const conflictDir = `${v2Paths.root}/_migration_conflicts`;
+    const { plugin } = createMemoryPlugin({
+      [`${conflictDir}/weave_memory_deck-cards_deck-a.json-1778889182527`]: JSON.stringify({
+        cardUUIDs: ['card-a'],
+      }),
+      [`${conflictDir}/weave_memory_learning_sessions_2026-03.json-1778889182528`]: JSON.stringify({
+        _schemaVersion: '1.0.0',
+        yearMonth: '2026-03',
+        sessions: [],
+      }),
+    });
+    const service = new DataManagementService(plugin);
+
+    const inspection = await service.inspectMigrationConflictFiles();
+
+    expect(inspection).toMatchObject({
+      total: 2,
+      autoRecoverableCount: 2,
+      manualReviewCount: 0,
+    });
+    expect(inspection.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          fileName: 'weave_memory_deck-cards_deck-a.json-1778889182527',
+          autoRecoverable: true,
+        }),
+        expect.objectContaining({
+          fileName: 'weave_memory_learning_sessions_2026-03.json-1778889182528',
+          autoRecoverable: true,
+        }),
+      ])
+    );
+  });
+
+  it('merges memory deck-cards migration conflicts into the formal deck-cards file', async () => {
+    const v2Paths = getV2Paths('');
+    const conflictDir = `${v2Paths.root}/_migration_conflicts`;
+    const targetPath = `${v2Paths.memory.deckCards}/deck-a.json`;
+    const conflictPath = `${conflictDir}/weave_memory_deck-cards_deck-a.json-1778889182527`;
+    const { plugin, files } = createMemoryPlugin({
+      [targetPath]: JSON.stringify({ cardUUIDs: ['card-a'] }),
+      [conflictPath]: JSON.stringify({ cardUUIDs: ['card-b'] }),
+    }, [v2Paths.memory.deckCards]);
+    const service = new DataManagementService(plugin);
+
+    const result = await service.fix('migration_conflict_files', { allowHighRisk: true });
+
+    expect(result).toMatchObject({
+      type: 'migration_conflict_files',
+      success: 1,
+      failed: 0,
+      errors: [],
+    });
+    expect(files.has(conflictPath)).toBe(false);
+    expect(JSON.parse(files.get(targetPath) || '{}')).toEqual({
+      cardUUIDs: ['card-a', 'card-b'],
+    });
+  });
+
+  it('merges memory learning session migration conflicts into the formal sessions shard', async () => {
+    const v2Paths = getV2Paths('');
+    const conflictDir = `${v2Paths.root}/_migration_conflicts`;
+    const targetPath = `${v2Paths.memory.learning.sessions}/2026-03.json`;
+    const conflictPath = `${conflictDir}/weave_memory_learning_sessions_2026-03.json-1778889182528`;
+    const { plugin, files } = createMemoryPlugin({
+      [targetPath]: JSON.stringify({
+        _schemaVersion: '1.0.0',
+        yearMonth: '2026-03',
+        sessions: [
+          {
+            id: 'session-a',
+            deckId: 'deck-a',
+            startTime: '2026-03-01T08:00:00.000Z',
+            cardsReviewed: 2,
+            newCardsLearned: 1,
+            correctAnswers: 2,
+            totalTime: 120,
+            cardReviews: [],
+          },
+        ],
+      }),
+      [conflictPath]: JSON.stringify({
+        _schemaVersion: '1.0.0',
+        yearMonth: '2026-03',
+        sessions: [
+          {
+            id: 'session-b',
+            deckId: 'deck-a',
+            startTime: '2026-03-02T08:00:00.000Z',
+            cardsReviewed: 3,
+            newCardsLearned: 0,
+            correctAnswers: 2,
+            totalTime: 180,
+            cardReviews: [],
+          },
+        ],
+      }),
+    }, [v2Paths.memory.learning.root, v2Paths.memory.learning.sessions]);
+    const service = new DataManagementService(plugin);
+
+    const result = await service.fix('migration_conflict_files', { allowHighRisk: true });
+
+    expect(result).toMatchObject({
+      type: 'migration_conflict_files',
+      success: 1,
+      failed: 0,
+      errors: [],
+    });
+    expect(files.has(conflictPath)).toBe(false);
+
+    const merged = JSON.parse(files.get(targetPath) || '{}');
+    expect(merged.sessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'session-a' }),
+        expect.objectContaining({ id: 'session-b' }),
+      ])
+    );
+  });
+
+  it('restores a missing memory learning session shard from a migration conflict copy', async () => {
+    const v2Paths = getV2Paths('');
+    const conflictDir = `${v2Paths.root}/_migration_conflicts`;
+    const targetPath = `${v2Paths.memory.learning.sessions}/2026-04.json`;
+    const conflictPath = `${conflictDir}/weave_memory_learning_sessions_2026-04.json-1778889182529`;
+    const { plugin, files } = createMemoryPlugin({
+      [conflictPath]: JSON.stringify({
+        _schemaVersion: '1.0.0',
+        yearMonth: '2026-04',
+        sessions: [
+          {
+            id: 'session-restored',
+            deckId: 'deck-a',
+            startTime: '2026-04-01T08:00:00.000Z',
+            cardsReviewed: 1,
+            newCardsLearned: 1,
+            correctAnswers: 1,
+            totalTime: 60,
+            cardReviews: [],
+          },
+        ],
+      }),
+    }, [v2Paths.memory.learning.root, v2Paths.memory.learning.sessions]);
+    const service = new DataManagementService(plugin);
+
+    const result = await service.fix('migration_conflict_files', { allowHighRisk: true });
+
+    expect(result).toMatchObject({
+      type: 'migration_conflict_files',
+      success: 1,
+      failed: 0,
+    });
+    expect(files.has(conflictPath)).toBe(false);
+    expect(JSON.parse(files.get(targetPath) || '{}').sessions).toEqual([
+      expect.objectContaining({ id: 'session-restored' }),
+    ]);
+  });
+
   it('delegates split-plugin residue checks instead of scanning in Weave', async () => {
     const { plugin } = createMemoryPlugin({
       'notes/ir-source.md': [
@@ -1319,7 +1604,9 @@ describe('DataManagementService', () => {
     const saveCardsBatch = vi.fn().mockResolvedValue(undefined);
     const markFullRebuildRequired = vi.fn().mockResolvedValue(undefined);
     plugin.dataStorage.saveCardsBatch = saveCardsBatch;
+    plugin.dataStorage.getCurrentDefaultDeckSettings = vi.fn().mockReturnValue({});
     plugin.deckMembershipIndexService = { markFullRebuildRequired };
+    plugin.bodyFingerprintIndexService = { markFullRebuildRequired };
 
     const service = new DataManagementService(plugin);
 
@@ -1328,7 +1615,7 @@ describe('DataManagementService', () => {
     expect(result.importedCards).toBe(1);
     expect(result.importedDecks).toBe(1);
     expect(saveCardsBatch).toHaveBeenCalledTimes(1);
-    expect(markFullRebuildRequired).toHaveBeenCalledTimes(1);
+    expect(markFullRebuildRequired).toHaveBeenCalledTimes(2);
     expect(saveCardsBatch).toHaveBeenCalledWith([
       expect.objectContaining({
         uuid: 'card-1',
@@ -1575,6 +1862,132 @@ describe('DataManagementService', () => {
     expect(orphanDeck.cards).toEqual(
       expect.arrayContaining([expect.objectContaining({ uuid: 'orphan-card', content: 'orphan' })])
     );
+  });
+
+  it('skips legacy orphan cards whose body already exists in .wdeck', async () => {
+    const v2Paths = getV2Paths('');
+    const { plugin } = createMemoryPlugin({
+      [`${v2Paths.memory.cards}/default.json`]: JSON.stringify({
+        cards: [{ uuid: 'legacy-dup', content: '---\n---\n重复正文' }],
+      }),
+    });
+    plugin.dataStorage.getDecks.mockResolvedValue([]);
+    plugin.dataStorage.getCards.mockResolvedValue([
+      {
+        uuid: 'wdeck-keep',
+        content: '---\n---\n重复正文',
+        deckId: 'wdeck:未归组卡片',
+        customFields: {
+          wdeck: {
+            runtimeDeckId: 'wdeck:未归组卡片',
+            logicalDeckId: '未归组卡片',
+            logicalDeckName: '未归组卡片',
+            sourcePath: 'weave/memory/deck-files/未归组卡片_01.wdeck',
+          },
+        },
+      },
+    ]);
+
+    const service = new DataManagementService(plugin);
+    const check = await service.check('wdeck_migration');
+
+    expect(check.status).toBe('ok');
+    expect(check.count).toBe(0);
+  });
+
+  it('fixes filename compatibility when sync-safe target already exists with identical content', async () => {
+    const v2Paths = getV2Paths('');
+    const safeName = '一,基础营养学 单选题(1-50题).md';
+    const unsafeName = '一、基础营养学 单选题（1-50题）.md';
+    const { plugin, files } = createMemoryPlugin({
+      [`${v2Paths.root}/${safeName}`]: 'same body',
+      [`${v2Paths.root}/${unsafeName}`]: 'same body',
+    });
+    const service = new DataManagementService(plugin);
+
+    const before = await service.check('filename_compatibility');
+    expect(before.count).toBeGreaterThan(0);
+
+    const result = await service.fix('filename_compatibility', { allowHighRisk: true });
+    expect(result.failed).toBe(0);
+    expect(result.success).toBeGreaterThan(0);
+    expect(files.has(`${v2Paths.root}/${unsafeName}`)).toBe(false);
+    expect(files.has(`${v2Paths.root}/${safeName}`)).toBe(true);
+
+    const after = await service.check('filename_compatibility');
+    expect(after.status).toBe('ok');
+    expect(after.count).toBe(0);
+  });
+
+  it('cleans migration conflict copies when canonical sync-safe file already exists', async () => {
+    const v2Paths = getV2Paths('');
+    const safeName = '一,基础营养学 单选题(1-50题).md';
+    const conflictDir = `${v2Paths.root}/_migration_conflicts`;
+    const conflictName = 'weave_一、基础营养学 单选题（1-50题）.md-1778910631636';
+    const { plugin, files } = createMemoryPlugin(
+      {
+        [`${v2Paths.root}/${safeName}`]: 'same body',
+        [`${conflictDir}/${conflictName}`]: 'same body',
+      },
+      [conflictDir]
+    );
+    const service = new DataManagementService(plugin);
+
+    const result = await service.fix('filename_compatibility', { allowHighRisk: true });
+    expect(result.failed).toBe(0);
+    expect(result.success).toBeGreaterThan(0);
+    expect(files.has(`${conflictDir}/${conflictName}`)).toBe(false);
+
+    const after = await service.check('filename_compatibility');
+    expect(after.status).toBe('ok');
+    expect(after.count).toBe(0);
+  });
+
+  it('ignores macOS DS_Store sync junk in filename compatibility checks', async () => {
+    const v2Paths = getV2Paths('');
+    const { plugin } = createMemoryPlugin({
+      [`${v2Paths.root}/DS_Store-sync1-sync1-sync1-sync1`]: '',
+      [`${v2Paths.root}/.DS_Store`]: '',
+    });
+    const service = new DataManagementService(plugin);
+
+    const check = await service.check('filename_compatibility');
+    expect(check.status).toBe('ok');
+    expect(check.count).toBe(0);
+  });
+
+  it('cleans schema-version and vault markdown migration conflict copies through migration_conflict_files fix', async () => {
+    const v2Paths = getV2Paths('');
+    const conflictDir = `${v2Paths.root}/_migration_conflicts`;
+    const safeName = '一,基础营养学 单选题(1-50题).md';
+    const { plugin, files } = createMemoryPlugin(
+      {
+        [v2Paths.schemaVersion]: '{"schemaVersion":"3.0.0"}',
+        [`${conflictDir}/weave_schema-version.json-1778889183351`]: '{"schemaVersion":"3.0.0"}',
+        [`${conflictDir}/weave_schema-version.json-1778910631628`]: '{"schemaVersion":"2.9.0"}',
+        [`${v2Paths.root}/${safeName}`]: 'same body',
+        [`${conflictDir}/weave_一、基础营养学 单选题（1-50题）.md-1778910631636`]: 'same body',
+      },
+      [conflictDir]
+    );
+    const service = new DataManagementService(plugin);
+
+    const checkBefore = await service.check('migration_conflict_files');
+    expect(checkBefore.count).toBe(3);
+    expect(checkBefore.status).not.toBe('ok');
+
+    const result = await service.fix('migration_conflict_files', { allowHighRisk: true });
+    const remainingConflicts = [...files.keys()].filter((path) => path.includes('_migration_conflicts/'));
+    expect(remainingConflicts).toEqual([]);
+    expect(result.failed).toBe(0);
+    expect(result.success).toBe(3);
+    expect(files.has(`${conflictDir}/weave_schema-version.json-1778889183351`)).toBe(false);
+    expect(files.has(`${conflictDir}/weave_schema-version.json-1778910631628`)).toBe(false);
+    expect(files.has(`${conflictDir}/weave_一、基础营养学 单选题（1-50题）.md-1778910631636`)).toBe(false);
+
+    const checkAfter = await service.check('migration_conflict_files');
+    expect(checkAfter.status).toBe('ok');
+    expect(checkAfter.count).toBe(0);
   });
 
   it('cleans legacy memory JSON residues after verifying all legacy cards are already covered by .wdeck', async () => {

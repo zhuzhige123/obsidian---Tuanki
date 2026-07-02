@@ -1,7 +1,7 @@
 import type { FSRS } from "../../algorithms/fsrs";
 import type { StudySession } from "../../data/study-types";
 import { CardState, CardType, Rating, type Card } from "../../data/types";
-import { createMemoryStudySessionController } from "./memory-study-session-controller";
+import { createMemoryStudySessionController, resolveSessionType } from "./memory-study-session-controller";
 
 function createCard(overrides: Partial<Card> = {}): Card {
 	return {
@@ -375,5 +375,191 @@ describe("createMemoryStudySessionController", () => {
 			sessionType: "mixed",
 		});
 		expect(controller.shouldPersist()).toBe(true);
+	});
+
+	it("skips review undo snapshots when saveReviewSnapshot is not provided", async () => {
+		const queue = [createCard({ uuid: "staging-card" })];
+		let showAnswer = true;
+		let currentCardIndex = 0;
+		const session = createSession();
+		const sessionStudiedCards = new Set<string>();
+		const updateReviewStats = vi.fn();
+		const persistRatedCard = vi.fn(async () => undefined);
+
+		const controller = createMemoryStudySessionController({
+			getFsrs: () => ({
+				review: () => ({
+					card: {
+						...queue[0].fsrs,
+						state: CardState.Review,
+						due: new Date(Date.now() + 86_400_000).toISOString(),
+					},
+					log: { rating: Rating.Good },
+				}),
+			}) as unknown as FSRS,
+			getMode: () => "normal",
+			state: {
+				getCurrentCard: () => queue[currentCardIndex],
+				getShowAnswer: () => showAnswer,
+				setShowAnswer: (value) => {
+					showAnswer = value;
+				},
+				getCurrentCardIndex: () => currentCardIndex,
+				setCurrentCardIndex: (value) => {
+					currentCardIndex = value;
+				},
+				getCardStartTime: () => Date.now() - 1_000,
+				setCardStartTime: () => undefined,
+				getStudyQueue: () => queue,
+				setStudyQueue: (nextQueue) => {
+					queue.splice(0, queue.length, ...nextQueue);
+				},
+				getQueueInitialized: () => true,
+				getSession: () => session,
+				getSessionStudiedCards: () => sessionStudiedCards,
+			},
+			getLearningConfigForCard: () => ({ learningSteps: [], relearningSteps: [] }),
+			applyLearningScheduling: () => undefined,
+			updateReviewStats,
+			persistRatedCard,
+			setSessionCompletionStatus: () => undefined,
+			onFinishSession: async () => undefined,
+		});
+
+		await controller.rateCurrentCard(Rating.Good);
+
+		expect(updateReviewStats).toHaveBeenCalled();
+		expect(persistRatedCard).toHaveBeenCalledWith(queue[0]);
+	});
+
+	it("does not advance the queue when card persistence fails", async () => {
+		const queue = [createCard({ uuid: "current" }), createCard({ uuid: "later" })];
+		let showAnswer = true;
+		let currentCardIndex = 0;
+		const session = createSession();
+		const sessionStudiedCards = new Set<string>();
+		const onPersistFailed = vi.fn();
+
+		const controller = createMemoryStudySessionController({
+			getFsrs: () => ({
+				review: () => ({
+					card: {
+						...queue[0].fsrs,
+						state: CardState.Review,
+						due: new Date(Date.now() + 86_400_000).toISOString(),
+					},
+					log: { rating: Rating.Good },
+				}),
+			}) as unknown as FSRS,
+			getMode: () => "normal",
+			state: {
+				getCurrentCard: () => queue[currentCardIndex],
+				getShowAnswer: () => showAnswer,
+				setShowAnswer: (value) => {
+					showAnswer = value;
+				},
+				getCurrentCardIndex: () => currentCardIndex,
+				setCurrentCardIndex: (value) => {
+					currentCardIndex = value;
+				},
+				getCardStartTime: () => Date.now() - 1_000,
+				setCardStartTime: () => undefined,
+				getStudyQueue: () => queue,
+				setStudyQueue: (nextQueue) => {
+					queue.splice(0, queue.length, ...nextQueue);
+				},
+				getSession: () => session,
+				getSessionStudiedCards: () => sessionStudiedCards,
+			},
+			getLearningConfigForCard: () => ({ learningSteps: [], relearningSteps: [] }),
+			applyLearningScheduling: () => undefined,
+			updateReviewStats: () => undefined,
+			persistRatedCard: async () => {
+				throw new Error("save failed");
+			},
+			onPersistFailed,
+			setSessionCompletionStatus: () => undefined,
+			onFinishSession: async () => undefined,
+		});
+
+		await controller.rateCurrentCard(Rating.Good);
+
+		expect(currentCardIndex).toBe(0);
+		expect(session.cardsReviewed).toBe(0);
+		expect(sessionStudiedCards.size).toBe(0);
+		expect(onPersistFailed).toHaveBeenCalledTimes(1);
+	});
+
+	it("ignores concurrent rating requests while persistence is in flight", async () => {
+		const queue = [createCard({ uuid: "current" }), createCard({ uuid: "later" })];
+		let showAnswer = true;
+		let currentCardIndex = 0;
+		const session = createSession();
+		const sessionStudiedCards = new Set<string>();
+		let releasePersist: (() => void) | undefined;
+		const persistGate = new Promise<void>((resolve) => {
+			releasePersist = resolve;
+		});
+		const persistRatedCard = vi.fn(async () => {
+			await persistGate;
+		});
+
+		const controller = createMemoryStudySessionController({
+			getFsrs: () => ({
+				review: () => ({
+					card: {
+						...queue[0].fsrs,
+						state: CardState.Review,
+						due: new Date(Date.now() + 86_400_000).toISOString(),
+					},
+					log: { rating: Rating.Good },
+				}),
+			}) as unknown as FSRS,
+			getMode: () => "normal",
+			state: {
+				getCurrentCard: () => queue[currentCardIndex],
+				getShowAnswer: () => showAnswer,
+				setShowAnswer: (value) => {
+					showAnswer = value;
+				},
+				getCurrentCardIndex: () => currentCardIndex,
+				setCurrentCardIndex: (value) => {
+					currentCardIndex = value;
+				},
+				getCardStartTime: () => Date.now() - 1_000,
+				setCardStartTime: () => undefined,
+				getStudyQueue: () => queue,
+				setStudyQueue: (nextQueue) => {
+					queue.splice(0, queue.length, ...nextQueue);
+				},
+				getSession: () => session,
+				getSessionStudiedCards: () => sessionStudiedCards,
+			},
+			getLearningConfigForCard: () => ({ learningSteps: [], relearningSteps: [] }),
+			applyLearningScheduling: () => undefined,
+			updateReviewStats: () => undefined,
+			persistRatedCard,
+			setSessionCompletionStatus: () => undefined,
+			onFinishSession: async () => undefined,
+		});
+
+		const firstRating = controller.rateCurrentCard(Rating.Good);
+		await controller.rateCurrentCard(Rating.Easy);
+		releasePersist?.();
+		await firstRating;
+
+		expect(persistRatedCard).toHaveBeenCalledTimes(1);
+		expect(session.cardsReviewed).toBe(1);
+	});
+
+	it("classifies pure review sessions correctly", () => {
+		expect(
+			resolveSessionType({
+				...createSession(),
+				cardsReviewed: 8,
+				newCardsLearned: 0,
+				correctAnswers: 6,
+			})
+		).toBe("review");
 	});
 });

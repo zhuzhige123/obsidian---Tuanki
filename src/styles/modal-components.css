@@ -78,6 +78,17 @@
   --weave-obsidian-modal-content-overflow: auto;
 }
 
+.weave-create-question-bank-modal {
+  --weave-obsidian-modal-width: 88vw;
+  --weave-obsidian-modal-max-width: 640px;
+  --weave-obsidian-modal-height: auto;
+  --weave-obsidian-modal-max-height: 80vh;
+}
+
+.weave-create-question-bank-modal-content {
+  --weave-obsidian-modal-content-overflow: auto;
+}
+
 .weave-data-management-modal {
   --weave-obsidian-modal-width: 88vw;
   --weave-obsidian-modal-max-width: 960px;
@@ -712,37 +723,6 @@
   font-weight: 500;
 }
 
-
-/* ===== 笔记类型配置模态窗样式 ===== */
-
-/* ✅ 移除 !important：使用更具体的选择器提高优先级 */
-.weave-app .weave-note-type-config-modal .modal-content,
-.weave-app .weave-note-type-config-content {
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  overflow: visible;
-  display: flex;
-  flex-direction: column;
-}
-
-/* 确保 Svelte 组件内容正确显示 */
-.weave-app .weave-note-type-config-content .ntc-container {
-  width: 100%;
-  height: 100%;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  background: var(--background-primary);
-}
-
-/* 错误提示样式 */
-.note-type-config-error {
-  padding: 20px;
-  color: var(--text-error);
-  text-align: center;
-  font-size: 14px;
-}
 
 /* ===== 统一牌组编辑模态窗标签输入样式 ===== */
 /* 用于 IR牌组、记忆牌组、考试牌组 编辑模态窗的标签输入组件 */

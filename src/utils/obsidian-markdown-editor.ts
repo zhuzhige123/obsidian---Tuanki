@@ -108,7 +108,7 @@ export function asEditorView(cm: unknown): EditorView | null {
 	if (!isRecord(cm) || typeof cm.dispatch !== "function" || !isRecord(cm.state)) {
 		return null;
 	}
-	return cm as EditorView;
+	return cm as unknown as EditorView;
 }
 
 export function createEditorFacadeFromView(cm: EditorView): Editor {

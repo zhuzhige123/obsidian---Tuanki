@@ -2,7 +2,7 @@ import type { FSRS } from "../../algorithms/fsrs";
 import { sanitizeFsrsCardForScheduling } from "../../algorithms/fsrs-adapter";
 import type { StudySession } from "../../data/study-types";
 import { CardState, Rating, type Card } from "../../data/types";
-import type { StudyQueueState, StudySessionSnapshot } from "../../types/study-types";
+import type { StudyQueueState, StudySessionSnapshot, StudySessionType } from "../../types/study-types";
 import { getSessionQueueInsertionPlan, requeueFutureDueCards } from "../../utils/learning-steps/sessionQueueScheduling";
 import { logger } from "../../utils/logger";
 
@@ -67,6 +67,7 @@ export interface CreateMemoryStudySessionControllerOptions {
 	persistRatedCard: (card: Card) => Promise<void>;
 	afterCardPersisted?: (args: AfterCardPersistedArgs) => Promise<void> | void;
 	onInvalidFsrs?: () => void;
+	onPersistFailed?: (error: unknown) => void;
 	onBeforeAdvance?: () => Promise<void> | void;
 	onAfterAdvance?: (args: AdvanceStudyCardArgs) => Promise<void> | void;
 	setSessionCompletionStatus: (
@@ -100,17 +101,46 @@ function ensureSessionCardReviews(session: StudySession): void {
 	}
 }
 
-function resolveSessionType(session: StudySession): "review" | "new" | "learning" | "mixed" {
-	if (session.newCardsLearned > 0 && session.cardsReviewed > session.newCardsLearned) {
+function cloneCardStats(stats: Card["stats"]): Card["stats"] | undefined {
+	if (!stats) {
+		return undefined;
+	}
+	return JSON.parse(JSON.stringify(stats)) as Card["stats"];
+}
+
+function cloneFsrsSnapshot(fsrs: Card["fsrs"]): Card["fsrs"] | undefined {
+	if (!fsrs) {
+		return undefined;
+	}
+	return JSON.parse(JSON.stringify(fsrs)) as Card["fsrs"];
+}
+
+function cloneReviewHistory(history: Card["reviewHistory"]): Card["reviewHistory"] {
+	if (!history || history.length === 0) {
+		return [];
+	}
+	return JSON.parse(JSON.stringify(history)) as Card["reviewHistory"];
+}
+
+export function resolveSessionType(session: StudySession): StudySessionType {
+	const hasNew = session.newCardsLearned > 0;
+	const hasNonNewReviews = session.cardsReviewed > session.newCardsLearned;
+
+	if (hasNew && hasNonNewReviews) {
 		return "mixed";
 	}
-	if (session.newCardsLearned > 0) {
+	if (hasNew) {
 		return "new";
 	}
-	return "mixed";
+	if (session.cardsReviewed > 0) {
+		return "review";
+	}
+	return "learning";
 }
 
 export function createMemoryStudySessionController(options: CreateMemoryStudySessionControllerOptions) {
+	let ratingInFlight = false;
+
 	function isQueueInitialized(): boolean {
 		return options.state.getQueueInitialized?.() ?? options.state.getStudyQueue().length > 0;
 	}
@@ -252,6 +282,10 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 	}
 
 	async function rateCurrentCard(rating: Rating): Promise<void> {
+		if (ratingInFlight) {
+			return;
+		}
+
 		const cardToRate = options.state.getCurrentCard();
 		if (!cardToRate || !options.state.getShowAnswer()) {
 			return;
@@ -261,6 +295,8 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 			options.onInvalidFsrs?.();
 			return;
 		}
+
+		ratingInFlight = true;
 
 		const currentCardIndex = options.state.getCurrentCardIndex();
 		const session = options.state.getSession();
@@ -275,6 +311,22 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 			currentCardIndex,
 			session,
 		});
+
+		const rollbackCard = {
+			fsrs: cloneFsrsSnapshot(cardToRate.fsrs),
+			reviewHistory: cloneReviewHistory(cardToRate.reviewHistory),
+			stats: cloneCardStats(cardToRate.stats),
+		};
+		const rollbackSession = {
+			cardsReviewed: session.cardsReviewed,
+			newCardsLearned: session.newCardsLearned,
+			correctAnswers: session.correctAnswers,
+			cardReviewsLength: session.cardReviews?.length ?? 0,
+		};
+		const hadStudiedBeforeRating = options.state.getSessionStudiedCards().has(cardToRate.uuid);
+		const queueBeforeRating = [...options.state.getStudyQueue()];
+		const cardIndexBeforeAdvance = currentCardIndex;
+		const showAnswerBeforeAdvance = options.state.getShowAnswer();
 
 		const prevState = cardToRate.fsrs.state;
 		const fsrsInput = sanitizeFsrsCardForScheduling(cardToRate.fsrs);
@@ -314,6 +366,10 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 		options.state.getSessionStudiedCards().add(cardToRate.uuid);
 
 		try {
+			await handleLearningStepsInsertion(cardToRate, rating, prevState);
+			options.state.setStudyQueue([...options.state.getStudyQueue()]);
+			await nextCard();
+
 			await options.persistRatedCard(cardToRate);
 			await options.afterCardPersisted?.({
 				card: cardToRate,
@@ -323,13 +379,39 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 				log,
 				session,
 			});
-			await handleLearningStepsInsertion(cardToRate, rating, prevState);
-			options.state.setStudyQueue([...options.state.getStudyQueue()]);
 		} catch (error) {
-			logger.error("保存卡片失败", error);
-		}
+			options.state.setCurrentCardIndex(cardIndexBeforeAdvance);
+			options.state.setShowAnswer(showAnswerBeforeAdvance);
 
-		await nextCard();
+			if (rollbackCard.fsrs) {
+				cardToRate.fsrs = rollbackCard.fsrs;
+			}
+			cardToRate.reviewHistory = rollbackCard.reviewHistory;
+			if (rollbackCard.stats) {
+				cardToRate.stats = rollbackCard.stats;
+			}
+
+			session.cardsReviewed = rollbackSession.cardsReviewed;
+			session.newCardsLearned = rollbackSession.newCardsLearned;
+			session.correctAnswers = rollbackSession.correctAnswers;
+			if (session.cardReviews) {
+				session.cardReviews.length = rollbackSession.cardReviewsLength;
+			}
+
+			if (!hadStudiedBeforeRating) {
+				options.state.getSessionStudiedCards().delete(cardToRate.uuid);
+			}
+
+			options.state.setStudyQueue(queueBeforeRating);
+			options.onPersistFailed?.(error);
+			logger.error("保存卡片失败", error);
+		} finally {
+			ratingInFlight = false;
+		}
+	}
+
+	function isRatingInFlight(): boolean {
+		return ratingInFlight;
 	}
 
 	return {
@@ -340,5 +422,6 @@ export function createMemoryStudySessionController(options: CreateMemoryStudySes
 		getQueueProgress,
 		getSessionSnapshot,
 		shouldPersist,
+		isRatingInFlight,
 	};
 }

@@ -370,7 +370,7 @@
       mode: rangeSelectionMode
     });
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       wheelThrottle = false;
     }, WHEEL_THROTTLE_MS);
   }

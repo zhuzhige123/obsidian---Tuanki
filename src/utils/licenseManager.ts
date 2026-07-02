@@ -26,6 +26,11 @@ import {
 	generateStableDeviceFingerprint,
 } from "./device-fingerprint";
 import { getLicenseVaultId } from "./license-vault-id";
+import { i18n } from "./i18n";
+
+function licenseText(key: string): string {
+	return i18n.t(`about.license.validation.${key}`);
+}
 
 // 重新导出类型供其他模块使用（向后兼容）
 export type { LicenseInfo, CloudSyncInfo, ActivationCodeData };
@@ -304,13 +309,13 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			// 解析激活码
 			const parsed = this.parseActivationCode(activationCode);
 			if (!parsed) {
-				return { isValid: false, error: "激活码格式无效" };
+				return { isValid: false, error: licenseText("invalidFormat") };
 			}
 
 			// 验证签名
 			const isSignatureValid = await this.verifySignature(parsed.data, parsed.signature);
 			if (!isSignatureValid) {
-				return { isValid: false, error: "激活码签名验证失败" };
+				return { isValid: false, error: licenseText("signatureFailed") };
 			}
 
 			// 解析数据
@@ -318,12 +323,12 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			try {
 				data = JSON.parse(parsed.data) as ActivationCodeData;
 			} catch {
-				return { isValid: false, error: "激活码内容损坏，请重新复制完整激活码" };
+				return { isValid: false, error: licenseText("corruptedPayload") };
 			}
 
 			const entitlements = mapActivationDataToEntitlements(data);
 			if (entitlements.length === 0) {
-				return { isValid: false, error: "激活码不适用于当前产品" };
+				return { isValid: false, error: licenseText("wrongProduct") };
 			}
 
 			if (options?.targetProduct) {
@@ -354,7 +359,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			const now = new Date();
 			const expiresAt = new Date(data.expiresAt);
 			if (now > expiresAt) {
-				return { isValid: false, error: "激活码已过期" };
+				return { isValid: false, error: licenseText("expired") };
 			}
 
 			// 验证设备数量限制（现在支持最多5台设备）
@@ -363,7 +368,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			return { isValid: true, data };
 		} catch (error) {
 			logger.error("激活码验证失败:", error);
-			return { isValid: false, error: "激活码验证过程中发生错误" };
+			return { isValid: false, error: licenseText("verifyProcessError") };
 		}
 	}
 
@@ -394,7 +399,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 		try {
 			// 验证邮箱格式
 			if (!email || !this.isValidEmail(email)) {
-				return { success: false, error: "请输入有效的邮箱地址" };
+				return { success: false, error: licenseText("invalidEmail") };
 			}
 			const sanitizedEmail = email.toLowerCase().trim();
 
@@ -417,12 +422,12 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			if (!isCloudLicenseConfigured()) {
 				return {
 					success: false,
-					error: "云服务未配置，无法完成激活。请稍后再试或联系支持。",
+					error: licenseText("cloudNotConfigured"),
 				};
 			}
 
 			if (!this.app) {
-				return { success: false, error: "插件未初始化，请重启 Obsidian 后重试" };
+				return { success: false, error: licenseText("pluginNotInitialized") };
 			}
 
 			const vaultId = await getLicenseVaultId(this.app);
@@ -494,7 +499,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			};
 		} catch (error) {
 			logger.error("许可证激活失败:", error);
-			return { success: false, error: "激活过程中发生错误" };
+			return { success: false, error: licenseText("activationProcessError") };
 		}
 	}
 
@@ -516,7 +521,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			logger.error("移除激活状态失败:", error);
 			return {
 				success: false,
-				error: "移除激活状态时发生错误",
+				error: licenseText("removeStateError"),
 			};
 		}
 	}
@@ -552,11 +557,11 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 
 			// 基础状态检查
 			if (!normalizedLicense.isActivated) {
-				return { isValid: false, error: "许可证未激活" };
+				return { isValid: false, error: licenseText("notActivated") };
 			}
 
 			if (!normalizedLicense.activationCode) {
-				return { isValid: false, error: "激活码信息缺失" };
+				return { isValid: false, error: licenseText("missingActivationData") };
 			}
 
 			if (options?.targetProduct && !licenseAppliesToProduct(normalizedLicense, options.targetProduct)) {
@@ -587,12 +592,12 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 
 			// 检查激活时间是否合理
 			if (activatedAt > now) {
-				return { isValid: false, error: "许可证激活时间异常" };
+				return { isValid: false, error: licenseText("invalidActivationTime") };
 			}
 
 			// 检查过期时间
 			if (now > expiresAt) {
-				return { isValid: false, error: "许可证已过期" };
+				return { isValid: false, error: licenseText("licenseExpired") };
 			}
 
 			// 检查即将过期的情况
@@ -659,7 +664,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			};
 		} catch (error) {
 			logger.error("许可证验证失败:", error);
-			return { isValid: false, error: "验证过程中发生错误" };
+			return { isValid: false, error: licenseText("validationProcessError") };
 		}
 	}
 
@@ -740,7 +745,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 			}
 
 			if (!this.app) {
-				return { ok: false, error: "插件未初始化，请重启 Obsidian 后重试" };
+				return { ok: false, error: licenseText("pluginNotInitialized") };
 			}
 
 			const vaultId =
@@ -1048,7 +1053,7 @@ export class ActivationCodeValidator {
 		if (!activationCode || typeof activationCode !== "string") {
 			return {
 				isValid: false,
-				error: "请输入激活码",
+				error: licenseText("codeRequired"),
 			};
 		}
 
@@ -1058,14 +1063,14 @@ export class ActivationCodeValidator {
 		if (trimmedCode.length < 200) {
 			return {
 				isValid: false,
-				error: "激活码长度过短，请检查是否完整复制",
+				error: licenseText("codeTooShort"),
 			};
 		}
 
 		if (trimmedCode.length > 2000) {
 			return {
 				isValid: false,
-				error: "激活码长度过长，请检查是否包含多余内容",
+				error: licenseText("codeTooLong"),
 			};
 		}
 
@@ -1074,7 +1079,7 @@ export class ActivationCodeValidator {
 		if (parts.length !== 2) {
 			return {
 				isValid: false,
-				error: "激活码格式不正确，应为两部分用点号分隔",
+				error: licenseText("codeFormatInvalid"),
 			};
 		}
 
@@ -1087,7 +1092,7 @@ export class ActivationCodeValidator {
 		} catch {
 			return {
 				isValid: false,
-				error: "激活码包含无效字符，请检查是否正确复制",
+				error: licenseText("codeInvalidChars"),
 			};
 		}
 
@@ -1098,7 +1103,7 @@ export class ActivationCodeValidator {
 			if (!isRecord(data)) {
 				return {
 					isValid: false,
-					error: "激活码数据格式无效",
+					error: licenseText("codeDataInvalid"),
 				};
 			}
 
@@ -1116,7 +1121,7 @@ export class ActivationCodeValidator {
 			if (!isLegacyWeaveProductId(productId)) {
 				return {
 					isValid: false,
-					error: "此激活码不适用于当前产品",
+					error: licenseText("wrongProduct"),
 				};
 			}
 
@@ -1129,7 +1134,7 @@ export class ActivationCodeValidator {
 			if (Number.isNaN(expiresAt.getTime())) {
 				return {
 					isValid: false,
-					error: "激活码过期时间格式无效",
+					error: licenseText("codeExpiredTimeInvalid"),
 				};
 			}
 
@@ -1137,13 +1142,13 @@ export class ActivationCodeValidator {
 			if (expiresAt < new Date()) {
 				return {
 					isValid: false,
-					error: "激活码已过期",
+					error: licenseText("expired"),
 				};
 			}
 		} catch {
 			return {
 				isValid: false,
-				error: "激活码数据格式无效",
+				error: licenseText("codeDataInvalid"),
 			};
 		}
 

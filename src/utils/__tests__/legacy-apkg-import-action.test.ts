@@ -34,7 +34,7 @@ function createPluginStub(overrides: Partial<{
 		isLegacyApkgWasmFilePresent: vi.fn(async () => overrides.wasmFilePresent ?? false),
 		getLegacyApkgImportUnavailableMessage: () => "runtime missing",
 		getLegacyApkgImportRestartMessage: () => "restart required",
-	} as import("../../main").default;
+	} as unknown as import("../../main").default;
 }
 
 describe("legacy-apkg-import-action", () => {

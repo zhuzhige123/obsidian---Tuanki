@@ -1,7 +1,7 @@
 import { normalizePath } from "obsidian";
 import type { IRActiveBlockContext } from "../../stores/ir-active-block-context-store";
 import { logger } from "../../utils/logger";
-import { isDetachedEditorTempFilePath } from "./editor-temp-file-policy";
+import { isEditorBridgeTempFilePath } from "./editor-temp-file-policy";
 
 export interface ResolveEditorSourcePathOptions {
 	sourcePath?: string | null;
@@ -14,6 +14,16 @@ export interface EditorSourcePathResolution {
 	sourcePath?: string;
 	blockContext: IRActiveBlockContext | null;
 	resolvedFrom: "original" | "block-context" | "active-document" | "unresolved";
+}
+
+export interface CardTraceMetadataInput {
+	sourceFile?: string | null;
+	sourceBlock?: string | null;
+}
+
+export interface SanitizedCardTraceMetadata {
+	sourceFile?: string;
+	sourceBlock?: string;
 }
 
 function normalizeSourcePath(path?: string | null): string | undefined {
@@ -29,6 +39,14 @@ function normalizeSourcePath(path?: string | null): string | undefined {
 	return normalizePath(trimmedPath);
 }
 
+function stripNonTraceableSourcePath(sourcePath?: string): string | undefined {
+	if (!sourcePath || isEditorBridgeTempFilePath(sourcePath)) {
+		return undefined;
+	}
+
+	return sourcePath;
+}
+
 function logSourceResolutionWarning(
 	logScope: string | undefined,
 	message: string,
@@ -39,6 +57,39 @@ function logSourceResolutionWarning(
 	}
 
 	logger.warn(`${logScope} ${message}:`, error);
+}
+
+export function sanitizeCardTraceMetadata(
+	metadata?: CardTraceMetadataInput | null
+): SanitizedCardTraceMetadata {
+	const sourceFile = stripNonTraceableSourcePath(normalizeSourcePath(metadata?.sourceFile));
+	if (!sourceFile) {
+		return {};
+	}
+
+	const sourceBlock = String(metadata?.sourceBlock || "").trim();
+	return {
+		sourceFile,
+		sourceBlock: sourceBlock || undefined,
+	};
+}
+
+export function buildWeSourceLinkFromPath(
+	sourceFile?: string | null,
+	sourceBlock?: string | null
+): string | undefined {
+	const traceablePath = stripNonTraceableSourcePath(normalizeSourcePath(sourceFile));
+	if (!traceablePath) {
+		return undefined;
+	}
+
+	const docName = traceablePath.replace(/\.md$/i, "");
+	const blockId = String(sourceBlock || "").replace(/^\^/, "").trim();
+	if (blockId) {
+		return `![[${docName}#^${blockId}]]`;
+	}
+
+	return `[[${docName}]]`;
 }
 
 export async function resolveEditorSourcePathFromIR(
@@ -53,7 +104,7 @@ export async function resolveEditorSourcePathFromIR(
 
 	const shouldCheckBlockContext =
 		options.preferBlockContext ||
-		isDetachedEditorTempFilePath(sourcePath) ||
+		isEditorBridgeTempFilePath(sourcePath) ||
 		(!sourcePath && resolveMissingSourcePath);
 
 	if (shouldCheckBlockContext) {
@@ -63,7 +114,9 @@ export async function resolveEditorSourcePathFromIR(
 			);
 			blockContext = irActiveBlockContextStore.getActiveContext();
 
-			const blockSourcePath = normalizeSourcePath(blockContext?.sourcePath);
+			const blockSourcePath = stripNonTraceableSourcePath(
+				normalizeSourcePath(blockContext?.sourcePath)
+			);
 			if (blockSourcePath) {
 				sourcePath = blockSourcePath;
 				resolvedFrom = "block-context";
@@ -74,12 +127,14 @@ export async function resolveEditorSourcePathFromIR(
 	}
 
 	const shouldCheckActiveDocument =
-		isDetachedEditorTempFilePath(sourcePath) || (!sourcePath && resolveMissingSourcePath);
+		isEditorBridgeTempFilePath(sourcePath) || (!sourcePath && resolveMissingSourcePath);
 
 	if (shouldCheckActiveDocument) {
 		try {
 			const { irActiveDocumentStore } = await import("../../stores/ir-active-document-store");
-			const activeDocumentPath = normalizeSourcePath(irActiveDocumentStore.getActiveDocument());
+			const activeDocumentPath = stripNonTraceableSourcePath(
+				normalizeSourcePath(irActiveDocumentStore.getActiveDocument())
+			);
 			if (activeDocumentPath) {
 				sourcePath = activeDocumentPath;
 				resolvedFrom = "active-document";
@@ -89,6 +144,7 @@ export async function resolveEditorSourcePathFromIR(
 		}
 	}
 
+	sourcePath = stripNonTraceableSourcePath(sourcePath);
 	if (!sourcePath) {
 		resolvedFrom = "unresolved";
 	}

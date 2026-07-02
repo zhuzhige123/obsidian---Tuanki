@@ -9,14 +9,13 @@
     DEFAULT_SIMPLIFIED_PARSING_SETTINGS
   } from '../../types/newCardParsingTypes';
   import type WeavePlugin from '../../main';
+  import type { SimpleBatchParsingConfig } from '../../services/batch-parsing';
+  import { createDefaultBatchConfig } from '../../services/batch-parsing/SimpleBatchConfig';
+  import { normalizeFolderDeckMappings } from '../../types/newCardParsingTypes';
 
-  // 导入拆分后的子组件
   import SymbolConfigPanel from './card-parsing/SymbolConfigPanel.svelte';
-  
-  // 导入新的批量解析设置面板（扁平化设计）
   import SimpleBatchParsingPanel from './batch-parsing/SimpleBatchParsingPanel.svelte';
 
-  // Props (Svelte 5 Runes 模式)
   interface Props {
     settings?: SimplifiedParsingSettings;
     onSettingsChange?: (settings: SimplifiedParsingSettings) => void;
@@ -29,25 +28,59 @@
     plugin
   }: Props = $props();
 
-  // 状态管理 - 移除标签页切换，简化为单页面
-  
-  // 批量解析配置的响应式状态
-  let batchConfig = $state<any>(undefined);
+  let batchConfig = $state<SimpleBatchParsingConfig | undefined>(undefined);
 
-  //  调试日志：初始状态（仅在组件挂载时执行一次）
-  // 移除 $effect 避免无限循环
+  function resolveBatchConfig(): SimpleBatchParsingConfig | undefined {
+    if (!plugin?.settings?.simplifiedParsing) {
+      return undefined;
+    }
 
-  // 初始化
+    if (plugin.batchParsingManager) {
+      return plugin.batchParsingManager.getConfig();
+    }
+
+    const parsingSettings = plugin.settings.simplifiedParsing;
+    const fallback = createDefaultBatchConfig(parsingSettings);
+    const mappings = parsingSettings.batchParsing?.folderDeckMappings;
+    if (Array.isArray(mappings)) {
+      fallback.folderDeckMappings = normalizeFolderDeckMappings(
+        mappings as SimpleBatchParsingConfig['folderDeckMappings']
+      ).mappings;
+    }
+    return fallback;
+  }
+
   onMount(() => {
-    // 初始化批量解析配置
-    if (plugin?.batchParsingManager) {
-      batchConfig = plugin.batchParsingManager.getConfig();
-    } else {
-      logger.warn('[SimplifiedParsingSettings] batchParsingManager 未初始化');
+    batchConfig = resolveBatchConfig();
+    if (!batchConfig) {
+      logger.warn('[SimplifiedParsingSettings] 批量解析配置不可用');
+    } else if (!plugin?.batchParsingManager) {
+      logger.warn('[SimplifiedParsingSettings] batchParsingManager 未初始化，使用 settings 回退配置');
     }
   });
 
-  // 移除标签页切换逻辑
+  async function persistBatchConfig(newConfig: SimpleBatchParsingConfig) {
+    batchConfig = newConfig;
+
+    if (plugin?.batchParsingManager) {
+      try {
+        await plugin.batchParsingManager.updateConfig(newConfig);
+      } catch (error) {
+        logger.error('[SimplifiedParsingSettings] 配置保存失败:', error);
+      }
+      return;
+    }
+
+    if (plugin?.settings?.simplifiedParsing?.batchParsing) {
+      plugin.settings.simplifiedParsing.batchParsing.folderDeckMappings =
+        newConfig.folderDeckMappings;
+      try {
+        await plugin.saveSettings();
+      } catch (error) {
+        logger.error('[SimplifiedParsingSettings] 回退保存映射失败:', error);
+      }
+    }
+  }
 </script>
 
 <div class="simplified-parsing-settings">
@@ -60,27 +93,14 @@
     </div>
   </div>
 
-  {#if batchConfig !== undefined}
+  {#if batchConfig}
     <SimpleBatchParsingPanel
       config={batchConfig}
-      onConfigChange={async (newConfig) => {
-        batchConfig = newConfig;
-        
-        // 保存配置到插件
-        if (plugin?.batchParsingManager) {
-          try {
-            // 使用正确的方法名保存配置
-            await plugin.batchParsingManager.updateConfig(newConfig);
-          } catch (error) {
-            logger.error('[SimplifiedParsingSettings] 配置保存失败:', error);
-          }
-        }
-      }}
+      onConfigChange={persistBatchConfig}
       app={plugin?.app}
       plugin={plugin}
     />
   {/if}
-
 </div>
 
 <style>
@@ -90,8 +110,4 @@
     margin: 0;
     padding: 0;
   }
-
-  /* 移除标签页相关样式，现在是单页面布局 */
-
-  /* settings-group样式由全局settings-common.css处理 */
 </style>

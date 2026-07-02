@@ -57,6 +57,15 @@ export interface ReviewSnapshot {
 		timestamp: number;
 		responseTime: number;
 	};
+
+	/** 评分前的学习队列（含 learning steps 重复项） */
+	studyQueueCardIds?: string[];
+
+	/** 评分前已学卡片集合 */
+	sessionStudiedCardIds?: string[];
+
+	/** 评分前 session.cardReviews 长度 */
+	cardReviewsLength?: number;
 }
 
 /**
@@ -109,6 +118,11 @@ export class ReviewUndoManager {
 					timestamp: snapshot.reviewInfo.timestamp,
 					responseTime: snapshot.reviewInfo.responseTime,
 				},
+				studyQueueCardIds: snapshot.studyQueueCardIds ? [...snapshot.studyQueueCardIds] : undefined,
+				sessionStudiedCardIds: snapshot.sessionStudiedCardIds
+					? [...snapshot.sessionStudiedCardIds]
+					: undefined,
+				cardReviewsLength: snapshot.cardReviewsLength,
 			};
 
 			this.undoStack.push(clonedSnapshot);
@@ -139,6 +153,17 @@ export class ReviewUndoManager {
 		const snapshot = this.undoStack.pop();
 		logger.debug(`[ReviewUndoManager] 撤销操作，剩余快照: ${this.undoStack.length}`);
 		return snapshot || null;
+	}
+
+	/**
+	 * 丢弃最近一次保存的快照（持久化失败时，避免无效撤销项残留）
+	 */
+	public discardLastSnapshot(): void {
+		if (this.undoStack.length === 0) {
+			return;
+		}
+		this.undoStack.pop();
+		logger.debug(`[ReviewUndoManager] 已丢弃最近快照，剩余: ${this.undoStack.length}`);
 	}
 
 	/**

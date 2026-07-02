@@ -254,7 +254,7 @@
       // 统一使用 shouldRender 控制挂载/卸载，避免嵌套条件渲染导致的 reconciliation 错误
       if (destroyOnClose) {
         // 延迟销毁内容，给动画时间
-        setTimeout(() => {
+        window.setTimeout(() => {
           shouldRender = false;
         }, 300);
       } else {

@@ -369,13 +369,12 @@ function getOrCreateMemoryManager(): ResourceReferenceManager {
 		return new ResourceReferenceManager();
 	}
 
-	const w = window as unknown;
-	if (w.__weaveMemoryManager) {
-		return w.__weaveMemoryManager as ResourceReferenceManager;
+		if (window.__weaveMemoryManager) {
+		return window.__weaveMemoryManager as ResourceReferenceManager;
 	}
 
 	const instance = new ResourceReferenceManager();
-	w.__weaveMemoryManager = instance;
+	window.__weaveMemoryManager = instance;
 	return instance;
 }
 
@@ -384,32 +383,31 @@ function getOrCreateMemoryMonitor(): MemoryMonitor {
 		return new MemoryMonitor();
 	}
 
-	const w = window as unknown;
-	if (w.__weaveMemoryMonitor) {
-		return w.__weaveMemoryMonitor as MemoryMonitor;
+		if (window.__weaveMemoryMonitor) {
+		return window.__weaveMemoryMonitor as MemoryMonitor;
 	}
 
 	const instance = new MemoryMonitor();
-	w.__weaveMemoryMonitor = instance;
+	window.__weaveMemoryMonitor = instance;
 
-	if (typeof w.__weaveMemoryManagerCleanup !== "function") {
-		w.__weaveMemoryManagerCleanup = () => {
+	if (typeof window.__weaveMemoryManagerCleanup !== "function") {
+		window.__weaveMemoryManagerCleanup = () => {
 			try {
-				(w.__weaveMemoryMonitor as MemoryMonitor | undefined)?.destroy();
+				(window.__weaveMemoryMonitor as MemoryMonitor | undefined)?.destroy();
 			} catch { /* no-op */ }
 
 			try {
-				(w.__weaveMemoryManager as ResourceReferenceManager | undefined)?.clearAll();
+				(window.__weaveMemoryManager as ResourceReferenceManager | undefined)?.clearAll();
 			} catch { /* no-op */ }
 
 			try {
-				w.__weaveMemoryMonitor = undefined;
-				w.__weaveMemoryManager = undefined;
-				w.__weaveMemoryManagerCleanup = undefined;
+				window.__weaveMemoryMonitor = undefined;
+				window.__weaveMemoryManager = undefined;
+				window.__weaveMemoryManagerCleanup = undefined;
 			} catch {
-				w.__weaveMemoryMonitor = null;
-				w.__weaveMemoryManager = null;
-				w.__weaveMemoryManagerCleanup = null;
+				window.__weaveMemoryMonitor = null;
+				window.__weaveMemoryManager = null;
+				window.__weaveMemoryManagerCleanup = null;
 			}
 		};
 	}

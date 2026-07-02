@@ -2,7 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { i18n } from '../i18n';
+import { flattenTranslationLeafKeys, i18n, translationCatalog } from '../i18n';
+
+const EN_US_ALLOWED_CJK_VALUES = new Set([
+  '简体中文',
+  '#we_已删除, #we_deleted',
+  'Zhipu AI',
+  'SiliconFlow',
+]);
 
 const TEST_FILE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE_ROOT = path.resolve(TEST_FILE_DIR, '..', '..');
@@ -74,6 +81,17 @@ function collectLiteralTranslationKeys(filePath: string): string[] {
 }
 
 describe('i18n runtime key coverage', () => {
+  it('keeps zh-CN and en-US translation catalogs aligned', () => {
+    const zhKeys = new Set(flattenTranslationLeafKeys(translationCatalog['zh-CN']));
+    const enKeys = new Set(flattenTranslationLeafKeys(translationCatalog['en-US']));
+
+    const missingInEn = [...zhKeys].filter((key) => !enKeys.has(key)).sort();
+    const missingInZh = [...enKeys].filter((key) => !zhKeys.has(key)).sort();
+
+    expect(missingInEn).toEqual([]);
+    expect(missingInZh).toEqual([]);
+  });
+
   it('keeps shared high-impact translation keys used in source resolvable in both languages', () => {
     const files = collectSourceFiles(SOURCE_ROOT);
     const keys = new Set<string>();
@@ -97,5 +115,27 @@ describe('i18n runtime key coverage', () => {
       'zh-CN': [],
       'en-US': [],
     });
+  });
+
+  it('keeps en-US translation values free of unintended Chinese text', () => {
+    const cjkPattern = /[\u4E00-\u9FFF]/;
+    const violations = flattenTranslationLeafKeys(translationCatalog['en-US'])
+      .map((key) => {
+        i18n.setLanguage('en-US');
+        const value = i18n.t(key);
+        if (!cjkPattern.test(value) || EN_US_ALLOWED_CJK_VALUES.has(value)) {
+          return null;
+        }
+        return `${key} = ${value}`;
+      })
+      .filter((entry): entry is string => Boolean(entry))
+      .sort();
+
+    expect(violations).toEqual([]);
+  });
+
+  it('does not fall back from English to Chinese for missing keys', () => {
+    i18n.setLanguage('en-US');
+    expect(i18n.t('__missing.translation.key.for.test__')).toBe('__missing.translation.key.for.test__');
   });
 });

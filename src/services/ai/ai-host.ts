@@ -25,6 +25,8 @@ export function resolveAIConfig(host: AIConfigHost): AIConfig | undefined {
 	return host.settings.aiConfig;
 }
 
+export { resolveDefaultAIProvider } from "./AIConfigService";
+
 export function resolveDefaultAISplitInstruction(host: AIConfigHost): string | undefined {
 	const value = resolveAIConfig(host)?.cardSplitting?.defaultInstruction;
 	if (typeof value !== "string") {

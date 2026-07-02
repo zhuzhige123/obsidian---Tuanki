@@ -293,7 +293,7 @@
 
       if (status.isConnected) {
         new Notice(t('ankiConnect.notices.connectSuccess'));
-        setTimeout(() => {
+        window.setTimeout(() => {
           new Notice(t('ankiConnect.notices.connectHint'), 3000);
         }, 500);
       } else {
@@ -722,7 +722,7 @@
       const hoursSinceLastFetch = (Date.now() - lastFetch.getTime()) / (1000 * 60 * 60);
 
       if (hoursSinceLastFetch > 1 && ankiDecks.length > 0) {
-        setTimeout(() => {
+        window.setTimeout(() => {
           new Notice(t('ankiConnect.notices.dataExpired'), 5000);
         }, 2000);
       }

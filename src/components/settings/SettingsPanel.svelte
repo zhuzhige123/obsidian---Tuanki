@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { logger } from '../../utils/logger';
 
   import TabNavigation from "../atoms/TabNavigation.svelte";
@@ -119,16 +120,16 @@
   });
 
   // 防抖动保存函数
-  let saveTimeout: NodeJS.Timeout | null = null;
+  let saveTimeout: WeaveTimerHandle | null = null;
 
   async function save() {
     // 清除之前的定时器
     if (saveTimeout) {
-      clearTimeout(saveTimeout);
+      window.clearTimeout(saveTimeout);
     }
 
     // 设置新的防抖动定时器
-    saveTimeout = setTimeout(async () => {
+    saveTimeout = window.setTimeout(async () => {
       try {
         await plugin.saveSettings();
       } catch (error) {

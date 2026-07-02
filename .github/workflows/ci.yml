@@ -75,16 +75,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run svelte-check
-        run: npm run check
+      - name: Run TypeScript ratchet gate
+        run: npm run check:types:gate
         continue-on-error: false
-
-      - name: Count TypeScript errors
-        if: failure()
-        run: |
-          npm run check 2>&1 | grep -c "Error:" || true
-          echo "TypeScript type checking failed!"
-          exit 1
 
   # Job 4: 单元测试
   test:

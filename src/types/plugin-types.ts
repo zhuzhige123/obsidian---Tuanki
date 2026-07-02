@@ -7,7 +7,6 @@ import type { App, Notice, Plugin } from "obsidian";
 import type { FSRS } from "../algorithms/fsrs";
 import type { SettingsWithEditor } from "../components/settings/types/settings-types";
 import type { WeaveDataStorage } from "../data/storage";
-// ContentParserService已删除，现在使用SimplifiedCardParser
 import type { AnkiConnectClient } from "../services/ankiconnect/AnkiConnectClient";
 import type { BlockLinkCleanupService } from "../services/cleanup/BlockLinkCleanupService";
 import type { DirectFileCardReader } from "../services/data/DirectFileCardReader";
@@ -30,9 +29,6 @@ export interface WeavePlugin extends Plugin {
 
 	/** 数据存储服务 */
 	dataStorage: WeaveDataStorage;
-
-	/** 内容解析服务 - 已替换为SimplifiedCardParser */
-	// contentParser: ContentParserService;
 
 	/** AnkiConnect 客户端 */
 	ankiConnectClient?: AnkiConnectClient;

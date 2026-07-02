@@ -114,7 +114,9 @@ export class ActiveFocusStrategy implements IFocusRestoreStrategy {
 		if (style.display === "none" || style.visibility === "hidden") return false;
 
 		// 检查元素是否被禁用
-		if ((element as unknown).disabled) return false;
+		if (element.instanceOf(HTMLInputElement) || element.instanceOf(HTMLButtonElement)) {
+			if (element.disabled) return false;
+		}
 
 		// 检查 tabindex
 		const tabindex = element.getAttribute("tabindex");

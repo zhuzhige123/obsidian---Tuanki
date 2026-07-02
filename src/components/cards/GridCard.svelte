@@ -5,6 +5,7 @@
   */
 -->
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   import { logger } from '../../utils/logger';
 
   import { onMount, onDestroy, tick } from 'svelte';
@@ -44,7 +45,7 @@
   // 状态管理
   let contentElement = $state<HTMLElement>();
   let isRendering = $state(false);
-  let clickTimer: NodeJS.Timeout | null = null;
+  let clickTimer: WeaveTimerHandle | null = null;
   let isHovered = $state(false);
   let showMenu = $state(false);
   let contentComponent: Component | null = null;
@@ -159,12 +160,12 @@
 
     if (clickTimer) {
       // 双击逻辑 - 直接编辑
-      clearTimeout(clickTimer);
+      window.clearTimeout(clickTimer);
       clickTimer = null;
       onEdit?.(card);
     } else {
       // 单击逻辑 - 选中/取消选中
-      clickTimer = setTimeout(() => {
+      clickTimer = window.setTimeout(() => {
         onClick?.(card);
         clickTimer = null;
       }, 250);

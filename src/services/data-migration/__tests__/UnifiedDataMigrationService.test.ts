@@ -318,6 +318,30 @@ describe('UnifiedDataMigrationService', () => {
     expect(report.conflictFiles.some((path) => path.startsWith('Archive/weave/_migration_conflicts/'))).toBe(true);
   });
 
+  it('skips archiving when source and target files already have identical content', async () => {
+    const { app, files } = createMemoryApp({
+      'weave/schema-version.json': '{"schemaVersion":"3.0.0"}',
+      'Archive/weave/schema-version.json': '{"schemaVersion":"3.0.0"}',
+    });
+    const settings: any = {
+      weaveParentFolder: '',
+      incrementalReading: { importFolder: 'weave/incremental-reading/IR' },
+    };
+
+    const service = new UnifiedDataMigrationService(app, settings);
+    const plan = await service.planDataMigration({
+      requestedParentFolder: 'Archive',
+      reason: 'change-parent-folder',
+    });
+    const report = await service.executeDataMigration(plan);
+
+    expect(report.conflicts).toBe(0);
+    expect(report.conflictFiles).toEqual([]);
+    expect(files.has('Archive/weave/_migration_conflicts')).toBe(false);
+    expect(files.has('weave/schema-version.json')).toBe(false);
+    expect(files.get('Archive/weave/schema-version.json')).toBe('{"schemaVersion":"3.0.0"}');
+  });
+
   it('rewrites known persisted path references and backs them up before migration', async () => {
     const { app, files } = createMemoryApp({
       'weave/memory/decks.json': '{"decks":[]}',

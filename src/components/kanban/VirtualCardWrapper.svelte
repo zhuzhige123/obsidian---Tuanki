@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { WeaveTimerHandle } from "../../types/timer-handle.js";
   /**
    * 虚拟卡片包装器组件
    * 
@@ -58,7 +59,7 @@
   // DOM 引用
   let cardElement: HTMLDivElement | undefined = $state();
   let resizeObserver: ResizeObserver | null = null;
-  let clickTimer: ReturnType<typeof setTimeout> | null = null;
+  let clickTimer: WeaveTimerHandle | null = null;
 
   const cardSourcePath = $derived.by(() => {
     if (typeof card.sourceFile === 'string' && card.sourceFile.trim()) {
@@ -100,7 +101,7 @@
     // 清理函数
     return () => {
       if (clickTimer !== null) {
-        clearTimeout(clickTimer);
+        window.clearTimeout(clickTimer);
         clickTimer = null;
       }
 
@@ -119,13 +120,13 @@
     }
 
     if (clickTimer !== null) {
-      clearTimeout(clickTimer);
+      window.clearTimeout(clickTimer);
       clickTimer = null;
       onDoubleClick();
       return;
     }
 
-    clickTimer = setTimeout(() => {
+    clickTimer = window.setTimeout(() => {
       onClick?.();
       clickTimer = null;
     }, 250);

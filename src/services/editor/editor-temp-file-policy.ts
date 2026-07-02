@@ -112,7 +112,7 @@ export function getPluginEditorTempDir(app: App): string {
 }
 
 export function getVaultEditorTempDir(app: App): string {
-	return normalizePath(`${getV2PathsFromApp(app as unknown).root}/editor`);
+	return normalizePath(`${getV2PathsFromApp(app).root}/editor`);
 }
 
 export function isDetachedEditorTempFileName(name: string): boolean {
@@ -129,6 +129,12 @@ export function isDetachedEditorTempFilePath(path?: string | null): boolean {
 	const normalizedPath = normalizePath(path);
 	const fileName = normalizedPath.split("/").pop() || "";
 	return isDetachedEditorTempFileName(fileName);
+}
+
+/** 编辑器桥接临时文件（DetachedLeaf / Modal 缓冲），不可作为卡片溯源真源。 */
+export function isEditorBridgeTempFilePath(path?: string | null): boolean {
+	if (!path) return false;
+	return isDetachedEditorTempFilePath(path) || isModalEditorPermanentFilePath(path);
 }
 
 export function resolveDetachedEditorTempFolder(app: App, sourcePath?: string): string {

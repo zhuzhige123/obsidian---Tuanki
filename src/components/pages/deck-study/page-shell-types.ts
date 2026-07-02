@@ -64,7 +64,6 @@ export interface DeckStudyContentAreaProps {
 export interface DeckStudyModalHostProps {
   plugin: WeavePlugin;
   dataStorage: WeaveDataStorage;
-  showCreateQuestionBankModal: boolean;
   showCSVImportModal: boolean;
   showCelebrationModal: boolean;
   celebrationStats: CelebrationStats | null;
@@ -76,9 +75,7 @@ export interface DeckStudyModalHostProps {
   noCardsStats: DeckStudyNoCardsStats | undefined;
   promptFeatureId: string;
   showActivationPrompt: boolean;
-  onSetShowCreateQuestionBankModal: (value: boolean) => void;
   onSetShowCSVImportModal: (value: boolean) => void;
-  onLoadQBDeckTree: () => Promise<void>;
   onRefreshData: () => Promise<void>;
   onCloseCelebration: () => void;
   onCloseNoCardsModal: () => void;

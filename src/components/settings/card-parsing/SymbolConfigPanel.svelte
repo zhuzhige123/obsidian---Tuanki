@@ -94,6 +94,55 @@
 
   <!-- 配置内容 -->
   <div class="config-grid">
+      <div class="config-item">
+        <label for="cardDelimiter" class="config-label">
+          {t('settings.cardParsing.dividerConfig.cardSeparator')}
+        </label>
+        <input
+          type="text"
+          id="cardDelimiter"
+          class="config-input"
+          value={settings.symbols.cardDelimiter}
+          oninput={(e) => updateSymbol('cardDelimiter', e.currentTarget.value)}
+          placeholder="<->"
+        />
+        <small class="help-text">{t('settings.cardParsing.dividerConfig.cardSeparatorDesc')}</small>
+      </div>
+
+      <div class="config-item">
+        <label for="faceDelimiter" class="config-label">
+          {t('settings.cardParsing.dividerConfig.regex')}
+        </label>
+        <input
+          type="text"
+          id="faceDelimiter"
+          class="config-input"
+          value={settings.symbols.faceDelimiter}
+          oninput={(e) => updateSymbol('faceDelimiter', e.currentTarget.value)}
+          placeholder="---div---"
+        />
+        <small class="help-text">{t('settings.cardParsing.dividerConfig.regexDesc')}</small>
+      </div>
+
+      <div class="config-item">
+        <label for="clozeMarker" class="config-label">
+          {t('settings.cardParsing.dividerConfig.marker')}
+        </label>
+        <input
+          type="text"
+          id="clozeMarker"
+          class="config-input"
+          value={settings.symbols.clozeMarker}
+          oninput={(e) => updateSymbol('clozeMarker', e.currentTarget.value)}
+          placeholder="=="
+        />
+        <small class="help-text">{t('settings.cardParsing.dividerConfig.markerDesc')}</small>
+      </div>
+  </div>
+
+  <div class="exclude-section">
+    <h5 class="subsection-title">{t('settings.cardParsing.excludeTags.title')}</h5>
+    <div class="config-grid">
       <!-- 文件级别排除标签（系统硬编码，只读显示） -->
       <div class="config-item">
         <label for="systemExcludeTags" class="config-label">
@@ -127,6 +176,7 @@
         />
         <small class="help-text">{t('settings.cardParsing.excludeTags.desc')}</small>
       </div>
+    </div>
   </div>
 </div>
 
@@ -161,6 +211,19 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+
+  .exclude-section {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--background-modifier-border);
+  }
+
+  .subsection-title {
+    margin: 0 0 1rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-normal);
   }
 
   .config-grid {

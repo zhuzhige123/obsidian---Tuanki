@@ -1,0 +1,30 @@
+{
+  "translationKeyAliases": {
+    "ankiConnect.autoSync.enableLabel": "ankiConnect.autoSync.enable",
+    "ankiConnect.connection.connected": "ankiConnect.connection.statusLabel.connected",
+    "ankiConnect.connection.disconnected": "ankiConnect.connection.statusLabel.disconnected",
+    "ankiConnect.connection.endpointDesc": "ankiConnect.connection.address.description",
+    "ankiConnect.connection.endpointLabel": "ankiConnect.connection.address.label",
+    "ankiConnect.connection.testButton": "ankiConnect.connection.test.button",
+    "ankiConnect.connection.testing": "ankiConnect.connection.statusLabel.testing",
+    "ankiConnect.connection.testingButton": "ankiConnect.connection.test.testing",
+    "study.view.title": "study.title",
+    "toolbar.aiAssistant": "navigation.aiAssistant",
+    "toolbar.newCard": "ui.newCard",
+    "ui.confirmDelete": "common.confirmDelete",
+    "weave.mobileOpenMenu": "views.weave.mobileOpenMenu"
+  },
+  "translationAliasSuffixes": [
+    ["Label", "label"],
+    ["Desc", "description"],
+    ["Description", "description"],
+    ["Placeholder", "placeholder"],
+    ["Title", "title"],
+    ["Button", "button"],
+    ["Help", "help"],
+    ["Error", "error"],
+    ["Success", "success"],
+    ["Warning", "warning"],
+    ["Info", "info"]
+  ]
+}

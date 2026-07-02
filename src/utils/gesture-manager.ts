@@ -1,3 +1,4 @@
+import type { WeaveTimerHandle } from "../types/timer-handle.js";
 /**
  * 🎯 触控手势管理器
  * 为平板端提供滑动、长按、双击等手势支持
@@ -41,7 +42,7 @@ export interface TouchState {
 	currentPoint: TouchPoint | null;
 	isTracking: boolean;
 	startTime: number;
-	longPressTimer: ReturnType<typeof setTimeout> | null;
+	longPressTimer: WeaveTimerHandle | null;
 	lastTap: TouchPoint | null;
 }
 

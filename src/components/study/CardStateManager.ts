@@ -428,7 +428,7 @@ export class CardStateManager {
 					const matchedDeck = this.decks.find((deck) => deck.id === cardDeckId);
 					const fallbackLabel =
 						this.dataSourceType === "incremental-reading"
-							? String((_card as unknown)?.ir_deck || "").trim() || this.t("cards.kanban.fallback.unassignedTopic")
+							? String(_card.ir_deck || "").trim() || this.t("cards.kanban.fallback.unassignedTopic")
 							: cardDeckId;
 					deckGroups.push({
 						key: cardDeckId,

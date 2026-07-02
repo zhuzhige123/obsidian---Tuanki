@@ -24,16 +24,26 @@ import {
 	DataManagementService,
 	resetDataManagementService,
 } from "./services/data-management/DataManagementService";
+import {
+	resolveStartupDataCheckMode,
+	shouldBlockWeaveMainInterface,
+	shouldOpenStartupDataManagementModal as shouldOpenStartupDataManagementModalForMode,
+	type DataManagementGateEvaluation,
+	type StartupDataCheckMode,
+	type StartupDataGateBaseline,
+} from "./services/data-management/DataManagementStartupGate";
 import EditorContextManager from "./services/editor/EditorContextManager";
 import type { EmbeddableEditorManager } from "./services/editor/EmbeddableEditorManager";
 import type { EffectiveLicenseState, LicenseInfo, LicensedProduct } from "./types/license";
 import { DEFAULT_LICENSE_INFO, DEFAULT_LICENSE_STORE } from "./types/license";
 import type { CreateCardOptions } from "./types/modal-types";
+import type { Card } from "./data/types";
 import type { CreateCardStagingSessionParams } from "./types/card-staging-types";
 import {
 	getCardStagingSessionService,
 } from "./services/ai/CardStagingSessionService";
 import { filterPreviewItemsForStudyMode } from "./services/ai/card-staging-card-builder";
+import { isKnownAIProvider } from "./services/ai/AIConfigService";
 import { isDevBuild } from "./utils/build-env";
 import { licenseManager } from "./utils/licenseManager";
 import { initMediaDebug } from "./utils/mediaDebugHelper";
@@ -65,6 +75,7 @@ import {
 	type AISecretConfigShape,
 	type AISecretStorageProvider,
 } from "./services/ai/ai-secret-storage";
+import { applyAIRequestPolicyFromSettings } from "./services/ai/AIConfigService";
 import { DEFAULT_EMERGENT_RULE_GROUP } from "./services/deck/emergent-rule-groups";
 import type {
 	SettingsWithEditor,
@@ -108,6 +119,7 @@ import {
 } from "./services/incremental-reading/folder-subscription-settings";
 import { BatchParsingFileWatcher } from "./services/BatchParsingFileWatcher";
 import { GlobalDataCache } from "./services/GlobalDataCache";
+import { fireBackgroundInitTasks } from "./utils/background-service-init";
 import { BatchCardSaver } from "./services/batch/BatchCardSaver";
 import { ParsedCardConverter } from "./services/converter/ParsedCardConverter";
 import { MaskDataParser } from "./services/image-mask/MaskDataParser";
@@ -122,9 +134,9 @@ import { createWeaveDeckCodeBlockProcessor } from "./services/markdown/WeaveDeck
 import { WEAVE_DECKS_CODE_BLOCK_LANGUAGE } from "./services/markdown/weaveDeckCodeBlock";
 import { ReadingCategory } from "./types/incremental-reading-types";
 import type { FolderDeckMapping, ParsedCard } from "./types/newCardParsingTypes";
-import type { IRChunkFileData, IRDeck } from "./types/ir-types";
+import type { IRChunkFileData, IRDeck, IRSourceFileMeta } from "./types/ir-types";
 import { registerMobileCanvasPaneMenuPatch } from "./utils/canvas-pane-menu-mobile";
-import { initI18n, syncI18nWithObsidianLanguage } from "./utils/i18n";
+import { initI18n, syncI18nWithObsidianLanguage, t } from "./utils/i18n";
 import { logger } from "./utils/logger";
 import {
 	cloneLicenseAsInherited,
@@ -180,6 +192,8 @@ import type { WeaveDomainAPI } from "./services/weave-domain";
 import { saveMemoryCard, saveMemoryDeck, WeaveDomainService } from "./services/weave-domain";
 import { IndexManagerService } from "./services/index/IndexManagerService";
 import { MediaManagementService } from "./services/media/MediaManagementService";
+import { WeaveAttachmentService } from "./services/media/WeaveAttachmentService";
+import { AttachmentRegistryService } from "./services/media/AttachmentRegistryService";
 
 // 高级功能守卫
 import { PREMIUM_FEATURES, PremiumFeatureGuard } from "./services/premium/PremiumFeatureGuard";
@@ -210,7 +224,7 @@ import { IRDeckSelectorModal } from "./modals/IRDeckSelectorModal";
 import { BlockLinkCleanupService } from "./services/cleanup/BlockLinkCleanupService";
 import { EditorTempFileCleanupService } from "./services/cleanup/EditorTempFileCleanupService";
 import { GlobalCleanupScanner } from "./services/cleanup/GlobalCleanupScanner";
-import { IRPdfBookmarkTaskService } from "./services/incremental-reading/IRPdfBookmarkTaskService";
+import { IRPdfBookmarkTaskService, type IRPdfBookmarkTask } from "./services/incremental-reading/IRPdfBookmarkTaskService";
 import { IRPointStorageService } from "./services/incremental-reading/IRPointStorageService";
 import { IRPointTagService } from "./services/incremental-reading/IRPointTagService";
 import { detectTraceSourceKind, normalizeTraceDocumentKey } from "./services/incremental-reading/IRSourceTraceStats";
@@ -227,6 +241,12 @@ import { showObsidianConfirm } from "./utils/obsidian-confirm";
 import { extractAllTags } from "./utils/yaml-utils";
 
 import { SelectedTextAISplitPreviewLayer } from "./services/editor/SelectedTextAISplitPreviewLayer";
+import {
+	buildWeSourceLinkFromPath,
+	resolveEditorSourcePathFromIR,
+	sanitizeCardTraceMetadata,
+} from "./services/editor/editor-source-path-resolver";
+import { isEditorBridgeTempFilePath } from "./services/editor/editor-temp-file-policy";
 import { AIActionManagerObsidian } from "./components/study/AIActionManagerObsidian";
 
 // DirectFileCardReader - 高性能数据读取服务
@@ -248,6 +268,7 @@ import "./styles/progressive-cloze.css"; // 渐进式挖空
 import "./styles/study-interface.css"; // 学习界面
 import "./styles/study-view-layout.css";
 import { applyStyleProps } from "./utils/style-props"; // 学习视图布局（三界面共享）
+import type { WeaveTimerHandle } from "./types/timer-handle.js";
 
 function getCanvasNodeDataRecord(node: unknown): Record<string, unknown> | null {
 	const getData = readUnknownProperty(node, "getData");
@@ -683,9 +704,6 @@ export interface WeaveSettings extends SettingsWithEditor {
 	};
 
 	// 
-	noteTypeConfig?: import("./types/extract-types").NoteTypeConfig;
-
-	// 
 	autoCheckDataConsistency?: boolean; // 
 
 	// 
@@ -704,6 +722,10 @@ export interface WeaveSettings extends SettingsWithEditor {
 	hintMaxUses?: number;
 	showClozeModeSwitchButton?: boolean;
 	tutorialHints?: import("./services/tutorial/GlobalTutorialHints").GlobalTutorialHintState;
+	/** @deprecated 请使用 startupDataCheckMode；false 等价于 off */
+	enableStartupDataManagementGate?: boolean;
+	startupDataCheckMode?: StartupDataCheckMode;
+	startupDataGateBaseline?: StartupDataGateBaseline;
 }
 
 const DEFAULT_SETTINGS: WeaveSettings = {
@@ -853,6 +875,8 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 	},
 
 	showClozeModeSwitchButton: true,
+	startupDataCheckMode: "smart",
+	enableStartupDataManagementGate: true,
 
 	// 
 	hintMaxUses: 5,
@@ -984,9 +1008,6 @@ const DEFAULT_SETTINGS: WeaveSettings = {
 	},
 
 	// 
-	noteTypeConfig: undefined, // 
-
-	// 
 	autoCheckDataConsistency: false, // 
 
 	// 
@@ -1014,9 +1035,19 @@ type IRQuickCreateContext = {
 };
 
 export class WeavePlugin extends Plugin {
-	settings!: WeaveSettings;
+	declare settings: WeaveSettings;
 	dataStorage!: WeaveDataStorage;
 	fsrs!: FSRS;
+	private startupDataManagementGatePending = false;
+	private startupDataManagementModal: import("./components/modals/DataManagementModalObsidian").DataManagementModalObsidian | null =
+		null;
+	private startupDataGateEvaluation: DataManagementGateEvaluation | null = null;
+	private startupDataGateEvaluationCompleted = false;
+	private startupDataGateEvaluationPromise: Promise<void> | null = null;
+	private startupDataGateCheckResults: import("./services/data-management/DataManagementService").DataCheckResult[] =
+		[];
+	private startupDataGateMigrationResults: import("./services/data-management/DataManagementService").DataCheckResult[] =
+		[];
 	private irHostSharedService: IRHostSharedService | null = null;
 	private irPdfBookmarkTaskService: IRPdfBookmarkTaskService | null = null;
 	private lastIRSidebarRedirectNoticeAt = 0;
@@ -1163,6 +1194,8 @@ export class WeavePlugin extends Plugin {
 	cardRelationService!: unknown; // 
 	deckHierarchy!: DeckHierarchyService;
 	mediaManager!: MediaManagementService;
+	weaveAttachmentService!: WeaveAttachmentService;
+	attachmentRegistryService!: AttachmentRegistryService;
 	indexManager!: IndexManagerService;
 	filterStateService!: FilterStateService; // 
 	dataSyncService!: DataSyncService; //
@@ -1170,6 +1203,7 @@ export class WeavePlugin extends Plugin {
 	externalSyncWatcher?: ExternalSyncWatcher; // 
 	cardWeDecksPropertySyncService?: import("./services/card/CardWeDecksPropertySyncService").CardWeDecksPropertySyncService;
 	deckMembershipIndexService?: import("./services/index/DeckMembershipIndexService").DeckMembershipIndexService;
+	bodyFingerprintIndexService?: import("./services/index/BodyFingerprintIndexService").BodyFingerprintIndexService;
 	studyDueIndexService?: import("./services/index/StudyDueIndexService").StudyDueIndexService;
 
 	// 
@@ -1210,7 +1244,7 @@ export class WeavePlugin extends Plugin {
 	]);
 
 	private irStorageServiceForRename?: IRStorageService;
-	private irDeckCatalogRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+	private irDeckCatalogRefreshTimer: WeaveTimerHandle | null = null;
 	private irDeckCatalogRefreshPromise: Promise<void> | null = null;
 	// 
 	// 
@@ -1264,7 +1298,11 @@ export class WeavePlugin extends Plugin {
 	// 
 	private cachedDecks: import("./data/types").Deck[] = [];
 
-	private sourceTraceNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+	getCachedDecksSnapshot(): import("./data/types").Deck[] {
+		return this.cachedDecks;
+	}
+
+	private sourceTraceNoticeTimer: WeaveTimerHandle | null = null;
 	private sourceTraceNotice: SafeNotice | null = null;
 	private pendingSourceTraceNotice = {
 		files: 0,
@@ -1481,6 +1519,8 @@ export class WeavePlugin extends Plugin {
 		if (this.syncAISecretsIntoRuntimeSettings()) {
 			needsSave = true;
 		}
+
+		applyAIRequestPolicyFromSettings(this);
 
 		if (needsSave) {
 			await this.saveSettings();
@@ -1750,7 +1790,7 @@ export class WeavePlugin extends Plugin {
 	 */
 	private async runUnifiedDataMigration(): Promise<void> {
 		try {
-			const migrationCheck = await new DataManagementService(this as unknown).checkSchemaMigration();
+			const migrationCheck = await new DataManagementService(this).checkSchemaMigration();
 			if (migrationCheck.count <= 0) {
 				return;
 			}
@@ -1764,7 +1804,7 @@ export class WeavePlugin extends Plugin {
 
 	private async recoverMigrationConflictsOnStartup(): Promise<void> {
 		try {
-			const dataManagementService = new DataManagementService(this as unknown);
+			const dataManagementService = new DataManagementService(this);
 			const inspection = await dataManagementService.inspectMigrationConflictFiles();
 			if (inspection.total > 0) {
 				logger.warn(
@@ -1773,7 +1813,7 @@ export class WeavePlugin extends Plugin {
 				const { MigrationConflictResolutionModal } = await import(
 					"./components/modals/MigrationConflictResolutionModal"
 				);
-				new MigrationConflictResolutionModal(this.app, this as unknown, inspection).open();
+				new MigrationConflictResolutionModal(this.app, this, inspection).open();
 			}
 		} catch (error) {
 			logger.error("[Migration] Failed to inspect migration conflicts on startup:", error);
@@ -1995,6 +2035,8 @@ export class WeavePlugin extends Plugin {
 			stripAISecretsFromPersistedSettings
 		);
 
+		applyAIRequestPolicyFromSettings(this);
+
 		await this.saveData(settingsToPersist);
 
 		// 同步学习视图间距 CSS 变量
@@ -2043,40 +2085,57 @@ export class WeavePlugin extends Plugin {
 
 			const decks = await this.dataStorage.getDecks();
 			let migratedCount = 0;
+			const defaultCategoryId = categories[0].id;
+
+			const categoryIdsEqual = (left?: string[], right?: string[]): boolean => {
+				const normalizedLeft = Array.isArray(left) ? left.filter(Boolean) : [];
+				const normalizedRight = Array.isArray(right) ? right.filter(Boolean) : [];
+				if (normalizedLeft.length !== normalizedRight.length) {
+					return false;
+				}
+				return normalizedLeft.every((value, index) => value === normalizedRight[index]);
+			};
 
 			for (const deck of decks) {
-				// 跳过已有 categoryIds 的牌组
 				if (deck.categoryIds && deck.categoryIds.length > 0) {
 					continue;
 				}
 
-				// 尝试匹配旧的 category 字段
+				let nextCategoryIds = [defaultCategoryId];
+
 				if (deck.category) {
 					const matchedCategory = categories.find(
 						(c) => c.name === deck.category || c.id === deck.category
 					);
-
 					if (matchedCategory) {
-						deck.categoryIds = [matchedCategory.id];
-						await saveMemoryDeck(this, deck, "update");
-						migratedCount++;
-					} else {
-						// 未匹配到分类，分配到第一个默认分类
-						deck.categoryIds = [categories[0].id];
-						await saveMemoryDeck(this, deck, "update");
-						migratedCount++;
+						nextCategoryIds = [matchedCategory.id];
 					}
-				} else {
-					// 无旧分类，分配到第一个默认分类
-					deck.categoryIds = [categories[0].id];
-					await saveMemoryDeck(this, deck, "update");
-					migratedCount++;
 				}
+
+				if (categoryIdsEqual(deck.categoryIds, nextCategoryIds)) {
+					continue;
+				}
+
+				const updatedDeck = {
+					...deck,
+					categoryIds: nextCategoryIds,
+				};
+				const result = await saveMemoryDeck(this, updatedDeck, "update");
+				if (!result.success) {
+					logger.warn(
+						`[CategoryMigration] 牌组「${deck.name || deck.id}」分类迁移跳过: ${result.error || "未知错误"}`
+					);
+					continue;
+				}
+
+				migratedCount++;
 			}
 
 			if (migratedCount > 0) {
 				logger.info(`分类迁移完成 (${migratedCount}/${decks.length})`);
 			}
+
+			await this.dataStorage.reconcileLegacyDeckResidue();
 		} catch (error) {
 			logger.error("[CategoryMigration] 迁移失败:", error);
 			// 迁移失败不影响插件加载
@@ -2302,7 +2361,7 @@ export class WeavePlugin extends Plugin {
 			await this.recoverMigrationConflictsOnStartup();
 
 			// 1. 初始化数据存储
-			this.dataStorage = new WeaveDataStorage(this as unknown);
+			this.dataStorage = new WeaveDataStorage(this);
 			await this.dataStorage.initialize();
 			logger.info("✅ 数据存储初始化完成");
 			void this.dataStorage.promptCreateFirstDeckIfNeeded();
@@ -2322,6 +2381,7 @@ export class WeavePlugin extends Plugin {
 			markServiceReady("allCoreServices");
 
 			logger.info("✅ 所有依赖数据存储的服务初始化完成");
+			this.scheduleStartupDataGateEvaluation();
 		} catch (error) {
 			logger.error("❌ 数据存储初始化失败:", error);
 			new Notice("Weave 插件数据初始化失败，请重启 Obsidian", 8000);
@@ -2336,6 +2396,13 @@ export class WeavePlugin extends Plugin {
 		// ========== 阶段1：核心服务（必须同步初始化）==========
 		// 1. 初始化需要数据存储的核心服务
 		this.deckHierarchy = new DeckHierarchyService(this.dataStorage);
+		this.weaveAttachmentService = new WeaveAttachmentService(
+			this.app,
+			this.settings?.weaveParentFolder
+		);
+		this.attachmentRegistryService = new AttachmentRegistryService(this);
+		this.weaveAttachmentService.setRegistryService(this.attachmentRegistryService);
+		this.attachmentRegistryService.initialize();
 		this.mediaManager = new MediaManagementService(this, this.dataStorage);
 		await this.mediaManager.initialize();
 		logger.debug("[Services] MediaManagementService 已初始化");
@@ -2358,6 +2425,17 @@ export class WeavePlugin extends Plugin {
 		}
 
 		try {
+			const { initBodyFingerprintIndexService } = await import(
+				"./services/index/BodyFingerprintIndexService"
+			);
+			this.bodyFingerprintIndexService = initBodyFingerprintIndexService(this);
+			await this.bodyFingerprintIndexService.initialize();
+			logger.debug("[Services] BodyFingerprintIndexService 已初始化");
+		} catch (error) {
+			logger.error("[Services] BodyFingerprintIndexService 初始化失败:", error);
+		}
+
+		try {
 			const { initStudyDueIndexService } = await import("./services/index/StudyDueIndexService");
 			this.studyDueIndexService = initStudyDueIndexService(this);
 			await this.studyDueIndexService.initialize();
@@ -2371,133 +2449,124 @@ export class WeavePlugin extends Plugin {
 		const coreServicesTime = Date.now() - startTime;
 		logger.debug(`[Services] 核心服务初始化完成: ${coreServicesTime}ms`);
 
-		// ========== 阶段2：并行初始化独立服务（非阻塞）==========
-		// 这些服务相互独立，可以并行初始化
-		const parallelInitPromises: Promise<void>[] = [];
+		// ========== 阶段2：后台并行初始化（真正非阻塞，不拖住 allCoreServices）==========
+		this.startBackgroundServiceInits();
 
-		// 2.1 队列优化系统（异步非阻塞）
-		parallelInitPromises.push(
-			(async () => {
-				try {
-					const { QueueOptimizationFactory } = await import(
-						"./services/queue/QueueOptimizationFactory"
-					);
-					this.queueOptimizationSystem = QueueOptimizationFactory.createFromPluginSettings(
-						this.settings
-					);
-					logger.debug("[Services] Queue Optimization System initialized");
-				} catch (error) {
-					logger.error("[Services] Queue Optimization System initialization failed:", error);
-					const { QueueOptimizationFactory } = await import(
-						"./services/queue/QueueOptimizationFactory"
-					);
-					this.queueOptimizationSystem = QueueOptimizationFactory.createDefault();
-				}
-			})()
-		);
+		const totalTime = Date.now() - startTime;
+		logger.info(`[Services] ✅ 服务初始化主流程完成 (${totalTime}ms)，后台服务继续加载`);
 
-		// 2.2 题库服务（异步非阻塞）
-		parallelInitPromises.push(
-			(async () => {
-				try {
-					const { QuestionBankStorage, QuestionBankService, QuestionBankHierarchyService } =
-						await import("./services/question-bank");
+		// ========== 阶段3：延迟初始化非关键服务（完全异步，不等待）==========
+		window.setTimeout(() => {
+			this.initializeDeferredServices().catch((_error) => {
+				logger.error("[Services] 延迟服务初始化失败:", _error);
+			});
+		}, 1000);
+	}
 
-					this.questionBankStorage = new QuestionBankStorage(this.app);
-					await this.questionBankStorage.initialize();
+	/**
+	 * 后台并行初始化独立服务。
+	 * 各服务通过 service-ready 事件单独通知就绪；失败只记录具体服务名，不用全局超时误报。
+	 */
+	private startBackgroundServiceInits(): void {
+		fireBackgroundInitTasks("parallel-services", [
+			{
+				name: "QueueOptimization",
+				run: async () => {
+					try {
+						const { QueueOptimizationFactory } = await import(
+							"./services/queue/QueueOptimizationFactory"
+						);
+						this.queueOptimizationSystem = QueueOptimizationFactory.createFromPluginSettings(
+							this.settings
+						);
+					} catch (error) {
+						logger.error("[Services] Queue Optimization System initialization failed:", error);
+						const { QueueOptimizationFactory } = await import(
+							"./services/queue/QueueOptimizationFactory"
+						);
+						this.queueOptimizationSystem = QueueOptimizationFactory.createDefault();
+					}
+				},
+			},
+			{
+				name: "QuestionBank",
+				run: async () => {
+					try {
+						const { QuestionBankStorage, QuestionBankService, QuestionBankHierarchyService } =
+							await import("./services/question-bank");
 
-					this.questionBankService = new QuestionBankService(
-						this.questionBankStorage,
-						this.dataStorage
-					);
-					await this.questionBankService.initialize();
+						this.questionBankStorage = new QuestionBankStorage(this.app);
+						await this.questionBankStorage.initialize();
 
-					this.questionBankHierarchy = new QuestionBankHierarchyService(
-						this.dataStorage,
-						this.questionBankService
-					);
+						this.questionBankService = new QuestionBankService(
+							this.questionBankStorage,
+							this.dataStorage
+						);
+						await this.questionBankService.initialize();
 
-					// 注册同步钩子
-					this.deckHierarchy.registerSyncHook({
-						onMove: async (deckId: string, newParentId: string | null) => {
-							await this.questionBankHierarchy?.syncMove(deckId, newParentId);
-						},
-						onRename: async (deckId: string, newName: string) => {
-							await this.questionBankHierarchy?.syncRename(deckId, newName);
-						},
-						onDelete: async (deckId: string) => {
-							await this.questionBankHierarchy?.syncDelete(deckId);
-						},
-					});
+						this.questionBankHierarchy = new QuestionBankHierarchyService(
+							this.dataStorage,
+							this.questionBankService
+						);
 
-					// 🔥 标记题库服务已就绪
-					const { markServiceReady } = await import("./utils/service-ready-event");
-					markServiceReady("questionBankService");
+						this.deckHierarchy.registerSyncHook({
+							onMove: async (deckId: string, newParentId: string | null) => {
+								await this.questionBankHierarchy?.syncMove(deckId, newParentId);
+							},
+							onRename: async (deckId: string, newName: string) => {
+								await this.questionBankHierarchy?.syncRename(deckId, newName);
+							},
+							onDelete: async (deckId: string) => {
+								await this.questionBankHierarchy?.syncDelete(deckId);
+							},
+						});
 
-					logger.debug("[Services] Question Bank services initialized");
+						const { markServiceReady } = await import("./utils/service-ready-event");
+						markServiceReady("questionBankService");
 
-					// 数据完整性检查（延迟执行，不阻塞启动）
-					window.setTimeout(() => {
-						void (async () => {
-						try {
-							const banks = (await this.questionBankService?.getAllBanks()) ?? [];
-							const hasCorruptedData = banks.some((_bank) => typeof _bank === "string");
-							if (hasCorruptedData) {
-								logger.warn("[QuestionBank] 检测到损坏的题库数据，正在清理...");
-								await this.questionBankStorage?.saveBanks([]);
-								await this.questionBankService?.initialize();
-								logger.info("[QuestionBank] 数据已清理");
-							}
+						window.setTimeout(() => {
+							void (async () => {
+								try {
+									const banks = (await this.questionBankService?.getAllBanks()) ?? [];
+									const hasCorruptedData = banks.some((_bank) => typeof _bank === "string");
+									if (hasCorruptedData) {
+										logger.warn("[QuestionBank] 检测到损坏的题库数据，正在清理...");
+										await this.questionBankStorage?.saveBanks([]);
+										await this.questionBankService?.initialize();
+										logger.info("[QuestionBank] 数据已清理");
+									}
 
-							// 🆕 修复缺失的 pairedMemoryDeckId（在服务初始化后执行）
-							const { QuestionBankMigration } = await import("./utils/question-bank-migration");
-							await QuestionBankMigration.fixPairedMemoryDeckIdAfterInit(this);
-						} catch (dataCheckError) {
-							logger.warn("[QuestionBank] 数据检查失败（非致命错误）:", dataCheckError);
-						}
-						})();
-					}, 2000);
-				} catch (error) {
-					logger.error("[Services] Question Bank services initialization failed:", error);
-					this.questionBankService = undefined;
-					this.questionBankStorage = undefined;
-					this.questionBankHierarchy = undefined;
-				}
-			})()
-		);
-
-		// 2.4 增量摘录服务（异步非阻塞）
-		parallelInitPromises.push(
-			this.initializeIncrementalReadingServices().catch((_error) => {
-				logger.error("[Services] ❌ 增量摘录服务初始化失败:", _error);
-			})
-		);
-
-		// 2.5 全局数据缓存预加载（异步非阻塞）
-		parallelInitPromises.push(
-			(async () => {
-				const cacheStartTime = Date.now();
-				try {
+									const { QuestionBankMigration } = await import("./utils/question-bank-migration");
+									await QuestionBankMigration.fixPairedMemoryDeckIdAfterInit(this);
+								} catch (dataCheckError) {
+									logger.warn("[QuestionBank] 数据检查失败（非致命错误）:", dataCheckError);
+								}
+							})();
+						}, 2000);
+					} catch (error) {
+						logger.error("[Services] Question Bank services initialization failed:", error);
+						this.questionBankService = undefined;
+						this.questionBankStorage = undefined;
+						this.questionBankHierarchy = undefined;
+						throw error;
+					}
+				},
+			},
+			{
+				name: "IncrementalReadingCollaboration",
+				run: async () => {
+					await this.initializeIncrementalReadingServices();
+				},
+			},
+			{
+				name: "GlobalDataCache",
+				run: async () => {
 					await GlobalDataCache.getInstance().preload(this);
-					const cacheDuration = Date.now() - cacheStartTime;
-					logger.debug(`[Services] 全局数据缓存预加载完成: ${cacheDuration}ms`);
-				} catch (error) {
-					logger.error("[Services] 全局数据缓存预加载失败（不影响插件启动）:", error);
-				}
-			})()
-		);
-
-		// 2.6 分类系统数据迁移（异步非阻塞）
-		parallelInitPromises.push(
-			this.migrateDeckCategories().catch((_error) => {
-				logger.error("[Services] 分类系统迁移失败:", _error);
-			})
-		);
-
-		// 2.7 🆕 引用式牌组系统初始化（异步非阻塞）
-		parallelInitPromises.push(
-			(async () => {
-				try {
+				},
+			},
+			{
+				name: "ReferenceDeckSystem",
+				run: async () => {
 					const {
 						initDataConsistencyService,
 						initReferenceMigrationService,
@@ -2505,45 +2574,9 @@ export class WeavePlugin extends Plugin {
 
 					this.dataConsistencyService = initDataConsistencyService(this);
 					this.referenceMigrationService = initReferenceMigrationService(this);
-
-					// 可选：启动时自动检查数据一致性
-					if (this.settings.autoCheckDataConsistency) {
-						const checkResult = await this.dataConsistencyService.checkConsistency();
-						if (!checkResult.isConsistent) {
-							logger.warn("[Services] 数据一致性检查发现问题，建议执行修复");
-						}
-					}
-
-					logger.info("[Services] ✅ 引用式牌组系统初始化完成");
-				} catch (error) {
-					logger.error("[Services] 引用式牌组系统初始化失败:", error);
-				}
-			})()
-		);
-
-		// 等待所有并行初始化完成（但设置超时，避免阻塞太久）
-		try {
-			await Promise.race([
-				Promise.all(parallelInitPromises),
-				new Promise((_, reject) => window.setTimeout(() => reject(new Error("并行初始化超时")), 8000)),
-			]);
-		} catch (error) {
-			logger.warn("[Services] 部分服务初始化超时，继续启动:", error);
-		}
-
-		const parallelServicesTime = Date.now() - startTime;
-		logger.info(`[Services] ✅ 并行服务初始化完成 (${parallelServicesTime}ms)`);
-
-		// ========== 阶段3：延迟初始化非关键服务（完全异步，不等待）==========
-		// 这些服务不影响核心功能，可以在空闲时初始化
-		window.setTimeout(() => {
-			this.initializeDeferredServices().catch((_error) => {
-				logger.error("[Services] 延迟服务初始化失败:", _error);
-			});
-		}, 1000);
-
-		const totalTime = Date.now() - startTime;
-		logger.info(`[Services] ✅ 服务初始化主流程完成 (${totalTime}ms)`);
+				},
+			},
+		]);
 	}
 
 	/**
@@ -2565,6 +2598,25 @@ export class WeavePlugin extends Plugin {
 			}
 		} catch (error) {
 			logger.error("[Services] 全局数据缓存预加载失败（不影响插件启动）:", error);
+		}
+
+		// 分类系统一次性迁移（可能遍历全部牌组，不阻塞启动主路径）
+		try {
+			await this.migrateDeckCategories();
+		} catch (error) {
+			logger.error("[Services] 分类系统迁移失败:", error);
+		}
+
+		// 可选：启动后数据一致性检查（可能较慢，依赖 ReferenceDeckSystem 后台初始化）
+		try {
+			if (this.settings.autoCheckDataConsistency && this.dataConsistencyService) {
+				const checkResult = await this.dataConsistencyService.checkConsistency();
+				if (!checkResult.isConsistent) {
+					logger.warn("[Services] 数据一致性检查发现问题，建议执行修复");
+				}
+			}
+		} catch (error) {
+			logger.error("[Services] 数据一致性检查失败:", error);
 		}
 
 		// 9. 🆕 初始化批量解析文件监听器
@@ -2628,7 +2680,7 @@ export class WeavePlugin extends Plugin {
 		}
 
 		// 14. 旧版 deck JSON 反向索引（仅 legacy 存储存在时构建，避免与 WDeck 重复全库扫描）
-		logger.debug("跳过 CardIndexService：已弃用 deck JSON 全量索引，统一使用 .wdeck 与牌组成员索引");
+		logger.debug("牌组索引由 .wdeck 与 DeckMembershipIndexService 提供，跳过旧版 deck JSON 全量索引");
 
 		// ✅ 视图注册已移至 onload() 同步部分，确保在 workspace 恢复前注册
 
@@ -2710,6 +2762,12 @@ export class WeavePlugin extends Plugin {
 	 */
 	async initializeAutoBackup(): Promise<void> {
 		try {
+			const { runWeaveBackupMaintenance } = await import("./services/backup/WeaveBackupService");
+			const cleanup = await runWeaveBackupMaintenance(this);
+			if (cleanup.removed > 0) {
+				logger.debug(`[Backup] 已清理 ${cleanup.removed} 个旧时间戳备份目录`);
+			}
+
 			const { AutoBackupScheduler } = await import("./services/backup/AutoBackupScheduler");
 
 			this.autoBackupScheduler = new AutoBackupScheduler(
@@ -2892,7 +2950,8 @@ export class WeavePlugin extends Plugin {
 				: undefined;
 		const hasLegacyInterval = typeof rawSettings?.dataBackupIntervalHours === "number";
 		const hasLegacyAutoBackup = typeof rawSettings?.autoBackup === "boolean";
-		const hasLegacyBackupFields = hasLegacyInterval || hasLegacyAutoBackup;
+		const hasLegacyBackupFields =
+			hasLegacyInterval || hasLegacyAutoBackup || rawSettings?.backupRetentionCount != null;
 		const hasStoredAutoBackupConfig = rawSettings?.autoBackupConfig != null;
 
 		if (!hasLegacyBackupFields) {
@@ -2915,6 +2974,7 @@ export class WeavePlugin extends Plugin {
 		const settingsRecord = this.settings as unknown as Record<string, unknown>;
 		delete settingsRecord.dataBackupIntervalHours;
 		delete settingsRecord.autoBackup;
+		delete settingsRecord.backupRetentionCount;
 		logger.debug("旧自动备份字段已清理并收口到 autoBackupConfig");
 		return true;
 	}
@@ -3150,7 +3210,7 @@ export class WeavePlugin extends Plugin {
 			}
 
 			// 2. 逐张转换 ParsedCard 到 Card（支持每张卡片的独立 deckId）
-			const convertedCards: unknown[] = [];
+			const convertedCards: Card[] = [];
 
 			for (const parsedCard of parsedCards) {
 				// 🔒 二次验证：targetDeckId 必须存在（批量解析的强制要求）
@@ -3266,7 +3326,7 @@ export class WeavePlugin extends Plugin {
 		// 命令1: 批量解析当前文件（保留，这是有用的功能）
 		this.addCommand({
 			id: "batch-parse-current-file",
-			name: "批量解析当前文件",
+			name: i18n.t("commands.batchParseCurrentFile.name"),
 			icon: "file-text",
 			checkCallback: (checking: boolean) => {
 				if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.BATCH_PARSING)) {
@@ -3296,7 +3356,7 @@ export class WeavePlugin extends Plugin {
 		if (this.shouldRegisterIncrementalReadingOwnedCommands()) {
 			this.addCommand({
 			id: "ir-create-pdf-bookmark-task-current-view",
-			name: "增量阅读：新建 PDF 书签任务（当前视图）",
+			name: i18n.t("commands.irCreatePdfBookmarkTaskCurrentView.name"),
 			icon: "bookmark",
 			checkCallback: (checking: boolean) => {
 				const activeFile = this.app.workspace.getActiveFile();
@@ -3329,7 +3389,7 @@ export class WeavePlugin extends Plugin {
 
 			this.addCommand({
 			id: "ir-create-pdf-bookmark-task-current-selection",
-			name: "增量阅读：新建 PDF 书签任务（当前选区）",
+			name: i18n.t("commands.irCreatePdfBookmarkTaskCurrentSelection.name"),
 			icon: "bookmark",
 			checkCallback: (checking: boolean) => {
 				const activeFile = this.app.workspace.getActiveFile();
@@ -3362,7 +3422,7 @@ export class WeavePlugin extends Plugin {
 
 			this.addCommand({
 			id: "ir-create-pdf-bookmark-tasks-from-outline",
-			name: "增量阅读：从 PDF 目录生成书签任务",
+			name: i18n.t("commands.irCreatePdfBookmarkTasksFromOutline.name"),
 			icon: "bookmark",
 			checkCallback: (checking: boolean) => {
 				const activeFile = this.app.workspace.getActiveFile();
@@ -3398,7 +3458,7 @@ export class WeavePlugin extends Plugin {
 
 		this.addCommand({
 			id: "batch-parse-all-mappings",
-			name: "批量解析所有映射文件",
+			name: i18n.t("commands.batchParseAllMappings.name"),
 			icon: "files",
 			checkCallback: (checking: boolean) => {
 				if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.BATCH_PARSING)) {
@@ -3424,7 +3484,7 @@ export class WeavePlugin extends Plugin {
 		// 命令3: 批量解析全局同步（扫描所有启用的映射并同步）
 		this.addCommand({
 			id: "batch-parse-sync-all",
-			name: "批量解析：全局同步",
+			name: i18n.t("commands.batchParseSyncAll.name"),
 			icon: "refresh-cw",
 			checkCallback: (checking: boolean) => {
 				if (!this.shouldShowPremiumEntry(PREMIUM_FEATURES.BATCH_PARSING)) {
@@ -3484,31 +3544,15 @@ export class WeavePlugin extends Plugin {
 
 					// 获取文件信息
 					const activeFile = ctx?.file;
-					let sourceFile: string | undefined;
-					if (activeFile) {
-						sourceFile = activeFile.path;
-					}
-
-					// v3.1: 当sourceFile为临时文件时，从IR store获取真实来源
-					if (sourceFile && /weave-editor-/.test(sourceFile)) {
-						try {
-							const { irActiveBlockContextStore } = await import(
-								"./stores/ir-active-block-context-store"
-							);
-							const irCtx = irActiveBlockContextStore.getActiveContext();
-							if (irCtx?.sourcePath) {
-								sourceFile = irCtx.sourcePath;
-							} else {
-								const { irActiveDocumentStore } = await import("./stores/ir-active-document-store");
-								const irDoc = irActiveDocumentStore.getActiveDocument();
-								if (irDoc) sourceFile = irDoc;
-							}
-						} catch { /* no-op */ }
-					}
+					const sourceResolution = await resolveEditorSourcePathFromIR({
+						sourcePath: activeFile?.path,
+						logScope: "[移动端AI处理]",
+					});
+					const sourceFile = sourceResolution.sourcePath;
 
 					// 准备卡片内容（使用选中文本作为正面）
 					const cardContent = `${selection}\n\n---div---\n\n`;
-					const cardMetadata: unknown = {};
+					const cardMetadata: NonNullable<CreateCardOptions["cardMetadata"]> = {};
 					if (sourceFile) {
 						cardMetadata.sourceFile = sourceFile;
 					}
@@ -3536,7 +3580,7 @@ export class WeavePlugin extends Plugin {
 		// ➕ 快速添加卡片命令（移动端友好）
 		this.addCommand({
 			id: "mobile-quick-add-card",
-			name: "快速添加卡片",
+			name: i18n.t("commands.quickAddCard.name"),
 			icon: "plus",
 			callback: async () => {
 				try {
@@ -3733,7 +3777,7 @@ export class WeavePlugin extends Plugin {
 				});
 
 			// 监听激活提示事件
-			this.registerDomEvent(window, "Weave:open-activation" as unknown, () => {
+			this.registerDomEvent(window, "Weave:open-activation", () => {
 				// 打开设置页面并导航到关于标签
 				void this.activateView(VIEW_TYPE_WEAVE);
 				window.setTimeout(() => {
@@ -3814,7 +3858,7 @@ export class WeavePlugin extends Plugin {
 			// 注册命令（不依赖dataStorage）
 			this.addCommand({
 				id: "open-main-view",
-				name: "打开主视图",
+				name: i18n.t("commands.openMainView.name"),
 				icon: "brain",
 				callback: () => {
 					void this.activateView(VIEW_TYPE_WEAVE);
@@ -3823,7 +3867,7 @@ export class WeavePlugin extends Plugin {
 
 			this.addCommand({
 				id: "quick-add-card",
-				name: "快速添加卡片",
+				name: i18n.t("commands.quickAddCard.name"),
 				icon: "plus",
 				callback: async () => {
 					// 使用统一的 openCreateCardModal 方法
@@ -3834,7 +3878,7 @@ export class WeavePlugin extends Plugin {
 			if (this.shouldRegisterIncrementalReadingOwnedCommands()) {
 				this.addCommand({
 					id: "ir-set-pdf-resume-point",
-					name: "记录 PDF 续读位置",
+					name: i18n.t("commands.irSetPdfResumePoint.name"),
 				icon: "bookmark",
 				checkCallback: (checking: boolean) => {
 					const activeFile = this.app.workspace.getActiveFile();
@@ -3862,7 +3906,7 @@ export class WeavePlugin extends Plugin {
 			if (this.shouldRegisterIncrementalReadingOwnedCommands()) {
 				this.addCommand({
 					id: "insert-ir-block-marker",
-					name: "插入内容块标记",
+					name: i18n.t("commands.insertIrBlockMarker.name"),
 				icon: "git-branch",
 				editorCallback: async (editor: Editor) => {
 					const cursor = editor.getCursor();
@@ -3889,20 +3933,34 @@ export class WeavePlugin extends Plugin {
 			// 🆕 从选中文本创建卡片（快捷键）
 			this.addCommand({
 				id: "create-card-from-selection",
-				name: "从选中文本创建卡片",
+				name: i18n.t("commands.createCardFromSelection.name"),
 				icon: "file-plus",
 				callback: async () => {
 					try {
 						logger.debug("📝 [快捷键创建卡片] 命令触发");
 
-						// 步骤1：获取选中文本（支持编辑模式和阅读模式）
+						// 步骤1：获取选中文本（支持编辑模式、插件编辑器和阅读模式）
 						let selectedText = "";
 						let editor: Editor | null = null;
 						let ctx: MarkdownView | MarkdownFileInfo | null = null;
+						let selectionFromPluginEditor = false;
 
-						// 尝试从编辑器获取（编辑模式）
+						const contextManager = EditorContextManager.getInstance();
+						if (contextManager.hasActivePluginEditor()) {
+							const pluginEditor = contextManager.getCompatibleEditor();
+							if (pluginEditor) {
+								const pluginSelection = pluginEditor.getSelection();
+								if (pluginSelection && pluginSelection.trim() !== "") {
+									selectedText = pluginSelection;
+									editor = pluginEditor;
+									selectionFromPluginEditor = true;
+								}
+							}
+						}
+
+						// 尝试从 Obsidian Markdown 编辑器获取（编辑模式）
 						const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-						if (activeView?.editor) {
+						if (!editor && activeView?.editor) {
 							editor = activeView.editor;
 							ctx = activeView;
 							selectedText = editor.getSelection();
@@ -3949,43 +4007,21 @@ export class WeavePlugin extends Plugin {
 							}
 						}
 
-						// 步骤3：获取文件信息
+						// 步骤3：获取文件信息（跳过编辑器桥接临时文件，优先解析 IR 真源）
 						const activeFile = activeView?.file || ctx?.file;
-						let sourceFile: string | undefined;
-
-						if (activeFile) {
-							sourceFile = activeFile.path;
-							logger.debug("[快捷键创建卡片] 源文件:", sourceFile);
-						}
-
-						// v3.1: 当sourceFile为空或为临时文件时，从IR store获取真实来源
-						if (!sourceFile || /weave-editor-/.test(sourceFile)) {
-							try {
-								const { irActiveBlockContextStore } = await import(
-									"./stores/ir-active-block-context-store"
-								);
-								const irCtx = irActiveBlockContextStore.getActiveContext();
-								if (irCtx?.sourcePath) {
-									sourceFile = irCtx.sourcePath;
-									logger.debug("[快捷键创建卡片] 从IR块上下文获取源文件:", sourceFile);
-								} else {
-									const { irActiveDocumentStore } = await import(
-										"./stores/ir-active-document-store"
-									);
-									const irActiveDocument = irActiveDocumentStore.getActiveDocument();
-									if (irActiveDocument) {
-										sourceFile = irActiveDocument;
-										logger.debug("[快捷键创建卡片] 从IR活动文档获取源文件:", sourceFile);
-									}
-								}
-							} catch (e) {
-								logger.warn("[快捷键创建卡片] 解析IR来源失败:", e);
-							}
-						}
+						const sourceResolution = await resolveEditorSourcePathFromIR({
+							sourcePath: activeFile?.path,
+							preferBlockContext: selectionFromPluginEditor,
+							logScope: "[快捷键创建卡片]",
+						});
+						const sourceFile = sourceResolution.sourcePath;
+						const irCtx = sourceResolution.blockContext;
 
 						if (!sourceFile) {
 							logger.warn("[快捷键创建卡片] 无文件信息，创建无溯源卡片");
 							new Notice("创建卡片（无源文档信息）", 2000);
+						} else {
+							logger.debug("[快捷键创建卡片] 源文件:", sourceFile);
 						}
 
 						// 步骤4：创建块链接
@@ -3996,10 +4032,17 @@ export class WeavePlugin extends Plugin {
 								const { BlockLinkManager } = await import("./utils/block-link-manager");
 								const blockLinkManager = new BlockLinkManager(this.app);
 
-								const blockLinkResult = await blockLinkManager.createBlockLinkForSelection(
-									selectedText,
-									sourceFile
-								);
+								const blockLinkResult = irCtx
+									? await blockLinkManager.createBlockLinkForIRSelection(
+											selectedText,
+											irCtx.sourcePath,
+											irCtx.startLine || 0,
+											irCtx.endLine || 0
+									  )
+									: await blockLinkManager.createBlockLinkForSelection(
+											selectedText,
+											sourceFile
+									  );
 
 								if (blockLinkResult.success && blockLinkResult.blockLinkInfo) {
 									blockLinkInfo = blockLinkResult.blockLinkInfo;
@@ -4025,7 +4068,7 @@ export class WeavePlugin extends Plugin {
 						const content = `${selectedText}\n\n---div---\n\n`;
 
 						// ✅ 步骤6：准备溯源信息（使用专用字段，不混入fields）
-						const cardMetadata: unknown = {};
+						const cardMetadata: NonNullable<CreateCardOptions["cardMetadata"]> = {};
 						if (blockLinkInfo) {
 							// L1溯源：完整块链接
 							cardMetadata.sourceFile = sourceFile;
@@ -4042,7 +4085,7 @@ export class WeavePlugin extends Plugin {
 						await this.openCreateCardModal({
 							initialContent: content, // ✅ 传递标准格式的content
 							cardMetadata, // ✅ 传递溯源元数据
-							onSuccess: (card: unknown) => {
+							onSuccess: (card: Card) => {
 								logger.debug("✅ [快捷键创建卡片] 卡片创建成功:", card.id);
 								new Notice("卡片创建成功", 2000);
 							},
@@ -4060,7 +4103,7 @@ export class WeavePlugin extends Plugin {
 			// 🆕 从选中文本创建增量摘录笔记（快捷键，无模态窗）
 			this.addCommand({
 				id: "create-extract-note-from-selection",
-				name: "从选中文本创建摘录笔记",
+				name: i18n.t("commands.createExtractNoteFromSelection.name"),
 				icon: "scissors",
 				callback: async () => {
 					try {
@@ -4176,10 +4219,6 @@ export class WeavePlugin extends Plugin {
 
 						logger.debug("✅ [快捷键创建摘录] 摘录创建成功:", extractCard.id);
 						new Notice("摘录笔记已添加", 2000);
-
-						// 🆕 触发摘录添加事件，通知 ExtractListView 刷新
-						this.app.workspace.trigger("Weave:extract-added" as unknown, extractCard);
-						logger.debug("📢 [快捷键创建摘录] 已触发 Weave:extract-added 事件");
 					} catch (error) {
 						logger.error("❌ [快捷键创建摘录] 执行失败:", error);
 						new Notice("创建摘录失败，请重试", 3000);
@@ -4200,7 +4239,7 @@ export class WeavePlugin extends Plugin {
 
 			this.addCommand({
 				id: "copy-selection-block-embed-link",
-				name: "复制选区块嵌入链接",
+				name: i18n.t("commands.copySelectionBlockEmbedLink.name"),
 				icon: "link",
 				callback: async () => {
 					try {
@@ -4209,7 +4248,6 @@ export class WeavePlugin extends Plugin {
 						let selectionFromPluginEditor = false;
 						let activeFile = this.app.workspace.getActiveFile();
 						let sourceFilePath: string | undefined = activeFile?.path;
-						let irCtx: { sourcePath: string; startLine: number; endLine?: number } | null = null;
 
 						const contextManager = EditorContextManager.getInstance();
 						if (contextManager.hasActivePluginEditor()) {
@@ -4248,36 +4286,15 @@ export class WeavePlugin extends Plugin {
 						}
 
 						// 增量阅读界面兼容：尝试获取 IR 当前块上下文（编辑模式或预览模式均适用）
-						// 当activeFile是临时文件或来自插件编辑器时，都应尝试获取真实来源路径
-						const isTempFile = sourceFilePath && /weave-editor-/.test(sourceFilePath);
-						if (selectionFromPluginEditor || isTempFile) {
-							try {
-								const { irActiveBlockContextStore } = await import(
-									"./stores/ir-active-block-context-store"
-								);
-								irCtx = irActiveBlockContextStore.getActiveContext();
-								if (irCtx?.sourcePath) {
-									sourceFilePath = irCtx.sourcePath;
-								}
-							} catch (error) {
-								logger.warn("⚠️ [复制块链接] 无法读取 IR 块上下文信息:", error);
-							}
-						}
+						const sourceResolution = await resolveEditorSourcePathFromIR({
+							sourcePath: sourceFilePath,
+							preferBlockContext: selectionFromPluginEditor,
+							logScope: "⚠️ [复制块链接]",
+						});
+						sourceFilePath = sourceResolution.sourcePath;
+						const irCtx = sourceResolution.blockContext;
 
-						// 增量阅读界面兼容：如果没有 sourceFilePath 或仍为临时文件，尝试从 IR 活动文档 store 获取
-						if (!sourceFilePath || /weave-editor-/.test(sourceFilePath)) {
-							try {
-								const { irActiveDocumentStore } = await import("./stores/ir-active-document-store");
-								const irActiveDocument = irActiveDocumentStore.getActiveDocument();
-								if (irActiveDocument) {
-									sourceFilePath = irActiveDocument;
-								}
-							} catch (error) {
-								logger.warn("⚠️ [复制块链接] 无法读取 IR 活动文档信息:", error);
-							}
-						}
-
-						if (!sourceFilePath || /weave-editor-/.test(sourceFilePath)) {
+						if (!sourceFilePath) {
 							new Notice("未找到源 Markdown 文件（请在文档或增量阅读材料中使用）", 3000);
 							return;
 						}
@@ -4323,7 +4340,7 @@ export class WeavePlugin extends Plugin {
 
 			this.addCommand({
 				id: "create-card-from-selection-block-embed-link",
-				name: "用选区块嵌入链接创建卡片",
+				name: i18n.t("commands.createCardFromSelectionBlockEmbedLink.name"),
 				icon: "plus",
 				callback: async () => {
 					try {
@@ -4332,7 +4349,6 @@ export class WeavePlugin extends Plugin {
 						let selectionFromPluginEditor = false;
 						let activeFile = this.app.workspace.getActiveFile();
 						let sourceFilePath: string | undefined = activeFile?.path;
-						let irCtx: { sourcePath: string; startLine: number; endLine?: number } | null = null;
 
 						const contextManager = EditorContextManager.getInstance();
 						if (contextManager.hasActivePluginEditor()) {
@@ -4371,35 +4387,15 @@ export class WeavePlugin extends Plugin {
 						}
 
 						// 增量阅读界面兼容：尝试获取 IR 当前块上下文（编辑模式或预览模式均适用）
-						const isTempFile2 = sourceFilePath && /weave-editor-/.test(sourceFilePath);
-						if (selectionFromPluginEditor || isTempFile2) {
-							try {
-								const { irActiveBlockContextStore } = await import(
-									"./stores/ir-active-block-context-store"
-								);
-								irCtx = irActiveBlockContextStore.getActiveContext();
-								if (irCtx?.sourcePath) {
-									sourceFilePath = irCtx.sourcePath;
-								}
-							} catch (error) {
-								logger.warn("⚠️ [选中块引用->新建卡片] 无法读取 IR 块上下文信息:", error);
-							}
-						}
+						const sourceResolution = await resolveEditorSourcePathFromIR({
+							sourcePath: sourceFilePath,
+							preferBlockContext: selectionFromPluginEditor,
+							logScope: "⚠️ [选中块引用->新建卡片]",
+						});
+						sourceFilePath = sourceResolution.sourcePath;
+						const irCtx = sourceResolution.blockContext;
 
-						// 增量阅读界面兼容：如果没有 sourceFilePath 或仍为临时文件，尝试从 IR 活动文档 store 获取
-						if (!sourceFilePath || /weave-editor-/.test(sourceFilePath)) {
-							try {
-								const { irActiveDocumentStore } = await import("./stores/ir-active-document-store");
-								const irActiveDocument = irActiveDocumentStore.getActiveDocument();
-								if (irActiveDocument) {
-									sourceFilePath = irActiveDocument;
-								}
-							} catch (error) {
-								logger.warn("⚠️ [选中块引用->新建卡片] 无法读取 IR 活动文档信息:", error);
-							}
-						}
-
-						if (!sourceFilePath || /weave-editor-/.test(sourceFilePath)) {
+						if (!sourceFilePath) {
 							new Notice("未找到源 Markdown 文件（请在文档或增量阅读材料中使用）", 3000);
 							return;
 						}
@@ -4507,9 +4503,11 @@ export class WeavePlugin extends Plugin {
 		// v2.1: 自动检测并提示 YAML 元数据迁移
 		*/
 			logger.debug("Weave plugin fully initialized");
-			window.setTimeout(() => {
-				void this.runLegacyFormatAutoMigration();
-			}, 3000);
+			if (this.getStartupDataCheckMode() === "off") {
+				window.setTimeout(() => {
+					void this.runLegacyFormatAutoMigration();
+				}, 3000);
+			}
 
 			// 初始化 AnkiConnect 服务（如果启用）
 			await this.initializeAnkiConnect();
@@ -4623,6 +4621,7 @@ export class WeavePlugin extends Plugin {
 		} catch { /* no-op */ }
 		try {
 			this.dataSyncService?.destroy();
+			this.attachmentRegistryService?.destroy();
 		} catch { /* no-op */ }
 		this.cleanupAnkiConnect();
 		this.cleanupAutoBackup();
@@ -4695,7 +4694,7 @@ export class WeavePlugin extends Plugin {
 				const { initialContent = "", sourceInfo, cardMetadata } = params;
 
 				// 合并溯源信息：优先使用 cardMetadata，兼容 sourceInfo
-				const metadata =
+				const rawMetadata =
 					cardMetadata ||
 					(sourceInfo
 						? {
@@ -4703,6 +4702,19 @@ export class WeavePlugin extends Plugin {
 								sourceBlock: sourceInfo.blockId,
 						  }
 						: undefined);
+				const traceResolution = await resolveEditorSourcePathFromIR({
+					sourcePath: rawMetadata?.sourceFile,
+					logScope: "[openCreateCardModal]",
+				});
+				const metadata = rawMetadata
+					? {
+							...rawMetadata,
+							...sanitizeCardTraceMetadata({
+								sourceFile: traceResolution.sourcePath,
+								sourceBlock: rawMetadata.sourceBlock,
+							}),
+					  }
+					: undefined;
 
 				// 🔑 填充新内容到现有模态窗
 				if (initialContent && this.currentCreateCardModal.updateContent) {
@@ -4747,13 +4759,6 @@ export class WeavePlugin extends Plugin {
 
 			// 获取牌组数据
 			const decks = await this.dataStorage.getAllDecks();
-
-			// 模板数据获取已简化，不再从templateStore获取
-			// const { templateStore } = await import('./stores/TemplateStore');
-			const templates: unknown[] = [];
-			// templateStore.state.subscribe(_state => {
-			// 	templates = _state.fieldTemplates || [];
-			// })();
 
 			logger.debug("🎯 [openCreateCardModal] 数据预加载完成");
 
@@ -4804,53 +4809,32 @@ export class WeavePlugin extends Plugin {
 					: [];
 
 			const yamlMetadata: Record<string, unknown> = {};
-			// v3.1: 安全网 - 检测临时文件路径并解析为真实来源文档
-			if (params.cardMetadata?.sourceFile && /weave-editor-/.test(params.cardMetadata.sourceFile)) {
+			const traceResolution = await resolveEditorSourcePathFromIR({
+				sourcePath: params.cardMetadata?.sourceFile,
+				logScope: "[openCreateCardModal]",
+			});
+			const traceMetadata = sanitizeCardTraceMetadata({
+				sourceFile: traceResolution.sourcePath,
+				sourceBlock: params.cardMetadata?.sourceBlock,
+			});
+			if (params.cardMetadata?.sourceFile && isEditorBridgeTempFilePath(params.cardMetadata.sourceFile)) {
 				logger.warn(
-					"[openCreateCardModal] 检测到临时文件路径，尝试解析真实来源:",
+					"[openCreateCardModal] 检测到编辑器临时文件路径，已跳过溯源链接:",
 					params.cardMetadata.sourceFile
 				);
-				try {
-					const { irActiveBlockContextStore } = await import(
-						"./stores/ir-active-block-context-store"
-					);
-					const irCtx = irActiveBlockContextStore.getActiveContext();
-					if (irCtx?.sourcePath) {
-						params.cardMetadata.sourceFile = irCtx.sourcePath;
-						logger.info("[openCreateCardModal] 已替换为IR块上下文来源:", irCtx.sourcePath);
-					} else {
-						const { irActiveDocumentStore } = await import("./stores/ir-active-document-store");
-						const irDoc = irActiveDocumentStore.getActiveDocument();
-						if (irDoc) {
-							params.cardMetadata.sourceFile = irDoc;
-							logger.info("[openCreateCardModal] 已替换为IR活动文档来源:", irDoc);
-						}
-					}
-				} catch (e) {
-					logger.warn("[openCreateCardModal] 解析真实来源失败:", e);
-				}
 			}
 
-			// 🔧 v2.1.1: 使用合并的 wikilink 格式
-			if (params.cardMetadata?.sourceFile) {
-				// 移除 .md 后缀用于 wikilink
-				const docName = params.cardMetadata.sourceFile.replace(/\.md$/, "");
-				const blockId = params.cardMetadata?.sourceBlock?.replace(/^\^/, ""); // 移除可能的 ^ 前缀
-
+			const weSource = buildWeSourceLinkFromPath(
+				traceMetadata.sourceFile,
+				traceMetadata.sourceBlock
+			);
+			if (weSource) {
 				logger.debug("🎯 [openCreateCardModal] 处理来源信息", {
-					sourceFile: params.cardMetadata.sourceFile,
-					sourceBlock: params.cardMetadata.sourceBlock,
-					docName,
-					blockId,
+					sourceFile: traceMetadata.sourceFile,
+					sourceBlock: traceMetadata.sourceBlock,
+					we_source: weSource,
 				});
-
-				if (blockId) {
-					// 合并格式: ![[文档名#^blockId]]
-					yamlMetadata.we_source = `![[${docName}#^${blockId}]]`;
-				} else {
-					// 仅文档: [[文档名]]
-					yamlMetadata.we_source = `[[${docName}]]`;
-				}
+				yamlMetadata.we_source = weSource;
 			}
 			if (!yamlMetadata.we_source && typeof bodyContent === "string" && bodyContent.trim()) {
 				const firstPdfOrEpubLink =
@@ -4888,8 +4872,8 @@ export class WeavePlugin extends Plugin {
 				// ❌ 不再生成 fields
 
 				// ✅ 元数据使用专用字段
-				sourceFile: params.cardMetadata?.sourceFile,
-				sourceBlock: params.cardMetadata?.sourceBlock,
+				sourceFile: traceMetadata.sourceFile,
+				sourceBlock: traceMetadata.sourceBlock,
 
 				fsrs: {
 					due: new Date().toISOString(),
@@ -4946,7 +4930,6 @@ export class WeavePlugin extends Plugin {
 					plugin: this,
 					editorPoolManager,
 					decks, // ✅ 预加载的牌组数据
-					templates, // ✅ 预加载的模板数据
 					onModalClose: () => {
 						logger.debug("🎯 [openCreateCardModal] 模态窗关闭，清理DOM");
 						void unmount(modalInstance);
@@ -4954,7 +4937,7 @@ export class WeavePlugin extends Plugin {
 						// ✅ 清理单例引用
 						this.currentCreateCardModal = null;
 					},
-					onSave: (savedCard: unknown) => {
+					onSave: (savedCard: Card) => {
 						// ✅ 只通知保存成功，不关闭模态窗
 						// 让 CreateCardModal 自己决定是否关闭（支持钉住模式）
 						logger.debug("🎯 [openCreateCardModal] 卡片保存成功，通知外部");
@@ -5017,7 +5000,7 @@ export class WeavePlugin extends Plugin {
 				logger.debug("🎯 [openEditCardModal] 强制清理旧模态窗");
 				const { unmount } = await import("svelte");
 				try {
-					void unmount(this.currentEditCardModal.instance);
+					void unmount(this.currentEditCardModal.instance as Record<string, unknown>);
 				} catch (e) {
 					logger.warn("[openEditCardModal] unmount失败:", e);
 				}
@@ -5069,7 +5052,7 @@ export class WeavePlugin extends Plugin {
 						container.remove();
 						this.currentEditCardModal = null;
 					},
-					onSave: (savedCard: unknown) => {
+					onSave: (savedCard: Card) => {
 						logger.debug("🎯 [openEditCardModal] 保存成功，立即关闭");
 						void unmount(modalInstance);
 						container.remove();
@@ -5132,6 +5115,274 @@ export class WeavePlugin extends Plugin {
 			this.app.workspace.detachLeavesOfType(IR_RUNTIME.viewTypes.focus);
 		}
 		this.showIRSidebarRedirectNotice(options?.deckPath, options?.deckName);
+	}
+
+	getStartupDataCheckMode(): StartupDataCheckMode {
+		return resolveStartupDataCheckMode(this.settings);
+	}
+
+	isStartupDataManagementGatePending(): boolean {
+		if (this.getStartupDataCheckMode() === "off") {
+			return false;
+		}
+		return this.startupDataManagementGatePending;
+	}
+
+	shouldBlockWeaveMainInterfaceForStartupGate(): boolean {
+		return shouldBlockWeaveMainInterface({
+			mode: resolveStartupDataCheckMode(this.settings),
+			pending: this.startupDataManagementGatePending,
+			evaluation: this.startupDataGateEvaluation,
+			evaluationCompleted: this.startupDataGateEvaluationCompleted,
+		});
+	}
+
+	shouldOpenStartupDataManagementModal(): boolean {
+		return shouldOpenStartupDataManagementModalForMode({
+			mode: resolveStartupDataCheckMode(this.settings),
+			pending: this.startupDataManagementGatePending,
+			evaluation: this.startupDataGateEvaluation,
+			evaluationCompleted: this.startupDataGateEvaluationCompleted,
+		});
+	}
+
+	async ensureStartupDataGateEvaluated(): Promise<void> {
+		if (this.getStartupDataCheckMode() === "off") {
+			this.startupDataManagementGatePending = false;
+			this.startupDataGateEvaluationCompleted = true;
+			return;
+		}
+
+		if (this.startupDataGateEvaluationCompleted) {
+			return;
+		}
+
+		if (!this.startupDataGateEvaluationPromise) {
+			this.scheduleStartupDataGateEvaluation();
+		}
+
+		await this.startupDataGateEvaluationPromise;
+	}
+
+	scheduleStartupDataGateEvaluation(): void {
+		if (this.getStartupDataCheckMode() === "off") {
+			this.startupDataManagementGatePending = false;
+			this.startupDataGateEvaluationCompleted = true;
+			return;
+		}
+
+		if (this.startupDataGateEvaluationPromise || !this.dataStorage) {
+			return;
+		}
+
+		this.startupDataGateEvaluationPromise = this.runStartupDataGateEvaluation()
+			.catch((error) => {
+				logger.warn("[StartupDataGate] 后台检测失败:", error);
+				if (this.getStartupDataCheckMode() !== "off") {
+					this.startupDataManagementGatePending = true;
+				}
+			})
+			.finally(() => {
+				this.startupDataGateEvaluationCompleted = true;
+				this.dispatchStartupDataGateChanged();
+			});
+	}
+
+	private async runStartupDataGateEvaluation(): Promise<void> {
+		const {
+			buildDataManagementGateFingerprint,
+			evaluateDataManagementGateReadiness,
+			hasMatchingStartupDataGateBaseline,
+			resolveStartupDataCheckMode,
+			STARTUP_GATE_MIGRATION_CHECK_TYPES,
+		} = await import("./services/data-management/DataManagementStartupGate");
+		const { DataManagementService } = await import("./services/data-management/DataManagementService");
+
+		if (!this.dataStorage) {
+			return;
+		}
+
+		const mode = resolveStartupDataCheckMode(this.settings);
+		if (mode === "off") {
+			this.startupDataManagementGatePending = false;
+			return;
+		}
+
+		const service = new DataManagementService(this);
+		const checkResults = await service.checkAll();
+		const migrationResults: import("./services/data-management/DataManagementService").DataCheckResult[] =
+			[];
+		for (const type of STARTUP_GATE_MIGRATION_CHECK_TYPES) {
+			migrationResults.push(await service.check(type));
+		}
+
+		this.startupDataGateCheckResults = checkResults;
+		this.startupDataGateMigrationResults = migrationResults;
+
+		const evaluation = evaluateDataManagementGateReadiness(checkResults, migrationResults, {
+			checksCompleted: true,
+		});
+		this.startupDataGateEvaluation = evaluation;
+
+		const fingerprint = buildDataManagementGateFingerprint(checkResults, migrationResults);
+		const pluginVersion = this.manifest.version;
+
+		if (evaluation.ready) {
+			if (mode === "smart") {
+				if (
+					hasMatchingStartupDataGateBaseline(
+						this.settings.startupDataGateBaseline,
+						fingerprint,
+						pluginVersion
+					)
+				) {
+					this.startupDataManagementGatePending = false;
+					return;
+				}
+
+				await this.persistStartupDataGateBaseline(fingerprint);
+				this.startupDataManagementGatePending = false;
+				logger.info("[StartupDataGate] 启动数据检查已通过，静默放行");
+				return;
+			}
+
+			this.startupDataManagementGatePending = true;
+			return;
+		}
+
+		this.startupDataManagementGatePending = true;
+		logger.info("[StartupDataGate] 检测到待处理数据项，将在打开主界面时提示", {
+			blockingCount: evaluation.blockingCount,
+		});
+	}
+
+	private async persistStartupDataGateBaseline(fingerprint: string): Promise<void> {
+		this.settings.startupDataGateBaseline = {
+			fingerprint,
+			passedAt: new Date().toISOString(),
+			pluginVersion: this.manifest.version,
+		};
+		await this.saveSettings();
+	}
+
+	getStartupDataGateCachedResults(): {
+		evaluationCompleted: boolean;
+		checkResults: import("./services/data-management/DataManagementService").DataCheckResult[];
+		migrationResults: import("./services/data-management/DataManagementService").DataCheckResult[];
+	} {
+		return {
+			evaluationCompleted: this.startupDataGateEvaluationCompleted,
+			checkResults: this.startupDataGateCheckResults,
+			migrationResults: this.startupDataGateMigrationResults,
+		};
+	}
+
+	syncStartupDataGateResults(
+		checkResults: import("./services/data-management/DataManagementService").DataCheckResult[],
+		migrationResults: import("./services/data-management/DataManagementService").DataCheckResult[]
+	): void {
+		this.startupDataGateCheckResults = checkResults;
+		this.startupDataGateMigrationResults = migrationResults;
+		void (async () => {
+			const { evaluateDataManagementGateReadiness } = await import(
+				"./services/data-management/DataManagementStartupGate"
+			);
+			this.startupDataGateEvaluation = evaluateDataManagementGateReadiness(
+				checkResults,
+				migrationResults,
+				{ checksCompleted: true }
+			);
+			this.dispatchStartupDataGateChanged();
+		})();
+	}
+
+	dismissStartupDataManagementGate(options?: { disableFutureAutoPopup?: boolean }): void {
+		if (options?.disableFutureAutoPopup) {
+			this.settings.startupDataCheckMode = "off";
+			this.settings.enableStartupDataManagementGate = false;
+			void this.saveSettings();
+			createSafeNotice(
+				t("management.dataManagementModal.startupGate.autoPopupDisabled"),
+				6000
+			);
+			logger.info("[StartupDataGate] 用户已关闭启动时自动弹出数据检查");
+		}
+
+		this.startupDataManagementGatePending = false;
+		this.dispatchStartupDataGateChanged();
+	}
+
+	acknowledgeStartupDataManagementGate(options?: {
+		checkResults?: import("./services/data-management/DataManagementService").DataCheckResult[];
+		migrationResults?: import("./services/data-management/DataManagementService").DataCheckResult[];
+	}): void {
+		void (async () => {
+			const checkResults = options?.checkResults ?? this.startupDataGateCheckResults;
+			const migrationResults = options?.migrationResults ?? this.startupDataGateMigrationResults;
+
+			if (options?.checkResults || options?.migrationResults) {
+				this.syncStartupDataGateResults(checkResults, migrationResults);
+			}
+
+			if (checkResults.length > 0 || migrationResults.length > 0) {
+				const { buildDataManagementGateFingerprint } = await import(
+					"./services/data-management/DataManagementStartupGate"
+				);
+				await this.persistStartupDataGateBaseline(
+					buildDataManagementGateFingerprint(checkResults, migrationResults)
+				);
+			}
+			this.startupDataManagementGatePending = false;
+			this.dispatchStartupDataGateChanged();
+		})();
+	}
+
+	private dispatchStartupDataGateChanged(): void {
+		window.dispatchEvent(
+			new CustomEvent("Weave:startup-data-gate-changed", {
+				detail: { pending: this.isStartupDataManagementGatePending() },
+			})
+		);
+	}
+
+	async openStartupDataManagementModal(options?: { force?: boolean }): Promise<void> {
+		await this.ensureStartupDataGateEvaluated();
+
+		if (!options?.force && !this.shouldOpenStartupDataManagementModal()) {
+			return;
+		}
+
+		if (this.startupDataManagementModal) {
+			return;
+		}
+
+		if (!this.dataStorage) {
+			return;
+		}
+
+		const { DataManagementModalObsidian } = await import(
+			"./components/modals/DataManagementModalObsidian"
+		);
+
+		const modal = new DataManagementModalObsidian(this.app, {
+			plugin: this,
+			startupGate: true,
+			onStartupGateAcknowledge: (payload) => {
+				this.acknowledgeStartupDataManagementGate(payload);
+				this.startupDataManagementModal = null;
+			},
+			onStartupGateDismiss: (payload) => {
+				this.dismissStartupDataManagementGate(payload);
+				this.startupDataManagementModal = null;
+			},
+			onClose: () => {
+				this.startupDataManagementModal = null;
+				this.dispatchStartupDataGateChanged();
+			},
+		});
+
+		this.startupDataManagementModal = modal;
+		modal.open();
 	}
 
 	/**
@@ -5288,7 +5539,7 @@ export class WeavePlugin extends Plugin {
 				workspace.detachLeavesOfType("anki-view");
 			}
 
-			let leaf = workspace.getLeavesOfType(viewType)[0] ?? null;
+			let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(viewType)[0] ?? null;
 
 			if (!leaf) {
 				leaf =
@@ -5709,10 +5960,7 @@ export class WeavePlugin extends Plugin {
 			await pointTagService.initialize();
 			const changed = await pointTagService.syncMarkdownChunkTags(filePath);
 			if (changed) {
-				await recomputeAndBroadcastIRData(this.app, reason, {
-					filePath,
-					tagSource: "weave_tags",
-				} as unknown);
+				await recomputeAndBroadcastIRData(this.app, reason);
 			}
 		} catch (error) {
 			logger.warn(`[IR] markdown weave_tags ????: ${filePath}`, error);
@@ -5789,11 +6037,11 @@ export class WeavePlugin extends Plugin {
 			await storage.initialize();
 
 			const chunks = await storage.getAllChunkData();
-			const chunkUpdates: import("./types/ir-types").IRChunkFileData[] = [];
+			const chunkUpdates: IRChunkFileData[] = [];
 			for (const chunk of Object.values(chunks)) {
-				if ((chunk as unknown)?.filePath === oldPath) {
-					(chunk as unknown).filePath = newPath;
-					(chunk as unknown).updatedAt = Date.now();
+				if (chunk.filePath === oldPath) {
+					chunk.filePath = newPath;
+					chunk.updatedAt = Date.now();
 					chunkUpdates.push(chunk);
 				}
 			}
@@ -5806,16 +6054,16 @@ export class WeavePlugin extends Plugin {
 			let sourceUpdated = 0;
 			for (const src of Object.values(sources)) {
 				let srcChanged = false;
-				if ((src as unknown)?.originalPath === oldPath) {
-					(src as unknown).originalPath = newPath;
+				if (src.originalPath === oldPath) {
+					src.originalPath = newPath;
 					srcChanged = true;
 				}
-				if ((src as unknown)?.rawFilePath === oldPath) {
-					(src as unknown).rawFilePath = newPath;
+				if (src.rawFilePath === oldPath) {
+					src.rawFilePath = newPath;
 					srcChanged = true;
 				}
-				if ((src as unknown)?.indexFilePath === oldPath) {
-					(src as unknown).indexFilePath = newPath;
+				if (src.indexFilePath === oldPath) {
+					src.indexFilePath = newPath;
 					srcChanged = true;
 				}
 				if (srcChanged) {
@@ -6028,9 +6276,12 @@ export class WeavePlugin extends Plugin {
 			});
 
 			if (existingLeaf) {
-				// 已有相同题库的会话，激活它
+				await existingLeaf.setViewState({
+					type: VIEW_TYPE_QUESTION_BANK,
+					state: { bankId, bankName, mode, config, resumeBehavior },
+				});
 				revealLeaf(this.app, existingLeaf);
-				logger.debug("[Plugin] ✅ 激活已存在的考试会话");
+				logger.debug("[Plugin] ✅ 激活并更新已存在的考试会话");
 				return;
 			}
 
@@ -6217,11 +6468,12 @@ export class WeavePlugin extends Plugin {
 			: Array.isArray(savedGenerationConfig?.autoTags)
 				? [...savedGenerationConfig.autoTags]
 				: undefined;
+		const lastUsedProviderRaw =
+			typeof aiConfig?.lastUsedProvider === "string"
+				? aiConfig.lastUsedProvider
+				: aiConfig?.defaultProvider;
 		return {
-			lastUsedProvider:
-				typeof aiConfig?.lastUsedProvider === "string"
-					? aiConfig.lastUsedProvider
-					: aiConfig?.defaultProvider,
+			lastUsedProvider: isKnownAIProvider(lastUsedProviderRaw) ? lastUsedProviderRaw : undefined,
 			lastUsedModel: typeof aiConfig?.lastUsedModel === "string" ? aiConfig.lastUsedModel : undefined,
 			savedGenerationConfig: savedGenerationConfig
 				? {
@@ -6695,7 +6947,7 @@ export class WeavePlugin extends Plugin {
 		// 统一清理命令1: 当前文档清理
 		this.addCommand({
 			id: "cleanup-current-file",
-			name: "清理当前文档（块链接、UUID等）",
+			name: i18n.t("commands.cleanupCurrentFile.name"),
 			icon: "eraser",
 			callback: async () => {
 				try {
@@ -6778,7 +7030,7 @@ export class WeavePlugin extends Plugin {
 		// 🧹 统一清理命令2: 全局清理
 		this.addCommand({
 			id: "cleanup-orphaned-block-links",
-			name: "全局清理（扫描所有文档的残留元数据）",
+			name: i18n.t("commands.cleanupOrphanedBlockLinks.name"),
 			icon: "trash-2",
 			callback: async () => {
 				try {
@@ -6823,7 +7075,7 @@ export class WeavePlugin extends Plugin {
 		if (this.shouldRegisterIncrementalReadingOwnedCommands()) {
 			this.addCommand({
 				id: "ir-slim-markdown-frontmatter",
-			name: "清理增量阅读冗余字段",
+			name: i18n.t("commands.irSlimMarkdownFrontmatter.name"),
 			icon: "eraser",
 			callback: async () => {
 				try {
@@ -7212,7 +7464,7 @@ export class WeavePlugin extends Plugin {
 			}
 
 			existing.updatedAt = now;
-			existing.meta = existingMeta as IRChunkFileData["meta"];
+			existing.meta = existingMeta as unknown as IRChunkFileData["meta"];
 			await storage.saveChunkData(existing);
 			return "updated";
 		}
@@ -7550,11 +7802,7 @@ export class WeavePlugin extends Plugin {
 		);
 	}
 
-	getIncrementalReadingSettings(): {
-		importFolder: string;
-		selectionQuickCreateLastFolder: string;
-		folderSubscription: IncrementalReadingFolderSubscriptionSettings;
-	} {
+	getIncrementalReadingSettings(): import("./types/plugin-settings").IncrementalReadingSettings {
 		if (!this.settings.incrementalReading) {
 			this.settings.incrementalReading = buildDefaultIncrementalReadingSettings(
 				this.settings.weaveParentFolder
@@ -8007,10 +8255,13 @@ export class WeavePlugin extends Plugin {
 					}
 				);
 				if (chunkChanged) {
-					chunkByFilePath.set(normalizePath(pendingCandidate.file.path), {
-						...(pendingCandidate.existingChunk || {}),
-						filePath: pendingCandidate.file.path,
-					});
+					chunkByFilePath.set(
+						normalizePath(pendingCandidate.file.path),
+						{
+							...(pendingCandidate.existingChunk || {}),
+							filePath: pendingCandidate.file.path,
+						} as IRChunkFileData
+					);
 				}
 				if (materialChanged || chunkChanged) {
 					changedCount++;
@@ -8692,13 +8943,7 @@ export class WeavePlugin extends Plugin {
 		file: TFile,
 		deckId: string,
 		deckName: string,
-		options?: {
-			autoSubscribedAt?: string;
-			autoSubscribedFolderPath?: string;
-			pinToToday?: boolean;
-			storage?: IRStorageService;
-			existingChunk?: unknown;
-		}
+		options?: import("./services/incremental-reading/IRHostSharedService").IREnsureExternalDocumentChunkScheduledOptions
 	): Promise<boolean> {
 		return await this.getIRHostSharedService().ensureExternalDocumentChunkScheduled(
 			file,
@@ -8820,7 +9065,7 @@ export class WeavePlugin extends Plugin {
 
 			return await new Promise((resolve) => {
 				let resolved = false;
-				let closeTimer: ReturnType<typeof setTimeout> | null = null;
+				let closeTimer: WeaveTimerHandle | null = null;
 				const settle = (value: { id: string; name: string } | null) => {
 					if (resolved) {
 						return;
@@ -9099,8 +9344,8 @@ export class WeavePlugin extends Plugin {
 		const existing = await service.getTasksByDeckIdentifiers(await this.getIRDeckIdentifiers(picked));
 		const existingKeys = new Set<string>();
 		for (const t of existing) {
-			const link = String((t as unknown)?.link || "").trim();
-			const pdfPath = String((t as unknown)?.pdfPath || "").trim();
+			const link = String(t.link || "").trim();
+			const pdfPath = String(t.pdfPath || "").trim();
 			const m = link.match(/\bpage=(\d+)\b/i);
 			const pageNumber = m ? Number(m[1]) : 0;
 			if (pdfPath && pageNumber > 0) {
@@ -9407,7 +9652,7 @@ export class WeavePlugin extends Plugin {
 		// 2. 注册命令面板命令
 		this.addCommand({
 			id: "edit-image-mask",
-			name: "编辑图片遮罩",
+			name: i18n.t("commands.editImageMask.name"),
 			icon: "image",
 			editorCallback: async (editor, view) => {
 				const cursor = editor.getCursor();
@@ -9740,11 +9985,20 @@ export class WeavePlugin extends Plugin {
 			return;
 		}
 
-		void this.selectedTextAISplitPreviewLayer.open({
-			selectedText: params.selectedText,
-			actionId: params.actionId,
-			sourceFilePath: params.view.file?.path || "",
-		});
+		const previewLayer = this.selectedTextAISplitPreviewLayer;
+
+		void (async () => {
+			const sourceResolution = await resolveEditorSourcePathFromIR({
+				sourcePath: params.view.file?.path,
+				logScope: "[EditorSelectedTextAISplit]",
+			});
+
+			await previewLayer.open({
+				selectedText: params.selectedText,
+				actionId: params.actionId,
+				sourceFilePath: sourceResolution.sourcePath || "",
+			});
+		})();
 	}
 
 	/**
@@ -10034,7 +10288,7 @@ export class WeavePlugin extends Plugin {
 			}
 
 			// 添加全局设备信息到window（供其他组件使用）
-			(window as unknown).weaveDeviceInfo = deviceInfo;
+			window.weaveDeviceInfo = deviceInfo;
 
 			logger.info("[平板端适配] 初始化完成", {
 				device: deviceInfo.isTablet ? "tablet" : deviceInfo.isMobile ? "mobile" : "desktop",

@@ -4,6 +4,7 @@ import type { WeaveDataStorage } from "../../../data/storage";
 import type { Deck } from "../../../data/types";
 import type { ImportResult } from "../../../domain/apkg/types";
 import { CreateDeckModalObsidian } from "../../modals/CreateDeckModalObsidian";
+import { CreateQuestionBankModalObsidian } from "../../modals/CreateQuestionBankModalObsidian";
 import {
 	closeLegacyApkgImportModal,
 	openLegacyApkgImportModal,
@@ -13,13 +14,14 @@ interface DeckStudyModalCoordinatorOptions {
   getPlugin: () => WeavePlugin;
   getDataStorage: () => WeaveDataStorage;
   tr: (key: string, vars?: Record<string, string>) => string;
-  setShowCreateQuestionBankModal: (value: boolean) => void;
+  loadQBDeckTree: () => Promise<void>;
   refreshData: (showLoading?: boolean) => Promise<void>;
   refreshTargetedDeckData: (targetDeckIds: string[]) => Promise<void>;
 }
 
 export interface DeckStudyModalCoordinator {
   showCreateDeckModal: () => void;
+  showCreateQuestionBankModal: () => void;
   handleCreateDeckForCurrentFilter: (selectedFilter: string) => Promise<void>;
   showAPKGImportModal: () => void;
   showEditDeckModal: (deck: Deck) => void;
@@ -31,6 +33,7 @@ export function createDeckStudyModalCoordinator(
 ): DeckStudyModalCoordinator {
   let createDeckModalInstance: CreateDeckModalObsidian | null = null;
   let editDeckModalInstance: CreateDeckModalObsidian | null = null;
+  let createQuestionBankModalInstance: CreateQuestionBankModalObsidian | null = null;
   async function handleAPKGImportComplete(result: ImportResult): Promise<void> {
     if (result.success) {
       const message = options.tr("deckStudyPage.import.success", {
@@ -76,9 +79,27 @@ export function createDeckStudyModalCoordinator(
     createDeckModalInstance.open();
   }
 
+  function showCreateQuestionBankModal(): void {
+    createQuestionBankModalInstance?.close();
+    const plugin = options.getPlugin();
+    createQuestionBankModalInstance = new CreateQuestionBankModalObsidian(plugin.app, {
+      plugin,
+      onBankCreated: () => {
+        void (async () => {
+          await options.loadQBDeckTree();
+          plugin.app.workspace.trigger("Weave:data-changed");
+        })();
+      },
+      onClose: () => {
+        createQuestionBankModalInstance = null;
+      },
+    });
+    createQuestionBankModalInstance.open();
+  }
+
   async function handleCreateDeckForCurrentFilter(selectedFilter: string): Promise<void> {
     if (selectedFilter === "question-bank") {
-      options.setShowCreateQuestionBankModal(true);
+      showCreateQuestionBankModal();
       return;
     }
 
@@ -117,11 +138,14 @@ export function createDeckStudyModalCoordinator(
     createDeckModalInstance = null;
     editDeckModalInstance?.close();
     editDeckModalInstance = null;
+    createQuestionBankModalInstance?.close();
+    createQuestionBankModalInstance = null;
     closeLegacyApkgImportModal();
   }
 
   return {
     showCreateDeckModal,
+    showCreateQuestionBankModal,
     handleCreateDeckForCurrentFilter,
     showAPKGImportModal,
     showEditDeckModal,

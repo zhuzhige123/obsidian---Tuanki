@@ -252,7 +252,7 @@ describe('锚点时间戳属性', () => {
       }
       
       // 等待1毫秒确保时间戳不同
-      await new Promise(resolve => setTimeout(resolve, 1));
+      await new Promise(resolve => window.setTimeout(resolve, 1));
     }
     
     // 验证时间戳递增

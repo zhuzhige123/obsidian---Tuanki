@@ -52,6 +52,35 @@ export type SyncIssueType =
 	| "unsafe_chars"
 	| "leading_dot";
 
+/** 云同步在命名冲突时追加的后缀，如 `-sync1`、`-sync1-sync1` */
+const SYNC_CONFLICT_SUFFIX_PATTERN = /(?:-sync\d+)+$/;
+
+const IGNORABLE_SYSTEM_BASENAMES = new Set(
+	[".DS_Store", "DS_Store", "Thumbs.db", "desktop.ini", ".localized"].map((name) =>
+		name.toLowerCase()
+	)
+);
+
+/**
+ * 操作系统或云同步产生的垃圾文件，不属于 Weave 数据真源，不应参与文件名兼容性检测。
+ */
+export function isIgnorableVaultSystemOrSyncJunk(name: string): boolean {
+	const trimmed = String(name || "").trim();
+	if (!trimmed) {
+		return false;
+	}
+
+	const withoutSyncSuffix = trimmed.replace(SYNC_CONFLICT_SUFFIX_PATTERN, "");
+	const normalized = withoutSyncSuffix.toLowerCase();
+
+	if (IGNORABLE_SYSTEM_BASENAMES.has(normalized)) {
+		return true;
+	}
+
+	// macOS AppleDouble 资源分叉侧车文件（如 ._note.md）
+	return withoutSyncSuffix.startsWith("._");
+}
+
 /**
  * 检测文件/目录名是否包含云同步不兼容字符
  */
@@ -247,6 +276,34 @@ export function suggestSyncSafeName(name: string, maxLength = 100): string {
 	}
 
 	return sanitizeForSync(trimmed, maxLength);
+}
+
+/** 反复清洗直到诊断通过（忽略 path_too_long） */
+export function ensureSyncSafeFilename(name: string, isFile = false): string {
+	let current = suggestSyncSafeName(name);
+	for (let attempt = 0; attempt < 5; attempt += 1) {
+		const fixableIssues = diagnoseFilename(current, isFile, current.length).issues.filter(
+			(issue) => issue !== "path_too_long"
+		);
+		if (fixableIssues.length === 0) {
+			return current;
+		}
+		current = suggestSyncSafeName(current);
+	}
+	return current;
+}
+
+export function buildUniqueSyncSafeFilename(baseName: string, attempt: number): string {
+	if (attempt <= 0) {
+		return baseName;
+	}
+
+	const dot = baseName.lastIndexOf(".");
+	if (dot > 0 && baseName.length - dot <= 12) {
+		return `${baseName.slice(0, dot)}-sync${attempt}${baseName.slice(dot)}`;
+	}
+
+	return `${baseName}-sync${attempt}`;
 }
 
 /** APKG 导入媒体目录前缀（避免使用方括号，兼容云同步） */

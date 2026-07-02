@@ -125,7 +125,10 @@ function formatNextDueTime(dueIso: string): string | null {
 let studyInterfaceRef = $state<{
   getQueueProgress?: () => StudyQueueState | null;
   getSessionData?: () => StudySessionSnapshot;
+  getSessionStartTime?: () => number;
   shouldPersist?: () => boolean;
+  pause?: () => void;
+  resume?: () => void;
 } | null>(null);
 
 function createEmptySessionSnapshot(deckId = currentDeckId): StudySessionSnapshot {
@@ -159,6 +162,9 @@ let fallbackSessionSnapshot = $state<StudySessionSnapshot>(untrack(() => createE
 // 队列恢复的初始卡片索引（用于重启后恢复到之前的位置）
 let initialCardIndex = $state(0);
 let studyInterfaceRenderKey = $state(0);
+let resumedSessionStartTime = $state<number | undefined>(undefined);
+let resumedSessionStats = $state<StudySessionSnapshot['stats'] | undefined>(undefined);
+let initialSessionStudiedCardIds = $state<string[]>([]);
 
 // 监听学习参数变化
 $effect(() => {
@@ -211,6 +217,21 @@ export function getQueueProgress(): StudyQueueState | null {
   return null;
 }
 
+export function getSessionStartTime(): number {
+  if (studyInterfaceRef?.getSessionStartTime) {
+    return studyInterfaceRef.getSessionStartTime();
+  }
+  return resumedSessionStartTime ?? Date.now();
+}
+
+export function pause(): void {
+  studyInterfaceRef?.pause?.();
+}
+
+export function resume(): void {
+  studyInterfaceRef?.resume?.();
+}
+
 /**
  * 是否需要持久化
  */
@@ -257,19 +278,15 @@ export async function updateStudyParams(params: {
 }
 
 /**
- * 处理关闭
- */
-function handleClose(): void {
-  onClose();
-}
-
-/**
  * 加载待学习的卡片
  */
 async function loadStudyCards() {
   try {
     isLoading = true;
     studyCards = [];
+    resumedSessionStartTime = undefined;
+    resumedSessionStats = undefined;
+    initialSessionStudiedCardIds = [];
     
     // 如果有恢复数据，使用恢复数据
     if (activeResumeData) {
@@ -285,6 +302,9 @@ async function loadStudyCards() {
       currentDeckName = activeResumeData.deckName || currentDeckName;
       currentMode = activeResumeData.mode || currentMode;
       setFallbackSessionSnapshot(resumedSnapshot);
+      resumedSessionStartTime = activeResumeData.startTime;
+      resumedSessionStats = { ...activeResumeData.stats };
+      initialSessionStudiedCardIds = activeResumeData.queueState?.sessionStudiedCardIds ?? [];
 
       if (activeResumeData.queueState && activeResumeData.queueState.studyQueueCardIds?.length > 0) {
         logger.info('[StudyViewWrapper] 从持久化队列恢复学习会话:', {
@@ -318,7 +338,9 @@ async function loadStudyCards() {
           10000
         );
         studyCards = await loadCardsByIds(dataStorage, resumedSnapshot.remainingCardIds, currentDeckId);
-        initialCardIndex = 0;
+        const savedIndex = activeResumeData.currentCardIndex ?? 0;
+        initialCardIndex = Math.min(savedIndex, Math.max(studyCards.length - 1, 0));
+        initialCardIndex = Math.max(0, initialCardIndex);
       }
     } else if (activeQueueState && activeQueueState.studyQueueCardIds && activeQueueState.studyQueueCardIds.length > 0) {
       // 重启恢复：按保存的队列顺序和索引加载卡片
@@ -358,6 +380,7 @@ async function loadStudyCards() {
         // 4. 设置初始卡片索引，确保不超出范围
         initialCardIndex = Math.min(activeQueueState.currentCardIndex, restoredQueue.length - 1);
         initialCardIndex = Math.max(0, initialCardIndex);
+        initialSessionStudiedCardIds = activeQueueState.sessionStudiedCardIds ?? [];
         
         logger.info('[StudyViewWrapper] 队列恢复完成:', {
           uniqueCards: uniqueCards.length,
@@ -439,6 +462,8 @@ async function loadStudyCards() {
     
   } catch (error) {
     logger.error('[StudyViewWrapper] 加载卡片失败:', error);
+    new Notice(t('study.view.loadFailed'));
+    onClose();
   } finally {
     isLoading = false;
   }
@@ -449,8 +474,8 @@ async function loadStudyCards() {
  */
 async function loadDeckCards(deckId: string): Promise<Card[]> {
   try {
-    const newCardsPerDay = plugin.settings.newCardsPerDay || 20;
-    const reviewsPerDay = plugin.settings.reviewsPerDay || 200;
+    const newCardsPerDay = plugin.settings.newCardsPerDay ?? 20;
+    const reviewsPerDay = plugin.settings.reviewsPerDay ?? 20;
     const filterSiblings = plugin.settings.studyConfig?.siblingDispersion?.filterInQueue ?? true;
     
     // 等待 dataStorage 初始化完成
@@ -497,8 +522,8 @@ async function loadDeckCards(deckId: string): Promise<Card[]> {
  */
 async function loadDueCards(): Promise<Card[]> {
   try {
-    const newCardsPerDay = plugin.settings.newCardsPerDay || 20;
-    const reviewsPerDay = plugin.settings.reviewsPerDay || 20;
+    const newCardsPerDay = plugin.settings.newCardsPerDay ?? 20;
+    const reviewsPerDay = plugin.settings.reviewsPerDay ?? 20;
     
     // 等待 dataStorage 初始化完成
     const dataStorage = await waitForService(
@@ -648,7 +673,7 @@ async function handleCloseCelebration() {
   try {
     await plugin.returnToDeckStudyView('memory');
   } finally {
-    setTimeout(() => {
+    window.setTimeout(() => {
       closeStudyView({ force: true });
     }, 100);
   }
@@ -693,7 +718,7 @@ async function handleStartPractice(event: MouseEvent) {
     if (selection === 'resumed') {
       dismissCelebrationModal();
       if (shouldCloseStudyView) {
-        setTimeout(() => closeStudyView({ force: true }), 100);
+        window.setTimeout(() => closeStudyView({ force: true }), 100);
       }
       return;
     }
@@ -723,7 +748,7 @@ async function handleCelebrationExamModeSelected(mode: TestMode, config?: Questi
 
   try {
     await openQuestionBankSessionWithModeConfig(plugin, bankId, bankName, questions, mode, config);
-    setTimeout(() => closeStudyView({ force: true }), 100);
+    window.setTimeout(() => closeStudyView({ force: true }), 100);
   } catch (error) {
     logger.error('[StudyViewWrapper] 开始考试失败:', error);
     new Notice(t('deckStudyPage.exam.startFailed'));
@@ -753,6 +778,9 @@ function handleCelebrationExamModeCancel() {
             showSourceInfoToggle={true}
             mode={currentMode === 'custom' ? 'normal' : currentMode}
             {initialCardIndex}
+            resumedSessionStartTime={resumedSessionStartTime}
+            resumedSessionStats={resumedSessionStats}
+            initialSessionStudiedCardIds={initialSessionStudiedCardIds}
             onClose={handleCloseRequest}
             onComplete={handleStudyComplete}
           />

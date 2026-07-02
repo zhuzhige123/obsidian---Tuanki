@@ -6,26 +6,13 @@
  */
 
 import type { Card } from "../../data/types";
-import type { AIAction, AIProvider } from "../../types/ai-types";
+import type { AIAction } from "../../types/ai-types";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
 import { parseJsonUnknown } from "../../utils/typed-json";
 import { DerivationMethod } from "../relation/types";
 import { PromptVariableResolver } from "./PromptVariableResolver";
 import { resolveAIConfig, type AISplitHost } from "./ai-host";
-
-const AI_PROVIDERS: AIProvider[] = [
-	"openai",
-	"gemini",
-	"anthropic",
-	"deepseek",
-	"zhipu",
-	"siliconflow",
-	"xai",
-];
-
-function isAIProvider(value?: string): value is AIProvider {
-	return value !== undefined && AI_PROVIDERS.includes(value as AIProvider);
-}
+import { resolveDefaultAIProvider, resolveAIChatRequestParams, AI_SPLIT_CHAT_MIN_MAX_TOKENS } from "./AIConfigService";
 
 /**
  * 拆分配置接口
@@ -127,7 +114,9 @@ export class AISplitService {
 
 			// ✅ 统一的provider选择逻辑：action.provider > defaultProvider
 			// 注意：由AIActionExecutor统一处理，这里action.provider已经被设置
-			const provider = action.provider || (isAIProvider(aiConfig.defaultProvider) ? aiConfig.defaultProvider : undefined);
+			const provider =
+				action.provider ||
+				resolveDefaultAIProvider(aiConfig as Parameters<typeof resolveDefaultAIProvider>[0]);
 			const modelFromAction = action.model;
 
 			if (!provider) {
@@ -152,6 +141,14 @@ export class AISplitService {
 			// 获取AI服务实例
 			const { AIServiceFactory } = await import("./AIServiceFactory");
 			const aiService = AIServiceFactory.createService(provider, this.host, modelFromAction);
+			const chatParams = resolveAIChatRequestParams(
+				aiConfig as Parameters<typeof resolveAIChatRequestParams>[0],
+				{
+					temperature: action.temperature,
+					maxTokens: action.maxTokens,
+				},
+				{ minMaxTokens: AI_SPLIT_CHAT_MIN_MAX_TOKENS }
+			);
 
 			// 调用AI服务
 			const response = await aiService.chat({
@@ -159,8 +156,8 @@ export class AISplitService {
 					{ role: "system", content: systemPrompt },
 					{ role: "user", content: userPrompt },
 				],
-				temperature: 0.3, // 拆分需要一定创造性但保持准确性
-				maxTokens: 4000,
+				temperature: chatParams.temperature,
+				maxTokens: chatParams.maxTokens,
 			});
 
 			if (!response.success || !response.content) {

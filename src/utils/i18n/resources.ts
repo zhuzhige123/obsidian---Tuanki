@@ -7,9 +7,9 @@ import { licenseUiTranslationOverrides } from './resources/license-ui';
 import { uiHotspotTranslationOverrides } from './resources/ui-hotspots';
 import { aiUiTranslationOverrides } from './resources/ai-ui';
 import { managementUiTranslationOverrides } from './resources/management-ui';
-import { studyTranslations, studyTranslationOverrides } from './resources/study';
+import { studyTranslations } from './resources/study';
 import { managementTranslations, managementTranslationOverrides } from './resources/management';
-import { incrementalReadingTranslations, incrementalReadingTranslationOverrides } from './resources/incremental-reading';
+import { incrementalReadingTranslationOverrides } from './resources/incremental-reading';
 
 export const translations: Record<SupportedLanguage, TranslationKey> = {
 	'zh-CN': {
@@ -18,7 +18,6 @@ export const translations: Record<SupportedLanguage, TranslationKey> = {
 		...integrationsTranslations['zh-CN'],
 		...studyTranslations['zh-CN'],
 		...managementTranslations['zh-CN'],
-		...incrementalReadingTranslations['zh-CN'],
 	},
 	'en-US': {
 		...appShellTranslations['en-US'],
@@ -26,7 +25,6 @@ export const translations: Record<SupportedLanguage, TranslationKey> = {
 		...integrationsTranslations['en-US'],
 		...studyTranslations['en-US'],
 		...managementTranslations['en-US'],
-		...incrementalReadingTranslations['en-US'],
 	},
 };
 
@@ -38,7 +36,6 @@ export const translationOverrides: Partial<Record<SupportedLanguage, Translation
 		...uiHotspotTranslationOverrides['zh-CN'],
 		...aiUiTranslationOverrides['zh-CN'],
 		...managementUiTranslationOverrides['zh-CN'],
-		...studyTranslationOverrides['zh-CN'],
 		...managementTranslationOverrides['zh-CN'],
 		...incrementalReadingTranslationOverrides['zh-CN'],
 		about: mergeTranslationTrees(
@@ -53,7 +50,6 @@ export const translationOverrides: Partial<Record<SupportedLanguage, Translation
 		),
 		study: mergeTranslationTrees(
 			{},
-			studyTranslationOverrides['zh-CN'].study as TranslationKey,
 			managementUiTranslationOverrides['zh-CN'].study as TranslationKey
 		),
 		toolbar: mergeTranslationTrees(
@@ -69,7 +65,6 @@ export const translationOverrides: Partial<Record<SupportedLanguage, Translation
 		...uiHotspotTranslationOverrides['en-US'],
 		...aiUiTranslationOverrides['en-US'],
 		...managementUiTranslationOverrides['en-US'],
-		...studyTranslationOverrides['en-US'],
 		...managementTranslationOverrides['en-US'],
 		...incrementalReadingTranslationOverrides['en-US'],
 		about: mergeTranslationTrees(
@@ -84,7 +79,6 @@ export const translationOverrides: Partial<Record<SupportedLanguage, Translation
 		),
 		study: mergeTranslationTrees(
 			{},
-			studyTranslationOverrides['en-US'].study as TranslationKey,
 			managementUiTranslationOverrides['en-US'].study as TranslationKey
 		),
 		toolbar: mergeTranslationTrees(

@@ -146,7 +146,7 @@ export function toTsFsrsCard(card: FSRSCard): TsCard {
 		learning_steps: 0,
 		reps: sanitized.reps,
 		lapses: sanitized.lapses,
-		state: sanitized.state as TsCard["state"],
+		state: sanitized.state as unknown as TsCard["state"],
 		last_review: sanitized.lastReview ? new Date(sanitized.lastReview) : undefined,
 	};
 }
@@ -156,11 +156,11 @@ export function fromTsFsrsCard(card: TsCard, retrievability: number): FSRSCard {
 		due: card.due.toISOString(),
 		stability: card.stability,
 		difficulty: card.difficulty,
-		elapsedDays: (card as Record<string, number>)["elapsed_days"],
+		elapsedDays: card.elapsed_days,
 		scheduledDays: card.scheduled_days,
 		reps: card.reps,
 		lapses: card.lapses,
-		state: card.state as CardState,
+		state: card.state as unknown as CardState,
 		lastReview: card.last_review?.toISOString(),
 		retrievability,
 	};

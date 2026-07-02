@@ -1,7 +1,9 @@
 import { Notice } from "obsidian";
 import type { App } from "obsidian";
+import { readUnknownProperty } from "./dynamic-access";
 import { t } from "./i18n";
 import { getPluginInstance } from "./plugin-runtime";
+import { isRecord } from "./typed-json";
 
 /** 独立增量阅读插件 ID（与 `ir-runtime.ts` standalone 构建一致） */
 export const INCREMENTAL_READING_PLUGIN_ID = "weave-incremental-reading";
@@ -22,14 +24,20 @@ function getInstalledPlugin(app: App, pluginId: string): unknown {
 	return getPluginInstance(app, pluginId) ?? null;
 }
 
+function getPluginManifests(app: App): Record<string, unknown> | undefined {
+	const plugins = readUnknownProperty(app, "plugins");
+	const manifests = readUnknownProperty(plugins, "manifests");
+	return isRecord(manifests) ? manifests : undefined;
+}
+
 function getPluginManifest(app: App, pluginId: string): unknown {
-	const manifests = (app.plugins as { manifests?: Record<string, unknown> } | undefined)?.manifests;
-	return manifests?.[pluginId] ?? null;
+	return getPluginManifests(app)?.[pluginId] ?? null;
 }
 
 function isPluginEnabledInSettings(app: App, pluginId: string): boolean {
-	const enabledPlugins = (app.plugins as { enabledPlugins?: Set<string> } | undefined)?.enabledPlugins;
-	return enabledPlugins?.has(pluginId) ?? false;
+	const plugins = readUnknownProperty(app, "plugins");
+	const enabledPlugins = readUnknownProperty(plugins, "enabledPlugins");
+	return enabledPlugins instanceof Set ? enabledPlugins.has(pluginId) : false;
 }
 
 export function getSplitPluginAvailability(app: App, pluginId: string): SplitPluginAvailability {

@@ -11,7 +11,11 @@
 import { EpubLinkService } from "../services/epub-integration/EpubLinkService";
 import { logger } from "./logger";
 import { omitKey } from "./object-utils";
-import { getNormalizedDeckEntries, getSingleMemoryFormalDeckIds } from "./memory-deck-membership";
+import {
+	getKnownSingleMemoryFormalDeckIds,
+	getNormalizedDeckEntries,
+	getSingleMemoryFormalDeckIds,
+} from "./memory-deck-membership";
 import { TagExtractor } from "./tag-extractor";
 
 // ===== 类型定义 =====
@@ -282,6 +286,35 @@ export function getCardProperty<T = unknown>(content: string, key: string): T | 
 	return yaml[key] as T | undefined;
 }
 
+const CARD_YAML_TYPE_VALUES: ReadonlySet<string> = new Set([
+	"basic",
+	"cloze",
+	"choice",
+	"code",
+	"progressive-parent",
+	"progressive-child",
+]);
+
+function readCardYAMLSource(value: unknown): CardYAMLMetadata["we_source"] {
+	if (typeof value === "string") {
+		return value;
+	}
+	if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+		return value;
+	}
+	return undefined;
+}
+
+function readCardYAMLType(value: unknown): CardYAMLType | undefined {
+	return typeof value === "string" && CARD_YAML_TYPE_VALUES.has(value)
+		? (value as CardYAMLType)
+		: undefined;
+}
+
+function readCardYAMLDifficulty(value: unknown): CardYAMLDifficulty | undefined {
+	return value === "easy" || value === "medium" || value === "hard" ? value : undefined;
+}
+
 /**
  * 批量读取卡片的所有 we_ 属性
  * @param content 卡片内容
@@ -297,13 +330,13 @@ export function getCardMetadata(content: string): CardYAMLMetadata {
 				: undefined;
 
 	return {
-		we_source: yaml.we_source,
-		we_block: yaml.we_block,
+		we_source: readCardYAMLSource(yaml.we_source),
+		we_block: typeof yaml.we_block === "string" ? yaml.we_block : undefined,
 		we_refs: normalizeToArray(yaml.we_refs),
 		we_decks: normalizeToArray(yaml.we_decks),
 		we_priority: typeof yaml.we_priority === "number" ? yaml.we_priority : undefined,
-		we_type: yaml.we_type,
-		we_difficulty: yaml.we_difficulty,
+		we_type: readCardYAMLType(yaml.we_type),
+		we_difficulty: readCardYAMLDifficulty(yaml.we_difficulty),
 		created,
 		tags: normalizeToArray(yaml.tags),
 	};
@@ -1153,7 +1186,7 @@ export function getCardDeckIdsFromFormalSource(
 	try {
 		const metadata = getCardMetadata(card.content);
 		if (metadata.we_decks && metadata.we_decks.length > 0) {
-			const convertedIds = normalizeDeckIdentifiers(metadata.we_decks, decks, false);
+			const convertedIds = getKnownSingleMemoryFormalDeckIds(metadata.we_decks, decks);
 			if (convertedIds.length > 0) {
 				result.deckIds = convertedIds;
 				result.primaryDeckId = convertedIds[0];

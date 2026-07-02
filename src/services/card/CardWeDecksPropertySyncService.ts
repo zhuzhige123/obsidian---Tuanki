@@ -9,6 +9,7 @@ import { isDetachedEditorTempFilePath } from "../editor/editor-temp-file-policy"
 import { saveMemoryCard } from "../weave-domain";
 import { logger } from "../../utils/logger";
 import { t } from "../../utils/i18n";
+import type { WeaveTimerHandle } from "../../types/timer-handle.js";
 
 export const WEAVE_CARD_WE_DECKS_UI_SYNC_EVENT = "weave:card-we-decks-ui-sync";
 
@@ -21,7 +22,7 @@ export interface CardWeDecksUiSyncDetail {
 export class CardWeDecksPropertySyncService {
 	private plugin: WeavePlugin;
 	private eventRef: EventRef | null = null;
-	private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+	private debounceTimers = new Map<string, WeaveTimerHandle>();
 	private lastWeDecksByFile = new Map<string, string>();
 	private readonly debounceMs = 400;
 

@@ -139,7 +139,7 @@
       onBlur(event);
     }
     // 延迟关闭下拉框，允许点击选项
-    setTimeout(() => {
+    window.setTimeout(() => {
       isOpen = false;
     }, 150);
   }

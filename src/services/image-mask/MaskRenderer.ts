@@ -171,7 +171,7 @@ export class MaskRenderer {
 	 */
 	private makeMaskInteractive(maskGroup: SVGGElement, maskId: string): void {
 		const maskElement = maskGroup.querySelector(".weave-mask");
-		if (!maskElement) return;
+		if (!(maskElement instanceof SVGElement)) return;
 
 		const maskRoot = maskGroup.closest(".weave-mask-overlay") ?? activeDocument;
 
