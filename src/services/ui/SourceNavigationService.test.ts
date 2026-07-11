@@ -66,6 +66,38 @@ describe("SourceNavigationService", () => {
 		expect(editor.scrollIntoView).toHaveBeenCalled();
 	});
 
+	it("selects the full Obsidian block range when a block id candidate is provided", () => {
+		const lines = [
+			"上一段",
+			"",
+			"第一行块内容",
+			"---div---",
+			"第二行块内容^we-block-test",
+			"",
+			"下一段",
+		];
+		const content = lines.join("\n");
+		const editor = {
+			getValue: vi.fn(() => content),
+			getLine: vi.fn((line: number) => lines[line] || ""),
+			setCursor: vi.fn(),
+			setSelection: vi.fn(),
+			scrollIntoView: vi.fn(),
+		};
+		const service = new SourceNavigationService({} as any);
+
+		const located = (service as any).locateInMarkdownEditor(editor, [
+			"note#^we-block-test",
+			"we-block-test",
+		]);
+
+		expect(located).toBe(true);
+		expect(editor.setSelection).toHaveBeenCalledWith(
+			{ line: 2, ch: 0 },
+			{ line: 4, ch: "第二行块内容".length }
+		);
+	});
+
 	it("prefers the canvas node whose content carries the matching excerpt id when text is similar", () => {
 		const service = new SourceNavigationService({} as any);
 		const nodes = [

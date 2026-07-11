@@ -125,6 +125,7 @@
   import { TagExtractor } from "../../utils/tag-extractor";
   import { logger } from "../../utils/logger";
   import { openLinkWithExistingLeaf } from "../../utils/workspace-navigation";
+  import { findObsidianBlockById } from "../../utils/obsidian-block-locator";
   import { vaultStorage } from '../../utils/vault-local-storage';
   import { getCardBack, getCardFront } from "../../utils/card-field-helper";
   import { WDECK_UNGROUPED_DECK_NAME } from "../../services/wdeck/WDeckService";
@@ -1512,18 +1513,6 @@
   const sourceLocateOverlay = getSourceLocateOverlayService();
   const sourceNavigationService = untrack(() => new SourceNavigationService(plugin.app));
 
-  function stripMarkdownLocateSyntax(line: string): string {
-    return String(line || '')
-      .replace(/\s*\^[a-zA-Z0-9-]+\s*$/, '')
-      .replace(/^\s{0,3}>\s?/, '')
-      .replace(/^\s*[-*+]\s+/, '')
-      .replace(/^\s*\d+\.\s+/, '')
-      .replace(/^\s*\[[ xX]\]\s+/, '')
-      .replace(/^\s*#{1,6}\s+/, '')
-      .replace(/`+/g, '')
-      .trim();
-  }
-
   async function resolveBlockLocateContext(file: any, blockId: string): Promise<{
     lines: string[];
     targetLine: number;
@@ -1533,48 +1522,24 @@
   }> {
     const content = await plugin.app.vault.read(file);
     const lines = content.split('\n');
+    const blockLocate = findObsidianBlockById(content, blockId);
 
-    let targetLine = -1;
-    let blockStartLine = -1;
-    const blockLines: string[] = [];
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line.includes(`^${blockId}`)) {
-        continue;
-      }
-
-      targetLine = i;
-      for (let j = i; j >= 0; j--) {
-        if (lines[j].trim() && !lines[j].includes(`^${blockId}`)) {
-          blockStartLine = j;
-          break;
-        }
-      }
-
-      if (blockStartLine >= 0) {
-        for (let k = blockStartLine; k <= i; k++) {
-          const cleanedLine = stripMarkdownLocateSyntax(lines[k]);
-          if (cleanedLine) {
-            blockLines.push(cleanedLine);
-          }
-        }
-      }
-      break;
+    if (!blockLocate) {
+      return {
+        lines,
+        targetLine: -1,
+        blockStartLine: -1,
+        blockContent: '',
+        locateTextCandidates: [],
+      };
     }
-
-    const blockContent = blockLines.join(' ').trim();
-    const locateTextCandidates = Array.from(new Set([
-      blockContent,
-      ...blockLines,
-    ].map((item) => String(item || '').trim()).filter((item) => item.length >= 8)));
 
     return {
       lines,
-      targetLine,
-      blockStartLine,
-      blockContent,
-      locateTextCandidates,
+      targetLine: blockLocate.targetLine,
+      blockStartLine: blockLocate.blockStartLine,
+      blockContent: blockLocate.blockContent,
+      locateTextCandidates: blockLocate.locateTextCandidates,
     };
   }
 
@@ -1637,7 +1602,7 @@
 
       // Open the file and navigate to the block with enhanced targeting
       const linkText = `${file.basename}#^${blockId}`;
-      openLinkWithExistingLeaf(plugin.app, linkText, contextPath, { openInNewTab: true, focus: true }).then(async (openedLeaf) => {
+      openLinkWithExistingLeaf(plugin.app, linkText, contextPath, { openInNewTab: false, focus: true }).then(async (openedLeaf) => {
         // Wait a bit longer to ensure file is fully loaded
         window.setTimeout(async () => {
           const activeView = (openedLeaf?.view?.getViewType?.() === 'markdown'
@@ -1676,12 +1641,12 @@
               const blockContent = blockContext?.blockContent || '';
 
               if (targetLine >= 0) {
-                // Navigate to the target line
                 const cursorLine = blockStartLine >= 0 ? blockStartLine : targetLine;
+                const endCh = lines[targetLine].replace(/\s*\^[a-zA-Z0-9_-]+\s*$/, '').length;
                 editor.setCursor({ line: cursorLine, ch: 0 });
                 editor.scrollIntoView({
-                  from: { line: cursorLine, ch: 0 },
-                  to: { line: targetLine, ch: lines[targetLine].length }
+                  from: { line: Math.max(0, cursorLine - 2), ch: 0 },
+                  to: { line: targetLine + 2, ch: 0 }
                 });
 
                 window.setTimeout(() => {
@@ -1695,19 +1660,12 @@
                   } catch (_e) { /* ignore */ }
                 }, 120);
 
-                // Highlight the content if we found it
-                if (blockStartLine >= 0 && blockContent) {
-                  // Select the block content for visual feedback
-                  const startCh = 0;
-                  const endLine = targetLine;
-                  const endCh = lines[targetLine].replace(/\s*\^[a-zA-Z0-9-]+\s*$/, '').length;
-
+                if (blockStartLine >= 0) {
                   editor.setSelection(
-                    { line: blockStartLine, ch: startCh },
-                    { line: endLine, ch: endCh }
+                    { line: blockStartLine, ch: 0 },
+                    { line: targetLine, ch: endCh }
                   );
 
-                  // Clear selection after a moment to show highlight effect
                   window.setTimeout(() => {
                     editor.setCursor({ line: cursorLine, ch: 0 });
                   }, 1000);
@@ -5032,11 +4990,12 @@
       const docName = sourceFile.replace(/\.md$/, '');
       
       // 验证文件是否存在
-      const file = app.vault.getAbstractFileByPath(sourceFile) ?? app.metadataCache.getFirstLinkpathDest(docName, contextPath);
-      if (!file) {
+      const abstractFile = app.vault.getAbstractFileByPath(sourceFile) ?? app.metadataCache.getFirstLinkpathDest(docName, contextPath);
+      if (!abstractFile) {
         new Notice(t('studyInterface.notices.sourceDocMissing'));
         return;
       }
+      const file = abstractFile;
       
       // EPUB文件：拦截到插件内置阅读器
       if (file.path.toLowerCase().endsWith('.epub')) {
@@ -5053,7 +5012,32 @@
       const linkText = blockId ? `${docName}#^${blockId}` : docName;
       
       // 使用 Obsidian 原生 API 跳转，自动处理文件查找和块定位
-      await openLinkWithExistingLeaf(app, linkText, contextPath, { focus: true });
+      const openedLeaf = await openLinkWithExistingLeaf(app, linkText, contextPath, { openInNewTab: false, focus: true });
+
+      if (blockId && 'basename' in file) {
+        const markdownFile = file as import('obsidian').TFile;
+        const locateCandidates = [
+          linkText,
+          blockId,
+          `^${blockId}`,
+          markdownFile.path,
+          markdownFile.basename,
+        ];
+        try {
+          const fileContent = await app.vault.read(markdownFile);
+          const blockLocate = findObsidianBlockById(fileContent, blockId);
+          if (blockLocate) {
+            locateCandidates.push(...blockLocate.locateTextCandidates);
+          }
+        } catch {
+          /* ignore */
+        }
+
+        sourceNavigationService.locateOpenedMarkdownLeaf(openedLeaf, locateCandidates, {
+          label: t('studyInterface.notices.locatedSource'),
+          icon: 'map-pinned',
+        });
+      }
       
       new Notice(t('studyInterface.notices.sourceOpened', { path: sourceFile }));
     } catch (error) {

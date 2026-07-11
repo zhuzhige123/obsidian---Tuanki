@@ -68,13 +68,24 @@ export function findLeafByFile(app: App, file: TFile): WorkspaceLeaf | null {
 	return null;
 }
 
-export function revealLeaf(app: App, leaf: WorkspaceLeaf, _focus = true): void {
+export function revealLeaf(app: App, leaf: WorkspaceLeaf, focus = true): void {
 	const workspace = app.workspace as WorkspaceCompat;
 
 	try {
 		const maybeRevealLeaf = workspace?.["revealLeaf"];
 		if (typeof maybeRevealLeaf === "function") {
 			void maybeRevealLeaf.call(workspace, leaf);
+		}
+	} catch { /* no-op */ }
+
+	if (!focus) {
+		return;
+	}
+
+	try {
+		const setActiveLeaf = workspace?.setActiveLeaf;
+		if (typeof setActiveLeaf === "function") {
+			setActiveLeaf.call(workspace, leaf, { focus: true });
 		}
 	} catch { /* no-op */ }
 }

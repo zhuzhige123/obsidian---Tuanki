@@ -2,9 +2,28 @@ import { PremiumFeatureGuard } from "../../services/premium/PremiumFeatureGuard"
 import type { LicenseInfo, LicenseStore } from "../../types/license";
 import {
   getPluginEffectiveLicenseState,
+  getPluginLocalLicenses,
   type LicenseCapablePluginLike,
   resetPluginLicenseActivation,
 } from "../plugin-license";
+
+describe("plugin license helpers", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns empty local licenses when plugin settings are not initialized yet", () => {
+    const plugin: LicenseCapablePluginLike = {
+      manifest: { id: "weave" },
+      getLocalLicenses() {
+        return (this as LicenseCapablePluginLike).settings?.licenseState?.localLicenses ?? [];
+      },
+    };
+
+    expect(getPluginLocalLicenses(plugin)).toEqual([]);
+    expect(getPluginEffectiveLicenseState(plugin).isPremiumActive).toBe(false);
+  });
+});
 
 describe("resetPluginLicenseActivation", () => {
   beforeEach(() => {

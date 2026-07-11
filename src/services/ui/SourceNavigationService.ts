@@ -1,5 +1,9 @@
 import { type App, type Editor, MarkdownView, Notice, type WorkspaceLeaf } from "obsidian";
 import {
+	extractBlockIdFromCandidates,
+	findObsidianBlockById,
+} from "../../utils/obsidian-block-locator";
+import {
 	openFileWithExistingLeaf,
 	openLinkWithExistingLeaf,
 } from "../../utils/workspace-navigation";
@@ -210,7 +214,7 @@ export class SourceNavigationService {
 		options: LocateOptions = {}
 	): Promise<WorkspaceLeaf | null> {
 		const openedLeaf = await openLinkWithExistingLeaf(this.app, linkText, contextPath, {
-			openInNewTab: options.openInNewTab ?? true,
+			openInNewTab: options.openInNewTab ?? false,
 			focus: options.focus ?? true,
 		});
 		this.locateOpenedMarkdownLeaf(openedLeaf, candidates, options);
@@ -247,6 +251,14 @@ export class SourceNavigationService {
 		const content = this.safeGetEditorValue(editor);
 		if (!content) {
 			return false;
+		}
+
+		const blockId = extractBlockIdFromCandidates(candidates);
+		if (blockId) {
+			const blockTarget = findObsidianBlockById(content, blockId);
+			if (blockTarget) {
+				return this.locateEditorBlockRange(editor, blockTarget.blockStartLine, blockTarget.targetLine);
+			}
 		}
 
 		const parsed = this.parseEditorLocateCandidates(candidates);
@@ -292,6 +304,50 @@ export class SourceNavigationService {
 		} catch {
 			try {
 				editor.scrollIntoView({ from: startPos, to: startPos }, true);
+			} catch {
+				/* ignore */
+			}
+		}
+
+		return true;
+	}
+
+	private locateEditorBlockRange(editor: Editor, blockStartLine: number, targetLine: number): boolean {
+		const endLineText = editor.getLine(targetLine) || "";
+		const endCh = endLineText.replace(/\s*\^[a-zA-Z0-9_-]+\s*$/, "").length;
+		const startPos = { line: blockStartLine, ch: 0 };
+		const endPos = { line: targetLine, ch: Math.max(0, endCh) };
+
+		try {
+			editor.setCursor(startPos);
+		} catch {
+			/* ignore */
+		}
+
+		try {
+			editor.setSelection(startPos, endPos);
+			window.setTimeout(() => {
+				try {
+					editor.setCursor(startPos);
+				} catch {
+					/* ignore */
+				}
+			}, 900);
+		} catch {
+			/* ignore */
+		}
+
+		try {
+			editor.scrollIntoView(
+				{
+					from: { line: Math.max(0, blockStartLine - 2), ch: 0 },
+					to: { line: targetLine + 2, ch: 0 },
+				},
+				true
+			);
+		} catch {
+			try {
+				editor.scrollIntoView({ from: startPos, to: endPos }, true);
 			} catch {
 				/* ignore */
 			}

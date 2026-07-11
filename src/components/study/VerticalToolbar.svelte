@@ -33,6 +33,7 @@
   // 导入卡片关系工具函数
   import { getDerivationMethodName } from '../../utils/card-relation-helpers';
   import { openLinkWithExistingLeaf } from '../../utils/workspace-navigation';
+  import { findObsidianBlockById } from '../../utils/obsidian-block-locator';
   import { getSourceLocateOverlayService } from '../../services/ui/SourceLocateOverlayService';
   import { SourceNavigationService } from '../../services/ui/SourceNavigationService';
   import { getCanvasLocateSupportFromCardContent, normalizeCanvasNodeId } from '../../services/ui/canvas-source-locate';
@@ -482,35 +483,31 @@
         return;
       }
 
-      // 查找包含blockId的行
-      let targetLine = -1;
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes(`^${blockId}`)) {
-          targetLine = i;
-          break;
-        }
-      }
-
-      if (targetLine === -1) {
+      const blockLocate = findObsidianBlockById(content, blockId);
+      if (!blockLocate) {
         sourceBlockError = t('toolbar.blockRefNotFound', { blockId });
         isLoadingSourceBlock = false;
         return;
       }
 
-      // 获取源块内容（移除末尾的块ID标记）
-      const targetLineContent = lines[targetLine];
-      const cleanContent = targetLineContent.replace(/\s*\^[\w-]+$/, '').trim();
-      sourceBlockContent = cleanContent;
+      const { targetLine, blockStartLine, blockContent } = blockLocate;
+      sourceBlockContent = blockContent;
 
-      // 获取上下文（前后各10行）
+      // 获取上下文（块前/块后各若干行，按空行边界截断展示范围）
       const contextLines = 10;
-      const beforeStart = Math.max(0, targetLine - contextLines);
-      const afterEnd = Math.min(lines.length, targetLine + contextLines + 1);
+      const beforeStart = Math.max(0, blockStartLine - contextLines);
+      let afterEnd = Math.min(lines.length, targetLine + contextLines + 1);
+      for (let i = targetLine + 1; i < lines.length; i++) {
+        if (lines[i].trim() === '') {
+          afterEnd = i;
+          break;
+        }
+      }
 
       sourceBlockContext = {
-        before: lines.slice(beforeStart, targetLine).map(line => line.replace(/\s*\^[\w-]+$/, '')),
+        before: lines.slice(beforeStart, blockStartLine).map(line => line.replace(/\s*\^[\w-]+$/, '')),
         after: lines.slice(targetLine + 1, afterEnd).map(line => line.replace(/\s*\^[\w-]+$/, '')),
-        targetLine: targetLine
+        targetLine
       };
 
       isLoadingSourceBlock = false;
@@ -702,7 +699,7 @@
       return;
     }
     
-    await openLinkWithExistingLeaf(plugin.app, linkText, contextPath, { openInNewTab: true, focus: true });
+    await openLinkWithExistingLeaf(plugin.app, linkText, contextPath, { openInNewTab: false, focus: true });
     showMultiInfoMenu = false;
   }
 
@@ -753,11 +750,25 @@
         return;
       }
       
-      // 使用 Obsidian 原生 API 跳转，自动处理文件查找和块定位
-      const openedLeaf = await openLinkWithExistingLeaf(plugin.app, linkText, contextPath, { openInNewTab: true, focus: true });
+      // 使用 Obsidian 原生 API 跳转，优先复用已打开文档并定位到块
+      const openedLeaf = await openLinkWithExistingLeaf(plugin.app, linkText, contextPath, { openInNewTab: false, focus: true });
+
+      let locateCandidates = [linkText, blockId, `^${blockId}`, docName, file.path, file.basename].filter(Boolean) as string[];
+      if (blockId) {
+        try {
+          const fileContent = await plugin.app.vault.read(file);
+          const blockLocate = findObsidianBlockById(fileContent, blockId);
+          if (blockLocate) {
+            locateCandidates = [...locateCandidates, ...blockLocate.locateTextCandidates];
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
       showMarkdownSourceOverlay(
         openedLeaf,
-        [linkText, blockId, `^${blockId}`, docName, file.path, file.basename].filter(Boolean) as string[],
+        locateCandidates,
         sourceBlockButtonElement
       );
       showMultiInfoMenu = false;

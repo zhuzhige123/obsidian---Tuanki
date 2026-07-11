@@ -1980,7 +1980,7 @@ export class WeavePlugin extends Plugin {
 	}
 
 	getLocalLicenses(): LicenseInfo[] {
-		return this.settings.licenseState?.localLicenses ?? [];
+		return this.settings?.licenseState?.localLicenses ?? [];
 	}
 
 	getEffectiveLicenseState(product: LicensedProduct = LICENSED_PRODUCTS.WEAVE): EffectiveLicenseState {
@@ -3636,6 +3636,10 @@ export class WeavePlugin extends Plugin {
 
 	async onload() {
 		try {
+			// Dependent plugins may query license state before persisted settings finish loading.
+			if (!this.settings) {
+				this.settings = this.deepMerge(DEFAULT_SETTINGS, {}) as WeaveSettings;
+			}
 			registerEpubHost(this.app, this);
 			this.registerWorkspaceViews();
 			this.wdeckService = new WDeckService(this);

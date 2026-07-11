@@ -32,7 +32,11 @@ export function getPluginLocalLicenses(plugin: LicenseCapablePluginLike | null |
   }
 
   if (typeof plugin.getLocalLicenses === "function") {
-    return plugin.getLocalLicenses();
+    try {
+      return plugin.getLocalLicenses();
+    } catch {
+      return [];
+    }
   }
 
   return normalizeLicenseStore(plugin.settings?.license, plugin.settings?.licenseState).localLicenses;
@@ -42,7 +46,14 @@ export function getPluginEffectiveLicenseState(
   plugin: LicenseCapablePluginLike | null | undefined
 ): EffectiveLicenseState {
   if (plugin?.getEffectiveLicenseState) {
-    return plugin.getEffectiveLicenseState();
+    try {
+      return plugin.getEffectiveLicenseState();
+    } catch {
+      return resolveEffectiveLicenseState({
+        product: getPluginLicensedProduct(plugin),
+        localLicenses: [],
+      });
+    }
   }
 
   return resolveEffectiveLicenseState({
