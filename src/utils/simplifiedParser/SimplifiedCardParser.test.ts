@@ -280,6 +280,21 @@ B. 错误答案
       expect(result.stats.cardTypes[CardType.Multiple]).toBe(1);
       expect(result.stats.processingTime).toBeGreaterThanOrEqual(0);
     });
+
+    test('不应把仅含说明文字和单独尾部分隔符识别为卡片', async () => {
+      const content = `用途：批量解析、选择题渲染、判分与解析展示的回归测试。
+分隔符：<-> 卡片范围；---div--- 题干/选项与解析之间。
+选择题答案标注在题干末尾括号内，如 （A） 或 （AC）。
+
+<->`;
+
+      const result = await parser.parseContent(content, {
+        ...config,
+        scenario: 'batch'
+      });
+
+      expect(result.cards).toHaveLength(0);
+    });
   });
 
   describe('生命周期清理', () => {

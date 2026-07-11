@@ -5,7 +5,7 @@
    * 当插件界面位于 Obsidian 侧边栏时显示的紧凑导航头部
    * - 左侧：菜单按钮（☰）触发导航列表菜单
    * - 中间：彩色圆点（根据页面不同有不同功能）
-   *   - 牌组学习：增量阅读、记忆牌组、考试题组（数据源切换）
+   *   - 牌组学习：记忆牌组、考试题组（数据源切换）
    *   - 卡片管理：表格视图、网格视图、看板视图（视图切换）
    *   - AI助手：无圆点
    * - 右侧：留空占位
@@ -433,14 +433,6 @@
         });
       }
 
-      if (shouldShowPremiumEntry(PREMIUM_FEATURES.INCREMENTAL_READING)) {
-        choices.push({
-          title: getPremiumEntryTitle(t('mainMenu.cardManagement.incrementalReading'), PREMIUM_FEATURES.INCREMENTAL_READING),
-          icon: 'bookmark',
-          value: 'incremental-reading',
-        });
-      }
-
       addMenuRadioChoices(menu, cardDataSource, choices, (source) => {
         onCardDataSourceChange?.(source);
       });
@@ -482,7 +474,7 @@
   }
 
   function emitAIAssistantToolbarAction(
-    action: 'file' | 'generate' | 'history' | 'prompt-file' | 'system-prompt' | 'model' | 'parse-template' | 'parse' | 'sub-view' | 'toggle-follow-document' | 'start-staging' | 'toggle-preview-view',
+    action: 'file' | 'generate' | 'history' | 'model' | 'parse-template' | 'parse' | 'sub-view' | 'toggle-follow-document' | 'start-staging' | 'toggle-preview-view',
     evt: MouseEvent,
     value?: 'generate' | 'parse-preview'
   ) {
@@ -917,20 +909,20 @@
           </button>
           <button
             class="clickable-icon sidebar-action-btn card-toolbar-btn"
-            onclick={() => emitCardManagementToolbarAction('open-data-management')}
-            aria-label={t('mainMenu.cardManagement.dataManagement')}
-          >
-            <ObsidianIcon name="database" size={16} />
-            <span class="clickable-icon card-toolbar-btn-label">{t('mainMenu.cardManagement.dataShort')}</span>
-          </button>
-          <button
-            class="clickable-icon sidebar-action-btn card-toolbar-btn"
             class:is-hidden-slot={currentView !== 'table'}
             onclick={(event) => emitCardManagementToolbarAction('open-column-manager', event.currentTarget as HTMLElement)}
             aria-label={t('mainMenu.cardManagement.columnManager')}
           >
             <ObsidianIcon name="columns-2" size={16} />
             <span class="clickable-icon card-toolbar-btn-label">{t('mainMenu.cardManagement.columnShort')}</span>
+          </button>
+          <button
+            class="clickable-icon sidebar-action-btn card-toolbar-btn"
+            onclick={() => emitCardManagementToolbarAction('open-data-management')}
+            aria-label={t('mainMenu.cardManagement.dataManagement')}
+          >
+            <ObsidianIcon name="database" size={16} />
+            <span class="clickable-icon card-toolbar-btn-label">{t('mainMenu.cardManagement.dataShort')}</span>
           </button>
           <button
             class="clickable-icon sidebar-action-btn card-toolbar-btn"

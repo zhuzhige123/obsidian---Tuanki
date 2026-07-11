@@ -10,6 +10,7 @@
 @import './z-index-system.css';          /* --z-index-*（dynamic-injected 等；与 core 内 --weave-z-* 并存） */
 @import './codemirror-theme.css';        /* CodeMirror编辑器主题 */
 @import './accent-bar.css';              /* 统一侧边颜色条（设置页 / 模态窗共用） */
+@import './weave-tutorial-panel.css';   /* 牌组学习教程浮窗（与 EPUB 阅读器同款） */
 @import './settings-common.css';         /* 设置界面样式 */
 @import './mobile-responsive.css';       /* 📱 手机端响应式适配（媒体查询 - 仅桌面端窄窗口） */
 @import './obsidian-mobile.css';         /* 📱 Obsidian 设备类样式（优先 - 实际移动设备 + 平板端） */
@@ -21,6 +22,7 @@
 
 /* 功能样式 */
 @import './modal-components.css';        /* 模态窗壳尺寸；APKG 界面见 APKGImportModal.svelte + .weave-apkg-import-modal */
+@import './document-quiz-stats.css';     /* 文档测验题尾统计徽章（阅读/Live Preview） */
 @import './choice-card.css';             /* 选择题卡片 */
 @import './data-management.css';         /* 数据管理 */
 @import './metadata-beautifier.css';     /* 元数据美化 */

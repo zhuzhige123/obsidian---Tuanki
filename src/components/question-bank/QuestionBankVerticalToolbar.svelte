@@ -170,6 +170,8 @@
     };
   });
 
+  let hasSourceFile = $derived(!!sourceInfo.sourceFile);
+
   // 格式化学习时间
   function formatTime(ms: number): string {
     const totalSeconds = Math.floor(ms / 1000);
@@ -205,6 +207,7 @@
   const sourceLocateOverlay = getSourceLocateOverlayService();
   const sourceNavigationService = untrack(() => (plugin ? new SourceNavigationService(plugin.app) : null));
   let multiInfoButtonElement: HTMLElement | null = $state(null);
+  let sourceLocateButtonElement: HTMLElement | null = $state(null);
 
   function showMarkdownSourceOverlay(openedLeaf: any, candidates: string[], fallbackEl?: HTMLElement | null) {
     if (!plugin || !sourceNavigationService) return;
@@ -277,6 +280,22 @@
       loadSourceCard();
     }
   });
+
+  // 侧边栏溯源定位：Obsidian 标准块引用 [[文档#^blockId]]
+  async function handleLocateSource() {
+    if (!sourceInfo.sourceFile || !plugin) {
+      new Notice(t('toolbar.noSourceLinked'));
+      return;
+    }
+
+    const blockId = sourceInfo.sourceBlock?.replace(/^\^/, '');
+    if (blockId) {
+      await handleOpenBlockLink();
+      return;
+    }
+
+    await handleOpenSourceFile();
+  }
 
   // 处理文件路径点击，使用 openLinkText 处理 wikilink 格式
   // 添加文件存在性检查，防止创建新文档
@@ -369,7 +388,7 @@
       showMarkdownSourceOverlay(
         openedLeaf,
         [linkText, blockId, `^${blockId}`, docName, file.path, file.basename].filter(Boolean) as string[],
-        multiInfoButtonElement
+        sourceLocateButtonElement ?? multiInfoButtonElement
       );
       showMultiInfoMenu = false;
       return;
@@ -530,6 +549,24 @@
       </div>
       <span class="btn-label">{t('study.questionBankUI.verticalToolbar.priorityShort')}</span>
     </button>
+
+    <!-- 溯源定位（Obsidian 块引用） -->
+    {#if hasSourceFile}
+      <button
+        bind:this={sourceLocateButtonElement}
+        class="clickable-icon toolbar-btn source-locate-btn"
+        onclick={() => void handleLocateSource()}
+        onmousedown={(e) => handleButtonLongPressStart(e, e.currentTarget)}
+        onmouseup={handleButtonDragEnd}
+        ontouchstart={(e) => handleButtonLongPressStart(e, e.currentTarget)}
+        title={sourceInfo.sourceBlock
+          ? t('study.questionBankUI.verticalToolbar.locateSourceBlock')
+          : t('study.questionBankUI.verticalToolbar.locateSource')}
+      >
+        <ObsidianIcon name="map-pinned" size={18} />
+        <span class="btn-label">{t('study.questionBankUI.verticalToolbar.locateSourceShort')}</span>
+      </button>
+    {/if}
 
     <!-- 多功能信息键 -->
     <div class="multi-info-container">

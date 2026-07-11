@@ -136,10 +136,11 @@
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 1rem;
-    margin: 0 1.5rem 1.5rem 1.5rem;
-    padding-bottom: 1.5rem;
+    margin: 0 1.5rem 0.5rem 1.5rem;
+    padding-bottom: 0.75rem;
     border-bottom: 1px solid var(--background-modifier-border);
     animation: slideDown 0.3s ease-out;
+    flex-shrink: 0;
   }
 
   .stat-card {

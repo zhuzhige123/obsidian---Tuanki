@@ -9,7 +9,6 @@
   import TestTrendChart from "./TestTrendChart.svelte";
   import EmptyTrendState from "./EmptyTrendState.svelte";
   import type WeavePlugin from "../../main";
-  import { getWorkspaceBounds, isMobileDevice, type WorkspaceBounds } from '../../utils/mobile-modal-bounds';
   import { tr } from '../../utils/i18n';
 
   interface TestHistoryPoint {
@@ -28,6 +27,7 @@
     plugin: WeavePlugin;
     soundEnabled?: boolean;
     soundVolume?: number;
+    showTrendSection?: boolean;
     onBackToBank?: () => void;
   }
 
@@ -36,6 +36,7 @@
     plugin,
     soundEnabled = true,
     soundVolume = 0.5,
+    showTrendSection = true,
     onBackToBank 
   }: Props = $props();
   let t = $derived($tr);
@@ -44,19 +45,6 @@
   let testHistory = $state<TestHistoryPoint[]>([]);
   let currentMetric = $state<'accuracy' | 'score'>('accuracy');
   let isLoadingHistory = $state(false);
-
-  //  移动端边界状态
-  let mobileBounds = $state<WorkspaceBounds | null>(null);
-  let isMobile = $state(false);
-
-  // 更新移动端边界
-  function updateMobileBounds() {
-    isMobile = isMobileDevice();
-    if (isMobile) {
-      mobileBounds = getWorkspaceBounds();
-      logger.debug('[TestResultView] 移动端边界检测:', mobileBounds);
-    }
-  }
 
   // 计算得分
   const sessionScore = $derived.by(() => TestScoringEngine.scoreSession(session));
@@ -144,9 +132,6 @@
   let showContent = $state(false);
   
   onMount(() => {
-    //  初始化移动端边界检测
-    updateMobileBounds();
-    
     // 成绩达标时播放庆祝音效
     if (soundEnabled && sessionScore.totalScore >= 60) {
       const sound = getCelebrationSound();
@@ -161,7 +146,9 @@
     }, 300);
     
     // 加载历史数据
-    loadTestHistory();
+    if (showTrendSection) {
+      loadTestHistory();
+    }
 
     // 键盘事件
     const handleKeydown = (e: KeyboardEvent) => {
@@ -179,11 +166,9 @@
   });
 </script>
 
-<!-- 背景遮罩 -->
+<!-- 测试结果结算（直接渲染在当前视图容器内，与 CelebrationModal 一致，不 portal 到 body） -->
 <div 
   class="test-result-backdrop"
-  class:is-mobile={isMobile}
-  style={isMobile && mobileBounds ? `top: ${mobileBounds.top}px; bottom: ${mobileBounds.bottom}px;` : ''}
   onclick={(event) => {
     if (event.target === event.currentTarget) {
       onBackToBank?.();
@@ -194,24 +179,23 @@
       onBackToBank?.();
     }
   }}
-  role="button"
-  tabindex="0"
-  aria-label={t('study.questionBankUI.result.closeAria')}
+  role="presentation"
 >
-  <!-- 礼花动画层 -->
-  <ConfettiEffect />
+  <!-- 礼花动画层（裁剪在视口内，避免撑高遮罩触发页面滚动） -->
+  <div class="test-result-confetti-layer" aria-hidden="true">
+    <ConfettiEffect />
+  </div>
   
   <!-- 内容卡片 -->
   <div 
   class="test-result-card"
   class:show={showContent}
-  class:is-mobile={isMobile}
-  style={isMobile && mobileBounds ? `max-height: ${mobileBounds.height - 24}px;` : ''}
   role="dialog"
   tabindex="-1"
     aria-labelledby="result-title"
     aria-modal="true"
   >
+    <div class="test-result-card-scroll">
     <!-- 简洁成绩展示 -->
     <div class="score-header-simple">
       <!-- 成绩环和等级 -->
@@ -275,6 +259,7 @@
       </div>
     </div>
     
+    {#if showTrendSection}
     <!-- 历史趋势 -->
     <div class="trend-section">
       <div class="trend-header">
@@ -305,6 +290,8 @@
         <EmptyTrendState />
       {/if}
     </div>
+    {/if}
+    </div>
     
     
     <!-- 底部按钮 -->
@@ -317,19 +304,29 @@
 </div>
 
 <style>
-  /* 背景遮罩 */
+  /* 背景遮罩：铺满当前学习视图容器，不覆盖整个 Obsidian 窗口 */
   .test-result-backdrop {
-    position: fixed;
+    position: absolute;
     inset: 0;
     background: rgba(0, 0, 0, 0.85);
     backdrop-filter: blur(8px);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: var(--weave-z-toast);
-    padding: 20px;
+    z-index: calc(var(--layer-notice) + 50);
+    padding: var(--weave-study-view-spacing, 20px);
     animation: backdrop-fade-in 0.3s ease-out;
-    overflow: auto;
+    overflow: hidden;
+    overscroll-behavior: none;
+    isolation: isolate;
+  }
+
+  .test-result-confetti-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
   }
 
   @keyframes backdrop-fade-in {
@@ -344,18 +341,30 @@
   /* 内容卡片 */
   .test-result-card {
     position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
     max-width: 700px;
     width: 100%;
+    max-height: min(90%, calc(100% - 40px));
     background: var(--background-primary);
     border-radius: 16px;
     border: 1px solid var(--background-modifier-border);
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    padding: 32px 28px;
+    padding: 32px 28px 24px;
     opacity: 0;
     transform: scale(0.9);
     transition: all 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55);
     z-index: calc(var(--weave-z-top) + 1);
     text-align: center;
+    overflow: hidden;
+  }
+
+  .test-result-card-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 4px;
   }
 
   .test-result-card.show {
@@ -569,8 +578,11 @@
 
   /* 底部按钮 */
   .result-footer {
+    flex-shrink: 0;
     text-align: center;
-    margin-top: 8px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--background-modifier-border);
     animation: footer-fade-in 0.5s ease-out 1.0s both;
   }
 
@@ -665,30 +677,7 @@
     }
   }
 
-  /*  移动端适配 - 使用动态边界检测 */
-  .test-result-backdrop.is-mobile {
-    position: fixed;
-    left: 0;
-    right: 0;
-    padding: 12px;
-    background: transparent;
-    backdrop-filter: none;
-    overflow-y: auto;
-  }
-
-  .test-result-card.is-mobile {
-    overflow-y: auto;
-    margin: 0 auto;
-    max-width: 100%;
-    border-radius: 16px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  }
-
-  :global(body.is-phone) .test-result-backdrop.is-mobile {
-    padding: 8px;
-  }
-
-  :global(body.is-phone) .test-result-card.is-mobile {
+  :global(body.is-phone) .test-result-card {
     padding: 16px 12px;
     border-radius: 12px;
   }

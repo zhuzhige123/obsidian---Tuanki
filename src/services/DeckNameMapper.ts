@@ -7,6 +7,7 @@
 
 import type { Deck } from "../data/types";
 import type { WeavePlugin } from "../main";
+import { readUnknownString } from "../utils/dynamic-access";
 import { logger } from "../utils/logger";
 
 export class DeckNameMapper {
@@ -274,9 +275,7 @@ export function resolveDeckIdToFormalName(
 
 	const marker = (card?.customFields)?.wdeck;
 	if (marker && typeof marker === "object") {
-		const logicalDeckName = String(
-			(marker as { logicalDeckName?: unknown }).logicalDeckName || ""
-		).trim();
+		const logicalDeckName = (readUnknownString(marker, "logicalDeckName") ?? "").trim();
 		if (logicalDeckName) {
 			return logicalDeckName;
 		}

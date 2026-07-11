@@ -10,10 +10,3 @@ export function getAttachmentRegistryAutoFixIssueCount(
 ): number {
 	return scan.rewritablePaths.length + (scan.isRegistryStale ? 1 : 0);
 }
-
-/** @deprecated 使用 getAttachmentRegistryAutoFixIssueCount */
-export function getAttachmentRegistryActionableIssueCount(
-	scan: AttachmentRegistryAutoFixScanSlice
-): number {
-	return getAttachmentRegistryAutoFixIssueCount(scan);
-}

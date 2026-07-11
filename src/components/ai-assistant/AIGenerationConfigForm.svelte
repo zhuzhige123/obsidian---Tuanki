@@ -1,22 +1,30 @@
 <script lang="ts">
   import type { GenerationConfig } from '../../types/ai-types';
+  import type { WeavePlugin } from '../../main';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
+  import AIPromptConfigPanel from './AIPromptConfigPanel.svelte';
+  import { isMobileDevice } from '../../utils/mobile-modal-bounds';
   import { tr } from '../../utils/i18n';
 
   interface Props {
+    plugin: WeavePlugin;
     config: GenerationConfig;
+    active?: boolean;
     onSave: (config: GenerationConfig) => void;
     onCancel?: () => void;
     saveLabel?: string;
   }
 
   let {
+    plugin,
     config,
+    active = true,
     onSave,
     onCancel = undefined,
     saveLabel = ''
   }: Props = $props();
   let t = $derived($tr);
+  let isMobile = $derived(active && isMobileDevice());
 
   function normalizeConfig(value: GenerationConfig): GenerationConfig {
     const count = Math.max(1, Math.min(value.maxGenerationLimit ?? value.cardCount ?? 20, 50));
@@ -152,11 +160,15 @@
   {/if}
 
   <div class="config-scroll">
-    <section class="config-section difficulty">
-      <div class="section-header">
-        <div class="section-indicator difficulty-indicator"></div>
-        <h3 class="section-title">{t('aiAssistant.generationConfig.sections.difficulty')}</h3>
+    <section class="config-section prompts">
+      <h3 class="section-title with-accent-bar accent-green" class:mobile={isMobile}>{t('aiAssistant.generationConfig.sections.prompts')}</h3>
+      <div class="config-item prompt-config-item">
+        <AIPromptConfigPanel {plugin} {config} {active} variant="embedded" />
       </div>
+    </section>
+
+    <section class="config-section difficulty">
+      <h3 class="section-title with-accent-bar accent-purple" class:mobile={isMobile}>{t('aiAssistant.generationConfig.sections.difficulty')}</h3>
       <div class="config-item">
         <fieldset class="config-fieldset">
           <legend class="visually-hidden">{t('aiAssistant.generationConfig.sections.difficulty')}</legend>
@@ -183,10 +195,7 @@
     </section>
 
     <section class="config-section card-count">
-      <div class="section-header">
-        <div class="section-indicator count-indicator"></div>
-        <h3 class="section-title">{t('aiAssistant.generationConfig.sections.cardCount')}</h3>
-      </div>
+      <h3 class="section-title with-accent-bar accent-cyan" class:mobile={isMobile}>{t('aiAssistant.generationConfig.sections.cardCount')}</h3>
       <div class="config-item">
         <label class="config-label visually-hidden" for="card-count-slider">
           {t('aiAssistant.generationConfig.sections.cardCount')} ({t('aiAssistant.generationConfig.cardCountValue', { count: localConfig.cardCount })})
@@ -206,10 +215,7 @@
     </section>
 
     <section class="config-section type-distribution">
-      <div class="section-header">
-        <div class="section-indicator distribution-indicator"></div>
-        <h3 class="section-title">{t('aiAssistant.generationConfig.sections.typeDistribution')}</h3>
-      </div>
+      <h3 class="section-title with-accent-bar accent-pink" class:mobile={isMobile}>{t('aiAssistant.generationConfig.sections.typeDistribution')}</h3>
       <div class="config-item">
         <fieldset class="config-fieldset">
           <legend class="visually-hidden">{t('aiAssistant.generationConfig.sections.typeDistribution')}</legend>
@@ -298,10 +304,7 @@
     </section>
 
     <section class="config-section advanced-options">
-      <div class="section-header">
-        <div class="section-indicator advanced-indicator"></div>
-        <h3 class="section-title">{t('aiAssistant.generationConfig.sections.advanced')}</h3>
-      </div>
+      <h3 class="section-title with-accent-bar accent-blue" class:mobile={isMobile}>{t('aiAssistant.generationConfig.sections.advanced')}</h3>
 
       <div class="config-item">
         <label class="config-label" for="max-tokens-input">{t('aiAssistant.generationConfig.maxTokens')}</label>
@@ -354,11 +357,11 @@
     --qa-color: #3b82f6;
     --cloze-color: #10b981;
     --choice-color: #f59e0b;
-    --difficulty-color: #8b5cf6;
-    --count-color: #06b6d4;
-    --distribution-color: #ec4899;
-    --advanced-color: #6366f1;
     --weave-border-visible: rgba(128, 128, 128, 0.3);
+  }
+
+  .prompt-config-item {
+    margin-bottom: 0;
   }
 
   .config-scroll {
@@ -387,31 +390,17 @@
     border: 1px solid var(--weave-border-visible);
   }
 
-  .section-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-
-  .section-indicator {
-    width: 4px;
-    height: 24px;
-    border-radius: 2px;
-    flex-shrink: 0;
-  }
-
-  .difficulty-indicator { background: var(--difficulty-color); }
-  .count-indicator { background: var(--count-color); }
-  .distribution-indicator { background: var(--distribution-color); }
-  .advanced-indicator { background: var(--advanced-color); }
-
   .section-title {
-    flex: 1;
-    margin: 0;
-    font-size: 0.875rem;
+    margin: 0 0 var(--size-4-4, 1rem) 0;
+    font-size: var(--font-ui-medium, 0.875rem);
     font-weight: 600;
     color: var(--text-normal);
+    line-height: 1.4;
+  }
+
+  .section-title.mobile {
+    font-size: 14px;
+    margin-bottom: 12px;
   }
 
   .config-item {

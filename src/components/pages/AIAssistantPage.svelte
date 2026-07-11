@@ -24,7 +24,6 @@
   import { AICardGenerationService } from '../../services/ai/AICardGenerationService';
   import { resolveDefaultAIProvider, readAIGlobalGenerationDefaults } from '../../services/ai/AIConfigService';
   import {
-    listUserPromptFiles,
     resolveUserPromptFile
   } from '../../services/ai/UserPromptFileService';
   import { ParsedCardConverter } from '../../services/converter/ParsedCardConverter';
@@ -38,7 +37,6 @@
   import AICardPreviewWorkspace from '../ai-assistant/AICardPreviewWorkspace.svelte';
   import AIParsePreviewWorkspace from '../ai-assistant/AIParsePreviewWorkspace.svelte';
   import AIGenerationConfigPopover from '../ai-assistant/AIGenerationConfigPopover.svelte';
-  import { AIConfigModalObsidian } from '../ai-assistant/AIConfigModalObsidian';
   import { generatedCardToPreviewItem } from '../../utils/ai-preview-items';
   import {
     getActiveDocumentFileName,
@@ -135,7 +133,6 @@
   let historyAnchor = $state<AnchorRect | null>(null);
   let configOpen = $state(false);
   let configAnchor = $state<AnchorRect | null>(null);
-  let systemPromptModal: AIConfigModalObsidian | null = null;
   let lastToolbarStateSignature = '';
   let lastGenerationHistorySignature = '';
 
@@ -454,49 +451,6 @@
     syncToolbarState();
   }
 
-  async function openPromptFileMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
-    try {
-      const promptFiles = await listUserPromptFiles(plugin.app);
-      const selected = await new MarkdownFileSuggestModal(plugin.app, {
-        files: promptFiles,
-        placeholder: '搜索并选择提示词文件...',
-        anchorRect: normalizeAnchor(detail) ?? undefined,
-        preferredWidth: 560,
-        allowEmptySelection: true,
-        emptySelectionLabel: '不使用提示词文件',
-        emptySelectionDescription: undefined,
-        showPath: false,
-        showIcon: false,
-      }).openAndSelectItem();
-
-      if (!selected) {
-        return;
-      }
-
-      if (selected.kind === 'empty') {
-        await selectPromptFile(null);
-        return;
-      }
-
-      await selectPromptFile(fileToInfo(selected.file));
-    } catch (error) {
-      logger.error('Failed to open user prompt file menu:', error);
-      new Notice('\u63d0\u793a\u8bcd\u6587\u4ef6\u5217\u8868\u52a0\u8f7d\u5931\u8d25');
-    }
-  }
-
-  async function openFileSuggest(mode: 'source' | 'prompt', detail?: { x?: number; y?: number; rect?: AnchorRect }) {
-    historyOpen = false;
-    configOpen = false;
-
-    if (mode === 'source') {
-      await openSourceFileMenu(detail);
-      return;
-    }
-
-    await openPromptFileMenu(detail);
-  }
-
   function openHistory(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
     historyAnchor = normalizeAnchor(detail);
     historyOpen = !historyOpen;
@@ -509,21 +463,26 @@
     historyOpen = false;
   }
 
-  function openSystemPromptModal() {
-    systemPromptModal?.close();
-    systemPromptModal = new AIConfigModalObsidian(plugin.app, {
-      plugin,
-      config: generationConfig,
-      onSave: async (nextConfig) => {
-        generationConfig = normalizeGenerationConfig({ ...nextConfig });
-        await persistPreferences();
-        syncToolbarState();
-      },
-      onClose: () => {
-        systemPromptModal = null;
-      }
-    });
-    systemPromptModal.open();
+  async function syncPromptFileFromPreferences(preferredPath?: string | null) {
+    const path = preferredPath ?? plugin.getAIAssistantPreferences().lastSelectedPromptFilePath;
+    if (!path) {
+      await selectPromptFile(null);
+      return;
+    }
+
+    const file = findUserPromptFile(path);
+    if (!file) {
+      await selectPromptFile(null);
+      return;
+    }
+
+    if (selectedPromptFile?.path === file.path) {
+      promptContent = await plugin.app.vault.read(file.file);
+      syncToolbarState();
+      return;
+    }
+
+    await selectPromptFile(file);
   }
 
   function openModelMenu(detail?: { x?: number; y?: number; rect?: AnchorRect }) {
@@ -869,10 +828,12 @@
       const detail = (event as CustomEvent<{ action: string; value?: AIAssistantSubView; x?: number; y?: number; rect?: AnchorRect }>).detail;
       if (!detail) return;
 
-      if (detail.action === 'file') void openFileSuggest('source', detail);
-      if (detail.action === 'prompt-file') void openFileSuggest('prompt', detail);
+      if (detail.action === 'file') {
+        historyOpen = false;
+        configOpen = false;
+        void openSourceFileMenu(detail);
+      }
       if (detail.action === 'model') openModelMenu(detail);
-      if (detail.action === 'system-prompt') openSystemPromptModal();
       if (detail.action === 'history') openHistory(detail);
       if (detail.action === 'config') openConfig(detail);
       if (detail.action === 'parse-template') openParsePresetMenu(detail);
@@ -928,8 +889,14 @@
       });
     };
 
+    const handleUserPromptSelectionChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ path?: string | null }>).detail;
+      void syncPromptFileFromPreferences(detail?.path ?? null);
+    };
+
     window.addEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
     window.addEventListener('Weave:ai-user-prompt-files-changed', handleUserPromptFilesChanged as EventListener);
+    window.addEventListener('Weave:ai-user-prompt-selection-changed', handleUserPromptSelectionChanged as EventListener);
 
     const updateActiveDocument = () => {
       const nextPath = activeDocumentResolver.resolve(
@@ -989,6 +956,7 @@
       plugin.app.workspace.off('file-open', updateActiveDocument);
       window.removeEventListener('Weave:ai-toolbar-action', handleToolbarAction as EventListener);
       window.removeEventListener('Weave:ai-user-prompt-files-changed', handleUserPromptFilesChanged as EventListener);
+      window.removeEventListener('Weave:ai-user-prompt-selection-changed', handleUserPromptSelectionChanged as EventListener);
     };
   });
 </script>
@@ -1014,14 +982,19 @@
   {/if}
 
   <AIGenerationConfigPopover
+    {plugin}
     isOpen={configOpen}
     config={generationConfig}
     style={configStyle}
-    onClose={() => configOpen = false}
+    onClose={() => {
+      configOpen = false;
+      void syncPromptFileFromPreferences();
+    }}
     onSave={async (config) => {
       generationConfig = config;
       configOpen = false;
       await persistPreferences();
+      await syncPromptFileFromPreferences();
       syncToolbarState();
     }}
   />

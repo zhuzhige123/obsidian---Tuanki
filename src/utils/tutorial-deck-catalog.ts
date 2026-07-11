@@ -1,4 +1,5 @@
 import type { Card } from "../data/types";
+import { readUnknownString } from "./dynamic-access";
 import { parseYAMLFromContent } from "./yaml-utils";
 
 /** 已废弃的内置教程牌组名称（历史版本自动创建） */
@@ -69,9 +70,7 @@ function readTutorialDeckNames(card: Card): string[] {
 
 	const marker = (card.customFields as Record<string, unknown> | undefined)?.wdeck;
 	if (marker && typeof marker === "object") {
-		const logicalDeckName = String(
-			(marker as { logicalDeckName?: unknown }).logicalDeckName || ""
-		).trim();
+		const logicalDeckName = (readUnknownString(marker, "logicalDeckName") ?? "").trim();
 		if (logicalDeckName) {
 			names.add(logicalDeckName);
 		}

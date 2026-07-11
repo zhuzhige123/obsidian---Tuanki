@@ -1,11 +1,13 @@
 <script lang="ts">
   import type { GenerationConfig } from '../../types/ai-types';
+  import type { WeavePlugin } from '../../main';
   import ObsidianIcon from '../ui/ObsidianIcon.svelte';
   import AIGenerationConfigForm from './AIGenerationConfigForm.svelte';
   import { isMobileDevice } from '../../utils/mobile-modal-bounds';
   import { tr } from '../../utils/i18n';
 
   interface Props {
+    plugin: WeavePlugin;
     isOpen: boolean;
     config: GenerationConfig;
     style?: string;
@@ -13,7 +15,7 @@
     onSave: (config: GenerationConfig) => void;
   }
 
-  let { isOpen, config, style = '', onClose, onSave }: Props = $props();
+  let { plugin, isOpen, config, style = '', onClose, onSave }: Props = $props();
   let t = $derived($tr);
   let useMobileShell = $state(false);
 
@@ -53,7 +55,9 @@
       </div>
 
       <AIGenerationConfigForm
+        {plugin}
         {config}
+        active={isOpen}
         onCancel={onClose}
         onSave={onSave}
       />
@@ -70,7 +74,8 @@
 
   .ai-config-popover {
     position: absolute;
-    max-height: min(86vh, 820px);
+    width: min(920px, 94vw);
+    max-height: min(90vh, 900px);
     background: var(--background-primary);
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);

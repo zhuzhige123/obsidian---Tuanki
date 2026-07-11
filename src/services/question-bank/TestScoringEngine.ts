@@ -3,6 +3,7 @@
  * 负责计算题目得分、总分和成绩等级
  */
 
+import { isStagingBankId } from "../ai/card-staging-card-builder";
 import type { TestQuestionRecord, TestSession } from "../../types/question-bank-types";
 
 export type GradeLevel = "A+" | "A" | "B+" | "B" | "C" | "D" | "F";
@@ -175,10 +176,16 @@ export class TestScoringEngine {
 
 		// 计算百分制总分
 		const totalQuestions = session.questions.length;
-		const percentageScore = (totalScore / totalQuestions) * 100;
+		const answeredCount = correctCount + wrongCount;
+		const percentageScore = this.calculatePercentageScore({
+			totalScore,
+			correctCount,
+			totalQuestions,
+			answeredCount,
+			useAnsweredOnlyScoring: this.shouldScoreAnsweredQuestionsOnly(session, answeredCount, totalQuestions),
+		});
 
 		// 计算正确率（只考虑已作答的题目）
-		const answeredCount = correctCount + wrongCount;
 		const accuracy = answeredCount > 0 ? (correctCount / answeredCount) * 100 : 0;
 
 		// 计算成绩等级
@@ -194,6 +201,39 @@ export class TestScoringEngine {
 			grade,
 			questionScores,
 		};
+	}
+
+	/**
+	 * Staging（文档测验、AI 预览等）只练部分题时不应把未作答题算进分母，
+	 * 否则会出现「正确率 100% 但得分 4.5 / 等级 F」的矛盾结果。
+	 */
+	static shouldScoreAnsweredQuestionsOnly(
+		session: TestSession,
+		answeredCount: number,
+		totalQuestions: number
+	): boolean {
+		return (
+			isStagingBankId(session.bankId) &&
+			answeredCount > 0 &&
+			answeredCount < totalQuestions
+		);
+	}
+
+	static calculatePercentageScore(options: {
+		totalScore: number;
+		correctCount: number;
+		totalQuestions: number;
+		answeredCount: number;
+		useAnsweredOnlyScoring: boolean;
+	}): number {
+		const { totalScore, correctCount, totalQuestions, answeredCount, useAnsweredOnlyScoring } =
+			options;
+
+		if (useAnsweredOnlyScoring) {
+			return answeredCount > 0 ? (correctCount / answeredCount) * 100 : 0;
+		}
+
+		return totalQuestions > 0 ? (totalScore / totalQuestions) * 100 : 0;
 	}
 
 	/**

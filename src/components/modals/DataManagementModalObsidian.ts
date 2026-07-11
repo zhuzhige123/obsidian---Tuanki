@@ -2,6 +2,7 @@ import { App, Modal } from "obsidian";
 import { mount, unmount } from "svelte";
 import type { Card } from "../../data/types";
 import type WeavePlugin from "../../main";
+import type { DataCheckResult } from "../../services/data-management/DataManagementService";
 import { t } from "../../utils/i18n";
 import { configureWeaveObsidianModalLayout } from "../../utils/obsidian-modal-layout";
 import DataManagementModal from "./DataManagementModal.svelte";
@@ -17,8 +18,8 @@ export interface DataManagementModalObsidianOptions {
 	initialTab?: "data";
 	startupGate?: boolean;
 	onStartupGateAcknowledge?: (payload: {
-		checkResults: import("../../services/data-management/DataManagementService").DataCheckResult[];
-		migrationResults: import("../../services/data-management/DataManagementService").DataCheckResult[];
+		checkResults: DataCheckResult[];
+		migrationResults: DataCheckResult[];
 	}) => void;
 	onStartupGateDismiss?: (payload?: StartupGateDismissPayload) => void;
 	onClose?: () => void;
@@ -61,12 +62,15 @@ export class DataManagementModalObsidian extends Modal {
 				registerStartupGateDismissState: (getter: () => boolean) => {
 					this.readDisableFutureAutoPopup = getter;
 				},
-				onStartupGateAcknowledge: (payload) => {
+				onStartupGateAcknowledge: (payload: {
+					checkResults: DataCheckResult[];
+					migrationResults: DataCheckResult[];
+				}) => {
 					this.startupGateResolved = true;
 					this.options.onStartupGateAcknowledge?.(payload);
 					this.close();
 				},
-				onStartupGateDismiss: (payload) => {
+				onStartupGateDismiss: (payload?: StartupGateDismissPayload) => {
 					this.startupGateResolved = true;
 					this.options.onStartupGateDismiss?.(payload);
 					this.close();

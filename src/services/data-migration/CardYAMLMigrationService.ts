@@ -11,6 +11,7 @@
 import type { Card } from "../../data/types";
 import type { WeavePlugin } from "../../main";
 import { logger } from "../../utils/logger";
+import { readUnknownString } from "../../utils/dynamic-access";
 import {
 	type CardYAMLMetadata,
 	type CardYAMLType,
@@ -426,9 +427,7 @@ function readWDeckLogicalDeckName(card: Card): string | undefined {
 		return undefined;
 	}
 
-	const logicalDeckName = String(
-		(marker as { logicalDeckName?: unknown }).logicalDeckName || ""
-	).trim();
+	const logicalDeckName = (readUnknownString(marker, "logicalDeckName") ?? "").trim();
 	return logicalDeckName || undefined;
 }
 

@@ -56,7 +56,7 @@
     return EpubLinkService.extractFirstEpubLinkMarkup(body);
   }
 
-  function resolveTraceMetadata(metadata: any, currentCard?: Card) {
+  function resolveTraceMetadata(metadata: any, currentCard: Card | undefined = undefined) {
     const rawSourceFile = metadata?.sourceFile || metadata?.file || currentCard?.sourceFile;
     const rawSourceBlock = metadata?.sourceBlock || metadata?.blockId || currentCard?.sourceBlock;
     const sanitized = sanitizeCardTraceMetadata({

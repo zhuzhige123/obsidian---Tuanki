@@ -3,9 +3,79 @@
  * 支持 CSV/MD 格式，按来源/月份/牌组分组导出
  */
 
+import { MAIN_SEPARATOR } from "../constants/markdown-delimiters";
 import type { Card, Deck } from "../data/types";
 import { getCardContentBySide } from "./helpers";
-import { parseSourceInfo, parseYAMLFromContent } from "./yaml-utils";
+import { extractBodyContent, parseSourceInfo, parseYAMLFromContent } from "./yaml-utils";
+
+const FRONT_BACK_SPLIT = /(?:^|\n)\s*(?:---div---|---)\s*(?:\n|$)/i;
+const OPTION_LINE = /^\s*[A-Z]\s*[.．、]\s/;
+const QUESTION_PREFIX = /^(?:Q:|q:|问题：)\s*/;
+const ANSWER_PREFIX = /^(?:A:|a:|答案：)\s*/;
+
+function stripLinePrefix(line: string, prefixPattern: RegExp): string {
+	const trimmed = line.trimStart();
+	if (prefixPattern.test(trimmed)) {
+		return trimmed.replace(prefixPattern, "").trimStart();
+	}
+	return line;
+}
+
+function normalizeFrontSection(front: string): string {
+	const lines = front.split("\n");
+	const normalized: string[] = [];
+	let strippedQuestion = false;
+
+	for (const line of lines) {
+		if (!strippedQuestion && line.trim() && !OPTION_LINE.test(line)) {
+			normalized.push(stripLinePrefix(line, QUESTION_PREFIX));
+			strippedQuestion = true;
+			continue;
+		}
+		normalized.push(line);
+	}
+
+	return normalized.join("\n").trim();
+}
+
+function normalizeBackSection(back: string): string {
+	if (!back.trim()) {
+		return back;
+	}
+
+	const lines = back.split("\n");
+	const firstNonEmptyIndex = lines.findIndex((line) => line.trim());
+	if (firstNonEmptyIndex < 0) {
+		return back.trim();
+	}
+
+	lines[firstNonEmptyIndex] = stripLinePrefix(lines[firstNonEmptyIndex], ANSWER_PREFIX);
+	return lines.join("\n").trim();
+}
+
+/**
+ * 将卡片正文格式化为插件通用 Markdown 导出格式：
+ * - 保留 ---div--- 正反面分隔符（兼容旧导出误用的 ---）
+ * - 去掉可选的 Q:/A: 前缀
+ */
+export function formatCardBodyForMarkdownExport(content: string): string {
+	const body = extractBodyContent(content || "").trim();
+	if (!body) {
+		return "";
+	}
+
+	const splitMatch = body.match(FRONT_BACK_SPLIT);
+	if (!splitMatch || splitMatch.index === undefined) {
+		return normalizeFrontSection(body);
+	}
+
+	const front = body.slice(0, splitMatch.index).trim();
+	const back = body.slice(splitMatch.index + splitMatch[0].length).trim();
+	if (!back) {
+		return normalizeFrontSection(front);
+	}
+	return `${normalizeFrontSection(front)}\n\n${MAIN_SEPARATOR}\n${normalizeBackSection(back)}`;
+}
 
 // ============================================================================
 // CSV 生成工具

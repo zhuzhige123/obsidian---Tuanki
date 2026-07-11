@@ -11,15 +11,24 @@ export interface IRCardManagementMutationResult {
 	sourceDocumentPath?: string;
 }
 
+function readFirstStringField(source: Record<string, unknown>, keys: string[]): string {
+	for (const key of keys) {
+		const value = source[key];
+		if (typeof value === "string" && value.trim()) {
+			return value.trim();
+		}
+	}
+	return "";
+}
+
 function resolveCardSourceDocumentPath(card: Card): string | undefined {
 	const cardLike = card as unknown as Record<string, unknown>;
-	const rawPath = String(
-		cardLike.ir_source_document_key ||
-			cardLike.sourceDocumentKey ||
-			cardLike.sourceFile ||
-			cardLike.ir_source_file ||
-			""
-	).trim();
+	const rawPath = readFirstStringField(cardLike, [
+		"ir_source_document_key",
+		"sourceDocumentKey",
+		"sourceFile",
+		"ir_source_file",
+	]);
 
 	return rawPath ? normalizePath(rawPath) : undefined;
 }

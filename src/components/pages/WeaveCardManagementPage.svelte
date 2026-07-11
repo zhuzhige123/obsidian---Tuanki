@@ -76,7 +76,7 @@
     buildContentWithYAML
   } from "../../utils/yaml-utils";
   import { MAIN_SEPARATOR } from "../../constants/markdown-delimiters";
-  import { cardsToCSV, groupCardsBySource, groupCardsByMonth, groupCardsByDeck, sanitizeFileName, type ExportGroupMode } from "../../utils/card-export-utils";
+  import { cardsToCSV, formatCardBodyForMarkdownExport, groupCardsBySource, groupCardsByMonth, groupCardsByDeck, sanitizeFileName, type ExportGroupMode } from "../../utils/card-export-utils";
   import { showObsidianConfirm } from "../../utils/obsidian-confirm";
   import {
     addMenuRadioChoices,
@@ -85,6 +85,7 @@
   import { detectCardQuestionType, getQuestionTypeDistribution } from "../../utils/card-type-utils";
   import { getErrorBookDistribution, getCardErrorLevel } from "../../utils/error-book-utils";
   import { syncCardStatsToCanonicalFormat } from "../../utils/card-stats-normalizer";
+  import { createUniqueVaultTextFile } from "../../utils/vault-write-guard";
   import { CardType } from "../../data/types";
   import { applyTimeFilter } from "../../utils/time-filter-utils";
   import { batchUpdateCards, mergeUnmappedFields, deleteFields } from "../../services/batch-operation-service";
@@ -150,11 +151,6 @@
   // EPUB阅读器活动文档store（用于文档关联筛选）
   import { epubActiveDocumentStore } from "../../stores/epub-active-document-store";
   import { EPUB_RUNTIME } from "../../services/epub-integration";
-  import {
-    INCREMENTAL_READING_PLUGIN_ID,
-    isIncrementalReadingPluginInstalled,
-    notifySplitPluginUnavailable,
-  } from "../../utils/ir-plugin-integration";
   
   import { IRStorageService } from "../../services/incremental-reading/IRStorageService";
   import { loadIRCardManagementData } from "../../services/incremental-reading/IRCardManagementLoader";
@@ -491,12 +487,9 @@
 
   function normalizeVisibleCardDataSource(
     source: 'memory' | 'questionBank' | 'incremental-reading'
-  ): 'memory' | 'questionBank' | 'incremental-reading' {
-    if (source === 'incremental-reading' && !isIncrementalReadingPluginInstalled(plugin.app)) {
-      return 'memory';
-    }
-    if (source === 'questionBank' || source === 'incremental-reading') {
-      return source;
+  ): 'memory' | 'questionBank' {
+    if (source === 'questionBank') {
+      return 'questionBank';
     }
 
     return 'memory';
@@ -1949,6 +1942,10 @@
   // 生命周期
   onMount(() => {
     isMounted = true;
+
+    if (dataSource === 'incremental-reading') {
+      void switchDataSource('memory');
+    }
 
     if (shouldPersistResolvedViewPreferences) {
       void saveViewPreferences();
@@ -4429,10 +4426,9 @@
     if (mode === 'single') {
       const timestamp = new Date().toISOString().slice(0, 10);
       const fileName = `Weave Export ${timestamp}.csv`;
-      const filePath = folderPath ? `${folderPath}/${fileName}` : fileName;
+      const filePath = normalizePath(folderPath ? `${folderPath}/${fileName}` : fileName);
       const csvContent = cardsToCSV(cardsToExport, currentDataSourceDecks);
-      const finalPath = await getUniqueFilePath(filePath);
-      await plugin.app.vault.create(finalPath, csvContent);
+      const finalPath = await createUniqueVaultTextFile(plugin.app.vault, filePath, csvContent);
       new Notice(t('cardManagement.batchToolbar.exportSuccess').replace('{count}', String(cardsToExport.length)).replace('{path}', finalPath));
     } else {
       const groups = getExportGroups(mode, cardsToExport);
@@ -4442,10 +4438,9 @@
         const baseName = sanitizeFileName(groupKey === '__no_source__' || groupKey === '__no_deck__' || groupKey === '__unknown__'
           ? `Weave Export - Ungrouped`
           : `Weave Export - ${groupKey}`);
-        const filePath = folderPath ? `${folderPath}/${baseName}.csv` : `${baseName}.csv`;
+        const filePath = normalizePath(folderPath ? `${folderPath}/${baseName}.csv` : `${baseName}.csv`);
         const csvContent = cardsToCSV(groupCards, currentDataSourceDecks);
-        const finalPath = await getUniqueFilePath(filePath);
-        await plugin.app.vault.create(finalPath, csvContent);
+        const finalPath = await createUniqueVaultTextFile(plugin.app.vault, filePath, csvContent);
         totalExported += groupCards.length;
         fileCount++;
       }
@@ -4475,11 +4470,10 @@
       const baseName = sanitizeFileName(groupKey === '__no_source__' || groupKey === '__no_deck__' || groupKey === '__unknown__'
         ? 'Weave Export - Ungrouped'
         : `Weave Export - ${groupKey}`);
-      const filePath = folderPath ? `${folderPath}/${baseName}.md` : `${baseName}.md`;
+      const filePath = normalizePath(folderPath ? `${folderPath}/${baseName}.md` : `${baseName}.md`);
       const sections = groupCards.map(card => formatCardForExport(card));
       const content = sections.join('\n\n---\n\n') + '\n';
-      const finalPath = await getUniqueFilePath(filePath);
-      await plugin.app.vault.create(finalPath, content);
+      const finalPath = await createUniqueVaultTextFile(plugin.app.vault, filePath, content);
       totalExported += groupCards.length;
       fileCount++;
     }
@@ -4526,11 +4520,7 @@
 
   // 格式化单张卡片为MD内容
   function formatCardForExport(card: Card): string {
-    let bodyContent = extractBodyContent(card.content || '').trim();
-
-    // 将内部分隔符 ---div--- 替换为标准 Markdown 水平线
-    bodyContent = bodyContent.replace(/^\s*---div---\s*$/gm, '---');
-
+    const bodyContent = formatCardBodyForMarkdownExport(card.content || '');
     const sourceLink = getCardSourceLink(card);
 
     let result = bodyContent;
@@ -4545,7 +4535,7 @@
   async function exportAsSingleFile(cardsToExport: Card[], folderPath: string) {
     const timestamp = new Date().toISOString().slice(0, 10);
     const fileName = `Weave Export ${timestamp}.md`;
-    const filePath = folderPath ? `${folderPath}/${fileName}` : fileName;
+    const filePath = normalizePath(folderPath ? `${folderPath}/${fileName}` : fileName);
 
     const sections: string[] = [];
     for (const card of cardsToExport) {
@@ -4554,9 +4544,7 @@
 
     const content = sections.join('\n\n---\n\n') + '\n';
 
-    // 检查文件是否已存在，若存在则加数字后缀
-    const finalPath = await getUniqueFilePath(filePath);
-    await plugin.app.vault.create(finalPath, content);
+    const finalPath = await createUniqueVaultTextFile(plugin.app.vault, filePath, content);
 
     new Notice(
       t('cardManagement.batchToolbar.exportSuccess')
@@ -4589,7 +4577,7 @@
         baseName = `Weave Export - ${sourceKey.replace(/\.md$/, '').replace(/[\\/:*?"<>|]/g, '_')}`;
       }
       const fileName = `${baseName}.md`;
-      const filePath = folderPath ? `${folderPath}/${fileName}` : fileName;
+      const filePath = normalizePath(folderPath ? `${folderPath}/${fileName}` : fileName);
 
       const sections: string[] = [];
       for (const card of groupCards) {
@@ -4598,8 +4586,7 @@
 
       const content = sections.join('\n\n---\n\n') + '\n';
 
-      const finalPath = await getUniqueFilePath(filePath);
-      await plugin.app.vault.create(finalPath, content);
+      const finalPath = await createUniqueVaultTextFile(plugin.app.vault, filePath, content);
 
       totalExported += groupCards.length;
       fileCount++;
@@ -4610,20 +4597,6 @@
         .replace('{count}', String(totalExported))
         .replace('{fileCount}', String(fileCount))
     );
-  }
-
-  // 获取唯一文件路径（避免覆盖已有文件，支持 .md 和 .csv）
-  async function getUniqueFilePath(filePath: string): Promise<string> {
-    const extMatch = filePath.match(/\.(md|csv)$/);
-    const ext = extMatch ? extMatch[0] : '.md';
-    const basePath = filePath.replace(/\.(md|csv)$/, '');
-    let candidate = filePath;
-    let counter = 1;
-    while (plugin.app.vault.getAbstractFileByPath(candidate)) {
-      candidate = `${basePath} ${counter}${ext}`;
-      counter++;
-    }
-    return candidate;
   }
 
   type CardToMarkdownMode = 'create' | 'append';
@@ -4668,9 +4641,7 @@
 
   function buildCardMarkdownNote(card: Card, mode: CardToMarkdownMode): string {
     const body = formatCardForExport(card).trim();
-    const rawBody = extractBodyContent(card.content || '')
-      .trim()
-      .replace(/^\s*---div---\s*$/gm, '---');
+    const rawBody = formatCardBodyForMarkdownExport(card.content || '');
     const yaml = parseYAMLFromContent(card.content || '');
     const hasYaml = Object.keys(yaml).length > 0;
 
@@ -4747,8 +4718,7 @@
         const folder = lastSlashIndex >= 0 ? normalizedPath.slice(0, lastSlashIndex) : '';
         await ensureFolderPathExists(folder);
 
-        targetPath = await getUniqueFilePath(normalizedPath);
-        await plugin.app.vault.create(targetPath, markdownContent);
+        targetPath = await createUniqueVaultTextFile(plugin.app.vault, normalizedPath, markdownContent);
       } else {
         const normalizedTargetFilePath = normalizePath(options.targetFilePath || '');
         const targetFile = plugin.app.vault.getAbstractFileByPath(normalizedTargetFilePath);
@@ -5369,11 +5339,6 @@
     if (newSource === 'questionBank' && premiumGuard.isFeatureRestricted(PREMIUM_FEATURES.QUESTION_BANK)) {
       promptFeatureId = PREMIUM_FEATURES.QUESTION_BANK;
       showActivationPrompt = true;
-      return;
-    }
-
-    if (newSource === 'incremental-reading' && !isIncrementalReadingPluginInstalled(plugin.app)) {
-      notifySplitPluginUnavailable(plugin.app, INCREMENTAL_READING_PLUGIN_ID);
       return;
     }
 

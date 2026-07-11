@@ -8,11 +8,6 @@ import type { TimerHandle } from "../types/timer";
 import { DEFAULT_ANALYTICS_CONFIG } from "../config/analytics-config";
 import { smartCache } from "./smart-cache";
 
-type WindowWithAdaptiveCacheService = Window & {
-	__weaveAdaptiveCacheService?: AdaptiveCacheService | null;
-	__weaveAdaptiveCacheServiceCleanup?: (() => void) | null;
-};
-
 type PerformanceMemoryInfo = {
 	usedJSHeapSize: number;
 	jsHeapSizeLimit: number;

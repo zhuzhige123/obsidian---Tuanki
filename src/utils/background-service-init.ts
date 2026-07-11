@@ -35,8 +35,13 @@ export async function runBackgroundInitTasks(
 		failedTasks.forEach((task) => {
 			const index = tasks.indexOf(task);
 			const result = results[index];
-			const error = result.status === "rejected" ? result.reason : undefined;
-			logger.error(`[Services] ❌ ${task.name} 后台初始化失败:`, error);
+			const failureReason =
+				result.status === "rejected"
+					? result.reason instanceof Error
+						? result.reason
+						: new Error(String(result.reason))
+					: undefined;
+			logger.error(`[Services] ❌ ${task.name} 后台初始化失败:`, failureReason);
 		});
 		logger.warn(
 			`[Services] 后台初始化完成 (${label}): ${tasks.length - failedTasks.length}/${tasks.length} 成功, 总耗时 ${totalDuration}ms`

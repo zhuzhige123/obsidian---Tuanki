@@ -1,7 +1,6 @@
 import type { Card } from "../data/types";
 import {
 	getMemoryFormalDeckEntries,
-	getKnownSingleMemoryFormalDeckIds,
 	getKnownSingleMemoryFormalDeckNames,
 	getSingleMemoryFormalDeckNames,
 	type DeckIdentifierLookup,

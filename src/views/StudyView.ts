@@ -953,7 +953,7 @@ export class StudyView extends ItemView {
 			if (this.component) {
 				try {
 					const { unmount } = await import("svelte");
-					unmount(this.component);
+					void unmount(this.component);
 					logger.debug("[StudyView] 已销毁旧的学习组件");
 				} catch (error) {
 					logger.error("[StudyView] 销毁旧学习组件失败:", error);
@@ -1071,7 +1071,8 @@ export class StudyView extends ItemView {
 	 * 注册视图事件监听
 	 */
 	private registerViewEvents(): void {
-		this.studyLeafWasActive = this.leaf === this.app.workspace.activeLeaf;
+		this.studyLeafWasActive =
+			this.app.workspace.getActiveViewOfType(StudyView)?.leaf === this.leaf;
 
 		// 监听标签页激活事件
 		this.registerEvent(

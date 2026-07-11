@@ -59,9 +59,9 @@
     resumeBehavior?: QuestionBankResumeBehavior;
     viewInstance?: QuestionBankView; //  视图实例用于移动端回调
     isStagingSession?: boolean;
-    onStagingQuestionReviewed?: (card: Card) => void;
+    onStagingQuestionReviewed?: (card: Card, context?: { isCorrect: boolean }) => void;
     onStagingDiscard?: (cardUuid: string) => void;
-    onStagingSessionComplete?: () => void;
+    onStagingSessionComplete?: (session?: TestSession) => void;
     onStagingCardEdited?: (card: Card) => void;
     onComplete?: (session: TestSession) => void;
     onExit?: () => void;
@@ -498,7 +498,9 @@
       currentSession = sessionManager.getCurrentSession();
 
       if (isStagingSession && currentQuestion?.question) {
-        onStagingQuestionReviewed?.(currentQuestion.question);
+        onStagingQuestionReviewed?.(currentQuestion.question, {
+          isCorrect: result.isCorrect,
+        });
       }
 
       if (isPureExamMode) {
@@ -575,7 +577,7 @@
       stopTimer();
 
       if (isStagingSession) {
-        onStagingSessionComplete?.();
+        onStagingSessionComplete?.(completedSession);
         return;
       }
       
@@ -750,7 +752,7 @@
     
     try {
       if (isStagingSession) {
-        onStagingCardEdited?.(updatedCard);
+        await Promise.resolve(onStagingCardEdited?.(updatedCard));
         syncEditedQuestionInMemory(updatedCard);
       } else {
       // 0. 先保存到数据库
@@ -912,7 +914,7 @@
     if (advanceResult === 'empty') {
       stopTimer();
       if (isStagingSession) {
-        onStagingSessionComplete?.();
+        await handleCompleteTest();
         return;
       }
 
@@ -2155,7 +2157,7 @@
   /* 卡片学习容器 */
   .card-study-container {
     flex: 1;
-    padding: var(--weave-space-md, 1rem);
+    padding: 0 var(--weave-space-md, 1rem) var(--weave-space-md, 1rem);
     overflow: visible;
     display: flex;
     align-items: stretch;
@@ -2171,7 +2173,7 @@
     height: 100%;
     border: none;
     border-radius: 0;
-    padding: var(--weave-space-md);
+    padding: 0 var(--weave-space-md) var(--weave-space-md);
     background: transparent;
     box-shadow: none;
     display: flex;
@@ -2191,7 +2193,7 @@
   /* 题目区域 */
   .question-area {
     flex: 1;
-    padding: 2rem 1.5rem;
+    padding: 0.75rem 1.5rem 1.5rem;
     overflow-y: auto;
     position: relative;
   }

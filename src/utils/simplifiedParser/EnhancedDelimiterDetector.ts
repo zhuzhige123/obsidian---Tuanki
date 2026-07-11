@@ -49,11 +49,6 @@ export class EnhancedDelimiterDetector {
 			return false;
 		}
 
-		// 规则5：前后需要有内容（可选，避免连续分隔符）
-		if (!this.hasContentAround(lineIndex, allLines)) {
-			return false;
-		}
-
 		return true;
 	}
 
@@ -152,6 +147,56 @@ export class EnhancedDelimiterDetector {
 	}
 
 	/**
+	 * 查找所有有效分隔符行索引
+	 */
+	findValidDelimiterLineIndices(content: string): number[] {
+		const lines = content.split("\n");
+		const indices: number[] = [];
+		for (let i = 0; i < lines.length; i++) {
+			if (this.isValidDelimiterLine(lines[i], i, lines)) {
+				indices.push(i);
+			}
+		}
+		return indices;
+	}
+
+	/**
+	 * 按相邻分隔符行配对切分卡片（解析模式）
+	 *
+	 * 规则：只有被两个独占一行的分隔符夹住的内容才算一张卡片。
+	 * 首段说明、单独尾部分隔符、行内出现的分隔符文本均不会产出卡片。
+	 */
+	splitCardsBetweenDelimiterLines(content: string): string[] {
+		const lines = content.split("\n");
+		const delimiterLines = this.findValidDelimiterLineIndices(content);
+
+		if (delimiterLines.length < 2) {
+			logger.debug(
+				`[EnhancedDelimiterDetector] ❌ 分隔符不足 2 个（${delimiterLines.length}），无法配对卡片`
+			);
+			return [];
+		}
+
+		const cards: string[] = [];
+		for (let i = 0; i < delimiterLines.length - 1; i++) {
+			const startLine = delimiterLines[i];
+			const endLine = delimiterLines[i + 1];
+			const cardContent = lines.slice(startLine + 1, endLine).join("\n");
+			cards.push(cardContent);
+			logger.debug(
+				`[EnhancedDelimiterDetector] ✅ 配对卡片 ${cards.length}（行 ${startLine + 2}-${
+					endLine
+				}）`
+			);
+		}
+
+		logger.debug(
+			`[EnhancedDelimiterDetector] 📦 配对模式结果：${delimiterLines.length} 个分隔符 → ${cards.length} 张卡片`
+		);
+		return cards;
+	}
+
+	/**
 	 * 🆕 分割卡片（Raw模式 - 保留所有块，包括首尾）
 	 *
 	 * 用于内容操作场景，需要保持原文完整性，避免丢失首尾内容。
@@ -237,42 +282,7 @@ export class EnhancedDelimiterDetector {
 	 */
 	splitCardsEnhanced(content: string): string[] {
 		logger.debug("[EnhancedDelimiterDetector] 🔍 开始分割卡片（Enhanced模式 - 只返回有效卡片）");
-
-		//  复用 splitCardsRaw 获取所有块
-		const allBlocks = this.splitCardsRaw(content);
-
-		//  应用"完全包围"规则：只保留被两个分隔符完全包围的内容块
-		// 规则：
-		// - 如果总块数 < 3：没有被完全包围的卡片，返回空数组
-		// - 如果总块数 >= 3：丢弃第一个和最后一个块，只保留中间被包围的块
-		if (allBlocks.length < 3) {
-			logger.warn(
-				`[EnhancedDelimiterDetector] ❌ 没有找到被完全包围的卡片（总块数: ${allBlocks.length}）`
-			);
-			logger.warn("[EnhancedDelimiterDetector] 💡 提示：卡片内容必须被两个 <-> 分隔符完全包围");
-			logger.warn("[EnhancedDelimiterDetector] 📝 正确格式示例：");
-			logger.warn("[EnhancedDelimiterDetector]    <->");
-			logger.warn("[EnhancedDelimiterDetector]    卡片内容");
-			logger.warn("[EnhancedDelimiterDetector]    <->");
-			return [];
-		}
-
-		// 只保留中间的块（去掉第一个和最后一个）
-		const validCards = allBlocks.slice(1, -1);
-
-		logger.debug(
-			`[EnhancedDelimiterDetector] ✅ 应用"完全包围"规则：从 ${allBlocks.length} 个块中保留中间 ${validCards.length} 张卡片`
-		);
-		logger.debug(
-			`[EnhancedDelimiterDetector] 🗑️  丢弃首块（长度: ${allBlocks[0]?.length || 0}）和尾块（长度: ${
-				allBlocks[allBlocks.length - 1]?.length || 0
-			}）`
-		);
-		logger.debug(
-			`[EnhancedDelimiterDetector] 📦 Enhanced模式最终结果：${validCards.length} 张有效卡片`
-		);
-
-		return validCards;
+		return this.splitCardsBetweenDelimiterLines(content);
 	}
 
 	/**

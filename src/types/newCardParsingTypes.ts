@@ -615,9 +615,19 @@ export function createEmptyFolderDeckMapping(): FolderDeckMapping {
 
 /** 读取映射行上的卡片数量（兼容旧 fileCount 字段） */
 export function getFolderDeckMappingCardCount(
-	mapping: Pick<FolderDeckMapping, "cardCount" | "fileCount">
+	mapping: Pick<FolderDeckMapping, "cardCount"> & Record<string, unknown>
 ): number | undefined {
-	return mapping.cardCount ?? mapping.fileCount;
+	if (mapping.cardCount !== undefined) {
+		return mapping.cardCount;
+	}
+	const legacyCount = mapping["fileCount"];
+	return typeof legacyCount === "number" ? legacyCount : undefined;
+}
+
+function omitLegacyFileCount(mapping: FolderDeckMapping): FolderDeckMapping {
+	const next = { ...mapping };
+	delete (next as Record<string, unknown>)["fileCount"];
+	return next;
 }
 
 /** 规范化单条映射：统一 path、迁移 fileCount → cardCount */
@@ -634,15 +644,14 @@ export function normalizeFolderDeckMapping(mapping: FolderDeckMapping): {
 		changed = true;
 	}
 
-	const legacyCount = next.fileCount;
-	if (next.cardCount === undefined && legacyCount !== undefined) {
+	const legacyCount = (next as Record<string, unknown>)["fileCount"];
+	if (next.cardCount === undefined && typeof legacyCount === "number") {
 		next = { ...next, cardCount: legacyCount };
 		changed = true;
 	}
 
-	if (legacyCount !== undefined) {
-		const { fileCount: _legacy, ...withoutLegacyCount } = next;
-		next = withoutLegacyCount;
+	if ("fileCount" in (next as Record<string, unknown>)) {
+		next = omitLegacyFileCount(next);
 		changed = true;
 	}
 

@@ -53,9 +53,7 @@ import { SingleCardSyncEngine } from "./SingleCardSyncEngine";
 
 import type {
 	FolderDeckMapping,
-	MultiCardsConfig,
 	RegexParsingConfig,
-	SingleCardConfig,
 } from "../../types/newCardParsingTypes";
 export type { FolderDeckMapping } from "../../types/newCardParsingTypes";
 // 场景 1：单文件多卡片正则解析器

@@ -523,7 +523,6 @@ body .weave-notification:hover {
 /* --- mobile-modal-bounds.ts --- */
 body.is-mobile .weave-modal-backdrop,
 body.is-mobile .weave-modal-container,
-body.is-mobile .test-result-backdrop,
 body.is-mobile .resizable-modal-overlay,
 body.is-mobile .receipt-modal,
 body.is-mobile .ai-config-popover-backdrop.weave-mobile-safe-overlay,
@@ -544,21 +543,19 @@ body.is-mobile .resizable-modal-overlay {
 }
 
 body.is-mobile .weave-modal,
-body.is-mobile .test-result-card,
 body.is-mobile .receipt-modal .modal-content,
 body.is-mobile .ai-config-popover-backdrop .ai-config-popover.is-mobile-shell {
   max-height: var(
     --weave-modal-max-height,
     calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))
   );
-  overflow-y: auto;
+  overflow: hidden;
   margin: 0 auto;
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 body.is-phone .weave-modal,
-body.is-phone .test-result-card,
 body.is-phone .receipt-modal .modal-content,
 body.is-phone .ai-config-popover-backdrop .ai-config-popover.is-mobile-shell {
   border-radius: 12px;

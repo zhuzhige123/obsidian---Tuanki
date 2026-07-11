@@ -215,7 +215,7 @@
   /**
    * 插入文本
    */
-  export function insertText(text: string, position?: number): void {
+  export function insertText(text: string, position: number | undefined = undefined): void {
     executeCommand('insertText', text, position);
   }
 
@@ -236,7 +236,7 @@
   /**
    * 设置选择范围
    */
-  export function setSelection(from: number, to?: number): void {
+  export function setSelection(from: number, to: number | undefined = undefined): void {
     executeCommand('setSelection', from, to);
   }
 

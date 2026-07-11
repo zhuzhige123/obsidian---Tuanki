@@ -10,6 +10,7 @@ import { managementUiTranslationOverrides } from './resources/management-ui';
 import { studyTranslations } from './resources/study';
 import { managementTranslations, managementTranslationOverrides } from './resources/management';
 import { incrementalReadingTranslationOverrides } from './resources/incremental-reading';
+import { documentQuizTranslationOverrides } from './resources/document-quiz';
 
 export const translations: Record<SupportedLanguage, TranslationKey> = {
 	'zh-CN': {
@@ -38,6 +39,7 @@ export const translationOverrides: Partial<Record<SupportedLanguage, Translation
 		...managementUiTranslationOverrides['zh-CN'],
 		...managementTranslationOverrides['zh-CN'],
 		...incrementalReadingTranslationOverrides['zh-CN'],
+		...documentQuizTranslationOverrides['zh-CN'],
 		about: mergeTranslationTrees(
 			{},
 			integrationsTranslationOverrides['zh-CN'].about as TranslationKey,
@@ -67,6 +69,7 @@ export const translationOverrides: Partial<Record<SupportedLanguage, Translation
 		...managementUiTranslationOverrides['en-US'],
 		...managementTranslationOverrides['en-US'],
 		...incrementalReadingTranslationOverrides['en-US'],
+		...documentQuizTranslationOverrides['en-US'],
 		about: mergeTranslationTrees(
 			{},
 			integrationsTranslationOverrides['en-US'].about as TranslationKey,

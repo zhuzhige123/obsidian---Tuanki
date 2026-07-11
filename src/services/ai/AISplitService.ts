@@ -143,10 +143,7 @@ export class AISplitService {
 			const aiService = AIServiceFactory.createService(provider, this.host, modelFromAction);
 			const chatParams = resolveAIChatRequestParams(
 				aiConfig as Parameters<typeof resolveAIChatRequestParams>[0],
-				{
-					temperature: action.temperature,
-					maxTokens: action.maxTokens,
-				},
+				undefined,
 				{ minMaxTokens: AI_SPLIT_CHAT_MIN_MAX_TOKENS }
 			);
 

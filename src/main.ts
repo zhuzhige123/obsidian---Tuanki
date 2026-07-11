@@ -60,6 +60,12 @@ import {
 } from "./utils/ir-plugin-integration";
 import { QuestionBankView, VIEW_TYPE_QUESTION_BANK } from "./views/QuestionBankView"; // 考试学习视图
 import { CardStagingView, VIEW_TYPE_CARD_STAGING, openCardStagingView } from "./views/CardStagingView";
+import { DocumentQuizView, VIEW_TYPE_DOCUMENT_QUIZ } from "./views/DocumentQuizView";
+import {
+	registerDocumentQuizCommands,
+	registerDocumentQuizEditorMenu,
+} from "./commands/document-quiz-commands";
+import { registerDocumentQuizViewHeader } from "./services/document-quiz/document-quiz-view-header";
 import { StudyView, VIEW_TYPE_STUDY } from "./views/StudyView";
 import { VIEW_TYPE_WDECK, WDeckView } from "./views/WDeckView";
 import { VIEW_TYPE_WEAVE, WeaveView } from "./views/WeaveView";
@@ -134,7 +140,7 @@ import { createWeaveDeckCodeBlockProcessor } from "./services/markdown/WeaveDeck
 import { WEAVE_DECKS_CODE_BLOCK_LANGUAGE } from "./services/markdown/weaveDeckCodeBlock";
 import { ReadingCategory } from "./types/incremental-reading-types";
 import type { FolderDeckMapping, ParsedCard } from "./types/newCardParsingTypes";
-import type { IRChunkFileData, IRDeck, IRSourceFileMeta } from "./types/ir-types";
+import type { IRChunkFileData, IRDeck } from "./types/ir-types";
 import { registerMobileCanvasPaneMenuPatch } from "./utils/canvas-pane-menu-mobile";
 import { initI18n, syncI18nWithObsidianLanguage, t } from "./utils/i18n";
 import { logger } from "./utils/logger";
@@ -224,7 +230,7 @@ import { IRDeckSelectorModal } from "./modals/IRDeckSelectorModal";
 import { BlockLinkCleanupService } from "./services/cleanup/BlockLinkCleanupService";
 import { EditorTempFileCleanupService } from "./services/cleanup/EditorTempFileCleanupService";
 import { GlobalCleanupScanner } from "./services/cleanup/GlobalCleanupScanner";
-import { IRPdfBookmarkTaskService, type IRPdfBookmarkTask } from "./services/incremental-reading/IRPdfBookmarkTaskService";
+import { IRPdfBookmarkTaskService } from "./services/incremental-reading/IRPdfBookmarkTaskService";
 import { IRPointStorageService } from "./services/incremental-reading/IRPointStorageService";
 import { IRPointTagService } from "./services/incremental-reading/IRPointTagService";
 import { detectTraceSourceKind, normalizeTraceDocumentKey } from "./services/incremental-reading/IRSourceTraceStats";
@@ -3623,6 +3629,7 @@ export class WeavePlugin extends Plugin {
 		this.registerView(VIEW_TYPE_WEAVE, (leaf) => new WeaveView(leaf, this));
 		this.registerView(VIEW_TYPE_STUDY, (leaf) => new StudyView(leaf, this));
 		this.registerView(VIEW_TYPE_CARD_STAGING, (leaf) => new CardStagingView(leaf, this));
+		this.registerView(VIEW_TYPE_DOCUMENT_QUIZ, (leaf) => new DocumentQuizView(leaf, this));
 		this.registerView(VIEW_TYPE_WDECK, (leaf) => new WDeckView(leaf, this));
 		this.registerView(VIEW_TYPE_QUESTION_BANK, (leaf) => new QuestionBankView(leaf, this));
 		registerExtensionsSafely(this, this.app, ["wdeck"], VIEW_TYPE_WDECK, "[Plugin]", "Weave ");
@@ -3676,6 +3683,12 @@ export class WeavePlugin extends Plugin {
 				);
 				editorExtensionHost.registerEditorExtension(
 					createImageMaskLivePreviewExtension(this.app)
+				);
+				const { createDocumentQuizStatsEditorExtension } = await import(
+					"./services/editor/DocumentQuizStatsEditorExtension"
+				);
+				editorExtensionHost.registerEditorExtension(
+					createDocumentQuizStatsEditorExtension(this.app)
 				);
 			}
 
@@ -3747,6 +3760,13 @@ export class WeavePlugin extends Plugin {
 			void import("./services/markdown/ImageMaskPostProcessor").then(
 				async ({ createImageMaskPostProcessor }) => {
 					this.registerMarkdownPostProcessor(createImageMaskPostProcessor(this.app));
+				}
+			);
+
+			// 文档测验题尾统计注释 → 阅读视图徽章
+			void import("./services/document-quiz/DocumentQuizStatsPostProcessor").then(
+				async ({ createDocumentQuizStatsPostProcessor }) => {
+					this.registerMarkdownPostProcessor(createDocumentQuizStatsPostProcessor(this.app));
 				}
 			);
 
@@ -4466,6 +4486,9 @@ export class WeavePlugin extends Plugin {
 			this.registerCleanupCommands();
 
 			this.registerWeaveContextMenuFeatures();
+			registerDocumentQuizCommands(this);
+			registerDocumentQuizEditorMenu(this);
+			registerDocumentQuizViewHeader(this);
 			this.registerPdfPlusContextMenuFeatures();
 
 			// 🖼️ 图片遮罩功能
@@ -5299,7 +5322,6 @@ export class WeavePlugin extends Plugin {
 	dismissStartupDataManagementGate(options?: { disableFutureAutoPopup?: boolean }): void {
 		if (options?.disableFutureAutoPopup) {
 			this.settings.startupDataCheckMode = "off";
-			this.settings.enableStartupDataManagementGate = false;
 			void this.saveSettings();
 			createSafeNotice(
 				t("management.dataManagementModal.startupGate.autoPopupDisabled"),

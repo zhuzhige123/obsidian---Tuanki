@@ -1,0 +1,344 @@
+/**
+ * Weave 教程浮窗 — 与 EPUB 阅读器 EpubTutorial 同款设计语言
+ * 居中 overlay + 文档面板；紫色渐变标题条；卡片式小节。
+ */
+
+.weave-tutorial-portal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--weave-z-popup, 2000);
+  pointer-events: none;
+}
+
+.weave-tutorial-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+
+.weave-tutorial-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 520px;
+  max-width: calc(100vw - 32px);
+  max-height: 80vh;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+  animation: weave-tutorial-enter 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes weave-tutorial-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.weave-tutorial-header {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.weave-tutorial-title-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+  min-width: 0;
+}
+
+.weave-tutorial-title-wrap::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 4px;
+  border-radius: 2px;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.8), rgba(147, 51, 234, 0.6));
+}
+
+.weave-tutorial-title-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-normal);
+  letter-spacing: 0.3px;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.weave-tutorial-close {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+  outline: none;
+  border-radius: var(--clickable-icon-radius, var(--radius-s));
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.weave-tutorial-close:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.weave-tutorial-close:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.weave-tutorial-close .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.weave-tutorial-tabs {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  padding: 8px 20px 6px;
+  background: var(--background-primary);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.weave-tutorial-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.weave-tutorial-tabs button {
+  min-height: 40px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--clickable-icon-radius, var(--radius-s));
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.weave-tutorial-tabs button:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.weave-tutorial-tabs button.active {
+  color: var(--text-normal);
+  font-weight: 600;
+  background: var(--background-modifier-hover);
+}
+
+.weave-tutorial-tabs button:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.weave-tutorial-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+.weave-tutorial-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.weave-tutorial-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.weave-tutorial-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+.weave-tutorial-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.weave-tutorial-body {
+  padding: 16px 20px 24px;
+}
+
+.weave-tut-section {
+  margin-bottom: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  overflow: hidden;
+}
+
+.weave-tut-section:last-child {
+  margin-bottom: 0;
+}
+
+.weave-tut-title {
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+  background: var(--text-selection);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.weave-tut-title-text {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding-left: 12px;
+  line-height: 1.35;
+}
+
+.weave-tut-title-text::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 1px;
+  bottom: 1px;
+  width: 4px;
+  border-radius: 2px;
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.8), rgba(147, 51, 234, 0.6));
+}
+
+.weave-tut-divider {
+  height: 1px;
+  background: var(--background-modifier-border);
+  margin: 20px 0;
+  opacity: 0.5;
+}
+
+.weave-tut-text {
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-normal);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.weave-tut-text h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--interactive-accent);
+  margin: 16px 0 8px;
+}
+
+.weave-tut-text h4:first-child {
+  margin-top: 0;
+}
+
+.weave-tut-text p {
+  margin: 8px 0;
+}
+
+.weave-tut-text ul {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.weave-tut-text li {
+  margin-bottom: 6px;
+  line-height: 1.6;
+}
+
+.weave-tut-text strong {
+  font-weight: 600;
+  color: var(--interactive-accent);
+}
+
+.weave-tut-text code {
+  background: var(--text-selection);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-monospace, monospace);
+  font-size: 12px;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.weave-tut-text pre {
+  background: var(--text-selection);
+  padding: 10px 12px;
+  border-radius: 4px;
+  margin: 10px 0;
+  font-family: var(--font-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-normal);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+  overflow-x: auto;
+}
+
+.weave-tut-tag {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+
+.weave-tut-link-list p {
+  margin: 6px 0;
+}
+
+.weave-tut-link-list a {
+  color: var(--text-accent);
+  text-decoration: none;
+}
+
+.weave-tut-link-list a:hover {
+  color: var(--text-accent-hover, var(--text-accent));
+  text-decoration: underline;
+}
+
+@media (max-width: 768px) {
+  .weave-tutorial-panel {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+    border-radius: 12px;
+  }
+
+  .weave-tutorial-header,
+  .weave-tutorial-tabs,
+  .weave-tutorial-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .weave-tutorial-tabs {
+    padding-top: 8px;
+  }
+}

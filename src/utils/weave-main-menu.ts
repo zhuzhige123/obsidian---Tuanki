@@ -199,53 +199,14 @@ function getDeckStudyCreateEntry(filter: WeaveDeckStudyFilter): {
 	}
 }
 
-function addAiAssistantToolsSubmenu(menu: Menu): void {
-	addMenuSubmenuGroup(menu, { title: i18n.t("mainMenu.aiAssistant.toolsMenu"), icon: "more-horizontal" }, (submenu) => {
-
-		submenu.addItem((subItem) => {
-			subItem
-				.setTitle(i18n.t("mainMenu.aiAssistant.systemPrompt"))
-				.setIcon("file-text")
-				.onClick(() => {
-					dispatchWindowEvent("Weave:ai-toolbar-action", { action: "prompt-file" });
-				});
-		});
-
-		submenu.addItem((subItem) => {
-			subItem
-				.setTitle(i18n.t("mainMenu.aiAssistant.parseTemplate"))
-				.setIcon("layout-template")
-				.onClick(() => {
-					dispatchWindowEvent("Weave:ai-toolbar-action", { action: "parse-template" });
-				});
-		});
-
-		submenu.addItem((subItem) => {
-			subItem
-				.setTitle(i18n.t("mainMenu.aiAssistant.history"))
-				.setIcon("history")
-				.onClick(() => {
-					dispatchWindowEvent("Weave:ai-toolbar-action", { action: "history" });
-				});
-		});
-
-		submenu.addItem((subItem) => {
-			subItem
-				.setTitle(i18n.t("aiAssistant.configModal.title"))
-				.setIcon("sliders-horizontal")
-				.onClick(() => {
-					dispatchWindowEvent("Weave:ai-toolbar-action", { action: "system-prompt" });
-				});
-		});
-
-		submenu.addItem((subItem) => {
-			subItem
-				.setTitle(i18n.t("mainMenu.aiAssistant.config"))
-				.setIcon("settings")
-				.onClick(() => {
-					dispatchWindowEvent("Weave:ai-toolbar-action", { action: "config" });
-				});
-		});
+function addAiAssistantConfigMenuItem(menu: Menu): void {
+	menu.addItem((item) => {
+		item
+			.setTitle(i18n.t("mainMenu.aiAssistant.config"))
+			.setIcon("settings")
+			.onClick(() => {
+				dispatchWindowEvent("Weave:ai-toolbar-action", { action: "config" });
+			});
 	});
 }
 
@@ -290,7 +251,7 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 	menu.addSeparator();
 
 	if (options.currentPage === "ai-assistant") {
-		addAiAssistantToolsSubmenu(menu);
+		addAiAssistantConfigMenuItem(menu);
 	}
 
 	if (options.currentPage === "deck-study") {
@@ -325,16 +286,6 @@ export function populateWeaveMainMenu(menu: Menu, options: WeaveMainMenuOptions)
 							value: "memory",
 						},
 					];
-
-					if (shouldShowPremiumEntry(premiumGuard, premiumState, PREMIUM_FEATURES.INCREMENTAL_READING)) {
-						dataSourceChoices.push({
-							title: premiumGuard.canUseFeature(PREMIUM_FEATURES.INCREMENTAL_READING)
-								? i18n.t("mainMenu.cardManagement.incrementalReading")
-								: i18n.t("mainMenu.cardManagement.incrementalReadingPremium"),
-							icon: "book-open",
-							value: "incremental-reading",
-						});
-					}
 
 					if (shouldShowPremiumEntry(premiumGuard, premiumState, PREMIUM_FEATURES.QUESTION_BANK)) {
 						dataSourceChoices.push({

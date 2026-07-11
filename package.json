@@ -1,7 +1,7 @@
 {
   "name": "weave",
   "private": true,
-  "version": "0.8.31",
+  "version": "0.8.32",
   "description": "Enhance knowledge learning and memory consolidation with memory decks and practice quiz decks",
   "main": "main.js",
   "type": "module",
@@ -137,7 +137,7 @@
     "@tanstack/svelte-virtual": "3.13.12",
     "@tanstack/table-core": "8.21.3",
     "@tanstack/virtual-core": "3.13.13",
-    "echarts": "6.0.0",
+    "echarts": "6.1.0",
     "jszip": "3.10.1",
     "monkey-around": "3.0.0",
     "pako": "^2.1.0",

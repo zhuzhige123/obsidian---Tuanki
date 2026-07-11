@@ -107,10 +107,12 @@ onMount(() => {
 
 <style>
   .question-bank-study-container {
+    position: relative;
     width: 100%;
     height: 100%;
     display: flex;
     flex-direction: column;
     background: var(--background-primary);
+    overflow: hidden;
   }
 </style>

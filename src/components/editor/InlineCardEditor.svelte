@@ -549,7 +549,7 @@
   }
 
   // 重置编辑器，为下一张卡片做准备（钉住模式专用）
-  export async function resetForNewCard(newCard?: Card) {
+  export async function resetForNewCard(newCard: Card | undefined = undefined) {
     logger.debug('[InlineCardEditor] 🔄 钉住模式：准备下一张卡片', {
       hasNewCard: !!newCard,
       newCardUuid: newCard?.uuid

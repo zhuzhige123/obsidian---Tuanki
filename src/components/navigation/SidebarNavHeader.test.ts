@@ -228,7 +228,7 @@ describe('SidebarNavHeader', () => {
     window.removeEventListener('Weave:card-data-source-change', eventListener);
   });
 
-  it('开启高级预览但未激活时显示锁定的高级数据源标题', async () => {
+  it('开启高级预览但未激活时显示锁定的考试题组数据源标题', async () => {
     premiumMockState.showPreview = true;
 
     const { container } = render(SidebarNavHeader, {
@@ -246,10 +246,9 @@ describe('SidebarNavHeader', () => {
 
     const menu = menuInstances[0];
     const submenu = menu.findItemByTitle('数据源切换')?.getSubmenu();
-    const irItem = submenu?.findItemByTitle('增量阅读（高级）');
     const questionBankItem = submenu?.findItemByTitle('考试题组（高级）');
 
-    expect(irItem).toBeTruthy();
+    expect(submenu?.findItemByTitle('增量阅读（高级）')).toBeUndefined();
     expect(questionBankItem).toBeTruthy();
   });
 

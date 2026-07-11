@@ -116,16 +116,7 @@ export type StateAction =
 	| { type: "UPDATE_PERFORMANCE"; payload: Partial<AppState["performance"]> }
 	| { type: "RESET_STATE" };
 
-type WindowWithGlobalStateManager = Window & {
-	__weaveGlobalStateManager?: UnifiedStateManager | null;
-	__weaveGlobalStateManagerCleanup?: (() => void) | null;
-	__weaveGlobalPersistenceManager?: StatePersistenceManager | null;
-	__weaveGlobalPersistenceManagerCleanup?: (() => void) | null;
-};
 
-/**
- * 统一状态管理器类
- */
 export class UnifiedStateManager {
 	private state: AppState = this.getInitialState();
 	private subscribers = new Set<(state: AppState) => void>();

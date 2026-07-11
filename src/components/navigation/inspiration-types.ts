@@ -42,6 +42,7 @@ export interface InspirationSection {
 }
 
 export interface InspirationModalContent {
+	modalTitle: string;
 	modalHeadings: {
 		attributionTitle: string;
 		syntaxTitle: string;

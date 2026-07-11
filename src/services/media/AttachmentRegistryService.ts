@@ -21,6 +21,9 @@ import {
 } from "../../utils/media-vault-path-resolver";
 import { logger } from "../../utils/logger";
 import { isRecord, parseJsonUnknown } from "../../utils/typed-json";
+import { safeWriteJson } from "../../utils/safe-json-io";
+import { ensureVaultTextFile } from "../../utils/vault-write-guard";
+import { DirectoryUtils } from "../../utils/directory-utils";
 import { readWeaveParentFolder } from "../../utils/weave-plugin-settings";
 
 export interface AttachmentRegistryScanResult {
@@ -42,11 +45,10 @@ export interface AttachmentRegistryRepairResult {
 }
 
 export { getAttachmentRegistryAutoFixIssueCount } from "./attachment-registry-issues";
-export { getAttachmentRegistryActionableIssueCount } from "./attachment-registry-issues";
 
 export class AttachmentRegistryService {
 	private rebuildTimer: number | undefined;
-	private rebuildInFlight: Promise<void> | null = null;
+	private rebuildChain: Promise<void> = Promise.resolve();
 	private unsubscribeCards: (() => void) | null = null;
 
 	constructor(private readonly plugin: WeavePlugin) {}
@@ -96,15 +98,9 @@ export class AttachmentRegistryService {
 	}
 
 	async rebuild(options?: { reason?: string }): Promise<void> {
-		if (this.rebuildInFlight) {
-			return this.rebuildInFlight;
-		}
-
-		this.rebuildInFlight = this.rebuildInternal(options?.reason).finally(() => {
-			this.rebuildInFlight = null;
-		});
-
-		return this.rebuildInFlight;
+		const run = this.rebuildChain.then(() => this.rebuildInternal(options?.reason));
+		this.rebuildChain = run.catch(() => undefined);
+		return run;
 	}
 
 	private async rebuildInternal(reason?: string): Promise<void> {
@@ -113,19 +109,15 @@ export class AttachmentRegistryService {
 		const markdown = buildAttachmentRegistryMarkdown(referencedPaths);
 
 		try {
-			const existing = this.plugin.app.vault.getAbstractFileByPath(registryPath);
-			if (existing instanceof TFile) {
-				await this.plugin.app.vault.modify(existing, markdown);
-			} else {
-				await this.plugin.app.vault.create(registryPath, markdown);
-			}
+			const adapter = this.plugin.app.vault.adapter;
+			await DirectoryUtils.ensureDirForFile(adapter, registryPath);
+			await ensureVaultTextFile(this.plugin.app.vault, registryPath, markdown);
 
 			logger.debug(
 				`[AttachmentRegistryService] 已更新附件索引 (${referencedPaths.size} 项, reason=${reason ?? "unknown"})`
 			);
 		} catch (error) {
 			logger.error("[AttachmentRegistryService] 更新附件索引失败:", error);
-			throw error;
 		}
 	}
 
@@ -323,12 +315,12 @@ export class AttachmentRegistryService {
 					continue;
 				}
 
-				const file = this.plugin.app.vault.getAbstractFileByPath(manifestPath);
-				if (file instanceof TFile) {
-					await this.plugin.app.vault.modify(file, `${JSON.stringify(parsed, null, 2)}\n`);
-				} else {
-					await this.plugin.app.vault.create(manifestPath, `${JSON.stringify(parsed, null, 2)}\n`);
-				}
+				await safeWriteJson(
+					adapter,
+					manifestPath,
+					`${JSON.stringify(parsed, null, 2)}\n`,
+					this.plugin.app
+				);
 			} catch (error) {
 				logger.debug(
 					`[AttachmentRegistryService] 修复媒体清单 savedPath 失败: ${manifestPath}`,

@@ -12,6 +12,7 @@ import type { WeavePlugin } from "../../main";
 import { fixWeDecksIdToName } from "../data-migration/CardYAMLMigrationService";
 import { sanitizeCardWeDecksToKnownDecks } from "../../utils/card-we-decks-membership";
 import { logger } from "../../utils/logger";
+import { readUnknownString } from "../../utils/dynamic-access";
 import { getCardDeckIdsFromFormalSource, setCardProperties } from "../../utils/yaml-utils";
 
 export interface RepairResult {
@@ -296,9 +297,7 @@ export class DataConsistencyService {
 	): string | undefined {
 		const marker = (card.customFields as Record<string, unknown> | undefined)?.wdeck;
 		if (marker && typeof marker === "object") {
-			const logicalDeckName = String(
-				(marker as { logicalDeckName?: unknown }).logicalDeckName || ""
-			).trim();
+			const logicalDeckName = (readUnknownString(marker, "logicalDeckName") ?? "").trim();
 			if (logicalDeckName) {
 				return logicalDeckName;
 			}

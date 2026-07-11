@@ -7,6 +7,7 @@
  */
 
 import { type Plugin, TFile } from "obsidian";
+import { readWeaveParentFolder } from "../../../utils/weave-plugin-settings";
 import {
 	getMediaFolder,
 	getMediaManifestPath,
@@ -19,12 +20,6 @@ import {
 } from "../../../utils/sync-safe-filename";
 import { APKGLogger } from "../../logger/APKGLogger";
 import type { IMediaStorageAdapter } from "../MediaStorageAdapter";
-
-type PluginWithFolderSettings = Plugin & {
-	settings?: {
-		weaveParentFolder?: string;
-	};
-};
 
 function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 	if (
@@ -43,14 +38,14 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
  */
 export class ObsidianMediaStorageAdapter implements IMediaStorageAdapter {
 	private logger: APKGLogger;
-	private plugin: PluginWithFolderSettings;
+	private plugin: Plugin;
 	private baseMediaPath: string; // 🆕 插件专属媒体文件夹（可配置）
 
 	constructor(plugin: Plugin) {
 		this.logger = new APKGLogger({ prefix: "[ObsidianMediaStorage]" });
-		this.plugin = plugin as PluginWithFolderSettings;
+		this.plugin = plugin;
 		// 🆕 使用统一的媒体文件夹路径
-		const parentFolder = this.plugin.settings?.weaveParentFolder;
+		const parentFolder = readWeaveParentFolder(plugin);
 		this.baseMediaPath = getMediaFolder(parentFolder);
 	}
 

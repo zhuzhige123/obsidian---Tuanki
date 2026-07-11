@@ -506,8 +506,9 @@
               window.dispatchEvent(new CustomEvent('Weave:sidebar-view-change', { detail: view }));
             }}
             onCardDataSourceChange={(source) => {
-              cardDataSource = source;
-              window.dispatchEvent(new CustomEvent('Weave:card-data-source-change', { detail: source }));
+              const normalizedSource = source === 'questionBank' ? 'questionBank' : 'memory';
+              cardDataSource = normalizedSource;
+              window.dispatchEvent(new CustomEvent('Weave:card-data-source-change', { detail: normalizedSource }));
             }}
             onNavigate={(pageId) => {
               requestNavigation(pageId);
@@ -549,7 +550,6 @@
 
         <WeaveInspirationModal
           visible={showInspirationPopover}
-          anchorEl={inspirationPopoverAnchor}
           onClose={closeInspirationPopover}
         />
       </main>

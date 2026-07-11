@@ -62,6 +62,9 @@ function parseStoredTimeFilter(value: unknown): TimeFilterType {
 }
 
 function parseStoredDataSource(value: unknown): FilterState["dataSource"] {
+	if (value === "incremental-reading") {
+		return "memory";
+	}
 	return typeof value === "string" && VALID_DATA_SOURCES.has(value as FilterState["dataSource"])
 		? (value as FilterState["dataSource"])
 		: "memory";

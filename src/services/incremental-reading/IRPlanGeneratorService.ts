@@ -1,4 +1,4 @@
-import { IRCognitiveProfileService, type IRCognitiveProfile } from "./IRCognitiveProfileService";
+import { IRCognitiveProfileService } from "./IRCognitiveProfileService";
 import type { IRPlannedDay, IRPlannedScheduleItem } from "./IRScheduleKernel";
 
 export interface IRPlanGeneratorOptions {

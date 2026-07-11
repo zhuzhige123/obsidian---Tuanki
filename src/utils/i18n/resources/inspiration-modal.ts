@@ -2,6 +2,7 @@ import type { SupportedLanguage } from '../types';
 import type { InspirationModalContent } from '../../../components/navigation/inspiration-types';
 
 const zhInspirationContent: InspirationModalContent = {
+	modalTitle: 'Weave 教程与说明',
 	modalHeadings: {
 		attributionTitle: "设计灵感与借鉴说明",
 		syntaxTitle: "卡片语法与示例",
@@ -253,6 +254,7 @@ A、B、D 为常见优势；C 描述的是传统多字段方案的特点。`,
 };
 
 const enInspirationContent: InspirationModalContent = {
+	modalTitle: 'Weave Guide & Syntax',
 	modalHeadings: {
 		attributionTitle: "Design inspiration and references",
 		syntaxTitle: "Card syntax and examples",

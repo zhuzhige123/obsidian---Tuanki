@@ -398,22 +398,22 @@ function getOrCreatePerformanceMonitor(): PerformanceMonitor {
 		__weaveConfigPerformanceMonitor?: PerformanceMonitor | null;
 		__weaveConfigPerformanceMonitorCleanup?: (() => void) | null;
 	};
-	if (window.__weaveConfigPerformanceMonitor) {
-		return window.__weaveConfigPerformanceMonitor;
+	if (w.__weaveConfigPerformanceMonitor) {
+		return w.__weaveConfigPerformanceMonitor;
 	}
 
 	const instance = new PerformanceMonitor();
-	window.__weaveConfigPerformanceMonitor = instance;
-	window.__weaveConfigPerformanceMonitorCleanup = () => {
+	w.__weaveConfigPerformanceMonitor = instance;
+	w.__weaveConfigPerformanceMonitorCleanup = () => {
 		try {
-			(window.__weaveConfigPerformanceMonitor as PerformanceMonitor | undefined)?.stopMonitoring();
+			(w.__weaveConfigPerformanceMonitor as PerformanceMonitor | undefined)?.stopMonitoring();
 		} catch { /* no-op */ }
 		try {
-			window.__weaveConfigPerformanceMonitor = undefined;
-			window.__weaveConfigPerformanceMonitorCleanup = undefined;
+			w.__weaveConfigPerformanceMonitor = undefined;
+			w.__weaveConfigPerformanceMonitorCleanup = undefined;
 		} catch {
-			window.__weaveConfigPerformanceMonitor = null;
-			window.__weaveConfigPerformanceMonitorCleanup = null;
+			w.__weaveConfigPerformanceMonitor = null;
+			w.__weaveConfigPerformanceMonitorCleanup = null;
 		}
 	};
 

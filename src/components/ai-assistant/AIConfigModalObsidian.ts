@@ -24,7 +24,7 @@ export class AIConfigModalObsidian extends Modal {
 	}
 
 	onOpen() {
-		this.setTitle("系统提示词");
+		this.setTitle("AI 制卡配置");
 		configureWeaveObsidianModalLayout(this, {
 			modalClass: "weave-ai-config-modal weave-native-system-prompt-modal",
 			contentClass: "weave-ai-config-modal-content",

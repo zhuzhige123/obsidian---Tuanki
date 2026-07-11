@@ -1,0 +1,63 @@
+/* 文档测验：题尾 weave-test-stats 阅读视图徽章（方案 A） */
+
+.weave-doc-quiz-stats-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--size-2-1) var(--size-2-2);
+  margin: var(--size-2-2) 0 var(--size-2-3);
+  padding: var(--size-2-1) var(--size-4-1);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+  max-width: 100%;
+}
+
+.weave-doc-quiz-stats-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-faint);
+}
+
+.weave-doc-quiz-stats-pill.is-mastery-weak .weave-doc-quiz-stats-pill-dot {
+  background: var(--color-red);
+}
+
+.weave-doc-quiz-stats-pill.is-mastery-fair .weave-doc-quiz-stats-pill-dot {
+  background: var(--color-orange);
+}
+
+.weave-doc-quiz-stats-pill.is-mastery-strong .weave-doc-quiz-stats-pill-dot {
+  background: var(--color-green);
+}
+
+.weave-doc-quiz-stats-pill.is-mastery-new .weave-doc-quiz-stats-pill-dot {
+  background: var(--text-faint);
+}
+
+.weave-doc-quiz-stats-pill-sep {
+  opacity: 0.45;
+  user-select: none;
+}
+
+.weave-doc-quiz-stats-pill-part {
+  white-space: nowrap;
+}
+
+.markdown-reading-view .weave-doc-quiz-stats-pill,
+.markdown-preview-view .weave-doc-quiz-stats-pill,
+.cm-weave-doc-quiz-stats-pill-host .weave-doc-quiz-stats-pill {
+  user-select: none;
+}
+
+.cm-weave-doc-quiz-stats-pill-host {
+  cursor: pointer;
+}
+
+.cm-weave-doc-quiz-stats-pill-host:hover .weave-doc-quiz-stats-pill {
+  background: var(--background-modifier-hover);
+}

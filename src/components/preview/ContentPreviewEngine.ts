@@ -404,7 +404,7 @@ export class ContentPreviewEngine {
 	private generatePreviewSections(
 		card: Card,
 		cardType: UnifiedCardType,
-		_template: unknown | null
+		_template: null
 	): PreviewSection[] {
 		const sections: PreviewSection[] = [];
 

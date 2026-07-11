@@ -38,6 +38,7 @@ export const aiUiTranslationOverrides: Record<SupportedLanguage, TranslationKey>
 				maxTokens: "Token 限制",
 				cardCountValue: "{count} 张",
 				sections: {
+					prompts: "提示词",
 					difficulty: "难度级别",
 					cardCount: "生成数量",
 					typeDistribution: "题型分布",
@@ -91,7 +92,7 @@ export const aiUiTranslationOverrides: Record<SupportedLanguage, TranslationKey>
 				busyParsingDescription: "当前解析模板正在整理内容，新的解析结果会直接显示在这里。",
 				busyGeneratingDescription: "卡片会随着生成进度逐张出现在这里。",
 				emptyParsingDescription: "先在顶部功能栏选择文件、解析模板并发起解析，这里会直接显示解析结果预览。",
-				emptyGeneratingDescription: "先在页面上方功能栏选择文件与模型，并点击「开始生成」；提示词等可在右上角更多菜单中设置。",
+				emptyGeneratingDescription: "先在页面上方功能栏选择文件与模型，并点击「开始生成」；提示词与生成参数可在菜单中的「AI制卡配置」里设置。",
 				navigationHintSelectable: "点按切换卡片，长按序号可选中或取消选中",
 				navigationHintReadonly: "点按切换卡片",
 				defaultTargetDeck: "目标牌组",
@@ -291,6 +292,7 @@ export const aiUiTranslationOverrides: Record<SupportedLanguage, TranslationKey>
 				maxTokens: "Token limit",
 				cardCountValue: "{count} cards",
 				sections: {
+					prompts: "Prompts",
 					difficulty: "Difficulty level",
 					cardCount: "Generation count",
 					typeDistribution: "Question type distribution",
@@ -344,7 +346,7 @@ export const aiUiTranslationOverrides: Record<SupportedLanguage, TranslationKey>
 				busyParsingDescription: "The current parsing template is organizing content, and new parsing results will appear here directly.",
 				busyGeneratingDescription: "Cards will appear here one by one as generation progresses.",
 				emptyParsingDescription: "Select a file and parsing template in the top toolbar, then start parsing. The parsed preview will appear here directly.",
-				emptyGeneratingDescription: "Use the toolbar above to pick a file and model, then tap Start generation. Prompt and other options are in the ⋮ menu.",
+				emptyGeneratingDescription: "Use the toolbar above to pick a file and model, then tap Start generation. Prompts and generation settings are under AI card configuration in the menu.",
 				navigationHintSelectable: "Tap to switch cards, long-press a number to select or deselect",
 				navigationHintReadonly: "Tap to switch cards",
 				defaultTargetDeck: "Target deck",

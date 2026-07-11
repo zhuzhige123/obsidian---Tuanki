@@ -19,7 +19,6 @@ import { BackupTrigger as BackupOptionTrigger } from "../types/backup-types";
 import {
 	BACKUP_SLOT_AUTO,
 	BACKUP_SLOT_MANUAL,
-	type BackupUserSlot,
 	getWeaveBackupService,
 } from "./backup/WeaveBackupService";
 import { DataType } from "../types/data-management-types";
@@ -104,7 +103,12 @@ export class BackupManagementService {
 			const issues = slotResult.issues?.map((issue, index) => ({
 				id: `backup_issue_${index}`,
 				type: "corrupted_data" as const,
-				description: typeof issue === "string" ? issue : String(issue),
+				description:
+					typeof issue === "string"
+						? issue
+						: issue instanceof Error
+							? issue.message
+							: JSON.stringify(issue),
 				severity: "error" as const,
 			}));
 

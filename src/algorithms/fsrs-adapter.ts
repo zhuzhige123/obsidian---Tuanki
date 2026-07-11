@@ -151,12 +151,25 @@ export function toTsFsrsCard(card: FSRSCard): TsCard {
 	};
 }
 
+function readTsCardElapsedDays(card: TsCard): number {
+	const now = new Date();
+	const lastReview =
+		card.last_review && card.last_review.getTime() > now.getTime() ? now : card.last_review;
+	if (lastReview) {
+		return Math.max(0, Math.floor((now.getTime() - lastReview.getTime()) / 86400000));
+	}
+	const legacyElapsed = (card as { elapsed_days?: number }).elapsed_days;
+	return typeof legacyElapsed === "number" && Number.isFinite(legacyElapsed)
+		? Math.max(0, legacyElapsed)
+		: 0;
+}
+
 export function fromTsFsrsCard(card: TsCard, retrievability: number): FSRSCard {
 	return {
 		due: card.due.toISOString(),
 		stability: card.stability,
 		difficulty: card.difficulty,
-		elapsedDays: card.elapsed_days,
+		elapsedDays: readTsCardElapsedDays(card),
 		scheduledDays: card.scheduled_days,
 		reps: card.reps,
 		lapses: card.lapses,

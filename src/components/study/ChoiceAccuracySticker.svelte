@@ -23,7 +23,13 @@
     }
     return 'accuracy-sticker-needs-work';
   });
-  const ariaLabel = $derived.by(() => `选择题正确率 ${formattedAccuracy}%（${correct}/${total}）`);
+  const ariaLabel = $derived.by(() =>
+    t('studyInterface.choiceAccuracy.ariaLabel', {
+      accuracy: formattedAccuracy,
+      correct,
+      total,
+    })
+  );
 </script>
 
 <div
@@ -33,7 +39,7 @@
   title={ariaLabel}
 >
   <div class="sticky-number">{formattedAccuracy}%</div>
-  <div class="sticky-label">{t('study.choiceAccuracy.label')}</div>
+  <div class="sticky-label">{t('studyInterface.choiceAccuracy.label')}</div>
 </div>
 
 <style>

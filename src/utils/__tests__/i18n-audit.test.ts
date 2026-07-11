@@ -119,6 +119,7 @@ describe('i18n audit', () => {
       'src/components/ai-assistant/SelectedTextAICardPanel.svelte',
       'src/components/ai-assistant/AICardPreviewWorkspace.svelte',
       'src/components/ai-assistant/RegenerateDialog.svelte',
+      'src/components/ai-assistant/AIPromptConfigPanel.svelte',
       'src/components/ai-assistant/AIConfigModal.svelte',
       'src/components/ai-assistant/ProgressIndicator.svelte',
       'src/components/modals/tabs/ReviewStatsTab.svelte',
