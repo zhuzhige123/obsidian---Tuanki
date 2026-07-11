@@ -17,9 +17,3 @@ declare global {
 	function clearTimeout(handle?: number): void;
 	function clearInterval(handle?: number): void;
 }
-
-declare namespace NodeJS {
-	type Timeout = number;
-	type Immediate = number;
-	type Timer = number;
-}

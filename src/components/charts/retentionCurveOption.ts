@@ -1,7 +1,6 @@
 import type { EChartsOption } from "../../utils/echarts-loader";
 import {
 	applyRetentionChartLayout,
-	type RetentionChartOptionLike,
 	type RetentionChartThemeColors,
 } from "./retentionChartStyle";
 
@@ -102,6 +101,6 @@ export function buildRetentionCurveOption({
 		series,
 	};
 
-	applyRetentionChartLayout(option as RetentionChartOptionLike, colors, isMobile);
+	applyRetentionChartLayout(option, colors, isMobile);
 	return option;
 }

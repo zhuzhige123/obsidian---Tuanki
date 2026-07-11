@@ -25,7 +25,7 @@ interface MemoryInfo {
 /**
  * 资源引用管理器
  */
-class ResourceReferenceManager {
+export class ResourceReferenceManager {
 	private references = new Map<string, Set<unknown>>();
 	private timers = new Set<number>();
 	private observers = new Set<unknown>();
@@ -219,7 +219,7 @@ class ResourceReferenceManager {
 /**
  * 内存监控器
  */
-class MemoryMonitor {
+export class MemoryMonitor {
 	private monitoring = false;
 	private interval: number | null = null;
 	private callbacks: Array<(info: MemoryInfo) => void> = [];
@@ -370,7 +370,7 @@ function getOrCreateMemoryManager(): ResourceReferenceManager {
 	}
 
 		if (window.__weaveMemoryManager) {
-		return window.__weaveMemoryManager as ResourceReferenceManager;
+		return window.__weaveMemoryManager;
 	}
 
 	const instance = new ResourceReferenceManager();
@@ -384,7 +384,7 @@ function getOrCreateMemoryMonitor(): MemoryMonitor {
 	}
 
 		if (window.__weaveMemoryMonitor) {
-		return window.__weaveMemoryMonitor as MemoryMonitor;
+		return window.__weaveMemoryMonitor;
 	}
 
 	const instance = new MemoryMonitor();

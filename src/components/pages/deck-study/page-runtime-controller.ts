@@ -113,7 +113,7 @@ export function createDeckStudyPageRuntimeController(
     };
     window.addEventListener(
       "Weave:sidebar-filter-select",
-      handleSidebarFilterSelect as EventListener
+      handleSidebarFilterSelect
     );
 
     const handleExternalDeckMenuAction = (event: Event) => {
@@ -125,7 +125,7 @@ export function createDeckStudyPageRuntimeController(
     };
     window.addEventListener(
       "Weave:request-memory-deck-action",
-      handleExternalDeckMenuAction as EventListener
+      handleExternalDeckMenuAction
     );
 
     const handlePopulateMainInterfaceMenu = (event: Event) => {
@@ -141,7 +141,7 @@ export function createDeckStudyPageRuntimeController(
     };
     window.addEventListener(
       "Weave:populate-main-interface-menu",
-      handlePopulateMainInterfaceMenu as EventListener
+      handlePopulateMainInterfaceMenu
     );
 
     const handleDeckStudyToolbarAction = (event: Event) => {
@@ -157,7 +157,7 @@ export function createDeckStudyPageRuntimeController(
     };
     window.addEventListener(
       "Weave:deck-study-toolbar-action",
-      handleDeckStudyToolbarAction as EventListener
+      handleDeckStudyToolbarAction
     );
 
     dispatchDeckFilterChange();
@@ -168,19 +168,19 @@ export function createDeckStudyPageRuntimeController(
       unsubscribeCards?.();
       window.removeEventListener(
         "Weave:sidebar-filter-select",
-        handleSidebarFilterSelect as EventListener
+        handleSidebarFilterSelect
       );
       window.removeEventListener(
         "Weave:request-memory-deck-action",
-        handleExternalDeckMenuAction as EventListener
+        handleExternalDeckMenuAction
       );
       window.removeEventListener(
         "Weave:populate-main-interface-menu",
-        handlePopulateMainInterfaceMenu as EventListener
+        handlePopulateMainInterfaceMenu
       );
       window.removeEventListener(
         "Weave:deck-study-toolbar-action",
-        handleDeckStudyToolbarAction as EventListener
+        handleDeckStudyToolbarAction
       );
       unregisterEmergentRuleGroupPopoverBridge();
     };

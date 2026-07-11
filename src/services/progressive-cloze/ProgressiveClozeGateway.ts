@@ -32,7 +32,7 @@ import { ProgressiveClozeConverter } from "./ProgressiveClozeConverter";
 type CardWithProgressiveCloze = Card & { progressiveCloze?: unknown };
 
 function withoutProgressiveCloze(card: CardWithProgressiveCloze): Card {
-	const { progressiveCloze: _removed, ...rest } = card;
+	const { progressiveCloze: _progressiveCloze, ...rest } = card;
 	return rest;
 }
 

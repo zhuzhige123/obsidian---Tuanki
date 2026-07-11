@@ -191,7 +191,7 @@ export class WeaveView extends ItemView {
 		};
 		window.addEventListener(
 			"Weave:surface-location-change",
-			handleSurfaceLocationChange as EventListener
+			handleSurfaceLocationChange
 		);
 		this.surfaceLocationChangeHandler = handleSurfaceLocationChange;
 
@@ -320,21 +320,21 @@ export class WeaveView extends ItemView {
 		};
 		window.addEventListener(
 			"Weave:ai-selection-state-change",
-			this.aiSelectionStateHandler as EventListener
+			this.aiSelectionStateHandler
 		);
-		window.addEventListener("Weave:card-view-change", this.cardViewChangeHandler as EventListener);
-		window.addEventListener("Weave:deck-view-change", this.deckViewChangeHandler as EventListener);
+		window.addEventListener("Weave:card-view-change", this.cardViewChangeHandler);
+		window.addEventListener("Weave:deck-view-change", this.deckViewChangeHandler);
 		window.addEventListener(
 			"Weave:deck-filter-change",
-			this.deckFilterChangeHandler as EventListener
+			this.deckFilterChangeHandler
 		);
 		window.addEventListener(
 			"Weave:card-data-source-change",
-			this.cardDataSourceChangeHandler as EventListener
+			this.cardDataSourceChangeHandler
 		);
 		window.addEventListener(
 			"Weave:card-management-toolbar-state",
-			this.cardToolbarStateHandler as EventListener
+			this.cardToolbarStateHandler
 		);
 		this.updateMobileHeaderActionsVisibility();
 	}
@@ -845,36 +845,36 @@ export class WeaveView extends ItemView {
 		if (this.aiSelectionStateHandler) {
 			window.removeEventListener(
 				"Weave:ai-selection-state-change",
-				this.aiSelectionStateHandler as EventListener
+				this.aiSelectionStateHandler
 			);
 			this.aiSelectionStateHandler = null;
 		}
 		if (this.cardViewChangeHandler) {
-			window.removeEventListener("Weave:card-view-change", this.cardViewChangeHandler as EventListener);
+			window.removeEventListener("Weave:card-view-change", this.cardViewChangeHandler);
 			this.cardViewChangeHandler = null;
 		}
 		if (this.deckViewChangeHandler) {
-			window.removeEventListener("Weave:deck-view-change", this.deckViewChangeHandler as EventListener);
+			window.removeEventListener("Weave:deck-view-change", this.deckViewChangeHandler);
 			this.deckViewChangeHandler = null;
 		}
 		if (this.deckFilterChangeHandler) {
 			window.removeEventListener(
 				"Weave:deck-filter-change",
-				this.deckFilterChangeHandler as EventListener
+				this.deckFilterChangeHandler
 			);
 			this.deckFilterChangeHandler = null;
 		}
 		if (this.cardDataSourceChangeHandler) {
 			window.removeEventListener(
 				"Weave:card-data-source-change",
-				this.cardDataSourceChangeHandler as EventListener
+				this.cardDataSourceChangeHandler
 			);
 			this.cardDataSourceChangeHandler = null;
 		}
 		if (this.cardToolbarStateHandler) {
 			window.removeEventListener(
 				"Weave:card-management-toolbar-state",
-				this.cardToolbarStateHandler as EventListener
+				this.cardToolbarStateHandler
 			);
 			this.cardToolbarStateHandler = null;
 		}

@@ -131,11 +131,11 @@ export class GestureManager {
 		touchcancel: EventListener;
 	} {
 		return {
-			touchstart: ((event: Event) => this.handleTouchStart(element, event as TouchEvent)) as EventListener,
-			touchmove: ((event: Event) => this.handleTouchMove(element, event as TouchEvent)) as EventListener,
-			touchend: ((event: Event) => this.handleTouchEnd(element, event as TouchEvent)) as EventListener,
+			touchstart: ((event: Event) => this.handleTouchStart(element, event as TouchEvent)),
+			touchmove: ((event: Event) => this.handleTouchMove(element, event as TouchEvent)),
+			touchend: ((event: Event) => this.handleTouchEnd(element, event as TouchEvent)),
 			touchcancel: ((event: Event) =>
-				this.handleTouchCancel(element, event as TouchEvent)) as EventListener,
+				this.handleTouchCancel(element, event as TouchEvent)),
 		};
 	}
 

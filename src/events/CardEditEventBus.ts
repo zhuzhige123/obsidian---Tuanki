@@ -113,7 +113,7 @@ export class CardEditEventBus {
 		}
 
 		const subscription: Subscription = {
-			listener: listener as EventListener<unknown>,
+			listener: listener<unknown>,
 			options: options as SubscriptionOptions<unknown>,
 			id: `sub_${++this.subscriptionCounter}`,
 		};

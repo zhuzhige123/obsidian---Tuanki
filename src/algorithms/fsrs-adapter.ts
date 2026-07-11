@@ -9,7 +9,6 @@ import {
 	type Card as TsCard,
 	type FSRS as TsFsrs,
 	type FSRSParameters as TsFsrsParameters,
-	type Grade,
 	FSRSVersion,
 	generatorParameters,
 	default_w,
@@ -146,7 +145,7 @@ export function toTsFsrsCard(card: FSRSCard): TsCard {
 		learning_steps: 0,
 		reps: sanitized.reps,
 		lapses: sanitized.lapses,
-		state: sanitized.state as unknown as TsCard["state"],
+		state: sanitized.state,
 		last_review: sanitized.lastReview ? new Date(sanitized.lastReview) : undefined,
 	};
 }
@@ -173,7 +172,7 @@ export function fromTsFsrsCard(card: TsCard, retrievability: number): FSRSCard {
 		scheduledDays: card.scheduled_days,
 		reps: card.reps,
 		lapses: card.lapses,
-		state: card.state as unknown as CardState,
+		state: card.state,
 		lastReview: card.last_review?.toISOString(),
 		retrievability,
 	};
@@ -191,8 +190,8 @@ export function fromTsFsrsReviewLog(log: {
 	review: Date;
 }): ReviewLog {
 	return {
-		rating: log.rating as Rating,
-		state: log.state as CardState,
+		rating: log.rating,
+		state: log.state,
 		due: log.due.toISOString(),
 		stability: log.stability,
 		difficulty: log.difficulty,
@@ -224,7 +223,7 @@ export function reviewWithTsFsrs(
 	const now = reviewTime ? new Date(reviewTime) : new Date();
 	const sanitized = sanitizeFsrsCardForScheduling(card, now);
 	const tsCard = toTsFsrsCard(sanitized);
-	const { card: nextCard, log } = scheduler.next(tsCard, now, rating as Grade);
+	const { card: nextCard, log } = scheduler.next(tsCard, now, rating);
 	const retrievability = scheduler.get_retrievability(nextCard, now, false);
 	return {
 		card: fromTsFsrsCard(nextCard, retrievability),
