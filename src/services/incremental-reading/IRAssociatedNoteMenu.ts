@@ -248,7 +248,7 @@ export async function openAssociatedMarkdownNote(app: App, notePath: string): Pr
 	const leaf = app.workspace.getRightLeaf(false) || app.workspace.getLeaf("tab");
 	await leaf.openFile(file, {
 		active: true,
-		state: { mode: "source" } as Record<string, unknown>,
+		state: { mode: "source" },
 	});
 	revealLeaf(app, leaf);
 	return file;

@@ -32,12 +32,12 @@ export type CanvasControllerLike = {
 };
 
 export function asCanvasNode(node: unknown): CanvasNodeLike | null {
-	return isRecord(node) ? (node as CanvasNodeLike) : null;
+	return isRecord(node) ? node : null;
 }
 
 export function getCanvasController(view: unknown): CanvasControllerLike | null {
 	const canvas = readUnknownProperty(view, "canvas");
-	return isRecord(canvas) ? (canvas as CanvasControllerLike) : null;
+	return isRecord(canvas) ? canvas : null;
 }
 
 export function getCanvasNodes(view: unknown): CanvasNodeLike[] {

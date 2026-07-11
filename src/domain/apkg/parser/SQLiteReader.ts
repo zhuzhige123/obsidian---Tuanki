@@ -83,7 +83,7 @@ export class SQLiteReader {
 
 		return initSqlJs({
 			locateFile: (file) => (file.endsWith(".wasm") ? this.wasmUrl : file),
-		}) as Promise<SqlJsRuntime>;
+		});
 	}
 
 	private async initializeSqlJs(): Promise<SqlJsRuntime> {

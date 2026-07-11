@@ -35,7 +35,7 @@ export function getEditorCodeMirrorView(editor: unknown): CodeMirror6View | unde
 		return undefined;
 	}
 	const cm = editor.cm;
-	return isRecord(cm) ? (cm as CodeMirror6View) : undefined;
+	return isRecord(cm) ? cm : undefined;
 }
 
 export function getCodeMirrorDocumentText(cm: CodeMirror6View | undefined): string | undefined {

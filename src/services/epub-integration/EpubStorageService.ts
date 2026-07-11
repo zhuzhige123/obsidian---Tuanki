@@ -955,10 +955,7 @@ export class EpubStorageService {
 			if (parsed == null) {
 				continue;
 			}
-			return this.normalizeReaderSettingsForDevice(
-				deviceKind,
-				parsed as Partial<EpubReaderSettings>
-			);
+			return this.normalizeReaderSettingsForDevice(deviceKind, parsed);
 		}
 
 		return null;
@@ -2603,7 +2600,7 @@ export class EpubStorageService {
 
 		return (
 			(await this.readLegacyReaderSettings(deviceKind)) ??
-			({ ...this.getDefaultReaderSettingsForCurrentDevice() } as EpubReaderSettings)
+			{ ...this.getDefaultReaderSettingsForCurrentDevice() }
 		);
 	}
 

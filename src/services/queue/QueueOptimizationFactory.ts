@@ -107,9 +107,7 @@ export class QueueOptimizationFactory {
 				: undefined;
 
 		return this.create(
-			queueSettings && typeof queueSettings === "object"
-				? (queueSettings as Partial<QueueOptimizationSettings>)
-				: undefined
+			queueSettings && typeof queueSettings === "object" ? queueSettings : undefined
 		);
 	}
 }

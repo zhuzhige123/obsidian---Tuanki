@@ -68,7 +68,7 @@ function readTutorialDeckNames(card: Card): string[] {
 		// ignore malformed YAML
 	}
 
-	const marker = (card.customFields as Record<string, unknown> | undefined)?.wdeck;
+	const marker = card.customFields?.wdeck;
 	if (marker && typeof marker === "object") {
 		const logicalDeckName = (readUnknownString(marker, "logicalDeckName") ?? "").trim();
 		if (logicalDeckName) {

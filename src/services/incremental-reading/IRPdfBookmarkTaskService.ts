@@ -76,7 +76,7 @@ function mergeTaskStats(existing: IRBlockStats, updates?: Partial<IRBlockStats>)
 	};
 }
 
-function normalizeTaskTopic(task: Pick<IRPdfBookmarkTask, "topicId" | "deckId">): string {
+function normalizeTaskTopic(task: Pick<IRPdfBookmarkTask, "topicId"> & { deckId?: string }): string {
 	const topicId = String(getTaskTopicId(task) || "").trim();
 	if (!topicId) {
 		throw new Error("PDF 书签任务缺少专题 ID");
@@ -240,7 +240,7 @@ export class IRPdfBookmarkTaskService {
 		const topicId = normalizeTaskTopic({
 			topicId: input.topicId,
 			deckId: input.deckId,
-		} as IRPdfBookmarkTask);
+		});
 
 		return await this.persistTask({
 			id: generatePdfBookmarkTaskId(),
@@ -272,7 +272,7 @@ export class IRPdfBookmarkTaskService {
 				...(typeof input.sourceSequenceAnchorDateKey === "string" && input.sourceSequenceAnchorDateKey.trim()
 					? { sourceSequenceAnchorDateKey: input.sourceSequenceAnchorDateKey.trim() }
 					: {}),
-			} as IRPdfBookmarkTask["meta"],
+			},
 			tags: [],
 			favorite: false,
 			createdAt: now,
@@ -292,7 +292,7 @@ export class IRPdfBookmarkTaskService {
 		const topicId = normalizeTaskTopic({
 			topicId: updates.topicId ?? existing.topicId,
 			deckId: updates.deckId ?? existing.deckId,
-		} as IRPdfBookmarkTask);
+		});
 		const updated: IRPdfBookmarkTask = {
 			...existing,
 			...updates,

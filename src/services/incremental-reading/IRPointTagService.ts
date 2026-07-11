@@ -70,7 +70,7 @@ export class IRPointTagService {
 			return [];
 		}
 		const cache = this.app.metadataCache.getFileCache(file);
-		return readFrontmatterTags((cache?.frontmatter as Record<string, unknown> | undefined) || {});
+		return readFrontmatterTags(cache?.frontmatter || {});
 	}
 
 	async writeMarkdownReadingTags(filePath: string, tags: string[]): Promise<string[]> {
@@ -119,8 +119,8 @@ export class IRPointTagService {
 			},
 			updatedAt: Date.now(),
 		};
-		await this.storage.saveChunkData(updatedChunk as IRChunkFileData);
-		return updatedChunk as IRChunkFileData & { tags?: string[] };
+		await this.storage.saveChunkData(updatedChunk);
+		return updatedChunk;
 	}
 
 	async savePdfTaskTags(taskId: string, tags: string[]): Promise<IRPdfBookmarkTask | null> {
@@ -225,7 +225,7 @@ export class IRPointTagService {
 				},
 				updatedAt: Date.now(),
 			};
-			await this.storage.saveChunkData(updatedChunk as IRChunkFileData);
+			await this.storage.saveChunkData(updatedChunk);
 			changed = true;
 		}
 

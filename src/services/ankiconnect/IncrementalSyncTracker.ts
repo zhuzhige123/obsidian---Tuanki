@@ -77,7 +77,7 @@ export class IncrementalSyncTracker {
 		);
 
 		this.state = {
-			timestamps: Object.fromEntries(normalizedEntries) as Record<string, SyncTimestamp>,
+			timestamps: Object.fromEntries(normalizedEntries),
 			lastFullSync:
 				typeof savedState.lastFullSync === "number" && Number.isFinite(savedState.lastFullSync)
 					? savedState.lastFullSync

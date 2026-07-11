@@ -60,7 +60,7 @@ function loadFromStorage(): VirtualizationStorageConfig | null {
 			return null;
 		}
 
-		return parsed as VirtualizationStorageConfig;
+		return parsed;
 	} catch (error) {
 		logger.error("[VirtualizationConfigManager] 加载配置失败:", error);
 		return null;

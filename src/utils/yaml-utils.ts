@@ -636,7 +636,7 @@ export function createContentWithMetadata(metadata: CardYAMLMetadata, body: stri
 	if (metadata.we_difficulty) yaml.we_difficulty = metadata.we_difficulty;
 	const legacyCreated = (metadata as Record<string, unknown>)["we_created"];
 	if (metadata.created || typeof legacyCreated === "string") {
-		yaml.created = metadata.created || (legacyCreated as string);
+		yaml.created = metadata.created || legacyCreated;
 	}
 	if (metadata.tags && metadata.tags.length > 0) yaml.tags = metadata.tags;
 

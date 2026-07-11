@@ -11,7 +11,6 @@ import { DirectoryUtils } from "../../utils/directory-utils";
 import { logger } from "../../utils/logger";
 import { readWeaveParentFolder } from "../../utils/weave-plugin-settings";
 import { isRecord, parseJsonUnknown } from "../../utils/typed-json";
-import type { WeavePlugin } from "../../main";
 
 /**
  * 媒体管理服务
@@ -33,7 +32,7 @@ export class MediaManagementService {
 		this.storage = storage;
 		this.hashCache = new Map();
 		// 使用统一的媒体文件夹路径
-		const parentFolder = readWeaveParentFolder(this.plugin as WeavePlugin);
+		const parentFolder = readWeaveParentFolder(this.plugin);
 		this.mediaBasePath = getMediaFolder(parentFolder);
 	}
 

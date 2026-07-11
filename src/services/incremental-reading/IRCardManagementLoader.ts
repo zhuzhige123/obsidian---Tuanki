@@ -114,7 +114,7 @@ function readReadingMaterialManager(source: unknown): ReadingMaterialManagerLike
 		return null;
 	}
 
-	return manager as ReadingMaterialManagerLike;
+	return manager;
 }
 
 async function collectIRExtractCardIds(

@@ -134,7 +134,7 @@ function resolveHostCapabilityValue(
 }
 
 function mergeEpubHosts(hosts: EpubHostCapabilities[]): EpubHostCapabilities {
-	return new Proxy({} as EpubHostCapabilities, {
+	return new Proxy({}, {
 		get(_target, key) {
 			for (let index = hosts.length - 1; index >= 0; index -= 1) {
 				const host = hosts[index];
@@ -199,7 +199,7 @@ export function resolveEpubHost(app: App): EpubHostCapabilities | null {
 			return null;
 		}
 
-		return plugin as EpubHostCapabilities;
+		return plugin;
 	}
 
 	if (localHost && collaboratorHost) {

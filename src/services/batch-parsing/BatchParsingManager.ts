@@ -39,6 +39,10 @@ import {
  */
 export type ProgressCallback = (progress: ParseProgress) => void;
 
+function resolveLegacyFolderDeckFileMode(value: unknown): FolderDeckMapping["fileMode"] {
+	return value === "multi-cards" ? "multi-cards" : "single-card";
+}
+
 /**
  * 批量解析管理器（重构后）
  * 职责：协调解析和保存，调用插件的统一保存流程
@@ -530,17 +534,14 @@ export class BatchParsingManager {
 		const settingsMappings = this.plugin.settings.simplifiedParsing.batchParsing.folderDeckMappings;
 		if (settingsMappings && Array.isArray(settingsMappings) && settingsMappings.length > 0) {
 			const normalizedMappings = normalizeFolderDeckMappings(
-				settingsMappings.map((mapping) => {
-					const legacyMapping = mapping as typeof mapping & {
-						fileMode?: FolderDeckMapping["fileMode"];
-					};
-					return {
-						...mapping,
-						type: mapping.type ?? "folder",
-						path: mapping.path ?? mapping.folderPath ?? "",
-						fileMode: legacyMapping.fileMode ?? "single-card",
-					} as FolderDeckMapping;
-				})
+				settingsMappings.map((mapping): FolderDeckMapping => ({
+					...mapping,
+					type: mapping.type ?? "folder",
+					path: mapping.path ?? mapping.folderPath ?? "",
+					fileMode: resolveLegacyFolderDeckFileMode(
+						(mapping as { fileMode?: unknown }).fileMode
+					),
+				}))
 			).mappings;
 			const oldCount = this.config.folderDeckMappings?.length || 0;
 			this.config.folderDeckMappings = normalizedMappings;

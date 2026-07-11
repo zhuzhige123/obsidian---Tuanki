@@ -45,7 +45,7 @@ function normalizeDueAtValue(value: unknown): string | undefined {
 function getLegacyReadingMaterialDueAt(
 	material: Partial<ReadingMaterial> | Record<string, unknown> | null | undefined
 ): string | undefined {
-	const fsrs = (material as Record<string, unknown> | null | undefined)?.fsrs;
+	const fsrs = material?.fsrs;
 	if (!fsrs || typeof fsrs !== "object") {
 		return undefined;
 	}
@@ -57,7 +57,7 @@ export function getReadingMaterialDueAt(
 	material: Partial<ReadingMaterial> | Record<string, unknown> | null | undefined
 ): string | undefined {
 	return (
-		normalizeDueAtValue((material as Record<string, unknown> | null | undefined)?.nextDueAt) ||
+		normalizeDueAtValue(material?.nextDueAt) ||
 		getLegacyReadingMaterialDueAt(material)
 	);
 }
@@ -85,8 +85,8 @@ export function getReadingTopicId(
 	material: Partial<ReadingMaterial> | Record<string, unknown> | null | undefined
 ): string | undefined {
 	return (
-		normalizeString((material as Record<string, unknown> | null | undefined)?.topicId) ||
-		normalizeString((material as Record<string, unknown> | null | undefined)?.readingDeckId)
+		normalizeString(material?.topicId) ||
+		normalizeString(material?.readingDeckId)
 	);
 }
 
@@ -161,8 +161,8 @@ export function getTaskTopicId(
 	task: { topicId?: string; deckId?: string } | Record<string, unknown> | null | undefined
 ): string | undefined {
 	return (
-		normalizeString((task as Record<string, unknown> | null | undefined)?.topicId) ||
-		normalizeString((task as Record<string, unknown> | null | undefined)?.deckId)
+		normalizeString(task?.topicId) ||
+		normalizeString(task?.deckId)
 	);
 }
 
@@ -178,7 +178,7 @@ export function normalizeBookmarkTaskForRuntime<T extends { topicId?: string; de
 		...task,
 		topicId,
 		deckId: topicId,
-	} as T;
+	};
 }
 
 export function serializeBookmarkTaskForStorage<T extends { topicId?: string; deckId?: string }>(
@@ -200,22 +200,20 @@ export function serializeBookmarkTaskForStorage<T extends { topicId?: string; de
 export function getChunkTopicIds(
 	chunk: Partial<IRChunkFileData> | Record<string, unknown> | null | undefined
 ): string[] {
-	const topicIds = normalizeStringArray(
-		(chunk as Record<string, unknown> | null | undefined)?.topicIds
-	);
+	const topicIds = normalizeStringArray(chunk?.topicIds);
 	if (topicIds.length > 0) {
 		return topicIds;
 	}
 
-	return normalizeStringArray((chunk as Record<string, unknown> | null | undefined)?.deckIds);
+	return normalizeStringArray(chunk?.deckIds);
 }
 
 export function getChunkTopicTag(
 	chunk: Partial<IRChunkFileData> | Record<string, unknown> | null | undefined
 ): string | undefined {
 	return (
-		normalizeString((chunk as Record<string, unknown> | null | undefined)?.topicTag) ||
-		normalizeString((chunk as Record<string, unknown> | null | undefined)?.deckTag)
+		normalizeString(chunk?.topicTag) ||
+		normalizeString(chunk?.deckTag)
 	);
 }
 
@@ -265,18 +263,13 @@ export function serializeChunkForStorage<T extends Partial<IRChunkFileData>>(chu
 	return serialized as T;
 }
 
-function getSessionTopicName(
-	session: { topicName?: string; deckName?: string } | Record<string, unknown>
-): string | undefined {
-	return (
-		normalizeString((session as Record<string, unknown>).topicName) ||
-		normalizeString((session as Record<string, unknown>).deckName)
-	);
+function getSessionTopicName(session: { topicName?: string; deckName?: string }): string | undefined {
+	return normalizeString(session.topicName) || normalizeString(session.deckName);
 }
 
 export function normalizeStudySessionForRuntime<T extends Partial<IRStudySession>>(session: T): T {
-	const topicId = getTaskTopicId(session as { topicId?: string; deckId?: string });
-	const topicName = getSessionTopicName(session as Record<string, unknown>);
+	const topicId = getTaskTopicId(session);
+	const topicName = getSessionTopicName(session);
 	const normalized = { ...session } as Record<string, unknown>;
 
 	if (topicId) {
@@ -293,8 +286,8 @@ export function normalizeStudySessionForRuntime<T extends Partial<IRStudySession
 }
 
 export function serializeStudySessionForStorage<T extends Partial<IRStudySession>>(session: T): T {
-	const topicId = getTaskTopicId(session as { topicId?: string; deckId?: string });
-	const topicName = getSessionTopicName(session as Record<string, unknown>);
+	const topicId = getTaskTopicId(session);
+	const topicName = getSessionTopicName(session);
 	const serialized = { ...session } as Record<string, unknown>;
 
 	if (topicId) {
@@ -315,7 +308,7 @@ export function serializeStudySessionForStorage<T extends Partial<IRStudySession
 }
 
 export function normalizeIRSessionForRuntime<T extends Partial<IRSession>>(session: T): T {
-	const topicId = getTaskTopicId(session as { topicId?: string; deckId?: string });
+	const topicId = getTaskTopicId(session);
 	if (!topicId) {
 		return { ...session };
 	}
@@ -324,11 +317,11 @@ export function normalizeIRSessionForRuntime<T extends Partial<IRSession>>(sessi
 		...session,
 		topicId,
 		deckId: topicId,
-	} as T;
+	};
 }
 
 export function serializeIRSessionForStorage<T extends Partial<IRSession>>(session: T): T {
-	const topicId = getTaskTopicId(session as { topicId?: string; deckId?: string });
+	const topicId = getTaskTopicId(session);
 	const serialized = { ...session } as Record<string, unknown>;
 
 	if (topicId) {

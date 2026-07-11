@@ -159,7 +159,7 @@ export class UnifiedErrorHandler {
 			errorFrequencyMap: new Map(),
 			maxErrorsPerMinute: 10,
 			errorCooldownMs: 60000,
-		}) as unknown as UnifiedErrorHandler;
+		}) as UnifiedErrorHandler;
 	}
 
 	/**

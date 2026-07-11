@@ -4,6 +4,7 @@ import type { Card } from "../data/types";
 import type { WeavePlugin } from "../main";
 import { getCardTagValues } from "./tag-utils";
 import { listVaultMarkdownFiles } from "./vault-file-list";
+import { isCallable, readUnknownBoolean, readUnknownProperty } from "./dynamic-access";
 import {
   filterWeaveCardReferenceCandidates,
   buildWeaveCardReferenceToken,
@@ -16,9 +17,22 @@ type WeaveTagCandidate = {
   usageCount: number;
 };
 
-type MetadataCacheWithTags = App["metadataCache"] & {
-  getTags?: () => Record<string, number> | null | undefined;
-};
+function isEditorLike(value: unknown): value is Editor {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "replaceRange" in value &&
+    typeof (value as Editor).replaceRange === "function"
+  );
+}
+
+function readSuggestContextEditor(
+  context: EditorSuggestContext | null | undefined,
+  fallback: Editor | null
+): Editor | null {
+  const editor = readUnknownProperty(context, "editor");
+  return isEditorLike(editor) ? editor : fallback;
+}
 
 function getWeaveTagSuggestMatch(line: string, cursorCh: number): {
   startOffset: number;
@@ -97,7 +111,7 @@ export class WeaveTagSuggest extends EditorSuggest<WeaveTagCandidate> {
   private activeEditor: Editor | null = null;
 
   private isEditorComposing(editor: Editor | null | undefined): boolean {
-    return Boolean((editor as (Editor & { cm?: { composing?: boolean } }) | null | undefined)?.cm?.composing);
+    return readUnknownBoolean(readUnknownProperty(editor, "cm"), "composing") ?? false;
   }
 
   constructor(app: App, private plugin: WeavePlugin) {
@@ -130,7 +144,7 @@ export class WeaveTagSuggest extends EditorSuggest<WeaveTagCandidate> {
   }
 
   async getSuggestions(context: EditorSuggestContext): Promise<WeaveTagCandidate[]> {
-    const editor = ((context as EditorSuggestContext & { editor?: Editor }).editor) ?? this.activeEditor;
+    const editor = readSuggestContextEditor(context, this.activeEditor);
     if (this.isEditorComposing(editor)) {
       return [];
     }
@@ -164,8 +178,7 @@ export class WeaveTagSuggest extends EditorSuggest<WeaveTagCandidate> {
   }
 
   selectSuggestion(candidate: WeaveTagCandidate, _evt: MouseEvent | KeyboardEvent): void {
-    const editor = ((this.context as (EditorSuggestContext & { editor?: Editor }) | null)?.editor)
-      ?? this.activeEditor;
+    const editor = readSuggestContextEditor(this.context, this.activeEditor);
     const start = this.context?.start;
     const end = this.context?.end;
 
@@ -187,14 +200,15 @@ export class WeaveTagSuggest extends EditorSuggest<WeaveTagCandidate> {
 
     const loadPromise = this.plugin.dataStorage
       ? this.plugin.dataStorage.getCards()
-      : Promise.resolve([] as Card[]);
+      : Promise.resolve<Card[]>([]);
 
     this.inflightLoad = loadPromise
       .then((cards) => {
         const usageByTag = new Map<string, number>();
 
-		const metadataCache = this.app.metadataCache as MetadataCacheWithTags | undefined;
-		const cachedVaultTags = metadataCache?.getTags?.();
+		const metadataCache = this.app.metadataCache;
+		const getTags = readUnknownProperty(metadataCache, "getTags");
+		const cachedVaultTags = isCallable(getTags) ? getTags.call(metadataCache) : undefined;
 		if (cachedVaultTags && typeof cachedVaultTags === "object") {
 			for (const [rawTag, usageCount] of Object.entries(cachedVaultTags)) {
 				const normalizedTag = rawTag.trim().replace(/^#+/, "");
@@ -240,7 +254,7 @@ export class WeaveTagSuggest extends EditorSuggest<WeaveTagCandidate> {
       .catch(() => [])
       .finally(() => {
         this.inflightLoad = null;
-      }) as Promise<WeaveTagCandidate[]> | null;
+      });
 
     return this.inflightLoad ?? [];
   }
@@ -253,7 +267,7 @@ export class WeaveCardReferenceSuggest extends EditorSuggest<WeaveCardReferenceC
   private activeEditor: Editor | null = null;
 
   private isEditorComposing(editor: Editor | null | undefined): boolean {
-    return Boolean((editor as (Editor & { cm?: { composing?: boolean } }) | null | undefined)?.cm?.composing);
+    return readUnknownBoolean(readUnknownProperty(editor, "cm"), "composing") ?? false;
   }
 
   constructor(app: App, private plugin: WeavePlugin) {
@@ -286,7 +300,7 @@ export class WeaveCardReferenceSuggest extends EditorSuggest<WeaveCardReferenceC
   }
 
   async getSuggestions(context: EditorSuggestContext): Promise<WeaveCardReferenceCandidate[]> {
-    const editor = ((context as EditorSuggestContext & { editor?: Editor }).editor) ?? this.activeEditor;
+    const editor = readSuggestContextEditor(context, this.activeEditor);
     if (this.isEditorComposing(editor)) {
       return [];
     }
@@ -307,8 +321,7 @@ export class WeaveCardReferenceSuggest extends EditorSuggest<WeaveCardReferenceC
   }
 
   selectSuggestion(candidate: WeaveCardReferenceCandidate, _evt: MouseEvent | KeyboardEvent): void {
-    const editor = ((this.context as (EditorSuggestContext & { editor?: Editor }) | null)?.editor)
-      ?? this.activeEditor;
+    const editor = readSuggestContextEditor(this.context, this.activeEditor);
     const start = this.context?.start;
     const end = this.context?.end;
 
@@ -330,7 +343,7 @@ export class WeaveCardReferenceSuggest extends EditorSuggest<WeaveCardReferenceC
 
     const loadPromise = this.plugin.dataStorage
       ? this.plugin.dataStorage.getCards()
-      : Promise.resolve([] as Card[]);
+      : Promise.resolve<Card[]>([]);
 
     this.inflightLoad = loadPromise
       .then((cards) => {
@@ -341,7 +354,7 @@ export class WeaveCardReferenceSuggest extends EditorSuggest<WeaveCardReferenceC
       .catch(() => [])
       .finally(() => {
         this.inflightLoad = null;
-      }) as Promise<Card[]> | null;
+      });
 
     return this.inflightLoad ?? [];
   }

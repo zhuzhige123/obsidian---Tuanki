@@ -7,6 +7,7 @@ import { sanitizeForSync } from "../../utils/sync-safe-filename";
 import { normalizeChunkForRuntime } from "../../utils/ir-topic-compat";
 import { parseYAMLFromContent } from "../../utils/yaml-utils";
 import { remapAssociatedNotePaths, resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
+import { readUnknownString } from "../../utils/dynamic-access";
 import { coerceScalarString } from "../../utils/typed-json";
 import {
 	deriveLegacyBlockTitle,
@@ -1098,7 +1099,7 @@ export class IRPointStorageService {
 					relativePath,
 					absolutePath,
 					fileData,
-				} as IRPointFileCatalogEntry)),
+				})),
 				...this.projectLegacyDeckRecord(deck),
 				updatedAt: nowIso,
 			},
@@ -3013,8 +3014,8 @@ export class IRPointStorageService {
 			chunkId:
 				typeof chunk.chunkId === "string" && chunk.chunkId.trim()
 					? chunk.chunkId
-					: String((chunk as { id?: string }).id || ""),
-		} as IRChunkFileData);
+					: String(readUnknownString(chunk, "id") || ""),
+		});
 		if (!normalizedChunk.chunkId) {
 			throw new Error("chunk 点缺少稳定 ID");
 		}

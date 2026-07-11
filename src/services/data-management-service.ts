@@ -601,7 +601,7 @@ export class DataManagementService {
 		try {
 			if (fileName.endsWith(".json")) {
 				const parsed: unknown = JSON.parse(content);
-				return isRecord(parsed) ? (parsed as ExportDataPayload) : {};
+				return isRecord(parsed) ? parsed : {};
 			}
 
 			throw new Error(`不支持的文件格式: ${fileName}`);

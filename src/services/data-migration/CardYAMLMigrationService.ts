@@ -422,7 +422,7 @@ export function cardNeedsMigration(card: Card): boolean {
 }
 
 function readWDeckLogicalDeckName(card: Card): string | undefined {
-	const marker = (card.customFields as Record<string, unknown> | undefined)?.wdeck;
+	const marker = card.customFields?.wdeck;
 	if (!marker || typeof marker !== "object") {
 		return undefined;
 	}

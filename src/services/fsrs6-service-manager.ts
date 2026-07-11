@@ -131,7 +131,7 @@ export class FSRS6ServiceManager {
 
 	async batchReview(
 		cards: FSRSCard[],
-		ratings: number[],
+		ratings: Rating[],
 		params?: Partial<FSRS6Parameters>
 	): Promise<Array<{ card: FSRSCard; log: ReturnType<FSRS["review"]>["log"] }>> {
 		const startTime = performance.now();
@@ -145,7 +145,7 @@ export class FSRS6ServiceManager {
 			const results: Array<{ card: FSRSCard; log: ReturnType<FSRS["review"]>["log"] }> = [];
 
 			for (let i = 0; i < cards.length; i++) {
-				const rating = ratings[i] as Rating;
+				const rating = ratings[i];
 				const reviewResult = algorithm.review(cards[i], rating);
 				results.push(reviewResult);
 			}

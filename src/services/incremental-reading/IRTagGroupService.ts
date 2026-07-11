@@ -34,7 +34,8 @@ import {
 } from "../../types/ir-types";
 import { logger } from "../../utils/logger";
 import { DirectoryUtils } from "../../utils/directory-utils";
-import { adapterWriteIfChanged, type VaultAdapterLike } from "../../utils/vault-write-guard";
+import { adapterWriteIfChanged } from "../../utils/vault-write-guard";
+import { readUnknownProperty } from "../../utils/dynamic-access";
 import { isRecord, parseJsonUnknown } from "../../utils/typed-json";
 import { IRPointStorageService } from "./IRPointStorageService";
 
@@ -618,7 +619,7 @@ export class IRTagGroupService {
 		};
 
 		await DirectoryUtils.ensureDirForFile(adapter, filePath);
-		await adapterWriteIfChanged(adapter as VaultAdapterLike, filePath, JSON.stringify(store));
+		await adapterWriteIfChanged(adapter, filePath, JSON.stringify(store));
 	}
 
 	async getAllGroups(): Promise<IRTagGroup[]> {
@@ -880,8 +881,8 @@ export class IRTagGroupService {
 			if (!(file instanceof TFile)) return [];
 
 			const cache = this.app.metadataCache.getFileCache(file);
-			const frontmatter = (cache?.frontmatter as Record<string, unknown> | undefined) || {};
-			const rawValue = frontmatter["weave_tags"];
+			const frontmatter = isRecord(cache?.frontmatter) ? cache.frontmatter : {};
+			const rawValue = readUnknownProperty(frontmatter, "weave_tags");
 			if (Array.isArray(rawValue)) {
 				return normalizeTagGroupCandidateTags(rawValue.map((tag) => String(tag)));
 			}

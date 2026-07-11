@@ -405,5 +405,5 @@ export const defaultLatexConfig: ExtensionConfig = {
 		renderDelay: 300,
 		maxFormulaLength: 1000,
 		theme: "auto",
-	} as Record<string, unknown>,
+	},
 };

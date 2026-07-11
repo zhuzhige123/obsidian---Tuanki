@@ -301,14 +301,11 @@ function registerWorkspaceCustomEvent(
 	eventName: string,
 	callback: (...args: unknown[]) => void
 ): void {
-	const onFn = readUnknownProperty(workspace, "on");
-	if (!isCallable(onFn)) {
-		return;
-	}
-	const eventRef = Reflect.apply(onFn, workspace, [eventName, callback]);
-	if (eventRef) {
-		plugin.registerEvent(eventRef as EventRef);
-	}
+	const subscribe = workspace.on.bind(workspace) as (
+		name: string,
+		callback: (...args: unknown[]) => void
+	) => EventRef;
+	plugin.registerEvent(subscribe(eventName, callback));
 }
 
 /**
@@ -1062,9 +1059,7 @@ export class WeavePlugin extends Plugin {
 	private getAISecretConfigMap():
 		| Partial<Record<AISecretStorageProvider, AISecretConfigShape>>
 		| undefined {
-		return this.settings.aiConfig?.apiKeys as
-			| Partial<Record<AISecretStorageProvider, AISecretConfigShape>>
-			| undefined;
+		return this.settings.aiConfig?.apiKeys;
 	}
 
 	private getAISecretStorageSupport() {
@@ -5668,7 +5663,7 @@ export class WeavePlugin extends Plugin {
 		if (!isRecord(standalonePlugin)) {
 			return null;
 		}
-		return standalonePlugin as EpubHostCapabilities;
+		return standalonePlugin;
 	}
 
 	private getIncrementalReadingPluginHost(): Record<string, unknown> | null {
@@ -6449,10 +6444,7 @@ export class WeavePlugin extends Plugin {
 	private hasLegacyIRCalendarBackgroundWallRandomFields(
 		settings?: IRCalendarSidebarSettings | null
 	): boolean {
-		const backgroundWall = settings?.backgroundWall as
-			| ({ randomEnabled?: unknown; selectedImagePaths?: unknown } &
-				IRCalendarSidebarSettings["backgroundWall"])
-			| undefined;
+		const backgroundWall = settings?.backgroundWall;
 		if (!backgroundWall || typeof backgroundWall !== "object") {
 			return false;
 		}
@@ -7502,14 +7494,12 @@ export class WeavePlugin extends Plugin {
 		chunk.nextRepDate = now;
 		chunk.meta = {
 			...chunk.meta,
-			...( {
-				externalDocument: true,
-				pointTitle: context.initialTitle,
-				resumeLink: context.sourceLink,
-				canvasNodeId: context.nodeId,
-				canvasTextCandidates: context.textCandidates,
-			} as Record<string, unknown>),
-		} as IRChunkFileData["meta"];
+			externalDocument: true,
+			pointTitle: context.initialTitle,
+			resumeLink: context.sourceLink,
+			canvasNodeId: context.nodeId,
+			canvasTextCandidates: context.textCandidates,
+		};
 		await storage.saveChunkData(chunk);
 		return "created";
 	}
@@ -8681,9 +8671,7 @@ export class WeavePlugin extends Plugin {
 		}
 
 		if (!deckId) {
-			const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter as
-				| Record<string, unknown>
-				| undefined;
+			const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
 			const yamlTopicId =
 				typeof frontmatter?.["weave-reading-topic-id"] === "string"
 					? String(frontmatter["weave-reading-topic-id"]).trim()

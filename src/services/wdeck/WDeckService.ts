@@ -282,13 +282,13 @@ export class WDeckService {
 	isWDeckCard(card?: Pick<Card, "deckId" | "customFields"> | null): boolean {
 		if (!card) return false;
 		if (isWDeckRuntimeDeckId(card.deckId)) return true;
-		const marker = (card.customFields as Record<string, unknown> | undefined)?.wdeck;
+		const marker = card.customFields?.wdeck;
 		return !!marker && typeof marker === "object";
 	}
 
 	hasRuntimeCardMeta(card?: Pick<Card, "customFields"> | null): boolean {
 		if (!card) return false;
-		const marker = (card.customFields as Record<string, unknown> | undefined)?.wdeck;
+		const marker = card.customFields?.wdeck;
 		if (!marker || typeof marker !== "object") {
 			return false;
 		}
@@ -2718,11 +2718,11 @@ export class WDeckService {
 			customFields: Object.keys(customFields).length > 0 ? customFields : undefined,
 		};
 
-		return nextCard as Card;
+		return nextCard;
 	}
 
 	private getRuntimeCardMeta(card: Card): WDeckRuntimeCardMeta | null {
-		const marker = (card.customFields as Record<string, unknown> | undefined)?.wdeck;
+		const marker = card.customFields?.wdeck;
 		if (!marker || typeof marker !== "object") {
 			return null;
 		}

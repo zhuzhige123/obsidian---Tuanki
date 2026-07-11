@@ -117,9 +117,9 @@ export class FocusManager implements IFocusManager {
 			this.requestCoalescer.setDebugMode(config.enableDebugMode);
 			this.focusTrapManager.setDebugMode(config.enableDebugMode);
 			this.keyboardMonitor?.setDebugMode(config.enableDebugMode);
-			const setDebugMode: unknown = Reflect.get(this.strategy as object, "setDebugMode");
+			const setDebugMode: unknown = Reflect.get(this.strategy, "setDebugMode");
 			if (typeof setDebugMode === "function") {
-				(setDebugMode as (enabled: boolean) => void).call(this.strategy, config.enableDebugMode);
+				setDebugMode.call(this.strategy, config.enableDebugMode);
 			}
 		}
 

@@ -158,7 +158,7 @@ export class WeaveDataStorage {
 	}
 
 	private getVaultAdapterWithDirOps(): VaultAdapterWithDirOps {
-		return this.plugin.app.vault.adapter as VaultAdapterWithDirOps;
+		return this.plugin.app.vault.adapter;
 	}
 
 	private async listVaultDir(dir: string): Promise<VaultDirListing> {
@@ -515,9 +515,7 @@ export class WeaveDataStorage {
 				typeof deckDefinition.inheritSettings === "boolean"
 					? deckDefinition.inheritSettings
 					: false,
-			settings: this.getCurrentDefaultDeckSettings(
-				deckDefinition.settings as Partial<DeckSettings> | undefined
-			),
+			settings: this.getCurrentDefaultDeckSettings(deckDefinition.settings),
 			stats: {
 				...this.createEmptyDeckStats(),
 				...((deckDefinition.stats as Partial<DeckStats> | undefined) || {}),
@@ -2177,13 +2175,13 @@ export class WeaveDataStorage {
 					const deckCards = (aggregate?.cards || []).map((card) => this.hydrateCardFromYAML(card));
 					const restQuery = omitKey(query, "deckId");
 					const hasOtherFilters = Object.keys(restQuery).length > 0;
-					return hasOtherFilters ? this.filterCards(deckCards, restQuery as DataQuery) : deckCards;
+					return hasOtherFilters ? this.filterCards(deckCards, restQuery) : deckCards;
 				}
 
 				const deckCards = await this.getCardsForDeck(query.deckId);
 				const restQuery = omitKey(query, "deckId");
 				const hasOtherFilters = Object.keys(restQuery).length > 0;
-				return hasOtherFilters ? this.filterCards(deckCards, restQuery as DataQuery) : deckCards;
+				return hasOtherFilters ? this.filterCards(deckCards, restQuery) : deckCards;
 			}
 
 			const all = await this.readAllCardsFromUnifiedStorage();

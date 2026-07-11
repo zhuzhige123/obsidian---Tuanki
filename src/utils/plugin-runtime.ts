@@ -39,7 +39,7 @@ export function asPluginAugment(plugin: WeavePlugin): WeavePlugin & PluginAugmen
 }
 
 export function getVaultAdapterWithDirOps(adapter: DataAdapter): VaultAdapterWithDirOps {
-	return adapter as VaultAdapterWithDirOps;
+	return adapter;
 }
 
 export function getPluginInstance(app: App, pluginId: string): unknown {

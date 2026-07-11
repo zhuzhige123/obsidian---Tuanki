@@ -73,11 +73,6 @@ export interface SplitResult {
 	};
 }
 
-interface AIProviderConfig {
-	apiKey: string;
-	model?: string;
-}
-
 interface ParsedSplitCard {
 	content?: string;
 	front?: string;
@@ -126,7 +121,7 @@ export class AISplitService {
 				};
 			}
 
-			const apiKeys = aiConfig.apiKeys as Partial<Record<string, AIProviderConfig>> | undefined;
+			const apiKeys = aiConfig.apiKeys;
 			const providerConfig = apiKeys?.[provider];
 			if (!providerConfig || !providerConfig.apiKey) {
 				return {

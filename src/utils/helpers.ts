@@ -801,7 +801,7 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
 ): DebouncedFunction<T> {
 	let timeoutId: TimerHandle | null = null;
 
-	const debouncedFn = (...args: Parameters<T>) => {
+	const debouncedFn: DebouncedFunction<T> = (...args: Parameters<T>) => {
 		if (timeoutId) {
 			window.clearTimeout(timeoutId);
 		}
@@ -815,5 +815,5 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
 		}
 	};
 
-	return debouncedFn as DebouncedFunction<T>;
+	return debouncedFn;
 }

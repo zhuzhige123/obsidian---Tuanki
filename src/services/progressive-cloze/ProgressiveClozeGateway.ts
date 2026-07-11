@@ -26,14 +26,14 @@ import { logger } from "../../utils/logger";
 import { runTasksWithConcurrency } from "../../utils/async-pool";
 import { setCardProperty } from "../../utils/yaml-utils";
 import { generateCardUUID } from "../identifier/WeaveIDGenerator";
+import { omitKey } from "../../utils/object-utils";
 import { PREMIUM_FEATURES, PremiumFeatureGuard } from "../premium/PremiumFeatureGuard";
 import { ProgressiveClozeConverter } from "./ProgressiveClozeConverter";
 
 type CardWithProgressiveCloze = Card & { progressiveCloze?: unknown };
 
 function withoutProgressiveCloze(card: CardWithProgressiveCloze): Card {
-	const { progressiveCloze: _progressiveCloze, ...rest } = card;
-	return rest;
+	return omitKey(card, "progressiveCloze");
 }
 
 /**
@@ -635,7 +635,7 @@ export class ProgressiveClozeGateway {
 				progressiveCloze: undefined,
 				created: new Date().toISOString(),
 				modified: new Date().toISOString(),
-			} as ProgressiveClozeChildCard;
+			};
 
 			await dataStorage.saveCard(newChild);
 			newChildren.push(newChild);
@@ -915,7 +915,7 @@ export class ProgressiveClozeGateway {
 				progressiveCloze: undefined,
 				created: new Date().toISOString(),
 				modified: new Date().toISOString(),
-			} as ProgressiveClozeChildCard;
+			};
 
 			await dataStorage.saveCard(newChild);
 			newChildren.push(newChild);

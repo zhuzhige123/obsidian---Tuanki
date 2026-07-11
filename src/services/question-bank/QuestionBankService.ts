@@ -891,7 +891,7 @@ export class QuestionBankService {
 			errorCount,
 			totalTests: 0, // TODO: 从测试会话中计算
 			byDifficulty,
-		} as QuestionBankStats;
+		};
 
 		bank.modified = new Date().toISOString();
 

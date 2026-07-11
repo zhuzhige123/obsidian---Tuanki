@@ -11,19 +11,19 @@ type ModalLike = {
  */
 export function attachModalFocusRestore<T extends ModalLike>(modal: T): T {
 	const originalOpen = modal.open.bind(modal);
-	modal.open = ((...args: unknown[]) => {
+	modal.open = (...args: unknown[]) => {
 		focusManager.saveFocus();
 		return originalOpen(...args);
-	}) as T["open"];
+	};
 
 	const originalOnClose =
 		typeof modal.onClose === "function" ? modal.onClose.bind(modal) : undefined;
 
-	modal.onClose = ((...args: unknown[]) => {
+	modal.onClose = (...args: unknown[]) => {
 		try {
 			const result = originalOnClose?.(...args);
-			if (result && typeof (result as Promise<unknown>).finally === "function") {
-				return (result as Promise<unknown>).finally(() => {
+			if (result instanceof Promise) {
+				return result.finally(() => {
 					focusManager.restoreFocus();
 				});
 			}
@@ -34,7 +34,7 @@ export function attachModalFocusRestore<T extends ModalLike>(modal: T): T {
 			focusManager.restoreFocus();
 			throw error;
 		}
-	}) as T["onClose"];
+	};
 
 	return modal;
 }

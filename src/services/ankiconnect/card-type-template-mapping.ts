@@ -150,7 +150,7 @@ function normalizeFieldIdentifier(value: string): string {
 }
 
 export function resolveMappingCardType(card: Card): AnkiSyncCardType {
-	return resolveParserCardType(card) as AnkiSyncCardType;
+	return resolveParserCardType(card);
 }
 
 export function getCardTypeFieldDefinitions(cardType: AnkiSyncCardType): CardTypeFieldDefinition[] {

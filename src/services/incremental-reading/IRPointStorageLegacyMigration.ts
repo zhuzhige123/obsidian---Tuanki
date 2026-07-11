@@ -28,12 +28,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function isLegacyBlockPriority(value: number): value is 1 | 2 | 3 {
+	return value === 1 || value === 2 || value === 3;
+}
+
+function isLegacyBlockState(value: string): value is IRBlock["state"] {
+	return value === "new" || value === "learning" || value === "review" || value === "suspended";
+}
+
 export async function readLegacyTopicStoreRecords(
 	api: IRLegacyReadApi
 ): Promise<Record<string, IRDeck>> {
 	const [topicsFile, decksFile] = await Promise.all([
-		api.readJson<Record<string, unknown>>(api.paths.legacyTopics, {} as Record<string, unknown>),
-		api.readJson<Record<string, unknown>>(api.paths.legacyDecks, {} as Record<string, unknown>),
+		api.readJson<Record<string, unknown>>(api.paths.legacyTopics, {}),
+		api.readJson<Record<string, unknown>>(api.paths.legacyDecks, {}),
 	]);
 	return {
 		...normalizeTopicStoreRecords(decksFile),
@@ -93,9 +101,9 @@ export async function getLegacyChunkData(api: IRLegacyReadApi): Promise<Map<stri
 				typeof rawChunk.chunkId === "string" && rawChunk.chunkId.trim()
 					? rawChunk.chunkId
 					: chunkId,
-		} as IRChunkFileData);
+		} satisfies Partial<IRChunkFileData>);
 		if (typeof normalized.chunkId === "string" && normalized.chunkId.trim()) {
-			chunks.set(normalized.chunkId, normalized);
+			chunks.set(normalized.chunkId, normalized as IRChunkFileData);
 		}
 	}
 
@@ -144,13 +152,13 @@ export async function getLegacyBlocksData(api: IRLegacyReadApi): Promise<Map<str
 			startLine,
 			endLine: typeof rawBlock.endLine === "number" ? rawBlock.endLine : startLine,
 			priority:
-				typeof rawBlock.priority === "number" && [1, 2, 3].includes(rawBlock.priority)
-					? (rawBlock.priority as 1 | 2 | 3)
+				typeof rawBlock.priority === "number" && isLegacyBlockPriority(rawBlock.priority)
+					? rawBlock.priority
 					: 2,
-			state:
-				typeof rawBlock.state === "string" && rawBlock.state.trim()
-					? (rawBlock.state as IRBlock["state"])
-					: "new",
+			state: (() => {
+				const rawState = typeof rawBlock.state === "string" ? rawBlock.state.trim() : "";
+				return rawState && isLegacyBlockState(rawState) ? rawState : "new";
+			})(),
 			interval: typeof rawBlock.interval === "number" ? rawBlock.interval : 0,
 			intervalFactor: typeof rawBlock.intervalFactor === "number" ? rawBlock.intervalFactor : 1.5,
 			nextReview: typeof rawBlock.nextReview === "string" ? rawBlock.nextReview : null,
@@ -172,11 +180,11 @@ export async function getLegacyBlocksData(api: IRLegacyReadApi): Promise<Map<str
 			priorityUpdatedAt:
 				typeof rawBlock.priorityUpdatedAt === "string" ? rawBlock.priorityUpdatedAt : undefined,
 			dailyAppearances: isRecord(rawBlock.dailyAppearances)
-				? (Object.fromEntries(
+				? Object.fromEntries(
 						Object.entries(rawBlock.dailyAppearances)
-							.filter(([, value]) => typeof value === "number")
+							.filter((entry): entry is [string, number] => typeof entry[1] === "number")
 							.map(([date, value]) => [date, Number(value)])
-				  ) as Record<string, number>)
+				  )
 				: undefined,
 			tagGroupId:
 				typeof rawBlock.tagGroupId === "string" && rawBlock.tagGroupId.trim()
@@ -194,7 +202,7 @@ export async function getLegacyBlocksData(api: IRLegacyReadApi): Promise<Map<str
 			blockIndex: typeof rawBlock.blockIndex === "number" ? rawBlock.blockIndex : startLine,
 			contentPreview:
 				typeof rawBlock.contentPreview === "string" ? rawBlock.contentPreview : headingText,
-		} as IRBlock);
+		});
 	}
 
 	return blocks;

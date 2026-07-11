@@ -19,7 +19,7 @@ function createDefaultPersistedAIConfig(): PersistedAIConfig {
 		defaultProvider: "zhipu",
 		customFormatActions: [],
 		customSplitActions: [],
-	} as PersistedAIConfig;
+	};
 }
 
 function hasPersistableActionIdentity(action: AIAction, expectedType: string): boolean {
@@ -255,9 +255,7 @@ class AIConfigStore {
 			};
 		} catch (error) {
 			logger.warn("[AIConfigStore] structuredClone失败，使用JSON fallback:", error);
-			const cloned = JSON.parse(JSON.stringify(action)) as Partial<AIAction>;
 			return {
-				...cloned,
 				id: action.id,
 				name: action.name,
 				type: action.type,
@@ -272,7 +270,7 @@ class AIConfigStore {
 				enabled: action.enabled,
 				createdAt: action.createdAt,
 				updatedAt: action.updatedAt,
-			} as AIAction;
+			};
 		}
 	}
 

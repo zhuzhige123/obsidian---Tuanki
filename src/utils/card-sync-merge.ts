@@ -45,7 +45,7 @@ export function getCardSemanticVersionMs(card: Card): number {
 	const modified = parseTimestampMs(card.modified);
 	const created = parseTimestampMs(card.created);
 	const lastSync = parseTimestampMs(card.lastSyncTime);
-	const fsrsDue = card.fsrs?.due ? parseTimestampMs(card.fsrs.due as string | number) : 0;
+	const fsrsDue = card.fsrs?.due ? parseTimestampMs(card.fsrs.due) : 0;
 	const lastReview = getLatestReviewMs(card);
 	return Math.max(modified, created, lastSync, fsrsDue, lastReview);
 }

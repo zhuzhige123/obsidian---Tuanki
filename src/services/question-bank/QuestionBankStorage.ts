@@ -312,10 +312,7 @@ export class QuestionBankStorage {
 					: now,
 			updatedAt: now,
 		};
-		const normalized = this.normalizeQBankFileDataForPersistence(
-			raw as QBankFileData & Record<string, unknown>,
-			filePath
-		);
+		const normalized = this.normalizeQBankFileDataForPersistence(raw, filePath);
 		await safeWriteJson(
 			this.app.vault.adapter,
 			filePath,
@@ -743,7 +740,7 @@ export class QuestionBankStorage {
 						metadata: isRecord(bank.metadata) ? bank.metadata : {},
 						deckType: bank.deckType === "question-bank" ? "question-bank" : "question-bank",
 						includeSubdecks: bank.includeSubdecks === true,
-					} as Deck;
+					};
 				});
 		} catch (error) {
 			logger.warn("[QuestionBankStorage] 回退加载 legacy banks.json 失败:", error);

@@ -125,7 +125,7 @@ export class AnthropicService extends AIService {
 						model: this.model,
 						temperature: config.temperature,
 					},
-				} as GeneratedCard;
+				};
 			});
 
 			onProgress?.({

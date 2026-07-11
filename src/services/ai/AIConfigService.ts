@@ -14,7 +14,7 @@ import { configureAIRequestPolicy } from "./ai-request-policy";
 
 export type PersistedAIConfig = NonNullable<WeavePlugin["settings"]["aiConfig"]>;
 
-export const AI_PROVIDERS: readonly AIProvider[] = AI_SECRET_STORAGE_PROVIDERS as readonly AIProvider[];
+export const AI_PROVIDERS: readonly AIProvider[] = AI_SECRET_STORAGE_PROVIDERS;
 
 export function isKnownAIProvider(value: string | undefined | null): value is AIProvider {
 	return !!value && (AI_PROVIDERS as readonly string[]).includes(value);

@@ -5,6 +5,18 @@ import type { IRBlock, IRBlockStatus, IRChunkFileData, IRSourceFileMeta } from "
 import { DEFAULT_IR_BLOCK_META, DEFAULT_IR_BLOCK_STATS } from "../../types/ir-types";
 import { resolveAssociatedNotePath, resolveAssociatedNotePaths } from "./IRAssociatedNoteSignals";
 
+function isIRBlockStatus(value: string): value is IRBlockStatus {
+	return (
+		value === "new" ||
+		value === "queued" ||
+		value === "scheduled" ||
+		value === "active" ||
+		value === "suspended" ||
+		value === "done" ||
+		value === "removed"
+	);
+}
+
 function toTimestamp(value: string | null | undefined): number {
 	if (!value) {
 		return 0;
@@ -428,7 +440,9 @@ export function buildLegacyChunkFromPointSnapshot(snapshot: IRPointSnapshot): {
 			priorityEff: Number(snapshot.point.schedule.priorityScore || 0),
 			intervalDays: Number(snapshot.point.schedule.intervalDays || 0),
 			nextRepDate: toTimestamp(snapshot.point.schedule.nextReviewAt || null),
-			scheduleStatus: snapshot.point.schedule.status as IRBlockStatus,
+			scheduleStatus: isIRBlockStatus(snapshot.point.schedule.status)
+				? snapshot.point.schedule.status
+				: "new",
 			doneReason:
 				snapshot.point.schedule.doneReason === "archived" ||
 				snapshot.point.schedule.doneReason === "removed" ||
@@ -440,7 +454,7 @@ export function buildLegacyChunkFromPointSnapshot(snapshot: IRPointSnapshot): {
 			meta: getPointMeta(snapshot),
 			createdAt: toTimestamp(snapshot.point.timestamps.createdAt),
 			updatedAt: toTimestamp(snapshot.point.timestamps.updatedAt),
-		} as IRChunkFileData,
+		},
 		source: {
 			sourceId: snapshot.point.materialId,
 			originalPath: sourcePath,

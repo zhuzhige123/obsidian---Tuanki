@@ -69,6 +69,7 @@
  */
 
 import { type App, normalizePath } from "obsidian";
+import { isCallable, readUnknownProperty, readUnknownString } from "../utils/dynamic-access";
 
 declare const __WEAVE_IR_STANDALONE__: boolean;
 
@@ -239,15 +240,18 @@ export function getV2Paths(parentFolder?: string) {
 
 export function getV2PathsFromApp(app?: App | AppWithPluginAccess) {
 	try {
-		const pluginHost = app as AppWithPluginAccess | undefined;
 		const pluginId =
 			typeof __WEAVE_IR_STANDALONE__ !== "undefined" && __WEAVE_IR_STANDALONE__
 				? "weave-incremental-reading"
 				: "weave";
-		const plugin =
-			pluginHost?.plugins?.getPlugin?.(pluginId)
-			?? pluginHost?.plugins?.getPlugin?.("weave");
-		const parentFolder = plugin?.settings?.weaveParentFolder;
+		const pluginsContainer = readUnknownProperty(app, "plugins");
+		const getPlugin = readUnknownProperty(pluginsContainer, "getPlugin");
+		const plugin = isCallable(getPlugin)
+			? Reflect.apply(getPlugin, pluginsContainer, [pluginId]) ??
+				Reflect.apply(getPlugin, pluginsContainer, ["weave"])
+			: undefined;
+		const settings = readUnknownProperty(plugin, "settings");
+		const parentFolder = readUnknownString(settings, "weaveParentFolder");
 		return getV2Paths(parentFolder);
 	} catch {
 		return getV2Paths(undefined);

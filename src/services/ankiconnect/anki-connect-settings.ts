@@ -109,7 +109,7 @@ export function normalizeAnkiConnectSettings(
 ): AnkiConnectSettings {
 	const defaults = createDefaultAnkiConnectSettings();
 	const source = input ?? {};
-	const migrated = needsMigration(source as LegacyAnkiConnectSettings)
+	const migrated = needsMigration(source)
 		? migrateAnkiConnectSettings(source as LegacyAnkiConnectSettings)
 		: source;
 

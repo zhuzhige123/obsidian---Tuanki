@@ -484,7 +484,7 @@ export class PluginLocalStateService {
 		);
 	}
 
-	async saveIRCalendarSidebarSettings(settings: IRCalendarSidebarSettings): Promise<void> {
+	async saveIRCalendarSidebarSettings(settings: unknown): Promise<void> {
 		await this.saveManagedJsonEntry(IR_CALENDAR_SIDEBAR_SETTINGS_KEY, settings);
 	}
 
@@ -524,7 +524,7 @@ export class PluginLocalStateService {
 		return this.normalizeCreateCardPreferences(preferences);
 	}
 
-	async saveCreateCardPreferences(preferences: CreateCardPreferencesState): Promise<void> {
+	async saveCreateCardPreferences(preferences: unknown): Promise<void> {
 		await this.saveManagedJsonEntry(
 			CREATE_CARD_PREFERENCES_KEY,
 			this.normalizeCreateCardPreferences(preferences)
@@ -539,7 +539,7 @@ export class PluginLocalStateService {
 		return this.normalizeEditorModalSizeState(state);
 	}
 
-	async saveEditorModalSizeState(state: EditorModalSizeState): Promise<void> {
+	async saveEditorModalSizeState(state: unknown): Promise<void> {
 		await this.saveManagedJsonEntry(
 			EDITOR_MODAL_SIZE_STATE_KEY,
 			this.normalizeEditorModalSizeState(state)
@@ -770,9 +770,7 @@ export async function migrateLegacyPluginRuntimeState(
 	if (Object.prototype.hasOwnProperty.call(legacyData, "createCardPreferences")) {
 		const currentPreferences = await stateService.loadCreateCardPreferences();
 		if (currentPreferences == null && isRecord(legacyData.createCardPreferences)) {
-			await stateService.saveCreateCardPreferences(
-				legacyData.createCardPreferences as unknown as CreateCardPreferencesState
-			);
+			await stateService.saveCreateCardPreferences(legacyData.createCardPreferences);
 		}
 		legacyData.createCardPreferences = undefined;
 		shouldSaveCleanedData = true;
@@ -781,9 +779,7 @@ export async function migrateLegacyPluginRuntimeState(
 	if (isRecord(legacyData.editorModalSize)) {
 		const currentState = await stateService.loadEditorModalSizeState();
 		if (currentState == null) {
-			await stateService.saveEditorModalSizeState(
-				legacyData.editorModalSize as unknown as EditorModalSizeState
-			);
+			await stateService.saveEditorModalSizeState(legacyData.editorModalSize);
 		}
 
 		let editorModalSizeCleaned = false;
@@ -827,8 +823,7 @@ export async function migrateLegacyPluginRuntimeState(
 			nextPreferences.savedGenerationConfig == null &&
 			isRecord(legacyData.aiConfig.savedGenerationConfig)
 		) {
-			nextPreferences.savedGenerationConfig = legacyData.aiConfig
-				.savedGenerationConfig as unknown as AIAssistantSavedGenerationConfig;
+			nextPreferences.savedGenerationConfig = legacyData.aiConfig.savedGenerationConfig;
 			shouldSavePreferences = true;
 		}
 		if (shouldSavePreferences) {
@@ -870,7 +865,7 @@ export async function migrateLegacyPluginRuntimeState(
 		const currentSettings = await stateService.loadIRCalendarSidebarSettings();
 		if (currentSettings == null && isRecord(legacyData.incrementalReading.calendarSidebar)) {
 			await stateService.saveIRCalendarSidebarSettings(
-				legacyData.incrementalReading.calendarSidebar as unknown as IRCalendarSidebarSettings
+				legacyData.incrementalReading.calendarSidebar
 			);
 		}
 

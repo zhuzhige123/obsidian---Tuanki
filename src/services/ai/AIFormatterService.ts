@@ -12,6 +12,7 @@ import {
 import type { AIProvider, CustomFormatAction, FormatPreviewResult } from "../../types/ai-types";
 import type { ParseTemplate } from "../../types/newCardParsingTypes";
 import type { AIConfig } from "../../types/plugin-settings";
+import { readUnknownString } from "../../utils/dynamic-access";
 import { logger } from "../../utils/logger";
 import { AIServiceFactory } from "./AIServiceFactory";
 import { resolveDefaultAIProvider, resolveAIChatRequestParams } from "./AIConfigService";
@@ -38,10 +39,6 @@ interface AIProviderConfig {
 	lastVerified?: string;
 }
 
-type LegacyAIConfig = AIConfig & {
-	formattingProvider?: string;
-};
-
 type FormatContext = { template?: ParseTemplate; deck?: Deck };
 
 const AI_PROVIDERS: AIProvider[] = [
@@ -60,12 +57,12 @@ function isAIProvider(value?: string): value is AIProvider {
 	return value !== undefined && AI_PROVIDERS.includes(value as AIProvider);
 }
 
-function getAIConfig(plugin: WeavePlugin): AIConfig | undefined {
-	return plugin.settings.aiConfig as AIConfig | undefined;
+function getAIConfig(plugin: WeavePlugin): NonNullable<WeavePlugin["settings"]["aiConfig"]> | undefined {
+	return plugin.settings.aiConfig;
 }
 
 function getLegacyFormattingProvider(aiConfig: AIConfig | undefined): string | undefined {
-	return (aiConfig as LegacyAIConfig | undefined)?.formattingProvider;
+	return readUnknownString(aiConfig, "formattingProvider");
 }
 
 function getProviderConfig(

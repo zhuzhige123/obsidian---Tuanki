@@ -228,7 +228,7 @@ export class MaskRenderer {
 			return null;
 		}
 
-		return wrapper.querySelector(".weave-mask-overlay") as HTMLElement;
+		return wrapper.querySelector<HTMLElement>(".weave-mask-overlay");
 	}
 
 	/**

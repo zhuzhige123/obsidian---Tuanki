@@ -79,7 +79,7 @@ function mergeTaskStats(existing: IRBlockStats, updates?: Partial<IRBlockStats>)
 	};
 }
 
-function normalizeTaskTopic(task: Pick<IREpubBookmarkTask, "topicId" | "deckId">): string {
+function normalizeTaskTopic(task: Pick<IREpubBookmarkTask, "topicId"> & { deckId?: string }): string {
 	const topicId = String(getTaskTopicId(task) || "").trim();
 	if (!topicId) {
 		throw new Error("EPUB 书签任务缺少专题 ID");
@@ -313,7 +313,7 @@ export class IREpubBookmarkTaskService {
 		const topicId = normalizeTaskTopic({
 			topicId: input.topicId,
 			deckId: input.deckId,
-		} as IREpubBookmarkTask);
+		});
 		const tocLevel = normalizeTocLevel(input.tocLevel);
 
 		return await this.persistTask({
@@ -346,7 +346,7 @@ export class IREpubBookmarkTaskService {
 				...(typeof input.sourceSequenceAnchorDateKey === "string" && input.sourceSequenceAnchorDateKey.trim()
 					? { sourceSequenceAnchorDateKey: input.sourceSequenceAnchorDateKey.trim() }
 					: {}),
-			} as IREpubBookmarkTask["meta"],
+			},
 			tags: [],
 			createdAt: now,
 			updatedAt: now,
@@ -381,7 +381,7 @@ export class IREpubBookmarkTaskService {
 			const topicId = normalizeTaskTopic({
 				topicId: input.topicId,
 				deckId: input.deckId,
-			} as IREpubBookmarkTask);
+			});
 			const tocLevel = normalizeTocLevel(input.tocLevel);
 
 			return {
@@ -414,7 +414,7 @@ export class IREpubBookmarkTaskService {
 					...(typeof input.sourceSequenceAnchorDateKey === "string" && input.sourceSequenceAnchorDateKey.trim()
 						? { sourceSequenceAnchorDateKey: input.sourceSequenceAnchorDateKey.trim() }
 						: {}),
-				} as IREpubBookmarkTask["meta"],
+				},
 				tags: [],
 				createdAt: now,
 				updatedAt: now,
@@ -452,7 +452,7 @@ export class IREpubBookmarkTaskService {
 		const topicId = normalizeTaskTopic({
 			topicId: updates.topicId ?? existing.topicId,
 			deckId: updates.deckId ?? existing.deckId,
-		} as IREpubBookmarkTask);
+		});
 		const updated: IREpubBookmarkTask = {
 			...existing,
 			...updates,

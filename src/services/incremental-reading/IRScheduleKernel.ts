@@ -783,7 +783,7 @@ export class IRScheduleKernel {
 			filePath,
 			readingMaterialByPath,
 			associatedNoteSignalIndex,
-			(chunk.meta || null) as Pick<ReadingMaterial, "associatedNotePath" | "associatedNotePaths">
+			(chunk.meta || null)
 		);
 		const estimatedMinutes = estimateMinutesFromStats(chunk.stats);
 		const manualPriority = typeof chunk.priorityUi === "number" ? chunk.priorityUi : undefined;
@@ -902,7 +902,7 @@ export class IRScheduleKernel {
 			task.pdfPath,
 			readingMaterialByPath,
 			associatedNoteSignalIndex,
-			(task.meta || null) as Pick<ReadingMaterial, "associatedNotePath" | "associatedNotePaths">
+			(task.meta || null)
 		);
 		const sequenceMeta = readSequenceMeta(task.meta);
 		const memoryPrioritySignal =
@@ -968,7 +968,7 @@ export class IRScheduleKernel {
 			task.epubFilePath,
 			readingMaterialByPath,
 			associatedNoteSignalIndex,
-			(task.meta || null) as Pick<ReadingMaterial, "associatedNotePath" | "associatedNotePaths">
+			(task.meta || null)
 		);
 		const sequenceMeta = readSequenceMeta(task.meta);
 		const memoryPrioritySignal =

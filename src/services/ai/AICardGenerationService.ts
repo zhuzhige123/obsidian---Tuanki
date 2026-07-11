@@ -761,9 +761,7 @@ export class AICardGenerationService {
 		if (!aiConfig) {
 			throw new Error("AI 配置未初始化");
 		}
-		const apiKeys = aiConfig.apiKeys as
-			| Record<string, { apiKey: string; enabled?: boolean } | undefined>
-			| undefined;
+		const apiKeys = aiConfig.apiKeys;
 		const providerConfig = apiKeys?.[provider];
 
 		if (!providerConfig?.apiKey) {

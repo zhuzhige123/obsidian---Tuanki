@@ -5972,7 +5972,7 @@ export class DataManagementService {
 				if (!isRecord(parsed)) {
 					return null;
 				}
-				return parsed as MonitoringLike;
+				return parsed;
 			} catch (error) {
 				result.errors.push(t("management.dataCheckService.messages.irMonitoringConflictParseFailed", { path: filePath, message: String(error) }));
 				return null;

@@ -182,10 +182,10 @@ export class SimplifiedCardParser implements ICardParser {
 
 			// 根据场景选择解析方式
 			if (config.scenario === "batch") {
-				const batchResult = await this.parseBatchCards(content, config as BatchParseConfig);
+				const batchResult = await this.parseBatchCards(content, config);
 				result.cards = batchResult.cards;
 			} else {
-				const card = await this.parseSingleCard(content, config as SingleCardParseConfig);
+				const card = await this.parseSingleCard(content, config);
 				if (card) {
 					result.cards = [card];
 				}
