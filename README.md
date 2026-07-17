@@ -4,6 +4,14 @@
 
 <div align="center">
 
+![Weave 界面预览](https://github.com/user-attachments/assets/56d8f254-0c70-4fc3-a770-ccbffc7073ff)
+
+
+
+![QQ20260718-071400-HD](https://github.com/user-attachments/assets/2d58ec1a-cea5-442f-ac7a-d6fbdf39c4ef)
+
+![溯源示意](https://github.com/user-attachments/assets/3348298e-aaff-4980-9785-4c536d3af032)
+
 ![Weave](https://img.shields.io/badge/Obsidian-Weave-8a5cf6?style=for-the-badge)
 ![Min Obsidian](https://img.shields.io/badge/Obsidian-1.7.0+-purple?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-GPL--3.0-orange?style=for-the-badge)
@@ -38,9 +46,8 @@
 
 最低 Obsidian 版本：**1.7.0**
 
-![Weave 界面预览](https://github.com/user-attachments/assets/56d8f254-0c70-4fc3-a770-ccbffc7073ff)
 
-![Weave 学习视图](https://github.com/user-attachments/assets/990e7b4f-cb32-4216-bed5-0b7f589bee93)
+
 
 ## 标准工作流
 
@@ -59,7 +66,7 @@ flowchart LR
 4. **验证**：用题库检验掌握程度  
 5. **反思**：回溯来源、修正笔记、重组牌组  
 
-![溯源示意](https://github.com/user-attachments/assets/3348298e-aaff-4980-9785-4c536d3af032)
+
 
 ### 多来源溯源（要点）
 
