@@ -211,9 +211,7 @@ See [Essential experience and Premium support](#essential-experience-and-premium
 
 Minimum Obsidian version: **1.7.0**
 
-![Weave UI](https://github.com/user-attachments/assets/56d8f254-0c70-4fc3-a770-ccbffc7073ff)
 
-![Weave study view](https://github.com/user-attachments/assets/990e7b4f-cb32-4216-bed5-0b7f589bee93)
 
 ## Standard workflow
 
@@ -232,7 +230,7 @@ flowchart LR
 4. **Validate**: Question banks for mastery checks  
 5. **Reflect**: Trace to source, fix notes, reorganize decks  
 
-![Traceability](https://github.com/user-attachments/assets/3348298e-aaff-4980-9785-4c536d3af032)
+
 
 ### Traceability (essentials)
 
