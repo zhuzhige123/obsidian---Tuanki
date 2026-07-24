@@ -2,6 +2,6 @@
 
 [English](README.md#english-documentation) | [完整中英对照文档](README.md#中文文档)
 
-简体中文内容已合并进主 [README.md](README.md#中文文档)，与 EPUB 阅读器文档采用相同结构（插件介绍、核心能力、基础体验与高级支持、常见问题等）。
+简体中文内容已合并进主 [README.md](README.md#中文文档)。
 
 请直接阅读：**[README.md → 中文文档](README.md#中文文档)**
