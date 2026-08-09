@@ -1,13 +1,11 @@
 import { TFile } from "obsidian";
 import type { App, TAbstractFile, WorkspaceLeaf } from "obsidian";
 
-type WorkspaceCompat = App["workspace"] & {
+type WorkspaceCompat = Omit<App["workspace"], "revealLeaf" | "setActiveLeaf"> & {
 	iterateAllLeaves?: (callback: (leaf: WorkspaceLeaf) => void) => void;
 	revealLeaf?: (leaf: WorkspaceLeaf) => Promise<void> | void;
-	setActiveLeaf?: {
-		(leaf: WorkspaceLeaf, pushHistory: boolean): void;
-		(leaf: WorkspaceLeaf, options: { focus?: boolean }): void;
-	};
+	/** Prefer object form; avoid deprecated (leaf, pushHistory, focus) overload. */
+	setActiveLeaf?: (leaf: WorkspaceLeaf, options?: { focus?: boolean }) => void;
 };
 
 type LeafWithOptionalFileView = WorkspaceLeaf & {
@@ -83,10 +81,7 @@ export function revealLeaf(app: App, leaf: WorkspaceLeaf, focus = true): void {
 	}
 
 	try {
-		const setActiveLeaf = workspace?.setActiveLeaf;
-		if (typeof setActiveLeaf === "function") {
-			setActiveLeaf.call(workspace, leaf, { focus: true });
-		}
+		workspace.setActiveLeaf?.(leaf, { focus: true });
 	} catch { /* no-op */ }
 }
 
