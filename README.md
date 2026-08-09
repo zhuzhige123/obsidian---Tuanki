@@ -1,8 +1,8 @@
 # Weave
 
-[简体中文](README.zh-CN.md) | [中文](#中文文档) | [English](#english-documentation)
+[中文](#中文文档) | [English](#english-documentation)
 
-![Weave 界面预览](https://github.com/user-attachments/assets/56d8f254-0c70-4fc3-a770-ccbffc7073ff)
+![QQ_1786188733184](https://github.com/user-attachments/assets/32be207f-38f1-434e-b343-6ab48682a15e)
 
 ![Weave 学习视图](https://github.com/user-attachments/assets/2d58ec1a-cea5-442f-ac7a-d6fbdf39c4ef)
 
@@ -10,11 +10,13 @@
 
 <div align="center">
 
-![Weave](https://img.shields.io/badge/Obsidian-Weave-8a5cf6?style=for-the-badge)
-![Min Obsidian](https://img.shields.io/badge/Obsidian-1.7.0+-purple?style=for-the-badge)
-![License](https://img.shields.io/badge/license-GPL--3.0-orange?style=for-the-badge)
+![QQ20260808-192138-HD](https://github.com/user-attachments/assets/f5cd5ea5-e17f-407c-92c8-053a25e50a2d)
 
-**在 Obsidian 中完成「摘录 → 制卡 → 复习 → 测试」的学习闭环**
+
+
+**在 Obsidian 中完成「摘录 → 制卡 → 复习 → 测试 → 溯源」的学习闭环**
+
+**Complete the learning loop in Obsidian: Excerpt → Cards → Review → Test → Trace**
 
 </div>
 
@@ -83,11 +85,13 @@
 
 #### 生态协同（可选）
 
-| 插件 / 能力 | 作用 |
-|-------------|------|
-| [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader) | 沉浸式阅读、摘录制卡、书籍锚点回跳 |
-| 增量阅读（Weave 体系） | 阅读队列与章节排期 |
-| PDF++、Excalidraw、Media Extended、Mind Map 等 | 把 PDF / 绘图 / 视频时间戳 / 脑图接入同一套复习闭环 |
+
+| 插件 / 能力                                                                   | 作用                               |
+| ------------------------------------------------------------------------- | -------------------------------- |
+| [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader) | 沉浸式阅读、摘录制卡、书籍锚点回跳                |
+| 增量阅读（Weave 体系）                                                            | 阅读队列与章节排期                        |
+| PDF++、Excalidraw、Media Extended、Mind Map 等                                | 把 PDF / 绘图 / 视频时间戳 / 脑图接入同一套复习闭环 |
+
 
 未安装生态插件时，不影响 Markdown 制卡与 FSRS 复习主路径。
 
@@ -120,21 +124,23 @@ flowchart LR
 
 对照以插件内激活提示为准：**基础体验永久可用**；**高级支持**为可选买断。
 
-| 能力 | 基础体验 | 高级支持 |
-|------|:--------:|:--------:|
-| **全平台**（桌面端与移动端） | ✅ | ✅ |
-| **FSRS6** 复习、摘录笔记与回忆型记忆卡片 | ✅ | ✅ |
-| **问答 / 挖空 / 填空 / 选择题**；原生编辑、查看原文、学习来源栏 | ✅ | ✅ |
-| **正式牌组**、引用式牌组、**表格视图** | ✅ | ✅ |
-| **AI 助手 / AI 制卡**、解析预览导入、**CSV 导入**（API 费用自理） | ✅ | ✅ |
-| **APKG 导入 / 导出**、数据备份 | ✅ | ✅ |
-| **记忆率曲线** | ✅ | ✅ |
-| **网格 / 看板 / 时间线**（完整筛选、分组、排序） | 🔒 | ✅ |
-| **涌现牌组**、记忆牌组等级 | 🔒 | ✅ |
-| **Markdown 牌组视图**（`weave-decks`）、关联当前活动文档、关联卡片 | 🔒 | ✅ |
-| **渐进式挖空**、**图片遮罩** | 🔒 | ✅ |
-| **批量解析** | 🔒 | ✅ |
-| **题库**、模拟考试、**完整牌组分析** | 🔒 | ✅ |
+
+| 能力                                             | 基础体验 | 高级支持 |
+| ---------------------------------------------- | ---- | ---- |
+| **全平台**（桌面端与移动端）                               | ✅    | ✅    |
+| **FSRS6** 复习、摘录笔记与回忆型记忆卡片                      | ✅    | ✅    |
+| **问答 / 挖空 / 填空 / 选择题**；原生编辑、查看原文、学习来源栏         | ✅    | ✅    |
+| **正式牌组**、引用式牌组、**表格视图**                        | ✅    | ✅    |
+| **AI 助手 / AI 制卡**、解析预览导入、**CSV 导入**（API 费用自理）  | ✅    | ✅    |
+| **APKG 导入 / 导出**、数据备份                          | ✅    | ✅    |
+| **记忆率曲线**                                      | ✅    | ✅    |
+| **网格 / 看板 / 时间线**（完整筛选、分组、排序）                  | 🔒   | ✅    |
+| **涌现牌组**、记忆牌组等级                                | 🔒   | ✅    |
+| **Markdown 牌组视图**（`weave-decks`）、关联当前活动文档、关联卡片 | 🔒   | ✅    |
+| **渐进式挖空**、**图片遮罩**                             | 🔒   | ✅    |
+| **批量解析**                                       | 🔒   | ✅    |
+| **题库**、模拟考试、**完整牌组分析**                         | 🔒   | ✅    |
+
 
 > 图例：✅ 已包含 · 🔒 需启用高级支持
 
@@ -212,7 +218,7 @@ flowchart LR
 源码基于 [GPL-3.0-or-later](LICENSE) 发布。
 
 - **Issues**：[GitHub Issues](https://github.com/zhuzhige123/obsidian---Weave/issues)
-- **授权联系**：tutaoyuan8@outlook.com
+- **授权联系**：[tutaoyuan8@outlook.com](mailto:tutaoyuan8@outlook.com)
 
 ### 开发
 
@@ -289,11 +295,13 @@ Minimum Obsidian version: **1.7.0**
 
 #### Ecosystem (optional)
 
-| Plugin / capability | Role |
-|---------------------|------|
-| [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader) | Immersive reading, excerpts, book-anchor jumps |
-| Incremental Reading (Weave family) | Reading queue and chapter scheduling |
-| PDF++, Excalidraw, Media Extended, Mind Map, etc. | Bring PDFs, drawings, video timestamps, and mind maps into the same review loop |
+
+| Plugin / capability                                                       | Role                                                                            |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader) | Immersive reading, excerpts, book-anchor jumps                                  |
+| Incremental Reading (Weave family)                                        | Reading queue and chapter scheduling                                            |
+| PDF++, Excalidraw, Media Extended, Mind Map, etc.                         | Bring PDFs, drawings, video timestamps, and mind maps into the same review loop |
+
 
 Without ecosystem plugins, Markdown card creation and FSRS review still work.
 
@@ -326,21 +334,23 @@ Cards use a **minimum-information** format, **stored separately** from source no
 
 Aligned with the in-plugin activation prompt: **Essential experience stays free**; **Premium support** is optional buy-once.
 
-| Capability | Essential | Premium |
-|------------|:---------:|:-------:|
-| **All platforms** (desktop and mobile) | ✅ | ✅ |
-| **FSRS6** review, excerpt notes and recall cards | ✅ | ✅ |
-| **Q&A / cloze / fill-in / choice**; native editing, view source, study source info | ✅ | ✅ |
-| **Formal decks**, reference-based decks, **table view** | ✅ | ✅ |
-| **AI assistant / AI cards**, parse-preview import, **CSV import** (you pay API costs) | ✅ | ✅ |
-| **APKG import / export**, data backup | ✅ | ✅ |
-| **Retention curve** | ✅ | ✅ |
-| **Grid / Kanban / Timeline** (full filter, group, sort) | 🔒 | ✅ |
-| **Emergent decks**, memory deck levels | 🔒 | ✅ |
-| **Markdown deck views** (`weave-decks`), active-document filter, related cards | 🔒 | ✅ |
-| **Progressive cloze**, **image masks** | 🔒 | ✅ |
-| **Batch parsing** | 🔒 | ✅ |
-| **Question banks**, mock exams, **full deck analytics** | 🔒 | ✅ |
+
+| Capability                                                                            | Essential | Premium |
+| ------------------------------------------------------------------------------------- | --------- | ------- |
+| **All platforms** (desktop and mobile)                                                | ✅         | ✅       |
+| **FSRS6** review, excerpt notes and recall cards                                      | ✅         | ✅       |
+| **Q&A / cloze / fill-in / choice**; native editing, view source, study source info    | ✅         | ✅       |
+| **Formal decks**, reference-based decks, **table view**                               | ✅         | ✅       |
+| **AI assistant / AI cards**, parse-preview import, **CSV import** (you pay API costs) | ✅         | ✅       |
+| **APKG import / export**, data backup                                                 | ✅         | ✅       |
+| **Retention curve**                                                                   | ✅         | ✅       |
+| **Grid / Kanban / Timeline** (full filter, group, sort)                               | 🔒        | ✅       |
+| **Emergent decks**, memory deck levels                                                | 🔒        | ✅       |
+| **Markdown deck views** (`weave-decks`), active-document filter, related cards        | 🔒        | ✅       |
+| **Progressive cloze**, **image masks**                                                | 🔒        | ✅       |
+| **Batch parsing**                                                                     | 🔒        | ✅       |
+| **Question banks**, mock exams, **full deck analytics**                               | 🔒        | ✅       |
+
 
 > Legend: ✅ included · 🔒 requires Premium support
 
@@ -377,9 +387,9 @@ Aligned with the in-plugin activation prompt: **Essential experience stays free*
 
 ### Privacy and network
 
-- Learning data stays **in your local vault** by default.
-- **Premium support activation** may contact the license service.
-- **AI** uses your API; **APKG** is for offline legacy import / deck export (no always-on Anki connection).
+- Learning data stays **in your local vault** by default and is not uploaded unless you use a networked feature you configure.
+- **Premium support activation** may contact the license service; see the privacy notes in this repository.
+- **AI** uses your own third-party API; **APKG** is for offline legacy import / deck export (no always-on Anki connection).
 
 ### FAQ
 
@@ -397,7 +407,7 @@ Aligned with the in-plugin activation prompt: **Essential experience stays free*
 
 #### Why is Premium support paid?
 
-It **funds ongoing development**. The **essential experience is free**—FSRS review, traceability, fill-in and choice cards, AI card creation (your API), table view, APKG interchange, and the core learning loop. Enable Premium when you need emergent decks, full views, question banks, batch parsing, Markdown embeds, and pro card types.
+It **funds ongoing development** so the team can keep polishing review and assessment details. The **essential experience is free**—FSRS review, traceability, fill-in and choice cards, AI card creation (your API), table view, APKG interchange, and the core learning loop. Enable Premium when you need emergent decks, full views, question banks, batch parsing, Markdown embeds, and pro card types.
 
 #### Subscription or buy-once?
 
@@ -418,7 +428,7 @@ See [Essential experience and Premium support](#essential-experience-and-premium
 Released under [GPL-3.0-or-later](LICENSE).
 
 - **Issues**: [GitHub Issues](https://github.com/zhuzhige123/obsidian---Weave/issues)
-- **Licensing**: tutaoyuan8@outlook.com
+- **Licensing**: [tutaoyuan8@outlook.com](mailto:tutaoyuan8@outlook.com)
 
 ### Development
 
