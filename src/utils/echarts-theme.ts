@@ -257,7 +257,7 @@ function resolveColorWithDom(colorStr: string): { r: number; g: number; b: numbe
 		return null;
 	}
 
-	const probe = activeDocument.createElement("span");
+	const probe = createSpan();
 	const sentinelColor = "rgb(1, 2, 3)";
 	probe.hidden = true;
 	probe.setAttribute("style", `color: ${sentinelColor}; color: ${colorStr};`);

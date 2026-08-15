@@ -1547,7 +1547,7 @@
       const dataStr = JSON.stringify(data, null, 2);
       const blob = new Blob([dataStr], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      const a = activeDocument.createElement('a');
+      const a = createEl('a');
       a.href = url;
       a.download = `anki-data-${new Date().toISOString().split('T')[0]}.json`;
       activeDocument.body.appendChild(a);

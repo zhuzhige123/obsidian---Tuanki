@@ -160,25 +160,18 @@
     });
 
     menu.addItem((item) => {
-      item.setTitle(t('settings.license.purchaseOptionPaypal'));
-      item.setIcon('globe');
-      const subMenu = item.setSubmenu();
-      attachMenuApp(subMenu);
-
-      subMenu.addItem((subItem) => {
-        subItem.setTitle(t('settings.license.purchaseOptionPaypalReader'));
-        subItem.setIcon('book-open');
-        subItem.onClick(() => {
-          openPurchaseUrl(LIFETIME_LICENSE_PAYPAL_READER_PURCHASE_URL);
-        });
+      item.setTitle(t('settings.license.purchaseOptionPaypalReader'));
+      item.setIcon('book-open');
+      item.onClick(() => {
+        openPurchaseUrl(LIFETIME_LICENSE_PAYPAL_READER_PURCHASE_URL);
       });
+    });
 
-      subMenu.addItem((subItem) => {
-        subItem.setTitle(t('settings.license.purchaseOptionPaypalSeries'));
-        subItem.setIcon('layers');
-        subItem.onClick(() => {
-          openPurchaseUrl(WEAVE_SERIES_PAYPAL_PURCHASE_URL);
-        });
+    menu.addItem((item) => {
+      item.setTitle(t('settings.license.purchaseOptionPaypalSeries'));
+      item.setIcon('layers');
+      item.onClick(() => {
+        openPurchaseUrl(WEAVE_SERIES_PAYPAL_PURCHASE_URL);
       });
     });
 

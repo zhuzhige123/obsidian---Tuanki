@@ -352,19 +352,19 @@ export class ObsidianNavigationService {
 		target: NavigationTarget,
 		options: NavigationOptions & { text?: string; icon?: string } = {}
 	): HTMLElement {
-		const button = activeDocument.createElement("button");
+		const button = createEl("button");
 		button.className = "weave-nav-button weave-nav-button--action";
 
 		// 设置按钮内容
 		const text = options.text || "跳转到Obsidian";
 		const icon = options.icon || "🔗";
 
-		const iconSpan = activeDocument.createElement("span");
+		const iconSpan = createSpan();
 		iconSpan.className = "nav-icon";
 		iconSpan.textContent = icon;
 		button.appendChild(iconSpan);
 
-		const textSpan = activeDocument.createElement("span");
+		const textSpan = createSpan();
 		textSpan.className = "nav-text";
 		textSpan.textContent = text;
 		button.appendChild(textSpan);

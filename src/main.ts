@@ -2191,7 +2191,7 @@ export class WeavePlugin extends Plugin {
 		// 创建一个按钮来打开设置
 		const fragment = activeDocument.createDocumentFragment();
 		const text = activeDocument.createTextNode(`许可证失效: ${message} `);
-		const button = activeDocument.createElement("button");
+		const button = createEl("button");
 		button.textContent = "前往设置";
 		button.classList.add("weave-ml-sm");
 		button.onclick = () => {
@@ -4938,7 +4938,7 @@ export class WeavePlugin extends Plugin {
 			);
 
 			// ✅ 步骤5: 创建挂载容器（全局显示，在所有标签页上方）
-			const container = activeDocument.createElement("div");
+			const container = createDiv();
 			container.className = "weave-create-card-modal-container";
 			activeDocument.body.appendChild(container);
 
@@ -5055,7 +5055,7 @@ export class WeavePlugin extends Plugin {
 			const { default: EditCardModal } = await import("./components/modals/EditCardModal.svelte");
 
 			// ✅ 创建容器
-			const container = activeDocument.createElement("div");
+			const container = createDiv();
 			container.className = "weave-edit-card-modal-container";
 			activeDocument.body.appendChild(container);
 
@@ -5477,7 +5477,7 @@ export class WeavePlugin extends Plugin {
 			.then(async ({ default: FloatingCreateCardButton }) => {
 				const { mount } = await import("svelte");
 				// 🔧 关键修复：创建专用容器，避免直接挂载到 document.body
-				const container = activeDocument.createElement("div");
+				const container = createDiv();
 				container.className = "weave-floating-button-container";
 				activeDocument.body.appendChild(container);
 

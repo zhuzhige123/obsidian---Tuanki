@@ -10,6 +10,14 @@ export class AnkiSettingsTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
+	/**
+	 * Obsidian 1.13+: declare the settings hook so community review finds it.
+	 * Empty array keeps custom Svelte panel via display() (same as Reader).
+	 */
+	getSettingDefinitions() {
+		return [];
+	}
+
 	display(): void {
 		void this.renderDisplay();
 	}

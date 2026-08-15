@@ -423,7 +423,7 @@ export class WeaveView extends ItemView {
 				: viewHeader.querySelector(".weave-mobile-header-center-host");
 
 		if (!(host instanceof HTMLElement)) {
-			host = activeDocument.createElement("div");
+			host = createDiv();
 			host.className = "weave-mobile-header-center-host";
 		}
 

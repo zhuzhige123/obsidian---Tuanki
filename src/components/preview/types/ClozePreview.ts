@@ -116,16 +116,16 @@ export class ClozePreview {
 	 * 渲染挖空问题（隐藏答案）
 	 */
 	renderClozeQuestion(clozeData: ClozeData[], showAnswers: boolean): HTMLElement {
-		const container = activeDocument.createElement("div");
+		const container = createDiv();
 		container.className = "weave-cloze-question";
 
 		// 创建标题
-		const titleElement = activeDocument.createElement("div");
+		const titleElement = createDiv();
 		titleElement.className = "weave-cloze-title";
-		const clozeLabel = activeDocument.createElement("span");
+		const clozeLabel = createSpan();
 		clozeLabel.className = "weave-cloze-label";
 		clozeLabel.textContent = "挖空练习";
-		const clozeCount = activeDocument.createElement("span");
+		const clozeCount = createSpan();
 		clozeCount.className = "weave-cloze-count";
 		clozeCount.textContent = `${clozeData.length} 个空`;
 		titleElement.appendChild(clozeLabel);
@@ -133,7 +133,7 @@ export class ClozePreview {
 		container.appendChild(titleElement);
 
 		// 创建内容容器
-		const contentElement = activeDocument.createElement("div");
+		const contentElement = createDiv();
 		contentElement.className = "weave-cloze-content";
 
 		// 渲染挖空内容
@@ -183,7 +183,7 @@ export class ClozePreview {
 	 */
 	renderClozeCard(card: Card, options: ClozeRenderOptions): ClozeRenderResult {
 		if (isProgressiveClozeChild(card)) {
-			const element = activeDocument.createElement("div");
+			const element = createDiv();
 			element.className = "weave-cloze-question";
 			element.textContent = options.showAnswers
 				? "渐进式挖空（子卡片）"
@@ -198,7 +198,7 @@ export class ClozePreview {
 		}
 
 		if (isProgressiveClozeParent(card)) {
-			const element = activeDocument.createElement("div");
+			const element = createDiv();
 			element.className = "weave-cloze-question";
 			element.textContent = "渐进式挖空（父卡片）- 请选择子卡片进行复习";
 
@@ -258,7 +258,7 @@ export class ClozePreview {
 	 * 渲染挖空内容
 	 */
 	private renderClozeContent(clozeData: ClozeData[], showAnswers: boolean): HTMLElement {
-		const container = activeDocument.createElement("div");
+		const container = createDiv();
 		container.className = "weave-cloze-text";
 
 		// 使用完整的原始内容
@@ -266,7 +266,7 @@ export class ClozePreview {
 
 		if (!originalContent) {
 			logger.error("[ClozePreview] 无法获取原始内容");
-			const errDiv = activeDocument.createElement("div");
+			const errDiv = createDiv();
 			errDiv.className = "error";
 			errDiv.textContent = "挖空内容渲染失败";
 			container.appendChild(errDiv);
@@ -313,7 +313,7 @@ export class ClozePreview {
 	 * 创建挖空元素
 	 */
 	private createClozeElement(cloze: ClozeData, showAnswer: boolean): HTMLElement {
-		const element = activeDocument.createElement("span");
+		const element = createSpan();
 		element.className = `weave-cloze-item weave-cloze-${cloze.type}`;
 		element.setAttribute("data-cloze-id", cloze.id);
 		element.setAttribute("data-cloze-type", cloze.type);
@@ -345,7 +345,7 @@ export class ClozePreview {
 
 		if (revealed) {
 			// 显示答案时使用实际内容
-			const ansSpan = activeDocument.createElement("span");
+			const ansSpan = createSpan();
 			ansSpan.className = "weave-cloze-answer";
 			ansSpan.textContent = clozeContent;
 			element.textContent = "";
@@ -354,7 +354,7 @@ export class ClozePreview {
 			element.classList.remove("weave-cloze-hidden");
 		} else {
 			// 隐藏时显示占位符
-			const phSpan = activeDocument.createElement("span");
+			const phSpan = createSpan();
 			phSpan.className = "weave-cloze-placeholder";
 			phSpan.textContent = placeholder;
 			element.textContent = "";

@@ -47,23 +47,23 @@ export class BasicQAPreview {
 	 * 渲染问题内容
 	 */
 	renderQuestion(content: string, options: QARenderOptions): HTMLElement {
-		const container = activeDocument.createElement("div");
+		const container = createDiv();
 		container.className = "weave-qa-question";
 
 		// 处理内容长度
 		const processedContent = this.processContentLength(content, options.maxQuestionLength);
 
 		// 创建问题标题
-		const titleElement = activeDocument.createElement("div");
+		const titleElement = createDiv();
 		titleElement.className = "weave-qa-question-title";
-		const qLabel = activeDocument.createElement("span");
+		const qLabel = createSpan();
 		qLabel.className = "weave-qa-label";
 		qLabel.textContent = "问题";
 		titleElement.appendChild(qLabel);
 		container.appendChild(titleElement);
 
 		// 创建问题内容
-		const contentElement = activeDocument.createElement("div");
+		const contentElement = createDiv();
 		contentElement.className = "weave-qa-question-content";
 
 		if (options.highlightKeywords) {
@@ -77,7 +77,7 @@ export class BasicQAPreview {
 
 		// 添加溢出指示器
 		if (processedContent.length < content.length) {
-			const overflowIndicator = activeDocument.createElement("div");
+			const overflowIndicator = createDiv();
 			overflowIndicator.className = "weave-qa-overflow-indicator";
 			overflowIndicator.textContent = "...";
 			container.appendChild(overflowIndicator);
@@ -95,7 +95,7 @@ export class BasicQAPreview {
 	 * 渲染答案内容
 	 */
 	renderAnswer(content: string, options: QARenderOptions): HTMLElement {
-		const container = activeDocument.createElement("div");
+		const container = createDiv();
 		container.className = "weave-qa-answer";
 
 		if (!options.showAnswer) {
@@ -107,16 +107,16 @@ export class BasicQAPreview {
 		const processedContent = this.processContentLength(content, options.maxAnswerLength);
 
 		// 创建答案标题
-		const titleElement = activeDocument.createElement("div");
+		const titleElement = createDiv();
 		titleElement.className = "weave-qa-answer-title";
-		const aLabel = activeDocument.createElement("span");
+		const aLabel = createSpan();
 		aLabel.className = "weave-qa-label";
 		aLabel.textContent = "答案";
 		titleElement.appendChild(aLabel);
 		container.appendChild(titleElement);
 
 		// 创建答案内容
-		const contentElement = activeDocument.createElement("div");
+		const contentElement = createDiv();
 		contentElement.className = "weave-qa-answer-content";
 
 		// 处理答案格式（支持列表、段落等）
@@ -126,7 +126,7 @@ export class BasicQAPreview {
 
 		// 添加溢出指示器
 		if (processedContent.length < content.length) {
-			const overflowIndicator = activeDocument.createElement("div");
+			const overflowIndicator = createDiv();
 			overflowIndicator.className = "weave-qa-overflow-indicator";
 			overflowIndicator.textContent = "...";
 			container.appendChild(overflowIndicator);
@@ -259,7 +259,7 @@ export class BasicQAPreview {
 				fragment.appendChild(activeDocument.createTextNode(content.slice(cursor, match.start)));
 			}
 
-			const keyword = activeDocument.createElement("span");
+			const keyword = createSpan();
 			keyword.className = "weave-qa-keyword";
 			keyword.textContent = match.text;
 			fragment.appendChild(keyword);
@@ -296,7 +296,7 @@ export class BasicQAPreview {
 
 		if (paragraphs.length > 1) {
 			for (const paragraph of paragraphs) {
-				const element = activeDocument.createElement("p");
+				const element = createEl("p");
 				element.textContent = paragraph;
 				container.appendChild(element);
 			}
@@ -329,9 +329,9 @@ export class BasicQAPreview {
 	}
 
 	private appendList(container: HTMLElement, tagName: "ul" | "ol", items: string[]): void {
-		const list = activeDocument.createElement(tagName);
+		const list = createEl(tagName);
 		for (const itemText of items) {
-			const item = activeDocument.createElement("li");
+			const item = createEl("li");
 			item.textContent = itemText;
 			list.appendChild(item);
 		}

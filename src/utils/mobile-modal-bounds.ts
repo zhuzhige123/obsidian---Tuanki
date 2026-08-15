@@ -114,7 +114,7 @@ function measureSafeAreaInsets(): { top: number; bottom: number } {
 		return cachedSafeAreaInsets;
 	}
 
-	const probe = activeDocument.createElement("div");
+	const probe = createDiv();
 	probe.dataset.weaveSafeAreaProbe = "true";
 	probe.style.cssText = [
 		"position: fixed",

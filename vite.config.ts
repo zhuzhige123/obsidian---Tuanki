@@ -254,10 +254,6 @@ export default defineConfig(({ mode }) => {
 								},
 						  ]
 						: []),
-					{
-						src: "public/assets/coffee-support-qr.png",
-						dest: "assets",
-					},
 					...(!isDev
 						? [
 								{

@@ -24,7 +24,7 @@ async function mountModePicker(
 	totalQuestions: number
 ): Promise<{ mode: TestMode; config?: QuestionBankModeConfig } | null> {
 	return new Promise((resolve) => {
-		const host = activeDocument.createElement("div");
+		const host = createDiv();
 		host.addClass("weave-document-quiz-mode-picker-host");
 		activeDocument.body.appendChild(host);
 

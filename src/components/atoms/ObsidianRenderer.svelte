@@ -93,7 +93,7 @@
       return null;
     }
 
-    clozeTextMeasureCanvas ??= activeDocument.createElement('canvas');
+    clozeTextMeasureCanvas ??= createEl('canvas');
     return clozeTextMeasureCanvas.getContext('2d');
   }
 
@@ -208,7 +208,7 @@
     markEl.setAttribute('role', 'group');
     markEl.setAttribute('aria-label', getClozeAriaLabel(false, hint));
 
-    const inputEl = activeDocument.createElement('input');
+    const inputEl = createEl('input');
     inputEl.type = 'text';
     inputEl.className = 'weave-cloze-input';
     inputEl.value = userAnswer;
@@ -622,9 +622,9 @@
     clone.querySelectorAll('a.footnote-backref, a[href^="#fnref"]').forEach(el => el.remove());
     clone.removeAttribute('id');
 
-    const popover = activeDocument.createElement('div');
+    const popover = createDiv();
     popover.className = 'weave-footnote-popover';
-    const contentDiv = activeDocument.createElement('div');
+    const contentDiv = createDiv();
     contentDiv.className = 'weave-footnote-popover-content';
     contentDiv.innerHTML = clone.innerHTML;
     popover.appendChild(contentDiv);
@@ -738,7 +738,7 @@
       const parent = table.parentElement;
       if (!parent) continue;
 
-      const wrapper = activeDocument.createElement('div');
+      const wrapper = createDiv();
       wrapper.className = 'weave-table-scroll';
 
       parent.insertBefore(wrapper, table);

@@ -61,8 +61,13 @@ export function ensureAIConfig(plugin: WeavePlugin): PersistedAIConfig {
 	return plugin.settings.aiConfig;
 }
 
+export type AIProviderHint = {
+	defaultProvider?: string | null;
+	lastUsedProvider?: string | null;
+};
+
 export function resolveDefaultAIProvider(
-	aiConfig?: Partial<PersistedAIConfig> | null
+	aiConfig?: AIProviderHint | Partial<PersistedAIConfig> | null
 ): AIProvider {
 	if (isKnownAIProvider(aiConfig?.defaultProvider)) {
 		return aiConfig.defaultProvider;

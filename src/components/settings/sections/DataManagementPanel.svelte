@@ -451,7 +451,7 @@
 
   // 导入数据
   async function handleImportData() {
-    const input = activeDocument.createElement('input');
+    const input = createEl('input');
     input.type = 'file';
     input.accept = '.json';
     

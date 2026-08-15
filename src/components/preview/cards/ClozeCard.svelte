@@ -104,12 +104,12 @@
     separatorEl.remove();
 
     // 插入“问题”标签到容器最前面
-    const qTitleEl = activeDocument.createElement('div');
+    const qTitleEl = createDiv();
     qTitleEl.className = 'weave-qa-question-title';
     /*
     qTitleEl.legacyHTML = '<span class="weave-qa-label">问题</span>';
     */
-    const qLabelEl = activeDocument.createElement('span');
+    const qLabelEl = createSpan();
     qLabelEl.className = 'weave-qa-label';
     qLabelEl.textContent = '问题';
     qTitleEl.appendChild(qLabelEl);
@@ -117,18 +117,18 @@
     questionTitleEl = qTitleEl;
 
     // 插入真正的 <hr> 元素，自动继承 Obsidian 主题样式
-    const hrEl = activeDocument.createElement('hr');
+    const hrEl = createEl('hr');
     hrEl.className = 'weave-cloze-divider';
     container.appendChild(hrEl);
     backDividerEl = hrEl;
 
     // 插入“答案”标签
-    const aTitleEl = activeDocument.createElement('div');
+    const aTitleEl = createDiv();
     aTitleEl.className = 'weave-qa-answer-title';
     /*
     aTitleEl.legacyHTML = '<span class="weave-qa-label weave-qa-label--answer">答案</span>';
     */
-    const aLabelEl = activeDocument.createElement('span');
+    const aLabelEl = createSpan();
     aLabelEl.className = 'weave-qa-label weave-qa-label--answer';
     aLabelEl.textContent = '答案';
     aTitleEl.appendChild(aLabelEl);
@@ -136,7 +136,7 @@
     answerTitleEl = aTitleEl;
 
     // 创建答案内容容器
-    const backWrapper = activeDocument.createElement('div');
+    const backWrapper = createDiv();
     backWrapper.className = 'weave-cloze-back-section';
     afterNodes.forEach(node => backWrapper.appendChild(node));
     container.appendChild(backWrapper);

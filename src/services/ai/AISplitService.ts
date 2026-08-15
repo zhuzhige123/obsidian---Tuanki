@@ -111,7 +111,7 @@ export class AISplitService {
 			// 注意：由AIActionExecutor统一处理，这里action.provider已经被设置
 			const provider =
 				action.provider ||
-				resolveDefaultAIProvider(aiConfig as Parameters<typeof resolveDefaultAIProvider>[0]);
+				resolveDefaultAIProvider(aiConfig);
 			const modelFromAction = action.model;
 
 			if (!provider) {

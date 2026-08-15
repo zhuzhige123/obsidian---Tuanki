@@ -303,28 +303,28 @@ export class PreviewManager {
 	}
 
 	private renderEmptyState(container: HTMLElement): void {
-		const empty = activeDocument.createElement("div");
+		const empty = createDiv();
 		empty.className = "unified-preview-empty";
 		empty.textContent = "预览内容为空";
 		container.replaceChildren(empty);
 	}
 
 	private renderErrorState(container: HTMLElement, error: unknown): void {
-		const wrapper = activeDocument.createElement("div");
+		const wrapper = createDiv();
 		wrapper.className = "unified-preview-error";
 
-		const title = activeDocument.createElement("div");
+		const title = createDiv();
 		title.className = "error-title";
 		title.textContent = "预览渲染失败";
 
-		const message = activeDocument.createElement("div");
+		const message = createDiv();
 		message.className = "error-message";
 		message.textContent = error instanceof Error ? error.message : "未知错误";
 
-		const actions = activeDocument.createElement("div");
+		const actions = createDiv();
 		actions.className = "error-actions";
 
-		const button = activeDocument.createElement("button");
+		const button = createEl("button");
 		button.type = "button";
 		button.textContent = "隐藏错误";
 		button.addEventListener("click", () => {

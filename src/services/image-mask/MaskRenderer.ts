@@ -316,7 +316,7 @@ export class MaskRenderer {
 		let wrapper = imgElement.parentElement;
 		if (!wrapper || !wrapper.classList.contains("weave-image-with-masks")) {
 			// 创建包装器
-			wrapper = activeDocument.createElement("div");
+			wrapper = createDiv();
 			wrapper.className = "weave-image-with-masks";
 
 			// 替换图片位置
@@ -348,7 +348,7 @@ export class MaskRenderer {
 		});
 
 		// 创建 SVG 遮罩层
-		const svg = activeDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+		const svg = createSvg("svg");
 		svg.setAttribute(
 			"class",
 			interactive ? "weave-mask-overlay interactive" : "weave-mask-overlay"
@@ -408,7 +408,7 @@ export class MaskRenderer {
 		this.applyMaskStyle(shapeElement, mask);
 
 		// 创建组合元素，包含形状和编号
-		const group = activeDocument.createElementNS("http://www.w3.org/2000/svg", "g");
+		const group = createSvg("g");
 		group.setAttribute("data-mask-id", mask.id);
 		group.appendChild(shapeElement);
 
@@ -430,7 +430,7 @@ export class MaskRenderer {
 	 * 创建角标式编号徽章（左上角）
 	 */
 	private createMaskIndexText(mask: Mask, imgWidth: number, imgHeight: number): SVGGElement {
-		const group = activeDocument.createElementNS("http://www.w3.org/2000/svg", "g");
+		const group = createSvg("g");
 		group.setAttribute("class", "weave-mask-badge");
 		group.setAttribute("pointer-events", "none");
 
@@ -450,7 +450,7 @@ export class MaskRenderer {
 		}
 
 		// 徽章背景（圆角矩形）
-		const bg = activeDocument.createElementNS("http://www.w3.org/2000/svg", "rect");
+		const bg = createSvg("rect");
 		bg.setAttribute("x", String(badgeX - badgeSize / 2));
 		bg.setAttribute("y", String(badgeY - badgeSize / 2));
 		bg.setAttribute("width", String(badgeSize));
@@ -460,7 +460,7 @@ export class MaskRenderer {
 		group.appendChild(bg);
 
 		// 编号文字
-		const text = activeDocument.createElementNS("http://www.w3.org/2000/svg", "text");
+		const text = createSvg("text");
 		text.setAttribute("x", String(badgeX));
 		text.setAttribute("y", String(badgeY));
 		text.setAttribute("text-anchor", "middle");
@@ -483,7 +483,7 @@ export class MaskRenderer {
 	 * 创建矩形遮罩
 	 */
 	private createRectMask(mask: Mask, imgWidth: number, imgHeight: number): SVGRectElement {
-		const rect = activeDocument.createElementNS("http://www.w3.org/2000/svg", "rect");
+		const rect = createSvg("rect");
 
 		//  创新方案：坐标乘以图片实际尺寸（而不是固定的10）
 		// 这样 viewBox 和坐标都使用图片实际像素，确保精确对齐
@@ -501,7 +501,7 @@ export class MaskRenderer {
 	 *  创新方案：使用图片实际尺寸计算坐标
 	 */
 	private createCircleMask(mask: Mask, imgWidth: number, imgHeight: number): SVGCircleElement {
-		const circle = activeDocument.createElementNS("http://www.w3.org/2000/svg", "circle");
+		const circle = createSvg("circle");
 
 		//  创新方案：坐标乘以图片实际尺寸
 		circle.setAttribute("cx", `${mask.x * imgWidth}`);
@@ -544,7 +544,7 @@ export class MaskRenderer {
 			if (svg) {
 				let defs = svg.querySelector("defs");
 				if (!defs) {
-					defs = activeDocument.createElementNS("http://www.w3.org/2000/svg", "defs");
+					defs = createSvg("defs");
 					svg.insertBefore(defs, svg.firstChild);
 				}
 				defs.appendChild(filter);
@@ -569,10 +569,10 @@ export class MaskRenderer {
 	 * 创建模糊滤镜
 	 */
 	private createBlurFilter(id: string, radius: number): SVGFilterElement {
-		const filter = activeDocument.createElementNS("http://www.w3.org/2000/svg", "filter");
+		const filter = createSvg("filter");
 		filter.setAttribute("id", id);
 
-		const blur = activeDocument.createElementNS("http://www.w3.org/2000/svg", "feGaussianBlur");
+		const blur = createSvg("feGaussianBlur");
 		blur.setAttribute("in", "SourceGraphic");
 		blur.setAttribute("stdDeviation", `${radius}`);
 

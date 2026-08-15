@@ -42,7 +42,7 @@ export function createWeaveCardReferencePostProcessor(_app: App) {
 					fragment.appendChild(activeDocument.createTextNode(content.slice(cursor, reference.startIndex)));
 				}
 
-				const span = activeDocument.createElement("span");
+				const span = createSpan();
 				span.className = "weave-card-reference-display";
 				span.setAttribute("data-weave-card-uuid", reference.uuid);
 				span.setAttribute("data-weave-card-alias", reference.alias || "");

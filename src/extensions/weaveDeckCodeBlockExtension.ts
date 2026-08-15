@@ -35,7 +35,7 @@ class WeaveDeckCodeBlockWidget extends WidgetType {
 	}
 
 	toDOM(): HTMLElement {
-		const container = activeDocument.createElement("div");
+		const container = createDiv();
 		container.className = "cm-weave-decks-widget";
 
 		this.component = mount(WeaveDeckCodeBlock, {

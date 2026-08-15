@@ -35,7 +35,7 @@ class DocumentQuizStatsPillWidget extends WidgetType {
 	}
 
 	toDOM(view: EditorView): HTMLElement {
-		const host = activeDocument.createElement("div");
+		const host = createDiv();
 		host.className = "cm-weave-doc-quiz-stats-pill-host";
 		host.setAttribute("role", "button");
 		host.setAttribute("tabindex", "0");

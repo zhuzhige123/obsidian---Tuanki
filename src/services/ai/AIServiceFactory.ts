@@ -125,7 +125,7 @@ function getDefaultService(host: AIConfigHost): IAIService {
 		throw new Error("AI配置未初始化");
 	}
 
-	const provider = resolveDefaultAIProvider(aiConfig as Parameters<typeof resolveDefaultAIProvider>[0]);
+	const provider = resolveDefaultAIProvider(aiConfig);
 
 	return createService(provider, host);
 }

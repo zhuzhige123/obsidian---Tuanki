@@ -152,7 +152,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 
 		// Canvas指纹（轻量级）
 		try {
-			const canvas = activeDocument.createElement("canvas");
+			const canvas = createEl("canvas");
 			const ctx = canvas.getContext("2d");
 			if (ctx) {
 				ctx.textBaseline = "top";
@@ -166,7 +166,7 @@ KiqnLPDZDoj1QmooLvpFj3j7/9dWyUfbKmJv3D1+hmdbeltKDYZJc9WdIU+v7Bmi
 
 		// WebGL信息（如果可用）
 		try {
-			const canvas = activeDocument.createElement("canvas");
+			const canvas = createEl("canvas");
 			const gl = canvas.getContext("webgl");
 			if (gl) {
 				components.push(String(gl.getParameter(gl.RENDERER) ?? "unknown-renderer"));

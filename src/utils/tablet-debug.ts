@@ -154,7 +154,7 @@ class TabletDebugger {
 	private createDebugOverlay(): void {
 		if (this.debugOverlay) return;
 
-		this.debugOverlay = activeDocument.createElement("div");
+		this.debugOverlay = createDiv();
 		this.debugOverlay.id = "weave-tablet-debug";
 		this.debugOverlay.className = "weave-tablet-debug";
 
@@ -182,7 +182,7 @@ class TabletDebugger {
 		};
 		const fragment = activeDocument.createDocumentFragment();
 		const appendLine = (text: string, className?: string): void => {
-			const line = activeDocument.createElement("div");
+			const line = createDiv();
 			if (className) {
 				line.className = className;
 			}
@@ -190,8 +190,8 @@ class TabletDebugger {
 			fragment.appendChild(line);
 		};
 		const appendTitle = (text: string): void => {
-			const line = activeDocument.createElement("div");
-			const strong = activeDocument.createElement("strong");
+			const line = createDiv();
+			const strong = createEl("strong");
 			strong.textContent = text;
 			line.appendChild(strong);
 			fragment.appendChild(line);

@@ -123,7 +123,7 @@ async function formatWithCustomAction(
 
 		const provider =
 			action.provider ||
-			resolveDefaultAIProvider(aiConfig as Parameters<typeof resolveDefaultAIProvider>[0]);
+			resolveDefaultAIProvider(aiConfig);
 
 		if (!provider) {
 			return {
@@ -200,7 +200,7 @@ async function formatChoiceQuestion(
 		const legacyFormattingProvider = getLegacyFormattingProvider(aiConfig);
 		const provider: AIProvider | undefined =
 			(isAIProvider(legacyFormattingProvider) ? legacyFormattingProvider : undefined) ||
-			resolveDefaultAIProvider(aiConfig as Parameters<typeof resolveDefaultAIProvider>[0]);
+			resolveDefaultAIProvider(aiConfig);
 
 		if (!provider) {
 			return {

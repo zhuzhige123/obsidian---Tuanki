@@ -17,7 +17,7 @@ function writeWithExecCommand(text: string): boolean {
 		return false;
 	}
 
-	const textarea = activeDocument.createElement("textarea");
+	const textarea = createEl("textarea");
 	textarea.value = text;
 	textarea.setAttribute("readonly", "true");
 	applyStyleProps(textarea, {
