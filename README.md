@@ -1,4 +1,4 @@
-# Weave
+# Weave Deck
 
 [中文](#中文文档) | [English](#english-documentation)
 
@@ -26,7 +26,7 @@
 
 ### 插件介绍
 
-如果你希望 **在 Obsidian 里不只记笔记，而是真的记住、并能验证自己掌握了什么**，可以试试 Weave。
+如果你希望 **在 Obsidian 里不只记笔记，而是真的记住、并能验证自己掌握了什么**，可以试试 Weave Deck。
 
 它适合：把阅读摘录沉淀成复习卡片的人；需要 FSRS 间隔调度而不是凭感觉复习的人；想用题库检验理解、又不想把卡片塞进原始 Markdown 的人；以及希望从 Markdown、EPUB 或 Canvas **一键跳回原文语境** 的学习者。
 
@@ -152,7 +152,7 @@ flowchart LR
 #### 方式一：社区插件（推荐）
 
 1. 打开 **设置 → 社区插件 → 浏览**（必要时关闭「限制模式」）
-2. 搜索 **Weave**，安装并启用
+2. 搜索 **Weave Deck**，安装并启用
 
 #### 方式二：手动安装
 
@@ -162,7 +162,7 @@ flowchart LR
 
 ### 快速开始
 
-1. 从侧边栏打开 Weave 视图，初始化卡片库（`weave/memory/` 等）
+1. 从侧边栏打开 Weave Deck 视图，初始化卡片库（`weave/memory/` 等）
 2. 可选：配置 OpenAI 兼容 API，用于 AI 制卡
 3. 从 Markdown 或 EPUB 摘录，创建记忆卡片并开始复习
 4. 可选：把卡片管理放到侧边栏，开启「关联当前活动文档」，边写笔记边看已沉淀的卡片
@@ -236,7 +236,7 @@ npm run build
 
 ### Introduction
 
-If you want **Obsidian to be more than a notebook—to actually remember and verify what you learned**—try Weave.
+If you want **Obsidian to be more than a notebook—to actually remember and verify what you learned**—try Weave Deck.
 
 It fits learners who turn reading excerpts into review cards; who need FSRS spaced repetition instead of reviewing by feel; who want question banks to check understanding without stuffing cards into source Markdown; and who want **one-click jumps** back to context in Markdown, EPUB, or Canvas.
 
@@ -362,7 +362,7 @@ Aligned with the in-plugin activation prompt: **Essential experience stays free*
 #### Option 1: Community plugins (recommended)
 
 1. **Settings → Community plugins → Browse** (disable Restricted mode if needed)
-2. Search for **Weave**, install, and enable
+2. Search for **Weave Deck**, install, and enable
 
 #### Option 2: Manual installation
 
@@ -372,7 +372,7 @@ Aligned with the in-plugin activation prompt: **Essential experience stays free*
 
 ### Quick start
 
-1. Open the Weave view and initialize the card library under `weave/memory/`
+1. Open the Weave Deck view and initialize the card library under `weave/memory/`
 2. Optional: configure an OpenAI-compatible API for AI card creation
 3. Excerpt from Markdown or EPUB, create memory cards, and start reviewing
 4. Optional: put card management in the sidebar and enable “filter by active document”

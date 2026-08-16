@@ -1,4 +1,4 @@
-# Weave
+# Weave Deck
 
 [中文](README.md#中文文档) | [English](README.md#english-documentation)
 
