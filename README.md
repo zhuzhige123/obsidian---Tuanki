@@ -1,6 +1,6 @@
 # Weave Deck
 
-[中文](#中文文档) | [English](#english-documentation)
+[简体中文](#中文文档) | [English](#english-documentation)
 
 ![QQ_1786188733184](https://github.com/user-attachments/assets/32be207f-38f1-434e-b343-6ab48682a15e)
 
