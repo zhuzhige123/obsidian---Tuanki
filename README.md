@@ -26,9 +26,11 @@
 
 ### 插件介绍
 
-如果你希望 **在 Obsidian 里不只记笔记，而是真的记住、并能验证自己掌握了什么**，可以试试 Weave Deck。
+Obsidian Weave插件系列包含Weave Deck，Weave epub reader，Weave incremental reading三款插件，有且仅有三款。该系列完全服务于obsidian，围绕在obsidian中长期学习而诞生。
 
-它适合：把阅读摘录沉淀成复习卡片的人；需要 FSRS 间隔调度而不是凭感觉复习的人；想用题库检验理解、又不想把卡片塞进原始 Markdown 的人；以及希望从 Markdown、EPUB 或 Canvas **一键跳回原文语境** 的学习者。
+而Weave Deck插件为该系列的最重要的插件，功能内容最多，应用覆盖面最广。它能够帮助你基于obsidian的md内容生成记忆卡片保存在独立的deck牌组文件中，避免污染源文档又能集中管理，并通过生成的溯源链接进行溯源定位，关联筛选显示基于该文档生成了哪些重要的记忆卡片，摘录卡片等。也支持将生成的各类题目卡片组建为试卷并进行测试。以便于你更好的记忆巩固，测试验证是否掌握的该内容。
+
+
 
 最低 Obsidian 版本：**1.7.0**
 
@@ -93,32 +95,8 @@
 | PDF++、Excalidraw、Media Extended、Mind Map 等                                | 把 PDF / 绘图 / 视频时间戳 / 脑图接入同一套复习闭环 |
 
 
-未安装生态插件时，不影响 Markdown 制卡与 FSRS 复习主路径。
 
-### 标准工作流
 
-```mermaid
-flowchart LR
-  A[笔记 / EPUB / Canvas] --> B[摘录与制卡]
-  B --> C[FSRS6 复习]
-  C --> D[题库验证]
-  D --> E[溯源与重组牌组]
-  E --> A
-```
-
-1. **输入**：从 Markdown、EPUB（需阅读器插件）或 Canvas 摘录，可选 AI 制卡
-2. **组织**：正式牌组承载目标，涌现牌组承载主题聚类
-3. **复习**：结合摘录语境与 FSRS6 记忆卡片
-4. **验证**：用题库或文档测验检验掌握程度
-5. **反思**：回溯来源、修正笔记、重组牌组
-
-### 多来源溯源（要点）
-
-记忆卡片采用**最小信息**格式，与源笔记**分离存储**，通过锚点保持关联：
-
-- **源文档**继续负责阅读与思考（Markdown / EPUB / Canvas）
-- **学习卡片**进入 `weave/` 卡片库（`.wdeck`、`.qbank`）
-- **双向溯源**：从卡片查看原文，从材料回到相关卡片
 
 ### 基础体验与高级支持
 
@@ -203,15 +181,8 @@ flowchart LR
 
 **买断制**（一次激活、长期使用），非按月订阅。
 
-#### 各功能是否需高级支持？
 
-见上文 [基础体验与高级支持](#基础体验与高级支持) 对照表。
 
-### 更多文档
-
-- 发布说明：`docs/RELEASE_GUIDE.md`
-- 图片遮罩：`docs/IMAGE_MASK_GUIDE.md`
-- 系列介绍：`docs/official-guide/weave-series-01-weave-intro.md`
 
 ### 许可证与作者
 
@@ -236,9 +207,9 @@ npm run build
 
 ### Introduction
 
-If you want **Obsidian to be more than a notebook—to actually remember and verify what you learned**—try Weave Deck.
+The Obsidian Weave plugin series includes **exactly three** plugins: Weave Deck, Weave EPUB Reader, and Weave Incremental Reading. The series is built entirely for Obsidian and designed for long-term learning inside Obsidian.
 
-It fits learners who turn reading excerpts into review cards; who need FSRS spaced repetition instead of reviewing by feel; who want question banks to check understanding without stuffing cards into source Markdown; and who want **one-click jumps** back to context in Markdown, EPUB, or Canvas.
+Weave Deck is the core plugin of the series—with the richest feature set and the widest coverage. It helps you turn Obsidian Markdown into memory cards stored in separate deck files, so source notes stay clean while cards stay centrally managed. Source-trace links jump back to the original context, and related filters show which important memory cards and excerpt cards were created from a given document. You can also assemble question cards into exams for testing—so you can consolidate memory and verify whether you have truly mastered the material.
 
 Minimum Obsidian version: **1.7.0**
 
@@ -302,33 +273,6 @@ Minimum Obsidian version: **1.7.0**
 | Incremental Reading (Weave family)                                        | Reading queue and chapter scheduling                                            |
 | PDF++, Excalidraw, Media Extended, Mind Map, etc.                         | Bring PDFs, drawings, video timestamps, and mind maps into the same review loop |
 
-
-Without ecosystem plugins, Markdown card creation and FSRS review still work.
-
-### Standard workflow
-
-```mermaid
-flowchart LR
-  A[Notes / EPUB / Canvas] --> B[Excerpt & cards]
-  B --> C[FSRS6 review]
-  C --> D[Question bank]
-  D --> E[Trace & reorganize]
-  E --> A
-```
-
-1. **Input**: Excerpt from Markdown, EPUB (reader plugin), or Canvas; optional AI cards
-2. **Organize**: Formal decks for goals; emergent decks for themes
-3. **Review**: Excerpt context + FSRS6 recall cards
-4. **Validate**: Question banks or document quizzes
-5. **Reflect**: Trace to source, fix notes, reorganize decks
-
-### Traceability (essentials)
-
-Cards use a **minimum-information** format, **stored separately** from source notes, linked by anchors:
-
-- **Source documents** stay for reading and thinking (Markdown / EPUB / Canvas)
-- **Study cards** live under `weave/` (`.wdeck`, `.qbank`)
-- **Two-way tracing** between cards and original context
 
 ### Essential experience and Premium support
 
@@ -412,16 +356,6 @@ It **funds ongoing development** so the team can keep polishing review and asses
 #### Subscription or buy-once?
 
 **Buy-once** activation, not a monthly subscription.
-
-#### Which features need Premium support?
-
-See [Essential experience and Premium support](#essential-experience-and-premium-support) above.
-
-### More documentation
-
-- Release guide: `docs/RELEASE_GUIDE.md`
-- Image masks: `docs/IMAGE_MASK_GUIDE.md`
-- Series intro: `docs/official-guide/weave-series-01-weave-intro.md`
 
 ### License and author
 
