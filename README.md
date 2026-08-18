@@ -12,7 +12,10 @@
 
 ![QQ20260808-192138-HD](https://github.com/user-attachments/assets/f5cd5ea5-e17f-407c-92c8-053a25e50a2d)
 
+<![QQ_1787029017266](https://github.com/user-attachments/assets/c6133b54-a59d-4b99-9ccd-a20f34613a33)
 
+![QQ20260818-125957-HD](https://github.com/user-attachments/assets/34080504-af01-41a3-815b-22b10eab844d)
+![QQ20260818-130403-HD](https://github.com/user-attachments/assets/6c07776a-0e76-4301-8389-8869c0e2c92a)
 
 **在 Obsidian 中完成「摘录 → 制卡 → 复习 → 测试 → 溯源」的学习闭环**
 
