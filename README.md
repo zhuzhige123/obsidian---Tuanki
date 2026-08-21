@@ -6,21 +6,7 @@
 
 ![weave-series-banner-trinity](https://github.com/user-attachments/assets/8f748341-bb83-4cf9-b020-d8cd18a2aa92)
 
-
-![QQ_1786188733184](https://github.com/user-attachments/assets/32be207f-38f1-434e-b343-6ab48682a15e)
-
-![Weave 学习视图](https://github.com/user-attachments/assets/2d58ec1a-cea5-442f-ac7a-d6fbdf39c4ef)
-
-![溯源示意](https://github.com/user-attachments/assets/3348298e-aaff-4980-9785-4c536d3af032)
-
-<div align="center">
-
-![QQ20260808-192138-HD](https://github.com/user-attachments/assets/f5cd5ea5-e17f-407c-92c8-053a25e50a2d)
-
-<![QQ_1787029017266](https://github.com/user-attachments/assets/c6133b54-a59d-4b99-9ccd-a20f34613a33)
-
-![QQ20260818-125957-HD](https://github.com/user-attachments/assets/34080504-af01-41a3-815b-22b10eab844d)
-![QQ20260818-130403-HD](https://github.com/user-attachments/assets/6c07776a-0e76-4301-8389-8869c0e2c92a)
+![weave-plugin-banner-deck](https://github.com/user-attachments/assets/2bd06511-2e12-4719-a4ae-64e590040986)
 
 **在 Obsidian 中完成「摘录 → 制卡 → 复习 → 测试 → 溯源」的学习闭环**
 
