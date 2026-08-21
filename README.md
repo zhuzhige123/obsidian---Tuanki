@@ -2,6 +2,11 @@
 
 [简体中文](#中文文档) | [English](#english-documentation)
 
+![weave-series-banner-og](https://github.com/user-attachments/assets/a52c0875-9296-4dfd-bf94-114a225f2972)
+
+![weave-series-banner-trinity](https://github.com/user-attachments/assets/8f748341-bb83-4cf9-b020-d8cd18a2aa92)
+
+
 ![QQ_1786188733184](https://github.com/user-attachments/assets/32be207f-38f1-434e-b343-6ab48682a15e)
 
 ![Weave 学习视图](https://github.com/user-attachments/assets/2d58ec1a-cea5-442f-ac7a-d6fbdf39c4ef)
