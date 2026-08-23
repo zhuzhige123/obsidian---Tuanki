@@ -8,6 +8,8 @@
 
 ![weave-plugin-banner-deck](https://github.com/user-attachments/assets/2bd06511-2e12-4719-a4ae-64e590040986)
 
+![weave-plugin-banner-deck](https://github.com/user-attachments/assets/767fd9be-6a9f-454b-8109-55a0b8c1adec)
+
 **在 Obsidian 中完成「摘录 → 制卡 → 复习 → 测试 → 溯源」的学习闭环**
 
 **Complete the learning loop in Obsidian: Excerpt → Cards → Review → Test → Trace**
