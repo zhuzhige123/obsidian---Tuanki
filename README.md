@@ -14,8 +14,6 @@
 
 **Complete the learning loop in Obsidian: Excerpt → Cards → Review → Test → Trace**
 
-</div>
-
 ---
 
 ## 中文文档
@@ -30,96 +28,87 @@ Obsidian Weave插件系列包含Weave Deck，Weave epub reader，Weave increment
 
 最低 Obsidian 版本：**1.7.0**
 
-### 核心能力
-
-#### 学习闭环
-
-- **摘录 → 制卡 → FSRS6 复习 → 测验验证 → 溯源重组**：卡片与源笔记分离存储，复习时仍可回到原文语境
-- **全平台**：桌面端（Windows、macOS、Linux）与移动端（iOS、Android）
-
-#### 牌组组织
-
-- **正式牌组**：目标明确的学习集合（课程、考试范围、长期专题）
-- **引用式牌组**：卡片可归属多个牌组，不绑定单一文件夹
-- **涌现牌组**（高级）：按标签与规则自动聚合成可学习的主题观察面
-- **记忆牌组等级**（高级）：掌握度驱动的等级与进度徽章
-
-#### 卡片形态
-
-- **问答、普通挖空、填空题、选择题**（单选 / 多选）
-- **渐进式挖空**（高级）：按挖空序号递进掌握复杂知识点
-- **图片遮罩**（高级）：在图片上绘制遮罩做图像挖空
-- **回顾型摘录笔记** + **回忆型记忆卡片**：语境回顾与主动回忆分工
-
-#### 制卡与互通
-
-- **Obsidian 原生编辑**：用官方编辑器改卡，保留 Markdown / 公式 / 社区渲染扩展
-- **从当前活动文档制卡**：关联正在编辑的笔记，沉淀带溯源的卡片
-- **AI 助手与 AI 制卡**（自备 API）、解析预览导入、**CSV 导入**
-- **批量解析**（高级）：文件夹映射、符号 / 正则解析与智能触发
-- **APKG 导入 / 导出**：离线迁移 Anki 牌组，或将 Weave 牌组导出为 `.apkg`（非实时同步）
-- **数据备份与恢复**：Vault 内备份槽与整库导出
-
-#### 复习体验
-
-- **FSRS6** 间隔调度（Again / Hard / Good / Easy）
-- **撤销上一次评分**、**兄弟卡智能分散**（避免同源多卡扎堆）
-- **查看原文**与**学习来源信息栏**：来源路径、材料上下文、同源卡片
-- **多来源溯源**：Markdown 块引用、Canvas 节点、EPUB CFI（需阅读器插件）
-
-#### 管理视图与笔记嵌入
-
-- **表格视图**：筛选、排序与批量管理
-- **网格 / 看板 / 时间线**（高级）：完整筛选、分组与排序
-- **Markdown 牌组视图**（高级）：用 `weave-decks` 代码块把牌组视图嵌入笔记
-- **关联当前活动文档**（高级）：侧边栏随当前笔记实时筛选相关卡片与测试题
-- **关联卡片**（高级）：在卡片之间做同源 / 同笔记 / 关联网络筛选
-
-#### 检验与分析
-
-- **题库、模拟考试**（高级）：刷题与限时考试，补充「感觉记住了」的主观判断
-- **文档测验**：从 Markdown 解析题目开考，并可写回统计
-- **记忆率曲线**（基础）与**完整牌组分析**（高级：雷达、负荷预测、复习时机等）
-
-#### 生态协同（可选）
-
-
-| 插件 / 能力                                                                   | 作用                               |
-| ------------------------------------------------------------------------- | -------------------------------- |
-| [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader) | 沉浸式阅读、摘录制卡、书籍锚点回跳                |
-| 增量阅读（Weave 体系）                                                            | 阅读队列与章节排期                        |
-| PDF++、Excalidraw、Media Extended、Mind Map 等                                | 把 PDF / 绘图 / 视频时间戳 / 脑图接入同一套复习闭环 |
-
-
-
-
+围绕 **摘录 → 制卡 → FSRS6 复习 → 测验验证 → 溯源重组** 的学习闭环设计：卡片与源笔记分离存储，复习与测验时仍可回到原文语境。
 
 ### 基础体验与高级支持
 
-对照以插件内激活提示为准：**基础体验永久可用**；**高级支持**为可选买断。
+对照以插件内激活提示为准：**基础体验永久可用**；**高级支持**为可选买断。下表按能力类别列出当前版本功能划分（与插件内「基础使用 / 高级功能」展示一致）。**分析图表**按对象分为两类：**记忆牌组**（`.wdeck`，FSRS 复习）与 **考试题组**（`.qbank`，刷题与测验），互不混用。
 
 
-| 能力                                             | 基础体验 | 高级支持 |
-| ---------------------------------------------- | ---- | ---- |
-| **全平台**（桌面端与移动端）                               | ✅    | ✅    |
-| **FSRS6** 复习、摘录笔记与回忆型记忆卡片                      | ✅    | ✅    |
-| **问答 / 挖空 / 填空 / 选择题**；原生编辑、查看原文、学习来源栏         | ✅    | ✅    |
-| **正式牌组**、引用式牌组、**表格视图**                        | ✅    | ✅    |
-| **AI 助手 / AI 制卡**、解析预览导入、**CSV 导入**（API 费用自理）  | ✅    | ✅    |
-| **APKG 导入 / 导出**、数据备份                          | ✅    | ✅    |
-| **记忆率曲线**                                      | ✅    | ✅    |
-| **网格 / 看板 / 时间线**（完整筛选、分组、排序）                  | 🔒   | ✅    |
-| **涌现牌组**、记忆牌组等级                                | 🔒   | ✅    |
-| **Markdown 牌组视图**（`weave-decks`）、关联当前活动文档、关联卡片 | 🔒   | ✅    |
-| **渐进式挖空**、**图片遮罩**                             | 🔒   | ✅    |
-| **批量解析**                                       | 🔒   | ✅    |
-| **题库**、模拟考试、**完整牌组分析**                         | 🔒   | ✅    |
+| 类别 | 能力 | 基础体验 | 高级支持 |
+| --- | --- | --- | --- |
+| **平台** | 全平台（Windows / macOS / Linux / iOS / Android） | ✅ | ✅ |
+| **学习与卡片** | **FSRS6** 间隔复习、牌组学习、撤销评分、兄弟卡智能分散 | ✅ | ✅ |
+| | 问答 / 普通挖空 / 填空题 / 选择题（单选、多选） | ✅ | ✅ |
+| | 填空题输入模式（学习时输入作答、即时判分） | ✅ | ✅ |
+| | 回顾型摘录笔记与回忆型记忆卡片 | ✅ | ✅ |
+| | 渐进式挖空 | 🔒 | ✅ |
+| | 图片遮罩（图像挖空与遮盖练习） | 🔒 | ✅ |
+| **制卡与溯源** | Obsidian 原生卡片编辑（Markdown / 公式 / 社区渲染） | ✅ | ✅ |
+| | 从当前活动文档制卡、带溯源链接回跳 | ✅ | ✅ |
+| | 查看原文、学习来源信息栏 | ✅ | ✅ |
+| | 多来源溯源（Markdown 块引用、Canvas 节点、EPUB CFI†） | ✅ | ✅ |
+| **记忆牌组** | 正式牌组、引用式牌组（卡片可归属多个牌组） | ✅ | ✅ |
+| | 涌现牌组（按标签与规则自动聚合） | 🔒 | ✅ |
+| | 牌组记忆率徽章、牌组背景图 | 🔒 | ✅ |
+| | **分析图表 · 记忆保持率** | ✅ | ✅ |
+| | **分析图表 · 牌组画像、卡片数量、标签难度、负荷预测、学习校准、复习时机** | 🔒 | ✅ |
+| **考试题组** | 题库系统、模拟考试 | 🔒 | ✅ |
+| | 文档测验（从 Markdown 解析题目开考，可写回统计） | ✅ | ✅ |
+| | **分析图表 · EWMA 掌握度曲线**（含历史平均、目标线、置信度） | 🔒 | ✅ |
+| **管理视图** | 表格视图（筛选、排序、批量管理） | ✅ | ✅ |
+| | 网格视图、瀑布流布局、看板视图、时间线视图（完整筛选、分组、排序）‡ | 🔒 | ✅ |
+| | Markdown 牌组视图（`weave-decks` 代码块嵌入） | 🔒 | ✅ |
+| | 当前文档筛选（侧边栏随活动笔记实时筛选） | 🔒 | ✅ |
+| | 关联卡片（同源 / 同笔记 / 关联网络） | 🔒 | ✅ |
+| **AI 与导入** | AI 制卡、AI 智能助手（自备 API，费用自理） | ✅ | ✅ |
+| | 解析预览导入 | ✅ | ✅ |
+| | 卡片解析配置（分隔符号与正则模板，供解析预览使用） | 🔒 | ✅ |
+| | CSV 导入 | ✅ | ✅ |
+| | APKG 导入 / 导出（离线迁移，非实时同步） | ✅ | ✅ |
+| | 数据备份与恢复（Vault 备份槽、整库导出） | ✅ | ✅ |
+| **公开 API** | `getOfficialAPI()`（WeaveDomainAPI，供第三方 Obsidian 插件集成） | ✅ | ✅ |
+| | 记忆卡片：新建 `createCard`、批量导入 `importCards`、更新 / 删除、列出 / 查询 | ✅ | ✅ |
+| | 记忆牌组：新建 `createDeck`、查找 / 列出 / 更新 / 删除 | ✅ | ✅ |
+| | 批量移动 `moveCards`、只改正文 `updateCardContent`（保留 FSRS 复习进度） | ✅ | ✅ |
+| | 考试题组：新建 `createQuestionBank`、引用加入 `addCardsToQuestionBank`、批量出卷 `importExamQuestions` | 🔒 | ✅ |
+| | 能力探测 `getInfo()`（`apiVersion` 与 `capabilities` 字段） | ✅ | ✅ |
+| **阅读工作流** | 渐进性阅读工作流入口（Weave 体系；可安装独立插件） | 🔒 | ✅ |
 
 
 > 图例：✅ 已包含 · 🔒 需启用高级支持
+>
+> † EPUB CFI 溯源需安装 [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader)。
+>
+> ‡ 未激活时，**卡片管理页**的网格视图、**牌组学习页**的看板视图可能**限时开放**；**移动端卡片管理页**的时间线视图在基础体验中可用。具体以插件内标注为准。
 
 - **启用高级支持**：在插件设置中激活（邮箱绑定校验）；已激活 **Weave EPUB Reader** 高级支持时，可按产品规则继承授权。
 - **买断制**：一次激活、长期使用（具体以仓库内许可条款为准），非强制订阅。
+
+### 公开 API（第三方集成）
+
+Weave 向其它 Obsidian 插件开放 **WeaveDomainAPI**，通过 `app.plugins.plugins["weave"].getOfficialAPI()` 获取。请通过 API 写入卡片与牌组，**不要**直接改写 Vault 内的 `.wdeck` / `.qbank` 文件。
+
+常用能力包括：
+
+- **记忆卡片**：`createCard` 新建单卡；`importCards` 批量导入（支持 `ensureDeck` 自动建组、去重跳过）
+- **记忆牌组**：`createDeck` 新建牌组；`listDecks` / `findDeck` 查询；`updateDeck` / `deleteDeck` 维护
+- **批量操作**：`moveCards` 批量移动（保留复习进度）；`deleteCards` 批量删除；`updateCardContent` 只改正文
+- **考试题组**：`createQuestionBank` 新建题组；`addCardsToQuestionBank` 引用已有卡片；`importExamQuestions` 批量写入记忆牌组并挂到题组（适合 AI 出卷）
+- **集成前探测**：`getInfo()` 返回 `apiVersion` 与 `capabilities`，避免假设未发布字段
+
+集成说明见开发文档 `docs/WEAVE_OFFICIAL_API_GUIDE.md`（类型真源：`src/services/weave-domain/types.ts`）。
+
+### 生态协同（可选）
+
+除上表所列 Deck 本体能力外，还可与系列内其它插件及社区工具协作，扩展阅读与制卡来源。
+
+
+| 插件 / 能力 | 作用 |
+| --- | --- |
+| [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader) | 沉浸式阅读、摘录制卡、书籍锚点回跳 |
+| 增量阅读（Weave 体系） | 阅读队列与章节排期 |
+| PDF++、Excalidraw、Media Extended、Mind Map 等 | 把 PDF / 绘图 / 视频时间戳 / 脑图接入同一套复习闭环 |
 
 ### 安装
 
@@ -157,28 +146,29 @@ Obsidian Weave插件系列包含Weave Deck，Weave epub reader，Weave increment
 
 ### 常见问题
 
-#### 与 EPUB 阅读器、增量阅读的关系？
+#### 1. 与 EPUB 阅读器、增量阅读的关系？
 
 **Weave 可独立使用**：在 Markdown 中制卡、FSRS 复习、题库等不强制安装其它插件。安装 [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader) 后，可在书中摘录、制卡并带书籍锚点跳回原文；增量阅读负责阅读队列与章节排期。阅读器高级支持可与 Weave 授权联动。三者**分工协作**，可按需安装。
 
-#### 卡片与摘录能否全平台同步？
+#### 2. 卡片与摘录能否全平台同步？
 
 **支持。** 卡片库与相关笔记在 Vault 内，会随 Obsidian Sync、iCloud、网盘同步 Vault 等方式在桌面与移动端保持一致（见 [数据与同步](#数据与同步)）。
 
-#### 是否支持导出 / 备份数据？
+#### 3. 是否支持导出 / 备份数据？
 
 **支持。** 可将牌组导出为 **APKG**；`.wdeck`、`.qbank` 及关联 Markdown 均在库内，也可自行复制或通过插件数据管理备份。**数据完全本地化**，由你掌控备份策略。
 
-#### 为何提供高级支持？
+#### 4. 为何提供高级支持？
 
-用于**支持持续开发**，让团队能长期投入、打磨复习与测验细节。**基础体验免费**，已覆盖 FSRS 复习、溯源、填空与选择题、AI 制卡（自备 API）、表格视图、APKG 互通等核心学习闭环；涌现牌组、完整视图、题库、批量解析、Markdown 嵌入等可按需启用高级支持。
+用于**支持持续开发**，让团队能长期投入、打磨复习与测验细节。**基础体验免费**，已覆盖 FSRS 复习、多形态卡片、溯源、AI 制卡（自备 API）、表格视图、文档测验、记忆牌组「记忆保持率」分析、公开 API 建卡/建组/批量导入、APKG 互通等核心学习闭环；其余记忆牌组分析图表、网格 / 瀑布流 / 看板 / 时间线视图、涌现牌组、考试题组与题组分析、Markdown 嵌入、渐进式挖空等可按需启用高级支持。
 
-#### 是订阅还是买断？
+#### 5. 是订阅还是买断？
 
 **买断制**（一次激活、长期使用），非按月订阅。
 
+#### 6. 为何目前仅支持中英？
 
-
+**Weave 功能模块多、界面文案量大**，完整本地化需要持续投入。当前优先保证**简体中文**与**英文**的质量与更新及时性；其它界面语言将**逐步补充**，感谢理解。
 
 ### 许可证与作者
 
@@ -209,93 +199,87 @@ Weave Deck is the core plugin of the series—with the richest feature set and t
 
 Minimum Obsidian version: **1.7.0**
 
-### Core capabilities
-
-#### Learning loop
-
-- **Excerpt → cards → FSRS6 review → assessment → trace & reorganize**: cards are stored separately from source notes, with jumps back to original context
-- **All platforms**: desktop (Windows, macOS, Linux) and mobile (iOS, Android)
-
-#### Deck organization
-
-- **Formal decks**: goal-oriented study sets (courses, exam scopes, long-term topics)
-- **Reference-based decks**: cards can belong to multiple decks without folder lock-in
-- **Emergent decks** (Premium): auto-cluster themes from tags and rules into learnable observation surfaces
-- **Memory deck levels** (Premium): mastery-driven rank and progress badges
-
-#### Card types
-
-- **Q&A, cloze, fill-in-the-blank, multiple choice** (single / multi)
-- **Progressive cloze** (Premium): master complex points step by step by cloze order
-- **Image masks** (Premium): draw masks on images for occlusion practice
-- **Review excerpts** + **recall cards**: context review vs active recall
-
-#### Creation and interchange
-
-- **Native Obsidian editing**: edit cards in the official editor (Markdown, math, community renderers)
-- **Create cards from the active document**: keep source tracing while you write
-- **AI assistant / AI card creation** (bring your own API), parse-preview import, **CSV import**
-- **Batch parsing** (Premium): folder mapping, symbol / regex parsing, smart triggers
-- **APKG import / export**: offline Anki migration, or export Weave decks as `.apkg` (not live sync)
-- **Backup and restore**: vault backup slots and full-library export
-
-#### Review experience
-
-- **FSRS6** scheduling (Again / Hard / Good / Easy)
-- **Undo last rating** and **sibling dispersion** (avoid clustering related cards)
-- **View source** and **study source info**: paths, material context, related source cards
-- **Multi-source tracing**: Markdown block refs, Canvas nodes, EPUB CFI (reader plugin required)
-
-#### Views and note embeds
-
-- **Table view**: filter, sort, and bulk manage
-- **Grid / Kanban / Timeline** (Premium): full filter, group, and sort
-- **Markdown deck views** (Premium): embed deck views with `weave-decks` code blocks
-- **Filter by active document** (Premium): sidebar updates as you switch notes
-- **Related cards** (Premium): filter same-source / same-note / related-card networks
-
-#### Assessment and analytics
-
-- **Question banks & mock exams** (Premium): objective checks beyond “I feel I remember”
-- **Document quiz**: parse questions from Markdown, run a quiz, optionally write stats back
-- **Retention curve** (Essential) and **full deck analytics** (Premium: radar, load forecast, timing, etc.)
-
-#### Ecosystem (optional)
-
-
-| Plugin / capability                                                       | Role                                                                            |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader) | Immersive reading, excerpts, book-anchor jumps                                  |
-| Incremental Reading (Weave family)                                        | Reading queue and chapter scheduling                                            |
-| PDF++, Excalidraw, Media Extended, Mind Map, etc.                         | Bring PDFs, drawings, video timestamps, and mind maps into the same review loop |
-
+Built around the learning loop **excerpt → cards → FSRS6 review → assessment → trace & reorganize**: cards are stored separately from source notes, so you can still jump back to original context during review and testing.
 
 ### Essential experience and Premium support
 
-Aligned with the in-plugin activation prompt: **Essential experience stays free**; **Premium support** is optional buy-once.
+Aligned with the in-plugin activation prompt: **essential experience stays free**; **Premium support** is optional buy-once. The table below lists current capabilities by category (matching the in-plugin “Essential / Premium” presentation). **Analytics charts** are split by target: **memory decks** (`.wdeck`, FSRS review) and **exam question banks** (`.qbank`, practice and testing)—they are not mixed.
 
 
-| Capability                                                                            | Essential | Premium |
-| ------------------------------------------------------------------------------------- | --------- | ------- |
-| **All platforms** (desktop and mobile)                                                | ✅         | ✅       |
-| **FSRS6** review, excerpt notes and recall cards                                      | ✅         | ✅       |
-| **Q&A / cloze / fill-in / choice**; native editing, view source, study source info    | ✅         | ✅       |
-| **Formal decks**, reference-based decks, **table view**                               | ✅         | ✅       |
-| **AI assistant / AI cards**, parse-preview import, **CSV import** (you pay API costs) | ✅         | ✅       |
-| **APKG import / export**, data backup                                                 | ✅         | ✅       |
-| **Retention curve**                                                                   | ✅         | ✅       |
-| **Grid / Kanban / Timeline** (full filter, group, sort)                               | 🔒        | ✅       |
-| **Emergent decks**, memory deck levels                                                | 🔒        | ✅       |
-| **Markdown deck views** (`weave-decks`), active-document filter, related cards        | 🔒        | ✅       |
-| **Progressive cloze**, **image masks**                                                | 🔒        | ✅       |
-| **Batch parsing**                                                                     | 🔒        | ✅       |
-| **Question banks**, mock exams, **full deck analytics**                               | 🔒        | ✅       |
+| Category | Capability | Essential | Premium |
+| --- | --- | --- | --- |
+| **Platform** | All platforms (Windows / macOS / Linux / iOS / Android) | ✅ | ✅ |
+| **Study & cards** | **FSRS6** spaced review, deck study, undo rating, sibling dispersion | ✅ | ✅ |
+| | Q&A / cloze / fill-in / multiple choice (single / multi) | ✅ | ✅ |
+| | Fill-in input mode (type answers while studying, instant grading) | ✅ | ✅ |
+| | Review excerpt notes and recall memory cards | ✅ | ✅ |
+| | Progressive cloze | 🔒 | ✅ |
+| | Image masks (image cloze and cover practice) | 🔒 | ✅ |
+| **Creation & trace** | Native Obsidian card editing (Markdown / math / community renderers) | ✅ | ✅ |
+| | Create cards from the active document with trace links back to source | ✅ | ✅ |
+| | View source and study source info bar | ✅ | ✅ |
+| | Multi-source tracing (Markdown block refs, Canvas nodes, EPUB CFI†) | ✅ | ✅ |
+| **Memory decks** | Formal decks and reference-based decks (cards can belong to multiple decks) | ✅ | ✅ |
+| | Emergent decks (auto-clustered from tags and rules) | 🔒 | ✅ |
+| | Deck memory-rate badges and deck background images | 🔒 | ✅ |
+| | **Analytics · memory retention** | ✅ | ✅ |
+| | **Analytics · deck profile, card quantity, tag difficulty, load forecast, learning calibration, review timing** | 🔒 | ✅ |
+| **Exam question banks** | Question bank system and mock exams | 🔒 | ✅ |
+| | Document quiz (parse questions from Markdown, run a quiz, optionally write stats back) | ✅ | ✅ |
+| | **Analytics · EWMA mastery curve** (historical average, target line, confidence) | 🔒 | ✅ |
+| **Management views** | Table view (filter, sort, bulk manage) | ✅ | ✅ |
+| | Grid, masonry, Kanban, and Timeline views (full filter, group, sort)‡ | 🔒 | ✅ |
+| | Markdown deck views (`weave-decks` code block embeds) | 🔒 | ✅ |
+| | Active-document filter (sidebar updates with the active note) | 🔒 | ✅ |
+| | Related cards (same source / same note / relation network) | 🔒 | ✅ |
+| **AI & import** | AI card creation and AI assistant (bring your own API) | ✅ | ✅ |
+| | Parse-preview import | ✅ | ✅ |
+| | Card parsing configuration (separators and regex templates for parse preview) | 🔒 | ✅ |
+| | CSV import | ✅ | ✅ |
+| | APKG import / export (offline migration, not live sync) | ✅ | ✅ |
+| | Backup and restore (vault backup slots and full-library export) | ✅ | ✅ |
+| **Public API** | `getOfficialAPI()` (WeaveDomainAPI for third-party Obsidian plugins) | ✅ | ✅ |
+| | Memory cards: `createCard`, bulk `importCards`, update / delete, list / query | ✅ | ✅ |
+| | Memory decks: `createDeck`, find / list / update / delete | ✅ | ✅ |
+| | Bulk `moveCards`, content-only `updateCardContent` (keeps FSRS progress) | ✅ | ✅ |
+| | Exam banks: `createQuestionBank`, `addCardsToQuestionBank`, bulk `importExamQuestions` | 🔒 | ✅ |
+| | Capability probe `getInfo()` (`apiVersion` and `capabilities`) | ✅ | ✅ |
+| **Reading workflow** | Incremental reading workflow entry (Weave family; optional standalone plugin) | 🔒 | ✅ |
 
 
 > Legend: ✅ included · 🔒 requires Premium support
+>
+> † EPUB CFI tracing requires [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader).
+>
+> ‡ Without activation, **grid view** on the card-management page and **Kanban view** on the deck-study page may be **limited-time access**; **Timeline view** on mobile card management is available in the essential experience. See in-plugin labels for details.
 
 - **Enable Premium support**: Activate in settings (email binding). EPUB Reader Premium may inherit per product rules.
 - **Buy-once** licensing, not a forced subscription.
+
+### Public API (third-party integration)
+
+Weave exposes **WeaveDomainAPI** to other Obsidian plugins via `app.plugins.plugins["weave"].getOfficialAPI()`. Write cards and decks through the API—**do not** edit `.wdeck` / `.qbank` files in the vault directly.
+
+Common capabilities:
+
+- **Memory cards**: `createCard` for a single card; `importCards` for bulk import (`ensureDeck` auto-create, optional duplicate skip)
+- **Memory decks**: `createDeck` to create; `listDecks` / `findDeck` to query; `updateDeck` / `deleteDeck` to maintain
+- **Bulk operations**: `moveCards` (keeps review progress); `deleteCards`; `updateCardContent` for content-only edits
+- **Exam question banks**: `createQuestionBank`; `addCardsToQuestionBank` to reference existing cards; `importExamQuestions` to bulk-write memory cards and attach them to a bank (great for AI-generated exams)
+- **Before integrating**: `getInfo()` returns `apiVersion` and `capabilities`—do not assume unpublished fields
+
+See `docs/WEAVE_OFFICIAL_API_GUIDE.md` in the development repository (type source: `src/services/weave-domain/types.ts`).
+
+### Ecosystem (optional)
+
+Beyond Deck itself, you can extend reading and card-creation sources with other plugins in the series and the community.
+
+
+| Plugin / capability | Role |
+| --- | --- |
+| [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader) | Immersive reading, excerpts, book-anchor jumps |
+| Incremental Reading (Weave family) | Reading queue and chapter scheduling |
+| PDF++, Excalidraw, Media Extended, Mind Map, etc. | Bring PDFs, drawings, video timestamps, and mind maps into the same review loop |
 
 ### Installation
 
@@ -312,14 +296,14 @@ Aligned with the in-plugin activation prompt: **Essential experience stays free*
 
 ### Quick start
 
-1. Open the Weave Deck view and initialize the card library under `weave/memory/`
+1. Open the Weave Deck view and initialize the card library (`weave/memory/`, etc.)
 2. Optional: configure an OpenAI-compatible API for AI card creation
 3. Excerpt from Markdown or EPUB, create memory cards, and start reviewing
 4. Optional: put card management in the sidebar and enable “filter by active document”
 
 ### Data and sync
 
-**Sync in the vault**: `weave/memory/` (`.wdeck`), `weave/question-bank/` (`.qbank`), related Markdown and attachments.
+**Recommended sync (in vault)**: `weave/memory/` (`.wdeck`), `weave/question-bank/` (`.qbank`), related Markdown and attachments.
 
 **Usually local**: cache under `.obsidian/plugins/weave/`. Prefer syncing vault content across devices.
 
@@ -327,31 +311,35 @@ Aligned with the in-plugin activation prompt: **Essential experience stays free*
 
 ### Privacy and network
 
-- Learning data stays **in your local vault** by default and is not uploaded unless you use a networked feature you configure.
+- Learning data **stays in your local vault** by default and is not uploaded.
 - **Premium support activation** may contact the license service; see the privacy notes in this repository.
 - **AI** uses your own third-party API; **APKG** is for offline legacy import / deck export (no always-on Anki connection).
 
 ### FAQ
 
-#### How does this relate to the EPUB reader and Incremental Reading?
+#### 1. How does this relate to the EPUB reader and Incremental Reading?
 
 **Weave works standalone** for Markdown cards, FSRS review, and question banks. With [Weave EPUB Reader](https://github.com/zhuzhige123/obsidian-weave-reader), you can excerpt in books and jump back via book anchors; Incremental Reading handles reading queues and chapter scheduling. Licensing may be shared per product rules. They are **complementary**, not hard dependencies.
 
-#### Can cards and excerpts sync across platforms?
+#### 2. Can cards and excerpts sync across platforms?
 
 **Yes.** Decks and notes in the vault follow your Obsidian sync setup (see [Data and sync](#data-and-sync)).
 
-#### Can I export or back up data?
+#### 3. Can I export or back up data?
 
-**Yes.** Export decks as **APKG**; `.wdeck`, `.qbank`, and related files also live in the vault under your control. **Data is fully local** unless you use networked features you configure.
+**Yes.** Export decks as **APKG**; `.wdeck`, `.qbank`, and related Markdown also live in the vault under your control. **Data is fully local** unless you use networked features you configure.
 
-#### Why is Premium support paid?
+#### 4. Why is Premium support paid?
 
-It **funds ongoing development** so the team can keep polishing review and assessment details. The **essential experience is free**—FSRS review, traceability, fill-in and choice cards, AI card creation (your API), table view, APKG interchange, and the core learning loop. Enable Premium when you need emergent decks, full views, question banks, batch parsing, Markdown embeds, and pro card types.
+It **funds ongoing development** so the team can keep polishing review and assessment details. The **essential experience is free**—FSRS review, multiple card types, traceability, AI card creation (your API), table view, document quiz, memory-deck retention analytics, public API create/import/bulk flows, APKG interchange, and the core learning loop. Enable Premium for the remaining memory-deck analytics, grid / masonry / Kanban / Timeline views, emergent decks, exam banks and bank analytics, Markdown embeds, progressive cloze, and more.
 
-#### Subscription or buy-once?
+#### 5. Subscription or buy-once?
 
 **Buy-once** activation, not a monthly subscription.
+
+#### 6. Why are only Chinese and English supported for now?
+
+**Weave has a large feature surface and a heavy UI translation load**—full localization takes ongoing effort. We currently prioritize **Simplified Chinese** and **English** for quality and timely updates; **additional interface languages will be added gradually**. Thank you for your understanding.
 
 ### License and author
 
