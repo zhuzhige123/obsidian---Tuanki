@@ -1,7 +1,7 @@
 {
   "name": "weave",
   "private": true,
-  "version": "0.9.12",
+  "version": "0.9.13",
   "description": "Enhance knowledge learning and memory consolidation with memory decks and practice quiz decks",
   "main": "main.js",
   "type": "module",
