@@ -2,13 +2,19 @@ import {
 	App,
 	MarkdownView,
 	Platform,
+	TFile,
 	WorkspaceLeaf,
 	normalizePath,
 	type WorkspaceSplit,
 } from "obsidian";
 import { getLeafContainerEl } from "../../utils/obsidian-markdown-editor";
+import { readUnknownProperty, readUnknownString } from "../../utils/dynamic-access";
 import { applyStyleProps } from "../../utils/style-props";
-import { isDetachedEditorTempFilePath } from "./editor-temp-file-policy";
+import {
+	isDetachedEditorTempFilePath,
+	isLegacyModalEditorPermanentFilePath,
+	isPluginCacheModalEditorPermanentFilePath,
+} from "./editor-temp-file-policy";
 
 const OFFSCREEN_LEAF_STYLE = {
 	position: "absolute",
@@ -125,6 +131,36 @@ export function cleanupRestoredDetachedEditorLeaves(app: App): void {
 				const file = view instanceof MarkdownView ? view.file : null;
 				const path = file?.path ? normalizePath(file.path) : "";
 				if (path && isDetachedEditorTempFilePath(path)) {
+					leaf.detach();
+				}
+			} catch {
+				/* no-op */
+			}
+		}
+	} catch {
+		/* no-op */
+	}
+}
+
+/**
+ * 清理旧版 ModalEditorManager 遗留的 modal-editor-permanent* markdown leaf。
+ */
+export function cleanupRestoredModalEditorLeaves(app: App): void {
+	try {
+		const leaves = app.workspace.getLeavesOfType("markdown");
+		for (const leaf of leaves) {
+			try {
+				const view = leaf.view;
+				const file = view instanceof MarkdownView ? view.file : readUnknownProperty(view, "file");
+				const rawPath =
+					file instanceof TFile ? file.path : readUnknownString(file, "path");
+				const path = rawPath ? normalizePath(rawPath) : "";
+				if (!path) continue;
+
+				if (
+					isPluginCacheModalEditorPermanentFilePath(app, path)
+					|| isLegacyModalEditorPermanentFilePath(path)
+				) {
 					leaf.detach();
 				}
 			} catch {
