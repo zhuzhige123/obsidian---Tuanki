@@ -8,7 +8,6 @@
 
 import { MinimalZipArchive } from "../zip/minimal-zip";
 import { APKGLogger } from "../../../infrastructure/logger/APKGLogger";
-import { t } from "../../../utils/i18n";
 import { runTasksWithConcurrency } from "../../../utils/async-pool";
 import { isRecord, parseJsonUnknown } from "../../../utils/typed-json";
 import { throwIfImportAborted } from "../ImportTaskControl";
@@ -17,7 +16,6 @@ import { SQLiteReader } from "./SQLiteReader";
 
 const UI_YIELD_BATCH_SIZE = 20;
 const MEDIA_EXTRACT_CONCURRENCY = 8;
-const SP = "management.apkgImportModal.serviceProgress";
 
 export interface APKGPreparedArchive {
   zip: MinimalZipArchive;
@@ -132,20 +130,20 @@ export class APKGParser {
   ): Promise<APKGPreparedArchive> {
     this.logger.info(`开始解析APKG文件: ${file.name}`);
     throwIfImportAborted(options?.signal);
-    await this.emitProgressAndYield(onProgress, "archive", 5, t(`${SP}.extractingArchive`));
+    await this.emitProgressAndYield(onProgress, "archive", 5, "正在解压APKG文件...");
 
     const zip = await this.extractZip(file);
     throwIfImportAborted(options?.signal);
-    this.emitProgress(onProgress, "archive", 80, t(`${SP}.detectingFormat`));
+    this.emitProgress(onProgress, "archive", 80, "正在识别APKG格式...");
 
     const format = this.detectFormat(zip);
     this.logger.info(`检测到APKG格式: ${format.description}`);
 
     if (!format.supported) {
-      throw new Error(t(`${SP}.unsupportedFormat`, { description: format.description }));
+      throw new Error(`不支持的APKG格式: ${format.description}`);
     }
 
-    await this.emitProgressAndYield(onProgress, "archive", 100, t(`${SP}.formatDetected`, { description: format.description }));
+    await this.emitProgressAndYield(onProgress, "archive", 100, `已识别APKG格式: ${format.description}`);
 
     return { zip, format };
   }
@@ -156,14 +154,14 @@ export class APKGParser {
     options?: { signal?: AbortSignal }
   ): Promise<Omit<APKGData, "media">> {
     throwIfImportAborted(options?.signal);
-    await this.emitProgressAndYield(onProgress, "database", 5, t(`${SP}.readingDatabase`));
+    await this.emitProgressAndYield(onProgress, "database", 5, "正在读取数据库...");
 
-    const dbData = await archive.zip.file(archive.format.dbFileName)?.async("uint8array" as const);
+    const dbData = await archive.zip.file(archive.format.dbFileName)?.async("uint8array");
     if (!dbData) {
-      throw new Error(t(`${SP}.databaseFileNotFound`, { file: archive.format.dbFileName }));
+      throw new Error(`未找到数据库文件: ${archive.format.dbFileName}`);
     }
 
-    this.emitProgress(onProgress, "database", 35, t(`${SP}.parsingDatabase`));
+    this.emitProgress(onProgress, "database", 35, "正在解析数据库...");
     const { models, decks, notes, metadata } = await this.sqlReader.read(dbData, archive.format, {
       signal: options?.signal,
       onProgress: (progress) => {
@@ -177,7 +175,7 @@ export class APKGParser {
       onProgress,
       "database",
       100,
-      t(`${SP}.databaseReadComplete`, { count: notes.length })
+      `数据库读取完成: ${notes.length} 个笔记`
     );
 
     return {
@@ -198,7 +196,7 @@ export class APKGParser {
       this.logger.debug(`ZIP读取成功，包含 ${zip.names.length} 个文件`);
       return zip;
     } catch (error) {
-      throw new Error(t(`${SP}.zipExtractFailed`, { error: error instanceof Error ? error.message : String(error) }));
+      throw new Error(`ZIP解压失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -212,7 +210,7 @@ export class APKGParser {
         version: "anki21b",
         dbFileName: "collection.anki21b",
         supported: false, // 新版格式已弃用
-        description: t(`${SP}.formatAnki21b`),
+        description: "Anki 2.1.50+ 最新格式 (已弃用，请使用旧版格式)",
         mediaFormat: "protobuf",
         compression: "zstd",
       };
@@ -224,7 +222,7 @@ export class APKGParser {
         version: "anki21",
         dbFileName: "collection.anki21",
         supported: true,
-        description: t(`${SP}.formatAnki21`),
+        description: "Anki 2.1.x Legacy 2 格式 (deflate压缩 + JSON)",
         mediaFormat: "json",
         compression: "deflate",
       };
@@ -236,13 +234,13 @@ export class APKGParser {
         version: "anki2",
         dbFileName: "collection.anki2",
         supported: true,
-        description: t(`${SP}.formatAnki2`),
+        description: "Anki 2.0.x Legacy 1 格式 (deflate压缩 + JSON)",
         mediaFormat: "json",
         compression: "deflate",
       };
     }
 
-    throw new Error(t(`${SP}.unrecognizedFormat`));
+    throw new Error("无法识别的APKG格式：未找到有效的数据库文件");
   }
 
   /**
@@ -259,16 +257,16 @@ export class APKGParser {
     const mediaFile = archive.zip.file("media");
     if (!mediaFile) {
       this.logger.warn("未找到媒体映射文件");
-      await this.emitProgressAndYield(onProgress, "media", 100, t(`${SP}.mediaMappingMissing`));
+      await this.emitProgressAndYield(onProgress, "media", 100, "未找到媒体映射文件");
       return media;
     }
 
-    await this.emitProgressAndYield(onProgress, "media", 5, t(`${SP}.readingMediaMapping`));
+    await this.emitProgressAndYield(onProgress, "media", 5, "正在读取媒体映射...");
     const mediaJsonText = await mediaFile.async("text");
     throwIfImportAborted(options?.signal);
     const parsedMapping = parseJsonUnknown(mediaJsonText);
     if (!isRecord(parsedMapping)) {
-      await this.emitProgressAndYield(onProgress, "media", 100, t(`${SP}.mediaMappingInvalid`));
+      await this.emitProgressAndYield(onProgress, "media", 100, "媒体映射格式无效");
       return media;
     }
     const mediaEntries: Array<[string, string]> = [];
@@ -279,7 +277,7 @@ export class APKGParser {
     }
 
     if (mediaEntries.length === 0) {
-      await this.emitProgressAndYield(onProgress, "media", 100, t(`${SP}.noMediaDetected`));
+      await this.emitProgressAndYield(onProgress, "media", 100, "未检测到媒体文件");
       return media;
     }
 
@@ -298,7 +296,7 @@ export class APKGParser {
         }
 
         completedExtractions += 1;
-        this.emitProgress(onProgress, "media", 10 + (completedExtractions / mediaEntries.length) * 90, t(`${SP}.extractingMediaFiles`), {
+        this.emitProgress(onProgress, "media", 10 + (completedExtractions / mediaEntries.length) * 90, "正在提取媒体文件...", {
           totalItems: mediaEntries.length,
           completedItems: completedExtractions,
           currentItem: filename,

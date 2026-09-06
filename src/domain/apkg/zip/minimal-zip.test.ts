@@ -1,13 +1,21 @@
-import { describe, expect, it } from "vitest";
-import { isReadableZipArchive, MinimalZipArchive, packZipArchive } from "./minimal-zip";
+import { isReadableZipArchive, MinimalZipArchive } from "./minimal-zip";
+
+/** Deflate-compressed APKG-like archive (collection.anki21 + media + 0). */
+const SAMPLE_APKG_ZIP_BASE64 =
+	"UEsDBBQAAAAIAAAAAAA2/S2mBQAAAAMAAAABAAAAMOPkYAcAUEsDBBQAAAAIAAAAAAAdgLxVBQAAAAMAAAARAAAAY29sbGVjdGlvbi5hbmtpMjFjZGIGAFBLAwQUAAAACAAAAAAApPZffhMAAAARAAAABQAAAG1lZGlhq1YyULJSKs4vzUvRyy0wVqoFAFBLAQIUABQAAAAIAAAAAAA2/S2mBQAAAAMAAAABAAAAAAAAAAAAAAAAAAAAAAAwUEsBAhQAFAAAAAgAAAAAAB2AvFUFAAAAAwAAABEAAAAAAAAAAAAAAAAAJAAAAGNvbGxlY3Rpb24uYW5raTIxUEsBAhQAFAAAAAgAAAAAAKT2X34TAAAAEQAAAAUAAAAAAAAAAAAAAAAAWAAAAG1lZGlhUEsFBgAAAAADAAMAoQAAAI4AAAAAAA==";
+
+function decodeBase64(base64: string): Uint8Array {
+	const binary = atob(base64);
+	const bytes = new Uint8Array(binary.length);
+	for (let index = 0; index < binary.length; index += 1) {
+		bytes[index] = binary.charCodeAt(index);
+	}
+	return bytes;
+}
 
 describe("minimal-zip", () => {
-	it("packs and reads APKG-like archives", async () => {
-		const packed = await packZipArchive({
-			"collection.anki21": new Uint8Array([1, 2, 3]),
-			media: JSON.stringify({ 0: "sound.mp3" }),
-			"0": new Uint8Array([9, 8, 7]),
-		});
+	it("reads deflate-compressed APKG-like archives", async () => {
+		const packed = decodeBase64(SAMPLE_APKG_ZIP_BASE64);
 
 		expect(isReadableZipArchive(packed)).toBe(true);
 

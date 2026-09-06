@@ -1,4 +1,4 @@
-import { deflateRaw, inflateRaw } from "pako";
+import { inflateRaw } from "pako";
 
 const LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
@@ -27,36 +27,8 @@ function readUint32LE(bytes: Uint8Array, offset: number): number {
 	);
 }
 
-function writeUint16LE(bytes: Uint8Array, offset: number, value: number): void {
-	bytes[offset] = value & 0xff;
-	bytes[offset + 1] = (value >> 8) & 0xff;
-}
-
-function writeUint32LE(bytes: Uint8Array, offset: number, value: number): void {
-	bytes[offset] = value & 0xff;
-	bytes[offset + 1] = (value >> 8) & 0xff;
-	bytes[offset + 2] = (value >> 16) & 0xff;
-	bytes[offset + 3] = (value >> 24) & 0xff;
-}
-
 function decodeFilename(bytes: Uint8Array, offset: number, length: number): string {
 	return new TextDecoder().decode(bytes.subarray(offset, offset + length));
-}
-
-function encodeFilename(name: string): Uint8Array {
-	return new TextEncoder().encode(name);
-}
-
-function crc32(bytes: Uint8Array): number {
-	let crc = 0xffffffff;
-	for (let index = 0; index < bytes.length; index += 1) {
-		crc ^= bytes[index];
-		for (let bit = 0; bit < 8; bit += 1) {
-			const mask = -(crc & 1);
-			crc = (crc >>> 1) ^ (0xedb88320 & mask);
-		}
-	}
-	return (crc ^ 0xffffffff) >>> 0;
 }
 
 function decompressEntryData(entry: ZipCentralEntry, bytes: Uint8Array): Uint8Array {
@@ -198,84 +170,4 @@ class MinimalZipFile {
 		}
 		throw new Error(`Unsupported ZIP read type: ${type}`);
 	}
-}
-
-interface ZipWriteEntry {
-	name: string;
-	data: Uint8Array;
-}
-
-export async function packZipArchive(files: Record<string, Uint8Array | string>): Promise<Uint8Array> {
-	const entries: ZipWriteEntry[] = Object.entries(files).map(([name, value]) => ({
-		name,
-		data: typeof value === "string" ? new TextEncoder().encode(value) : value.slice(),
-	}));
-
-	const localParts: Uint8Array[] = [];
-	const centralParts: Uint8Array[] = [];
-	let offset = 0;
-
-	for (const entry of entries) {
-		const filenameBytes = encodeFilename(entry.name);
-		const compressed = deflateRaw(entry.data);
-		const crc = crc32(entry.data);
-		const localHeader = new Uint8Array(30 + filenameBytes.length);
-		writeUint32LE(localHeader, 0, LOCAL_FILE_HEADER_SIGNATURE);
-		writeUint16LE(localHeader, 4, 20);
-		writeUint16LE(localHeader, 6, 0);
-		writeUint16LE(localHeader, 8, COMPRESSION_DEFLATE);
-		writeUint32LE(localHeader, 14, crc);
-		writeUint32LE(localHeader, 18, compressed.length);
-		writeUint32LE(localHeader, 22, entry.data.length);
-		writeUint16LE(localHeader, 26, filenameBytes.length);
-		writeUint16LE(localHeader, 28, 0);
-		localHeader.set(filenameBytes, 30);
-		localParts.push(localHeader, compressed);
-
-		const centralHeader = new Uint8Array(46 + filenameBytes.length);
-		writeUint32LE(centralHeader, 0, CENTRAL_DIRECTORY_SIGNATURE);
-		writeUint16LE(centralHeader, 4, 20);
-		writeUint16LE(centralHeader, 6, 20);
-		writeUint16LE(centralHeader, 8, 0);
-		writeUint16LE(centralHeader, 10, COMPRESSION_DEFLATE);
-		writeUint32LE(centralHeader, 16, crc);
-		writeUint32LE(centralHeader, 20, compressed.length);
-		writeUint32LE(centralHeader, 24, entry.data.length);
-		writeUint16LE(centralHeader, 28, filenameBytes.length);
-		writeUint16LE(centralHeader, 30, 0);
-		writeUint16LE(centralHeader, 32, 0);
-		writeUint16LE(centralHeader, 34, 0);
-		writeUint32LE(centralHeader, 42, offset);
-		centralHeader.set(filenameBytes, 46);
-		centralParts.push(centralHeader);
-
-		offset += localHeader.length + compressed.length;
-	}
-
-	const centralDirectorySize = centralParts.reduce((sum, part) => sum + part.length, 0);
-	const endRecord = new Uint8Array(22);
-	writeUint32LE(endRecord, 0, END_OF_CENTRAL_DIRECTORY_SIGNATURE);
-	writeUint16LE(endRecord, 8, entries.length);
-	writeUint16LE(endRecord, 10, entries.length);
-	writeUint32LE(endRecord, 12, centralDirectorySize);
-	writeUint32LE(endRecord, 16, offset);
-
-	const totalSize =
-		localParts.reduce((sum, part) => sum + part.length, 0) +
-		centralDirectorySize +
-		endRecord.length;
-	const output = new Uint8Array(totalSize);
-	let writeOffset = 0;
-
-	for (const part of localParts) {
-		output.set(part, writeOffset);
-		writeOffset += part.length;
-	}
-	for (const part of centralParts) {
-		output.set(part, writeOffset);
-		writeOffset += part.length;
-	}
-	output.set(endRecord, writeOffset);
-
-	return output;
 }
