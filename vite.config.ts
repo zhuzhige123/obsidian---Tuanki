@@ -124,8 +124,6 @@ export default defineConfig(({ mode }) => {
 		resolve: {
 			conditions: ["browser", "import", "module", "default"],
 			alias: {
-				// Force modular jszip; the browser field points at dist/jszip.min.js with inlined script polyfills.
-				jszip: path.resolve(process.cwd(), "node_modules/jszip/lib/index.js"),
 				setimmediate: setImmediateShimPath,
 				immediate: immediateShimPath,
 			},

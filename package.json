@@ -1,7 +1,7 @@
 {
   "name": "weave",
   "private": true,
-  "version": "0.9.13",
+  "version": "0.9.14",
   "description": "Enhance knowledge learning and memory consolidation with memory decks and practice quiz decks",
   "main": "main.js",
   "type": "module",
@@ -138,7 +138,6 @@
     "@tanstack/table-core": "8.21.3",
     "@tanstack/virtual-core": "3.13.13",
     "echarts": "6.1.0",
-    "jszip": "3.10.1",
     "monkey-around": "3.0.0",
     "pako": "^2.1.0",
     "sql.js": "1.13.0",

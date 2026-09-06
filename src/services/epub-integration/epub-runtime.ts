@@ -67,10 +67,6 @@ export function getEpubRuntime(): EpubRuntimeConfig {
 	return EPUB_RUNTIME;
 }
 
-export function isLegacyEpubProtocolName(protocolName: string): boolean {
-	return EPUB_RUNTIME.protocol.legacyNames.includes(protocolName);
-}
-
 export function isSupportedEpubProtocolName(protocolName: string): boolean {
 	return EPUB_RUNTIME.protocol.allNames.includes(protocolName);
 }

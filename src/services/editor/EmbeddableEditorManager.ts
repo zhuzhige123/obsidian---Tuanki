@@ -6,11 +6,15 @@
  */
 
 import type { App } from "obsidian";
+import { Platform } from "obsidian";
 import type { Card } from "../../data/types";
 import { logger } from "../../utils/logger";
 import { extractSourcePath } from "../../utils/source-path-matcher";
 import { DetachedLeafEditor } from "./DetachedLeafEditor";
-import { cleanupRestoredDetachedEditorLeaves } from "./workspace-hidden-leaf";
+import {
+	cleanupRestoredDetachedEditorLeaves,
+	cleanupRestoredModalEditorLeaves,
+} from "./workspace-hidden-leaf";
 
 /**
  * 编辑会话信息
@@ -47,6 +51,7 @@ export class EmbeddableEditorManager {
 		this.app = app;
 		if (!EmbeddableEditorManager.hasCleanedRestoredLeaves) {
 			EmbeddableEditorManager.hasCleanedRestoredLeaves = true;
+			cleanupRestoredModalEditorLeaves(app);
 			cleanupRestoredDetachedEditorLeaves(app);
 		}
 		logger.debug("[EmbeddableEditorManager] 初始化");
@@ -447,6 +452,32 @@ export class EmbeddableEditorManager {
 				success: false,
 				error: error instanceof Error ? error.message : "更新卡片对象失败",
 			};
+		}
+	}
+
+	/**
+	 * 激活指定会话的 Obsidian 官方编辑快捷键上下文（activeEditor + MarkdownView scope）。
+	 * 记忆学习等 ItemView 内嵌场景在进入编辑后必须调用。
+	 */
+	activateHotkeyContextForSession(
+		sessionId: string,
+		focusEditor = !Platform.isMobile
+	): boolean {
+		const session = this.sessions.get(sessionId);
+		if (!session?.editor) {
+			logger.warn(
+				"[EmbeddableEditorManager] activateHotkeyContextForSession: 会话无编辑器",
+				sessionId
+			);
+			return false;
+		}
+
+		try {
+			session.editor.activateHotkeyContext(focusEditor);
+			return true;
+		} catch (error) {
+			logger.warn("[EmbeddableEditorManager] activateHotkeyContextForSession 失败:", error);
+			return false;
 		}
 	}
 

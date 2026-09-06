@@ -1062,10 +1062,6 @@ export class IRScheduleKernel {
 	}
 }
 
-export function createIRScheduleKernel(app: App): IRScheduleKernel {
-	return new IRScheduleKernel(app);
-}
-
 const sharedScheduleKernelByApp = new WeakMap<App, IRScheduleKernel>();
 
 export function getSharedIRScheduleKernel(app: App): IRScheduleKernel {

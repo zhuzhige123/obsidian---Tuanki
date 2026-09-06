@@ -1,14 +1,14 @@
 
-const { loadAsyncMock, sqliteReaderConstructor, sqliteReaderReadMock } = vi.hoisted(() => {
-	const loadAsyncMock = vi.fn();
+const { fromArrayBufferMock, sqliteReaderConstructor, sqliteReaderReadMock } = vi.hoisted(() => {
+	const fromArrayBufferMock = vi.fn();
 	const sqliteReaderReadMock = vi.fn();
 	const sqliteReaderConstructor = vi.fn(() => ({ read: sqliteReaderReadMock }));
-	return { loadAsyncMock, sqliteReaderConstructor, sqliteReaderReadMock };
+	return { fromArrayBufferMock, sqliteReaderConstructor, sqliteReaderReadMock };
 });
 
-vi.mock("jszip", () => ({
-	default: {
-		loadAsync: loadAsyncMock,
+vi.mock("../zip/minimal-zip", () => ({
+	MinimalZipArchive: {
+		fromArrayBuffer: fromArrayBufferMock,
 	},
 }));
 
@@ -20,7 +20,7 @@ import { APKGParser } from "./APKGParser";
 
 describe("APKGParser", () => {
 	beforeEach(() => {
-		loadAsyncMock.mockReset();
+		fromArrayBufferMock.mockReset();
 		sqliteReaderReadMock.mockReset();
 		sqliteReaderConstructor.mockClear();
 		sqliteReaderConstructor.mockImplementation(() => ({ read: sqliteReaderReadMock }));
@@ -51,9 +51,10 @@ describe("APKGParser", () => {
 				{ async: vi.fn(async () => new Uint8Array([8])) },
 			],
 		]);
-		loadAsyncMock.mockResolvedValue({
-			files: Object.fromEntries(Array.from(zipEntries.keys()).map((key) => [key, {}])),
+		fromArrayBufferMock.mockResolvedValue({
+			has: vi.fn((name: string) => zipEntries.has(name)),
 			file: vi.fn((name: string) => zipEntries.get(name) ?? null),
+			names: Array.from(zipEntries.keys()),
 		});
 		sqliteReaderReadMock.mockResolvedValue({
 			models: [],

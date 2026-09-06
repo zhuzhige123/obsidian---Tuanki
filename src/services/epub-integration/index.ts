@@ -9,10 +9,7 @@ export type {
 export { DEFAULT_EPUB_BOOKSHELF_SETTINGS } from "./EpubStorageService";
 export {
 	registerEpubHost,
-	resolveEpubCardHost,
 	resolveEpubHost,
-	resolveEpubIRHost,
-	resolveEpubReaderHost,
 	unregisterEpubHost,
 } from "./epub-host";
 export type {
@@ -27,10 +24,8 @@ export type {
 	EpubHostReaderCapabilities,
 	EpubHostResumePointInput,
 	EpubHostScheduleChapterInput,
-	EpubHostSelectedTextAIPanelInput,
-	EpubHostSelectedTextAISplitMenuOptions,
 } from "./epub-host";
-export { EPUB_RUNTIME, getEpubRuntime, isLegacyEpubProtocolName, isSupportedEpubProtocolName } from "./epub-runtime";
+export { EPUB_RUNTIME, getEpubRuntime, isSupportedEpubProtocolName } from "./epub-runtime";
 export { EpubBookmarkService, DEFAULT_EPUB_BOOKMARK_FOLDER, getEpubBookmarkFolderDisplayPath, normalizeEpubBookmarkFolderPath } from "./EpubBookmarkService";
 export { EpubLinkService } from "./EpubLinkService";
 export {

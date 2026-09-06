@@ -271,7 +271,6 @@ import "./styles/dynamic-injected.css"; // 原动态注入样式
 import "./styles/image-mask.css"; // 图片遮罩
 import "./styles/inline-card-editor.css"; // 内联编辑器
 import "./styles/progressive-cloze.css"; // 渐进式挖空
-import "./styles/study-interface.css"; // 学习界面
 import "./styles/study-view-layout.css";
 import { applyStyleProps } from "./utils/style-props"; // 学习视图布局（三界面共享）
 import type { WeaveTimerHandle } from "./types/timer-handle.js";

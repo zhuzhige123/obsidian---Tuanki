@@ -69,7 +69,8 @@
  */
 
 import { type App, normalizePath } from "obsidian";
-import { isCallable, readUnknownProperty, readUnknownString } from "../utils/dynamic-access";
+import { isCallable } from "../utils/dynamic-access";
+import { isRecord } from "../utils/typed-json";
 
 declare const __WEAVE_IR_STANDALONE__: boolean;
 
@@ -85,8 +86,80 @@ type AppWithPluginAccess = {
 	};
 	plugins?: {
 		getPlugin?: (pluginId: string) => PluginFolderSettings | null | undefined;
+		plugins?: Record<string, PluginFolderSettings | null | undefined>;
 	};
 };
+
+function getActiveWeavePluginId(): string {
+	return typeof __WEAVE_IR_STANDALONE__ !== "undefined" && __WEAVE_IR_STANDALONE__
+		? "weave-incremental-reading"
+		: "weave";
+}
+
+/**
+ * 运行时已登记的 Weave 父目录（由主插件 load/save settings 写入）。
+ * 这是编辑器临时文件等路径解析的第一优先来源，避免依赖 app.plugins 反射。
+ */
+let registeredWeaveParentFolder: string | undefined;
+
+/** 主插件在 loadSettings / saveSettings / 迁移完成后调用，登记当前父目录。 */
+export function setActiveWeaveParentFolder(parentFolder?: string): void {
+	registeredWeaveParentFolder = normalizeWeaveParentFolder(parentFolder);
+}
+
+/** 插件卸载时清理登记，避免热重载/测试串扰。 */
+export function clearActiveWeaveParentFolder(): void {
+	registeredWeaveParentFolder = undefined;
+}
+
+function readLooseProperty(value: unknown, key: string): unknown {
+	if (typeof value !== "object" || value === null) {
+		return undefined;
+	}
+	try {
+		return Reflect.get(value, key);
+	} catch {
+		return undefined;
+	}
+}
+
+function readLooseString(value: unknown, key: string): string | undefined {
+	const raw = readLooseProperty(value, key);
+	return typeof raw === "string" ? raw : undefined;
+}
+
+/**
+ * 从 App 解析用户配置的 Weave 父文件夹（settings.weaveParentFolder）。
+ *
+ * 优先级：
+ * 1. 主插件主动登记的值（setActiveWeaveParentFolder）
+ * 2. app.plugins.plugins[id] / getPlugin(id) 回退读取（使用 Reflect.get，兼容原型 getter）
+ */
+export function resolveWeaveParentFolderFromApp(app?: App | AppWithPluginAccess): string {
+	if (registeredWeaveParentFolder !== undefined) {
+		return registeredWeaveParentFolder;
+	}
+
+	try {
+		const pluginId = getActiveWeavePluginId();
+		const pluginsContainer = readLooseProperty(app, "plugins");
+		const pluginsMap = readLooseProperty(pluginsContainer, "plugins");
+		const getPlugin = readLooseProperty(pluginsContainer, "getPlugin");
+
+		const fromMap = isRecord(pluginsMap)
+			? (readLooseProperty(pluginsMap, pluginId) ?? readLooseProperty(pluginsMap, "weave"))
+			: undefined;
+		const fromGetter = isCallable(getPlugin)
+			? Reflect.apply(getPlugin, pluginsContainer, [pluginId]) ??
+				Reflect.apply(getPlugin, pluginsContainer, ["weave"])
+			: undefined;
+		const plugin = fromMap ?? fromGetter;
+		const settings = readLooseProperty(plugin, "settings");
+		return normalizeWeaveParentFolder(readLooseString(settings, "weaveParentFolder"));
+	} catch {
+		return "";
+	}
+}
 
 /** Vault 数据根目录 */
 export const WEAVE_DATA = "weave";
@@ -176,8 +249,8 @@ export function getV2Paths(parentFolder?: string) {
 	return {
 		/** 数据根目录 */
 		root,
-		/** Schema 版本文件（无点前缀，确保同步兼容） */
-		schemaVersion: `${root}/schema-version.json`,
+		/** Schema 版本说明文件（Markdown，便于用户理解且避免误删） */
+		schemaVersion: `${root}/schema-version.md`,
 
 		/** 记忆牌组模块 */
 		memory: {
@@ -239,23 +312,7 @@ export function getV2Paths(parentFolder?: string) {
 }
 
 export function getV2PathsFromApp(app?: App | AppWithPluginAccess) {
-	try {
-		const pluginId =
-			typeof __WEAVE_IR_STANDALONE__ !== "undefined" && __WEAVE_IR_STANDALONE__
-				? "weave-incremental-reading"
-				: "weave";
-		const pluginsContainer = readUnknownProperty(app, "plugins");
-		const getPlugin = readUnknownProperty(pluginsContainer, "getPlugin");
-		const plugin = isCallable(getPlugin)
-			? Reflect.apply(getPlugin, pluginsContainer, [pluginId]) ??
-				Reflect.apply(getPlugin, pluginsContainer, ["weave"])
-			: undefined;
-		const settings = readUnknownProperty(plugin, "settings");
-		const parentFolder = readUnknownString(settings, "weaveParentFolder");
-		return getV2Paths(parentFolder);
-	} catch {
-		return getV2Paths(undefined);
-	}
+	return getV2Paths(resolveWeaveParentFolderFromApp(app));
 }
 
 export function getLegacyIRImportFolder(parentFolder?: string): string {
@@ -299,11 +356,7 @@ export function getPluginDirById(
 
 /** 插件目录根路径（动态获取，兼容自定义 configDir） */
 export function getPluginDir(app?: { vault: { configDir: string } }): string {
-	const pluginId =
-		typeof __WEAVE_IR_STANDALONE__ !== "undefined" && __WEAVE_IR_STANDALONE__
-			? "weave-incremental-reading"
-			: "weave";
-	return getPluginDirById(app, pluginId);
+	return getPluginDirById(app, getActiveWeavePluginId());
 }
 
 /** Schema 版本号 */
@@ -322,8 +375,8 @@ export function getAttachmentRegistryPath(parentFolder?: string): string {
 /** Vault 媒体清单文件名（避免与插件 manifest.json 混淆） */
 export const MEDIA_MANIFEST_FILENAME = ".manifest.json";
 
-/** 旧版媒体清单文件名，仅用于读取与迁移 */
-export const LEGACY_MEDIA_MANIFEST_FILENAME = "manifest.json";
+/** 旧版媒体清单文件名，仅用于读取与迁移（由 canonical 名派生，避免与插件 manifest 字面量混淆） */
+export const LEGACY_MEDIA_MANIFEST_FILENAME = MEDIA_MANIFEST_FILENAME.slice(1);
 
 export function getMediaManifestPath(basePath: string, legacy = false): string {
 	const filename = legacy ? LEGACY_MEDIA_MANIFEST_FILENAME : MEDIA_MANIFEST_FILENAME;
@@ -409,11 +462,7 @@ export function getPluginPathsById(
 
 /** 动态获取插件目录路径（支持自定义 configDir） */
 export function getPluginPaths(app?: { vault: { configDir: string } }) {
-	const pluginId =
-		typeof __WEAVE_IR_STANDALONE__ !== "undefined" && __WEAVE_IR_STANDALONE__
-			? "weave-incremental-reading"
-			: "weave";
-	return getPluginPathsById(app, pluginId);
+	return getPluginPathsById(app, getActiveWeavePluginId());
 }
 
 export function getLegacyPluginPaths(app?: { vault: { configDir: string } }) {

@@ -54,25 +54,12 @@ export interface EpubHostExportBookNotesInput {
 	sourceLink?: string;
 }
 
-export interface EpubHostSelectedTextAISplitMenuOptions {
-	event: MouseEvent | KeyboardEvent;
-	selectedText: string;
-	onSelectAction: (actionId: string) => void;
-}
-
 export interface EpubHostResumePointInput {
 	filePath: string;
 	cfi: string;
 	chapterHref?: string;
 	chapterTitle?: string;
 	deckId?: string;
-}
-
-export interface EpubHostSelectedTextAIPanelInput {
-	filePath: string;
-	selectedText: string;
-	actionId: string;
-	sourceLink?: string;
 }
 
 export interface EpubHostReaderCapabilities {
@@ -97,9 +84,6 @@ export interface EpubHostCardCapabilities {
 	openCreateCardModal?: (input: EpubHostCreateCardInput) => Promise<void>;
 	exportEpubChapterToMarkdown?: (input: EpubHostExportChapterInput) => Promise<void>;
 	exportEpubBookNotesToMarkdown?: (input: EpubHostExportBookNotesInput) => Promise<void>;
-	openSelectedTextAISplitMenu?: (options: EpubHostSelectedTextAISplitMenuOptions) => void;
-	openSelectedTextAIPanelFromEpub?: (input: EpubHostSelectedTextAIPanelInput) => Promise<void>;
-	closeSelectedTextAIPanelFromEpub?: (filePath: string) => Promise<void>;
 	openCardBacklinkFromEpub?: (cardUuid: string) => Promise<void>;
 }
 
@@ -182,11 +166,6 @@ function resolveCollaboratorHosts(app: App): EpubHostCapabilities[] {
 		.filter((plugin): plugin is EpubHostCapabilities => Boolean(plugin && typeof plugin === "object"));
 }
 
-function resolveTypedEpubHost<TCapability extends object>(app: App): TCapability | null {
-	const host = resolveEpubHost(app);
-	return host as TCapability | null;
-}
-
 export function resolveEpubHost(app: App): EpubHostCapabilities | null {
 	const localHost = registeredEpubHosts.get(app) ?? null;
 	const collaboratorHosts = resolveCollaboratorHosts(app);
@@ -207,16 +186,4 @@ export function resolveEpubHost(app: App): EpubHostCapabilities | null {
 	}
 
 	return localHost ?? collaboratorHost;
-}
-
-export function resolveEpubReaderHost(app: App): EpubHostReaderCapabilities | null {
-	return resolveTypedEpubHost<EpubHostReaderCapabilities>(app);
-}
-
-export function resolveEpubIRHost(app: App): EpubHostIRCapabilities | null {
-	return resolveTypedEpubHost<EpubHostIRCapabilities>(app);
-}
-
-export function resolveEpubCardHost(app: App): EpubHostCardCapabilities | null {
-	return resolveTypedEpubHost<EpubHostCardCapabilities>(app);
 }

@@ -3,6 +3,8 @@ import {
 	getAttachmentRegistryPath,
 	getMediaManifestPath,
 	getV2Paths,
+	LEGACY_MEDIA_MANIFEST_FILENAME,
+	MEDIA_MANIFEST_FILENAME,
 } from "../../config/paths";
 import type { Card } from "../../data/types";
 import type { WeavePlugin } from "../../main";
@@ -25,6 +27,7 @@ import { safeWriteJson } from "../../utils/safe-json-io";
 import { ensureVaultTextFile } from "../../utils/vault-write-guard";
 import { DirectoryUtils } from "../../utils/directory-utils";
 import { readWeaveParentFolder } from "../../utils/weave-plugin-settings";
+import { getAttachmentRegistryAutoFixIssueCount } from "./attachment-registry-issues";
 
 export interface AttachmentRegistryScanResult {
 	referencedPaths: Set<string>;
@@ -49,7 +52,9 @@ export { getAttachmentRegistryAutoFixIssueCount } from "./attachment-registry-is
 export class AttachmentRegistryService {
 	private rebuildTimer: number | undefined;
 	private rebuildChain: Promise<void> = Promise.resolve();
+	private readyChain: Promise<void> = Promise.resolve();
 	private unsubscribeCards: (() => void) | null = null;
+	private startupHealScheduled = false;
 
 	constructor(private readonly plugin: WeavePlugin) {}
 
@@ -65,8 +70,21 @@ export class AttachmentRegistryService {
 			},
 			{ debounce: 2000 }
 		);
+	}
 
-		void this.rebuildIfNeeded();
+	/** Run startup auto-heal when idle or when Weave is opened. */
+	scheduleStartupAutoHeal(): void {
+		if (this.startupHealScheduled) {
+			return;
+		}
+		this.startupHealScheduled = true;
+		this.readyChain = this.autoHealSafeIssues();
+		void this.readyChain;
+	}
+
+	/** 等待启动时的安全自愈完成（规范化路径 / 重建索引） */
+	async whenReady(): Promise<void> {
+		await this.readyChain;
 	}
 
 	destroy(): void {
@@ -90,11 +108,31 @@ export class AttachmentRegistryService {
 		}, 500);
 	}
 
-	async rebuildIfNeeded(): Promise<void> {
-		const scan = await this.scan();
-		if (scan.isRegistryStale || scan.registryPaths.size === 0) {
-			await this.rebuild({ reason: "startup_or_stale" });
+	/**
+	 * 启动时静默处理可自动修复项：路径规范化 + 索引重建。
+	 * 不处理本地暂不可用引用、不删除媒体孤儿。
+	 */
+	async autoHealSafeIssues(): Promise<void> {
+		try {
+			const scan = await this.scan();
+			if (getAttachmentRegistryAutoFixIssueCount(scan) > 0) {
+				await this.repairReferences({
+					reason: "startup_auto_heal",
+					unresolvedStrategy: "leave",
+				});
+				return;
+			}
+
+			if (scan.registryPaths.size === 0 && scan.referencedPaths.size > 0) {
+				await this.rebuild({ reason: "startup_empty_registry" });
+			}
+		} catch (error) {
+			logger.error("[AttachmentRegistryService] 启动附件自愈失败:", error);
 		}
+	}
+
+	async rebuildIfNeeded(): Promise<void> {
+		return this.autoHealSafeIssues();
 	}
 
 	async rebuild(options?: { reason?: string }): Promise<void> {
@@ -131,17 +169,18 @@ export class AttachmentRegistryService {
 		const canonicalReferencedPaths = new Set<string>();
 
 		for (const path of referencedPaths) {
-			const canonicalPath = await resolveExistingMediaVaultPath(
+			const resolvedPath = await resolveExistingMediaVaultPath(
 				this.plugin.app,
 				path,
 				contextPath,
 				{ basenameIndex }
 			);
-			if (!canonicalPath) {
+			if (!resolvedPath) {
 				brokenPaths.push(path);
 				continue;
 			}
 
+			const canonicalPath = normalizeMediaVaultPath(resolvedPath);
 			canonicalReferencedPaths.add(canonicalPath);
 			if (canonicalPath !== path) {
 				rewritablePaths.push({ rawPath: path, canonicalPath });
@@ -486,7 +525,7 @@ export class AttachmentRegistryService {
 				{ basenameIndex }
 			);
 			if (canonicalPath) {
-				canonicalPaths.add(canonicalPath);
+				canonicalPaths.add(normalizeMediaVaultPath(canonicalPath));
 			}
 		}
 
@@ -570,7 +609,10 @@ export class AttachmentRegistryService {
 		const files = await this.listMediaFilesRecursively(v2Paths.memory.media);
 		for (const filePath of files) {
 			const normalized = normalizeMediaVaultPath(filePath);
-			if (normalized.endsWith("/.manifest.json") || normalized.endsWith("/manifest.json")) {
+			if (
+				normalized.endsWith(`/${MEDIA_MANIFEST_FILENAME}`) ||
+				normalized.endsWith(`/${LEGACY_MEDIA_MANIFEST_FILENAME}`)
+			) {
 				continue;
 			}
 			if (!isMediaVaultPath(normalized)) {

@@ -809,7 +809,3 @@ export class IRPlanGeneratorService {
 		return candidates[0] ?? null;
 	}
 }
-
-export function createIRPlanGeneratorService(): IRPlanGeneratorService {
-	return new IRPlanGeneratorService();
-}
