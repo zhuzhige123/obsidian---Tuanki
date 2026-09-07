@@ -28,16 +28,18 @@
     soundEnabled?: boolean;
     soundVolume?: number;
     showTrendSection?: boolean;
+    viewInstance?: any; // QuestionBankView 实例，用于判断所在标签是否前台激活（避免后台僵尸监听劫持全局按键）
     onBackToBank?: () => void;
   }
 
-  let { 
+  let {
     session,
     plugin,
     soundEnabled = true,
     soundVolume = 0.5,
     showTrendSection = true,
-    onBackToBank 
+    viewInstance,
+    onBackToBank
   }: Props = $props();
   let t = $derived($tr);
 
@@ -130,7 +132,42 @@
 
   // 动画状态
   let showContent = $state(false);
-  
+
+  // 结果页是否处于前台激活状态。
+  // 考试会话以 Obsidian 标签页（QuestionBankView）打开，做完进入结果页后，切到其它标签并不会销毁本组件；
+  // 若仍把 keydown 挂在 activeDocument 上，会劫持用户在别处输入的空格/回车（触发返回题库，把用户拉回 Weave 主界面）。
+  // 因此仅在当前标签处于激活态时才注册该全局快捷键；非标签宿主没有常驻后台，始终视为激活。
+  let isActive = $state(true);
+  $effect(() => {
+    const leaf = (viewInstance as any)?.leaf;
+    if (!leaf) {
+      isActive = true;
+      return;
+    }
+    const syncActive = () => {
+      isActive = plugin.app.workspace.activeLeaf === leaf;
+    };
+    syncActive();
+    const ref = plugin.app.workspace.on('active-leaf-change', syncActive);
+    return () => {
+      plugin.app.workspace.offref(ref);
+    };
+  });
+
+  $effect(() => {
+    if (!isActive) return;
+    const handleKeydown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onBackToBank?.();
+      }
+    };
+    activeDocument.addEventListener('keydown', handleKeydown);
+    return () => {
+      activeDocument.removeEventListener('keydown', handleKeydown);
+    };
+  });
+
   onMount(() => {
     // 成绩达标时播放庆祝音效
     if (soundEnabled && sessionScore.totalScore >= 60) {
@@ -144,25 +181,11 @@
     window.setTimeout(() => {
       showContent = true;
     }, 300);
-    
+
     // 加载历史数据
     if (showTrendSection) {
       loadTestHistory();
     }
-
-    // 键盘事件
-    const handleKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        onBackToBank?.();
-      }
-    };
-
-    activeDocument.addEventListener('keydown', handleKeydown);
-
-    return () => {
-      activeDocument.removeEventListener('keydown', handleKeydown);
-    };
   });
 </script>
 

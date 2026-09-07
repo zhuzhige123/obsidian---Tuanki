@@ -100,6 +100,7 @@ onMount(() => {
       session={completedSession}
       soundEnabled={true}
       soundVolume={0.5}
+      {viewInstance}
       onBackToBank={handleBackToBank}
     />
   {/if}
