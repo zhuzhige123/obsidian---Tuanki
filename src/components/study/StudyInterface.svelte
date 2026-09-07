@@ -4607,12 +4607,33 @@
     }
   }
 
+  // 学习界面是否处于前台激活状态。
+  // 当以 Obsidian 标签页（StudyView）打开时，切到其它标签（笔记、考试题组等）并不会销毁本组件；
+  // 若仍把 keydown 挂在 document 上，会劫持用户在别处输入的空格/回车/数字键（复习快捷键）。
+  // 因此仅在当前标签处于激活态时才注册全局快捷键；非标签宿主（弹窗式学习）没有常驻后台，始终视为激活。
+  let isActive = $state(true);
+  $effect(() => {
+    const leaf = (viewInstance as any)?.leaf;
+    if (!leaf) {
+      isActive = true;
+      return;
+    }
+    const syncActive = () => {
+      isActive = plugin.app.workspace.activeLeaf === leaf;
+    };
+    syncActive();
+    const ref = plugin.app.workspace.on('active-leaf-change', syncActive);
+    return () => {
+      plugin.app.workspace.offref(ref);
+    };
+  });
+
   $effect(() => {
     let timer: WeaveTimerHandle | null = null;
-    if (!showEditModal && plugin.settings.autoShowAnswerSeconds > 0 && !showAnswer) {
+    if (isActive && !showEditModal && plugin.settings.autoShowAnswerSeconds > 0 && !showAnswer) {
       timer = window.setTimeout(() => showAnswerCard(), plugin.settings.autoShowAnswerSeconds * 1000);
     }
-    if (!showEditModal) document.addEventListener('keydown', handleKeyPress);
+    if (isActive && !showEditModal) document.addEventListener('keydown', handleKeyPress);
     return () => { document.removeEventListener('keydown', handleKeyPress); if (timer) window.clearTimeout(timer); };
   });
 
